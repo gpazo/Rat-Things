@@ -33,6 +33,7 @@ Secrets Manager values may be raw strings or the following JSON shapes:
 | GitLab clone/note token | `token`, `access_token` (`password` is also accepted by clone only) |
 | Teams outgoing-webhook HMAC secret | `secret`, `hmac_secret` |
 | Teams Workflow URL | `url`, `webhook_url` |
+| Teams threaded-reply gateway URL | `url`, `webhook_url` |
 | Slack signing secret | `secret`, `signing_secret` |
 | Slack bot token | `token`, `bot_token` |
 
@@ -166,6 +167,9 @@ For GitLab Self-Managed, add its clone hostname to `allowed_repository_hosts` an
 Teams is the preferred chat surface for this subsystem, but the repository currently implements two
 temporary adapters:
 
+For deployment instructions, secret formats, and a live-tenant verification checklist, see
+[Connect Rat Things to Microsoft Teams](microsoft-teams.md).
+
 ```text
 Teams @mention
   -> Teams outgoing webhook (HMAC)
@@ -183,7 +187,8 @@ terminal run event
 Create an outgoing webhook for the target team, store the base64 HMAC secret Teams returns in
 Secrets Manager, and configure its callback URL from the Terraform output. The handler validates the
 `Authorization: HMAC ...` signature, removes the bot mention/HTML, durably writes S3/DynamoDB/SQS,
-and then returns `Queued agent run <id>.` Completion is asynchronous through the Workflow URL. The
+and then returns `Rat Things request received. I'll reply when run <id> finishes.` in the original
+reply chain. Completion is asynchronous through the configured Workflow or threaded gateway. The
 normalizer requires both the provider tenant ID and sender ID and derives ownership as
 `teams:<tenant>:<sender>`; a signed activity missing either identity is rejected. The
 handler is configured with a five-second timeout, so the synchronous persistence path does not
@@ -222,6 +227,20 @@ and the [Teams connector reference](https://learn.microsoft.com/en-us/connectors
 
 Treat the Workflow URL as a bearer credential. Rotate it on exposure, assign co-owners, monitor flow
 failures/throttling, and keep dev/prod flows separate.
+
+### Threaded reply gateway contract
+
+Set `teams_delivery_mode = "threaded-gateway"` and configure
+`teams_reply_gateway_url_secret_arn` to route source replies through a trusted gateway instead of a
+Workflow. The notifier posts a versioned envelope containing the original `conversationId`, the
+inbound activity ID as `replyToActivityId`, a Bot Activity-shaped message with `replyToId`, and the
+run ID as an idempotency key. Named Workflow routes are rejected in this mode.
+
+The LocalStack real-Codex test captures this envelope and proves that the conversation/activity
+reference survives signed ingress, persistence, execution, terminal events, and delivery fencing.
+The URL is still a credential and must point only at infrastructure controlled by the deployment.
+This repository does not yet implement the gateway's Microsoft Entra token exchange, Bot Connector
+authentication, or live tenant installation.
 
 ### Recommended production Teams gateway
 

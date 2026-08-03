@@ -206,6 +206,22 @@ variable "teams_workflow_url_secret_arn" {
   nullable = true
 }
 
+variable "teams_delivery_mode" {
+  type    = string
+  default = "workflow"
+
+  validation {
+    condition     = contains(["workflow", "threaded-gateway"], var.teams_delivery_mode)
+    error_message = "teams_delivery_mode must be workflow or threaded-gateway."
+  }
+}
+
+variable "teams_reply_gateway_url_secret_arn" {
+  type     = string
+  default  = null
+  nullable = true
+}
+
 variable "teams_route_secret_arns" {
   type    = map(string)
   default = {}

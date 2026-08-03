@@ -19,6 +19,7 @@
 <p align="center">
   <a href="https://gpazo.github.io/Rat-Things/">Website</a> ·
   <a href="#architecture">Architecture</a> ·
+  <a href="docs/microsoft-teams.md">Connect Microsoft Teams</a> ·
   <a href="docs/status-and-roadmap.md">Validation status</a>
 </p>
 
@@ -170,6 +171,17 @@ The test covers signed GitHub/GitLab ingress and a complete signed Teams path th
 Secrets Manager, S3, DynamoDB Streams, SQS, EventBridge, durable delivery fencing, and WireMock
 egress.
 
+To exercise the same Teams path with your signed-in Codex subscription and verify that the outbound
+reply retains the exact source conversation and activity reference:
+
+```bash
+npm exec -- codex login
+npm run test:e2e:teams:codex
+```
+
+This is a local Teams simulation: WireMock captures the trusted threaded-reply gateway contract.
+It does not yet validate Microsoft Entra/Bot authentication or delivery into a live Teams tenant.
+
 ### Disposable AWS
 
 Terraform, AWS credentials, a supported Region, and an available Lambda MicroVM base-image version
@@ -222,6 +234,7 @@ Read the complete [security and threat model](docs/security.md) and [status and 
 
 - [Architecture](docs/architecture.md)
 - [Control API](docs/api.md)
+- [Connect Microsoft Teams](docs/microsoft-teams.md)
 - [Channels](docs/channels.md)
 - [Provider plugin model](docs/plugins.md)
 - [Development and deployment](docs/development-and-deployment.md)

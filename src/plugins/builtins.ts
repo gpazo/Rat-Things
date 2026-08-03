@@ -3,6 +3,7 @@ import { GitHubDeliveryAdapter } from '../delivery/providers/github.js';
 import { GitLabDeliveryAdapter } from '../delivery/providers/gitlab.js';
 import { SlackDeliveryAdapter } from '../delivery/providers/slack.js';
 import { TeamsDeliveryAdapter } from '../delivery/providers/teams.js';
+import type { TeamsDeliveryMode } from '../delivery/providers/teams.js';
 import { GitHubIngressAdapter } from '../ingress/providers/github.js';
 import { GitLabIngressAdapter } from '../ingress/providers/gitlab.js';
 import { SlackIngressAdapter } from '../ingress/providers/slack.js';
@@ -26,7 +27,9 @@ export interface BuiltinPluginOptions {
   };
   teams: {
     webhookSecretArn?: string | undefined;
+    deliveryMode: TeamsDeliveryMode;
     workflowUrlSecretArn?: string | undefined;
+    replyGatewayUrlSecretArn?: string | undefined;
     routes: Record<string, string>;
   };
   slack: {
@@ -70,12 +73,14 @@ export function createBuiltinPlugins(
       manifest: {
         name: 'teams',
         version: '1',
-        description: 'Microsoft Teams outgoing-webhook ingress and Workflow delivery',
+        description: 'Microsoft Teams mention ingress with Workflow or threaded gateway delivery',
         provider: 'teams',
       },
       ingress: new TeamsIngressAdapter(credentials, options.teams),
       delivery: new TeamsDeliveryAdapter(credentials, {
+        mode: options.teams.deliveryMode,
         workflowUrlSecretArn: options.teams.workflowUrlSecretArn,
+        replyGatewayUrlSecretArn: options.teams.replyGatewayUrlSecretArn,
         routes: options.teams.routes,
       }),
     },

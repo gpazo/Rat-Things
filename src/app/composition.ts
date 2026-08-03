@@ -11,6 +11,7 @@ import { DynamoDeliveryFence } from '../adapters/dynamo-delivery-fence.js';
 import { createExecutorRegistryFromEnv, requiredEnv } from '../adapters/executors.js';
 import { CredentialBroker } from '../credentials/broker.js';
 import { DeliveryService } from '../delivery/service.js';
+import type { TeamsDeliveryMode } from '../delivery/providers/teams.js';
 import type { RunDestination, SandboxMode } from '../domain/contracts.js';
 import { WebhookIngressService } from '../ingress/service.js';
 import { RuntimePluginRegistry } from '../plugins/registry.js';
@@ -77,7 +78,9 @@ export function getPluginRegistry(): RuntimePluginRegistry {
     },
     teams: {
       webhookSecretArn: process.env.TEAMS_OUTGOING_WEBHOOK_SECRET_ARN,
+      deliveryMode: teamsDeliveryMode(process.env.TEAMS_DELIVERY_MODE),
       workflowUrlSecretArn: process.env.TEAMS_WORKFLOW_URL_SECRET_ARN,
+      replyGatewayUrlSecretArn: process.env.TEAMS_REPLY_GATEWAY_URL_SECRET_ARN,
       routes: stringMap(process.env.TEAMS_ROUTES_JSON),
     },
     slack: {
@@ -153,4 +156,12 @@ function stringMap(value: string | undefined): Record<string, string> {
     throw new Error('TEAMS_ROUTES_JSON values must be secret ARN strings');
   }
   return Object.fromEntries(entries) as Record<string, string>;
+}
+
+function teamsDeliveryMode(value: string | undefined): TeamsDeliveryMode {
+  const mode = value ?? 'workflow';
+  if (mode !== 'workflow' && mode !== 'threaded-gateway') {
+    throw new Error('TEAMS_DELIVERY_MODE must be workflow or threaded-gateway');
+  }
+  return mode;
 }

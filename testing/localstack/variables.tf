@@ -22,3 +22,9 @@ variable "teams_workflow_url" {
   type        = string
   default     = "http://localhost:8080/teams/workflow"
 }
+
+variable "teams_reply_gateway_url" {
+  description = "WireMock threaded Teams reply gateway URL as seen by host-side handlers."
+  type        = string
+  default     = "http://localhost:8080/teams/threaded-reply"
+}

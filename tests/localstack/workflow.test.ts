@@ -42,6 +42,7 @@ import { runAgentWorker } from '../../src/runner/main.js';
 import type { RunRequest, RunStateEvent } from '../../src/domain/contracts.js';
 
 const integration = process.env.LOCALSTACK_E2E === 'true' ? describe : describe.skip;
+const realTeamsCodex = process.env.LOCALSTACK_REAL_CODEX === 'true';
 
 integration('LocalStack webhook-to-egress workflow', () => {
   it('accepts signed GitHub webhook ingress into S3, DynamoDB, and SQS', async () => {
@@ -181,11 +182,14 @@ integration('LocalStack webhook-to-egress workflow', () => {
     await resetWireMock(wiremockBaseUrl);
 
     const activityId = `local-e2e-${randomUUID()}`;
-    const prompt = `Return LocalStack workflow marker ${activityId}`;
+    const marker = `RAT_THINGS_TEAMS_${activityId}`;
+    const prompt = realTeamsCodex
+      ? `Reply in one concise sentence confirming you received this Teams message. Include the exact marker ${marker}.`
+      : `Return LocalStack workflow marker ${activityId}`;
     const body = JSON.stringify({
       type: 'message',
       id: activityId,
-      text: `<at>Indubitably</at> ${prompt}`,
+      text: `<at>Rat Things</at> ${prompt}`,
       from: { id: 'local-user', name: 'Local User' },
       conversation: { id: 'local-conversation' },
       channelData: {
@@ -203,6 +207,9 @@ integration('LocalStack webhook-to-egress workflow', () => {
     const runId = acknowledgement.text?.match(/[0-9a-f]{8}-[0-9a-f-]{27}/i)?.[0];
     expect(runId).toBeTruthy();
     if (!runId) throw new Error('Teams acknowledgement did not contain a run ID');
+    expect(acknowledgement.text).toBe(
+      `Rat Things request received. I'll reply when run ${runId} finishes.`,
+    );
 
     const queued = await store.get(runId);
     expect(queued).toMatchObject({
@@ -259,7 +266,7 @@ integration('LocalStack webhook-to-egress workflow', () => {
     process.env.RUN_ID = runId;
     process.env.RUN_INPUT_BUCKET = dispatched.input.bucket;
     process.env.RUN_INPUT_KEY = dispatched.input.key;
-    process.env.RUN_TIMEOUT_SECONDS = '30';
+    process.env.RUN_TIMEOUT_SECONDS = realTeamsCodex ? '180' : '30';
     delete process.env.RUN_AGENT_UID;
     delete process.env.RUN_AGENT_GID;
     await runAgentWorker();
@@ -270,11 +277,19 @@ integration('LocalStack webhook-to-egress workflow', () => {
       execution: { backend: 'microvm', id: `localstack:${runId}` },
       result: {
         exitCode: 0,
-        agentThreadId: 'mock-thread',
-        usage: { inputTokens: 1, outputTokens: 1 },
       },
     });
     if (!completed?.result) throw new Error('worker did not persist a result');
+    if (realTeamsCodex) {
+      expect(completed.result.agentThreadId).toBeTruthy();
+      expect(completed.result.usage?.inputTokens).toBeGreaterThan(0);
+      expect(completed.result.usage?.outputTokens).toBeGreaterThan(0);
+    } else {
+      expect(completed.result).toMatchObject({
+        agentThreadId: 'mock-thread',
+        usage: { inputTokens: 1, outputTokens: 1 },
+      });
+    }
 
     const output = await objectText(
       clients.s3,
@@ -286,7 +301,8 @@ integration('LocalStack webhook-to-egress workflow', () => {
       completed.result.events?.bucket ?? '',
       completed.result.events?.key ?? '',
     );
-    expect(output).toBe(`mock-agent: ${prompt}`);
+    if (realTeamsCodex) expect(output).toContain(marker);
+    else expect(output).toBe(`mock-agent: ${prompt}`);
     expect(agentEvents).toContain('item.completed');
     expect(completed.result.preview).toBe(output);
 
@@ -320,15 +336,33 @@ integration('LocalStack webhook-to-egress workflow', () => {
     await invoke<void>(notifier.handler, terminalEvent);
     await deleteMessage(clients.sqs, terminalQueueUrl, terminalMessage);
 
-    const deliveries = await matchingWireMockRequests(wiremockBaseUrl);
+    const deliveryPath = realTeamsCodex ? '/teams/threaded-reply' : '/teams/workflow';
+    const deliveries = await matchingWireMockRequests(wiremockBaseUrl, deliveryPath);
     expect(deliveries).toHaveLength(1);
-    const card = JSON.parse(deliveries[0]?.body ?? '{}') as {
-      attachments?: Array<{ content?: { body?: Array<{ text?: string }> } }>;
-    };
-    const cardText = card.attachments?.[0]?.content?.body?.map((item) => item.text).join('\n');
-    expect(cardText).toContain('Agent run succeeded');
-    expect(cardText).toContain(`mock-agent: ${prompt}`);
-    expect(JSON.stringify(card)).toContain(runId);
+    const delivery = JSON.parse(deliveries[0]?.body ?? '{}') as Record<string, unknown>;
+    if (realTeamsCodex) {
+      expect(delivery).toMatchObject({
+        version: '1',
+        operation: 'reply-to-activity',
+        conversationId: 'local-conversation',
+        replyToActivityId: activityId,
+        activity: {
+          type: 'message',
+          conversation: { id: 'local-conversation' },
+          replyToId: activityId,
+          text: expect.stringContaining(marker),
+        },
+        run: { id: runId, status: 'succeeded' },
+      });
+    } else {
+      const card = delivery as {
+        attachments?: Array<{ content?: { body?: Array<{ text?: string }> } }>;
+      };
+      const cardText = card.attachments?.[0]?.content?.body?.map((item) => item.text).join('\n');
+      expect(cardText).toContain('Agent run succeeded');
+      expect(cardText).toContain(`mock-agent: ${prompt}`);
+      expect(JSON.stringify(card)).toContain(runId);
+    }
 
     const destination = 'teams:default';
     const deliveryDigest = createHash('sha256').update(destination).digest('hex').slice(0, 24);
@@ -345,14 +379,27 @@ integration('LocalStack webhook-to-egress workflow', () => {
     });
 
     await invoke<void>(notifier.handler, terminalEvent);
-    expect(await matchingWireMockRequests(wiremockBaseUrl)).toHaveLength(1);
+    expect(await matchingWireMockRequests(wiremockBaseUrl, deliveryPath)).toHaveLength(1);
 
     const repeatedResponse = await invoke<APIGatewayProxyStructuredResultV2>(teamsWebhook.handler, event);
     expect(repeatedResponse.statusCode).toBe(200);
     expect(repeatedResponse.body).toBe(firstResponse.body);
     expect(await receiveOptional(clients.sqs, runQueueUrl, 1_500)).toBeUndefined();
 
-  }, 60_000);
+    if (realTeamsCodex) {
+      process.stdout.write(`\n${JSON.stringify({
+        simulatedTeamsMention: JSON.parse(body) as unknown,
+        acknowledgement: JSON.parse(firstResponse.body ?? '{}') as unknown,
+        runId,
+        agentThreadId: completed.result.agentThreadId,
+        durationMs: completed.result.durationMs,
+        usage: completed.result.usage,
+        codexOutput: output,
+        threadedReply: delivery,
+      }, null, 2)}\n`);
+    }
+
+  }, realTeamsCodex ? 240_000 : 60_000);
 });
 
 async function invoke<T>(handler: unknown, event: unknown): Promise<T> {
@@ -598,11 +645,14 @@ async function resetWireMock(baseUrl: string): Promise<void> {
   if (!response.ok) throw new Error(`WireMock reset failed with HTTP ${response.status}`);
 }
 
-async function matchingWireMockRequests(baseUrl: string): Promise<WireMockRequest[]> {
+async function matchingWireMockRequests(
+  baseUrl: string,
+  urlPath = '/teams/workflow',
+): Promise<WireMockRequest[]> {
   const response = await fetch(`${baseUrl}/__admin/requests/find`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ method: 'POST', urlPath: '/teams/workflow' }),
+    body: JSON.stringify({ method: 'POST', urlPath }),
   });
   if (!response.ok) throw new Error(`WireMock request search failed with HTTP ${response.status}`);
   const result = await response.json() as { requests?: WireMockRequest[] };

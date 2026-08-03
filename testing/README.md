@@ -30,6 +30,21 @@ npm run localstack:down
 `testing/localstack.env` is generated from Terraform outputs and is intentionally ignored by Git.
 Use `testing/localstack.env.example` as the stable contract reference.
 
+## Real Codex Teams chat slice
+
+After signing in with the repository's pinned Codex CLI, run:
+
+```bash
+npm exec -- codex login
+npm run test:e2e:teams:codex
+```
+
+This opt-in test uses the local ChatGPT subscription instead of the mock driver. It submits a signed
+Teams-shaped `@Rat Things` mention, runs the normalized prompt through real Codex, persists the
+result, and captures a threaded-reply gateway request in WireMock. The assertion requires the reply
+to carry the exact inbound `conversationId` and `activityId`, and the command prints the safe fixture,
+Codex response, and captured outbound envelope for review. Command-tool network access remains off.
+
 ## What the test proves
 
 The suite first verifies that correctly signed GitHub and GitLab events are normalized into the
@@ -50,6 +65,10 @@ signed Teams webhook
 The suite also verifies webhook idempotency, the stored artifacts, execution attachment, the
 EventBridge envelope, the durable delivery fence, exact Adaptive Card content, and duplicate egress
 suppression.
+
+The opt-in real-Codex path selects `TEAMS_DELIVERY_MODE=threaded-gateway`; the default deterministic
+suite remains on the Workflow bridge. The gateway contract is the seam for a future AWS-hosted
+Entra/Bot integration. WireMock proves thread addressing, not Microsoft identity or live delivery.
 
 ## Deliberate boundary
 

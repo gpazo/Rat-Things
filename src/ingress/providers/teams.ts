@@ -32,7 +32,10 @@ export class TeamsIngressAdapter implements WebhookIngressAdapter {
   }
 
   public acknowledge(run: { runId: string }, _work: IngressWork): WebhookResponse {
-    return jsonResponse(200, { type: 'message', text: `Queued agent run ${run.runId}.` });
+    return jsonResponse(200, {
+      type: 'message',
+      text: `Rat Things request received. I'll reply when run ${run.runId} finishes.`,
+    });
   }
 }
 

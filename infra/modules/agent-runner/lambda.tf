@@ -51,12 +51,15 @@ locals {
         DEFAULT_DELIVERY_DESTINATIONS = var.default_delivery_destinations
         GITHUB_API_BASE_URL           = var.github_api_base_url
         GITLAB_API_BASE_URL           = var.gitlab_api_base_url
+        TEAMS_DELIVERY_MODE           = var.teams_delivery_mode
         }, local.github_notify_token_secret_arn == null ? {} : {
         GITHUB_NOTIFY_TOKEN_SECRET_ARN = local.github_notify_token_secret_arn
         }, local.gitlab_notify_token_secret_arn == null ? {} : {
         GITLAB_NOTIFY_TOKEN_SECRET_ARN = local.gitlab_notify_token_secret_arn
         }, var.teams_workflow_url_secret_arn == null ? {} : {
         TEAMS_WORKFLOW_URL_SECRET_ARN = var.teams_workflow_url_secret_arn
+        }, var.teams_reply_gateway_url_secret_arn == null ? {} : {
+        TEAMS_REPLY_GATEWAY_URL_SECRET_ARN = var.teams_reply_gateway_url_secret_arn
         }, length(var.teams_route_secret_arns) == 0 ? {} : {
         TEAMS_ROUTES_JSON = jsonencode(var.teams_route_secret_arns)
         }, var.slack_bot_token_secret_arn == null ? {} : {

@@ -61,6 +61,7 @@ generate_env() {
     echo "export DEFAULT_AGENT_DRIVER=mock"
     echo "export DEFAULT_EXECUTION_BACKEND=microvm"
     echo "export DEFAULT_DELIVERY_DESTINATIONS=source"
+    echo "export TEAMS_DELIVERY_MODE=workflow"
     echo "export ALLOWED_REPOSITORY_HOSTS=github.com,gitlab.com"
     echo "export ALLOWED_SANDBOX_MODES=read-only,workspace-write"
     echo "export WORKSPACE_ROOT=/tmp/indubitably-agent-runtime-localstack"

@@ -19,7 +19,7 @@ quota/load exercise, broad real-agent evaluation, or disaster-recovery proof.
 | Codex driver | Live validated | Pinned non-interactive ephemeral JSON mode; live AWS uses short-term Bedrock auth, while trusted local runs can reuse the device's ChatGPT subscription |
 | Mock driver | Implemented/tested | Used for deterministic local and live infrastructure validation |
 | GitHub/GitLab | Initial adapters | Signed ingress, loop guards, source-thread egress; credential and policy hardening remain |
-| Teams | Bridge only | Outgoing webhook plus Workflow URL, not an authenticated production bot gateway |
+| Teams | Bridge plus threaded gateway seam | Workflow delivery remains available; a real-Codex LocalStack simulation now preserves the exact source conversation/activity through a versioned reply-gateway contract, but Microsoft authentication and live tenant delivery remain |
 | Slack | Optional initial adapter | App mentions and threaded posts; not the primary deployment target |
 | Observability/recovery | Partial | Structured logs, durable queues/events, reconciler, delivery leases, failure queues/alarms; chaos drills remain |
 | Multi-tenant hardening | Not complete | Requires safe response projection, destination authorization, budgets, rate limits, and security review |
@@ -30,6 +30,9 @@ quota/load exercise, broad real-agent evaluation, or disaster-recovery proof.
   and all Terraform formatting/validation gates.
 - Disposable LocalStack end to end: signed GitHub/GitLab normalization and full signed Teams
   ingress-to-WireMock egress, including real LocalStack data/event services and durable fencing.
+- Opt-in LocalStack Teams chat: a signed `@Rat Things` fixture executed through the device's
+  ChatGPT-backed Codex session and produced a captured reply addressed to the exact inbound
+  `conversationId` and activity ID; command networking remained disabled.
 - Pre-cutover live parity: identical pinned GitHub repository input through both execution paths,
   with exact output/event bytes, hashes, exit status, usage fields, and patch presence compared.
 - Post-cutover live AWS: IAM-authenticated API plus real signed GitHub, GitLab, and Teams requests;

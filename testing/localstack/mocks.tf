@@ -22,6 +22,18 @@ resource "aws_secretsmanager_secret_version" "teams_workflow" {
   })
 }
 
+resource "aws_secretsmanager_secret" "teams_reply_gateway" {
+  name                    = "${local.name}/teams-reply-gateway"
+  recovery_window_in_days = 0
+}
+
+resource "aws_secretsmanager_secret_version" "teams_reply_gateway" {
+  secret_id = aws_secretsmanager_secret.teams_reply_gateway.id
+  secret_string = jsonencode({
+    url = var.teams_reply_gateway_url
+  })
+}
+
 resource "aws_secretsmanager_secret" "github_webhook" {
   name                    = "${local.name}/github-webhook"
   recovery_window_in_days = 0

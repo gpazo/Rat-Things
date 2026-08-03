@@ -1,0 +1,35 @@
+{
+  "request": {
+    "method": "POST",
+    "urlPath": "/teams/threaded-reply",
+    "headers": {
+      "Content-Type": {
+        "contains": "application/json"
+      },
+      "Idempotency-Key": {
+        "matches": ".+"
+      }
+    },
+    "bodyPatterns": [
+      {
+        "matchesJsonPath": "$.conversationId"
+      },
+      {
+        "matchesJsonPath": "$.replyToActivityId"
+      },
+      {
+        "matchesJsonPath": "$.activity.replyToId"
+      }
+    ]
+  },
+  "response": {
+    "status": 202,
+    "headers": {
+      "Content-Type": "application/json",
+      "request-id": "localstack-wiremock-receipt"
+    },
+    "jsonBody": {
+      "accepted": true
+    }
+  }
+}

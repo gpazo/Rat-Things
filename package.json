@@ -21,6 +21,7 @@
     "localstack:status": "./testing/bootstrap.sh --status",
     "localstack:down": "./testing/bootstrap.sh --down",
     "test:e2e:localstack": "./testing/run-e2e.sh",
+    "test:e2e:teams:codex": "./testing/run-teams-codex-e2e.sh",
     "aws:e2e:deploy": "./scripts/aws-e2e-deploy.sh",
     "aws:e2e:test": "./scripts/aws-e2e-test.sh",
     "aws:e2e:destroy": "./scripts/aws-e2e-destroy.sh",

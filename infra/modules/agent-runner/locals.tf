@@ -52,6 +52,7 @@ locals {
   notifier_secret_arns = distinct(compact(concat([
     local.github_notify_token_secret_arn,
     local.gitlab_notify_token_secret_arn,
+    var.teams_reply_gateway_url_secret_arn,
     var.teams_workflow_url_secret_arn,
     var.slack_bot_token_secret_arn,
   ], values(var.teams_route_secret_arns))))
@@ -113,5 +114,15 @@ check "enabled_webhook_secrets" {
       (!local.slack_enabled || var.slack_signing_secret_arn != null)
     )
     error_message = "Every explicitly enabled webhook must have its corresponding signing-secret ARN."
+  }
+}
+
+check "teams_threaded_gateway" {
+  assert {
+    condition = (
+      var.teams_delivery_mode != "threaded-gateway" ||
+      var.teams_reply_gateway_url_secret_arn != null
+    )
+    error_message = "teams_reply_gateway_url_secret_arn is required when teams_delivery_mode is threaded-gateway."
   }
 }

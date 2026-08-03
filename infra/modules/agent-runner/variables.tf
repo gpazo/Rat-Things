@@ -244,6 +244,24 @@ variable "teams_workflow_url_secret_arn" {
   nullable    = true
 }
 
+variable "teams_delivery_mode" {
+  description = "Teams result delivery mode: Workflow bridge or trusted threaded-reply gateway."
+  type        = string
+  default     = "workflow"
+
+  validation {
+    condition     = contains(["workflow", "threaded-gateway"], var.teams_delivery_mode)
+    error_message = "teams_delivery_mode must be workflow or threaded-gateway."
+  }
+}
+
+variable "teams_reply_gateway_url_secret_arn" {
+  description = "Secrets Manager ARN containing the trusted Teams threaded-reply gateway URL."
+  type        = string
+  default     = null
+  nullable    = true
+}
+
 variable "teams_route_secret_arns" {
   description = "Named Teams notification routes mapped to Secrets Manager ARNs containing Workflow callback URLs."
   type        = map(string)
