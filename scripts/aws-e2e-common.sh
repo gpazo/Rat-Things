@@ -18,8 +18,10 @@ aws_e2e_configure() {
   fi
   aws_region="${aws_region:-us-west-2}"
   aws_profile="${AWS_PROFILE:-}"
-  microvm_enabled="${AWS_E2E_ENABLE_MICROVM:-false}"
+  microvm_enabled="${AWS_E2E_ENABLE_MICROVM:-true}"
   microvm_base_image_version="${AWS_E2E_MICROVM_BASE_IMAGE_VERSION:-}"
+  real_codex_enabled="${AWS_E2E_REAL_CODEX:-false}"
+  codex_model_id="${AWS_E2E_CODEX_MODEL_ID:-openai.gpt-5.6-terra}"
   run_root="$project_root/.aws-e2e"
   run_dir="$run_root/$deployment_id"
   state_file="$run_dir/terraform.tfstate"
@@ -29,8 +31,8 @@ aws_e2e_configure() {
   tf_vars=(
     "-var=aws_region=$aws_region"
     "-var=deployment_id=$deployment_id"
-    "-var=worker_image_tag=$deployment_id"
     "-var=enable_microvm=$microvm_enabled"
+    "-var=codex_model_id=$codex_model_id"
   )
   if [[ -n "$microvm_base_image_version" ]]; then
     tf_vars+=("-var=microvm_base_image_version=$microvm_base_image_version")

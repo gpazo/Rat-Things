@@ -23,12 +23,12 @@ describe('waitForExecutionAttachment', () => {
   it('waits through an unattached dispatch record and returns the attached backend ID', async () => {
     const records = [
       record('dispatching'),
-      record('dispatching', { backend: 'ecs', id: 'task-1' }),
+      record('dispatching', { backend: 'microvm', id: 'microvm-1' }),
     ];
     const store = { get: async () => records.shift() ?? records[records.length - 1] };
 
     await expect(waitForExecutionAttachment(store, 'run-1', 1_000, undefined, 0)).resolves.toMatchObject({
-      execution: { backend: 'ecs', id: 'task-1' },
+      execution: { backend: 'microvm', id: 'microvm-1' },
     });
   });
 

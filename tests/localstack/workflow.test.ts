@@ -229,10 +229,10 @@ integration('LocalStack webhook-to-egress workflow', () => {
 
     let launches = 0;
     const localExecutor: RunExecutor = {
-      backend: 'ecs',
+      backend: 'microvm',
       start: async (record) => {
         launches += 1;
-        return { backend: 'ecs', id: `localstack:${record.runId}` };
+        return { backend: 'microvm', id: `localstack:${record.runId}` };
       },
       stop: async () => undefined,
     };
@@ -252,7 +252,7 @@ integration('LocalStack webhook-to-egress workflow', () => {
     const dispatched = await store.get(runId);
     expect(dispatched).toMatchObject({
       status: 'dispatching',
-      execution: { backend: 'ecs', id: `localstack:${runId}` },
+      execution: { backend: 'microvm', id: `localstack:${runId}` },
     });
     if (!dispatched) throw new Error('dispatcher did not persist the execution reference');
 
@@ -267,7 +267,7 @@ integration('LocalStack webhook-to-egress workflow', () => {
     const completed = await store.get(runId);
     expect(completed).toMatchObject({
       status: 'succeeded',
-      execution: { backend: 'ecs', id: `localstack:${runId}` },
+      execution: { backend: 'microvm', id: `localstack:${runId}` },
       result: {
         exitCode: 0,
         agentThreadId: 'mock-thread',

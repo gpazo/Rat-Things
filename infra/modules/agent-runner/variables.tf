@@ -20,29 +20,6 @@ variable "environment" {
   }
 }
 
-variable "vpc_cidr" {
-  description = "IPv4 CIDR for the runner VPC."
-  type        = string
-  default     = "10.42.0.0/16"
-
-  validation {
-    condition     = can(cidrnetmask(var.vpc_cidr))
-    error_message = "vpc_cidr must be a valid IPv4 CIDR."
-  }
-}
-
-variable "enable_nat_gateway" {
-  description = "Create one NAT gateway for private runner subnet internet access. This incurs hourly and data-processing charges."
-  type        = bool
-  default     = false
-}
-
-variable "enable_vpc_endpoints" {
-  description = "Create paid interface endpoints for private AWS API access. S3 and DynamoDB gateway endpoints are always created."
-  type        = bool
-  default     = false
-}
-
 variable "artifact_retention_days" {
   description = "Days before run artifacts expire."
   type        = number
@@ -61,7 +38,7 @@ variable "log_retention_days" {
 }
 
 variable "force_destroy_data" {
-  description = "Allow Terraform to delete non-empty S3 buckets and ECR repositories. Keep false outside disposable environments."
+  description = "Allow Terraform to delete non-empty S3 buckets. Keep false outside disposable environments."
   type        = bool
   default     = false
 }
@@ -109,67 +86,21 @@ variable "allowed_sandbox_modes" {
   }
 }
 
-variable "default_execution_backend" {
-  description = "Default isolated execution backend."
-  type        = string
-  default     = "ecs"
-
-  validation {
-    condition     = contains(["ecs", "microvm"], var.default_execution_backend)
-    error_message = "default_execution_backend must be ecs or microvm."
-  }
-}
-
 variable "default_agent_driver" {
   description = "Default agent CLI used by a worker."
   type        = string
   default     = "mock"
 
   validation {
-    condition     = contains(["mock", "codex", "claude-code"], var.default_agent_driver)
-    error_message = "default_agent_driver must be mock, codex, or claude-code."
+    condition     = contains(["mock", "codex"], var.default_agent_driver)
+    error_message = "default_agent_driver must be mock or codex."
   }
 }
 
 variable "allow_agent_aws_credential_chain" {
-  description = "Allow Codex or Claude subprocesses to inherit a scoped AWS credential chain. Disabled by default."
+  description = "Allow the Codex subprocess to inherit a scoped AWS credential chain. Disabled by default; short-term bearer tokens are preferred."
   type        = bool
   default     = false
-}
-
-variable "worker_image_tag" {
-  description = "Immutable ECR image tag referenced by the ECS task definition. Push it before dispatching ECS runs."
-  type        = string
-  default     = "dev"
-}
-
-variable "ecs_assign_public_ip" {
-  description = "Run ECS workers in public subnets with a public IPv4 address. Intended for short-lived test stacks that deliberately avoid NAT gateways and interface endpoints."
-  type        = bool
-  default     = false
-}
-
-variable "worker_cpu" {
-  description = "Fargate task CPU units."
-  type        = number
-  default     = 1024
-}
-
-variable "worker_memory" {
-  description = "Fargate task memory in MiB."
-  type        = number
-  default     = 2048
-}
-
-variable "worker_ephemeral_storage_gib" {
-  description = "Fargate ephemeral storage in GiB, used for repository workspaces."
-  type        = number
-  default     = 30
-
-  validation {
-    condition     = var.worker_ephemeral_storage_gib >= 21 && var.worker_ephemeral_storage_gib <= 200
-    error_message = "worker_ephemeral_storage_gib must be between 21 and 200."
-  }
 }
 
 variable "lambda_zip_paths" {
@@ -346,10 +277,17 @@ variable "worker_secret_arns" {
   default     = []
 }
 
-variable "bedrock_model_arns" {
-  description = "Bedrock model or inference-profile ARNs that isolated workers may invoke. Empty disables Bedrock IAM permissions."
+variable "codex_bedrock_model_ids" {
+  description = "Exact Bedrock Mantle model IDs that isolated Codex workers may invoke. Empty disables Codex inference permissions."
   type        = list(string)
   default     = []
+
+  validation {
+    condition = alltrue([
+      for model in var.codex_bedrock_model_ids : can(regex("^openai\\.gpt-[A-Za-z0-9.-]+$", model))
+    ])
+    error_message = "codex_bedrock_model_ids must contain exact OpenAI model IDs such as openai.gpt-5.6-terra."
+  }
 }
 
 variable "bedrock_api_key_secret_arn" {
@@ -367,9 +305,9 @@ variable "default_delivery_destinations" {
 }
 
 variable "enable_microvm" {
-  description = "Provision preview Lambda MicroVM image and VPC egress connector resources."
+  description = "Provision the Lambda MicroVM execution backend. Must remain enabled."
   type        = bool
-  default     = false
+  default     = true
 }
 
 variable "microvm_source_zip_path" {

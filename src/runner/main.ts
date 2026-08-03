@@ -8,11 +8,14 @@ import {
   S3ArtifactStore,
 } from '../adapters/aws-runtime.js';
 import { requiredEnv } from '../adapters/executors.js';
+import { CredentialBroker } from '../credentials/broker.js';
 import type { RunError, RunRecord } from '../domain/contracts.js';
 import type { SandboxMode } from '../domain/contracts.js';
 import { InvalidStateTransitionError } from '../domain/state.js';
 import { parseRunRequest } from '../domain/validation.js';
 import { driverFor } from './agent-driver.js';
+import { loadCodexBedrockToken } from './bedrock-auth.js';
+import { codexAuthMode } from './codex-auth.js';
 import { collectWorkspacePatch, prepareWorkspace } from './workspace.js';
 
 export async function runAgentWorker(): Promise<void> {
@@ -21,6 +24,7 @@ export async function runAgentWorker(): Promise<void> {
   const store = new DynamoRunStore(clients.dynamodb, requiredEnv('RUNS_TABLE_NAME'));
   const artifacts = new S3ArtifactStore(clients.s3, requiredEnv('ARTIFACT_BUCKET'));
   const secrets = new CachedSecretReader(clients.secrets);
+  const credentials = new CredentialBroker(secrets);
   let current = await store.get(runId);
   if (!current) throw new Error(`run ${runId} does not exist`);
   if (current.status !== 'dispatching') return;
@@ -31,7 +35,7 @@ export async function runAgentWorker(): Promise<void> {
   const workspaceRoot = process.env.WORKSPACE_ROOT ?? '/tmp/agent-runtime';
   const workspace = join(workspaceRoot, runId);
   const startedAt = new Date().toISOString();
-  let loadedBedrockKey = false;
+  let loadedBedrockToken = false;
 
   try {
     const rawRequest = await artifacts.getJson<unknown>({
@@ -59,10 +63,12 @@ export async function runAgentWorker(): Promise<void> {
     await store.transition(runId, ['dispatching'], 'running', {
       execution: { ...current.execution, startedAt },
     });
-    await prepareWorkspace(request.repository, workspace, secrets);
+    await prepareWorkspace(request.repository, workspace, credentials);
     const timeoutSeconds = Number(process.env.RUN_TIMEOUT_SECONDS ?? request.execution?.timeoutSeconds ?? 900);
     const driver = driverFor(request.agent?.driver ?? defaultDriver());
-    if (driver.name === 'codex') loadedBedrockKey = await loadBedrockApiKey(secrets);
+    if (driver.name === 'codex' && codexAuthMode() === 'bedrock') {
+      loadedBedrockToken = await loadCodexBedrockToken(credentials);
+    }
     const execution = await driver.execute(request, workspace, timeoutSeconds * 1_000, abort.signal);
     const ownerHash = createHash('sha256').update(current.ownerId).digest('hex').slice(0, 32);
     const prefix = `owners/${ownerHash}/runs/${runId}`;
@@ -102,7 +108,7 @@ export async function runAgentWorker(): Promise<void> {
     await store.fail(runId, runError, ['dispatching', 'running']);
     throw error;
   } finally {
-    if (loadedBedrockKey) delete process.env.AWS_BEARER_TOKEN_BEDROCK;
+    if (loadedBedrockToken) delete process.env.AWS_BEARER_TOKEN_BEDROCK;
     process.removeListener('SIGTERM', stop);
     process.removeListener('SIGINT', stop);
     await rm(workspace, { recursive: true, force: true });
@@ -152,29 +158,9 @@ async function abortableDelay(milliseconds: number, signal?: AbortSignal): Promi
   });
 }
 
-async function loadBedrockApiKey(secrets: CachedSecretReader): Promise<boolean> {
-  const secretArn = process.env.BEDROCK_API_KEY_SECRET_ARN;
-  if (!secretArn) return false;
-  const raw = await secrets.get(secretArn);
-  process.env.AWS_BEARER_TOKEN_BEDROCK = secretField(raw, ['api_key', 'token', 'key']);
-  return true;
-}
-
-function secretField(raw: string, keys: string[]): string {
-  try {
-    const parsed = JSON.parse(raw) as Record<string, unknown>;
-    for (const key of keys) {
-      if (typeof parsed[key] === 'string' && parsed[key]) return parsed[key] as string;
-    }
-  } catch {
-    // Raw secret values are supported.
-  }
-  return raw;
-}
-
-function defaultDriver(): 'codex' | 'claude-code' | 'mock' {
+function defaultDriver(): 'codex' | 'mock' {
   const value = process.env.DEFAULT_AGENT_DRIVER ?? 'codex';
-  if (value !== 'codex' && value !== 'claude-code' && value !== 'mock') {
+  if (value !== 'codex' && value !== 'mock') {
     throw new Error('DEFAULT_AGENT_DRIVER is invalid');
   }
   return value;

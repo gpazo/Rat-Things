@@ -189,7 +189,11 @@ describe('RunService.submit', () => {
   it('stores an immutable input reference and enqueues only its run envelope', async () => {
     const { service, store, artifacts, queue } = harness();
 
-    const record = await service.submit('owner-1', baseRequest, { traceId: 'trace-1' });
+    const provenance = {
+      actor: { kind: 'human' as const, id: 'api:owner-1', provider: 'api' as const },
+      credentialSubject: { kind: 'actor' as const, id: 'api:owner-1' },
+    };
+    const record = await service.submit('owner-1', baseRequest, { traceId: 'trace-1', provenance });
 
     expect(record).toMatchObject({
       runId: 'random-run-id',
@@ -200,6 +204,7 @@ describe('RunService.submit', () => {
       updatedAt: '2026-08-02T12:34:56.000Z',
       expiresAt: Math.floor(fixedNow.getTime() / 1_000) + 600,
       sourceKind: 'api',
+      provenance,
       input: { bucket: 'test-artifacts' },
     });
     expect(record.requestHash).toMatch(/^[a-f0-9]{64}$/);
@@ -310,8 +315,8 @@ describe('RunService ownership and cancellation', () => {
     const submitted = await service.submit('owner-1', baseRequest);
     await store.transition(submitted.runId, ['queued'], 'dispatching');
     await store.attachExecution(submitted.runId, {
-      backend: 'ecs',
-      id: 'arn:aws:ecs:us-west-2:123456789012:task/cluster/task-1',
+      backend: 'microvm',
+      id: 'microvm-1',
       startedAt: fixedNow.toISOString(),
     });
     await store.transition(submitted.runId, ['dispatching'], 'running');
@@ -322,8 +327,8 @@ describe('RunService ownership and cancellation', () => {
     expect(executions.stops).toEqual([
       {
         execution: {
-          backend: 'ecs',
-          id: 'arn:aws:ecs:us-west-2:123456789012:task/cluster/task-1',
+          backend: 'microvm',
+          id: 'microvm-1',
           startedAt: fixedNow.toISOString(),
         },
         reason: 'cancelled by owner-1',

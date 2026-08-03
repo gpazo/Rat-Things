@@ -8,32 +8,12 @@ data "aws_iam_policy_document" "lambda_assume" {
   }
 }
 
-data "aws_iam_policy_document" "ecs_tasks_assume" {
-  statement {
-    actions = ["sts:AssumeRole"]
-    principals {
-      type        = "Service"
-      identifiers = ["ecs-tasks.amazonaws.com"]
-    }
-  }
-}
-
 data "aws_iam_policy_document" "microvm_assume" {
   statement {
     actions = ["sts:AssumeRole", "sts:TagSession"]
     principals {
       type        = "Service"
       identifiers = ["lambda.amazonaws.com"]
-    }
-  }
-}
-
-data "aws_iam_policy_document" "connector_assume" {
-  statement {
-    actions = ["sts:AssumeRole"]
-    principals {
-      type        = "Service"
-      identifiers = ["network-connectors.lambda.amazonaws.com"]
     }
   }
 }
@@ -74,18 +54,6 @@ resource "aws_iam_role" "reconciler" {
   tags               = local.tags
 }
 
-resource "aws_iam_role" "ecs_execution" {
-  name               = "${local.name}-ecs-execution"
-  assume_role_policy = data.aws_iam_policy_document.ecs_tasks_assume.json
-  tags               = local.tags
-}
-
-resource "aws_iam_role" "ecs_worker" {
-  name               = "${local.name}-ecs-worker"
-  assume_role_policy = data.aws_iam_policy_document.ecs_tasks_assume.json
-  tags               = local.tags
-}
-
 resource "aws_iam_role" "microvm_execution" {
   name               = "${local.name}-microvm-execution"
   assume_role_policy = data.aws_iam_policy_document.microvm_assume.json
@@ -95,12 +63,6 @@ resource "aws_iam_role" "microvm_execution" {
 resource "aws_iam_role" "microvm_build" {
   name               = "${local.name}-microvm-build"
   assume_role_policy = data.aws_iam_policy_document.microvm_assume.json
-  tags               = local.tags
-}
-
-resource "aws_iam_role" "connector_operator" {
-  name               = "${local.name}-connector-operator"
-  assume_role_policy = data.aws_iam_policy_document.connector_assume.json
   tags               = local.tags
 }
 
@@ -195,18 +157,6 @@ data "aws_iam_policy_document" "control" {
     resources = [aws_sqs_queue.runs.arn]
   }
 
-  statement {
-    sid       = "EcsCancellation"
-    actions   = ["ecs:StopTask"]
-    resources = ["arn:${data.aws_partition.current.partition}:ecs:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:task/${aws_ecs_cluster.this.name}/*"]
-
-    condition {
-      test     = "ArnEquals"
-      variable = "ecs:cluster"
-      values   = [aws_ecs_cluster.this.arn]
-    }
-  }
-
   dynamic "statement" {
     for_each = var.enable_microvm ? [1] : []
     content {
@@ -254,41 +204,6 @@ data "aws_iam_policy_document" "dispatcher" {
     resources = ["${aws_s3_bucket.artifacts.arn}/owners/*"]
   }
 
-  statement {
-    sid       = "EcsRuns"
-    actions   = ["ecs:RunTask"]
-    resources = [aws_ecs_task_definition.worker.arn]
-
-    condition {
-      test     = "ArnEquals"
-      variable = "ecs:cluster"
-      values   = [aws_ecs_cluster.this.arn]
-    }
-  }
-
-  statement {
-    sid       = "EcsControl"
-    actions   = ["ecs:StopTask", "ecs:TagResource"]
-    resources = ["arn:${data.aws_partition.current.partition}:ecs:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:task/${aws_ecs_cluster.this.name}/*"]
-
-    condition {
-      test     = "ArnEquals"
-      variable = "ecs:cluster"
-      values   = [aws_ecs_cluster.this.arn]
-    }
-  }
-
-  statement {
-    sid       = "PassEcsExecutionRoles"
-    actions   = ["iam:PassRole"]
-    resources = [aws_iam_role.ecs_execution.arn, aws_iam_role.ecs_worker.arn]
-    condition {
-      test     = "StringEquals"
-      variable = "iam:PassedToService"
-      values   = ["ecs-tasks.amazonaws.com"]
-    }
-  }
-
   dynamic "statement" {
     for_each = var.enable_microvm ? [1] : []
     content {
@@ -301,8 +216,11 @@ data "aws_iam_policy_document" "dispatcher" {
   dynamic "statement" {
     for_each = var.enable_microvm ? [1] : []
     content {
-      sid       = "PassNetworkConnector"
-      actions   = ["lambda:PassNetworkConnector"]
+      sid     = "PassManagedNetworkConnectors"
+      actions = ["lambda:PassNetworkConnector"]
+      # AWS currently defines no resource type or condition key for this
+      # permission-only action, so IAM requires Resource="*" even when the
+      # service-selected connectors are AWS-managed defaults.
       resources = ["*"]
     }
   }
@@ -465,42 +383,6 @@ resource "aws_iam_role_policy" "reconciler" {
   policy = data.aws_iam_policy_document.reconciler.json
 }
 
-data "aws_iam_policy_document" "ecs_execution" {
-  statement {
-    sid       = "EcrLogin"
-    actions   = ["ecr:GetAuthorizationToken"]
-    resources = ["*"]
-  }
-
-  statement {
-    sid = "PullWorkerImage"
-    actions = [
-      "ecr:BatchCheckLayerAvailability",
-      "ecr:BatchGetImage",
-      "ecr:GetDownloadUrlForLayer",
-    ]
-    resources = [aws_ecr_repository.worker.arn]
-  }
-
-  statement {
-    sid       = "Logs"
-    actions   = ["logs:CreateLogStream", "logs:PutLogEvents"]
-    resources = ["${aws_cloudwatch_log_group.ecs.arn}:*"]
-  }
-
-  statement {
-    sid       = "DecryptWorkerImage"
-    actions   = ["kms:Decrypt", "kms:DescribeKey"]
-    resources = [aws_kms_key.data.arn]
-  }
-}
-
-resource "aws_iam_role_policy" "ecs_execution" {
-  name   = "pull-and-logs"
-  role   = aws_iam_role.ecs_execution.id
-  policy = data.aws_iam_policy_document.ecs_execution.json
-}
-
 data "aws_iam_policy_document" "worker" {
   statement {
     sid       = "RunState"
@@ -541,19 +423,49 @@ data "aws_iam_policy_document" "worker" {
   }
 
   dynamic "statement" {
-    for_each = length(var.bedrock_model_arns) > 0 ? [1] : []
+    for_each = length(var.codex_bedrock_model_ids) > 0 ? [1] : []
     content {
-      sid       = "BedrockInference"
-      actions   = ["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream"]
-      resources = var.bedrock_model_arns
+      sid       = "BedrockMantleShortTermToken"
+      actions   = ["bedrock-mantle:CallWithBearerToken"]
+      resources = ["*"]
+      condition {
+        test     = "StringEquals"
+        variable = "bedrock-mantle:BearerTokenType"
+        values   = ["SHORT_TERM"]
+      }
     }
   }
-}
 
-resource "aws_iam_role_policy" "ecs_worker" {
-  name   = "worker"
-  role   = aws_iam_role.ecs_worker.id
-  policy = data.aws_iam_policy_document.worker.json
+  dynamic "statement" {
+    for_each = length(var.codex_bedrock_model_ids) > 0 ? [1] : []
+    content {
+      sid = "CodexInference"
+      actions = [
+        "bedrock-mantle:CancelInference",
+        "bedrock-mantle:CreateInference",
+        "bedrock-mantle:GetInference",
+      ]
+      resources = ["arn:${data.aws_partition.current.partition}:bedrock-mantle:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:project/*"]
+      condition {
+        test     = "StringEqualsIfExists"
+        variable = "bedrock-mantle:Model"
+        values   = var.codex_bedrock_model_ids
+      }
+    }
+  }
+
+  dynamic "statement" {
+    for_each = length(var.codex_bedrock_model_ids) > 0 ? [1] : []
+    content {
+      sid = "CodexModelDiscovery"
+      actions = [
+        "bedrock-mantle:GetModel",
+        "bedrock-mantle:ListModels",
+        "bedrock-mantle:ListProjects",
+      ]
+      resources = ["arn:${data.aws_partition.current.partition}:bedrock-mantle:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:project/*"]
+    }
+  }
 }
 
 resource "aws_iam_role_policy" "microvm_execution" {
@@ -645,36 +557,4 @@ resource "aws_iam_role_policy" "microvm_build" {
   name   = "build"
   role   = aws_iam_role.microvm_build.id
   policy = data.aws_iam_policy_document.microvm_build.json
-}
-
-data "aws_iam_policy_document" "connector_operator" {
-  statement {
-    sid = "ManageConnectorEnis"
-    actions = [
-      "ec2:CreateNetworkInterface",
-      "ec2:DeleteNetworkInterface",
-      "ec2:DescribeNetworkInterfaces",
-      "ec2:DescribeSecurityGroups",
-      "ec2:DescribeSubnets",
-      "ec2:DescribeVpcs",
-    ]
-    resources = ["*"]
-  }
-
-  statement {
-    sid       = "TagConnectorEnis"
-    actions   = ["ec2:CreateTags"]
-    resources = ["arn:${data.aws_partition.current.partition}:ec2:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:network-interface/*"]
-    condition {
-      test     = "StringEquals"
-      variable = "ec2:ManagedResourceOperator"
-      values   = ["network-connectors.lambda.amazonaws.com"]
-    }
-  }
-}
-
-resource "aws_iam_role_policy" "connector_operator" {
-  name   = "connector-enis"
-  role   = aws_iam_role.connector_operator.id
-  policy = data.aws_iam_policy_document.connector_operator.json
 }

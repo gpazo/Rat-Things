@@ -21,15 +21,10 @@ variable "deployment_id" {
   }
 }
 
-variable "worker_image_tag" {
-  description = "Immutable tag pushed by the deploy script before the full apply."
-  type        = string
-}
-
 variable "enable_microvm" {
-  description = "Build and validate the AWS Lambda MicroVM backend in addition to ECS."
+  description = "Build and validate the AWS Lambda MicroVM backend."
   type        = bool
-  default     = false
+  default     = true
 }
 
 variable "microvm_base_image_version" {
@@ -37,4 +32,10 @@ variable "microvm_base_image_version" {
   type        = string
   default     = null
   nullable    = true
+}
+
+variable "codex_model_id" {
+  description = "Exact Bedrock Mantle model ID used by the optional real-Codex canary."
+  type        = string
+  default     = "openai.gpt-5.6-terra"
 }

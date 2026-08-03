@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="2200" height="850" viewBox="0 0 2200 850" role="img" aria-labelledby="title description">
-  <title id="title">C4 Level 2 Agent Runtime</title>
-  <desc id="description">A container diagram showing signed requests entering API Gateway and Lambda ingress, passing through run control, SQS, a dispatcher, an ECS task or Lambda MicroVM, durable state and artifacts, event delivery, and result destinations.</desc>
+  <title id="title">C4 Level 2 Rat Things</title>
+  <desc id="description">A container diagram showing signed requests entering API Gateway and Lambda ingress, passing through run control, SQS, a dispatcher, a Lambda MicroVM, durable state and artifacts, event delivery, and result destinations.</desc>
 
   <defs>
     <marker id="arrow" markerWidth="11" markerHeight="11" refX="9" refY="5.5" orient="auto" markerUnits="strokeWidth">
@@ -26,10 +26,10 @@
   </defs>
 
   <rect width="2200" height="850" fill="#ffffff"/>
-  <text x="1100" y="55" text-anchor="middle" class="title">C4 · Level 2 — Agent Runtime</text>
+  <text x="1100" y="55" text-anchor="middle" class="title">C4 · Level 2 — Rat Things</text>
 
   <rect x="300" y="140" width="1580" height="650" rx="22" fill="#f5f9fd" stroke="#4d7da5" stroke-width="3"/>
-  <text x="340" y="180" class="boundary-label">INDUBITABLY AGENT RUNTIME · SYSTEM BOUNDARY</text>
+  <text x="340" y="180" class="boundary-label">RAT THINGS · SYSTEM BOUNDARY</text>
 
   <!-- External request sources -->
   <rect x="20" y="280" width="250" height="160" rx="14" fill="#e8edf2" stroke="#7a8793" stroke-width="2.5"/>
@@ -70,7 +70,7 @@
     <rect x="1460" y="280" width="360" height="160" rx="14" fill="#1268b3" stroke="#0b4f8a" stroke-width="3"/>
     <text x="1640" y="315" text-anchor="middle" class="kind-light">CONTAINER</text>
     <text x="1640" y="355" text-anchor="middle" class="node-title-light">Isolated Runner</text>
-    <text x="1640" y="388" text-anchor="middle" class="node-tech-light">ECS task or Lambda MicroVM</text>
+    <text x="1640" y="388" text-anchor="middle" class="node-tech-light">AWS Lambda MicroVM</text>
   </g>
 
   <!-- Durable output path -->

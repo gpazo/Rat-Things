@@ -9,10 +9,13 @@ import { SecretsManagerClient } from '@aws-sdk/client-secrets-manager';
 import { HttpRequest } from '@smithy/protocol-http';
 import { SignatureV4 } from '@smithy/signature-v4';
 import { CachedSecretReader } from './adapters/aws-runtime.js';
+import { CredentialBroker } from './credentials/broker.js';
 import type { AgentDriverName, RunRecord, RunRequest, SandboxMode } from './domain/contracts.js';
 import { isTerminal } from './domain/state.js';
 import { parseRunRequest } from './domain/validation.js';
 import { driverFor } from './runner/agent-driver.js';
+import { loadCodexBedrockToken } from './runner/bedrock-auth.js';
+import { codexAuthMode } from './runner/codex-auth.js';
 import { collectWorkspacePatch, prepareWorkspace } from './runner/workspace.js';
 
 interface Arguments {
@@ -67,30 +70,47 @@ async function main(): Promise<void> {
 }
 
 async function local(args: Arguments): Promise<void> {
+  const requestedAuthMode = args.values.get('codex-auth');
+  if (requestedAuthMode) process.env.CODEX_AUTH_MODE = requestedAuthMode;
+  if (args.flags.has('network')) process.env.CODEX_TOOL_NETWORK_ACCESS = 'true';
   const request = await requestFromArguments(args, true);
   const driverName = request.agent?.driver ?? 'mock';
   const timeout = (request.execution?.timeoutSeconds ?? 900) * 1_000;
   const explicitWorkspace = args.values.get('workspace');
   let workspace = explicitWorkspace ? resolve(explicitWorkspace) : process.cwd();
   let temporary: string | undefined;
+  let loadedBedrockToken = false;
+  const credentials = new CredentialBroker(
+    new CachedSecretReader(new SecretsManagerClient(regionConfig())),
+  );
 
   if (request.repository) {
     const root = resolve(process.env.WORKSPACE_ROOT ?? join(tmpdir(), 'agent-runtime'));
     await mkdir(root, { recursive: true, mode: 0o700 });
     temporary = await mkdtemp(join(root, 'local-'));
     workspace = temporary;
-    const secrets = new CachedSecretReader(new SecretsManagerClient(regionConfig()));
-    await prepareWorkspace(request.repository, workspace, secrets);
+    await prepareWorkspace(request.repository, workspace, credentials);
   }
 
   try {
+    if (
+      driverName === 'codex' &&
+      codexAuthMode() === 'bedrock' &&
+      !process.env.AWS_BEARER_TOKEN_BEDROCK
+    ) {
+      loadedBedrockToken = await loadCodexBedrockToken(credentials);
+    }
     const result = await driverFor(driverName).execute(request, workspace, timeout);
     process.stdout.write(`${result.fullText}\n`);
+    if (args.flags.has('events')) {
+      process.stderr.write(`\n--- events.jsonl ---\n${result.events.toString('utf8')}`);
+    }
     if (args.flags.has('patch')) {
       const patch = await collectWorkspacePatch(workspace);
       if (patch) process.stderr.write(`\n--- workspace.patch ---\n${patch.toString('utf8')}\n`);
     }
   } finally {
+    if (loadedBedrockToken) delete process.env.AWS_BEARER_TOKEN_BEDROCK;
     if (temporary) await rm(temporary, { recursive: true, force: true });
   }
 }
@@ -229,6 +249,7 @@ async function doctor(): Promise<void> {
     { name: 'AWS_REGION', value: process.env.AWS_REGION ?? '(unset)', ok: Boolean(process.env.AWS_REGION) },
     { name: 'AGENT_RUNTIME_API_URL', value: process.env.AGENT_RUNTIME_API_URL ?? '(unset)', ok: Boolean(process.env.AGENT_RUNTIME_API_URL) },
     { name: 'CODEX_BINARY', value: process.env.CODEX_BINARY ?? 'codex', ok: true },
+    { name: 'CODEX_AUTH_MODE', value: process.env.CODEX_AUTH_MODE ?? 'bedrock', ok: true },
   ];
   for (const check of checks) process.stdout.write(`${check.ok ? 'ok' : 'warn'}\t${check.name}\t${check.value}\n`);
   if (!checks[0]?.ok) process.exitCode = 1;
@@ -312,6 +333,9 @@ function print(value: unknown): void {
 function help(): void {
   process.stdout.write(`indubitably-agent-runtime\n\n`);
   process.stdout.write(`  agent-runtime local --driver mock --prompt \"...\"\n`);
+  process.stdout.write(`  agent-runtime local --driver codex --codex-auth chatgpt --prompt \"...\"\n`);
+  process.stdout.write(`    add --events to print the complete Codex JSONL event stream\n`);
+  process.stdout.write(`    add --network with --sandbox workspace-write to test command egress\n`);
   process.stdout.write(`  agent-runtime submit --file examples/run-request.json [--wait]\n`);
   process.stdout.write(`  agent-runtime get RUN_ID\n`);
   process.stdout.write(`  agent-runtime cancel RUN_ID\n`);

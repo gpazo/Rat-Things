@@ -1,9 +1,6 @@
 data "aws_caller_identity" "current" {}
 data "aws_partition" "current" {}
 data "aws_region" "current" {}
-data "aws_availability_zones" "available" {
-  state = "available"
-}
 
 locals {
   name = "${var.name_prefix}-${var.environment}"
@@ -14,8 +11,7 @@ locals {
     Subsystem   = "agent-runner"
   })
 
-  availability_zones = slice(data.aws_availability_zones.available.names, 0, 2)
-  bucket_suffix      = substr(sha256("${data.aws_caller_identity.current.account_id}:${data.aws_region.current.region}:${local.name}"), 0, 12)
+  bucket_suffix = substr(sha256("${data.aws_caller_identity.current.account_id}:${data.aws_region.current.region}:${local.name}"), 0, 12)
 
   lambda_zip_paths = merge({
     control        = "${path.root}/../dist/control.zip"
@@ -101,17 +97,10 @@ check "microvm_base_image_version" {
   }
 }
 
-check "microvm_runtime_egress" {
+check "microvm_enabled" {
   assert {
-    condition     = !var.enable_microvm || var.enable_nat_gateway
-    error_message = "enable_nat_gateway must be true for this internet-using agent MicroVM runtime. Image builds use AWS managed egress, but run-time VPC egress uses the private subnet route."
-  }
-}
-
-check "default_microvm_backend" {
-  assert {
-    condition     = var.default_execution_backend != "microvm" || var.enable_microvm
-    error_message = "enable_microvm must be true when default_execution_backend is microvm."
+    condition     = var.enable_microvm
+    error_message = "enable_microvm must remain true because Lambda MicroVM is the only execution backend."
   }
 }
 

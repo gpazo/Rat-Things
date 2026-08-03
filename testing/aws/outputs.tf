@@ -34,26 +34,20 @@ output "terminal_events_queue_url" {
   value = aws_sqs_queue.terminal_events.url
 }
 
-output "worker_repository_url" {
-  value = module.agent_runner.worker_repository_url
+output "delivery_capture_queue_url" {
+  value = aws_sqs_queue.delivery_capture.url
 }
 
-output "ecs_cluster_arn" {
-  value = module.agent_runner.ecs_cluster_arn
-}
-
-output "ecs_task_definition_arn" {
-  value = module.agent_runner.ecs_task_definition_arn
+output "delivery_capture_url" {
+  value = "${aws_apigatewayv2_api.delivery_capture.api_endpoint}/teams"
 }
 
 output "microvm" {
   value = {
-    enabled                 = module.agent_runner.microvm_enabled
-    image_arn               = module.agent_runner.microvm_image_arn
-    image_version           = module.agent_runner.microvm_image_version
-    image_state             = module.agent_runner.microvm_image_state
-    network_connector_arn   = module.agent_runner.microvm_network_connector_arn
-    network_connector_state = module.agent_runner.microvm_network_connector_state
+    enabled       = module.agent_runner.microvm_enabled
+    image_arn     = module.agent_runner.microvm_image_arn
+    image_version = module.agent_runner.microvm_image_version
+    image_state   = module.agent_runner.microvm_image_state
   }
 }
 
@@ -63,4 +57,12 @@ output "github_webhook_secret_arn" {
 
 output "gitlab_webhook_secret_arn" {
   value = aws_secretsmanager_secret.gitlab_webhook.arn
+}
+
+output "teams_webhook_secret_arn" {
+  value = aws_secretsmanager_secret.teams_webhook.arn
+}
+
+output "teams_workflow_secret_arn" {
+  value = aws_secretsmanager_secret.teams_workflow.arn
 }

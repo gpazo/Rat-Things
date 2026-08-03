@@ -10,7 +10,6 @@ vi.mock('../../src/runner/process.js', () => ({
 }));
 
 import {
-  ClaudeCodeDriver,
   CodexDriver,
   driverFor,
   MockDriver,
@@ -27,7 +26,6 @@ afterEach(() => {
 describe('agent driver selection and mock execution', () => {
   it('selects each supported driver', () => {
     expect(driverFor('codex')).toBeInstanceOf(CodexDriver);
-    expect(driverFor('claude-code')).toBeInstanceOf(ClaudeCodeDriver);
     expect(driverFor('mock')).toBeInstanceOf(MockDriver);
   });
 
@@ -90,7 +88,7 @@ describe('CodexDriver', () => {
           version: '1',
           prompt: 'Review; $(touch /tmp/not-a-shell-command)',
           agent: {
-            model: 'gpt-5.1-codex',
+            model: 'openai.gpt-5.6-terra',
             sandbox: 'workspace-write',
             reasoningEffort: 'high',
             outputSchema: { type: 'object', required: ['summary'] },
@@ -104,18 +102,20 @@ describe('CodexDriver', () => {
       const [command, args, options] = runProcessMock.mock.calls[0]!;
       expect(command).toBe('/opt/runtime/bin/codex');
       expect(args).toEqual([
+        '--ask-for-approval',
+        'never',
+        '--config',
+        'model_provider="amazon-bedrock"',
         'exec',
         '--ephemeral',
         '--json',
-        '--ask-for-approval',
-        'never',
         '--sandbox',
         'workspace-write',
         '--skip-git-repo-check',
         '--cd',
         workspace,
         '--model',
-        'gpt-5.1-codex',
+        'openai.gpt-5.6-terra',
         '--config',
         'model_reasoning_effort="high"',
         '--output-schema',
@@ -160,44 +160,86 @@ describe('CodexDriver', () => {
       new CodexDriver().execute({ version: '1', prompt: 'hello' }, process.cwd(), 1_000),
     ).rejects.toThrow('Codex completed without an agent message (exit 0)');
   });
-});
 
-describe('ClaudeCodeDriver', () => {
-  it('parses the final result event and rejects unsuccessful execution', async () => {
-    vi.stubEnv('CLAUDE_BINARY', '/opt/runtime/bin/claude');
-    runProcessMock.mockImplementationOnce(async (_command, _args, options) => {
-      options.onStdoutLine?.(JSON.stringify({ type: 'progress', message: 'working' }));
-      options.onStdoutLine?.(JSON.stringify({ type: 'result', result: 'Done.' }));
+  it('uses cached ChatGPT authentication without passing a stale Bedrock token', async () => {
+    vi.stubEnv('CODEX_AUTH_MODE', 'chatgpt');
+    vi.stubEnv('AWS_BEARER_TOKEN_BEDROCK', 'must-not-be-exposed');
+    const line = JSON.stringify({
+      type: 'item.completed',
+      item: { type: 'agent_message', text: 'account-authenticated' },
+    });
+    runProcessMock.mockImplementation(async (_command, _args, options) => {
+      options.onStdoutLine?.(line);
       return {
         exitCode: 0,
-        stdout: Buffer.alloc(0),
+        stdout: Buffer.from(`${line}\n`),
         stderr: Buffer.alloc(0),
-        durationMs: 55,
-      };
-    });
-
-    const execution = await new ClaudeCodeDriver().execute(
-      { version: '1', prompt: 'Inspect this', agent: { model: 'claude-sonnet-4' } },
-      '/workspace',
-      5_000,
-    );
-    expect(runProcessMock.mock.calls[0]?.slice(0, 2)).toEqual([
-      '/opt/runtime/bin/claude',
-      ['--print', '--output-format', 'stream-json', '--verbose', '--model', 'claude-sonnet-4', 'Inspect this'],
-    ]);
-    expect(execution.fullText).toBe('Done.');
-
-    runProcessMock.mockImplementationOnce(async (_command, _args, options) => {
-      options.onStdoutLine?.(JSON.stringify({ type: 'result', result: 'partial' }));
-      return {
-        exitCode: 2,
-        stdout: Buffer.alloc(0),
-        stderr: Buffer.from('authentication failed'),
         durationMs: 1,
       };
     });
+
+    const execution = await new CodexDriver().execute(
+      { version: '1', prompt: 'return the marker' },
+      process.cwd(),
+      1_000,
+    );
+
+    const [, args, options] = runProcessMock.mock.calls[0]!;
+    expect(args.slice(0, 5)).toEqual([
+      '--ask-for-approval',
+      'never',
+      '--config',
+      'model_provider="openai"',
+      'exec',
+    ]);
+    expect(options.env.AWS_BEARER_TOKEN_BEDROCK).toBeUndefined();
+    expect(execution.fullText).toBe('account-authenticated');
+  });
+
+  it('enables command network access only with the workspace-write sandbox', async () => {
+    vi.stubEnv('CODEX_AUTH_MODE', 'chatgpt');
+    vi.stubEnv('CODEX_TOOL_NETWORK_ACCESS', 'true');
+    const line = JSON.stringify({
+      type: 'item.completed',
+      item: { type: 'agent_message', text: 'network-tested' },
+    });
+    runProcessMock.mockImplementation(async (_command, _args, options) => {
+      options.onStdoutLine?.(line);
+      return {
+        exitCode: 0,
+        stdout: Buffer.from(`${line}\n`),
+        stderr: Buffer.alloc(0),
+        durationMs: 1,
+      };
+    });
+
+    await new CodexDriver().execute(
+      {
+        version: '1',
+        prompt: 'test network',
+        agent: { sandbox: 'workspace-write' },
+      },
+      process.cwd(),
+      1_000,
+    );
+
+    const [, args] = runProcessMock.mock.calls[0]!;
+    expect(args.slice(0, 7)).toEqual([
+      '--ask-for-approval',
+      'never',
+      '--config',
+      'model_provider="openai"',
+      '--config',
+      'sandbox_workspace_write.network_access=true',
+      'exec',
+    ]);
+
     await expect(
-      new ClaudeCodeDriver().execute({ version: '1', prompt: 'Inspect this' }, '/workspace', 5_000),
-    ).rejects.toThrow('Claude Code failed with 2: authentication failed');
+      new CodexDriver().execute(
+        { version: '1', prompt: 'test network', agent: { sandbox: 'read-only' } },
+        process.cwd(),
+        1_000,
+      ),
+    ).rejects.toThrow('Codex tool network access requires the workspace-write sandbox');
   });
 });

@@ -24,12 +24,6 @@ resource "aws_cloudwatch_log_group" "lambda" {
   tags              = local.tags
 }
 
-resource "aws_cloudwatch_log_group" "ecs" {
-  name              = "/${local.name}/ecs/worker"
-  retention_in_days = var.log_retention_days
-  tags              = local.tags
-}
-
 resource "aws_cloudwatch_log_group" "api" {
   name              = "/${local.name}/api"
   retention_in_days = var.log_retention_days

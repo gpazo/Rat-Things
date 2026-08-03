@@ -22,24 +22,6 @@ resource "aws_s3_object" "microvm_source" {
   depends_on = [aws_s3_bucket_server_side_encryption_configuration.microvm_source]
 }
 
-resource "awscc_lambda_network_connector" "runner" {
-  count = var.enable_microvm ? 1 : 0
-
-  name          = "${local.name}-egress"
-  operator_role = aws_iam_role.connector_operator.arn
-  configuration = {
-    vpc_egress_configuration = {
-      associated_compute_resource_types = ["MicroVm"]
-      network_protocol                  = "IPv4"
-      security_group_ids                = [aws_security_group.runner.id]
-      subnet_ids                        = aws_subnet.private[*].id
-    }
-  }
-  tags = local.microvm_tags
-
-  depends_on = [aws_iam_role_policy.connector_operator]
-}
-
 resource "awscc_lambda_microvm_image" "runner" {
   count = var.enable_microvm ? 1 : 0
 
@@ -66,6 +48,10 @@ resource "awscc_lambda_microvm_image" "runner" {
     {
       key   = "ALLOWED_SANDBOX_MODES"
       value = join(",", var.allowed_sandbox_modes)
+    },
+    {
+      key   = "CODEX_AUTH_MODE"
+      value = "bedrock"
     },
     {
       key   = "ALLOW_AGENT_AWS_CREDENTIAL_CHAIN"
@@ -124,14 +110,6 @@ resource "aws_ssm_parameter" "microvm_image" {
   description = "Active Lambda MicroVM image ARN, or UNPROVISIONED when the preview backend is disabled"
   type        = "String"
   value       = var.enable_microvm ? awscc_lambda_microvm_image.runner[0].image_arn : "UNPROVISIONED"
-  tags        = local.tags
-}
-
-resource "aws_ssm_parameter" "microvm_connector" {
-  name        = "/${local.name}/microvm/network-connector-arn"
-  description = "Lambda MicroVM run-time VPC egress connector ARN, or UNPROVISIONED when disabled"
-  type        = "String"
-  value       = var.enable_microvm ? awscc_lambda_network_connector.runner[0].arn : "UNPROVISIONED"
   tags        = local.tags
 }
 

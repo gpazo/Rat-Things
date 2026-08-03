@@ -7,5 +7,7 @@ Architecture and lifecycle patterns were informed by:
   https://github.com/getsentry/junior
   Licensed under Apache License 2.0.
 
-No Sentry runtime code is vendored. The Lambda MicroVM provisioner and lifecycle-hook layout were
-informed by the AWS sample; attribution is retained here and in the repository documentation.
+No Sentry runtime code is vendored. Junior informed the composition-root, provider-plugin, ingress,
+identity/credential, execution, and delivery boundaries, which were implemented independently for
+this AWS subsystem. The Lambda MicroVM provisioner and lifecycle-hook layout were informed by the
+AWS sample; attribution is retained here and in the repository documentation.

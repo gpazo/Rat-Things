@@ -28,7 +28,7 @@ function queuedRun(): RunRecord {
 describe('dispatcher factory', () => {
   it('dispatches a queued run and attaches its execution reference', async () => {
     let run = queuedRun();
-    const start = vi.fn(async () => ({ backend: 'ecs' as const, id: 'task-1' }));
+    const start = vi.fn(async () => ({ backend: 'microvm' as const, id: 'microvm-1' }));
     const dependencies: DispatcherDependencies = {
       store: {
         get: async () => run,
@@ -47,7 +47,7 @@ describe('dispatcher factory', () => {
       },
       artifacts: { getJson: async <T>() => request as T },
       executors: {
-        get: () => ({ backend: 'ecs', start, stop: async () => undefined }),
+        get: () => ({ backend: 'microvm', start, stop: async () => undefined }),
       },
     };
 
@@ -61,7 +61,7 @@ describe('dispatcher factory', () => {
     expect(start).toHaveBeenCalledWith(expect.objectContaining({ runId: 'run-1' }), request, 'trace-1');
     expect(run).toMatchObject({
       status: 'dispatching',
-      execution: { backend: 'ecs', id: 'task-1' },
+      execution: { backend: 'microvm', id: 'microvm-1' },
     });
   });
 

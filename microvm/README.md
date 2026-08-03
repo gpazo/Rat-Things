@@ -6,8 +6,8 @@ runs the Dockerfile, starts the lifecycle server, and snapshots the initialized 
 
 The lifecycle server runs as root because the orchestration bundle needs the MicroVM execution-role
 credentials for DynamoDB, S3, and Secrets Manager. It launches `runner.mjs` as root; the runner is
-responsible for resolving any configured credential secret and dropping only the actual Codex or
-Claude subprocess to UID/GID 10001 with a sanitized environment. Never change the image entrypoint
+responsible for resolving any configured credential secret and dropping the Codex subprocess to
+UID/GID 10001 with a sanitized environment. Never change the image entrypoint
 to the `agent` user: doing so breaks AWS orchestration, while passing the root credential environment
 to the model-driven subprocess defeats the isolation boundary.
 

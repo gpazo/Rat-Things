@@ -1,7 +1,7 @@
 # Operational runbook
 
 This runbook assumes an operator with read access to the runtime stack, CloudWatch Logs/Metrics,
-DynamoDB run records, SQS, ECS, S3 metadata, and—when enabled—Lambda MicroVM APIs. Use a separately
+DynamoDB run records, SQS, S3 metadata, and Lambda MicroVM APIs. Use a separately
 audited break-glass role for mutations not exposed by the control API.
 
 ## First response
@@ -37,7 +37,7 @@ Record this evidence before changing anything:
 - API Gateway request ID or provider delivery/activity ID;
 - SQS message receive count and DLQ presence;
 - dispatcher, worker, state-stream, and notifier log timestamps;
-- ECS task stop code/reason or MicroVM state/termination reason;
+- MicroVM state/termination reason;
 - terminal EventBridge event and provider delivery receipt/fence status; and
 - deployment/image revision plus any active AWS/provider incident.
 
@@ -47,7 +47,7 @@ streams into tickets or chat.
 ## Health and service map
 
 `GET /health` checks only that API Gateway can invoke the control Lambda. It does not check DynamoDB,
-S3, SQS, ECS, MicroVMs, model access, repository access, or notification providers.
+S3, SQS, MicroVMs, model access, repository access, or notification providers.
 
 Expected log-group naming for a stack named `<prefix>-<environment>` is:
 
@@ -59,7 +59,6 @@ Expected log-group naming for a stack named `<prefix>-<environment>` is:
 /aws/lambda/<name>-notifier
 /aws/lambda/<name>-webhook-<provider>
 /<name>/api
-/<name>/ecs/worker
 /<name>/microvms
 ```
 
@@ -88,8 +87,8 @@ create a duplicate when the reconciler later wakes the first run.
 ### `dispatching` without an execution reference
 
 The dispatcher advanced state but did not durably attach a backend ID. Review dispatcher logs and
-CloudTrail for `RunTask`/`RunMicrovm`. The scheduled reconciler re-nudges stale `dispatching` and
-`running` records with no execution or `id: pending`; both backends use the run ID as a client token,
+CloudTrail for `RunMicrovm`. The scheduled reconciler re-nudges stale `dispatching` and
+`running` records with no execution or `id: pending`; the backend uses the run ID as a client token,
 so retrying the start is intended to return the same execution.
 
 A newly launched worker waits up to 60 seconds for this attachment before it will start the agent.
@@ -99,7 +98,7 @@ self-terminates through its supervisor.
 - Confirm the reconciler ran after the age threshold and the dispatcher attached the returned ARN/ID.
 - If no execution was created, diagnose backend start/IAM/quota errors before a new submission.
 - If an execution exists, correlate its ARN/ID and determine whether it is active before cancellation
-  or repair; do not assume a missing handle means no task/VM launched.
+  or repair; do not assume a missing handle means no MicroVM launched.
 - Do not edit the DynamoDB status casually. The state machine and notifier assume conditional,
   monotonic terminal transitions.
 
@@ -109,9 +108,7 @@ Escalate for audited state repair when the control API cannot safely reach a ter
 
 1. Inspect the execution ID in the run record.
    If it is missing or `pending`, check the unattached-launch reconciliation path first.
-2. For ECS, describe the task and inspect `lastStatus`, containers, stop code/reason, exit code, OOM,
-   ENI, image pull, and worker logs.
-3. For MicroVMs, inspect the MicroVM state, image/connector parameters, execution-role errors, lifecycle
+2. Inspect the MicroVM state, image parameters, managed-connector selection, execution-role errors, lifecycle
    hook logs, and maximum duration.
 4. Check model/provider latency and repository-clone/network failures.
 5. If the execution is alive and cancellation is safe, use:
@@ -120,12 +117,12 @@ Escalate for audited state repair when the control API cannot safely reach a ter
    node dist/cli.mjs cancel RUN_ID
    ```
 
-A task/VM killed outside the worker may leave a `running` record because the worker could not commit
+A MicroVM killed outside the worker may leave a `running` record because the worker could not commit
 failure. Automatic backend-state reconciliation is roadmap work; use the audited repair procedure.
 
 ### `cancelling` does not finish
 
-Confirm `StopTask` or `TerminateMicrovm` reached the execution ID, then check whether the worker
+Confirm `TerminateMicrovm` reached the execution ID, then check whether the worker
 observed `SIGTERM`/abort and committed `cancelled`. Repeating the API cancellation safely repeats the
 stop call when an execution is attached. The scheduled reconciler finalizes a stale `cancelling` run
 that never acquired an execution. If an attached backend is gone but state remains active, escalate
@@ -139,11 +136,11 @@ Use `error.code`, bounded message, worker events, backend reason, and adjacent l
 | Code/symptom | Investigate |
 | --- | --- |
 | Submit failed while record remains `queued` | SQS URL/policy, KMS if configured, throttling, network; retry the same idempotency key |
-| `repository_checkout_failed` | Host allowlist, ref existence, secret scope/expiry, DNS/NAT, redirect behavior |
+| `repository_checkout_failed` | Host allowlist, ref existence, secret scope/expiry, DNS/egress, redirect behavior |
 | `agent_timeout` | Timeout sizing, model latency, repository size, tool loop, backend duration |
 | `agent_failed` | Driver binary/config/auth, Bedrock model access, output-schema failure, OOM/disk |
 | Dispatch error mentioning backend disabled | Requested `microvm` without an enabled/provisioned backend or invalid deployment default |
-| MicroVM image/connector `UNPROVISIONED` | Explicit provisioning was not completed; keep/fall back to ECS while repairing |
+| MicroVM image `UNPROVISIONED` | Explicit provisioning was not completed; stop new dispatch while repairing |
 
 Retries are new semantic runs. Fix the cause, choose a new idempotency key, and retain the failed run
 for audit. Do not mutate a terminal record back to `queued`.
@@ -225,19 +222,18 @@ restricted evidence, and follow the incident plan.
 
 ## MicroVM-specific incidents
 
-Keep ECS available as the rollback backend. Before diagnosing workload code, confirm:
+Before diagnosing workload code, confirm:
 
 - the Region currently supports Lambda MicroVMs;
 - the Terraform-pinned managed base-image version is still `AVAILABLE`;
-- image and connector SSM parameters contain provisioned ARNs rather than `UNPROVISIONED`;
-- build and runtime connectors are the intended, separate resources;
-- the private subnet has the required runtime egress and DNS;
+- image SSM parameters contain a provisioned ARN rather than `UNPROVISIONED`;
+- AWS-managed egress and DNS can reach required public endpoints;
 - hook payload is under 4,096 bytes and lifecycle endpoints return the expected states; and
 - no snapshot contains run-specific data or credentials.
 
-Do not switch the deployment default to MicroVM during an incident. Submit canaries with explicit
-`"backend":"microvm"`, compare with the same request on ECS, and roll back by directing new runs to
-ECS. Terminate existing VMs only after resolving exact IDs and preserving evidence.
+Pause dispatch during a MicroVM control-plane incident. Submit only non-sensitive explicit canaries
+after the service recovers. Terminate existing VMs only after resolving exact IDs and preserving
+evidence.
 
 ## Secret rotation
 
@@ -254,10 +250,8 @@ Never place the new value in Terraform variables/state; pass only an existing Se
 
 ## Rollback and migration cutback
 
-- **Execution backend:** set the default back to ECS for new runs and remove explicit MicroVM
-  selection from canary callers. Let known-good active runs finish or cancel them by exact ID.
-- **Worker image:** apply the previously known-good immutable image tag/digest. Do not overwrite a tag
-  and assume task-definition rollback occurred.
+- **MicroVM image:** apply the previously known-good pinned source/base-image version. Let known-good
+  active runs finish or cancel them by exact ID.
 - **Webhook cutback:** restore the provider callback URL to the retained
   `indubitably-serverless` endpoint. Keep secrets and events environment-specific; watch for duplicate
   delivery during the switch.
@@ -266,7 +260,7 @@ Never place the new value in Terraform variables/state; pass only an existing Se
 - **Terraform:** review the saved plan and state before applying. Do not use destructive state/reset
   commands or `force_destroy_data=true` as an incident shortcut.
 
-`force_destroy_data=false` protects only non-empty S3/ECR deletion. It does not retain DynamoDB,
+`force_destroy_data=false` protects only non-empty S3 deletion. It does not retain DynamoDB,
 SQS, CloudWatch Logs, or KMS during a full Terraform destroy; rely on the deployment's reviewed
 backup/deletion-protection policy, not that flag, for recovery data.
 

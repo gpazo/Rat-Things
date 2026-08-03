@@ -6,6 +6,7 @@ import {
   PutCommand,
   UpdateCommand,
 } from '@aws-sdk/lib-dynamodb';
+import type { DeliveryFencePort } from '../delivery/types.js';
 import type { RunRecord } from '../domain/contracts.js';
 
 const DEFAULT_LEASE_SECONDS = 120;
@@ -17,12 +18,7 @@ export class DeliveryInProgressError extends Error {
   }
 }
 
-/**
- * A durable, expiring delivery claim. Terminal states suppress duplicates; an
- * abandoned `sending` claim throws so EventBridge keeps retrying until the lease
- * can be reclaimed.
- */
-export class DeliveryFence {
+export class DynamoDeliveryFence implements DeliveryFencePort {
   public constructor(
     private readonly client: DynamoDBDocumentClient,
     private readonly table: string,
@@ -58,10 +54,7 @@ export class DeliveryFence {
       Key: { runId: key },
       ConsistentRead: true,
     }));
-    if (!existing.Item) {
-      // A concurrent cleanup removed the claim between the failed put and read.
-      return this.claim(run, destination);
-    }
+    if (!existing.Item) return this.claim(run, destination);
     if (existing.Item.status !== 'sending') return false;
 
     const nowSeconds = Math.floor(now / 1_000);
@@ -89,7 +82,7 @@ export class DeliveryFence {
     }
   }
 
-  public async delivered(runId: string, destination: string, receipt: string): Promise<void> {
+  public async delivered(runId: string, destination: string, receipt = 'accepted'): Promise<void> {
     await this.update(runId, destination, 'delivered', { receipt });
   }
 
@@ -120,7 +113,11 @@ export class DeliveryFence {
       Key: { runId: deliveryKey(runId, destination) },
       UpdateExpression: 'SET #status = :status, updatedAt = :now, details = :details REMOVE leaseUntil',
       ExpressionAttributeNames: { '#status': 'status' },
-      ExpressionAttributeValues: { ':status': status, ':now': new Date(this.now()).toISOString(), ':details': extra },
+      ExpressionAttributeValues: {
+        ':status': status,
+        ':now': new Date(this.now()).toISOString(),
+        ':details': extra,
+      },
     }));
   }
 }

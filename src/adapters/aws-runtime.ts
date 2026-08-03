@@ -32,6 +32,8 @@ import type {
   RunQueue,
   RunStore,
 } from '../core/ports.js';
+import type { SecretReader } from '../credentials/types.js';
+import type { ResultReader } from '../delivery/types.js';
 
 export interface AwsClients {
   dynamodb: DynamoDBDocumentClient;
@@ -232,6 +234,18 @@ export class S3ArtifactStore implements ArtifactStore {
   }
 }
 
+export class S3ResultReader implements ResultReader {
+  public constructor(private readonly client: S3Client) {}
+
+  public async read(reference: ArtifactReference): Promise<string | undefined> {
+    const result = await this.client.send(new GetObjectCommand({
+      Bucket: reference.bucket,
+      Key: reference.key,
+    }));
+    return result.Body?.transformToString('utf8');
+  }
+}
+
 export class SqsRunQueue implements RunQueue {
   public constructor(
     private readonly client: SQSClient,
@@ -276,7 +290,7 @@ export class EventBridgeRunEvents {
   }
 }
 
-export class CachedSecretReader {
+export class CachedSecretReader implements SecretReader {
   private readonly values = new Map<string, { value: string; expiresAt: number }>();
 
   public constructor(

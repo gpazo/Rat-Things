@@ -12,16 +12,8 @@ locals {
   executor_environment = merge(local.lambda_common_environment, {
     ALLOW_AGENT_AWS_CREDENTIAL_CHAIN     = tostring(var.allow_agent_aws_credential_chain)
     DEFAULT_AGENT_DRIVER                 = var.default_agent_driver
-    DEFAULT_EXECUTION_BACKEND            = var.default_execution_backend
-    ECS_ASSIGN_PUBLIC_IP                 = tostring(var.ecs_assign_public_ip)
-    ECS_CLUSTER_ARN                      = aws_ecs_cluster.this.arn
-    ECS_CONTAINER_NAME                   = "agent-runner"
-    ECS_SECURITY_GROUP_IDS               = aws_security_group.runner.id
-    ECS_SUBNET_IDS                       = join(",", var.ecs_assign_public_ip ? aws_subnet.public[*].id : aws_subnet.private[*].id)
-    ECS_TASK_DEFINITION_ARN              = aws_ecs_task_definition.worker.arn
+    DEFAULT_EXECUTION_BACKEND            = "microvm"
     EVENT_BUS_NAME                       = aws_cloudwatch_event_bus.runs.name
-    MICROVM_CONNECTOR_PARAMETER_NAME     = aws_ssm_parameter.microvm_connector.name
-    MICROVM_ENABLED                      = tostring(var.enable_microvm)
     MICROVM_EXECUTION_ROLE_ARN           = aws_iam_role.microvm_execution.arn
     MICROVM_IMAGE_PARAMETER_NAME         = aws_ssm_parameter.microvm_image.name
     MICROVM_IMAGE_VERSION_PARAMETER_NAME = aws_ssm_parameter.microvm_image_version.name
@@ -194,10 +186,14 @@ resource "aws_lambda_event_source_mapping" "dispatcher" {
 }
 
 resource "aws_lambda_event_source_mapping" "state_stream" {
-  event_source_arn                   = aws_dynamodb_table.runs.stream_arn
-  function_name                      = aws_lambda_function.this["state-stream"].arn
-  enabled                            = true
-  starting_position                  = "LATEST"
+  event_source_arn = aws_dynamodb_table.runs.stream_arn
+  function_name    = aws_lambda_function.this["state-stream"].arn
+  enabled          = true
+  # A freshly created mapping can become visible before its stream poller is
+  # fully active. TRIM_HORIZON prevents runs submitted immediately after apply
+  # from falling into that startup gap; the table is dedicated to this stack
+  # and DynamoDB Streams retains only the bounded 24-hour window.
+  starting_position                  = "TRIM_HORIZON"
   batch_size                         = 100
   maximum_batching_window_in_seconds = 1
   maximum_record_age_in_seconds      = 86400

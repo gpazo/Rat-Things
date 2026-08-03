@@ -1,4 +1,4 @@
-# Agent Runtime Guide
+# Rat Things Guide
 
 This repository is the standalone execution subsystem extracted from
 `indubitably-serverless`.
@@ -7,14 +7,23 @@ This repository is the standalone execution subsystem extracted from
 
 - `src/domain` owns stable run contracts and state transitions. It must not import AWS SDKs.
 - `src/core` owns orchestration against ports. It must not know about webhook payload shapes.
-- `src/adapters` owns AWS and execution-backend implementations.
-- `src/channels` owns GitHub, GitLab, Microsoft Teams, and Slack translation only.
+- `src/identity` keeps actor, owner, source, destination, and credential subject distinct.
+- `src/credentials` owns the host-side secret-reader contract and credential-value parsing.
+- `src/ingress` authenticates and normalizes provider requests behind an ingress port.
+- `src/delivery` resolves destinations and delivers results behind a delivery port.
+- `src/execution` owns backend-neutral dispatch and the ECS/MicroVM executor registry.
+- `src/plugins` validates trusted provider manifests and binds ingress/delivery capabilities.
+- `src/adapters` owns AWS, DynamoDB delivery fencing, and execution-backend implementations.
+- `src/channels` contains provider protocol parsing/signature helpers only.
+- `src/app` is the composition root. No lower layer may import it.
+- `src/lambdas` contains transport adapters only; business orchestration belongs below it.
 - `src/runner` contains trusted orchestration that drops the actual agent process to a separate
   non-root UID inside both ECS and Lambda MicroVMs.
 - `infra/modules/agent-runner` is the reusable Terraform module; `infra/` is its dev/root example.
 
 Keep provider ingress, agent execution, and result notification as separate stages. Never put
 provider tokens in run requests, DynamoDB records, task overrides, logs, or repository URLs.
+`npm run architecture:check` enforces the dependency direction above.
 
 ## Commands
 

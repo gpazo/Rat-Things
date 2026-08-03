@@ -5,6 +5,7 @@ import { createAwsClients } from '../adapters/aws-runtime.js';
 import { requiredEnv } from '../adapters/executors.js';
 import { ConflictError } from '../core/run-service.js';
 import type { ArtifactReference, RunRecord } from '../domain/contracts.js';
+import { apiIngressContext } from '../identity/context.js';
 import { errorResponse, getRunService, header, jsonBody, principal, response } from './runtime.js';
 
 const artifactClient = createAwsClients().s3;
@@ -17,15 +18,20 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
       return response(200, { status: 'ok', service: 'indubitably-agent-runtime' });
     }
 
-    const ownerId = principal(event);
+    const context = apiIngressContext(principal(event));
+    const ownerId = context.owner.id;
     const service = getRunService(true);
     if (method === 'POST' && path === '/v1/runs') {
       const body = jsonBody(event);
-      const trustedBody = apiRequestBody(body);
+      const trustedBody = apiRequestBody(body, context.source);
       const idempotencyKey = header(event.headers, 'idempotency-key');
       const run = await service.submit(ownerId, trustedBody, {
         ...(idempotencyKey ? { idempotencyKey } : {}),
         traceId: event.requestContext.requestId,
+        provenance: {
+          actor: context.actor,
+          credentialSubject: context.credentialSubject,
+        },
       });
       return response(202, publicRun(run), { location: `/v1/runs/${run.runId}` });
     }
@@ -68,13 +74,13 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
   }
 };
 
-export function apiRequestBody(body: unknown): unknown {
+export function apiRequestBody(body: unknown, source: { kind: 'api' } = { kind: 'api' }): unknown {
   if (!body || typeof body !== 'object' || Array.isArray(body)) return body;
   return {
     ...(body as Record<string, unknown>),
     // API Gateway request IDs are per-attempt transport metadata. They remain
     // in the queue trace, not the canonical request used for idempotency.
-    source: { kind: 'api' },
+    source,
   };
 }
 

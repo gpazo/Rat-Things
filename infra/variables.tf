@@ -21,23 +21,6 @@ variable "environment" {
   default = "dev"
 }
 
-variable "vpc_cidr" {
-  type    = string
-  default = "10.42.0.0/16"
-}
-
-variable "enable_nat_gateway" {
-  description = "Create a paid NAT gateway for ECS and MicroVM run-time internet access."
-  type        = bool
-  default     = false
-}
-
-variable "enable_vpc_endpoints" {
-  description = "Create paid interface endpoints for private AWS API access."
-  type        = bool
-  default     = false
-}
-
 variable "artifact_retention_days" {
   type    = number
   default = 30
@@ -80,11 +63,6 @@ variable "allowed_sandbox_modes" {
   default = ["read-only", "workspace-write"]
 }
 
-variable "default_execution_backend" {
-  type    = string
-  default = "ecs"
-}
-
 variable "default_agent_driver" {
   description = "Defaults to mock so a new deployment cannot accidentally spend model tokens."
   type        = string
@@ -92,7 +70,7 @@ variable "default_agent_driver" {
 }
 
 variable "allow_agent_aws_credential_chain" {
-  description = "Explicit opt-in for passing a scoped AWS credential chain to Codex or Claude."
+  description = "Explicit opt-in for passing a scoped AWS credential chain to Codex. Short-term bearer tokens are preferred."
   type        = bool
   default     = false
 }
@@ -100,32 +78,6 @@ variable "allow_agent_aws_credential_chain" {
 variable "default_delivery_destinations" {
   type    = string
   default = "source"
-}
-
-variable "worker_image_tag" {
-  type    = string
-  default = "dev"
-}
-
-variable "ecs_assign_public_ip" {
-  description = "Run ECS workers in public subnets with a public IPv4 address instead of private subnets."
-  type        = bool
-  default     = false
-}
-
-variable "worker_cpu" {
-  type    = number
-  default = 1024
-}
-
-variable "worker_memory" {
-  type    = number
-  default = 2048
-}
-
-variable "worker_ephemeral_storage_gib" {
-  type    = number
-  default = 30
 }
 
 variable "lambda_zip_paths" {
@@ -282,9 +234,10 @@ variable "worker_secret_arns" {
   default = []
 }
 
-variable "bedrock_model_arns" {
-  type    = list(string)
-  default = []
+variable "codex_bedrock_model_ids" {
+  description = "Exact Bedrock Mantle model IDs that Codex may invoke."
+  type        = list(string)
+  default     = ["openai.gpt-5.6-terra"]
 }
 
 variable "bedrock_api_key_secret_arn" {
@@ -296,9 +249,9 @@ variable "bedrock_api_key_secret_arn" {
 }
 
 variable "enable_microvm" {
-  description = "Opt in to Lambda MicroVM preview image and connector resources."
+  description = "Provision the Lambda MicroVM execution backend. Must remain enabled."
   type        = bool
-  default     = false
+  default     = true
 }
 
 variable "microvm_source_zip_path" {

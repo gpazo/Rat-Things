@@ -63,7 +63,7 @@ Idempotency-Key: review-example-01234567
     "reasoningEffort": "high"
   },
   "execution": {
-    "backend": "ecs",
+    "backend": "microvm",
     "timeoutSeconds": 900
   },
   "destinations": [
@@ -143,7 +143,7 @@ Unknown fields are rejected at every validated object level.
 
 | Field | Values |
 | --- | --- |
-| `driver` | `codex`, `claude-code`, or `mock`; `mock` is for tests |
+| `driver` | `codex` or `mock`; `mock` is for tests |
 | `model` | Optional deployment/provider model identifier, up to 255 restricted characters |
 | `sandbox` | `read-only`, `workspace-write`, or `danger-full-access`, further restricted by deployment policy |
 | `reasoningEffort` | `low`, `medium`, `high`, or `xhigh` |
@@ -152,22 +152,18 @@ Unknown fields are rejected at every validated object level.
 Omitted values use deployment defaults. Runtime policy defaults `ALLOWED_SANDBOX_MODES` to
 `read-only,workspace-write`, so `danger-full-access` is rejected even though it exists in the v1 enum.
 Explicitly enabling it disables the agent CLI's inner sandbox; do so only after reviewing the outer
-one-run ECS task or MicroVM, UID/environment boundary, workload role, egress policy, and repository as
+one-run MicroVM, UID/environment boundary, workload role, egress policy, and repository as
 the complete trust boundary.
 
-Driver options are not symmetric today. Codex consumes `sandbox`, `reasoningEffort`, and
-`outputSchema`; Claude Code consumes only `model` and `prompt`, so those three controls are ignored by
-the compatibility driver. Do not infer read-only inner enforcement for Claude Code from the request;
-the outer task/VM remains its boundary. The mock driver ignores model/sandbox/reasoning/schema.
+Codex consumes `model`, `sandbox`, `reasoningEffort`, and `outputSchema`. The mock driver ignores
+those controls and returns deterministic output without contacting a model provider.
 
 ### `execution`
 
-`backend` is `ecs` or `microvm`; when omitted, the deployment default is used. A request for a backend
-that is not enabled fails during dispatch. `timeoutSeconds` is an integer from 30 through 28,000 and
-defaults to 900.
+`backend` must be `microvm`; when omitted, the deployment default is used. `timeoutSeconds` is an
+integer from 30 through 28,000 and defaults to 900.
 
-The backend choice changes provisioning and cancellation semantics, not the v1 result schema. See
-[architecture](architecture.md#ecs-and-lambda-microvms-are-distinct-backends).
+See [Lambda MicroVM execution](architecture.md#lambda-microvm-execution).
 
 ### `destinations`
 
@@ -201,9 +197,24 @@ A newly accepted run resembles:
     "key": "owners/<owner-hash>/runs/<run-id>/input-<hash>.json",
     "sha256": "<sha256>"
   },
-  "sourceKind": "api"
+  "sourceKind": "api",
+  "provenance": {
+    "actor": {
+      "kind": "human",
+      "id": "api:arn:aws:iam::123456789012:user/operator",
+      "provider": "api"
+    },
+    "credentialSubject": {
+      "kind": "actor",
+      "id": "api:arn:aws:iam::123456789012:user/operator"
+    }
+  }
 }
 ```
+
+`provenance` is host-created, bounded context. A caller cannot submit it as part of the v1 request.
+Actor attribution does not grant access to the run or to provider credentials; `ownerId` remains the
+authorization and idempotency namespace.
 
 All normal responses include `Cache-Control: no-store`. Submission also includes
 `Location: /v1/runs/{runId}`.
@@ -251,7 +262,7 @@ URL or separate S3 permission does not grant access.
 | `cancelled` | Terminal cancellation |
 
 Cancelling `queued` work is immediate. Cancelling `dispatching` or `running` work transitions to
-`cancelling` and calls ECS `StopTask` or MicroVM `TerminateMicrovm` once an execution reference is
+`cancelling` and calls `TerminateMicrovm` once an execution reference is
 available. Re-cancelling a `cancelling` run safely repeats the stop when an execution is attached;
 terminal cancellation is idempotent. A cancellation cannot undo provider posts,
 repository writes, or other external effects already completed.

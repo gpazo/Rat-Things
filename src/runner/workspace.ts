@@ -1,13 +1,13 @@
 import { mkdir, rm } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import type { RepositoryInput } from '../domain/contracts.js';
-import type { CachedSecretReader } from '../adapters/aws-runtime.js';
+import type { CredentialBroker } from '../credentials/broker.js';
 import { runProcess } from './process.js';
 
 export async function prepareWorkspace(
   repository: RepositoryInput | undefined,
   workspace: string,
-  secrets: CachedSecretReader,
+  credentials: CredentialBroker,
 ): Promise<void> {
   const absolute = resolve(workspace);
   const root = resolve(process.env.WORKSPACE_ROOT ?? '/tmp/agent-runtime');
@@ -31,8 +31,10 @@ export async function prepareWorkspace(
     GIT_TERMINAL_PROMPT: '0',
   };
   if (repository.credentialSecretArn) {
-    const raw = await secrets.get(repository.credentialSecretArn);
-    env.GIT_TOKEN = parseToken(raw);
+    env.GIT_TOKEN = await credentials.read(
+      repository.credentialSecretArn,
+      ['token', 'access_token', 'password'],
+    );
     env.GIT_USERNAME = repository.provider === 'github' ? 'x-access-token' : 'oauth2';
     env.GIT_ASKPASS = process.env.GIT_ASKPASS_PATH ?? '/app/bin/git-askpass.sh';
   }
@@ -119,18 +121,6 @@ function validateRepositoryUrl(value: string): void {
   ) {
     throw new Error('repository URL is not allowed');
   }
-}
-
-function parseToken(raw: string): string {
-  try {
-    const value = JSON.parse(raw) as Record<string, unknown>;
-    for (const key of ['token', 'access_token', 'password']) {
-      if (typeof value[key] === 'string' && value[key]) return value[key] as string;
-    }
-  } catch {
-    // Raw token strings are accepted.
-  }
-  return raw;
 }
 
 function redact(value: string): string {

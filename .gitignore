@@ -1,6 +1,7 @@
 # Dependencies, builds, and test output
 node_modules/
 dist/
+dist-pages/
 coverage/
 *.tsbuildinfo
 *.log

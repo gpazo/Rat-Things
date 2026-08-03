@@ -161,8 +161,8 @@ function parseAgent(value: unknown, allowedSandboxModes?: SandboxMode[]): AgentI
   rejectUnknown(input, ['driver', 'model', 'sandbox', 'reasoningEffort', 'outputSchema']);
   const result: AgentInput = {};
   if (input.driver !== undefined) {
-    if (!['codex', 'claude-code', 'mock'].includes(String(input.driver))) {
-      throw new ValidationError('agent.driver must be codex, claude-code, or mock');
+    if (!['codex', 'mock'].includes(String(input.driver))) {
+      throw new ValidationError('agent.driver must be codex or mock');
     }
     result.driver = input.driver as AgentDriverName;
   }
@@ -205,8 +205,8 @@ function parseExecution(value: unknown): ExecutionInput {
   rejectUnknown(input, ['backend', 'timeoutSeconds']);
   const result: ExecutionInput = {};
   if (input.backend !== undefined) {
-    if (!['ecs', 'microvm'].includes(String(input.backend))) {
-      throw new ValidationError('execution.backend must be ecs or microvm');
+    if (input.backend !== 'microvm') {
+      throw new ValidationError('execution.backend must be microvm');
     }
     result.backend = input.backend as ExecutionBackend;
   }

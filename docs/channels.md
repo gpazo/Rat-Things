@@ -5,8 +5,7 @@ do not bypass validation or create a separate execution path.
 
 Normalized channel requests set `sandbox: read-only` but do not select a driver. Dispatch therefore
 uses `default_agent_driver`: the shipped/example `mock` default keeps webhook and chat canaries
-deterministic and model-token-free until an operator explicitly switches the deployment to `codex`
-or `claude-code`.
+deterministic and model-token-free until an operator explicitly switches the deployment to `codex`.
 
 The adapters intentionally separate:
 

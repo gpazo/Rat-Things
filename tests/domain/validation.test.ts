@@ -20,7 +20,7 @@ describe('parseRunRequest', () => {
         },
         agent: {
           driver: 'codex',
-          model: 'openai/gpt-5.1-codex',
+          model: 'openai.gpt-5.6-terra',
           sandbox: 'read-only',
           reasoningEffort: 'high',
           outputSchema: { type: 'object', required: ['summary'] },
@@ -54,7 +54,7 @@ describe('parseRunRequest', () => {
       },
       agent: {
         driver: 'codex',
-        model: 'openai/gpt-5.1-codex',
+        model: 'openai.gpt-5.6-terra',
         sandbox: 'read-only',
         reasoningEffort: 'high',
         outputSchema: { type: 'object', required: ['summary'] },
@@ -217,5 +217,13 @@ describe('parseRunRequest', () => {
       { version: '1', prompt: 'hello', agent: { sandbox: 'danger-full-access' } },
       { allowedSandboxModes: ['read-only', 'workspace-write'] },
     )).toThrow('agent.sandbox danger-full-access is disabled by runtime policy');
+  });
+
+  it('rejects unsupported agent drivers', () => {
+    expect(() => parseRunRequest({
+      version: '1',
+      prompt: 'hello',
+      agent: { driver: 'claude-code' },
+    })).toThrow('agent.driver must be codex or mock');
   });
 });

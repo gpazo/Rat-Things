@@ -158,7 +158,7 @@ function parseRunHook(body) {
   environment.ALLOWED_SANDBOX_MODES = sandboxModes.join(',');
 
   const driver = requiredString(payload, 'defaultAgentDriver', 32);
-  if (!['mock', 'codex', 'claude-code'].includes(driver)) {
+  if (!['mock', 'codex'].includes(driver)) {
     throw new InvalidHookRequest('defaultAgentDriver is invalid');
   }
   environment.DEFAULT_AGENT_DRIVER = driver;

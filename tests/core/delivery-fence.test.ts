@@ -1,7 +1,10 @@
 import { DynamoDBDocumentClient } from '@aws-sdk/lib-dynamodb';
 import { describe, expect, it, vi } from 'vitest';
 
-import { DeliveryFence, DeliveryInProgressError } from '../../src/core/delivery-fence.js';
+import {
+  DynamoDeliveryFence,
+  DeliveryInProgressError,
+} from '../../src/adapters/dynamo-delivery-fence.js';
 import type { RunRecord } from '../../src/domain/contracts.js';
 
 const now = Date.parse('2026-08-02T12:00:00.000Z');
@@ -16,10 +19,10 @@ function conditionalFailure(): Error {
   return error;
 }
 
-describe('DeliveryFence', () => {
+describe('DynamoDeliveryFence', () => {
   it('creates a bounded initial lease', async () => {
     const send = vi.fn().mockResolvedValue({});
-    const fence = new DeliveryFence({ send } as unknown as DynamoDBDocumentClient, 'runs', () => now, 120);
+    const fence = new DynamoDeliveryFence({ send } as unknown as DynamoDBDocumentClient, 'runs', () => now, 120);
 
     await expect(fence.claim(run, 'source:default')).resolves.toBe(true);
     expect(send.mock.calls[0]?.[0].input.Item).toMatchObject({
@@ -32,7 +35,7 @@ describe('DeliveryFence', () => {
     const send = vi.fn()
       .mockRejectedValueOnce(conditionalFailure())
       .mockResolvedValueOnce({ Item: { status: 'delivered' } });
-    const fence = new DeliveryFence({ send } as unknown as DynamoDBDocumentClient, 'runs', () => now);
+    const fence = new DynamoDeliveryFence({ send } as unknown as DynamoDBDocumentClient, 'runs', () => now);
 
     await expect(fence.claim(run, 'source:default')).resolves.toBe(false);
   });
@@ -43,7 +46,7 @@ describe('DeliveryFence', () => {
       .mockResolvedValueOnce({
         Item: { status: 'sending', leaseUntil: Math.floor(now / 1_000) + 60 },
       });
-    const fence = new DeliveryFence({ send } as unknown as DynamoDBDocumentClient, 'runs', () => now);
+    const fence = new DynamoDeliveryFence({ send } as unknown as DynamoDBDocumentClient, 'runs', () => now);
 
     await expect(fence.claim(run, 'source:default')).rejects.toBeInstanceOf(DeliveryInProgressError);
   });
@@ -55,7 +58,7 @@ describe('DeliveryFence', () => {
         Item: { status: 'sending', leaseUntil: Math.floor(now / 1_000) - 1 },
       })
       .mockResolvedValueOnce({});
-    const fence = new DeliveryFence({ send } as unknown as DynamoDBDocumentClient, 'runs', () => now, 120);
+    const fence = new DynamoDeliveryFence({ send } as unknown as DynamoDBDocumentClient, 'runs', () => now, 120);
 
     await expect(fence.claim(run, 'source:default')).resolves.toBe(true);
     expect(send.mock.calls[2]?.[0].input.ExpressionAttributeValues).toMatchObject({

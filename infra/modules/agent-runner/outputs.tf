@@ -57,27 +57,6 @@ output "event_bus_name" {
   value = aws_cloudwatch_event_bus.runs.name
 }
 
-output "worker_repository_url" {
-  description = "Push the linux/arm64 agent-runner image to this ECR repository."
-  value       = aws_ecr_repository.worker.repository_url
-}
-
-output "ecs_cluster_arn" {
-  value = aws_ecs_cluster.this.arn
-}
-
-output "ecs_task_definition_arn" {
-  value = aws_ecs_task_definition.worker.arn
-}
-
-output "runner_private_subnet_ids" {
-  value = aws_subnet.private[*].id
-}
-
-output "runner_security_group_id" {
-  value = aws_security_group.runner.id
-}
-
 output "microvm_enabled" {
   value = var.enable_microvm
 }
@@ -94,14 +73,6 @@ output "microvm_image_state" {
   value = try(awscc_lambda_microvm_image.runner[0].state, null)
 }
 
-output "microvm_network_connector_arn" {
-  value = try(awscc_lambda_network_connector.runner[0].arn, null)
-}
-
-output "microvm_network_connector_state" {
-  value = try(awscc_lambda_network_connector.runner[0].state, null)
-}
-
 output "microvm_execution_role_arn" {
   value = aws_iam_role.microvm_execution.arn
 }
@@ -112,10 +83,6 @@ output "microvm_image_parameter_name" {
 
 output "microvm_image_version_parameter_name" {
   value = aws_ssm_parameter.microvm_image_version.name
-}
-
-output "microvm_connector_parameter_name" {
-  value = aws_ssm_parameter.microvm_connector.name
 }
 
 output "microvm_log_group_name" {

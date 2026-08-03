@@ -2,7 +2,7 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { CachedSecretReader } from '../../src/adapters/aws-runtime.js';
+import { CredentialBroker } from '../../src/credentials/broker.js';
 import { collectWorkspacePatch, prepareWorkspace } from '../../src/runner/workspace.js';
 
 afterEach(() => {
@@ -16,10 +16,10 @@ describe('ephemeral workspace', () => {
     vi.stubEnv('WORKSPACE_ROOT', root);
     vi.stubEnv('RUN_AGENT_UID', '');
     vi.stubEnv('RUN_AGENT_GID', '');
-    const secrets = { get: vi.fn() } as unknown as CachedSecretReader;
+    const credentials = new CredentialBroker({ get: vi.fn() });
 
     try {
-      await prepareWorkspace(undefined, workspace, secrets);
+      await prepareWorkspace(undefined, workspace, credentials);
       await writeFile(join(workspace, 'result.txt'), 'created by agent\n');
       const patch = await collectWorkspacePatch(workspace);
       expect(patch?.toString('utf8')).toContain('diff --git a/result.txt b/result.txt');
@@ -34,9 +34,9 @@ describe('ephemeral workspace', () => {
     const root = await mkdtemp(join(tmpdir(), 'agent-runtime-root-'));
     const outside = await mkdtemp(join(tmpdir(), 'agent-runtime-outside-'));
     vi.stubEnv('WORKSPACE_ROOT', root);
-    const secrets = { get: vi.fn() } as unknown as CachedSecretReader;
+    const credentials = new CredentialBroker({ get: vi.fn() });
     try {
-      await expect(prepareWorkspace(undefined, outside, secrets)).rejects.toThrow(
+      await expect(prepareWorkspace(undefined, outside, credentials)).rejects.toThrow(
         `workspace must be below ${root}`,
       );
     } finally {

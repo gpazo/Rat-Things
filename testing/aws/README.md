@@ -1,60 +1,48 @@
 # Live AWS end-to-end validation
 
-This harness deploys an isolated, short-lived copy of the agent runner into the caller's AWS
-account, validates it, and destroys it. It is deliberately separate from `infra/` state and gives
-every resource a unique deployment ID plus `Ephemeral=true` and `DeploymentId` tags.
+This harness deploys an isolated, short-lived Rat Things stack into the caller's AWS account,
+validates it, and destroys it. It uses separate Terraform state and tags every resource with a
+unique deployment ID.
 
 ## One command
 
 ```bash
-npm run test:e2e:aws
-```
-
-The wrapper performs these phases in order:
-
-1. Package the Lambda functions.
-2. Bootstrap the encrypted ECR repository.
-3. Build and push the real `linux/arm64` worker image.
-4. Apply the complete Terraform stack.
-5. Populate disposable GitHub and GitLab signing secrets.
-6. Test the IAM-authenticated control API, output download, signed provider webhooks, Fargate
-   execution, DynamoDB Streams, EventBridge terminal events, and empty failure queues.
-7. When MicroVM mode is enabled, build the managed image and VPC connector, call `RunMicrovm`, clone
-   a public repository at a pinned commit, verify the mock result, and verify self-termination.
-8. Stop remaining ECS tasks and MicroVMs and run `terraform destroy`, even when an earlier phase
-   fails.
-
-The stack uses the mock agent driver. It does not invoke Codex, Claude, or Bedrock and therefore does
-not spend model tokens. In the default mode, ECS tasks receive public IPv4 addresses in public
-subnets, so the test creates neither a NAT gateway nor paid interface VPC endpoints. Lambda MicroVM
-provisioning is disabled by default.
-
-To include a live MicroVM image build and run, pin a currently available managed `al2023-1` version:
-
-```bash
 AWS_E2E_ENABLE_MICROVM=true \
-AWS_E2E_MICROVM_BASE_IMAGE_VERSION=1 \
+AWS_E2E_MICROVM_BASE_IMAGE_VERSION="<available pinned version>" \
 npm run test:e2e:aws
 ```
 
-Version `1` was validated in `us-west-2` on 2026-08-02; discover availability again before relying on
-that value. MicroVM mode temporarily creates a NAT gateway because the VPC network connector must
-reach the public test repository. The cleanup trap removes it.
+The wrapper:
+
+1. Packages the Lambda functions and MicroVM source bundle.
+2. Applies the complete ephemeral Terraform stack and waits for the managed image.
+3. Populates disposable GitHub, GitLab, Teams, and egress-capture secrets.
+4. Sends an IAM-authenticated control request and real signed provider webhook requests.
+5. Verifies MicroVM execution, pinned public-repository checkout, S3 output/events, DynamoDB state,
+   EventBridge terminal events, Teams Adaptive Card egress, empty failure queues, and self-termination.
+6. Terminates any remaining MicroVMs and runs `terraform destroy` from an exit trap.
+
+The default stack uses the mock driver. It does not invoke Codex or Bedrock, so it spends no model
+tokens. It creates no ECS/ECR resources, customer VPC, NAT gateway, or customer network connector;
+MicroVMs use AWS-managed public egress.
+
+Set `AWS_E2E_REAL_CODEX=true` to add one real `openai.gpt-5.6-terra` request through Bedrock. The
+worker execution role mints a short-term token, the unprivileged Codex process receives only that
+token, and the test verifies non-mock output, usage accounting, artifacts, state, and termination.
+
+Version `1` of the managed `al2023-1` image was validated in `us-west-2` on 2026-08-03. Discover
+availability again before relying on that value.
 
 AWS does not allow immediate deletion of a customer-managed KMS key. Teardown disables the key and
-schedules it for deletion after AWS's minimum waiting period; the post-destroy audit treats only a
-`PendingDeletion` KMS key as expected. All other Terraform-managed resources are destroyed
-immediately, including ECR images, S3 objects, networking, Lambdas, queues, tables, logs, test
-secrets, the MicroVM image, and its network connector. The final audit verifies resource state
-directly because AWS's resource-tag index can retain deleted ECS and networking records briefly.
+schedules it for deletion after AWS's minimum waiting period; only that `PendingDeletion` key is an
+expected residual resource. All other Terraform-managed resources are destroyed and directly
+audited.
 
 LocalStack validates the shared data/event workflow but does not implement the Lambda MicroVM
-control plane, image lifecycle, hooks, connector, or isolation. The MicroVM leg therefore remains a
+control plane, image lifecycle, hooks, managed connectors, or isolation. This leg is therefore a
 live-AWS-only test.
 
 ## Manual phases
-
-To inspect the deployed stack between phases:
 
 ```bash
 ./scripts/aws-e2e-deploy.sh
@@ -62,16 +50,14 @@ To inspect the deployed stack between phases:
 ./scripts/aws-e2e-destroy.sh
 ```
 
-The deploy command prints the generated deployment ID and stores it in `.aws-e2e/latest`. Pass that
-ID explicitly if multiple runs exist:
+The deploy command stores the generated deployment ID in `.aws-e2e/latest`. Pass it explicitly when
+multiple runs exist:
 
 ```bash
 ./scripts/aws-e2e-destroy.sh e2e-260802120000
 ```
 
 Terraform state and generated runtime configuration live under `.aws-e2e/<deployment-id>/` and are
-excluded from Git. The runtime file contains disposable webhook signing secrets and is securely
-permissioned while the stack exists; teardown truncates and deletes it.
-
-If the process is terminated with `SIGKILL`, the shell cannot run its cleanup trap. Use the printed
-manual destroy command immediately in that case.
+ignored by Git. The runtime file contains disposable signing secrets and is permissioned while the
+stack exists; teardown removes it. If a process is killed with `SIGKILL`, run the printed manual
+destroy command immediately.

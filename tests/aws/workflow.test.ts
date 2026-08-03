@@ -19,7 +19,7 @@ import type { RunRecord, RunStateEvent } from '../../src/domain/contracts.js';
 const integration = process.env.AWS_E2E === 'true' ? describe : describe.skip;
 const timeoutMs = Number(process.env.AWS_E2E_TIMEOUT_MS ?? 420_000);
 
-integration('live AWS ingress-to-ECS-to-egress workflow', () => {
+integration('live AWS agent-runner workflow', () => {
   it('runs the control API and signed provider webhooks through real AWS infrastructure', async () => {
     delete process.env.AWS_ENDPOINT_URL;
     const clients = createAwsClients();
@@ -35,7 +35,7 @@ integration('live AWS ingress-to-ECS-to-egress workflow', () => {
       version: '1',
       prompt: `Return AWS live marker ${controlMarker}`,
       agent: { driver: 'mock', sandbox: 'read-only' },
-      execution: { backend: 'ecs', timeoutSeconds: 120 },
+      execution: { backend: 'microvm', timeoutSeconds: 120 },
       destinations: [{ kind: 'none' }],
     }, { 'idempotency-key': idempotencyKey });
     expect(submitted.status).toBe('queued');
@@ -44,13 +44,13 @@ integration('live AWS ingress-to-ECS-to-egress workflow', () => {
       version: '1',
       prompt: `Return AWS live marker ${controlMarker}`,
       agent: { driver: 'mock', sandbox: 'read-only' },
-      execution: { backend: 'ecs', timeoutSeconds: 120 },
+      execution: { backend: 'microvm', timeoutSeconds: 120 },
       destinations: [{ kind: 'none' }],
     }, { 'idempotency-key': idempotencyKey });
     expect(repeated.runId).toBe(submitted.runId);
 
     const controlRun = await waitForApiRun(submitted.runId);
-    assertSuccessfulEcsRun(controlRun);
+    assertSuccessfulMicrovmRun(controlRun);
     expect(controlRun.result?.preview).toBe(`mock-agent: Return AWS live marker ${controlMarker}`);
     await expectTerminalEvents(clients.sqs, new Set([submitted.runId]));
 
@@ -62,22 +62,33 @@ integration('live AWS ingress-to-ECS-to-egress workflow', () => {
     expect(outputResponse.status).toBe(200);
     expect(await outputResponse.text()).toBe(`mock-agent: Return AWS live marker ${controlMarker}`);
 
-    const [githubRunId, gitlabRunId] = await Promise.all([
+    const teamsMarker = `live-teams-${randomUUID()}`;
+    const [githubRunId, gitlabRunId, teamsRunId] = await Promise.all([
       submitGitHubWebhook(),
       submitGitLabWebhook(),
+      submitTeamsWebhook(teamsMarker),
     ]);
-    const [githubRun, gitlabRun] = await Promise.all([
+    const [githubRun, gitlabRun, teamsRun] = await Promise.all([
       waitForStoredRun(store, githubRunId),
       waitForStoredRun(store, gitlabRunId),
+      waitForStoredRun(store, teamsRunId),
     ]);
-    assertSuccessfulEcsRun(githubRun);
-    assertSuccessfulEcsRun(gitlabRun);
+    assertSuccessfulMicrovmRun(githubRun);
+    assertSuccessfulMicrovmRun(gitlabRun);
+    assertSuccessfulMicrovmRun(teamsRun);
     expect(githubRun.sourceKind).toBe('github');
     expect(gitlabRun.sourceKind).toBe('gitlab');
+    expect(teamsRun.sourceKind).toBe('teams');
     expect(await outputText(clients.s3, githubRun)).toContain('mock-agent: Review GitHub pull request');
     expect(await outputText(clients.s3, gitlabRun)).toContain('mock-agent: Review GitLab merge request');
+    expect(await outputText(clients.s3, teamsRun)).toBe(`mock-agent: Return AWS live marker ${teamsMarker}`);
 
-    await expectTerminalEvents(clients.sqs, new Set([githubRunId, gitlabRunId]));
+    await expectTerminalEvents(clients.sqs, new Set([githubRunId, gitlabRunId, teamsRunId]));
+    await expectTeamsDeliveries(clients.sqs, new Map([
+      [githubRunId, 'mock-agent: Review GitHub pull request'],
+      [gitlabRunId, 'mock-agent: Review GitLab merge request'],
+      [teamsRunId, `mock-agent: Return AWS live marker ${teamsMarker}`],
+    ]));
 
     await expectEmptyFailureQueues(clients.sqs);
   }, timeoutMs);
@@ -107,6 +118,38 @@ integration('live AWS ingress-to-ECS-to-egress workflow', () => {
     await expectTerminalEvents(clients.sqs, new Set([microvmRun.runId]));
     await expectEmptyFailureQueues(clients.sqs);
   }, timeoutMs);
+
+  const realCodexTest = process.env.AWS_E2E_REAL_CODEX === 'true' ? it : it.skip;
+  realCodexTest('runs a real Codex response through Bedrock in a Lambda MicroVM', async () => {
+    delete process.env.AWS_ENDPOINT_URL;
+    const clients = createAwsClients();
+    const marker = `real-codex-${randomUUID()}`;
+    const submitted = await signedApi<RunRecord>('/v1/runs', 'POST', {
+      version: '1',
+      prompt: `Respond with exactly this marker and no other text: ${marker}`,
+      agent: {
+        driver: 'codex',
+        model: process.env.AWS_E2E_CODEX_MODEL_ID ?? 'openai.gpt-5.6-terra',
+        sandbox: 'read-only',
+        reasoningEffort: 'low',
+      },
+      execution: { backend: 'microvm', timeoutSeconds: 300 },
+      destinations: [{ kind: 'none' }],
+    }, { 'idempotency-key': `aws-e2e-real-codex-${randomUUID()}` });
+
+    const completed = await waitForApiRun(submitted.runId);
+    expect(completed.status, JSON.stringify(completed.error)).toBe('succeeded');
+    expect(completed.execution?.backend).toBe('microvm');
+    expect(completed.execution?.id).toBeTruthy();
+    expect(completed.result?.exitCode).toBe(0);
+    expect(completed.result?.agentThreadId).toBeTruthy();
+    expect(completed.result?.agentThreadId).not.toBe('mock-thread');
+    expect(completed.result?.usage?.inputTokens).toBeGreaterThan(0);
+    expect(completed.result?.usage?.outputTokens).toBeGreaterThan(0);
+    expect((await outputText(clients.s3, completed)).trim()).toContain(marker);
+    await expectTerminalEvents(clients.sqs, new Set([submitted.runId]));
+    await expectEmptyFailureQueues(clients.sqs);
+  }, timeoutMs);
 });
 
 async function submitGitHubWebhook(): Promise<string> {
@@ -121,7 +164,7 @@ async function submitGitHubWebhook(): Promise<string> {
     },
     pull_request: {
       title: 'AWS live infrastructure validation',
-      body: 'Deterministic mock-agent execution against the live ECS runner.',
+      body: 'Deterministic mock-agent execution against the live Lambda MicroVM runner.',
       user: { login: 'aws-e2e' },
       head: { sha: required('AWS_E2E_GITHUB_SHA') },
       base: { ref: 'master' },
@@ -158,7 +201,7 @@ async function submitGitLabWebhook(): Promise<string> {
       action: 'open',
       iid: 1,
       title: 'AWS live infrastructure validation',
-      description: 'Deterministic mock-agent execution against the live ECS runner.',
+      description: 'Deterministic mock-agent execution against the live Lambda MicroVM runner.',
       target_branch: 'master',
       last_commit: { id: required('AWS_E2E_GITLAB_SHA') },
     },
@@ -176,6 +219,42 @@ async function submitGitLabWebhook(): Promise<string> {
   });
   expect(response.status).toBe(202);
   return response.runId;
+}
+
+async function submitTeamsWebhook(marker: string): Promise<string> {
+  const activityId = randomUUID();
+  const body = JSON.stringify({
+    type: 'message',
+    id: activityId,
+    text: `<at>Indubitably</at> Return AWS live marker ${marker}`,
+    from: { id: 'aws-e2e-user', name: 'AWS E2E' },
+    conversation: { id: 'aws-e2e-conversation' },
+    channelData: {
+      tenant: { id: 'aws-e2e-tenant' },
+      team: { id: 'aws-e2e-team' },
+      channel: { id: 'aws-e2e-channel' },
+    },
+  });
+  const key = Buffer.from(required('TEAMS_WEBHOOK_SIGNING_SECRET'), 'base64');
+  const signature = `HMAC ${createHmac('sha256', key).update(body, 'utf8').digest('base64')}`;
+  const request = (): Promise<Response> => fetch(required('TEAMS_WEBHOOK_URL'), {
+    method: 'POST',
+    headers: {
+      authorization: signature,
+      'content-type': 'application/json',
+    },
+    body,
+  });
+  const first = await request();
+  const firstText = await first.text();
+  const repeated = await request();
+  const repeatedText = await repeated.text();
+  expect(first.status).toBe(200);
+  expect(repeated.status).toBe(200);
+  expect(repeatedText).toBe(firstText);
+  const runId = firstText.match(/[0-9a-f]{8}-[0-9a-f-]{27}/i)?.[0];
+  if (!runId) throw new Error(`Teams webhook returned no run ID: ${firstText.slice(0, 500)}`);
+  return runId;
 }
 
 async function webhook(
@@ -215,12 +294,12 @@ async function waitForRun(load: () => Promise<RunRecord>): Promise<RunRecord> {
   throw new Error(`run did not become terminal; last state was ${latest?.status ?? 'unknown'}`);
 }
 
-function assertSuccessfulEcsRun(run: RunRecord): void {
-  assertSuccessfulRun(run, 'ecs');
-  expect(run.execution?.id).toMatch(/^arn:aws:ecs:/);
+function assertSuccessfulMicrovmRun(run: RunRecord): void {
+  assertSuccessfulRun(run, 'microvm');
+  expect(run.execution?.id).not.toMatch(/^arn:aws:/);
 }
 
-function assertSuccessfulRun(run: RunRecord, backend: 'ecs' | 'microvm'): void {
+function assertSuccessfulRun(run: RunRecord, backend: 'microvm'): void {
   expect(run.status, JSON.stringify(run.error)).toBe('succeeded');
   expect(run.execution?.backend).toBe(backend);
   expect(run.execution?.id).toBeTruthy();
@@ -267,6 +346,54 @@ async function expectTerminalEvents(
     }
   }
   expect([...remaining], 'terminal EventBridge events not observed').toEqual([]);
+}
+
+async function expectTeamsDeliveries(
+  sqs: ReturnType<typeof createAwsClients>['sqs'],
+  expected: Map<string, string>,
+): Promise<void> {
+  const remaining = new Map(expected);
+  const deadline = Date.now() + 60_000;
+  while (remaining.size > 0 && Date.now() < deadline) {
+    const response = await sqs.send(new ReceiveMessageCommand({
+      QueueUrl: required('DELIVERY_CAPTURE_QUEUE_URL'),
+      MaxNumberOfMessages: 10,
+      WaitTimeSeconds: 10,
+      VisibilityTimeout: 20,
+    }));
+    for (const message of response.Messages ?? []) {
+      const payload = JSON.parse(message.Body ?? '{}') as {
+        type?: unknown;
+        attachments?: Array<{
+          content?: {
+            body?: Array<{ type?: unknown; text?: unknown; facts?: Array<{ value?: unknown }> }>;
+          };
+        }>;
+      };
+      const cardBody = payload.attachments?.[0]?.content?.body ?? [];
+      const deliveredRunId = cardBody
+        .flatMap((item) => item.facts ?? [])
+        .map((fact) => fact.value)
+        .find((value): value is string => typeof value === 'string' && remaining.has(value));
+      if (deliveredRunId) {
+        expect(payload.type).toBe('message');
+        const text = cardBody
+          .map((item) => item.text)
+          .filter((value): value is string => typeof value === 'string')
+          .join('\n');
+        expect(text).toContain('Agent run succeeded');
+        expect(text).toContain(remaining.get(deliveredRunId));
+        remaining.delete(deliveredRunId);
+      }
+      if (message.ReceiptHandle) {
+        await sqs.send(new DeleteMessageCommand({
+          QueueUrl: required('DELIVERY_CAPTURE_QUEUE_URL'),
+          ReceiptHandle: message.ReceiptHandle,
+        }));
+      }
+    }
+  }
+  expect([...remaining.keys()], 'Teams delivery payloads not observed').toEqual([]);
 }
 
 async function expectEmptyFailureQueues(

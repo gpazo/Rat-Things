@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import type { RunRecord, RunRequest } from '../domain/contracts.js';
+import type { RunProvenance, RunRecord, RunRequest } from '../domain/contracts.js';
 import type { SandboxMode } from '../domain/contracts.js';
 import { isTerminal } from '../domain/state.js';
 import { parseRunRequest, ValidationError } from '../domain/validation.js';
@@ -38,6 +38,7 @@ export class ForbiddenError extends Error {
 export interface SubmitOptions {
   idempotencyKey?: string;
   traceId?: string;
+  provenance?: RunProvenance;
 }
 
 export interface RunServiceOptions {
@@ -109,6 +110,7 @@ export class RunService {
       requestHash,
       input,
       sourceKind: request.source?.kind ?? 'api',
+      ...(submit.provenance ? { provenance: submit.provenance } : {}),
     };
 
     const created = await this.options.store.create(record);

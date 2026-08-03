@@ -4,11 +4,11 @@ flowchart TB
 
     subgraph harness["C4 · Level 2 — Live AWS Test Harness"]
         direction LR
-        package["Package & Push<br/><small>Lambda ZIPs + worker image</small>"]
+        package["Package<br/><small>Lambda + MicroVM ZIPs</small>"]
         deploy["Terraform Deploy<br/><small>Ephemeral test root</small>"]
         exercise["Workflow Test<br/><small>Vitest assertions</small>"]
         cleanup["Destroy & Audit<br/><small>Terraform + direct AWS checks</small>"]
-        aws["Ephemeral AWS Runtime<br/><small>ECS + optional MicroVM</small>"]
+        aws["Ephemeral AWS Runtime<br/><small>Lambda MicroVM only</small>"]
 
         package --> deploy
         deploy --> exercise

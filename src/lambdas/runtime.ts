@@ -1,37 +1,7 @@
 import type { APIGatewayProxyEventV2, APIGatewayProxyStructuredResultV2 } from 'aws-lambda';
-import { DynamoRunStore, S3ArtifactStore, SqsRunQueue, createAwsClients } from '../adapters/aws-runtime.js';
-import { createExecutorRegistryFromEnv, requiredEnv } from '../adapters/executors.js';
-import { ConflictError, ForbiddenError, NotFoundError, RunService } from '../core/run-service.js';
-import type { ExecutionController } from '../core/ports.js';
-import type { SandboxMode } from '../domain/contracts.js';
+import { ConflictError, ForbiddenError, NotFoundError } from '../core/run-service.js';
 import { ValidationError } from '../domain/validation.js';
-
-let submissionService: RunService | undefined;
-let controlService: RunService | undefined;
-
-const noExecutions: ExecutionController = {
-  stop: async () => {
-    throw new Error('execution control is not available in this Lambda');
-  },
-};
-
-export function getRunService(enableExecutionControl = false): RunService {
-  if (enableExecutionControl && controlService) return controlService;
-  if (!enableExecutionControl && submissionService) return submissionService;
-  const clients = createAwsClients();
-  const service = new RunService({
-    store: new DynamoRunStore(clients.dynamodb, requiredEnv('RUNS_TABLE_NAME')),
-    artifacts: new S3ArtifactStore(clients.s3, requiredEnv('ARTIFACT_BUCKET')),
-    queue: new SqsRunQueue(clients.sqs, requiredEnv('RUN_QUEUE_URL')),
-    executions: enableExecutionControl ? createExecutorRegistryFromEnv() : noExecutions,
-    allowedRepositoryHosts: csv(process.env.ALLOWED_REPOSITORY_HOSTS ?? 'github.com,gitlab.com'),
-    allowedSandboxModes: sandboxModes(process.env.ALLOWED_SANDBOX_MODES ?? 'read-only,workspace-write'),
-    retentionSeconds: Number(process.env.RUN_RETENTION_SECONDS ?? 2_592_000),
-  });
-  if (enableExecutionControl) controlService = service;
-  else submissionService = service;
-  return service;
-}
+export { getRunService } from '../app/composition.js';
 
 export function rawBody(event: APIGatewayProxyEventV2): string {
   const body = event.body ?? '';
@@ -128,18 +98,6 @@ export function secretValue(raw: string, keys: string[]): string {
     // Raw secret strings are valid.
   }
   return raw;
-}
-
-function csv(value: string): string[] {
-  return value.split(',').map((item) => item.trim().toLowerCase()).filter(Boolean);
-}
-
-function sandboxModes(value: string): SandboxMode[] {
-  const modes = csv(value);
-  if (modes.length === 0 || modes.some((mode) => !['read-only', 'workspace-write', 'danger-full-access'].includes(mode))) {
-    throw new Error('ALLOWED_SANDBOX_MODES contains an invalid value');
-  }
-  return modes as SandboxMode[];
 }
 
 function stringClaim(value: unknown): string | undefined {

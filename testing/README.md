@@ -39,7 +39,7 @@ canonical S3, DynamoDB, and SQS contract. Its full deterministic execution path 
 signed Teams webhook
   -> Secrets Manager verification
   -> S3 input + DynamoDB run + SQS wake-up
-  -> dispatcher with a test-only ECS launch reference
+  -> dispatcher with a test-only MicroVM execution reference
   -> real worker with the mock agent driver
   -> S3 output/events + DynamoDB terminal state
   -> actual DynamoDB Streams records
@@ -55,12 +55,10 @@ suppression.
 
 Handlers and the mock worker run in the host Node.js process; LocalStack owns the AWS data-plane and
 event-routing services. This keeps the default test usable without a paid LocalStack tier. It does
-not validate API Gateway/Lambda deployment wiring, Fargate scheduling and isolation, IAM/KMS policy
-enforcement, or retry timing.
+not validate API Gateway/Lambda deployment wiring, Lambda MicroVM scheduling/isolation/lifecycle,
+IAM/KMS policy enforcement, or retry timing.
 
 LocalStack currently places [API Gateway v2](https://docs.localstack.cloud/aws/services/apigateway/)
-and [ECS `RunTask`](https://docs.localstack.cloud/aws/services/ecs/) in paid tiers. A paid-tier
-extension can later deploy the packaged Lambdas and worker image to exercise that functional path.
-LocalStack's current [official coverage data](https://github.com/localstack/localstack-docs/tree/1035ec58cdc196d79d3a26bb86d53eecdbad698a/src/data/coverage)
-does not document the Lambda MicroVM APIs, so `RunMicrovm`, lifecycle hooks, image/connectors, and
-isolation remain AWS-only canaries.
+in a paid tier. Its current [official coverage data](https://github.com/localstack/localstack-docs/tree/1035ec58cdc196d79d3a26bb86d53eecdbad698a/src/data/coverage)
+does not document the Lambda MicroVM APIs, so `RunMicrovm`, lifecycle hooks, managed networking, and
+isolation remain live-AWS-only checks.

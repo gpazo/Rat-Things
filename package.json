@@ -13,6 +13,7 @@
   "scripts": {
     "build": "node scripts/build.mjs",
     "package": "npm run build && node scripts/package-lambdas.mjs && node scripts/smoke-lambda-bundles.mjs",
+    "architecture:check": "node scripts/check-architecture.mjs",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -25,6 +26,8 @@
     "aws:e2e:destroy": "./scripts/aws-e2e-destroy.sh",
     "test:e2e:aws": "./scripts/aws-e2e.sh",
     "smoke:local": "tsx src/cli.ts local --driver mock --prompt \"Return the local smoke-test marker\"",
+    "site:build": "node scripts/build-pages.mjs",
+    "site:serve": "npm run site:build && npx --yes serve dist-pages",
     "terraform:fmt": "terraform -chdir=infra fmt -recursive",
     "terraform:fmt:check": "terraform -chdir=infra fmt -recursive -check",
     "terraform:validate": "terraform -chdir=infra init -backend=false -input=false && terraform -chdir=infra validate",
@@ -32,13 +35,11 @@
     "terraform:localstack:validate": "terraform -chdir=testing/localstack init -backend=false -input=false && terraform -chdir=testing/localstack validate",
     "terraform:aws-e2e:fmt:check": "terraform -chdir=testing/aws fmt -recursive -check",
     "terraform:aws-e2e:validate": "terraform -chdir=testing/aws init -backend=false -input=false && terraform -chdir=testing/aws validate",
-    "docker:build": "npm run build && docker build --platform linux/arm64 -t indubitably-agent-runtime:dev .",
-    "check": "npm run typecheck && npm test && npm run package && npm run terraform:fmt:check && npm run terraform:localstack:fmt:check && npm run terraform:aws-e2e:fmt:check && npm run terraform:validate && npm run terraform:localstack:validate && npm run terraform:aws-e2e:validate"
+    "check": "npm run architecture:check && npm run typecheck && npm test && npm run package && npm run site:build && npm run terraform:fmt:check && npm run terraform:localstack:fmt:check && npm run terraform:aws-e2e:fmt:check && npm run terraform:validate && npm run terraform:localstack:validate && npm run terraform:aws-e2e:validate"
   },
   "dependencies": {
     "@aws-crypto/sha256-js": "5.2.0",
     "@aws-sdk/client-dynamodb": "3.1088.0",
-    "@aws-sdk/client-ecs": "3.1088.0",
     "@aws-sdk/client-eventbridge": "3.1088.0",
     "@aws-sdk/client-lambda-microvms": "3.1088.0",
     "@aws-sdk/client-s3": "3.1088.0",
@@ -49,11 +50,13 @@
     "@aws-sdk/lib-dynamodb": "3.1088.0",
     "@aws-sdk/s3-request-presigner": "3.1088.0",
     "@aws-sdk/util-dynamodb": "3.996.7",
+    "@aws/bedrock-token-generator": "1.1.0",
     "@smithy/protocol-http": "5.5.9",
     "@smithy/signature-v4": "5.6.5",
     "archiver": "8.0.0"
   },
   "devDependencies": {
+    "@openai/codex": "0.146.0",
     "@aws-sdk/client-dynamodb-streams": "3.1088.0",
     "@types/archiver": "7.0.0",
     "@types/aws-lambda": "8.10.152",

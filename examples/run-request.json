@@ -11,7 +11,7 @@
     "sandbox": "workspace-write"
   },
   "execution": {
-    "backend": "ecs",
+    "backend": "microvm",
     "timeoutSeconds": 900
   },
   "metadata": {

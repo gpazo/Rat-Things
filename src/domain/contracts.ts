@@ -12,8 +12,8 @@ export const RUN_STATUSES = [
 ] as const;
 
 export type RunStatus = (typeof RUN_STATUSES)[number];
-export type ExecutionBackend = 'ecs' | 'microvm';
-export type AgentDriverName = 'codex' | 'claude-code' | 'mock';
+export type ExecutionBackend = 'microvm';
+export type AgentDriverName = 'codex' | 'mock';
 export type SandboxMode = 'read-only' | 'workspace-write' | 'danger-full-access';
 export type RepositoryProvider = 'github' | 'gitlab' | 'generic';
 
@@ -81,6 +81,22 @@ export interface SlackSource {
 
 export type RunSource = ApiSource | GitHubSource | GitLabSource | TeamsSource | SlackSource;
 
+export interface RunActorContext {
+  kind: 'human' | 'system';
+  id: string;
+  provider: RunSource['kind'];
+}
+
+export interface RunCredentialSubjectContext {
+  kind: 'runtime' | 'actor';
+  id: string;
+}
+
+export interface RunProvenance {
+  actor: RunActorContext;
+  credentialSubject: RunCredentialSubjectContext;
+}
+
 export interface RunDestination {
   kind: 'source' | 'teams' | 'slack' | 'none';
   route?: string;
@@ -143,6 +159,7 @@ export interface RunRecord {
   requestHash: string;
   input: ArtifactReference;
   sourceKind: RunSource['kind'];
+  provenance?: RunProvenance;
   execution?: ExecutionReference;
   result?: RunResult;
   error?: RunError;

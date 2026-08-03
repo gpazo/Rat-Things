@@ -2,7 +2,7 @@
 
 ## Scope
 
-Indubitably Agent Runtime is an asynchronous job subsystem. It accepts a bounded, versioned run
+Rat Things is an asynchronous job subsystem. It accepts a bounded, versioned run
 request; assigns trusted ownership and provenance; schedules one isolated worker; persists the
 result; and optionally posts that result to a channel. It is not a general workflow engine, source
 control installation manager, or chat identity service.
@@ -13,11 +13,39 @@ The code is divided by responsibility:
 | --- | --- |
 | `src/domain` | Stable request/result types, validation, and the run state machine; no AWS imports |
 | `src/core` | Submission, idempotency, ownership, cancellation, and orchestration through ports |
-| `src/adapters` | DynamoDB, S3, SQS, EventBridge, ECS, Lambda MicroVMs, SSM, and Secrets Manager |
-| `src/channels` | Provider signature verification and webhook-to-run normalization |
-| `src/lambdas` | Thin API Gateway, queue, stream, and EventBridge handlers |
+| `src/identity` | Explicit actor, owner, source, and credential-subject context |
+| `src/credentials` | Host-owned secret resolution and bounded credential extraction |
+| `src/ingress` | Provider-neutral webhook lifecycle plus GitHub/GitLab/Teams/Slack adapters |
+| `src/delivery` | Destination resolution, delivery lifecycle, and provider egress adapters |
+| `src/execution` | Provider-neutral dispatch and execution-backend registry |
+| `src/plugins` | Validated manifests binding provider ingress and delivery capabilities |
+| `src/adapters` | DynamoDB, S3, SQS, EventBridge, Lambda MicroVMs, SSM, and Secrets Manager |
+| `src/channels` | Pure provider payload normalization and signature helpers |
+| `src/app` | Composition root that supplies host-owned ports to trusted built-in plugins |
+| `src/lambdas` | Thin API Gateway, SQS, stream, and EventBridge transport adapters |
 | `src/runner` | The untrusted repository/model execution boundary shared by both backends |
 | `infra/modules/agent-runner` | Reusable AWS infrastructure module |
+
+`npm run architecture:check` rejects imports that reverse these dependencies. In particular,
+provider plugins cannot import Lambda handlers, AWS adapters, the composition root, or the worker.
+
+## Junior-inspired abstraction model
+
+Junior was used as an architectural reference, not as a runtime dependency. The corresponding
+concepts in this subsystem are:
+
+| Junior concept | Agent Runtime equivalent | Deliberate difference |
+| --- | --- | --- |
+| App composition root | `src/app/composition.ts` | Composes AWS Lambda/job capabilities rather than a Vercel chat app |
+| Ingress adapters | `src/ingress/providers` | GitHub, GitLab, Teams, and optional Slack enter one run contract |
+| Runtime/services | `src/core` plus `src/execution` | One bounded run, not a resumable conversation/turn model |
+| Plugin host/API | `src/plugins` | Trusted built-ins only; no arbitrary package discovery or user plugin execution |
+| Credential broker | `src/credentials` | Secrets Manager references stay host-owned; no OAuth flow yet |
+| Sandbox/runtime | Lambda MicroVM plus `src/runner` | AWS isolation replaces Vercel Sandbox |
+| Provider egress | `src/delivery/providers` | EventBridge terminal delivery with a DynamoDB fence |
+
+The key invariant is the same: provider modules depend on small host-supplied contracts and do not
+own orchestration, durable state, execution, or credentials. See [the plugin model](plugins.md).
 
 ## C4 diagrams
 
@@ -65,7 +93,7 @@ boundary. This does not make arbitrary external side effects exactly once.
 The dispatcher chooses `execution.backend`, or the deployment default, and starts one execution. It
 passes identifiers and storage coordinates, not the prompt or a provider token. The worker loads and
 revalidates the stored request. Before it starts the agent, the worker waits up to 60 seconds for the
-dispatcher to attach the ECS task ARN or MicroVM ID to the durable record. This makes cancellation
+dispatcher to attach the MicroVM ID to the durable record. This makes cancellation
 targetable before untrusted work begins and fails closed if launch succeeded but attachment cannot
 be repaired.
 
@@ -73,16 +101,17 @@ be repaired.
 
 Trusted worker orchestration creates an isolated per-run workspace and clones an allowlisted,
 credential-free HTTPS repository when requested. It resolves the clone credential only for the Git
-subprocess and optionally resolves a scoped Bedrock API key. It then hands the workspace to UID 10001
+subprocess and mints a short-term Bedrock bearer token from the execution role (or resolves an
+explicitly configured Bedrock key). It then hands the workspace to UID 10001
 and launches a driver without a shell or the root process's AWS credential-chain environment. The
 Codex driver uses
 [`codex exec`](https://developers.openai.com/codex/noninteractive) in ephemeral JSON mode. The
-Claude Code and mock drivers implement the same internal interface.
+The deterministic mock driver implements the same internal interface for tests.
 
 The child receives a small environment allowlist and, when configured, only
 `AWS_BEARER_TOKEN_BEDROCK` for model access. `ALLOW_AGENT_AWS_CREDENTIAL_CHAIN=true` is an explicit
 local/exception escape hatch and must remain false in production. This process separation materially
-reduces exposure, but it does not replace the outer ECS/MicroVM, IAM, and egress boundaries.
+reduces exposure, but it does not replace the outer MicroVM, IAM, and egress boundaries.
 
 The worker writes:
 
@@ -116,42 +145,37 @@ failure to write the DLQ. Redrive is an operator action.
 
 This is an explicit best-effort delivery policy, not a claim of exactly-once messaging.
 
-## ECS and Lambda MicroVMs are distinct backends
+## Lambda MicroVM execution
 
-Both backends run the same agent-worker contract, but they are not two labels for the same ECS
-container:
+Lambda MicroVM is the only remote execution backend:
 
-| Property | ECS Fargate | AWS Lambda MicroVMs |
-| --- | --- | --- |
-| Provisioned unit | ARM64 ECS task definition and cluster | Lambda MicroVM image plus egress network connector |
-| Per-run call | ECS `RunTask` | Lambda MicroVMs `RunMicrovm` |
-| Runtime unit | One Fargate task per run | One Firecracker-backed MicroVM environment per run |
-| Input bootstrap | Environment overrides containing run/storage IDs | Bounded `runHookPayload` containing run/storage IDs |
-| Network | Task ENI in configured subnets/security groups | Explicit Lambda MicroVM network connector |
-| Cancellation | ECS `StopTask` | `TerminateMicrovm` |
-| Default/maturity | Baseline backend | Opt-in preview path; requires separate provisioning |
+| Property | Behavior |
+| --- | --- |
+| Provisioned unit | Lambda MicroVM image using a pinned managed base-image version |
+| Per-run call | `RunMicrovm` with a bounded `runHookPayload` containing run/storage IDs |
+| Runtime unit | One Firecracker-backed MicroVM environment per run |
+| Network | AWS-managed public egress by default; no customer VPC connector |
+| Cancellation/cleanup | `TerminateMicrovm` by exact MicroVM ID |
 
-There is no always-on agent service and neither backend exposes user-facing or workload ingress. ECS
-uses a container image directly. The MicroVM image listens on port 8080 inside the managed
-environment for the service-required lifecycle hooks; that listener is not a prompt or agent API.
-The MicroVM service builds a managed image from an S3 bundle containing a Dockerfile and artifacts,
-captures a snapshot, and invokes those lifecycle hooks inside the VM. Its image, connector,
-execution role, logging, duration, and hook semantics follow the
+There is no always-on agent service and no user-facing or workload ingress to the worker. The image
+listens on port 8080 inside the managed environment for service lifecycle hooks; that listener is
+not a prompt or agent API. The service builds a managed image from an S3 bundle containing a
+Dockerfile and artifacts, captures a snapshot, and invokes those lifecycle hooks inside the VM. Its
+image, managed connector, execution role, logging, duration, and hook semantics follow the
 [Lambda MicroVM images](https://docs.aws.amazon.com/lambda/latest/dg/microvms-images.html),
 [networking](https://docs.aws.amazon.com/lambda/latest/dg/microvms-networking.html), and
 [`RunMicrovm` API](https://docs.aws.amazon.com/lambda/latest/microvm-api/API_RunMicrovm.html)
 documentation.
 
-The MicroVM image must treat each `/run` hook as fresh work. Never snapshot secrets, run IDs, open
-network sessions, or repository contents. Build-time and run-time connectors are different security
-contexts; a running VM's connector cannot be changed. The service may preserve suspended state for
-up to eight hours, so cleanup and per-run initialization remain mandatory. See the AWS
+The image must treat each `/run` hook as fresh work. Never snapshot secrets, run IDs, open network
+sessions, or repository contents. A running VM's connector cannot be changed. The service may
+preserve suspended state for up to eight hours, so cleanup and per-run initialization remain
+mandatory. See the AWS
 [snapshot guidance](https://docs.aws.amazon.com/lambda/latest/dg/microvms-images-snapshots.html).
 
-AWS announced Lambda MicroVMs on June 22, 2026 with an initial limited Region set. Confirm the
-current [availability announcement](https://aws.amazon.com/about-aws/whats-new/2026/06/aws-lambda-microvms/)
-before selecting a deployment Region. The Terraform and provisioner keep MicroVM creation disabled
-unless explicitly requested; ordinary validation and ECS deployment do not create a MicroVM image.
+AWS launched Lambda MicroVMs with an initial limited Region set. Confirm current availability before
+selecting a deployment Region. Terraform requires MicroVM provisioning because there is no fallback
+execution backend.
 
 ## Data and control boundaries
 
@@ -172,7 +196,7 @@ control API should remain authenticated.
 
 SQS wakes the dispatcher; it is not the canonical request store. A scheduled reconciler re-nudges
 stale queued runs and stale dispatching/running records that have no attached execution handle, and
-finalizes stale cancellations that never launched. Backend start uses the run ID as the ECS/MicroVM
+finalizes stale cancellations that never launched. Backend start uses the run ID as the MicroVM
 client token, so recovering a dispatcher crash after launch does not intentionally create a second
 execution. DynamoDB Streams are the durable source of state changes, and EventBridge carries their
 bounded notifications; neither bus is the full result store. Stream-to-EventBridge retry is finite,
@@ -183,8 +207,8 @@ queue. Redelivery is expected, which is why state transitions and delivery fence
 ### Secrets Manager and SSM
 
 Secrets Manager stores webhook authenticators, repository/provider credentials, the scoped Bedrock
-API key, and outbound channel URLs/tokens. SSM parameters hold non-secret provisioned MicroVM image
-and connector ARNs. Workers receive only ARNs or resource coordinates. Trusted orchestration resolves
+API key, and outbound channel URLs/tokens. SSM parameters hold the non-secret provisioned MicroVM
+image ARN/version. Workers receive only ARNs or resource coordinates. Trusted orchestration resolves
 clone/model material before launching the unprivileged agent child; notification credentials remain
 in the notifier.
 
@@ -194,13 +218,17 @@ Keep these namespaces independent:
 
 | Identity | Examples | Decides | Must not decide |
 | --- | --- | --- | --- |
-| Source/owner | API JWT `sub`, GitHub installation/org, GitLab project, Teams tenant+sender | Run visibility, idempotency namespace, provenance | Which AWS/provider credential to use |
+| Actor | API principal, provider sender, or verified system event | Attribution retained in run provenance | Run ownership or provider credentials |
+| Owner | API JWT `sub`, GitHub installation/org, GitLab project, Teams tenant+sender | Run visibility and idempotency namespace | Destination or credential authority |
+| Source | API, GitHub delivery, GitLab event, Teams activity, Slack event | Trusted trigger provenance and source reply resolution | Ownership by itself |
 | Destination | `source`, Teams route name, Slack channel | Where a terminal result is attempted | Run ownership or credential contents |
-| Credential | ECS task role, MicroVM execution role, a Secrets Manager ARN | What an adapter may access or call | Owner, source, or arbitrary destination |
+| Credential subject | API actor or deployment runtime | Which host-owned authority may be considered | Destination, ownership, or secret value |
+| Credential | MicroVM execution role, a Secrets Manager ARN | What an adapter may access or call | Actor, owner, source, or arbitrary destination |
 
-The control endpoint overwrites any client-provided `source` with an API source and API Gateway
-request ID. Webhook sources are created only after signature validation. Routes are opaque delivery
-configuration keys, never secret values.
+The control endpoint overwrites any client-provided `source` with an API source; the per-attempt API
+Gateway request ID remains queue trace metadata so it cannot change the idempotent request hash.
+Webhook sources and provenance are created only after signature validation. Routes are opaque
+delivery configuration keys, never secret values.
 
 ## Deliberate current limits
 

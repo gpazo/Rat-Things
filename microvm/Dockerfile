@@ -1,7 +1,6 @@
 FROM public.ecr.aws/lambda/microvms:al2023-minimal
 
 ARG CODEX_VERSION=0.146.0
-ARG CLAUDE_CODE_VERSION=2.1.220
 
 RUN dnf install -y \
       bash \
@@ -16,7 +15,6 @@ RUN dnf install -y \
     && rm -rf /var/cache/dnf \
     && npm install --global \
       "@openai/codex@${CODEX_VERSION}" \
-      "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" \
     && npm cache clean --force \
     && groupadd --gid 10001 agent \
     && useradd --uid 10001 --gid 10001 --create-home --shell /bin/bash agent \

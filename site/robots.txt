@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://gpazo.github.io/Rat-Things/sitemap.xml

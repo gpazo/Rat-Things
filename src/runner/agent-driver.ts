@@ -1,6 +1,7 @@
 import { chown, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { AgentDriverName, RunRequest } from '../domain/contracts.js';
+import { codexAuthMode, codexModelProvider } from './codex-auth.js';
 import { runProcess } from './process.js';
 
 export interface AgentExecution {
@@ -26,8 +27,6 @@ export function driverFor(name: AgentDriverName): AgentDriver {
   switch (name) {
     case 'codex':
       return new CodexDriver();
-    case 'claude-code':
-      return new ClaudeCodeDriver();
     case 'mock':
       return new MockDriver();
   }
@@ -42,19 +41,32 @@ export class CodexDriver implements AgentDriver {
     timeoutMs: number,
     signal?: AbortSignal,
   ): Promise<AgentExecution> {
+    const authMode = codexAuthMode();
+    const sandbox = request.agent?.sandbox ?? 'read-only';
+    const toolNetworkAccess = process.env.CODEX_TOOL_NETWORK_ACCESS === 'true';
+    if (toolNetworkAccess && sandbox !== 'workspace-write') {
+      throw new Error('Codex tool network access requires the workspace-write sandbox');
+    }
     const args = [
+      '--ask-for-approval',
+      'never',
+      '--config',
+      `model_provider=${JSON.stringify(codexModelProvider(authMode))}`,
+      ...(toolNetworkAccess
+        ? ['--config', 'sandbox_workspace_write.network_access=true']
+        : []),
       'exec',
       '--ephemeral',
       '--json',
-      '--ask-for-approval',
-      'never',
       '--sandbox',
-      request.agent?.sandbox ?? 'read-only',
+      sandbox,
       '--skip-git-repo-check',
       '--cd',
       workspace,
     ];
-    const model = request.agent?.model ?? process.env.DEFAULT_MODEL;
+    const model = request.agent?.model ?? (
+      authMode === 'chatgpt' ? process.env.CODEX_CHATGPT_MODEL : process.env.DEFAULT_MODEL
+    );
     if (model) args.push('--model', model);
     if (request.agent?.reasoningEffort) {
       args.push('--config', `model_reasoning_effort=${JSON.stringify(request.agent.reasoningEffort)}`);
@@ -122,53 +134,6 @@ export class CodexDriver implements AgentDriver {
   }
 }
 
-export class ClaudeCodeDriver implements AgentDriver {
-  public readonly name = 'claude-code' as const;
-
-  public async execute(
-    request: RunRequest,
-    workspace: string,
-    timeoutMs: number,
-    signal?: AbortSignal,
-  ): Promise<AgentExecution> {
-    const args = ['--print', '--output-format', 'stream-json', '--verbose'];
-    const model = request.agent?.model ?? process.env.DEFAULT_MODEL;
-    if (model) args.push('--model', model);
-    args.push(request.prompt);
-    let fullText = '';
-    const lines: string[] = [];
-    const result = await runProcess(process.env.CLAUDE_BINARY ?? 'claude', args, {
-      cwd: workspace,
-      env: {
-        ...agentEnvironment(),
-        CLAUDE_CODE_USE_BEDROCK: process.env.CLAUDE_CODE_USE_BEDROCK ?? '1',
-      },
-      ...agentIdentity(),
-      timeoutMs,
-      ...(signal ? { signal } : {}),
-      onStdoutLine: (line) => {
-        if (!line) return;
-        lines.push(line);
-        try {
-          const event = JSON.parse(line) as Record<string, unknown>;
-          if (event.type === 'result' && typeof event.result === 'string') fullText = event.result;
-        } catch {
-          // stream-json is a protocol boundary. Ignore non-protocol stdout.
-        }
-      },
-    });
-    if (result.exitCode !== 0 || !fullText) {
-      throw new Error(`Claude Code failed with ${result.exitCode}: ${result.stderr.toString('utf8').slice(-1_000)}`);
-    }
-    return {
-      fullText,
-      exitCode: result.exitCode,
-      durationMs: result.durationMs,
-      events: Buffer.from(`${lines.join('\n')}\n`),
-    };
-  }
-}
-
 export class MockDriver implements AgentDriver {
   public readonly name = 'mock' as const;
 
@@ -207,6 +172,7 @@ function assignNumber(
 }
 
 function agentEnvironment(): NodeJS.ProcessEnv {
+  const authMode = codexAuthMode();
   const allowed = new Set([
     'PATH',
     'HOME',
@@ -218,10 +184,8 @@ function agentEnvironment(): NodeJS.ProcessEnv {
     'AWS_DEFAULT_REGION',
     'AWS_EC2_METADATA_DISABLED',
     'AWS_STS_REGIONAL_ENDPOINTS',
-    'AWS_BEARER_TOKEN_BEDROCK',
-    'CLAUDE_CODE_USE_BEDROCK',
-    'ANTHROPIC_MODEL',
   ]);
+  if (authMode === 'bedrock') allowed.add('AWS_BEARER_TOKEN_BEDROCK');
   if (process.env.ALLOW_AGENT_AWS_CREDENTIAL_CHAIN === 'true') {
     for (const name of [
       'AWS_CONTAINER_CREDENTIALS_RELATIVE_URI',

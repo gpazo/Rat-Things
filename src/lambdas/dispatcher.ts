@@ -1,31 +1,32 @@
 import type { SQSBatchResponse, SQSEvent, SQSHandler } from 'aws-lambda';
-import { InvalidStateTransitionError } from '../domain/state.js';
-import type { RunQueueMessage, RunRecord, RunRequest } from '../domain/contracts.js';
 import { createAwsClients, DynamoRunStore, S3ArtifactStore } from '../adapters/aws-runtime.js';
+import { createExecutorRegistryFromEnv, requiredEnv } from '../adapters/executors.js';
+import type { ExecutionBackend, RunQueueMessage } from '../domain/contracts.js';
 import {
-  createExecutorRegistryFromEnv,
-  type ExecutorRegistry,
-  requiredEnv,
-} from '../adapters/executors.js';
-import type { ArtifactStore, RunStore } from '../core/ports.js';
+  parseRunQueueMessage,
+  RunDispatcher,
+  type RunDispatcherOptions,
+} from '../execution/dispatcher.js';
 
-export interface DispatcherDependencies {
-  store: Pick<RunStore, 'get' | 'transition' | 'attachExecution' | 'fail'>;
-  artifacts: Pick<ArtifactStore, 'getJson'>;
-  executors: Pick<ExecutorRegistry, 'get'>;
-}
+export type DispatcherDependencies = Omit<RunDispatcherOptions, 'defaultBackend'> & {
+  defaultBackend?: ExecutionBackend;
+};
 
 let defaults: DispatcherDependencies | undefined;
 
-export function createDispatcher(
-  dependencies?: DispatcherDependencies,
-): SQSHandler {
+export function createDispatcher(dependencies?: DispatcherDependencies): SQSHandler {
   return async (event: SQSEvent): Promise<SQSBatchResponse> => {
     const resolved = dependencies ?? defaultDependencies();
+    const dispatcher = new RunDispatcher({
+      store: resolved.store,
+      artifacts: resolved.artifacts,
+      executors: resolved.executors,
+      defaultBackend: resolved.defaultBackend ?? defaultExecutionBackend(),
+    });
     const failures: SQSBatchResponse['batchItemFailures'] = [];
     for (const record of event.Records) {
       try {
-        await dispatchRun(parseMessage(record.body), resolved);
+        await dispatcher.dispatch(parseRunQueueMessage(record.body));
       } catch (error) {
         console.error(JSON.stringify({
           level: 'error',
@@ -46,39 +47,12 @@ export async function dispatchRun(
   message: RunQueueMessage,
   dependencies: DispatcherDependencies = defaultDependencies(),
 ): Promise<void> {
-  const { store, artifacts, executors } = dependencies;
-  const current = await store.get(message.runId);
-  if (!current || !isDispatchable(current)) return;
-  const request = await artifacts.getJson<RunRequest>(current.input);
-  const backend = request.execution?.backend ?? defaultBackend();
-  const executor = executors.get(backend);
-  if (current.status === 'queued') await store.transition(current.runId, ['queued'], 'dispatching');
-  let execution;
-  try {
-    execution = await executor.start(current, request, message.traceId);
-  } catch (error) {
-    if (retryableStartError(error)) throw error;
-    await store.fail(current.runId, {
-      code: 'executor_start_failed',
-      message: safeMessage(error),
-      retryable: false,
-    }, ['dispatching']);
-    return;
-  }
-
-  try {
-    await store.attachExecution(current.runId, execution);
-  } catch (error) {
-    await executor.stop(execution.id, 'run was cancelled while the executor was starting');
-    if (error instanceof InvalidStateTransitionError) {
-      const latest = await store.get(current.runId);
-      if (latest?.status === 'cancelling') {
-        await store.transition(current.runId, ['cancelling'], 'cancelled');
-        return;
-      }
-    }
-    throw error;
-  }
+  return new RunDispatcher({
+    store: dependencies.store,
+    artifacts: dependencies.artifacts,
+    executors: dependencies.executors,
+    defaultBackend: dependencies.defaultBackend ?? defaultExecutionBackend(),
+  }).dispatch(message);
 }
 
 function defaultDependencies(): DispatcherDependencies {
@@ -92,31 +66,10 @@ function defaultDependencies(): DispatcherDependencies {
   return defaults;
 }
 
-function isDispatchable(run: RunRecord): boolean {
-  return run.status === 'queued' ||
-    run.status === 'dispatching' ||
-    (run.status === 'running' && (!run.execution || run.execution.id === 'pending'));
-}
-
-function parseMessage(body: string): RunQueueMessage {
-  const parsed = JSON.parse(body) as Partial<RunQueueMessage>;
-  if (parsed.version !== '1' || typeof parsed.runId !== 'string' || typeof parsed.traceId !== 'string') {
-    throw new Error('invalid run queue message');
+function defaultExecutionBackend(): ExecutionBackend {
+  const value = process.env.DEFAULT_EXECUTION_BACKEND ?? 'microvm';
+  if (value !== 'microvm') {
+    throw new Error('DEFAULT_EXECUTION_BACKEND is invalid');
   }
-  return parsed as RunQueueMessage;
-}
-
-function defaultBackend(): 'ecs' | 'microvm' {
-  const value = process.env.DEFAULT_EXECUTION_BACKEND ?? 'ecs';
-  if (value !== 'ecs' && value !== 'microvm') throw new Error('DEFAULT_EXECUTION_BACKEND is invalid');
   return value;
-}
-
-function retryableStartError(error: unknown): boolean {
-  const name = error instanceof Error ? error.name : '';
-  return ['ThrottlingException', 'ServiceUnavailableException', 'TooManyRequestsException'].includes(name);
-}
-
-function safeMessage(error: unknown): string {
-  return (error instanceof Error ? error.message : String(error)).slice(0, 1_000);
 }

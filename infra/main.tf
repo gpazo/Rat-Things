@@ -3,9 +3,6 @@ module "agent_runner" {
 
   name_prefix                       = var.name_prefix
   environment                       = var.environment
-  vpc_cidr                          = var.vpc_cidr
-  enable_nat_gateway                = var.enable_nat_gateway
-  enable_vpc_endpoints              = var.enable_vpc_endpoints
   artifact_retention_days           = var.artifact_retention_days
   log_retention_days                = var.log_retention_days
   force_destroy_data                = var.force_destroy_data
@@ -13,15 +10,9 @@ module "agent_runner" {
   run_retention_seconds             = var.run_retention_seconds
   allowed_repository_hosts          = var.allowed_repository_hosts
   allowed_sandbox_modes             = var.allowed_sandbox_modes
-  default_execution_backend         = var.default_execution_backend
   default_agent_driver              = var.default_agent_driver
   allow_agent_aws_credential_chain  = var.allow_agent_aws_credential_chain
   default_delivery_destinations     = var.default_delivery_destinations
-  worker_image_tag                  = var.worker_image_tag
-  ecs_assign_public_ip              = var.ecs_assign_public_ip
-  worker_cpu                        = var.worker_cpu
-  worker_memory                     = var.worker_memory
-  worker_ephemeral_storage_gib      = var.worker_ephemeral_storage_gib
   lambda_zip_paths                  = var.lambda_zip_paths
   github_webhook_secret_arn         = var.github_webhook_secret_arn
   github_webhook_enabled            = var.github_webhook_enabled
@@ -45,7 +36,7 @@ module "agent_runner" {
   slack_webhook_enabled             = var.slack_webhook_enabled
   slack_bot_token_secret_arn        = var.slack_bot_token_secret_arn
   worker_secret_arns                = var.worker_secret_arns
-  bedrock_model_arns                = var.bedrock_model_arns
+  codex_bedrock_model_ids           = var.codex_bedrock_model_ids
   bedrock_api_key_secret_arn        = var.bedrock_api_key_secret_arn
   enable_microvm                    = var.enable_microvm
   microvm_source_zip_path           = var.microvm_source_zip_path
