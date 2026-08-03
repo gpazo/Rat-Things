@@ -1,0 +1,73 @@
+# Dependencies, builds, and test output
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+*.log
+*.log.*
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Local environment and credentials
+.env
+.env.*
+!.env.example
+!**/*.env.example
+.aws/
+.npmrc
+.netrc
+.pypirc
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+id_rsa*
+id_ed25519*
+*.kubeconfig
+credentials.json
+secrets.json
+
+# Terraform local state, plans, caches, and private inputs
+**/.terraform/
+.terraform.d/
+.terraformrc
+terraform.rc
+.terraform.tfstate.lock.info
+*.tfstate
+*.tfstate.*
+*.tfplan
+*.tfvars
+*.tfvars.json
+*.tfbackend
+backend.hcl
+crash.log
+crash.*.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# Local and live end-to-end test artifacts
+.aws-e2e/
+testing/localstack.env
+testing/localstack/outputs.json
+
+# Local runner output
+.runtime/
+
+# Temporary files
+*.pid
+*.seed
+*.swp
+*.swo
+*~
+
+# Editors and operating systems
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

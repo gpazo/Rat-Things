@@ -1,0 +1,20 @@
+{
+  "version": "1",
+  "prompt": "Review this change for correctness, security, and missing tests. Return concise Markdown.",
+  "repository": {
+    "provider": "github",
+    "url": "https://github.com/example/repository.git",
+    "ref": "0123456789abcdef0123456789abcdef01234567"
+  },
+  "agent": {
+    "driver": "codex",
+    "sandbox": "workspace-write"
+  },
+  "execution": {
+    "backend": "ecs",
+    "timeoutSeconds": 900
+  },
+  "metadata": {
+    "purpose": "manual-smoke-test"
+  }
+}

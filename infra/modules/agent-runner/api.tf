@@ -1,0 +1,98 @@
+resource "aws_apigatewayv2_api" "this" {
+  name          = "${local.name}-api"
+  description   = "Webhook ingress and IAM-authenticated agent-run control API"
+  protocol_type = "HTTP"
+
+  tags = local.tags
+}
+
+resource "aws_apigatewayv2_stage" "default" {
+  api_id      = aws_apigatewayv2_api.this.id
+  name        = "$default"
+  auto_deploy = true
+
+  access_log_settings {
+    destination_arn = aws_cloudwatch_log_group.api.arn
+    format = jsonencode({
+      requestId        = "$context.requestId"
+      routeKey         = "$context.routeKey"
+      status           = "$context.status"
+      responseLength   = "$context.responseLength"
+      integrationError = "$context.integrationErrorMessage"
+      sourceIp         = "$context.identity.sourceIp"
+    })
+  }
+
+  default_route_settings {
+    detailed_metrics_enabled = true
+    throttling_burst_limit   = 50
+    throttling_rate_limit    = 25
+  }
+
+  tags = local.tags
+}
+
+locals {
+  api_integrations = merge(
+    { control = aws_lambda_function.this["control"] },
+    local.github_enabled ? { github = aws_lambda_function.this["webhook-github"] } : {},
+    local.gitlab_enabled ? { gitlab = aws_lambda_function.this["webhook-gitlab"] } : {},
+    local.teams_enabled ? { teams = aws_lambda_function.this["webhook-teams"] } : {},
+    local.slack_enabled ? { slack = aws_lambda_function.this["webhook-slack"] } : {},
+  )
+
+  control_routes = toset([
+    "GET /health",
+    "GET /v1/runs",
+    "GET /v1/runs/{runId}",
+    "GET /v1/runs/{runId}/artifacts/{artifact}",
+    "POST /v1/runs",
+    "POST /v1/runs/{runId}/cancel",
+  ])
+
+  webhook_routes = merge(
+    local.github_enabled ? { "POST /webhooks/github" = "github" } : {},
+    local.gitlab_enabled ? { "POST /webhooks/gitlab" = "gitlab" } : {},
+    local.teams_enabled ? { "POST /webhooks/teams" = "teams" } : {},
+    local.slack_enabled ? { "POST /webhooks/slack" = "slack" } : {},
+  )
+}
+
+resource "aws_apigatewayv2_integration" "lambda" {
+  for_each = local.api_integrations
+
+  api_id                 = aws_apigatewayv2_api.this.id
+  integration_type       = "AWS_PROXY"
+  integration_method     = "POST"
+  integration_uri        = each.value.invoke_arn
+  payload_format_version = "2.0"
+  timeout_milliseconds   = 29000
+}
+
+resource "aws_apigatewayv2_route" "control" {
+  for_each = local.control_routes
+
+  api_id             = aws_apigatewayv2_api.this.id
+  route_key          = each.value
+  authorization_type = each.value == "GET /health" ? "NONE" : "AWS_IAM"
+  target             = "integrations/${aws_apigatewayv2_integration.lambda["control"].id}"
+}
+
+resource "aws_apigatewayv2_route" "webhook" {
+  for_each = local.webhook_routes
+
+  api_id             = aws_apigatewayv2_api.this.id
+  route_key          = each.key
+  authorization_type = "NONE"
+  target             = "integrations/${aws_apigatewayv2_integration.lambda[each.value].id}"
+}
+
+resource "aws_lambda_permission" "api" {
+  for_each = local.api_integrations
+
+  statement_id  = "AllowApiGateway"
+  action        = "lambda:InvokeFunction"
+  function_name = each.value.function_name
+  principal     = "apigateway.amazonaws.com"
+  source_arn    = "${aws_apigatewayv2_api.this.execution_arn}/*/*"
+}

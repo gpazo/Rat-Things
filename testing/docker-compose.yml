@@ -1,0 +1,62 @@
+name: indubitably-agent-runtime-test
+
+services:
+  localstack:
+    image: "${LOCALSTACK_IMAGE:-localstack/localstack:4.8.1}"
+    ports:
+      - "${LOCALSTACK_PORT:-4566}:4566"
+    environment:
+      SERVICES: s3,dynamodb,dynamodbstreams,sqs,events,secretsmanager,sts
+      DEBUG: "${LOCALSTACK_DEBUG:-0}"
+      PERSISTENCE: "0"
+      EAGER_SERVICE_LOADING: "1"
+    volumes:
+      - localstack-data:/var/lib/localstack
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:4566/_localstack/health"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+      start_period: 5s
+
+  wiremock:
+    image: "${WIREMOCK_IMAGE:-wiremock/wiremock:3.13.1}"
+    ports:
+      - "${WIREMOCK_PORT:-8080}:8080"
+    volumes:
+      - ./wiremock:/home/wiremock:ro
+    command: ["--disable-gzip", "--verbose"]
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8080/__admin/health"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+      start_period: 3s
+
+  terraform-init:
+    image: "${TERRAFORM_IMAGE:-hashicorp/terraform:1.12.2}"
+    depends_on:
+      localstack:
+        condition: service_healthy
+    environment:
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      AWS_DEFAULT_REGION: us-east-1
+      AWS_EC2_METADATA_DISABLED: "true"
+      TF_VAR_localstack_endpoint: http://localstack:4566
+      TF_VAR_teams_workflow_url: "http://localhost:${WIREMOCK_PORT:-8080}/teams/workflow"
+    working_dir: /terraform
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -eu
+        terraform init -input=false
+        terraform apply -auto-approve -input=false
+        terraform output -json > /terraform/outputs.json
+    volumes:
+      - ./localstack:/terraform
+      - terraform-data:/terraform/.terraform
+
+volumes:
+  localstack-data:
+  terraform-data:

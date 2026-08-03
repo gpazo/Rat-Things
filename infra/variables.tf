@@ -1,0 +1,331 @@
+variable "aws_region" {
+  description = "AWS Region for the deployment."
+  type        = string
+  default     = "us-west-2"
+}
+
+variable "aws_profile" {
+  description = "Optional shared-credentials profile. Leave null for the normal AWS credential chain."
+  type        = string
+  default     = null
+  nullable    = true
+}
+
+variable "name_prefix" {
+  type    = string
+  default = "indubitably-agent-runtime"
+}
+
+variable "environment" {
+  type    = string
+  default = "dev"
+}
+
+variable "vpc_cidr" {
+  type    = string
+  default = "10.42.0.0/16"
+}
+
+variable "enable_nat_gateway" {
+  description = "Create a paid NAT gateway for ECS and MicroVM run-time internet access."
+  type        = bool
+  default     = false
+}
+
+variable "enable_vpc_endpoints" {
+  description = "Create paid interface endpoints for private AWS API access."
+  type        = bool
+  default     = false
+}
+
+variable "artifact_retention_days" {
+  type    = number
+  default = 30
+}
+
+variable "log_retention_days" {
+  type    = number
+  default = 30
+}
+
+variable "force_destroy_data" {
+  type    = bool
+  default = false
+}
+
+variable "enable_point_in_time_recovery" {
+  type    = bool
+  default = true
+}
+
+variable "run_retention_seconds" {
+  type    = number
+  default = 2592000
+}
+
+variable "allowed_repository_hosts" {
+  type    = list(string)
+  default = ["github.com", "gitlab.com"]
+
+  validation {
+    condition = length(var.allowed_repository_hosts) > 0 && alltrue([
+      for host in var.allowed_repository_hosts : can(regex("^[A-Za-z0-9.-]+$", host))
+    ])
+    error_message = "allowed_repository_hosts must be non-empty and contain only DNS hostnames without schemes or paths."
+  }
+}
+
+variable "allowed_sandbox_modes" {
+  type    = list(string)
+  default = ["read-only", "workspace-write"]
+}
+
+variable "default_execution_backend" {
+  type    = string
+  default = "ecs"
+}
+
+variable "default_agent_driver" {
+  description = "Defaults to mock so a new deployment cannot accidentally spend model tokens."
+  type        = string
+  default     = "mock"
+}
+
+variable "allow_agent_aws_credential_chain" {
+  description = "Explicit opt-in for passing a scoped AWS credential chain to Codex or Claude."
+  type        = bool
+  default     = false
+}
+
+variable "default_delivery_destinations" {
+  type    = string
+  default = "source"
+}
+
+variable "worker_image_tag" {
+  type    = string
+  default = "dev"
+}
+
+variable "ecs_assign_public_ip" {
+  description = "Run ECS workers in public subnets with a public IPv4 address instead of private subnets."
+  type        = bool
+  default     = false
+}
+
+variable "worker_cpu" {
+  type    = number
+  default = 1024
+}
+
+variable "worker_memory" {
+  type    = number
+  default = 2048
+}
+
+variable "worker_ephemeral_storage_gib" {
+  type    = number
+  default = 30
+}
+
+variable "lambda_zip_paths" {
+  description = "Override packaged Lambda paths when the root is consumed from a different repository layout."
+  type        = map(string)
+  default     = {}
+}
+
+variable "github_webhook_secret_arn" {
+  type     = string
+  default  = null
+  nullable = true
+}
+
+variable "github_webhook_enabled" {
+  type     = bool
+  default  = null
+  nullable = true
+}
+
+variable "github_token_secret_arn" {
+  type     = string
+  default  = null
+  nullable = true
+}
+
+variable "github_clone_token_secret_arn" {
+  type     = string
+  default  = null
+  nullable = true
+}
+
+variable "github_notify_token_secret_arn" {
+  type     = string
+  default  = null
+  nullable = true
+}
+
+variable "github_api_base_url" {
+  description = "GitHub REST API base URL; set the enterprise /api/v3 endpoint for GitHub Enterprise Server."
+  type        = string
+  default     = "https://api.github.com"
+
+  validation {
+    condition     = can(regex("^https://[A-Za-z0-9.-]+(?::[0-9]{1,5})?(?:/[A-Za-z0-9._~!$&'()*+,;=:@%/-]*)?$", var.github_api_base_url))
+    error_message = "github_api_base_url must be an HTTPS origin with an optional port and path, without credentials, query, or fragment."
+  }
+}
+
+variable "github_comment_trigger" {
+  type    = string
+  default = "@indubitably"
+
+  validation {
+    condition     = trimspace(var.github_comment_trigger) != ""
+    error_message = "github_comment_trigger cannot be empty or whitespace."
+  }
+}
+
+variable "gitlab_webhook_secret_arn" {
+  type     = string
+  default  = null
+  nullable = true
+}
+
+variable "gitlab_webhook_enabled" {
+  type     = bool
+  default  = null
+  nullable = true
+}
+
+variable "gitlab_token_secret_arn" {
+  type     = string
+  default  = null
+  nullable = true
+}
+
+variable "gitlab_clone_token_secret_arn" {
+  type     = string
+  default  = null
+  nullable = true
+}
+
+variable "gitlab_notify_token_secret_arn" {
+  type     = string
+  default  = null
+  nullable = true
+}
+
+variable "gitlab_api_base_url" {
+  description = "GitLab REST API base URL, normally ending in /api/v4."
+  type        = string
+  default     = "https://gitlab.com/api/v4"
+
+  validation {
+    condition     = can(regex("^https://[A-Za-z0-9.-]+(?::[0-9]{1,5})?(?:/[A-Za-z0-9._~!$&'()*+,;=:@%/-]*)?$", var.gitlab_api_base_url))
+    error_message = "gitlab_api_base_url must be an HTTPS origin with an optional port and path, without credentials, query, or fragment."
+  }
+}
+
+variable "gitlab_comment_trigger" {
+  type    = string
+  default = "@indubitably"
+
+  validation {
+    condition     = trimspace(var.gitlab_comment_trigger) != ""
+    error_message = "gitlab_comment_trigger cannot be empty or whitespace."
+  }
+}
+
+variable "teams_outgoing_webhook_secret_arn" {
+  type     = string
+  default  = null
+  nullable = true
+}
+
+variable "teams_webhook_enabled" {
+  type     = bool
+  default  = null
+  nullable = true
+}
+
+variable "teams_workflow_url_secret_arn" {
+  type     = string
+  default  = null
+  nullable = true
+}
+
+variable "teams_route_secret_arns" {
+  type    = map(string)
+  default = {}
+}
+
+variable "slack_signing_secret_arn" {
+  type     = string
+  default  = null
+  nullable = true
+}
+
+variable "slack_webhook_enabled" {
+  type     = bool
+  default  = null
+  nullable = true
+}
+
+variable "slack_bot_token_secret_arn" {
+  type     = string
+  default  = null
+  nullable = true
+}
+
+variable "worker_secret_arns" {
+  type    = list(string)
+  default = []
+}
+
+variable "bedrock_model_arns" {
+  type    = list(string)
+  default = []
+}
+
+variable "bedrock_api_key_secret_arn" {
+  description = "Optional Secrets Manager ARN holding a Bedrock API key; plaintext is never a Terraform input."
+  type        = string
+  default     = null
+  nullable    = true
+  sensitive   = true
+}
+
+variable "enable_microvm" {
+  description = "Opt in to Lambda MicroVM preview image and connector resources."
+  type        = bool
+  default     = false
+}
+
+variable "microvm_source_zip_path" {
+  type     = string
+  default  = null
+  nullable = true
+}
+
+variable "microvm_base_image_arn" {
+  type     = string
+  default  = null
+  nullable = true
+}
+
+variable "microvm_base_image_version" {
+  description = "Pinned AVAILABLE al2023-1 managed base-image version; required when enable_microvm is true."
+  type        = string
+  default     = null
+  nullable    = true
+}
+
+variable "microvm_memory_mib" {
+  type    = number
+  default = 4096
+}
+
+variable "tags" {
+  type    = map(string)
+  default = {}
+}

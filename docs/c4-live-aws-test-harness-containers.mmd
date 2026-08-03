@@ -1,0 +1,29 @@
+%%{init: {"theme":"base","themeVariables":{"fontFamily":"Arial, sans-serif","primaryColor":"#2f6f3e","primaryTextColor":"#ffffff","primaryBorderColor":"#24562f","lineColor":"#52606d","secondaryColor":"#e8edf2","tertiaryColor":"#eef7ee","background":"#ffffff"},"themeCSS":".nodeLabel,.edgeLabel,.cluster-label{font-family:Arial,sans-serif!important}.edgeLabel p{color:#344250!important;background:#ffffff!important}","flowchart":{"curve":"linear","nodeSpacing":42,"rankSpacing":55}}}%%
+flowchart TB
+    operator["Developer / CI<br/><small>Person or automation</small>"]
+
+    subgraph harness["C4 · Level 2 — Live AWS Test Harness"]
+        direction LR
+        package["Package & Push<br/><small>Lambda ZIPs + worker image</small>"]
+        deploy["Terraform Deploy<br/><small>Ephemeral test root</small>"]
+        exercise["Workflow Test<br/><small>Vitest assertions</small>"]
+        cleanup["Destroy & Audit<br/><small>Terraform + direct AWS checks</small>"]
+        aws["Ephemeral AWS Runtime<br/><small>ECS + optional MicroVM</small>"]
+
+        package --> deploy
+        deploy --> exercise
+        exercise --> cleanup
+        deploy -.->|Create| aws
+        exercise <-->|Signed requests + results| aws
+        cleanup -.->|Destroy + verify| aws
+    end
+
+    operator -.->|Run once| package
+
+    classDef test fill:#2f6f3e,color:#ffffff,stroke:#24562f,stroke-width:2px;
+    classDef runtime fill:#1268b3,color:#ffffff,stroke:#0b4f8a,stroke-width:2px;
+    classDef external fill:#e8edf2,color:#17212b,stroke:#7a8793,stroke-width:1.5px;
+    class package,deploy,exercise,cleanup test;
+    class aws runtime;
+    class operator external;
+    style harness fill:#eef7ee,stroke:#4f8054,stroke-width:2px,color:#17212b;

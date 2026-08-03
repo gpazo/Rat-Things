@@ -1,0 +1,31 @@
+%%{init: {"theme":"base","themeVariables":{"fontFamily":"Arial, sans-serif","primaryColor":"#1268b3","primaryTextColor":"#ffffff","primaryBorderColor":"#0b4f8a","lineColor":"#52606d","secondaryColor":"#e8edf2","tertiaryColor":"#eef7ee","background":"#ffffff"},"themeCSS":".nodeLabel,.edgeLabel,.cluster-label{font-family:Arial,sans-serif!important}.edgeLabel p{color:#344250!important;background:#ffffff!important}","flowchart":{"curve":"linear","nodeSpacing":44,"rankSpacing":58}}}%%
+flowchart TB
+    title["C4 · Level 1 — System Context"]
+
+    subgraph canvas[" "]
+        direction LR
+        sources["GitHub · GitLab<br/>Teams · API / CLI<br/><small>External systems</small>"]
+        runtime["Indubitably<br/>Agent Runtime<br/><small>Software system</small>"]
+        destinations["PR / MR · Teams<br/>Status · Artifacts<br/><small>External systems</small>"]
+        model["Model Provider<br/><small>External system</small>"]
+        awsTest["Live AWS Test Harness<br/><small>Supporting system</small>"]
+        localTest["LocalStack Test Harness<br/><small>Supporting system</small>"]
+
+        sources -->|1 · Request| runtime
+        runtime -->|3 · Result| destinations
+        runtime <-->|2 · Prompt / response| model
+        awsTest -.->|Deploys + exercises| runtime
+        localTest -.->|Runs components locally| runtime
+    end
+
+    title ~~~ runtime
+
+    classDef title fill:transparent,color:#17212b,stroke:transparent,font-size:24px;
+    classDef system fill:#1268b3,color:#ffffff,stroke:#0b4f8a,stroke-width:2px;
+    classDef external fill:#e8edf2,color:#17212b,stroke:#7a8793,stroke-width:1.5px;
+    classDef test fill:#eef7ee,color:#17212b,stroke:#4f8054,stroke-width:1.5px;
+    class title title;
+    class runtime system;
+    class sources,destinations,model external;
+    class awsTest,localTest test;
+    style canvas fill:transparent,stroke:transparent;

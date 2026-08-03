@@ -1,0 +1,48 @@
+aws_region  = "us-west-2"
+environment = "dev"
+
+# Safe bring-up: package Lambda code, provision the control plane, push an
+# immutable linux/arm64 worker image, then choose a non-mock driver.
+default_execution_backend = "ecs"
+default_agent_driver      = "mock"
+allow_agent_aws_credential_chain = false
+worker_image_tag          = "dev"
+
+# ECS and Lambda MicroVM workers need internet access for GitHub/GitLab and
+# hosted agent APIs. A NAT gateway has an hourly charge, so it is opt-in.
+enable_nat_gateway   = true
+enable_vpc_endpoints = false
+
+# Supplying an ingress secret ARN enables that route. Store only ARNs here,
+# never plaintext webhook secrets, tokens, API keys, or workflow URLs.
+github_webhook_secret_arn         = "arn:aws:secretsmanager:us-west-2:111122223333:secret:agent/github-webhook-AbCdEf"
+github_clone_token_secret_arn     = "arn:aws:secretsmanager:us-west-2:111122223333:secret:agent/github-clone-AbCdEf"
+github_notify_token_secret_arn    = "arn:aws:secretsmanager:us-west-2:111122223333:secret:agent/github-notify-AbCdEf"
+github_comment_trigger            = "@indubitably"
+gitlab_webhook_secret_arn         = "arn:aws:secretsmanager:us-west-2:111122223333:secret:agent/gitlab-webhook-AbCdEf"
+gitlab_clone_token_secret_arn     = "arn:aws:secretsmanager:us-west-2:111122223333:secret:agent/gitlab-clone-AbCdEf"
+gitlab_notify_token_secret_arn    = "arn:aws:secretsmanager:us-west-2:111122223333:secret:agent/gitlab-notify-AbCdEf"
+gitlab_comment_trigger            = "@indubitably"
+teams_outgoing_webhook_secret_arn = "arn:aws:secretsmanager:us-west-2:111122223333:secret:agent/teams-outgoing-AbCdEf"
+teams_workflow_url_secret_arn     = "arn:aws:secretsmanager:us-west-2:111122223333:secret:agent/teams-workflow-AbCdEf"
+
+# Self-hosted installations should override the notification APIs and add their
+# repository hostnames to allowed_repository_hosts.
+# github_api_base_url = "https://github.example.com/api/v3"
+# gitlab_api_base_url = "https://gitlab.example.com/api/v4"
+
+# Optional agent credentials. The runner fetches the secret and passes only the
+# resolved bearer value to the non-root agent subprocess.
+# bedrock_api_key_secret_arn = "arn:aws:secretsmanager:us-west-2:111122223333:secret:agent/bedrock-api-key-AbCdEf"
+
+# Lambda MicroVMs are deliberately disabled by default. Before enabling them,
+# run `aws lambda-microvms list-managed-microvm-image-versions` and pin an
+# AVAILABLE al2023-1 version below. `npm run package` must have produced
+# dist/microvm-source.zip.
+enable_microvm = false
+# microvm_base_image_version = "1.0.0"
+# microvm_memory_mib         = 4096
+
+tags = {
+  Owner = "platform"
+}

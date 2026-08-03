@@ -1,0 +1,12 @@
+.git
+.env
+dist/*.zip
+dist/cli.mjs
+dist/lambdas
+dist/terminate-microvm.mjs
+docs
+infra
+microvm
+node_modules
+tests
+*.md

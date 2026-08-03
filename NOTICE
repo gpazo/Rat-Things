@@ -1,0 +1,11 @@
+Architecture and lifecycle patterns were informed by:
+
+- AWS Samples, "Claude Code on AWS Lambda MicroVMs"
+  https://github.com/aws-samples/anthropic-on-aws/tree/main/claude-code-on-lambda-microvm
+  Licensed under Apache License 2.0.
+- Sentry, "Junior"
+  https://github.com/getsentry/junior
+  Licensed under Apache License 2.0.
+
+No Sentry runtime code is vendored. The Lambda MicroVM provisioner and lifecycle-hook layout were
+informed by the AWS sample; attribution is retained here and in the repository documentation.

@@ -1,0 +1,21 @@
+{
+  "request": {
+    "method": "POST",
+    "urlPath": "/teams/workflow",
+    "headers": {
+      "Content-Type": {
+        "contains": "application/json"
+      }
+    }
+  },
+  "response": {
+    "status": 202,
+    "headers": {
+      "Content-Type": "application/json",
+      "request-id": "localstack-wiremock-receipt"
+    },
+    "jsonBody": {
+      "accepted": true
+    }
+  }
+}
