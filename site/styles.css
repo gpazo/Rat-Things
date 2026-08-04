@@ -360,6 +360,8 @@ footer p { max-width: 600px; margin: 1rem 0 0; color: var(--muted); font-size: 0
   .hero-scrim { background: linear-gradient(90deg, rgba(3,8,11,0.96), rgba(3,8,11,0.35)), linear-gradient(0deg, var(--bg) 0%, transparent 35%); }
   .hero-copy { padding-top: 11rem; }
   .hero-stats { right: 1.5rem; left: 1.5rem; grid-template-columns: 1fr 1fr; }
+  .hero-stats div { min-width: 0; }
+  .hero-stats dd { white-space: normal; overflow-wrap: anywhere; }
   .hero-stats div:nth-child(3) { border-left: 0; border-top: 1px solid rgba(255,255,255,0.12); }
   .hero-stats div:nth-child(4) { border-top: 1px solid rgba(255,255,255,0.12); }
   .intro-grid, .section-heading, .validation-section, .start-section, .continuity-heading, .isolation-heading { grid-template-columns: 1fr; gap: 1.5rem; }
@@ -370,19 +372,26 @@ footer p { max-width: 600px; margin: 1rem 0 0; color: var(--muted); font-size: 0
   .auth-grid { grid-template-columns: 1fr; }
   .auth-grid article { min-height: auto; }
   .handoff { grid-template-columns: 1fr; }
-  .handoff-arrow { min-height: 60px; transform: rotate(90deg); }
+  .handoff-arrow { grid-template-columns: auto auto; gap: 0.6rem; min-height: 68px; transform: none; }
+  .handoff-arrow b { display: inline-block; transform: rotate(90deg); }
   .handoff article { min-height: auto; }
   footer { flex-direction: column; }
 }
 
 @media (max-width: 560px) {
   .site-header, .hero-copy, .section, footer { width: min(calc(100% - 2rem), var(--max)); }
-  h1 { font-size: clamp(3.8rem, 20vw, 5.4rem); }
+  h1 { font-size: clamp(3.4rem, 16vw, 4.1rem); line-height: 0.88; letter-spacing: -0.06em; }
   .hero-lede { max-width: 90%; }
   .hero-stats { right: 1rem; left: 1rem; }
+  .hero-stats div { padding: 0.85rem 0.9rem; }
+  .hero-stats dd { font-size: 0.68rem; line-height: 1.35; }
   .flow, .diagram-grid, .capability-grid, .isolation-grid { grid-template-columns: 1fr; }
   .diagram-wide { grid-column: auto; }
   .flow li { min-height: auto; }
+  .isolation-grid article, .capability-grid article { min-height: auto; }
+  .isolation-grid span, .capability-grid span { margin-bottom: 2rem; }
+  pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+  pre code { font-size: 0.76rem; white-space: inherit; overflow-wrap: inherit; }
   .caution-section { grid-template-columns: 1fr; }
   .footer-links { flex-direction: column; gap: 0.7rem; }
 }
