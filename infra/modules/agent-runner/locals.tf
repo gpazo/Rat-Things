@@ -14,15 +14,17 @@ locals {
   bucket_suffix = substr(sha256("${data.aws_caller_identity.current.account_id}:${data.aws_region.current.region}:${local.name}"), 0, 12)
 
   lambda_zip_paths = merge({
-    control        = "${path.root}/../dist/control.zip"
-    dispatcher     = "${path.root}/../dist/dispatcher.zip"
-    notifier       = "${path.root}/../dist/notifier.zip"
-    reconciler     = "${path.root}/../dist/reconciler.zip"
-    state-stream   = "${path.root}/../dist/state-stream.zip"
-    webhook-github = "${path.root}/../dist/webhook-github.zip"
-    webhook-gitlab = "${path.root}/../dist/webhook-gitlab.zip"
-    webhook-teams  = "${path.root}/../dist/webhook-teams.zip"
-    webhook-slack  = "${path.root}/../dist/webhook-slack.zip"
+    control                  = "${path.root}/../dist/control.zip"
+    conversation-completion  = "${path.root}/../dist/conversation-completion.zip"
+    conversation-coordinator = "${path.root}/../dist/conversation-coordinator.zip"
+    dispatcher               = "${path.root}/../dist/dispatcher.zip"
+    notifier                 = "${path.root}/../dist/notifier.zip"
+    reconciler               = "${path.root}/../dist/reconciler.zip"
+    state-stream             = "${path.root}/../dist/state-stream.zip"
+    webhook-github           = "${path.root}/../dist/webhook-github.zip"
+    webhook-gitlab           = "${path.root}/../dist/webhook-gitlab.zip"
+    webhook-teams            = "${path.root}/../dist/webhook-teams.zip"
+    webhook-slack            = "${path.root}/../dist/webhook-slack.zip"
   }, var.lambda_zip_paths)
 
   microvm_source_zip_path = coalesce(
@@ -102,6 +104,20 @@ check "microvm_enabled" {
   assert {
     condition     = var.enable_microvm
     error_message = "enable_microvm must remain true because Lambda MicroVM is the only execution backend."
+  }
+}
+
+check "s3_files_requires_microvm" {
+  assert {
+    condition     = !var.enable_s3_files || var.enable_microvm
+    error_message = "enable_s3_files requires enable_microvm because the file system is mounted by the MicroVM runner."
+  }
+}
+
+check "microvm_session_idle_window" {
+  assert {
+    condition     = var.microvm_session_idle_seconds > var.conversation_slice_timeout_seconds
+    error_message = "microvm_session_idle_seconds must exceed conversation_slice_timeout_seconds so an active slice is not auto-suspended."
   }
 }
 

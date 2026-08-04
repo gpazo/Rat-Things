@@ -25,6 +25,7 @@ import type {
   RunStateEvent,
   RunStatus,
 } from '../domain/contracts.js';
+import type { ConversationWakeMessage } from '../domain/conversations.js';
 import { InvalidStateTransitionError } from '../domain/state.js';
 import type {
   ArtifactStore,
@@ -32,6 +33,7 @@ import type {
   RunQueue,
   RunStore,
 } from '../core/ports.js';
+import type { ConversationQueue } from '../conversation/types.js';
 import type { SecretReader } from '../credentials/types.js';
 import type { ResultReader } from '../delivery/types.js';
 
@@ -262,6 +264,23 @@ export class SqsRunQueue implements RunQueue {
         },
       }),
     );
+  }
+}
+
+export class SqsConversationQueue implements ConversationQueue {
+  public constructor(
+    private readonly client: SQSClient,
+    private readonly queueUrl: string,
+  ) {}
+
+  public async enqueue(message: ConversationWakeMessage): Promise<void> {
+    await this.client.send(new SendMessageCommand({
+      QueueUrl: this.queueUrl,
+      MessageBody: JSON.stringify(message),
+      MessageAttributes: {
+        traceId: { DataType: 'String', StringValue: message.traceId },
+      },
+    }));
   }
 }
 

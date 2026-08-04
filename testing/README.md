@@ -48,12 +48,13 @@ Codex response, and captured outbound envelope for review. Command-tool network 
 ## What the test proves
 
 The suite first verifies that correctly signed GitHub and GitLab events are normalized into the
-canonical S3, DynamoDB, and SQS contract. Its full deterministic execution path is:
+canonical S3, DynamoDB, and SQS contract. Its full deterministic Teams path is:
 
 ```text
 signed Teams webhook
   -> Secrets Manager verification
-  -> S3 input + DynamoDB run + SQS wake-up
+  -> S3 message + DynamoDB mailbox + conversation SQS wake-up
+  -> coordinator + attached run + run SQS wake-up
   -> dispatcher with a test-only MicroVM execution reference
   -> real worker with the mock agent driver
   -> S3 output/events + DynamoDB terminal state
@@ -65,6 +66,12 @@ signed Teams webhook
 The suite also verifies webhook idempotency, the stored artifacts, execution attachment, the
 EventBridge envelope, the durable delivery fence, exact Adaptive Card content, and duplicate egress
 suppression.
+
+It also appends deferred and interrupting conversation messages, verifies interrupt-first GSI
+ordering, fences work with a renewable lease, records progress/history, and completes the turn. A
+second signed Teams activity schedules another run with the prior MicroVM and Codex thread IDs and
+durably replays the earlier prompt/result. It proves idempotent webhook/message replay and rejects
+conflicting reuse of a provider message ID.
 
 The opt-in real-Codex path selects `TEAMS_DELIVERY_MODE=threaded-gateway`; the default deterministic
 suite remains on the Workflow bridge. The gateway contract is the seam for a future AWS-hosted

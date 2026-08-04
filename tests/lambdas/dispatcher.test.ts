@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { DispatcherDependencies } from '../../src/lambdas/dispatcher.js';
 import { createDispatcher } from '../../src/lambdas/dispatcher.js';
 import type { RunRecord, RunRequest, RunStatus } from '../../src/domain/contracts.js';
+import { InvalidStateTransitionError } from '../../src/domain/state.js';
 
 const request: RunRequest = {
   version: '1',
@@ -70,6 +71,111 @@ describe('dispatcher factory', () => {
     const response = await invoke(createDispatcher({} as DispatcherDependencies), queueEvent('{}'));
     expect(response).toEqual({ batchItemFailures: [{ itemIdentifier: 'message-1' }] });
     error.mockRestore();
+  });
+
+  it('retries a duplicate dispatch while AWS is creating the idempotent MicroVM', async () => {
+    let run = queuedRun();
+    const creationInProgress = Object.assign(
+      new Error('MicroVM creation in progress for this clientToken.'),
+      { name: 'ConflictException' },
+    );
+    const fail = vi.fn();
+    const dependencies: DispatcherDependencies = {
+      store: {
+        get: async () => run,
+        transition: async (_runId, _from, status, patch = {}) => {
+          run = { ...run, ...patch, status, updatedAt: '2026-01-01T00:00:01.000Z' };
+          return run;
+        },
+        attachExecution: vi.fn(),
+        fail,
+      },
+      artifacts: { getJson: async <T>() => request as T },
+      executors: {
+        get: () => ({
+          backend: 'microvm',
+          start: async () => { throw creationInProgress; },
+          stop: async () => undefined,
+        }),
+      },
+    };
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+
+    const response = await invoke(createDispatcher(dependencies), queueEvent(JSON.stringify({
+      version: '1',
+      runId: run.runId,
+      traceId: 'trace-1',
+    })));
+
+    expect(response).toEqual({ batchItemFailures: [{ itemIdentifier: 'message-1' }] });
+    expect(run.status).toBe('dispatching');
+    expect(fail).not.toHaveBeenCalled();
+    error.mockRestore();
+  });
+
+  it('ignores a duplicate wake-up after an execution has been attached', async () => {
+    const run: RunRecord = {
+      ...queuedRun(),
+      status: 'dispatching',
+      execution: { backend: 'microvm', id: 'microvm-1' },
+    };
+    const start = vi.fn();
+    const getJson = vi.fn();
+    const dependencies: DispatcherDependencies = {
+      store: {
+        get: async () => run,
+        transition: vi.fn(),
+        attachExecution: vi.fn(),
+        fail: vi.fn(),
+      },
+      artifacts: { getJson },
+      executors: {
+        get: () => ({ backend: 'microvm', start, stop: async () => undefined }),
+      },
+    };
+
+    const response = await invoke(createDispatcher(dependencies), queueEvent(JSON.stringify({
+      version: '1',
+      runId: run.runId,
+      traceId: 'trace-1',
+    })));
+
+    expect(response).toEqual({ batchItemFailures: [] });
+    expect(getJson).not.toHaveBeenCalled();
+    expect(start).not.toHaveBeenCalled();
+  });
+
+  it('lets only one concurrent delivery claim a queued run', async () => {
+    const queued = queuedRun();
+    const claimed = { ...queued, status: 'dispatching' as const };
+    const start = vi.fn();
+    const get = vi.fn()
+      .mockResolvedValueOnce(queued)
+      .mockResolvedValueOnce(claimed);
+    const dependencies: DispatcherDependencies = {
+      store: {
+        get,
+        transition: vi.fn().mockRejectedValue(
+          new InvalidStateTransitionError('dispatching', 'dispatching'),
+        ),
+        attachExecution: vi.fn(),
+        fail: vi.fn(),
+      },
+      artifacts: { getJson: async <T>() => request as T },
+      executors: {
+        get: () => ({ backend: 'microvm', start, stop: async () => undefined }),
+      },
+    };
+
+    const response = await invoke(createDispatcher(dependencies), queueEvent(JSON.stringify({
+      version: '1',
+      runId: queued.runId,
+      traceId: 'trace-1',
+    })));
+
+    expect(response).toEqual({ batchItemFailures: [] });
+    expect(get).toHaveBeenCalledTimes(2);
+    expect(start).not.toHaveBeenCalled();
   });
 });
 

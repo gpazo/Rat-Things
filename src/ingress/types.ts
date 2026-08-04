@@ -26,8 +26,16 @@ export interface WebhookIngressAdapter {
   readonly provider: ProviderKind;
   receive(request: WebhookRequest): Promise<IngressDecision>;
   acknowledge(run: RunRecord, work: IngressWork): WebhookResponse;
+  acknowledgeConversation?(
+    receipt: { conversationId: string; messageId: string },
+    work: IngressWork,
+  ): WebhookResponse;
 }
 
 export interface RunSubmissionPort {
   submit(ownerId: string, request: unknown, options?: SubmitOptions): Promise<RunRecord>;
+}
+
+export interface ConversationSubmissionPort {
+  submit(work: IngressWork): Promise<{ conversationId: string; messageId: string }>;
 }

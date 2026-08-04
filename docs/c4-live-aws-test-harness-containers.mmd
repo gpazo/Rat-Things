@@ -1,29 +1,27 @@
-%%{init: {"theme":"base","themeVariables":{"fontFamily":"Arial, sans-serif","primaryColor":"#2f6f3e","primaryTextColor":"#ffffff","primaryBorderColor":"#24562f","lineColor":"#52606d","secondaryColor":"#e8edf2","tertiaryColor":"#eef7ee","background":"#ffffff"},"themeCSS":".nodeLabel,.edgeLabel,.cluster-label{font-family:Arial,sans-serif!important}.edgeLabel p{color:#344250!important;background:#ffffff!important}","flowchart":{"curve":"linear","nodeSpacing":42,"rankSpacing":55}}}%%
-flowchart TB
-    operator["Developer / CI<br/><small>Person or automation</small>"]
+%%{init: {"theme":"base","themeVariables":{"fontFamily":"Arial, sans-serif","primaryColor":"#2f6f3e","primaryTextColor":"#ffffff","primaryBorderColor":"#24562f","lineColor":"#52606d","secondaryColor":"#e8edf2","tertiaryColor":"#eef7ee","background":"#ffffff"},"themeCSS":".nodeLabel,.edgeLabel,.cluster-label{font-family:Arial,sans-serif!important}.edgeLabel p{color:#344250!important;background:#ffffff!important}","flowchart":{"curve":"linear","nodeSpacing":50,"rankSpacing":62}}}%%
+flowchart LR
+    operator["Developer / CI"]
 
-    subgraph harness["C4 · Level 2 — Live AWS Test Harness"]
+    subgraph harness["C4 · Level 2 — Ephemeral AWS Test Harness"]
         direction LR
-        package["Package<br/><small>Lambda + MicroVM ZIPs</small>"]
-        deploy["Terraform Deploy<br/><small>Ephemeral test root</small>"]
-        exercise["Workflow Test<br/><small>Vitest assertions</small>"]
-        cleanup["Destroy & Audit<br/><small>Terraform + direct AWS checks</small>"]
-        aws["Ephemeral AWS Runtime<br/><small>Lambda MicroVM only</small>"]
+        deploy["Deploy<br/><small>Package + Terraform</small>"]
+        exercise["Exercise<br/><small>Signed flows + Codex continuity</small>"]
+        runtime["Live Rat Things<br/><small>Control plane + MicroVMs + S3 Files</small>"]
+        destroy["Destroy & Audit<br/><small>Terraform + AWS checks</small>"]
 
-        package --> deploy
-        deploy --> exercise
-        exercise --> cleanup
-        deploy -.->|Create| aws
-        exercise <-->|Signed requests + results| aws
-        cleanup -.->|Destroy + verify| aws
+        deploy -->|1 · Create| runtime
+        exercise <-->|2 · Webhook to reply| runtime
+        exercise -->|3 · After assertions| destroy
+        destroy -.->|4 · Remove everything| runtime
     end
 
-    operator -.->|Run once| package
+    operator -->|Run once| deploy
+    deploy --> exercise
 
     classDef test fill:#2f6f3e,color:#ffffff,stroke:#24562f,stroke-width:2px;
     classDef runtime fill:#1268b3,color:#ffffff,stroke:#0b4f8a,stroke-width:2px;
     classDef external fill:#e8edf2,color:#17212b,stroke:#7a8793,stroke-width:1.5px;
-    class package,deploy,exercise,cleanup test;
-    class aws runtime;
+    class deploy,exercise,destroy test;
+    class runtime runtime;
     class operator external;
     style harness fill:#eef7ee,stroke:#4f8054,stroke-width:2px,color:#17212b;

@@ -14,12 +14,32 @@ output "artifact_bucket_name" {
   value = module.agent_runner.artifact_bucket_name
 }
 
+output "conversation_state_bucket_name" {
+  value = module.agent_runner.conversation_state_bucket_name
+}
+
 output "runs_table_name" {
   value = module.agent_runner.runs_table_name
 }
 
+output "conversations_table_name" {
+  value = module.agent_runner.conversations_table_name
+}
+
 output "run_queue_url" {
   value = module.agent_runner.run_queue_url
+}
+
+output "conversation_queue_url" {
+  value = module.agent_runner.conversation_queue_url
+}
+
+output "conversation_failure_queue_url" {
+  value = module.agent_runner.conversation_failure_queue_url
+}
+
+output "conversation_completion_failure_queue_url" {
+  value = module.agent_runner.conversation_completion_failure_queue_url
 }
 
 output "run_failure_queue_url" {
@@ -49,4 +69,9 @@ output "microvm" {
     log_group_name          = module.agent_runner.microvm_log_group_name
     image_version_parameter = module.agent_runner.microvm_image_version_parameter_name
   }
+}
+
+output "s3_files" {
+  description = "Durable conversation filesystem outputs."
+  value       = module.agent_runner.s3_files
 }

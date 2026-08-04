@@ -1,4 +1,4 @@
-import { mkdir, rm } from 'node:fs/promises';
+import { access, mkdir, rm } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import type { RepositoryInput } from '../domain/contracts.js';
 import type { CredentialBroker } from '../credentials/broker.js';
@@ -8,12 +8,14 @@ export async function prepareWorkspace(
   repository: RepositoryInput | undefined,
   workspace: string,
   credentials: CredentialBroker,
+  options: { reuseExisting?: boolean } = {},
 ): Promise<void> {
   const absolute = resolve(workspace);
   const root = resolve(process.env.WORKSPACE_ROOT ?? '/tmp/agent-runtime');
   if (absolute !== root && !absolute.startsWith(`${root}/`)) {
     throw new Error(`workspace must be below ${root}`);
   }
+  if (options.reuseExisting && await isReusableWorkspace(absolute)) return;
   await rm(absolute, { recursive: true, force: true });
   await mkdir(dirname(absolute), { recursive: true, mode: 0o700 });
   if (!repository) {
@@ -64,6 +66,16 @@ export async function prepareWorkspace(
   }
   await git(['-C', absolute, 'update-ref', 'refs/agent-runtime/base', 'HEAD'], root, env);
   await handoff(absolute);
+}
+
+async function isReusableWorkspace(workspace: string): Promise<boolean> {
+  try {
+    await access(workspace);
+    await access(`${workspace}/.git`);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export async function collectWorkspacePatch(workspace: string): Promise<Buffer | undefined> {

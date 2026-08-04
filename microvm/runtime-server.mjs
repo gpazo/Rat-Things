@@ -1,6 +1,13 @@
-import { existsSync } from 'node:fs';
+import {
+  chownSync,
+  chmodSync,
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+} from 'node:fs';
 import { createServer } from 'node:http';
-import { spawn } from 'node:child_process';
+import { join } from 'node:path';
+import { spawn, spawnSync } from 'node:child_process';
 import { gunzipSync } from 'node:zlib';
 
 const hookPrefix = '/aws/lambda-microvms/runtime/v1';
@@ -13,6 +20,8 @@ let activeRun;
 let shuttingDown = false;
 let serviceTerminationRequested = false;
 let selfTerminationStarted = false;
+let persistentMicrovmId;
+let persistentStorage;
 
 const server = createServer(async (request, response) => {
   response.setHeader('cache-control', 'no-store');
@@ -24,16 +33,23 @@ const server = createServer(async (request, response) => {
     return;
   }
 
+  const isSessionRun = request.url === '/agent-runtime/v1/runs';
   const operation = request.url?.startsWith(`${hookPrefix}/`)
     ? request.url.slice(hookPrefix.length + 1)
     : undefined;
-  if (!['ready', 'validate', 'run', 'resume', 'suspend', 'terminate'].includes(operation)) {
+  if (!isSessionRun && !['ready', 'validate', 'run', 'resume', 'suspend', 'terminate'].includes(operation)) {
     send(response, 404, { error: 'not_found' });
     return;
   }
 
   try {
     const body = await readJsonBody(request);
+    if (isSessionRun) {
+      if (!persistentMicrovmId) throw new InvalidHookRequest('this MicroVM is not a persistent session');
+      startRun(parseRunHook({ microvmId: persistentMicrovmId, ...body }));
+      send(response, 202, { ok: true, operation: 'session-run' });
+      return;
+    }
     switch (operation) {
       case 'ready':
       case 'validate':
@@ -43,13 +59,15 @@ const server = createServer(async (request, response) => {
         startRun(parseRunHook(body));
         break;
       case 'resume':
+        if (persistentStorage) ensureS3FilesMounted(persistentStorage);
+        break;
       case 'suspend':
-        // The child and open file descriptors are captured by the service. No
-        // process-level action is required for suspend/resume in this batch runner.
+        syncPersistentStorage();
         break;
       case 'terminate':
         serviceTerminationRequested = true;
         await terminateActiveRun();
+        syncPersistentStorage();
         break;
     }
     send(response, 200, { ok: true, operation });
@@ -85,6 +103,9 @@ function validateImage() {
   }
   if (!existsSync(runnerEntry)) throw new Error('bundled runner is missing');
   if (!existsSync(terminatorEntry)) throw new Error('bundled MicroVM terminator is missing');
+  if (!existsSync('/sbin/mount.s3files') && !existsSync('/usr/sbin/mount.s3files')) {
+    throw new Error('amazon-efs-utils 3.x S3 Files mount helper is missing');
+  }
   if (process.env.RUN_AGENT_UID !== '10001' || process.env.RUN_AGENT_GID !== '10001') {
     throw new Error('unprivileged agent UID/GID are not configured');
   }
@@ -129,6 +150,29 @@ function parseRunHook(body) {
     MICROVM_ID: microvmId,
     RUN_TIMEOUT_SECONDS: String(timeoutSeconds),
   };
+  if (typeof payload.persistentSession !== 'boolean') {
+    throw new InvalidHookRequest('persistentSession must be a boolean');
+  }
+  environment.PERSISTENT_SESSION = String(payload.persistentSession);
+  let storage;
+  if (payload.persistentSession && payload.s3FilesFileSystemId !== undefined) {
+    const storageKey = requiredString(
+      payload,
+      'conversationStorageKey',
+      64,
+      /^[a-f0-9]{64}$/,
+    );
+    storage = {
+      fileSystemId: requiredString(payload, 's3FilesFileSystemId', 64, /^fs-[A-Za-z0-9]+$/),
+      accessPointId: requiredString(payload, 's3FilesAccessPointId', 64, /^fsap-[A-Za-z0-9]+$/),
+      mountTargetIp: requiredString(payload, 's3FilesMountTargetIp', 45, /^[0-9a-fA-F:.]+$/),
+      mountRoot: process.env.S3_FILES_MOUNT_ROOT ?? '/mnt/rat-things-state',
+      storageKey,
+    };
+    environment.S3_FILES_ENABLED = 'true';
+    environment.CONVERSATION_STORAGE_KEY = storageKey;
+  }
+  optionalEnvironment(environment, 'AGENT_THREAD_ID', payload.agentThreadId, 256, /^[A-Za-z0-9._:-]+$/);
   optionalEnvironment(environment, 'TRACE_ID', payload.traceId, 256);
   optionalEnvironment(environment, 'EVENT_BUS_NAME', payload.eventBusName, 256);
   optionalEnvironment(
@@ -167,7 +211,7 @@ function parseRunHook(body) {
     throw new InvalidHookRequest('allowAgentAwsCredentialChain must be a boolean');
   }
   environment.ALLOW_AGENT_AWS_CREDENTIAL_CHAIN = String(payload.allowAgentAwsCredentialChain);
-  return { microvmId, runId, environment };
+  return { microvmId, runId, persistentSession: payload.persistentSession, environment, storage };
 }
 
 function startRun(run) {
@@ -176,10 +220,27 @@ function startRun(run) {
     if (activeRun.runId === run.runId && activeRun.microvmId === run.microvmId) return;
     throw new InvalidHookRequest('a different run is already active');
   }
+  if (persistentMicrovmId && persistentMicrovmId !== run.microvmId) {
+    throw new InvalidHookRequest('persistent session MicroVM ID changed');
+  }
+  if (run.persistentSession) persistentMicrovmId = run.microvmId;
+  if (run.storage) {
+    ensureS3FilesMounted(run.storage);
+    const stateRoot = join(run.storage.mountRoot, run.storage.storageKey);
+    prepareConversationState(stateRoot);
+    run.environment.CONVERSATION_STATE_ROOT = stateRoot;
+    run.environment.CODEX_HOME = join(stateRoot, 'codex-home');
+    run.environment.WORKSPACE_ROOT = stateRoot;
+    persistentStorage = run.storage;
+  }
 
+  const uid = Number(process.env.RUN_AGENT_UID ?? 10001);
+  const gid = Number(process.env.RUN_AGENT_GID ?? 10001);
   const child = spawn(process.execPath, [runnerEntry], {
     cwd: '/workspace',
     env: { ...process.env, ...run.environment },
+    uid,
+    gid,
     stdio: 'inherit',
   });
   activeRun = { ...run, child };
@@ -193,7 +254,8 @@ function startRun(run) {
       code,
       signal,
     });
-    if (!serviceTerminationRequested) selfTerminate(run);
+    activeRun = undefined;
+    if (!serviceTerminationRequested && !run.persistentSession) selfTerminate(run);
   });
 }
 
@@ -229,6 +291,69 @@ async function terminateActiveRun() {
     new Promise((resolve) => setTimeout(() => resolve(false), 10_000)),
   ]);
   if (!exited) run.child.kill('SIGKILL');
+}
+
+function ensureS3FilesMounted(storage) {
+  mkdirSync(storage.mountRoot, { recursive: true, mode: 0o755 });
+  // Require the state directory itself to be a mount point. `findmnt -T`
+  // reports the parent filesystem (normally `/`) for an unmounted directory,
+  // which would silently keep persistent state on the MicroVM's local disk.
+  const mounted = spawnSync('findmnt', ['--mountpoint', storage.mountRoot, '--noheadings'], {
+    encoding: 'utf8',
+    timeout: 5_000,
+  });
+  if (mounted.status === 0 && mounted.stdout.trim()) return;
+
+  const options = [
+    `accesspoint=${storage.accessPointId}`,
+    `mounttargetip=${storage.mountTargetIp}`,
+  ].join(',');
+  const result = spawnSync(
+    'mount',
+    ['-t', 's3files', '-o', options, storage.fileSystemId, storage.mountRoot],
+    { encoding: 'utf8', timeout: 30_000 },
+  );
+  if (result.status !== 0) {
+    const diagnostic = `${result.stderr ?? ''}\n${result.stdout ?? ''}`.trim().slice(-2_000);
+    throw new Error(`S3 Files mount failed (${result.status ?? 'signal'}): ${diagnostic || 'no diagnostic output'}`);
+  }
+  log('info', 'S3 Files conversation state mounted', {
+    fileSystemId: storage.fileSystemId,
+    accessPointId: storage.accessPointId,
+    mountRoot: storage.mountRoot,
+  });
+}
+
+function prepareConversationState(stateRoot) {
+  const uid = Number(process.env.RUN_AGENT_UID ?? 10001);
+  const gid = Number(process.env.RUN_AGENT_GID ?? 10001);
+  const codexHome = join(stateRoot, 'codex-home');
+  const workspace = join(stateRoot, 'workspace');
+  for (const directory of [stateRoot, codexHome, workspace]) {
+    mkdirSync(directory, { recursive: true, mode: 0o700 });
+    chownSync(directory, uid, gid);
+    chmodSync(directory, 0o700);
+  }
+  const config = join(codexHome, 'config.toml');
+  if (!existsSync(config)) {
+    const template = process.env.CODEX_CONFIG_TEMPLATE ?? '/opt/agent-runtime/config/codex.toml';
+    copyFileSync(template, config);
+    chownSync(config, uid, gid);
+    chmodSync(config, 0o600);
+  }
+}
+
+function syncPersistentStorage() {
+  if (!persistentStorage) return;
+  const result = spawnSync('sync', ['-f', persistentStorage.mountRoot], {
+    encoding: 'utf8',
+    timeout: 30_000,
+  });
+  if (result.status !== 0) {
+    log('warn', 'S3 Files sync failed', {
+      error: `${result.stderr ?? ''}\n${result.stdout ?? ''}`.trim().slice(-1_000),
+    });
+  }
 }
 
 async function shutdown(signal) {

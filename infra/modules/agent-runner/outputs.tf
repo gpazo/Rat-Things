@@ -22,6 +22,24 @@ output "artifact_bucket_name" {
   value = aws_s3_bucket.artifacts.id
 }
 
+output "conversation_state_bucket_name" {
+  description = "S3 bucket backing durable S3 Files conversation state, or null when disabled."
+  value       = try(aws_s3_bucket.conversation_state[0].id, null)
+}
+
+output "s3_files" {
+  description = "Durable conversation filesystem identifiers, or null values when S3 Files is disabled."
+  value = {
+    enabled                 = var.enable_s3_files
+    file_system_id          = try(aws_s3files_file_system.conversation_state[0].id, null)
+    access_point_id         = try(aws_s3files_access_point.conversation_state[0].id, null)
+    mount_target_id         = try(aws_s3files_mount_target.conversation_state[0].id, null)
+    mount_target_ip         = try(aws_s3files_mount_target.conversation_state[0].ipv4_address, null)
+    network_connector_arn   = try(awscc_lambda_network_connector.s3_files[0].arn, null)
+    network_connector_state = try(awscc_lambda_network_connector.s3_files[0].state, null)
+  }
+}
+
 output "microvm_source_bucket_name" {
   value = aws_s3_bucket.microvm_source.id
 }
@@ -30,12 +48,32 @@ output "runs_table_name" {
   value = aws_dynamodb_table.runs.name
 }
 
+output "conversations_table_name" {
+  description = "DynamoDB table holding conversation mailbox, lease, turn, and history projections."
+  value       = aws_dynamodb_table.conversations.name
+}
+
 output "run_queue_url" {
   value = aws_sqs_queue.runs.url
 }
 
 output "run_queue_arn" {
   value = aws_sqs_queue.runs.arn
+}
+
+output "conversation_queue_url" {
+  description = "Wake-up queue for durable conversation mailbox work."
+  value       = aws_sqs_queue.conversations.url
+}
+
+output "conversation_failure_queue_url" {
+  description = "Dead-letter queue for conversation wake-ups that exhaust receives."
+  value       = aws_sqs_queue.conversation_dlq.url
+}
+
+output "conversation_completion_failure_queue_url" {
+  description = "Dead-letter queue for terminal conversation events that exhaust completion retries."
+  value       = aws_sqs_queue.conversation_completion_failures.url
 }
 
 output "run_failure_queue_url" {
@@ -66,7 +104,7 @@ output "microvm_image_arn" {
 }
 
 output "microvm_image_version" {
-  value = try(awscc_lambda_microvm_image.runner[0].latest_active_image_version, null)
+  value = try(data.awscc_lambda_microvm_image.runner[0].latest_active_image_version, null)
 }
 
 output "microvm_image_state" {

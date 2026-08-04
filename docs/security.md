@@ -6,10 +6,11 @@ Treat every prompt, webhook field, repository byte, branch name, agent event, an
 untrusted. A successful provider signature proves that the provider sent the request; it does not
 make the author, repository, prompt, or generated commands trustworthy.
 
-The outer one-run Lambda MicroVM is the primary code-execution boundary. The agent CLI's
-`read-only` or `workspace-write` sandbox is useful defense in depth, not the tenant-isolation boundary.
-This repository is an engineering preview and has not yet completed the controls marked “required
-before production” below.
+The outer Lambda MicroVM is the primary code-execution boundary. A VM is scoped either to one
+one-shot run or to one authenticated conversation session; it is never shared across owners or
+conversation IDs. The agent CLI's `read-only` or `workspace-write` sandbox is useful defense in
+depth, not the tenant-isolation boundary. This repository is an engineering preview and has not yet
+completed the controls marked “required before production” below.
 
 The runtime policy accepts only `read-only` and `workspace-write` by default. Although v1 knows the
 `danger-full-access` enum, validation rejects it unless `ALLOWED_SANDBOX_MODES` explicitly opts in.
@@ -160,15 +161,15 @@ CloudWatch retention and notification-provider retention are separate.
 - Accept only allowlisted, credential-free HTTPS origins. Prefer immutable commit SHAs.
 - The runner never interpolates a prompt, URL, ref, or path into a shell command. Preserve this
   argument-array invariant.
-- Privileged orchestration performs checkout and secret resolution as root, records a clean Git base,
-  recursively hands only the workspace to UID/GID 10001, and launches the agent with a small
-  environment allowlist. Post-agent Git patch collection also runs as UID/GID 10001 so an untrusted
-  `.git/config`, attributes file, filter, or textconv cannot regain root. Preserve and test this
-  ordering.
+- The lifecycle server remains root only to mount S3 Files and control the worker process. Checkout,
+  Codex, tools, and post-agent Git patch collection run as UID/GID 10001 with a small environment
+  allowlist, so an untrusted `.git/config`, attributes file, filter, or textconv cannot regain root.
 - Workspace paths are anchored beneath the configured root and deleted recursively only after that
   containment check.
 - Do not mount the Docker socket, host paths, shared writable EFS, or a long-lived credential cache.
-- Run one job per MicroVM; do not reuse a dirty workspace.
+- Never reuse a workspace across owners or conversations. A conversation may reuse its own S3 Files
+  workspace in a replacement VM only under the same fenced DynamoDB lease and hashed identity.
+  Without S3 Files, expiry starts a clean VM and reconstructs context from the durable checkpoint.
 - A `workspace-write` agent can change cloned content and those changes may be retained as a patch,
   but the runtime does not push commits. Do not add push credentials to the worker role.
 
@@ -178,6 +179,11 @@ Lambda MicroVM images support lifecycle hooks and snapshots. At image build time
 only after generic initialization is complete; initialize run IDs, credentials, `/tmp`, and network
 clients during the run hook. Validate the hook payload and keep it within the service's 4,096-byte
 limit. A connector attached to a running VM is immutable.
+
+Conversation continuation uses a short-lived MicroVM endpoint token scoped to port 8080. Keep token
+minting and the HTTPS request inside trusted orchestration, serialize slices per conversation, and
+never expose the endpoint/token to a webhook caller or agent process. Treat suspended memory and disk
+as sensitive conversation state and rely on the configured expiry plus explicit teardown.
 
 Use the AWS [image and lifecycle guidance](https://docs.aws.amazon.com/lambda/latest/dg/microvms-images.html)
 and [snapshot guidance](https://docs.aws.amazon.com/lambda/latest/dg/microvms-images-snapshots.html)

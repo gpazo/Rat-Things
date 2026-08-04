@@ -33,7 +33,19 @@ export async function runAgentWorker(): Promise<void> {
   process.once('SIGTERM', stop);
   process.once('SIGINT', stop);
   const workspaceRoot = process.env.WORKSPACE_ROOT ?? '/tmp/agent-runtime';
-  const workspace = join(workspaceRoot, runId);
+  const persistentSession = Boolean(current.conversation) && process.env.PERSISTENT_SESSION === 'true';
+  const durableStateRoot = process.env.CONVERSATION_STATE_ROOT;
+  if (durableStateRoot && !persistentSession) {
+    throw new Error('CONVERSATION_STATE_ROOT requires a persistent conversation session');
+  }
+  const workspace = durableStateRoot
+    ? join(durableStateRoot, 'workspace')
+    : join(
+      workspaceRoot,
+      persistentSession && current.conversation
+        ? `conversation-${createHash('sha256').update(current.conversation.conversationId).digest('hex').slice(0, 32)}`
+        : runId,
+    );
   const startedAt = new Date().toISOString();
   let loadedBedrockToken = false;
 
@@ -63,7 +75,9 @@ export async function runAgentWorker(): Promise<void> {
     await store.transition(runId, ['dispatching'], 'running', {
       execution: { ...current.execution, startedAt },
     });
-    await prepareWorkspace(request.repository, workspace, credentials);
+    await prepareWorkspace(request.repository, workspace, credentials, {
+      reuseExisting: persistentSession,
+    });
     const timeoutSeconds = Number(process.env.RUN_TIMEOUT_SECONDS ?? request.execution?.timeoutSeconds ?? 900);
     const driver = driverFor(request.agent?.driver ?? defaultDriver());
     if (driver.name === 'codex' && codexAuthMode() === 'bedrock') {
@@ -111,7 +125,7 @@ export async function runAgentWorker(): Promise<void> {
     if (loadedBedrockToken) delete process.env.AWS_BEARER_TOKEN_BEDROCK;
     process.removeListener('SIGTERM', stop);
     process.removeListener('SIGINT', stop);
-    await rm(workspace, { recursive: true, force: true });
+    if (!persistentSession) await rm(workspace, { recursive: true, force: true });
   }
 }
 

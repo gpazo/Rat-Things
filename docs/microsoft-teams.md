@@ -13,6 +13,21 @@ job:
 Microsoft gives an outgoing webhook five seconds to return its synchronous response. The delayed
 result therefore cannot come from that HTTP response after the connection closes.
 
+## Conversation boundaries
+
+Keep the user model intentionally simple:
+
+- A new top-level Teams post that mentions `@Rat Things` starts a new Rat Things conversation.
+- Replies and later mentions in that same Teams thread add turns to the existing conversation.
+- Different Teams threads may run concurrently; turns inside one thread are serialized by its
+  DynamoDB lease so only one MicroVM opens that conversation's Codex state at a time.
+- Starting a new task requires a new top-level post. There is no `new:` command or session syntax to
+  teach users.
+
+The production Teams gateway must derive the Rat Things conversation key from the trusted root
+thread/conversation reference and retain it for replies. Display text and tags are prompts, not
+conversation identifiers.
+
 ## Choose a connection mode
 
 | Mode | Available in this repository | Terminal result | Best use |

@@ -1,5 +1,10 @@
 import { createHash, randomUUID } from 'node:crypto';
-import type { RunProvenance, RunRecord, RunRequest } from '../domain/contracts.js';
+import type {
+  ConversationRunBinding,
+  RunProvenance,
+  RunRecord,
+  RunRequest,
+} from '../domain/contracts.js';
 import type { SandboxMode } from '../domain/contracts.js';
 import { isTerminal } from '../domain/state.js';
 import { parseRunRequest, ValidationError } from '../domain/validation.js';
@@ -39,6 +44,10 @@ export interface SubmitOptions {
   idempotencyKey?: string;
   traceId?: string;
   provenance?: RunProvenance;
+  /** Defer the SQS wake-up until a coordinator has committed its related state. */
+  enqueue?: boolean;
+  /** Internal coordinator-only metadata; never copied from a public RunRequest. */
+  conversation?: ConversationRunBinding;
 }
 
 export interface RunServiceOptions {
@@ -87,7 +96,9 @@ export class RunService {
         const same = assertSameRequest(existing, requestHash);
         // SQS is a wake-up hint, not the source of truth. Re-nudging a still-queued run is safe
         // and repairs the create-record/enqueue crash window.
-        if (same.status === 'queued') await this.enqueue(same.runId, submit.traceId);
+        if (same.status === 'queued' && submit.enqueue !== false) {
+          await this.enqueue(same.runId, submit.traceId);
+        }
         return same;
       }
     }
@@ -111,13 +122,14 @@ export class RunService {
       input,
       sourceKind: request.source?.kind ?? 'api',
       ...(submit.provenance ? { provenance: submit.provenance } : {}),
+      ...(submit.conversation ? { conversation: validateConversationBinding(submit.conversation) } : {}),
     };
 
     const created = await this.options.store.create(record);
     if (!created.created) return assertSameRequest(created.record, requestHash);
 
     try {
-      await this.enqueue(runId, submit.traceId);
+      if (submit.enqueue !== false) await this.enqueue(runId, submit.traceId);
     } catch (error) {
       // Keep the durable run queued. An idempotent client retry or the scheduled reconciler
       // will send another wake-up without regenerating the request or changing its run ID.
@@ -172,6 +184,15 @@ export class RunService {
     return cancelling;
   }
 
+  /**
+   * Sends a durable run wake-up after an external coordinator has committed its own binding.
+   * Duplicate wake-ups are safe because the dispatcher claims the run conditionally.
+   */
+  public async wake(runId: string, traceId?: string): Promise<void> {
+    if (!/^[A-Za-z0-9-]{1,128}$/.test(runId)) throw new ValidationError('run ID is invalid');
+    await this.enqueue(runId, traceId);
+  }
+
   private enqueue(runId: string, traceId?: string): Promise<void> {
     return this.options.queue.enqueue({
       version: '1',
@@ -179,6 +200,34 @@ export class RunService {
       traceId: traceId ?? runId,
     });
   }
+}
+
+function validateConversationBinding(binding: ConversationRunBinding): ConversationRunBinding {
+  for (const [label, value, maximum] of [
+    ['conversationId', binding.conversationId, 512],
+    ['turnId', binding.turnId, 512],
+  ] as const) {
+    if (!value || Buffer.byteLength(value, 'utf8') > maximum) {
+      throw new ValidationError(`${label} is invalid`);
+    }
+  }
+  if (!Number.isInteger(binding.slice) || binding.slice < 0 || binding.slice > 10_000) {
+    throw new ValidationError('conversation slice is invalid');
+  }
+  if (binding.preferredMicrovmId && !/^[A-Za-z0-9._:-]{1,256}$/.test(binding.preferredMicrovmId)) {
+    throw new ValidationError('preferred MicroVM ID is invalid');
+  }
+  if (binding.agentThreadId && !/^[A-Za-z0-9._:-]{1,256}$/.test(binding.agentThreadId)) {
+    throw new ValidationError('agent thread ID is invalid');
+  }
+  if (binding.continuation && (
+    !binding.continuation.bucket ||
+    !binding.continuation.key ||
+    !/^[a-f0-9]{64}$/.test(binding.continuation.sha256)
+  )) {
+    throw new ValidationError('conversation continuation artifact is invalid');
+  }
+  return { ...binding };
 }
 
 export function requestForRun(request: RunRequest): RunRequest {

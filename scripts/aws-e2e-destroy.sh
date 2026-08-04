@@ -57,6 +57,9 @@ resource_is_gone_or_deleting() {
     arn:aws:lambda:*:microvm-image:*)
       ! aws cloudcontrol get-resource --region "$aws_region" --type-name AWS::Lambda::MicrovmImage --identifier "$resource_arn" >/dev/null 2>&1
       ;;
+    arn:aws:lambda:*:network-connector:*)
+      ! aws cloudcontrol get-resource --region "$aws_region" --type-name AWS::Lambda::NetworkConnector --identifier "$resource_arn" >/dev/null 2>&1
+      ;;
     # The AWS tag index can retain terminal records from a prior version of
     # the harness after their billable resources have been removed. Resolve
     # those exact ARNs through their owning APIs instead of treating a tag

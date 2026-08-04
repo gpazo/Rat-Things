@@ -105,6 +105,17 @@ resource "awscc_lambda_microvm_image" "runner" {
   ]
 }
 
+# The Cloud Control resource can retain the pre-update computed version in the
+# same apply that builds a new image. Re-read it after the asynchronous update
+# finishes so consumers are pinned to the version that was actually activated.
+data "awscc_lambda_microvm_image" "runner" {
+  count = var.enable_microvm ? 1 : 0
+
+  id = awscc_lambda_microvm_image.runner[0].image_arn
+
+  depends_on = [awscc_lambda_microvm_image.runner]
+}
+
 resource "aws_ssm_parameter" "microvm_image" {
   name        = "/${local.name}/microvm/image-arn"
   description = "Active Lambda MicroVM image ARN, or UNPROVISIONED when the preview backend is disabled"
@@ -117,6 +128,6 @@ resource "aws_ssm_parameter" "microvm_image_version" {
   name        = "/${local.name}/microvm/image-version"
   description = "Pinned active Lambda MicroVM image version, or UNPROVISIONED when disabled"
   type        = "String"
-  value       = var.enable_microvm ? awscc_lambda_microvm_image.runner[0].latest_active_image_version : "UNPROVISIONED"
+  value       = var.enable_microvm ? data.awscc_lambda_microvm_image.runner[0].latest_active_image_version : "UNPROVISIONED"
   tags        = local.tags
 }

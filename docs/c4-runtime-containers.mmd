@@ -1,0 +1,50 @@
+%%{init: {"theme":"base","themeVariables":{"fontFamily":"Arial, sans-serif","primaryColor":"#1268b3","primaryTextColor":"#ffffff","primaryBorderColor":"#0b4f8a","lineColor":"#52606d","secondaryColor":"#e8edf2","tertiaryColor":"#eef7ee","background":"#ffffff"},"themeCSS":".nodeLabel,.edgeLabel,.cluster-label{font-family:Arial,sans-serif!important}.edgeLabel p{color:#344250!important;background:#ffffff!important}","flowchart":{"curve":"linear","nodeSpacing":46,"rankSpacing":62}}}%%
+flowchart TB
+    subgraph externalTop[" "]
+        direction LR
+        sources["Teams · GitHub · GitLab · API"]
+        model["Codex Model Provider<br/><small>OpenAI or Amazon Bedrock</small>"]
+        sources ~~~ model
+    end
+
+    subgraph runtime["C4 · Level 2 — Rat Things Runtime"]
+        direction TB
+
+        subgraph requestFlow[" "]
+            direction LR
+            ingress["Ingress<br/><small>API Gateway + Lambda</small>"]
+            control["Conversation Control<br/><small>Lambda + SQS</small>"]
+            microvm["Codex Runner<br/><small>Lambda MicroVM</small>"]
+            delivery["Result Delivery<br/><small>Events + Lambda</small>"]
+
+            ingress -->|1 · Authenticate| control
+            control -->|3 · Launch / resume| microvm
+            microvm -->|6 · Complete| delivery
+        end
+
+        subgraph stateFlow[" "]
+            direction LR
+            archive["Mailbox & Archive<br/><small>DynamoDB + encrypted S3</small>"]
+            files["Codex Home & Workspace<br/><small>Amazon S3 Files</small>"]
+            archive ~~~ files
+        end
+
+        control <-->|2 · Turns + lease| archive
+        microvm <-->|4 · Native state + files| files
+        microvm -->|5 · Events + checkpoint| archive
+    end
+
+    sources -->|Signed request| ingress
+    delivery -->|Threaded reply / result| destinations["Source Thread · Status · Artifacts"]
+    model -->|Prompt / response| microvm
+
+    classDef app fill:#1268b3,color:#ffffff,stroke:#0b4f8a,stroke-width:2px;
+    classDef data fill:#dcecf8,color:#17212b,stroke:#4d7da5,stroke-width:1.5px;
+    classDef external fill:#e8edf2,color:#17212b,stroke:#7a8793,stroke-width:1.5px;
+    class ingress,control,microvm,delivery app;
+    class archive,files data;
+    class sources,destinations,model external;
+    style runtime fill:#f5f9fd,stroke:#4d7da5,stroke-width:2px,color:#17212b;
+    style requestFlow fill:transparent,stroke:transparent;
+    style stateFlow fill:transparent,stroke:transparent;
+    style externalTop fill:transparent,stroke:transparent;

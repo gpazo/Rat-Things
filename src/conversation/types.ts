@@ -1,0 +1,151 @@
+import type {
+  ConversationEventRecord,
+  ConversationLease,
+  ConversationMessageRecord,
+  ConversationRecord,
+  ConversationTurnRecord,
+  ConversationWakeMessage,
+} from '../domain/conversations.js';
+
+export interface ConversationQueue {
+  enqueue(message: ConversationWakeMessage): Promise<void>;
+}
+
+export interface AppendConversationMessageResult {
+  status: 'appended' | 'duplicate';
+  conversation: ConversationRecord;
+  message: ConversationMessageRecord;
+}
+
+export type AcquireConversationLeaseResult =
+  | { status: 'acquired'; conversation: ConversationRecord; lease: ConversationLease }
+  | { status: 'active'; conversation: ConversationRecord }
+  | { status: 'no_work'; conversation?: ConversationRecord };
+
+export interface PendingMessageOptions {
+  delivery?: ConversationMessageRecord['delivery'];
+  limit?: number;
+}
+
+export interface ConversationStore {
+  getConversation(conversationId: string): Promise<ConversationRecord | undefined>;
+  appendMessage(input: {
+    conversation: ConversationRecord;
+    message: ConversationMessageRecord;
+    event: ConversationEventRecord;
+  }): Promise<AppendConversationMessageResult>;
+  listPending(
+    conversationId: string,
+    options?: PendingMessageOptions,
+  ): Promise<ConversationMessageRecord[]>;
+  acquireLease(input: {
+    conversationId: string;
+    lease: ConversationLease;
+    now: string;
+  }): Promise<AcquireConversationLeaseResult>;
+  checkIn(input: {
+    conversationId: string;
+    lease: ConversationLease;
+    expectedToken: string;
+    now: string;
+  }): Promise<ConversationRecord>;
+  releaseLease(input: {
+    conversationId: string;
+    expectedToken: string;
+    updatedAt: string;
+  }): Promise<ConversationRecord>;
+  beginTurn(input: {
+    turn: ConversationTurnRecord;
+    event: ConversationEventRecord;
+    leaseToken: string;
+  }): Promise<ConversationTurnRecord>;
+  attachRun(input: {
+    conversationId: string;
+    turnId: string;
+    runId: string;
+    event: ConversationEventRecord;
+    leaseToken: string;
+    updatedAt: string;
+  }): Promise<ConversationTurnRecord>;
+  scheduleRun(input: {
+    conversationId: string;
+    turnId: string;
+    runId: string;
+    messageIds: string[];
+    runEvent: ConversationEventRecord;
+    consumeEvent: ConversationEventRecord;
+    leaseToken: string;
+    updatedAt: string;
+  }): Promise<ConversationTurnRecord>;
+  resumeTurn(input: {
+    conversationId: string;
+    turnId: string;
+    event: ConversationEventRecord;
+    leaseToken: string;
+    updatedAt: string;
+  }): Promise<ConversationTurnRecord>;
+  checkpointTurn(input: {
+    conversationId: string;
+    turnId: string;
+    checkpoint: ConversationTurnRecord['checkpoint'];
+    resumeReason: NonNullable<ConversationTurnRecord['resumeReason']>;
+    event: ConversationEventRecord;
+    leaseToken: string;
+    updatedAt: string;
+  }): Promise<ConversationTurnRecord>;
+  reportProgress(input: {
+    conversationId: string;
+    turnId: string;
+    progress: NonNullable<ConversationRecord['latestProgress']>;
+    event: ConversationEventRecord;
+    leaseToken: string;
+  }): Promise<ConversationRecord>;
+  consumeMessages(input: {
+    conversationId: string;
+    messageIds: string[];
+    event: ConversationEventRecord;
+    leaseToken: string;
+    consumedAt: string;
+  }): Promise<ConversationRecord>;
+  completeTurn(input: {
+    conversationId: string;
+    turnId: string;
+    result?: ConversationTurnRecord['result'];
+    context?: ConversationRecord['context'];
+    session?: ConversationRecord['session'];
+    event: ConversationEventRecord;
+    leaseToken: string;
+    completedAt: string;
+  }): Promise<ConversationTurnRecord>;
+  failTurn(input: {
+    conversationId: string;
+    turnId: string;
+    error: NonNullable<ConversationTurnRecord['error']>;
+    event: ConversationEventRecord;
+    leaseToken: string;
+    failedAt: string;
+  }): Promise<ConversationTurnRecord>;
+  getTurn(conversationId: string, turnId: string): Promise<ConversationTurnRecord | undefined>;
+  listEvents(conversationId: string, limit?: number): Promise<ConversationEventRecord[]>;
+}
+
+export class ConversationConflictError extends Error {
+  public constructor(message: string) {
+    super(message);
+    this.name = 'ConversationConflictError';
+  }
+}
+
+export class ConversationLeaseError extends Error {
+  public constructor(message: string) {
+    super(message);
+    this.name = 'ConversationLeaseError';
+  }
+}
+
+export class ConversationStateError extends Error {
+  public constructor(message: string) {
+    super(message);
+    this.name = 'ConversationStateError';
+  }
+}

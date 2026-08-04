@@ -1,8 +1,8 @@
 # AWS infrastructure
 
-This Terraform root deploys the Rat Things control plane and the Lambda MicroVM image used for one
-isolated execution per run. Individual MicroVM instances are created and terminated through the
-service API; they are not Terraform resources.
+This Terraform root deploys the Rat Things control plane and Lambda MicroVM image. One-shot VMs are
+terminated; conversation VMs may be suspended and resumed for a bounded session. Individual
+MicroVM instances are managed through the service API; they are not Terraform resources.
 
 The reusable implementation is in `modules/agent-runner`. This root configures the standard AWS
 provider and the AWS Cloud Control provider required for the MicroVM image resource.
@@ -69,8 +69,9 @@ The source bundle starts a root lifecycle server on port 8080 and signals readin
 runtime is initialized. It snapshots no run ID, token, repository, or workspace. Per-run identifiers
 arrive in the bounded `/run` payload; the worker retrieves the full request from encrypted S3.
 
-The agent subprocess runs as UID/GID 10001. A termination helper calls `TerminateMicrovm` when the
-root runner exits so batch jobs do not remain until the service duration limit.
+The agent subprocess runs as UID/GID 10001. One-shot jobs call `TerminateMicrovm` when the runner
+exits. Conversation jobs retain the workspace and Codex thread, then the completion coordinator
+calls `SuspendMicrovm`; a later slice resumes the VM through its authenticated HTTPS endpoint.
 
 The current AWSCC schema requires non-empty `additional_os_capabilities`, and the service currently
 accepts only `ALL`. Those capabilities remain inside the MicroVM boundary, but this still requires a

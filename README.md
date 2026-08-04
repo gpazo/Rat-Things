@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <strong>One prompt. One disposable MicroVM. Durable results.</strong>
+  <strong>VM-level isolation at serverless scale.</strong>
 </p>
 
 <p align="center">
@@ -23,13 +23,21 @@
   <a href="docs/status-and-roadmap.md">Validation status</a>
 </p>
 
-Rat Things is an AWS-native agent runner. It accepts authenticated API requests and signed GitHub,
-GitLab, or chat webhooks; executes each run in its own AWS Lambda MicroVM; stores durable artifacts;
-and delivers the result back to the originating thread. Microsoft Teams is the preferred chat
-surface, with Slack available as an optional adapter.
+Rat Things is an AWS-native, Codex-first agent runtime. It accepts authenticated API requests and
+signed GitHub, GitLab, or chat webhooks; coordinates durable conversations; executes tool-capable
+work in AWS Lambda MicroVMs; and delivers results back to the originating thread. Microsoft Teams
+is the preferred chat surface, with Slack available as an optional adapter.
+
+It provides VM-level isolation at serverless scale: no always-on agent fleet, one fenced MicroVM
+owner per active conversation, and durable state that can resume on replacement compute.
+
+The important idea is that compute is disposable but the agent is not. A conversation's mailbox,
+history, Codex app-server state, and workspace live outside the VM. Rat Things can terminate one
+MicroVM, start another, resume the exact Codex thread, and restore the exact workspace bytes.
 
 The subsystem is deliberately narrow: it owns agent execution, not your product's application
-logic. There is no ECS worker service, customer VPC, NAT gateway, or long-lived agent container.
+logic. There is no ECS worker service or long-lived agent container. One-shot deployments need no
+customer VPC; durable native Codex restoration optionally adds a small VPC/NAT path for S3 Files.
 
 > [!WARNING]
 > Rat Things is an engineering preview. Its deterministic workflow and minimal real-Codex paths
@@ -39,8 +47,19 @@ logic. There is no ECS worker service, customer VPC, NAT gateway, or long-lived 
 
 ## Why Rat Things?
 
-- **Isolation per run** — one Lambda MicroVM is launched for one job and explicitly terminated.
+- **Dedicated VM boundary** — each active agent session runs in its own Firecracker-backed guest
+  rather than relying only on process-level or shared-kernel containment.
+- **Serverless lifecycle** — pre-initialized snapshots launch quickly; sessions suspend and resume
+  without operating an EC2, Fargate, or always-on worker fleet.
+- **Isolated, resumable execution** — one-shot jobs terminate their MicroVM; conversation VMs
+  suspend between turns and resume until their bounded session expires.
 - **Durable orchestration** — DynamoDB, S3, SQS, Streams, and EventBridge hold state outside compute.
+- **Durable conversation mailbox** — DynamoDB leases and prioritized messages coordinate turns;
+  S3 holds immutable bodies, replay context, progress events, and checkpoints.
+- **Native Codex continuity** — Codex app-server state and the conversation workspace can live on an
+  S3 Files mount, so a replacement MicroVM resumes the same thread and bytes.
+- **Real tool use** — shell, Git, filesystem, and explicitly enabled network access execute inside
+  the isolated worker rather than being reduced to a chat-only interface.
 - **Webhook to result** — signed GitHub, GitLab, Teams, and optional Slack paths share one run model.
 - **Codex-first execution** — ChatGPT account auth for trusted local work; short-term Bedrock auth in AWS.
 - **Provider-neutral boundaries** — ingress, identity, credentials, execution, delivery, and plugins
@@ -48,19 +67,33 @@ logic. There is no ECS worker service, customer VPC, NAT gateway, or long-lived 
 - **Disposable validation** — LocalStack and live-AWS harnesses exercise the complete data flow and
   tear down temporary infrastructure.
 
+The useful framing from this [r/aws discussion of Lambda MicroVM
+workloads](https://www.reddit.com/r/aws/comments/1ueul5o/hardest_problems_lambda_microvms_can_solve_now/)
+is the changed tradeoff: VM-level isolation and stateful sessions with a serverless lifecycle. AWS
+describes the same design point as dedicated guest isolation, rapid snapshot launch/resume, and
+stateful execution for user- or AI-generated code in its [Lambda MicroVM launch
+post](https://aws.amazon.com/blogs/aws/run-isolated-sandboxes-with-full-lifecycle-control-aws-lambda-introduces-microvms/).
+
+Rat Things adds the layer an agent system still needs around that primitive: authenticated ingress,
+durable coordination, fenced filesystem ownership, native Codex restoration, normalized replay,
+threaded egress, recovery, and disposable end-to-end validation.
+
 ## Data flow
 
 ```text
 signed webhook / IAM-authenticated API
                   |
                   v
-       DynamoDB + encrypted S3 -> SQS -> dispatcher
+       DynamoDB + encrypted S3 -> SQS -> coordinator/dispatcher
                                              |
                                              v
-                                  one Lambda MicroVM
+                             Lambda MicroVM (run or resume)
+                                  |       |
+                                  |       +-> Codex app-server
+                                  +----------> S3 Files workspace/state
                                              |
                                              v
-                         S3 result + DynamoDB state
+                      checkpoint + suspend / terminate
                                              |
                                              v
                          EventBridge -> provider result
@@ -69,6 +102,10 @@ signed webhook / IAM-authenticated API
 Trusted orchestration resolves secrets and performs repository checkout before launching Codex as
 UID 10001 with a sanitized environment. Prompts and repository credentials are never placed in the
 MicroVM launch payload.
+
+For Teams, the concurrency model follows the interface users already understand: each new top-level
+post creates a conversation; replies continue it. Different Teams threads may run concurrently,
+while a DynamoDB fenced lease serializes turns and filesystem ownership inside one thread.
 
 ## Architecture
 
@@ -97,8 +134,11 @@ process is host-run and labeled `microvm`; isolation is validated in AWS.
 ### C2 — Live AWS test harness
 
 The disposable AWS harness deploys the real control plane and Lambda MicroVM image, exercises signed
-webhooks and repository-backed execution, validates outputs and failure queues, and destroys the
-tagged stack from an exit trap.
+webhooks and repository-backed execution, validates a two-turn conversation on the same suspended
+and resumed MicroVM, validates expiry replacement and crash-window recovery, checks outputs and
+failure queues, and destroys the tagged stack from an exit trap. Its opt-in Codex probe writes a
+file, terminates the first MicroVM, observes the bytes in S3, then resumes the same Codex app-server
+thread and workspace from a replacement MicroVM.
 
 ![Rat Things C4 live AWS test harness](docs/c4-live-aws-test-harness-containers.png)
 
@@ -167,9 +207,10 @@ Docker is required for this path:
 npm run test:e2e:localstack
 ```
 
-The test covers signed GitHub/GitLab ingress and a complete signed Teams path through LocalStack
+The test covers signed GitHub/GitLab ingress, a complete signed Teams path through LocalStack
 Secrets Manager, S3, DynamoDB Streams, SQS, EventBridge, durable delivery fencing, and WireMock
-egress.
+egress. It also exercises the durable conversation mailbox through interrupt/defer ordering,
+leases, progress, checkpoint/reacquire/resume, history, completion, and idempotent retry.
 
 To exercise the same Teams path with your signed-in Codex subscription and verify that the outbound
 reply retains the exact source conversation and activity reference:
@@ -193,15 +234,18 @@ AWS_E2E_MICROVM_BASE_IMAGE_VERSION="<available pinned version>" \
 npm run test:e2e:aws
 ```
 
-The default live suite uses the mock driver and spends no model tokens. Add one intentionally small
-Codex-on-Bedrock canary with `AWS_E2E_REAL_CODEX=true`. The harness always attempts teardown from an
-exit trap; the customer-managed KMS key is disabled and enters AWS's mandatory pending-deletion
-period.
+The default live suite uses the mock driver and spends no model tokens. It includes a two-turn Teams
+conversation that validates AWS-authenticated continuation, same-ID MicroVM suspend/resume,
+session-expiry replacement, and coordinator crash-window recovery. Add a bounded, two-turn
+Codex-on-Bedrock app-server/S3 Files persistence probe with `AWS_E2E_REAL_CODEX=true`. The harness
+always attempts teardown from an exit trap; the customer-managed KMS key is disabled and enters
+AWS's mandatory pending-deletion period.
 
 ## Repository layout
 
 ```text
 src/app/          composition root
+src/conversation/ durable mailbox, lease, progress, and resumable-turn service
 src/ingress/      authenticated provider normalization
 src/identity/     actor, owner, and source contexts
 src/credentials/  trusted secret resolution
@@ -233,6 +277,7 @@ Read the complete [security and threat model](docs/security.md) and [status and 
 ## Documentation
 
 - [Architecture](docs/architecture.md)
+- [Durable conversations](docs/conversations.md)
 - [Control API](docs/api.md)
 - [Connect Microsoft Teams](docs/microsoft-teams.md)
 - [Channels](docs/channels.md)

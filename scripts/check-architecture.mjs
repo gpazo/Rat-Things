@@ -4,11 +4,12 @@ import process from 'node:process';
 
 const root = resolve('src');
 const rules = new Map([
-  ['domain', new Set(['adapters', 'app', 'channels', 'credentials', 'delivery', 'execution', 'ingress', 'lambdas', 'plugins', 'runner'])],
-  ['core', new Set(['adapters', 'app', 'delivery', 'execution', 'ingress', 'lambdas', 'plugins', 'runner'])],
-  ['identity', new Set(['adapters', 'app', 'channels', 'credentials', 'delivery', 'execution', 'ingress', 'lambdas', 'plugins', 'runner'])],
-  ['credentials', new Set(['adapters', 'app', 'channels', 'delivery', 'execution', 'ingress', 'lambdas', 'plugins', 'runner'])],
-  ['channels', new Set(['adapters', 'app', 'credentials', 'delivery', 'execution', 'ingress', 'lambdas', 'plugins', 'runner'])],
+  ['domain', new Set(['adapters', 'app', 'channels', 'conversation', 'credentials', 'delivery', 'execution', 'ingress', 'lambdas', 'plugins', 'runner'])],
+  ['core', new Set(['adapters', 'app', 'conversation', 'delivery', 'execution', 'ingress', 'lambdas', 'plugins', 'runner'])],
+  ['identity', new Set(['adapters', 'app', 'channels', 'conversation', 'credentials', 'delivery', 'execution', 'ingress', 'lambdas', 'plugins', 'runner'])],
+  ['credentials', new Set(['adapters', 'app', 'channels', 'conversation', 'delivery', 'execution', 'ingress', 'lambdas', 'plugins', 'runner'])],
+  ['channels', new Set(['adapters', 'app', 'conversation', 'credentials', 'delivery', 'execution', 'ingress', 'lambdas', 'plugins', 'runner'])],
+  ['conversation', new Set(['adapters', 'app', 'delivery', 'execution', 'ingress', 'lambdas', 'plugins', 'runner'])],
   ['ingress', new Set(['adapters', 'app', 'delivery', 'execution', 'lambdas', 'runner'])],
   ['delivery', new Set(['adapters', 'app', 'execution', 'ingress', 'lambdas', 'runner'])],
   ['execution', new Set(['adapters', 'app', 'delivery', 'ingress', 'lambdas', 'plugins', 'runner'])],

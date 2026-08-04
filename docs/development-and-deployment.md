@@ -10,7 +10,9 @@
 - A local `codex login` with ChatGPT, or Bedrock access, only for real local driver tests. `npm ci`
   installs the same pinned CLI version used in the MicroVM image.
 
-There is no worker-container build, ECR push, ECS cluster, customer VPC, or NAT gateway step.
+There is no worker-container build, ECR push, or ECS cluster. The one-shot stack needs no customer
+VPC. Enabling S3 Files creates a dedicated VPC, mount target, network connector, and NAT gateway for
+durable conversations, so tear disposable stacks down promptly.
 
 ## Local workflow
 
@@ -30,8 +32,10 @@ npm run test:e2e:localstack
 ```
 
 LocalStack owns S3, DynamoDB/Streams, SQS, EventBridge, Secrets Manager, and related event routing.
-Handlers and the mock runner execute on the host because LocalStack does not implement the Lambda
-MicroVM APIs or lifecycle. See [`testing/README.md`](../testing/README.md).
+The suite also validates the durable conversation table and S3 bodies through prioritized mailbox,
+lease, progress, checkpoint/resume, and completion operations. Handlers and the mock runner execute
+on the host because LocalStack does not implement the Lambda MicroVM APIs or lifecycle. See
+[`testing/README.md`](../testing/README.md).
 
 Focused local runs are also available:
 
@@ -83,6 +87,7 @@ allow_agent_aws_credential_chain = false
 allowed_sandbox_modes            = ["read-only", "workspace-write"]
 enable_microvm                   = true
 microvm_base_image_version       = "<available pinned version>"
+enable_s3_files                  = true
 force_destroy_data               = false
 ```
 
@@ -100,9 +105,10 @@ Review the target account/Region, public webhook routes, `iam:PassRole`, the iso
 `lambda:PassNetworkConnector` wildcard action, retention, logging, quotas, and deletion settings.
 Image creation can take several minutes.
 
-MicroVM builds and runs use AWS-managed internet egress by default. A customer VPC connector is
-required only for private VPC resources and is deliberately outside the base stack. Public Git hosts
-and model endpoints therefore need no NAT gateway here.
+MicroVM builds and one-shot runs use AWS-managed internet egress. S3 Files is VPC-mounted, so
+persistent conversation runs use the Terraform-managed network connector, private subnet, S3 and
+DynamoDB endpoints, and NAT gateway for public Git/model access. Set `enable_s3_files=false` only
+when native workspace/app-server restoration across replacement VMs is not required.
 
 ## Remote mock smoke test
 
@@ -136,8 +142,10 @@ node dist/cli.mjs artifact RUN_ID events
 node dist/cli.mjs cancel RUN_ID
 ```
 
-Verify exactly one execution ID, successful self-termination, output/event checksums, terminal state,
-empty queues/DLQs, provider delivery state, and correlated logs.
+For a one-shot control run, verify exactly one execution ID, successful self-termination,
+output/event checksums, terminal state, empty queues/DLQs, provider delivery state, and correlated
+logs. A conversation validation must instead verify suspend, authenticated resume on the same ID,
+retained workspace/Codex thread, and eventual termination or expiry cleanup.
 
 ## Disposable live-AWS gate
 
@@ -152,11 +160,15 @@ npm run test:e2e:aws
 
 The harness exercises real API Gateway/Lambda/IAM/KMS, signed GitHub/GitLab/Teams ingress, a pinned
 repository checkout inside the MicroVM, durable artifacts/state/events, captured Teams egress,
-failure queues, and self-termination. It uses the mock driver and destroys the tagged stack from an
-exit trap. LocalStack cannot replace this isolation/lifecycle test. See
+failure queues, one-shot self-termination, and a two-turn Teams conversation that suspends and
+resumes the same MicroVM through its AWS-authenticated continuation endpoint. The mock suite also
+validates expired-session replacement and coordinator crash-window repair. Its opt-in real-Codex
+probe terminates the first VM and restores workspace bytes and one Codex app-server thread in a
+replacement VM. The harness destroys the
+tagged stack from an exit trap. LocalStack cannot replace that isolation/lifecycle test. See
 [`testing/aws/README.md`](../testing/aws/README.md).
 
-Add one low-token real-Codex canary before teardown with:
+Add the bounded two-turn real-Codex persistence probe before teardown with:
 
 ```bash
 AWS_E2E_REAL_CODEX=true \

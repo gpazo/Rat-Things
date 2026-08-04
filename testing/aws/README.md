@@ -20,17 +20,25 @@ The wrapper:
 4. Sends an IAM-authenticated control request and real signed provider webhook requests.
 5. Verifies MicroVM execution, pinned public-repository checkout, S3 output/events, DynamoDB state,
    EventBridge terminal events, Teams Adaptive Card egress, empty failure queues, and self-termination.
-6. Terminates any remaining MicroVMs and runs `terraform destroy` from an exit trap.
+6. Sends two signed Teams activities into one durable conversation, proves actual AWS suspension,
+   authenticated continuation and resume on the same MicroVM ID, replay, egress, and re-suspension.
+7. Backdates a suspended session to prove replacement, replay, and expired-VM termination, then
+   injects the coordinator launch/attach crash window and proves idempotent repair.
+8. Terminates any remaining MicroVMs and runs `terraform destroy` from an exit trap.
 
 The default stack uses the mock driver. It does not invoke Codex or Bedrock, so it spends no model
 tokens. It creates no ECS/ECR resources, customer VPC, NAT gateway, or customer network connector;
 MicroVMs use AWS-managed public egress.
 
-Set `AWS_E2E_REAL_CODEX=true` to add one real `openai.gpt-5.6-terra` request through Bedrock. The
-worker execution role mints a short-term token, the unprivileged Codex process receives only that
-token, and the test verifies non-mock output, usage accounting, artifacts, state, and termination.
+Set `AWS_E2E_REAL_CODEX=true` to add a bounded two-turn `openai.gpt-5.6-terra` probe through
+Bedrock. The worker execution role mints a short-term token and the unprivileged Codex process
+receives only that token. Turn one writes unique bytes through a command tool call; turn two resumes
+the same MicroVM and Codex thread and reads those bytes from the same workspace path. The test also
+verifies tool events, workspace patches, usage, state, re-suspension, and empty failure queues.
 
-Version `1` of the managed `al2023-1` image was validated in `us-west-2` on 2026-08-03. Discover
+Version `1` of the managed `al2023-1` base image was validated in `us-west-2` on 2026-08-03–04.
+Managed Rat Things image versions `1.0` through `3.0` were created during integration debugging; the
+final persistence run used `3.0`. Discover
 availability again before relying on that value.
 
 AWS does not allow immediate deletion of a customer-managed KMS key. Teardown disables the key and

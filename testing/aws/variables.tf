@@ -30,8 +30,7 @@ variable "enable_microvm" {
 variable "microvm_base_image_version" {
   description = "Pinned managed al2023-1 image version. Required when enable_microvm is true."
   type        = string
-  default     = null
-  nullable    = true
+  default     = "1"
 }
 
 variable "codex_model_id" {

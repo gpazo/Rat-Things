@@ -4,6 +4,8 @@ locals {
     ALLOWED_SANDBOX_MODES               = join(",", var.allowed_sandbox_modes)
     ARTIFACT_BUCKET                     = aws_s3_bucket.artifacts.id
     AWS_NODEJS_CONNECTION_REUSE_ENABLED = "1"
+    CONVERSATIONS_TABLE_NAME            = aws_dynamodb_table.conversations.name
+    CONVERSATION_QUEUE_URL              = aws_sqs_queue.conversations.url
     RUNS_TABLE_NAME                     = aws_dynamodb_table.runs.name
     RUN_QUEUE_URL                       = aws_sqs_queue.runs.url
     RUN_RETENTION_SECONDS               = tostring(var.run_retention_seconds)
@@ -18,9 +20,17 @@ locals {
     MICROVM_IMAGE_PARAMETER_NAME         = aws_ssm_parameter.microvm_image.name
     MICROVM_IMAGE_VERSION_PARAMETER_NAME = aws_ssm_parameter.microvm_image_version.name
     MICROVM_LOG_GROUP_NAME               = aws_cloudwatch_log_group.microvm.name
+    MICROVM_SESSION_IDLE_SECONDS         = tostring(var.microvm_session_idle_seconds)
+    MICROVM_SESSION_SUSPENDED_SECONDS    = tostring(var.microvm_session_suspended_seconds)
+    S3_FILES_ENABLED                     = tostring(var.enable_s3_files)
     }, local.bedrock_api_key_secret_arn == null ? {} : {
     BEDROCK_API_KEY_SECRET_ARN = local.bedrock_api_key_secret_arn
-  })
+    }, var.enable_s3_files ? {
+    MICROVM_VPC_NETWORK_CONNECTOR_ARN = awscc_lambda_network_connector.s3_files[0].arn
+    S3_FILES_ACCESS_POINT_ID          = aws_s3files_access_point.conversation_state[0].id
+    S3_FILES_FILE_SYSTEM_ID           = aws_s3files_file_system.conversation_state[0].id
+    S3_FILES_MOUNT_TARGET_IP          = aws_s3files_mount_target.conversation_state[0].ipv4_address
+  } : {})
 
   lambda_definitions = {
     control = {
@@ -32,6 +42,24 @@ locals {
       environment = merge(local.executor_environment, {
         ALLOW_OWNER_HEADER = "false"
       })
+    }
+    conversation-coordinator = {
+      enabled  = true
+      zip_path = local.lambda_zip_paths["conversation-coordinator"]
+      role_arn = aws_iam_role.conversation_coordinator.arn
+      timeout  = 60
+      memory   = 512
+      environment = merge(local.lambda_common_environment, {
+        CONVERSATION_SLICE_TIMEOUT_SECONDS = tostring(var.conversation_slice_timeout_seconds)
+      })
+    }
+    conversation-completion = {
+      enabled     = true
+      zip_path    = local.lambda_zip_paths["conversation-completion"]
+      role_arn    = aws_iam_role.conversation_completion.arn
+      timeout     = 60
+      memory      = 512
+      environment = local.lambda_common_environment
     }
     dispatcher = {
       enabled     = true
@@ -186,6 +214,21 @@ resource "aws_lambda_event_source_mapping" "dispatcher" {
   }
 
   depends_on = [aws_iam_role_policy.dispatcher]
+}
+
+resource "aws_lambda_event_source_mapping" "conversation_coordinator" {
+  event_source_arn                   = aws_sqs_queue.conversations.arn
+  function_name                      = aws_lambda_function.this["conversation-coordinator"].arn
+  enabled                            = true
+  batch_size                         = 5
+  maximum_batching_window_in_seconds = 1
+  function_response_types            = ["ReportBatchItemFailures"]
+
+  scaling_config {
+    maximum_concurrency = 10
+  }
+
+  depends_on = [aws_iam_role_policy.conversation_coordinator]
 }
 
 resource "aws_lambda_event_source_mapping" "state_stream" {

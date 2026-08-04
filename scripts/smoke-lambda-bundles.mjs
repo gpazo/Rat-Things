@@ -7,8 +7,10 @@ import { pathToFileURL } from 'node:url';
 // initialization is exercised without making any AWS requests.
 process.env.AWS_REGION ||= 'us-west-2';
 process.env.RUNS_TABLE_NAME ||= 'bundle-smoke-runs';
+process.env.CONVERSATIONS_TABLE_NAME ||= 'bundle-smoke-conversations';
 process.env.ARTIFACT_BUCKET ||= 'bundle-smoke-artifacts';
 process.env.RUN_QUEUE_URL ||= 'https://sqs.us-west-2.amazonaws.com/000000000000/bundle-smoke-runs';
+process.env.CONVERSATION_QUEUE_URL ||= 'https://sqs.us-west-2.amazonaws.com/000000000000/bundle-smoke-conversations';
 process.env.EVENT_BUS_NAME ||= 'bundle-smoke-runs';
 
 const lambdaRoot = resolve('dist/lambdas');

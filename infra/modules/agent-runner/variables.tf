@@ -44,7 +44,7 @@ variable "force_destroy_data" {
 }
 
 variable "enable_point_in_time_recovery" {
-  description = "Enable DynamoDB point-in-time recovery for the runs table."
+  description = "Enable DynamoDB point-in-time recovery for the run and conversation tables."
   type        = bool
   default     = true
 }
@@ -57,6 +57,39 @@ variable "run_retention_seconds" {
   validation {
     condition     = var.run_retention_seconds >= 3600
     error_message = "run_retention_seconds must be at least one hour."
+  }
+}
+
+variable "conversation_slice_timeout_seconds" {
+  description = "Maximum runtime for one resumable conversation slice."
+  type        = number
+  default     = 600
+
+  validation {
+    condition     = var.conversation_slice_timeout_seconds >= 30 && var.conversation_slice_timeout_seconds <= 1800
+    error_message = "conversation_slice_timeout_seconds must be between 30 and 1800."
+  }
+}
+
+variable "microvm_session_idle_seconds" {
+  description = "Idle endpoint time before a conversation MicroVM auto-suspends if explicit suspension fails."
+  type        = number
+  default     = 1200
+
+  validation {
+    condition     = var.microvm_session_idle_seconds >= 60 && var.microvm_session_idle_seconds <= 3600
+    error_message = "microvm_session_idle_seconds must be between 60 and 3600."
+  }
+}
+
+variable "microvm_session_suspended_seconds" {
+  description = "Maximum suspended retention for a conversation MicroVM before AWS terminates it."
+  type        = number
+  default     = 21600
+
+  validation {
+    condition     = var.microvm_session_suspended_seconds >= 60 && var.microvm_session_suspended_seconds <= 27000
+    error_message = "microvm_session_suspended_seconds must be between 60 and 27000."
   }
 }
 
@@ -104,7 +137,7 @@ variable "allow_agent_aws_credential_chain" {
 }
 
 variable "lambda_zip_paths" {
-  description = "Optional overrides for packaged Lambda ZIPs, keyed by control, dispatcher, notifier, reconciler, state-stream, webhook-github, webhook-gitlab, webhook-teams, or webhook-slack."
+  description = "Optional overrides for packaged Lambda ZIPs, including conversation-coordinator and conversation-completion."
   type        = map(string)
   default     = {}
 }
@@ -326,6 +359,23 @@ variable "enable_microvm" {
   description = "Provision the Lambda MicroVM execution backend. Must remain enabled."
   type        = bool
   default     = true
+}
+
+variable "enable_s3_files" {
+  description = "Provision S3 Files, its VPC mount path, and durable per-conversation Codex/workspace storage."
+  type        = bool
+  default     = false
+}
+
+variable "s3_files_vpc_cidr" {
+  description = "IPv4 CIDR for the small VPC used by the S3 Files mount target and Lambda MicroVM network connector."
+  type        = string
+  default     = "10.242.0.0/24"
+
+  validation {
+    condition     = can(cidrhost(var.s3_files_vpc_cidr, 1)) && tonumber(split("/", var.s3_files_vpc_cidr)[1]) <= 24
+    error_message = "s3_files_vpc_cidr must be a valid IPv4 CIDR with at least 256 addresses."
+  }
 }
 
 variable "microvm_source_zip_path" {

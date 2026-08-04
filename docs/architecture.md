@@ -2,10 +2,27 @@
 
 ## Scope
 
-Rat Things is an asynchronous job subsystem. It accepts a bounded, versioned run
-request; assigns trusted ownership and provenance; schedules one isolated worker; persists the
-result; and optionally posts that result to a channel. It is not a general workflow engine, source
-control installation manager, or chat identity service.
+Rat Things is an asynchronous agent subsystem. Its deployed webhook flow accepts a bounded,
+versioned run request; assigns trusted ownership and provenance; schedules one isolated worker;
+persists the result; and optionally posts that result to a channel. It also contains an AWS-backed
+durable conversation foundation for prioritized messages, worker leases, progress, history, and
+checkpointed turn slices. Signed Teams mentions enter that mailbox and wake the bounded slice
+coordinator. Rat Things is not a general workflow engine, source control installation manager, or
+chat identity service.
+
+## System promise
+
+Rat Things separates the lifetime of an agent from the lifetime of its compute:
+
+- a channel thread or API conversation is the durable unit of work;
+- DynamoDB owns coordination, fencing, ordering, and bounded history indexes;
+- immutable S3 objects own messages, events, checkpoints, results, and normalized replay;
+- S3 Files owns the mutable Codex home and workspace expected by app-server;
+- a Lambda MicroVM owns exactly one fenced conversation while it runs; and
+- suspension is an optimization, not a durability boundary—a replacement VM can restore the same
+  Codex thread and workspace after the original is terminated.
+
+This makes the execution layer serverless without reducing an agent to a stateless model call.
 
 The code is divided by responsibility:
 
@@ -13,6 +30,7 @@ The code is divided by responsibility:
 | --- | --- |
 | `src/domain` | Stable request/result types, validation, and the run state machine; no AWS imports |
 | `src/core` | Submission, idempotency, ownership, cancellation, and orchestration through ports |
+| `src/conversation` | Durable mailbox, lease, progress, history, and resumable-turn coordination |
 | `src/identity` | Explicit actor, owner, source, and credential-subject context |
 | `src/credentials` | Host-owned secret resolution and bounded credential extraction |
 | `src/ingress` | Provider-neutral webhook lifecycle plus GitHub/GitLab/Teams/Slack adapters |
@@ -38,7 +56,8 @@ concepts in this subsystem are:
 | --- | --- | --- |
 | App composition root | `src/app/composition.ts` | Composes AWS Lambda/job capabilities rather than a Vercel chat app |
 | Ingress adapters | `src/ingress/providers` | GitHub, GitLab, Teams, and optional Slack enter one run contract |
-| Runtime/services | `src/core` plus `src/execution` | One bounded run, not a resumable conversation/turn model |
+| Runtime/services | `src/core`, `src/conversation`, and `src/execution` | Bounded MicroVM runs plus a separate AWS-backed resumable conversation model |
+| Conversation mailbox | DynamoDB conversation partition plus S3 bodies/checkpoints | Durable AWS state, SQS coordination, bounded run slices, replay, and Teams completion |
 | Plugin host/API | `src/plugins` | Trusted built-ins only; no arbitrary package discovery or user plugin execution |
 | Credential broker | `src/credentials` | Secrets Manager references stay host-owned; no OAuth flow yet |
 | Sandbox/runtime | Lambda MicroVM plus `src/runner` | AWS isolation replaces Vercel Sandbox |
@@ -152,14 +171,57 @@ Lambda MicroVM is the only remote execution backend:
 | Property | Behavior |
 | --- | --- |
 | Provisioned unit | Lambda MicroVM image using a pinned managed base-image version |
-| Per-run call | `RunMicrovm` with a bounded `runHookPayload` containing run/storage IDs |
-| Runtime unit | One Firecracker-backed MicroVM environment per run |
-| Network | AWS-managed public egress by default; no customer VPC connector |
-| Cancellation/cleanup | `TerminateMicrovm` by exact MicroVM ID |
+| Isolation boundary | One Firecracker-backed guest kernel and MicroVM per active run/session |
+| First slice | `RunMicrovm` with a bounded `runHookPayload` containing run/storage IDs |
+| Later conversation slices | `ResumeMicrovm`, short-lived endpoint token, then authenticated port-8080 request |
+| Runtime unit | One disposable VM per one-shot run or one suspended/resumable VM per bounded conversation session |
+| Network | AWS-managed public egress for one-shot runs; S3 Files conversations use a dedicated VPC connector and NAT egress |
+| Durable filesystem | Per-conversation S3 Files directory containing Codex home/SQLite state and workspace bytes |
+| Idle lifecycle | Conversation VMs suspend; one-shot VMs terminate; expiry creates a fresh VM with S3 Files plus normalized replay |
+| Cancellation/cleanup | `SuspendMicrovm` or `TerminateMicrovm` by exact MicroVM ID |
 
-There is no always-on agent service and no user-facing or workload ingress to the worker. The image
-listens on port 8080 inside the managed environment for service lifecycle hooks; that listener is
-not a prompt or agent API. The service builds a managed image from an S3 bundle containing a
+### Why this execution boundary
+
+Lambda MicroVMs combine capabilities that previously required choosing between different operating
+models: dedicated VM-level isolation, snapshot-based launch/resume, retained session state, and
+Lambda-managed lifecycle. AWS positions the primitive specifically for multi-tenant systems that
+execute user- or AI-generated code. The same tradeoff is the central theme in this [r/aws community
+discussion](https://www.reddit.com/r/aws/comments/1ueul5o/hardest_problems_lambda_microvms_can_solve_now/).
+
+Those properties map directly to agent execution:
+
+- repository bytes, prompts, generated code, and tool commands are treated as untrusted;
+- a dedicated guest kernel reduces cross-session blast radius compared with a shared process or
+  application-container boundary;
+- a pre-initialized image avoids rebuilding the tool environment for every turn;
+- suspend/resume preserves a responsive interactive session without keeping it continuously active;
+- termination by exact MicroVM ID provides a forceful backend boundary when guest work does not
+  cooperate; and
+- Lambda functions, SQS, DynamoDB, and EventBridge remain the event-driven control plane rather
+  than an always-on scheduler fleet.
+
+These properties do not make arbitrary agent work safe by themselves. IAM scope, egress policy,
+credential handling, resource budgets, output projection, and destination authorization remain
+separate controls. See the [AWS Lambda MicroVM launch
+post](https://aws.amazon.com/blogs/aws/run-isolated-sandboxes-with-full-lifecycle-control-aws-lambda-introduces-microvms/)
+and [security model](security.md).
+
+### Three layers of continuity
+
+Rat Things uses three deliberately different state layers:
+
+1. A suspended MicroVM preserves memory, disk, and running processes for fast continuation within
+   AWS's bounded session lifetime.
+2. S3 Files preserves Codex app-server state and workspace bytes across MicroVM replacement.
+3. The normalized DynamoDB/S3 archive preserves messages, events, checkpoints, summaries, and
+   results independently of Codex's native storage format.
+
+The first layer optimizes latency. The latter two provide durability beyond one VM's lifetime.
+
+There is no always-on agent service. The image listens on port 8080 for lifecycle hooks and a
+service-authenticated continuation endpoint exposed only by the AWS-managed ingress connector. The
+coordinator mints a short-lived MicroVM auth token for that exact endpoint and port; callers do not
+receive it. The service builds a managed image from an S3 bundle containing a
 Dockerfile and artifacts, captures a snapshot, and invokes those lifecycle hooks inside the VM. Its
 image, managed connector, execution role, logging, duration, and hook semantics follow the
 [Lambda MicroVM images](https://docs.aws.amazon.com/lambda/latest/dg/microvms-images.html),
@@ -167,10 +229,12 @@ image, managed connector, execution role, logging, duration, and hook semantics 
 [`RunMicrovm` API](https://docs.aws.amazon.com/lambda/latest/microvm-api/API_RunMicrovm.html)
 documentation.
 
-The image must treat each `/run` hook as fresh work. Never snapshot secrets, run IDs, open network
-sessions, or repository contents. A running VM's connector cannot be changed. The service may
-preserve suspended state for up to eight hours, so cleanup and per-run initialization remain
-mandatory. See the AWS
+The image treats each `/run` hook as fresh one-shot work and each authenticated continuation as a
+serialized slice of the same conversation. Never capture secrets or workload state in the reusable
+image snapshot. A running VM's connector cannot be changed. A suspended session may preserve disk
+and memory for up to eight hours. With S3 Files enabled, a replacement VM mounts the conversation's
+Codex home and workspace; DynamoDB fencing prevents simultaneous SQLite access. Normalized artifact
+replay remains authoritative if native app-server resume is incompatible. See the AWS
 [snapshot guidance](https://docs.aws.amazon.com/lambda/latest/dg/microvms-images-snapshots.html).
 
 AWS launched Lambda MicroVMs with an initial limited Region set. Confirm current availability before
@@ -185,12 +249,24 @@ The run table contains state, owner, timestamps, hashes, artifact references, bo
 delivery-fence items. It is not a prompt, transcript, token, or repository-content store. Runs
 default to a 30-day TTL; deletion occurs asynchronously after expiry.
 
+The separate conversation table contains one hashed partition per conversation with metadata,
+pending message projections, turn state, renewable leases, and append-only history records. A GSI
+orders `interrupt` work ahead of `defer` work. DynamoDB transactions fence mutations by lease token
+and keep message consumption, pending counts, and history consistent. See
+[durable conversations](conversations.md).
+
 ### S3
 
-S3 is the durable body/artifact plane. Prompts, full results, event streams, and patches are stored
-under owner-hashed run prefixes with checksums. Bucket encryption, public-access blocking, and
-lifecycle policy are deployment responsibilities. An S3 reference is sensitive metadata and the
-control API should remain authenticated.
+S3 is the durable body/artifact plane. Prompts, full results, event streams, patches, conversation
+message bodies, history payloads, and turn checkpoints are stored under owner-hashed prefixes with
+checksums. Bucket encryption, public-access blocking, and lifecycle policy are deployment
+responsibilities. An S3 reference is sensitive metadata and the control API should remain
+authenticated.
+
+When `enable_s3_files=true`, a separate versioned bucket backs an S3 Files filesystem. Its access
+point exposes only `/conversations` to the MicroVM execution role. Each hashed conversation owns a
+`codex-home` directory (including Codex's SQLite state) and a `workspace` directory. This path is
+mutable filesystem state, distinct from the immutable artifact/checkpoint records above.
 
 ### SQS and EventBridge
 
@@ -203,6 +279,9 @@ bounded notifications; neither bus is the full result store. Stream-to-EventBrid
 so exhausted invocations are retained in an encrypted SQS failure queue and alarmed for operator
 replay. EventBridge-to-notifier retry is also finite and has its own encrypted, alarmed dead-letter
 queue. Redelivery is expected, which is why state transitions and delivery fences are conditional.
+The separate conversation queue follows the same rule: the mailbox is canonical. Its coordinator
+attaches a deterministic run before waking the run queue, and a duplicate wake repairs a missed
+enqueue without creating a second semantic slice.
 
 ### Secrets Manager and SSM
 
@@ -232,8 +311,12 @@ delivery configuration keys, never secret values.
 
 ## Deliberate current limits
 
-- No streaming result API, per-event API, approval endpoint, interactive agent session, or resume
-  contract.
+- No streaming result API, per-event API, approval endpoint, or mid-command steering. Teams invokes
+  the durable conversation coordinator, but `interrupt` currently takes effect only at the next
+  safe slice boundary.
+- LocalStack validates persistent-session selection and durable replay, not the Lambda MicroVM
+  suspend/resume APIs or endpoint auth. The disposable AWS suite covers that continuation path,
+  including retained workspace bytes, real Codex thread resume, expiry fallback, and crash repair.
 - The reconciler repairs missing wake-ups and unattached launch handles, but there is no active-run
   lease/heartbeat, backend-state repair for an attached execution, or automatic retry of a failed
   agent run. A new semantic run requires a new submission.

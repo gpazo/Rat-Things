@@ -270,6 +270,23 @@ variable "enable_microvm" {
   default     = true
 }
 
+variable "enable_s3_files" {
+  description = "Mount durable per-conversation Codex and workspace state through S3 Files. Creates dedicated VPC/NAT networking."
+  type        = bool
+  default     = false
+}
+
+variable "s3_files_vpc_cidr" {
+  description = "IPv4 CIDR for the dedicated S3 Files mount-target and MicroVM connector VPC."
+  type        = string
+  default     = "10.242.0.0/24"
+
+  validation {
+    condition     = can(cidrhost(var.s3_files_vpc_cidr, 1)) && tonumber(split("/", var.s3_files_vpc_cidr)[1]) <= 24
+    error_message = "s3_files_vpc_cidr must be a valid IPv4 CIDR with at least 256 addresses."
+  }
+}
+
 variable "microvm_source_zip_path" {
   type     = string
   default  = null

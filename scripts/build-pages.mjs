@@ -13,9 +13,10 @@ await rm(output, { recursive: true, force: true });
 await cp('site', output, { recursive: true });
 await mkdir(join(output, 'assets', 'architecture'), { recursive: true });
 await cp('assets/rat-things-hero.jpg', join(output, 'assets', 'rat-things-hero.jpg'));
+await cp('assets/rat-things-og-v2.jpg', join(output, 'assets', 'rat-things-og-v2.jpg'));
 for (const filename of architectureAssets) {
   await cp(join('docs', filename), join(output, 'assets', 'architecture', filename));
 }
 await writeFile(join(output, '.nojekyll'), '');
 
-process.stdout.write(`built ${output} with ${architectureAssets.length + 1} image assets\n`);
+process.stdout.write(`built ${output} with ${architectureAssets.length + 2} image assets\n`);

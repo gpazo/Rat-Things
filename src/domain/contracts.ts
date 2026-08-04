@@ -126,6 +126,21 @@ export interface ExecutionReference {
   startedAt?: string;
 }
 
+/**
+ * Trusted control-plane metadata attached by the conversation coordinator.
+ * This is deliberately stored on the run record instead of the public
+ * RunRequest so callers cannot select another conversation's MicroVM.
+ */
+export interface ConversationRunBinding {
+  conversationId: string;
+  turnId: string;
+  slice: number;
+  preferredMicrovmId?: string;
+  agentThreadId?: string;
+  /** S3 batch containing only the messages consumed by this slice. */
+  continuation?: ArtifactReference;
+}
+
 export interface RunError {
   code: string;
   message: string;
@@ -160,6 +175,7 @@ export interface RunRecord {
   input: ArtifactReference;
   sourceKind: RunSource['kind'];
   provenance?: RunProvenance;
+  conversation?: ConversationRunBinding;
   execution?: ExecutionReference;
   result?: RunResult;
   error?: RunError;

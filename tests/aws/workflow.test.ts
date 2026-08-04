@@ -1,20 +1,39 @@
-import { createHmac, randomUUID } from 'node:crypto';
+import { createHash, createHmac, randomUUID } from 'node:crypto';
 import { Sha256 } from '@aws-crypto/sha256-js';
 import { SignatureV4 } from '@smithy/signature-v4';
 import { HttpRequest } from '@smithy/protocol-http';
 import { defaultProvider } from '@aws-sdk/credential-provider-node';
-import { GetObjectCommand } from '@aws-sdk/client-s3';
+import { GetObjectCommand, ListObjectsV2Command } from '@aws-sdk/client-s3';
+import {
+  GetMicrovmCommand,
+  LambdaMicrovmsClient,
+  TerminateMicrovmCommand,
+} from '@aws-sdk/client-lambda-microvms';
 import {
   DeleteMessageCommand,
   GetQueueAttributesCommand,
   ReceiveMessageCommand,
 } from '@aws-sdk/client-sqs';
 import { describe, expect, it } from 'vitest';
+import { UpdateCommand } from '@aws-sdk/lib-dynamodb';
 import {
+  createAwsClientConfig,
   createAwsClients,
   DynamoRunStore,
+  S3ArtifactStore,
+  SqsConversationQueue,
+  SqsRunQueue,
 } from '../../src/adapters/aws-runtime.js';
+import { DynamoConversationStore } from '../../src/adapters/dynamo-conversation-store.js';
+import { ConversationCoordinator } from '../../src/conversation/coordinator.js';
+import { ConversationService } from '../../src/conversation/service.js';
+import { RunService } from '../../src/core/run-service.js';
 import type { RunRecord, RunStateEvent } from '../../src/domain/contracts.js';
+import type {
+  ConversationEventPayload,
+  ConversationExecutionPolicy,
+  ConversationRecord,
+} from '../../src/domain/conversations.js';
 
 const integration = process.env.AWS_E2E === 'true' ? describe : describe.skip;
 const timeoutMs = Number(process.env.AWS_E2E_TIMEOUT_MS ?? 420_000);
@@ -24,6 +43,11 @@ integration('live AWS agent-runner workflow', () => {
     delete process.env.AWS_ENDPOINT_URL;
     const clients = createAwsClients();
     const store = new DynamoRunStore(clients.dynamodb, required('RUNS_TABLE_NAME'));
+    const conversationStore = new DynamoConversationStore(
+      clients.dynamodb,
+      required('CONVERSATIONS_TABLE_NAME'),
+    );
+    const artifacts = new S3ArtifactStore(clients.s3, required('ARTIFACT_BUCKET'));
 
     const health = await fetch(new URL('/health', `${required('AGENT_RUNTIME_API_URL')}/`));
     expect(health.status).toBe(200);
@@ -63,11 +87,19 @@ integration('live AWS agent-runner workflow', () => {
     expect(await outputResponse.text()).toBe(`mock-agent: Return AWS live marker ${controlMarker}`);
 
     const teamsMarker = `live-teams-${randomUUID()}`;
-    const [githubRunId, gitlabRunId, teamsRunId] = await Promise.all([
+    const teamsProviderConversationId = `aws-e2e-conversation-${randomUUID()}`;
+    const [githubRunId, gitlabRunId, teamsReceipt] = await Promise.all([
       submitGitHubWebhook(),
       submitGitLabWebhook(),
-      submitTeamsWebhook(teamsMarker),
+      submitTeamsWebhook(teamsMarker, teamsProviderConversationId),
     ]);
+    const teamsScheduled = await waitForConversationRun(
+      conversationStore,
+      artifacts,
+      store,
+      teamsReceipt.conversationId,
+    );
+    const teamsRunId = teamsScheduled.runId;
     const [githubRun, gitlabRun, teamsRun] = await Promise.all([
       waitForStoredRun(store, githubRunId),
       waitForStoredRun(store, gitlabRunId),
@@ -81,15 +113,224 @@ integration('live AWS agent-runner workflow', () => {
     expect(teamsRun.sourceKind).toBe('teams');
     expect(await outputText(clients.s3, githubRun)).toContain('mock-agent: Review GitHub pull request');
     expect(await outputText(clients.s3, gitlabRun)).toContain('mock-agent: Review GitLab merge request');
-    expect(await outputText(clients.s3, teamsRun)).toBe(`mock-agent: Return AWS live marker ${teamsMarker}`);
+    expect(await outputText(clients.s3, teamsRun)).toContain(`Return AWS live marker ${teamsMarker}`);
 
     await expectTerminalEvents(clients.sqs, new Set([githubRunId, gitlabRunId, teamsRunId]));
     await expectTeamsDeliveries(clients.sqs, new Map([
       [githubRunId, 'mock-agent: Review GitHub pull request'],
       [gitlabRunId, 'mock-agent: Review GitLab merge request'],
-      [teamsRunId, `mock-agent: Return AWS live marker ${teamsMarker}`],
+      [teamsRunId, `Return AWS live marker ${teamsMarker}`],
     ]));
 
+    await expectEmptyFailureQueues(clients.sqs);
+  }, timeoutMs);
+
+  const persistentMicrovmTest = process.env.AWS_E2E_ENABLE_MICROVM === 'true' ? it : it.skip;
+  persistentMicrovmTest('suspends and resumes one conversation on the same live Lambda MicroVM', async () => {
+    delete process.env.AWS_ENDPOINT_URL;
+    const clients = createAwsClients();
+    const runStore = new DynamoRunStore(clients.dynamodb, required('RUNS_TABLE_NAME'));
+    const conversationStore = new DynamoConversationStore(
+      clients.dynamodb,
+      required('CONVERSATIONS_TABLE_NAME'),
+    );
+    const artifacts = new S3ArtifactStore(clients.s3, required('ARTIFACT_BUCKET'));
+    const microvms = new LambdaMicrovmsClient(createAwsClientConfig());
+    const providerConversationId = `aws-e2e-persistent-${randomUUID()}`;
+    const firstMarker = `persistent-first-${randomUUID()}`;
+    const secondMarker = `persistent-second-${randomUUID()}`;
+
+    const firstReceipt = await submitTeamsWebhook(firstMarker, providerConversationId);
+    const firstRun = await waitForConversationRun(
+      conversationStore,
+      artifacts,
+      runStore,
+      firstReceipt.conversationId,
+    );
+    const firstCompleted = await waitForStoredRun(runStore, firstRun.runId);
+    assertSuccessfulMicrovmRun(firstCompleted);
+    const firstVmId = requiredExecutionId(firstCompleted);
+    const firstConversation = await waitForConversationIdle(
+      conversationStore,
+      firstReceipt.conversationId,
+      firstVmId,
+    );
+    expect(firstConversation.session).toMatchObject({
+      backend: 'microvm',
+      id: firstVmId,
+      state: 'suspended',
+      agentThreadId: 'mock-thread',
+    });
+    await waitForMicrovmState(microvms, firstVmId, 'SUSPENDED');
+
+    const secondReceipt = await submitTeamsWebhook(secondMarker, providerConversationId);
+    expect(secondReceipt.conversationId).toBe(firstReceipt.conversationId);
+    const secondRun = await waitForConversationRun(
+      conversationStore,
+      artifacts,
+      runStore,
+      secondReceipt.conversationId,
+      new Set([firstRun.runId]),
+    );
+    expect(secondRun.conversation).toMatchObject({
+      preferredMicrovmId: firstVmId,
+      agentThreadId: 'mock-thread',
+    });
+    const secondCompleted = await waitForStoredRun(runStore, secondRun.runId);
+    assertSuccessfulMicrovmRun(secondCompleted);
+    expect(requiredExecutionId(secondCompleted)).toBe(firstVmId);
+    const secondOutput = await outputText(clients.s3, secondCompleted);
+    expect(secondOutput).toContain(firstMarker);
+    expect(secondOutput).toContain(secondMarker);
+    await waitForConversationIdle(conversationStore, secondReceipt.conversationId, firstVmId);
+    await waitForMicrovmState(microvms, firstVmId, 'SUSPENDED');
+
+    await expectTerminalEvents(clients.sqs, new Set([firstRun.runId, secondRun.runId]));
+    await expectTeamsDeliveries(clients.sqs, new Map([
+      [firstRun.runId, firstMarker],
+      [secondRun.runId, secondMarker],
+    ]));
+    await expectEmptyFailureQueues(clients.sqs);
+  }, timeoutMs);
+
+  persistentMicrovmTest('falls back to a new MicroVM after the durable session expires', async () => {
+    delete process.env.AWS_ENDPOINT_URL;
+    const clients = createAwsClients();
+    const runStore = new DynamoRunStore(clients.dynamodb, required('RUNS_TABLE_NAME'));
+    const conversationStore = new DynamoConversationStore(
+      clients.dynamodb,
+      required('CONVERSATIONS_TABLE_NAME'),
+    );
+    const artifacts = new S3ArtifactStore(clients.s3, required('ARTIFACT_BUCKET'));
+    const microvms = new LambdaMicrovmsClient(createAwsClientConfig());
+    const providerConversationId = `aws-e2e-expiry-${randomUUID()}`;
+    const firstMarker = `expiry-first-${randomUUID()}`;
+    const secondMarker = `expiry-second-${randomUUID()}`;
+
+    const firstReceipt = await submitTeamsWebhook(firstMarker, providerConversationId);
+    const firstRun = await waitForConversationRun(
+      conversationStore,
+      artifacts,
+      runStore,
+      firstReceipt.conversationId,
+    );
+    const firstCompleted = await waitForStoredRun(runStore, firstRun.runId);
+    assertSuccessfulMicrovmRun(firstCompleted);
+    const expiredVmId = requiredExecutionId(firstCompleted);
+    await waitForConversationIdle(conversationStore, firstReceipt.conversationId, expiredVmId);
+    await waitForMicrovmState(microvms, expiredVmId, 'SUSPENDED');
+
+    await clients.dynamodb.send(new UpdateCommand({
+      TableName: required('CONVERSATIONS_TABLE_NAME'),
+      Key: conversationMetaKey(firstReceipt.conversationId),
+      UpdateExpression: 'SET #session.expiresAt = :expired',
+      ConditionExpression: '#session.id = :microvmId AND #session.#state = :suspended',
+      ExpressionAttributeNames: { '#session': 'session', '#state': 'state' },
+      ExpressionAttributeValues: {
+        ':expired': '2000-01-01T00:00:00.000Z',
+        ':microvmId': expiredVmId,
+        ':suspended': 'suspended',
+      },
+    }));
+
+    const secondReceipt = await submitTeamsWebhook(secondMarker, providerConversationId);
+    const secondRun = await waitForConversationRun(
+      conversationStore,
+      artifacts,
+      runStore,
+      secondReceipt.conversationId,
+      new Set([firstRun.runId]),
+    );
+    expect(secondRun.conversation).not.toHaveProperty('preferredMicrovmId');
+    expect(secondRun.conversation?.agentThreadId).toBe('mock-thread');
+    const secondCompleted = await waitForStoredRun(runStore, secondRun.runId);
+    assertSuccessfulMicrovmRun(secondCompleted);
+    const replacementVmId = requiredExecutionId(secondCompleted);
+    expect(replacementVmId).not.toBe(expiredVmId);
+    const replacementOutput = await outputText(clients.s3, secondCompleted);
+    expect(replacementOutput).toContain(firstMarker);
+    expect(replacementOutput).toContain(secondMarker);
+    await waitForConversationIdle(conversationStore, secondReceipt.conversationId, replacementVmId);
+    await waitForMicrovmState(microvms, replacementVmId, 'SUSPENDED');
+
+    await expectTerminalEvents(clients.sqs, new Set([firstRun.runId, secondRun.runId]));
+    await expectTeamsDeliveries(clients.sqs, new Map([
+      [firstRun.runId, firstMarker],
+      [secondRun.runId, secondMarker],
+    ]));
+    await microvms.send(new TerminateMicrovmCommand({ microvmIdentifier: expiredVmId }));
+    await expectEmptyFailureQueues(clients.sqs);
+  }, timeoutMs);
+
+  persistentMicrovmTest('repairs a coordinator crash after binding a run but before its SQS wake-up', async () => {
+    delete process.env.AWS_ENDPOINT_URL;
+    const clients = createAwsClients();
+    const runStore = new DynamoRunStore(clients.dynamodb, required('RUNS_TABLE_NAME'));
+    const conversationStore = new DynamoConversationStore(
+      clients.dynamodb,
+      required('CONVERSATIONS_TABLE_NAME'),
+    );
+    const artifacts = new S3ArtifactStore(clients.s3, required('ARTIFACT_BUCKET'));
+    const conversations = new ConversationService({ store: conversationStore, artifacts });
+    const runQueue = new SqsRunQueue(clients.sqs, required('RUN_QUEUE_URL'));
+    const liveRuns = new RunService({
+      store: runStore,
+      artifacts,
+      queue: runQueue,
+      executions: { stop: async () => { throw new Error('not used by recovery test'); } },
+      allowedRepositoryHosts: ['github.com', 'gitlab.com'],
+      allowedSandboxModes: ['read-only', 'workspace-write'],
+    });
+    const conversationQueue = new SqsConversationQueue(
+      clients.sqs,
+      required('CONVERSATION_QUEUE_URL'),
+    );
+    const fixture = directConversationFixture(`aws-e2e-recovery-${randomUUID()}`);
+    const marker = `recovery-${randomUUID()}`;
+    await conversations.appendMessage({
+      ...fixture,
+      messageId: `message-${randomUUID()}`,
+      delivery: 'defer',
+      content: { text: `Return AWS live marker ${marker}` },
+      executionPolicy: { driver: 'mock', sandbox: 'read-only' },
+    });
+    const interruptedCoordinator = new ConversationCoordinator({
+      conversations,
+      artifacts,
+      runs: {
+        submit: liveRuns.submit.bind(liveRuns),
+        wake: async () => { throw new Error('simulated crash before run queue wake-up'); },
+      },
+      sliceTimeoutSeconds: 120,
+    });
+
+    await expect(interruptedCoordinator.handle({
+      version: '1',
+      conversationId: fixture.conversationId,
+      traceId: `crash:${randomUUID()}`,
+    })).rejects.toThrow('simulated crash before run queue wake-up');
+    const stranded = await waitForConversationRun(
+      conversationStore,
+      artifacts,
+      runStore,
+      fixture.conversationId,
+    );
+    expect(stranded.status).toBe('queued');
+
+    await conversationQueue.enqueue({
+      version: '1',
+      conversationId: fixture.conversationId,
+      traceId: `recovery:${randomUUID()}`,
+    });
+    const recovered = await waitForStoredRun(runStore, stranded.runId);
+    assertSuccessfulMicrovmRun(recovered);
+    expect(await outputText(clients.s3, recovered)).toContain(marker);
+    const recoveredVmId = requiredExecutionId(recovered);
+    await waitForConversationIdle(conversationStore, fixture.conversationId, recoveredVmId);
+    const scheduledEvents = (await conversationStore.listEvents(fixture.conversationId, 100))
+      .filter((event) => event.type === 'run_scheduled');
+    expect(scheduledEvents).toHaveLength(1);
+    await expectTerminalEvents(clients.sqs, new Set([recovered.runId]));
     await expectEmptyFailureQueues(clients.sqs);
   }, timeoutMs);
 
@@ -120,34 +361,122 @@ integration('live AWS agent-runner workflow', () => {
   }, timeoutMs);
 
   const realCodexTest = process.env.AWS_E2E_REAL_CODEX === 'true' ? it : it.skip;
-  realCodexTest('runs a real Codex response through Bedrock in a Lambda MicroVM', async () => {
+  realCodexTest('restores workspace bytes and one Codex app-server thread in a replacement MicroVM', async () => {
     delete process.env.AWS_ENDPOINT_URL;
     const clients = createAwsClients();
-    const marker = `real-codex-${randomUUID()}`;
-    const submitted = await signedApi<RunRecord>('/v1/runs', 'POST', {
-      version: '1',
-      prompt: `Respond with exactly this marker and no other text: ${marker}`,
-      agent: {
-        driver: 'codex',
-        model: process.env.AWS_E2E_CODEX_MODEL_ID ?? 'openai.gpt-5.6-terra',
-        sandbox: 'read-only',
-        reasoningEffort: 'low',
-      },
-      execution: { backend: 'microvm', timeoutSeconds: 300 },
-      destinations: [{ kind: 'none' }],
-    }, { 'idempotency-key': `aws-e2e-real-codex-${randomUUID()}` });
+    const runStore = new DynamoRunStore(clients.dynamodb, required('RUNS_TABLE_NAME'));
+    const conversationStore = new DynamoConversationStore(
+      clients.dynamodb,
+      required('CONVERSATIONS_TABLE_NAME'),
+    );
+    const artifacts = new S3ArtifactStore(clients.s3, required('ARTIFACT_BUCKET'));
+    const conversations = new ConversationService({ store: conversationStore, artifacts });
+    const conversationQueue = new SqsConversationQueue(
+      clients.sqs,
+      required('CONVERSATION_QUEUE_URL'),
+    );
+    const microvms = new LambdaMicrovmsClient(createAwsClientConfig());
+    const fixture = directConversationFixture(`aws-e2e-real-codex-${randomUUID()}`);
+    const marker = `retained-bytes-${randomUUID()}`;
+    const filename = `retained-${randomUUID().slice(0, 12)}.txt`;
+    const policy: ConversationExecutionPolicy = {
+      driver: 'codex',
+      model: process.env.AWS_E2E_CODEX_MODEL_ID ?? 'openai.gpt-5.6-terra',
+      sandbox: 'workspace-write',
+      reasoningEffort: 'low',
+    };
 
-    const completed = await waitForApiRun(submitted.runId);
-    expect(completed.status, JSON.stringify(completed.error)).toBe('succeeded');
-    expect(completed.execution?.backend).toBe('microvm');
-    expect(completed.execution?.id).toBeTruthy();
-    expect(completed.result?.exitCode).toBe(0);
-    expect(completed.result?.agentThreadId).toBeTruthy();
-    expect(completed.result?.agentThreadId).not.toBe('mock-thread');
-    expect(completed.result?.usage?.inputTokens).toBeGreaterThan(0);
-    expect(completed.result?.usage?.outputTokens).toBeGreaterThan(0);
-    expect((await outputText(clients.s3, completed)).trim()).toContain(marker);
-    await expectTerminalEvents(clients.sqs, new Set([submitted.runId]));
+    const firstMessageId = `message-${randomUUID()}`;
+    await conversations.appendMessage({
+      ...fixture,
+      messageId: firstMessageId,
+      delivery: 'defer',
+      content: {
+        text: [
+          `Use the shell tool to create ${filename} in the current workspace.`,
+          `Its only line must be exactly: ${marker}`,
+          `Then run pwd and cat ${filename}. End your response with FIRST-WRITE ${marker}.`,
+        ].join(' '),
+      },
+      executionPolicy: policy,
+    });
+    await conversationQueue.enqueue({
+      version: '1',
+      conversationId: fixture.conversationId,
+      traceId: `real-codex-first:${randomUUID()}`,
+    });
+    const firstRun = await waitForConversationRun(
+      conversationStore,
+      artifacts,
+      runStore,
+      fixture.conversationId,
+    );
+    const firstCompleted = await waitForStoredRun(runStore, firstRun.runId);
+    assertSuccessfulRealCodexRun(firstCompleted);
+    const firstVmId = requiredExecutionId(firstCompleted);
+    const firstThreadId = requiredAgentThreadId(firstCompleted);
+    expect(await outputText(clients.s3, firstCompleted)).toContain(marker);
+    expect(await resultArtifactText(clients.s3, firstCompleted, 'workspacePatch')).toContain(marker);
+    const firstEvents = await resultArtifactText(clients.s3, firstCompleted, 'events');
+    expect(firstEvents).toContain('commandExecution');
+    expect(firstEvents).toContain(filename);
+    expect(firstEvents).toContain(marker);
+    const firstConversation = await waitForConversationIdle(
+      conversationStore,
+      fixture.conversationId,
+      firstVmId,
+    );
+    expect(firstConversation.session?.agentThreadId).toBe(firstThreadId);
+    await waitForMicrovmState(microvms, firstVmId, 'SUSPENDED');
+    await microvms.send(new TerminateMicrovmCommand({ microvmIdentifier: firstVmId }));
+    await waitForMicrovmTerminated(microvms, firstVmId);
+    await waitForStateObject(clients.s3, filename);
+
+    const secondMessageId = `message-${randomUUID()}`;
+    await conversations.appendMessage({
+      ...fixture,
+      messageId: secondMessageId,
+      delivery: 'defer',
+      content: {
+        text: [
+          `Use the shell tool to run pwd and cat the existing ${filename}.`,
+          'Do not create, recreate, or modify the file.',
+          'End your response with SECOND-READ followed by the exact file content.',
+        ].join(' '),
+      },
+      executionPolicy: policy,
+    });
+    await conversationQueue.enqueue({
+      version: '1',
+      conversationId: fixture.conversationId,
+      traceId: `real-codex-second:${randomUUID()}`,
+    });
+    const secondRun = await waitForConversationRun(
+      conversationStore,
+      artifacts,
+      runStore,
+      fixture.conversationId,
+      new Set([firstRun.runId]),
+    );
+    expect(secondRun.conversation).toMatchObject({
+      preferredMicrovmId: firstVmId,
+      agentThreadId: firstThreadId,
+    });
+    const secondCompleted = await waitForStoredRun(runStore, secondRun.runId);
+    assertSuccessfulRealCodexRun(secondCompleted);
+    expect(requiredExecutionId(secondCompleted)).not.toBe(firstVmId);
+    expect(requiredAgentThreadId(secondCompleted)).toBe(firstThreadId);
+    expect(await outputText(clients.s3, secondCompleted)).toContain(marker);
+    expect(await resultArtifactText(clients.s3, secondCompleted, 'workspacePatch')).toContain(marker);
+    const secondEvents = await resultArtifactText(clients.s3, secondCompleted, 'events');
+    expect(secondEvents).toContain('commandExecution');
+    expect(secondEvents).toContain(filename);
+    expect(secondEvents).toContain(marker);
+    const replacementVmId = requiredExecutionId(secondCompleted);
+    await waitForConversationIdle(conversationStore, fixture.conversationId, replacementVmId);
+    await waitForMicrovmState(microvms, replacementVmId, 'SUSPENDED');
+
+    await expectTerminalEvents(clients.sqs, new Set([firstRun.runId, secondRun.runId]));
     await expectEmptyFailureQueues(clients.sqs);
   }, timeoutMs);
 });
@@ -221,14 +550,22 @@ async function submitGitLabWebhook(): Promise<string> {
   return response.runId;
 }
 
-async function submitTeamsWebhook(marker: string): Promise<string> {
+interface TeamsReceipt {
+  conversationId: string;
+  messageId: string;
+}
+
+async function submitTeamsWebhook(
+  marker: string,
+  providerConversationId: string,
+): Promise<TeamsReceipt> {
   const activityId = randomUUID();
   const body = JSON.stringify({
     type: 'message',
     id: activityId,
     text: `<at>Indubitably</at> Return AWS live marker ${marker}`,
     from: { id: 'aws-e2e-user', name: 'AWS E2E' },
-    conversation: { id: 'aws-e2e-conversation' },
+    conversation: { id: providerConversationId },
     channelData: {
       tenant: { id: 'aws-e2e-tenant' },
       team: { id: 'aws-e2e-team' },
@@ -252,9 +589,14 @@ async function submitTeamsWebhook(marker: string): Promise<string> {
   expect(first.status).toBe(200);
   expect(repeated.status).toBe(200);
   expect(repeatedText).toBe(firstText);
-  const runId = firstText.match(/[0-9a-f]{8}-[0-9a-f-]{27}/i)?.[0];
-  if (!runId) throw new Error(`Teams webhook returned no run ID: ${firstText.slice(0, 500)}`);
-  return runId;
+  expect(JSON.parse(firstText)).toMatchObject({
+    type: 'message',
+    text: expect.stringContaining('response received'),
+  });
+  return {
+    conversationId: `teams:aws-e2e-tenant:aws-e2e-user:${providerConversationId}`,
+    messageId: activityId,
+  };
 }
 
 async function webhook(
@@ -281,6 +623,154 @@ async function waitForStoredRun(store: DynamoRunStore, runId: string): Promise<R
     if (!run) throw new Error(`run ${runId} was not found`);
     return run;
   });
+}
+
+async function waitForConversationRun(
+  conversations: DynamoConversationStore,
+  artifacts: S3ArtifactStore,
+  runs: DynamoRunStore,
+  conversationId: string,
+  excludedRunIds: Set<string> = new Set(),
+): Promise<RunRecord> {
+  const deadline = Date.now() + timeoutMs - 30_000;
+  while (Date.now() < deadline) {
+    const events = await conversations.listEvents(conversationId, 100);
+    for (const event of events.filter(({ type }) => type === 'run_scheduled').reverse()) {
+      const payload = await artifacts.getJson<ConversationEventPayload>(event.payload);
+      const data = payload.data;
+      if (!data || typeof data !== 'object' || Array.isArray(data)) continue;
+      const runId = (data as Record<string, unknown>).runId;
+      if (typeof runId !== 'string' || excludedRunIds.has(runId)) continue;
+      const run = await runs.get(runId);
+      if (run) return run;
+    }
+    await delay(2_000);
+  }
+  throw new Error(`conversation ${conversationId} did not schedule a new run`);
+}
+
+async function waitForConversationIdle(
+  store: DynamoConversationStore,
+  conversationId: string,
+  expectedMicrovmId: string,
+): Promise<ConversationRecord> {
+  const deadline = Date.now() + 90_000;
+  let latest: ConversationRecord | undefined;
+  while (Date.now() < deadline) {
+    latest = await store.getConversation(conversationId);
+    if (latest?.status === 'failed') {
+      throw new Error(`conversation ${conversationId} failed`);
+    }
+    if (
+      latest?.status === 'idle' &&
+      latest.pendingCount === 0 &&
+      latest.session?.id === expectedMicrovmId &&
+      latest.session.state === 'suspended'
+    ) return latest;
+    await delay(2_000);
+  }
+  throw new Error(
+    `conversation ${conversationId} did not become idle; last state ${JSON.stringify(latest)}`,
+  );
+}
+
+async function waitForMicrovmState(
+  client: LambdaMicrovmsClient,
+  microvmId: string,
+  expectedState: 'SUSPENDED',
+): Promise<void> {
+  const deadline = Date.now() + 90_000;
+  let lastState: string | undefined;
+  while (Date.now() < deadline) {
+    const result = await client.send(new GetMicrovmCommand({ microvmIdentifier: microvmId }));
+    lastState = result.state;
+    if (lastState === expectedState) return;
+    if (lastState === 'TERMINATED' || lastState === 'TERMINATING') {
+      throw new Error(`persistent MicroVM ${microvmId} unexpectedly entered ${lastState}`);
+    }
+    await delay(2_000);
+  }
+  throw new Error(`MicroVM ${microvmId} did not reach ${expectedState}; last state ${lastState}`);
+}
+
+async function waitForMicrovmTerminated(
+  client: LambdaMicrovmsClient,
+  microvmId: string,
+): Promise<void> {
+  const deadline = Date.now() + 90_000;
+  while (Date.now() < deadline) {
+    const result = await client.send(new GetMicrovmCommand({ microvmIdentifier: microvmId }));
+    if (result.state === 'TERMINATED') return;
+    await delay(2_000);
+  }
+  throw new Error(`MicroVM ${microvmId} did not terminate`);
+}
+
+async function waitForStateObject(
+  s3: ReturnType<typeof createAwsClients>['s3'],
+  filename: string,
+): Promise<void> {
+  const deadline = Date.now() + 120_000;
+  while (Date.now() < deadline) {
+    const result = await s3.send(new ListObjectsV2Command({
+      Bucket: required('CONVERSATION_STATE_BUCKET'),
+      Prefix: 'runtime/',
+    }));
+    if (result.Contents?.some((object) => object.Key?.endsWith(`/${filename}`))) return;
+    await delay(3_000);
+  }
+  throw new Error(`S3 Files did not export ${filename} to its durable bucket`);
+}
+
+function requiredExecutionId(run: RunRecord): string {
+  const value = run.execution?.id;
+  if (!value) throw new Error(`run ${run.runId} has no execution ID`);
+  return value;
+}
+
+function requiredAgentThreadId(run: RunRecord): string {
+  const value = run.result?.agentThreadId;
+  if (!value) throw new Error(`run ${run.runId} has no agent thread ID`);
+  return value;
+}
+
+function assertSuccessfulRealCodexRun(run: RunRecord): void {
+  expect(run.status, JSON.stringify(run.error)).toBe('succeeded');
+  expect(run.execution?.backend).toBe('microvm');
+  expect(run.execution?.id).toBeTruthy();
+  expect(run.result?.exitCode).toBe(0);
+  expect(run.result?.agentThreadId).toBeTruthy();
+  expect(run.result?.agentThreadId).not.toBe('mock-thread');
+  expect(run.result?.usage?.inputTokens).toBeGreaterThan(0);
+  expect(run.result?.usage?.outputTokens).toBeGreaterThan(0);
+}
+
+function directConversationFixture(providerConversationId: string) {
+  const ownerId = 'teams:aws-e2e-tenant:aws-e2e-user';
+  const conversationId = `${ownerId}:${providerConversationId}`;
+  return {
+    conversationId,
+    ownerId,
+    source: {
+      kind: 'teams' as const,
+      tenantId: 'aws-e2e-tenant',
+      teamId: 'aws-e2e-team',
+      channelId: 'aws-e2e-channel',
+      conversationId: providerConversationId,
+      activityId: `activity-${randomUUID()}`,
+      senderId: 'aws-e2e-user',
+    },
+    destination: { kind: 'none' as const },
+    actor: { kind: 'human' as const, id: ownerId, provider: 'teams' as const },
+    credentialSubject: { kind: 'runtime' as const, id: 'runtime:teams' },
+  };
+}
+
+function conversationMetaKey(conversationId: string): { pk: string; sk: 'META' } {
+  return {
+    pk: `CONVERSATION#${createHash('sha256').update(conversationId).digest('hex')}`,
+    sk: 'META',
+  };
 }
 
 async function waitForRun(load: () => Promise<RunRecord>): Promise<RunRecord> {
@@ -314,6 +804,20 @@ async function outputText(
   const response = await s3.send(new GetObjectCommand({
     Bucket: run.result.output.bucket,
     Key: run.result.output.key,
+  }));
+  return response.Body ? response.Body.transformToString('utf8') : '';
+}
+
+async function resultArtifactText(
+  s3: ReturnType<typeof createAwsClients>['s3'],
+  run: RunRecord,
+  key: 'events' | 'workspacePatch',
+): Promise<string> {
+  const reference = run.result?.[key];
+  if (!reference) throw new Error(`run ${run.runId} has no ${key} artifact`);
+  const response = await s3.send(new GetObjectCommand({
+    Bucket: reference.bucket,
+    Key: reference.key,
   }));
   return response.Body ? response.Body.transformToString('utf8') : '';
 }
@@ -400,6 +904,8 @@ async function expectEmptyFailureQueues(
   sqs: ReturnType<typeof createAwsClients>['sqs'],
 ): Promise<void> {
   for (const name of [
+    'CONVERSATION_FAILURE_QUEUE_URL',
+    'CONVERSATION_COMPLETION_FAILURE_QUEUE_URL',
     'RUN_FAILURE_QUEUE_URL',
     'STATE_STREAM_FAILURE_QUEUE_URL',
     'NOTIFIER_DELIVERY_FAILURE_QUEUE_URL',

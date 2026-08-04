@@ -30,6 +30,18 @@ resource "aws_iam_role" "control" {
   tags               = local.tags
 }
 
+resource "aws_iam_role" "conversation_coordinator" {
+  name               = "${local.name}-lambda-conversation-coordinator"
+  assume_role_policy = data.aws_iam_policy_document.lambda_assume.json
+  tags               = local.tags
+}
+
+resource "aws_iam_role" "conversation_completion" {
+  name               = "${local.name}-lambda-conversation-completion"
+  assume_role_policy = data.aws_iam_policy_document.lambda_assume.json
+  tags               = local.tags
+}
+
 resource "aws_iam_role" "dispatcher" {
   name               = "${local.name}-lambda-dispatcher"
   assume_role_policy = data.aws_iam_policy_document.lambda_assume.json
@@ -80,6 +92,19 @@ locals {
     "dynamodb:Query",
     "dynamodb:UpdateItem",
   ]
+  conversation_table_append_actions = [
+    "dynamodb:GetItem",
+    "dynamodb:PutItem",
+    "dynamodb:TransactWriteItems",
+    "dynamodb:UpdateItem",
+  ]
+  conversation_table_coordinator_actions = [
+    "dynamodb:GetItem",
+    "dynamodb:PutItem",
+    "dynamodb:Query",
+    "dynamodb:TransactWriteItems",
+    "dynamodb:UpdateItem",
+  ]
 }
 
 data "aws_iam_policy_document" "ingress" {
@@ -99,6 +124,12 @@ data "aws_iam_policy_document" "ingress" {
   }
 
   statement {
+    sid       = "Conversations"
+    actions   = local.conversation_table_append_actions
+    resources = [aws_dynamodb_table.conversations.arn]
+  }
+
+  statement {
     sid       = "Inputs"
     actions   = ["s3:PutObject"]
     resources = ["${aws_s3_bucket.artifacts.arn}/owners/*"]
@@ -107,7 +138,7 @@ data "aws_iam_policy_document" "ingress" {
   statement {
     sid       = "Queue"
     actions   = ["sqs:SendMessage"]
-    resources = [aws_sqs_queue.runs.arn]
+    resources = [aws_sqs_queue.runs.arn, aws_sqs_queue.conversations.arn]
   }
 
   statement {
@@ -143,6 +174,12 @@ data "aws_iam_policy_document" "control" {
     sid       = "Runs"
     actions   = local.run_table_read_write_actions
     resources = [aws_dynamodb_table.runs.arn, "${aws_dynamodb_table.runs.arn}/index/*"]
+  }
+
+  statement {
+    sid       = "Conversations"
+    actions   = local.conversation_table_coordinator_actions
+    resources = [aws_dynamodb_table.conversations.arn, "${aws_dynamodb_table.conversations.arn}/index/*"]
   }
 
   statement {
@@ -199,16 +236,28 @@ data "aws_iam_policy_document" "dispatcher" {
   }
 
   statement {
-    sid       = "Inputs"
-    actions   = ["s3:GetObject"]
+    sid       = "Conversations"
+    actions   = local.conversation_table_coordinator_actions
+    resources = [aws_dynamodb_table.conversations.arn, "${aws_dynamodb_table.conversations.arn}/index/*"]
+  }
+
+  statement {
+    sid       = "Artifacts"
+    actions   = ["s3:GetObject", "s3:PutObject"]
     resources = ["${aws_s3_bucket.artifacts.arn}/owners/*"]
   }
 
   dynamic "statement" {
     for_each = var.enable_microvm ? [1] : []
     content {
-      sid       = "MicrovmLifecycle"
-      actions   = ["lambda:RunMicrovm", "lambda:TerminateMicrovm"]
+      sid = "MicrovmLifecycle"
+      actions = [
+        "lambda:CreateMicrovmAuthToken",
+        "lambda:GetMicrovm",
+        "lambda:ResumeMicrovm",
+        "lambda:RunMicrovm",
+        "lambda:TerminateMicrovm",
+      ]
       resources = ["*"]
     }
   }
@@ -254,6 +303,109 @@ resource "aws_iam_role_policy" "dispatcher" {
   name   = "dispatcher"
   role   = aws_iam_role.dispatcher.id
   policy = data.aws_iam_policy_document.dispatcher.json
+}
+
+data "aws_iam_policy_document" "conversation_coordinator" {
+  statement {
+    sid       = "Logs"
+    actions   = ["logs:CreateLogStream", "logs:PutLogEvents"]
+    resources = ["${aws_cloudwatch_log_group.lambda["conversation-coordinator"].arn}:*"]
+  }
+
+  statement {
+    sid       = "ConversationQueueConsumer"
+    actions   = ["sqs:DeleteMessage", "sqs:GetQueueAttributes", "sqs:ReceiveMessage"]
+    resources = [aws_sqs_queue.conversations.arn]
+  }
+
+  statement {
+    sid       = "RunQueueProducer"
+    actions   = ["sqs:SendMessage"]
+    resources = [aws_sqs_queue.runs.arn]
+  }
+
+  statement {
+    sid       = "Runs"
+    actions   = local.run_table_read_write_actions
+    resources = [aws_dynamodb_table.runs.arn, "${aws_dynamodb_table.runs.arn}/index/*"]
+  }
+
+  statement {
+    sid       = "Conversations"
+    actions   = local.conversation_table_coordinator_actions
+    resources = [aws_dynamodb_table.conversations.arn, "${aws_dynamodb_table.conversations.arn}/index/*"]
+  }
+
+  statement {
+    sid       = "Artifacts"
+    actions   = ["s3:GetObject", "s3:PutObject"]
+    resources = ["${aws_s3_bucket.artifacts.arn}/owners/*"]
+  }
+
+  statement {
+    sid       = "DataKey"
+    actions   = local.data_kms_actions
+    resources = [aws_kms_key.data.arn]
+  }
+}
+
+resource "aws_iam_role_policy" "conversation_coordinator" {
+  name   = "conversation-coordinator"
+  role   = aws_iam_role.conversation_coordinator.id
+  policy = data.aws_iam_policy_document.conversation_coordinator.json
+}
+
+data "aws_iam_policy_document" "conversation_completion" {
+  statement {
+    sid       = "Logs"
+    actions   = ["logs:CreateLogStream", "logs:PutLogEvents"]
+    resources = ["${aws_cloudwatch_log_group.lambda["conversation-completion"].arn}:*"]
+  }
+
+  statement {
+    sid       = "Runs"
+    actions   = ["dynamodb:GetItem"]
+    resources = [aws_dynamodb_table.runs.arn]
+  }
+
+  statement {
+    sid       = "Conversations"
+    actions   = local.conversation_table_coordinator_actions
+    resources = [aws_dynamodb_table.conversations.arn, "${aws_dynamodb_table.conversations.arn}/index/*"]
+  }
+
+  statement {
+    sid       = "Artifacts"
+    actions   = ["s3:GetObject", "s3:PutObject"]
+    resources = ["${aws_s3_bucket.artifacts.arn}/owners/*"]
+  }
+
+  statement {
+    sid       = "ConversationQueueProducer"
+    actions   = ["sqs:SendMessage"]
+    resources = [aws_sqs_queue.conversations.arn]
+  }
+
+  dynamic "statement" {
+    for_each = var.enable_microvm ? [1] : []
+    content {
+      sid       = "SuspendConversationMicrovm"
+      actions   = ["lambda:SuspendMicrovm"]
+      resources = ["*"]
+    }
+  }
+
+  statement {
+    sid       = "DataKey"
+    actions   = local.data_kms_actions
+    resources = [aws_kms_key.data.arn]
+  }
+}
+
+resource "aws_iam_role_policy" "conversation_completion" {
+  name   = "conversation-completion"
+  role   = aws_iam_role.conversation_completion.id
+  policy = data.aws_iam_policy_document.conversation_completion.json
 }
 
 data "aws_iam_policy_document" "notifier" {
@@ -414,6 +566,39 @@ data "aws_iam_policy_document" "worker" {
   }
 
   dynamic "statement" {
+    for_each = var.enable_s3_files ? [1] : []
+    content {
+      sid       = "ConversationStateFileSystem"
+      actions   = ["s3files:ClientMount", "s3files:ClientWrite"]
+      resources = [aws_s3files_file_system.conversation_state[0].arn]
+
+      condition {
+        test     = "StringEquals"
+        variable = "s3files:AccessPointArn"
+        values   = [aws_s3files_access_point.conversation_state[0].arn]
+      }
+    }
+  }
+
+  dynamic "statement" {
+    for_each = var.enable_s3_files ? [1] : []
+    content {
+      sid       = "ConversationStateBucket"
+      actions   = ["s3:ListBucket"]
+      resources = [aws_s3_bucket.conversation_state[0].arn]
+    }
+  }
+
+  dynamic "statement" {
+    for_each = var.enable_s3_files ? [1] : []
+    content {
+      sid       = "ConversationStateObjects"
+      actions   = ["s3:GetObject", "s3:GetObjectVersion"]
+      resources = ["${aws_s3_bucket.conversation_state[0].arn}/*"]
+    }
+  }
+
+  dynamic "statement" {
     for_each = length(local.worker_secret_arns) > 0 ? [1] : []
     content {
       sid       = "WorkerSecrets"
@@ -459,11 +644,29 @@ data "aws_iam_policy_document" "worker" {
     content {
       sid = "CodexModelDiscovery"
       actions = [
+        "bedrock-mantle:GetProject",
         "bedrock-mantle:GetModel",
         "bedrock-mantle:ListModels",
         "bedrock-mantle:ListProjects",
       ]
       resources = ["arn:${data.aws_partition.current.partition}:bedrock-mantle:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:project/*"]
+    }
+  }
+
+  dynamic "statement" {
+    for_each = length(var.codex_bedrock_model_ids) > 0 ? [1] : []
+    content {
+      sid = "CodexMarketplaceAccess"
+      actions = [
+        "aws-marketplace:Subscribe",
+        "aws-marketplace:ViewSubscriptions",
+      ]
+      resources = ["*"]
+      condition {
+        test     = "StringEquals"
+        variable = "aws:CalledViaLast"
+        values   = ["bedrock-mantle.amazonaws.com"]
+      }
     }
   }
 }

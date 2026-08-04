@@ -32,11 +32,20 @@ import {
   createAwsClients,
   DynamoRunStore,
   S3ArtifactStore,
+  S3ResultReader,
+  SqsConversationQueue,
 } from '../../src/adapters/aws-runtime.js';
+import { DynamoConversationStore } from '../../src/adapters/dynamo-conversation-store.js';
 import {
   ExecutorRegistry,
   type RunExecutor,
 } from '../../src/adapters/executors.js';
+import { ConversationService } from '../../src/conversation/service.js';
+import { ConversationCompletionCoordinator } from '../../src/conversation/coordinator.js';
+import {
+  ConversationConflictError,
+  ConversationLeaseError,
+} from '../../src/conversation/types.js';
 import { createDispatcher } from '../../src/lambdas/dispatcher.js';
 import { runAgentWorker } from '../../src/runner/main.js';
 import type { RunRequest, RunStateEvent } from '../../src/domain/contracts.js';
@@ -166,10 +175,212 @@ integration('LocalStack webhook-to-egress workflow', () => {
     await deleteMessage(clients.sqs, required('RUN_QUEUE_URL'), message);
   }, 30_000);
 
+  it('persists an interruptible and resumable conversation mailbox in DynamoDB and S3', async () => {
+    const clients = createAwsClients();
+    const artifacts = new S3ArtifactStore(clients.s3, required('ARTIFACT_BUCKET'));
+    const store = new DynamoConversationStore(
+      clients.dynamodb,
+      required('CONVERSATIONS_TABLE_NAME'),
+    );
+    let clockMilliseconds = Date.parse('2026-08-03T12:00:00.000Z');
+    const service = new ConversationService({
+      store,
+      artifacts,
+      clock: { now: () => new Date(clockMilliseconds += 1_000) },
+      ids: { random: () => randomUUID() },
+      leaseSeconds: 600,
+      retentionSeconds: 3_600,
+    });
+    const conversationId = `local-conversation-${randomUUID()}`;
+    const ownerId = 'teams:local-tenant:local-user';
+    const actor = {
+      kind: 'human' as const,
+      id: ownerId,
+      provider: 'teams' as const,
+    };
+    const credentialSubject = { kind: 'runtime' as const, id: 'runtime:teams' };
+    const source = (activityId: string) => ({
+      kind: 'teams' as const,
+      tenantId: 'local-tenant',
+      teamId: 'local-team',
+      channelId: 'local-channel',
+      conversationId,
+      activityId,
+      senderId: 'local-user',
+    });
+    const destination = { kind: 'source' as const };
+
+    const deferred = await service.appendMessage({
+      conversationId,
+      ownerId,
+      messageId: 'message-deferred',
+      delivery: 'defer',
+      content: { text: 'Summarize the deployment when the current action is done.' },
+      source: source('message-deferred'),
+      destination,
+      actor,
+      credentialSubject,
+    });
+    expect(deferred.status).toBe('appended');
+    await service.appendMessage({
+      conversationId,
+      ownerId,
+      messageId: 'message-interrupt',
+      delivery: 'interrupt',
+      content: { text: 'Stop and inspect the failing health check now.' },
+      source: source('message-interrupt'),
+      destination,
+      actor,
+      credentialSubject,
+    });
+
+    const acquired = await service.acquireLease(conversationId);
+    expect(acquired.status).toBe('acquired');
+    if (acquired.status !== 'acquired') throw new Error('conversation lease was not acquired');
+    const firstLease = acquired.lease.token;
+    const checkedIn = await service.checkIn(conversationId, firstLease);
+    expect(checkedIn.lease).toMatchObject({ token: firstLease });
+    expect(checkedIn.lease?.checkedInAt).not.toBe(acquired.lease.checkedInAt);
+    const contended = await service.acquireLease(conversationId);
+    expect(contended).toMatchObject({
+      status: 'active',
+      conversation: { lease: { token: firstLease } },
+    });
+    const pending = await waitForPendingMessages(service, conversationId, firstLease, 2);
+    expect(pending.map(({ messageId, delivery }) => ({ messageId, delivery }))).toEqual([
+      { messageId: 'message-interrupt', delivery: 'interrupt' },
+      { messageId: 'message-deferred', delivery: 'defer' },
+    ]);
+    await expect(service.pending(conversationId, firstLease, { delivery: 'interrupt' }))
+      .resolves.toEqual([expect.objectContaining({ messageId: 'message-interrupt' })]);
+
+    const started = await service.beginTurn({
+      conversationId,
+      leaseToken: firstLease,
+      runId: `run-${randomUUID()}`,
+    });
+    await service.reportProgress({
+      conversationId,
+      turnId: started.turnId,
+      leaseToken: firstLease,
+      text: 'Inspecting the health-check logs',
+    });
+    await service.consumeMessages({
+      conversationId,
+      messageIds: ['message-interrupt'],
+      leaseToken: firstLease,
+    });
+    const checkpointed = await service.checkpointTurn({
+      conversationId,
+      turnId: started.turnId,
+      leaseToken: firstLease,
+      reason: 'yield',
+      checkpoint: {
+        version: '1',
+        messages: [
+          { role: 'user', content: 'Stop and inspect the failing health check now.' },
+          { role: 'assistant', content: 'The target is unhealthy; investigation can resume.' },
+        ],
+        metadata: { nextAction: 'summarize-deployment' },
+      },
+    });
+    expect(checkpointed).toMatchObject({ state: 'awaiting_resume', resumeReason: 'yield' });
+    await expect(service.pending(conversationId, firstLease))
+      .rejects.toBeInstanceOf(ConversationLeaseError);
+
+    const reacquired = await service.acquireLease(conversationId);
+    expect(reacquired.status).toBe('acquired');
+    if (reacquired.status !== 'acquired') throw new Error('checkpointed turn was not reacquired');
+    const secondLease = reacquired.lease.token;
+    expect(secondLease).not.toBe(firstLease);
+    const resumed = await service.resumeTurn({
+      conversationId,
+      turnId: started.turnId,
+      leaseToken: secondLease,
+    });
+    expect(resumed).toMatchObject({ state: 'running', slice: 1, resumedFromSlice: 0 });
+    const afterResume = await waitForPendingMessages(service, conversationId, secondLease, 1);
+    expect(afterResume.map(({ messageId }) => messageId)).toEqual(['message-deferred']);
+    await service.consumeMessages({
+      conversationId,
+      messageIds: ['message-deferred'],
+      leaseToken: secondLease,
+    });
+    const result = await artifacts.putJson(
+      `owners/localstack/results/${started.turnId}.json`,
+      { answer: 'Health check investigated and deployment summarized.' },
+    );
+    const completed = await service.completeTurn({
+      conversationId,
+      turnId: started.turnId,
+      leaseToken: secondLease,
+      result,
+    });
+    expect(completed).toMatchObject({ state: 'completed', slice: 1, result });
+
+    const conversation = await service.get(conversationId);
+    expect(conversation).toMatchObject({ status: 'idle', pendingCount: 0 });
+    expect(conversation).not.toHaveProperty('lease');
+    expect(conversation).not.toHaveProperty('activeTurnId');
+    expect(conversation).not.toHaveProperty('latestProgress');
+    const persistedTurn = await service.getTurn(conversationId, started.turnId);
+    expect(persistedTurn).toMatchObject({
+      state: 'completed',
+      slice: 1,
+      resumedFromSlice: 0,
+      checkpoint: checkpointed.checkpoint,
+      result,
+    });
+    if (!persistedTurn?.checkpoint) throw new Error('checkpoint reference was not persisted');
+    await expect(artifacts.getJson(persistedTurn.checkpoint)).resolves.toMatchObject({
+      version: '1',
+      metadata: { nextAction: 'summarize-deployment' },
+    });
+
+    const eventTypes = (await service.history(conversationId)).map(({ type }) => type);
+    expect(eventTypes).toHaveLength(9);
+    expect(eventTypes).toEqual(expect.arrayContaining([
+      'message_received',
+      'turn_started',
+      'progress_reported',
+      'messages_consumed',
+      'turn_checkpointed',
+      'turn_resumed',
+      'turn_completed',
+    ]));
+    expect(eventTypes.filter((type) => type === 'message_received')).toHaveLength(2);
+    expect(eventTypes.filter((type) => type === 'messages_consumed')).toHaveLength(2);
+
+    const duplicate = await service.appendMessage({
+      conversationId,
+      ownerId,
+      messageId: 'message-deferred',
+      delivery: 'defer',
+      content: { text: 'Summarize the deployment when the current action is done.' },
+      source: source('message-deferred'),
+      destination,
+      actor,
+      credentialSubject,
+    });
+    expect(duplicate.status).toBe('duplicate');
+    await expect(service.appendMessage({
+      conversationId,
+      ownerId,
+      messageId: 'message-deferred',
+      delivery: 'defer',
+      content: { text: 'This is conflicting webhook content.' },
+      source: source('message-deferred'),
+      destination,
+      actor,
+      credentialSubject,
+    })).rejects.toBeInstanceOf(ConversationConflictError);
+  }, 60_000);
+
   it('runs a signed Teams request through durable state, events, and Teams delivery', async () => {
     const tableName = required('RUNS_TABLE_NAME');
     const artifactBucket = required('ARTIFACT_BUCKET');
     const runQueueUrl = required('RUN_QUEUE_URL');
+    const conversationQueueUrl = required('CONVERSATION_QUEUE_URL');
     const terminalQueueUrl = required('TERMINAL_EVENTS_QUEUE_URL');
     const wiremockBaseUrl = required('WIREMOCK_BASE_URL');
     const signingSecret = required('TEAMS_SIGNING_SECRET');
@@ -204,27 +415,32 @@ integration('LocalStack webhook-to-egress workflow', () => {
 
     expect(firstResponse.statusCode).toBe(200);
     const acknowledgement = JSON.parse(firstResponse.body ?? '{}') as { text?: string };
-    const runId = acknowledgement.text?.match(/[0-9a-f]{8}-[0-9a-f-]{27}/i)?.[0];
-    expect(runId).toBeTruthy();
-    if (!runId) throw new Error('Teams acknowledgement did not contain a run ID');
     expect(acknowledgement.text).toBe(
-      `Rat Things request received. I'll reply when run ${runId} finishes.`,
+      `Rat Things response received (${activityId.slice(0, 12)}). I'll reply in this thread when it finishes.`,
     );
 
-    const queued = await store.get(runId);
-    expect(queued).toMatchObject({
-      runId,
-      ownerId: 'teams:local-tenant:local-user',
-      sourceKind: 'teams',
-      status: 'queued',
+    const conversationId = 'teams:local-tenant:local-user:local-conversation';
+    const conversationStore = new DynamoConversationStore(
+      clients.dynamodb,
+      required('CONVERSATIONS_TABLE_NAME'),
+    );
+    await expect(conversationStore.getConversation(conversationId)).resolves.toMatchObject({
+      status: 'pending',
+      pendingCount: 1,
     });
-    if (!queued) throw new Error('queued run was not persisted');
-    const storedRequest = await artifacts.getJson<RunRequest>(queued.input);
-    expect(storedRequest).toMatchObject({
+    const conversationWake = await receiveRequired(clients.sqs, conversationQueueUrl, 10_000);
+    expect(JSON.parse(conversationWake.Body ?? '{}')).toEqual({
       version: '1',
-      prompt,
-      source: { kind: 'teams', activityId },
+      conversationId,
+      traceId: activityId,
     });
+    const conversationCoordinator = await import('../../src/lambdas/conversation-coordinator.js');
+    const coordination = await invoke<{ batchItemFailures: { itemIdentifier: string }[] }>(
+      conversationCoordinator.handler,
+      sqsEvent(conversationWake, conversationQueueUrl),
+    );
+    expect(coordination.batchItemFailures).toEqual([]);
+    await deleteMessage(clients.sqs, conversationQueueUrl, conversationWake);
 
     const wakeUp = await receiveRequired(clients.sqs, runQueueUrl, 10_000);
     const queueMessage = JSON.parse(wakeUp.Body ?? '{}') as {
@@ -232,7 +448,28 @@ integration('LocalStack webhook-to-egress workflow', () => {
       runId?: string;
       traceId?: string;
     };
+    const runId = queueMessage.runId;
+    expect(runId).toBeTruthy();
+    if (!runId) throw new Error('conversation coordinator did not create a run');
     expect(queueMessage).toEqual({ version: '1', runId, traceId: activityId });
+
+    const queued = await store.get(runId);
+    expect(queued).toMatchObject({
+      runId,
+      ownerId: 'teams:local-tenant:local-user',
+      sourceKind: 'teams',
+      status: 'queued',
+      conversation: {
+        conversationId,
+      },
+    });
+    if (!queued) throw new Error('queued run was not persisted');
+    const storedRequest = await artifacts.getJson<RunRequest>(queued.input);
+    expect(storedRequest).toMatchObject({
+      version: '1',
+      prompt: expect.stringContaining(prompt),
+      source: { kind: 'teams', activityId },
+    });
 
     let launches = 0;
     const localExecutor: RunExecutor = {
@@ -267,6 +504,8 @@ integration('LocalStack webhook-to-egress workflow', () => {
     process.env.RUN_INPUT_BUCKET = dispatched.input.bucket;
     process.env.RUN_INPUT_KEY = dispatched.input.key;
     process.env.RUN_TIMEOUT_SECONDS = realTeamsCodex ? '180' : '30';
+    process.env.PERSISTENT_SESSION = 'true';
+    delete process.env.AGENT_THREAD_ID;
     delete process.env.RUN_AGENT_UID;
     delete process.env.RUN_AGENT_GID;
     await runAgentWorker();
@@ -302,7 +541,10 @@ integration('LocalStack webhook-to-egress workflow', () => {
       completed.result.events?.key ?? '',
     );
     if (realTeamsCodex) expect(output).toContain(marker);
-    else expect(output).toBe(`mock-agent: ${prompt}`);
+    else {
+      expect(output).toContain('mock-agent: Continue this durable conversation.');
+      expect(output).toContain(prompt);
+    }
     expect(agentEvents).toContain('item.completed');
     expect(completed.result.preview).toBe(output);
 
@@ -333,6 +575,19 @@ integration('LocalStack webhook-to-egress workflow', () => {
     });
 
     const notifier = await import('../../src/lambdas/notifier.js');
+    const conversationService = new ConversationService({
+      store: conversationStore,
+      artifacts,
+    });
+    const completion = new ConversationCompletionCoordinator({
+      conversations: conversationService,
+      runs: store,
+      artifacts,
+      results: new S3ResultReader(clients.s3),
+      queue: new SqsConversationQueue(clients.sqs, conversationQueueUrl),
+      sessions: { suspend: async () => undefined },
+    });
+    await completion.handle(terminalEvent.detail);
     await invoke<void>(notifier.handler, terminalEvent);
     await deleteMessage(clients.sqs, terminalQueueUrl, terminalMessage);
 
@@ -360,7 +615,8 @@ integration('LocalStack webhook-to-egress workflow', () => {
       };
       const cardText = card.attachments?.[0]?.content?.body?.map((item) => item.text).join('\n');
       expect(cardText).toContain('Agent run succeeded');
-      expect(cardText).toContain(`mock-agent: ${prompt}`);
+      expect(cardText).toContain('mock-agent: Continue this durable conversation.');
+      expect(cardText).toContain(prompt);
       expect(JSON.stringify(card)).toContain(runId);
     }
 
@@ -384,7 +640,59 @@ integration('LocalStack webhook-to-egress workflow', () => {
     const repeatedResponse = await invoke<APIGatewayProxyStructuredResultV2>(teamsWebhook.handler, event);
     expect(repeatedResponse.statusCode).toBe(200);
     expect(repeatedResponse.body).toBe(firstResponse.body);
+    const duplicateWake = await receiveRequired(clients.sqs, conversationQueueUrl, 10_000);
+    const duplicateCoordination = await invoke<{ batchItemFailures: { itemIdentifier: string }[] }>(
+      conversationCoordinator.handler,
+      sqsEvent(duplicateWake, conversationQueueUrl),
+    );
+    expect(duplicateCoordination.batchItemFailures).toEqual([]);
+    await deleteMessage(clients.sqs, conversationQueueUrl, duplicateWake);
     expect(await receiveOptional(clients.sqs, runQueueUrl, 1_500)).toBeUndefined();
+
+    const followUpActivityId = `local-follow-up-${randomUUID()}`;
+    const followUpPrompt = 'Now summarize that answer in five words.';
+    const followUpBody = JSON.stringify({
+      type: 'message',
+      id: followUpActivityId,
+      text: `<at>Rat Things</at> ${followUpPrompt}`,
+      from: { id: 'local-user', name: 'Local User' },
+      conversation: { id: 'local-conversation' },
+      channelData: {
+        tenant: { id: 'local-tenant' },
+        team: { id: 'local-team' },
+        channel: { id: 'local-channel' },
+      },
+    });
+    const followUpResponse = await invoke<APIGatewayProxyStructuredResultV2>(
+      teamsWebhook.handler,
+      teamsEvent(followUpBody, teamsSignature(followUpBody, signingSecret)),
+    );
+    expect(followUpResponse.statusCode).toBe(200);
+    const followUpWake = await receiveRequired(clients.sqs, conversationQueueUrl, 10_000);
+    const followUpCoordination = await invoke<{ batchItemFailures: { itemIdentifier: string }[] }>(
+      conversationCoordinator.handler,
+      sqsEvent(followUpWake, conversationQueueUrl),
+    );
+    expect(followUpCoordination.batchItemFailures).toEqual([]);
+    await deleteMessage(clients.sqs, conversationQueueUrl, followUpWake);
+    const followUpRunWake = await receiveRequired(clients.sqs, runQueueUrl, 10_000);
+    const followUpRunId = queuedRunId(followUpRunWake);
+    expect(followUpRunId).toBeTruthy();
+    if (!followUpRunId) throw new Error('follow-up did not create a conversation run');
+    await expect(store.get(followUpRunId)).resolves.toMatchObject({
+      conversation: {
+        conversationId,
+        preferredMicrovmId: `localstack:${runId}`,
+        agentThreadId: 'mock-thread',
+      },
+    });
+    const followUpRun = await store.get(followUpRunId);
+    if (!followUpRun) throw new Error('follow-up run was not persisted');
+    const followUpRequest = await artifacts.getJson<RunRequest>(followUpRun.input);
+    expect(followUpRequest.prompt).toContain(prompt);
+    expect(followUpRequest.prompt).toContain(`mock-agent: Continue this durable conversation.`);
+    expect(followUpRequest.prompt).toContain(followUpPrompt);
+    await deleteMessage(clients.sqs, runQueueUrl, followUpRunWake);
 
     if (realTeamsCodex) {
       process.stdout.write(`\n${JSON.stringify({
@@ -667,4 +975,19 @@ function required(name: string): string {
 
 function delay(milliseconds: number): Promise<void> {
   return new Promise((resolvePromise) => setTimeout(resolvePromise, milliseconds));
+}
+
+async function waitForPendingMessages(
+  service: ConversationService,
+  conversationId: string,
+  leaseToken: string,
+  count: number,
+) {
+  const deadline = Date.now() + 10_000;
+  while (Date.now() < deadline) {
+    const pending = await service.pending(conversationId, leaseToken);
+    if (pending.length === count) return pending;
+    await delay(100);
+  }
+  throw new Error(`conversation ${conversationId} did not expose ${count} pending messages`);
 }

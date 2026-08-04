@@ -60,6 +60,62 @@ resource "aws_dynamodb_table" "runs" {
   stream_view_type = "NEW_AND_OLD_IMAGES"
 }
 
+resource "aws_dynamodb_table" "conversations" {
+  name         = "${local.name}-conversations"
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "pk"
+  range_key    = "sk"
+
+  attribute {
+    name = "pk"
+    type = "S"
+  }
+
+  attribute {
+    name = "sk"
+    type = "S"
+  }
+
+  attribute {
+    name = "workPartition"
+    type = "S"
+  }
+
+  attribute {
+    name = "workOrder"
+    type = "S"
+  }
+
+  attribute {
+    name = "status"
+    type = "S"
+  }
+
+  attribute {
+    name = "updatedAt"
+    type = "S"
+  }
+
+  global_secondary_index {
+    name            = "conversation-work-index"
+    hash_key        = "workPartition"
+    range_key       = "workOrder"
+    projection_type = "ALL"
+  }
+
+  global_secondary_index {
+    name            = "status-updated-index"
+    hash_key        = "status"
+    range_key       = "updatedAt"
+    projection_type = "ALL"
+  }
+
+  ttl {
+    attribute_name = "expiresAt"
+    enabled        = true
+  }
+}
+
 resource "aws_sqs_queue" "run_dlq" {
   name                      = "${local.name}-runs-dlq"
   message_retention_seconds = 1209600
@@ -73,6 +129,23 @@ resource "aws_sqs_queue" "runs" {
 
   redrive_policy = jsonencode({
     deadLetterTargetArn = aws_sqs_queue.run_dlq.arn
+    maxReceiveCount     = 3
+  })
+}
+
+resource "aws_sqs_queue" "conversation_dlq" {
+  name                      = "${local.name}-conversations-dlq"
+  message_retention_seconds = 1209600
+}
+
+resource "aws_sqs_queue" "conversations" {
+  name                       = "${local.name}-conversations"
+  visibility_timeout_seconds = 180
+  message_retention_seconds  = 86400
+  receive_wait_time_seconds  = 1
+
+  redrive_policy = jsonencode({
+    deadLetterTargetArn = aws_sqs_queue.conversation_dlq.arn
     maxReceiveCount     = 3
   })
 }

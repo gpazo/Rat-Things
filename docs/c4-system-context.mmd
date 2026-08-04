@@ -1,24 +1,23 @@
-%%{init: {"theme":"base","themeVariables":{"fontFamily":"Arial, sans-serif","primaryColor":"#1268b3","primaryTextColor":"#ffffff","primaryBorderColor":"#0b4f8a","lineColor":"#52606d","secondaryColor":"#e8edf2","tertiaryColor":"#eef7ee","background":"#ffffff"},"themeCSS":".nodeLabel,.edgeLabel,.cluster-label{font-family:Arial,sans-serif!important}.edgeLabel p{color:#344250!important;background:#ffffff!important}","flowchart":{"curve":"linear","nodeSpacing":44,"rankSpacing":58}}}%%
+%%{init: {"theme":"base","themeVariables":{"fontFamily":"Arial, sans-serif","primaryColor":"#1268b3","primaryTextColor":"#ffffff","primaryBorderColor":"#0b4f8a","lineColor":"#52606d","secondaryColor":"#e8edf2","tertiaryColor":"#eef7ee","background":"#ffffff"},"themeCSS":".nodeLabel,.edgeLabel,.cluster-label{font-family:Arial,sans-serif!important}.edgeLabel p{color:#344250!important;background:#ffffff!important}","flowchart":{"curve":"linear","nodeSpacing":50,"rankSpacing":66}}}%%
 flowchart TB
     title["C4 · Level 1 — System Context"]
+    model["Codex Model Provider<br/><small>OpenAI or Amazon Bedrock</small>"]
 
-    subgraph canvas[" "]
+    subgraph primary[" "]
         direction LR
-        sources["GitHub · GitLab<br/>Teams · API / CLI<br/><small>External systems</small>"]
-        runtime["Rat Things<br/><small>Software system</small>"]
-        destinations["PR / MR · Teams<br/>Status · Artifacts<br/><small>External systems</small>"]
-        model["Model Provider<br/><small>External system</small>"]
-        awsTest["Live AWS Test Harness<br/><small>Supporting system</small>"]
-        localTest["LocalStack Test Harness<br/><small>Supporting system</small>"]
+        sources["Teams · GitHub · GitLab<br/>API / CLI<br/><small>People and external systems</small>"]
+        runtime["Rat Things<br/><small>Durable Codex agent runtime</small>"]
+        destinations["Threaded Replies<br/>Status · Artifacts<br/><small>External destinations</small>"]
 
-        sources -->|1 · Request| runtime
-        runtime -->|3 · Result| destinations
-        runtime <-->|2 · Prompt / response| model
-        awsTest -.->|Deploys + exercises| runtime
-        localTest -.->|Runs components locally| runtime
+        sources -->|1 · Signed request| runtime
+        runtime -->|4 · Durable result| destinations
     end
 
-    title ~~~ runtime
+    validation["Validation Harnesses<br/><small>LocalStack + ephemeral AWS</small>"]
+
+    model <-->|3 · Model + tool loop| runtime
+    validation -.->|2 · Exercise end to end| runtime
+    title ~~~ model
 
     classDef title fill:transparent,color:#17212b,stroke:transparent,font-size:24px;
     classDef system fill:#1268b3,color:#ffffff,stroke:#0b4f8a,stroke-width:2px;
@@ -27,5 +26,5 @@ flowchart TB
     class title title;
     class runtime system;
     class sources,destinations,model external;
-    class awsTest,localTest test;
-    style canvas fill:transparent,stroke:transparent;
+    class validation test;
+    style primary fill:transparent,stroke:transparent;

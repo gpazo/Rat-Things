@@ -92,8 +92,9 @@ CloudTrail for `RunMicrovm`. The scheduled reconciler re-nudges stale `dispatchi
 so retrying the start is intended to return the same execution.
 
 A newly launched worker waits up to 60 seconds for this attachment before it will start the agent.
-If repair does not complete in that window, it records a terminal failure and exits; a MicroVM then
-self-terminates through its supervisor.
+If repair does not complete in that window, it records a terminal failure and exits. A one-shot VM
+self-terminates through its supervisor; a conversation VM is suspended by the completion path and
+must be inspected if that terminal event cannot be folded into the mailbox.
 
 - Confirm the reconciler ran after the age threshold and the dispatcher attached the returned ARN/ID.
 - If no execution was created, diagnose backend start/IAM/quota errors before a new submission.

@@ -4,11 +4,15 @@ import {
   DynamoRunStore,
   S3ArtifactStore,
   S3ResultReader,
+  SqsConversationQueue,
   SqsRunQueue,
   type AwsClients,
 } from '../adapters/aws-runtime.js';
+import { DynamoConversationStore } from '../adapters/dynamo-conversation-store.js';
 import { DynamoDeliveryFence } from '../adapters/dynamo-delivery-fence.js';
 import { createExecutorRegistryFromEnv, requiredEnv } from '../adapters/executors.js';
+import { ConversationService } from '../conversation/service.js';
+import { ConversationSubmissionService } from './conversation-submission.js';
 import { CredentialBroker } from '../credentials/broker.js';
 import { DeliveryService } from '../delivery/service.js';
 import type { TeamsDeliveryMode } from '../delivery/providers/teams.js';
@@ -22,8 +26,10 @@ import { RunService } from '../core/run-service.js';
 interface BaseServices {
   clients: AwsClients;
   store: DynamoRunStore;
+  conversations: DynamoConversationStore;
   artifacts: S3ArtifactStore;
   queue: SqsRunQueue;
+  conversationQueue: SqsConversationQueue;
   credentials: CredentialBroker;
 }
 
@@ -33,6 +39,8 @@ let controlService: RunService | undefined;
 let pluginRegistry: RuntimePluginRegistry | undefined;
 let ingressService: WebhookIngressService | undefined;
 let deliveryService: DeliveryService | undefined;
+let conversationService: ConversationService | undefined;
+let conversationSubmissionService: ConversationSubmissionService | undefined;
 
 const noExecutions: ExecutionController = {
   stop: async () => {
@@ -92,8 +100,21 @@ export function getPluginRegistry(): RuntimePluginRegistry {
 }
 
 export function getWebhookIngressService(): WebhookIngressService {
-  ingressService ??= new WebhookIngressService(getPluginRegistry(), getRunService());
+  ingressService ??= new WebhookIngressService(
+    getPluginRegistry(),
+    getRunService(),
+    getConversationSubmissionService(),
+  );
   return ingressService;
+}
+
+export function getConversationSubmissionService(): ConversationSubmissionService {
+  if (conversationSubmissionService) return conversationSubmissionService;
+  conversationSubmissionService = new ConversationSubmissionService(
+    getConversationService(),
+    getBaseServices().conversationQueue,
+  );
+  return conversationSubmissionService;
 }
 
 export function getDeliveryService(): DeliveryService {
@@ -111,6 +132,17 @@ export function getDeliveryService(): DeliveryService {
   return deliveryService;
 }
 
+export function getConversationService(): ConversationService {
+  if (conversationService) return conversationService;
+  const base = getBaseServices();
+  conversationService = new ConversationService({
+    store: base.conversations,
+    artifacts: base.artifacts,
+    retentionSeconds: Number(process.env.RUN_RETENTION_SECONDS ?? 2_592_000),
+  });
+  return conversationService;
+}
+
 function getBaseServices(): BaseServices {
   if (baseServices) return baseServices;
   const clients = createAwsClients();
@@ -118,8 +150,16 @@ function getBaseServices(): BaseServices {
   baseServices = {
     clients,
     store: new DynamoRunStore(clients.dynamodb, requiredEnv('RUNS_TABLE_NAME')),
+    conversations: new DynamoConversationStore(
+      clients.dynamodb,
+      requiredEnv('CONVERSATIONS_TABLE_NAME'),
+    ),
     artifacts: new S3ArtifactStore(clients.s3, requiredEnv('ARTIFACT_BUCKET')),
     queue: new SqsRunQueue(clients.sqs, requiredEnv('RUN_QUEUE_URL')),
+    conversationQueue: new SqsConversationQueue(
+      clients.sqs,
+      requiredEnv('CONVERSATION_QUEUE_URL'),
+    ),
     credentials: new CredentialBroker(secretReader),
   };
   return baseServices;

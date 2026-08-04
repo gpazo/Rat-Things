@@ -3,6 +3,8 @@ import { build } from 'esbuild';
 
 const lambdaEntries = {
   control: 'src/lambdas/control.ts',
+  'conversation-completion': 'src/lambdas/conversation-completion.ts',
+  'conversation-coordinator': 'src/lambdas/conversation-coordinator.ts',
   dispatcher: 'src/lambdas/dispatcher.ts',
   notifier: 'src/lambdas/notifier.ts',
   reconciler: 'src/lambdas/reconciler.ts',

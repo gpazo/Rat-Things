@@ -16,12 +16,15 @@ versioned and contains only run IDs, S3/DynamoDB references, bounded configurati
 a Secrets Manager ARN. Prompts and provider tokens are never hook payload fields. A run reads its
 input from encrypted S3 after the MicroVM receives fresh run-time credentials.
 
-After `runner.mjs` exits, the root lifecycle server launches the separately bundled
-`terminate-microvm.mjs`. That helper calls `TerminateMicrovm` using the execution role so completed
-batch runs do not linger until their maximum duration. It is a separate process so the lifecycle
-server can answer the resulting `/terminate` hook without deadlocking the API call.
+After a one-shot `runner.mjs` exits, the root lifecycle server launches the separately bundled
+`terminate-microvm.mjs`. Conversation runs instead keep the server, workspace, and Codex session
+files alive. The coordinator suspends the VM after each slice and submits later slices through the
+authenticated `/agent-runtime/v1/runs` endpoint after calling `ResumeMicrovm`. AWS preserves memory
+and disk while suspended. DynamoDB and S3 remain authoritative because a MicroVM is terminated no
+later than eight hours after launch.
 
 Lifecycle endpoints listen on port 8080 under
 `/aws/lambda-microvms/runtime/v1/{ready,validate,run,resume,suspend,terminate}`. Terraform enables all
-six hooks. Individual MicroVMs are intentionally launched and terminated by the dispatcher API, not
-modeled as long-lived Terraform resources.
+six hooks. Individual MicroVMs are launched by the dispatcher API and are never modeled as
+long-lived Terraform resources. Batch runs self-terminate; conversation sessions use the configured
+idle policy and explicit suspend/resume calls.

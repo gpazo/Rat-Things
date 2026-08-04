@@ -7,15 +7,17 @@ locals {
   }
 
   lambda_zip_paths = {
-    control        = "${path.root}/../../dist/control.zip"
-    dispatcher     = "${path.root}/../../dist/dispatcher.zip"
-    notifier       = "${path.root}/../../dist/notifier.zip"
-    reconciler     = "${path.root}/../../dist/reconciler.zip"
-    state-stream   = "${path.root}/../../dist/state-stream.zip"
-    webhook-github = "${path.root}/../../dist/webhook-github.zip"
-    webhook-gitlab = "${path.root}/../../dist/webhook-gitlab.zip"
-    webhook-teams  = "${path.root}/../../dist/webhook-teams.zip"
-    webhook-slack  = "${path.root}/../../dist/webhook-slack.zip"
+    control                  = "${path.root}/../../dist/control.zip"
+    conversation-completion  = "${path.root}/../../dist/conversation-completion.zip"
+    conversation-coordinator = "${path.root}/../../dist/conversation-coordinator.zip"
+    dispatcher               = "${path.root}/../../dist/dispatcher.zip"
+    notifier                 = "${path.root}/../../dist/notifier.zip"
+    reconciler               = "${path.root}/../../dist/reconciler.zip"
+    state-stream             = "${path.root}/../../dist/state-stream.zip"
+    webhook-github           = "${path.root}/../../dist/webhook-github.zip"
+    webhook-gitlab           = "${path.root}/../../dist/webhook-gitlab.zip"
+    webhook-teams            = "${path.root}/../../dist/webhook-teams.zip"
+    webhook-slack            = "${path.root}/../../dist/webhook-slack.zip"
   }
 }
 
@@ -72,6 +74,7 @@ module "agent_runner" {
   teams_webhook_enabled             = true
   teams_workflow_url_secret_arn     = aws_secretsmanager_secret.teams_workflow.arn
   enable_microvm                    = var.enable_microvm
+  enable_s3_files                   = var.enable_microvm
   microvm_source_zip_path           = "${path.root}/../../dist/microvm-source.zip"
   microvm_base_image_version        = var.microvm_base_image_version
   tags                              = local.tags

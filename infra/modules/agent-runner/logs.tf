@@ -1,11 +1,13 @@
 locals {
   lambda_names = merge(
     {
-      control      = true
-      dispatcher   = true
-      notifier     = true
-      reconciler   = true
-      state-stream = true
+      control                  = true
+      conversation-completion  = true
+      conversation-coordinator = true
+      dispatcher               = true
+      notifier                 = true
+      reconciler               = true
+      state-stream             = true
     },
     {
       webhook-github = local.github_enabled

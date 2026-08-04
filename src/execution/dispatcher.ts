@@ -26,7 +26,17 @@ export class RunDispatcher {
     const backend = request.execution?.backend ?? this.options.defaultBackend;
     const executor = executors.get(backend);
     if (current.status === 'queued') {
-      await store.transition(current.runId, ['queued'], 'dispatching');
+      try {
+        await store.transition(current.runId, ['queued'], 'dispatching');
+      } catch (error) {
+        if (error instanceof InvalidStateTransitionError) {
+          const latest = await store.get(current.runId);
+          // Another delivery already claimed this queued run. That delivery is
+          // responsible for starting and attaching the idempotent execution.
+          if (latest && latest.status !== 'queued') return;
+        }
+        throw error;
+      }
     }
     let execution;
     try {
@@ -67,13 +77,19 @@ export function parseRunQueueMessage(body: string): RunQueueMessage {
 
 function isDispatchable(run: RunRecord): boolean {
   return run.status === 'queued' ||
-    run.status === 'dispatching' ||
+    (run.status === 'dispatching' && (!run.execution || run.execution.id === 'pending')) ||
     (run.status === 'running' && (!run.execution || run.execution.id === 'pending'));
 }
 
 function retryableStartError(error: unknown): boolean {
   const name = error instanceof Error ? error.name : '';
-  return ['ThrottlingException', 'ServiceUnavailableException', 'TooManyRequestsException'].includes(name);
+  if (['ThrottlingException', 'ServiceUnavailableException', 'TooManyRequestsException'].includes(name)) {
+    return true;
+  }
+  const message = safeMessage(error).toLowerCase();
+  return name === 'ConflictException' &&
+    message.includes('creation in progress') &&
+    message.includes('clienttoken');
 }
 
 function safeMessage(error: unknown): string {

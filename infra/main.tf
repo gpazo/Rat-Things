@@ -41,6 +41,8 @@ module "agent_runner" {
   codex_bedrock_model_ids            = var.codex_bedrock_model_ids
   bedrock_api_key_secret_arn         = var.bedrock_api_key_secret_arn
   enable_microvm                     = var.enable_microvm
+  enable_s3_files                    = var.enable_s3_files
+  s3_files_vpc_cidr                  = var.s3_files_vpc_cidr
   microvm_source_zip_path            = var.microvm_source_zip_path
   microvm_base_image_arn             = var.microvm_base_image_arn
   microvm_base_image_version         = var.microvm_base_image_version

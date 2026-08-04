@@ -4,9 +4,9 @@
 
 Rat Things is an **engineering preview**, not a production-ready service. The focused tests cover
 domain behavior, webhook signatures and normalization, process/workspace safeguards, drivers,
-executor payloads, the LocalStack data/event path, a disposable live-AWS mock-agent path, and one
-minimal Codex-on-Bedrock run in a live Lambda MicroVM. They do not constitute a penetration test,
-quota/load exercise, broad real-agent evaluation, or disaster-recovery proof.
+executor payloads, the LocalStack data/event path, a disposable live-AWS mock-agent path, and a
+two-turn Codex-on-Bedrock persistence run in a live Lambda MicroVM. They do not constitute a
+penetration test, quota/load exercise, broad real-agent evaluation, or disaster-recovery proof.
 
 | Capability | Status | Notes |
 | --- | --- | --- |
@@ -14,22 +14,30 @@ quota/load exercise, broad real-agent evaluation, or disaster-recovery proof.
 | Provider plugin boundary | Implemented/tested | Trusted manifests bind ingress/delivery; dependency checks prevent authority inversion |
 | Control API | Implemented/live validated | Submit/list/get/cancel and owner-checked short-lived artifact URLs |
 | Durable AWS orchestration | Locally/live validated | DynamoDB, S3, SQS, Streams, EventBridge, notifier delivery, failure queues |
-| Lambda MicroVM runner | Live Codex and mock validated | Sole backend; pinned public checkout, output/events/state, and self-termination passed in `us-west-2` |
+| Conversation mailbox | End-to-end locally/live validated | Teams ingress, DynamoDB/S3 mailbox, interrupt/defer ordering, leases, SQS coordinator, durable replay, terminal completion, expiry fallback, and crash-window repair |
+| Lambda MicroVM runner | One-shot/resume/replacement live validated | Same-ID suspend/resume plus S3 Files workspace restoration in a replacement VM passed in `us-west-2` |
 | ECS replacement | Complete | Before removal, the same pinned checkout produced byte-identical output/events and equivalent execution metadata on the legacy task and MicroVM paths; the post-removal live suite then passed with no ECS/VPC fallback |
-| Codex driver | Live validated | Pinned non-interactive ephemeral JSON mode; live AWS uses short-term Bedrock auth, while trusted local runs can reuse the device's ChatGPT subscription |
+| Codex driver | Two-turn app-server live validated | One real app-server thread retained its ID and workspace across two different MicroVMs using short-term Bedrock auth; trusted local runs can reuse the device's ChatGPT subscription |
 | Mock driver | Implemented/tested | Used for deterministic local and live infrastructure validation |
 | GitHub/GitLab | Initial adapters | Signed ingress, loop guards, source-thread egress; credential and policy hardening remain |
-| Teams | Bridge plus threaded gateway seam | Workflow delivery remains available; a real-Codex LocalStack simulation now preserves the exact source conversation/activity through a versioned reply-gateway contract, but Microsoft authentication and live tenant delivery remain |
+| Teams | Durable chat path locally/live AWS validated | Signed mentions get an immediate acknowledgement, enter the mailbox, and complete through threaded gateway egress; Microsoft authentication and live tenant delivery remain |
 | Slack | Optional initial adapter | App mentions and threaded posts; not the primary deployment target |
-| Observability/recovery | Partial | Structured logs, durable queues/events, reconciler, delivery leases, failure queues/alarms; chaos drills remain |
+| Observability/recovery | Partial/live fault validated | Structured logs, durable queues/events, reconciler, delivery leases, failure queues/alarms; session-expiry replacement and the coordinator attach/enqueue crash window passed live, while broader chaos drills remain |
 | Multi-tenant hardening | Not complete | Requires safe response projection, destination authorization, budgets, rate limits, and security review |
 
-## Validation completed on 2026-08-03
+## Validation completed on 2026-08-03–04
 
 - TypeScript typecheck, unit/integration tests, architecture boundaries, Lambda/MicroVM packaging,
   and all Terraform formatting/validation gates.
 - Disposable LocalStack end to end: signed GitHub/GitLab normalization and full signed Teams
   ingress-to-WireMock egress, including real LocalStack data/event services and durable fencing.
+- LocalStack durable conversation lifecycle: idempotent mailbox append, interrupt-before-defer GSI
+  ordering, lease fencing, progress/history, S3 checkpointing, worker reacquisition, slice resume,
+  consumption, and completion. This test exposed and fixed a reserved-keyword bug in the DynamoDB
+  completion transaction.
+- LocalStack Teams conversation flow: signed ingress, durable append, SQS coordinator, bounded run,
+  completion/replay checkpoint, threaded egress, duplicate suppression, and a second turn selecting
+  the retained MicroVM and Codex thread IDs.
 - Opt-in LocalStack Teams chat: a signed `@Rat Things` fixture executed through the device's
   ChatGPT-backed Codex session and produced a captured reply addressed to the exact inbound
   `conversationId` and activity ID; command networking remained disabled.
@@ -48,9 +56,25 @@ quota/load exercise, broad real-agent evaluation, or disaster-recovery proof.
   repository-backed MicroVM suite pass on a newly created stack.
 - Infrastructure replacement: the temporary stack removed the task/cluster/image repository and all
   customer networking resources, then passed the complete live suite again.
+- Live persistent conversation: two signed Teams turns passed through the mailbox and coordinator;
+  AWS reported the first MicroVM `SUSPENDED`, the second run used that exact MicroVM ID through the
+  authenticated continuation endpoint, prior/new context reached output, the VM re-suspended, both
+  threaded replies arrived, and all failure queues remained empty. This run exposed and fixed missing
+  DynamoDB transaction item permissions and a duplicate-dispatch `RunMicrovm` creation race.
+- Live retained execution state: Codex app-server used a shell tool to create/read a unique file;
+  the first MicroVM was terminated, the file appeared independently in the backing S3 bucket, and a
+  replacement MicroVM mounted it, resumed the exact same Codex thread ID, and read the same bytes
+  without recreating the file.
+- Live expiry and crash recovery: backdating a suspended session forced a replacement MicroVM with
+  durable S3/DynamoDB replay and termination of the expired VM; an injected coordinator crash after
+  launch was repaired onto the same semantic run with one schedule event and no failed messages.
+- The live probes also exposed and fixed S3 Files prefix validation, a false-positive mount check,
+  root/UID workspace ownership, base-image version drift during image updates, and loss of the Codex
+  thread ID when a MicroVM lease expired.
 
 The default live tests use a deterministic mock agent and spend no model tokens. Setting
-`AWS_E2E_REAL_CODEX=true` adds one intentionally small paid canary before the exit-trap teardown.
+`AWS_E2E_REAL_CODEX=true` adds one bounded, two-turn paid persistence probe before the exit-trap
+teardown.
 
 ## Known gaps
 
@@ -63,6 +87,9 @@ The default live tests use a deterministic mock agent and spend no model tokens.
 - Add outbound allowlisting/proxy controls if broad AWS-managed internet egress is unacceptable.
 - Repeat image/lifecycle validation in every intended Region and after each service/provider upgrade.
 - Replace the Teams Workflow bridge with an authenticated Entra/Bot/Teams SDK gateway.
+- Validate teardown under injected failure and measure actual suspended-storage cost behavior.
+- Add mid-command streaming/steering, active-session heartbeats and reconciliation, summarized
+  context compaction, and an explicit agent handoff contract.
 - Complete an independent IAM, snapshot, malicious-repository, SSRF, credential-boundary, and
   cross-owner security review.
 
@@ -87,13 +114,13 @@ The default live tests use a deterministic mock agent and spend no model tokens.
 - Build the AWS-hosted Microsoft Entra/Bot/Teams SDK gateway described in
   [channels](channels.md#recommended-production-teams-gateway).
 - Persist authorized installation/conversation references independently from run state.
-- Add exact-thread proactive completion and signed human approval/cancel actions.
+- Add exact-thread streaming progress and signed human approval/cancel actions.
 
-### 4. Subsystem capabilities
+### 4. Conversation parity and resilience
 
-- Define versioned progress and retry contracts without changing v1 semantics.
-- Add resumable conversation state only after ownership, credential, retention, and context
-  boundaries are explicit.
+- Add teardown-under-failure drills and measure suspended-session storage cost and lifecycle limits.
+- Add safe mid-command steering, active-session heartbeat/recovery, compaction summaries, and
+  handoff/replay tooling.
 - Add policy-controlled tool profiles, usage/budget accounting, and richer output schemas.
 
 ## Reference provenance
@@ -102,5 +129,6 @@ The [AWS Lambda MicroVM sample at
 `2a574ea`](https://github.com/aws-samples/anthropic-on-aws/tree/2a574ea941f44e36e9066dea7b131131139162e4/claude-code-on-lambda-microvm)
 informed lifecycle/image behavior. [Sentry Junior at
 `cc9bd53`](https://github.com/getsentry/junior/tree/cc9bd538564639345717caf4a92a3ddef37f3274)
-informed the composition-root, provider-plugin, ingress, identity/credential, execution, and
-delivery boundaries. Neither codebase is vendored; attribution is in [`NOTICE`](../NOTICE).
+informed the composition-root, provider-plugin, ingress, identity/credential, execution, delivery,
+and durable-mailbox boundaries. Neither codebase is vendored; attribution is in
+[`NOTICE`](../NOTICE).

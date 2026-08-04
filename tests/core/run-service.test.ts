@@ -217,6 +217,22 @@ describe('RunService.submit', () => {
     expect(queue.messages).toEqual([{ version: '1', runId: 'random-run-id', traceId: 'trace-1' }]);
   });
 
+  it('allows a coordinator to commit related state before explicitly waking the run', async () => {
+    const { service, queue } = harness();
+
+    const record = await service.submit('owner-1', baseRequest, {
+      enqueue: false,
+    });
+
+    expect(queue.messages).toEqual([]);
+    await service.wake(record.runId, 'conversation-trace');
+    expect(queue.messages).toEqual([{
+      version: '1',
+      runId: record.runId,
+      traceId: 'conversation-trace',
+    }]);
+  });
+
   it('returns the original run for the same idempotency key and canonical request', async () => {
     const { service, store, artifacts, queue } = harness();
     const first = await service.submit(

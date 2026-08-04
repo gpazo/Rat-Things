@@ -1,30 +1,24 @@
-%%{init: {"theme":"base","themeVariables":{"fontFamily":"Arial, sans-serif","primaryColor":"#2f6f3e","primaryTextColor":"#ffffff","primaryBorderColor":"#24562f","lineColor":"#52606d","secondaryColor":"#e8edf2","tertiaryColor":"#eef7ee","background":"#ffffff"},"themeCSS":".nodeLabel,.edgeLabel,.cluster-label{font-family:Arial,sans-serif!important}.edgeLabel p{color:#344250!important;background:#ffffff!important}","flowchart":{"curve":"linear","nodeSpacing":42,"rankSpacing":55}}}%%
+%%{init: {"theme":"base","themeVariables":{"fontFamily":"Arial, sans-serif","primaryColor":"#2f6f3e","primaryTextColor":"#ffffff","primaryBorderColor":"#24562f","lineColor":"#52606d","secondaryColor":"#e8edf2","tertiaryColor":"#eef7ee","background":"#ffffff"},"themeCSS":".nodeLabel,.edgeLabel,.cluster-label{font-family:Arial,sans-serif!important}.edgeLabel p{color:#344250!important;background:#ffffff!important}","flowchart":{"curve":"linear","nodeSpacing":50,"rankSpacing":62}}}%%
 flowchart LR
-    developer["Developer / CI<br/><small>Person or automation</small>"]
+    developer["Developer / CI"]
 
     subgraph harness["C4 · Level 2 — LocalStack Test Harness"]
         direction LR
-        lifecycle["E2E Lifecycle<br/><small>Host process</small>"]
-        compose["Docker Compose<br/><small>Local environment</small>"]
-        fixtures["Terraform Fixtures<br/><small>Host process</small>"]
-        workflow["Runtime Under Test<br/><small>Handlers + mock worker on host</small>"]
-        localstack["LocalStack<br/><small>Docker container</small>"]
-        wiremock["WireMock<br/><small>Docker container</small>"]
+        lifecycle["E2E Lifecycle<br/><small>Docker + Terraform</small>"]
+        runtime["Runtime Handlers<br/><small>Host-run mock worker</small>"]
+        localstack["AWS Control Plane<br/><small>LocalStack</small>"]
+        wiremock["Captured Replies<br/><small>WireMock</small>"]
 
-        lifecycle -.->|1 · Start / stop| compose
-        lifecycle -.->|2 · Provision| fixtures
-        lifecycle -.->|3 · Execute| workflow
-        compose -.-> localstack
-        compose -.-> wiremock
-        fixtures -.->|AWS resources| localstack
-        workflow <-->|State · queue · events| localstack
-        workflow -->|4 · Teams result| wiremock
+        lifecycle -->|1 · Provision| localstack
+        lifecycle -->|2 · Exercise| runtime
+        runtime <-->|3 · State + queues| localstack
+        runtime -->|4 · Threaded result| wiremock
     end
 
-    developer -.->|Run| lifecycle
+    developer -->|Run| lifecycle
 
     classDef host fill:#2f6f3e,color:#ffffff,stroke:#24562f,stroke-width:2px;
     classDef docker fill:#e8edf2,color:#17212b,stroke:#7a8793,stroke-width:1.5px;
-    class lifecycle,fixtures,workflow host;
-    class compose,localstack,wiremock,developer docker;
+    class lifecycle,runtime host;
+    class localstack,wiremock,developer docker;
     style harness fill:#eef7ee,stroke:#4f8054,stroke-width:2px,color:#17212b;

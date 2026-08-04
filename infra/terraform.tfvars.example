@@ -38,6 +38,13 @@ enable_microvm              = true
 microvm_base_image_version  = "1"
 # microvm_memory_mib        = 4096
 
+# Durable Codex app-server state and workspaces survive replacement MicroVMs.
+# This provisions a small dedicated VPC, private/public subnets, and a NAT
+# gateway; disable it for one-shot-only deployments that do not need native
+# conversation/thread restoration.
+enable_s3_files = true
+# s3_files_vpc_cidr = "10.242.0.0/24"
+
 tags = {
   Owner = "platform"
 }

@@ -67,6 +67,56 @@ resource "aws_lambda_permission" "eventbridge_notifier" {
   source_arn    = aws_cloudwatch_event_rule.terminal_runs.arn
 }
 
+data "aws_iam_policy_document" "conversation_completion_failures" {
+  statement {
+    sid       = "AllowConversationCompletionFailures"
+    actions   = ["sqs:SendMessage"]
+    resources = [aws_sqs_queue.conversation_completion_failures.arn]
+
+    principals {
+      type        = "Service"
+      identifiers = ["events.amazonaws.com"]
+    }
+
+    condition {
+      test     = "ArnEquals"
+      variable = "aws:SourceArn"
+      values   = [aws_cloudwatch_event_rule.terminal_runs.arn]
+    }
+  }
+}
+
+resource "aws_sqs_queue_policy" "conversation_completion_failures" {
+  queue_url = aws_sqs_queue.conversation_completion_failures.url
+  policy    = data.aws_iam_policy_document.conversation_completion_failures.json
+}
+
+resource "aws_cloudwatch_event_target" "conversation_completion" {
+  rule           = aws_cloudwatch_event_rule.terminal_runs.name
+  event_bus_name = aws_cloudwatch_event_bus.runs.name
+  target_id      = "conversation-completion"
+  arn            = aws_lambda_function.this["conversation-completion"].arn
+
+  dead_letter_config {
+    arn = aws_sqs_queue.conversation_completion_failures.arn
+  }
+
+  retry_policy {
+    maximum_event_age_in_seconds = 86400
+    maximum_retry_attempts       = 185
+  }
+
+  depends_on = [aws_sqs_queue_policy.conversation_completion_failures]
+}
+
+resource "aws_lambda_permission" "eventbridge_conversation_completion" {
+  statement_id  = "AllowEventBridgeConversationCompletion"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.this["conversation-completion"].function_name
+  principal     = "events.amazonaws.com"
+  source_arn    = aws_cloudwatch_event_rule.terminal_runs.arn
+}
+
 resource "aws_cloudwatch_event_rule" "reconciler" {
   name                = "${local.name}-reconciler"
   description         = "Re-enqueue stale queued runs to close the DynamoDB-to-SQS crash window"
