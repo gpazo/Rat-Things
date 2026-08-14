@@ -3,40 +3,39 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Rat Things — VM-level isolation at serverless scale</title>
-    <meta name="description" content="Run isolated, durable Codex agents with a prompt-first CLI, signed webhooks, and no always-on worker fleet.">
+    <title>Rat Things — Durable Codex agents in AWS MicroVMs</title>
+    <meta name="description" content="Run Codex locally or in isolated AWS Lambda MicroVMs, continue durable threads, trigger work from webhooks, and share generated files.">
     <meta name="theme-color" content="#071116">
     <meta property="og:type" content="website">
-    <meta property="og:title" content="Rat Things — VM-level isolation at serverless scale">
-    <meta property="og:description" content="One simple Rat Things command for people, full execution controls for agents, and isolated AWS MicroVMs behind both.">
+    <meta property="og:title" content="Rat Things — Run the agent. Keep the work.">
+    <meta property="og:description" content="One simple CLI for people, explicit controls for agents, durable threads and files, and isolated AWS MicroVM execution.">
     <meta property="og:url" content="https://gpazo.github.io/Rat-Things/">
     <meta property="og:image" content="https://gpazo.github.io/Rat-Things/assets/rat-things-og-v2.jpg">
     <meta property="og:image:width" content="1200">
     <meta property="og:image:height" content="630">
     <meta property="og:image:alt" content="Rat Things cybernetic guard dog with the words VM-level isolation at serverless scale.">
     <meta name="twitter:card" content="summary_large_image">
-    <meta name="twitter:title" content="Rat Things — VM-level isolation at serverless scale">
-    <meta name="twitter:description" content="One simple Rat Things command for people, full execution controls for agents, and isolated AWS MicroVMs behind both.">
+    <meta name="twitter:title" content="Rat Things — Run the agent. Keep the work.">
+    <meta name="twitter:description" content="Durable Codex threads, isolated AWS MicroVM execution, signed webhooks, and private file sharing behind one CLI.">
     <meta name="twitter:image" content="https://gpazo.github.io/Rat-Things/assets/rat-things-og-v2.jpg">
     <link rel="canonical" href="https://gpazo.github.io/Rat-Things/">
-    <link rel="stylesheet" href="styles.css?v=7">
+    <link rel="stylesheet" href="styles.css?v=8">
   </head>
   <body>
     <a class="skip-link" href="#main">Skip to content</a>
+
     <header class="site-header">
       <a class="brand" href="#top" aria-label="Rat Things home">
         <span class="brand-mark" aria-hidden="true"></span>
         <span>Rat Things</span>
       </a>
       <nav aria-label="Primary navigation">
-        <a href="#flow">How it works</a>
-        <a href="#cli-start">CLI</a>
-        <a href="#files">Files</a>
-        <a href="#webhook-start">Webhook</a>
-        <a href="#authentication">Your plan</a>
-        <a href="#economics">Cost</a>
-        <a href="#continuity">Continuity</a>
-        <a href="#validation">Evidence</a>
+        <a href="#start">Start</a>
+        <a href="#use">Use it</a>
+        <a href="#demos">Demos</a>
+        <a href="#features">Features</a>
+        <a href="#proof">Proof</a>
+        <a href="https://github.com/gpazo/Rat-Things/tree/main/docs">Docs</a>
         <a class="nav-cta" href="https://github.com/gpazo/Rat-Things">GitHub</a>
       </nav>
     </header>
@@ -46,320 +45,328 @@
         <div class="hero-art" role="img" aria-label="An original cybernetic guard dog emerging from a refrigerated hutch"></div>
         <div class="hero-scrim"></div>
         <div class="hero-copy">
-          <p class="eyebrow">Bring your Codex subscription · AWS Lambda MicroVMs · S3 Files</p>
-          <h1>VM-level isolation.<br>Serverless scale.</h1>
-          <p class="hero-lede">Give Rat Things a prompt. Keep the simple interface for people, expose precise controls to agents, and run every active AWS conversation inside a fenced MicroVM.</p>
+          <p class="eyebrow">Codex · AWS Lambda MicroVMs · Durable threads and files</p>
+          <h1>Run the agent.<br>Keep the work.</h1>
+          <p class="hero-lede">Give Rat Things a prompt from the CLI or a signed webhook. Codex wakes inside an isolated MicroVM, continues the right thread, preserves its workspace, and returns text or shareable files.</p>
           <div class="hero-actions">
-            <a class="button button-primary" href="https://github.com/gpazo/Rat-Things">View on GitHub</a>
-            <a class="button button-secondary" href="#cli-start">Try the CLI</a>
-            <a class="button button-secondary" href="#webhook-start">Connect GitHub</a>
+            <a class="button button-primary" href="#start">Get started</a>
+            <a class="button button-secondary" href="#demos">See the demos</a>
+            <a class="button button-secondary" href="https://github.com/gpazo/Rat-Things">View GitHub</a>
           </div>
         </div>
         <dl class="hero-stats">
-          <div><dt>0</dt><dd>always-on agents</dd></div>
-          <div><dt>1</dt><dd>fenced owner per conversation</dd></div>
+          <div><dt>1 CLI</dt><dd>simple for people, precise for agents</dd></div>
+          <div><dt>24h</dt><dd>private file links by default</dd></div>
+          <div><dt>0</dt><dd>always-on agent workers</dd></div>
           <div><dt>2 VMs</dt><dd>one Codex thread, live proven</dd></div>
-          <div><dt>E2E</dt><dd>LocalStack + live AWS</dd></div>
         </dl>
       </section>
 
-      <section class="section intro-section">
-        <div class="section-label">The subsystem</div>
-        <div class="intro-grid">
-          <h2>The runtime beneath<br>the agent.</h2>
-          <div class="intro-copy">
-            <p>Rat Things turns authenticated API calls and signed GitHub, GitLab, Teams, or Slack events into durable Codex work—not just ephemeral chat completions.</p>
-            <p>AWS holds the mailbox, history, artifacts, native Codex state, and workspace outside compute. MicroVMs wake for a turn, use tools, checkpoint, and suspend or disappear. Results return to the thread that asked.</p>
-          </div>
-        </div>
-      </section>
-
-      <section class="section flow-section" id="flow" aria-labelledby="flow-title">
-        <div class="section-label">Data flow</div>
-        <h2 id="flow-title">From mention to answer.<br>No permanent worker.</h2>
-        <ol class="flow">
-          <li><span>01</span><strong>Receive</strong><p>Verify IAM or a channel signature and normalize the source identity.</p></li>
-          <li><span>02</span><strong>Remember</strong><p>Commit the message and artifacts before spending compute.</p></li>
-          <li><span>03</span><strong>Fence</strong><p>Give exactly one MicroVM ownership of the conversation.</p></li>
-          <li><span>04</span><strong>Run</strong><p>Resume or launch Codex with its durable workspace and tools.</p></li>
-          <li><span>05</span><strong>Return</strong><p>Checkpoint state, release compute, and reply in the source thread.</p></li>
-        </ol>
-      </section>
-
-      <section class="section cli-section" id="cli-start" aria-labelledby="cli-title">
-        <div class="cli-heading">
+      <section class="section start-section" id="start" aria-labelledby="start-title">
+        <div class="section-heading compact-heading">
           <div>
-            <div class="section-label">The Rat Things CLI</div>
-            <h2 id="cli-title">Prompt first.<br>Controls on demand.</h2>
+            <div class="section-label">Start locally</div>
+            <h2 id="start-title">Clone. Sign in. Ask.</h2>
           </div>
-          <p>People get one memorable command. Reusing a thread name continues its Codex context, workspace, and published files. Agents can opt into structured output, retry-safe identity, asynchronous submission, and execution policy.</p>
+          <div class="heading-copy">
+            <p>The shortest path uses the Codex access included with your ChatGPT plan on a trusted computer. No Platform API key or AWS deployment is required for this first run.</p>
+            <p class="requirement-line">Requires Node.js 20+, npm, Git, and a ChatGPT plan with Codex.</p>
+          </div>
         </div>
-        <div class="cli-grid">
-          <article>
-            <p class="card-kicker">For people</p>
-            <h3>Say what you need.</h3>
-            <pre><code><span>rat-things</span> "Investigate the build"
-<span>rat-things</span> --thread release \
-  "Now fix it"
-<span>rat-things</span> --new \
-  "Start something unrelated"
-<span>rat-things files</span> --thread release</code></pre>
-          </article>
-          <article class="cli-power">
-            <p class="card-kicker">For agents and automation</p>
-            <h3>Take explicit control.</h3>
-            <pre><code><span>rat-things chat</span> \
-  --thread release \
-  --json --no-wait \
-  --idempotency-key "$TURN_ID" \
-  --sandbox workspace-write \
-  "Continue the task"</code></pre>
-          </article>
+
+        <ol class="setup-grid">
+          <li>
+            <span class="step-number">01</span>
+            <h3>Install</h3>
+            <pre><code><span>git clone</span> https://github.com/gpazo/Rat-Things.git
+<span>cd</span> Rat-Things
+<span>npm ci</span></code></pre>
+          </li>
+          <li>
+            <span class="step-number">02</span>
+            <h3>Sign in</h3>
+            <pre><code><span>npm run</span> codex:login
+<span>npm run</span> codex:status</code></pre>
+          </li>
+          <li>
+            <span class="step-number">03</span>
+            <h3>Ask</h3>
+            <pre><code><span>npm run</span> rat-things -- local \
+  "Summarize this repository"</code></pre>
+          </li>
+        </ol>
+
+        <div class="setup-footer">
+          <p>Want the short command? Run <code>npm run build &amp;&amp; npm link</code>, then use <code>rat-things local "…"</code>.</p>
+          <a class="text-link" href="https://github.com/gpazo/Rat-Things/blob/main/docs/codex-subscription.md">Full subscription setup <span aria-hidden="true">→</span></a>
         </div>
-        <p class="cli-note">Agents publish images, video, and documents through <code>.rat-things/artifacts/</code>. Rat Things preserves them outside the MicroVM and returns fresh private view URLs—24 hours by default—with <code>rat-things files</code> or <code>rat-things file NAME</code>. Use <code>rat-things local "…"</code> with your signed-in ChatGPT plan and <code>rat-things help --all</code> for automation controls.</p>
       </section>
 
-      <section class="section start-section artifact-demo" id="files" aria-labelledby="files-title">
-        <div class="start-copy">
-          <div class="section-label">Durable file demo</div>
-          <h2 id="files-title">Make it.<br>Keep it. Share it.</h2>
-          <p>An image-capable agent writes one normal file inside the MicroVM. Rat Things validates and preserves it outside compute, restores it with the thread, and gives the authenticated caller a private 24-hour link.</p>
-          <a class="text-link" href="https://github.com/gpazo/Rat-Things/blob/main/docs/durable-files.md">Detailed instructions for agents <span aria-hidden="true">→</span></a>
+      <section class="route-section" id="use" aria-labelledby="use-title">
+        <div class="route-heading">
+          <div>
+            <div class="section-label">Choose an entry point</div>
+            <h2 id="use-title">Same runtime.<br>Four ways in.</h2>
+          </div>
+          <p>Start with the surface that fits the job. Every remote path converges on the same durable mailbox, isolated execution boundary, and result model.</p>
         </div>
-        <pre><code><span>rat-things</span> --thread pelican-demo \
+
+        <div class="route-grid">
+          <article class="route-card route-primary">
+            <p class="card-kicker">Trusted computer</p>
+            <h3>Local Codex</h3>
+            <p>Use your signed-in ChatGPT plan against the current workspace.</p>
+            <code>rat-things local "Review this repo"</code>
+          </article>
+          <article class="route-card">
+            <p class="card-kicker">Headless AWS</p>
+            <h3>CLI thread</h3>
+            <p>Send IAM-authenticated work to a durable MicroVM conversation.</p>
+            <code>rat-things --thread release "Check CI"</code>
+          </article>
+          <article class="route-card">
+            <p class="card-kicker">Repositories</p>
+            <h3>GitHub or GitLab</h3>
+            <p>Turn signed comments and reviews into isolated work with threaded results.</p>
+            <code>@rat-things review this change</code>
+          </article>
+          <article class="route-card">
+            <p class="card-kicker">Team chat</p>
+            <h3>Teams or Slack</h3>
+            <p>Normalize signed mentions into the same resumable conversation model.</p>
+            <code>@Rat Things investigate the alert</code>
+          </article>
+        </div>
+
+        <p class="route-note">Remote CLI and webhook paths require a deployed AWS stack. GitHub onboarding can create the stack and webhook together; unattended Codex runs use deployment-controlled Bedrock authentication.</p>
+      </section>
+
+      <section class="section demos-section" id="demos" aria-labelledby="demos-title">
+        <div class="section-heading compact-heading">
+          <div>
+            <div class="section-label">Copyable workflows</div>
+            <h2 id="demos-title">Four small demos.<br>The whole product.</h2>
+          </div>
+          <p>People can stay prompt-first. Agents and CI can opt into stable identity, structured output, asynchronous submission, explicit policy, and fresh file URLs.</p>
+        </div>
+
+        <div class="demo-grid">
+          <article class="demo-card">
+            <div class="demo-card-heading">
+              <span>01</span>
+              <div>
+                <p class="card-kicker">Continue a thread</p>
+                <h3>Ask. Then keep going.</h3>
+              </div>
+            </div>
+            <pre><code><span>rat-things</span> --thread release \
+  "Inspect the failing build"
+
+<span>rat-things</span> --thread release \
+  "Fix it and rerun the tests"</code></pre>
+            <p class="demo-note">The name reuses the Codex thread, workspace, and published files—even after replacement compute.</p>
+          </article>
+
+          <article class="demo-card demo-highlight">
+            <div class="demo-card-heading">
+              <span>02</span>
+              <div>
+                <p class="card-kicker">Create and share</p>
+                <h3>Return the actual file.</h3>
+              </div>
+            </div>
+            <pre><code><span>rat-things</span> --thread pelican-demo \
   --sandbox workspace-write \
   "Create an image of a pelican riding a bicycle.
-  Save the final WebP as:
-  .rat-things/artifacts/pelican-bicycle.webp"
+  Save it under .rat-things/artifacts/."
 
 <span>rat-things files</span> --thread pelican-demo
 <span>rat-things file</span> pelican-bicycle.webp \
-  --thread pelican-demo
+  --thread pelican-demo</code></pre>
+            <p class="demo-note">The final command prints a fresh private URL. The default lifetime is 24 hours; the underlying file remains durable with the thread.</p>
+            <a class="text-link" href="https://github.com/gpazo/Rat-Things/blob/main/docs/durable-files.md">Detailed instructions for agents <span aria-hidden="true">→</span></a>
+          </article>
 
-<span># Example output; not a live link</span>
-https://&lt;rat-things-api&gt;/v1/shares/&lt;token&gt;</code></pre>
-      </section>
+          <article class="demo-card">
+            <div class="demo-card-heading">
+              <span>03</span>
+              <div>
+                <p class="card-kicker">Automate safely</p>
+                <h3>Make retries boring.</h3>
+              </div>
+            </div>
+            <pre><code><span>rat-things chat</span> \
+  --thread release \
+  --idempotency-key "$TURN_ID" \
+  --sandbox workspace-write \
+  --json --no-wait \
+  "Continue the task"</code></pre>
+            <p class="demo-note">Progress stays on stderr. JSON receipts stay on stdout. Polling, timeout, model, and reasoning controls are available with <code>help --all</code>.</p>
+          </article>
 
-      <section class="section start-section webhook-start" id="webhook-start" aria-labelledby="webhook-start-title">
-        <div class="start-copy">
-          <div class="section-label">Signed webhook quick start</div>
-          <h2 id="webhook-start-title">One command.<br>One PR comment.</h2>
-          <p>Confirm the target accounts once. Rat Things creates the AWS secrets, deploys the signed route, registers the GitHub webhook, and returns the exact trigger.</p>
-          <a class="text-link" href="https://github.com/gpazo/Rat-Things/blob/main/docs/github-webhook-onboarding.md">See every external change <span aria-hidden="true">→</span></a>
-        </div>
-        <pre><code><span>npm run</span> webhook:github -- \
+          <article class="demo-card">
+            <div class="demo-card-heading">
+              <span>04</span>
+              <div>
+                <p class="card-kicker">Connect GitHub</p>
+                <h3>One setup command.</h3>
+              </div>
+            </div>
+            <pre><code><span>npm run</span> webhook:github -- \
   --repo OWNER/REPOSITORY
 
-<span># Then comment on a PR:</span>
+<span># Then comment on a pull request</span>
 @rat-things review this change</code></pre>
-      </section>
-
-      <section class="isolation-section" aria-labelledby="isolation-title">
-        <div class="isolation-heading">
-          <div>
-            <div class="section-label">Why MicroVMs</div>
-            <h2 id="isolation-title">The isolation of a VM.<br>The operating model of Lambda.</h2>
-          </div>
-          <p>Agent tools execute code the application did not write. Rat Things gives each active conversation a dedicated Firecracker guest instead of relying only on process-level or shared-kernel containment.</p>
-        </div>
-        <div class="isolation-grid">
-          <article><span>01</span><h3>Dedicated guest kernel</h3><p>Each session receives its own hardware-virtualized MicroVM boundary and resources.</p></article>
-          <article><span>02</span><h3>Snapshot launch and resume</h3><p>Pre-initialized environments wake rapidly and retain memory, disk, and processes while suspended.</p></article>
-          <article><span>03</span><h3>Forceful termination</h3><p>A hung shell, scraper, or tool process can be stopped by terminating its exact MicroVM.</p></article>
-          <article><span>04</span><h3>No worker fleet</h3><p>Lambda APIs own provisioning and lifecycle while the serverless control plane owns demand.</p></article>
-        </div>
-        <p class="boundary-note">The VM limits execution blast radius; IAM, network policy, credentials, and destination authorization remain independent security boundaries.</p>
-      </section>
-
-      <section class="economics-section" id="economics" aria-labelledby="economics-title">
-        <div class="economics-heading">
-          <div>
-            <div class="section-label">Measured economics</div>
-            <h2 id="economics-title">Rent the minute.<br>Not the machine.</h2>
-          </div>
-          <div class="economics-copy">
-            <p>A VPS or dedicated desktop keeps charging while the agent waits. Rat Things holds durable state outside compute, then pays for a fenced MicroVM only while a conversation is active.</p>
-            <a class="text-link" href="https://github.com/gpazo/Rat-Things/blob/main/docs/costs.md">Audit the full cost model <span aria-hidden="true">→</span></a>
-          </div>
-        </div>
-        <dl class="cost-ledger">
-          <div><dt>$1.27</dt><dd>gross AWS usage to build and live-validate the project</dd></div>
-          <div><dt>$0.20</dt><dd>net account cost after credits</dd></div>
-          <div><dt>$0.0042</dt><dd>default MicroVM compute per active minute</dd></div>
-          <div><dt>$0</dt><dd>agent compute while no MicroVM is running</dd></div>
-        </dl>
-        <div class="cost-contrast">
-          <article>
-            <p class="card-kicker">Always-on host</p>
-            <h3>Pay for waiting.</h3>
-            <p>The VPS, VM, or desktop stays allocated. You own patching, remote access, credential residency, process isolation, and replacement.</p>
-          </article>
-          <article class="cost-contrast-highlight">
-            <p class="card-kicker">Rat Things</p>
-            <h3>Pay for working.</h3>
-            <p>A dedicated guest wakes for the turn. The workspace and thread survive elsewhere; compute suspends or disappears when the work ends.</p>
+            <p class="demo-note">The onboarding flow confirms the account and repository before it creates secrets, deploys AWS, and registers the signed webhook.</p>
+            <a class="text-link" href="https://github.com/gpazo/Rat-Things/blob/main/docs/github-webhook-onboarding.md">GitHub onboarding guide <span aria-hidden="true">→</span></a>
           </article>
         </div>
-        <p class="cost-disclosure"><strong>Measured, not projected:</strong> Cost Explorer through August 9, 2026, covering eight disposable stack lifecycles, thirteen image-version builds, continuity and recovery tests, and bounded Bedrock canaries. Model tokens are separate from the $0.0042/minute compute rate. Credits and free tiers reduced $1.27 gross to $0.20 net. Optional S3 Files networking adds an approximately $36/month NAT and public-IP floor when continuously enabled.</p>
+      </section>
+
+      <section class="flow-section" id="flow" aria-labelledby="flow-title">
+        <div class="flow-heading">
+          <div>
+            <div class="section-label">What happens after enter</div>
+            <h2 id="flow-title">Disposable compute.<br>Durable work.</h2>
+          </div>
+          <p>A webhook and the CLI differ only at ingress. Rat Things authenticates the caller, commits work before compute, fences one session owner, and preserves state before returning a result.</p>
+        </div>
+        <ol class="flow">
+          <li><span>01</span><strong>Receive</strong><p>Verify IAM or a provider signature and derive the owner.</p></li>
+          <li><span>02</span><strong>Remember</strong><p>Commit the prompt and mailbox entry before scheduling.</p></li>
+          <li><span>03</span><strong>Fence</strong><p>Give one MicroVM ownership of the thread and filesystem.</p></li>
+          <li><span>04</span><strong>Run</strong><p>Launch or resume Codex with its tools and durable workspace.</p></li>
+          <li><span>05</span><strong>Return</strong><p>Publish files, checkpoint state, suspend, and deliver.</p></li>
+        </ol>
+      </section>
+
+      <section class="section feature-section" id="features" aria-labelledby="feature-title">
+        <div class="section-label">What is included</div>
+        <h2 id="feature-title">The runtime around Codex.</h2>
+        <div class="feature-grid">
+          <article><span>01</span><h3>Isolated tool use</h3><p>Shell, Git, filesystem, and policy-controlled network access inside an unprivileged Firecracker guest.</p></article>
+          <article><span>02</span><h3>Durable conversations</h3><p>Named threads retain mailbox history, Codex state, workspace bytes, and execution policy.</p></article>
+          <article><span>03</span><h3>Durable files</h3><p>Images, video, screenshots, PDFs, reports, and nested file paths survive the MicroVM.</p></article>
+          <article><span>04</span><h3>Private sharing</h3><p>Owner-authorized metadata, verified downloads, and renewable bearer links lasting up to 24 hours.</p></article>
+          <article><span>05</span><h3>Signed webhooks</h3><p>GitHub, GitLab, Teams, and optional Slack normalize into one run and delivery model.</p></article>
+          <article><span>06</span><h3>Agent-grade CLI</h3><p>JSON, no-wait receipts, idempotency, polling, timeouts, models, reasoning, and sandbox controls.</p></article>
+          <article><span>07</span><h3>Bring your Codex</h3><p>ChatGPT subscription authentication locally and short-term Bedrock authentication in AWS.</p></article>
+          <article><span>08</span><h3>No worker fleet</h3><p>MicroVMs run only while conversations are active; DynamoDB, S3, and S3 Files hold continuity.</p></article>
+        </div>
       </section>
 
       <section class="continuity-section" id="continuity" aria-labelledby="continuity-title">
         <div class="continuity-heading">
           <div>
-            <div class="section-label">The continuity layer</div>
-            <h2 id="continuity-title">The machine can disappear.<br>The work doesn’t.</h2>
+            <div class="section-label">Resume means resume</div>
+            <h2 id="continuity-title">The machine can disappear.<br>The work does not.</h2>
           </div>
-          <p>Codex app-server treats its state as a local filesystem. Rat Things gives each conversation a fenced S3 Files home, then restores that same home inside whichever MicroVM owns the next turn.</p>
+          <p>A thread is larger than a chat transcript. Rat Things stores the mailbox, Codex app-server state, workspace, and published file catalog outside the MicroVM, under a fenced owner lease.</p>
         </div>
         <div class="handoff" aria-label="A Codex conversation moves from one MicroVM through durable AWS state to a replacement MicroVM">
-          <article class="handoff-node">
+          <article>
             <p class="card-kicker">Turn one</p>
             <h3>MicroVM A</h3>
             <p>Codex uses tools, changes files, and records its native thread state.</p>
-            <span class="node-state">terminated after checkpoint</span>
+            <span class="node-state">checkpointed</span>
           </article>
-          <div class="handoff-arrow" aria-hidden="true"><span>checkpoint</span><b>→</b></div>
+          <div class="handoff-arrow" aria-hidden="true"><span>save</span><b>→</b></div>
           <article class="handoff-core">
-            <p class="card-kicker">Durable AWS state</p>
+            <p class="card-kicker">Durable state</p>
             <h3>S3 Files + DynamoDB</h3>
-            <p>Workspace bytes and Codex SQLite state live beside a fenced lease, mailbox, and replay archive.</p>
+            <p>Exact workspace bytes, Codex SQLite state, mailbox events, and the artifact catalog live outside compute.</p>
           </article>
           <div class="handoff-arrow" aria-hidden="true"><span>restore</span><b>→</b></div>
-          <article class="handoff-node">
-            <p class="card-kicker">Turn two</p>
+          <article>
+            <p class="card-kicker">Later turn</p>
             <h3>MicroVM B</h3>
-            <p>The replacement resumes the exact Codex thread and reads the exact workspace bytes.</p>
-            <span class="node-state node-state-live">live AWS validated</span>
-          </article>
-        </div>
-        <p class="proof-note"><strong>We tested the hard case:</strong> write a file with a real Codex tool call, terminate the first VM, observe the object in S3, then resume the same thread and file from a different VM.</p>
-      </section>
-
-      <section class="section capability-section" aria-labelledby="capability-title">
-        <div class="section-label">What Rat Things owns</div>
-        <h2 id="capability-title">A complete agent runtime boundary.</h2>
-        <div class="capability-grid">
-          <article><span>01</span><h3>Durable conversations</h3><p>Prioritized mailbox, turn history, progress, replay checkpoints, and per-thread serialization.</p></article>
-          <article><span>02</span><h3>Native Codex continuity</h3><p>App-server thread state and workspace restoration, with normalized replay as the fallback.</p></article>
-          <article><span>03</span><h3>Isolated tool use</h3><p>Shell, Git, filesystem, and policy-controlled network access inside an unprivileged MicroVM worker.</p></article>
-          <article><span>04</span><h3>Channel-native delivery</h3><p>Signed ingress, immediate acknowledgement, durable work, and completion in the originating thread.</p></article>
-          <article><span>05</span><h3>Durable deliverables</h3><p>Images, video, screenshots, PDFs, and reports survive compute expiry and resume with their thread.</p></article>
-          <article><span>06</span><h3>Private sharing</h3><p>Owner-authorized file lookup, structured metadata, verified downloads, and renewable 24-hour bearer URLs.</p></article>
-        </div>
-      </section>
-
-      <section class="section architecture-section" id="architecture">
-        <div class="section-heading">
-          <div>
-            <div class="section-label">C4 architecture</div>
-            <h2>The whole system.<br>Still a small boundary.</h2>
-          </div>
-          <p>The views show the webhook-to-reply path, the continuity state beside disposable compute, and the two end-to-end validation environments.</p>
-        </div>
-
-        <div class="diagram-grid">
-          <figure class="diagram diagram-wide">
-            <a href="assets/architecture/c4-system-context.png">
-              <img src="assets/architecture/c4-system-context.png" alt="C4 system context showing callers, Rat Things, model provider, and result destinations" loading="lazy">
-            </a>
-            <figcaption><span>C1</span><strong>System context</strong></figcaption>
-          </figure>
-          <figure class="diagram diagram-wide">
-            <a href="assets/architecture/c4-runtime-containers.png">
-              <img src="assets/architecture/c4-runtime-containers.png" alt="C4 container diagram for the Rat Things agent runtime" loading="lazy">
-            </a>
-            <figcaption><span>C2</span><strong>Agent runtime</strong></figcaption>
-          </figure>
-          <figure class="diagram">
-            <a href="assets/architecture/c4-localstack-test-harness-containers.png">
-              <img src="assets/architecture/c4-localstack-test-harness-containers.png" alt="C4 container diagram for the LocalStack test harness" loading="lazy">
-            </a>
-            <figcaption><span>C2</span><strong>LocalStack harness</strong></figcaption>
-          </figure>
-          <figure class="diagram">
-            <a href="assets/architecture/c4-live-aws-test-harness-containers.png">
-              <img src="assets/architecture/c4-live-aws-test-harness-containers.png" alt="C4 container diagram for the disposable live AWS test harness" loading="lazy">
-            </a>
-            <figcaption><span>C2</span><strong>Live AWS harness</strong></figcaption>
-          </figure>
-        </div>
-      </section>
-
-      <section class="section auth-section" id="authentication">
-        <div class="section-heading">
-          <div>
-            <div class="section-label">Bring your own Codex</div>
-            <h2>Use the plan<br>you already have.</h2>
-          </div>
-          <p>Sign in through OpenAI's official browser flow on a trusted device. Rat Things reuses the cached Codex session and included plan access—no Platform API key to create or paste.</p>
-        </div>
-        <div class="auth-grid">
-          <article class="auth-primary">
-            <p class="card-kicker">Recommended first run</p>
-            <h3>Your ChatGPT plan</h3>
-            <p>Use the Codex access included with your plan on a trusted local device. Normal plan limits still apply.</p>
-            <code>npm run codex:login</code>
-          </article>
-          <article>
-            <p class="card-kicker">Unattended AWS</p>
-            <h3>Short-term Bedrock</h3>
-            <p>Mint a bounded bearer token from the execution role without exposing the AWS credential chain.</p>
-            <code>CODEX_AUTH_MODE=bedrock</code>
-          </article>
-          <article>
-            <p class="card-kicker">Deterministic tests</p>
-            <h3>Token-free mock</h3>
-            <p>Exercise the orchestration and delivery contract without calling any model provider.</p>
-            <code>--driver mock</code>
+            <p>The replacement resumes the same thread and reads the same files.</p>
+            <span class="node-state node-state-live">live AWS proven</span>
           </article>
         </div>
       </section>
 
-      <section class="section validation-section" id="validation">
-        <div class="validation-copy">
+      <section class="section proof-section" id="proof" aria-labelledby="proof-title">
+        <div class="proof-copy">
           <div class="section-label">Evidence, not assumptions</div>
-          <h2>We killed the machine.<br>The agent came back.</h2>
-          <p>The suite crosses signatures, queues, leases, artifacts, MicroVM lifecycle, real Codex app-server calls, tool execution, S3 Files restoration, and threaded delivery.</p>
-          <a class="text-link" href="https://github.com/gpazo/Rat-Things/blob/main/docs/status-and-roadmap.md">Read the validation status <span aria-hidden="true">→</span></a>
+          <h2 id="proof-title">Tested through the hard parts.</h2>
+          <p>LocalStack and disposable live-AWS suites cross authentication, queues, leases, tool execution, MicroVM lifecycle, native Codex continuation, file publication, and threaded delivery.</p>
+          <div class="proof-links">
+            <a class="text-link" href="https://github.com/gpazo/Rat-Things/blob/main/docs/status-and-roadmap.md">Validation status <span aria-hidden="true">→</span></a>
+            <a class="text-link" href="https://github.com/gpazo/Rat-Things/blob/main/docs/security.md">Security model <span aria-hidden="true">→</span></a>
+          </div>
         </div>
         <ul class="check-list">
-          <li><span>✓</span> LocalStack ingress-to-egress workflow</li>
-          <li><span>✓</span> Signed GitHub, GitLab, and Teams requests</li>
-          <li><span>✓</span> Same-MicroVM suspend and resume</li>
-          <li><span>✓</span> Same Codex thread across replacement MicroVMs</li>
-          <li><span>✓</span> Exact workspace bytes restored through S3 Files</li>
-          <li><span>✓</span> Expiry fallback and crash-window repair</li>
-          <li><span>✓</span> Local ChatGPT subscription authentication</li>
-          <li><span>✓</span> Actual two-process Rat Things CLI continuation</li>
-          <li><span>✓</span> Shell, Git, filesystem, and HTTPS tool execution</li>
-          <li><span>✓</span> Exact WebP bytes published and shared from a live MicroVM</li>
+          <li><span>✓</span><div><strong>Same thread, different VM</strong><p>One real Codex app-server thread and exact workspace bytes restored on replacement compute.</p></div></li>
+          <li><span>✓</span><div><strong>Actual CLI continuation</strong><p>Independent headless processes reused one named AWS conversation and suspended session.</p></div></li>
+          <li><span>✓</span><div><strong>Files all the way out</strong><p>Exact WebP bytes traveled from a live MicroVM to private S3 and a verified 24-hour link.</p></div></li>
+          <li><span>✓</span><div><strong>Signed ingress to threaded result</strong><p>GitHub, GitLab, and Teams paths completed through the durable control plane.</p></div></li>
         </ul>
       </section>
 
-      <section class="section start-section" id="subscription-start">
-        <div class="start-copy">
-          <div class="section-label">Subscription quick start</div>
-          <h2>Two commands.<br>Your plan.</h2>
-          <p>After installing dependencies, sign in once and give Rat Things a task. It starts read-only with command network access disabled.</p>
-          <a class="text-link" href="https://github.com/gpazo/Rat-Things/blob/main/docs/codex-subscription.md">Read the onboarding guide <span aria-hidden="true">→</span></a>
+      <section class="economics-section" id="economics" aria-labelledby="economics-title">
+        <div class="economics-heading">
+          <div>
+            <div class="section-label">Measured operating shape</div>
+            <h2 id="economics-title">Pay for working.<br>Not waiting.</h2>
+          </div>
+          <div class="economics-copy">
+            <p>The agent worker does not sit online between turns. Durable AWS services hold state; a fenced MicroVM consumes compute only while work is active.</p>
+            <a class="text-link" href="https://github.com/gpazo/Rat-Things/blob/main/docs/costs.md">Audit the cost model <span aria-hidden="true">→</span></a>
+          </div>
         </div>
-        <pre><code><span>git clone</span> https://github.com/gpazo/Rat-Things.git
-<span>cd</span> Rat-Things
-<span>npm ci</span>
-<span>npm run</span> codex:login
-<span>npm run</span> rat-things -- local \
-  "Summarize this repository"
-
-<span># Optional short command:</span>
-<span>npm run</span> build &amp;&amp; <span>npm link</span></code></pre>
+        <dl class="cost-ledger">
+          <div><dt>$0.0042</dt><dd>default MicroVM compute per active minute</dd></div>
+          <div><dt>$0</dt><dd>agent compute while no MicroVM is running</dd></div>
+          <div><dt>$1.27</dt><dd>gross AWS usage measured during initial live validation</dd></div>
+          <div><dt>$0.20</dt><dd>net measured cost after account credits</dd></div>
+        </dl>
+        <p class="cost-disclosure">Model tokens are separate. Optional S3 Files networking currently adds an approximately $36/month NAT and public-IP floor when continuously enabled. These are development measurements, not a production forecast.</p>
       </section>
 
-      <section class="section caution-section">
+      <section class="section architecture-section" id="architecture" aria-labelledby="architecture-title">
+        <div class="section-heading compact-heading">
+          <div>
+            <div class="section-label">Under the hood</div>
+            <h2 id="architecture-title">A small, explicit boundary.</h2>
+          </div>
+          <div class="heading-copy">
+            <p>Provider ingress, durable coordination, isolated execution, storage, and result delivery remain separate. Lower layers cannot import the composition root or own provider credentials.</p>
+            <a class="text-link" href="https://github.com/gpazo/Rat-Things/blob/main/docs/architecture.md">Architecture guide <span aria-hidden="true">→</span></a>
+          </div>
+        </div>
+        <figure class="diagram">
+          <a href="assets/architecture/c4-system-context.png">
+            <img src="assets/architecture/c4-system-context.png" alt="C4 system context showing callers, Rat Things, model provider, and result destinations" loading="lazy">
+          </a>
+          <figcaption><span>C1</span><strong>Rat Things system context</strong></figcaption>
+        </figure>
+        <div class="architecture-links" aria-label="Additional architecture diagrams">
+          <a href="assets/architecture/c4-runtime-containers.png">Agent runtime</a>
+          <a href="assets/architecture/c4-localstack-test-harness-containers.png">LocalStack harness</a>
+          <a href="assets/architecture/c4-live-aws-test-harness-containers.png">Live AWS harness</a>
+        </div>
+      </section>
+
+      <section class="section next-section" aria-labelledby="next-title">
+        <div>
+          <div class="section-label">Ready to try it?</div>
+          <h2 id="next-title">Start with one local prompt.</h2>
+          <p>Then keep the same CLI as you move to durable AWS threads, signed webhooks, and shareable deliverables.</p>
+        </div>
+        <div class="next-actions">
+          <a class="button button-primary" href="#start">Run the setup</a>
+          <a class="button button-secondary" href="https://github.com/gpazo/Rat-Things/tree/main/docs">Read the docs</a>
+          <a class="button button-secondary" href="https://github.com/gpazo/Rat-Things">View the source</a>
+        </div>
+      </section>
+
+      <section class="caution-section">
         <div class="caution-mark" aria-hidden="true">!</div>
         <div>
           <div class="section-label">Engineering preview</div>
           <h2>Isolation is a boundary, not a permission slip.</h2>
-          <p>Treat prompts, repositories, model output, and webhook fields as untrusted. Production still requires an independent IAM and malicious-repository review, budgets, outbound policy, output redaction, and destination authorization.</p>
+          <p>Treat prompts, repositories, model output, generated files, and webhook fields as untrusted. Production still requires an independent IAM and malicious-repository review, budgets, outbound policy, output redaction, destination authorization, and sustained-load testing.</p>
         </div>
       </section>
     </main>
@@ -372,9 +379,9 @@ https://&lt;rat-things-api&gt;/v1/shares/&lt;token&gt;</code></pre>
       <div class="footer-links">
         <a href="https://github.com/gpazo/Rat-Things">GitHub</a>
         <a href="https://github.com/gpazo/Rat-Things/tree/main/docs">Documentation</a>
-        <a href="https://github.com/gpazo/Rat-Things/blob/main/docs/codex-subscription.md">Use your subscription</a>
+        <a href="https://github.com/gpazo/Rat-Things/blob/main/docs/codex-subscription.md">Local setup</a>
+        <a href="https://github.com/gpazo/Rat-Things/blob/main/docs/durable-files.md">Durable files</a>
         <a href="https://github.com/gpazo/Rat-Things/blob/main/docs/github-webhook-onboarding.md">Webhook setup</a>
-        <a href="https://github.com/gpazo/Rat-Things/blob/main/docs/costs.md">Cost model</a>
         <a href="https://github.com/gpazo/Rat-Things/blob/main/LICENSE">MIT License</a>
       </div>
     </footer>
