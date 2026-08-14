@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import type { ArtifactStore, RunStore } from '../core/ports.js';
 import type { RunService } from '../core/run-service.js';
 import type {
+  ArtifactCatalog,
   ArtifactReference,
   JsonValue,
   RunRecord,
@@ -123,6 +124,7 @@ export class ConversationCoordinator {
           turnId: turn.turnId,
           slice: turn.slice,
           continuation: continuationArtifact,
+          ...(conversation.artifacts ? { artifacts: conversation.artifacts } : {}),
           ...(resumable ? { preferredMicrovmId: conversation.session!.id } : {}),
           // The MicroVM lease expires independently of the durable Codex
           // thread stored in S3 Files. Carry the thread ID into a replacement
@@ -202,6 +204,12 @@ export class ConversationCompletionCoordinator {
           leaseToken: lease.token,
           result: run.result.output,
           context,
+          ...(run.result.artifacts !== undefined ? {
+            artifactCatalog: {
+              version: '1',
+              files: run.result.artifacts,
+            } satisfies ArtifactCatalog,
+          } : {}),
           ...(run.execution ? {
             session: sessionForRun(run, conversation, this.clock.now(), run.result.agentThreadId),
           } : {}),

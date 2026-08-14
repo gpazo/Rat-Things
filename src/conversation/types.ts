@@ -116,6 +116,7 @@ export interface ConversationStore {
     turnId: string;
     result?: ConversationTurnRecord['result'];
     context?: ConversationRecord['context'];
+    artifacts?: ConversationRecord['artifacts'];
     session?: ConversationRecord['session'];
     event: ConversationEventRecord;
     leaseToken: string;

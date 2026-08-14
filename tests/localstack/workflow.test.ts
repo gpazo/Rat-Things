@@ -569,7 +569,7 @@ integration('LocalStack webhook-to-egress workflow', () => {
       RunStateEvent
     >;
     expect(terminalEvent).toMatchObject({
-      source: 'indubitably.agent-runtime',
+      source: 'rat-things.agent-runtime',
       'detail-type': 'Agent Run State',
       detail: { runId, status: 'succeeded', sourceKind: 'teams' },
     });

@@ -4,6 +4,7 @@ module "agent_runner" {
   name_prefix                        = var.name_prefix
   environment                        = var.environment
   artifact_retention_days            = var.artifact_retention_days
+  artifact_url_ttl_seconds           = var.artifact_url_ttl_seconds
   log_retention_days                 = var.log_retention_days
   force_destroy_data                 = var.force_destroy_data
   enable_point_in_time_recovery      = var.enable_point_in_time_recovery

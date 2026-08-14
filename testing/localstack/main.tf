@@ -1,5 +1,5 @@
 locals {
-  name = "indubitably-agent-runtime-test"
+  name = "rat-things-test"
 }
 
 resource "aws_s3_bucket" "artifacts" {
@@ -165,7 +165,7 @@ resource "aws_cloudwatch_event_rule" "terminal_runs" {
   name           = "${local.name}-terminal-runs"
   event_bus_name = aws_cloudwatch_event_bus.runs.name
   event_pattern = jsonencode({
-    source      = ["indubitably.agent-runtime"]
+    source      = ["rat-things.agent-runtime"]
     detail-type = ["Agent Run State"]
     detail = {
       status = ["succeeded", "failed", "cancelled"]

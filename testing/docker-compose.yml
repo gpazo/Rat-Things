@@ -1,4 +1,4 @@
-name: indubitably-agent-runtime-test
+name: rat-things-test
 
 services:
   localstack:

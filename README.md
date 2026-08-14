@@ -19,6 +19,7 @@
 <p align="center">
   <a href="https://gpazo.github.io/Rat-Things/">Website</a> ·
   <a href="docs/codex-subscription.md">Use your Codex subscription</a> ·
+  <a href="docs/durable-files.md">Share durable files</a> ·
   <a href="docs/github-webhook-onboarding.md">Connect a GitHub webhook</a> ·
   <a href="docs/costs.md">Measured costs</a> ·
   <a href="#architecture">Architecture</a> ·
@@ -74,6 +75,8 @@ customer VPC; durable native Codex restoration optionally adds a small VPC/NAT p
   S3 Files mount, so a replacement MicroVM resumes the same thread and bytes.
 - **Real tool use** — shell, Git, filesystem, and explicitly enabled network access execute inside
   the isolated worker rather than being reduced to a chat-only interface.
+- **Durable agent files** — images, video, screenshots, PDFs, and other deliverables survive the
+  MicroVM, resume with their conversation, and receive owner-authorized 24-hour share links.
 - **Webhook to result** — signed GitHub, GitLab, Teams, and optional Slack paths share one run model.
 - **Codex-first execution** — ChatGPT account auth for trusted local work; short-term Bedrock auth in AWS.
 - **Provider-neutral boundaries** — ingress, identity, credentials, execution, delivery, and plugins
@@ -211,6 +214,32 @@ People only need a prompt and, when continuity matters, a memorable thread name.
 automation can use the explicit `chat` command with `--json`, `--no-wait`, `--idempotency-key`,
 model, sandbox, reasoning, polling, and timeout controls. Run `rat-things help --all` (or
 `npm run rat-things -- help --all`) for that complete surface.
+
+### Durable files
+
+An agent publishes a screenshot, image, video, document, or other file by writing it below
+`.rat-things/artifacts/` in its workspace. The trusted runner checksums and uploads the files to the
+private artifact bucket after a successful turn. A conversation catalog restores the same relative
+paths before a later turn, including when the previous MicroVM has expired and been replaced.
+
+For an image-capable agent, the complete human workflow is three commands:
+
+```bash
+rat-things --thread pelican-demo --sandbox workspace-write \
+  "Create an image of a pelican riding a bicycle and save the final WebP as \
+  .rat-things/artifacts/pelican-bicycle.webp"
+
+rat-things files --thread pelican-demo
+rat-things file pelican-bicycle.webp --thread pelican-demo
+```
+
+`rat-things file` prints a fresh, private view URL with a 24-hour default lifetime. Deployments can
+configure that lifetime from one minute through one day. `rat-things files --json` returns the
+bounded catalog for agents and automation. The agent never receives S3 credentials or permission to
+mint URLs; the owner-authenticated control API does that on demand.
+
+See [Durable files and share links](docs/durable-files.md) for the exact in-workspace contract,
+structured automation flow, continuation behavior, limits, security guidance, and live proof.
 
 ### Bring your Codex subscription
 

@@ -13,7 +13,7 @@ variable "aws_profile" {
 
 variable "name_prefix" {
   type    = string
-  default = "indubitably-agent-runtime"
+  default = "rat-things"
 }
 
 variable "environment" {
@@ -24,6 +24,21 @@ variable "environment" {
 variable "artifact_retention_days" {
   type    = number
   default = 30
+}
+
+variable "artifact_url_ttl_seconds" {
+  description = "Lifetime of owner-authorized artifact share URLs, from one minute to one day."
+  type        = number
+  default     = 86400
+
+  validation {
+    condition = (
+      floor(var.artifact_url_ttl_seconds) == var.artifact_url_ttl_seconds &&
+      var.artifact_url_ttl_seconds >= 60 &&
+      var.artifact_url_ttl_seconds <= 86400
+    )
+    error_message = "artifact_url_ttl_seconds must be a whole number from 60 through 86400."
+  }
 }
 
 variable "log_retention_days" {
@@ -129,7 +144,7 @@ variable "github_api_base_url" {
 
 variable "github_comment_trigger" {
   type    = string
-  default = "@indubitably"
+  default = "@rat-things"
 
   validation {
     condition     = trimspace(var.github_comment_trigger) != ""
@@ -180,7 +195,7 @@ variable "gitlab_api_base_url" {
 
 variable "gitlab_comment_trigger" {
   type    = string
-  default = "@indubitably"
+  default = "@rat-things"
 
   validation {
     condition     = trimspace(var.gitlab_comment_trigger) != ""

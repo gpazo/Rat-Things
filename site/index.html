@@ -19,7 +19,7 @@
     <meta name="twitter:description" content="One simple Rat Things command for people, full execution controls for agents, and isolated AWS MicroVMs behind both.">
     <meta name="twitter:image" content="https://gpazo.github.io/Rat-Things/assets/rat-things-og-v2.jpg">
     <link rel="canonical" href="https://gpazo.github.io/Rat-Things/">
-    <link rel="stylesheet" href="styles.css?v=6">
+    <link rel="stylesheet" href="styles.css?v=7">
   </head>
   <body>
     <a class="skip-link" href="#main">Skip to content</a>
@@ -31,6 +31,7 @@
       <nav aria-label="Primary navigation">
         <a href="#flow">How it works</a>
         <a href="#cli-start">CLI</a>
+        <a href="#files">Files</a>
         <a href="#webhook-start">Webhook</a>
         <a href="#authentication">Your plan</a>
         <a href="#economics">Cost</a>
@@ -91,7 +92,7 @@
             <div class="section-label">The Rat Things CLI</div>
             <h2 id="cli-title">Prompt first.<br>Controls on demand.</h2>
           </div>
-          <p>People get one memorable command. Reusing a thread name continues its Codex context and workspace. Agents can opt into structured output, retry-safe identity, asynchronous submission, and execution policy.</p>
+          <p>People get one memorable command. Reusing a thread name continues its Codex context, workspace, and published files. Agents can opt into structured output, retry-safe identity, asynchronous submission, and execution policy.</p>
         </div>
         <div class="cli-grid">
           <article>
@@ -101,7 +102,8 @@
 <span>rat-things</span> --thread release \
   "Now fix it"
 <span>rat-things</span> --new \
-  "Start something unrelated"</code></pre>
+  "Start something unrelated"
+<span>rat-things files</span> --thread release</code></pre>
           </article>
           <article class="cli-power">
             <p class="card-kicker">For agents and automation</p>
@@ -114,7 +116,28 @@
   "Continue the task"</code></pre>
           </article>
         </div>
-        <p class="cli-note">Use <code>rat-things local "…"</code> with your signed-in ChatGPT plan. Use <code>rat-things help --all</code> to reveal model, reasoning, polling, timeout, run-management, and artifact controls.</p>
+        <p class="cli-note">Agents publish images, video, and documents through <code>.rat-things/artifacts/</code>. Rat Things preserves them outside the MicroVM and returns fresh private view URLs—24 hours by default—with <code>rat-things files</code> or <code>rat-things file NAME</code>. Use <code>rat-things local "…"</code> with your signed-in ChatGPT plan and <code>rat-things help --all</code> for automation controls.</p>
+      </section>
+
+      <section class="section start-section artifact-demo" id="files" aria-labelledby="files-title">
+        <div class="start-copy">
+          <div class="section-label">Durable file demo</div>
+          <h2 id="files-title">Make it.<br>Keep it. Share it.</h2>
+          <p>An image-capable agent writes one normal file inside the MicroVM. Rat Things validates and preserves it outside compute, restores it with the thread, and gives the authenticated caller a private 24-hour link.</p>
+          <a class="text-link" href="https://github.com/gpazo/Rat-Things/blob/main/docs/durable-files.md">Detailed instructions for agents <span aria-hidden="true">→</span></a>
+        </div>
+        <pre><code><span>rat-things</span> --thread pelican-demo \
+  --sandbox workspace-write \
+  "Create an image of a pelican riding a bicycle.
+  Save the final WebP as:
+  .rat-things/artifacts/pelican-bicycle.webp"
+
+<span>rat-things files</span> --thread pelican-demo
+<span>rat-things file</span> pelican-bicycle.webp \
+  --thread pelican-demo
+
+<span># Example output; not a live link</span>
+https://&lt;rat-things-api&gt;/v1/shares/&lt;token&gt;</code></pre>
       </section>
 
       <section class="section start-section webhook-start" id="webhook-start" aria-labelledby="webhook-start-title">
@@ -220,6 +243,8 @@
           <article><span>02</span><h3>Native Codex continuity</h3><p>App-server thread state and workspace restoration, with normalized replay as the fallback.</p></article>
           <article><span>03</span><h3>Isolated tool use</h3><p>Shell, Git, filesystem, and policy-controlled network access inside an unprivileged MicroVM worker.</p></article>
           <article><span>04</span><h3>Channel-native delivery</h3><p>Signed ingress, immediate acknowledgement, durable work, and completion in the originating thread.</p></article>
+          <article><span>05</span><h3>Durable deliverables</h3><p>Images, video, screenshots, PDFs, and reports survive compute expiry and resume with their thread.</p></article>
+          <article><span>06</span><h3>Private sharing</h3><p>Owner-authorized file lookup, structured metadata, verified downloads, and renewable 24-hour bearer URLs.</p></article>
         </div>
       </section>
 
@@ -307,6 +332,7 @@
           <li><span>✓</span> Local ChatGPT subscription authentication</li>
           <li><span>✓</span> Actual two-process Rat Things CLI continuation</li>
           <li><span>✓</span> Shell, Git, filesystem, and HTTPS tool execution</li>
+          <li><span>✓</span> Exact WebP bytes published and shared from a live MicroVM</li>
         </ul>
       </section>
 

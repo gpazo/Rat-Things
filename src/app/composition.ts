@@ -74,14 +74,14 @@ export function getPluginRegistry(): RuntimePluginRegistry {
       webhookSecretArn: process.env.GITHUB_WEBHOOK_SECRET_ARN,
       cloneTokenSecretArn: process.env.GITHUB_CLONE_TOKEN_SECRET_ARN ?? process.env.GITHUB_TOKEN_SECRET_ARN,
       notifyTokenSecretArn: process.env.GITHUB_NOTIFY_TOKEN_SECRET_ARN ?? process.env.GITHUB_TOKEN_SECRET_ARN,
-      commentTrigger: process.env.GITHUB_COMMENT_TRIGGER ?? '@indubitably',
+      commentTrigger: process.env.GITHUB_COMMENT_TRIGGER ?? '@rat-things',
       apiBaseUrl: process.env.GITHUB_API_BASE_URL ?? 'https://api.github.com',
     },
     gitlab: {
       webhookSecretArn: process.env.GITLAB_WEBHOOK_SECRET_ARN,
       cloneTokenSecretArn: process.env.GITLAB_CLONE_TOKEN_SECRET_ARN ?? process.env.GITLAB_TOKEN_SECRET_ARN,
       notifyTokenSecretArn: process.env.GITLAB_NOTIFY_TOKEN_SECRET_ARN ?? process.env.GITLAB_TOKEN_SECRET_ARN,
-      commentTrigger: process.env.GITLAB_COMMENT_TRIGGER ?? '@indubitably',
+      commentTrigger: process.env.GITLAB_COMMENT_TRIGGER ?? '@rat-things',
       apiBaseUrl: process.env.GITLAB_API_BASE_URL ?? 'https://gitlab.com/api/v4',
     },
     teams: {

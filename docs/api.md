@@ -4,10 +4,10 @@ The control API is an internal asynchronous API. Submission returns a run record
 caller polls or consumes the configured completion destination. It does not hold an HTTP connection
 open for the agent.
 
-> The current response projection is the stored `RunRecord`, including owner and S3 artifact
+> The current run response projection is the stored `RunRecord`, including owner and S3 artifact
 > coordinates. Keep the API behind AWS IAM/JWT authorization and do not expose it directly to an
-> untrusted browser client. A public-safe projection and authorized artifact-download endpoint are
-> roadmap items.
+> untrusted browser client. File-list responses omit S3 coordinates and file-download endpoints
+> issue owner-checked, short-lived URLs; a fully public-safe run projection remains a roadmap item.
 
 ## Authentication and ownership
 
@@ -35,10 +35,14 @@ Cross-identity lookup is an administrative capability outside v1.
 | `GET /health` | None | Liveness response; does not prove worker/model/provider readiness |
 | `POST /v1/conversations/{conversationId}/messages` | Required | Append one owner-scoped durable conversation turn and return `202` |
 | `GET /v1/conversations/{conversationId}/messages/{messageId}` | Required | Poll the exact message, bound run, conversation, and suspended-session state |
+| `GET /v1/conversations/{conversationId}/artifacts` | Required | List the current durable files for an owner-scoped conversation |
+| `GET /v1/conversations/{conversationId}/artifacts/{artifact}` | Required | Return a fresh short-lived view/download URL for a conversation file |
 | `POST /v1/runs` | Required | Validate, durably store, enqueue, and return `202` |
 | `GET /v1/runs?limit=25&nextToken=...` | Required | Newest-first runs for the current owner; limit is clamped to 1–100 |
 | `GET /v1/runs/{runId}` | Required | Current record for the current owner |
-| `GET /v1/runs/{runId}/artifacts/{name}` | Required | Owner-checked, short-lived download URL for `input`, `output`, `events`, or `patch` |
+| `GET /v1/runs/{runId}/artifacts` | Required | List user-visible files captured by the run |
+| `GET /v1/runs/{runId}/artifacts/{name}` | Required | Owner-checked URL for a generated-file ID or `input`, `output`, `events`, or `patch` |
+| `GET /v1/shares/{token}` | Bearer token | Validate a time-bounded file share and redirect to private S3 |
 | `POST /v1/runs/{runId}/cancel` | Required | Request cancellation and return `202`; terminal runs are unchanged |
 
 `nextToken` is opaque and must be returned unchanged. There is currently no result stream,
@@ -144,6 +148,34 @@ submission, or an explicit
 `--idempotency-key` when a supervising test process needs retry-safe message identity. AWS Codex
 authentication remains deployment-controlled (normally short-term Bedrock auth); the CLI never
 uploads local ChatGPT credentials.
+
+## Durable files
+
+`.rat-things/artifacts/` is the agent-facing outbox and durable working directory. On every
+successful run, the trusted runner validates its regular files, computes their SHA-256 hashes,
+renews their private S3 objects, and records the complete current catalog. For conversations, that
+catalog is committed alongside the completed turn and restored before the next turn. The artifact
+bucket is therefore authoritative even if the prior MicroVM and its mounted workspace are
+unavailable.
+
+The initial limits are 100 files, 64 MiB per file, 256 MiB total, and 512 UTF-8 bytes per relative
+path. Symlinks, special files, control characters, absolute paths, and traversal are rejected. PNG,
+JPEG, GIF, WebP, MP4, WebM, and PDF receive viewable media types; unknown formats are served as
+downloads.
+
+```bash
+rat-things --thread release-smoke --sandbox workspace-write \
+  "Save the rendered report as .rat-things/artifacts/report.pdf"
+
+rat-things files --thread release-smoke
+rat-things file report.pdf --thread release-smoke
+rat-things file report.pdf --thread release-smoke --download ./report.pdf
+```
+
+`files --json` returns metadata without S3 bucket or key coordinates. `file` accepts a catalog ID,
+relative path, or unique basename and prints a fresh URL unless `--download` is supplied. For
+one-shot automation, use `--run RUN_ID` instead of `--thread NAME`. The complete human and agent
+workflow is documented in [Durable files and share links](durable-files.md).
 
 ## Submit a run
 
@@ -323,8 +355,9 @@ All normal responses include `Cache-Control: no-store`. Submission also includes
 `Location: /v1/runs/{runId}`.
 
 Terminal success adds an `execution` reference and a `result` containing S3 references for the full
-Markdown output and JSONL events, an optional workspace patch, a 2,000-character preview, exit code,
-duration, optional agent thread ID, and token usage. Failure adds:
+Markdown output and JSONL events, an optional workspace patch, a complete user-visible file
+catalog, a 2,000-character preview, exit code, duration, optional agent thread ID, and token usage.
+Failure adds:
 
 ```json
 {
@@ -336,14 +369,20 @@ duration, optional agent thread ID, and token usage. Failure adds:
 }
 ```
 
-The artifact route first verifies run ownership, verifies the artifact belongs to the runtime bucket,
-and returns a presigned S3 `GET` URL with a deployment-configured 60–900 second lifetime (300 seconds
-by default). It does not proxy bytes. Treat the URL as a bearer credential until it expires:
+An artifact URL route first verifies run or conversation ownership, verifies the object belongs to
+the runtime bucket, and creates an opaque bearer URL with a deployment-configured 60–86,400 second
+lifetime (86,400 seconds by default). On access, that URL validates its encrypted S3 share record
+and redirects to a fresh one-minute S3 `GET` URL. This avoids coupling the promised lifetime to the
+control Lambda's rotating role credentials without proxying the file bytes. Treat the URL as a
+bearer credential until it expires:
 
 ```json
 {
-  "name": "output",
-  "url": "https://<bucket>.s3.<region>.amazonaws.com/...",
+  "id": "<artifact-id>",
+  "path": "pelican-bicycle.webp",
+  "mediaType": "image/webp",
+  "bytes": 31286,
+  "url": "https://<api-id>.execute-api.<region>.amazonaws.com/v1/shares/<token>",
   "sha256": "<sha256>",
   "expiresAt": "2026-08-02T19:22:20.000Z"
 }

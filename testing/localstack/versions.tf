@@ -35,7 +35,7 @@ provider "aws" {
     tags = {
       Environment = "localstack"
       ManagedBy   = "terraform"
-      Project     = "indubitably-agent-runtime"
+      Project     = "rat-things"
     }
   }
 }

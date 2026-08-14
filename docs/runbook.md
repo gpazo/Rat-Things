@@ -171,7 +171,7 @@ the event/action matrix in [channels](channels.md). Teams returns `400 invalid_a
 authenticated activity lacking its required IDs or non-empty prompt.
 
 If expected comments do not trigger, check the case-insensitive configured command trigger
-(`@indubitably` by default). A trigger mention is a noise/cost gate, not authorization. Do not “fix”
+(`@rat-things` by default). A trigger mention is a noise/cost gate, not authorization. Do not “fix”
 delivery by broadening provider event subscriptions beyond the documented set.
 
 ### Duplicate webhook

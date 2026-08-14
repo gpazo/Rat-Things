@@ -667,6 +667,7 @@ export class DynamoConversationStore implements ConversationStore {
     turnId: string;
     result?: ConversationTurnRecord['result'];
     context?: ConversationRecord['context'];
+    artifacts?: ConversationRecord['artifacts'];
     session?: ConversationRecord['session'];
     event: ConversationEventRecord;
     leaseToken: string;
@@ -721,6 +722,7 @@ export class DynamoConversationStore implements ConversationStore {
     turnId: string;
     result?: ConversationTurnRecord['result'];
     context?: ConversationRecord['context'];
+    artifacts?: ConversationRecord['artifacts'];
     session?: ConversationRecord['session'];
     error?: ConversationTurnRecord['error'];
     event: ConversationEventRecord;
@@ -772,6 +774,7 @@ export class DynamoConversationStore implements ConversationStore {
                 UpdateExpression: [
                   'SET #status = :status, updatedAt = :now',
                   ...(input.context ? [', #context = :context'] : []),
+                  ...(input.artifacts ? [', artifacts = :artifacts'] : []),
                   ...(input.session ? [', #session = :session'] : []),
                   ' REMOVE lease, activeTurnId, latestProgress',
                 ].join(''),
@@ -793,6 +796,7 @@ export class DynamoConversationStore implements ConversationStore {
                   ':turnId': input.turnId,
                   ':pendingCount': conversation.pendingCount,
                   ...(input.context ? { ':context': input.context } : {}),
+                  ...(input.artifacts ? { ':artifacts': input.artifacts } : {}),
                   ...(input.session ? { ':session': input.session } : {}),
                 },
               },

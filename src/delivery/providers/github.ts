@@ -30,7 +30,7 @@ export class GitHubDeliveryAdapter implements DeliveryAdapter {
           accept: 'application/vnd.github+json',
           authorization: `Bearer ${token}`,
           'content-type': 'application/json',
-          'user-agent': 'indubitably-agent-runtime',
+          'user-agent': 'rat-things',
           'x-github-api-version': '2022-11-28',
         },
         body: JSON.stringify({ body: formatMessage(input.body, input.run, 60_000, true) }),

@@ -43,10 +43,14 @@ locals {
 
   control_routes = toset([
     "GET /health",
+    "GET /v1/conversations/{conversationId}/artifacts",
+    "GET /v1/conversations/{conversationId}/artifacts/{artifact}",
     "GET /v1/conversations/{conversationId}/messages/{messageId}",
     "GET /v1/runs",
     "GET /v1/runs/{runId}",
+    "GET /v1/runs/{runId}/artifacts",
     "GET /v1/runs/{runId}/artifacts/{artifact}",
+    "GET /v1/shares/{token}",
     "POST /v1/runs",
     "POST /v1/runs/{runId}/cancel",
     "POST /v1/conversations/{conversationId}/messages",
@@ -76,7 +80,7 @@ resource "aws_apigatewayv2_route" "control" {
 
   api_id             = aws_apigatewayv2_api.this.id
   route_key          = each.value
-  authorization_type = each.value == "GET /health" ? "NONE" : "AWS_IAM"
+  authorization_type = contains(["GET /health", "GET /v1/shares/{token}"], each.value) ? "NONE" : "AWS_IAM"
   target             = "integrations/${aws_apigatewayv2_integration.lambda["control"].id}"
 }
 

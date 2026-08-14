@@ -79,6 +79,8 @@ export interface ConversationRecord {
   latestProgress?: ConversationProgress;
   /** Durable transcript used when a suspended MicroVM is no longer resumable. */
   context?: ArtifactReference;
+  /** Durable manifest for files published into the conversation workspace. */
+  artifacts?: ArtifactReference;
   /** Best-effort warm continuation; correctness never depends on this reference. */
   session?: ConversationSession;
 }

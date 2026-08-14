@@ -15,6 +15,7 @@ disaster-recovery proof.
 | Run contract and state machine | Implemented/tested | Strict validation, conditional transitions, owner-scoped idempotency |
 | Provider plugin boundary | Implemented/tested | Trusted manifests bind ingress/delivery; dependency checks prevent authority inversion |
 | Control API | Implemented/live validated | Submit/list/get/cancel and owner-checked short-lived artifact URLs |
+| Durable agent files | Implemented/live validated | `.rat-things/artifacts/` outbox, immutable S3 bytes, conversation catalog restoration, and CLI list/24-hour URL/download commands passed in a real Codex MicroVM |
 | Durable AWS orchestration | Locally/live validated | DynamoDB, S3, SQS, Streams, EventBridge, notifier delivery, failure queues |
 | Conversation mailbox | End-to-end locally/live validated | Teams ingress, DynamoDB/S3 mailbox, interrupt/defer ordering, leases, SQS coordinator, durable replay, terminal completion, expiry fallback, and crash-window repair |
 | Lambda MicroVM runner | One-shot/resume/replacement live validated | Same-ID suspend/resume plus S3 Files workspace restoration in a replacement VM passed in `us-west-2` |
@@ -40,10 +41,16 @@ disaster-recovery proof.
   separate real-Codex workflow exercised the same API and durable execution path with Bedrock.
 - The live run exposed and fixed a transient continuation race: the executor now retries bounded
   `502`/`503`/`504` responses while a suspended MicroVM proxy becomes ready.
+- A real headless Codex turn published a 31,286-byte WebP through `.rat-things/artifacts/`; a separate
+  CLI process minted a 24-hour URL, followed its redirect to the Rat Things artifact bucket, and
+  downloaded the exact expected SHA-256. The conversation then remained available in a suspended
+  MicroVM for continuation.
+- The replacement live stack used `rat-things-*` resource names and reported `service=rat-things`;
+  the 158-resource disposable legacy stack was destroyed after the branded link passed.
 - S3 Files mounting was hardened for Lambda MicroVM process supervision, and ephemeral teardown now
   retries AWS's short pending-export window. The validation stack destroyed all 154 resources;
   only the expected KMS key pending deletion remained.
-- The full local quality gate passed with 123 tests and 11 intentional skips, plus architecture,
+- The full local quality gate passed with 130 tests and 11 intentional skips, plus architecture,
   package, smoke, site, and Terraform validation.
 
 ## Validation completed on 2026-08-03–04

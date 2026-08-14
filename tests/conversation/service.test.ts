@@ -92,6 +92,7 @@ function harness(ids = ['id-1', 'id-2', 'id-3']) {
   const artifacts: ArtifactStore = {
     putJson: vi.fn(),
     getJson: vi.fn(),
+    getBytes: vi.fn(),
     putBytes: vi.fn(async (key, value) => {
       const encoded = Buffer.from(value).toString('utf8');
       writes.push({ key, value: encoded });
@@ -258,5 +259,49 @@ describe('conversation service', () => {
     await expect(service.pending('conversation-1', 'stale-lease'))
       .rejects.toBeInstanceOf(ConversationLeaseError);
     expect(store.listPending).not.toHaveBeenCalled();
+  });
+
+  it('stores a durable artifact catalog while completing a turn', async () => {
+    const { service, store, writes } = harness();
+    vi.mocked(store.getConversation).mockResolvedValue(conversation());
+    vi.mocked(store.completeTurn).mockImplementation(async (input) => ({
+      ...turn(),
+      state: 'completed',
+      ...(input.result ? { result: input.result } : {}),
+    }));
+    const result = {
+      bucket: 'artifacts',
+      key: 'result.md',
+      sha256: 'a'.repeat(64),
+    };
+
+    await service.completeTurn({
+      conversationId: 'conversation-1',
+      turnId: 'turn-1',
+      leaseToken: lease.token,
+      result,
+      artifactCatalog: {
+        version: '1',
+        files: [{
+          id: createHash('sha256').update('screens/home.png').digest('hex').slice(0, 24),
+          path: 'screens/home.png',
+          mediaType: 'image/png',
+          bytes: 12,
+          createdAt: fixedNow.toISOString(),
+          sourceRunId: 'run-1',
+          file: {
+            bucket: 'artifacts',
+            key: 'home.png',
+            sha256: 'c'.repeat(64),
+          },
+        }],
+      },
+    });
+
+    const catalogWrite = writes.find(({ key }) => key.includes('/artifacts/'));
+    expect(catalogWrite?.value).toContain('screens/home.png');
+    expect(store.completeTurn).toHaveBeenCalledWith(expect.objectContaining({
+      artifacts: expect.objectContaining({ key: catalogWrite?.key }),
+    }));
   });
 });

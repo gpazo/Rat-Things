@@ -40,7 +40,8 @@ locals {
       timeout  = 30
       memory   = 512
       environment = merge(local.executor_environment, {
-        ALLOW_OWNER_HEADER = "false"
+        ALLOW_OWNER_HEADER       = "false"
+        ARTIFACT_URL_TTL_SECONDS = tostring(var.artifact_url_ttl_seconds)
       })
     }
     conversation-coordinator = {
@@ -115,7 +116,7 @@ locals {
       environment = {
         AWS_NODEJS_CONNECTION_REUSE_ENABLED = "1"
         EVENT_BUS_NAME                      = aws_cloudwatch_event_bus.runs.name
-        EVENT_SOURCE                        = "indubitably.agent-runtime"
+        EVENT_SOURCE                        = "rat-things.agent-runtime"
       }
     }
     webhook-github = {

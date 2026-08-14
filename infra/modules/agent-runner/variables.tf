@@ -1,7 +1,7 @@
 variable "name_prefix" {
   description = "Lowercase prefix applied to named resources."
   type        = string
-  default     = "indubitably-agent-runtime"
+  default     = "rat-things"
 
   validation {
     condition     = can(regex("^[a-z][a-z0-9-]{2,30}$", var.name_prefix))
@@ -28,6 +28,21 @@ variable "artifact_retention_days" {
   validation {
     condition     = var.artifact_retention_days >= 1
     error_message = "artifact_retention_days must be at least 1."
+  }
+}
+
+variable "artifact_url_ttl_seconds" {
+  description = "Lifetime of owner-authorized artifact share URLs, from one minute to one day."
+  type        = number
+  default     = 86400
+
+  validation {
+    condition = (
+      floor(var.artifact_url_ttl_seconds) == var.artifact_url_ttl_seconds &&
+      var.artifact_url_ttl_seconds >= 60 &&
+      var.artifact_url_ttl_seconds <= 86400
+    )
+    error_message = "artifact_url_ttl_seconds must be a whole number from 60 through 86400."
   }
 }
 
@@ -191,7 +206,7 @@ variable "github_api_base_url" {
 variable "github_comment_trigger" {
   description = "Mention required before GitHub issue/PR comments create runs."
   type        = string
-  default     = "@indubitably"
+  default     = "@rat-things"
 
   validation {
     condition     = trimspace(var.github_comment_trigger) != ""
@@ -248,7 +263,7 @@ variable "gitlab_api_base_url" {
 variable "gitlab_comment_trigger" {
   description = "Mention required before GitLab note comments create runs."
   type        = string
-  default     = "@indubitably"
+  default     = "@rat-things"
 
   validation {
     condition     = trimspace(var.gitlab_comment_trigger) != ""

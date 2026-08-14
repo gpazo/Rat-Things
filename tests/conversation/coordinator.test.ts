@@ -41,6 +41,7 @@ const conversation: ConversationRecord = {
     driver: 'mock',
     sandbox: 'workspace-write',
   },
+  artifacts: artifact('artifact-catalog.json'),
   lease,
   session: {
     backend: 'microvm',
@@ -117,6 +118,7 @@ describe('conversation coordinator', () => {
           preferredMicrovmId: 'microvm-1',
           agentThreadId: 'thread-1',
           continuation: artifact('continuation.json'),
+          artifacts: artifact('artifact-catalog.json'),
         }),
       }),
     );
@@ -186,6 +188,15 @@ describe('conversation coordinator', () => {
         exitCode: 0,
         durationMs: 100,
         agentThreadId: 'thread-2',
+        artifacts: [{
+          id: createHash('sha256').update('screens/home.png').digest('hex').slice(0, 24),
+          path: 'screens/home.png',
+          mediaType: 'image/png',
+          bytes: 128,
+          createdAt: conversation.createdAt,
+          sourceRunId: 'run-1',
+          file: artifact('home.png'),
+        }],
       },
     };
     const activeConversation = { ...conversation, activeTurnId: turn.turnId };
@@ -236,6 +247,10 @@ describe('conversation coordinator', () => {
           expect.objectContaining({ role: 'user', content: 'Is it healthy?' }),
           expect.objectContaining({ role: 'assistant', content: 'Deployment is healthy.' }),
         ]),
+      }),
+      artifactCatalog: expect.objectContaining({
+        version: '1',
+        files: [expect.objectContaining({ path: 'screens/home.png' })],
       }),
       session: expect.objectContaining({
         id: 'microvm-1',

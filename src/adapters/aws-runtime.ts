@@ -208,12 +208,17 @@ export class S3ArtifactStore implements ArtifactStore {
   }
 
   public async getJson<T>(reference: Pick<ArtifactReference, 'bucket' | 'key'>): Promise<T> {
+    return JSON.parse(Buffer.from(await this.getBytes(reference)).toString('utf8')) as T;
+  }
+
+  public async getBytes(
+    reference: Pick<ArtifactReference, 'bucket' | 'key'>,
+  ): Promise<Uint8Array> {
     const result = await this.client.send(
       new GetObjectCommand({ Bucket: reference.bucket, Key: reference.key }),
     );
     if (!result.Body) throw new Error(`artifact s3://${reference.bucket}/${reference.key} is empty`);
-    const text = await result.Body.transformToString('utf8');
-    return JSON.parse(text) as T;
+    return result.Body.transformToByteArray();
   }
 
   public async putBytes(
@@ -296,7 +301,7 @@ export class EventBridgeRunEvents {
         Entries: [
           {
             EventBusName: this.busName,
-            Source: 'indubitably.agent-runtime',
+            Source: 'rat-things.agent-runtime',
             DetailType: 'Agent Run State',
             Detail: JSON.stringify(event),
           },

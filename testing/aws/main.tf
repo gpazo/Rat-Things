@@ -1,5 +1,5 @@
 locals {
-  name_prefix = "indubitably-agent"
+  name_prefix = "rat-things"
   tags = {
     Ephemeral    = "true"
     DeploymentId = var.deployment_id
@@ -164,7 +164,7 @@ resource "aws_cloudwatch_event_rule" "terminal_events" {
   description    = "Disposable capture target used by the live AWS end-to-end test"
   event_bus_name = module.agent_runner.event_bus_name
   event_pattern = jsonencode({
-    source      = ["indubitably.agent-runtime"]
+    source      = ["rat-things.agent-runtime"]
     detail-type = ["Agent Run State"]
     detail = {
       status = ["succeeded", "failed", "cancelled"]

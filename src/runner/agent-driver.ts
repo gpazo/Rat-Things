@@ -1,6 +1,7 @@
 import type { AgentDriverName, RunRequest } from '../domain/contracts.js';
 import { runCodexAppServer } from './codex-app-server.js';
 import { codexAuthMode, codexModelProvider } from './codex-auth.js';
+import { AGENT_ARTIFACT_DIRECTORY, artifactPrompt } from './artifacts.js';
 
 export interface AgentExecution {
   fullText: string;
@@ -57,11 +58,11 @@ export class CodexDriver implements AgentDriver {
     const execution = await runCodexAppServer({
       binary: process.env.CODEX_BINARY ?? 'codex',
       workspace,
-      environment: agentEnvironment(),
+      environment: agentEnvironment(workspace),
       ...(identity ? { identity } : {}),
       timeoutMs,
       ...(signal ? { signal } : {}),
-      prompt: request.prompt,
+      prompt: artifactPrompt(request.prompt),
       sandbox,
       persistent: persistentSession,
       modelProvider: codexModelProvider(authMode),
@@ -91,7 +92,7 @@ export class MockDriver implements AgentDriver {
   }
 }
 
-function agentEnvironment(): NodeJS.ProcessEnv {
+function agentEnvironment(workspace: string): NodeJS.ProcessEnv {
   const authMode = codexAuthMode();
   const allowed = new Set([
     'PATH',
@@ -126,11 +127,14 @@ function agentEnvironment(): NodeJS.ProcessEnv {
   for (const name of (process.env.AGENT_PASSTHROUGH_ENV ?? '').split(',')) {
     if (name.trim()) allowed.add(name.trim());
   }
-  return Object.fromEntries(
+  return {
+    ...Object.fromEntries(
     [...allowed]
       .map((name) => [name, process.env[name]] as const)
       .filter((entry): entry is readonly [string, string] => entry[1] !== undefined),
-  );
+    ),
+    RAT_THINGS_ARTIFACT_DIR: `${workspace}/${AGENT_ARTIFACT_DIRECTORY}`,
+  };
 }
 
 function agentIdentity(): { uid: number; gid: number } | undefined {

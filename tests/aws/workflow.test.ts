@@ -700,7 +700,7 @@ async function submitTeamsWebhook(
   const body = JSON.stringify({
     type: 'message',
     id: activityId,
-    text: `<at>Indubitably</at> Return AWS live marker ${marker}`,
+    text: `<at>Rat Things</at> Return AWS live marker ${marker}`,
     from: { id: 'aws-e2e-user', name: 'AWS E2E' },
     conversation: { id: providerConversationId },
     channelData: {

@@ -59,12 +59,12 @@ Accepted events are:
 Other validly signed events return `202` with `{"accepted":false,"ignored":true}`. The review
 request checks out the head SHA read-only and fetches the base ref for diff context. Comment requests
 are case-insensitively gated by `github_comment_trigger` (injected as
-`GITHUB_COMMENT_TRIGGER`; `@indubitably` by default). This is a cost
+`GITHUB_COMMENT_TRIGGER`; `@rat-things` by default). This is a cost
 and noise filter, not authorization: anyone allowed to comment can include the trigger. Retain event,
 installation, repository, rate, and budget controls.
 
 The normalizer requires the configured trigger to be non-empty. Provider result replies include the
-hidden `indubitably-agent-runtime:result` marker, and ingress ignores marked replies and comments
+hidden `rat-things:result` marker, and ingress ignores marked replies and comments
 whose GitHub user type is `Bot`. These controls prevent the runtime's ordinary result replies from
 starting another run even when generated text repeats the trigger. They do not authorize human
 authors; keep repository, actor, budget, and rate policy separate.
@@ -143,11 +143,11 @@ Accepted payloads are:
 
 Other authenticated payloads return an accepted/ignored response. GitLab note requests are
 case-insensitively gated by `gitlab_comment_trigger` (injected as `GITLAB_COMMENT_TRIGGER`;
-`@indubitably` by default). The trigger controls
+`@rat-things` by default). The trigger controls
 noise/cost but is not proof that the author is authorized for a particular repository or destination.
 
 The normalizer requires the configured trigger to be non-empty. Provider result notes include the
-hidden `indubitably-agent-runtime:result` marker, and ingress ignores marked replies and payload users
+hidden `rat-things:result` marker, and ingress ignores marked replies and payload users
 whose GitLab `bot` field is true. These controls prevent ordinary self-trigger loops even when
 generated text repeats the trigger. They do not authorize human authors; keep project, actor, budget,
 and rate policy separate.

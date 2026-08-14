@@ -44,7 +44,8 @@ minimum ages out. That expected tail is not included in the $1.27 figure.
 
 ### Attribution method and limitations
 
-The Terraform resources carried `Project=indubitably-agent`, `DeploymentId`, and `Ephemeral=true`
+The measured legacy resources carried `Project=indubitably-agent`; current stacks use
+`Project=rat-things`. Both include `DeploymentId` and `Ephemeral=true`
 tags, but `Project` was not activated as an AWS billing cost-allocation tag before the tests. The
 total was therefore reconstructed from:
 

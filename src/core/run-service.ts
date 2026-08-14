@@ -220,12 +220,15 @@ function validateConversationBinding(binding: ConversationRunBinding): Conversat
   if (binding.agentThreadId && !/^[A-Za-z0-9._:-]{1,256}$/.test(binding.agentThreadId)) {
     throw new ValidationError('agent thread ID is invalid');
   }
-  if (binding.continuation && (
-    !binding.continuation.bucket ||
-    !binding.continuation.key ||
-    !/^[a-f0-9]{64}$/.test(binding.continuation.sha256)
-  )) {
-    throw new ValidationError('conversation continuation artifact is invalid');
+  for (const [label, artifact] of [
+    ['continuation', binding.continuation],
+    ['artifact catalog', binding.artifacts],
+  ] as const) {
+    if (artifact && (
+      !artifact.bucket ||
+      !artifact.key ||
+      !/^[a-f0-9]{64}$/.test(artifact.sha256)
+    )) throw new ValidationError(`conversation ${label} artifact is invalid`);
   }
   return { ...binding };
 }

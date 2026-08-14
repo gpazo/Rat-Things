@@ -59,7 +59,7 @@ describe('CodexDriver', () => {
 
     expect(runCodexAppServerMock).toHaveBeenCalledWith(expect.objectContaining({
       workspace: '/tmp/persistent-workspace',
-      prompt: 'continue the task',
+      prompt: expect.stringContaining('User request:\n\ncontinue the task'),
       sandbox: 'read-only',
       persistent: true,
       resumeThreadId: 'thread-persisted-1',
@@ -100,7 +100,7 @@ describe('CodexDriver', () => {
       binary: '/opt/runtime/bin/codex',
       workspace: '/tmp/workspace',
       timeoutMs: 45_000,
-      prompt: 'Review; $(touch /tmp/not-a-shell-command)',
+      prompt: expect.stringContaining('User request:\n\nReview; $(touch /tmp/not-a-shell-command)'),
       model: 'openai.gpt-5.6-terra',
       reasoningEffort: 'high',
       outputSchema: { type: 'object', required: ['summary'] },

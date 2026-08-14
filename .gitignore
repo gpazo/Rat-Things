@@ -59,6 +59,7 @@ testing/localstack/outputs.json
 
 # Local runner output
 .runtime/
+.rat-things/
 
 # Temporary files
 *.pid

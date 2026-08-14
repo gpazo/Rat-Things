@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { randomUUID } from 'node:crypto';
-import { mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { Sha256 } from '@aws-crypto/sha256-js';
@@ -17,6 +17,7 @@ import { parseRunRequest } from './domain/validation.js';
 import { driverFor } from './runner/agent-driver.js';
 import { loadCodexBedrockToken } from './runner/bedrock-auth.js';
 import { codexAuthMode, localCodexAuthMode } from './runner/codex-auth.js';
+import { localArtifactPaths, prepareArtifactDirectory } from './runner/artifacts.js';
 import { collectWorkspacePatch, prepareWorkspace } from './runner/workspace.js';
 
 interface Arguments {
@@ -44,6 +45,21 @@ interface ConversationMessageStatus {
   run?: RunRecord;
 }
 
+interface ArtifactMetadata {
+  id: string;
+  path: string;
+  mediaType: string;
+  bytes: number;
+  createdAt: string;
+  sourceRunId: string;
+  sha256: string;
+}
+
+interface ArtifactDescriptor extends ArtifactMetadata {
+  url: string;
+  expiresAt: string;
+}
+
 const commands = new Set([
   'local',
   'chat',
@@ -52,6 +68,8 @@ const commands = new Set([
   'cancel',
   'output',
   'artifact',
+  'files',
+  'file',
   'list',
   'doctor',
   'help',
@@ -104,6 +122,12 @@ async function main(): Promise<void> {
         requiredPositional(args, 0, 'run ID'),
         requiredPositional(args, 1, 'artifact name'),
       );
+      return;
+    case 'files':
+      await listFiles(args);
+      return;
+    case 'file':
+      await file(args);
       return;
     case 'list': {
       const query = new URLSearchParams();
@@ -183,7 +207,10 @@ async function chat(args: Arguments): Promise<void> {
         current.conversation.session?.state === 'suspended';
       if (completed) {
         if (args.flags.has('json')) print(current);
-        else await writeArtifact(current.run.runId, 'output');
+        else {
+          await writeArtifact(current.run.runId, 'output');
+          await writeNewArtifactLinks(current.run);
+        }
         return;
       }
     }
@@ -218,6 +245,7 @@ async function local(args: Arguments): Promise<void> {
   }
 
   try {
+    if (driverName === 'codex') await prepareArtifactDirectory(workspace);
     if (
       driverName === 'codex' &&
       codexAuthMode() === 'bedrock' &&
@@ -227,6 +255,15 @@ async function local(args: Arguments): Promise<void> {
     }
     const result = await driverFor(driverName).execute(request, workspace, timeout);
     process.stdout.write(`${result.fullText}\n`);
+    if (driverName === 'codex') {
+      const paths = await localArtifactPaths(workspace);
+      if (paths.length > 0) {
+        process.stderr.write('\nFiles:\n');
+        for (const path of paths) {
+          process.stderr.write(`  ${path}\t${resolve(workspace, '.rat-things/artifacts', path)}\n`);
+        }
+      }
+    }
     if (args.flags.has('events')) {
       process.stderr.write(`\n--- events.jsonl ---\n${result.events.toString('utf8')}`);
     }
@@ -276,6 +313,107 @@ async function writeArtifact(runId: string, name: string): Promise<void> {
   if (!response.ok) throw new Error(`artifact download returned HTTP ${response.status}`);
   process.stdout.write(await response.text());
   if (name === 'output') process.stdout.write('\n');
+}
+
+async function listFiles(args: Arguments): Promise<void> {
+  const scope = artifactScope(args);
+  const files = await artifactList(scope);
+  if (args.flags.has('json')) {
+    print({ scope, files });
+    return;
+  }
+  if (files.length === 0) {
+    process.stdout.write('No files.\n');
+    return;
+  }
+  const descriptors = await Promise.all(
+    files.map((metadata) => artifactDescriptorFor(scope, metadata.id)),
+  );
+  for (const descriptor of descriptors) {
+    process.stdout.write(`${descriptor.path}\t${descriptor.url}\n`);
+  }
+}
+
+async function file(args: Arguments): Promise<void> {
+  const name = requiredPositional(args, 0, 'file name or ID');
+  const scope = artifactScope(args);
+  const files = await artifactList(scope);
+  const matches = files.filter((candidate) => (
+    candidate.id === name ||
+    candidate.path === name ||
+    candidate.path.split('/').at(-1) === name
+  ));
+  if (matches.length === 0) throw new Error(`file ${JSON.stringify(name)} was not found`);
+  if (matches.length > 1) {
+    throw new Error(`file name ${JSON.stringify(name)} is ambiguous; use its path or ID`);
+  }
+  const descriptor = await artifactDescriptorFor(scope, matches[0]!.id);
+  const destination = args.values.get('download');
+  if (!destination) {
+    if (args.flags.has('json')) print(descriptor);
+    else process.stdout.write(`${descriptor.url}\n`);
+    return;
+  }
+  const response = await fetch(descriptor.url, { signal: AbortSignal.timeout(120_000) });
+  if (!response.ok) throw new Error(`file download returned HTTP ${response.status}`);
+  const target = resolve(destination);
+  await writeFile(target, Buffer.from(await response.arrayBuffer()));
+  process.stdout.write(`${target}\n`);
+}
+
+async function writeNewArtifactLinks(run: RunRecord): Promise<void> {
+  const files = (run.result?.artifacts ?? []).filter(
+    (artifact) => artifact.sourceRunId === run.runId,
+  );
+  if (files.length === 0) return;
+  const scope = { kind: 'run' as const, id: run.runId };
+  const descriptors = await Promise.all(
+    files.map((metadata) => artifactDescriptorFor(scope, metadata.id)),
+  );
+  process.stderr.write('\nFiles:\n');
+  for (const descriptor of descriptors) {
+    process.stderr.write(`  ${descriptor.path}\t${descriptor.url}\n`);
+  }
+}
+
+type ArtifactScope = { kind: 'run' | 'conversation'; id: string };
+
+function artifactScope(args: Arguments): ArtifactScope {
+  const runId = args.values.get('run');
+  const thread = args.values.get('thread') ?? args.values.get('conversation');
+  if (runId && thread) throw new Error('--run cannot be combined with --thread or --conversation');
+  if (runId) return { kind: 'run', id: runId };
+  const conversationId = thread ?? 'main';
+  if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(conversationId)) {
+    throw new Error('thread must be 1-128 safe ASCII characters');
+  }
+  return { kind: 'conversation', id: conversationId };
+}
+
+async function artifactList(scope: ArtifactScope): Promise<ArtifactMetadata[]> {
+  const result = await api(`${artifactBasePath(scope)}/artifacts`, 'GET') as { files?: unknown };
+  if (!Array.isArray(result.files)) throw new Error('runtime returned an invalid file list');
+  return result.files as ArtifactMetadata[];
+}
+
+async function artifactDescriptorFor(
+  scope: ArtifactScope,
+  id: string,
+): Promise<ArtifactDescriptor> {
+  const result = await api(
+    `${artifactBasePath(scope)}/artifacts/${encodeURIComponent(id)}`,
+    'GET',
+  );
+  if (!result || typeof result !== 'object' || typeof (result as { url?: unknown }).url !== 'string') {
+    throw new Error('runtime returned no file URL');
+  }
+  return result as ArtifactDescriptor;
+}
+
+function artifactBasePath(scope: ArtifactScope): string {
+  return scope.kind === 'run'
+    ? `/v1/runs/${encodeURIComponent(scope.id)}`
+    : `/v1/conversations/${encodeURIComponent(scope.id)}`;
 }
 
 async function requestFromArguments(args: Arguments, localMode: boolean): Promise<RunRequest> {
@@ -494,6 +632,8 @@ function help(showAll: boolean): void {
   process.stdout.write(`  rat-things --thread NAME \"Continue a named thread\"\n`);
   process.stdout.write(`  rat-things --new \"Start a fresh thread\"\n`);
   process.stdout.write(`  rat-things local \"Run on this computer\"\n`);
+  process.stdout.write(`  rat-things files [--thread NAME]\n`);
+  process.stdout.write(`  rat-things file NAME [--thread NAME]\n`);
   process.stdout.write(`\nRepeat a thread name to continue the same Codex thread.\n`);
   process.stdout.write(`Run rat-things help --all for agent and automation options.\n`);
   if (!showAll) return;
@@ -511,6 +651,8 @@ function help(showAll: boolean): void {
   process.stdout.write(`  rat-things cancel RUN_ID\n`);
   process.stdout.write(`  rat-things output RUN_ID\n`);
   process.stdout.write(`  rat-things artifact RUN_ID input|output|events|patch\n`);
+  process.stdout.write(`  rat-things files [--thread NAME | --run RUN_ID] [--json]\n`);
+  process.stdout.write(`  rat-things file NAME [--thread NAME | --run RUN_ID] [--download PATH] [--json]\n`);
   process.stdout.write(`  rat-things list [--limit 25]\n`);
   process.stdout.write(`  rat-things doctor\n`);
 }

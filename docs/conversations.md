@@ -31,7 +31,9 @@ one MicroVM at a time owns the conversation and opens its Codex SQLite state.
 - Checkpointing moves a turn to `awaiting_resume` and releases its lease. Another worker can acquire
   a new lease and resume the same turn at the next slice.
 - DynamoDB stores only bounded records and previews. Full message bodies, event payloads,
-  checkpoints, and results live in S3 behind checksummed references.
+  checkpoints, results, and published files live in S3 behind checksummed references.
+- `.rat-things/artifacts/` is reconciled from the committed conversation catalog before each run;
+  successful changes replace that catalog, while failed runs cannot mutate its durable view.
 - Provider source, destination, actor, owner, and credential-subject contexts remain distinct.
 - A run is attached to its turn before its dispatcher wake-up. A repeated conversation wake repairs
   the attach/enqueue crash window without creating a second semantic run.
@@ -49,6 +51,7 @@ one MicroVM at a time owns the conversation and opens its Codex SQLite state.
 | Coordinator wake-up | Encrypted SQS queue plus Lambda event-source mapping |
 | Execution continuation | Expiring MicroVM ID/state plus durable Codex thread ID on conversation metadata |
 | Native Codex/workspace state | S3 Files access point rooted at a SHA-256 conversation directory |
+| Published file continuity | Immutable S3 objects plus a catalog reference on conversation metadata |
 | History and progress index | Append-only event items with bounded previews |
 | Message/event/checkpoint/result bodies | Content-addressed objects in the encrypted artifact bucket |
 | Retention | DynamoDB TTL plus the artifact bucket lifecycle policy |
@@ -85,6 +88,8 @@ S3 objects use owner- and conversation-hashed prefixes:
 owners/<owner-hash>/conversations/<conversation-hash>/messages/<message-hash>-<content-hash>.json
 owners/<owner-hash>/conversations/<conversation-hash>/events/<event-hash>-<content-hash>.json
 owners/<owner-hash>/conversations/<conversation-hash>/turns/<turn-hash>/slice-0000-<content-hash>.json
+owners/<owner-hash>/conversations/<conversation-hash>/artifacts/<time>-<turn-hash>-<content-hash>.json
+owners/<owner-hash>/runs/<run-id>/artifacts/<path-hash>/<filename>
 runtime/conversations/<conversation-hash>/codex-home/...
 runtime/conversations/<conversation-hash>/workspace/...
 ```

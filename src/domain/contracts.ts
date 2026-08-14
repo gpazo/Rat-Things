@@ -120,6 +120,24 @@ export interface ArtifactReference {
   sha256: string;
 }
 
+/** A user-visible file published by an agent run. */
+export interface PublishedArtifact {
+  /** Stable for a relative artifact path within a conversation. */
+  id: string;
+  /** Relative path below .rat-things/artifacts in the agent workspace. */
+  path: string;
+  mediaType: string;
+  bytes: number;
+  createdAt: string;
+  sourceRunId: string;
+  file: ArtifactReference;
+}
+
+export interface ArtifactCatalog {
+  version: '1';
+  files: PublishedArtifact[];
+}
+
 export interface ExecutionReference {
   backend: ExecutionBackend;
   id: string;
@@ -139,6 +157,8 @@ export interface ConversationRunBinding {
   agentThreadId?: string;
   /** S3 batch containing only the messages consumed by this slice. */
   continuation?: ArtifactReference;
+  /** Trusted catalog used to restore durable files into a replacement MicroVM. */
+  artifacts?: ArtifactReference;
 }
 
 export interface RunError {
@@ -161,6 +181,8 @@ export interface RunResult {
   };
   events?: ArtifactReference;
   workspacePatch?: ArtifactReference;
+  /** Complete current file catalog; an empty array represents deliberate deletion. */
+  artifacts?: PublishedArtifact[];
 }
 
 export interface RunRecord {

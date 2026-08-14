@@ -258,10 +258,17 @@ and keep message consumption, pending counts, and history consistent. See
 ### S3
 
 S3 is the durable body/artifact plane. Prompts, full results, event streams, patches, conversation
-message bodies, history payloads, and turn checkpoints are stored under owner-hashed prefixes with
-checksums. Bucket encryption, public-access blocking, and lifecycle policy are deployment
-responsibilities. An S3 reference is sensitive metadata and the control API should remain
-authenticated.
+message bodies, history payloads, turn checkpoints, and user-visible files are stored under
+owner-hashed prefixes with checksums. Each completed conversation turn commits a bounded file
+catalog. The runner restores those files into `.rat-things/artifacts/` before execution, so a new
+MicroVM does not depend on residual local bytes. Bucket encryption, public-access blocking, and
+lifecycle policy are deployment responsibilities. An S3 reference is sensitive metadata and the
+control API should remain authenticated.
+
+An authenticated owner mints an unguessable, time-bounded file-share URL through the control API.
+The public share route reads only its hashed encrypted record and redirects to a freshly signed
+one-minute S3 URL. This makes the default 24-hour share lifetime independent of rotating Lambda
+role credentials while keeping the bucket private and the file bytes off the control Lambda.
 
 When `enable_s3_files=true`, a separate versioned bucket backs an S3 Files filesystem. Its access
 point exposes only `/conversations` to the MicroVM execution role. Each hashed conversation owns a
@@ -323,7 +330,7 @@ delivery configuration keys, never secret values.
 - Cancellation is cooperative at the worker and forceful at the backend; it is not guaranteed to
   retract an external side effect already made by an agent or notifier.
 - The GitHub/GitLab webhook prompts include untrusted issue content. Comment runs require the
-  configured trigger (`@indubitably` by default), but trigger text is not authorization. The outer
+  configured trigger (`@rat-things` by default), but trigger text is not authorization. The outer
   task/VM, child identity/environment, network, and sandbox boundaries must assume prompt injection
   succeeds.
 - GitHub/GitLab comment runs require a non-empty trigger. Provider result replies carry a hidden

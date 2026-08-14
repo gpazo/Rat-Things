@@ -64,7 +64,7 @@ generate_env() {
     echo "export TEAMS_DELIVERY_MODE=workflow"
     echo "export ALLOWED_REPOSITORY_HOSTS=github.com,gitlab.com"
     echo "export ALLOWED_SANDBOX_MODES=read-only,workspace-write"
-    echo "export WORKSPACE_ROOT=/tmp/indubitably-agent-runtime-localstack"
+    echo "export WORKSPACE_ROOT=/tmp/rat-things-localstack"
     echo "export LOCALSTACK_E2E=true"
   } > "$env_file"
   chmod 600 "$env_file"

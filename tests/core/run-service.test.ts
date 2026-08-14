@@ -121,6 +121,12 @@ class MemoryArtifactStore implements ArtifactStore {
     return structuredClone(found.value) as T;
   }
 
+  public async getBytes(input: Pick<ArtifactReference, 'bucket' | 'key'>): Promise<Uint8Array> {
+    const found = this.byteWrites.find(({ key }) => key === input.key);
+    if (!found) throw new Error(`missing artifact ${input.bucket}/${input.key}`);
+    return Uint8Array.from(found.value);
+  }
+
   public async putBytes(
     key: string,
     value: Uint8Array,

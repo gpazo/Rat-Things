@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -21,9 +21,12 @@ describe('ephemeral workspace', () => {
     try {
       await prepareWorkspace(undefined, workspace, credentials);
       await writeFile(join(workspace, 'result.txt'), 'created by agent\n');
+      await mkdir(join(workspace, '.rat-things/artifacts'), { recursive: true });
+      await writeFile(join(workspace, '.rat-things/artifacts/screenshot.png'), 'not-a-real-image');
       const patch = await collectWorkspacePatch(workspace);
       expect(patch?.toString('utf8')).toContain('diff --git a/result.txt b/result.txt');
       expect(patch?.toString('utf8')).toContain('+created by agent');
+      expect(patch?.toString('utf8')).not.toContain('screenshot.png');
       expect(await readFile(join(workspace, 'result.txt'), 'utf8')).toBe('created by agent\n');
     } finally {
       await rm(root, { recursive: true, force: true });

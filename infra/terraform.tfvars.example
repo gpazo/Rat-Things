@@ -12,11 +12,11 @@ codex_bedrock_model_ids          = ["openai.gpt-5.6-terra"]
 github_webhook_secret_arn         = "arn:aws:secretsmanager:us-west-2:111122223333:secret:agent/github-webhook-AbCdEf"
 github_clone_token_secret_arn     = "arn:aws:secretsmanager:us-west-2:111122223333:secret:agent/github-clone-AbCdEf"
 github_notify_token_secret_arn    = "arn:aws:secretsmanager:us-west-2:111122223333:secret:agent/github-notify-AbCdEf"
-github_comment_trigger            = "@indubitably"
+github_comment_trigger            = "@rat-things"
 gitlab_webhook_secret_arn         = "arn:aws:secretsmanager:us-west-2:111122223333:secret:agent/gitlab-webhook-AbCdEf"
 gitlab_clone_token_secret_arn     = "arn:aws:secretsmanager:us-west-2:111122223333:secret:agent/gitlab-clone-AbCdEf"
 gitlab_notify_token_secret_arn    = "arn:aws:secretsmanager:us-west-2:111122223333:secret:agent/gitlab-notify-AbCdEf"
-gitlab_comment_trigger            = "@indubitably"
+gitlab_comment_trigger            = "@rat-things"
 teams_outgoing_webhook_secret_arn = "arn:aws:secretsmanager:us-west-2:111122223333:secret:agent/teams-outgoing-AbCdEf"
 teams_workflow_url_secret_arn     = "arn:aws:secretsmanager:us-west-2:111122223333:secret:agent/teams-workflow-AbCdEf"
 # Set threaded-gateway only after deploying an authenticated Teams reply gateway.
@@ -31,6 +31,10 @@ teams_delivery_mode               = "workflow"
 # Optional agent credentials. The runner fetches the secret and passes only the
 # resolved bearer value to the non-root agent subprocess.
 # bedrock_api_key_secret_arn = "arn:aws:secretsmanager:us-west-2:111122223333:secret:agent/bedrock-api-key-AbCdEf"
+
+# View URLs are private bearer links. The default is one day; deployments may
+# choose any whole-second lifetime from one minute through one day.
+artifact_url_ttl_seconds = 86400
 
 # Run `aws lambda-microvms list-managed-microvm-image-versions` and pin an
 # AVAILABLE al2023-1 version. `npm run package` must have produced the source ZIP.

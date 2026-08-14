@@ -1,6 +1,8 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type { ArtifactStore, Clock } from '../core/ports.js';
+import { validateArtifactCatalog } from '../domain/artifacts.js';
 import type {
+  ArtifactCatalog,
   ArtifactReference,
   RunActorContext,
   RunCredentialSubjectContext,
@@ -450,6 +452,7 @@ export class ConversationService {
     leaseToken: string;
     result?: ArtifactReference;
     context?: ConversationCheckpoint;
+    artifactCatalog?: ArtifactCatalog;
     session?: ConversationSession;
   }): Promise<ConversationTurnRecord> {
     const conversation = await this.requireLease(input.conversationId, input.leaseToken);
@@ -461,6 +464,9 @@ export class ConversationService {
           `context/${occurredAt.replace(/[:.]/g, '-')}-${digest(input.turnId).slice(0, 16)}.json`,
           input.context,
         )
+      : undefined;
+    const artifactCatalog = input.artifactCatalog
+      ? await this.writeArtifactCatalog(conversation, input.turnId, occurredAt, input.artifactCatalog)
       : undefined;
     const event = await this.event({
       conversation,
@@ -474,6 +480,7 @@ export class ConversationService {
       turnId: input.turnId,
       result: input.result,
       context,
+      artifacts: artifactCatalog,
       session: input.session,
       event,
       leaseToken: input.leaseToken,
@@ -590,6 +597,26 @@ export class ConversationService {
       `owners/${ownerHash}/conversations/${conversationHash}/${normalizedSuffix}`,
       Buffer.from(encoded),
       'application/json',
+    );
+  }
+
+  private writeArtifactCatalog(
+    conversation: ConversationRecord,
+    turnId: string,
+    occurredAt: string,
+    catalog: ArtifactCatalog,
+  ): Promise<ArtifactReference> {
+    try {
+      validateArtifactCatalog(catalog);
+    } catch (error) {
+      throw new ConversationStateError(
+        error instanceof Error ? error.message : 'artifact catalog is invalid',
+      );
+    }
+    return this.writeJson(
+      conversation,
+      `artifacts/${occurredAt.replace(/[:.]/g, '-')}-${digest(turnId).slice(0, 16)}.json`,
+      catalog,
     );
   }
 }

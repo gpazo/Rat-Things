@@ -8,7 +8,7 @@ resource "aws_cloudwatch_event_rule" "terminal_runs" {
   description    = "Deliver terminal agent-run state changes to configured channels"
   event_bus_name = aws_cloudwatch_event_bus.runs.name
   event_pattern = jsonencode({
-    source      = ["indubitably.agent-runtime"]
+    source      = ["rat-things.agent-runtime"]
     detail-type = ["Agent Run State"]
     detail = {
       status = ["succeeded", "failed", "cancelled"]

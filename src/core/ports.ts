@@ -28,6 +28,7 @@ export interface ArtifactStore {
   putJson(key: string, value: unknown): Promise<ArtifactReference>;
   getJson<T>(reference: Pick<ArtifactReference, 'bucket' | 'key'>): Promise<T>;
   putBytes(key: string, value: Uint8Array, contentType: string): Promise<ArtifactReference>;
+  getBytes(reference: Pick<ArtifactReference, 'bucket' | 'key'>): Promise<Uint8Array>;
 }
 
 export interface RunQueue {

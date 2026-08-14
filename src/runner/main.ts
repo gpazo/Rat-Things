@@ -9,20 +9,27 @@ import {
 } from '../adapters/aws-runtime.js';
 import { requiredEnv } from '../adapters/executors.js';
 import { CredentialBroker } from '../credentials/broker.js';
-import type { RunError, RunRecord } from '../domain/contracts.js';
+import type { ArtifactCatalog, RunError, RunRecord } from '../domain/contracts.js';
 import type { SandboxMode } from '../domain/contracts.js';
 import { InvalidStateTransitionError } from '../domain/state.js';
 import { parseRunRequest } from '../domain/validation.js';
 import { driverFor } from './agent-driver.js';
 import { loadCodexBedrockToken } from './bedrock-auth.js';
 import { codexAuthMode } from './codex-auth.js';
+import {
+  assertArtifactCatalogScope,
+  emptyArtifactCatalog,
+  publishArtifactCatalog,
+  restoreArtifactCatalog,
+} from './artifacts.js';
 import { collectWorkspacePatch, prepareWorkspace } from './workspace.js';
 
 export async function runAgentWorker(): Promise<void> {
   const clients = createAwsClients();
   const runId = requiredEnv('RUN_ID');
   const store = new DynamoRunStore(clients.dynamodb, requiredEnv('RUNS_TABLE_NAME'));
-  const artifacts = new S3ArtifactStore(clients.s3, requiredEnv('ARTIFACT_BUCKET'));
+  const artifactBucket = requiredEnv('ARTIFACT_BUCKET');
+  const artifacts = new S3ArtifactStore(clients.s3, artifactBucket);
   const secrets = new CachedSecretReader(clients.secrets);
   const credentials = new CredentialBroker(secrets);
   let current = await store.get(runId);
@@ -78,18 +85,37 @@ export async function runAgentWorker(): Promise<void> {
     await prepareWorkspace(request.repository, workspace, credentials, {
       reuseExisting: persistentSession,
     });
+    const ownerHash = createHash('sha256').update(current.ownerId).digest('hex').slice(0, 32);
+    if (
+      current.conversation?.artifacts &&
+      (
+        current.conversation.artifacts.bucket !== artifactBucket ||
+        !current.conversation.artifacts.key.startsWith(`owners/${ownerHash}/conversations/`)
+      )
+    ) throw new Error('conversation artifact catalog is outside its owner scope');
+    const previousArtifacts = current.conversation?.artifacts
+      ? await artifacts.getJson<ArtifactCatalog>(current.conversation.artifacts)
+      : emptyArtifactCatalog();
+    assertArtifactCatalogScope(previousArtifacts, artifactBucket, current.ownerId);
+    await restoreArtifactCatalog(workspace, previousArtifacts, artifacts);
     const timeoutSeconds = Number(process.env.RUN_TIMEOUT_SECONDS ?? request.execution?.timeoutSeconds ?? 900);
     const driver = driverFor(request.agent?.driver ?? defaultDriver());
     if (driver.name === 'codex' && codexAuthMode() === 'bedrock') {
       loadedBedrockToken = await loadCodexBedrockToken(credentials);
     }
     const execution = await driver.execute(request, workspace, timeoutSeconds * 1_000, abort.signal);
-    const ownerHash = createHash('sha256').update(current.ownerId).digest('hex').slice(0, 32);
     const prefix = `owners/${ownerHash}/runs/${runId}`;
-    const [output, eventArtifact, patch] = await Promise.all([
+    const [output, eventArtifact, patch, publishedArtifacts] = await Promise.all([
       artifacts.putBytes(`${prefix}/result.md`, Buffer.from(execution.fullText), 'text/markdown; charset=utf-8'),
       artifacts.putBytes(`${prefix}/events.jsonl`, execution.events, 'application/x-ndjson'),
       collectWorkspacePatch(workspace),
+      publishArtifactCatalog({
+        workspace,
+        previous: previousArtifacts,
+        artifacts,
+        ownerId: current.ownerId,
+        runId,
+      }),
     ]);
     const patchArtifact = patch
       ? await artifacts.putBytes(`${prefix}/workspace.patch`, patch, 'text/x-diff')
@@ -100,6 +126,7 @@ export async function runAgentWorker(): Promise<void> {
       exitCode: execution.exitCode,
       durationMs: execution.durationMs,
       events: eventArtifact,
+      artifacts: publishedArtifacts,
       ...(patchArtifact ? { workspacePatch: patchArtifact } : {}),
       ...(execution.threadId ? { agentThreadId: execution.threadId } : {}),
       ...(execution.usage ? { usage: execution.usage } : {}),

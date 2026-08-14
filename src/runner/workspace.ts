@@ -80,22 +80,31 @@ async function isReusableWorkspace(workspace: string): Promise<boolean> {
 
 export async function collectWorkspacePatch(workspace: string): Promise<Buffer | undefined> {
   const identity = configuredAgentIdentity();
-  const add = await runProcess('git', ['-C', workspace, 'add', '--intent-to-add', '--all'], {
+  const artifactExclusion = ':(exclude).rat-things/**';
+  const add = await runProcess(
+    'git',
+    ['-C', workspace, 'add', '--intent-to-add', '--all', '--', '.', artifactExclusion],
+    {
     cwd: workspace,
     env: { PATH: process.env.PATH, HOME: process.env.HOME },
     timeoutMs: 30_000,
     maxStdoutBytes: 64 * 1024,
     maxStderrBytes: 256 * 1024,
     ...identity,
-  });
+    },
+  );
   if (add.exitCode !== 0) throw new Error(`git add failed: ${add.stderr.toString('utf8').slice(-1_000)}`);
-  const result = await runProcess('git', ['-C', workspace, 'diff', '--binary', 'refs/agent-runtime/base'], {
+  const result = await runProcess(
+    'git',
+    ['-C', workspace, 'diff', '--binary', 'refs/agent-runtime/base', '--', '.', artifactExclusion],
+    {
     cwd: workspace,
     env: { PATH: process.env.PATH, HOME: process.env.HOME },
     timeoutMs: 30_000,
     maxStdoutBytes: 8 * 1024 * 1024,
     ...identity,
-  });
+    },
+  );
   if (result.exitCode !== 0) throw new Error(`git diff failed: ${result.stderr.toString('utf8').slice(-1_000)}`);
   return result.stdout.length > 0 ? result.stdout : undefined;
 }

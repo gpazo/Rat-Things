@@ -6,10 +6,17 @@ import {
   normalizeSlackEvent,
   normalizeTeamsWebhook,
 } from '../../src/channels/normalize.js';
-import { AGENT_RESULT_MARKER } from '../../src/channels/result-marker.js';
+import { AGENT_RESULT_MARKER, isAgentResultMessage } from '../../src/channels/result-marker.js';
 
 const credentialSecretArn =
   'arn:aws:secretsmanager:us-east-1:123456789012:secret:provider/runtime-token-AbCd12';
+
+describe('agent result markers', () => {
+  it('recognizes both Rat Things and legacy markers during migration', () => {
+    expect(isAgentResultMessage(AGENT_RESULT_MARKER)).toBe(true);
+    expect(isAgentResultMessage('<!-- indubitably-agent-runtime:result -->')).toBe(true);
+  });
+});
 
 describe('GitHub webhook normalization', () => {
   it('normalizes a pull-request review into a stable run request', () => {

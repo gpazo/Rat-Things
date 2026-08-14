@@ -388,7 +388,7 @@ h3 { margin-bottom: 0.7rem; font-size: 1.35rem; line-height: 1.2; }
 .check-list span { color: var(--cyan); }
 
 .start-section { align-items: center; }
-.webhook-start { border-bottom: 1px solid var(--line); }
+.artifact-demo, .webhook-start { border-bottom: 1px solid var(--line); }
 pre { margin: 0; padding: 1.5rem; overflow: auto; border: 1px solid var(--line); border-radius: var(--radius); background: #020709; box-shadow: 0 28px 90px rgba(0,0,0,0.24); }
 pre code { color: #bdcdd1; font: 0.86rem/1.85 ui-monospace, SFMono-Regular, Menlo, monospace; }
 pre span { color: var(--cyan); }
