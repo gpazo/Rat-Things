@@ -17,11 +17,13 @@ The wrapper:
 1. Packages the Lambda functions and MicroVM source bundle.
 2. Applies the complete ephemeral Terraform stack and waits for the managed image.
 3. Populates disposable GitHub, GitLab, Teams, and egress-capture secrets.
-4. Sends an IAM-authenticated control request and real signed provider webhook requests.
+4. Sends IAM-authenticated one-shot and headless conversation requests plus real signed provider
+   webhook requests.
 5. Verifies MicroVM execution, pinned public-repository checkout, S3 output/events, DynamoDB state,
    EventBridge terminal events, Teams Adaptive Card egress, empty failure queues, and self-termination.
-6. Sends two signed Teams activities into one durable conversation, proves actual AWS suspension,
-   authenticated continuation and resume on the same MicroVM ID, replay, egress, and re-suspension.
+6. Sends two signed Teams activities and runs two messages through the actual Rat Things CLI,
+   proves actual AWS suspension, authenticated continuation and resume on the same MicroVM ID,
+   replay, provider egress where applicable, and re-suspension.
 7. Backdates a suspended session to prove replacement, replay, and expired-VM termination, then
    injects the coordinator launch/attach crash window and proves idempotent repair.
 8. Terminates any remaining MicroVMs and runs `terraform destroy` from an exit trap.
@@ -40,6 +42,10 @@ Version `1` of the managed `al2023-1` base image was validated in `us-west-2` on
 Managed Rat Things image versions `1.0` through `3.0` were created during integration debugging; the
 final persistence run used `3.0`. Discover
 availability again before relying on that value.
+
+A fresh version `1` deployment passed all seven live workflows again on 2026-08-14. A focused
+canary also launched the built `rat-things` executable twice against that stack and proved named
+thread continuation on the same suspended MicroVM.
 
 AWS does not allow immediate deletion of a customer-managed KMS key. Teardown disables the key and
 schedules it for deletion after AWS's minimum waiting period; only that `PendingDeletion` key is an

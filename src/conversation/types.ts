@@ -29,6 +29,10 @@ export interface PendingMessageOptions {
 
 export interface ConversationStore {
   getConversation(conversationId: string): Promise<ConversationRecord | undefined>;
+  getMessage(
+    conversationId: string,
+    messageId: string,
+  ): Promise<ConversationMessageRecord | undefined>;
   appendMessage(input: {
     conversation: ConversationRecord;
     message: ConversationMessageRecord;

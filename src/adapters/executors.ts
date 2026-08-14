@@ -48,6 +48,12 @@ export interface MicrovmExecutorOptions {
 
 class MicrovmSessionUnavailableError extends Error {}
 
+const MICROVM_RESUME_START_RETRY_WINDOW_MS = 20_000;
+const MICROVM_RESUME_START_ATTEMPT_TIMEOUT_MS = 5_000;
+const MICROVM_RESUME_START_INITIAL_DELAY_MS = 250;
+const MICROVM_RESUME_START_MAX_DELAY_MS = 2_000;
+const MICROVM_RESUME_START_RETRYABLE_STATUS = new Set([502, 503, 504]);
+
 export class MicrovmRunExecutor implements RunExecutor {
   public readonly backend = 'microvm' as const;
   private imageArn?: string;
@@ -137,16 +143,11 @@ export class MicrovmRunExecutor implements RunExecutor {
     }));
     const token = tokenResult.authToken?.['X-aws-proxy-auth'];
     if (!token) throw new Error('CreateMicrovmAuthToken returned no proxy token');
-    const response = await fetch(`${endpointUrl(endpoint)}/agent-runtime/v1/runs`, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        'x-aws-proxy-auth': token,
-        'x-aws-proxy-port': '8080',
-      },
-      body: JSON.stringify({ runHookPayload: this.runHookPayload(record, request, true) }),
-      signal: AbortSignal.timeout(30_000),
-    });
+    const response = await this.postRunToResumedMicrovm(
+      endpoint,
+      token,
+      JSON.stringify({ runHookPayload: this.runHookPayload(record, request, true) }),
+    );
     if (response.status === 404 || response.status === 410) {
       throw new MicrovmSessionUnavailableError();
     }
@@ -154,6 +155,44 @@ export class MicrovmRunExecutor implements RunExecutor {
       throw new Error(`persistent MicroVM rejected run ${record.runId} with HTTP ${response.status}`);
     }
     return { backend: 'microvm', id: microvmId };
+  }
+
+  private async postRunToResumedMicrovm(
+    endpoint: string,
+    token: string,
+    body: string,
+  ): Promise<Response> {
+    const url = `${endpointUrl(endpoint)}/agent-runtime/v1/runs`;
+    const deadline = Date.now() + MICROVM_RESUME_START_RETRY_WINDOW_MS;
+    let retryDelay = MICROVM_RESUME_START_INITIAL_DELAY_MS;
+    let lastError: Error | undefined;
+
+    while (Date.now() < deadline) {
+      const remaining = deadline - Date.now();
+      try {
+        const response = await fetch(url, {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            'x-aws-proxy-auth': token,
+            'x-aws-proxy-port': '8080',
+          },
+          body,
+          signal: AbortSignal.timeout(Math.min(MICROVM_RESUME_START_ATTEMPT_TIMEOUT_MS, remaining)),
+        });
+        if (!MICROVM_RESUME_START_RETRYABLE_STATUS.has(response.status)) return response;
+        lastError = new Error(`persistent MicroVM proxy returned HTTP ${response.status} after resume`);
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error(String(error));
+      }
+
+      const delay = Math.min(retryDelay, deadline - Date.now());
+      if (delay <= 0) break;
+      await sleep(delay);
+      retryDelay = Math.min(retryDelay * 2, MICROVM_RESUME_START_MAX_DELAY_MS);
+    }
+
+    throw lastError ?? new Error('persistent MicroVM proxy was not ready after resume');
   }
 
   private runHookPayload(record: RunRecord, request: RunRequest, resuming: boolean): string {
@@ -273,6 +312,10 @@ function s3FilesOptionsFromEnv(): NonNullable<MicrovmExecutorOptions['s3Files']>
 
 function endpointUrl(value: string): string {
   return value.startsWith('https://') ? value.replace(/\/$/, '') : `https://${value.replace(/\/$/, '')}`;
+}
+
+function sleep(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
 function isUnavailableSessionError(error: unknown): boolean {

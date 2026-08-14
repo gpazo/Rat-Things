@@ -18,6 +18,9 @@
 
 <p align="center">
   <a href="https://gpazo.github.io/Rat-Things/">Website</a> ·
+  <a href="docs/codex-subscription.md">Use your Codex subscription</a> ·
+  <a href="docs/github-webhook-onboarding.md">Connect a GitHub webhook</a> ·
+  <a href="docs/costs.md">Measured costs</a> ·
   <a href="#architecture">Architecture</a> ·
   <a href="docs/microsoft-teams.md">Connect Microsoft Teams</a> ·
   <a href="docs/status-and-roadmap.md">Validation status</a>
@@ -44,6 +47,17 @@ customer VPC; durable native Codex restoration optionally adds a small VPC/NAT p
 > have been validated locally and in disposable AWS infrastructure, but it has not completed a
 > production security review, sustained-load exercise, or multi-tenant hardening. Lambda MicroVMs
 > are a new AWS service available only in selected Regions.
+
+> [!TIP]
+> **Bring the Codex subscription you already have.** On a trusted local device, Rat Things uses
+> the official ChatGPT browser sign-in—no Platform API key or Bedrock account is required. After
+> `npm ci`, run `npm run codex:login`, then
+> `npm run rat-things -- local "Summarize this repository"`.
+> See the [two-command subscription setup](docs/codex-subscription.md).
+>
+> **Connect GitHub in one command.** `npm run webhook:github -- --repo OWNER/REPOSITORY` creates
+> the AWS secrets, deploys the signed route, registers the repository webhook, and tells you the
+> exact PR comment trigger. It prompts before changing either account.
 
 ## Why Rat Things?
 
@@ -77,6 +91,23 @@ post](https://aws.amazon.com/blogs/aws/run-isolated-sandboxes-with-full-lifecycl
 Rat Things adds the layer an agent system still needs around that primitive: authenticated ingress,
 durable coordination, fenced filesystem ownership, native Codex restoration, normalized replay,
 threaded egress, recovery, and disposable end-to-end validation.
+
+## Measured economics
+
+The agent does not need a computer sitting online waiting for work. As of 2026-08-09, all live-AWS
+build and validation work for this project used about **$1.27 of gross attributable AWS services**
+and cost about **$0.20 net after account credits**. That covered eight disposable stack lifecycles,
+thirteen MicroVM image-version builds, signed end-to-end flows, replacement-VM continuity, recovery
+tests, and bounded Bedrock canaries.
+
+At the default 4-GB/2-vCPU size, active MicroVM compute is about **$0.0042 per minute** before
+snapshot operations and model tokens. A 15-minute run is about $0.063 of compute. Model inference is
+separate, and optional S3 Files networking introduces an approximately $36/month NAT and public-IP
+floor when left enabled continuously.
+
+These are measured development results, not a production forecast. Credits, free tiers, workload
+shape, snapshot size, token use, detailed metrics, and retention change the bill. See the full
+[cost model, unit prices, methodology, and always-on-host comparison](docs/costs.md).
 
 ## Data flow
 
@@ -156,46 +187,118 @@ npm run smoke:local
 
 The default smoke test uses the deterministic mock driver. It does not call AWS or a model.
 
-### Use your local Codex subscription
+### The Rat Things CLI
 
-Sign in once with `codex login`, then run Codex through this repository's pinned CLI:
-
-```bash
-npx tsx src/cli.ts local \
-  --driver codex \
-  --codex-auth chatgpt \
-  --sandbox read-only \
-  --events \
-  --prompt "Inspect package.json and summarize this project"
-```
-
-To intentionally validate shell-tool network access as well as file access:
+The default interface is prompt-first. Local tasks use the Codex access included with the signed-in
+ChatGPT account; remote tasks use the IAM-authenticated AWS deployment:
 
 ```bash
-npx tsx src/cli.ts local \
-  --driver codex \
-  --codex-auth chatgpt \
-  --sandbox workspace-write \
-  --network \
-  --events \
-  --prompt "Read package.json, report pwd, then fetch https://example.com"
+npm run rat-things -- local "Summarize this repository"
+npm run rat-things -- "Investigate the failing build"
+npm run rat-things -- --thread release "Now fix it"
+npm run rat-things -- --new "Start something unrelated"
 ```
 
-`--events` emits the complete Codex JSONL protocol, including command execution and usage events.
-Command networking is off by default and requires the explicit `--network` plus `workspace-write`
-combination.
+To expose the repository build as the shorter `rat-things` executable on this device:
+
+```bash
+npm run build
+npm link
+rat-things --thread release "Continue the same Codex thread"
+```
+
+People only need a prompt and, when continuity matters, a memorable thread name. Agents and
+automation can use the explicit `chat` command with `--json`, `--no-wait`, `--idempotency-key`,
+model, sandbox, reasoning, polling, and timeout controls. Run `rat-things help --all` (or
+`npm run rat-things -- help --all`) for that complete surface.
+
+### Bring your Codex subscription
+
+If your ChatGPT plan includes Codex, use its included allowance instead of configuring a Platform
+API key. The login opens OpenAI's browser flow and the repository's pinned Codex CLI caches the
+result on this trusted device:
+
+```bash
+npm run codex:login
+npm run codex:status
+npm run rat-things -- local "Inspect package.json and summarize this project"
+```
+
+The shortcut is read-only and has no command network access by default. To let Codex edit the
+current workspace, opt into `workspace-write`:
+
+```bash
+npm run rat-things -- local --sandbox workspace-write "Add a focused test for the parser"
+```
+
+Add `--network` only when the task needs command egress, and add `--events` when you want the full
+Codex JSONL event stream. See [Use your Codex subscription](docs/codex-subscription.md) for the
+complete onboarding, headless login, credential boundary, and troubleshooting path.
 
 ## Authentication modes
 
 | Mode | Intended use | Credential boundary |
 | --- | --- | --- |
-| `chatgpt` | Trusted local runs | Reuses the device's cached `codex login` session and included subscription access |
+| `chatgpt` | Trusted local runs | Reuses the device's cached ChatGPT sign-in and the Codex access included with its plan; no Platform API key |
 | `bedrock` | Unattended AWS runs | Trusted orchestration mints a bounded short-term Bedrock token and passes only that token to Codex |
 | `mock` driver | Tests and infrastructure validation | No model credential or token spend |
 
 Authentication mode is deployment policy. A webhook or run request cannot select it. Personal
 `~/.codex/auth.json` files are never copied into AWS because repository-controlled agent code could
 steal the reusable account credentials.
+
+## GitHub webhook quick start
+
+The fastest external trigger is a GitHub pull-request webhook because the same provider supplies the
+signed event, repository context, idempotency key, and final threaded response. With AWS credentials,
+Terraform, and an authenticated GitHub CLI:
+
+```bash
+npm run webhook:github -- --repo OWNER/REPOSITORY
+```
+
+The command confirms the target AWS account and GitHub repository, creates or reuses three Secrets
+Manager entries, discovers an available Lambda MicroVM base image, packages and applies `infra/`,
+and creates or updates the GitHub webhook. It defaults to the token-free mock driver so the first
+delivery proves the complete webhook-to-comment path without model spend.
+
+Then comment on a pull request:
+
+```text
+@rat-things summarize the riskiest part of this change
+```
+
+Check GitHub delivery status with `npm run webhook:github:status`. Rerun onboarding with
+`--driver codex` only after confirming Amazon Bedrock access and accepting model-token charges.
+AWS webhook workers intentionally use short-term Bedrock authentication; personal ChatGPT/Codex
+credentials remain on the trusted device where `codex login` ran. See the
+[complete GitHub webhook onboarding guide](docs/github-webhook-onboarding.md).
+
+## Headless AWS conversation
+
+Use the IAM-authenticated CLI when you want to validate the live conversational path without a
+GitHub, GitLab, Teams, or Slack fixture. It sends prompts through the same durable mailbox,
+coordinator, Codex app-server, and suspended Lambda MicroVM lifecycle used by conversational
+webhooks, while suppressing provider delivery:
+
+```bash
+npm run build
+export RAT_THINGS_API_URL="$(terraform -chdir=infra output -raw api_endpoint)"
+export AWS_REGION="<stack region>"
+
+npm run rat-things -- --thread smoke --sandbox workspace-write \
+  "Use the shell tool to create marker.txt containing alpha."
+npm run rat-things -- --thread smoke --sandbox workspace-write \
+  "Read marker.txt and explain what you remember from the first turn."
+```
+
+For the default thread, the shortest form is `npm run rat-things -- "your prompt"`. The command
+prints status changes to stderr and the final Codex reply to stdout. It returns only
+after the exact message is consumed, its run succeeds, durable context is updated, and the MicroVM
+is suspended. Agents and automation can add the explicit `chat` command, `--json`, an idempotency
+key, model, sandbox, reasoning effort, polling interval, and timeout. Run
+`npm run rat-things -- help --all` for the complete interface. See the
+[headless conversation API](docs/api.md#headless-durable-conversations).
 
 ## End-to-end validation
 
@@ -234,8 +337,8 @@ AWS_E2E_MICROVM_BASE_IMAGE_VERSION="<available pinned version>" \
 npm run test:e2e:aws
 ```
 
-The default live suite uses the mock driver and spends no model tokens. It includes a two-turn Teams
-conversation that validates AWS-authenticated continuation, same-ID MicroVM suspend/resume,
+The default live suite uses the mock driver and spends no model tokens. It includes two-turn Teams
+and headless API conversations that validate AWS-authenticated continuation, same-ID MicroVM suspend/resume,
 session-expiry replacement, and coordinator crash-window recovery. Add a bounded, two-turn
 Codex-on-Bedrock app-server/S3 Files persistence probe with `AWS_E2E_REAL_CODEX=true`. The harness
 always attempts teardown from an exit trap; the customer-managed KMS key is disabled and enters
@@ -283,6 +386,9 @@ Read the complete [security and threat model](docs/security.md) and [status and 
 - [Channels](docs/channels.md)
 - [Provider plugin model](docs/plugins.md)
 - [Development and deployment](docs/development-and-deployment.md)
+- [Use your Codex subscription](docs/codex-subscription.md)
+- [Connect a GitHub webhook](docs/github-webhook-onboarding.md)
+- [Cost model and measured AWS spend](docs/costs.md)
 - [Security model](docs/security.md)
 - [Operational runbook](docs/runbook.md)
 - [Status and roadmap](docs/status-and-roadmap.md)

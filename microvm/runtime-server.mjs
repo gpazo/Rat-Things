@@ -13,6 +13,7 @@ import { gunzipSync } from 'node:zlib';
 const hookPrefix = '/aws/lambda-microvms/runtime/v1';
 const maximumHookBodyBytes = 16 * 1024;
 const maximumRunPayloadBytes = 4 * 1024;
+const s3FilesMountTimeoutMs = 50_000;
 const runnerEntry = process.env.AGENT_RUNNER_ENTRY ?? '/opt/agent-runtime/runner.mjs';
 const terminatorEntry = process.env.AGENT_TERMINATOR_ENTRY ?? '/opt/agent-runtime/terminate-microvm.mjs';
 
@@ -22,6 +23,7 @@ let serviceTerminationRequested = false;
 let selfTerminationStarted = false;
 let persistentMicrovmId;
 let persistentStorage;
+let mountWatchdog;
 
 const server = createServer(async (request, response) => {
   response.setHeader('cache-control', 'no-store');
@@ -304,6 +306,8 @@ function ensureS3FilesMounted(storage) {
   });
   if (mounted.status === 0 && mounted.stdout.trim()) return;
 
+  ensureMountWatchdogRunning();
+
   const options = [
     `accesspoint=${storage.accessPointId}`,
     `mounttargetip=${storage.mountTargetIp}`,
@@ -311,16 +315,37 @@ function ensureS3FilesMounted(storage) {
   const result = spawnSync(
     'mount',
     ['-t', 's3files', '-o', options, storage.fileSystemId, storage.mountRoot],
-    { encoding: 'utf8', timeout: 30_000 },
+    { encoding: 'utf8', timeout: s3FilesMountTimeoutMs },
   );
   if (result.status !== 0) {
-    const diagnostic = `${result.stderr ?? ''}\n${result.stdout ?? ''}`.trim().slice(-2_000);
+    const diagnostic = `${result.error?.message ?? ''}\n${result.stderr ?? ''}\n${result.stdout ?? ''}`
+      .trim()
+      .slice(-2_000);
     throw new Error(`S3 Files mount failed (${result.status ?? 'signal'}): ${diagnostic || 'no diagnostic output'}`);
   }
   log('info', 'S3 Files conversation state mounted', {
     fileSystemId: storage.fileSystemId,
     accessPointId: storage.accessPointId,
     mountRoot: storage.mountRoot,
+  });
+}
+
+function ensureMountWatchdogRunning() {
+  if (mountWatchdog && mountWatchdog.exitCode === null && mountWatchdog.signalCode === null) return;
+  const executable = [
+    '/usr/bin/amazon-efs-mount-watchdog',
+    '/sbin/amazon-efs-mount-watchdog',
+  ].find((candidate) => existsSync(candidate));
+  if (!executable) throw new Error('amazon-efs-utils mount watchdog is missing');
+
+  mountWatchdog = spawn(executable, [], { stdio: 'inherit' });
+  mountWatchdog.once('error', (error) => {
+    log('error', 'S3 Files mount watchdog failed to start', { error: error.message });
+  });
+  mountWatchdog.once('exit', (code, signal) => {
+    if (!shuttingDown) {
+      log('warn', 'S3 Files mount watchdog exited', { code, signal });
+    }
   });
 }
 
@@ -362,6 +387,9 @@ async function shutdown(signal) {
   log('info', 'lifecycle server shutting down', { signal });
   server.close();
   await terminateActiveRun();
+  if (mountWatchdog && mountWatchdog.exitCode === null && mountWatchdog.signalCode === null) {
+    mountWatchdog.kill('SIGTERM');
+  }
   process.exit(0);
 }
 

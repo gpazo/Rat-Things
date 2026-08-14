@@ -32,11 +32,27 @@ if [[ -n "$microvm_image_arn" ]]; then
   node "$script_dir/terminate-microvms.mjs" "$aws_region" "$microvm_image_arn"
 fi
 echo "Destroying Terraform resources for $deployment_id..."
-aws_e2e_terraform destroy \
-  -state="$state_file" \
-  -input=false \
-  -auto-approve \
-  "${tf_vars[@]}"
+destroy_status=1
+for destroy_attempt in 1 2 3; do
+  set +e
+  aws_e2e_terraform destroy \
+    -state="$state_file" \
+    -input=false \
+    -auto-approve \
+    "${tf_vars[@]}"
+  destroy_status=$?
+  set -e
+  if [[ "$destroy_status" -eq 0 ]]; then
+    break
+  fi
+  if [[ "$destroy_attempt" -lt 3 ]]; then
+    echo "Terraform destroy is waiting on AWS eventual consistency; retrying in 10 seconds (attempt $destroy_attempt/3)..." >&2
+    sleep 10
+  fi
+done
+if [[ "$destroy_status" -ne 0 ]]; then
+  exit "$destroy_status"
+fi
 
 if [[ -f "$runtime_env" ]]; then
   : >"$runtime_env"

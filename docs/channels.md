@@ -71,6 +71,20 @@ authors; keep repository, actor, budget, and rate policy separate.
 
 ### Configure GitHub
 
+For a development or evaluation stack, the recommended path is:
+
+```bash
+npm run webhook:github -- --repo OWNER/REPOSITORY
+```
+
+The helper creates or reuses Secrets Manager values, discovers a MicroVM base image, applies the
+Terraform root, and creates or updates the repository webhook through the authenticated GitHub CLI.
+It defaults to the mock driver and `@rat-things` trigger. See
+[Connect a GitHub webhook](github-webhook-onboarding.md) for prerequisites, the exact external
+changes, status checks, and the explicit Codex-on-Bedrock opt-in.
+
+For production or manual setup:
+
 1. Create a high-entropy webhook secret, a clone-only credential, and a separate comment-only
    credential in Secrets Manager.
    The current implementation consumes a static token; `installationId` is retained as source

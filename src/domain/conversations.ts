@@ -107,6 +107,9 @@ export interface ConversationMessageRecord {
   receivedAt: string;
   expiresAt: number;
   consumedAt?: string;
+  /** Durable binding to the turn and run that consumed this message. */
+  turnId?: string;
+  runId?: string;
 }
 
 export interface ConversationTurnRecord {

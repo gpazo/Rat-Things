@@ -1,4 +1,5 @@
 import { createHash, createHmac, randomUUID } from 'node:crypto';
+import { execFile } from 'node:child_process';
 import { Sha256 } from '@aws-crypto/sha256-js';
 import { SignatureV4 } from '@smithy/signature-v4';
 import { HttpRequest } from '@smithy/protocol-http';
@@ -85,6 +86,34 @@ integration('live AWS agent-runner workflow', () => {
     const outputResponse = await fetch(descriptor.url);
     expect(outputResponse.status).toBe(200);
     expect(await outputResponse.text()).toBe(`mock-agent: Return AWS live marker ${controlMarker}`);
+
+    const headlessMarker = `live-headless-${randomUUID()}`;
+    const headlessConversation = `headless-${randomUUID()}`;
+    const headlessReceipt = await submitApiConversation(
+      headlessConversation,
+      `Return AWS live marker ${headlessMarker}`,
+      { driver: 'mock', sandbox: 'read-only' },
+    );
+    const headlessStatus = await waitForApiConversationMessage(
+      headlessConversation,
+      headlessReceipt.messageId,
+    );
+    const headlessRun = requiredConversationRun(headlessStatus);
+    assertSuccessfulMicrovmRun(headlessRun);
+    expect(headlessRun.sourceKind).toBe('api');
+    expect(headlessRun.conversation).toMatchObject({
+      conversationId: expect.stringMatching(/^api:[a-f0-9]{32}:headless-/),
+    });
+    expect(headlessStatus.conversation).toMatchObject({
+      status: 'idle',
+      pendingCount: 0,
+      session: {
+        id: requiredExecutionId(headlessRun),
+        state: 'suspended',
+      },
+    });
+    expect(await outputText(clients.s3, headlessRun)).toContain(headlessMarker);
+    await expectTerminalEvents(clients.sqs, new Set([headlessRun.runId]));
 
     const teamsMarker = `live-teams-${randomUUID()}`;
     const teamsProviderConversationId = `aws-e2e-conversation-${randomUUID()}`;
@@ -190,6 +219,56 @@ integration('live AWS agent-runner workflow', () => {
       [firstRun.runId, firstMarker],
       [secondRun.runId, secondMarker],
     ]));
+    await expectEmptyFailureQueues(clients.sqs);
+  }, timeoutMs);
+
+  persistentMicrovmTest('runs two turns through the actual Rat Things CLI on one suspended MicroVM', async () => {
+    delete process.env.AWS_ENDPOINT_URL;
+    const clients = createAwsClients();
+    const conversationId = `headless-persistent-${randomUUID()}`;
+    const firstMarker = `headless-first-${randomUUID()}`;
+    const secondMarker = `headless-second-${randomUUID()}`;
+
+    const firstCli = await runRatThingsCli([
+      '--thread',
+      conversationId,
+      '--driver',
+      'mock',
+      '--json',
+      `Remember ${firstMarker}`,
+    ]);
+    const firstStatus = JSON.parse(firstCli.stdout) as ApiConversationMessageStatus;
+    const firstRun = requiredConversationRun(firstStatus);
+    assertSuccessfulMicrovmRun(firstRun);
+    expect(firstCli.stderr).toContain('microvm=suspended');
+    const microvmId = requiredExecutionId(firstRun);
+    expect(firstStatus.conversation.session).toMatchObject({
+      id: microvmId,
+      state: 'suspended',
+    });
+
+    const secondCli = await runRatThingsCli([
+      '--thread',
+      conversationId,
+      '--driver',
+      'mock',
+      '--json',
+      `Return both ${firstMarker} and ${secondMarker}`,
+    ]);
+    const secondStatus = JSON.parse(secondCli.stdout) as ApiConversationMessageStatus;
+    const secondRun = requiredConversationRun(secondStatus);
+    assertSuccessfulMicrovmRun(secondRun);
+    expect(secondCli.stderr).toContain('microvm=suspended');
+    expect(requiredExecutionId(secondRun)).toBe(microvmId);
+    expect(secondRun.conversation).toMatchObject({ preferredMicrovmId: microvmId });
+    const output = await outputText(clients.s3, secondRun);
+    expect(output).toContain(firstMarker);
+    expect(output).toContain(secondMarker);
+    expect(secondStatus.conversation.session).toMatchObject({
+      id: microvmId,
+      state: 'suspended',
+    });
+    await expectTerminalEvents(clients.sqs, new Set([firstRun.runId, secondRun.runId]));
     await expectEmptyFailureQueues(clients.sqs);
   }, timeoutMs);
 
@@ -361,7 +440,7 @@ integration('live AWS agent-runner workflow', () => {
   }, timeoutMs);
 
   const realCodexTest = process.env.AWS_E2E_REAL_CODEX === 'true' ? it : it.skip;
-  realCodexTest('restores workspace bytes and one Codex app-server thread in a replacement MicroVM', async () => {
+  realCodexTest('restores a headless API Codex thread and workspace in a replacement MicroVM', async () => {
     delete process.env.AWS_ENDPOINT_URL;
     const clients = createAwsClients();
     const runStore = new DynamoRunStore(clients.dynamodb, required('RUNS_TABLE_NAME'));
@@ -369,14 +448,8 @@ integration('live AWS agent-runner workflow', () => {
       clients.dynamodb,
       required('CONVERSATIONS_TABLE_NAME'),
     );
-    const artifacts = new S3ArtifactStore(clients.s3, required('ARTIFACT_BUCKET'));
-    const conversations = new ConversationService({ store: conversationStore, artifacts });
-    const conversationQueue = new SqsConversationQueue(
-      clients.sqs,
-      required('CONVERSATION_QUEUE_URL'),
-    );
     const microvms = new LambdaMicrovmsClient(createAwsClientConfig());
-    const fixture = directConversationFixture(`aws-e2e-real-codex-${randomUUID()}`);
+    const conversationKey = `real-codex-${randomUUID()}`;
     const marker = `retained-bytes-${randomUUID()}`;
     const filename = `retained-${randomUUID().slice(0, 12)}.txt`;
     const policy: ConversationExecutionPolicy = {
@@ -386,33 +459,24 @@ integration('live AWS agent-runner workflow', () => {
       reasoningEffort: 'low',
     };
 
-    const firstMessageId = `message-${randomUUID()}`;
-    await conversations.appendMessage({
-      ...fixture,
-      messageId: firstMessageId,
-      delivery: 'defer',
-      content: {
-        text: [
-          `Use the shell tool to create ${filename} in the current workspace.`,
-          `Its only line must be exactly: ${marker}`,
-          `Then run pwd and cat ${filename}. End your response with FIRST-WRITE ${marker}.`,
-        ].join(' '),
-      },
-      executionPolicy: policy,
-    });
-    await conversationQueue.enqueue({
-      version: '1',
-      conversationId: fixture.conversationId,
-      traceId: `real-codex-first:${randomUUID()}`,
-    });
-    const firstRun = await waitForConversationRun(
-      conversationStore,
-      artifacts,
-      runStore,
-      fixture.conversationId,
+    const firstReceipt = await submitApiConversation(
+      conversationKey,
+      [
+        `Use the shell tool to create ${filename} in the current workspace.`,
+        `Its only line must be exactly: ${marker}`,
+        `Then run pwd and cat ${filename}. End your response with FIRST-WRITE ${marker}.`,
+      ].join(' '),
+      policy,
     );
+    const firstStatus = await waitForApiConversationMessage(
+      conversationKey,
+      firstReceipt.messageId,
+    );
+    const firstRun = requiredConversationRun(firstStatus);
     const firstCompleted = await waitForStoredRun(runStore, firstRun.runId);
     assertSuccessfulRealCodexRun(firstCompleted);
+    const runtimeConversationId = firstCompleted.conversation?.conversationId;
+    if (!runtimeConversationId) throw new Error('real Codex run has no conversation binding');
     const firstVmId = requiredExecutionId(firstCompleted);
     const firstThreadId = requiredAgentThreadId(firstCompleted);
     expect(await outputText(clients.s3, firstCompleted)).toContain(marker);
@@ -423,7 +487,7 @@ integration('live AWS agent-runner workflow', () => {
     expect(firstEvents).toContain(marker);
     const firstConversation = await waitForConversationIdle(
       conversationStore,
-      fixture.conversationId,
+      runtimeConversationId,
       firstVmId,
     );
     expect(firstConversation.session?.agentThreadId).toBe(firstThreadId);
@@ -432,32 +496,20 @@ integration('live AWS agent-runner workflow', () => {
     await waitForMicrovmTerminated(microvms, firstVmId);
     await waitForStateObject(clients.s3, filename);
 
-    const secondMessageId = `message-${randomUUID()}`;
-    await conversations.appendMessage({
-      ...fixture,
-      messageId: secondMessageId,
-      delivery: 'defer',
-      content: {
-        text: [
-          `Use the shell tool to run pwd and cat the existing ${filename}.`,
-          'Do not create, recreate, or modify the file.',
-          'End your response with SECOND-READ followed by the exact file content.',
-        ].join(' '),
-      },
-      executionPolicy: policy,
-    });
-    await conversationQueue.enqueue({
-      version: '1',
-      conversationId: fixture.conversationId,
-      traceId: `real-codex-second:${randomUUID()}`,
-    });
-    const secondRun = await waitForConversationRun(
-      conversationStore,
-      artifacts,
-      runStore,
-      fixture.conversationId,
-      new Set([firstRun.runId]),
+    const secondReceipt = await submitApiConversation(
+      conversationKey,
+      [
+        `Use the shell tool to run pwd and cat the existing ${filename}.`,
+        'Do not create, recreate, or modify the file.',
+        'End your response with SECOND-READ followed by the exact file content.',
+      ].join(' '),
+      policy,
     );
+    const secondStatus = await waitForApiConversationMessage(
+      conversationKey,
+      secondReceipt.messageId,
+    );
+    const secondRun = requiredConversationRun(secondStatus);
     expect(secondRun.conversation).toMatchObject({
       preferredMicrovmId: firstVmId,
       agentThreadId: firstThreadId,
@@ -473,7 +525,7 @@ integration('live AWS agent-runner workflow', () => {
     expect(secondEvents).toContain(filename);
     expect(secondEvents).toContain(marker);
     const replacementVmId = requiredExecutionId(secondCompleted);
-    await waitForConversationIdle(conversationStore, fixture.conversationId, replacementVmId);
+    await waitForConversationIdle(conversationStore, runtimeConversationId, replacementVmId);
     await waitForMicrovmState(microvms, replacementVmId, 'SUSPENDED');
 
     await expectTerminalEvents(clients.sqs, new Set([firstRun.runId, secondRun.runId]));
@@ -553,6 +605,91 @@ async function submitGitLabWebhook(): Promise<string> {
 interface TeamsReceipt {
   conversationId: string;
   messageId: string;
+}
+
+interface ApiConversationReceipt {
+  conversationId: string;
+  messageId: string;
+  status: 'appended' | 'duplicate';
+}
+
+interface ApiConversationMessageStatus {
+  conversationId: string;
+  messageId: string;
+  state: 'pending' | 'consumed' | 'dead_letter';
+  conversation: ConversationRecord;
+  run?: RunRecord;
+}
+
+async function runRatThingsCli(args: string[]): Promise<{ stdout: string; stderr: string }> {
+  return new Promise((resolvePromise, rejectPromise) => {
+    execFile(
+      process.execPath,
+      [`${process.cwd()}/dist/cli.mjs`, ...args],
+      {
+        cwd: process.cwd(),
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          RAT_THINGS_API_URL: required('AGENT_RUNTIME_API_URL'),
+        },
+        maxBuffer: 10 * 1_024 * 1_024,
+      },
+      (error, stdout, stderr) => {
+        if (error) {
+          rejectPromise(new Error(
+            `Rat Things CLI failed: ${error.message}\nstdout:\n${stdout}\nstderr:\n${stderr}`,
+          ));
+          return;
+        }
+        resolvePromise({ stdout, stderr });
+      },
+    );
+  });
+}
+
+async function submitApiConversation(
+  conversationId: string,
+  prompt: string,
+  agent: ConversationExecutionPolicy,
+): Promise<ApiConversationReceipt> {
+  return signedApi<ApiConversationReceipt>(
+    `/v1/conversations/${encodeURIComponent(conversationId)}/messages`,
+    'POST',
+    { version: '1', prompt, agent },
+    { 'idempotency-key': randomUUID() },
+  );
+}
+
+async function waitForApiConversationMessage(
+  conversationId: string,
+  messageId: string,
+): Promise<ApiConversationMessageStatus> {
+  const deadline = Date.now() + timeoutMs - 30_000;
+  let latest: ApiConversationMessageStatus | undefined;
+  while (Date.now() < deadline) {
+    latest = await signedApi<ApiConversationMessageStatus>(
+      `/v1/conversations/${encodeURIComponent(conversationId)}/messages/${encodeURIComponent(messageId)}`,
+      'GET',
+    );
+    if (latest.run && ['failed', 'cancelled'].includes(latest.run.status)) return latest;
+    if (
+      latest.run?.status === 'succeeded' &&
+      latest.state === 'consumed' &&
+      latest.conversation.status === 'idle' &&
+      latest.conversation.pendingCount === 0 &&
+      latest.conversation.session?.state === 'suspended'
+    ) return latest;
+    await delay(2_000);
+  }
+  throw new Error(
+    `API conversation message did not complete; last state ${JSON.stringify(latest)}`,
+  );
+}
+
+function requiredConversationRun(status: ApiConversationMessageStatus): RunRecord {
+  if (!status.run) throw new Error(`conversation message ${status.messageId} has no run`);
+  return status.run;
 }
 
 async function submitTeamsWebhook(

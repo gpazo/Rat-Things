@@ -191,7 +191,7 @@ data "aws_iam_policy_document" "control" {
   statement {
     sid       = "Queue"
     actions   = ["sqs:SendMessage"]
-    resources = [aws_sqs_queue.runs.arn]
+    resources = [aws_sqs_queue.runs.arn, aws_sqs_queue.conversations.arn]
   }
 
   dynamic "statement" {

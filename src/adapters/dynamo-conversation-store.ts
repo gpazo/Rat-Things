@@ -42,6 +42,13 @@ export class DynamoConversationStore implements ConversationStore {
     return storedRecord<ConversationRecord>(result.Item);
   }
 
+  public getMessage(
+    conversationId: string,
+    messageId: string,
+  ): Promise<ConversationMessageRecord | undefined> {
+    return this.getItem<ConversationMessageRecord>(mailboxKey(conversationId, messageId));
+  }
+
   public async appendMessage(input: {
     conversation: ConversationRecord;
     message: ConversationMessageRecord;
@@ -391,7 +398,12 @@ export class DynamoConversationStore implements ConversationStore {
       Update: {
         TableName: this.tableName,
         Key: mailboxKey(input.conversationId, messageId),
-        UpdateExpression: 'SET #state = :consumed, consumedAt = :now REMOVE workPartition, workOrder',
+        UpdateExpression: [
+          'SET #state = :consumed',
+          'consumedAt = :now',
+          'turnId = :turnId',
+          'runId = :runId',
+        ].join(', ') + ' REMOVE workPartition, workOrder',
         ConditionExpression: '#state = :pending AND messageId = :messageId',
         ExpressionAttributeNames: { '#state': 'state' },
         ExpressionAttributeValues: {
@@ -399,6 +411,8 @@ export class DynamoConversationStore implements ConversationStore {
           ':pending': 'pending',
           ':now': input.updatedAt,
           ':messageId': messageId,
+          ':turnId': input.turnId,
+          ':runId': input.runId,
         },
       },
     }));

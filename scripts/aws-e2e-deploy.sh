@@ -6,7 +6,7 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
 source "$script_dir/aws-e2e-common.sh"
 
-requested_id="${1:-${AWS_E2E_DEPLOYMENT_ID:-e2e-$(date -u +%y%m%d%H%M%S)}}"
+requested_id="${1:-${AWS_E2E_DEPLOYMENT_ID:-e2e-$(date -u +%y%m%d%H%M)}}"
 aws_e2e_configure "$requested_id"
 aws_e2e_require aws git jq node npm openssl terraform
 
@@ -93,6 +93,7 @@ aws_e2e_export AWS_E2E_CODEX_MODEL_ID "$codex_model_id"
 aws_e2e_export AWS_REGION "$aws_region"
 aws_e2e_export AWS_DEFAULT_REGION "$aws_region"
 aws_e2e_export AGENT_RUNTIME_API_URL "$(aws_e2e_output api_endpoint)"
+aws_e2e_export RAT_THINGS_API_URL "$(aws_e2e_output api_endpoint)"
 aws_e2e_export ARTIFACT_BUCKET "$(aws_e2e_output artifact_bucket_name)"
 aws_e2e_export CONVERSATION_STATE_BUCKET "$(aws_e2e_output conversation_state_bucket_name)"
 aws_e2e_export S3_FILES_FILE_SYSTEM_ID "$(aws_e2e_output s3_files | jq -r '.file_system_id // empty')"

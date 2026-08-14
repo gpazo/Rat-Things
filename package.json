@@ -1,11 +1,11 @@
 {
-  "name": "indubitably-agent-runtime",
+  "name": "rat-things",
   "version": "0.1.0",
   "private": true,
   "type": "module",
   "license": "MIT",
   "bin": {
-    "agent-runtime": "dist/cli.mjs"
+    "rat-things": "dist/cli.mjs"
   },
   "engines": {
     "node": ">=20"
@@ -27,6 +27,12 @@
     "aws:e2e:destroy": "./scripts/aws-e2e-destroy.sh",
     "test:e2e:aws": "./scripts/aws-e2e.sh",
     "smoke:local": "tsx src/cli.ts local --driver mock --prompt \"Return the local smoke-test marker\"",
+    "codex:login": "codex login",
+    "codex:status": "codex login status",
+    "codex:run": "tsx src/cli.ts local --driver codex --codex-auth chatgpt --sandbox read-only",
+    "rat-things": "tsx src/cli.ts",
+    "webhook:github": "tsx scripts/onboard-github.ts setup",
+    "webhook:github:status": "tsx scripts/onboard-github.ts status",
     "site:build": "node scripts/build-pages.mjs",
     "site:serve": "npm run site:build && npx --yes serve dist-pages",
     "terraform:fmt": "terraform -chdir=infra fmt -recursive",

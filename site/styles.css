@@ -225,6 +225,23 @@ h3 { margin-bottom: 0.7rem; font-size: 1.35rem; line-height: 1.2; }
 .flow strong { display: block; margin-bottom: 0.5rem; font-size: 1.1rem; }
 .flow p { color: var(--muted); font-size: 0.88rem; }
 
+.cli-section { border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.cli-heading {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(280px, 0.85fr);
+  gap: clamp(2rem, 7vw, 7rem);
+  align-items: end;
+  margin-bottom: 3.5rem;
+}
+.cli-heading h2 { margin-bottom: 0; }
+.cli-heading > p { margin-bottom: 0.5rem; color: var(--muted); font-size: 1.04rem; }
+.cli-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+.cli-grid article { padding: 1.6rem; border: 1px solid var(--line); border-radius: var(--radius); background: rgba(11, 23, 29, 0.62); }
+.cli-grid .cli-power { border-color: rgba(128, 230, 255, 0.38); background: linear-gradient(145deg, rgba(16, 61, 73, 0.76), rgba(7, 27, 34, 0.82)); }
+.cli-grid pre { margin-top: 1.4rem; box-shadow: none; }
+.cli-note { max-width: 920px; margin: 1.5rem 0 0; color: var(--muted); font-size: 0.84rem; }
+.cli-note code { color: var(--amber); }
+
 .isolation-section {
   width: 100%;
   padding: clamp(5rem, 10vw, 9rem) max(1.5rem, calc((100vw - var(--max)) / 2));
@@ -246,6 +263,37 @@ h3 { margin-bottom: 0.7rem; font-size: 1.35rem; line-height: 1.2; }
 .isolation-grid span { display: block; margin-bottom: 3.5rem; color: var(--amber); font: 700 0.72rem ui-monospace, monospace; }
 .isolation-grid p { color: var(--muted); font-size: 0.9rem; }
 .boundary-note { max-width: 860px; margin: 1.5rem 0 0; color: var(--muted); font-size: 0.78rem; }
+
+.economics-section {
+  width: 100%;
+  padding: clamp(5rem, 10vw, 9rem) max(1.5rem, calc((100vw - var(--max)) / 2));
+  border-top: 1px solid rgba(255, 177, 59, 0.18);
+  border-bottom: 1px solid rgba(255, 177, 59, 0.18);
+  background:
+    radial-gradient(circle at 15% 20%, rgba(255, 177, 59, 0.08), transparent 28rem),
+    #080d0f;
+}
+
+.economics-heading {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(280px, 0.85fr);
+  gap: clamp(2rem, 7vw, 7rem);
+  align-items: end;
+  margin-bottom: 3.5rem;
+}
+
+.economics-heading h2 { margin-bottom: 0; }
+.economics-copy > p { margin-bottom: 0; color: var(--muted); font-size: 1.04rem; }
+.cost-ledger { display: grid; grid-template-columns: repeat(4, 1fr); margin: 0; border-top: 1px solid var(--line); border-left: 1px solid var(--line); }
+.cost-ledger div { min-height: 190px; padding: 1.5rem; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.cost-ledger dt { color: var(--amber); font: 750 clamp(1.8rem, 3vw, 3rem)/1 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: -0.06em; }
+.cost-ledger dd { max-width: 230px; margin: 1.4rem 0 0; color: var(--muted); font-size: 0.85rem; }
+.cost-contrast { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-top: 1rem; }
+.cost-contrast article { min-height: 230px; padding: 1.6rem; border: 1px solid var(--line); border-radius: var(--radius); background: rgba(11, 23, 29, 0.62); }
+.cost-contrast .cost-contrast-highlight { border-color: rgba(128, 230, 255, 0.38); background: linear-gradient(145deg, rgba(16, 61, 73, 0.76), rgba(7, 27, 34, 0.82)); }
+.cost-contrast article p:not(.card-kicker) { max-width: 490px; color: var(--muted); }
+.cost-disclosure { max-width: 980px; margin: 1.5rem 0 0; color: var(--muted); font-size: 0.76rem; }
+.cost-disclosure strong { color: var(--text); }
 
 .continuity-section {
   width: 100%;
@@ -329,6 +377,7 @@ h3 { margin-bottom: 0.7rem; font-size: 1.35rem; line-height: 1.2; }
 
 .auth-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; }
 .auth-grid article { min-height: 285px; padding: 1.6rem; border: 1px solid var(--line); border-radius: var(--radius); background: linear-gradient(145deg, rgba(16,33,41,0.9), rgba(8,21,27,0.65)); }
+.auth-grid .auth-primary { border-color: rgba(128, 230, 255, 0.42); background: linear-gradient(145deg, rgba(16, 61, 73, 0.82), rgba(7, 27, 34, 0.88)); }
 .auth-grid article p:not(.card-kicker) { color: var(--muted); }
 .auth-grid article code { display: inline-block; margin-top: 2rem; color: var(--amber); font-size: 0.78rem; }
 
@@ -339,6 +388,7 @@ h3 { margin-bottom: 0.7rem; font-size: 1.35rem; line-height: 1.2; }
 .check-list span { color: var(--cyan); }
 
 .start-section { align-items: center; }
+.webhook-start { border-bottom: 1px solid var(--line); }
 pre { margin: 0; padding: 1.5rem; overflow: auto; border: 1px solid var(--line); border-radius: var(--radius); background: #020709; box-shadow: 0 28px 90px rgba(0,0,0,0.24); }
 pre code { color: #bdcdd1; font: 0.86rem/1.85 ui-monospace, SFMono-Regular, Menlo, monospace; }
 pre span { color: var(--cyan); }
@@ -364,9 +414,10 @@ footer p { max-width: 600px; margin: 1rem 0 0; color: var(--muted); font-size: 0
   .hero-stats dd { white-space: normal; overflow-wrap: anywhere; }
   .hero-stats div:nth-child(3) { border-left: 0; border-top: 1px solid rgba(255,255,255,0.12); }
   .hero-stats div:nth-child(4) { border-top: 1px solid rgba(255,255,255,0.12); }
-  .intro-grid, .section-heading, .validation-section, .start-section, .continuity-heading, .isolation-heading { grid-template-columns: 1fr; gap: 1.5rem; }
+  .intro-grid, .section-heading, .validation-section, .start-section, .continuity-heading, .isolation-heading, .economics-heading, .cli-heading { grid-template-columns: 1fr; gap: 1.5rem; }
   .flow { grid-template-columns: 1fr 1fr; }
   .isolation-grid { grid-template-columns: 1fr 1fr; }
+  .cost-ledger { grid-template-columns: 1fr 1fr; }
   .flow li { min-height: 210px; border: 1px solid var(--line); border-radius: 0 !important; }
   .flow span { margin-bottom: 2rem; }
   .auth-grid { grid-template-columns: 1fr; }
@@ -380,12 +431,13 @@ footer p { max-width: 600px; margin: 1rem 0 0; color: var(--muted); font-size: 0
 
 @media (max-width: 560px) {
   .site-header, .hero-copy, .section, footer { width: min(calc(100% - 2rem), var(--max)); }
+  .hero { min-height: 980px; }
   h1 { font-size: clamp(3.4rem, 16vw, 4.1rem); line-height: 0.88; letter-spacing: -0.06em; }
   .hero-lede { max-width: 90%; }
   .hero-stats { right: 1rem; left: 1rem; }
   .hero-stats div { padding: 0.85rem 0.9rem; }
   .hero-stats dd { font-size: 0.68rem; line-height: 1.35; }
-  .flow, .diagram-grid, .capability-grid, .isolation-grid { grid-template-columns: 1fr; }
+  .flow, .diagram-grid, .capability-grid, .isolation-grid, .cost-ledger, .cost-contrast, .cli-grid { grid-template-columns: 1fr; }
   .diagram-wide { grid-column: auto; }
   .flow li { min-height: auto; }
   .isolation-grid article, .capability-grid article { min-height: auto; }

@@ -1,4 +1,9 @@
 import type { APIGatewayProxyEventV2, APIGatewayProxyStructuredResultV2 } from 'aws-lambda';
+import {
+  ConversationConflictError,
+  ConversationLeaseError,
+  ConversationStateError,
+} from '../conversation/types.js';
 import { ConflictError, ForbiddenError, NotFoundError } from '../core/run-service.js';
 import { ValidationError } from '../domain/validation.js';
 export { getRunService } from '../app/composition.js';
@@ -61,6 +66,9 @@ export function errorResponse(error: unknown): APIGatewayProxyStructuredResultV2
   const requestError =
     error instanceof ValidationError ||
     error instanceof ConflictError ||
+    error instanceof ConversationConflictError ||
+    error instanceof ConversationLeaseError ||
+    error instanceof ConversationStateError ||
     error instanceof NotFoundError ||
     error instanceof ForbiddenError;
   const statusCode =
@@ -68,11 +76,15 @@ export function errorResponse(error: unknown): APIGatewayProxyStructuredResultV2
       ? 400
       : error instanceof ConflictError
         ? 409
-        : error instanceof NotFoundError
-          ? 404
-          : error instanceof ForbiddenError
-            ? 403
-            : 500;
+        : error instanceof ConversationConflictError || error instanceof ConversationLeaseError
+          ? 409
+          : error instanceof ConversationStateError
+            ? 400
+            : error instanceof NotFoundError
+              ? 404
+              : error instanceof ForbiddenError
+                ? 403
+                : 500;
   const message = requestError && error instanceof Error ? error.message : 'internal server error';
   if (!requestError) {
     console.error(JSON.stringify({ level: 'error', message: 'request failed', error: safeError(error) }));
@@ -107,6 +119,10 @@ function stringClaim(value: unknown): string | undefined {
 function errorCode(error: unknown): string {
   if (error instanceof ValidationError) return 'invalid_request';
   if (error instanceof ConflictError) return 'conflict';
+  if (error instanceof ConversationConflictError || error instanceof ConversationLeaseError) {
+    return 'conflict';
+  }
+  if (error instanceof ConversationStateError) return 'invalid_request';
   if (error instanceof NotFoundError) return 'not_found';
   if (error instanceof ForbiddenError) return 'forbidden';
   return 'internal_error';

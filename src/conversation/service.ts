@@ -157,6 +157,12 @@ export class ConversationService {
     return this.options.store.getConversation(conversationId);
   }
 
+  public getMessage(conversationId: string, messageId: string) {
+    requiredId(conversationId, 'conversationId', 512);
+    requiredId(messageId, 'messageId', 512);
+    return this.options.store.getMessage(conversationId, messageId);
+  }
+
   public async acquireLease(conversationId: string) {
     requiredId(conversationId, 'conversationId', 512);
     const now = this.clock.now();

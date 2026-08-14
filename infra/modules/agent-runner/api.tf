@@ -43,11 +43,13 @@ locals {
 
   control_routes = toset([
     "GET /health",
+    "GET /v1/conversations/{conversationId}/messages/{messageId}",
     "GET /v1/runs",
     "GET /v1/runs/{runId}",
     "GET /v1/runs/{runId}/artifacts/{artifact}",
     "POST /v1/runs",
     "POST /v1/runs/{runId}/cancel",
+    "POST /v1/conversations/{conversationId}/messages",
   ])
 
   webhook_routes = merge(

@@ -3,7 +3,7 @@
 set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-deployment_id="${AWS_E2E_DEPLOYMENT_ID:-e2e-$(date -u +%y%m%d%H%M%S)}"
+deployment_id="${AWS_E2E_DEPLOYMENT_ID:-e2e-$(date -u +%y%m%d%H%M)}"
 started_at="$(date +%s)"
 test_status=0
 destroy_status=0

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { codexAuthMode, codexModelProvider } from '../../src/runner/codex-auth.js';
+import { codexAuthMode, codexModelProvider, localCodexAuthMode } from '../../src/runner/codex-auth.js';
 
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -15,6 +15,12 @@ describe('Codex authentication policy', () => {
     vi.stubEnv('CODEX_AUTH_MODE', 'chatgpt');
     expect(codexAuthMode()).toBe('chatgpt');
     expect(codexModelProvider()).toBe('openai');
+  });
+
+  it('defaults interactive local Codex runs to ChatGPT auth', () => {
+    expect(localCodexAuthMode(undefined, {})).toBe('chatgpt');
+    expect(localCodexAuthMode(undefined, { CODEX_AUTH_MODE: 'bedrock' })).toBe('bedrock');
+    expect(localCodexAuthMode('chatgpt', { CODEX_AUTH_MODE: 'bedrock' })).toBe('chatgpt');
   });
 
   it('rejects unsupported authentication modes', () => {

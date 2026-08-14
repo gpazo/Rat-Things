@@ -5,8 +5,10 @@
 Rat Things is an **engineering preview**, not a production-ready service. The focused tests cover
 domain behavior, webhook signatures and normalization, process/workspace safeguards, drivers,
 executor payloads, the LocalStack data/event path, a disposable live-AWS mock-agent path, and a
-two-turn Codex-on-Bedrock persistence run in a live Lambda MicroVM. They do not constitute a
-penetration test, quota/load exercise, broad real-agent evaluation, or disaster-recovery proof.
+two-turn Codex-on-Bedrock persistence run in a live Lambda MicroVM. A signed, headless Rat Things
+CLI now exercises the same durable conversation path without a provider webhook. These tests do not
+constitute a penetration test, quota/load exercise, broad real-agent evaluation, or
+disaster-recovery proof.
 
 | Capability | Status | Notes |
 | --- | --- | --- |
@@ -23,7 +25,26 @@ penetration test, quota/load exercise, broad real-agent evaluation, or disaster-
 | Teams | Durable chat path locally/live AWS validated | Signed mentions get an immediate acknowledgement, enter the mailbox, and complete through threaded gateway egress; Microsoft authentication and live tenant delivery remain |
 | Slack | Optional initial adapter | App mentions and threaded posts; not the primary deployment target |
 | Observability/recovery | Partial/live fault validated | Structured logs, durable queues/events, reconciler, delivery leases, failure queues/alarms; session-expiry replacement and the coordinator attach/enqueue crash window passed live, while broader chaos drills remain |
+| Cost model | Initial live measurement complete | $1.27 gross attributable AWS usage and about $0.20 net after credits through 2026-08-09; sustained-load ceilings remain unmeasured |
 | Multi-tenant hardening | Not complete | Requires safe response projection, destination authorization, budgets, rate limits, and security review |
+
+## Validation completed on 2026-08-14
+
+- A fresh disposable `us-west-2` stack passed all seven live workflows: the IAM control and
+  conversation APIs, signed GitHub/GitLab/Teams ingress, same-MicroVM suspension and continuation,
+  forced replacement after expiry, coordinator crash-window repair, repository checkout, and real
+  Codex thread/workspace restoration across replacement MicroVMs.
+- The built `rat-things` executable was launched as two independent headless processes. Both used
+  the same human-readable thread name, reached the live AWS conversation API, reused one suspended
+  MicroVM, and retained both turn markers. This deterministic CLI canary used the mock driver; the
+  separate real-Codex workflow exercised the same API and durable execution path with Bedrock.
+- The live run exposed and fixed a transient continuation race: the executor now retries bounded
+  `502`/`503`/`504` responses while a suspended MicroVM proxy becomes ready.
+- S3 Files mounting was hardened for Lambda MicroVM process supervision, and ephemeral teardown now
+  retries AWS's short pending-export window. The validation stack destroyed all 154 resources;
+  only the expected KMS key pending deletion remained.
+- The full local quality gate passed with 123 tests and 11 intentional skips, plus architecture,
+  package, smoke, site, and Terraform validation.
 
 ## Validation completed on 2026-08-03–04
 
@@ -71,6 +92,9 @@ penetration test, quota/load exercise, broad real-agent evaluation, or disaster-
 - The live probes also exposed and fixed S3 Files prefix validation, a false-positive mount check,
   root/UID workspace ownership, base-image version drift during image updates, and loss of the Codex
   thread ID when a MicroVM lease expired.
+- Cost Explorer, CloudTrail, local Terraform state, and AWS Price List data reconstructed about
+  $1.27 of gross attributable usage and $0.20 net account cost after credits. The complete method,
+  unit prices, and caveats are recorded in [the cost model](costs.md).
 
 The default live tests use a deterministic mock agent and spend no model tokens. Setting
 `AWS_E2E_REAL_CODEX=true` adds one bounded, two-turn paid persistence probe before the exit-trap

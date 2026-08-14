@@ -5,6 +5,7 @@
 - Node.js 20+, npm, and Git.
 - Docker with Compose for the LocalStack workflow only.
 - Terraform 1.5+ and AWS credentials for infrastructure work.
+- GitHub CLI authenticated for the one-command GitHub webhook path.
 - A Region and quota that support AWS Lambda MicroVMs, plus a currently `AVAILABLE` managed
   `al2023-1` base-image version.
 - A local `codex login` with ChatGPT, or Bedrock access, only for real local driver tests. `npm ci`
@@ -41,17 +42,15 @@ Focused local runs are also available:
 
 ```bash
 npx tsx src/cli.ts local --driver mock --prompt "Return the local marker"
-npx tsx src/cli.ts local \
-  --driver codex \
-  --codex-auth chatgpt \
-  --sandbox read-only \
-  --events \
-  --prompt "Summarize this repository"
+npm run codex:login
+npm run rat-things -- local "Summarize this repository"
 ```
 
-`--codex-auth chatgpt` selects the built-in OpenAI provider and reuses the account cached by
-`codex login` on this device. `--codex-auth bedrock` mints a short-term token from the active AWS
-identity unless `AWS_BEARER_TOKEN_BEDROCK` is already present. The equivalent durable setting is
+The [subscription onboarding guide](codex-subscription.md) covers the shortest path, headless login,
+credential storage, and troubleshooting. Local Codex runs default to `chatgpt`, select the built-in
+OpenAI provider, and reuse the account cached by `codex login` on this device. Explicit
+`--codex-auth bedrock` mints a short-term token from the active AWS identity unless
+`AWS_BEARER_TOKEN_BEDROCK` is already present. The equivalent durable setting is
 `CODEX_AUTH_MODE=chatgpt|bedrock`; it is not part of the run API and cannot be chosen by callers.
 Leave `CODEX_CHATGPT_MODEL` empty to use the signed-in account's default, or set it to an account
 model ID. `DEFAULT_MODEL` remains the Bedrock deployment default.
@@ -63,6 +62,17 @@ disabled by default and rejected with the read-only sandbox.
 
 The example request contains a deliberately nonexistent repository. Copy it and replace the URL/ref
 before using it remotely.
+
+For the shortest signed external trigger and threaded response path, use the
+[GitHub webhook onboarding helper](github-webhook-onboarding.md):
+
+```bash
+npm run webhook:github -- --repo OWNER/REPOSITORY
+```
+
+The helper packages and applies this same Terraform root, but keeps secret values out of Terraform
+inputs and state. It writes an ignored `infra/github-onboarding.auto.tfvars.json` containing only
+secret ARNs and non-sensitive settings.
 
 ## Terraform deployment
 
@@ -110,17 +120,23 @@ persistent conversation runs use the Terraform-managed network connector, privat
 DynamoDB endpoints, and NAT gateway for public Git/model access. Set `enable_s3_files=false` only
 when native workspace/app-server restoration across replacement VMs is not required.
 
+Review the [measured AWS spend and per-unit cost model](costs.md) before choosing that setting. The
+optional NAT gateway and public IPv4 address create an approximately $36/month idle floor in
+`us-west-2`; the default 4-GB/2-vCPU MicroVM itself costs about $0.0042 only for each active minute,
+before snapshots and model tokens. Activate billing allocation tags and a project budget before the
+first shared or persistent deployment.
+
 ## Remote mock smoke test
 
 Build the CLI and configure it from Terraform output:
 
 ```bash
 npm run build
-export AGENT_RUNTIME_API_URL="$(terraform -chdir=infra output -raw api_endpoint)"
+export RAT_THINGS_API_URL="$(terraform -chdir=infra output -raw api_endpoint)"
 export AWS_REGION="<stack region>"
 
-node dist/cli.mjs doctor
-node dist/cli.mjs submit \
+npm run rat-things -- doctor
+npm run rat-things -- submit \
   --driver mock \
   --backend microvm \
   --sandbox read-only \
@@ -136,11 +152,31 @@ for the intended stack/stage. Never enable unsigned mode against deployed infras
 Exercise and inspect the rest of the control surface:
 
 ```bash
-node dist/cli.mjs list --limit 10
-node dist/cli.mjs get RUN_ID
-node dist/cli.mjs artifact RUN_ID events
-node dist/cli.mjs cancel RUN_ID
+npm run rat-things -- list --limit 10
+npm run rat-things -- get RUN_ID
+npm run rat-things -- artifact RUN_ID events
+npm run rat-things -- cancel RUN_ID
 ```
+
+To exercise the same durable mailbox and Lambda MicroVM continuation path used by a chat webhook,
+send two headless turns under one owner-scoped conversation name:
+
+```bash
+npm run rat-things -- \
+  --thread dev-codex-smoke \
+  --sandbox workspace-write \
+  "Use the shell tool to create marker.txt containing alpha, then read it."
+
+npm run rat-things -- \
+  --thread dev-codex-smoke \
+  --sandbox workspace-write \
+  "Read the existing marker.txt and explain what you remember from the first turn."
+```
+
+Each command waits for the exact message's run to succeed and for completion orchestration to fold
+the result into durable context and suspend the MicroVM before printing Codex output. Add `--json`
+to capture the run ID, MicroVM ID, Codex thread ID, and suspension evidence. Reuse the exact agent
+policy on later turns; it is immutable for the conversation.
 
 For a one-shot control run, verify exactly one execution ID, successful self-termination,
 output/event checksums, terminal state, empty queues/DLQs, provider delivery state, and correlated
@@ -158,7 +194,8 @@ AWS_E2E_MICROVM_BASE_IMAGE_VERSION="<available pinned version>" \
 npm run test:e2e:aws
 ```
 
-The harness exercises real API Gateway/Lambda/IAM/KMS, signed GitHub/GitLab/Teams ingress, a pinned
+The harness exercises real API Gateway/Lambda/IAM/KMS, the headless conversation API, signed
+GitHub/GitLab/Teams ingress, a pinned
 repository checkout inside the MicroVM, durable artifacts/state/events, captured Teams egress,
 failure queues, one-shot self-termination, and a two-turn Teams conversation that suspends and
 resumes the same MicroVM through its AWS-authenticated continuation endpoint. The mock suite also

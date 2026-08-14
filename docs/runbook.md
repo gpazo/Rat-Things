@@ -15,16 +15,16 @@ aws sts get-caller-identity
 terraform -chdir=infra workspace show
 terraform -chdir=infra output -json
 npm run build
-node dist/cli.mjs doctor
+npm run rat-things -- doctor
 ```
 
-Set `AWS_REGION` and `AGENT_RUNTIME_API_URL` from the intended stack output, then inspect the run as
+Set `AWS_REGION` and `RAT_THINGS_API_URL` from the intended stack output, then inspect the run as
 its owning API identity:
 
 ```bash
-node dist/cli.mjs get RUN_ID
-node dist/cli.mjs output RUN_ID
-node dist/cli.mjs artifact RUN_ID events
+npm run rat-things -- get RUN_ID
+npm run rat-things -- output RUN_ID
+npm run rat-things -- artifact RUN_ID events
 ```
 
 Webhook-owned runs are intentionally not visible to an unrelated API principal. Use administrative
@@ -115,7 +115,7 @@ Escalate for audited state repair when the control API cannot safely reach a ter
 5. If the execution is alive and cancellation is safe, use:
 
    ```bash
-   node dist/cli.mjs cancel RUN_ID
+   npm run rat-things -- cancel RUN_ID
    ```
 
 A MicroVM killed outside the worker may leave a `running` record because the worker could not commit

@@ -33,14 +33,117 @@ Cross-identity lookup is an administrative capability outside v1.
 | Method and path | Auth | Behavior |
 | --- | --- | --- |
 | `GET /health` | None | Liveness response; does not prove worker/model/provider readiness |
+| `POST /v1/conversations/{conversationId}/messages` | Required | Append one owner-scoped durable conversation turn and return `202` |
+| `GET /v1/conversations/{conversationId}/messages/{messageId}` | Required | Poll the exact message, bound run, conversation, and suspended-session state |
 | `POST /v1/runs` | Required | Validate, durably store, enqueue, and return `202` |
 | `GET /v1/runs?limit=25&nextToken=...` | Required | Newest-first runs for the current owner; limit is clamped to 1–100 |
 | `GET /v1/runs/{runId}` | Required | Current record for the current owner |
 | `GET /v1/runs/{runId}/artifacts/{name}` | Required | Owner-checked, short-lived download URL for `input`, `output`, `events`, or `patch` |
 | `POST /v1/runs/{runId}/cancel` | Required | Request cancellation and return `202`; terminal runs are unchanged |
 
-`nextToken` is opaque and must be returned unchanged. There is currently no result-stream, event,
-resume, approval, or retry route.
+`nextToken` is opaque and must be returned unchanged. There is currently no result stream,
+approval route, or caller-selected MicroVM resume route. Durable conversation continuation is
+selected by trusted orchestration from the stored owner-scoped session.
+
+## Headless durable conversations
+
+The conversation routes are the headless equivalent of a provider thread. They enter the same
+DynamoDB/S3 mailbox, SQS coordinator, bounded run, Lambda MicroVM suspend/resume, Codex thread, and
+completion path as conversational webhook ingress. They deliberately bypass provider signature
+parsing and provider delivery; the control API's IAM principal is the actor and owner, the source is
+`api`, and the destination is `none`.
+
+`conversationId` is a caller-visible key containing 1–128 letters, digits, `.`, `_`, `:`, or `-`,
+starting with a letter or digit. The runtime hashes the authenticated owner into its internal
+conversation ID, so two IAM principals using `smoke` cannot share state. `Idempotency-Key` is
+required and becomes the message identity within that conversation. Repeating the same key and
+prompt is safe; reusing it for different content returns `409 conflict`.
+
+```http
+POST /v1/conversations/release-smoke/messages HTTP/1.1
+Content-Type: application/json
+Idempotency-Key: 93811d8e-2368-4ff8-9e93-706d344e5c8e
+
+{
+  "version": "1",
+  "prompt": "Use the shell tool to run pwd and report the result.",
+  "agent": {
+    "driver": "codex",
+    "sandbox": "workspace-write",
+    "reasoningEffort": "low"
+  }
+}
+```
+
+Only `version`, `prompt`, and `agent` are accepted. The supported durable `agent` fields are
+`driver`, `model`, `sandbox`, and `reasoningEffort`. A conversation's execution policy is fixed by
+its first message; later attempts to change it return `409`. Callers cannot submit a provider
+source, destination, repository credential, output schema, MicroVM ID, Codex thread ID, or auth
+mode through this route.
+
+The response is a durable mailbox receipt:
+
+```json
+{
+  "conversationId": "release-smoke",
+  "messageId": "93811d8e-2368-4ff8-9e93-706d344e5c8e",
+  "status": "appended"
+}
+```
+
+Poll its `Location` until `run.status` is terminal. A fully folded successful turn has message state
+`consumed`, conversation status `idle`, pending count `0`, and session state `suspended`. The bound
+run uses the existing owner-checked artifact route for full output and events:
+
+```json
+{
+  "conversationId": "release-smoke",
+  "messageId": "93811d8e-2368-4ff8-9e93-706d344e5c8e",
+  "state": "consumed",
+  "delivery": "defer",
+  "conversation": {
+    "status": "idle",
+    "pendingCount": 0,
+    "session": {
+      "backend": "microvm",
+      "id": "mvm-...",
+      "state": "suspended",
+      "agentThreadId": "..."
+    }
+  },
+  "run": {
+    "runId": "...",
+    "status": "succeeded"
+  }
+}
+```
+
+The bundled CLI performs the append, polling, completion/suspension check, artifact download, and
+SigV4 signing:
+
+```bash
+npm run build
+export RAT_THINGS_API_URL="$(terraform -chdir=infra output -raw api_endpoint)"
+export AWS_REGION="<stack region>"
+
+npm run rat-things -- \
+  --thread release-smoke \
+  --sandbox workspace-write \
+  "Use the shell tool to create marker.txt containing alpha, then read it."
+
+npm run rat-things -- \
+  --thread release-smoke \
+  --sandbox workspace-write \
+  "Read the existing marker.txt and tell me what the previous turn did."
+```
+
+With no options, `npm run rat-things -- "your prompt"` uses the owner's default `main` thread. Use
+the same thread name and exact execution policy for continuation. Agents can use the explicit
+`chat` command and add `--json` to retain run/session evidence, `--no-wait` for a receipt-only
+submission, or an explicit
+`--idempotency-key` when a supervising test process needs retry-safe message identity. AWS Codex
+authentication remains deployment-controlled (normally short-term Bedrock auth); the CLI never
+uploads local ChatGPT credentials.
 
 ## Submit a run
 

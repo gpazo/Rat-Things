@@ -5,10 +5,10 @@ durable-mailbox invariants of Sentry Junior while using AWS-native storage: Dyna
 coordination plane, the artifact bucket is the immutable body/event/checkpoint/result plane, and S3
 Files optionally exposes durable Codex app-server state and workspaces as a mounted filesystem.
 
-Teams ingress now appends authenticated activities to this mailbox and sends an SQS wake-up. A
-coordinator converts the durable turn into a bounded run, resumes a suspended MicroVM and Codex
-thread when possible, and folds terminal output back into replayable context. GitHub, GitLab, Slack,
-and the control API retain their one-shot v1 run behavior.
+Teams ingress and the IAM-authenticated headless conversation API append messages to this mailbox
+and send an SQS wake-up. A coordinator converts the durable turn into a bounded run, resumes a
+suspended MicroVM and Codex thread when possible, and folds terminal output back into replayable
+context. GitHub, GitLab, Slack, and `/v1/runs` retain their one-shot v1 run behavior.
 
 ## Conversation identity and concurrency
 

@@ -3,8 +3,8 @@
 aws_e2e_configure() {
   local requested_id="$1"
 
-  if [[ ! "$requested_id" =~ ^[a-z0-9][a-z0-9-]{2,19}$ ]]; then
-    echo "deployment ID must be 3-20 lowercase letters, digits, or hyphens" >&2
+  if [[ ! "$requested_id" =~ ^[a-z0-9][a-z0-9-]{2,13}$ ]]; then
+    echo "deployment ID must be 3-14 lowercase letters, digits, or hyphens" >&2
     return 1
   fi
 
@@ -27,6 +27,7 @@ aws_e2e_configure() {
   state_file="$run_dir/terraform.tfstate"
   runtime_env="$run_dir/runtime.env"
   tf_data_dir="$run_dir/terraform-data"
+  terraform_plugin_cache="${TF_PLUGIN_CACHE_DIR:-$run_root/plugin-cache}"
 
   tf_vars=(
     "-var=aws_region=$aws_region"
@@ -53,7 +54,9 @@ aws_e2e_require() {
 }
 
 aws_e2e_terraform() {
-  TF_DATA_DIR="$tf_data_dir" terraform -chdir="$terraform_root" "$@"
+  mkdir -p "$terraform_plugin_cache"
+  TF_DATA_DIR="$tf_data_dir" TF_PLUGIN_CACHE_DIR="$terraform_plugin_cache" \
+    terraform -chdir="$terraform_root" "$@"
 }
 
 aws_e2e_output() {

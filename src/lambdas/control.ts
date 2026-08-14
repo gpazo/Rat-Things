@@ -3,8 +3,15 @@ import { GetObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { createAwsClients } from '../adapters/aws-runtime.js';
 import { requiredEnv } from '../adapters/executors.js';
-import { ConflictError } from '../core/run-service.js';
-import type { ArtifactReference, RunRecord } from '../domain/contracts.js';
+import { apiConversationId } from '../app/conversation-submission.js';
+import {
+  getConversationService,
+  getConversationSubmissionService,
+} from '../app/composition.js';
+import { ConflictError, NotFoundError } from '../core/run-service.js';
+import type { AgentInput, ArtifactReference, RunRecord } from '../domain/contracts.js';
+import type { ConversationRecord } from '../domain/conversations.js';
+import { isRecord, parseRunRequest, ValidationError } from '../domain/validation.js';
 import { apiIngressContext } from '../identity/context.js';
 import { errorResponse, getRunService, header, jsonBody, principal, response } from './runtime.js';
 
@@ -21,6 +28,50 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
     const context = apiIngressContext(principal(event));
     const ownerId = context.owner.id;
     const service = getRunService(true);
+    const conversationKey = conversationPathParameter(event, 'conversationId');
+    const messageId = conversationPathParameter(event, 'messageId', 200);
+    if (
+      method === 'POST' &&
+      conversationKey &&
+      routeMatches(
+        event,
+        'POST /v1/conversations/{conversationId}/messages',
+        `/v1/conversations/${conversationKey}/messages`,
+      )
+    ) {
+      const request = apiConversationRequestBody(jsonBody(event));
+      const idempotencyKey = requiredIdempotencyKey(header(event.headers, 'idempotency-key'));
+      const receipt = await getConversationSubmissionService().submitApi({
+        conversationKey,
+        messageId: idempotencyKey,
+        prompt: request.prompt,
+        context,
+        traceId: event.requestContext.requestId,
+        executionPolicy: {
+          ...request.agent,
+          sandbox: request.agent?.sandbox ?? 'read-only',
+        },
+      });
+      return response(receipt.status === 'appended' ? 202 : 200, receipt, {
+        location: `/v1/conversations/${conversationKey}/messages/${receipt.messageId}`,
+      });
+    }
+    if (
+      method === 'GET' &&
+      conversationKey &&
+      messageId &&
+      routeMatches(
+        event,
+        'GET /v1/conversations/{conversationId}/messages/{messageId}',
+        `/v1/conversations/${conversationKey}/messages/${messageId}`,
+      )
+    ) {
+      return response(200, await conversationMessageStatus(
+        ownerId,
+        conversationKey,
+        messageId,
+      ));
+    }
     if (method === 'POST' && path === '/v1/runs') {
       const body = jsonBody(event);
       const trustedBody = apiRequestBody(body, context.source);
@@ -84,9 +135,111 @@ export function apiRequestBody(body: unknown, source: { kind: 'api' } = { kind: 
   };
 }
 
+export interface ApiConversationMessageRequest {
+  version: '1';
+  prompt: string;
+  agent?: Pick<AgentInput, 'driver' | 'model' | 'sandbox' | 'reasoningEffort'>;
+}
+
+export interface ApiConversationMessageStatus {
+  conversationId: string;
+  messageId: string;
+  state: 'pending' | 'consumed' | 'dead_letter';
+  delivery: 'interrupt' | 'defer';
+  createdAt: string;
+  consumedAt?: string;
+  conversation: Pick<
+    ConversationRecord,
+    'status' | 'pendingCount' | 'createdAt' | 'updatedAt' | 'latestProgress' | 'session'
+  >;
+  run?: RunRecord;
+}
+
+export function apiConversationRequestBody(body: unknown): ApiConversationMessageRequest {
+  if (!isRecord(body)) throw new ValidationError('request must be an object');
+  const unknown = Object.keys(body).filter((key) => !['version', 'prompt', 'agent'].includes(key));
+  if (unknown.length > 0) throw new ValidationError(`request contains unknown field ${unknown[0]}`);
+  const parsed = parseRunRequest(body, {
+    allowedSandboxModes: (process.env.ALLOWED_SANDBOX_MODES ?? 'read-only,workspace-write')
+      .split(',')
+      .map((value) => value.trim())
+      .filter(Boolean) as NonNullable<AgentInput['sandbox']>[],
+  });
+  if (parsed.agent?.outputSchema) {
+    throw new ValidationError('agent.outputSchema is not supported for durable conversations');
+  }
+  return {
+    version: '1',
+    prompt: parsed.prompt,
+    ...(parsed.agent ? { agent: parsed.agent } : {}),
+  };
+}
+
+async function conversationMessageStatus(
+  ownerId: string,
+  conversationKey: string,
+  messageId: string,
+): Promise<ApiConversationMessageStatus> {
+  const runtimeConversationId = apiConversationId(ownerId, conversationKey);
+  const conversations = getConversationService();
+  const [conversation, message] = await Promise.all([
+    conversations.get(runtimeConversationId),
+    conversations.getMessage(runtimeConversationId, messageId),
+  ]);
+  if (!conversation || conversation.ownerId !== ownerId || !message) {
+    throw new NotFoundError('conversation message not found');
+  }
+  const run = message.runId
+    ? await getRunService(true).get(ownerId, message.runId)
+    : undefined;
+  return {
+    conversationId: conversationKey,
+    messageId,
+    state: message.state,
+    delivery: message.delivery,
+    createdAt: message.createdAt,
+    ...(message.consumedAt ? { consumedAt: message.consumedAt } : {}),
+    conversation: {
+      status: conversation.status,
+      pendingCount: conversation.pendingCount,
+      createdAt: conversation.createdAt,
+      updatedAt: conversation.updatedAt,
+      ...(conversation.latestProgress ? { latestProgress: conversation.latestProgress } : {}),
+      ...(conversation.session ? { session: conversation.session } : {}),
+    },
+    ...(run ? { run } : {}),
+  };
+}
+
 function pathParameter(event: APIGatewayProxyEventV2, name: string): string | undefined {
   const value = event.pathParameters?.[name];
   return value && /^[A-Za-z0-9-]{1,128}$/.test(value) ? value : undefined;
+}
+
+function conversationPathParameter(
+  event: APIGatewayProxyEventV2,
+  name: string,
+  maximum = 128,
+): string | undefined {
+  const value = event.pathParameters?.[name];
+  return value && value.length <= maximum && /^[A-Za-z0-9][A-Za-z0-9._:-]*$/.test(value)
+    ? value
+    : undefined;
+}
+
+function routeMatches(
+  event: APIGatewayProxyEventV2,
+  routeKey: string,
+  decodedPath: string,
+): boolean {
+  return event.routeKey === routeKey || decodeURIComponent(event.rawPath) === decodedPath;
+}
+
+function requiredIdempotencyKey(value: string | undefined): string {
+  if (!value || !/^[A-Za-z0-9._:-]{1,200}$/.test(value)) {
+    throw new ValidationError('Idempotency-Key must be 1-200 safe ASCII characters');
+  }
+  return value;
 }
 
 function parseLimit(value: string | undefined): number {

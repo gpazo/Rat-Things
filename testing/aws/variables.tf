@@ -16,8 +16,8 @@ variable "deployment_id" {
   type        = string
 
   validation {
-    condition     = can(regex("^[a-z0-9][a-z0-9-]{2,19}$", var.deployment_id))
-    error_message = "deployment_id must be 3-20 lowercase letters, digits, or hyphens, starting with a letter or digit."
+    condition     = can(regex("^[a-z0-9][a-z0-9-]{2,13}$", var.deployment_id))
+    error_message = "deployment_id must be 3-14 lowercase letters, digits, or hyphens, starting with a letter or digit."
   }
 }
 
