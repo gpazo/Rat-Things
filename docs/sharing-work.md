@@ -1,10 +1,10 @@
-# Share agent work safely
+# Publish and share agent work
 
-Rat Things can turn retained agent output into a browser-ready file, static site, or video player.
-This guide is the practical contract for people requesting work, agents producing it, and tools
-that need to pass a share link to someone else.
+Turn anything an agent makes into an experience someone else can open: a polished file page, a
+complete static site, or a streamable video. Rat Things keeps the source with the durable project
+and gives each publication its own isolated, time-bounded share link.
 
-## Choose the smallest publication that fits
+## Choose the experience you want to deliver
 
 | Output | Use it for | Command |
 | --- | --- | --- |
@@ -12,9 +12,9 @@ that need to pass a share link to someone else.
 | Site | HTML with local CSS, JavaScript, images, and other relative assets | `rat-things publish site ROOT` |
 | Video | An MP4 or supported browser video with an optional poster | `rat-things publish video PATH` |
 
-A file publication is usually the right default. Choose a site only when the output needs multiple
-coordinated assets or interaction. Choose a video publication when range requests and a dedicated
-player matter.
+A file publication is the fastest route from artifact to audience. Use a site for an interactive or
+multi-asset experience, and use a video publication when fast streaming and a dedicated player
+matter.
 
 ## The agent output contract
 
@@ -75,17 +75,18 @@ rat-things publish site demo-site \
   --title "Launch demo"
 ```
 
-Static sites run on an isolated publication hostname. Keep them portable and deliberately boring:
+Static sites run on their own isolated publication hostname. Build them as portable, self-contained
+experiences:
 
 - use relative URLs such as `styles.css`, `images/overview.webp`, and `./app.js`;
 - include every required asset beneath the published root;
 - do not depend on a development server, server-side routes, or runtime environment variables;
-- do not assume external scripts, fonts, APIs, forms, cameras, microphones, or payments are
-  available; and
+- bundle the scripts, fonts, and data required for the core experience;
+- treat server APIs, forms, cameras, microphones, and payments as explicit future policy choices;
 - open the output through its share link before claiming the site is complete.
 
-The default publication policy blocks surprise cross-origin access. A future policy profile may
-allow explicit external dependencies, but weakening every generated site is not the default.
+The default policy favors work that opens consistently without hidden dependencies. Future policy
+profiles can add explicit external services without weakening every generated publication.
 
 ## Publish a video
 
@@ -99,9 +100,9 @@ rat-things publish video demo-video/walkthrough.mp4 \
 Prefer an MP4 encoded for ordinary browsers and keep the poster reasonably small. The viewer uses
 authenticated byte-range delivery so playback can start without downloading the whole object.
 
-## Share the canonical link
+## Send one link
 
-The command returns a bearer URL shaped like this:
+The command returns a link ready to paste into a pull request, message, email, or handoff:
 
 ```text
 https://<publication-host>/__share/<grant-token>
@@ -112,14 +113,14 @@ browser opens it, the address bar may show only the publication hostname; that s
 not a reusable share link and will return a CloudFront `Missing Key-Pair-Id` error in a fresh
 browser.
 
-Treat the complete URL like a time-bounded password:
+The complete URL is a time-bounded bearer grant:
 
 - send it only to intended recipients;
 - do not place it in public logs or permanent source files;
 - report its expiry alongside it; and
 - mint a new link rather than trying to repair an expired signature.
 
-## Expiry and durability are different
+## Links expire; the work endures
 
 The default grant lifetime is 24 hours. Expiry closes that route into the publication; it does not
 immediately delete the retained source file. While the owner and retained artifact still exist, the
@@ -129,7 +130,7 @@ This separation avoids links whose advertised lifetime is secretly shortened by 
 credentials. Publication access uses deployment-owned CloudFront signing material, while original
 bytes remain in encrypted private S3.
 
-## Validate before handing off
+## Deliver with proof
 
 An agent that creates shareable work should perform the relevant checks and report them:
 
@@ -141,10 +142,10 @@ An agent that creates shareable work should perform the relevant checks and repo
 6. For exact files, download the original bytes and compare the recorded SHA-256 when available.
 7. Return the canonical share URL, expiry, publication kind, and primary retained path.
 
-Do not report only “uploaded successfully.” The useful handoff is evidence that a recipient can
-open the work through the same link they will receive.
+A strong handoff includes the canonical link, expiry, publication kind, primary retained path, and
+the evidence that a recipient can open it.
 
-## Diagnose common failures
+## Recover quickly
 
 | Symptom | Likely cause | Recovery |
 | --- | --- | --- |

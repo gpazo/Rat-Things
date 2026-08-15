@@ -168,38 +168,44 @@ function renderDocsHome(groups, documents) {
     </section>`).join('\n');
   return pageTemplate({
     title: 'Documentation',
-    description: 'Practical Rat Things guides for people and agents: start, connect services, publish work, deploy, operate, and troubleshoot.',
+    description: 'Build durable Codex workflows, run tools in isolated AWS MicroVMs, and publish agent-created files, sites, and video.',
     canonicalPath: '/docs/',
     assetPrefix: '../',
     nav,
     main: `
       <div class="docs-home">
-        <p class="docs-eyebrow">Documentation for people and agents</p>
-        <h1>Use the runtime.<br>Miss fewer sharp edges.</h1>
-        <p class="docs-home-lede">Start with the workflow you need. Every guide is published from the repository Markdown, so the website and the instructions agents read stay together.</p>
+        <p class="docs-eyebrow">Build with Rat Things</p>
+        <h1>Give agents a real<br>place to work.</h1>
+        <p class="docs-home-lede">Run Codex locally or inside an isolated AWS MicroVM, continue the same project across machines, and turn the result into a file, site, or video anyone you choose can open.</p>
         <div class="docs-home-actions">
-          <a class="docs-button docs-button-primary" href="./codex-subscription/">Run locally</a>
-          <a class="docs-button" href="./sharing-work/">Share agent work</a>
-          <a class="docs-button" href="./development-and-deployment/">Deploy to AWS</a>
+          <a class="docs-button docs-button-primary" href="./codex-subscription/">Start with Codex</a>
+          <a class="docs-button" href="./sharing-work/">Publish the work</a>
+          <a class="docs-button" href="./development-and-deployment/">Deploy the runtime</a>
         </div>
-        <section class="sharp-edges" aria-labelledby="sharp-edges-title">
+        <dl class="docs-proof" aria-label="Rat Things capabilities">
+          <div><dt>Same thread</dt><dd>across replacement MicroVMs</dd></div>
+          <div><dt>Files · sites · video</dt><dd>from one durable artifact model</dd></div>
+          <div><dt>Signed entry points</dt><dd>CLI, GitHub, GitLab, Teams, and Slack</dd></div>
+          <div><dt>Zero idle workers</dt><dd>compute runs only while agents work</dd></div>
+        </dl>
+        <section class="product-outcomes" aria-labelledby="product-outcomes-title">
           <div>
-            <p class="docs-card-kicker">Start with what surprised us</p>
-            <h2 id="sharp-edges-title">Known sharp edges</h2>
+            <p class="docs-card-kicker">The runtime around Codex</p>
+            <h2 id="product-outcomes-title">From prompt to durable, shareable work.</h2>
           </div>
           <ul>
-            <li><strong>Share the whole grant URL.</strong><span>The bare publication hostname is not a reusable link; keep the <code>/__share/…</code> path.</span></li>
-            <li><strong>Expiry is not deletion.</strong><span>A link can expire while the retained file remains available to its owner for a fresh link.</span></li>
-            <li><strong>Sites are deliberately constrained.</strong><span>Use relative local assets. External scripts and surprise network calls are blocked by the publication policy.</span></li>
-            <li><strong>Remote authentication is separate.</strong><span>A headless MicroVM cannot inherit the ChatGPT login from your laptop.</span></li>
+            <li><strong>Keep the project, not the machine.</strong><span>Conversation history, Codex state, workspace bytes, and published files survive disposable compute.</span></li>
+            <li><strong>Let agents use real tools.</strong><span>Shell, Git, filesystems, and controlled network access run inside a dedicated VM boundary.</span></li>
+            <li><strong>Ship more than an answer.</strong><span>Publish one file, a complete static experience, or streamable video through the same capability.</span></li>
+            <li><strong>Bring the agent to the work.</strong><span>Use one runtime from the CLI, repository conversations, or team chat.</span></li>
           </ul>
         </section>
         ${cards}
         <aside class="agent-source">
           <div>
             <p class="docs-card-kicker">For coding agents</p>
-            <h2>Prefer the source instructions?</h2>
-            <p>Every page links to its raw Markdown. Point an agent at the relevant guide, then ask it to follow the validation and pitfall sections exactly.</p>
+            <h2>Documentation agents can use directly.</h2>
+            <p>Every page is generated from repository Markdown and links back to its source. Give an agent the relevant guide and it gets the same commands, contracts, and validation steps you see here.</p>
           </div>
           <a class="docs-button" href="${repositoryUrl}/tree/main/docs">Browse Markdown on GitHub</a>
         </aside>
@@ -280,7 +286,7 @@ function pageTemplate({ title, description, canonicalPath, assetPrefix, nav, mai
       </main>
       ${toc}
     </div>
-    <footer class="docs-footer"><span>Rat Things is an engineering preview.</span><a href="${repositoryUrl}/issues">Report a documentation issue</a></footer>
+    <footer class="docs-footer"><span>Durable Codex work, isolated execution, and browser-ready publications.</span><a href="${repositoryUrl}/issues">Help improve the docs</a></footer>
   </body>
 </html>`;
 }
