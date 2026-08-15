@@ -39,10 +39,18 @@ locals {
       role_arn = aws_iam_role.control.arn
       timeout  = 30
       memory   = 512
-      environment = merge(local.executor_environment, {
-        ALLOW_OWNER_HEADER       = "false"
-        ARTIFACT_URL_TTL_SECONDS = tostring(var.artifact_url_ttl_seconds)
-      })
+      environment = merge(
+        local.executor_environment,
+        {
+          ALLOW_OWNER_HEADER       = "false"
+          ARTIFACT_URL_TTL_SECONDS = tostring(var.artifact_url_ttl_seconds)
+        },
+        local.publication_delivery_enabled ? {
+          PUBLICATION_BASE_DOMAIN            = local.publication_domain
+          PUBLICATION_KEY_PAIR_ID            = aws_cloudfront_public_key.publications[0].id
+          PUBLICATION_PRIVATE_KEY_SECRET_ARN = var.publication_private_key_secret_arn
+        } : {},
+      )
     }
     conversation-coordinator = {
       enabled  = true

@@ -38,3 +38,30 @@ variable "codex_model_id" {
   type        = string
   default     = "openai.gpt-5.6-terra"
 }
+
+variable "enable_publication_delivery" {
+  description = "Provision the disposable CloudFront publication delivery path."
+  type        = bool
+  default     = false
+}
+
+variable "publication_base_domain" {
+  description = "Dedicated user-content base domain for the disposable publication distribution."
+  type        = string
+  default     = null
+  nullable    = true
+}
+
+variable "publication_route53_zone_id" {
+  description = "Public Route 53 zone that owns publication_base_domain."
+  type        = string
+  default     = null
+  nullable    = true
+}
+
+variable "publication_public_key_pem" {
+  description = "Ephemeral RSA public key used by the CloudFront trusted key group."
+  type        = string
+  default     = null
+  nullable    = true
+}

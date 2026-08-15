@@ -188,6 +188,24 @@ data "aws_iam_policy_document" "control" {
     resources = ["${aws_s3_bucket.artifacts.arn}/owners/*"]
   }
 
+  dynamic "statement" {
+    for_each = local.publication_delivery_enabled ? [1] : []
+    content {
+      sid       = "PublicationSigningKey"
+      actions   = ["secretsmanager:GetSecretValue"]
+      resources = [var.publication_private_key_secret_arn]
+    }
+  }
+
+  dynamic "statement" {
+    for_each = local.publication_delivery_enabled && var.publication_private_key_kms_key_arn != null ? [1] : []
+    content {
+      sid       = "PublicationSigningKeyDecrypt"
+      actions   = ["kms:Decrypt"]
+      resources = [var.publication_private_key_kms_key_arn]
+    }
+  }
+
   statement {
     sid       = "Queue"
     actions   = ["sqs:SendMessage"]

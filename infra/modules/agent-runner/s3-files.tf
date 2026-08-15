@@ -161,6 +161,7 @@ resource "aws_s3files_file_system_policy" "conversation_state" {
       Effect    = "Allow"
       Principal = { AWS = aws_iam_role.microvm_execution.arn }
       Action    = ["s3files:ClientMount", "s3files:ClientWrite"]
+      Resource  = aws_s3files_file_system.conversation_state[0].arn
       Condition = {
         StringEquals = {
           "s3files:AccessPointArn" = aws_s3files_access_point.conversation_state[0].arn

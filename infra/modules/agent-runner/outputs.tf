@@ -40,6 +40,17 @@ output "s3_files" {
   }
 }
 
+output "publication_delivery" {
+  description = "Isolated CloudFront publication delivery outputs, or null values when disabled."
+  value = {
+    enabled                  = local.publication_delivery_enabled
+    base_domain              = local.publication_delivery_enabled ? local.publication_domain : null
+    distribution_id          = try(aws_cloudfront_distribution.publications[0].id, null)
+    distribution_domain_name = try(aws_cloudfront_distribution.publications[0].domain_name, null)
+    route53_records_managed  = local.publication_delivery_enabled && var.publication_route53_zone_id != null
+  }
+}
+
 output "microvm_source_bucket_name" {
   value = aws_s3_bucket.microvm_source.id
 }

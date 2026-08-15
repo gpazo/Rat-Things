@@ -18,8 +18,9 @@
 
 <p align="center">
   <a href="https://gpazo.github.io/Rat-Things/">Website</a> ·
+  <a href="https://gpazo.github.io/Rat-Things/docs/">Documentation</a> ·
   <a href="docs/codex-subscription.md">Use your Codex subscription</a> ·
-  <a href="docs/durable-files.md">Share durable files</a> ·
+  <a href="docs/publications.md">Publish files, sites, and video</a> ·
   <a href="docs/github-webhook-onboarding.md">Connect a GitHub webhook</a> ·
   <a href="docs/costs.md">Measured costs</a> ·
   <a href="#architecture">Architecture</a> ·
@@ -75,8 +76,8 @@ customer VPC; durable native Codex restoration optionally adds a small VPC/NAT p
   S3 Files mount, so a replacement MicroVM resumes the same thread and bytes.
 - **Real tool use** — shell, Git, filesystem, and explicitly enabled network access execute inside
   the isolated worker rather than being reduced to a chat-only interface.
-- **Durable agent files** — images, video, screenshots, PDFs, and other deliverables survive the
-  MicroVM, resume with their conversation, and receive owner-authorized 24-hour share links.
+- **Durable publications** — retained files become isolated browser-ready images, static sites, or
+  video players behind owner-authorized, time-bounded CloudFront delivery.
 - **Webhook to result** — signed GitHub, GitLab, Teams, and optional Slack paths share one run model.
 - **Codex-first execution** — ChatGPT account auth for trusted local work; short-term Bedrock auth in AWS.
 - **Provider-neutral boundaries** — ingress, identity, credentials, execution, delivery, and plugins
@@ -410,6 +411,8 @@ Read the complete [security and threat model](docs/security.md) and [status and 
 
 - [Architecture](docs/architecture.md)
 - [Durable conversations](docs/conversations.md)
+- [Share agent work safely](docs/sharing-work.md)
+- [Publications: files, sites, and video](docs/publications.md)
 - [Control API](docs/api.md)
 - [Connect Microsoft Teams](docs/microsoft-teams.md)
 - [Channels](docs/channels.md)

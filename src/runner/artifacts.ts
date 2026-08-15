@@ -1,15 +1,17 @@
 import { createHash, randomUUID } from 'node:crypto';
+import { createReadStream, createWriteStream } from 'node:fs';
 import {
   chown,
   lstat,
   mkdir,
-  readFile,
+  open,
   readdir,
   rename,
   rm,
-  writeFile,
 } from 'node:fs/promises';
 import { basename, dirname, join, relative, resolve, sep } from 'node:path';
+import { Readable, Transform } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
 import type { ArtifactStore } from '../core/ports.js';
 import {
   artifactIdForPath,
@@ -37,7 +39,7 @@ export async function prepareArtifactDirectory(workspace: string): Promise<strin
 export async function restoreArtifactCatalog(
   workspace: string,
   catalog: ArtifactCatalog,
-  artifacts: Pick<ArtifactStore, 'getBytes'>,
+  artifacts: Pick<ArtifactStore, 'getStream'>,
 ): Promise<void> {
   validateArtifactCatalog(catalog);
   const root = artifactRoot(workspace);
@@ -46,14 +48,29 @@ export async function restoreArtifactCatalog(
   for (const published of catalog.files) {
     const target = artifactPath(root, published.path);
     await mkdir(dirname(target), { recursive: true, mode: 0o700 });
-    const bytes = Buffer.from(await artifacts.getBytes(published.file));
-    const digest = sha256(bytes);
-    if (digest !== published.file.sha256) {
-      throw new Error(`durable artifact ${published.id} failed its checksum`);
-    }
     const temporary = `${target}.rat-restore-${randomUUID()}`;
-    await writeFile(temporary, bytes, { mode: 0o600 });
-    await rename(temporary, target);
+    const digest = createHash('sha256');
+    const checksum = new Transform({
+      transform(chunk: Buffer, _encoding, callback) {
+        digest.update(chunk);
+        callback(null, chunk);
+      },
+    });
+    try {
+      const source = await artifacts.getStream(published.file);
+      await pipeline(
+        Readable.from(source),
+        checksum,
+        createWriteStream(temporary, { mode: 0o600 }),
+      );
+      if (digest.digest('hex') !== published.file.sha256) {
+        throw new Error(`durable artifact ${published.id} failed its checksum`);
+      }
+      await rename(temporary, target);
+    } catch (error) {
+      await rm(temporary, { force: true });
+      throw error;
+    }
   }
   await handoffTree(root);
 }
@@ -65,7 +82,7 @@ export async function restoreArtifactCatalog(
 export async function publishArtifactCatalog(input: {
   workspace: string;
   previous: ArtifactCatalog;
-  artifacts: Pick<ArtifactStore, 'putBytes'>;
+  artifacts: Pick<ArtifactStore, 'copy' | 'putStream'>;
   ownerId: string;
   runId: string;
   createdAt?: string;
@@ -94,25 +111,26 @@ export async function publishArtifactCatalog(input: {
     if (totalBytes > MAX_ARTIFACT_TOTAL_BYTES) {
       throw new Error(`artifact directory exceeds ${MAX_ARTIFACT_TOTAL_BYTES} bytes`);
     }
-    const bytes = await readFile(absolute);
-    const digest = sha256(bytes);
+    const sample = await readSample(absolute);
     const existing = previous.get(path);
     const id = artifactIdForPath(path);
-    const mediaType = existing?.file.sha256 === digest
-      ? existing.mediaType
-      : detectMediaType(bytes, path);
-    const file = await input.artifacts.putBytes(
-      `owners/${ownerHash}/runs/${input.runId}/artifacts/${id}/${encodeURIComponent(basename(path))}`,
-      bytes,
-      mediaType,
-    );
-    published.push(existing?.file.sha256 === digest
+    const detectedMediaType = detectMediaType(sample, path);
+    const key = `owners/${ownerHash}/runs/${input.runId}/artifacts/${id}/${encodeURIComponent(basename(path))}`;
+    const digest = await sha256File(absolute);
+    const unchanged = existing?.bytes === stat.size && existing.file.sha256 === digest;
+    const file = unchanged
+      ? await input.artifacts.copy(existing.file, key, detectedMediaType)
+      : await input.artifacts.putStream(key, createReadStream(absolute), detectedMediaType);
+    if (file.sha256 !== digest) {
+      throw new Error(`artifact ${path} changed while it was being published`);
+    }
+    published.push(unchanged
       ? { ...existing, file }
       : {
           id,
           path,
-          mediaType,
-          bytes: bytes.length,
+          mediaType: detectedMediaType,
+          bytes: stat.size,
           createdAt,
           sourceRunId: input.runId,
           file,
@@ -196,22 +214,73 @@ function sha256(value: Uint8Array): string {
 
 function detectMediaType(bytes: Uint8Array, path: string): string {
   const value = Buffer.from(bytes);
+  const extension = path.toLowerCase().match(/\.([a-z0-9]+)$/)?.[1];
   if (value.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))) return 'image/png';
   if (value[0] === 0xff && value[1] === 0xd8 && value[2] === 0xff) return 'image/jpeg';
   if (value.subarray(0, 6).toString('ascii') === 'GIF87a' || value.subarray(0, 6).toString('ascii') === 'GIF89a') return 'image/gif';
   if (value.subarray(0, 4).toString('ascii') === 'RIFF' && value.subarray(8, 12).toString('ascii') === 'WEBP') return 'image/webp';
-  if (value.subarray(4, 8).toString('ascii') === 'ftyp') return 'video/mp4';
+  if (value.subarray(0, 4).toString('ascii') === 'RIFF' && value.subarray(8, 12).toString('ascii') === 'WAVE') return 'audio/wav';
+  if (value.subarray(4, 8).toString('ascii') === 'ftyp') {
+    const brand = value.subarray(8, 12).toString('ascii');
+    if (['avif', 'avis'].includes(brand)) return 'image/avif';
+    if (extension === 'm4a' || extension === 'm4b') return 'audio/mp4';
+    if (extension === 'mov') return 'video/quicktime';
+    return 'video/mp4';
+  }
   if (value.subarray(0, 4).equals(Buffer.from([0x1a, 0x45, 0xdf, 0xa3]))) return 'video/webm';
   if (value.subarray(0, 5).toString('ascii') === '%PDF-') return 'application/pdf';
-  const extension = path.toLowerCase().match(/\.([a-z0-9]+)$/)?.[1];
+  if (value.subarray(0, 3).toString('ascii') === 'ID3') return 'audio/mpeg';
+  if (value.subarray(0, 4).toString('ascii') === 'OggS') {
+    return extension === 'ogv' ? 'video/ogg' : 'audio/ogg';
+  }
   const textual: Record<string, string> = {
+    css: 'text/css; charset=utf-8',
     csv: 'text/csv; charset=utf-8',
+    htm: 'text/html; charset=utf-8',
+    html: 'text/html; charset=utf-8',
+    js: 'text/javascript; charset=utf-8',
     json: 'application/json',
+    m3u8: 'application/vnd.apple.mpegurl',
     md: 'text/markdown; charset=utf-8',
+    mjs: 'text/javascript; charset=utf-8',
+    svg: 'image/svg+xml',
     txt: 'text/plain; charset=utf-8',
+    vtt: 'text/vtt; charset=utf-8',
+    webmanifest: 'application/manifest+json',
+    xml: 'application/xml',
   };
   if (extension && textual[extension] && !value.includes(0)) return textual[extension];
+  const binary: Record<string, string> = {
+    ico: 'image/x-icon',
+    mp3: 'audio/mpeg',
+    oga: 'audio/ogg',
+    ogg: 'audio/ogg',
+    ogv: 'video/ogg',
+    opus: 'audio/ogg',
+    wasm: 'application/wasm',
+    wav: 'audio/wav',
+    woff: 'font/woff',
+    woff2: 'font/woff2',
+  };
+  if (extension && binary[extension]) return binary[extension];
   return 'application/octet-stream';
+}
+
+async function readSample(path: string, maximum = 8_192): Promise<Uint8Array> {
+  const handle = await open(path, 'r');
+  try {
+    const bytes = Buffer.alloc(maximum);
+    const { bytesRead } = await handle.read(bytes, 0, bytes.length, 0);
+    return bytes.subarray(0, bytesRead);
+  } finally {
+    await handle.close();
+  }
+}
+
+async function sha256File(path: string): Promise<string> {
+  const digest = createHash('sha256');
+  for await (const chunk of createReadStream(path)) digest.update(chunk);
+  return digest.digest('hex');
 }
 
 async function handoffTree(root: string): Promise<void> {

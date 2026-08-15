@@ -4,7 +4,16 @@ import {
   DynamoDBClient,
 } from '@aws-sdk/client-dynamodb';
 import { EventBridgeClient, PutEventsCommand } from '@aws-sdk/client-eventbridge';
-import { GetObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import {
+  AbortMultipartUploadCommand,
+  CompleteMultipartUploadCommand,
+  CopyObjectCommand,
+  CreateMultipartUploadCommand,
+  GetObjectCommand,
+  PutObjectCommand,
+  S3Client,
+  UploadPartCommand,
+} from '@aws-sdk/client-s3';
 import { GetSecretValueCommand, SecretsManagerClient } from '@aws-sdk/client-secrets-manager';
 import { SendMessageCommand, SQSClient } from '@aws-sdk/client-sqs';
 import {
@@ -33,6 +42,9 @@ import type {
   RunQueue,
   RunStore,
 } from '../core/ports.js';
+import type { PublicationObjectStore } from '../core/publication-service.js';
+import { validateArtifactPath } from '../domain/artifacts.js';
+import type { BlobReference, PublicationManifest } from '../domain/publications.js';
 import type { ConversationQueue } from '../conversation/types.js';
 import type { SecretReader } from '../credentials/types.js';
 import type { ResultReader } from '../delivery/types.js';
@@ -221,6 +233,20 @@ export class S3ArtifactStore implements ArtifactStore {
     return result.Body.transformToByteArray();
   }
 
+  public async getStream(
+    reference: Pick<ArtifactReference, 'bucket' | 'key'>,
+  ): Promise<AsyncIterable<Uint8Array>> {
+    const result = await this.client.send(
+      new GetObjectCommand({ Bucket: reference.bucket, Key: reference.key }),
+    );
+    if (!result.Body) throw new Error(`artifact s3://${reference.bucket}/${reference.key} is empty`);
+    const body = result.Body as unknown as AsyncIterable<Uint8Array>;
+    if (typeof body[Symbol.asyncIterator] !== 'function') {
+      throw new Error(`artifact s3://${reference.bucket}/${reference.key} is not streamable`);
+    }
+    return body;
+  }
+
   public async putBytes(
     key: string,
     value: Uint8Array,
@@ -239,6 +265,208 @@ export class S3ArtifactStore implements ArtifactStore {
     );
     return { bucket: this.bucket, key, sha256: digest.toString('hex') };
   }
+
+  public async putStream(
+    key: string,
+    value: AsyncIterable<Uint8Array>,
+    contentType: string,
+  ): Promise<ArtifactReference> {
+    const created = await this.client.send(new CreateMultipartUploadCommand({
+      Bucket: this.bucket,
+      Key: key,
+      ContentType: contentType,
+      ServerSideEncryption: 'AES256',
+    }));
+    if (!created.UploadId) throw new Error(`S3 did not create multipart upload for ${key}`);
+    const uploadId = created.UploadId;
+    const parts: Array<{ ETag: string; PartNumber: number }> = [];
+    const digest = createHash('sha256');
+    const pending: Buffer[] = [];
+    let pendingBytes = 0;
+    let received = false;
+    try {
+      for await (const rawChunk of value) {
+        const chunk = Buffer.from(rawChunk);
+        if (chunk.length === 0) continue;
+        received = true;
+        digest.update(chunk);
+        pending.push(chunk);
+        pendingBytes += chunk.length;
+        while (pendingBytes >= MULTIPART_PART_BYTES) {
+          const part = takeBytes(pending, MULTIPART_PART_BYTES);
+          pendingBytes -= part.length;
+          parts.push(await uploadPart(this.client, this.bucket, key, uploadId, parts.length + 1, part));
+        }
+      }
+      if (!received) {
+        await this.client.send(new AbortMultipartUploadCommand({
+          Bucket: this.bucket,
+          Key: key,
+          UploadId: uploadId,
+        }));
+        return this.putBytes(key, new Uint8Array(), contentType);
+      }
+      if (pendingBytes > 0) {
+        const finalPart = takeBytes(pending, pendingBytes);
+        parts.push(await uploadPart(this.client, this.bucket, key, uploadId, parts.length + 1, finalPart));
+      }
+      await this.client.send(new CompleteMultipartUploadCommand({
+        Bucket: this.bucket,
+        Key: key,
+        UploadId: uploadId,
+        MultipartUpload: { Parts: parts },
+      }));
+      return { bucket: this.bucket, key, sha256: digest.digest('hex') };
+    } catch (error) {
+      await this.client.send(new AbortMultipartUploadCommand({
+        Bucket: this.bucket,
+        Key: key,
+        UploadId: uploadId,
+      })).catch(() => undefined);
+      throw error;
+    }
+  }
+
+  public async copy(
+    source: ArtifactReference,
+    key: string,
+    contentType: string,
+  ): Promise<ArtifactReference> {
+    await this.client.send(new CopyObjectCommand({
+      Bucket: this.bucket,
+      Key: key,
+      CopySource: encodeCopySource(source.bucket, source.key),
+      ContentType: contentType,
+      MetadataDirective: 'REPLACE',
+      ServerSideEncryption: 'AES256',
+    }));
+    return { bucket: this.bucket, key, sha256: source.sha256 };
+  }
+}
+
+const MULTIPART_PART_BYTES = 8 * 1024 * 1024;
+
+function takeBytes(chunks: Buffer[], size: number): Buffer {
+  const result = Buffer.allocUnsafe(size);
+  let offset = 0;
+  while (offset < size) {
+    const chunk = chunks[0];
+    if (!chunk) throw new Error('multipart stream ended before a complete buffered part');
+    const length = Math.min(chunk.length, size - offset);
+    chunk.copy(result, offset, 0, length);
+    offset += length;
+    if (length === chunk.length) chunks.shift();
+    else chunks[0] = chunk.subarray(length);
+  }
+  return result;
+}
+
+async function uploadPart(
+  client: S3Client,
+  bucket: string,
+  key: string,
+  uploadId: string,
+  partNumber: number,
+  body: Uint8Array,
+): Promise<{ ETag: string; PartNumber: number }> {
+  if (partNumber > 10_000) throw new Error(`artifact ${key} exceeds the S3 multipart part limit`);
+  const uploaded = await client.send(new UploadPartCommand({
+    Bucket: bucket,
+    Key: key,
+    UploadId: uploadId,
+    PartNumber: partNumber,
+    Body: body,
+  }));
+  if (!uploaded.ETag) throw new Error(`S3 returned no ETag for ${key} part ${partNumber}`);
+  return { ETag: uploaded.ETag, PartNumber: partNumber };
+}
+
+export class S3PublicationObjectStore implements PublicationObjectStore {
+  private readonly artifacts: S3ArtifactStore;
+
+  public constructor(
+    private readonly client: S3Client,
+    private readonly bucket: string,
+  ) {
+    this.artifacts = new S3ArtifactStore(client, bucket);
+  }
+
+  public async stageBlob(input: {
+    ownerId: string;
+    publicationId: string;
+    path: string;
+    source: BlobReference;
+  }): Promise<BlobReference> {
+    validateArtifactPath(input.path);
+    const ownerHash = ownerHashFor(input.ownerId);
+    if (!input.source.id.startsWith(`owners/${ownerHash}/`)) {
+      throw new Error('publication source blob is outside its owner scope');
+    }
+    const key = publicationObjectKey(ownerHash, input.publicationId, input.path);
+    await this.client.send(new CopyObjectCommand({
+      Bucket: this.bucket,
+      Key: key,
+      CopySource: encodeCopySource(this.bucket, input.source.id),
+      ContentType: input.source.mediaType,
+      CacheControl: 'public, max-age=31536000, immutable',
+      MetadataDirective: 'REPLACE',
+      ServerSideEncryption: 'AES256',
+    }));
+    return { ...input.source, id: key };
+  }
+
+  public async stageBytes(input: {
+    ownerId: string;
+    publicationId: string;
+    path: string;
+    bytes: Uint8Array;
+    mediaType: string;
+  }): Promise<BlobReference> {
+    validateArtifactPath(input.path);
+    const ownerHash = ownerHashFor(input.ownerId);
+    const reference = await this.artifacts.putBytes(
+      publicationObjectKey(ownerHash, input.publicationId, input.path),
+      input.bytes,
+      input.mediaType,
+    );
+    return {
+      id: reference.key,
+      digest: `sha256:${reference.sha256}`,
+      size: input.bytes.byteLength,
+      mediaType: input.mediaType,
+    };
+  }
+
+  public async commit(input: {
+    ownerId: string;
+    manifest: PublicationManifest;
+  }): Promise<BlobReference> {
+    const ownerHash = ownerHashFor(input.ownerId);
+    const bytes = Buffer.from(JSON.stringify(input.manifest));
+    const reference = await this.artifacts.putBytes(
+      publicationObjectKey(ownerHash, input.manifest.publicationId, '_rat/manifest.json'),
+      bytes,
+      'application/json',
+    );
+    return {
+      id: reference.key,
+      digest: `sha256:${reference.sha256}`,
+      size: bytes.byteLength,
+      mediaType: 'application/json',
+    };
+  }
+}
+
+function ownerHashFor(ownerId: string): string {
+  return createHash('sha256').update(ownerId).digest('hex').slice(0, 32);
+}
+
+function publicationObjectKey(ownerHash: string, publicationId: string, path: string): string {
+  return `owners/${ownerHash}/publications/${publicationId}/${path}`;
+}
+
+function encodeCopySource(bucket: string, key: string): string {
+  return `${encodeURIComponent(bucket)}/${key.split('/').map(encodeURIComponent).join('/')}`;
 }
 
 export class S3ResultReader implements ResultReader {

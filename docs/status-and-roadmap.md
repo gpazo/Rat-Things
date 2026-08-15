@@ -16,6 +16,7 @@ disaster-recovery proof.
 | Provider plugin boundary | Implemented/tested | Trusted manifests bind ingress/delivery; dependency checks prevent authority inversion |
 | Control API | Implemented/live validated | Submit/list/get/cancel and owner-checked short-lived artifact URLs |
 | Durable agent files | Implemented/live validated | `.rat-things/artifacts/` outbox, immutable S3 bytes, conversation catalog restoration, and CLI list/24-hour URL/download commands passed in a real Codex MicroVM |
+| File/site/video publications | Implemented/local validation | Tagged builders, manifest-last commit, streamed/multipart artifact transport, isolated wildcard hosts, CloudFront OAC and signed cookies, explicit API/CLI publication commands |
 | Durable AWS orchestration | Locally/live validated | DynamoDB, S3, SQS, Streams, EventBridge, notifier delivery, failure queues |
 | Conversation mailbox | End-to-end locally/live validated | Teams ingress, DynamoDB/S3 mailbox, interrupt/defer ordering, leases, SQS coordinator, durable replay, terminal completion, expiry fallback, and crash-window repair |
 | Lambda MicroVM runner | One-shot/resume/replacement live validated | Same-ID suspend/resume plus S3 Files workspace restoration in a replacement VM passed in `us-west-2` |

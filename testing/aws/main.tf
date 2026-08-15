@@ -49,12 +49,68 @@ resource "aws_secretsmanager_secret" "teams_workflow" {
   tags                    = local.tags
 }
 
+resource "aws_secretsmanager_secret" "publication_signing_key" {
+  count = var.enable_publication_delivery ? 1 : 0
+
+  name                    = "${local.name_prefix}-${var.deployment_id}/publication-signing-key"
+  description             = "Disposable CloudFront publication signing key for ${var.deployment_id}"
+  recovery_window_in_days = 0
+  tags                    = local.tags
+}
+
+resource "aws_acm_certificate" "publication" {
+  count    = var.enable_publication_delivery ? 1 : 0
+  provider = aws.us_east_1
+
+  domain_name       = "*.${var.publication_base_domain}"
+  validation_method = "DNS"
+  tags              = local.tags
+
+  lifecycle {
+    create_before_destroy = true
+  }
+}
+
+resource "aws_route53_record" "publication_certificate_validation" {
+  for_each = var.enable_publication_delivery ? {
+    for option in aws_acm_certificate.publication[0].domain_validation_options :
+    option.domain_name => {
+      name   = option.resource_record_name
+      record = option.resource_record_value
+      type   = option.resource_record_type
+    }
+  } : {}
+
+  zone_id = var.publication_route53_zone_id
+  name    = each.value.name
+  type    = each.value.type
+  ttl     = 60
+  records = [each.value.record]
+}
+
+resource "aws_acm_certificate_validation" "publication" {
+  count    = var.enable_publication_delivery ? 1 : 0
+  provider = aws.us_east_1
+
+  certificate_arn         = aws_acm_certificate.publication[0].arn
+  validation_record_fqdns = [for record in aws_route53_record.publication_certificate_validation : record.fqdn]
+}
+
 module "agent_runner" {
   source = "../../infra/modules/agent-runner"
 
-  name_prefix                       = local.name_prefix
-  environment                       = var.deployment_id
-  artifact_retention_days           = 1
+  name_prefix                 = local.name_prefix
+  environment                 = var.deployment_id
+  artifact_retention_days     = 1
+  enable_publication_delivery = var.enable_publication_delivery
+  publication_base_domain     = var.publication_base_domain
+  publication_certificate_arn = try(aws_acm_certificate_validation.publication[0].certificate_arn, null)
+  publication_public_key_pem  = var.publication_public_key_pem
+  publication_private_key_secret_arn = try(
+    aws_secretsmanager_secret.publication_signing_key[0].arn,
+    null,
+  )
+  publication_route53_zone_id       = var.publication_route53_zone_id
   log_retention_days                = 1
   force_destroy_data                = true
   enable_point_in_time_recovery     = false

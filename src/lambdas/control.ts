@@ -1,8 +1,13 @@
 import type { APIGatewayProxyEventV2, APIGatewayProxyHandlerV2 } from 'aws-lambda';
 import { createHash, randomBytes } from 'node:crypto';
-import { GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
+import { GetObjectCommand, HeadObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
+import { GetSecretValueCommand } from '@aws-sdk/client-secrets-manager';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
-import { createAwsClients } from '../adapters/aws-runtime.js';
+import { cloudFrontSignedCookies } from '../adapters/cloudfront-publications.js';
+import {
+  createAwsClients,
+  S3PublicationObjectStore,
+} from '../adapters/aws-runtime.js';
 import { requiredEnv } from '../adapters/executors.js';
 import { apiConversationId } from '../app/conversation-submission.js';
 import {
@@ -10,23 +15,65 @@ import {
   getConversationSubmissionService,
 } from '../app/composition.js';
 import { ConflictError, NotFoundError } from '../core/run-service.js';
-import { validateArtifactCatalog } from '../domain/artifacts.js';
+import { PublicationService } from '../core/publication-service.js';
+import type { PublicationSourceFile } from '../core/publication-service.js';
+import { artifactIdForPath, validateArtifactCatalog } from '../domain/artifacts.js';
 import type { AgentInput, ArtifactReference, RunRecord } from '../domain/contracts.js';
 import type { ArtifactCatalog, PublishedArtifact } from '../domain/contracts.js';
 import type { ConversationRecord } from '../domain/conversations.js';
+import type {
+  PublicationKind,
+  PublicationManifest,
+  PublicationSpec,
+  ShareGrant,
+} from '../domain/publications.js';
+import {
+  parsePublicationSpec,
+  validatePublicationId,
+  validateShareGrant,
+} from '../domain/publications.js';
 import { isRecord, parseRunRequest, ValidationError } from '../domain/validation.js';
 import { apiIngressContext } from '../identity/context.js';
-import { errorResponse, getRunService, header, jsonBody, principal, response } from './runtime.js';
+import {
+  errorResponse,
+  getRunService,
+  header,
+  jsonBody,
+  principal,
+  response,
+  secretValue,
+} from './runtime.js';
 
-const artifactClient = createAwsClients().s3;
+const awsClients = createAwsClients();
+const artifactClient = awsClients.s3;
 
-interface ArtifactShare {
+interface LegacyArtifactShare {
   version: '1';
   artifact: ArtifactReference;
   published?: PublishedArtifact;
   fallbackName?: string;
   expiresAt: string;
 }
+
+interface PublicationShare {
+  version: '2';
+  kind: PublicationKind;
+  grant: ShareGrant;
+}
+
+type ArtifactShare = LegacyArtifactShare | PublicationShare;
+
+interface PublicationDescriptor {
+  publicationId: string;
+  kind: PublicationKind;
+  url: string;
+  expiresAt: string;
+  entrypoint: PublicationManifest['entrypoint'];
+  primaryPath?: string;
+  paths: string[];
+}
+
+let publicationPrivateKeyPromise: Promise<string> | undefined;
 
 export const handler: APIGatewayProxyHandlerV2 = async (event) => {
   try {
@@ -39,7 +86,10 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
     if (
       method === 'GET' &&
       shareToken &&
-      routeMatches(event, 'GET /v1/shares/{token}', `/v1/shares/${shareToken}`)
+      (
+        routeMatches(event, 'GET /v1/shares/{token}', `/v1/shares/${shareToken}`) ||
+        routeMatches(event, 'GET /__share/{token}', `/__share/${shareToken}`)
+      )
     ) {
       return artifactShareResponse(shareToken);
     }
@@ -119,6 +169,26 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
       if (!published) throw new ConflictError(`artifact ${conversationArtifactId} is not available`);
       return response(200, await artifactDescriptor(event, ownerId, published.file, published));
     }
+    if (
+      method === 'POST' &&
+      conversationKey &&
+      routeMatches(
+        event,
+        'POST /v1/conversations/{conversationId}/publications',
+        `/v1/conversations/${conversationKey}/publications`,
+      )
+    ) {
+      const catalog = await conversationArtifactCatalog(ownerId, conversationKey);
+      const spec = parsePublicationSpec(jsonBody(event));
+      const sourceRunId = latestSourceRunId(catalog, spec);
+      return response(201, await publishAndShare({
+        ownerId,
+        spec,
+        catalog,
+        runId: sourceRunId,
+        conversationId: apiConversationId(ownerId, conversationKey),
+      }));
+    }
     if (method === 'POST' && path === '/v1/runs') {
       const body = jsonBody(event);
       const trustedBody = apiRequestBody(body, context.source);
@@ -152,7 +222,25 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
       const published = run.result?.artifacts?.find((file) => file.id === artifactName);
       const artifact = published?.file ?? artifactFor(run, artifactName);
       if (!artifact) throw new ConflictError(`artifact ${artifactName} is not available`);
-      return response(200, await artifactDescriptor(event, ownerId, artifact, published, artifactName));
+      return response(200, await artifactDescriptor(
+        event,
+        ownerId,
+        artifact,
+        published,
+        artifactName,
+        run.runId,
+      ));
+    }
+    if (method === 'POST' && runId && path === `/v1/runs/${runId}/publications`) {
+      const run = await service.get(ownerId, runId);
+      const catalog: ArtifactCatalog = { version: '1', files: run.result?.artifacts ?? [] };
+      const spec = parsePublicationSpec(jsonBody(event));
+      return response(201, await publishAndShare({
+        ownerId,
+        spec,
+        catalog,
+        runId: run.runId,
+      }));
     }
     if (method === 'POST' && runId && path === `/v1/runs/${runId}/cancel`) {
       return response(202, publicRun(await service.cancel(ownerId, runId)));
@@ -324,6 +412,7 @@ async function artifactDescriptor(
   artifact: ArtifactReference,
   published?: PublishedArtifact,
   fallbackName?: string,
+  sourceRunId?: string,
 ) {
   const ownerHash = createHash('sha256').update(ownerId).digest('hex').slice(0, 32);
   if (
@@ -331,6 +420,28 @@ async function artifactDescriptor(
     !artifact.key.startsWith(`owners/${ownerHash}/`)
   ) {
     throw new Error('run contains an artifact outside the runtime bucket');
+  }
+  if (publicationDeliveryConfigured()) {
+    const metadata = published ?? await publicationMetadataFor(
+      artifact,
+      fallbackName ?? 'artifact',
+      sourceRunId ?? 'unknown-run',
+    );
+    const publication = await publishAndShare({
+      ownerId,
+      spec: { version: '1', kind: 'file', path: metadata.path },
+      catalog: { version: '1', files: [metadata] },
+      runId: metadata.sourceRunId,
+    });
+    return {
+      ...(published ? artifactMetadata(published) : {
+        name: fallbackName,
+        mediaType: metadata.mediaType,
+        bytes: metadata.bytes,
+      }),
+      ...publication,
+      sha256: artifact.sha256,
+    };
   }
   const expiresIn = artifactUrlTtlSeconds(process.env.ARTIFACT_URL_TTL_SECONDS);
   const name = published?.path ?? fallbackName ?? published?.id ?? 'artifact';
@@ -358,6 +469,205 @@ async function artifactDescriptor(
   };
 }
 
+async function publishAndShare(input: {
+  ownerId: string;
+  spec: PublicationSpec;
+  catalog: ArtifactCatalog;
+  runId: string;
+  conversationId?: string;
+}): Promise<PublicationDescriptor> {
+  if (!publicationDeliveryConfigured()) {
+    throw new ConflictError('publication delivery is not configured for this deployment');
+  }
+  validateArtifactCatalog(input.catalog);
+  const ownerHash = createHash('sha256').update(input.ownerId).digest('hex').slice(0, 32);
+  const files = publicationSourceFiles(input.catalog, ownerHash);
+  const publicationFiles = relevantPublicationFiles(input.spec, files);
+  const publicationId = createHash('sha256').update(JSON.stringify({
+    format: 'rat-things-publication-v1',
+    runId: input.runId,
+    conversationId: input.conversationId,
+    spec: input.spec,
+    files: publicationFiles
+      .map((file) => ({ path: file.path, digest: file.blob.digest }))
+      .sort((left, right) => left.path.localeCompare(right.path)),
+  })).digest('hex').slice(0, 24);
+  const service = new PublicationService(new S3PublicationObjectStore(
+    artifactClient,
+    requiredEnv('ARTIFACT_BUCKET'),
+  ));
+  const published = await service.publish({
+    ownerId: input.ownerId,
+    publicationId,
+    spec: input.spec,
+    files,
+    runId: input.runId,
+    ...(input.conversationId ? { conversationId: input.conversationId } : {}),
+    createdAt: publicationCreatedAt(input.catalog, publicationFiles),
+  });
+
+  const expiresIn = artifactUrlTtlSeconds(process.env.ARTIFACT_URL_TTL_SECONDS);
+  const expiresAt = new Date(Date.now() + expiresIn * 1_000).toISOString();
+  const token = `${ownerHash}-${randomBytes(32).toString('hex')}`;
+  const grant: ShareGrant = {
+    version: '1',
+    id: token,
+    publicationId,
+    ownerHash,
+    access: 'bearer',
+    expiresAt,
+  };
+  const share: PublicationShare = { version: '2', kind: published.manifest.kind, grant };
+  await artifactClient.send(new PutObjectCommand({
+    Bucket: requiredEnv('ARTIFACT_BUCKET'),
+    Key: artifactShareKey(token),
+    Body: JSON.stringify(share),
+    ContentType: 'application/json',
+    ServerSideEncryption: 'AES256',
+  }));
+  return {
+    publicationId,
+    kind: published.manifest.kind,
+    url: `https://${publicationHost(publicationId, ownerHash)}/__share/${token}`,
+    expiresAt,
+    entrypoint: published.manifest.entrypoint,
+    ...(published.manifest.primaryPath ? { primaryPath: published.manifest.primaryPath } : {}),
+    paths: published.manifest.files.map((file) => file.path),
+  };
+}
+
+function publicationCreatedAt(
+  catalog: ArtifactCatalog,
+  files: readonly PublicationSourceFile[],
+): string {
+  return catalog.files
+    .filter((candidate) => files.some((file) => file.path === candidate.path))
+    .map((file) => file.createdAt)
+    .sort((left, right) => right.localeCompare(left))[0] ?? new Date(0).toISOString();
+}
+
+function publicationSourceFiles(
+  catalog: ArtifactCatalog,
+  ownerHash: string,
+): PublicationSourceFile[] {
+  const bucket = requiredEnv('ARTIFACT_BUCKET');
+  return catalog.files.map((file) => {
+    if (
+      file.file.bucket !== bucket ||
+      !file.file.key.startsWith(`owners/${ownerHash}/runs/`)
+    ) throw new Error(`artifact ${file.id} is outside its owner scope`);
+    return {
+      path: file.path,
+      blob: {
+        id: file.file.key,
+        digest: `sha256:${file.file.sha256}`,
+        size: file.bytes,
+        mediaType: file.mediaType,
+      },
+    };
+  });
+}
+
+function relevantPublicationFiles(
+  spec: PublicationSpec,
+  files: readonly PublicationSourceFile[],
+): PublicationSourceFile[] {
+  if (spec.kind === 'file') return files.filter((file) => file.path === spec.path);
+  if (spec.kind === 'video') {
+    return files.filter((file) => file.path === spec.path || file.path === spec.poster);
+  }
+  const prefix = spec.root ? `${spec.root}/` : '';
+  return files.filter((file) => !prefix || file.path.startsWith(prefix));
+}
+
+function latestSourceRunId(catalog: ArtifactCatalog, spec: PublicationSpec): string {
+  const files = relevantPublicationFiles(
+    spec,
+    catalog.files.map((file) => ({
+      path: file.path,
+      blob: {
+        id: file.file.key,
+        digest: `sha256:${file.file.sha256}`,
+        size: file.bytes,
+        mediaType: file.mediaType,
+      },
+    })),
+  );
+  return catalog.files
+    .filter((candidate) => files.some((file) => file.path === candidate.path))
+    .sort((left, right) => right.createdAt.localeCompare(left.createdAt))[0]?.sourceRunId ??
+      'conversation-publication';
+}
+
+async function publicationMetadataFor(
+  artifact: ArtifactReference,
+  path: string,
+  sourceRunId: string,
+): Promise<PublishedArtifact> {
+  const result = await artifactClient.send(new HeadObjectCommand({
+    Bucket: artifact.bucket,
+    Key: artifact.key,
+  }));
+  if (result.ContentLength === undefined) throw new Error('artifact size is unavailable');
+  return {
+    id: artifactIdForPath(path),
+    path,
+    mediaType: result.ContentType ?? 'application/octet-stream',
+    bytes: result.ContentLength,
+    createdAt: result.LastModified?.toISOString() ?? new Date().toISOString(),
+    sourceRunId,
+    file: artifact,
+  };
+}
+
+function publicationDeliveryConfigured(): boolean {
+  const values = [
+    process.env.PUBLICATION_BASE_DOMAIN,
+    process.env.PUBLICATION_KEY_PAIR_ID,
+    process.env.PUBLICATION_PRIVATE_KEY_SECRET_ARN,
+  ];
+  const configured = values.filter((value) => Boolean(value?.trim())).length;
+  if (configured !== 0 && configured !== values.length) {
+    throw new Error('publication delivery configuration is incomplete');
+  }
+  return configured === values.length;
+}
+
+function publicationHost(publicationId: string, ownerHash: string): string {
+  validatePublicationId(publicationId);
+  if (!/^[a-f0-9]{32}$/.test(ownerHash)) throw new Error('publication owner hash is invalid');
+  const domain = requiredEnv('PUBLICATION_BASE_DOMAIN').toLowerCase().replace(/^\.+|\.+$/g, '');
+  if (
+    domain.length > 253 ||
+    !domain.includes('.') ||
+    domain.split('.').some((label) => !/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(label))
+  ) throw new Error('PUBLICATION_BASE_DOMAIN is invalid');
+  return `${publicationId}-${ownerHash}.${domain}`;
+}
+
+async function publicationPrivateKey(): Promise<string> {
+  publicationPrivateKeyPromise ??= loadPublicationPrivateKey().catch((error: unknown) => {
+    publicationPrivateKeyPromise = undefined;
+    throw error;
+  });
+  return publicationPrivateKeyPromise;
+}
+
+async function loadPublicationPrivateKey(): Promise<string> {
+  const result = await awsClients.secrets.send(new GetSecretValueCommand({
+    SecretId: requiredEnv('PUBLICATION_PRIVATE_KEY_SECRET_ARN'),
+  }));
+  const raw = result.SecretString ?? (
+    result.SecretBinary ? Buffer.from(result.SecretBinary).toString('utf8') : undefined
+  );
+  if (!raw) throw new Error('publication signing key secret is empty');
+  const privateKey = secretValue(raw, ['privateKey', 'private_key', 'key']);
+  if (!privateKey.includes('BEGIN PRIVATE KEY') && !privateKey.includes('BEGIN RSA PRIVATE KEY')) {
+    throw new Error('publication signing key secret does not contain a PEM private key');
+  }
+  return privateKey;
+}
+
 export function artifactUrlTtlSeconds(configured: string | undefined): number {
   const seconds = Number(configured ?? 86_400);
   if (!Number.isFinite(seconds)) return 86_400;
@@ -382,8 +692,33 @@ async function artifactShareResponse(token: string) {
     throw error;
   }
   const share = parseArtifactShare(raw, bucket, token);
-  const remainingSeconds = Math.ceil((Date.parse(share.expiresAt) - Date.now()) / 1_000);
+  if (share.version === '2' && share.grant.revokedAt) {
+    throw new NotFoundError('artifact share has been revoked');
+  }
+  const expiresAt = share.version === '2' ? share.grant.expiresAt : share.expiresAt;
+  const remainingSeconds = Math.ceil((Date.parse(expiresAt) - Date.now()) / 1_000);
   if (remainingSeconds <= 0) throw new NotFoundError('artifact share has expired');
+  if (share.version === '2') {
+    const host = publicationHost(share.grant.publicationId, share.grant.ownerHash);
+    const cookies = cloudFrontSignedCookies({
+      grant: share.grant,
+      resource: `https://${host}/*`,
+      keyPairId: requiredEnv('PUBLICATION_KEY_PAIR_ID'),
+      privateKey: await publicationPrivateKey(),
+    });
+    const target = `https://${host}/`;
+    return {
+      statusCode: 200,
+      headers: {
+        'cache-control': 'private, no-store',
+        'content-type': 'text/html; charset=utf-8',
+        'referrer-policy': 'no-referrer',
+        'x-content-type-options': 'nosniff',
+      },
+      cookies,
+      body: publicationShareLandingPage(target, cookies),
+    };
+  }
   const name = share.published?.path ?? share.fallbackName ?? share.published?.id ?? 'artifact';
   const disposition = isInlineMedia(share.published?.mediaType) ? 'inline' : 'attachment';
   // Lambda role credentials rotate sooner than a 24-hour S3 signature can be
@@ -409,6 +744,52 @@ async function artifactShareResponse(token: string) {
   };
 }
 
+export function publicationShareLandingPage(target: string, cookies: readonly string[]): string {
+  const targetUrl = new URL(target);
+  if (targetUrl.protocol !== 'https:' || targetUrl.username || targetUrl.password) {
+    throw new Error('publication share target must be an HTTPS URL');
+  }
+  if (cookies.length !== 3) throw new Error('publication share requires three signed cookies');
+  const browserCookies = cookies.map((cookie) => cookie.replace(/; HttpOnly(?=;|$)/i, ''));
+  const encodedTarget = inlineScriptJson(targetUrl.toString());
+  const encodedCookies = inlineScriptJson(browserCookies);
+  const escapedTarget = escapeHtmlAttribute(targetUrl.toString());
+  return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta http-equiv="refresh" content="1;url=${escapedTarget}">
+  <title>Opening shared work</title>
+</head>
+<body>
+  <main>
+    <p>Opening shared work…</p>
+    <p><a href="${escapedTarget}">Continue</a></p>
+  </main>
+  <script>
+    for (const cookie of ${encodedCookies}) document.cookie = cookie;
+    window.location.replace(${encodedTarget});
+  </script>
+</body>
+</html>`;
+}
+
+function inlineScriptJson(value: unknown): string {
+  return JSON.stringify(value)
+    .replace(/</g, '\\u003c')
+    .replace(/\u2028/g, '\\u2028')
+    .replace(/\u2029/g, '\\u2029');
+}
+
+function escapeHtmlAttribute(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
 function parseArtifactShare(raw: string, bucket: string, token: string): ArtifactShare {
   let parsed: unknown;
   try {
@@ -416,11 +797,26 @@ function parseArtifactShare(raw: string, bucket: string, token: string): Artifac
   } catch {
     throw new NotFoundError('artifact share not found');
   }
-  if (!isRecord(parsed) || parsed.version !== '1' || !isRecord(parsed.artifact)) {
+  if (!isRecord(parsed) || !['1', '2'].includes(String(parsed.version))) {
     throw new NotFoundError('artifact share not found');
   }
-  const artifact = parsed.artifact;
   const ownerHash = token.slice(0, 32);
+  if (parsed.version === '2') {
+    if (
+      !isRecord(parsed.grant) ||
+      !['file', 'site', 'video'].includes(String(parsed.kind)) ||
+      parsed.grant.id !== token ||
+      parsed.grant.ownerHash !== ownerHash
+    ) throw new NotFoundError('artifact share not found');
+    try {
+      validateShareGrant(parsed.grant as unknown as ShareGrant);
+    } catch {
+      throw new NotFoundError('artifact share not found');
+    }
+    return parsed as unknown as PublicationShare;
+  }
+  if (!isRecord(parsed.artifact)) throw new NotFoundError('artifact share not found');
+  const artifact = parsed.artifact;
   if (
     artifact.bucket !== bucket ||
     typeof artifact.key !== 'string' ||

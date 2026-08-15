@@ -135,6 +135,31 @@ class MemoryArtifactStore implements ArtifactStore {
     this.byteWrites.push({ key, value: Uint8Array.from(value), contentType });
     return reference(key, value);
   }
+
+  public async putStream(
+    key: string,
+    value: AsyncIterable<Uint8Array>,
+    contentType: string,
+  ): Promise<ArtifactReference> {
+    const chunks: Uint8Array[] = [];
+    for await (const chunk of value) chunks.push(Uint8Array.from(chunk));
+    return this.putBytes(key, Buffer.concat(chunks), contentType);
+  }
+
+  public async getStream(
+    input: Pick<ArtifactReference, 'bucket' | 'key'>,
+  ): Promise<AsyncIterable<Uint8Array>> {
+    const bytes = await this.getBytes(input);
+    return (async function* () { yield bytes; })();
+  }
+
+  public async copy(
+    source: ArtifactReference,
+    key: string,
+    contentType: string,
+  ): Promise<ArtifactReference> {
+    return this.putBytes(key, await this.getBytes(source), contentType);
+  }
 }
 
 class MemoryQueue implements RunQueue {

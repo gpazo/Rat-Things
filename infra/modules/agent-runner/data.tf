@@ -190,6 +190,27 @@ data "aws_iam_policy_document" "bucket_transport" {
       values   = ["false"]
     }
   }
+
+  dynamic "statement" {
+    for_each = each.key == "artifacts" && local.publication_delivery_enabled ? [1] : []
+    content {
+      sid     = "AllowCloudFrontPublications"
+      effect  = "Allow"
+      actions = ["s3:GetObject"]
+      resources = [
+        "${aws_s3_bucket.artifacts.arn}/owners/*/publications/*",
+      ]
+      principals {
+        type        = "Service"
+        identifiers = ["cloudfront.amazonaws.com"]
+      }
+      condition {
+        test     = "StringEquals"
+        variable = "AWS:SourceArn"
+        values   = [aws_cloudfront_distribution.publications[0].arn]
+      }
+    }
+  }
 }
 
 resource "aws_s3_bucket_policy" "this" {

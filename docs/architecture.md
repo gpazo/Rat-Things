@@ -265,10 +265,14 @@ MicroVM does not depend on residual local bytes. Bucket encryption, public-acces
 lifecycle policy are deployment responsibilities. An S3 reference is sensitive metadata and the
 control API should remain authenticated.
 
-An authenticated owner mints an unguessable, time-bounded file-share URL through the control API.
-The public share route reads only its hashed encrypted record and redirects to a freshly signed
-one-minute S3 URL. This makes the default 24-hour share lifetime independent of rotating Lambda
-role credentials while keeping the bucket private and the file bytes off the control Lambda.
+The publication layer projects immutable blobs into a browser-ready directory with a required
+`index.html`; its manifest is committed last as the ready marker. Versioned, tagged builders cover
+files, static sites, and video without importing AWS concerns. An authenticated owner then mints an
+unguessable, time-bounded share grant. When publication delivery is enabled, redemption installs
+host-only CloudFront signed cookies for one publication-specific subdomain. One distribution and a
+small host router serve all publications from private S3 through Origin Access Control. The legacy
+one-minute S3 redirect remains the compatibility path for deployments that have not enabled the
+custom domain. See [publications](publications.md).
 
 When `enable_s3_files=true`, a separate versioned bucket backs an S3 Files filesystem. Its access
 point exposes only `/conversations` to the MicroVM execution role. Each hashed conversation owns a

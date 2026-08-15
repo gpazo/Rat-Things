@@ -22,6 +22,16 @@ aws_e2e_configure() {
   microvm_base_image_version="${AWS_E2E_MICROVM_BASE_IMAGE_VERSION:-}"
   real_codex_enabled="${AWS_E2E_REAL_CODEX:-false}"
   codex_model_id="${AWS_E2E_CODEX_MODEL_ID:-openai.gpt-5.6-terra}"
+  publication_domain="${AWS_E2E_PUBLICATION_DOMAIN:-}"
+  publication_zone_id="${AWS_E2E_PUBLICATION_ROUTE53_ZONE_ID:-}"
+  publication_enabled="false"
+  if [[ -n "$publication_domain" || -n "$publication_zone_id" ]]; then
+    if [[ -z "$publication_domain" || -z "$publication_zone_id" ]]; then
+      echo "AWS_E2E_PUBLICATION_DOMAIN and AWS_E2E_PUBLICATION_ROUTE53_ZONE_ID must be set together" >&2
+      return 1
+    fi
+    publication_enabled="true"
+  fi
   run_root="$project_root/.aws-e2e"
   run_dir="$run_root/$deployment_id"
   state_file="$run_dir/terraform.tfstate"
@@ -34,7 +44,14 @@ aws_e2e_configure() {
     "-var=deployment_id=$deployment_id"
     "-var=enable_microvm=$microvm_enabled"
     "-var=codex_model_id=$codex_model_id"
+    "-var=enable_publication_delivery=$publication_enabled"
   )
+  if [[ "$publication_enabled" == "true" ]]; then
+    tf_vars+=(
+      "-var=publication_base_domain=$publication_domain"
+      "-var=publication_route53_zone_id=$publication_zone_id"
+    )
+  fi
   if [[ -n "$microvm_base_image_version" ]]; then
     tf_vars+=("-var=microvm_base_image_version=$microvm_base_image_version")
   fi

@@ -10,6 +10,7 @@ import { SecretsManagerClient } from '@aws-sdk/client-secrets-manager';
 import { HttpRequest } from '@smithy/protocol-http';
 import { SignatureV4 } from '@smithy/signature-v4';
 import { CachedSecretReader } from './adapters/aws-runtime.js';
+import { fetchSharedResource } from './adapters/publication-client.js';
 import { CredentialBroker } from './credentials/broker.js';
 import type { AgentDriverName, RunRecord, RunRequest, SandboxMode } from './domain/contracts.js';
 import { isTerminal } from './domain/state.js';
@@ -58,6 +59,8 @@ interface ArtifactMetadata {
 interface ArtifactDescriptor extends ArtifactMetadata {
   url: string;
   expiresAt: string;
+  primaryPath?: string;
+  paths?: string[];
 }
 
 const commands = new Set([
@@ -70,6 +73,7 @@ const commands = new Set([
   'artifact',
   'files',
   'file',
+  'publish',
   'list',
   'doctor',
   'help',
@@ -128,6 +132,9 @@ async function main(): Promise<void> {
       return;
     case 'file':
       await file(args);
+      return;
+    case 'publish':
+      await publish(args);
       return;
     case 'list': {
       const query = new URLSearchParams();
@@ -307,9 +314,15 @@ async function writeArtifact(runId: string, name: string): Promise<void> {
   }
   const descriptor = await api(`/v1/runs/${runId}/artifacts/${name}`, 'GET') as {
     url?: unknown;
+    primaryPath?: string;
+    paths?: string[];
   };
   if (typeof descriptor.url !== 'string') throw new Error('runtime returned no artifact URL');
-  const response = await fetch(descriptor.url, { signal: AbortSignal.timeout(30_000) });
+  const response = await fetchSharedResource(
+    descriptor.url,
+    30_000,
+    publicationAssetPath(descriptor),
+  );
   if (!response.ok) throw new Error(`artifact download returned HTTP ${response.status}`);
   process.stdout.write(await response.text());
   if (name === 'output') process.stdout.write('\n');
@@ -326,11 +339,8 @@ async function listFiles(args: Arguments): Promise<void> {
     process.stdout.write('No files.\n');
     return;
   }
-  const descriptors = await Promise.all(
-    files.map((metadata) => artifactDescriptorFor(scope, metadata.id)),
-  );
-  for (const descriptor of descriptors) {
-    process.stdout.write(`${descriptor.path}\t${descriptor.url}\n`);
+  for (const file of files) {
+    process.stdout.write(`${file.path}\t${file.mediaType}\t${file.bytes}\t${file.id}\n`);
   }
 }
 
@@ -354,11 +364,52 @@ async function file(args: Arguments): Promise<void> {
     else process.stdout.write(`${descriptor.url}\n`);
     return;
   }
-  const response = await fetch(descriptor.url, { signal: AbortSignal.timeout(120_000) });
+  const response = await fetchSharedResource(
+    descriptor.url,
+    120_000,
+    publicationAssetPath(descriptor),
+  );
   if (!response.ok) throw new Error(`file download returned HTTP ${response.status}`);
   const target = resolve(destination);
   await writeFile(target, Buffer.from(await response.arrayBuffer()));
   process.stdout.write(`${target}\n`);
+}
+
+async function publish(args: Arguments): Promise<void> {
+  const kind = requiredPositional(args, 0, 'publication kind');
+  if (!['file', 'site', 'video'].includes(kind)) {
+    throw new Error('publication kind must be file, site, or video');
+  }
+  const source = requiredPositional(args, 1, kind === 'site' ? 'site root' : 'file name');
+  const title = args.values.get('title');
+  const spec = kind === 'site'
+    ? {
+        version: '1',
+        kind,
+        ...(source === '.' ? {} : { root: source }),
+        ...(args.values.get('entrypoint') ? { entrypoint: args.values.get('entrypoint') } : {}),
+        ...(title ? { title } : {}),
+      }
+    : kind === 'video'
+      ? {
+          version: '1',
+          kind,
+          path: source,
+          ...(args.values.get('poster') ? { poster: args.values.get('poster') } : {}),
+          ...(title ? { title } : {}),
+        }
+      : { version: '1', kind, path: source, ...(title ? { title } : {}) };
+  const scope = artifactScope(args);
+  const descriptor = await api(`${artifactBasePath(scope)}/publications`, 'POST', spec);
+  if (args.flags.has('json')) print(descriptor);
+  else process.stdout.write(`${(descriptor as { url: string }).url}\n`);
+}
+
+function publicationAssetPath(descriptor: {
+  primaryPath?: string;
+  paths?: string[];
+}): string | undefined {
+  return descriptor.primaryPath ?? descriptor.paths?.find((path) => path !== 'index.html');
 }
 
 async function writeNewArtifactLinks(run: RunRecord): Promise<void> {
@@ -634,6 +685,7 @@ function help(showAll: boolean): void {
   process.stdout.write(`  rat-things local \"Run on this computer\"\n`);
   process.stdout.write(`  rat-things files [--thread NAME]\n`);
   process.stdout.write(`  rat-things file NAME [--thread NAME]\n`);
+  process.stdout.write(`  rat-things publish file|site|video PATH [--thread NAME]\n`);
   process.stdout.write(`\nRepeat a thread name to continue the same Codex thread.\n`);
   process.stdout.write(`Run rat-things help --all for agent and automation options.\n`);
   if (!showAll) return;
@@ -653,6 +705,9 @@ function help(showAll: boolean): void {
   process.stdout.write(`  rat-things artifact RUN_ID input|output|events|patch\n`);
   process.stdout.write(`  rat-things files [--thread NAME | --run RUN_ID] [--json]\n`);
   process.stdout.write(`  rat-things file NAME [--thread NAME | --run RUN_ID] [--download PATH] [--json]\n`);
+  process.stdout.write(`  rat-things publish file PATH [--thread NAME | --run RUN_ID] [--title TEXT]\n`);
+  process.stdout.write(`  rat-things publish site ROOT [--entrypoint PATH] [--thread NAME | --run RUN_ID]\n`);
+  process.stdout.write(`  rat-things publish video PATH [--poster PATH] [--thread NAME | --run RUN_ID]\n`);
   process.stdout.write(`  rat-things list [--limit 25]\n`);
   process.stdout.write(`  rat-things doctor\n`);
 }

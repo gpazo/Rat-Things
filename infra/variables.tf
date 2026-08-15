@@ -41,6 +41,48 @@ variable "artifact_url_ttl_seconds" {
   }
 }
 
+variable "enable_publication_delivery" {
+  description = "Enable isolated CloudFront delivery for immutable file, site, and video publications."
+  type        = bool
+  default     = false
+}
+
+variable "publication_base_domain" {
+  type     = string
+  default  = null
+  nullable = true
+}
+
+variable "publication_certificate_arn" {
+  type     = string
+  default  = null
+  nullable = true
+}
+
+variable "publication_public_key_pem" {
+  type     = string
+  default  = null
+  nullable = true
+}
+
+variable "publication_private_key_secret_arn" {
+  type     = string
+  default  = null
+  nullable = true
+}
+
+variable "publication_private_key_kms_key_arn" {
+  type     = string
+  default  = null
+  nullable = true
+}
+
+variable "publication_route53_zone_id" {
+  type     = string
+  default  = null
+  nullable = true
+}
+
 variable "log_retention_days" {
   type    = number
   default = 30

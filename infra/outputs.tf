@@ -75,3 +75,8 @@ output "s3_files" {
   description = "Durable conversation filesystem outputs."
   value       = module.agent_runner.s3_files
 }
+
+output "publication_delivery" {
+  description = "Isolated file, site, and video publication delivery outputs."
+  value       = module.agent_runner.publication_delivery
+}

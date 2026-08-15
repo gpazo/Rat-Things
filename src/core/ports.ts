@@ -29,6 +29,19 @@ export interface ArtifactStore {
   getJson<T>(reference: Pick<ArtifactReference, 'bucket' | 'key'>): Promise<T>;
   putBytes(key: string, value: Uint8Array, contentType: string): Promise<ArtifactReference>;
   getBytes(reference: Pick<ArtifactReference, 'bucket' | 'key'>): Promise<Uint8Array>;
+  putStream(
+    key: string,
+    value: AsyncIterable<Uint8Array>,
+    contentType: string,
+  ): Promise<ArtifactReference>;
+  getStream(
+    reference: Pick<ArtifactReference, 'bucket' | 'key'>,
+  ): Promise<AsyncIterable<Uint8Array>>;
+  copy(
+    source: ArtifactReference,
+    key: string,
+    contentType: string,
+  ): Promise<ArtifactReference>;
 }
 
 export interface RunQueue {

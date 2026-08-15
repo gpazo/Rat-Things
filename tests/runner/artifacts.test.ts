@@ -22,6 +22,7 @@ import {
 class MemoryArtifacts {
   public readonly values = new Map<string, Uint8Array>();
   public readonly puts: string[] = [];
+  public readonly copies: string[] = [];
 
   public async putBytes(
     key: string,
@@ -42,6 +43,34 @@ class MemoryArtifacts {
     const value = this.values.get(reference.key);
     if (!value) throw new Error(`missing ${reference.key}`);
     return Uint8Array.from(value);
+  }
+
+  public async putStream(
+    key: string,
+    value: AsyncIterable<Uint8Array>,
+    contentType: string,
+  ): Promise<ArtifactReference> {
+    const chunks: Uint8Array[] = [];
+    for await (const chunk of value) chunks.push(Uint8Array.from(chunk));
+    return this.putBytes(key, Buffer.concat(chunks), contentType);
+  }
+
+  public async getStream(
+    reference: Pick<ArtifactReference, 'key'>,
+  ): Promise<AsyncIterable<Uint8Array>> {
+    const bytes = await this.getBytes(reference);
+    return (async function* () { yield bytes; })();
+  }
+
+  public async copy(
+    source: ArtifactReference,
+    key: string,
+    _contentType: string,
+  ): Promise<ArtifactReference> {
+    const bytes = await this.getBytes(source);
+    this.values.set(key, bytes);
+    this.copies.push(key);
+    return { bucket: 'artifacts', key, sha256: source.sha256 };
   }
 }
 
@@ -92,7 +121,8 @@ describe('agent artifact catalog', () => {
           file: expect.objectContaining({ key: expect.stringContaining('/runs/run-2/') }),
         }),
       ]);
-      expect(store.puts).toHaveLength(2);
+      expect(store.puts).toHaveLength(1);
+      expect(store.copies).toEqual([expect.stringContaining('/runs/run-2/')]);
 
       await restoreArtifactCatalog(replacement, { version: '1', files: unchanged }, store);
       expect(await readFile(
@@ -170,5 +200,32 @@ describe('agent artifact catalog', () => {
         },
       }],
     }, 'artifacts', 'owner-1')).toThrow('outside its owner scope');
+  });
+
+  it('preserves browser media types for common site and audio assets', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'rat-artifact-site-types-'));
+    const store = new MemoryArtifacts();
+    try {
+      await restoreArtifactCatalog(root, emptyArtifactCatalog(), store);
+      const directory = join(root, '.rat-things/artifacts/site');
+      await mkdir(directory, { recursive: true });
+      await writeFile(join(directory, 'module.wasm'), Buffer.from([0, 97, 115, 109]));
+      await writeFile(join(directory, 'font.woff2'), Buffer.from('wOF2font'));
+      await writeFile(join(directory, 'sound.mp3'), Buffer.from('ID3audio'));
+      const published = await publishArtifactCatalog({
+        workspace: root,
+        previous: emptyArtifactCatalog(),
+        artifacts: store,
+        ownerId: 'owner-1',
+        runId: 'run-1',
+      });
+      expect(Object.fromEntries(published.map((file) => [file.path, file.mediaType]))).toEqual({
+        'site/font.woff2': 'font/woff2',
+        'site/module.wasm': 'application/wasm',
+        'site/sound.mp3': 'audio/mpeg',
+      });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 });

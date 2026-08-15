@@ -63,12 +63,13 @@
     "archiver": "8.0.0"
   },
   "devDependencies": {
-    "@openai/codex": "0.146.0",
     "@aws-sdk/client-dynamodb-streams": "3.1088.0",
+    "@openai/codex": "0.146.0",
     "@types/archiver": "7.0.0",
     "@types/aws-lambda": "8.10.152",
     "@types/node": "22.15.3",
     "esbuild": "0.25.3",
+    "marked": "18.0.9",
     "tsx": "4.19.4",
     "typescript": "5.8.3",
     "vitest": "3.2.7"

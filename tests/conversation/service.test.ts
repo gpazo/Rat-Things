@@ -102,6 +102,9 @@ function harness(ids = ['id-1', 'id-2', 'id-3']) {
         sha256: createHash('sha256').update(value).digest('hex'),
       };
     }),
+    putStream: vi.fn(),
+    getStream: vi.fn(),
+    copy: vi.fn(),
   };
   let nextId = 0;
   const service = new ConversationService({

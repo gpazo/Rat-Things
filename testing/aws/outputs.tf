@@ -18,6 +18,14 @@ output "s3_files" {
   value = module.agent_runner.s3_files
 }
 
+output "publication_delivery" {
+  value = module.agent_runner.publication_delivery
+}
+
+output "publication_signing_key_secret_arn" {
+  value = try(aws_secretsmanager_secret.publication_signing_key[0].arn, null)
+}
+
 output "runs_table_name" {
   value = module.agent_runner.runs_table_name
 }

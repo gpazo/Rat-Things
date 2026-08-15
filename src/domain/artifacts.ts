@@ -1,11 +1,13 @@
 import { createHash } from 'node:crypto';
 import type { ArtifactCatalog } from './contracts.js';
 
-export const MAX_ARTIFACT_FILES = 100;
-export const MAX_ARTIFACT_FILE_BYTES = 64 * 1024 * 1024;
-export const MAX_ARTIFACT_TOTAL_BYTES = 256 * 1024 * 1024;
+export const MAX_ARTIFACT_FILES = 5_000;
+// CopyObject supports source objects up to 5 GiB; larger media needs a future
+// multipart-copy adapter rather than a looser domain promise.
+export const MAX_ARTIFACT_FILE_BYTES = 5 * 1024 * 1024 * 1024;
+export const MAX_ARTIFACT_TOTAL_BYTES = 20 * 1024 * 1024 * 1024;
 export const MAX_ARTIFACT_PATH_BYTES = 512;
-export const MAX_ARTIFACT_CATALOG_BYTES = 256_000;
+export const MAX_ARTIFACT_CATALOG_BYTES = 8 * 1024 * 1024;
 
 export function artifactIdForPath(path: string): string {
   return createHash('sha256').update(path).digest('hex').slice(0, 24);

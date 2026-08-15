@@ -5,6 +5,7 @@ import {
   ConversationStateError,
 } from '../conversation/types.js';
 import { ConflictError, ForbiddenError, NotFoundError } from '../core/run-service.js';
+import { PublicationError } from '../domain/publications.js';
 import { ValidationError } from '../domain/validation.js';
 export { getRunService } from '../app/composition.js';
 
@@ -69,11 +70,18 @@ export function errorResponse(error: unknown): APIGatewayProxyStructuredResultV2
     error instanceof ConversationConflictError ||
     error instanceof ConversationLeaseError ||
     error instanceof ConversationStateError ||
+    error instanceof PublicationError ||
     error instanceof NotFoundError ||
     error instanceof ForbiddenError;
   const statusCode =
     error instanceof ValidationError
       ? 400
+      : error instanceof PublicationError
+        ? error.code === 'not_found'
+          ? 404
+          : error.code === 'storage'
+            ? 500
+            : 400
       : error instanceof ConflictError
         ? 409
         : error instanceof ConversationConflictError || error instanceof ConversationLeaseError
@@ -118,6 +126,7 @@ function stringClaim(value: unknown): string | undefined {
 
 function errorCode(error: unknown): string {
   if (error instanceof ValidationError) return 'invalid_request';
+  if (error instanceof PublicationError) return error.code;
   if (error instanceof ConflictError) return 'conflict';
   if (error instanceof ConversationConflictError || error instanceof ConversationLeaseError) {
     return 'conflict';

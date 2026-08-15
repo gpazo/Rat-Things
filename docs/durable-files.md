@@ -4,10 +4,12 @@ Rat Things lets an agent return more than text. A successful run can publish scr
 video, PDFs, reports, logs, or other deliverables from the MicroVM, keep them with a durable thread,
 and give the authenticated caller a temporary URL that can be opened outside AWS.
 
-The interface has two parts:
+The interface has three parts:
 
 - inside the agent workspace, `.rat-things/artifacts/` is the managed file directory; and
-- outside the MicroVM, `rat-things files` and `rat-things file` list, share, or download those files.
+- outside the MicroVM, `rat-things files` and `rat-things file` list, share, or download those files;
+  and
+- `rat-things publish` explicitly turns retained files into a browser-ready file, site, or video.
 
 The MicroVM never receives an S3 credential for sharing. Trusted orchestration validates and stores
 the bytes after a successful turn, and the IAM-authenticated control API mints the bearer link.
@@ -32,7 +34,7 @@ The successful chat command also prints links for files created or changed by th
 are placeholders, not a live artifact:
 
 ```text
-pelican-bicycle.webp  https://<api-id>.execute-api.<region>.amazonaws.com/v1/shares/<token>
+pelican-bicycle.webp  https://<publication>.<share-domain>/__share/<token>
 ```
 
 Open that URL in a browser or download the bytes explicitly:
@@ -126,21 +128,26 @@ Files are private S3 objects under owner-hashed prefixes. Conversation metadata 
 catalog, and a later turn restores those exact bytes before Codex starts. The default object
 retention is 30 days and is configured independently from the MicroVM lifetime.
 
-`rat-things file` creates an opaque bearer URL valid for 24 hours by default. The public endpoint
-validates its encrypted share record and redirects to a fresh one-minute S3 URL, so rotating Lambda
-credentials do not shorten the promised lifetime. Deployments can set
-`artifact_url_ttl_seconds` from 60 through 86,400 seconds. A new link can be minted while the owner
-and retained artifact still exist.
+`rat-things file` creates an opaque bearer URL valid for 24 hours by default. With publication
+delivery enabled, the public endpoint validates its encrypted grant, installs host-only CloudFront
+signed cookies through a small compatibility landing page, and opens a browser-ready viewer.
+Deployments without that optional custom
+domain use the legacy fresh one-minute S3 redirect. In both cases rotating Lambda credentials do
+not shorten the promised lifetime. Deployments can set `artifact_url_ttl_seconds` from 60 through
+86,400 seconds. A new link can be minted while the owner and retained artifact still exist.
 
 The initial catalog limits are:
 
-- 100 files;
-- 64 MiB per file;
-- 256 MiB across the directory; and
+- 5,000 files;
+- 5 GiB per file;
+- 20 GiB across the directory;
+- 8 MiB for the JSON catalog; and
 - 512 UTF-8 bytes per relative path.
 
-PNG, JPEG, GIF, WebP, MP4, WebM, and PDF are served with viewable media types. Known safe text types
-are served as text; unknown formats are downloads.
+Transfers are streamed and unchanged retained objects are renewed with S3 server-side copies. Common
+image, audio, video, PDF, text, web-font, manifest, and WebAssembly formats receive browser-correct
+media types; unknown formats are downloads. See [publications](publications.md) for multi-file sites,
+video players, AWS setup, and the extension model.
 
 ## What the live proof established
 

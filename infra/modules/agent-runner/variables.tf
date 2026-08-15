@@ -46,6 +46,54 @@ variable "artifact_url_ttl_seconds" {
   }
 }
 
+variable "enable_publication_delivery" {
+  description = "Enable isolated CloudFront delivery for immutable file, site, and video publications."
+  type        = bool
+  default     = false
+}
+
+variable "publication_base_domain" {
+  description = "Registrable user-content domain used beneath a wildcard, for example ratusercontent.net."
+  type        = string
+  default     = null
+  nullable    = true
+}
+
+variable "publication_certificate_arn" {
+  description = "us-east-1 ACM certificate ARN covering the wildcard publication domain."
+  type        = string
+  default     = null
+  nullable    = true
+}
+
+variable "publication_public_key_pem" {
+  description = "PEM RSA public key registered with CloudFront for signed publication cookies."
+  type        = string
+  default     = null
+  nullable    = true
+}
+
+variable "publication_private_key_secret_arn" {
+  description = "Secrets Manager ARN containing the matching PEM private key; the key never enters Lambda configuration."
+  type        = string
+  default     = null
+  nullable    = true
+}
+
+variable "publication_private_key_kms_key_arn" {
+  description = "Optional customer-managed KMS key ARN used by the publication signing-key secret."
+  type        = string
+  default     = null
+  nullable    = true
+}
+
+variable "publication_route53_zone_id" {
+  description = "Optional Route 53 hosted-zone ID in which to create wildcard A and AAAA publication records."
+  type        = string
+  default     = null
+  nullable    = true
+}
+
 variable "log_retention_days" {
   description = "CloudWatch Logs retention in days."
   type        = number

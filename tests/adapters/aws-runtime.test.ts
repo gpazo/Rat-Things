@@ -1,5 +1,16 @@
+import {
+  CompleteMultipartUploadCommand,
+  CopyObjectCommand,
+  CreateMultipartUploadCommand,
+  S3Client,
+  UploadPartCommand,
+} from '@aws-sdk/client-s3';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { createAwsClientConfig, createAwsClients } from '../../src/adapters/aws-runtime.js';
+import {
+  createAwsClientConfig,
+  createAwsClients,
+  S3ArtifactStore,
+} from '../../src/adapters/aws-runtime.js';
 
 describe('AWS runtime client configuration', () => {
   afterEach(() => {
@@ -29,5 +40,47 @@ describe('AWS runtime client configuration', () => {
   it('does not install a custom endpoint for AWS deployments', () => {
     vi.stubEnv('AWS_ENDPOINT_URL', '');
     expect(createAwsClientConfig('us-west-2')).toEqual({ region: 'us-west-2' });
+  });
+
+  it('streams artifacts through multipart upload and renews unchanged objects with CopyObject', async () => {
+    const commands: unknown[] = [];
+    const client = {
+      send: vi.fn(async (command: unknown) => {
+        commands.push(command);
+        if (command instanceof CreateMultipartUploadCommand) return { UploadId: 'upload-1' };
+        if (command instanceof UploadPartCommand) return { ETag: '"etag-1"' };
+        return {};
+      }),
+    } as unknown as S3Client;
+    const store = new S3ArtifactStore(client, 'artifact-bucket');
+    const bytes = Buffer.alloc(8 * 1024 * 1024 + 3, 0xab);
+    const uploaded = await store.putStream(
+      'owners/abc/runs/run-1/video.mp4',
+      (async function* () {
+        yield bytes.subarray(0, 1024 * 1024);
+        yield bytes.subarray(1024 * 1024);
+      })(),
+      'video/mp4',
+    );
+
+    expect(commands.map((command) => (command as object).constructor)).toEqual([
+      CreateMultipartUploadCommand,
+      UploadPartCommand,
+      UploadPartCommand,
+      CompleteMultipartUploadCommand,
+    ]);
+    expect(uploaded.sha256).toMatch(/^[a-f0-9]{64}$/);
+
+    const renewed = await store.copy(
+      uploaded,
+      'owners/abc/runs/run-2/video.mp4',
+      'video/mp4',
+    );
+    expect(commands.at(-1)).toBeInstanceOf(CopyObjectCommand);
+    expect(renewed).toEqual({
+      bucket: 'artifact-bucket',
+      key: 'owners/abc/runs/run-2/video.mp4',
+      sha256: uploaded.sha256,
+    });
   });
 });

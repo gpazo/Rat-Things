@@ -37,11 +37,14 @@ Cross-identity lookup is an administrative capability outside v1.
 | `GET /v1/conversations/{conversationId}/messages/{messageId}` | Required | Poll the exact message, bound run, conversation, and suspended-session state |
 | `GET /v1/conversations/{conversationId}/artifacts` | Required | List the current durable files for an owner-scoped conversation |
 | `GET /v1/conversations/{conversationId}/artifacts/{artifact}` | Required | Return a fresh short-lived view/download URL for a conversation file |
+| `POST /v1/conversations/{conversationId}/publications` | Required | Build and share a file, site, or video from the current conversation catalog |
 | `POST /v1/runs` | Required | Validate, durably store, enqueue, and return `202` |
 | `GET /v1/runs?limit=25&nextToken=...` | Required | Newest-first runs for the current owner; limit is clamped to 1–100 |
 | `GET /v1/runs/{runId}` | Required | Current record for the current owner |
 | `GET /v1/runs/{runId}/artifacts` | Required | List user-visible files captured by the run |
 | `GET /v1/runs/{runId}/artifacts/{name}` | Required | Owner-checked URL for a generated-file ID or `input`, `output`, `events`, or `patch` |
+| `POST /v1/runs/{runId}/publications` | Required | Build and share a file, site, or video from a successful run's catalog |
+| `GET /__share/{token}` | Bearer token | Redeem a publication grant for host-only CloudFront signed cookies |
 | `GET /v1/shares/{token}` | Bearer token | Validate a time-bounded file share and redirect to private S3 |
 | `POST /v1/runs/{runId}/cancel` | Required | Request cancellation and return `202`; terminal runs are unchanged |
 
@@ -158,10 +161,11 @@ catalog is committed alongside the completed turn and restored before the next t
 bucket is therefore authoritative even if the prior MicroVM and its mounted workspace are
 unavailable.
 
-The initial limits are 100 files, 64 MiB per file, 256 MiB total, and 512 UTF-8 bytes per relative
-path. Symlinks, special files, control characters, absolute paths, and traversal are rejected. PNG,
-JPEG, GIF, WebP, MP4, WebM, and PDF receive viewable media types; unknown formats are served as
-downloads.
+The limits are 5,000 files, 5 GiB per file, 20 GiB total, an 8 MiB catalog, and 512 UTF-8 bytes per
+relative path. Symlinks, hard links, special files, control characters, absolute paths, and
+traversal are rejected. Upload and restore are streamed; retained files whose digest is unchanged
+are renewed with an S3 server-side copy. Common image, audio, video, PDF, text, web-font, manifest,
+and WebAssembly formats receive browser-correct media types; unknown formats are downloads.
 
 ```bash
 rat-things --thread release-smoke --sandbox workspace-write \
@@ -170,12 +174,14 @@ rat-things --thread release-smoke --sandbox workspace-write \
 rat-things files --thread release-smoke
 rat-things file report.pdf --thread release-smoke
 rat-things file report.pdf --thread release-smoke --download ./report.pdf
+rat-things publish file report.pdf --thread release-smoke
 ```
 
 `files --json` returns metadata without S3 bucket or key coordinates. `file` accepts a catalog ID,
 relative path, or unique basename and prints a fresh URL unless `--download` is supplied. For
 one-shot automation, use `--run RUN_ID` instead of `--thread NAME`. The complete human and agent
-workflow is documented in [Durable files and share links](durable-files.md).
+workflow is documented in [Durable files and share links](durable-files.md). The common file, site,
+and video delivery model is documented in [publications](publications.md).
 
 ## Submit a run
 
@@ -371,10 +377,12 @@ Failure adds:
 
 An artifact URL route first verifies run or conversation ownership, verifies the object belongs to
 the runtime bucket, and creates an opaque bearer URL with a deployment-configured 60–86,400 second
-lifetime (86,400 seconds by default). On access, that URL validates its encrypted S3 share record
-and redirects to a fresh one-minute S3 `GET` URL. This avoids coupling the promised lifetime to the
-control Lambda's rotating role credentials without proxying the file bytes. Treat the URL as a
-bearer credential until it expires:
+lifetime (86,400 seconds by default). With publication delivery enabled, the URL is on an isolated
+publication subdomain; redemption returns a small browser landing page that installs CloudFront
+signed cookies before opening its browser-ready `index.html`. Cookie expiry is independent of the control Lambda's rotating role credentials, and
+CloudFront reads bytes from private S3 through Origin Access Control. Deployments without the
+publication domain retain the compatibility path, which redirects each access to a fresh one-minute
+S3 `GET` URL. Treat either URL as a bearer credential until it expires:
 
 ```json
 {
@@ -382,14 +390,15 @@ bearer credential until it expires:
   "path": "pelican-bicycle.webp",
   "mediaType": "image/webp",
   "bytes": 31286,
-  "url": "https://<api-id>.execute-api.<region>.amazonaws.com/v1/shares/<token>",
+  "url": "https://<publication>.<share-domain>/__share/<token>",
   "sha256": "<sha256>",
   "expiresAt": "2026-08-02T19:22:20.000Z"
 }
 ```
 
-Unavailable or unknown artifact names return `409 conflict`. Knowing the bucket/key without a signed
-URL or separate S3 permission does not grant access.
+Explicit publication requests accept the versioned tagged bodies shown in
+[publications](publications.md#control-api). Unavailable or unknown artifact names return `409
+conflict`. Knowing the bucket/key without a grant or separate S3 permission does not grant access.
 
 ## Status and cancellation semantics
 

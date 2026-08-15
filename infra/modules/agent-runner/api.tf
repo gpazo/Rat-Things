@@ -42,6 +42,7 @@ locals {
   )
 
   control_routes = toset([
+    "GET /__share/{token}",
     "GET /health",
     "GET /v1/conversations/{conversationId}/artifacts",
     "GET /v1/conversations/{conversationId}/artifacts/{artifact}",
@@ -54,6 +55,8 @@ locals {
     "POST /v1/runs",
     "POST /v1/runs/{runId}/cancel",
     "POST /v1/conversations/{conversationId}/messages",
+    "POST /v1/conversations/{conversationId}/publications",
+    "POST /v1/runs/{runId}/publications",
   ])
 
   webhook_routes = merge(
@@ -78,10 +81,14 @@ resource "aws_apigatewayv2_integration" "lambda" {
 resource "aws_apigatewayv2_route" "control" {
   for_each = local.control_routes
 
-  api_id             = aws_apigatewayv2_api.this.id
-  route_key          = each.value
-  authorization_type = contains(["GET /health", "GET /v1/shares/{token}"], each.value) ? "NONE" : "AWS_IAM"
-  target             = "integrations/${aws_apigatewayv2_integration.lambda["control"].id}"
+  api_id    = aws_apigatewayv2_api.this.id
+  route_key = each.value
+  authorization_type = contains([
+    "GET /__share/{token}",
+    "GET /health",
+    "GET /v1/shares/{token}",
+  ], each.value) ? "NONE" : "AWS_IAM"
+  target = "integrations/${aws_apigatewayv2_integration.lambda["control"].id}"
 }
 
 resource "aws_apigatewayv2_route" "webhook" {

@@ -38,6 +38,20 @@ receives only that token. Turn one writes unique bytes through a command tool ca
 the same MicroVM and Codex thread and reads those bytes from the same workspace path. The test also
 verifies tool events, workspace patches, usage, state, re-suspension, and empty failure queues.
 
+Set both publication variables to add the isolated CloudFront delivery path to the disposable stack:
+
+```bash
+AWS_E2E_PUBLICATION_DOMAIN="agent-content.example.com" \
+AWS_E2E_PUBLICATION_ROUTE53_ZONE_ID="Z1234567890" \
+./scripts/aws-e2e-deploy.sh demo
+```
+
+The deploy helper creates and DNS-validates a wildcard certificate in `us-east-1`, generates an
+ephemeral CloudFront signing-key pair, stores only the private key in Secrets Manager, and removes
+the local key files even if deployment fails. The base domain must be dedicated to untrusted agent
+content and owned by the supplied public Route 53 zone. Terraform teardown removes the certificate,
+validation record, wildcard aliases, distribution, key group, and signing-key secret.
+
 Version `1` of the managed `al2023-1` base image was validated in `us-west-2` on 2026-08-03–04.
 Managed Rat Things image versions `1.0` through `3.0` were created during integration debugging; the
 final persistence run used `3.0`. Discover

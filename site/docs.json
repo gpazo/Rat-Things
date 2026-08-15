@@ -1,0 +1,40 @@
+{
+  "groups": [
+    {
+      "title": "Start here",
+      "documents": [
+        "codex-subscription.md",
+        "conversations.md",
+        "durable-files.md",
+        "sharing-work.md"
+      ]
+    },
+    {
+      "title": "Connect services",
+      "documents": [
+        "github-webhook-onboarding.md",
+        "microsoft-teams.md",
+        "channels.md",
+        "plugins.md"
+      ]
+    },
+    {
+      "title": "Build and operate",
+      "documents": [
+        "development-and-deployment.md",
+        "runbook.md",
+        "costs.md"
+      ]
+    },
+    {
+      "title": "Reference",
+      "documents": [
+        "publications.md",
+        "api.md",
+        "architecture.md",
+        "security.md",
+        "status-and-roadmap.md"
+      ]
+    }
+  ]
+}

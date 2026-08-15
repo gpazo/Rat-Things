@@ -17,6 +17,8 @@ provider and the AWS Cloud Control provider required for the MicroVM image resou
 - A custom EventBridge bus, terminal-state notifier target, failure queues, and alarms.
 - A Lambda MicroVM image built from `dist/microvm-source.zip`, its execution/build roles, log group,
   and SSM image metadata.
+- When enabled, one private-S3 CloudFront distribution with wildcard publication isolation, signed
+  cookies, response hardening, and optional Route 53 aliases for file, site, and video sharing.
 
 It does not create ECS, ECR, a customer VPC, subnets, a NAT gateway, or a customer MicroVM network
 connector. Image builds and runs use AWS-managed networking. Add a customer VPC connector only in a
@@ -41,6 +43,11 @@ version rather than relying on an implicit latest version.
 
 The default driver is `mock`, so the initial infrastructure smoke test does not spend model tokens.
 See [development and deployment](../docs/development-and-deployment.md) for the full validation flow.
+
+Publication delivery is optional and requires a separate registrable wildcard user-content domain,
+a matching CloudFront certificate in `us-east-1`, an RSA public key, and the matching private key in
+Secrets Manager. See [publications](../docs/publications.md#aws-setup) for the complete setup and
+security model. The module output `publication_delivery` reports the distribution and DNS state.
 
 ## Credentials and network behavior
 

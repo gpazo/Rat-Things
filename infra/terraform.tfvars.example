@@ -36,6 +36,21 @@ teams_delivery_mode               = "workflow"
 # choose any whole-second lifetime from one minute through one day.
 artifact_url_ttl_seconds = 86400
 
+# Optional durable publication delivery. Use a dedicated user-content domain,
+# a us-east-1 wildcard ACM certificate for that domain, and a CloudFront RSA
+# public key whose private half is stored in Secrets Manager. Route 53 records
+# can be managed here or supplied by another DNS provider.
+# enable_publication_delivery         = true
+# publication_base_domain             = "agent-content.example"
+# publication_certificate_arn         = "arn:aws:acm:us-east-1:111122223333:certificate/00000000-0000-0000-0000-000000000000"
+# publication_public_key_pem          = <<-PEM
+#   -----BEGIN PUBLIC KEY-----
+#   ...
+#   -----END PUBLIC KEY-----
+# PEM
+# publication_private_key_secret_arn  = "arn:aws:secretsmanager:us-west-2:111122223333:secret:agent/publication-private-key-AbCdEf"
+# publication_route53_zone_id         = "Z0123456789EXAMPLE"
+
 # Run `aws lambda-microvms list-managed-microvm-image-versions` and pin an
 # AVAILABLE al2023-1 version. `npm run package` must have produced the source ZIP.
 enable_microvm              = true
