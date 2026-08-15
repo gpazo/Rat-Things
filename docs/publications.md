@@ -29,7 +29,7 @@ The flow is:
  immutable publication objects -- manifest committed last
               |
               v
- random bearer grant -- browser landing -- CloudFront signed cookies
+ random bearer grant -- signed first page -- host-only session cookies
               |
               v
  isolated publication subdomain -- private S3 through OAC
@@ -86,10 +86,11 @@ Site and video requests use the same versioned tagged shape:
 ```
 
 The response URL is on a publication-specific host. Its `/__share/{token}` route validates the
-encrypted S3 share record and returns a short browser landing page with host-only signed cookies.
-The cookies are delivered as protected response headers and, for clients that lose cookies while
-following redirects, repeated by the landing page before it opens `/`. All relative site assets
-then work naturally beneath the same origin for the full grant lifetime.
+encrypted S3 share record and redirects to a cryptographically signed first-page URL while also
+installing host-only signed cookies. The first page therefore opens even when a browser delays or
+drops cookies from the redirect. CloudFront repeats the cookies on that successful page response,
+and generated file and video viewers also carry the signed authorization into their asset requests.
+Relative site assets then work naturally beneath the same isolated origin for the grant lifetime.
 
 ## AWS setup
 
@@ -118,9 +119,10 @@ create equivalent DNS records with the external provider.
 
 The module creates one distribution, not one distribution per publication. A CloudFront Function
 maps the validated publication host to its owner-scoped S3 prefix. Origin Access Control keeps S3
-private, and a trusted key group enforces the signed cookies. Each publication receives a distinct
-browser origin and host-only cookie jar, preventing one generated site from reading another
-publication's content.
+private, and a trusted key group enforces both the signed entry URL and signed cookies. A small
+viewer-response function refreshes the host-only cookies after the signed first page succeeds.
+Each publication receives a distinct browser origin and cookie jar, preventing one generated site
+from reading another publication's content.
 
 The supplied response policy allows local inline scripts and styles needed by static agent output,
 but blocks cross-origin resource and API connections, framing, objects, forms, referrers, and
@@ -133,7 +135,7 @@ Add a new member to the versioned `PublicationSpec` tagged union and implement o
 `PublicationBuilder`. A builder receives catalog blobs and returns the publication directory it
 wants; it does not import AWS clients, mint URLs, or write objects. Register it at composition time,
 then add focused planning tests. Blob persistence, manifest-last commit, share grants, CloudFront
-delivery, and CLI cookie handling remain unchanged.
+delivery, and CLI authorization handling remain unchanged.
 
 Current retained-artifact limits are 5,000 files, 5 GiB per file, 20 GiB per catalog, and 512 UTF-8
 bytes per relative path. Transfers are streamed with multipart S3 uploads. Unchanged retained files

@@ -108,10 +108,10 @@ The command returns a link ready to paste into a pull request, message, email, o
 https://<publication-host>/__share/<grant-token>
 ```
 
-Share that complete URL. The `/__share/<grant-token>` portion is the credential exchange. After a
-browser opens it, the address bar may show only the publication hostname; that shorter address is
-not a reusable share link and will return a CloudFront `Missing Key-Pair-Id` error in a fresh
-browser.
+Share that complete URL. The `/__share/<grant-token>` portion is the credential exchange. The
+browser then keeps a signed first-page URL in its address bar, so using the browser's Share command
+also produces a reusable link for the remainder of the grant lifetime. The visually shortened
+hostname shown by some mobile address bars is not the full link.
 
 The complete URL is a time-bounded bearer grant:
 
@@ -149,12 +149,12 @@ the evidence that a recipient can open it.
 
 | Symptom | Likely cause | Recovery |
 | --- | --- | --- |
-| `Missing Key-Pair-Id` | The bare publication hostname or an incomplete link was shared | Use the original complete `/__share/<token>` URL or mint a fresh one |
+| `Missing Key-Pair-Id` | A bare publication hostname or an incomplete older link was shared | Use the original complete `/__share/<token>` URL or mint a fresh link |
 | `AccessDenied` / `Request has expired` | The bearer grant or a legacy S3 redirect expired | Ask the owner to mint a new link |
 | Site HTML loads but assets fail | Absolute paths, missing retained files, or blocked external dependencies | Use relative paths, republish the complete root, and remove undeclared network dependencies |
 | Video downloads instead of playing | Unsupported media type or encoding | Produce a browser-compatible MP4 and republish as `video` |
 | Publication returns not found | The token was revoked, expired, malformed, or its share record is gone | Create a new publication grant from the retained source |
-| CLI download returns HTML | The client predates browser landing support | Update Rat Things and retry the canonical link |
+| CLI download returns HTML | The client predates publication redemption support | Update Rat Things and retry the canonical link |
 
 For the implementation and security model, continue with [Publications](publications.md), [Durable
 files and share links](durable-files.md), and the [Security and threat model](security.md).

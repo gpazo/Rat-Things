@@ -378,8 +378,9 @@ Failure adds:
 An artifact URL route first verifies run or conversation ownership, verifies the object belongs to
 the runtime bucket, and creates an opaque bearer URL with a deployment-configured 60–86,400 second
 lifetime (86,400 seconds by default). With publication delivery enabled, the URL is on an isolated
-publication subdomain; redemption returns a small browser landing page that installs CloudFront
-signed cookies before opening its browser-ready `index.html`. Cookie expiry is independent of the control Lambda's rotating role credentials, and
+publication subdomain; redemption redirects to a signed browser-ready `index.html` and installs
+equivalent CloudFront cookies for its subresources. The signed first page does not depend on a
+browser preserving cookies through the redirect. Grant expiry is independent of the control Lambda's rotating role credentials, and
 CloudFront reads bytes from private S3 through Origin Access Control. Deployments without the
 publication domain retain the compatibility path, which redirects each access to a fresh one-minute
 S3 `GET` URL. Treat either URL as a bearer credential until it expires:

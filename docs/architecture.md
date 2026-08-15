@@ -268,9 +268,10 @@ control API should remain authenticated.
 The publication layer projects immutable blobs into a browser-ready directory with a required
 `index.html`; its manifest is committed last as the ready marker. Versioned, tagged builders cover
 files, static sites, and video without importing AWS concerns. An authenticated owner then mints an
-unguessable, time-bounded share grant. When publication delivery is enabled, redemption installs
-host-only CloudFront signed cookies for one publication-specific subdomain. One distribution and a
-small host router serve all publications from private S3 through Origin Access Control. The legacy
+unguessable, time-bounded share grant. When publication delivery is enabled, redemption signs the
+first page and installs equivalent host-only CloudFront cookies for one publication-specific
+subdomain. One distribution and small edge functions route publications, refresh authorization,
+and serve private S3 through Origin Access Control. The legacy
 one-minute S3 redirect remains the compatibility path for deployments that have not enabled the
 custom domain. See [publications](publications.md).
 

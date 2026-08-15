@@ -3,7 +3,6 @@ import {
   artifactUrlTtlSeconds,
   apiConversationRequestBody,
   apiRequestBody,
-  publicationShareLandingPage,
 } from '../../src/lambdas/control.js';
 
 describe('artifact URL lifetime', () => {
@@ -13,32 +12,6 @@ describe('artifact URL lifetime', () => {
     expect(artifactUrlTtlSeconds('7200')).toBe(7_200);
     expect(artifactUrlTtlSeconds('86401')).toBe(86_400);
     expect(artifactUrlTtlSeconds('invalid')).toBe(86_400);
-  });
-});
-
-describe('publication share landing page', () => {
-  it('sets a browser fallback for all CloudFront cookies before opening the publication', () => {
-    const html = publicationShareLandingPage('https://publication.content.example/', [
-      'CloudFront-Policy=policy; Path=/; Secure; HttpOnly; SameSite=Lax',
-      'CloudFront-Signature=signature; Path=/; Secure; HttpOnly; SameSite=Lax',
-      'CloudFront-Key-Pair-Id=K12345678; Path=/; Secure; HttpOnly; SameSite=Lax',
-    ]);
-
-    expect(html).toContain('document.cookie = cookie');
-    expect(html).toContain('CloudFront-Key-Pair-Id=K12345678; Path=/; Secure; SameSite=Lax');
-    expect(html).not.toContain('HttpOnly');
-    expect(html).toContain('window.location.replace("https://publication.content.example/")');
-  });
-
-  it('escapes values embedded in its inline bootstrap', () => {
-    const html = publicationShareLandingPage('https://publication.content.example/', [
-      'CloudFront-Policy=</script><script>alert(1)</script>; Path=/; Secure; HttpOnly',
-      'CloudFront-Signature=signature; Path=/; Secure; HttpOnly',
-      'CloudFront-Key-Pair-Id=K12345678; Path=/; Secure; HttpOnly',
-    ]);
-
-    expect(html).not.toContain('</script><script>alert(1)</script>');
-    expect(html).toContain('CloudFront-Policy=\\u003c/script>');
   });
 });
 

@@ -3,7 +3,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { GetObjectCommand, HeadObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
 import { GetSecretValueCommand } from '@aws-sdk/client-secrets-manager';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
-import { cloudFrontSignedCookies } from '../adapters/cloudfront-publications.js';
+import { cloudFrontSignedAccess } from '../adapters/cloudfront-publications.js';
 import {
   createAwsClients,
   S3PublicationObjectStore,
@@ -484,7 +484,7 @@ async function publishAndShare(input: {
   const files = publicationSourceFiles(input.catalog, ownerHash);
   const publicationFiles = relevantPublicationFiles(input.spec, files);
   const publicationId = createHash('sha256').update(JSON.stringify({
-    format: 'rat-things-publication-v1',
+    format: 'rat-things-publication-v2',
     runId: input.runId,
     conversationId: input.conversationId,
     spec: input.spec,
@@ -700,23 +700,23 @@ async function artifactShareResponse(token: string) {
   if (remainingSeconds <= 0) throw new NotFoundError('artifact share has expired');
   if (share.version === '2') {
     const host = publicationHost(share.grant.publicationId, share.grant.ownerHash);
-    const cookies = cloudFrontSignedCookies({
+    const target = `https://${host}/`;
+    const access = cloudFrontSignedAccess({
       grant: share.grant,
       resource: `https://${host}/*`,
       keyPairId: requiredEnv('PUBLICATION_KEY_PAIR_ID'),
       privateKey: await publicationPrivateKey(),
-    });
-    const target = `https://${host}/`;
+    }, target);
     return {
-      statusCode: 200,
+      statusCode: 302,
       headers: {
         'cache-control': 'private, no-store',
-        'content-type': 'text/html; charset=utf-8',
+        location: access.url,
         'referrer-policy': 'no-referrer',
         'x-content-type-options': 'nosniff',
       },
-      cookies,
-      body: publicationShareLandingPage(target, cookies),
+      cookies: access.cookies,
+      body: '',
     };
   }
   const name = share.published?.path ?? share.fallbackName ?? share.published?.id ?? 'artifact';
@@ -742,52 +742,6 @@ async function artifactShareResponse(token: string) {
     },
     body: '',
   };
-}
-
-export function publicationShareLandingPage(target: string, cookies: readonly string[]): string {
-  const targetUrl = new URL(target);
-  if (targetUrl.protocol !== 'https:' || targetUrl.username || targetUrl.password) {
-    throw new Error('publication share target must be an HTTPS URL');
-  }
-  if (cookies.length !== 3) throw new Error('publication share requires three signed cookies');
-  const browserCookies = cookies.map((cookie) => cookie.replace(/; HttpOnly(?=;|$)/i, ''));
-  const encodedTarget = inlineScriptJson(targetUrl.toString());
-  const encodedCookies = inlineScriptJson(browserCookies);
-  const escapedTarget = escapeHtmlAttribute(targetUrl.toString());
-  return `<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <meta http-equiv="refresh" content="1;url=${escapedTarget}">
-  <title>Opening shared work</title>
-</head>
-<body>
-  <main>
-    <p>Opening shared work…</p>
-    <p><a href="${escapedTarget}">Continue</a></p>
-  </main>
-  <script>
-    for (const cookie of ${encodedCookies}) document.cookie = cookie;
-    window.location.replace(${encodedTarget});
-  </script>
-</body>
-</html>`;
-}
-
-function inlineScriptJson(value: unknown): string {
-  return JSON.stringify(value)
-    .replace(/</g, '\\u003c')
-    .replace(/\u2028/g, '\\u2028')
-    .replace(/\u2029/g, '\\u2029');
-}
-
-function escapeHtmlAttribute(value: string): string {
-  return value
-    .replace(/&/g, '&amp;')
-    .replace(/"/g, '&quot;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
 }
 
 function parseArtifactShare(raw: string, bucket: string, token: string): ArtifactShare {

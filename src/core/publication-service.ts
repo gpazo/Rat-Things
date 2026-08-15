@@ -253,7 +253,7 @@ export function defaultPublicationBuilders(): PublicationBuilderRegistry {
 
 class FilePublicationBuilder implements PublicationBuilder {
   public readonly kind = 'file';
-  public readonly name = 'rat-things/file@1';
+  public readonly name = 'rat-things/file@2';
 
   public async plan(
     spec: PublicationSpec,
@@ -277,7 +277,7 @@ class FilePublicationBuilder implements PublicationBuilder {
 
 class VideoPublicationBuilder implements PublicationBuilder {
   public readonly kind = 'video';
-  public readonly name = 'rat-things/video@1';
+  public readonly name = 'rat-things/video@2';
 
   public async plan(
     spec: PublicationSpec,
@@ -388,13 +388,13 @@ function failure(
 function fileViewer(title: string | undefined, file: PublicationSourceFile, assetPath: string): Uint8Array {
   const name = title ?? basename(file.path);
   const href = encodePath(assetPath);
-  let preview = `<a class="download" href="${href}" download>Download ${escapeHtml(basename(file.path))}</a>`;
+  let preview = `<a class="download" data-publication-href="${href}" download>Download ${escapeHtml(basename(file.path))}</a>`;
   if (file.blob.mediaType.startsWith('image/')) {
-    preview = `<img src="${href}" alt="${escapeHtml(name)}">${preview}`;
+    preview = `<img data-publication-src="${href}" alt="${escapeHtml(name)}">${preview}`;
   } else if (file.blob.mediaType.startsWith('audio/')) {
-    preview = `<audio src="${href}" controls preload="metadata"></audio>${preview}`;
+    preview = `<audio data-publication-src="${href}" controls preload="metadata"></audio>${preview}`;
   } else if (file.blob.mediaType === 'application/pdf') {
-    preview = `<iframe src="${href}" title="${escapeHtml(name)}"></iframe>${preview}`;
+    preview = `<iframe data-publication-src="${href}" title="${escapeHtml(name)}"></iframe>${preview}`;
   }
   return htmlDocument(name, preview);
 }
@@ -406,11 +406,11 @@ function videoViewer(
   posterPath?: string,
 ): Uint8Array {
   const name = title ?? basename(video.path);
-  const poster = posterPath ? ` poster="${encodePath(posterPath)}"` : '';
+  const poster = posterPath ? ` data-publication-poster="${encodePath(posterPath)}"` : '';
   return htmlDocument(
     name,
-    `<video src="${encodePath(videoPath)}"${poster} controls playsinline preload="metadata"></video>` +
-      `<a class="download" href="${encodePath(videoPath)}" download>Download ${escapeHtml(basename(video.path))}</a>`,
+    `<video data-publication-src="${encodePath(videoPath)}"${poster} controls playsinline preload="metadata"></video>` +
+      `<a class="download" data-publication-href="${encodePath(videoPath)}" download>Download ${escapeHtml(basename(video.path))}</a>`,
   );
 }
 
@@ -432,7 +432,17 @@ function htmlDocument(title: string, body: string): Uint8Array {
     `main{width:min(1120px,100%);padding:24px;display:grid;gap:20px;text-align:center}h1{font-size:clamp(1.2rem,3vw,2rem);margin:0;overflow-wrap:anywhere}` +
     `img,video,iframe{display:block;max-width:100%;max-height:78vh;margin:auto;border:0;border-radius:12px;background:#08080a}iframe{width:100%;height:78vh}` +
     `audio{width:min(720px,100%);margin:auto}.download{color:#9dccff}</style></head>` +
-    `<body><main><h1>${escapeHtml(title)}</h1>${body}</main></body></html>`);
+    `<body><main><h1>${escapeHtml(title)}</h1>${body}</main>` +
+    `<script>${publicationAssetAuthorizationScript()}</script></body></html>`);
+}
+
+function publicationAssetAuthorizationScript(): string {
+  return `(()=>{const names=['Policy','Signature','Key-Pair-Id'];const source=new URLSearchParams(location.search);` +
+    `const auth=new URLSearchParams();for(const name of names){const value=source.get(name);if(value)auth.set(name,value)}` +
+    `const resolve=(path)=>{const url=new URL(path,location.href);url.search=auth.toString();return url.toString()};` +
+    `for(const element of document.querySelectorAll('[data-publication-src]'))element.src=resolve(element.dataset.publicationSrc);` +
+    `for(const element of document.querySelectorAll('[data-publication-href]'))element.href=resolve(element.dataset.publicationHref);` +
+    `for(const element of document.querySelectorAll('[data-publication-poster]'))element.poster=resolve(element.dataset.publicationPoster);})();`;
 }
 
 function escapeHtml(value: string): string {

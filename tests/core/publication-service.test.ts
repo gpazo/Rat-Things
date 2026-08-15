@@ -72,12 +72,14 @@ describe('publication service', () => {
       'copy:assets/demo.webp',
       'commit:_rat/manifest.json',
     ]);
-    expect(Buffer.from(store.generated.get('index.html')!).toString('utf8')).toContain('<img');
+    const viewer = Buffer.from(store.generated.get('index.html')!).toString('utf8');
+    expect(viewer).toContain('<img data-publication-src="assets/demo.webp"');
+    expect(viewer).toContain("const names=['Policy','Signature','Key-Pair-Id']");
     expect(result.manifest).toEqual(expect.objectContaining({
       kind: 'file',
       entrypoint: 'index.html',
       primaryPath: 'assets/demo.webp',
-      provenance: expect.objectContaining({ builder: 'rat-things/file@1' }),
+      provenance: expect.objectContaining({ builder: 'rat-things/file@2' }),
     }));
   });
 
@@ -112,7 +114,10 @@ describe('publication service', () => {
     })).resolves.toEqual(expect.objectContaining({
       manifest: expect.objectContaining({ kind: 'video', primaryPath: 'assets/movie.mp4' }),
     }));
-    expect(Buffer.from(store.generated.get('index.html')!).toString('utf8')).toContain('<video');
+    const viewer = Buffer.from(store.generated.get('index.html')!).toString('utf8');
+    expect(viewer).toContain('<video data-publication-src="assets/movie.mp4"');
+    expect(viewer).toContain('data-publication-poster="assets/poster.webp"');
+    expect(viewer).toContain("const names=['Policy','Signature','Key-Pair-Id']");
 
     await expect(service.publish({
       ownerId: 'owner-1',

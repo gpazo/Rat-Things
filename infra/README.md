@@ -18,7 +18,8 @@ provider and the AWS Cloud Control provider required for the MicroVM image resou
 - A Lambda MicroVM image built from `dist/microvm-source.zip`, its execution/build roles, log group,
   and SSM image metadata.
 - When enabled, one private-S3 CloudFront distribution with wildcard publication isolation, signed
-  cookies, response hardening, and optional Route 53 aliases for file, site, and video sharing.
+  entry URLs and cookies, response hardening, and optional Route 53 aliases for file, site, and
+  video sharing.
 
 It does not create ECS, ECR, a customer VPC, subnets, a NAT gateway, or a customer MicroVM network
 connector. Image builds and runs use AWS-managed networking. Add a customer VPC connector only in a

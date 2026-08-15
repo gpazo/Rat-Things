@@ -129,8 +129,9 @@ catalog, and a later turn restores those exact bytes before Codex starts. The de
 retention is 30 days and is configured independently from the MicroVM lifetime.
 
 `rat-things file` creates an opaque bearer URL valid for 24 hours by default. With publication
-delivery enabled, the public endpoint validates its encrypted grant, installs host-only CloudFront
-signed cookies through a small compatibility landing page, and opens a browser-ready viewer.
+delivery enabled, the public endpoint validates its encrypted grant, opens a signed browser-ready
+first page, and installs host-only CloudFront cookies for its subresources. Generated file and video
+viewers also carry the signed authorization into their asset requests.
 Deployments without that optional custom
 domain use the legacy fresh one-minute S3 redirect. In both cases rotating Lambda credentials do
 not shorten the promised lifetime. Deployments can set `artifact_url_ttl_seconds` from 60 through

@@ -4,12 +4,12 @@ import { fetchSharedResource } from '../../src/adapters/publication-client.js';
 describe('publication share client', () => {
   afterEach(() => vi.unstubAllGlobals());
 
-  it('redeems signed cookies and downloads the requested publication asset', async () => {
+  it('redeems signed entry access and downloads the requested publication asset', async () => {
     const fetchMock = vi.fn()
-      .mockResolvedValueOnce(new Response('<p>Opening shared work…</p>', {
-        status: 200,
+      .mockResolvedValueOnce(new Response('', {
+        status: 302,
         headers: [
-          ['content-type', 'text/html; charset=utf-8'],
+          ['location', 'https://publication.share.example/?Policy=policy&Signature=signature&Key-Pair-Id=key'],
           ['set-cookie', 'CloudFront-Policy=policy; Path=/; Secure; HttpOnly'],
           ['set-cookie', 'CloudFront-Signature=signature; Path=/; Secure; HttpOnly'],
           ['set-cookie', 'CloudFront-Key-Pair-Id=key; Path=/; Secure; HttpOnly'],
@@ -31,12 +31,12 @@ describe('publication share client', () => {
     expect(fetchMock.mock.calls[1]?.[1]?.headers.cookie).toContain('CloudFront-Policy=policy');
   });
 
-  it('continues to support signed-cookie redirects from older deployments', async () => {
+  it('continues to support the compatibility landing response from older deployments', async () => {
     const fetchMock = vi.fn()
-      .mockResolvedValueOnce(new Response('', {
-        status: 302,
+      .mockResolvedValueOnce(new Response('<p>Opening shared work…</p>', {
+        status: 200,
         headers: [
-          ['location', 'https://publication.share.example/'],
+          ['content-type', 'text/html; charset=utf-8'],
           ['set-cookie', 'CloudFront-Policy=policy; Path=/; Secure; HttpOnly'],
           ['set-cookie', 'CloudFront-Signature=signature; Path=/; Secure; HttpOnly'],
           ['set-cookie', 'CloudFront-Key-Pair-Id=key; Path=/; Secure; HttpOnly'],

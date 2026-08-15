@@ -105,6 +105,42 @@ resource "aws_cloudfront_function" "publication_router" {
   JAVASCRIPT
 }
 
+resource "aws_cloudfront_function" "publication_cookie_refresher" {
+  count = local.publication_delivery_enabled ? 1 : 0
+
+  name    = "${local.name}-publication-cookie-refresher"
+  runtime = "cloudfront-js-2.0"
+  comment = "Persist signed entry authorization for publication subresources"
+  publish = true
+  code    = <<-JAVASCRIPT
+    function handler(event) {
+      var request = event.request;
+      var response = event.response;
+      var query = request.querystring;
+      var policy = query.Policy;
+      var signature = query.Signature;
+      var keyPairId = query['Key-Pair-Id'];
+      if (!policy || !signature || !keyPairId) return response;
+
+      response.cookies = response.cookies || {};
+      var attributes = 'Path=/; Secure; HttpOnly; SameSite=Lax';
+      response.cookies['CloudFront-Policy'] = {
+        value: policy.value,
+        attributes: attributes
+      };
+      response.cookies['CloudFront-Signature'] = {
+        value: signature.value,
+        attributes: attributes
+      };
+      response.cookies['CloudFront-Key-Pair-Id'] = {
+        value: keyPairId.value,
+        attributes: attributes
+      };
+      return response;
+    }
+  JAVASCRIPT
+}
+
 resource "aws_cloudfront_response_headers_policy" "publications" {
   count = local.publication_delivery_enabled ? 1 : 0
 
@@ -189,6 +225,11 @@ resource "aws_cloudfront_distribution" "publications" {
     function_association {
       event_type   = "viewer-request"
       function_arn = aws_cloudfront_function.publication_router[0].arn
+    }
+
+    function_association {
+      event_type   = "viewer-response"
+      function_arn = aws_cloudfront_function.publication_cookie_refresher[0].arn
     }
   }
 
