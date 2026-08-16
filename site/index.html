@@ -308,18 +308,18 @@
       <section class="economics-section" id="economics" aria-labelledby="economics-title">
         <div class="economics-heading">
           <div>
-            <div class="section-label">Live AWS baseline · August 16, 2026</div>
-            <h2 id="economics-title">Faster to work.<br>Cheaper underneath.</h2>
+            <div class="section-label">Measured live on AWS · August 16, 2026</div>
+            <h2 id="economics-title">Ready in seconds.<br>Priced by the work.</h2>
           </div>
           <div class="economics-copy">
-            <p>A real two-turn Codex canary created, shared, resumed, revised, and republished a self-contained site. Removing low-traffic queue waits cut cold and warm startup latency while VM-local caches reduced durable storage churn.</p>
-            <a class="text-link" href="docs/costs/#two-turn-publication-baseline">Audit the measurements and cost model <span aria-hidden="true">→</span></a>
+            <p>A real two-turn Codex canary created, shared, resumed, revised, and republished a self-contained site. These are the observed end-to-end timings and public-list costs for that exact run.</p>
+            <a class="text-link" href="docs/costs/#two-turn-publication-measurement">Audit the measurements and cost model <span aria-hidden="true">→</span></a>
           </div>
         </div>
         <p class="baseline-kicker">Message received → agent runner</p>
         <dl class="performance-ledger">
-          <div><dt>27.45s</dt><dd>cold start, down from 57.24 seconds</dd></div>
-          <div><dt>1.99s</dt><dd>warm resume, down from 42.27 seconds</dd></div>
+          <div><dt>27.45s</dt><dd>cold message to agent runner</dd></div>
+          <div><dt>1.99s</dt><dd>warm message to resumed agent runner</dd></div>
           <div><dt>106.77s</dt><dd>cold message to successful site-producing run</dd></div>
           <div><dt>24.10s</dt><dd>warm message to successful revision</dd></div>
         </dl>
@@ -328,9 +328,9 @@
           <div><dt>$0.380</dt><dd>complete canary before credits, taxes, and idle infrastructure</dd></div>
           <div><dt>$0.334</dt><dd>model inference—the largest and most variable component</dd></div>
           <div><dt>$0.046</dt><dd>MicroVM, snapshots, storage, network, and control plane</dd></div>
-          <div><dt>−36%</dt><dd>non-model infrastructure cost versus the prior baseline</dd></div>
+          <div><dt>≈$36/mo</dt><dd>optional S3 Files networking floor when continuously enabled</dd></div>
         </dl>
-        <p class="cost-disclosure">Measured in <code>us-west-2</code> with one fresh turn and one same-VM continuation. Model output was richer than the previous canary, so total spend rose even as infrastructure fell. Optional S3 Files networking adds an approximately $36/month NAT and public-IP floor when continuously enabled. S3 Files access is estimated until operation-level billing posts. This is a live canary, not a concurrency or production forecast.</p>
+        <p class="cost-disclosure">Measured in <code>us-west-2</code> with one fresh turn and one same-VM continuation. The optional monthly floor is not included in the $0.380 run estimate. S3 Files access is estimated until operation-level billing posts. This is a live canary, not a concurrency or production forecast.</p>
       </section>
 
       <section class="section architecture-section" id="architecture" aria-labelledby="architecture-title">

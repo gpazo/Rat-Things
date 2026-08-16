@@ -4,9 +4,9 @@ Rat Things is designed to pay for isolated agent execution while work is active 
 an agent computer online between requests. The durable control plane remains available, but agent
 compute launches, resumes, suspends, or terminates with the conversation.
 
-> **Current live baseline:** 27.45 seconds from a cold message to the agent runner, 1.99 seconds
+> **Current live measurement:** 27.45 seconds from a cold message to the agent runner, 1.99 seconds
 > warm, about $0.046 of non-model infrastructure, and about $0.380 total at public list rates for
-> one two-turn site-generation canary. See [Two-turn publication baseline](#two-turn-publication-baseline)
+> one two-turn site-generation canary. See [Two-turn publication measurement](#two-turn-publication-measurement)
 > for the exact scope, breakdown, and caveats.
 
 This makes Rat Things economically different from an always-on VPS, EC2 instance, or dedicated
@@ -47,26 +47,25 @@ AWS applies a one-week minimum retention period to Lambda MicroVM image snapshot
 images were deleted, but roughly $0.07–$0.08 of additional gross storage usage may post while the
 minimum ages out. That expected tail is not included in the $1.27 figure.
 
-## Two-turn publication baseline
+## Two-turn publication measurement
 
 On **2026-08-16**, one fresh API conversation created and shared a self-contained animated site,
 then resumed the same suspended MicroVM to revise and republish it. This is a canary measurement,
 not a concurrency benchmark. It covers message receipt through terminal orchestration and a
 recipient opening the resulting share link.
 
-| Timing | Previous path | Current path | Change |
-| --- | ---: | ---: | ---: |
-| Cold message received to agent runner | 57.24 s | 27.45 s | 52% faster |
-| Cold message received to successful run | 183.00 s | 106.77 s | 42% faster |
-| Warm message received to agent runner | 42.27 s | 1.99 s | 95% faster |
-| Warm message received to successful run | 64.00 s | 24.10 s | 62% faster |
+| Timing | Current measurement |
+| --- | ---: |
+| Cold message received to agent runner | 27.45 s |
+| Cold message received to successful run | 106.77 s |
+| Warm message received to agent runner | 1.99 s |
+| Warm message received to successful run | 24.10 s |
 
 The cold control plane accepted the message and started the MicroVM in 3.34 seconds. AWS reported
 the MicroVM started at `14:39:55.922Z`; S3 Files was mounted 23.17 seconds later and the agent runner
 started 24.11 seconds after the reported VM start. On the warm turn, the dispatcher began resume at
 `14:42:01.030Z` and the runner started 0.91 seconds later. The two SQS queue-delay measurements were
-695 ms plus 565 ms cold and 133 ms plus 124 ms warm. Removing both low-traffic batching windows,
-rather than changing the MicroVM itself, accounts for most of the end-to-end improvement.
+695 ms plus 565 ms cold and 133 ms plus 124 ms warm.
 
 The current public-list estimate for this exact two-turn canary is **about $0.380** before credits,
 taxes, image-build cost, or the stack's idle floor:
@@ -82,16 +81,15 @@ taxes, image-build cost, or the stack's idle floor:
 | **Total** | **about $0.380** |
 
 The model emitted 373,826 cumulative input tokens: 351,634 cache-read, 22,148 cache-write, and 44
-uncached, plus 9,654 output tokens. Model work was richer than the previous canary, so total cost
-rose from about $0.328 even though non-model infrastructure fell from about $0.072 to **$0.046**, a
-roughly 36% reduction. If the account's previously observed 20% effective model discount persists,
-the same canary is about **$0.313** before credits.
+uncached, plus 9,654 output tokens. The estimated non-model infrastructure portion is **$0.046**.
+If the account's observed 20% effective model discount persists, the same canary is about **$0.313**
+before credits.
 
 S3 Files access is the only provisional line because its operation-level billing records post
-later. The estimate applies the previous measured access amplification to the new durable working
-set. The directly observed backing set fell from 4,789 objects and 60.5 MB to **155 objects and
-13.39 MB**; the high-performance-storage minimum for that set is 14.55 MB, or about $0.0044 for a
-full 30-day month. The ordinary artifact/publication path created 30 objects totaling 356 KB. A
+later. The estimate applies the observed access amplification to the durable working set. The
+directly observed backing set contained **155 objects and 13.39 MB**; the high-performance-storage
+minimum for that set is 14.55 MB, or about $0.0044 for a full 30-day month. The ordinary
+artifact/publication path created 30 objects totaling 356 KB. A
 repeat read of the unchanged output left all committed publication timestamps untouched, proving
 that it minted a fresh grant without restaging the content.
 

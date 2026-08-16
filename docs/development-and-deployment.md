@@ -135,7 +135,7 @@ to avoid paying for idle route cardinality.
 
 The 2026-08-16 live canary measured 27.45 seconds from a cold message to the agent runner, including
 24.11 seconds from AWS's reported MicroVM start to the runner, and 1.99 seconds from a warm message
-to the resumed runner. See the [two-turn publication baseline](costs.md#two-turn-publication-baseline)
+to the resumed runner. See the [two-turn publication measurement](costs.md#two-turn-publication-measurement)
 for the full latency, state-footprint, NAT, token, and list-cost breakdown.
 
 ## Remote mock smoke test

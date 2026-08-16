@@ -180,7 +180,7 @@ function renderDocsHome(groups, documents) {
         <div class="docs-home-actions">
           <a class="docs-button docs-button-primary" href="./codex-subscription/">Start with Codex</a>
           <a class="docs-button" href="./sharing-work/">Publish the work</a>
-          <a class="docs-button" href="./costs/#two-turn-publication-baseline">Performance &amp; cost</a>
+          <a class="docs-button" href="./costs/#two-turn-publication-measurement">Performance &amp; cost</a>
           <a class="docs-button" href="./development-and-deployment/">Deploy the runtime</a>
         </div>
         <dl class="docs-proof" aria-label="Rat Things capabilities">
