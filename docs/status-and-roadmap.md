@@ -40,15 +40,13 @@ disaster-recovery proof.
   fixing S3's missing-key `AccessDenied` behavior without adding bucket-list authority.
 - A second output retrieval reused the committed content-derived publication: its three S3 object
   timestamps stayed unchanged while the control plane could issue a fresh time-bounded grant.
-- Cold message-to-runner time fell from 57.24 to 27.45 seconds and warm message-to-runner time fell
-  from 42.27 to 1.99 seconds after removing two low-traffic SQS batching windows. Embedded metrics
-  recorded the cold queue delays as 695 ms and 565 ms and warm delays as 133 ms and 124 ms.
+- Cold message-to-runner time was 27.45 seconds and warm message-to-runner time was 1.99 seconds.
+  Embedded metrics recorded the cold queue delays as 695 ms and 565 ms and warm delays as 133 ms
+  and 124 ms.
 - High-churn Codex temp/cache/plugin-cache and publication-staging directories stayed on VM-local
-  bind mounts. The conversation's S3 Files backing set was 155 objects and 13.39 MB, down from 4,789
-  objects and 60.5 MB in the previous measurement.
+  bind mounts. The conversation's S3 Files backing set was 155 objects and 13.39 MB.
 - The two-turn public-list estimate is about $0.380: $0.334 model inference and about $0.046 other
-  infrastructure. The richer agent task used more model tokens than the prior canary even though
-  the infrastructure portion fell about 36%.
+  infrastructure.
 - The full local quality gate passed with 162 tests and 11 intentional skips, plus architecture,
   package, site, and Terraform validation.
 

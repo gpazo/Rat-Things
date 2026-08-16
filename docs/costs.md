@@ -1,18 +1,16 @@
 # Cost model and measured AWS spend
 
-Rat Things is designed to pay for isolated agent execution while work is active instead of keeping
-an agent computer online between requests. The durable control plane remains available, but agent
-compute launches, resumes, suspends, or terminates with the conversation.
+Rat Things keeps the control plane durable and launches isolated agent compute only for active
+conversations. Operators can see the cost of each layer: model usage, MicroVM execution and
+snapshots, request-scale control-plane services, and optional continuity infrastructure.
 
 > **Current live measurement:** 27.45 seconds from a cold message to the agent runner, 1.99 seconds
 > warm, about $0.046 of non-model infrastructure, and about $0.380 total at public list rates for
 > one two-turn site-generation canary. See [Two-turn publication measurement](#two-turn-publication-measurement)
 > for the exact scope, breakdown, and caveats.
 
-This makes Rat Things economically different from an always-on VPS, EC2 instance, or dedicated
-desktop. Those can be sensible for steady, trusted, single-tenant workloads. For intermittent or
-untrusted agent work, however, they charge for idle capacity and leave host lifecycle, isolation,
-patching, credential residency, and concurrency with the operator.
+Agent threads, workspaces, and published files remain durable while execution scales with active
+work. The result is an auditable per-run cost with no continuously running agent worker.
 
 ## Measured build and test spend
 
@@ -204,18 +202,17 @@ The measured canaries received effective Cost Explorer rates about 20% below tho
 Because that may be account-specific, capacity planning should use public prices unless the target
 account has a documented discount.
 
-## Comparing deployment models
+## Where Rat Things fits
 
-| Deployment model | Idle cost | Isolation and lifecycle | Best fit |
+| Deployment model | Execution model | Isolation and continuity | Best fit |
 | --- | --- | --- | --- |
-| Always-on VPS or VM | Host is billed while waiting | Operator patches, fences, monitors, and replaces the host | Steady trusted workload with consistently high utilization |
-| Dedicated desktop or Mac mini | Hardware, power, network, and operator time remain committed | Physical ownership; remote access and multi-agent isolation remain operator concerns | Trusted personal workstation or fixed local automation |
-| Rat Things MicroVM | No agent compute while no MicroVM is running | Dedicated guest per active conversation; AWS owns VM provisioning and teardown | Bursty, isolated, multi-conversation agent execution |
+| Kubernetes | Agents run as pods on cluster capacity | Cluster policy and storage integrations provide isolation and persistence | Large platforms that already operate Kubernetes and need custom scheduling |
+| ECS or Fargate | Agents run as container tasks or services | Managed container lifecycle with external storage for continuity | Containerized jobs and services that fit an existing ECS platform |
+| Rat Things | A dedicated MicroVM runs only while a conversation is active | Guest-kernel isolation with native suspend, resume, thread, workspace, and publication continuity | Bursty, stateful agent conversations without an agent worker fleet |
 
-This is not a claim that serverless is always cheaper. Sustained high utilization can favor reserved
-or owned capacity, and S3 Files' NAT gateway creates an idle floor. Rat Things is optimized for the
-case where agent demand is intermittent, isolation matters, and idle machines are the wrong unit of
-scale.
+Rat Things is purpose-built for durable agent conversations. Kubernetes and ECS remain natural
+choices when agents are one workload inside a broader container platform or run continuously at
+high utilization.
 
 ## Cost controls before production
 
