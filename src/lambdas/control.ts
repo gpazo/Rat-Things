@@ -6,6 +6,8 @@ import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { cloudFrontSignedAccess } from '../adapters/cloudfront-publications.js';
 import {
   createAwsClients,
+  publicationShareObjectKey,
+  S3PublicationGrantStore,
   S3PublicationObjectStore,
 } from '../adapters/aws-runtime.js';
 import { requiredEnv } from '../adapters/executors.js';
@@ -15,15 +17,18 @@ import {
   getConversationSubmissionService,
 } from '../app/composition.js';
 import { ConflictError, NotFoundError } from '../core/run-service.js';
-import { PublicationService } from '../core/publication-service.js';
-import type { PublicationSourceFile } from '../core/publication-service.js';
+import {
+  latestPublicationSourceRunId,
+  PublicationPublisher,
+  publicationTtlSeconds,
+} from '../core/publication-publisher.js';
 import { artifactIdForPath, validateArtifactCatalog } from '../domain/artifacts.js';
 import type { AgentInput, ArtifactReference, RunRecord } from '../domain/contracts.js';
 import type { ArtifactCatalog, PublishedArtifact } from '../domain/contracts.js';
 import type { ConversationRecord } from '../domain/conversations.js';
 import type {
-  PublicationKind,
-  PublicationManifest,
+  PublicationDescriptor,
+  PublicationShare,
   PublicationSpec,
   ShareGrant,
 } from '../domain/publications.js';
@@ -55,23 +60,7 @@ interface LegacyArtifactShare {
   expiresAt: string;
 }
 
-interface PublicationShare {
-  version: '2';
-  kind: PublicationKind;
-  grant: ShareGrant;
-}
-
 type ArtifactShare = LegacyArtifactShare | PublicationShare;
-
-interface PublicationDescriptor {
-  publicationId: string;
-  kind: PublicationKind;
-  url: string;
-  expiresAt: string;
-  entrypoint: PublicationManifest['entrypoint'];
-  primaryPath?: string;
-  paths: string[];
-}
 
 let publicationPrivateKeyPromise: Promise<string> | undefined;
 
@@ -180,7 +169,7 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
     ) {
       const catalog = await conversationArtifactCatalog(ownerId, conversationKey);
       const spec = parsePublicationSpec(jsonBody(event));
-      const sourceRunId = latestSourceRunId(catalog, spec);
+      const sourceRunId = latestPublicationSourceRunId(catalog, spec);
       return response(201, await publishAndShare({
         ownerId,
         spec,
@@ -456,7 +445,7 @@ async function artifactDescriptor(
   };
   await artifactClient.send(new PutObjectCommand({
     Bucket: artifact.bucket,
-    Key: artifactShareKey(token),
+    Key: publicationShareObjectKey(token),
     Body: JSON.stringify(share),
     ContentType: 'application/json',
     ServerSideEncryption: 'AES256',
@@ -479,124 +468,16 @@ async function publishAndShare(input: {
   if (!publicationDeliveryConfigured()) {
     throw new ConflictError('publication delivery is not configured for this deployment');
   }
-  validateArtifactCatalog(input.catalog);
-  const ownerHash = createHash('sha256').update(input.ownerId).digest('hex').slice(0, 32);
-  const files = publicationSourceFiles(input.catalog, ownerHash);
-  const publicationFiles = relevantPublicationFiles(input.spec, files);
-  const publicationId = createHash('sha256').update(JSON.stringify({
-    format: 'rat-things-publication-v2',
-    runId: input.runId,
-    conversationId: input.conversationId,
-    spec: input.spec,
-    files: publicationFiles
-      .map((file) => ({ path: file.path, digest: file.blob.digest }))
-      .sort((left, right) => left.path.localeCompare(right.path)),
-  })).digest('hex').slice(0, 24);
-  const service = new PublicationService(new S3PublicationObjectStore(
-    artifactClient,
-    requiredEnv('ARTIFACT_BUCKET'),
-  ));
-  const published = await service.publish({
-    ownerId: input.ownerId,
-    publicationId,
-    spec: input.spec,
-    files,
-    runId: input.runId,
-    ...(input.conversationId ? { conversationId: input.conversationId } : {}),
-    createdAt: publicationCreatedAt(input.catalog, publicationFiles),
-  });
-
-  const expiresIn = artifactUrlTtlSeconds(process.env.ARTIFACT_URL_TTL_SECONDS);
-  const expiresAt = new Date(Date.now() + expiresIn * 1_000).toISOString();
-  const token = `${ownerHash}-${randomBytes(32).toString('hex')}`;
-  const grant: ShareGrant = {
-    version: '1',
-    id: token,
-    publicationId,
-    ownerHash,
-    access: 'bearer',
-    expiresAt,
-  };
-  const share: PublicationShare = { version: '2', kind: published.manifest.kind, grant };
-  await artifactClient.send(new PutObjectCommand({
-    Bucket: requiredEnv('ARTIFACT_BUCKET'),
-    Key: artifactShareKey(token),
-    Body: JSON.stringify(share),
-    ContentType: 'application/json',
-    ServerSideEncryption: 'AES256',
-  }));
-  return {
-    publicationId,
-    kind: published.manifest.kind,
-    url: `https://${publicationHost(publicationId, ownerHash)}/__share/${token}`,
-    expiresAt,
-    entrypoint: published.manifest.entrypoint,
-    ...(published.manifest.primaryPath ? { primaryPath: published.manifest.primaryPath } : {}),
-    paths: published.manifest.files.map((file) => file.path),
-  };
-}
-
-function publicationCreatedAt(
-  catalog: ArtifactCatalog,
-  files: readonly PublicationSourceFile[],
-): string {
-  return catalog.files
-    .filter((candidate) => files.some((file) => file.path === candidate.path))
-    .map((file) => file.createdAt)
-    .sort((left, right) => right.localeCompare(left))[0] ?? new Date(0).toISOString();
-}
-
-function publicationSourceFiles(
-  catalog: ArtifactCatalog,
-  ownerHash: string,
-): PublicationSourceFile[] {
   const bucket = requiredEnv('ARTIFACT_BUCKET');
-  return catalog.files.map((file) => {
-    if (
-      file.file.bucket !== bucket ||
-      !file.file.key.startsWith(`owners/${ownerHash}/runs/`)
-    ) throw new Error(`artifact ${file.id} is outside its owner scope`);
-    return {
-      path: file.path,
-      blob: {
-        id: file.file.key,
-        digest: `sha256:${file.file.sha256}`,
-        size: file.bytes,
-        mediaType: file.mediaType,
-      },
-    };
-  });
-}
-
-function relevantPublicationFiles(
-  spec: PublicationSpec,
-  files: readonly PublicationSourceFile[],
-): PublicationSourceFile[] {
-  if (spec.kind === 'file') return files.filter((file) => file.path === spec.path);
-  if (spec.kind === 'video') {
-    return files.filter((file) => file.path === spec.path || file.path === spec.poster);
-  }
-  const prefix = spec.root ? `${spec.root}/` : '';
-  return files.filter((file) => !prefix || file.path.startsWith(prefix));
-}
-
-function latestSourceRunId(catalog: ArtifactCatalog, spec: PublicationSpec): string {
-  const files = relevantPublicationFiles(
-    spec,
-    catalog.files.map((file) => ({
-      path: file.path,
-      blob: {
-        id: file.file.key,
-        digest: `sha256:${file.file.sha256}`,
-        size: file.bytes,
-        mediaType: file.mediaType,
-      },
-    })),
-  );
-  return catalog.files
-    .filter((candidate) => files.some((file) => file.path === candidate.path))
-    .sort((left, right) => right.createdAt.localeCompare(left.createdAt))[0]?.sourceRunId ??
-      'conversation-publication';
+  return new PublicationPublisher(
+    new S3PublicationObjectStore(artifactClient, bucket),
+    new S3PublicationGrantStore(artifactClient, bucket),
+    {
+      artifactBucket: bucket,
+      baseDomain: requiredEnv('PUBLICATION_BASE_DOMAIN'),
+      ttlSeconds: publicationTtlSeconds(process.env.ARTIFACT_URL_TTL_SECONDS),
+    },
+  ).publish(input);
 }
 
 async function publicationMetadataFor(
@@ -669,9 +550,7 @@ async function loadPublicationPrivateKey(): Promise<string> {
 }
 
 export function artifactUrlTtlSeconds(configured: string | undefined): number {
-  const seconds = Number(configured ?? 86_400);
-  if (!Number.isFinite(seconds)) return 86_400;
-  return Math.max(60, Math.min(86_400, Math.floor(seconds)));
+  return publicationTtlSeconds(configured);
 }
 
 async function artifactShareResponse(token: string) {
@@ -680,7 +559,7 @@ async function artifactShareResponse(token: string) {
   try {
     const result = await artifactClient.send(new GetObjectCommand({
       Bucket: bucket,
-      Key: artifactShareKey(token),
+      Key: publicationShareObjectKey(token),
     }));
     if (!result.Body) throw new NotFoundError('artifact share not found');
     raw = await result.Body.transformToString('utf8');
@@ -799,12 +678,6 @@ function parseArtifactShare(raw: string, bucket: string, token: string): Artifac
 function sharePathParameter(event: APIGatewayProxyEventV2): string | undefined {
   const token = event.pathParameters?.token;
   return token && /^[a-f0-9]{32}-[a-f0-9]{64}$/.test(token) ? token : undefined;
-}
-
-function artifactShareKey(token: string): string {
-  const ownerHash = token.slice(0, 32);
-  const digest = createHash('sha256').update(token).digest('hex');
-  return `owners/${ownerHash}/shares/${digest}.json`;
 }
 
 function apiBaseUrl(event: APIGatewayProxyEventV2): string {

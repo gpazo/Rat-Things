@@ -73,7 +73,7 @@ grant ownership. The general control API overwrites caller-supplied source metad
 | Duplicate or suppressed notification | Conditional per-destination fence; `sending` uses a 120-second reclaimable lease; EventBridge retries failed notifier invocations for up to 24 hours/185 attempts and then uses an encrypted, alarmed DLQ | `outcome_unknown` requires provider reconciliation. A crash after provider acceptance but before recording `delivered` can be reclaimed and posted twice; no fence can make an API without an idempotency key exactly once. Drill DLQ redrive and ambiguous outcomes |
 | Self-triggering provider loop | GitHub/GitLab comments require a non-empty trigger; outbound source replies carry a hidden runtime marker; normalization ignores marked replies and provider-declared bot authors | Marker/bot checks prevent ordinary runtime reply loops, not malicious-author abuse. Test provider payload variations and cap per-owner/thread runs and model cost before production |
 | Lost terminal notification event | DynamoDB Streams separates the state commit from EventBridge publication; the mapping retries ten times over a maximum 24-hour record age, then sends invocation metadata to an encrypted SQS failure queue with an alarm | Replay is manual, the failure item does not contain the full stream record, and DynamoDB Streams data expires. Drill sequence-range replay and current-run event reconstruction; consider a durable outbox if this recovery objective is insufficient |
-| Artifact/publication disclosure | Private S3, checksums, owner-hashed prefixes, authenticated owner check, bounded catalogs, unguessable grants, publication-specific hosts, host-only signed cookies, CloudFront OAC, and a legacy one-minute S3 redirect | Run records still expose S3 coordinates. Add revocation, audit/rate limits, content scanning, and policy profiles before broader sharing |
+| Artifact/publication disclosure | Private S3, checksums, owner-hashed prefixes, authenticated owner check, bounded catalogs, strict agent publication declarations, unguessable grants, publication-specific hosts, host-only signed cookies, CloudFront OAC, and a legacy one-minute S3 redirect | Run records still expose S3 coordinates. Add revocation, audit/rate limits, content scanning, and policy profiles before broader sharing |
 | Supply-chain compromise | Locked npm dependencies and immutable reference-project pins | Pin container bases by digest, scan/sign images and bundles, generate SBOMs, protect CI provenance, and review MicroVM snapshots |
 | Snapshot contamination | Run-specific data is supplied at `/run`, not intended for image build | Verify hooks never bake secrets, unique IDs, live sockets, or checkout state; follow AWS snapshot guidance on every image revision |
 
@@ -90,7 +90,11 @@ Do not collapse these roles:
    secrets, write artifacts/state, and optionally invoke the intended model. The current module
    scopes DynamoDB to the whole run table and S3 to `owners/*`, not one run; per-run credentials or a
    broker are a hardening item. The agent child runs as UID 10001 with a sanitized environment and
-   should receive only a scoped Bedrock bearer key.
+   should receive only a scoped Bedrock bearer key. For conversational sharing, the child can write
+   only a versioned publication declaration containing retained relative paths. Trusted root
+   orchestration verifies owner scope, writes publication objects and grants, and returns the bearer
+   URL through the encrypted result; the child receives neither S3 credentials nor CloudFront key
+   material.
 4. **Notifier role** reads terminal artifacts and only the outbound secrets/APIs it serves. It does
    not run agents or clone repositories.
 

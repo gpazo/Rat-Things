@@ -35,6 +35,34 @@ The flow is:
  isolated publication subdomain -- private S3 through OAC
 ```
 
+## Conversational publishing
+
+When publication delivery is enabled, a user can simply ask the agent to share its work. The agent
+writes the deliverables beneath `.rat-things/artifacts/` and an ephemeral outbox at
+`.rat-things/share.json`:
+
+```json
+{
+  "version": "1",
+  "publications": [
+    {
+      "version": "1",
+      "kind": "site",
+      "root": "web",
+      "entrypoint": "index.html",
+      "title": "The Deliverator chase"
+    }
+  ]
+}
+```
+
+The outbox is cleared before every turn, capped at ten requests and 32 KiB, and rejected if it is a
+symbolic link, hard link, or malformed document. It is a declaration rather than authority: the
+trusted runner resolves every path through the authenticated owner's catalog, performs publication,
+mints the grant, and appends the real link to the stored result. Bearer URLs remain in encrypted S3
+result bodies rather than DynamoDB previews. Persistent workspaces and Codex state still support the
+next conversational turn; the outbox itself is never replayed.
+
 Publication builders are pure planning components. They return a typed result with diagnostics;
 only the publication service performs storage effects. Builders are selected through a duplicate-
 rejecting registry, and rendering is separate from storage and delivery. These choices borrow the
@@ -43,7 +71,7 @@ cleanest ideas from [Pi](https://github.com/earendil-works/pi): tagged data over
 data, and an “effects at the edge” orchestration layer. Rat Things does not copy Pi's extension API;
 it keeps the surface narrow around the publication capability.
 
-## CLI
+## Explicit CLI publishing
 
 Every source path is relative to `.rat-things/artifacts/` in the selected run or thread.
 

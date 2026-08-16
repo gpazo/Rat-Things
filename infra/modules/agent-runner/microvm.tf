@@ -44,7 +44,7 @@ resource "awscc_lambda_microvm_image" "runner" {
     architecture = "ARM_64"
   }]
   egress_network_connectors = [local.microvm_build_egress_connector_arn]
-  environment_variables = [
+  environment_variables = concat([
     {
       key   = "ALLOWED_SANDBOX_MODES"
       value = join(",", var.allowed_sandbox_modes)
@@ -65,7 +65,20 @@ resource "awscc_lambda_microvm_image" "runner" {
       key   = "RUN_AGENT_UID"
       value = "10001"
     },
-  ]
+    ], local.publication_delivery_enabled ? [
+    {
+      key   = "AGENT_PUBLICATION_ENABLED"
+      value = "true"
+    },
+    {
+      key   = "PUBLICATION_BASE_DOMAIN"
+      value = local.publication_domain
+    },
+    {
+      key   = "ARTIFACT_URL_TTL_SECONDS"
+      value = tostring(var.artifact_url_ttl_seconds)
+    },
+  ] : [])
   resources = [{
     minimum_memory_in_mi_b = var.microvm_memory_mib
   }]

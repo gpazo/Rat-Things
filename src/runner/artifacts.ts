@@ -29,6 +29,9 @@ import type {
 export const AGENT_ARTIFACT_DIRECTORY = '.rat-things/artifacts';
 
 export async function prepareArtifactDirectory(workspace: string): Promise<string> {
+  const control = controlRoot(workspace);
+  await mkdir(control, { recursive: true, mode: 0o700 });
+  await handoff(control);
   const root = artifactRoot(workspace);
   await mkdir(root, { recursive: true, mode: 0o700 });
   await handoff(root);
@@ -42,6 +45,9 @@ export async function restoreArtifactCatalog(
   artifacts: Pick<ArtifactStore, 'getStream'>,
 ): Promise<void> {
   validateArtifactCatalog(catalog);
+  const control = controlRoot(workspace);
+  await mkdir(control, { recursive: true, mode: 0o700 });
+  await handoff(control);
   const root = artifactRoot(workspace);
   await rm(root, { recursive: true, force: true });
   await mkdir(root, { recursive: true, mode: 0o700 });
@@ -143,16 +149,26 @@ export async function localArtifactPaths(workspace: string): Promise<string[]> {
   return listArtifactPaths(await prepareArtifactDirectory(workspace));
 }
 
-export function artifactPrompt(prompt: string): string {
-  return [
+export function artifactPrompt(
+  prompt: string,
+  publicationEnabled = process.env.AGENT_PUBLICATION_ENABLED === 'true',
+): string {
+  const instructions = [
     'Rat Things files:',
     `- Files available to this session are under ${AGENT_ARTIFACT_DIRECTORY}/.`,
     `- When write access is enabled, return or preserve a file by writing it under ${AGENT_ARTIFACT_DIRECTORY}/ using a clear relative filename.`,
     '- Managed runs catalog files after a successful turn; durable conversations restore them when they resume, even in a replacement MicroVM.',
     '- Mention the relative filename in your response. Do not create credentials or secrets there.',
-    'User request:',
-    prompt,
-  ].join('\n\n');
+  ];
+  if (publicationEnabled) {
+    instructions.push(
+      'Rat Things sharing:',
+      '- When the user asks you to share finished work, write .rat-things/share.json in addition to the files under .rat-things/artifacts/.',
+      '- Use exactly {"version":"1","publications":[...]} where each publication is one of: {"version":"1","kind":"site","root":"site","entrypoint":"index.html","title":"Title"}, {"version":"1","kind":"file","path":"file.ext","title":"Title"}, or {"version":"1","kind":"video","path":"video.mp4","poster":"poster.jpg","title":"Title"}. Omit optional fields you do not need.',
+      '- Publication paths are relative to .rat-things/artifacts/. The trusted runner publishes them and appends the real share links to your response. Never invent or guess a share URL.',
+    );
+  }
+  return [...instructions, 'User request:', prompt].join('\n\n');
 }
 
 export function emptyArtifactCatalog(): ArtifactCatalog {
@@ -175,6 +191,10 @@ export function assertArtifactCatalogScope(
 
 function artifactRoot(workspace: string): string {
   return resolve(workspace, AGENT_ARTIFACT_DIRECTORY);
+}
+
+function controlRoot(workspace: string): string {
+  return resolve(workspace, '.rat-things');
 }
 
 function artifactPath(root: string, path: string): string {

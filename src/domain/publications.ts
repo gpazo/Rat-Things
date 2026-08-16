@@ -97,6 +97,22 @@ export interface ShareGrant {
   revokedAt?: string;
 }
 
+export interface PublicationShare {
+  version: '2';
+  kind: PublicationKind;
+  grant: ShareGrant;
+}
+
+export interface PublicationDescriptor {
+  publicationId: string;
+  kind: PublicationKind;
+  url: string;
+  expiresAt: string;
+  entrypoint: PublicationManifest['entrypoint'];
+  primaryPath?: string;
+  paths: string[];
+}
+
 const PUBLICATION_ID_PATTERN = /^[a-f0-9]{24}$/;
 const OWNER_HASH_PATTERN = /^[a-f0-9]{32}$/;
 const DIGEST_PATTERN = /^sha256:[a-f0-9]{64}$/;

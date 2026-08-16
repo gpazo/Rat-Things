@@ -13,6 +13,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type { ArtifactReference } from '../../src/domain/contracts.js';
 import {
+  artifactPrompt,
   assertArtifactCatalogScope,
   emptyArtifactCatalog,
   publishArtifactCatalog,
@@ -75,6 +76,14 @@ class MemoryArtifacts {
 }
 
 describe('agent artifact catalog', () => {
+  it('teaches the agent the publication outbox only when sharing is enabled', () => {
+    expect(artifactPrompt('Create a demo', false)).not.toContain('share.json');
+    const prompt = artifactPrompt('Create and share a demo', true);
+    expect(prompt).toContain('.rat-things/share.json');
+    expect(prompt).toContain('The trusted runner publishes them');
+    expect(prompt).toContain('Never invent or guess a share URL');
+  });
+
   it('publishes, reuses, restores, and deletes durable files by relative path', async () => {
     const root = await mkdtemp(join(tmpdir(), 'rat-artifacts-'));
     const replacement = await mkdtemp(join(tmpdir(), 'rat-artifacts-replacement-'));

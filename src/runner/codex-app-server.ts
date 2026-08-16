@@ -132,7 +132,8 @@ export async function runCodexAppServer(
       return;
     }
     if (message.method === 'error') {
-      turnCompleteReject?.(notificationError(params));
+      const error = terminalNotificationError(params);
+      if (error) turnCompleteReject?.(error);
       return;
     }
     if (message.method === 'turn/completed') {
@@ -254,7 +255,11 @@ function jsonRpcError(value: unknown): Error {
   return new Error(`Codex app-server request failed: ${JSON.stringify(value).slice(0, 1_000)}`);
 }
 
-function notificationError(params: Record<string, unknown>): Error {
+export function terminalNotificationError(params: Record<string, unknown>): Error | undefined {
+  // Codex emits error notifications for transient stream interruptions while
+  // app-server reconnects on its own. Per the v2 protocol, willRetry means the
+  // notification does not interrupt the active turn.
+  if (params.willRetry === true) return undefined;
   const error = isRecord(params.error) ? params.error : params;
   if (typeof error.message === 'string') return new Error(error.message);
   return new Error(`Codex app-server error: ${JSON.stringify(params).slice(0, 1_000)}`);

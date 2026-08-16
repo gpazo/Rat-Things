@@ -23,7 +23,11 @@ locals {
     MICROVM_SESSION_IDLE_SECONDS         = tostring(var.microvm_session_idle_seconds)
     MICROVM_SESSION_SUSPENDED_SECONDS    = tostring(var.microvm_session_suspended_seconds)
     S3_FILES_ENABLED                     = tostring(var.enable_s3_files)
-    }, local.bedrock_api_key_secret_arn == null ? {} : {
+    }, length(var.codex_bedrock_model_ids) > 0 ? {
+    # Keep the unattended runtime default inside the same exact-model IAM
+    # allowlist. Callers may still select another explicitly allowed model.
+    DEFAULT_MODEL = var.codex_bedrock_model_ids[0]
+    } : {}, local.bedrock_api_key_secret_arn == null ? {} : {
     BEDROCK_API_KEY_SECRET_ARN = local.bedrock_api_key_secret_arn
     }, var.enable_s3_files ? {
     MICROVM_VPC_NETWORK_CONNECTOR_ARN = awscc_lambda_network_connector.s3_files[0].arn

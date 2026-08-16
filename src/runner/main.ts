@@ -6,7 +6,10 @@ import {
   createAwsClients,
   DynamoRunStore,
   S3ArtifactStore,
+  S3PublicationGrantStore,
+  S3PublicationObjectStore,
 } from '../adapters/aws-runtime.js';
+import { PublicationPublisher, publicationTtlSeconds } from '../core/publication-publisher.js';
 import { requiredEnv } from '../adapters/executors.js';
 import { CredentialBroker } from '../credentials/broker.js';
 import type { ArtifactCatalog, RunError, RunRecord } from '../domain/contracts.js';
@@ -22,6 +25,12 @@ import {
   publishArtifactCatalog,
   restoreArtifactCatalog,
 } from './artifacts.js';
+import {
+  appendSharedPublications,
+  clearAgentShareRequest,
+  readAgentShareRequests,
+} from './publications.js';
+import type { SharedPublication } from './publications.js';
 import { collectWorkspacePatch, prepareWorkspace } from './workspace.js';
 
 export async function runAgentWorker(): Promise<void> {
@@ -98,6 +107,7 @@ export async function runAgentWorker(): Promise<void> {
       : emptyArtifactCatalog();
     assertArtifactCatalogScope(previousArtifacts, artifactBucket, current.ownerId);
     await restoreArtifactCatalog(workspace, previousArtifacts, artifacts);
+    await clearAgentShareRequest(workspace);
     const timeoutSeconds = Number(process.env.RUN_TIMEOUT_SECONDS ?? request.execution?.timeoutSeconds ?? 900);
     const driver = driverFor(request.agent?.driver ?? defaultDriver());
     if (driver.name === 'codex' && codexAuthMode() === 'bedrock') {
@@ -105,8 +115,7 @@ export async function runAgentWorker(): Promise<void> {
     }
     const execution = await driver.execute(request, workspace, timeoutSeconds * 1_000, abort.signal);
     const prefix = `owners/${ownerHash}/runs/${runId}`;
-    const [output, eventArtifact, patch, publishedArtifacts] = await Promise.all([
-      artifacts.putBytes(`${prefix}/result.md`, Buffer.from(execution.fullText), 'text/markdown; charset=utf-8'),
+    const [eventArtifact, patch, publishedArtifacts] = await Promise.all([
       artifacts.putBytes(`${prefix}/events.jsonl`, execution.events, 'application/x-ndjson'),
       collectWorkspacePatch(workspace),
       publishArtifactCatalog({
@@ -117,6 +126,40 @@ export async function runAgentWorker(): Promise<void> {
         runId,
       }),
     ]);
+    const catalog: ArtifactCatalog = { version: '1', files: publishedArtifacts };
+    const requestedPublications = process.env.AGENT_PUBLICATION_ENABLED === 'true'
+      ? await readAgentShareRequests(workspace)
+      : [];
+    const sharedPublications: SharedPublication[] = [];
+    if (requestedPublications.length > 0) {
+      const publisher = new PublicationPublisher(
+        new S3PublicationObjectStore(clients.s3, artifactBucket),
+        new S3PublicationGrantStore(clients.s3, artifactBucket),
+        {
+          artifactBucket,
+          baseDomain: requiredEnv('PUBLICATION_BASE_DOMAIN'),
+          ttlSeconds: publicationTtlSeconds(process.env.ARTIFACT_URL_TTL_SECONDS),
+        },
+      );
+      for (const requested of requestedPublications) {
+        const descriptor = await publisher.publish({
+          ownerId: current.ownerId,
+          spec: requested.spec,
+          catalog,
+          runId,
+          ...(current.conversation
+            ? { conversationId: current.conversation.conversationId }
+            : {}),
+        });
+        sharedPublications.push({ ...requested, descriptor });
+      }
+    }
+    const fullText = appendSharedPublications(execution.fullText, sharedPublications);
+    const output = await artifacts.putBytes(
+      `${prefix}/result.md`,
+      Buffer.from(fullText),
+      'text/markdown; charset=utf-8',
+    );
     const patchArtifact = patch
       ? await artifacts.putBytes(`${prefix}/workspace.patch`, patch, 'text/x-diff')
       : undefined;

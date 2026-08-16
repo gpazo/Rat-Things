@@ -216,7 +216,6 @@ async function chat(args: Arguments): Promise<void> {
         if (args.flags.has('json')) print(current);
         else {
           await writeArtifact(current.run.runId, 'output');
-          await writeNewArtifactLinks(current.run);
         }
         return;
       }
@@ -410,21 +409,6 @@ function publicationAssetPath(descriptor: {
   paths?: string[];
 }): string | undefined {
   return descriptor.primaryPath ?? descriptor.paths?.find((path) => path !== 'index.html');
-}
-
-async function writeNewArtifactLinks(run: RunRecord): Promise<void> {
-  const files = (run.result?.artifacts ?? []).filter(
-    (artifact) => artifact.sourceRunId === run.runId,
-  );
-  if (files.length === 0) return;
-  const scope = { kind: 'run' as const, id: run.runId };
-  const descriptors = await Promise.all(
-    files.map((metadata) => artifactDescriptorFor(scope, metadata.id)),
-  );
-  process.stderr.write('\nFiles:\n');
-  for (const descriptor of descriptors) {
-    process.stderr.write(`  ${descriptor.path}\t${descriptor.url}\n`);
-  }
 }
 
 type ArtifactScope = { kind: 'run' | 'conversation'; id: string };

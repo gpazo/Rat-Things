@@ -42,9 +42,15 @@ import type {
   RunQueue,
   RunStore,
 } from '../core/ports.js';
+import type { PublicationGrantStore } from '../core/publication-publisher.js';
 import type { PublicationObjectStore } from '../core/publication-service.js';
 import { validateArtifactPath } from '../domain/artifacts.js';
-import type { BlobReference, PublicationManifest } from '../domain/publications.js';
+import type {
+  BlobReference,
+  PublicationManifest,
+  PublicationShare,
+} from '../domain/publications.js';
+import { validateShareGrant } from '../domain/publications.js';
 import type { ConversationQueue } from '../conversation/types.js';
 import type { SecretReader } from '../credentials/types.js';
 import type { ResultReader } from '../delivery/types.js';
@@ -455,6 +461,33 @@ export class S3PublicationObjectStore implements PublicationObjectStore {
       mediaType: 'application/json',
     };
   }
+}
+
+export class S3PublicationGrantStore implements PublicationGrantStore {
+  public constructor(
+    private readonly client: S3Client,
+    private readonly bucket: string,
+  ) {}
+
+  public async put(share: PublicationShare): Promise<void> {
+    validateShareGrant(share.grant);
+    await this.client.send(new PutObjectCommand({
+      Bucket: this.bucket,
+      Key: publicationShareObjectKey(share.grant.id),
+      Body: JSON.stringify(share),
+      ContentType: 'application/json',
+      ServerSideEncryption: 'AES256',
+    }));
+  }
+}
+
+export function publicationShareObjectKey(token: string): string {
+  if (!/^[a-f0-9]{32}-[a-f0-9]{64}$/.test(token)) {
+    throw new Error('publication share token is invalid');
+  }
+  const ownerHash = token.slice(0, 32);
+  const digest = createHash('sha256').update(token).digest('hex');
+  return `owners/${ownerHash}/shares/${digest}.json`;
 }
 
 function ownerHashFor(ownerId: string): string {

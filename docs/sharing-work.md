@@ -16,7 +16,25 @@ A file publication is the fastest route from artifact to audience. Use a site fo
 multi-asset experience, and use a video publication when fast streaming and a dedicated player
 matter.
 
-## The agent output contract
+## Ask the agent to create and share
+
+The normal human workflow is a conversation, not a publishing pipeline:
+
+```bash
+rat-things --thread launch-demo --sandbox workspace-write \
+  "Create an interactive launch demo as a self-contained website and share it with me."
+```
+
+The agent creates the retained files and declares the publication it wants. After the turn, trusted
+orchestration validates those paths, builds the publication, creates an expiring grant, and appends
+the canonical link to the agent's reply. The same mechanism works when the request comes from a
+connected chat or source-control thread, so the link returns to the place where the user is already
+talking with the agent.
+
+Use the commands below when you want to inspect retained work, republish an older result, select a
+different root or poster, or drive the flow from structured automation.
+
+## The retained output contract
 
 An agent must save every deliverable beneath `.rat-things/artifacts/` before its run completes.
 Nested paths are retained, so group related work in a directory:
@@ -44,6 +62,10 @@ After the run, inspect the catalog rather than guessing filenames:
 ```bash
 rat-things files --thread launch-demo
 ```
+
+When asked to share during the turn, the agent also writes a bounded declaration to
+`.rat-things/share.json`. It contains only publication kinds and paths relative to the retained
+catalog. It contains no storage coordinates, credentials, or precomputed URLs.
 
 ## Publish a file
 
@@ -132,10 +154,12 @@ bytes remain in encrypted private S3.
 
 ## Deliver with proof
 
-An agent that creates shareable work should perform the relevant checks and report them:
+An agent that creates shareable work should perform the relevant checks and report them. The runner
+performs publication and URL creation after the agent exits, so browser validation may be completed
+by the caller or by a later agent turn:
 
 1. List the retained catalog and confirm every expected path appears.
-2. Publish the correct kind using the smallest root that contains the work.
+2. Declare the correct kind using the smallest root that contains the work.
 3. Open the complete `/__share/` URL in a fresh browser context.
 4. For sites, load each local asset and exercise the main interaction.
 5. For video, confirm playback starts and the asset supports byte ranges.

@@ -216,28 +216,26 @@ automation can use the explicit `chat` command with `--json`, `--no-wait`, `--id
 model, sandbox, reasoning, polling, and timeout controls. Run `rat-things help --all` (or
 `npm run rat-things -- help --all`) for that complete surface.
 
-### Durable files
+### Durable files and one-turn sharing
 
-An agent publishes a screenshot, image, video, document, or other file by writing it below
-`.rat-things/artifacts/` in its workspace. The trusted runner checksums and uploads the files to the
-private artifact bucket after a successful turn. A conversation catalog restores the same relative
-paths before a later turn, including when the previous MicroVM has expired and been replaced.
+An agent retains a screenshot, image, video, document, website, or other output by writing it below
+`.rat-things/artifacts/` in its workspace. The trusted runner checksums and uploads those files to
+the private artifact bucket after a successful turn. A conversation catalog restores the same
+relative paths before a later turn, including when the previous MicroVM has expired and been
+replaced.
 
-For an image-capable agent, the complete human workflow is three commands:
+When publication delivery is enabled, creating and sharing is one conversational turn:
 
 ```bash
 rat-things --thread pelican-demo --sandbox workspace-write \
-  "Create an image of a pelican riding a bicycle and save the final WebP as \
-  .rat-things/artifacts/pelican-bicycle.webp"
-
-rat-things files --thread pelican-demo
-rat-things file pelican-bicycle.webp --thread pelican-demo
+  "Create an image of a pelican riding a bicycle and share it with me."
 ```
 
-`rat-things file` prints a fresh, private view URL with a 24-hour default lifetime. Deployments can
-configure that lifetime from one minute through one day. `rat-things files --json` returns the
-bounded catalog for agents and automation. The agent never receives S3 credentials or permission to
-mint URLs; the owner-authenticated control API does that on demand.
+The agent saves the output and declares what it wants shared. Trusted orchestration validates the
+owner-scoped catalog, publishes it, and appends the canonical link and expiry to the same reply.
+The unprivileged agent never receives S3 credentials, CloudFront signing material, or permission to
+mint URLs. `rat-things files`, `rat-things file`, and `rat-things publish` remain available when a
+person or automation wants to inspect the catalog or publish explicitly.
 
 See [Durable files and share links](docs/durable-files.md) for the exact in-workspace contract,
 structured automation flow, continuation behavior, limits, security guidance, and live proof.
@@ -317,7 +315,7 @@ export RAT_THINGS_API_URL="$(terraform -chdir=infra output -raw api_endpoint)"
 export AWS_REGION="<stack region>"
 
 npm run rat-things -- --thread smoke --sandbox workspace-write \
-  "Use the shell tool to create marker.txt containing alpha."
+  "Use the shell tool to create marker.txt containing alpha, then create a small website about it and share the website."
 npm run rat-things -- --thread smoke --sandbox workspace-write \
   "Read marker.txt and explain what you remember from the first turn."
 ```
