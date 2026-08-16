@@ -7,6 +7,7 @@ import {
   RunDispatcher,
   type RunDispatcherOptions,
 } from '../execution/dispatcher.js';
+import { emitMetric, emitSqsQueueDelay } from './metrics.js';
 
 export type DispatcherDependencies = Omit<RunDispatcherOptions, 'defaultBackend'> & {
   defaultBackend?: ExecutionBackend;
@@ -25,6 +26,8 @@ export function createDispatcher(dependencies?: DispatcherDependencies): SQSHand
     });
     const failures: SQSBatchResponse['batchItemFailures'] = [];
     for (const record of event.Records) {
+      const startedAt = Date.now();
+      emitSqsQueueDelay('dispatcher', record, startedAt);
       try {
         await dispatcher.dispatch(parseRunQueueMessage(record.body));
       } catch (error) {
@@ -35,6 +38,8 @@ export function createDispatcher(dependencies?: DispatcherDependencies): SQSHand
           error: error instanceof Error ? error.message : String(error),
         }));
         failures.push({ itemIdentifier: record.messageId });
+      } finally {
+        emitMetric('dispatcher', 'ProcessingDuration', Date.now() - startedAt, 'Milliseconds');
       }
     }
     return { batchItemFailures: failures };

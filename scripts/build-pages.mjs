@@ -180,13 +180,14 @@ function renderDocsHome(groups, documents) {
         <div class="docs-home-actions">
           <a class="docs-button docs-button-primary" href="./codex-subscription/">Start with Codex</a>
           <a class="docs-button" href="./sharing-work/">Publish the work</a>
+          <a class="docs-button" href="./costs/#two-turn-publication-baseline">Performance &amp; cost</a>
           <a class="docs-button" href="./development-and-deployment/">Deploy the runtime</a>
         </div>
         <dl class="docs-proof" aria-label="Rat Things capabilities">
-          <div><dt>Same thread</dt><dd>across replacement MicroVMs</dd></div>
-          <div><dt>Files · sites · video</dt><dd>from one durable artifact model</dd></div>
-          <div><dt>Signed entry points</dt><dd>CLI, GitHub, GitLab, Teams, and Slack</dd></div>
-          <div><dt>Zero idle workers</dt><dd>compute runs only while agents work</dd></div>
+          <div><dt>27.45 seconds</dt><dd>cold message to agent runner, live measured</dd></div>
+          <div><dt>1.99 seconds</dt><dd>warm message to resumed agent runner</dd></div>
+          <div><dt>$0.046</dt><dd>non-model infrastructure for the two-turn site canary</dd></div>
+          <div><dt>$0.380</dt><dd>complete public-list estimate including model inference</dd></div>
         </dl>
         <section class="product-outcomes" aria-labelledby="product-outcomes-title">
           <div>

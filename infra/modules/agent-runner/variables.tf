@@ -112,6 +112,12 @@ variable "enable_point_in_time_recovery" {
   default     = true
 }
 
+variable "enable_detailed_api_metrics" {
+  description = "Publish per-route API Gateway metrics. Disabled by default in favor of low-cardinality application timing metrics."
+  type        = bool
+  default     = false
+}
+
 variable "run_retention_seconds" {
   description = "TTL assigned to new run records."
   type        = number

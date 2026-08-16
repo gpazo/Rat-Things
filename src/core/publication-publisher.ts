@@ -64,12 +64,14 @@ export class PublicationPublisher {
     );
     const relevant = relevantPublicationFiles(input.spec, files);
     const publicationId = createHash('sha256').update(JSON.stringify({
-      format: 'rat-things-publication-v2',
-      runId: input.runId,
-      conversationId: input.conversationId,
-      spec: input.spec,
+      format: 'rat-things-publication-v3',
+      spec: canonicalPublicationSpec(input.spec),
       files: relevant
-        .map((file) => ({ path: file.path, digest: file.blob.digest }))
+        .map((file) => ({
+          path: file.path,
+          digest: file.blob.digest,
+          mediaType: file.blob.mediaType,
+        }))
         .sort((left, right) => left.path.localeCompare(right.path)),
     })).digest('hex').slice(0, 24);
     const published = await this.service.publish({
@@ -156,10 +158,12 @@ function publicationSourceFiles(
   ownerHash: string,
 ): PublicationSourceFile[] {
   return catalog.files.map((file) => {
-    if (
-      file.file.bucket !== bucket ||
-      !file.file.key.startsWith(`owners/${ownerHash}/runs/`)
-    ) throw new Error(`artifact ${file.id} is outside its owner scope`);
+    const ownerPrefix = `owners/${ownerHash}/`;
+    const ownerScoped = file.file.key.startsWith(`${ownerPrefix}runs/`) ||
+      new RegExp(`^${ownerPrefix}blobs/sha256/[a-f0-9]{64}$`).test(file.file.key);
+    if (file.file.bucket !== bucket || !ownerScoped) {
+      throw new Error(`artifact ${file.id} is outside its owner scope`);
+    }
     return {
       path: file.path,
       blob: {
@@ -170,6 +174,33 @@ function publicationSourceFiles(
       },
     };
   });
+}
+
+function canonicalPublicationSpec(spec: PublicationSpec): Record<string, string> {
+  if (spec.kind === 'site') {
+    return {
+      version: spec.version,
+      kind: spec.kind,
+      root: spec.root ?? '',
+      entrypoint: spec.entrypoint ?? 'index.html',
+      title: spec.title ?? '',
+    };
+  }
+  if (spec.kind === 'video') {
+    return {
+      version: spec.version,
+      kind: spec.kind,
+      path: spec.path,
+      poster: spec.poster ?? '',
+      title: spec.title ?? '',
+    };
+  }
+  return {
+    version: spec.version,
+    kind: spec.kind,
+    path: spec.path,
+    title: spec.title ?? '',
+  };
 }
 
 function publicationCreatedAt(

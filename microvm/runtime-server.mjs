@@ -3,7 +3,9 @@ import {
   chmodSync,
   copyFileSync,
   existsSync,
+  lstatSync,
   mkdirSync,
+  rmSync,
 } from 'node:fs';
 import { createServer } from 'node:http';
 import { join } from 'node:path';
@@ -24,6 +26,7 @@ let selfTerminationStarted = false;
 let persistentMicrovmId;
 let persistentStorage;
 let mountWatchdog;
+let transientRunState;
 
 const server = createServer(async (request, response) => {
   response.setHeader('cache-control', 'no-store');
@@ -230,6 +233,7 @@ function startRun(run) {
     ensureS3FilesMounted(run.storage);
     const stateRoot = join(run.storage.mountRoot, run.storage.storageKey);
     prepareConversationState(stateRoot);
+    prepareTransientRunState(stateRoot, run.runId);
     run.environment.CONVERSATION_STATE_ROOT = stateRoot;
     run.environment.CODEX_HOME = join(stateRoot, 'codex-home');
     run.environment.WORKSPACE_ROOT = stateRoot;
@@ -355,9 +359,7 @@ function prepareConversationState(stateRoot) {
   const codexHome = join(stateRoot, 'codex-home');
   const workspace = join(stateRoot, 'workspace');
   for (const directory of [stateRoot, codexHome, workspace]) {
-    mkdirSync(directory, { recursive: true, mode: 0o700 });
-    chownSync(directory, uid, gid);
-    chmodSync(directory, 0o700);
+    ensureOwnedDirectory(directory, uid, gid);
   }
   const config = join(codexHome, 'config.toml');
   if (!existsSync(config)) {
@@ -366,6 +368,103 @@ function prepareConversationState(stateRoot) {
     chownSync(config, uid, gid);
     chmodSync(config, 0o600);
   }
+}
+
+function prepareTransientRunState(stateRoot, runId) {
+  const uid = Number(process.env.RUN_AGENT_UID ?? 10001);
+  const gid = Number(process.env.RUN_AGENT_GID ?? 10001);
+  const root = join(process.env.RUN_EPHEMERAL_ROOT ?? '/tmp/rat-things-runs', runId);
+  const codexHome = join(stateRoot, 'codex-home');
+  const workspace = join(stateRoot, 'workspace');
+  const directories = [
+    ['codex-dot-tmp', join(codexHome, '.tmp')],
+    ['codex-tmp', join(codexHome, 'tmp')],
+    ['codex-cache', join(codexHome, 'cache')],
+    ['plugin-cache', join(codexHome, 'plugins', 'cache')],
+    ['artifacts', join(workspace, '.rat-things', 'artifacts')],
+  ];
+
+  if (
+    transientRunState &&
+    transientRunState.targets.length === directories.length &&
+    transientRunState.targets.every((target, index) =>
+      target === directories[index][1] && isMountTarget(target))
+  ) {
+    log('info', 'ephemeral agent directories reused', {
+      runId,
+      directoryCount: directories.length,
+    });
+    return;
+  }
+
+  for (const target of transientRunState?.targets ?? directories.map(([, target]) => target)) {
+    unmountBindTarget(target);
+  }
+  if (transientRunState?.root) rmSync(transientRunState.root, { recursive: true, force: true });
+  rmSync(root, { recursive: true, force: true });
+  mkdirSync(root, { recursive: true, mode: 0o700 });
+  chownSync(root, uid, gid);
+
+  const mounted = [];
+  try {
+    for (const [name, target] of directories) {
+      const source = join(root, name);
+      ensureOwnedDirectory(join(target, '..'), uid, gid);
+      rmSync(target, { recursive: true, force: true });
+      ensureOwnedDirectory(source, uid, gid);
+      ensureOwnedDirectory(target, uid, gid);
+      const result = spawnSync('mount', ['--bind', source, target], {
+        encoding: 'utf8',
+        timeout: 5_000,
+      });
+      if (result.status !== 0) {
+        const diagnostic = `${result.error?.message ?? ''}\n${result.stderr ?? ''}\n${result.stdout ?? ''}`
+          .trim()
+          .slice(-1_000);
+        throw new Error(`ephemeral bind mount failed for ${name}: ${diagnostic || 'no diagnostic output'}`);
+      }
+      mounted.push(target);
+    }
+  } catch (error) {
+    for (const target of mounted.reverse()) unmountBindTarget(target);
+    rmSync(root, { recursive: true, force: true });
+    throw error;
+  }
+  transientRunState = { root, targets: directories.map(([, target]) => target) };
+  log('info', 'ephemeral agent directories mounted', {
+    runId,
+    directoryCount: directories.length,
+  });
+}
+
+function ensureOwnedDirectory(directory, uid, gid) {
+  if (existsSync(directory)) {
+    const stat = lstatSync(directory);
+    if (!stat.isDirectory() || stat.isSymbolicLink()) {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  }
+  mkdirSync(directory, { recursive: true, mode: 0o700 });
+  chownSync(directory, uid, gid);
+  chmodSync(directory, 0o700);
+}
+
+function unmountBindTarget(target) {
+  if (!isMountTarget(target)) return;
+  const result = spawnSync('umount', [target], { encoding: 'utf8', timeout: 5_000 });
+  if (result.status !== 0) {
+    const diagnostic = `${result.stderr ?? ''}\n${result.stdout ?? ''}`.trim().slice(-1_000);
+    throw new Error(`ephemeral bind unmount failed: ${diagnostic || 'no diagnostic output'}`);
+  }
+}
+
+function isMountTarget(target) {
+  if (!existsSync(target)) return false;
+  const mounted = spawnSync('findmnt', ['--mountpoint', target, '--noheadings'], {
+    encoding: 'utf8',
+    timeout: 5_000,
+  });
+  return mounted.status === 0 && Boolean(mounted.stdout.trim());
 }
 
 function syncPersistentStorage() {

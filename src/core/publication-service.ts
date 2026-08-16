@@ -51,6 +51,11 @@ export interface PublicationBuilder {
 }
 
 export interface PublicationObjectStore {
+  /** Returns an already committed immutable publication, when this adapter supports reuse. */
+  getCommitted?(input: {
+    ownerId: string;
+    publicationId: string;
+  }): Promise<PublishedPublication | undefined>;
   stageBlob(input: {
     ownerId: string;
     publicationId: string;
@@ -113,6 +118,18 @@ export class PublicationService {
   public async publish(input: PublishInput): Promise<PublishedPublication> {
     validatePublicationId(input.publicationId);
     for (const file of input.files) validateBlobReference(file.blob);
+    try {
+      const committed = await this.store.getCommitted?.({
+        ownerId: input.ownerId,
+        publicationId: input.publicationId,
+      });
+      if (committed) {
+        validatePublicationManifest(committed.manifest);
+        return committed;
+      }
+    } catch (error) {
+      throw storageError('could not read committed publication', error);
+    }
     const builder = this.builders.get(input.spec.kind);
     const planned = await builder.plan(input.spec, input.files);
     if (!planned.ok) {

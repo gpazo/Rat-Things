@@ -47,4 +47,28 @@ describe('ephemeral workspace', () => {
       await rm(outside, { recursive: true, force: true });
     }
   });
+
+  it('preserves the managed artifact directory while initializing a first-use durable workspace', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'agent-runtime-persistent-'));
+    const workspace = join(root, 'conversation');
+    vi.stubEnv('WORKSPACE_ROOT', root);
+    vi.stubEnv('RUN_AGENT_UID', '');
+    vi.stubEnv('RUN_AGENT_GID', '');
+    const credentials = new CredentialBroker({ get: vi.fn() });
+    try {
+      await mkdir(join(workspace, '.rat-things/artifacts'), { recursive: true });
+      await writeFile(join(workspace, '.rat-things/artifacts/staged.txt'), 'staged');
+      await writeFile(join(workspace, '.rat-things/share.json'), '{}');
+      await writeFile(join(workspace, 'stale.txt'), 'stale');
+
+      await prepareWorkspace(undefined, workspace, credentials, { reuseExisting: true });
+
+      expect(await readFile(join(workspace, '.rat-things/artifacts/staged.txt'), 'utf8')).toBe('staged');
+      await expect(readFile(join(workspace, '.rat-things/share.json'))).rejects.toMatchObject({ code: 'ENOENT' });
+      await expect(readFile(join(workspace, 'stale.txt'))).rejects.toMatchObject({ code: 'ENOENT' });
+      expect(await readFile(join(workspace, '.git/HEAD'), 'utf8')).toContain('refs/heads/');
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
 });

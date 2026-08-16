@@ -50,7 +50,7 @@ one MicroVM at a time owns the conversation and opens its Codex SQLite state.
 | Active turn and resume slice | Durable turn item in the same partition |
 | Coordinator wake-up | Encrypted SQS queue plus Lambda event-source mapping |
 | Execution continuation | Expiring MicroVM ID/state plus durable Codex thread ID on conversation metadata |
-| Native Codex/workspace state | S3 Files access point rooted at a SHA-256 conversation directory |
+| Native Codex/workspace state | S3 Files access point rooted at a SHA-256 conversation directory; temp/cache/outbox paths are VM-local |
 | Published file continuity | Immutable S3 objects plus a catalog reference on conversation metadata |
 | History and progress index | Append-only event items with bounded previews |
 | Message/event/checkpoint/result bodies | Content-addressed objects in the encrypted artifact bucket |
@@ -89,13 +89,16 @@ owners/<owner-hash>/conversations/<conversation-hash>/messages/<message-hash>-<c
 owners/<owner-hash>/conversations/<conversation-hash>/events/<event-hash>-<content-hash>.json
 owners/<owner-hash>/conversations/<conversation-hash>/turns/<turn-hash>/slice-0000-<content-hash>.json
 owners/<owner-hash>/conversations/<conversation-hash>/artifacts/<time>-<turn-hash>-<content-hash>.json
-owners/<owner-hash>/runs/<run-id>/artifacts/<path-hash>/<filename>
+owners/<owner-hash>/blobs/sha256/<content-hash>
 runtime/conversations/<conversation-hash>/codex-home/...
 runtime/conversations/<conversation-hash>/workspace/...
 ```
 
 The hash in each object name makes identical retries converge on the same object. A conflicting
 reuse of a message ID is rejected by DynamoDB even when the provider retries concurrently.
+Catalogs preserve each file's relative name, media type, source run, and digest separately from the
+content-addressed blob key. Existing catalogs with legacy `runs/<run-id>/artifacts/...` keys remain
+readable during migration.
 
 ## Turn lifecycle
 

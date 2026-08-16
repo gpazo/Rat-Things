@@ -36,6 +36,10 @@ teams_delivery_mode               = "workflow"
 # choose any whole-second lifetime from one minute through one day.
 artifact_url_ttl_seconds = 86400
 
+# Low-cardinality queue and processing metrics are always emitted. Opt in only
+# when per-route API Gateway metric cardinality is worth the additional cost.
+enable_detailed_api_metrics = false
+
 # Optional durable publication delivery. Use a dedicated user-content domain,
 # a us-east-1 wildcard ACM certificate for that domain, and a CloudFront RSA
 # public key whose private half is stored in Secrets Manager. Route 53 records

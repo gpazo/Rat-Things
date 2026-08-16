@@ -77,8 +77,10 @@ Treat `.rat-things/artifacts/` as a managed, durable working directory:
    later authorized caller can mint a bearer URL for any cataloged file.
 
 Rat Things injects this contract into managed agent prompts. A successful turn causes trusted runner
-code to inspect the directory, hash each file, upload immutable bytes, and commit the current
-catalog. The agent does not upload to S3 or create share links itself.
+code to inspect the directory, hash each file, upload immutable bytes under an owner-scoped
+`blobs/sha256/<digest>` key, and commit the current path catalog. The directory is a VM-local staging
+view restored from that catalog before each turn, so generated output does not create high-churn S3
+Files writes. The agent does not upload to S3 or create share links itself.
 
 ## Instructions for a supervising agent or automation
 
@@ -124,9 +126,10 @@ Run `rat-things help --all` for the complete headless surface.
 
 ## Durability and access lifetime
 
-Files are private S3 objects under owner-hashed prefixes. Conversation metadata holds a bounded
-catalog, and a later turn restores those exact bytes before Codex starts. The default object
-retention is 30 days and is configured independently from the MicroVM lifetime.
+Files are private, content-addressed S3 objects under owner-hashed prefixes. Conversation metadata
+holds a bounded path catalog, and a later turn restores those exact bytes into fresh local staging
+before Codex starts. The default object retention is 30 days and is configured independently from
+the MicroVM lifetime.
 
 `rat-things file` creates an opaque bearer URL valid for 24 hours by default. With publication
 delivery enabled, the public endpoint validates its encrypted grant, opens a signed browser-ready
@@ -145,10 +148,11 @@ The initial catalog limits are:
 - 8 MiB for the JSON catalog; and
 - 512 UTF-8 bytes per relative path.
 
-Transfers are streamed and unchanged retained objects are renewed with S3 server-side copies. Common
-image, audio, video, PDF, text, web-font, manifest, and WebAssembly formats receive browser-correct
-media types; unknown formats are downloads. See [publications](publications.md) for multi-file sites,
-video players, AWS setup, and the extension model.
+Transfers are streamed and unchanged retained objects are renewed with S3 server-side copies.
+Identical bytes share one owner-scoped content key even when catalog paths differ. Common image,
+audio, video, PDF, text, web-font, manifest, and WebAssembly formats receive browser-correct media
+types; unknown formats are downloads. See [publications](publications.md) for multi-file sites, video
+players, AWS setup, and the extension model.
 
 ## What the live proof established
 

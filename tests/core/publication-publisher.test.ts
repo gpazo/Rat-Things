@@ -16,6 +16,21 @@ class MemoryPublicationObjects implements PublicationObjectStore {
   public readonly staged: string[] = [];
   public manifest: PublicationManifest | undefined;
 
+  public async getCommitted(input: {
+    publicationId: string;
+  }): Promise<{ manifest: PublicationManifest; manifestBlob: BlobReference } | undefined> {
+    if (!this.manifest || this.manifest.publicationId !== input.publicationId) return undefined;
+    return {
+      manifest: this.manifest,
+      manifestBlob: {
+        id: `publications/${input.publicationId}/_rat/manifest.json`,
+        digest: `sha256:${'f'.repeat(64)}`,
+        size: 1,
+        mediaType: 'application/json',
+      },
+    };
+  }
+
   public async stageBlob(input: {
     publicationId: string;
     path: string;
@@ -127,6 +142,41 @@ describe('publication publisher', () => {
       runId: 'run-1',
     })).rejects.toThrow('outside its owner scope');
     expect(objects.staged).toEqual([]);
+  });
+
+  it('reuses the publication identity when the spec and bytes are unchanged across runs', async () => {
+    const ownerId = 'owner-1';
+    const catalog = siteCatalog(ownerId, 'artifacts');
+    const objects = new MemoryPublicationObjects();
+    const publisher = new PublicationPublisher(
+      objects,
+      new MemoryGrants(),
+      {
+        artifactBucket: 'artifacts',
+        baseDomain: 'agent-content.example',
+        ttlSeconds: 60,
+        randomToken: () => 'c'.repeat(64),
+      },
+    );
+    const spec = { version: '1', kind: 'site', root: 'site', title: 'Demo' } as const;
+
+    const first = await publisher.publish({
+      ownerId,
+      spec,
+      catalog,
+      runId: 'run-1',
+      conversationId: 'conversation-1',
+    });
+    const second = await publisher.publish({
+      ownerId,
+      spec,
+      catalog,
+      runId: 'run-99',
+      conversationId: 'conversation-99',
+    });
+
+    expect(second.publicationId).toBe(first.publicationId);
+    expect(objects.staged).toEqual(['index.html', 'app.js']);
   });
 
   it('finds the latest source run for just the requested publication paths', () => {

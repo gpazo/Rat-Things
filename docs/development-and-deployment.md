@@ -98,6 +98,7 @@ allowed_sandbox_modes            = ["read-only", "workspace-write"]
 enable_microvm                   = true
 microvm_base_image_version       = "<available pinned version>"
 enable_s3_files                  = true
+enable_detailed_api_metrics      = false
 force_destroy_data               = false
 ```
 
@@ -125,6 +126,17 @@ optional NAT gateway and public IPv4 address create an approximately $36/month i
 `us-west-2`; the default 4-GB/2-vCPU MicroVM itself costs about $0.0042 only for each active minute,
 before snapshots and model tokens. Activate billing allocation tags and a project budget before the
 first shared or persistent deployment.
+
+Both low-traffic SQS consumers dispatch available records immediately; they retain a batch size of
+five for bursts without a configured batching window. CloudWatch Embedded Metric Format records
+queue delay and processing duration using only deployment and component dimensions. Per-route API
+Gateway metrics remain available through `enable_detailed_api_metrics=true`, but are off by default
+to avoid paying for idle route cardinality.
+
+The 2026-08-16 live canary measured 27.45 seconds from a cold message to the agent runner, including
+24.11 seconds from AWS's reported MicroVM start to the runner, and 1.99 seconds from a warm message
+to the resumed runner. See the [two-turn publication baseline](costs.md#two-turn-publication-baseline)
+for the full latency, state-footprint, NAT, token, and list-cost breakdown.
 
 ## Remote mock smoke test
 

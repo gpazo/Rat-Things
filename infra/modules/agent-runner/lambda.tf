@@ -6,6 +6,8 @@ locals {
     AWS_NODEJS_CONNECTION_REUSE_ENABLED = "1"
     CONVERSATIONS_TABLE_NAME            = aws_dynamodb_table.conversations.name
     CONVERSATION_QUEUE_URL              = aws_sqs_queue.conversations.url
+    METRIC_DEPLOYMENT                   = local.name
+    METRIC_NAMESPACE                    = "RatThings"
     RUNS_TABLE_NAME                     = aws_dynamodb_table.runs.name
     RUN_QUEUE_URL                       = aws_sqs_queue.runs.url
     RUN_RETENTION_SECONDS               = tostring(var.run_retention_seconds)
@@ -215,12 +217,11 @@ resource "aws_lambda_function" "this" {
 }
 
 resource "aws_lambda_event_source_mapping" "dispatcher" {
-  event_source_arn                   = aws_sqs_queue.runs.arn
-  function_name                      = aws_lambda_function.this["dispatcher"].arn
-  enabled                            = true
-  batch_size                         = 5
-  maximum_batching_window_in_seconds = 1
-  function_response_types            = ["ReportBatchItemFailures"]
+  event_source_arn        = aws_sqs_queue.runs.arn
+  function_name           = aws_lambda_function.this["dispatcher"].arn
+  enabled                 = true
+  batch_size              = 5
+  function_response_types = ["ReportBatchItemFailures"]
 
   scaling_config {
     maximum_concurrency = 10
@@ -230,12 +231,11 @@ resource "aws_lambda_event_source_mapping" "dispatcher" {
 }
 
 resource "aws_lambda_event_source_mapping" "conversation_coordinator" {
-  event_source_arn                   = aws_sqs_queue.conversations.arn
-  function_name                      = aws_lambda_function.this["conversation-coordinator"].arn
-  enabled                            = true
-  batch_size                         = 5
-  maximum_batching_window_in_seconds = 1
-  function_response_types            = ["ReportBatchItemFailures"]
+  event_source_arn        = aws_sqs_queue.conversations.arn
+  function_name           = aws_lambda_function.this["conversation-coordinator"].arn
+  enabled                 = true
+  batch_size              = 5
+  function_response_types = ["ReportBatchItemFailures"]
 
   scaling_config {
     maximum_concurrency = 10

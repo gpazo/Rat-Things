@@ -6,6 +6,7 @@ import {
   ConversationCoordinator,
   parseConversationWakeMessage,
 } from '../conversation/coordinator.js';
+import { emitMetric, emitSqsQueueDelay } from './metrics.js';
 
 let coordinator: ConversationCoordinator | undefined;
 
@@ -13,6 +14,8 @@ export const handler: SQSHandler = async (event: SQSEvent): Promise<SQSBatchResp
   const failures: SQSBatchResponse['batchItemFailures'] = [];
   const service = coordinator ??= defaultCoordinator();
   for (const record of event.Records) {
+    const startedAt = Date.now();
+    emitSqsQueueDelay('conversation-coordinator', record, startedAt);
     try {
       await service.handle(parseConversationWakeMessage(record.body));
     } catch (error) {
@@ -23,6 +26,13 @@ export const handler: SQSHandler = async (event: SQSEvent): Promise<SQSBatchResp
         error: error instanceof Error ? error.message : String(error),
       }));
       failures.push({ itemIdentifier: record.messageId });
+    } finally {
+      emitMetric(
+        'conversation-coordinator',
+        'ProcessingDuration',
+        Date.now() - startedAt,
+        'Milliseconds',
+      );
     }
   }
   return { batchItemFailures: failures };

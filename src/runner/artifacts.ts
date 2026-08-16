@@ -9,7 +9,7 @@ import {
   rename,
   rm,
 } from 'node:fs/promises';
-import { basename, dirname, join, relative, resolve, sep } from 'node:path';
+import { dirname, join, relative, resolve, sep } from 'node:path';
 import { Readable, Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import type { ArtifactStore } from '../core/ports.js';
@@ -49,8 +49,8 @@ export async function restoreArtifactCatalog(
   await mkdir(control, { recursive: true, mode: 0o700 });
   await handoff(control);
   const root = artifactRoot(workspace);
-  await rm(root, { recursive: true, force: true });
   await mkdir(root, { recursive: true, mode: 0o700 });
+  await clearDirectoryContents(root);
   for (const published of catalog.files) {
     const target = artifactPath(root, published.path);
     await mkdir(dirname(target), { recursive: true, mode: 0o700 });
@@ -100,6 +100,9 @@ export async function publishArtifactCatalog(input: {
     throw new Error(`artifact directory exceeds ${MAX_ARTIFACT_FILES} files`);
   }
   const previous = new Map(input.previous.files.map((file) => [file.path, file]));
+  const reusableBlobs = new Map(
+    input.previous.files.map((file) => [file.file.sha256, file.file]),
+  );
   const ownerHash = sha256(Buffer.from(input.ownerId)).slice(0, 32);
   const createdAt = input.createdAt ?? new Date().toISOString();
   const published: PublishedArtifact[] = [];
@@ -121,11 +124,12 @@ export async function publishArtifactCatalog(input: {
     const existing = previous.get(path);
     const id = artifactIdForPath(path);
     const detectedMediaType = detectMediaType(sample, path);
-    const key = `owners/${ownerHash}/runs/${input.runId}/artifacts/${id}/${encodeURIComponent(basename(path))}`;
     const digest = await sha256File(absolute);
+    const key = `owners/${ownerHash}/blobs/sha256/${digest}`;
     const unchanged = existing?.bytes === stat.size && existing.file.sha256 === digest;
-    const file = unchanged
-      ? await input.artifacts.copy(existing.file, key, detectedMediaType)
+    const reusable = unchanged ? existing.file : reusableBlobs.get(digest);
+    const file = reusable
+      ? await input.artifacts.copy(reusable, key, detectedMediaType)
       : await input.artifacts.putStream(key, createReadStream(absolute), detectedMediaType);
     if (file.sha256 !== digest) {
       throw new Error(`artifact ${path} changed while it was being published`);
@@ -141,12 +145,19 @@ export async function publishArtifactCatalog(input: {
           sourceRunId: input.runId,
           file,
         });
+    reusableBlobs.set(digest, file);
   }
   return published.sort((left, right) => left.path.localeCompare(right.path));
 }
 
 export async function localArtifactPaths(workspace: string): Promise<string[]> {
   return listArtifactPaths(await prepareArtifactDirectory(workspace));
+}
+
+/** Clears exported bytes without removing the directory, which may be a bind mount. */
+export async function clearArtifactDirectory(workspace: string): Promise<void> {
+  const root = await prepareArtifactDirectory(workspace);
+  await clearDirectoryContents(root);
 }
 
 export function artifactPrompt(
@@ -181,9 +192,11 @@ export function assertArtifactCatalogScope(
   ownerId: string,
 ): void {
   validateArtifactCatalog(catalog);
-  const prefix = `owners/${sha256(Buffer.from(ownerId)).slice(0, 32)}/runs/`;
+  const ownerPrefix = `owners/${sha256(Buffer.from(ownerId)).slice(0, 32)}/`;
   for (const artifact of catalog.files) {
-    if (artifact.file.bucket !== bucket || !artifact.file.key.startsWith(prefix)) {
+    const ownerScoped = artifact.file.key.startsWith(`${ownerPrefix}runs/`) ||
+      new RegExp(`^${ownerPrefix}blobs/sha256/[a-f0-9]{64}$`).test(artifact.file.key);
+    if (artifact.file.bucket !== bucket || !ownerScoped) {
       throw new Error(`artifact ${artifact.id} is outside its owner scope`);
     }
   }
@@ -226,6 +239,12 @@ async function listArtifactPaths(root: string): Promise<string[]> {
   };
   await visit(root);
   return paths.sort();
+}
+
+async function clearDirectoryContents(root: string): Promise<void> {
+  for (const entry of await readdir(root)) {
+    await rm(join(root, entry), { recursive: true, force: true });
+  }
 }
 
 function sha256(value: Uint8Array): string {

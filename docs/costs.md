@@ -4,6 +4,11 @@ Rat Things is designed to pay for isolated agent execution while work is active 
 an agent computer online between requests. The durable control plane remains available, but agent
 compute launches, resumes, suspends, or terminates with the conversation.
 
+> **Current live baseline:** 27.45 seconds from a cold message to the agent runner, 1.99 seconds
+> warm, about $0.046 of non-model infrastructure, and about $0.380 total at public list rates for
+> one two-turn site-generation canary. See [Two-turn publication baseline](#two-turn-publication-baseline)
+> for the exact scope, breakdown, and caveats.
+
 This makes Rat Things economically different from an always-on VPS, EC2 instance, or dedicated
 desktop. Those can be sensible for steady, trusted, single-tenant workloads. For intermittent or
 untrusted agent work, however, they charge for idle capacity and leave host lifecycle, isolation,
@@ -41,6 +46,60 @@ intrinsically free; their normal unit prices are listed below.
 AWS applies a one-week minimum retention period to Lambda MicroVM image snapshot storage. All test
 images were deleted, but roughly $0.07–$0.08 of additional gross storage usage may post while the
 minimum ages out. That expected tail is not included in the $1.27 figure.
+
+## Two-turn publication baseline
+
+On **2026-08-16**, one fresh API conversation created and shared a self-contained animated site,
+then resumed the same suspended MicroVM to revise and republish it. This is a canary measurement,
+not a concurrency benchmark. It covers message receipt through terminal orchestration and a
+recipient opening the resulting share link.
+
+| Timing | Previous path | Current path | Change |
+| --- | ---: | ---: | ---: |
+| Cold message received to agent runner | 57.24 s | 27.45 s | 52% faster |
+| Cold message received to successful run | 183.00 s | 106.77 s | 42% faster |
+| Warm message received to agent runner | 42.27 s | 1.99 s | 95% faster |
+| Warm message received to successful run | 64.00 s | 24.10 s | 62% faster |
+
+The cold control plane accepted the message and started the MicroVM in 3.34 seconds. AWS reported
+the MicroVM started at `14:39:55.922Z`; S3 Files was mounted 23.17 seconds later and the agent runner
+started 24.11 seconds after the reported VM start. On the warm turn, the dispatcher began resume at
+`14:42:01.030Z` and the runner started 0.91 seconds later. The two SQS queue-delay measurements were
+695 ms plus 565 ms cold and 133 ms plus 124 ms warm. Removing both low-traffic batching windows,
+rather than changing the MicroVM itself, accounts for most of the end-to-end improvement.
+
+The current public-list estimate for this exact two-turn canary is **about $0.380** before credits,
+taxes, image-build cost, or the stack's idle floor:
+
+| Component | Estimated list cost |
+| --- | ---: |
+| GPT-5.6 Terra model tokens | $0.3341 |
+| Lambda MicroVM active compute, 129.48 seconds | $0.0091 |
+| Two snapshot reads, two writes, and six hours of suspended storage | $0.0281 |
+| S3 Files access | about $0.0051 |
+| NAT processing plus MicroVM-to-VPC regional transfer, 52.64 MB | about $0.0029 |
+| Lambda, API Gateway, ordinary S3, and other request-scale control work | about $0.0005 |
+| **Total** | **about $0.380** |
+
+The model emitted 373,826 cumulative input tokens: 351,634 cache-read, 22,148 cache-write, and 44
+uncached, plus 9,654 output tokens. Model work was richer than the previous canary, so total cost
+rose from about $0.328 even though non-model infrastructure fell from about $0.072 to **$0.046**, a
+roughly 36% reduction. If the account's previously observed 20% effective model discount persists,
+the same canary is about **$0.313** before credits.
+
+S3 Files access is the only provisional line because its operation-level billing records post
+later. The estimate applies the previous measured access amplification to the new durable working
+set. The directly observed backing set fell from 4,789 objects and 60.5 MB to **155 objects and
+13.39 MB**; the high-performance-storage minimum for that set is 14.55 MB, or about $0.0044 for a
+full 30-day month. The ordinary artifact/publication path created 30 objects totaling 356 KB. A
+repeat read of the unchanged output left all committed publication timestamps untouched, proving
+that it minted a fresh grant without restaging the content.
+
+Detailed API metrics contributed nothing because they were disabled. The four queue/processing
+metric series fit within an otherwise unused ten-metric CloudWatch free tier. If all four were paid
+for one active hour, their gross list cost would be about $0.0016; continuously active, they would
+be $1.20 per month. The 14,624-byte site itself adds negligible CloudFront request and transfer cost
+per view. Large videos and heavily viewed sites should model viewer egress separately.
 
 ### Attribution method and limitations
 
@@ -88,15 +147,25 @@ credits, negotiated pricing, taxes, and later AWS price changes can alter the ac
 | NAT gateway | $0.045 per hour and $0.045 per processed GB |
 | Public IPv4 address | $0.005 per hour |
 
-The API stage currently enables route-level detailed metrics. Their cardinality grows with the
-number of active routes, so they can cost more than API requests at low volume. The AWS account's
-first ten custom or detailed metrics and first ten standard alarm metrics are covered by the
-CloudWatch free tier, shared across the account.
+The API stage disables route-level detailed metrics by default because their cardinality grows with
+the number of active routes and can cost more than API requests at low volume. Set
+`enable_detailed_api_metrics=true` only when that breakdown is operationally useful. Queue delay and
+record-processing duration are emitted as four low-cardinality application metric series across the
+conversation coordinator and run dispatcher. The AWS account's first ten custom or detailed
+metrics and first ten standard alarm metrics are covered by the CloudWatch free tier, shared across
+the account.
 
 S3 Files is optional and creates the one material idle infrastructure charge in the supplied
 Terraform: its dedicated NAT gateway and public IPv4 address cost about **$36 per 30-day month**
 before traffic. Keep `enable_s3_files=false` for one-shot deployments that do not need native Codex
 and workspace restoration across replacement MicroVMs.
+
+Ingress into AWS is not separately charged. Public model/Git traffic still crosses both the Lambda
+MicroVM VPC connector and NAT gateway. The connector can incur same-Region transfer and NAT charges
+for bytes in both directions; standard internet data-transfer-out can also apply after the account
+allowance. Publication viewers consume CloudFront request and egress bytes. S3 gateway endpoint
+traffic does not traverse the NAT in the supplied VPC, so durable artifact synchronization does not
+accidentally pay NAT processing.
 
 ## Cost of an active agent
 
@@ -155,7 +224,8 @@ scale.
 - Activate billing allocation tags before deployment and create a project-scoped AWS Budget.
 - Keep the deterministic mock driver as the default infrastructure test path.
 - Set per-owner concurrency, runtime, token, and output limits before accepting broad ingress.
-- Keep detailed route metrics only where their operational value justifies their cardinality.
+- Keep detailed route metrics opt-in and avoid run, conversation, owner, or message IDs as metric
+  dimensions.
 - Disable S3 Files when native replacement-VM continuity is not required.
 - Delete unused MicroVM image versions, remembering the one-week minimum storage charge.
 - Alarm on model spend, MicroVM runtime, snapshot storage, NAT hours, and queue age independently.

@@ -1,4 +1,4 @@
-import { access, mkdir, rm } from 'node:fs/promises';
+import { access, lstat, mkdir, readdir, rm } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import type { RepositoryInput } from '../domain/contracts.js';
 import type { CredentialBroker } from '../credentials/broker.js';
@@ -15,8 +15,12 @@ export async function prepareWorkspace(
   if (absolute !== root && !absolute.startsWith(`${root}/`)) {
     throw new Error(`workspace must be below ${root}`);
   }
-  if (options.reuseExisting && await isReusableWorkspace(absolute)) return;
-  await rm(absolute, { recursive: true, force: true });
+  if (options.reuseExisting) {
+    if (await isReusableWorkspace(absolute)) return;
+    await resetPersistentWorkspace(absolute);
+  } else {
+    await rm(absolute, { recursive: true, force: true });
+  }
   await mkdir(dirname(absolute), { recursive: true, mode: 0o700 });
   if (!repository) {
     await mkdir(absolute, { recursive: true, mode: 0o700 });
@@ -66,6 +70,28 @@ export async function prepareWorkspace(
   }
   await git(['-C', absolute, 'update-ref', 'refs/agent-runtime/base', 'HEAD'], root, env);
   await handoff(absolute);
+}
+
+/** Resets first-use durable workspaces without removing the artifact bind mount. */
+async function resetPersistentWorkspace(workspace: string): Promise<void> {
+  await mkdir(workspace, { recursive: true, mode: 0o700 });
+  for (const entry of await readdir(workspace)) {
+    if (entry !== '.rat-things') {
+      await rm(resolve(workspace, entry), { recursive: true, force: true });
+      continue;
+    }
+    const control = resolve(workspace, entry);
+    const stat = await lstat(control);
+    if (!stat.isDirectory() || stat.isSymbolicLink()) {
+      await rm(control, { recursive: true, force: true });
+      continue;
+    }
+    for (const child of await readdir(control)) {
+      if (child !== 'artifacts') {
+        await rm(resolve(control, child), { recursive: true, force: true });
+      }
+    }
+  }
 }
 
 async function isReusableWorkspace(workspace: string): Promise<boolean> {

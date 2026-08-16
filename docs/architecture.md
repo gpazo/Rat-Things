@@ -17,7 +17,8 @@ Rat Things separates the lifetime of an agent from the lifetime of its compute:
 - a channel thread or API conversation is the durable unit of work;
 - DynamoDB owns coordination, fencing, ordering, and bounded history indexes;
 - immutable S3 objects own messages, events, checkpoints, results, and normalized replay;
-- S3 Files owns the mutable Codex home and workspace expected by app-server;
+- S3 Files owns durable Codex state and workspace bytes expected by app-server, while high-churn
+  temp, cache, plugin-cache, and exported-artifact paths remain VM-local;
 - a Lambda MicroVM owns exactly one fenced conversation while it runs; and
 - suspension is an optimization, not a durability boundary—a replacement VM can restore the same
   Codex thread and workspace after the original is terminated.
@@ -217,6 +218,9 @@ Rat Things uses three deliberately different state layers:
    results independently of Codex's native storage format.
 
 The first layer optimizes latency. The latter two provide durability beyond one VM's lifetime.
+VM-local caches survive suspend/resume on the same MicroVM but are deliberately reconstructible on
+replacement. The artifact outbox is restored from and committed back to the immutable S3 catalog,
+so its local staging bytes are not part of the S3 Files durability boundary.
 
 There is no always-on agent service. The image listens on port 8080 for lifecycle hooks and a
 service-authenticated continuation endpoint exposed only by the AWS-managed ingress connector. The
@@ -277,8 +281,11 @@ custom domain. See [publications](publications.md).
 
 When `enable_s3_files=true`, a separate versioned bucket backs an S3 Files filesystem. Its access
 point exposes only `/conversations` to the MicroVM execution role. Each hashed conversation owns a
-`codex-home` directory (including Codex's SQLite state) and a `workspace` directory. This path is
-mutable filesystem state, distinct from the immutable artifact/checkpoint records above.
+`codex-home` directory (including Codex's SQLite state) and a `workspace` directory. The lifecycle
+server overlays Codex temp/cache/plugin-cache directories and `.rat-things/artifacts/` with local
+bind mounts. This keeps reconstructible churn and large output staging out of S3 Files while leaving
+thread state and project files replacement-VM durable. The durable mount remains distinct from the
+immutable artifact/checkpoint records above.
 
 ### SQS and EventBridge
 

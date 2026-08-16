@@ -61,7 +61,13 @@ symbolic link, hard link, or malformed document. It is a declaration rather than
 trusted runner resolves every path through the authenticated owner's catalog, performs publication,
 mints the grant, and appends the real link to the stored result. Bearer URLs remain in encrypted S3
 result bodies rather than DynamoDB previews. Persistent workspaces and Codex state still support the
-next conversational turn; the outbox itself is never replayed.
+next conversational turn; the outbox itself is cleared after it is consumed and never replayed.
+
+The publication ID is derived from the normalized publication spec plus the selected paths, content
+digests, and media types—not from a particular run or conversation. Before materializing a
+publication, the S3 adapter checks for its committed manifest. Asking to share unchanged work mints
+a fresh grant for the existing immutable publication instead of copying every site or video asset
+again. Changed bytes or presentation options produce a new isolated publication ID.
 
 Publication builders are pure planning components. They return a typed result with diagnostics;
 only the publication service performs storage effects. Builders are selected through a duplicate-
@@ -167,4 +173,5 @@ delivery, and CLI authorization handling remain unchanged.
 
 Current retained-artifact limits are 5,000 files, 5 GiB per file, 20 GiB per catalog, and 512 UTF-8
 bytes per relative path. Transfers are streamed with multipart S3 uploads. Unchanged retained files
-are renewed with server-side copies, avoiding a full network re-upload on every conversation turn.
+are renewed with server-side copies, avoiding a full network re-upload on every conversation turn;
+the underlying owner-scoped blob key is derived from its SHA-256 digest.

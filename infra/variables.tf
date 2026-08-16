@@ -98,6 +98,12 @@ variable "enable_point_in_time_recovery" {
   default = true
 }
 
+variable "enable_detailed_api_metrics" {
+  description = "Opt in to per-route API Gateway metrics; low-cardinality queue and processing metrics remain enabled."
+  type        = bool
+  default     = false
+}
+
 variable "run_retention_seconds" {
   type    = number
   default = 2592000

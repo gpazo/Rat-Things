@@ -50,7 +50,7 @@ import type {
   PublicationManifest,
   PublicationShare,
 } from '../domain/publications.js';
-import { validateShareGrant } from '../domain/publications.js';
+import { validatePublicationManifest, validateShareGrant } from '../domain/publications.js';
 import type { ConversationQueue } from '../conversation/types.js';
 import type { SecretReader } from '../credentials/types.js';
 import type { ResultReader } from '../delivery/types.js';
@@ -397,6 +397,37 @@ export class S3PublicationObjectStore implements PublicationObjectStore {
     this.artifacts = new S3ArtifactStore(client, bucket);
   }
 
+  public async getCommitted(input: {
+    ownerId: string;
+    publicationId: string;
+  }): Promise<{ manifest: PublicationManifest; manifestBlob: BlobReference } | undefined> {
+    const ownerHash = ownerHashFor(input.ownerId);
+    const key = publicationObjectKey(ownerHash, input.publicationId, '_rat/manifest.json');
+    let result;
+    try {
+      result = await this.client.send(new GetObjectCommand({ Bucket: this.bucket, Key: key }));
+    } catch (error) {
+      if (isMissingS3Object(error)) return undefined;
+      throw error;
+    }
+    if (!result.Body) throw new Error(`publication manifest s3://${this.bucket}/${key} is empty`);
+    const bytes = Buffer.from(await result.Body.transformToByteArray());
+    const manifest = JSON.parse(bytes.toString('utf8')) as PublicationManifest;
+    validatePublicationManifest(manifest);
+    if (manifest.publicationId !== input.publicationId) {
+      throw new Error('committed publication identity does not match its storage key');
+    }
+    return {
+      manifest,
+      manifestBlob: {
+        id: key,
+        digest: `sha256:${createHash('sha256').update(bytes).digest('hex')}`,
+        size: bytes.byteLength,
+        mediaType: 'application/json',
+      },
+    };
+  }
+
   public async stageBlob(input: {
     ownerId: string;
     publicationId: string;
@@ -461,6 +492,22 @@ export class S3PublicationObjectStore implements PublicationObjectStore {
       mediaType: 'application/json',
     };
   }
+}
+
+function isMissingS3Object(error: unknown): boolean {
+  if (typeof error !== 'object' || error === null) return false;
+  const value = error as {
+    name?: unknown;
+    Code?: unknown;
+    $metadata?: { httpStatusCode?: unknown };
+  };
+  // S3 deliberately returns 403 for an absent key when the caller has
+  // GetObject but not ListBucket. Keep the control plane on object-scoped IAM:
+  // a genuine authorization failure still fails closed on the subsequent
+  // owner-scoped stage/commit operation.
+  return ['NoSuchKey', 'NotFound', '404', 'AccessDenied'].includes(String(value.name)) ||
+    ['NoSuchKey', 'NotFound', '404', 'AccessDenied'].includes(String(value.Code)) ||
+    [403, 404].includes(Number(value.$metadata?.httpStatusCode));
 }
 
 export class S3PublicationGrantStore implements PublicationGrantStore {

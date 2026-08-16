@@ -15,6 +15,7 @@ module "agent_runner" {
   log_retention_days                  = var.log_retention_days
   force_destroy_data                  = var.force_destroy_data
   enable_point_in_time_recovery       = var.enable_point_in_time_recovery
+  enable_detailed_api_metrics         = var.enable_detailed_api_metrics
   run_retention_seconds               = var.run_retention_seconds
   allowed_repository_hosts            = var.allowed_repository_hosts
   allowed_sandbox_modes               = var.allowed_sandbox_modes

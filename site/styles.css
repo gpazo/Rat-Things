@@ -373,10 +373,13 @@ pre span { color: var(--cyan); }
     #080d0f;
 }
 
-.cost-ledger { display: grid; grid-template-columns: repeat(4, 1fr); margin: 0; border-top: 1px solid var(--line); border-left: 1px solid var(--line); }
-.cost-ledger div { min-height: 175px; padding: 1.5rem; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.baseline-kicker { margin: 0 0 0.75rem; color: var(--cyan); font: 760 0.68rem/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: 0.08em; text-transform: uppercase; }
+.baseline-kicker-cost { margin-top: 2rem; color: var(--amber); }
+.performance-ledger, .cost-ledger { display: grid; grid-template-columns: repeat(4, 1fr); margin: 0; border-top: 1px solid var(--line); border-left: 1px solid var(--line); }
+.performance-ledger div, .cost-ledger div { min-height: 175px; padding: 1.5rem; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.performance-ledger dt { color: var(--cyan); font: 750 clamp(1.7rem, 3vw, 2.8rem)/1 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: -0.06em; }
 .cost-ledger dt { color: var(--amber); font: 750 clamp(1.7rem, 3vw, 2.8rem)/1 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: -0.06em; }
-.cost-ledger dd { max-width: 230px; margin: 1.3rem 0 0; color: var(--muted); font-size: 0.82rem; }
+.performance-ledger dd, .cost-ledger dd { max-width: 230px; margin: 1.3rem 0 0; color: var(--muted); font-size: 0.82rem; }
 .cost-disclosure { max-width: 980px; margin: 1.4rem 0 0; color: var(--muted); font-size: 0.76rem; }
 
 .architecture-section { border-bottom: 1px solid var(--line); }
@@ -438,7 +441,7 @@ footer p { max-width: 600px; margin: 1rem 0 0; color: var(--muted); font-size: 0
   .handoff-arrow { grid-template-columns: auto auto; gap: 0.6rem; min-height: 60px; }
   .handoff-arrow b { transform: rotate(90deg); }
   .handoff article { min-height: auto; }
-  .cost-ledger { grid-template-columns: 1fr 1fr; }
+  .performance-ledger, .cost-ledger { grid-template-columns: 1fr 1fr; }
   .next-section { align-items: flex-start; flex-direction: column; gap: 2rem; }
   .next-actions { justify-content: flex-start; }
   footer { flex-direction: column; }
@@ -456,7 +459,7 @@ footer p { max-width: 600px; margin: 1rem 0 0; color: var(--muted); font-size: 0
   .hero-stats div { padding: 0.85rem 0.9rem; }
   .hero-stats dd { font-size: 0.66rem; line-height: 1.35; }
   .setup-footer { align-items: flex-start; flex-direction: column; gap: 0.8rem; }
-  .route-grid, .feature-grid, .flow, .cost-ledger { grid-template-columns: 1fr; }
+  .route-grid, .feature-grid, .flow, .performance-ledger, .cost-ledger { grid-template-columns: 1fr; }
   .route-card, .feature-grid article, .flow li { min-height: auto; }
   .route-card code { margin-top: 1.4rem; }
   .feature-grid span { margin-bottom: 2rem; }

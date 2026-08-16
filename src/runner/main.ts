@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { join } from 'node:path';
-import { rm } from 'node:fs/promises';
+import { readdir, rm } from 'node:fs/promises';
 import {
   CachedSecretReader,
   createAwsClients,
@@ -21,6 +21,7 @@ import { loadCodexBedrockToken } from './bedrock-auth.js';
 import { codexAuthMode } from './codex-auth.js';
 import {
   assertArtifactCatalogScope,
+  clearArtifactDirectory,
   emptyArtifactCatalog,
   publishArtifactCatalog,
   restoreArtifactCatalog,
@@ -130,6 +131,7 @@ export async function runAgentWorker(): Promise<void> {
     const requestedPublications = process.env.AGENT_PUBLICATION_ENABLED === 'true'
       ? await readAgentShareRequests(workspace)
       : [];
+    await clearAgentShareRequest(workspace);
     const sharedPublications: SharedPublication[] = [];
     if (requestedPublications.length > 0) {
       const publisher = new PublicationPublisher(
@@ -163,6 +165,7 @@ export async function runAgentWorker(): Promise<void> {
     const patchArtifact = patch
       ? await artifacts.putBytes(`${prefix}/workspace.patch`, patch, 'text/x-diff')
       : undefined;
+    if (persistentSession) await clearPersistentSessionScratch(workspace);
     await store.complete(runId, {
       output,
       preview: execution.fullText.slice(0, 2_000),
@@ -196,6 +199,24 @@ export async function runAgentWorker(): Promise<void> {
     process.removeListener('SIGTERM', stop);
     process.removeListener('SIGINT', stop);
     if (!persistentSession) await rm(workspace, { recursive: true, force: true });
+  }
+}
+
+async function clearPersistentSessionScratch(workspace: string): Promise<void> {
+  await clearArtifactDirectory(workspace);
+  const codexHome = requiredEnv('CODEX_HOME');
+  for (const path of ['.tmp', 'tmp']) {
+    const root = join(codexHome, path);
+    let entries: string[];
+    try {
+      entries = await readdir(root);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') continue;
+      throw error;
+    }
+    for (const entry of entries) {
+      await rm(join(root, entry), { recursive: true, force: true });
+    }
   }
 }
 

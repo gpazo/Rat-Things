@@ -10,6 +10,7 @@ import {
   createAwsClientConfig,
   createAwsClients,
   S3ArtifactStore,
+  S3PublicationObjectStore,
 } from '../../src/adapters/aws-runtime.js';
 
 describe('AWS runtime client configuration', () => {
@@ -82,5 +83,33 @@ describe('AWS runtime client configuration', () => {
       key: 'owners/abc/runs/run-2/video.mp4',
       sha256: uploaded.sha256,
     });
+  });
+
+  it('treats SDK-shaped 404 objects as a missing publication manifest', async () => {
+    const client = {
+      send: vi.fn(async () => {
+        throw { name: 'S3ServiceException', $metadata: { httpStatusCode: 404 } };
+      }),
+    } as unknown as S3Client;
+    const store = new S3PublicationObjectStore(client, 'artifact-bucket');
+
+    await expect(store.getCommitted({
+      ownerId: 'owner-1',
+      publicationId: 'a'.repeat(24),
+    })).resolves.toBeUndefined();
+  });
+
+  it('treats S3 missing-key AccessDenied without ListBucket as a cache miss', async () => {
+    const client = {
+      send: vi.fn(async () => {
+        throw { name: 'AccessDenied', $metadata: { httpStatusCode: 403 } };
+      }),
+    } as unknown as S3Client;
+    const store = new S3PublicationObjectStore(client, 'artifact-bucket');
+
+    await expect(store.getCommitted({
+      ownerId: 'owner-1',
+      publicationId: 'b'.repeat(24),
+    })).resolves.toBeUndefined();
   });
 });

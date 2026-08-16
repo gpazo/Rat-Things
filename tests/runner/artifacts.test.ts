@@ -114,6 +114,7 @@ describe('agent artifact catalog', () => {
           sourceRunId: 'run-1',
         }),
       ]);
+      expect(first[0]?.file.key).toMatch(/^owners\/[a-f0-9]{32}\/blobs\/sha256\/[a-f0-9]{64}$/);
       expect(store.puts).toHaveLength(1);
 
       const unchanged = await publishArtifactCatalog({
@@ -127,11 +128,16 @@ describe('agent artifact catalog', () => {
         expect.objectContaining({
           path: 'screens/home.png',
           sourceRunId: 'run-1',
-          file: expect.objectContaining({ key: expect.stringContaining('/runs/run-2/') }),
+          file: expect.objectContaining({ key: first[0]?.file.key }),
         }),
       ]);
       expect(store.puts).toHaveLength(1);
-      expect(store.copies).toEqual([expect.stringContaining('/runs/run-2/')]);
+      expect(store.copies).toEqual([first[0]?.file.key]);
+      expect(() => assertArtifactCatalogScope(
+        { version: '1', files: unchanged },
+        'artifacts',
+        'owner-1',
+      )).not.toThrow();
 
       await restoreArtifactCatalog(replacement, { version: '1', files: unchanged }, store);
       expect(await readFile(

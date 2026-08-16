@@ -16,7 +16,7 @@ disaster-recovery proof.
 | Provider plugin boundary | Implemented/tested | Trusted manifests bind ingress/delivery; dependency checks prevent authority inversion |
 | Control API | Implemented/live validated | Submit/list/get/cancel and owner-checked short-lived artifact URLs |
 | Durable agent files | Implemented/live validated | `.rat-things/artifacts/` outbox, immutable S3 bytes, conversation catalog restoration, and CLI list/24-hour URL/download commands passed in a real Codex MicroVM |
-| File/site/video publications | Implemented/local validation | Tagged builders, manifest-last commit, streamed/multipart artifact transport, isolated wildcard hosts, CloudFront OAC and signed cookies, explicit API/CLI publication commands |
+| File/site/video publications | Implemented/live validated | Agent-declared publishing, content-derived reuse, manifest-last commit, isolated wildcard hosts, CloudFront OAC, signed redemption, and API/CLI commands passed recipient-open validation |
 | Durable AWS orchestration | Locally/live validated | DynamoDB, S3, SQS, Streams, EventBridge, notifier delivery, failure queues |
 | Conversation mailbox | End-to-end locally/live validated | Teams ingress, DynamoDB/S3 mailbox, interrupt/defer ordering, leases, SQS coordinator, durable replay, terminal completion, expiry fallback, and crash-window repair |
 | Lambda MicroVM runner | One-shot/resume/replacement live validated | Same-ID suspend/resume plus S3 Files workspace restoration in a replacement VM passed in `us-west-2` |
@@ -26,9 +26,31 @@ disaster-recovery proof.
 | GitHub/GitLab | Initial adapters | Signed ingress, loop guards, source-thread egress; credential and policy hardening remain |
 | Teams | Durable chat path locally/live AWS validated | Signed mentions get an immediate acknowledgement, enter the mailbox, and complete through threaded gateway egress; Microsoft authentication and live tenant delivery remain |
 | Slack | Optional initial adapter | App mentions and threaded posts; not the primary deployment target |
-| Observability/recovery | Partial/live fault validated | Structured logs, durable queues/events, reconciler, delivery leases, failure queues/alarms; session-expiry replacement and the coordinator attach/enqueue crash window passed live, while broader chaos drills remain |
-| Cost model | Initial live measurement complete | $1.27 gross attributable AWS usage and about $0.20 net after credits through 2026-08-09; sustained-load ceilings remain unmeasured |
+| Observability/recovery | Partial/live measured | Low-cardinality queue/processing metrics, structured logs, durable queues/events, reconciler, delivery leases, failure queues/alarms; broader chaos drills remain |
+| Cost model | Live canary baseline measured | The 2026-08-16 two-turn site canary is about $0.380 at public list rates; non-model infrastructure fell to about $0.046, while sustained-load ceilings remain unmeasured |
 | Multi-tenant hardening | Not complete | Requires safe response projection, destination authorization, budgets, rate limits, and security review |
+
+## Validation completed on 2026-08-16
+
+- A real Codex MicroVM received a fresh headless API turn, created a 12,244-byte animated site,
+  published it automatically, suspended, resumed the exact same VM and Codex thread for a revision,
+  and published the updated 14,624-byte site.
+- An unauthenticated recipient followed the complete `/__share/<token>` URL through one redirect and
+  received `200 text/html` with all 14,624 bytes. Authenticated output retrieval also succeeded after
+  fixing S3's missing-key `AccessDenied` behavior without adding bucket-list authority.
+- A second output retrieval reused the committed content-derived publication: its three S3 object
+  timestamps stayed unchanged while the control plane could issue a fresh time-bounded grant.
+- Cold message-to-runner time fell from 57.24 to 27.45 seconds and warm message-to-runner time fell
+  from 42.27 to 1.99 seconds after removing two low-traffic SQS batching windows. Embedded metrics
+  recorded the cold queue delays as 695 ms and 565 ms and warm delays as 133 ms and 124 ms.
+- High-churn Codex temp/cache/plugin-cache and publication-staging directories stayed on VM-local
+  bind mounts. The conversation's S3 Files backing set was 155 objects and 13.39 MB, down from 4,789
+  objects and 60.5 MB in the previous measurement.
+- The two-turn public-list estimate is about $0.380: $0.334 model inference and about $0.046 other
+  infrastructure. The richer agent task used more model tokens than the prior canary even though
+  the infrastructure portion fell about 36%.
+- The full local quality gate passed with 162 tests and 11 intentional skips, plus architecture,
+  package, site, and Terraform validation.
 
 ## Validation completed on 2026-08-14
 
@@ -115,7 +137,8 @@ teardown.
   changes, timeout, cancellation, and output-quality cases.
 - Exercise cancellation, timeout, forced termination, launch failure, notifier ambiguity, DLQ
   redrive, and state-stream reconstruction under injected failures.
-- Measure concurrency, queue age, service quotas, latency, sustained load, and cost ceilings.
+- Measure concurrency, service quotas, sustained load, and cost ceilings beyond the current
+  single-conversation cold/warm baseline.
 - Add outbound allowlisting/proxy controls if broad AWS-managed internet egress is unacceptable.
 - Repeat image/lifecycle validation in every intended Region and after each service/provider upgrade.
 - Replace the Teams Workflow bridge with an authenticated Entra/Bot/Teams SDK gateway.
