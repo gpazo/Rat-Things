@@ -12,13 +12,18 @@ conversation IDs. The agent CLI's `read-only` or `workspace-write` sandbox is us
 depth, not the tenant-isolation boundary. This repository is an engineering preview and has not yet
 completed the controls marked “required before production” below.
 
-The runtime policy accepts only `read-only` and `workspace-write` by default. Although v1 knows the
-`danger-full-access` enum, validation rejects it unless `ALLOWED_SANDBOX_MODES` explicitly opts in.
+Remote MicroVM execution accepts and defaults to `danger-full-access` with command networking
+enabled. This is deliberate: the dedicated MicroVM, UID/environment split, workload IAM role, and
+credential broker are the security boundary, while Codex's inner sandbox is a selectable
+defense-in-depth control. Trusted local execution keeps a read-only/no-network default. Deployments
+can remove modes from `ALLOWED_SANDBOX_MODES`, and profiles/requests can narrow authority, but no
+request can widen the deployment or profile ceiling.
 
 ## Protected assets
 
 - AWS account resources and the worker/model IAM roles.
 - Webhook authenticators, source-control tokens, Teams Workflow URLs, and Slack tokens.
+- Connected-account credentials, provider scopes, Rat-side grants, and source bindings.
 - Private repository content and any material generated in the workspace.
 - Prompts, model events, results, patches, and owner/source metadata.
 - Provider threads and chat destinations the notifier can write to.
@@ -67,6 +72,11 @@ grant ownership. The general control API overwrites caller-supplied source metad
 | Repository credential theft | Trusted root orchestration fetches the secret, exposes it only to Git through `GIT_ASKPASS`, then chowns the checkout to UID 10001; the agent child does not receive the token or root environment | Use short-lived installation tokens, restrict selectable secret ARNs, test `/proc`/metadata isolation, and consider a dedicated clone broker for stronger separation |
 | SSRF / arbitrary checkout | Credential-free HTTPS and hostname allowlist; no query/fragment | Validate redirect targets or disable cross-host redirects, restrict DNS/egress, and test alternate encodings. Submodule support must remain off unless separately secured |
 | AWS credential abuse by agent | Agent runs as UID 10001 with a sanitized environment; AWS credential-chain variables are omitted unless `ALLOW_AGENT_AWS_CREDENTIAL_CHAIN=true`; preferred model auth passes only a scoped Bedrock bearer key | Process/environment separation is defense in depth, not a VM boundary. Keep the escape hatch false, test metadata/`/proc` access, scope the root workload role, and use network policy/proxies |
+| Connected-account credential theft or confused deputy | Credential values live in per-connection Secrets Manager secrets; the model sees aliases/schemas only; provider authorization, persistent grants, profile ceilings, per-run narrowing, resource constraints, and approvals are intersected before one secret is read | Coarse/full provider tokens retain upstream authority if the broker or trusted adapter is compromised. Prefer granular/short-lived tokens, constrain secret IAM, audit tool calls, and independently review every built-in adapter |
+| Agent answers its own approval over the guest-local listener | Codex and Chromium run as UID 10001; a cgroup eBPF connect policy denies that UID access to guest-local TCP port 8080 while the root-owned Lambda proxy remains allowed, and external control still requires Lambda's JWE-authenticated endpoint | Treat a root/kernel, BPF-policy, or AWS proxy-auth bypass as a MicroVM compromise. Keep the UID split and exercise root acceptance, loopback/interface denial, and unrelated external-port-8080 acceptance in the ARM64 image canary |
+| Cross-account integration mix-up | Connections, grants, sets, bindings, and credential pointers are owner-scoped; every dynamic tool call selects an exact eligible account alias | External tenant/subject metadata is operator-supplied until OAuth/account verification exists. Verify credentials during onboarding and test duplicate/ambiguous account aliases |
+| Unauthorized source-policy claim | Source selectors are matched only after webhook verification and a global conditional claim prevents duplicate exact bindings | The IAM management route does not yet prove provider ownership of a repository/team/channel selector. Restrict binding creation to a trusted self-hosted operator until provider installation/OAuth authorization is implemented |
+| Browser SSRF or unsafe interaction | Separate unprivileged Chromium helper; loopback/private/link-local/metadata destinations and redirects blocked; popups/downloads rejected; DOM/images bounded; screenshots and recordings use validated artifact paths plus pixel/duration/frame/byte caps; interactive commands follow live approval policy | DNS rebinding, public relay endpoints, browser/Chromium vulnerabilities, and exfiltration to attacker-controlled public sites remain. The browser profile and Codex share UID 10001, so browser cookies are not a secret boundary from the model. Do not type reusable credentials into the browser; prefer brokered integrations. Add an egress proxy/DNS policy, origin audit, and browser escape testing before sensitive production use |
 | Model-output exfiltration or mention injection | Bounded notifier messages and explicit destinations | There is no output DLP, secret scan, mention escaping, or human approval. Do not post private-repo results to broad channels; add a policy/redaction layer before production |
 | Network exfiltration | MicroVM isolation plus AWS-managed networking | Public egress is broad. Add an explicit proxy/allowlist or a reviewed customer VPC connector when production policy requires it; remember GitHub/GitLab endpoints have dynamic ranges |
 | Queue/cost exhaustion | Bounded request fields, idempotency, asynchronous SQS, AWS concurrency controls | Configure API/WAF throttles, Lambda reserved concurrency, MicroVM quotas, SQS alarms/DLQ, tenant budgets, and mention/command gating |
@@ -86,15 +96,23 @@ Do not collapse these roles:
 2. **Dispatcher role** reads run inputs and calls Lambda MicroVM launch/termination APIs. It is
    constrained by image and `iam:PassRole` conditions. `lambda:PassNetworkConnector` currently has
    no resource type or condition key, so that action alone requires `Resource: "*"`.
-3. **MicroVM execution role** lets trusted root orchestration read runtime run data and selected
-   secrets, write artifacts/state, and optionally invoke the intended model. The current module
+3. **MicroVM execution role** lets the trusted lifecycle server and runner read runtime run data and
+   selected secrets, write artifacts/state, and optionally invoke the intended model. The current module
    scopes DynamoDB to the whole run table and S3 to `owners/*`, not one run; per-run credentials or a
-   broker are a hardening item. The agent child runs as UID 10001 with a sanitized environment and
-   should receive only a scoped Bedrock bearer key. For conversational sharing, the child can write
-   only a versioned publication declaration containing retained relative paths. Trusted root
-   orchestration verifies owner scope, writes publication objects and grants, and returns the bearer
+   broker are a hardening item. The root lifecycle server performs mount/process setup and launches
+   the trusted root runner. The runner starts Codex and Chromium as UID 10001 with sanitized
+   environments; Codex should receive only a scoped Bedrock bearer key, and Chromium receives no AWS
+   credential variables. Lambda's managed kernel exposes neither nftables nor the legacy
+   `xt_owner` match, so startup loads and verifies a cgroup eBPF connect policy instead. It denies
+   UID 10001 connections to guest-local TCP port 8080, allows the root-owned Lambda loopback proxy,
+   and does not block unrelated external services on port 8080. External requests still require
+   Lambda's port-scoped JWE proxy authorization. For conversational sharing,
+   Codex can write only a versioned publication declaration containing retained relative paths. The
+   trusted runner verifies owner scope, writes publication objects and grants, and returns the bearer
    URL through the encrypted result; the child receives neither S3 credentials nor CloudFront key
-   material.
+   material. For agent-callable integrations, the trusted runner reads only the selected account
+   secret after broker authorization and passes it directly to the trusted adapter—not to Codex, its
+   tool schema, its environment, or the browser helper.
 4. **Notifier role** reads terminal artifacts and only the outbound secrets/APIs it serves. It does
    not run agents or clone repositories.
 
@@ -124,8 +142,9 @@ artifact prefixes, EventBridge buses, and secret ARNs. Keep the forced wildcard
   owner/repository-to-secret allowlist or remove the field from a public projection.
 - Keep `ALLOW_AGENT_AWS_CREDENTIAL_CHAIN=false` in deployed workers. `AGENT_PASSTHROUGH_ENV` is also a
   privileged policy surface; every added name must be reviewed as a secret/authority transfer.
-- Keep `danger-full-access` out of `ALLOWED_SANDBOX_MODES` unless a specific threat review accepts the
-  outer task/VM, UID, IAM, filesystem, and egress controls as the entire sandbox.
+- Keep the default `danger-full-access` policy only where a specific threat review accepts the outer
+  task/VM, UID, IAM, filesystem, broker, and egress controls as the sandbox. Remove it from
+  `ALLOWED_SANDBOX_MODES` when a deployment needs inner-sandbox enforcement as well.
 
 For the preferred Codex path, trusted orchestration uses the MicroVM execution role to mint a
 bounded short-term Bedrock token, places only that value in `AWS_BEARER_TOKEN_BEDROCK` for the agent
@@ -194,9 +213,10 @@ and [snapshot guidance](https://docs.aws.amazon.com/lambda/latest/dg/microvms-im
 as release gates, not just implementation examples.
 
 The AWSCC resource schema currently requires `additional_os_capabilities`, and the service currently
-accepts only `ALL`. The image therefore has all OS capabilities within the MicroVM boundary even
-though the agent subprocess drops to UID/GID 10001. Re-evaluate that setting when the provider or
-service supports a narrower set, and include it explicitly in the production threat review.
+accepts only `ALL`. The trusted root lifecycle process uses those in-VM capabilities for S3 Files
+mounting, process setup, and the cgroup eBPF control-plane guard; Codex and Chromium still drop to
+UID/GID 10001. Re-evaluate that setting when the provider or service supports a narrower set, and
+include it explicitly in the production threat review.
 
 ## Production security gates
 

@@ -105,6 +105,16 @@ locals {
     "dynamodb:TransactWriteItems",
     "dynamodb:UpdateItem",
   ]
+  integration_table_read_actions = [
+    "dynamodb:GetItem",
+    "dynamodb:Query",
+  ]
+  integration_table_read_write_actions = concat(local.integration_table_read_actions, [
+    "dynamodb:PutItem",
+    "dynamodb:TransactWriteItems",
+    "dynamodb:UpdateItem",
+  ])
+  integration_credential_secret_arn = "arn:${data.aws_partition.current.partition}:secretsmanager:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:secret:${local.name}/connections/*"
 }
 
 data "aws_iam_policy_document" "ingress" {
@@ -127,6 +137,12 @@ data "aws_iam_policy_document" "ingress" {
     sid       = "Conversations"
     actions   = local.conversation_table_append_actions
     resources = [aws_dynamodb_table.conversations.arn]
+  }
+
+  statement {
+    sid       = "SourcePolicies"
+    actions   = local.integration_table_read_actions
+    resources = [aws_dynamodb_table.integrations.arn]
   }
 
   statement {
@@ -183,6 +199,29 @@ data "aws_iam_policy_document" "control" {
   }
 
   statement {
+    sid       = "Integrations"
+    actions   = local.integration_table_read_write_actions
+    resources = [aws_dynamodb_table.integrations.arn]
+  }
+
+  statement {
+    sid       = "Routines"
+    actions   = local.run_table_read_write_actions
+    resources = [aws_dynamodb_table.routines.arn, "${aws_dynamodb_table.routines.arn}/index/*"]
+  }
+
+  statement {
+    sid = "IntegrationCredentials"
+    actions = [
+      "secretsmanager:CreateSecret",
+      "secretsmanager:DeleteSecret",
+      "secretsmanager:PutSecretValue",
+      "secretsmanager:TagResource",
+    ]
+    resources = [local.integration_credential_secret_arn]
+  }
+
+  statement {
     sid       = "Artifacts"
     actions   = ["s3:GetObject", "s3:PutObject"]
     resources = ["${aws_s3_bucket.artifacts.arn}/owners/*"]
@@ -215,8 +254,12 @@ data "aws_iam_policy_document" "control" {
   dynamic "statement" {
     for_each = var.enable_microvm ? [1] : []
     content {
-      sid       = "MicrovmCancellation"
-      actions   = ["lambda:TerminateMicrovm"]
+      sid = "MicrovmControl"
+      actions = [
+        "lambda:CreateMicrovmAuthToken",
+        "lambda:GetMicrovm",
+        "lambda:TerminateMicrovm",
+      ]
       resources = ["*"]
     }
   }
@@ -535,6 +578,28 @@ data "aws_iam_policy_document" "reconciler" {
   }
 
   statement {
+    sid = "Routines"
+    actions = [
+      "dynamodb:GetItem",
+      "dynamodb:Query",
+      "dynamodb:UpdateItem",
+    ]
+    resources = [aws_dynamodb_table.routines.arn, "${aws_dynamodb_table.routines.arn}/index/*"]
+  }
+
+  statement {
+    sid       = "RoutineRuns"
+    actions   = ["dynamodb:GetItem", "dynamodb:PutItem"]
+    resources = [aws_dynamodb_table.runs.arn]
+  }
+
+  statement {
+    sid       = "RoutineArtifacts"
+    actions   = ["s3:GetObject", "s3:PutObject"]
+    resources = ["${aws_s3_bucket.artifacts.arn}/owners/*"]
+  }
+
+  statement {
     sid       = "RenudgeQueue"
     actions   = ["sqs:SendMessage"]
     resources = [aws_sqs_queue.runs.arn]
@@ -558,6 +623,18 @@ data "aws_iam_policy_document" "worker" {
     sid       = "RunState"
     actions   = ["dynamodb:GetItem", "dynamodb:UpdateItem"]
     resources = [aws_dynamodb_table.runs.arn]
+  }
+
+  statement {
+    sid       = "Integrations"
+    actions   = local.integration_table_read_actions
+    resources = [aws_dynamodb_table.integrations.arn]
+  }
+
+  statement {
+    sid       = "IntegrationCredentials"
+    actions   = ["secretsmanager:GetSecretValue"]
+    resources = [local.integration_credential_secret_arn]
   }
 
   statement {

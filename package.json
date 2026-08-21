@@ -14,6 +14,7 @@
     "build": "node scripts/build.mjs",
     "package": "npm run build && node scripts/package-lambdas.mjs && node scripts/smoke-lambda-bundles.mjs",
     "architecture:check": "node scripts/check-architecture.mjs",
+    "microvm:check": "node --check microvm/runtime-server.mjs && node --check microvm/browser-host.mjs && node --check microvm/runtime-network-policy.mjs && node --check microvm/runtime-process-policy.mjs",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -21,7 +22,9 @@
     "localstack:status": "./testing/bootstrap.sh --status",
     "localstack:down": "./testing/bootstrap.sh --down",
     "test:e2e:localstack": "./testing/run-e2e.sh",
+    "test:e2e:microvm-image": "./testing/run-microvm-image-e2e.sh",
     "test:e2e:teams:codex": "./testing/run-teams-codex-e2e.sh",
+    "test:e2e:codex-app-server": "CODEX_APP_SERVER_E2E=true vitest run tests/live/codex-app-server.test.ts --no-file-parallelism",
     "aws:e2e:deploy": "./scripts/aws-e2e-deploy.sh",
     "aws:e2e:test": "./scripts/aws-e2e-test.sh",
     "aws:e2e:destroy": "./scripts/aws-e2e-destroy.sh",
@@ -42,7 +45,7 @@
     "terraform:localstack:validate": "terraform -chdir=testing/localstack init -backend=false -input=false && terraform -chdir=testing/localstack validate",
     "terraform:aws-e2e:fmt:check": "terraform -chdir=testing/aws fmt -recursive -check",
     "terraform:aws-e2e:validate": "terraform -chdir=testing/aws init -backend=false -input=false && terraform -chdir=testing/aws validate",
-    "check": "npm run architecture:check && npm run typecheck && npm test && npm run package && npm run site:build && npm run terraform:fmt:check && npm run terraform:localstack:fmt:check && npm run terraform:aws-e2e:fmt:check && npm run terraform:validate && npm run terraform:localstack:validate && npm run terraform:aws-e2e:validate"
+    "check": "npm run architecture:check && npm run typecheck && npm run microvm:check && npm test && npm run package && npm run site:build && npm run terraform:fmt:check && npm run terraform:localstack:fmt:check && npm run terraform:aws-e2e:fmt:check && npm run terraform:validate && npm run terraform:localstack:validate && npm run terraform:aws-e2e:validate"
   },
   "dependencies": {
     "@aws-crypto/sha256-js": "5.2.0",

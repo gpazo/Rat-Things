@@ -176,9 +176,9 @@ variable "allowed_repository_hosts" {
 }
 
 variable "allowed_sandbox_modes" {
-  description = "Agent sandbox modes accepted by submission and worker validation. Add danger-full-access only after reviewing the outer isolation boundary."
+  description = "Inner agent sandbox modes accepted inside the outer Lambda MicroVM isolation boundary."
   type        = list(string)
-  default     = ["read-only", "workspace-write"]
+  default     = ["read-only", "workspace-write", "danger-full-access"]
 
   validation {
     condition = length(var.allowed_sandbox_modes) > 0 && alltrue([
@@ -186,6 +186,23 @@ variable "allowed_sandbox_modes" {
     ])
     error_message = "allowed_sandbox_modes must be a non-empty subset of read-only, workspace-write, and danger-full-access."
   }
+}
+
+variable "default_sandbox_mode" {
+  description = "Default inner agent sandbox. The Lambda MicroVM remains the outer isolation boundary."
+  type        = string
+  default     = "danger-full-access"
+
+  validation {
+    condition     = contains(["read-only", "workspace-write", "danger-full-access"], var.default_sandbox_mode)
+    error_message = "default_sandbox_mode must be read-only, workspace-write, or danger-full-access."
+  }
+}
+
+variable "default_agent_network_access" {
+  description = "Allow network access for remote agents by default; individual requests and source profiles can narrow it."
+  type        = bool
+  default     = true
 }
 
 variable "default_agent_driver" {

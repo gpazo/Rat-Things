@@ -8,16 +8,29 @@ import {
   rmSync,
 } from 'node:fs';
 import { createServer } from 'node:http';
+import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 import { gunzipSync } from 'node:zlib';
+import { ensureUntrustedUidCannotReachPort } from './runtime-network-policy.mjs';
+import { untrustedChildOptions } from './runtime-process-policy.mjs';
 
 const hookPrefix = '/aws/lambda-microvms/runtime/v1';
 const maximumHookBodyBytes = 16 * 1024;
 const maximumRunPayloadBytes = 4 * 1024;
+const maximumControlEvents = 512;
+const maximumControlEventBytes = 64 * 1024;
+const controlCommandTimeoutMs = 15_000;
+const controlChannel = 'rat-things-agent-control';
 const s3FilesMountTimeoutMs = 50_000;
 const runnerEntry = process.env.AGENT_RUNNER_ENTRY ?? '/opt/agent-runtime/runner.mjs';
 const terminatorEntry = process.env.AGENT_TERMINATOR_ENTRY ?? '/opt/agent-runtime/terminate-microvm.mjs';
+const agentUid = Number(process.env.RUN_AGENT_UID ?? 10001);
+const agentGid = Number(process.env.RUN_AGENT_GID ?? 10001);
+
+// Codex and Chromium run under `agentUid`. Even with inner full access they
+// must not call the root lifecycle/control plane and approve their own work.
+ensureUntrustedUidCannotReachPort({ uid: agentUid, port: 8080 });
 
 let activeRun;
 let shuttingDown = false;
@@ -32,6 +45,29 @@ const server = createServer(async (request, response) => {
   response.setHeader('cache-control', 'no-store');
   response.setHeader('content-type', 'application/json; charset=utf-8');
   response.setHeader('x-content-type-options', 'nosniff');
+
+  const controlRoute = parseControlRoute(request.url);
+  if (controlRoute) {
+    try {
+      await handleControlRequest(request, response, controlRoute);
+    } catch (error) {
+      const invalid = error instanceof InvalidHookRequest;
+      const conflict = error instanceof RuntimeConflict;
+      log('warn', 'agent control operation failed', {
+        operation: controlRoute.operation,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      send(response, invalid ? 400 : conflict ? 409 : 500, {
+        error: invalid
+          ? 'invalid_control_request'
+          : conflict
+            ? 'agent_control_unavailable'
+            : 'agent_control_failed',
+        message: error instanceof Error ? error.message.slice(0, 1_000) : 'agent control failed',
+      });
+    }
+    return;
+  }
 
   if (request.method !== 'POST') {
     send(response, 405, { error: 'method_not_allowed' });
@@ -114,6 +150,7 @@ function validateImage() {
   if (process.env.RUN_AGENT_UID !== '10001' || process.env.RUN_AGENT_GID !== '10001') {
     throw new Error('unprivileged agent UID/GID are not configured');
   }
+  ensureUntrustedUidCannotReachPort({ uid: agentUid, port: 8080 });
 }
 
 function parseRunHook(body) {
@@ -148,6 +185,7 @@ function parseRunHook(body) {
     RUN_INPUT_BUCKET: requiredString(payload, 'inputBucket', 63, /^[a-z0-9][a-z0-9.-]+[a-z0-9]$/),
     RUN_INPUT_KEY: requiredString(payload, 'inputKey', 1024),
     RUNS_TABLE_NAME: requiredString(payload, 'runsTableName', 255),
+    INTEGRATIONS_TABLE_NAME: requiredString(payload, 'integrationsTableName', 255),
     ARTIFACT_BUCKET: requiredString(payload, 'artifactBucket', 63, /^[a-z0-9][a-z0-9.-]+[a-z0-9]$/),
     AWS_DEFAULT_REGION: region,
     AWS_REGION: region,
@@ -206,6 +244,16 @@ function parseRunHook(body) {
   }
   environment.ALLOWED_SANDBOX_MODES = sandboxModes.join(',');
 
+  const defaultSandboxMode = requiredString(payload, 'defaultSandboxMode', 32);
+  if (!sandboxModes.includes(defaultSandboxMode)) {
+    throw new InvalidHookRequest('defaultSandboxMode must be enabled by allowedSandboxModes');
+  }
+  environment.DEFAULT_SANDBOX_MODE = defaultSandboxMode;
+  if (typeof payload.defaultAgentNetworkAccess !== 'boolean') {
+    throw new InvalidHookRequest('defaultAgentNetworkAccess must be a boolean');
+  }
+  environment.CODEX_TOOL_NETWORK_ACCESS = String(payload.defaultAgentNetworkAccess);
+
   const driver = requiredString(payload, 'defaultAgentDriver', 32);
   if (!['mock', 'codex'].includes(driver)) {
     throw new InvalidHookRequest('defaultAgentDriver is invalid');
@@ -236,20 +284,28 @@ function startRun(run) {
     prepareTransientRunState(stateRoot, run.runId);
     run.environment.CONVERSATION_STATE_ROOT = stateRoot;
     run.environment.CODEX_HOME = join(stateRoot, 'codex-home');
+    run.environment.BROWSER_PROFILE_ROOT = join(stateRoot, 'codex-home', 'browser-profile');
     run.environment.WORKSPACE_ROOT = stateRoot;
     persistentStorage = run.storage;
   }
 
-  const uid = Number(process.env.RUN_AGENT_UID ?? 10001);
-  const gid = Number(process.env.RUN_AGENT_GID ?? 10001);
-  const child = spawn(process.execPath, [runnerEntry], {
-    cwd: '/workspace',
-    env: { ...process.env, ...run.environment },
-    uid,
-    gid,
-    stdio: 'inherit',
-  });
-  activeRun = { ...run, child };
+  const child = spawn(process.execPath, [runnerEntry], untrustedChildOptions({
+    uid: agentUid,
+    gid: agentGid,
+    environment: { ...process.env, ...run.environment },
+  }));
+  activeRun = {
+    ...run,
+    child,
+    control: {
+      events: [],
+      pendingRequests: new Map(),
+      commandWaiters: new Map(),
+      nextSequence: 1,
+      ready: false,
+    },
+  };
+  child.on('message', (message) => handleRunnerControlMessage(run.runId, message));
   log('info', 'agent runner started', { runId: run.runId, microvmId: run.microvmId, pid: child.pid });
   child.once('error', (error) => {
     log('error', 'agent runner process error', { runId: run.runId, error: error.message });
@@ -260,9 +316,225 @@ function startRun(run) {
       code,
       signal,
     });
+    rejectControlWaiters(activeRun, new Error('agent runner exited'));
     activeRun = undefined;
     if (!serviceTerminationRequested && !run.persistentSession) selfTerminate(run);
   });
+}
+
+function parseControlRoute(rawUrl) {
+  if (typeof rawUrl !== 'string') return undefined;
+  const url = new URL(rawUrl, 'http://agent-runtime.internal');
+  const parts = url.pathname.split('/').filter(Boolean);
+  if (parts[0] !== 'agent-runtime' || parts[1] !== 'v1' || parts[2] !== 'runs') return undefined;
+  if (parts.length < 5) return undefined;
+  const runId = parts[3];
+  if (!/^[A-Za-z0-9-]{1,128}$/.test(runId)) return undefined;
+  if (parts.length === 5 && ['events', 'steer', 'interrupt'].includes(parts[4])) {
+    return { runId, operation: parts[4], query: url.searchParams };
+  }
+  if (parts.length === 6 && parts[4] === 'approvals') {
+    return { runId, operation: 'approve', requestId: decodeControlId(parts[5]), query: url.searchParams };
+  }
+  if (parts.length === 7 && parts[4] === 'requests' && parts[6] === 'respond') {
+    return { runId, operation: 'respond', requestId: decodeControlId(parts[5]), query: url.searchParams };
+  }
+  return undefined;
+}
+
+async function handleControlRequest(request, response, route) {
+  const run = activeRun;
+  if (!run || run.runId !== route.runId) {
+    throw new RuntimeConflict(`run ${route.runId} is not active in this MicroVM`);
+  }
+  if (route.operation === 'events') {
+    if (request.method !== 'GET') {
+      send(response, 405, { error: 'method_not_allowed' });
+      return;
+    }
+    const after = boundedQueryInteger(route.query.get('after'), 'after', 0, Number.MAX_SAFE_INTEGER, 0);
+    const limit = boundedQueryInteger(route.query.get('limit'), 'limit', 1, 100, 100);
+    const events = run.control.events.filter((event) => event.sequence > after).slice(0, limit);
+    send(response, 200, {
+      runId: run.runId,
+      active: true,
+      ready: run.control.ready,
+      oldestSequence: run.control.events[0]?.sequence ?? run.control.nextSequence,
+      nextSequence: run.control.nextSequence,
+      events,
+      pendingRequests: [...run.control.pendingRequests.values()],
+      ...(run.control.turn ? { turn: run.control.turn } : {}),
+    });
+    return;
+  }
+  if (request.method !== 'POST') {
+    send(response, 405, { error: 'method_not_allowed' });
+    return;
+  }
+  const body = await readJsonBody(request);
+  switch (route.operation) {
+    case 'steer': {
+      const prompt = requiredString(body, 'prompt', 12 * 1024);
+      await sendControlCommand(run, { type: 'steer', prompt });
+      break;
+    }
+    case 'interrupt':
+      await sendControlCommand(run, { type: 'interrupt' });
+      break;
+    case 'approve': {
+      if (!route.requestId || !run.control.pendingRequests.has(route.requestId)) {
+        throw new RuntimeConflict(`approval request ${route.requestId ?? ''} is not pending`);
+      }
+      const decision = requiredString(body, 'decision', 32);
+      if (!['accept', 'accept-for-session', 'decline', 'cancel'].includes(decision)) {
+        throw new InvalidHookRequest('approval decision is invalid');
+      }
+      const reason = optionalString(body.reason, 'reason', 1_000);
+      await sendControlCommand(run, {
+        type: 'approve',
+        requestId: route.requestId,
+        decision,
+        ...(reason ? { reason } : {}),
+      });
+      run.control.pendingRequests.delete(route.requestId);
+      break;
+    }
+    case 'respond':
+      if (!route.requestId || !run.control.pendingRequests.has(route.requestId)) {
+        throw new RuntimeConflict(`server request ${route.requestId ?? ''} is not pending`);
+      }
+      if (!Object.prototype.hasOwnProperty.call(body, 'result')) {
+        throw new InvalidHookRequest('response result is required');
+      }
+      await sendControlCommand(run, {
+        type: 'respond',
+        requestId: route.requestId,
+        result: body.result,
+      });
+      run.control.pendingRequests.delete(route.requestId);
+      break;
+    default:
+      throw new InvalidHookRequest('control operation is invalid');
+  }
+  send(response, 202, { ok: true, operation: route.operation });
+}
+
+function handleRunnerControlMessage(runId, message) {
+  const run = activeRun;
+  if (
+    !run ||
+    run.runId !== runId ||
+    !isRecord(message) ||
+    message.channel !== controlChannel ||
+    message.runId !== runId ||
+    typeof message.type !== 'string'
+  ) return;
+  switch (message.type) {
+    case 'event':
+      appendControlEvent(run, message.event);
+      break;
+    case 'server-request': {
+      const request = normalizedServerRequest(message.request);
+      if (request) run.control.pendingRequests.set(request.requestId, request);
+      break;
+    }
+    case 'turn-ready':
+      if (
+        isRecord(message.turn) &&
+        typeof message.turn.threadId === 'string' &&
+        typeof message.turn.turnId === 'string'
+      ) {
+        run.control.ready = true;
+        run.control.turn = {
+          threadId: message.turn.threadId.slice(0, 256),
+          turnId: message.turn.turnId.slice(0, 256),
+        };
+      }
+      break;
+    case 'command-result': {
+      if (typeof message.commandId !== 'string') break;
+      const waiter = run.control.commandWaiters.get(message.commandId);
+      if (!waiter) break;
+      run.control.commandWaiters.delete(message.commandId);
+      clearTimeout(waiter.timer);
+      if (message.ok === true) waiter.resolve();
+      else waiter.reject(new RuntimeConflict(
+        typeof message.error === 'string' ? message.error.slice(0, 1_000) : 'agent rejected control command',
+      ));
+      break;
+    }
+  }
+}
+
+function appendControlEvent(run, value) {
+  if (!isRecord(value) || typeof value.method !== 'string') return;
+  const normalized = jsonClone({
+    sequence: run.control.nextSequence,
+    occurredAt: new Date().toISOString(),
+    method: value.method.slice(0, 256),
+    params: isRecord(value.params) ? value.params : {},
+    ...(typeof value.requestId === 'string' || typeof value.requestId === 'number'
+      ? { requestId: String(value.requestId).slice(0, 256) }
+      : {}),
+  });
+  const encoded = JSON.stringify(normalized);
+  const event = Buffer.byteLength(encoded) <= maximumControlEventBytes
+    ? normalized
+    : {
+      sequence: run.control.nextSequence,
+      occurredAt: new Date().toISOString(),
+      method: value.method.slice(0, 256),
+      params: { truncated: true },
+    };
+  run.control.nextSequence += 1;
+  run.control.events.push(event);
+  if (run.control.events.length > maximumControlEvents) run.control.events.shift();
+}
+
+function normalizedServerRequest(value) {
+  if (
+    !isRecord(value) ||
+    (typeof value.requestId !== 'string' && typeof value.requestId !== 'number') ||
+    typeof value.method !== 'string'
+  ) return undefined;
+  return jsonClone({
+    requestId: String(value.requestId).slice(0, 256),
+    method: value.method.slice(0, 256),
+    params: isRecord(value.params) ? value.params : {},
+    receivedAt: new Date().toISOString(),
+  });
+}
+
+function sendControlCommand(run, command) {
+  if (!run.child.connected) throw new RuntimeConflict('agent control channel is not connected');
+  const commandId = randomUUID();
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      run.control.commandWaiters.delete(commandId);
+      reject(new RuntimeConflict('agent control command timed out'));
+    }, controlCommandTimeoutMs);
+    run.control.commandWaiters.set(commandId, { resolve, reject, timer });
+    run.child.send(
+      { channel: controlChannel, runId: run.runId, commandId, ...command },
+      (error) => {
+        if (!error) return;
+        const waiter = run.control.commandWaiters.get(commandId);
+        if (!waiter) return;
+        run.control.commandWaiters.delete(commandId);
+        clearTimeout(waiter.timer);
+        reject(new RuntimeConflict(`agent control send failed: ${error.message}`));
+      },
+    );
+  });
+}
+
+function rejectControlWaiters(run, error) {
+  if (!run?.control) return;
+  for (const waiter of run.control.commandWaiters.values()) {
+    clearTimeout(waiter.timer);
+    waiter.reject(error);
+  }
+  run.control.commandWaiters.clear();
 }
 
 function selfTerminate(run) {
@@ -531,6 +803,41 @@ function requiredInteger(value, key, minimum, maximum) {
   return result;
 }
 
+function boundedQueryInteger(value, label, minimum, maximum, fallback) {
+  if (value === null || value === '') return fallback;
+  const result = Number(value);
+  if (!Number.isInteger(result) || result < minimum || result > maximum) {
+    throw new InvalidHookRequest(`${label} query parameter is invalid`);
+  }
+  return result;
+}
+
+function optionalString(value, label, maximumLength) {
+  if (value === undefined || value === null || value === '') return undefined;
+  if (typeof value !== 'string' || value.includes('\0') || Buffer.byteLength(value) > maximumLength) {
+    throw new InvalidHookRequest(`${label} is invalid`);
+  }
+  return value;
+}
+
+function decodeControlId(value) {
+  try {
+    const decoded = decodeURIComponent(value);
+    if (!decoded || decoded.length > 256 || decoded.includes('\0') || decoded.includes('/')) return undefined;
+    return decoded;
+  } catch {
+    return undefined;
+  }
+}
+
+function jsonClone(value) {
+  try {
+    return JSON.parse(JSON.stringify(value));
+  } catch {
+    return { invalid: true };
+  }
+}
+
 function csvValues(value, label) {
   const values = value.split(',').map((item) => item.trim()).filter(Boolean);
   if (values.length === 0 || new Set(values).size !== values.length) {
@@ -561,3 +868,4 @@ function log(level, message, fields = {}) {
 }
 
 class InvalidHookRequest extends Error {}
+class RuntimeConflict extends Error {}

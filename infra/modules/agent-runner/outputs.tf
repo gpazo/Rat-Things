@@ -64,6 +64,16 @@ output "conversations_table_name" {
   value       = aws_dynamodb_table.conversations.name
 }
 
+output "integrations_table_name" {
+  description = "DynamoDB table holding owner-scoped connection metadata, grants, sets, and source bindings."
+  value       = aws_dynamodb_table.integrations.name
+}
+
+output "routines_table_name" {
+  description = "DynamoDB table holding owner-scoped routine schedules and encrypted request references."
+  value       = aws_dynamodb_table.routines.name
+}
+
 output "run_queue_url" {
   value = aws_sqs_queue.runs.url
 }

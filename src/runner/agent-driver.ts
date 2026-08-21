@@ -1,5 +1,10 @@
 import type { AgentDriverName, RunRequest } from '../domain/contracts.js';
 import { runCodexAppServer } from './codex-app-server.js';
+import type {
+  CodexAppServerEvent,
+  CodexAppServerInitiatedRequest,
+  CodexTurnController,
+} from './codex-app-server.js';
 import { codexAuthMode, codexModelProvider } from './codex-auth.js';
 import { AGENT_ARTIFACT_DIRECTORY, artifactPrompt } from './artifacts.js';
 
@@ -19,7 +24,20 @@ export interface AgentExecution {
 
 export interface AgentDriver {
   readonly name: AgentDriverName;
-  execute(request: RunRequest, workspace: string, timeoutMs: number, signal?: AbortSignal): Promise<AgentExecution>;
+  execute(
+    request: RunRequest,
+    workspace: string,
+    timeoutMs: number,
+    signal?: AbortSignal,
+    control?: AgentDriverControl,
+  ): Promise<AgentExecution>;
+}
+
+export interface AgentDriverControl {
+  dynamicTools?: Array<Record<string, unknown>>;
+  onEvent?(event: CodexAppServerEvent): void | Promise<void>;
+  onServerRequest?(request: CodexAppServerInitiatedRequest): unknown | Promise<unknown>;
+  onTurnStarted?(controller: CodexTurnController): void | Promise<void>;
 }
 
 export function driverFor(name: AgentDriverName): AgentDriver {
@@ -39,17 +57,22 @@ export class CodexDriver implements AgentDriver {
     workspace: string,
     timeoutMs: number,
     signal?: AbortSignal,
+    control?: AgentDriverControl,
   ): Promise<AgentExecution> {
     const authMode = codexAuthMode();
-    const sandbox = request.agent?.sandbox ?? 'read-only';
-    const toolNetworkAccess = process.env.CODEX_TOOL_NETWORK_ACCESS === 'true';
+    const capabilities = request.agent?.capabilities;
+    const networkAccess = capabilities?.networkAccess ?? process.env.CODEX_TOOL_NETWORK_ACCESS === 'true';
+    const requestedSandbox = request.agent?.sandbox ?? defaultSandboxMode();
+    // App Server's dangerFullAccess policy has no separate network toggle.
+    // Honor an explicit network narrowing by selecting the strongest policy
+    // that can actually enforce networkAccess=false.
+    const sandbox = !networkAccess && requestedSandbox === 'danger-full-access'
+      ? 'workspace-write'
+      : requestedSandbox;
     const persistentSession = process.env.PERSISTENT_SESSION === 'true';
     const resumeThreadId = process.env.AGENT_THREAD_ID;
     if (resumeThreadId && !persistentSession) {
       throw new Error('Codex thread resume requires a persistent MicroVM session');
-    }
-    if (toolNetworkAccess && sandbox !== 'workspace-write') {
-      throw new Error('Codex tool network access requires the workspace-write sandbox');
     }
     const model = request.agent?.model ?? (
       authMode === 'chatgpt' ? process.env.CODEX_CHATGPT_MODEL : process.env.DEFAULT_MODEL
@@ -68,9 +91,21 @@ export class CodexDriver implements AgentDriver {
       modelProvider: codexModelProvider(authMode),
       ...(model ? { model } : {}),
       ...(request.agent?.reasoningEffort ? { reasoningEffort: request.agent.reasoningEffort } : {}),
+      ...(request.agent?.reasoningSummary ? { reasoningSummary: request.agent.reasoningSummary } : {}),
+      ...(request.agent?.personality ? { personality: request.agent.personality } : {}),
       ...(request.agent?.outputSchema ? { outputSchema: request.agent.outputSchema } : {}),
       ...(resumeThreadId ? { resumeThreadId } : {}),
-      toolNetworkAccess,
+      networkAccess,
+      approvalPolicy: capabilities?.approvalPolicy ?? 'never',
+      approvalsReviewer: capabilities?.approvalsReviewer ?? 'user',
+      ...(capabilities?.webSearch ? { webSearch: capabilities.webSearch } : {}),
+      ...(capabilities?.skills ? { skills: capabilities.skills } : {}),
+      ...(capabilities?.apps ? { apps: capabilities.apps } : {}),
+      ...(capabilities?.mcpServers ? { mcpServers: capabilities.mcpServers } : {}),
+      ...(control?.onEvent ? { onEvent: control.onEvent } : {}),
+      ...(control?.onServerRequest ? { onServerRequest: control.onServerRequest } : {}),
+      ...(control?.onTurnStarted ? { onTurnStarted: control.onTurnStarted } : {}),
+      ...(control?.dynamicTools ? { dynamicTools: control.dynamicTools } : {}),
     });
     return { ...execution, exitCode: 0 };
   }
@@ -147,4 +182,12 @@ function agentIdentity(): { uid: number; gid: number } | undefined {
     throw new Error('RUN_AGENT_UID and RUN_AGENT_GID must both be positive integers');
   }
   return { uid, gid };
+}
+
+function defaultSandboxMode(): 'read-only' | 'workspace-write' | 'danger-full-access' {
+  const value = process.env.DEFAULT_SANDBOX_MODE ?? 'read-only';
+  if (!['read-only', 'workspace-write', 'danger-full-access'].includes(value)) {
+    throw new Error('DEFAULT_SANDBOX_MODE is invalid');
+  }
+  return value as 'read-only' | 'workspace-write' | 'danger-full-access';
 }

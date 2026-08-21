@@ -9,6 +9,7 @@ import {
   S3PublicationGrantStore,
   S3PublicationObjectStore,
 } from '../adapters/aws-runtime.js';
+import { DynamoIntegrationStore } from '../adapters/dynamo-integration-store.js';
 import { PublicationPublisher, publicationTtlSeconds } from '../core/publication-publisher.js';
 import { requiredEnv } from '../adapters/executors.js';
 import { CredentialBroker } from '../credentials/broker.js';
@@ -20,6 +21,7 @@ import { driverFor } from './agent-driver.js';
 import { loadCodexBedrockToken } from './bedrock-auth.js';
 import { codexAuthMode } from './codex-auth.js';
 import {
+  AGENT_ARTIFACT_DIRECTORY,
   assertArtifactCatalogScope,
   clearArtifactDirectory,
   emptyArtifactCatalog,
@@ -33,6 +35,18 @@ import {
 } from './publications.js';
 import type { SharedPublication } from './publications.js';
 import { collectWorkspacePatch, prepareWorkspace } from './workspace.js';
+import { createRunnerControlBridge } from './control.js';
+import { IntegrationPluginRegistry } from '../plugins/integration-registry.js';
+import { IntegrationRuntime } from '../plugins/integration-runtime.js';
+import { createBuiltinIntegrationPlugins } from '../plugins/integrations/builtins.js';
+import {
+  CapabilityProfileRegistry,
+  createBuiltinCapabilityProfiles,
+  resolveAgentProfile,
+} from '../plugins/capability-profiles.js';
+import type { AgentDriverControl } from './agent-driver.js';
+import { BrowserHostBackend, BrowserToolSession } from './browser.js';
+import { createDynamicToolRequestHandler } from './dynamic-tools.js';
 
 export async function runAgentWorker(): Promise<void> {
   const clients = createAwsClients();
@@ -65,6 +79,8 @@ export async function runAgentWorker(): Promise<void> {
     );
   const startedAt = new Date().toISOString();
   let loadedBedrockToken = false;
+  let browserSession: BrowserToolSession | undefined;
+  const runnerControl = createRunnerControlBridge(runId);
 
   try {
     const rawRequest = await artifacts.getJson<unknown>({
@@ -73,8 +89,18 @@ export async function runAgentWorker(): Promise<void> {
     });
     const request = parseRunRequest(rawRequest, {
       allowedRepositoryHosts: csv(process.env.ALLOWED_REPOSITORY_HOSTS ?? 'github.com,gitlab.com'),
-      allowedSandboxModes: sandboxModes(process.env.ALLOWED_SANDBOX_MODES ?? 'read-only,workspace-write'),
+      allowedSandboxModes: sandboxModes(
+        process.env.ALLOWED_SANDBOX_MODES ?? 'read-only,workspace-write,danger-full-access',
+      ),
     });
+    const profile = resolveAgentProfile(
+      request.agent,
+      new CapabilityProfileRegistry(createBuiltinCapabilityProfiles()),
+    );
+    const effectiveRequest = {
+      ...request,
+      ...(profile.agent ? { agent: profile.agent } : {}),
+    };
     current = await waitForExecutionAttachment(
       store,
       runId,
@@ -92,7 +118,7 @@ export async function runAgentWorker(): Promise<void> {
     await store.transition(runId, ['dispatching'], 'running', {
       execution: { ...current.execution, startedAt },
     });
-    await prepareWorkspace(request.repository, workspace, credentials, {
+    await prepareWorkspace(effectiveRequest.repository, workspace, credentials, {
       reuseExisting: persistentSession,
     });
     const ownerHash = createHash('sha256').update(current.ownerId).digest('hex').slice(0, 32);
@@ -109,12 +135,75 @@ export async function runAgentWorker(): Promise<void> {
     assertArtifactCatalogScope(previousArtifacts, artifactBucket, current.ownerId);
     await restoreArtifactCatalog(workspace, previousArtifacts, artifacts);
     await clearAgentShareRequest(workspace);
-    const timeoutSeconds = Number(process.env.RUN_TIMEOUT_SECONDS ?? request.execution?.timeoutSeconds ?? 900);
-    const driver = driverFor(request.agent?.driver ?? defaultDriver());
+    const timeoutSeconds = Number(
+      process.env.RUN_TIMEOUT_SECONDS ?? effectiveRequest.execution?.timeoutSeconds ?? 900,
+    );
+    const driver = driverFor(effectiveRequest.agent?.driver ?? defaultDriver());
+    let driverControl: AgentDriverControl | undefined = runnerControl?.hooks;
+    const dynamicTools: Array<Record<string, unknown>> = [];
+    let integrationSession: Awaited<ReturnType<IntegrationRuntime['prepare']>> | undefined;
+    if (effectiveRequest.agent?.capabilities?.computerUse === 'browser') {
+      const browserNetworkAccess = effectiveRequest.agent.capabilities.networkAccess ??
+        process.env.CODEX_TOOL_NETWORK_ACCESS === 'true';
+      if (!browserNetworkAccess) {
+        throw new Error('browser computer use requires agent network access');
+      }
+      if (driver.name !== 'codex') throw new Error('browser computer use requires the Codex driver');
+      browserSession = new BrowserToolSession(
+        new BrowserHostBackend({
+          artifactRoot: join(workspace, AGENT_ARTIFACT_DIRECTORY),
+        }),
+        runnerControl?.requestBrowserApproval,
+        (effectiveRequest.agent.capabilities.approvalPolicy ?? 'never') !== 'never',
+      );
+      dynamicTools.push(...browserSession.tools);
+    }
+    if (effectiveRequest.integrations) {
+      const capabilityOwnerId = current.capabilityOwnerId ?? current.ownerId;
+      integrationSession = await new IntegrationRuntime({
+        registry: new IntegrationPluginRegistry(createBuiltinIntegrationPlugins()),
+        store: new DynamoIntegrationStore(
+          clients.dynamodb,
+          requiredEnv('INTEGRATIONS_TABLE_NAME'),
+        ),
+        credentials,
+      }).prepare({
+        ownerId: capabilityOwnerId,
+        request: effectiveRequest.integrations,
+        ...(profile.maximumIntegrationAccess
+          ? { maximumIntegrationAccess: profile.maximumIntegrationAccess }
+          : {}),
+        ...(runnerControl ? { approve: runnerControl.requestIntegrationApproval } : {}),
+      });
+      dynamicTools.push(...integrationSession.tools.map((tool) => ({ ...tool })));
+    }
+    if (dynamicTools.length > 0) {
+      const fallbackServerRequest = runnerControl?.hooks.onServerRequest;
+      driverControl = {
+        ...runnerControl?.hooks,
+        dynamicTools,
+        onServerRequest: createDynamicToolRequestHandler({
+          ...(browserSession ? { browser: browserSession } : {}),
+          ...(integrationSession ? { integrations: integrationSession } : {}),
+          signal: abort.signal,
+          ...(fallbackServerRequest ? { fallback: fallbackServerRequest } : {}),
+        }),
+      };
+    }
     if (driver.name === 'codex' && codexAuthMode() === 'bedrock') {
       loadedBedrockToken = await loadCodexBedrockToken(credentials);
     }
-    const execution = await driver.execute(request, workspace, timeoutSeconds * 1_000, abort.signal);
+    const execution = await driver.execute(
+      effectiveRequest,
+      workspace,
+      timeoutSeconds * 1_000,
+      abort.signal,
+      driverControl,
+    );
+    // Finalize any active recording before the artifact catalog takes its
+    // immutable snapshot. Explicit record_stop remains preferable because it
+    // returns metadata to the agent, but a completed turn must not lose bytes.
+    if (browserSession) await browserSession.close();
     const prefix = `owners/${ownerHash}/runs/${runId}`;
     const [eventArtifact, patch, publishedArtifacts] = await Promise.all([
       artifacts.putBytes(`${prefix}/events.jsonl`, execution.events, 'application/x-ndjson'),
@@ -196,6 +285,14 @@ export async function runAgentWorker(): Promise<void> {
     throw error;
   } finally {
     if (loadedBedrockToken) delete process.env.AWS_BEARER_TOKEN_BEDROCK;
+    if (browserSession) {
+      try {
+        await browserSession.close();
+      } catch {
+        // The browser host is an isolated helper and may already have exited.
+      }
+    }
+    runnerControl?.close();
     process.removeListener('SIGTERM', stop);
     process.removeListener('SIGINT', stop);
     if (!persistentSession) await rm(workspace, { recursive: true, force: true });

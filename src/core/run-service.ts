@@ -44,6 +44,8 @@ export interface SubmitOptions {
   idempotencyKey?: string;
   traceId?: string;
   provenance?: RunProvenance;
+  /** Trusted delegated policy principal, distinct from the run owner. */
+  capabilityOwnerId?: string;
   /** Defer the SQS wake-up until a coordinator has committed its related state. */
   enqueue?: boolean;
   /** Internal coordinator-only metadata; never copied from a public RunRequest. */
@@ -113,6 +115,9 @@ export class RunService {
     const record: RunRecord = {
       runId,
       ownerId,
+      ...(submit.capabilityOwnerId
+        ? { capabilityOwnerId: validateCapabilityOwner(submit.capabilityOwnerId) }
+        : {}),
       ownerCreated: `${ownerId}#${iso}#${runId}`,
       status: 'queued',
       createdAt: iso,
@@ -200,6 +205,13 @@ export class RunService {
       traceId: traceId ?? runId,
     });
   }
+}
+
+function validateCapabilityOwner(value: string): string {
+  if (!value.trim() || Buffer.byteLength(value, 'utf8') > 1_024) {
+    throw new ValidationError('capability owner identity is invalid');
+  }
+  return value;
 }
 
 function validateConversationBinding(binding: ConversationRunBinding): ConversationRunBinding {

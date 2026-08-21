@@ -50,6 +50,11 @@ npm run rat-things -- local \
 Add `--events` to either form to print the complete Codex JSONL event stream. Add `--workspace PATH`
 to work in a directory other than the repository root.
 
+Local execution supports direct Codex skill, app, MCP, approval, search, reasoning, and personality
+flags. Multi-account connections and the Chromium computer-use helper depend on the deployed
+Secrets Manager/DynamoDB/MicroVM host, so `rat-things local` rejects them instead of silently running
+without the requested capability. Use the remote signed CLI for those features.
+
 ## What the command does
 
 `npm run rat-things -- local` runs the repository's local runtime with:

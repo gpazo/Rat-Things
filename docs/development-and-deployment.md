@@ -3,7 +3,7 @@
 ## Prerequisites
 
 - Node.js 20+, npm, and Git.
-- Docker with Compose for the LocalStack workflow only.
+- Docker with Compose for LocalStack and Buildx for the opt-in ARM64 image canary.
 - Terraform 1.5+ and AWS credentials for infrastructure work.
 - GitHub CLI authenticated for the one-command GitHub webhook path.
 - A Region and quota that support AWS Lambda MicroVMs, plus a currently `AVAILABLE` managed
@@ -30,6 +30,7 @@ For the disposable local integration path:
 
 ```bash
 npm run test:e2e:localstack
+npm run test:e2e:microvm-image
 ```
 
 LocalStack owns S3, DynamoDB/Streams, SQS, EventBridge, Secrets Manager, and related event routing.
@@ -37,6 +38,12 @@ The suite also validates the durable conversation table and S3 bodies through pr
 lease, progress, checkpoint/resume, and completion operations. Handlers and the mock runner execute
 on the host because LocalStack does not implement the Lambda MicroVM APIs or lifecycle. See
 [`testing/README.md`](../testing/README.md).
+
+The image canary packages and builds the real `linux/arm64` MicroVM context, validates lifecycle
+startup through the root/host path, proves the cgroup eBPF policy denies UID 10001 through both
+loopback and the guest interface, proves an unrelated external service on port 8080 remains
+reachable, launches the bundled Chromium against a public page, captures a screenshot, and rejects
+loopback navigation. It does not provision a Lambda MicroVM or replace the disposable-AWS suite.
 
 Focused local runs are also available:
 
@@ -56,9 +63,10 @@ Leave `CODEX_CHATGPT_MODEL` empty to use the signed-in account's default, or set
 model ID. `DEFAULT_MODEL` remains the Bedrock deployment default.
 `--events` prints the complete JSONL protocol stream, including command/tool execution records and
 token usage, so a canary can prove more than final-message delivery.
-For an intentional command-egress canary, add `--network --sandbox workspace-write`. This maps to
-`CODEX_TOOL_NETWORK_ACCESS=true` and Codex's `sandbox_workspace_write.network_access=true`; it is
-disabled by default and rejected with the read-only sandbox.
+For an intentional local command-egress canary, add `--network` and choose the inner sandbox you
+want. Local runs default to no network. `workspace-write` maps the flag to Codex's
+`sandbox_workspace_write.network_access`; `read-only` carries the same explicit network selection in
+its App Server sandbox policy.
 
 The example request contains a deliberately nonexistent repository. Copy it and replace the URL/ref
 before using it remotely.
@@ -95,6 +103,8 @@ environment                      = "dev"
 default_agent_driver             = "mock"
 allow_agent_aws_credential_chain = false
 allowed_sandbox_modes            = ["read-only", "workspace-write"]
+default_sandbox_mode             = "read-only"
+default_agent_network_access     = false
 enable_microvm                   = true
 microvm_base_image_version       = "<available pinned version>"
 enable_s3_files                  = true

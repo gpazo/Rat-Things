@@ -2,9 +2,15 @@ locals {
   lambda_common_environment = {
     ALLOWED_REPOSITORY_HOSTS            = join(",", var.allowed_repository_hosts)
     ALLOWED_SANDBOX_MODES               = join(",", var.allowed_sandbox_modes)
+    DEFAULT_SANDBOX_MODE                = var.default_sandbox_mode
+    DEFAULT_AGENT_NETWORK_ACCESS        = tostring(var.default_agent_network_access)
     ARTIFACT_BUCKET                     = aws_s3_bucket.artifacts.id
     AWS_NODEJS_CONNECTION_REUSE_ENABLED = "1"
     CONVERSATIONS_TABLE_NAME            = aws_dynamodb_table.conversations.name
+    INTEGRATIONS_TABLE_NAME             = aws_dynamodb_table.integrations.name
+    ROUTINES_TABLE_NAME                 = aws_dynamodb_table.routines.name
+    INTEGRATION_CREDENTIAL_NAME_PREFIX  = "${local.name}/connections"
+    INTEGRATION_CREDENTIAL_KMS_KEY_ARN  = aws_kms_key.data.arn
     CONVERSATION_QUEUE_URL              = aws_sqs_queue.conversations.url
     METRIC_DEPLOYMENT                   = local.name
     METRIC_NAMESPACE                    = "RatThings"
@@ -115,11 +121,9 @@ locals {
       role_arn = aws_iam_role.reconciler.arn
       timeout  = 30
       memory   = 256
-      environment = {
-        AWS_NODEJS_CONNECTION_REUSE_ENABLED = "1"
-        RUNS_TABLE_NAME                     = aws_dynamodb_table.runs.name
-        RUN_QUEUE_URL                       = aws_sqs_queue.runs.url
-      }
+      environment = merge(local.lambda_common_environment, {
+        ROUTINE_TICK_LIMIT = "100"
+      })
     }
     state-stream = {
       enabled  = true

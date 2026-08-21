@@ -26,6 +26,14 @@ output "conversations_table_name" {
   value = module.agent_runner.conversations_table_name
 }
 
+output "integrations_table_name" {
+  value = module.agent_runner.integrations_table_name
+}
+
+output "routines_table_name" {
+  value = module.agent_runner.routines_table_name
+}
+
 output "run_queue_url" {
   value = module.agent_runner.run_queue_url
 }

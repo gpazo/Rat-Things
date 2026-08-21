@@ -10,6 +10,7 @@ import type {
   RunError,
   RunSource,
 } from '../domain/contracts.js';
+import type { IntegrationAccessRequest } from '../domain/capabilities.js';
 import type {
   ConversationCheckpoint,
   ConversationDelivery,
@@ -54,6 +55,7 @@ export interface ConversationServiceOptions {
 export interface AppendConversationMessageInput {
   conversationId: string;
   ownerId: string;
+  capabilityOwnerId?: string;
   messageId: string;
   delivery: ConversationDelivery;
   content: ConversationMessageContent;
@@ -62,6 +64,7 @@ export interface AppendConversationMessageInput {
   actor: RunActorContext;
   credentialSubject: RunCredentialSubjectContext;
   executionPolicy?: ConversationExecutionPolicy;
+  integrationPolicy?: IntegrationAccessRequest;
   receivedAt?: string;
 }
 
@@ -81,6 +84,7 @@ export class ConversationService {
   public async appendMessage(input: AppendConversationMessageInput) {
     requiredId(input.conversationId, 'conversationId', 512);
     requiredId(input.ownerId, 'ownerId', 1_024);
+    if (input.capabilityOwnerId) requiredId(input.capabilityOwnerId, 'capabilityOwnerId', 1_024);
     requiredId(input.messageId, 'messageId', 512);
     validateMessageContent(input.content);
     if (input.delivery !== 'interrupt' && input.delivery !== 'defer') {
@@ -105,11 +109,15 @@ export class ConversationService {
     const executionPolicy = input.executionPolicy
       ? validateExecutionPolicy(input.executionPolicy)
       : undefined;
+    const integrationPolicy = input.integrationPolicy
+      ? validateIntegrationPolicy(input.integrationPolicy)
+      : undefined;
     const conversation: ConversationRecord = {
       version: '1',
       itemType: 'conversation',
       conversationId: input.conversationId,
       ownerId: input.ownerId,
+      ...(input.capabilityOwnerId ? { capabilityOwnerId: input.capabilityOwnerId } : {}),
       status: 'pending',
       pendingCount: 1,
       createdAt,
@@ -120,6 +128,7 @@ export class ConversationService {
       actor: input.actor,
       credentialSubject: input.credentialSubject,
       ...(executionPolicy ? { executionPolicy } : {}),
+      ...(integrationPolicy ? { integrationPolicy } : {}),
     };
     const message: ConversationMessageRecord = {
       version: '1',
@@ -636,7 +645,20 @@ function validateExecutionPolicy(input: ConversationExecutionPolicy): Conversati
     ...(parsed.model ? { model: parsed.model } : {}),
     ...(parsed.sandbox ? { sandbox: parsed.sandbox } : {}),
     ...(parsed.reasoningEffort ? { reasoningEffort: parsed.reasoningEffort } : {}),
+    ...(parsed.reasoningSummary ? { reasoningSummary: parsed.reasoningSummary } : {}),
+    ...(parsed.personality ? { personality: parsed.personality } : {}),
+    ...(parsed.capabilities ? { capabilities: parsed.capabilities } : {}),
   };
+}
+
+function validateIntegrationPolicy(input: IntegrationAccessRequest): IntegrationAccessRequest {
+  const parsed = parseRunRequest({
+    version: '1',
+    prompt: 'validate trusted conversation integration policy',
+    integrations: input,
+  }).integrations;
+  if (!parsed) throw new ConversationStateError('conversation integration policy is invalid');
+  return parsed;
 }
 
 function expiry(now: Date, retentionSeconds: number): number {

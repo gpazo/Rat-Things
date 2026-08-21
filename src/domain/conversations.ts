@@ -8,11 +8,9 @@ import type {
   RunError,
   RunSource,
 } from './contracts.js';
+import type { IntegrationAccessRequest } from './capabilities.js';
 
-export type ConversationExecutionPolicy = Pick<
-  AgentInput,
-  'driver' | 'model' | 'sandbox' | 'reasoningEffort'
->;
+export type ConversationExecutionPolicy = Omit<AgentInput, 'outputSchema'>;
 
 export const CONVERSATION_STATUSES = [
   'idle',
@@ -63,6 +61,8 @@ export interface ConversationRecord {
   itemType: 'conversation';
   conversationId: string;
   ownerId: string;
+  /** Trusted delegated policy principal, distinct from the mailbox/run owner. */
+  capabilityOwnerId?: string;
   status: ConversationStatus;
   pendingCount: number;
   createdAt: string;
@@ -74,6 +74,8 @@ export interface ConversationRecord {
   credentialSubject: RunCredentialSubjectContext;
   /** Trusted policy selected by ingress/orchestration, never copied from webhook content. */
   executionPolicy?: ConversationExecutionPolicy;
+  /** Owner-scoped connection selectors selected by trusted ingress/orchestration. */
+  integrationPolicy?: IntegrationAccessRequest;
   activeTurnId?: string;
   lease?: ConversationLease;
   latestProgress?: ConversationProgress;

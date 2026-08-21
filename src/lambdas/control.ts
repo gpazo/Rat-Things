@@ -10,22 +10,39 @@ import {
   S3PublicationGrantStore,
   S3PublicationObjectStore,
 } from '../adapters/aws-runtime.js';
-import { requiredEnv } from '../adapters/executors.js';
+import { AgentInteractionUnavailableError, requiredEnv } from '../adapters/executors.js';
 import { apiConversationId } from '../app/conversation-submission.js';
 import {
   getConversationService,
   getConversationSubmissionService,
+  getAgentInteractionController,
+  getConnectionService,
+  getIntegrationPluginRegistry,
+  getCapabilityProfileRegistry,
+  getRoutineService,
 } from '../app/composition.js';
 import { ConflictError, NotFoundError } from '../core/run-service.js';
+import { publicRoutine } from '../core/routine-service.js';
 import {
   latestPublicationSourceRunId,
   PublicationPublisher,
   publicationTtlSeconds,
 } from '../core/publication-publisher.js';
 import { artifactIdForPath, validateArtifactCatalog } from '../domain/artifacts.js';
-import type { AgentInput, ArtifactReference, RunRecord } from '../domain/contracts.js';
+import type { AgentInput, ArtifactReference, JsonValue, RunRecord, RunRequest } from '../domain/contracts.js';
 import type { ArtifactCatalog, PublishedArtifact } from '../domain/contracts.js';
 import type { ConversationRecord } from '../domain/conversations.js';
+import {
+  AGENT_APPROVAL_DECISIONS,
+  type AgentApprovalDecision,
+  type AgentInteractionTarget,
+} from '../domain/interaction.js';
+import type { IntegrationCredentialValue } from '../credentials/types.js';
+import {
+  validateConnectionGrant,
+  type ConnectionGrant,
+  type ProviderAuthorization,
+} from '../domain/capabilities.js';
 import type {
   PublicationDescriptor,
   PublicationShare,
@@ -85,7 +102,178 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
 
     const context = apiIngressContext(principal(event));
     const ownerId = context.owner.id;
-    const service = getRunService(true);
+    // Most control-plane routes do not need execution control. Keep the
+    // MicroVM executor lazy so integration, routine, conversation, and health
+    // operations do not depend on MicroVM-only environment configuration.
+    const service = () => getRunService(true);
+    if (method === 'GET' && path === '/v1/integrations/plugins') {
+      return response(200, {
+        plugins: getIntegrationPluginRegistry().list().map((plugin) => plugin.manifest),
+      });
+    }
+    if (method === 'GET' && path === '/v1/capability-profiles') {
+      return response(200, { profiles: getCapabilityProfileRegistry().list() });
+    }
+    if (method === 'GET' && path === '/v1/integrations/connections') {
+      return response(200, { connections: await getConnectionService().list(ownerId) });
+    }
+    if (method === 'POST' && path === '/v1/integrations/connections') {
+      const input = createConnectionBody(jsonBody(event), ownerId);
+      return response(201, await getConnectionService().create(input));
+    }
+    const integrationConnectionId = conversationPathParameter(event, 'connectionId', 256);
+    if (
+      method === 'POST' &&
+      integrationConnectionId &&
+      routeMatches(
+        event,
+        'POST /v1/integrations/connections/{connectionId}/grant',
+        `/v1/integrations/connections/${integrationConnectionId}/grant`,
+      )
+    ) {
+      return response(200, await getConnectionService().replaceGrant(
+        ownerId,
+        integrationConnectionId,
+        grantPolicy(jsonBody(event)),
+      ));
+    }
+    if (
+      method === 'POST' &&
+      integrationConnectionId &&
+      routeMatches(
+        event,
+        'POST /v1/integrations/connections/{connectionId}/credential',
+        `/v1/integrations/connections/${integrationConnectionId}/credential`,
+      )
+    ) {
+      const body = strictBody(jsonBody(event), ['version', 'credential']);
+      requireVersion(body.version);
+      await getConnectionService().rotate(
+        ownerId,
+        integrationConnectionId,
+        credentialValue(body.credential),
+      );
+      return response(200, { ok: true, connectionId: integrationConnectionId });
+    }
+    if (
+      method === 'POST' &&
+      integrationConnectionId &&
+      routeMatches(
+        event,
+        'POST /v1/integrations/connections/{connectionId}/revoke',
+        `/v1/integrations/connections/${integrationConnectionId}/revoke`,
+      )
+    ) {
+      strictBody(jsonBody(event), []);
+      return response(200, await getConnectionService().revoke(ownerId, integrationConnectionId));
+    }
+    if (method === 'GET' && path === '/v1/integrations/connection-sets') {
+      return response(200, { connectionSets: await getConnectionService().listSets(ownerId) });
+    }
+    if (method === 'POST' && path === '/v1/integrations/connection-sets') {
+      const body = strictBody(jsonBody(event), ['version', 'name', 'connections', 'defaults']);
+      requireVersion(body.version);
+      return response(201, await getConnectionService().createSet({
+        ownerId,
+        name: boundedText(body.name, 'name', 128),
+        connections: stringArray(body.connections, 'connections', 128),
+        ...(body.defaults !== undefined ? { defaults: stringRecord(body.defaults, 'defaults', 64) } : {}),
+      }));
+    }
+    if (method === 'GET' && path === '/v1/integrations/source-bindings') {
+      return response(200, {
+        sourceBindings: await getConnectionService().listSourceBindings(ownerId),
+      });
+    }
+    if (method === 'POST' && path === '/v1/integrations/source-bindings') {
+      const body = strictBody(jsonBody(event), [
+        'version',
+        'sourceKind',
+        'selector',
+        'capabilityProfile',
+        'connectionSetId',
+      ]);
+      requireVersion(body.version);
+      const sourceKind = boundedText(body.sourceKind, 'sourceKind', 32);
+      if (!['api', 'github', 'gitlab', 'teams', 'slack'].includes(sourceKind)) {
+        throw new ValidationError('sourceKind is invalid');
+      }
+      const capabilityProfile = body.capabilityProfile === undefined
+        ? undefined
+        : boundedText(body.capabilityProfile, 'capabilityProfile', 256);
+      if (capabilityProfile) {
+        try {
+          getCapabilityProfileRegistry().profile(capabilityProfile);
+        } catch {
+          throw new ValidationError(`capability profile ${capabilityProfile} is not installed`);
+        }
+      }
+      return response(201, await getConnectionService().createSourceBinding({
+        ownerId,
+        sourceKind: sourceKind as 'api' | 'github' | 'gitlab' | 'teams' | 'slack',
+        selector: stringRecord(body.selector, 'selector', 32),
+        ...(capabilityProfile ? { capabilityProfile } : {}),
+        ...(body.connectionSetId !== undefined
+          ? { connectionSetId: boundedText(body.connectionSetId, 'connectionSetId', 256) }
+          : {}),
+      }));
+    }
+    if (method === 'GET' && path === '/v1/routines') {
+      const result = await getRoutineService().list(
+        ownerId,
+        parseLimit(event.queryStringParameters?.limit),
+        event.queryStringParameters?.nextToken,
+      );
+      return response(200, { ...result, items: result.items.map(publicRoutine) });
+    }
+    if (method === 'POST' && path === '/v1/routines') {
+      const routine = await getRoutineService().create(ownerId, jsonBody(event));
+      return response(201, publicRoutine(routine), {
+        location: `/v1/routines/${routine.routineId}`,
+      });
+    }
+    const routineId = pathParameter(event, 'routineId');
+    if (
+      method === 'GET' &&
+      routineId &&
+      routeMatches(event, 'GET /v1/routines/{routineId}', `/v1/routines/${routineId}`)
+    ) {
+      return response(200, publicRoutine(await getRoutineService().get(ownerId, routineId)));
+    }
+    for (const operation of ['pause', 'resume', 'delete'] as const) {
+      if (
+        method === 'POST' &&
+        routineId &&
+        routeMatches(
+          event,
+          `POST /v1/routines/{routineId}/${operation}`,
+          `/v1/routines/${routineId}/${operation}`,
+        )
+      ) {
+        strictBody(jsonBody(event), []);
+        return response(200, publicRoutine(
+          operation === 'pause'
+            ? await getRoutineService().pause(ownerId, routineId)
+            : operation === 'resume'
+              ? await getRoutineService().resume(ownerId, routineId)
+              : await getRoutineService().delete(ownerId, routineId),
+        ));
+      }
+    }
+    if (
+      method === 'POST' &&
+      routineId &&
+      routeMatches(event, 'POST /v1/routines/{routineId}/run', `/v1/routines/${routineId}/run`)
+    ) {
+      strictBody(jsonBody(event), []);
+      const idempotencyKey = header(event.headers, 'idempotency-key');
+      const run = await getRoutineService().runNow(
+        ownerId,
+        routineId,
+        ...(idempotencyKey ? [requiredIdempotencyKey(idempotencyKey)] : []),
+      );
+      return response(202, publicRun(run), { location: `/v1/runs/${run.runId}` });
+    }
     const conversationKey = conversationPathParameter(event, 'conversationId');
     const messageId = conversationPathParameter(event, 'messageId', 200);
     if (
@@ -107,8 +295,9 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
         traceId: event.requestContext.requestId,
         executionPolicy: {
           ...request.agent,
-          sandbox: request.agent?.sandbox ?? 'read-only',
+          sandbox: request.agent?.sandbox ?? 'danger-full-access',
         },
+        ...(request.integrations ? { integrationPolicy: request.integrations } : {}),
       });
       return response(receipt.status === 'appended' ? 202 : 200, receipt, {
         location: `/v1/conversations/${conversationKey}/messages/${receipt.messageId}`,
@@ -182,7 +371,7 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
       const body = jsonBody(event);
       const trustedBody = apiRequestBody(body, context.source);
       const idempotencyKey = header(event.headers, 'idempotency-key');
-      const run = await service.submit(ownerId, trustedBody, {
+      const run = await service().submit(ownerId, trustedBody, {
         ...(idempotencyKey ? { idempotencyKey } : {}),
         traceId: event.requestContext.requestId,
         provenance: {
@@ -194,20 +383,106 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
     }
     if (method === 'GET' && path === '/v1/runs') {
       const limit = parseLimit(event.queryStringParameters?.limit);
-      const result = await service.list(ownerId, limit, event.queryStringParameters?.nextToken);
+      const result = await service().list(ownerId, limit, event.queryStringParameters?.nextToken);
       return response(200, { ...result, items: result.items.map(publicRun) });
     }
     const runId = pathParameter(event, 'runId');
+    const agentRequestId = conversationPathParameter(event, 'requestId', 256);
+    if (
+      method === 'GET' &&
+      runId &&
+      routeMatches(
+        event,
+        'GET /v1/runs/{runId}/events',
+        `/v1/runs/${runId}/events`,
+      )
+    ) {
+      const target = await agentInteractionTarget(service(), ownerId, runId);
+      return response(200, await getAgentInteractionController().events(
+        target,
+        nonNegativeInteger(event.queryStringParameters?.after, 'after', 0),
+        boundedInteger(event.queryStringParameters?.limit, 'limit', 100, 1, 100),
+      ));
+    }
+    if (
+      method === 'POST' &&
+      runId &&
+      routeMatches(event, 'POST /v1/runs/{runId}/steer', `/v1/runs/${runId}/steer`)
+    ) {
+      const body = strictBody(jsonBody(event), ['prompt']);
+      const prompt = boundedText(body.prompt, 'prompt', 12 * 1024);
+      await getAgentInteractionController().steer(
+        await agentInteractionTarget(service(), ownerId, runId),
+        prompt,
+      );
+      return response(202, { ok: true, operation: 'steer' });
+    }
+    if (
+      method === 'POST' &&
+      runId &&
+      routeMatches(event, 'POST /v1/runs/{runId}/interrupt', `/v1/runs/${runId}/interrupt`)
+    ) {
+      strictBody(jsonBody(event), []);
+      await getAgentInteractionController().interrupt(
+        await agentInteractionTarget(service(), ownerId, runId),
+      );
+      return response(202, { ok: true, operation: 'interrupt' });
+    }
+    if (
+      method === 'POST' &&
+      runId &&
+      agentRequestId &&
+      routeMatches(
+        event,
+        'POST /v1/runs/{runId}/approvals/{requestId}',
+        `/v1/runs/${runId}/approvals/${agentRequestId}`,
+      )
+    ) {
+      const body = strictBody(jsonBody(event), ['decision', 'reason']);
+      const decision = boundedText(body.decision, 'decision', 32) as AgentApprovalDecision;
+      if (!AGENT_APPROVAL_DECISIONS.includes(decision)) {
+        throw new ValidationError('decision must be accept, accept-for-session, decline, or cancel');
+      }
+      const reason = body.reason === undefined ? undefined : boundedText(body.reason, 'reason', 1_000);
+      await getAgentInteractionController().approve(
+        await agentInteractionTarget(service(), ownerId, runId),
+        agentRequestId,
+        decision,
+        reason,
+      );
+      return response(202, { ok: true, operation: 'approve' });
+    }
+    if (
+      method === 'POST' &&
+      runId &&
+      agentRequestId &&
+      routeMatches(
+        event,
+        'POST /v1/runs/{runId}/requests/{requestId}/respond',
+        `/v1/runs/${runId}/requests/${agentRequestId}/respond`,
+      )
+    ) {
+      const body = strictBody(jsonBody(event), ['result']);
+      if (!Object.prototype.hasOwnProperty.call(body, 'result')) {
+        throw new ValidationError('result is required');
+      }
+      await getAgentInteractionController().respond(
+        await agentInteractionTarget(service(), ownerId, runId),
+        agentRequestId,
+        body.result as JsonValue,
+      );
+      return response(202, { ok: true, operation: 'respond' });
+    }
     if (method === 'GET' && runId && path === `/v1/runs/${runId}`) {
-      return response(200, publicRun(await service.get(ownerId, runId)));
+      return response(200, publicRun(await service().get(ownerId, runId)));
     }
     if (method === 'GET' && runId && path === `/v1/runs/${runId}/artifacts`) {
-      const run = await service.get(ownerId, runId);
+      const run = await service().get(ownerId, runId);
       return response(200, { files: (run.result?.artifacts ?? []).map(artifactMetadata) });
     }
     const artifactName = pathParameter(event, 'artifact');
     if (method === 'GET' && runId && artifactName && path === `/v1/runs/${runId}/artifacts/${artifactName}`) {
-      const run = await service.get(ownerId, runId);
+      const run = await service().get(ownerId, runId);
       const published = run.result?.artifacts?.find((file) => file.id === artifactName);
       const artifact = published?.file ?? artifactFor(run, artifactName);
       if (!artifact) throw new ConflictError(`artifact ${artifactName} is not available`);
@@ -221,7 +496,7 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
       ));
     }
     if (method === 'POST' && runId && path === `/v1/runs/${runId}/publications`) {
-      const run = await service.get(ownerId, runId);
+      const run = await service().get(ownerId, runId);
       const catalog: ArtifactCatalog = { version: '1', files: run.result?.artifacts ?? [] };
       const spec = parsePublicationSpec(jsonBody(event));
       return response(201, await publishAndShare({
@@ -232,10 +507,13 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
       }));
     }
     if (method === 'POST' && runId && path === `/v1/runs/${runId}/cancel`) {
-      return response(202, publicRun(await service.cancel(ownerId, runId)));
+      return response(202, publicRun(await service().cancel(ownerId, runId)));
     }
     return response(404, { error: { code: 'not_found', message: 'route not found' } });
   } catch (error) {
+    if (error instanceof AgentInteractionUnavailableError) {
+      return errorResponse(new ConflictError(error.message));
+    }
     return errorResponse(error);
   }
 };
@@ -253,7 +531,8 @@ export function apiRequestBody(body: unknown, source: { kind: 'api' } = { kind: 
 export interface ApiConversationMessageRequest {
   version: '1';
   prompt: string;
-  agent?: Pick<AgentInput, 'driver' | 'model' | 'sandbox' | 'reasoningEffort'>;
+  agent?: Omit<AgentInput, 'outputSchema'>;
+  integrations?: RunRequest['integrations'];
 }
 
 export interface ApiConversationMessageStatus {
@@ -272,10 +551,14 @@ export interface ApiConversationMessageStatus {
 
 export function apiConversationRequestBody(body: unknown): ApiConversationMessageRequest {
   if (!isRecord(body)) throw new ValidationError('request must be an object');
-  const unknown = Object.keys(body).filter((key) => !['version', 'prompt', 'agent'].includes(key));
+  const unknown = Object.keys(body).filter(
+    (key) => !['version', 'prompt', 'agent', 'integrations'].includes(key),
+  );
   if (unknown.length > 0) throw new ValidationError(`request contains unknown field ${unknown[0]}`);
   const parsed = parseRunRequest(body, {
-    allowedSandboxModes: (process.env.ALLOWED_SANDBOX_MODES ?? 'read-only,workspace-write')
+    allowedSandboxModes: (
+      process.env.ALLOWED_SANDBOX_MODES ?? 'read-only,workspace-write,danger-full-access'
+    )
       .split(',')
       .map((value) => value.trim())
       .filter(Boolean) as NonNullable<AgentInput['sandbox']>[],
@@ -287,6 +570,7 @@ export function apiConversationRequestBody(body: unknown): ApiConversationMessag
     version: '1',
     prompt: parsed.prompt,
     ...(parsed.agent ? { agent: parsed.agent } : {}),
+    ...(parsed.integrations ? { integrations: parsed.integrations } : {}),
   };
 }
 
@@ -337,7 +621,7 @@ function conversationPathParameter(
   maximum = 128,
 ): string | undefined {
   const value = event.pathParameters?.[name];
-  return value && value.length <= maximum && /^[A-Za-z0-9][A-Za-z0-9._:-]*$/.test(value)
+  return value && value.length <= maximum && /^[A-Za-z0-9][A-Za-z0-9._:@-]*$/.test(value)
     ? value
     : undefined;
 }
@@ -361,6 +645,223 @@ function parseLimit(value: string | undefined): number {
   if (!value) return 25;
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : 25;
+}
+
+async function agentInteractionTarget(
+  service: ReturnType<typeof getRunService>,
+  ownerId: string,
+  runId: string,
+): Promise<AgentInteractionTarget> {
+  const run = await service.get(ownerId, runId);
+  if (!run.execution || !['dispatching', 'running', 'cancelling'].includes(run.status)) {
+    throw new ConflictError('run does not have an active interactive execution');
+  }
+  return { runId: run.runId, execution: run.execution };
+}
+
+function strictBody(value: unknown, allowed: string[]): Record<string, unknown> {
+  if (!isRecord(value)) throw new ValidationError('request must be an object');
+  const unknown = Object.keys(value).find((key) => !allowed.includes(key));
+  if (unknown) throw new ValidationError(`request contains unknown field ${unknown}`);
+  return value;
+}
+
+function boundedText(value: unknown, label: string, maximumBytes: number): string {
+  if (typeof value !== 'string' || !value.trim()) {
+    throw new ValidationError(`${label} must be a non-empty string`);
+  }
+  if (Buffer.byteLength(value, 'utf8') > maximumBytes) {
+    throw new ValidationError(`${label} exceeds ${maximumBytes} bytes`);
+  }
+  return value;
+}
+
+function nonNegativeInteger(value: string | undefined, label: string, fallback: number): number {
+  if (value === undefined || value === '') return fallback;
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed < 0) {
+    throw new ValidationError(`${label} must be a non-negative integer`);
+  }
+  return parsed;
+}
+
+function boundedInteger(
+  value: string | undefined,
+  label: string,
+  fallback: number,
+  minimum: number,
+  maximum: number,
+): number {
+  if (value === undefined || value === '') return fallback;
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < minimum || parsed > maximum) {
+    throw new ValidationError(`${label} must be an integer from ${minimum} through ${maximum}`);
+  }
+  return parsed;
+}
+
+function createConnectionBody(body: unknown, ownerId: string) {
+  const input = strictBody(body, [
+    'version',
+    'pluginId',
+    'alias',
+    'authorization',
+    'credential',
+    'externalTenantId',
+    'externalSubjectId',
+    'grant',
+  ]);
+  requireVersion(input.version);
+  return {
+    ownerId,
+    pluginId: boundedText(input.pluginId, 'pluginId', 64),
+    alias: boundedText(input.alias, 'alias', 128),
+    authorization: providerAuthorization(input.authorization),
+    credential: credentialValue(input.credential),
+    ...(input.externalTenantId !== undefined
+      ? { externalTenantId: boundedText(input.externalTenantId, 'externalTenantId', 512) }
+      : {}),
+    ...(input.externalSubjectId !== undefined
+      ? { externalSubjectId: boundedText(input.externalSubjectId, 'externalSubjectId', 512) }
+      : {}),
+    grant: grantPolicy(input.grant),
+  };
+}
+
+function providerAuthorization(value: unknown): ProviderAuthorization {
+  const input = strictBody(value, ['scheme', 'access', 'scopeModel', 'scopes']);
+  const scheme = boundedText(input.scheme, 'authorization.scheme', 32);
+  const access = boundedText(input.access, 'authorization.access', 32);
+  const scopeModel = boundedText(input.scopeModel, 'authorization.scopeModel', 32);
+  if (!['oauth2', 'api-key', 'session', 'basic', 'none'].includes(scheme)) {
+    throw new ValidationError('authorization.scheme is invalid');
+  }
+  if (!['read', 'write', 'full'].includes(access)) {
+    throw new ValidationError('authorization.access is invalid');
+  }
+  if (!['granular', 'coarse', 'unknown'].includes(scopeModel)) {
+    throw new ValidationError('authorization.scopeModel is invalid');
+  }
+  return {
+    scheme: scheme as ProviderAuthorization['scheme'],
+    access: access as ProviderAuthorization['access'],
+    scopeModel: scopeModel as ProviderAuthorization['scopeModel'],
+    scopes: stringArray(input.scopes, 'authorization.scopes', 256),
+  };
+}
+
+function credentialValue(value: unknown): IntegrationCredentialValue {
+  const input = strictBody(value, Object.keys(isRecord(value) ? value : {}));
+  const result: IntegrationCredentialValue = {};
+  for (const [key, item] of Object.entries(input)) {
+    if (!/^[A-Za-z][A-Za-z0-9_]{0,63}$/.test(key)) {
+      throw new ValidationError(`credential field ${key} is invalid`);
+    }
+    result[key] = boundedText(item, `credential.${key}`, 32_768);
+  }
+  if (Object.keys(result).length === 0) throw new ValidationError('credential requires at least one field');
+  return result;
+}
+
+function grantPolicy(
+  value: unknown,
+): Omit<ConnectionGrant, 'version' | 'grantId' | 'ownerId' | 'connectionId'> {
+  const input = strictBody(value, [
+    'version',
+    'preset',
+    'allowOperations',
+    'denyOperations',
+    'approvalOverrides',
+    'resourceConstraints',
+    'expiresAt',
+  ]);
+  requireVersion(input.version);
+  const preset = boundedText(input.preset, 'preset', 32) as ConnectionGrant['preset'];
+  if (!['read-only', 'read-write', 'full', 'custom'].includes(preset)) {
+    throw new ValidationError('preset is invalid');
+  }
+  let validated: ConnectionGrant;
+  try {
+    validated = validateConnectionGrant({
+      version: '1',
+      grantId: 'validation-grant',
+      ownerId: 'validation-owner',
+      connectionId: 'validation-connection',
+      preset,
+      ...(input.allowOperations !== undefined
+        ? { allowOperations: stringArray(input.allowOperations, 'allowOperations', 128) }
+        : {}),
+      ...(input.denyOperations !== undefined
+        ? { denyOperations: stringArray(input.denyOperations, 'denyOperations', 128) }
+        : {}),
+      ...(input.approvalOverrides !== undefined
+        ? { approvalOverrides: approvalOverrides(input.approvalOverrides) }
+        : {}),
+      ...(input.resourceConstraints !== undefined
+        ? { resourceConstraints: resourceConstraints(input.resourceConstraints) }
+        : {}),
+      ...(input.expiresAt !== undefined
+        ? { expiresAt: boundedText(input.expiresAt, 'expiresAt', 64) }
+        : {}),
+    });
+  } catch (error) {
+    if (error instanceof ValidationError) throw error;
+    throw new ValidationError(error instanceof Error ? error.message : 'grant policy is invalid');
+  }
+  const { version: _version, grantId: _grantId, ownerId: _ownerId, connectionId: _connectionId, ...policy } = validated;
+  return policy;
+}
+
+function approvalOverrides(value: unknown): NonNullable<ConnectionGrant['approvalOverrides']> {
+  if (!Array.isArray(value) || value.length > 128) {
+    throw new ValidationError('approvalOverrides must be an array with at most 128 entries');
+  }
+  return value.map((candidate, index) => {
+    const item = strictBody(candidate, ['operationId', 'approval']);
+    const approval = boundedText(item.approval, `approvalOverrides[${index}].approval`, 32);
+    if (!['never', 'on-request', 'always'].includes(approval)) {
+      throw new ValidationError(`approvalOverrides[${index}].approval is invalid`);
+    }
+    return {
+      operationId: boundedText(
+        item.operationId,
+        `approvalOverrides[${index}].operationId`,
+        256,
+      ),
+      approval: approval as NonNullable<ConnectionGrant['approvalOverrides']>[number]['approval'],
+    };
+  });
+}
+
+function resourceConstraints(value: unknown): NonNullable<ConnectionGrant['resourceConstraints']> {
+  if (!isRecord(value) || Object.keys(value).length > 64) {
+    throw new ValidationError('resourceConstraints must be an object with at most 64 entries');
+  }
+  return Object.fromEntries(Object.entries(value).map(([field, allowed]) => [
+    boundedText(field, 'resourceConstraints field', 256),
+    stringArray(allowed, `resourceConstraints.${field}`, 256),
+  ]));
+}
+
+function requireVersion(value: unknown): void {
+  if (value !== '1') throw new ValidationError('version must be "1"');
+}
+
+function stringArray(value: unknown, label: string, maximum: number): string[] {
+  if (!Array.isArray(value) || value.length > maximum) {
+    throw new ValidationError(`${label} must be an array with at most ${maximum} entries`);
+  }
+  return value.map((item, index) => boundedText(item, `${label}[${index}]`, 512));
+}
+
+function stringRecord(value: unknown, label: string, maximum: number): Record<string, string> {
+  if (!isRecord(value) || Object.keys(value).length > maximum) {
+    throw new ValidationError(`${label} must be an object with at most ${maximum} entries`);
+  }
+  return Object.fromEntries(Object.entries(value).map(([key, item]) => [
+    boundedText(key, `${label} key`, 256),
+    boundedText(item, `${label}.${key}`, 512),
+  ]));
 }
 
 function publicRun(run: RunRecord): RunRecord {

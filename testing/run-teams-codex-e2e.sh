@@ -27,6 +27,7 @@ source "$script_dir/localstack.env"
 set +a
 
 export CODEX_AUTH_MODE=chatgpt
+export CODEX_HOME="${CODEX_HOME:-$HOME/.codex}"
 export CODEX_TOOL_NETWORK_ACCESS=false
 export DEFAULT_AGENT_DRIVER=codex
 export LOCALSTACK_REAL_CODEX=true

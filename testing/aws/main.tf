@@ -116,7 +116,7 @@ module "agent_runner" {
   enable_point_in_time_recovery     = false
   run_retention_seconds             = 3600
   allowed_repository_hosts          = ["github.com", "gitlab.com"]
-  allowed_sandbox_modes             = ["read-only", "workspace-write"]
+  allowed_sandbox_modes             = ["read-only", "workspace-write", "danger-full-access"]
   default_agent_driver              = "mock"
   allow_agent_aws_credential_chain  = false
   codex_bedrock_model_ids           = [var.codex_model_id]

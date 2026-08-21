@@ -19,6 +19,8 @@ module "agent_runner" {
   run_retention_seconds               = var.run_retention_seconds
   allowed_repository_hosts            = var.allowed_repository_hosts
   allowed_sandbox_modes               = var.allowed_sandbox_modes
+  default_sandbox_mode                = var.default_sandbox_mode
+  default_agent_network_access        = var.default_agent_network_access
   default_agent_driver                = var.default_agent_driver
   allow_agent_aws_credential_chain    = var.allow_agent_aws_credential_chain
   default_delivery_destinations       = var.default_delivery_destinations

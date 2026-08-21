@@ -1,0 +1,122 @@
+import type { JsonValue } from '../../domain/contracts.js';
+import {
+  optionalInputString,
+  requiredCredential,
+  requiredInputString,
+  TrustedHttpIntegrationPlugin,
+} from '../http.js';
+
+export function createSlackIntegrationPlugin(options: { fetch?: typeof fetch } = {}): TrustedHttpIntegrationPlugin {
+  return new TrustedHttpIntegrationPlugin({
+    baseUrl: 'https://slack.com/api/',
+    ...(options.fetch ? { fetch: options.fetch } : {}),
+    manifest: {
+      id: 'slack',
+      version: '1',
+      title: 'Slack',
+      description: 'Search messages, post messages, and add reactions in connected Slack workspaces.',
+      authSchemes: ['oauth2', 'api-key'],
+      operations: [
+        {
+          id: 'slack.messages.search',
+          title: 'Search Slack messages',
+          kind: 'search',
+          access: 'read',
+          risk: 'routine',
+          requiredProviderScopes: ['search:read'],
+          defaultApproval: 'never',
+          inputSchema: objectSchema({ query: stringSchema('Slack search query') }, ['query']),
+        },
+        {
+          id: 'slack.messages.post',
+          title: 'Post a Slack message',
+          kind: 'action',
+          access: 'write',
+          risk: 'consequential',
+          requiredProviderScopes: ['chat:write'],
+          defaultApproval: 'always',
+          inputSchema: objectSchema({
+            channel: stringSchema('Channel ID'),
+            text: stringSchema('Message text'),
+            threadTs: stringSchema('Optional parent message timestamp'),
+          }, ['channel', 'text']),
+        },
+        {
+          id: 'slack.reactions.add',
+          title: 'Add a Slack reaction',
+          kind: 'action',
+          access: 'write',
+          risk: 'consequential',
+          requiredProviderScopes: ['reactions:write'],
+          defaultApproval: 'on-request',
+          inputSchema: objectSchema({
+            channel: stringSchema('Channel ID'),
+            timestamp: stringSchema('Message timestamp'),
+            name: stringSchema('Emoji name without colons'),
+          }, ['channel', 'timestamp', 'name']),
+        },
+      ],
+    },
+    authorization: (credential) => ({
+      authorization: `Bearer ${requiredCredential(credential, 'access_token', 'token', 'value')}`,
+    }),
+    validateResponse: (value) => {
+      if (isRecord(value) && value.ok === false) throw new Error('Slack returned an API error');
+    },
+    operations: [
+      {
+        id: 'slack.messages.search',
+        request: (input) => ({
+          method: 'GET',
+          path: 'search.messages',
+          query: new URLSearchParams({ query: requiredInputString(input, 'query') }),
+        }),
+      },
+      {
+        id: 'slack.messages.post',
+        request: (input) => ({
+          method: 'POST',
+          path: 'chat.postMessage',
+          json: compactJson({
+            channel: requiredInputString(input, 'channel', 256),
+            text: requiredInputString(input, 'text', 40_000),
+            thread_ts: optionalInputString(input, 'threadTs', 64),
+          }),
+        }),
+      },
+      {
+        id: 'slack.reactions.add',
+        request: (input) => ({
+          method: 'POST',
+          path: 'reactions.add',
+          json: {
+            channel: requiredInputString(input, 'channel', 256),
+            timestamp: requiredInputString(input, 'timestamp', 64),
+            name: requiredInputString(input, 'name', 128),
+          },
+        }),
+      },
+    ],
+  });
+}
+
+function isRecord(value: JsonValue): value is { [key: string]: JsonValue } {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function stringSchema(description: string): JsonValue {
+  return { type: 'string', description };
+}
+
+function objectSchema(
+  properties: { [key: string]: JsonValue },
+  required: string[],
+): { [key: string]: JsonValue } {
+  return { type: 'object', properties, required, additionalProperties: false };
+}
+
+function compactJson(value: { [key: string]: JsonValue | undefined }): { [key: string]: JsonValue } {
+  return Object.fromEntries(
+    Object.entries(value).filter((entry): entry is [string, JsonValue] => entry[1] !== undefined),
+  );
+}

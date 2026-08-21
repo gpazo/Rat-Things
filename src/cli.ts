@@ -12,9 +12,26 @@ import { SignatureV4 } from '@smithy/signature-v4';
 import { CachedSecretReader } from './adapters/aws-runtime.js';
 import { fetchSharedResource } from './adapters/publication-client.js';
 import { CredentialBroker } from './credentials/broker.js';
-import type { AgentDriverName, RunRecord, RunRequest, SandboxMode } from './domain/contracts.js';
+import type {
+  AgentDriverName,
+  RunRecord,
+  RunRequest,
+  SandboxMode,
+} from './domain/contracts.js';
+import type {
+  ConnectionAccessRequest,
+  IntegrationAccessRequest,
+  IntegrationPermissionPreset,
+} from './domain/capabilities.js';
+import { INTEGRATION_PERMISSION_PRESETS } from './domain/capabilities.js';
+import type { AgentRuntimeSnapshot } from './domain/interaction.js';
 import { isTerminal } from './domain/state.js';
 import { parseRunRequest } from './domain/validation.js';
+import {
+  CapabilityProfileRegistry,
+  createBuiltinCapabilityProfiles,
+  resolveAgentProfile,
+} from './plugins/capability-profiles.js';
 import { driverFor } from './runner/agent-driver.js';
 import { loadCodexBedrockToken } from './runner/bedrock-auth.js';
 import { codexAuthMode, localCodexAuthMode } from './runner/codex-auth.js';
@@ -24,6 +41,7 @@ import { collectWorkspacePatch, prepareWorkspace } from './runner/workspace.js';
 interface Arguments {
   command: string;
   values: Map<string, string>;
+  multiple: Map<string, string[]>;
   flags: Set<string>;
   positionals: string[];
 }
@@ -69,6 +87,29 @@ const commands = new Set([
   'submit',
   'get',
   'cancel',
+  'watch',
+  'steer',
+  'interrupt',
+  'approve',
+  'respond',
+  'plugins',
+  'profiles',
+  'connections',
+  'connect',
+  'grant',
+  'rotate',
+  'revoke',
+  'connection-sets',
+  'connection-set',
+  'source-bindings',
+  'bind-source',
+  'routines',
+  'routine',
+  'routine-create',
+  'routine-run',
+  'routine-pause',
+  'routine-resume',
+  'routine-delete',
   'output',
   'artifact',
   'files',
@@ -82,14 +123,27 @@ const commands = new Set([
 const booleanOptions = new Set([
   'all',
   'events',
+  'follow',
   'help',
   'json',
+  'browser',
   'network',
   'new',
+  'no-browser',
+  'no-network',
   'no-wait',
   'output',
   'patch',
   'wait',
+]);
+
+const repeatableOptions = new Set([
+  'allow-operation',
+  'app',
+  'connection',
+  'deny-operation',
+  'mcp',
+  'skill',
 ]);
 
 async function main(): Promise<void> {
@@ -118,6 +172,109 @@ async function main(): Promise<void> {
     case 'cancel':
       print(await api(`/v1/runs/${requiredPositional(args, 0, 'run ID')}/cancel`, 'POST'));
       return;
+    case 'watch':
+      await watch(args);
+      return;
+    case 'steer':
+      await steer(args);
+      return;
+    case 'interrupt':
+      print(await api(
+        `/v1/runs/${encodeURIComponent(requiredPositional(args, 0, 'run ID'))}/interrupt`,
+        'POST',
+        {},
+      ));
+      return;
+    case 'approve':
+      await approve(args);
+      return;
+    case 'respond':
+      await respond(args);
+      return;
+    case 'plugins':
+      print(await api('/v1/integrations/plugins', 'GET'));
+      return;
+    case 'profiles':
+      print(await api('/v1/capability-profiles', 'GET'));
+      return;
+    case 'connections':
+      print(await api('/v1/integrations/connections', 'GET'));
+      return;
+    case 'connect':
+      print(await api('/v1/integrations/connections', 'POST', await requiredJsonFile(args)));
+      return;
+    case 'grant':
+      print(await api(
+        `/v1/integrations/connections/${encodeURIComponent(requiredPositional(args, 0, 'connection ID or alias'))}/grant`,
+        'POST',
+        await requiredJsonFile(args),
+      ));
+      return;
+    case 'rotate':
+      print(await api(
+        `/v1/integrations/connections/${encodeURIComponent(requiredPositional(args, 0, 'connection ID or alias'))}/credential`,
+        'POST',
+        await requiredJsonFile(args),
+      ));
+      return;
+    case 'revoke':
+      print(await api(
+        `/v1/integrations/connections/${encodeURIComponent(requiredPositional(args, 0, 'connection ID or alias'))}/revoke`,
+        'POST',
+        {},
+      ));
+      return;
+    case 'connection-sets':
+      print(await api('/v1/integrations/connection-sets', 'GET'));
+      return;
+    case 'connection-set':
+      print(await api('/v1/integrations/connection-sets', 'POST', await requiredJsonFile(args)));
+      return;
+    case 'source-bindings':
+      print(await api('/v1/integrations/source-bindings', 'GET'));
+      return;
+    case 'bind-source':
+      print(await api('/v1/integrations/source-bindings', 'POST', await requiredJsonFile(args)));
+      return;
+    case 'routines': {
+      const query = new URLSearchParams();
+      if (args.values.get('limit')) query.set('limit', args.values.get('limit') as string);
+      if (args.values.get('next-token')) query.set('nextToken', args.values.get('next-token') as string);
+      print(await api(`/v1/routines${query.size > 0 ? `?${query.toString()}` : ''}`, 'GET'));
+      return;
+    }
+    case 'routine':
+      print(await api(
+        `/v1/routines/${encodeURIComponent(requiredPositional(args, 0, 'routine ID'))}`,
+        'GET',
+      ));
+      return;
+    case 'routine-create':
+      print(await api('/v1/routines', 'POST', await requiredJsonFile(args)));
+      return;
+    case 'routine-run': {
+      const headers: Record<string, string> = {};
+      const key = args.values.get('idempotency-key');
+      if (key) headers['idempotency-key'] = key;
+      print(await api(
+        `/v1/routines/${encodeURIComponent(requiredPositional(args, 0, 'routine ID'))}/run`,
+        'POST',
+        {},
+        headers,
+      ));
+      return;
+    }
+    case 'routine-pause':
+    case 'routine-resume':
+    case 'routine-delete': {
+      const operation = args.command.slice('routine-'.length);
+      print(await api(
+        `/v1/routines/${encodeURIComponent(requiredPositional(args, 0, 'routine ID'))}/${operation}`,
+        'POST',
+        {},
+      ));
+      return;
+    }
     case 'output':
       await writeArtifact(requiredPositional(args, 0, 'run ID'), 'output');
       return;
@@ -229,8 +386,21 @@ async function chat(args: Arguments): Promise<void> {
 
 async function local(args: Arguments): Promise<void> {
   const requestedAuthMode = args.values.get('codex-auth');
-  if (args.flags.has('network')) process.env.CODEX_TOOL_NETWORK_ACCESS = 'true';
-  const request = await requestFromArguments(args, true);
+  const parsed = await requestFromArguments(args, true);
+  const resolvedProfile = resolveAgentProfile(
+    parsed.agent,
+    new CapabilityProfileRegistry(createBuiltinCapabilityProfiles()),
+  );
+  const request: RunRequest = {
+    ...parsed,
+    ...(resolvedProfile.agent ? { agent: resolvedProfile.agent } : {}),
+  };
+  if (request.integrations) {
+    throw new Error('local integration connections are not supported; use the remote MicroVM control API');
+  }
+  if (request.agent?.capabilities?.computerUse === 'browser') {
+    throw new Error('local browser computer use is not supported; use a remote MicroVM or --no-browser');
+  }
   const driverName = request.agent?.driver ?? 'mock';
   if (driverName === 'codex') process.env.CODEX_AUTH_MODE = localCodexAuthMode(requestedAuthMode);
   const timeout = (request.execution?.timeoutSeconds ?? 900) * 1_000;
@@ -305,6 +475,86 @@ async function submit(args: Arguments): Promise<void> {
     await writeArtifact(current.runId, 'output');
   }
   if (current.status !== 'succeeded') process.exitCode = 1;
+}
+
+async function watch(args: Arguments): Promise<void> {
+  const runId = requiredPositional(args, 0, 'run ID');
+  let after = nonNegativeNumber(args.values.get('after') ?? '0', 'after');
+  const interval = positiveNumber(args.values.get('poll-seconds') ?? '1', 'poll-seconds');
+  while (true) {
+    const query = new URLSearchParams({ after: String(after), limit: '100' });
+    const snapshot = await api(
+      `/v1/runs/${encodeURIComponent(runId)}/events?${query}`,
+      'GET',
+    ) as AgentRuntimeSnapshot;
+    if (args.flags.has('json')) print(snapshot);
+    else {
+      for (const event of snapshot.events) {
+        process.stdout.write(`${JSON.stringify(event)}\n`);
+      }
+      for (const pending of snapshot.pendingRequests) {
+        process.stderr.write(
+          `approval pending: ${pending.requestId} ${pending.method}\n`,
+        );
+      }
+    }
+    const last = snapshot.events.at(-1);
+    if (last) after = last.sequence;
+    if (!args.flags.has('follow')) return;
+    const run = await api(`/v1/runs/${encodeURIComponent(runId)}`, 'GET') as RunRecord;
+    if (isTerminal(run.status)) return;
+    await new Promise((resolvePromise) => setTimeout(resolvePromise, interval * 1_000));
+  }
+}
+
+async function steer(args: Arguments): Promise<void> {
+  const runId = requiredPositional(args, 0, 'run ID');
+  const prompt = args.values.get('prompt') ?? args.positionals.slice(1).join(' ');
+  if (!prompt.trim()) throw new Error('steer prompt is required');
+  print(await api(
+    `/v1/runs/${encodeURIComponent(runId)}/steer`,
+    'POST',
+    { prompt },
+  ));
+}
+
+async function approve(args: Arguments): Promise<void> {
+  const runId = requiredPositional(args, 0, 'run ID');
+  const requestId = requiredPositional(args, 1, 'approval request ID');
+  const decision = args.values.get('decision') ?? 'accept';
+  print(await api(
+    `/v1/runs/${encodeURIComponent(runId)}/approvals/${encodeURIComponent(requestId)}`,
+    'POST',
+    compact({ decision, reason: args.values.get('reason') }),
+  ));
+}
+
+async function respond(args: Arguments): Promise<void> {
+  const runId = requiredPositional(args, 0, 'run ID');
+  const requestId = requiredPositional(args, 1, 'server request ID');
+  const raw = args.values.get('result');
+  if (raw === undefined) throw new Error('--result requires a JSON value');
+  let result: unknown;
+  try {
+    result = JSON.parse(raw) as unknown;
+  } catch {
+    throw new Error('--result must be valid JSON');
+  }
+  print(await api(
+    `/v1/runs/${encodeURIComponent(runId)}/requests/${encodeURIComponent(requestId)}/respond`,
+    'POST',
+    { result },
+  ));
+}
+
+async function requiredJsonFile(args: Arguments): Promise<unknown> {
+  const path = args.values.get('file');
+  if (!path) throw new Error('--file JSON is required; credentials are not accepted on the command line');
+  try {
+    return JSON.parse(await readFile(resolve(path), 'utf8')) as unknown;
+  } catch (error) {
+    throw new Error(`could not read JSON file: ${error instanceof Error ? error.message : String(error)}`);
+  }
 }
 
 async function writeArtifact(runId: string, name: string): Promise<void> {
@@ -456,18 +706,11 @@ async function requestFromArguments(args: Arguments, localMode: boolean): Promis
   if (file) return parseRunRequest(JSON.parse(await readFile(resolve(file), 'utf8')) as unknown, validationOptions());
   const prompt = args.values.get('prompt') ?? args.positionals.join(' ');
   if (!prompt) throw new Error('provide --prompt TEXT or --file REQUEST.json');
-  const configuredDriver = args.values.get('driver');
-  const driver = (configuredDriver ?? (localMode ? 'codex' : undefined)) as AgentDriverName | undefined;
-  const sandbox = (args.values.get('sandbox') ?? 'read-only') as SandboxMode;
   const request: Record<string, unknown> = {
     version: '1',
     prompt,
-    agent: compact({
-      driver,
-      sandbox,
-      model: args.values.get('model'),
-      reasoningEffort: args.values.get('reasoning-effort'),
-    }),
+    agent: agentFromArguments(args, localMode),
+    ...withIntegrations(args),
     execution: compact({
       backend: args.values.get('backend'),
       timeoutSeconds: args.values.has('timeout')
@@ -496,13 +739,112 @@ async function conversationRequestFromArguments(args: Arguments): Promise<unknow
   return {
     version: '1',
     prompt,
-    agent: compact({
-      driver: args.values.get('driver'),
-      sandbox: args.values.get('sandbox') ?? 'read-only',
-      model: args.values.get('model'),
-      reasoningEffort: args.values.get('reasoning-effort'),
-    }),
+    agent: agentFromArguments(args, false),
+    ...withIntegrations(args),
   };
+}
+
+function agentFromArguments(args: Arguments, localMode: boolean): Record<string, unknown> {
+  if (args.flags.has('network') && args.flags.has('no-network')) {
+    throw new Error('--network cannot be combined with --no-network');
+  }
+  if (args.flags.has('browser') && args.flags.has('no-browser')) {
+    throw new Error('--browser cannot be combined with --no-browser');
+  }
+  const configuredDriver = args.values.get('driver');
+  const driver = (configuredDriver ?? (localMode ? 'codex' : undefined)) as AgentDriverName | undefined;
+  const sandbox = (args.values.get('sandbox') ?? (localMode ? 'read-only' : undefined)) as
+    SandboxMode | undefined;
+  const capabilities = compact({
+    profile: args.values.get('profile'),
+    approvalPolicy: args.values.get('approval-policy') ?? args.values.get('approval'),
+    approvalsReviewer: args.values.get('approval-reviewer'),
+    networkAccess: args.flags.has('network')
+      ? true
+      : args.flags.has('no-network')
+        ? false
+        : undefined,
+    webSearch: args.values.get('web-search'),
+    computerUse: args.flags.has('browser')
+      ? 'browser'
+      : args.flags.has('no-browser')
+        ? 'disabled'
+        : undefined,
+    skills: repeated(args, 'skill'),
+    apps: repeated(args, 'app'),
+    mcpServers: repeated(args, 'mcp'),
+  });
+  return compact({
+    driver,
+    sandbox,
+    model: args.values.get('model'),
+    reasoningEffort: args.values.get('reasoning-effort'),
+    reasoningSummary: args.values.get('reasoning-summary'),
+    personality: args.values.get('personality'),
+    capabilities: Object.keys(capabilities).length > 0 ? capabilities : undefined,
+  });
+}
+
+function withIntegrations(args: Arguments): { integrations?: IntegrationAccessRequest } {
+  const connectionSet = args.values.get('connection-set');
+  const specifications = repeated(args, 'connection') ?? [];
+  const allow = connectionOperations(args, 'allow-operation');
+  const deny = connectionOperations(args, 'deny-operation');
+  const connections = specifications.map((specification): ConnectionAccessRequest => {
+    const separator = specification.lastIndexOf('=');
+    const rawPreset = separator === -1 ? undefined : specification.slice(separator + 1);
+    const hasPreset = rawPreset !== undefined && INTEGRATION_PERMISSION_PRESETS.includes(
+      rawPreset as IntegrationPermissionPreset,
+    );
+    if (rawPreset !== undefined && !hasPreset) {
+      throw new Error(`--connection preset ${JSON.stringify(rawPreset)} is invalid`);
+    }
+    const connection = hasPreset ? specification.slice(0, separator) : specification;
+    if (!connection) throw new Error('--connection requires an account alias or ID');
+    const allowed = allow.get(connection);
+    const denied = deny.get(connection);
+    allow.delete(connection);
+    deny.delete(connection);
+    return {
+      connection,
+      ...(hasPreset ? { preset: rawPreset as IntegrationPermissionPreset } : {}),
+      ...(allowed?.length ? { allowOperations: allowed } : {}),
+      ...(denied?.length ? { denyOperations: denied } : {}),
+    };
+  });
+  const undeclared = [...allow.keys(), ...deny.keys()][0];
+  if (undeclared) {
+    throw new Error(`operation policy refers to undeclared connection ${JSON.stringify(undeclared)}`);
+  }
+  if (!connectionSet && connections.length === 0) return {};
+  return {
+    integrations: {
+      ...(connectionSet ? { connectionSet } : {}),
+      ...(connections.length > 0 ? { connections } : {}),
+    },
+  };
+}
+
+function connectionOperations(
+  args: Arguments,
+  option: 'allow-operation' | 'deny-operation',
+): Map<string, string[]> {
+  const result = new Map<string, string[]>();
+  for (const value of repeated(args, option) ?? []) {
+    const separator = value.indexOf('=');
+    if (separator < 1 || separator === value.length - 1) {
+      throw new Error(`--${option} must use CONNECTION=PLUGIN.OPERATION`);
+    }
+    const connection = value.slice(0, separator);
+    const operation = value.slice(separator + 1);
+    result.set(connection, [...(result.get(connection) ?? []), operation]);
+  }
+  return result;
+}
+
+function repeated(args: Arguments, name: string): string[] | undefined {
+  const values = args.multiple.get(name);
+  return values && values.length > 0 ? values : undefined;
 }
 
 async function api(
@@ -577,6 +919,7 @@ async function doctor(): Promise<void> {
 function parseArguments(argv: string[]): Arguments {
   const [command = 'help', ...rest] = argv;
   const values = new Map<string, string>();
+  const multiple = new Map<string, string[]>();
   const flags = new Set<string>();
   const positionals: string[] = [];
   for (let index = 0; index < rest.length; index += 1) {
@@ -592,13 +935,17 @@ function parseArguments(argv: string[]): Arguments {
     }
     const next = rest[index + 1];
     if (next !== undefined && !next.startsWith('--')) {
-      values.set(name, next);
+      if (repeatableOptions.has(name)) {
+        multiple.set(name, [...(multiple.get(name) ?? []), next]);
+      } else {
+        values.set(name, next);
+      }
       index += 1;
     } else {
       throw new Error(`--${name} requires a value`);
     }
   }
-  return { command, values, flags, positionals };
+  return { command, values, multiple, flags, positionals };
 }
 
 function normalizeArguments(argv: string[]): string[] {
@@ -643,6 +990,14 @@ function positiveNumber(value: string, label: string): number {
   return parsed;
 }
 
+function nonNegativeNumber(value: string, label: string): number {
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed < 0) {
+    throw new Error(`${label} must be a non-negative integer`);
+  }
+  return parsed;
+}
+
 function requiredPositional(args: Arguments, index: number, label: string): string {
   const value = args.positionals[index];
   if (!value) throw new Error(`${label} is required`);
@@ -675,7 +1030,13 @@ function help(showAll: boolean): void {
   if (!showAll) return;
   process.stdout.write(`\nAgent and automation options\n\n`);
   process.stdout.write(`  rat-things chat [--thread NAME] [--driver codex] [--model ID]\n`);
-  process.stdout.write(`    [--sandbox MODE] [--reasoning-effort LEVEL] [--json] [--no-wait]\n`);
+  process.stdout.write(`    [--sandbox MODE] [--reasoning-effort LEVEL] [--reasoning-summary MODE]\n`);
+  process.stdout.write(`    [--profile NAME] [--approval-policy POLICY] [--approval-reviewer REVIEWER]\n`);
+  process.stdout.write(`    [--network|--no-network] [--web-search MODE] [--browser|--no-browser]\n`);
+  process.stdout.write(`    [--skill NAME]... [--app NAME]... [--mcp NAME]...\n`);
+  process.stdout.write(`    [--connection-set NAME] [--connection ACCOUNT[=PRESET]]...\n`);
+  process.stdout.write(`    [--allow-operation ACCOUNT=PLUGIN.OP]... [--deny-operation ACCOUNT=PLUGIN.OP]...\n`);
+  process.stdout.write(`    [--json] [--no-wait]\n`);
   process.stdout.write(`    [--idempotency-key KEY] [--poll-seconds N] [--wait-timeout N] \"...\"\n`);
   process.stdout.write(`  --api-url URL and --region REGION override RAT_THINGS_API_URL and AWS_REGION\n`);
   process.stdout.write(`\nLocal execution\n\n`);
@@ -685,6 +1046,31 @@ function help(showAll: boolean): void {
   process.stdout.write(`  rat-things submit --file examples/run-request.json [--wait]\n`);
   process.stdout.write(`  rat-things get RUN_ID\n`);
   process.stdout.write(`  rat-things cancel RUN_ID\n`);
+  process.stdout.write(`  rat-things watch RUN_ID [--follow] [--after SEQUENCE] [--json]\n`);
+  process.stdout.write(`  rat-things steer RUN_ID "Additional direction"\n`);
+  process.stdout.write(`  rat-things interrupt RUN_ID\n`);
+  process.stdout.write(`  rat-things approve RUN_ID REQUEST_ID [--decision DECISION] [--reason TEXT]\n`);
+  process.stdout.write(`  rat-things respond RUN_ID REQUEST_ID --result JSON\n`);
+  process.stdout.write(`\nIntegrations\n\n`);
+  process.stdout.write(`  rat-things plugins\n`);
+  process.stdout.write(`  rat-things profiles\n`);
+  process.stdout.write(`  rat-things connections\n`);
+  process.stdout.write(`  rat-things connect --file CONNECTION.json\n`);
+  process.stdout.write(`  rat-things grant ACCOUNT --file GRANT.json\n`);
+  process.stdout.write(`  rat-things rotate ACCOUNT --file CREDENTIAL.json\n`);
+  process.stdout.write(`  rat-things revoke ACCOUNT\n`);
+  process.stdout.write(`  rat-things connection-sets\n`);
+  process.stdout.write(`  rat-things connection-set --file SET.json\n`);
+  process.stdout.write(`  rat-things source-bindings\n`);
+  process.stdout.write(`  rat-things bind-source --file BINDING.json\n`);
+  process.stdout.write(`\nRoutines\n\n`);
+  process.stdout.write(`  rat-things routines [--limit 25]\n`);
+  process.stdout.write(`  rat-things routine ROUTINE_ID\n`);
+  process.stdout.write(`  rat-things routine-create --file ROUTINE.json\n`);
+  process.stdout.write(`  rat-things routine-run ROUTINE_ID [--idempotency-key KEY]\n`);
+  process.stdout.write(`  rat-things routine-pause ROUTINE_ID\n`);
+  process.stdout.write(`  rat-things routine-resume ROUTINE_ID\n`);
+  process.stdout.write(`  rat-things routine-delete ROUTINE_ID\n`);
   process.stdout.write(`  rat-things output RUN_ID\n`);
   process.stdout.write(`  rat-things artifact RUN_ID input|output|events|patch\n`);
   process.stdout.write(`  rat-things files [--thread NAME | --run RUN_ID] [--json]\n`);

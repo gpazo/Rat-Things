@@ -33,7 +33,7 @@ describe('control API request normalization', () => {
 });
 
 describe('control API conversation request normalization', () => {
-  it('accepts only durable execution policy fields', () => {
+  it('accepts durable capability and multi-account integration policy fields', () => {
     expect(apiConversationRequestBody({
       version: '1',
       prompt: 'Inspect the workspace with shell tools.',
@@ -42,6 +42,25 @@ describe('control API conversation request normalization', () => {
         model: 'openai.gpt-5.6-terra',
         sandbox: 'workspace-write',
         reasoningEffort: 'low',
+        reasoningSummary: 'concise',
+        personality: 'pragmatic',
+        capabilities: {
+          approvalPolicy: 'on-request',
+          approvalsReviewer: 'guardian-subagent',
+          networkAccess: true,
+          webSearch: 'live',
+          computerUse: 'browser',
+          skills: ['invoice-review'],
+          apps: ['google-drive'],
+          mcpServers: ['accounting'],
+        },
+      },
+      integrations: {
+        connectionSet: 'small-business',
+        connections: [
+          { connection: 'gmail-sales', preset: 'read-only' },
+          { connection: 'stripe-live', preset: 'read-write' },
+        ],
       },
     })).toEqual({
       version: '1',
@@ -51,6 +70,25 @@ describe('control API conversation request normalization', () => {
         model: 'openai.gpt-5.6-terra',
         sandbox: 'workspace-write',
         reasoningEffort: 'low',
+        reasoningSummary: 'concise',
+        personality: 'pragmatic',
+        capabilities: {
+          approvalPolicy: 'on-request',
+          approvalsReviewer: 'guardian-subagent',
+          networkAccess: true,
+          webSearch: 'live',
+          computerUse: 'browser',
+          skills: ['invoice-review'],
+          apps: ['google-drive'],
+          mcpServers: ['accounting'],
+        },
+      },
+      integrations: {
+        connectionSet: 'small-business',
+        connections: [
+          { connection: 'gmail-sales', preset: 'read-only' },
+          { connection: 'stripe-live', preset: 'read-write' },
+        ],
       },
     });
   });

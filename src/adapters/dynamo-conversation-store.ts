@@ -68,6 +68,18 @@ export class DynamoConversationStore implements ConversationStore {
       ) {
         throw new ConversationConflictError('conversation execution policy cannot change');
       }
+      if (
+        current?.integrationPolicy &&
+        input.conversation.integrationPolicy &&
+        !sameJson(current.integrationPolicy, input.conversation.integrationPolicy)
+      ) {
+        throw new ConversationConflictError('conversation integration policy cannot change');
+      }
+      if (
+        current?.capabilityOwnerId &&
+        input.conversation.capabilityOwnerId &&
+        current.capabilityOwnerId !== input.conversation.capabilityOwnerId
+      ) throw new ConversationConflictError('conversation capability owner cannot change');
       const status = current?.status === 'running' || current?.status === 'awaiting_resume'
         ? current.status
         : 'pending';
@@ -108,6 +120,12 @@ export class DynamoConversationStore implements ConversationStore {
                   ...(input.conversation.executionPolicy
                     ? ['executionPolicy = if_not_exists(executionPolicy, :executionPolicy)']
                     : []),
+                  ...(input.conversation.integrationPolicy
+                    ? ['integrationPolicy = if_not_exists(integrationPolicy, :integrationPolicy)']
+                    : []),
+                  ...(input.conversation.capabilityOwnerId
+                    ? ['capabilityOwnerId = if_not_exists(capabilityOwnerId, :capabilityOwnerId)']
+                    : []),
                 ].join(', '),
                 ConditionExpression: current
                   ? 'ownerId = :ownerId AND #status = :expectedStatus AND pendingCount = :expectedPendingCount'
@@ -134,6 +152,12 @@ export class DynamoConversationStore implements ConversationStore {
                   ':credentialSubject': input.conversation.credentialSubject,
                   ...(input.conversation.executionPolicy
                     ? { ':executionPolicy': input.conversation.executionPolicy }
+                    : {}),
+                  ...(input.conversation.integrationPolicy
+                    ? { ':integrationPolicy': input.conversation.integrationPolicy }
+                    : {}),
+                  ...(input.conversation.capabilityOwnerId
+                    ? { ':capabilityOwnerId': input.conversation.capabilityOwnerId }
                     : {}),
                   ...(current ? {
                     ':expectedStatus': current.status,
@@ -841,10 +865,29 @@ function sameExecutionPolicy(
   left: ConversationExecutionPolicy,
   right: ConversationExecutionPolicy,
 ): boolean {
-  return left.driver === right.driver &&
-    left.model === right.model &&
-    left.sandbox === right.sandbox &&
-    left.reasoningEffort === right.reasoningEffort;
+  return sameJson(left, right);
+}
+
+function sameJson(left: unknown, right: unknown): boolean {
+  return canonicalJson(left) === canonicalJson(right);
+}
+
+/**
+ * DynamoDB does not preserve JavaScript object insertion order for maps.
+ * Conversation policy equality is semantic, so canonicalize object keys while
+ * retaining array order before comparing a newly normalized policy with the
+ * stored projection.
+ */
+function canonicalJson(value: unknown): string {
+  if (value === undefined) return 'null';
+  if (value === null || typeof value !== 'object') return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
+  const record = value as Record<string, unknown>;
+  return `{${Object.keys(record)
+    .filter((key) => record[key] !== undefined)
+    .sort()
+    .map((key) => `${JSON.stringify(key)}:${canonicalJson(record[key])}`)
+    .join(',')}}`;
 }
 
 function partitionKey(conversationId: string): string {

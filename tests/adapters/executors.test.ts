@@ -2,7 +2,11 @@ import { LambdaMicrovmsClient } from '@aws-sdk/client-lambda-microvms';
 import { SSMClient } from '@aws-sdk/client-ssm';
 import { describe, expect, it, vi } from 'vitest';
 
-import { MicrovmRunExecutor } from '../../src/adapters/executors.js';
+import {
+  AgentInteractionUnavailableError,
+  MicrovmAgentInteractionController,
+  MicrovmRunExecutor,
+} from '../../src/adapters/executors.js';
 import type { RunRecord, RunRequest } from '../../src/domain/contracts.js';
 
 const record: RunRecord = {
@@ -43,6 +47,7 @@ describe('executor idempotency', () => {
         executionRoleArn: 'arn:aws:iam::account:role/runtime',
         logGroupName: '/aws/lambda-microvm/runtime',
         runsTableName: 'runs',
+        integrationsTableName: 'integrations',
         artifactBucket: 'artifacts',
         eventBusName: 'events',
         region: 'us-east-1',
@@ -68,6 +73,9 @@ describe('executor idempotency', () => {
       runId: record.runId,
       traceId: record.runId,
     });
+    expect(sendMicrovm.mock.calls[0]?.[0].input.ingressNetworkConnectors).toEqual([
+      'arn:aws:lambda:us-east-1:aws:network-connector:aws-network-connector:ALL_INGRESS',
+    ]);
   });
 
   it('resumes an existing conversation MicroVM and posts the next bounded run', async () => {
@@ -99,6 +107,7 @@ describe('executor idempotency', () => {
         executionRoleArn: 'arn:aws:iam::account:role/runtime',
         logGroupName: '/aws/lambda-microvm/runtime',
         runsTableName: 'runs',
+        integrationsTableName: 'integrations',
         artifactBucket: 'artifacts',
         eventBusName: 'events',
         region: 'us-east-1',
@@ -173,6 +182,7 @@ describe('executor idempotency', () => {
         executionRoleArn: 'arn:aws:iam::account:role/runtime',
         logGroupName: '/aws/lambda-microvm/runtime',
         runsTableName: 'runs',
+        integrationsTableName: 'integrations',
         artifactBucket: 'artifacts',
         eventBusName: 'events',
         region: 'us-east-1',
@@ -215,6 +225,7 @@ describe('executor idempotency', () => {
         executionRoleArn: 'arn:aws:iam::account:role/runtime',
         logGroupName: '/aws/lambda-microvm/runtime',
         runsTableName: 'runs',
+        integrationsTableName: 'integrations',
         artifactBucket: 'artifacts',
         eventBusName: 'events',
         region: 'us-east-1',
@@ -255,5 +266,101 @@ describe('executor idempotency', () => {
       s3FilesAccessPointId: 'fsap-1234',
       s3FilesMountTargetIp: '10.242.0.20',
     });
+  });
+});
+
+describe('live MicroVM agent interaction', () => {
+  it('uses an AWS-issued port token for events, steering, and approvals', async () => {
+    const send = vi.fn().mockImplementation((command: { constructor: { name: string } }) => {
+      if (command.constructor.name === 'GetMicrovmCommand') {
+        return Promise.resolve({
+          microvmId: 'microvm-live-1',
+          state: 'RUNNING',
+          endpoint: 'live.lambda-microvm.us-east-1.on.aws',
+        });
+      }
+      if (command.constructor.name === 'CreateMicrovmAuthTokenCommand') {
+        return Promise.resolve({ authToken: { 'X-aws-proxy-auth': 'live-token' } });
+      }
+      throw new Error(`unexpected ${command.constructor.name}`);
+    });
+    const snapshot = {
+      runId: record.runId,
+      active: true,
+      ready: true,
+      nextSequence: 2,
+      events: [{
+        sequence: 1,
+        occurredAt: '2026-08-20T00:00:00.000Z',
+        method: 'turn/started',
+        params: {},
+      }],
+      pendingRequests: [],
+    };
+    const fetchMock = vi.fn().mockImplementation((url: string) => Promise.resolve({
+      ok: true,
+      status: url.includes('/events?') ? 200 : 202,
+      text: () => Promise.resolve(JSON.stringify(url.includes('/events?') ? snapshot : { ok: true })),
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+    const controller = new MicrovmAgentInteractionController(
+      { send } as unknown as LambdaMicrovmsClient,
+    );
+    const target = {
+      runId: record.runId,
+      execution: { backend: 'microvm' as const, id: 'microvm-live-1' },
+    };
+
+    await expect(controller.events(target, 0, 25)).resolves.toEqual(snapshot);
+    await controller.steer(target, 'Focus on the failing test.');
+    await controller.approve(target, 'approval-7', 'accept-for-session');
+
+    expect(fetchMock.mock.calls.map((call) => call[0])).toEqual([
+      `https://live.lambda-microvm.us-east-1.on.aws/agent-runtime/v1/runs/${record.runId}/events?after=0&limit=25`,
+      `https://live.lambda-microvm.us-east-1.on.aws/agent-runtime/v1/runs/${record.runId}/steer`,
+      `https://live.lambda-microvm.us-east-1.on.aws/agent-runtime/v1/runs/${record.runId}/approvals/approval-7`,
+    ]);
+    expect(fetchMock.mock.calls[2]?.[1]).toEqual(expect.objectContaining({
+      method: 'POST',
+      headers: expect.objectContaining({
+        'x-aws-proxy-auth': 'live-token',
+        'x-aws-proxy-port': '8080',
+      }),
+      body: JSON.stringify({ decision: 'accept-for-session' }),
+    }));
+    vi.unstubAllGlobals();
+  });
+
+  it('reports a not-yet-ready MicroVM lifecycle proxy as temporarily unavailable', async () => {
+    const send = vi.fn().mockImplementation((command: { constructor: { name: string } }) => {
+      if (command.constructor.name === 'GetMicrovmCommand') {
+        return Promise.resolve({
+          microvmId: 'microvm-starting-1',
+          state: 'RUNNING',
+          endpoint: 'starting.lambda-microvm.us-east-1.on.aws',
+        });
+      }
+      if (command.constructor.name === 'CreateMicrovmAuthTokenCommand') {
+        return Promise.resolve({ authToken: { 'X-aws-proxy-auth': 'startup-token' } });
+      }
+      throw new Error(`unexpected ${command.constructor.name}`);
+    });
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: false,
+      status: 502,
+      text: () => Promise.resolve(''),
+    }));
+    const controller = new MicrovmAgentInteractionController(
+      { send } as unknown as LambdaMicrovmsClient,
+    );
+    const target = {
+      runId: record.runId,
+      execution: { backend: 'microvm' as const, id: 'microvm-starting-1' },
+    };
+
+    await expect(controller.events(target)).rejects.toBeInstanceOf(
+      AgentInteractionUnavailableError,
+    );
+    vi.unstubAllGlobals();
   });
 });

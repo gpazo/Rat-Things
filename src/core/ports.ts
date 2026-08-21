@@ -8,6 +8,17 @@ import type {
   RunResult,
   RunStatus,
 } from '../domain/contracts.js';
+import type {
+  AgentApprovalDecision,
+  AgentInteractionTarget,
+  AgentRuntimeSnapshot,
+} from '../domain/interaction.js';
+import type { JsonValue } from '../domain/contracts.js';
+import type {
+  ListRoutinesResult,
+  RoutineRecord,
+  RoutineStatus,
+} from '../domain/routines.js';
 
 export interface CreateRunResult {
   created: boolean;
@@ -52,6 +63,19 @@ export interface ExecutionController {
   stop(execution: ExecutionReference, reason: string): Promise<void>;
 }
 
+export interface AgentInteractionController {
+  events(target: AgentInteractionTarget, after?: number, limit?: number): Promise<AgentRuntimeSnapshot>;
+  steer(target: AgentInteractionTarget, prompt: string): Promise<void>;
+  interrupt(target: AgentInteractionTarget): Promise<void>;
+  approve(
+    target: AgentInteractionTarget,
+    requestId: string,
+    decision: AgentApprovalDecision,
+    reason?: string,
+  ): Promise<void>;
+  respond(target: AgentInteractionTarget, requestId: string, result: JsonValue): Promise<void>;
+}
+
 export interface Clock {
   now(): Date;
 }
@@ -59,4 +83,31 @@ export interface Clock {
 export interface IdGenerator {
   random(): string;
   deterministic(ownerId: string, idempotencyKey: string): string;
+}
+
+export interface RoutineStore {
+  create(record: RoutineRecord): Promise<void>;
+  get(routineId: string): Promise<RoutineRecord | undefined>;
+  list(ownerId: string, limit: number, nextToken?: string): Promise<ListRoutinesResult>;
+  listDue(cutoff: string, limit: number): Promise<RoutineRecord[]>;
+  setStatus(
+    ownerId: string,
+    routineId: string,
+    status: Exclude<RoutineStatus, 'deleted'>,
+    nextRunAt: string,
+    updatedAt: string,
+  ): Promise<RoutineRecord>;
+  softDelete(
+    ownerId: string,
+    routineId: string,
+    updatedAt: string,
+    expiresAt: number,
+  ): Promise<RoutineRecord>;
+  advance(
+    routineId: string,
+    expectedRunAt: string,
+    nextRunAt: string,
+    runId: string,
+    updatedAt: string,
+  ): Promise<boolean>;
 }

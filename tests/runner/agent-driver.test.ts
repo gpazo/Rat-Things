@@ -68,7 +68,7 @@ describe('CodexDriver', () => {
     expect(result).toMatchObject({ fullText: 'continued', threadId: 'thread-persisted-1', exitCode: 0 });
   });
 
-  it('passes model, reasoning, schema, and sandbox controls to app-server', async () => {
+  it('passes model, reasoning, schema, capability, and sandbox controls to app-server', async () => {
     vi.stubEnv('CODEX_BINARY', '/opt/runtime/bin/codex');
     runCodexAppServerMock.mockResolvedValue({
       ...execution('The review is complete.', 'thread-123'),
@@ -89,6 +89,17 @@ describe('CodexDriver', () => {
           model: 'openai.gpt-5.6-terra',
           sandbox: 'workspace-write',
           reasoningEffort: 'high',
+          reasoningSummary: 'concise',
+          personality: 'pragmatic',
+          capabilities: {
+            approvalPolicy: 'on-request',
+            approvalsReviewer: 'auto-review',
+            networkAccess: true,
+            webSearch: 'live',
+            skills: ['support-triage'],
+            apps: ['gmail', 'google-calendar'],
+            mcpServers: ['inventory'],
+          },
           outputSchema: { type: 'object', required: ['summary'] },
         },
       },
@@ -103,8 +114,17 @@ describe('CodexDriver', () => {
       prompt: expect.stringContaining('User request:\n\nReview; $(touch /tmp/not-a-shell-command)'),
       model: 'openai.gpt-5.6-terra',
       reasoningEffort: 'high',
+      reasoningSummary: 'concise',
+      personality: 'pragmatic',
       outputSchema: { type: 'object', required: ['summary'] },
       sandbox: 'workspace-write',
+      networkAccess: true,
+      approvalPolicy: 'on-request',
+      approvalsReviewer: 'auto-review',
+      webSearch: 'live',
+      skills: ['support-triage'],
+      apps: ['gmail', 'google-calendar'],
+      mcpServers: ['inventory'],
       persistent: false,
     }));
     expect(result).toEqual(expect.objectContaining({
@@ -140,7 +160,7 @@ describe('CodexDriver', () => {
     expect(result.fullText).toBe('account-authenticated');
   });
 
-  it('enables command network access only with the workspace-write sandbox', async () => {
+  it('passes network access independently from the inner sandbox mode', async () => {
     vi.stubEnv('CODEX_AUTH_MODE', 'chatgpt');
     vi.stubEnv('CODEX_TOOL_NETWORK_ACCESS', 'true');
     runCodexAppServerMock.mockResolvedValue(execution('network-tested', 'thread-network'));
@@ -156,17 +176,42 @@ describe('CodexDriver', () => {
     );
 
     expect(runCodexAppServerMock).toHaveBeenCalledWith(expect.objectContaining({
-      toolNetworkAccess: true,
+      networkAccess: true,
       sandbox: 'workspace-write',
     }));
 
-    await expect(
-      new CodexDriver().execute(
-        { version: '1', prompt: 'test network', agent: { sandbox: 'read-only' } },
-        process.cwd(),
-        1_000,
-      ),
-    ).rejects.toThrow('Codex tool network access requires the workspace-write sandbox');
+    await new CodexDriver().execute(
+      { version: '1', prompt: 'test network', agent: { sandbox: 'read-only' } },
+      process.cwd(),
+      1_000,
+    );
+    expect(runCodexAppServerMock).toHaveBeenLastCalledWith(expect.objectContaining({
+      networkAccess: true,
+      sandbox: 'read-only',
+    }));
+  });
+
+  it('downgrades danger-full-access when command networking is explicitly disabled', async () => {
+    vi.stubEnv('CODEX_AUTH_MODE', 'chatgpt');
+    runCodexAppServerMock.mockResolvedValue(execution('network-disabled', 'thread-network-off'));
+
+    await new CodexDriver().execute(
+      {
+        version: '1',
+        prompt: 'work without network access',
+        agent: {
+          sandbox: 'danger-full-access',
+          capabilities: { networkAccess: false },
+        },
+      },
+      '/tmp/workspace',
+      1_000,
+    );
+
+    expect(runCodexAppServerMock).toHaveBeenCalledWith(expect.objectContaining({
+      networkAccess: false,
+      sandbox: 'workspace-write',
+    }));
   });
 });
 

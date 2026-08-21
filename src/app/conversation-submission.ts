@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import type { ConversationQueue } from '../conversation/types.js';
 import { ConversationService } from '../conversation/service.js';
 import type { ConversationExecutionPolicy } from '../domain/conversations.js';
+import type { IntegrationAccessRequest } from '../domain/capabilities.js';
 import { ValidationError } from '../domain/validation.js';
 import type { IngressContext } from '../identity/context.js';
 import type { IngressWork } from '../ingress/types.js';
@@ -13,6 +14,7 @@ export interface ApiConversationMessageInput {
   context: IngressContext & { source: { kind: 'api' } };
   traceId: string;
   executionPolicy?: ConversationExecutionPolicy;
+  integrationPolicy?: IntegrationAccessRequest;
 }
 
 export interface ConversationMessageReceipt {
@@ -37,11 +39,11 @@ export class ConversationSubmissionService {
       source.conversationId,
     ].join(':');
     const messageId = source.activityId;
-    const current = await this.conversations.get(conversationId);
-    const delivery = current?.activeTurnId ? 'interrupt' : 'defer';
+    const delivery = await this.deliveryFor(conversationId, messageId);
     const receipt = await this.conversations.appendMessage({
       conversationId,
       ownerId: work.context.owner.id,
+      ...(work.policyOwnerId ? { capabilityOwnerId: work.policyOwnerId } : {}),
       messageId,
       delivery,
       content: {
@@ -52,6 +54,8 @@ export class ConversationSubmissionService {
       destination: { kind: 'source' },
       actor: work.context.actor,
       credentialSubject: work.context.credentialSubject,
+      ...(work.request.agent ? { executionPolicy: work.request.agent } : {}),
+      ...(work.request.integrations ? { integrationPolicy: work.request.integrations } : {}),
     });
     await this.queue.enqueue({
       version: '1',
@@ -67,18 +71,19 @@ export class ConversationSubmissionService {
    */
   public async submitApi(input: ApiConversationMessageInput): Promise<ConversationMessageReceipt> {
     const conversationId = apiConversationId(input.context.owner.id, input.conversationKey);
-    const current = await this.conversations.get(conversationId);
+    const delivery = await this.deliveryFor(conversationId, input.messageId);
     const receipt = await this.conversations.appendMessage({
       conversationId,
       ownerId: input.context.owner.id,
       messageId: input.messageId,
-      delivery: current?.activeTurnId ? 'interrupt' : 'defer',
+      delivery,
       content: { text: input.prompt },
       source: input.context.source,
       destination: { kind: 'none' },
       actor: input.context.actor,
       credentialSubject: input.context.credentialSubject,
       ...(input.executionPolicy ? { executionPolicy: input.executionPolicy } : {}),
+      ...(input.integrationPolicy ? { integrationPolicy: input.integrationPolicy } : {}),
     });
     await this.queue.enqueue({
       version: '1',
@@ -90,6 +95,22 @@ export class ConversationSubmissionService {
       messageId: receipt.message.messageId,
       status: receipt.status,
     };
+  }
+
+  /**
+   * Delivery priority is derived from mutable conversation state, but an
+   * idempotent redelivery must retain the priority recorded by its first
+   * receipt. A coordinator can bind a turn between two identical webhook
+   * requests, so consult the stored message before reclassifying it.
+   */
+  private async deliveryFor(
+    conversationId: string,
+    messageId: string,
+  ): Promise<'interrupt' | 'defer'> {
+    const current = await this.conversations.get(conversationId);
+    if (!current?.activeTurnId) return 'defer';
+    const existing = await this.conversations.getMessage(conversationId, messageId);
+    return existing?.delivery ?? 'interrupt';
   }
 }
 

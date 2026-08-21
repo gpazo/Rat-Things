@@ -365,6 +365,95 @@ resource "aws_dynamodb_table" "conversations" {
   tags = merge(local.tags, { Name = "${local.name}-conversations" })
 }
 
+resource "aws_dynamodb_table" "integrations" {
+  name         = "${local.name}-integrations"
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "pk"
+  range_key    = "sk"
+
+  attribute {
+    name = "pk"
+    type = "S"
+  }
+
+  attribute {
+    name = "sk"
+    type = "S"
+  }
+
+  point_in_time_recovery {
+    enabled = var.enable_point_in_time_recovery
+  }
+
+  server_side_encryption {
+    enabled     = true
+    kms_key_arn = aws_kms_key.data.arn
+  }
+
+  tags = merge(local.tags, { Name = "${local.name}-integrations" })
+}
+
+resource "aws_dynamodb_table" "routines" {
+  name         = "${local.name}-routines"
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "routineId"
+
+  attribute {
+    name = "routineId"
+    type = "S"
+  }
+
+  attribute {
+    name = "ownerId"
+    type = "S"
+  }
+
+  attribute {
+    name = "ownerCreated"
+    type = "S"
+  }
+
+  attribute {
+    name = "status"
+    type = "S"
+  }
+
+  attribute {
+    name = "nextRunAt"
+    type = "S"
+  }
+
+  global_secondary_index {
+    name            = "owner-created-index"
+    hash_key        = "ownerId"
+    range_key       = "ownerCreated"
+    projection_type = "ALL"
+  }
+
+  global_secondary_index {
+    name            = "status-next-run-index"
+    hash_key        = "status"
+    range_key       = "nextRunAt"
+    projection_type = "ALL"
+  }
+
+  ttl {
+    attribute_name = "expiresAt"
+    enabled        = true
+  }
+
+  point_in_time_recovery {
+    enabled = var.enable_point_in_time_recovery
+  }
+
+  server_side_encryption {
+    enabled     = true
+    kms_key_arn = aws_kms_key.data.arn
+  }
+
+  tags = merge(local.tags, { Name = "${local.name}-routines" })
+}
+
 resource "aws_sqs_queue" "run_dlq" {
   name                      = "${local.name}-runs-dlq"
   message_retention_seconds = 1209600

@@ -33,6 +33,24 @@ Cross-identity lookup is an administrative capability outside v1.
 | Method and path | Auth | Behavior |
 | --- | --- | --- |
 | `GET /health` | None | Liveness response; does not prove worker/model/provider readiness |
+| `GET /v1/capability-profiles` | Required | List installed capability-policy ceilings |
+| `GET /v1/integrations/plugins` | Required | List trusted integration manifests and operation schemas |
+| `GET /v1/integrations/connections` | Required | List the owner's connections and persistent grants; never returns credentials |
+| `POST /v1/integrations/connections` | Required | Create one account connection, its secret, and its initial grant |
+| `POST /v1/integrations/connections/{connectionId}/grant` | Required | Replace the account's persistent Rat-side grant |
+| `POST /v1/integrations/connections/{connectionId}/credential` | Required | Rotate the account credential in Secrets Manager |
+| `POST /v1/integrations/connections/{connectionId}/revoke` | Required | Revoke the connection and its credential |
+| `GET /v1/integrations/connection-sets` | Required | List reusable multi-account connection sets |
+| `POST /v1/integrations/connection-sets` | Required | Create a reusable multi-account connection set |
+| `GET /v1/integrations/source-bindings` | Required | List verified-source capability bindings |
+| `POST /v1/integrations/source-bindings` | Required | Bind a verified source selector to a profile and/or connection set |
+| `GET /v1/routines?limit=25&nextToken=...` | Required | List owner-scoped interval routines |
+| `POST /v1/routines` | Required | Store a versioned routine and its encrypted run request |
+| `GET /v1/routines/{routineId}` | Required | Get one non-deleted routine |
+| `POST /v1/routines/{routineId}/run` | Required | Submit the stored request immediately and return `202` |
+| `POST /v1/routines/{routineId}/pause` | Required | Pause future scheduled occurrences |
+| `POST /v1/routines/{routineId}/resume` | Required | Resume at the retained or next future occurrence |
+| `POST /v1/routines/{routineId}/delete` | Required | Soft-delete a routine; metadata expires after 30 days |
 | `POST /v1/conversations/{conversationId}/messages` | Required | Append one owner-scoped durable conversation turn and return `202` |
 | `GET /v1/conversations/{conversationId}/messages/{messageId}` | Required | Poll the exact message, bound run, conversation, and suspended-session state |
 | `GET /v1/conversations/{conversationId}/artifacts` | Required | List the current durable files for an owner-scoped conversation |
@@ -41,6 +59,11 @@ Cross-identity lookup is an administrative capability outside v1.
 | `POST /v1/runs` | Required | Validate, durably store, enqueue, and return `202` |
 | `GET /v1/runs?limit=25&nextToken=...` | Required | Newest-first runs for the current owner; limit is clamped to 1–100 |
 | `GET /v1/runs/{runId}` | Required | Current record for the current owner |
+| `GET /v1/runs/{runId}/events?after=0&limit=100` | Required | Poll ordered App Server events plus outstanding server requests for an active run |
+| `POST /v1/runs/{runId}/steer` | Required | Add text to the active turn |
+| `POST /v1/runs/{runId}/interrupt` | Required | Interrupt the active turn without selecting a MicroVM directly |
+| `POST /v1/runs/{runId}/approvals/{requestId}` | Required | Accept, accept for the session, decline, or cancel an approval request |
+| `POST /v1/runs/{runId}/requests/{requestId}/respond` | Required | Return an arbitrary JSON result for another App Server request |
 | `GET /v1/runs/{runId}/artifacts` | Required | List user-visible files captured by the run |
 | `GET /v1/runs/{runId}/artifacts/{name}` | Required | Owner-checked URL for a generated-file ID or `input`, `output`, `events`, or `patch` |
 | `POST /v1/runs/{runId}/publications` | Required | Build and share a file, site, or video from a successful run's catalog |
@@ -48,9 +71,11 @@ Cross-identity lookup is an administrative capability outside v1.
 | `GET /v1/shares/{token}` | Bearer token | Validate a time-bounded file share and redirect to private S3 |
 | `POST /v1/runs/{runId}/cancel` | Required | Request cancellation and return `202`; terminal runs are unchanged |
 
-`nextToken` is opaque and must be returned unchanged. There is currently no result stream,
-approval route, or caller-selected MicroVM resume route. Durable conversation continuation is
-selected by trusted orchestration from the stored owner-scoped session.
+`nextToken` is opaque and must be returned unchanged. Live events use an ordered polling snapshot,
+not a long-held HTTP stream. Interactive routes are available only while the exact run has an active
+MicroVM execution; stale, terminal, or non-interactive runs return `409`. Callers never select a
+MicroVM or receive its AWS-issued proxy token. Durable conversation continuation remains trusted
+orchestration selected from the stored owner-scoped session.
 
 ## Headless durable conversations
 
@@ -76,17 +101,27 @@ Idempotency-Key: 93811d8e-2368-4ff8-9e93-706d344e5c8e
   "prompt": "Use the shell tool to run pwd and report the result.",
   "agent": {
     "driver": "codex",
-    "sandbox": "workspace-write",
-    "reasoningEffort": "low"
+    "sandbox": "danger-full-access",
+    "reasoningEffort": "low",
+    "capabilities": {
+      "profile": "small-business",
+      "computerUse": "browser"
+    }
+  },
+  "integrations": {
+    "connections": [
+      { "connection": "slack-shop", "preset": "read-only" },
+      { "connection": "stripe-shop", "preset": "read-write" }
+    ]
   }
 }
 ```
 
-Only `version`, `prompt`, and `agent` are accepted. The supported durable `agent` fields are
-`driver`, `model`, `sandbox`, and `reasoningEffort`. A conversation's execution policy is fixed by
-its first message; later attempts to change it return `409`. Callers cannot submit a provider
-source, destination, repository credential, output schema, MicroVM ID, Codex thread ID, or auth
-mode through this route.
+Only `version`, `prompt`, `agent`, and `integrations` are accepted. Durable conversations support
+the normal agent fields except `outputSchema`, plus the multi-account integration selection
+described below. A conversation's execution and integration policies are fixed by its first message;
+later attempts to change them return `409`. Callers cannot submit a provider source, destination,
+repository credential, output schema, MicroVM ID, Codex thread ID, or auth mode through this route.
 
 The response is a durable mailbox receipt:
 
@@ -152,6 +187,86 @@ submission, or an explicit
 authentication remains deployment-controlled (normally short-term Bedrock auth); the CLI never
 uploads local ChatGPT credentials.
 
+## Live App Server interaction
+
+The runner uses the bidirectional Codex App Server protocol, not `codex exec`. Every notification is
+assigned an in-memory sequence and can be polled while the run is active:
+
+```bash
+rat-things watch RUN_ID --follow
+rat-things steer RUN_ID "Use the newly uploaded specification"
+rat-things approve RUN_ID REQUEST_ID --decision accept-for-session
+rat-things respond RUN_ID REQUEST_ID --result '{"answers":{"region":"us-west-2"}}'
+rat-things interrupt RUN_ID
+```
+
+`GET .../events` returns
+`{runId,active,ready,oldestSequence,nextSequence,events,pendingRequests,turn}`. Pass the last seen
+`sequence` back as `after`; results are ordered and bounded to 100. If a client falls behind
+`oldestSequence`, it missed entries from the bounded ring and must rely on the terminal JSONL event
+artifact. `pendingRequests` includes
+Codex command/file approvals, dynamic integration approvals, browser-interaction approvals, and any
+other server request awaiting a JSON result. Approval decisions are `accept`,
+`accept-for-session`, `decline`, and `cancel`.
+
+This is a live control plane, not the durable event archive. The complete JSONL event artifact is
+written to encrypted S3 after the turn, while the live in-MicroVM ring is bounded and disappears
+when the execution ends. API Gateway authenticates the owner, then trusted control orchestration
+mints a short-lived proxy token for the exact MicroVM and port 8080; that endpoint and token never
+reach the caller or agent child.
+
+## Routines
+
+A routine stores one validated run request and submits it on an interval. DynamoDB keeps only the
+schedule, status, hash, and encrypted S3 reference; prompt and integration selections stay in the
+artifact plane.
+
+```http
+POST /v1/routines HTTP/1.1
+Content-Type: application/json
+
+{
+  "version": "1",
+  "name": "Customer operations review",
+  "schedule": {
+    "kind": "interval",
+    "everyMinutes": 60,
+    "startAt": "2026-08-21T09:00:00-07:00"
+  },
+  "enabled": true,
+  "request": {
+    "version": "1",
+    "prompt": "Review new customer messages and payment exceptions.",
+    "agent": {
+      "capabilities": { "profile": "small-business" }
+    },
+    "integrations": {
+      "connectionSet": "customer-ops"
+    },
+    "destinations": [
+      { "kind": "slack", "route": "C01234567" }
+    ]
+  }
+}
+```
+
+`everyMinutes` is an integer from 1 through 525,600. `startAt` is optional and must be an ISO
+date-time with a timezone. When omitted, the first occurrence is one interval after creation.
+Paused routines retain the next future occurrence; resuming after it has passed advances to the next
+future interval. The one-minute reconciler skips accumulated backlog rather than launching a storm.
+
+Scheduled submissions use `routine:<routineId>:<scheduledAt>` idempotency, so a reconciler retry
+cannot create a second semantic occurrence. The schedule advances only after submission succeeds.
+`POST .../run` performs a separate immediate submission and accepts an optional `Idempotency-Key`.
+Retries with the same manual key derive the same occurrence ID; the resulting run's `createdAt`
+records when that manual execution was first accepted.
+
+Routine requests cannot set `source`, `parentRunId`, a `source` delivery destination, or reserved
+routine metadata. At execution, trusted orchestration rechecks the owner-scoped S3 key and canonical
+request digest, adds system provenance and schedule metadata, and submits through the ordinary run
+service. Routines do not bypass account grants or capability profiles. Use an approval-free profile
+and tightly bounded grants for intentionally unattended side effects.
+
 ## Durable files
 
 `.rat-things/artifacts/` is the agent-facing outbox and durable working directory. On every
@@ -200,8 +315,25 @@ Idempotency-Key: review-example-01234567
   },
   "agent": {
     "driver": "codex",
-    "sandbox": "read-only",
-    "reasoningEffort": "high"
+    "sandbox": "danger-full-access",
+    "reasoningEffort": "high",
+    "reasoningSummary": "concise",
+    "personality": "pragmatic",
+    "capabilities": {
+      "profile": "small-business",
+      "approvalPolicy": "on-request",
+      "networkAccess": true,
+      "webSearch": "live",
+      "computerUse": "browser",
+      "skills": ["security-review"],
+      "apps": ["github"],
+      "mcpServers": ["company-docs"]
+    }
+  },
+  "integrations": {
+    "connections": [
+      { "connection": "github-consulting", "preset": "read-only" }
+    ]
   },
   "execution": {
     "backend": "microvm",
@@ -249,7 +381,8 @@ Unknown fields are rejected at every validated object level.
 | `version` | Yes | Literal string `"1"` |
 | `prompt` | Yes | Non-empty UTF-8 string, at most 100,000 bytes |
 | `repository` | No | Repository checkout described below |
-| `agent` | No | Driver/model/sandbox options |
+| `agent` | No | Driver, model, reasoning, sandbox, and capability options |
+| `integrations` | No | Owner-scoped connection set and/or individual multi-account selections |
 | `execution` | No | Backend and timeout |
 | `source` | No | Provenance; overwritten on the control API |
 | `destinations` | No | At most 8 result destinations; deployment default otherwise |
@@ -287,17 +420,60 @@ Unknown fields are rejected at every validated object level.
 | `driver` | `codex` or `mock`; `mock` is for tests |
 | `model` | Optional deployment/provider model identifier, up to 255 restricted characters |
 | `sandbox` | `read-only`, `workspace-write`, or `danger-full-access`, further restricted by deployment policy |
-| `reasoningEffort` | `low`, `medium`, `high`, or `xhigh` |
+| `reasoningEffort` | `low`, `medium`, `high`, `xhigh`, or `ultra` |
+| `reasoningSummary` | `auto`, `concise`, `detailed`, or `none` |
+| `personality` | `none`, `friendly`, or `pragmatic` |
+| `capabilities` | Profile plus approval, network, search, browser, skill, app, and MCP selections |
 | `outputSchema` | JSON object, at most 32,000 serialized bytes; passed to supported drivers |
 
-Omitted values use deployment defaults. Runtime policy defaults `ALLOWED_SANDBOX_MODES` to
-`read-only,workspace-write`, so `danger-full-access` is rejected even though it exists in the v1 enum.
-Explicitly enabling it disables the agent CLI's inner sandbox; do so only after reviewing the outer
-one-run MicroVM, UID/environment boundary, workload role, egress policy, and repository as
-the complete trust boundary.
+Remote MicroVM execution defaults to `danger-full-access` with agent command networking enabled.
+The outer one-run/one-conversation MicroVM, unprivileged agent UID, stripped AWS environment, scoped
+workload role, and connection broker are the primary isolation boundary. `ALLOWED_SANDBOX_MODES`
+remains the deployment ceiling, while requests and profiles can select a narrower inner Codex
+sandbox. Trusted local `rat-things local` runs deliberately retain a read-only/no-network default.
 
-Codex consumes `model`, `sandbox`, `reasoningEffort`, and `outputSchema`. The mock driver ignores
-those controls and returns deterministic output without contacting a model provider.
+Codex consumes the agent controls and registers selected App Server features. The mock driver
+ignores them and returns deterministic output without contacting a model provider.
+
+### `agent.capabilities`
+
+| Field | Values and behavior |
+| --- | --- |
+| `profile` | Installed profile ID: currently `read-only`, `small-business`, or `microvm-full` |
+| `approvalPolicy` | `untrusted`, `on-request`, or `never`; a request cannot relax its profile |
+| `approvalsReviewer` | `user`, `auto-review`, or `guardian-subagent` |
+| `networkAccess` | Boolean command-network selection, capped by the profile |
+| `webSearch` | `disabled`, `cached`, `indexed`, or `live`, capped by the profile |
+| `computerUse` | `disabled` or `browser`; browser requires network access |
+| `skills` | Non-empty list of installed Codex skill names; unavailable/disabled names fail the turn |
+| `apps` | Non-empty list forwarded to Codex as the requested app selection |
+| `mcpServers` | Non-empty list of configured MCP server names to force-enable for the thread |
+
+`skills` are resolved with App Server `skills/list` and added to the turn as skill inputs. Apps and
+MCP servers are passed through the current App Server configuration surface. MCP selection enables
+the named servers but is not an exact deny-list for additional servers inherited from a project
+configuration; keep the MicroVM base configuration empty when exact deployment control matters.
+
+The `small-business` profile allows browser use and up to read-write integrations while retaining
+on-request approval. `microvm-full` permits full integrations and automatic browser interaction.
+Because Codex's `danger-full-access` policy has no independent command-network switch, explicitly
+setting `networkAccess: false` automatically narrows the effective inner sandbox to
+`workspace-write`; the outer MicroVM remains the isolation boundary.
+Use the latter only for intentionally unattended work whose external side effects are already
+bounded by connection grants.
+
+See [browser computer use](browser-computer-use.md) for the implemented command surface, live-AWS
+evidence, safety boundaries, and the capabilities still required before making an unqualified
+“full computer use” claim.
+
+### `integrations`
+
+`connectionSet` selects a reusable owner-scoped set. `connections` selects up to 32 aliases or IDs;
+each entry can add a `read-only`, `read-write`, `full`, or `custom` per-run ceiling plus operation
+allow/deny lists. When both are present their connection selections are merged, and all applicable
+provider authorization, persistent grant, profile, and run constraints are intersected. Credentials,
+grant IDs, provider scopes, approval overrides, resource constraints, and secret references are not
+accepted in a run request. See [integrations and permissions](plugins.md).
 
 ### `execution`
 

@@ -123,7 +123,17 @@ variable "allowed_repository_hosts" {
 
 variable "allowed_sandbox_modes" {
   type    = list(string)
-  default = ["read-only", "workspace-write"]
+  default = ["read-only", "workspace-write", "danger-full-access"]
+}
+
+variable "default_sandbox_mode" {
+  type    = string
+  default = "danger-full-access"
+}
+
+variable "default_agent_network_access" {
+  type    = bool
+  default = true
 }
 
 variable "default_agent_driver" {

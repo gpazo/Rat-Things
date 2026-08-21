@@ -12,6 +12,21 @@ cleanup() {
   local exit_status="$?"
   trap - EXIT INT TERM
   set +e
+  if [[ "$exit_status" -ne 0 ]]; then
+    aws_region="${AWS_REGION:-${AWS_DEFAULT_REGION:-us-west-2}}"
+    microvm_log_group="/rat-things-${deployment_id}/microvms"
+    if aws logs describe-log-groups \
+      --region "$aws_region" \
+      --log-group-name-prefix "$microvm_log_group" \
+      --query 'logGroups[?logGroupName==`'"$microvm_log_group"'`].logGroupName | [0]' \
+      --output text 2>/dev/null | rg -qx "$microvm_log_group"; then
+      echo "MicroVM diagnostics captured before teardown:"
+      aws logs tail "$microvm_log_group" \
+        --region "$aws_region" \
+        --since 30m \
+        --format short 2>&1 || true
+    fi
+  fi
   "$script_dir/aws-e2e-destroy.sh" "$deployment_id"
   destroy_status=$?
   set -e

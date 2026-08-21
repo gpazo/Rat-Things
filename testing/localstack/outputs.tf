@@ -10,7 +10,10 @@ output "test_environment" {
     GITHUB_WEBHOOK_SIGNING_SECRET      = "localstack-github-webhook-secret"
     GITLAB_WEBHOOK_SECRET_ARN          = aws_secretsmanager_secret.gitlab_webhook.name
     GITLAB_WEBHOOK_SIGNING_TOKEN       = "whsec_bG9jYWxzdGFjay1naXRsYWItc2lnbmluZy1rZXkhISE="
+    INTEGRATIONS_TABLE_NAME            = aws_dynamodb_table.integrations.name
+    INTEGRATION_CREDENTIAL_NAME_PREFIX = "${local.name}/connections"
     RUNS_TABLE_NAME                    = aws_dynamodb_table.runs.name
+    ROUTINES_TABLE_NAME                = aws_dynamodb_table.routines.name
     RUN_QUEUE_URL                      = aws_sqs_queue.runs.url
     TERMINAL_EVENTS_QUEUE_URL          = aws_sqs_queue.terminal_events.url
     TEAMS_OUTGOING_WEBHOOK_SECRET_ARN  = aws_secretsmanager_secret.teams_webhook.name

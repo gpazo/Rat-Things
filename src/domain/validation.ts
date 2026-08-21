@@ -10,6 +10,20 @@ import type {
   RunSource,
   SandboxMode,
 } from './contracts.js';
+import {
+  AGENT_PERSONALITIES,
+  APPROVAL_POLICIES,
+  APPROVAL_REVIEWERS,
+  COMPUTER_USE_MODES,
+  INTEGRATION_PERMISSION_PRESETS,
+  REASONING_SUMMARIES,
+  WEB_SEARCH_MODES,
+} from './capabilities.js';
+import type {
+  AgentCapabilityRequest,
+  ConnectionAccessRequest,
+  IntegrationAccessRequest,
+} from './capabilities.js';
 
 const MAX_PROMPT_BYTES = 100_000;
 const MAX_METADATA_BYTES = 32_000;
@@ -37,6 +51,7 @@ export function parseRunRequest(value: unknown, options: ValidationOptions = {})
     'prompt',
     'repository',
     'agent',
+    'integrations',
     'execution',
     'source',
     'destinations',
@@ -58,6 +73,9 @@ export function parseRunRequest(value: unknown, options: ValidationOptions = {})
   }
   if (input.agent !== undefined) {
     result.agent = parseAgent(input.agent, options.allowedSandboxModes);
+  }
+  if (input.integrations !== undefined) {
+    result.integrations = parseIntegrations(input.integrations);
   }
   if (input.execution !== undefined) {
     result.execution = parseExecution(input.execution);
@@ -158,7 +176,16 @@ function parseRepository(value: unknown, allowedHosts?: string[]): RepositoryInp
 
 function parseAgent(value: unknown, allowedSandboxModes?: SandboxMode[]): AgentInput {
   const input = requiredRecord(value, 'agent');
-  rejectUnknown(input, ['driver', 'model', 'sandbox', 'reasoningEffort', 'outputSchema']);
+  rejectUnknown(input, [
+    'driver',
+    'model',
+    'sandbox',
+    'reasoningEffort',
+    'reasoningSummary',
+    'personality',
+    'capabilities',
+    'outputSchema',
+  ]);
   const result: AgentInput = {};
   if (input.driver !== undefined) {
     if (!['codex', 'mock'].includes(String(input.driver))) {
@@ -184,10 +211,25 @@ function parseAgent(value: unknown, allowedSandboxModes?: SandboxMode[]): AgentI
     result.sandbox = sandbox;
   }
   if (input.reasoningEffort !== undefined) {
-    if (!['low', 'medium', 'high', 'xhigh'].includes(String(input.reasoningEffort))) {
+    if (!['low', 'medium', 'high', 'xhigh', 'ultra'].includes(String(input.reasoningEffort))) {
       throw new ValidationError('agent.reasoningEffort is invalid');
     }
     result.reasoningEffort = input.reasoningEffort as NonNullable<AgentInput['reasoningEffort']>;
+  }
+  if (input.reasoningSummary !== undefined) {
+    if (!REASONING_SUMMARIES.includes(input.reasoningSummary as never)) {
+      throw new ValidationError('agent.reasoningSummary is invalid');
+    }
+    result.reasoningSummary = input.reasoningSummary as NonNullable<AgentInput['reasoningSummary']>;
+  }
+  if (input.personality !== undefined) {
+    if (!AGENT_PERSONALITIES.includes(input.personality as never)) {
+      throw new ValidationError('agent.personality is invalid');
+    }
+    result.personality = input.personality as NonNullable<AgentInput['personality']>;
+  }
+  if (input.capabilities !== undefined) {
+    result.capabilities = parseAgentCapabilities(input.capabilities);
   }
   if (input.outputSchema !== undefined) {
     const schema = requiredRecord(input.outputSchema, 'agent.outputSchema') as {
@@ -196,6 +238,125 @@ function parseAgent(value: unknown, allowedSandboxModes?: SandboxMode[]): AgentI
     assertJsonValue(schema, 'agent.outputSchema');
     assertJsonSize(schema, 'agent.outputSchema', MAX_OUTPUT_SCHEMA_BYTES);
     result.outputSchema = schema;
+  }
+  return result;
+}
+
+function parseAgentCapabilities(value: unknown): AgentCapabilityRequest {
+  const input = requiredRecord(value, 'agent.capabilities');
+  rejectUnknown(input, [
+    'profile',
+    'approvalPolicy',
+    'approvalsReviewer',
+    'networkAccess',
+    'webSearch',
+    'computerUse',
+    'skills',
+    'apps',
+    'mcpServers',
+  ]);
+  const result: AgentCapabilityRequest = {};
+  if (input.profile !== undefined) {
+    result.profile = safeIdentifier(input.profile, 'agent.capabilities.profile');
+  }
+  if (input.approvalPolicy !== undefined) {
+    if (!APPROVAL_POLICIES.includes(input.approvalPolicy as never)) {
+      throw new ValidationError('agent.capabilities.approvalPolicy is invalid');
+    }
+    result.approvalPolicy = input.approvalPolicy as NonNullable<AgentCapabilityRequest['approvalPolicy']>;
+  }
+  if (input.approvalsReviewer !== undefined) {
+    if (!APPROVAL_REVIEWERS.includes(input.approvalsReviewer as never)) {
+      throw new ValidationError('agent.capabilities.approvalsReviewer is invalid');
+    }
+    result.approvalsReviewer = input.approvalsReviewer as NonNullable<AgentCapabilityRequest['approvalsReviewer']>;
+  }
+  if (input.networkAccess !== undefined) {
+    if (typeof input.networkAccess !== 'boolean') {
+      throw new ValidationError('agent.capabilities.networkAccess must be boolean');
+    }
+    result.networkAccess = input.networkAccess;
+  }
+  if (input.webSearch !== undefined) {
+    if (!WEB_SEARCH_MODES.includes(input.webSearch as never)) {
+      throw new ValidationError('agent.capabilities.webSearch is invalid');
+    }
+    result.webSearch = input.webSearch as NonNullable<AgentCapabilityRequest['webSearch']>;
+  }
+  if (input.computerUse !== undefined) {
+    if (!COMPUTER_USE_MODES.includes(input.computerUse as never)) {
+      throw new ValidationError('agent.capabilities.computerUse is invalid');
+    }
+    result.computerUse = input.computerUse as NonNullable<AgentCapabilityRequest['computerUse']>;
+  }
+  for (const key of ['skills', 'apps', 'mcpServers'] as const) {
+    if (input[key] !== undefined) {
+      result[key] = identifierList(input[key], `agent.capabilities.${key}`, 64);
+    }
+  }
+  if (result.computerUse === 'browser' && result.networkAccess === false) {
+    throw new ValidationError('agent.capabilities.computerUse browser requires networkAccess');
+  }
+  return result;
+}
+
+function parseIntegrations(value: unknown): IntegrationAccessRequest {
+  const input = requiredRecord(value, 'integrations');
+  rejectUnknown(input, ['connectionSet', 'connections']);
+  const result: IntegrationAccessRequest = {};
+  if (input.connectionSet !== undefined) {
+    result.connectionSet = safeIdentifier(input.connectionSet, 'integrations.connectionSet');
+  }
+  if (input.connections !== undefined) {
+    if (!Array.isArray(input.connections) || input.connections.length > 32) {
+      throw new ValidationError('integrations.connections must be an array with at most 32 entries');
+    }
+    const connections = input.connections.map((candidate, index): ConnectionAccessRequest => {
+      const item = requiredRecord(candidate, `integrations.connections[${index}]`);
+      rejectUnknown(item, ['connection', 'preset', 'allowOperations', 'denyOperations']);
+      const connection: ConnectionAccessRequest = {
+        connection: safeIdentifier(item.connection, `integrations.connections[${index}].connection`),
+      };
+      if (item.preset !== undefined) {
+        if (!INTEGRATION_PERMISSION_PRESETS.includes(item.preset as never)) {
+          throw new ValidationError(`integrations.connections[${index}].preset is invalid`);
+        }
+        connection.preset = item.preset as NonNullable<ConnectionAccessRequest['preset']>;
+      }
+      if (item.allowOperations !== undefined) {
+        connection.allowOperations = operationList(
+          item.allowOperations,
+          `integrations.connections[${index}].allowOperations`,
+        );
+      }
+      if (item.denyOperations !== undefined) {
+        connection.denyOperations = operationList(
+          item.denyOperations,
+          `integrations.connections[${index}].denyOperations`,
+        );
+      }
+      const overlap = connection.allowOperations?.find((operation) => (
+        connection.denyOperations?.includes(operation)
+      ));
+      if (overlap) {
+        throw new ValidationError(`integration operation ${overlap} is both allowed and denied`);
+      }
+      if (connection.preset === 'custom' && !connection.allowOperations?.length) {
+        throw new ValidationError('custom integration access requires allowOperations');
+      }
+      return connection;
+    });
+    const ids = new Set<string>();
+    for (const connection of connections) {
+      if (ids.has(connection.connection)) {
+        throw new ValidationError(`duplicate integration connection ${connection.connection}`);
+      }
+      ids.add(connection.connection);
+    }
+    result.connections = connections;
+  }
+  if (!result.connectionSet && !result.connections?.length) {
+    throw new ValidationError('integrations requires connectionSet or connections');
   }
   return result;
 }
@@ -315,6 +476,40 @@ function positiveInteger(value: unknown, label: string): number {
     throw new ValidationError(`${label} must be a positive integer`);
   }
   return value;
+}
+
+function safeIdentifier(value: unknown, label: string): string {
+  const result = requiredString(value, label, 256);
+  if (!/^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,255}$/.test(result)) {
+    throw new ValidationError(`${label} is invalid`);
+  }
+  return result;
+}
+
+function identifierList(value: unknown, label: string, maximum: number): string[] {
+  if (!Array.isArray(value) || value.length < 1 || value.length > maximum) {
+    throw new ValidationError(`${label} must be an array with 1-${maximum} entries`);
+  }
+  const result = value.map((item, index) => safeIdentifier(item, `${label}[${index}]`));
+  const duplicate = result.find((item, index) => result.indexOf(item) !== index);
+  if (duplicate) throw new ValidationError(`${label} contains duplicate ${duplicate}`);
+  return result;
+}
+
+function operationList(value: unknown, label: string): string[] {
+  if (!Array.isArray(value) || value.length > 128) {
+    throw new ValidationError(`${label} must be an array with at most 128 entries`);
+  }
+  const result = value.map((item, index) => {
+    const operation = requiredString(item, `${label}[${index}]`, 256);
+    if (!/^[a-z][a-z0-9-]{0,63}(?:\.[a-z][a-zA-Z0-9-]{0,63})+$/.test(operation)) {
+      throw new ValidationError(`${label}[${index}] is invalid`);
+    }
+    return operation;
+  });
+  const duplicate = result.find((item, index) => result.indexOf(item) !== index);
+  if (duplicate) throw new ValidationError(`${label} contains duplicate ${duplicate}`);
+  return result;
 }
 
 function rejectUnknown(input: Record<string, unknown>, allowed: string[]): void {

@@ -1,0 +1,35 @@
+{
+  "version": "1",
+  "name": "Customer operations review",
+  "schedule": {
+    "kind": "interval",
+    "everyMinutes": 60
+  },
+  "request": {
+    "version": "1",
+    "prompt": "Review new customer messages and outstanding payment exceptions. Summarize anything that needs a person.",
+    "agent": {
+      "capabilities": {
+        "profile": "small-business"
+      }
+    },
+    "integrations": {
+      "connections": [
+        {
+          "connection": "slack-shop",
+          "preset": "read-only"
+        },
+        {
+          "connection": "stripe-shop",
+          "preset": "read-only"
+        }
+      ]
+    },
+    "destinations": [
+      {
+        "kind": "slack",
+        "route": "C01234567"
+      }
+    ]
+  }
+}

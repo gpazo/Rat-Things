@@ -24,18 +24,16 @@ export async function prepareWorkspace(
   await mkdir(dirname(absolute), { recursive: true, mode: 0o700 });
   if (!repository) {
     await mkdir(absolute, { recursive: true, mode: 0o700 });
+    await handoff(absolute);
     await git(['init', '--quiet', absolute], root);
     await git(['-C', absolute, '-c', 'user.name=Agent Runtime', '-c', 'user.email=runtime@invalid', 'commit', '--quiet', '--allow-empty', '-m', 'runtime baseline'], root);
     await git(['-C', absolute, 'update-ref', 'refs/agent-runtime/base', 'HEAD'], root);
-    await handoff(absolute);
     return;
   }
   validateRepositoryUrl(repository.url);
-  const env: NodeJS.ProcessEnv = {
-    PATH: process.env.PATH,
-    HOME: process.env.HOME,
-    GIT_TERMINAL_PROMPT: '0',
-  };
+  await mkdir(absolute, { recursive: true, mode: 0o700 });
+  await handoff(absolute);
+  const env = gitEnvironment();
   if (repository.credentialSecretArn) {
     env.GIT_TOKEN = await credentials.read(
       repository.credentialSecretArn,
@@ -138,18 +136,32 @@ export async function collectWorkspacePatch(workspace: string): Promise<Buffer |
 async function git(
   args: string[],
   cwd: string,
-  env: NodeJS.ProcessEnv = { PATH: process.env.PATH, HOME: process.env.HOME },
+  env: NodeJS.ProcessEnv = gitEnvironment(),
 ): Promise<void> {
+  const identity = configuredAgentIdentity();
   const result = await runProcess('git', args, {
     cwd,
     env,
     timeoutMs: 120_000,
     maxStdoutBytes: 2 * 1024 * 1024,
     maxStderrBytes: 2 * 1024 * 1024,
+    ...identity,
   });
   if (result.exitCode !== 0) {
     throw new Error(`git failed with ${result.exitCode}: ${redact(result.stderr.toString('utf8')).slice(-1_000)}`);
   }
+}
+
+function gitEnvironment(): NodeJS.ProcessEnv {
+  return {
+    PATH: process.env.PATH,
+    // Ignore agent-writable user/system Git configuration while trusted setup
+    // handles a repository. Repository bytes are still parsed only as UID 10001.
+    HOME: process.env.GIT_TRUSTED_HOME ?? '/opt/agent-runtime',
+    GIT_CONFIG_NOSYSTEM: '1',
+    GIT_CONFIG_GLOBAL: '/dev/null',
+    GIT_TERMINAL_PROMPT: '0',
+  };
 }
 
 function validateRepositoryUrl(value: string): void {

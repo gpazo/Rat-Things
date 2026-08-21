@@ -7,8 +7,10 @@ versioned run request; assigns trusted ownership and provenance; schedules one i
 persists the result; and optionally posts that result to a channel. It also contains an AWS-backed
 durable conversation foundation for prioritized messages, worker leases, progress, history, and
 checkpointed turn slices. Signed Teams mentions enter that mailbox and wake the bounded slice
-coordinator. Rat Things is not a general workflow engine, source control installation manager, or
-chat identity service.
+coordinator. The same control plane now owns capability profiles, multi-account API connections,
+live App Server interaction, isolated browser use, and durable interval routines. Rat Things is not
+yet a general visual workflow builder, source-control installation manager, or chat identity
+service.
 
 ## System promise
 
@@ -30,19 +32,19 @@ The code is divided by responsibility:
 | Area | Responsibility |
 | --- | --- |
 | `src/domain` | Stable request/result types, validation, and the run state machine; no AWS imports |
-| `src/core` | Submission, idempotency, ownership, cancellation, and orchestration through ports |
+| `src/core` | Submission, idempotency, ownership, cancellation, routines, and orchestration through ports |
 | `src/conversation` | Durable mailbox, lease, progress, history, and resumable-turn coordination |
 | `src/identity` | Explicit actor, owner, source, and credential-subject context |
-| `src/credentials` | Host-owned secret resolution and bounded credential extraction |
+| `src/credentials` | Host-owned secret/vault contracts, credential bindings, and bounded extraction |
 | `src/ingress` | Provider-neutral webhook lifecycle plus GitHub/GitLab/Teams/Slack adapters |
 | `src/delivery` | Destination resolution, delivery lifecycle, and provider egress adapters |
 | `src/execution` | Provider-neutral dispatch and execution-backend registry |
-| `src/plugins` | Validated manifests binding provider ingress and delivery capabilities |
+| `src/plugins` | Provider ingress/delivery manifests plus trusted agent-callable integration plugins, account policy, and profiles |
 | `src/adapters` | DynamoDB, S3, SQS, EventBridge, Lambda MicroVMs, SSM, and Secrets Manager |
 | `src/channels` | Pure provider payload normalization and signature helpers |
 | `src/app` | Composition root that supplies host-owned ports to trusted built-in plugins |
 | `src/lambdas` | Thin API Gateway, SQS, stream, and EventBridge transport adapters |
-| `src/runner` | The untrusted repository/model execution boundary shared by both backends |
+| `src/runner` | Trusted per-run orchestration, bidirectional App Server bridge, browser helper bridge, and the UID boundary around the model process |
 | `infra/modules/agent-runner` | Reusable AWS infrastructure module |
 
 `npm run architecture:check` rejects imports that reverse these dependencies. In particular,
@@ -59,13 +61,15 @@ concepts in this subsystem are:
 | Ingress adapters | `src/ingress/providers` | GitHub, GitLab, Teams, and optional Slack enter one run contract |
 | Runtime/services | `src/core`, `src/conversation`, and `src/execution` | Bounded MicroVM runs plus a separate AWS-backed resumable conversation model |
 | Conversation mailbox | DynamoDB conversation partition plus S3 bodies/checkpoints | Durable AWS state, SQS coordination, bounded run slices, replay, and Teams completion |
-| Plugin host/API | `src/plugins` | Trusted built-ins only; no arbitrary package discovery or user plugin execution |
-| Credential broker | `src/credentials` | Secrets Manager references stay host-owned; no OAuth flow yet |
+| Plugin host/API | `src/plugins` | Trusted ingress/delivery and dynamic-tool integrations; no arbitrary package discovery |
+| Credential broker | `src/credentials` | Multi-account Secrets Manager vault and grant enforcement; no OAuth continuation yet |
 | Sandbox/runtime | Lambda MicroVM plus `src/runner` | AWS isolation replaces Vercel Sandbox |
 | Provider egress | `src/delivery/providers` | EventBridge terminal delivery with a DynamoDB fence |
 
 The key invariant is the same: provider modules depend on small host-supplied contracts and do not
-own orchestration, durable state, execution, or credentials. See [the plugin model](plugins.md).
+own orchestration, durable state, execution, or credentials. Agent-callable integration adapters
+likewise receive only an already-authorized operation input, one connection's credential value, and
+an abort signal. See [integrations and permissions](plugins.md).
 
 ## C4 diagrams
 
@@ -85,7 +89,9 @@ own orchestration, durable state, execution, or credentials. See [the plugin mod
 
 `POST /v1/runs` uses the API Gateway-authorized principal. Public webhook routes first authenticate
 the exact raw request with the provider-specific signature or secret, then normalize the provider
-payload into the same v1 request.
+payload into the same v1 request. Only after authentication can a trusted source binding select an
+owner-scoped capability profile or multi-account connection set; provider payloads cannot name
+credentials or policy principals.
 
 The submission service validates the normalized request, calculates its canonical request hash, and
 stores the full body in S3. A small run record is conditionally inserted in DynamoDB before an SQS
@@ -93,6 +99,11 @@ wake-up message is sent. With an idempotency key, the run ID is deterministic wi
 namespace: replaying the same body returns the existing run and re-nudges it when still queued;
 reusing the key for a different body returns a conflict. If queue send fails, the durable record stays
 `queued`; the same idempotent client retry or the one-minute reconciler repairs the wake-up.
+
+Routines enter at the same boundary. Their prompts and canonical run requests live in encrypted S3;
+the routine table stores schedule metadata, a digest, and an artifact reference. Each interval uses a
+deterministic occurrence key, and the schedule advances conditionally only after ordinary run
+submission succeeds.
 
 ### 2. Dispatch
 
@@ -122,11 +133,30 @@ be repaired.
 Trusted worker orchestration creates an isolated per-run workspace and clones an allowlisted,
 credential-free HTTPS repository when requested. It resolves the clone credential only for the Git
 subprocess and mints a short-term Bedrock bearer token from the execution role (or resolves an
-explicitly configured Bedrock key). It then hands the workspace to UID 10001
-and launches a driver without a shell or the root process's AWS credential-chain environment. The
-Codex driver uses
-[`codex exec`](https://developers.openai.com/codex/noninteractive) in ephemeral JSON mode. The
-The deterministic mock driver implements the same internal interface for tests.
+explicitly configured Bedrock key). The root lifecycle server launches the trusted runner with the
+execution-role environment; the runner hands the workspace to UID 10001 and launches Codex App
+Server as that identity with a sanitized environment. It speaks App Server's bidirectional JSON-RPC protocol: initialize, thread
+start/resume, turn start, streamed notifications, server requests, steering, interruption, and
+completion. The deterministic mock driver implements the same internal execution interface for
+tests.
+
+Before the turn, the runner resolves the requested capability profile against the deployment
+ceiling. Installed skills are verified with `skills/list`; app and MCP configuration is attached to
+the thread; and authorized integration operations plus optional browser computer use are registered
+as dynamic tools. App Server's experimental capability flag is enabled only when dynamic tools are
+present.
+
+For integrations, the runner intersects provider authorization, the persistent account grant, the
+profile ceiling, and per-run narrowing before it exposes an operation. It retrieves exactly one
+selected connection secret only after resource constraints and any live approval succeed. The model
+sees account aliases and JSON schemas, never credential values or Secrets Manager references.
+
+Browser computer use runs in a separate unprivileged Chromium helper process. It preserves a
+conversation-local profile, blocks loopback/private/link-local/metadata destinations and redirects,
+rejects downloads and popups, and returns bounded DOM snapshots/screenshots. Navigation and
+observation are read-like; click, type, press, and select can require a live approval according to the
+profile. This protects infrastructure destinations and accidental interaction, but broad public-web
+egress can still disclose information to an attacker-controlled public site.
 
 The child receives a small environment allowlist and, when configured, only
 `AWS_BEARER_TOKEN_BEDROCK` for model access. `ALLOW_AGENT_AWS_CREDENTIAL_CHAIN=true` is an explicit
@@ -147,7 +177,21 @@ current event-source mapping accepts records for up to 24 hours and retries a fa
 Exhausted invocations go to an encrypted SQS failure destination with an alarm, but replay remains an
 operator action. Workspaces are deleted at worker exit.
 
-### 4. Delivery
+### 4. Live interaction
+
+The runner forwards App Server notifications and server-initiated requests over its private IPC
+channel to the root lifecycle server. That server maintains a bounded, sequence-numbered event ring,
+the current thread/turn IDs, and outstanding request IDs for the active run. It exposes these only on
+its private port-8080 control routes.
+
+The IAM-authenticated control Lambda first proves run ownership and resolves the exact attached
+MicroVM. It then asks AWS for a five-minute, port-scoped proxy token and forwards event polling,
+steering, interruption, approval, or response commands. The lifecycle server forwards commands to
+the exact runner IPC channel and waits for acknowledgement. Neither API callers nor the agent child
+receive the raw MicroVM endpoint or proxy token. Terminal event JSONL remains the durable record;
+the live ring is intentionally ephemeral.
+
+### 5. Delivery
 
 The notifier reacts only to terminal EventBridge states. It resolves `source` destinations using the
 trusted stored source metadata, then posts through the appropriate provider adapter. A per-run,
@@ -259,6 +303,11 @@ orders `interrupt` work ahead of `defer` work. DynamoDB transactions fence mutat
 and keep message consumption, pending counts, and history consistent. See
 [durable conversations](conversations.md).
 
+The integrations table stores owner-scoped connection metadata, host-only credential bindings,
+persistent grants, connection sets, and source bindings. It never stores credential values. A
+separate routines table stores interval schedules and encrypted request references; a due-time GSI
+lets the one-minute reconciler find enabled occurrences without scanning prompts or runs.
+
 ### S3
 
 S3 is the durable body/artifact plane. Prompts, full results, event streams, patches, conversation
@@ -304,11 +353,12 @@ enqueue without creating a second semantic slice.
 
 ### Secrets Manager and SSM
 
-Secrets Manager stores webhook authenticators, repository/provider credentials, the scoped Bedrock
-API key, and outbound channel URLs/tokens. SSM parameters hold the non-secret provisioned MicroVM
-image ARN/version. Workers receive only ARNs or resource coordinates. Trusted orchestration resolves
-clone/model material before launching the unprivileged agent child; notification credentials remain
-in the notifier.
+Secrets Manager stores webhook authenticators, repository/provider credentials, integration account
+credentials, the scoped Bedrock API key, and outbound channel URLs/tokens. SSM parameters hold the
+non-secret provisioned MicroVM image ARN/version. MicroVM launch payloads receive only IDs and
+resource coordinates. Trusted orchestration resolves clone/model material before launching the
+unprivileged agent child. Integration credentials are read one account at a time only after tool
+authorization; notification credentials remain in the notifier.
 
 ## Identity model
 
@@ -330,9 +380,19 @@ delivery configuration keys, never secret values.
 
 ## Deliberate current limits
 
-- No streaming result API, per-event API, approval endpoint, or mid-command steering. Teams invokes
-  the durable conversation coordinator, but `interrupt` currently takes effect only at the next
-  safe slice boundary.
+- Live App Server events use owner-checked polling rather than push streaming and are retained only
+  in a bounded in-MicroVM ring until terminal artifacts are committed. Steering/interruption and
+  approvals work during an active turn; a queued conversation `interrupt` message still becomes
+  input at the next safe slice boundary.
+- Connections currently accept already-issued API keys/tokens. There is no hosted OAuth redirect or
+  refresh lifecycle, credential-test endpoint, visual field mapper, polling trigger engine, dynamic
+  package loader, or broad app catalog. Integration code remains trusted and image-bundled.
+- Browser computer use is headless public-web automation, not arbitrary desktop control. It blocks
+  obvious local/private/metadata targets and interactive actions can require approval, but it does
+  not provide content DLP or make attacker-controlled public origins trustworthy.
+- Routines support interval schedules only. They skip backlog and reuse ordinary run semantics; they
+  do not yet provide event triggers, branching workflows, calendars, retries of failed agent work,
+  or a durable asynchronous human-approval queue.
 - LocalStack validates persistent-session selection and durable replay, not the Lambda MicroVM
   suspend/resume APIs or endpoint auth. The disposable AWS suite covers that continuation path,
   including retained workspace bytes, real Codex thread resume, expiry fallback, and crash repair.

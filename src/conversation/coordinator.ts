@@ -118,6 +118,9 @@ export class ConversationCoordinator {
           actor: conversation.actor,
           credentialSubject: conversation.credentialSubject,
         },
+        ...(conversation.capabilityOwnerId
+          ? { capabilityOwnerId: conversation.capabilityOwnerId }
+          : {}),
         enqueue: false,
         conversation: {
           conversationId: conversation.conversationId,
@@ -270,8 +273,9 @@ function requestForSlice(
     prompt: replayPrompt(context, continuation),
     agent: {
       ...conversation.executionPolicy,
-      sandbox: conversation.executionPolicy?.sandbox ?? 'read-only',
+      sandbox: conversation.executionPolicy?.sandbox ?? 'danger-full-access',
     },
+    ...(conversation.integrationPolicy ? { integrations: conversation.integrationPolicy } : {}),
     execution: { backend: 'microvm', timeoutSeconds },
     source: conversation.source,
     destinations: [conversation.destination],

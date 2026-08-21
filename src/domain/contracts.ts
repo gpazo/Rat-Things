@@ -1,3 +1,10 @@
+import type {
+  AgentCapabilityRequest,
+  AgentPersonality,
+  IntegrationAccessRequest,
+  ReasoningSummary,
+} from './capabilities.js';
+
 export type JsonPrimitive = string | number | boolean | null;
 export type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue };
 
@@ -30,7 +37,10 @@ export interface AgentInput {
   driver?: AgentDriverName;
   model?: string;
   sandbox?: SandboxMode;
-  reasoningEffort?: 'low' | 'medium' | 'high' | 'xhigh';
+  reasoningEffort?: 'low' | 'medium' | 'high' | 'xhigh' | 'ultra';
+  reasoningSummary?: ReasoningSummary;
+  personality?: AgentPersonality;
+  capabilities?: AgentCapabilityRequest;
   outputSchema?: { [key: string]: JsonValue };
 }
 
@@ -107,6 +117,7 @@ export interface RunRequest {
   prompt: string;
   repository?: RepositoryInput;
   agent?: AgentInput;
+  integrations?: IntegrationAccessRequest;
   execution?: ExecutionInput;
   source?: RunSource;
   destinations?: RunDestination[];
@@ -188,6 +199,8 @@ export interface RunResult {
 export interface RunRecord {
   runId: string;
   ownerId: string;
+  /** Trusted owner of delegated capability/connection policy; never caller-selected in RunRequest. */
+  capabilityOwnerId?: string;
   ownerCreated: string;
   status: RunStatus;
   createdAt: string;

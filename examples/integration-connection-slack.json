@@ -1,0 +1,22 @@
+{
+  "version": "1",
+  "pluginId": "slack",
+  "alias": "slack-shop",
+  "authorization": {
+    "scheme": "oauth2",
+    "access": "write",
+    "scopeModel": "granular",
+    "scopes": [
+      "search:read",
+      "chat:write",
+      "reactions:write"
+    ]
+  },
+  "credential": {
+    "access_token": "replace-with-a-token-at-connection-time"
+  },
+  "grant": {
+    "version": "1",
+    "preset": "read-only"
+  }
+}

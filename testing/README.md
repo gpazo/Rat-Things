@@ -30,6 +30,30 @@ npm run localstack:down
 `testing/localstack.env` is generated from Terraform outputs and is intentionally ignored by Git.
 Use `testing/localstack.env.example` as the stable contract reference.
 
+To build and exercise the actual ARM64 MicroVM image locally, including lifecycle startup, root/host
+acceptance, cgroup eBPF denial for UID 10001 through loopback and the guest interface, acceptance of
+an unrelated external peer on port 8080, real public Chromium navigation, retained screenshots and
+VP8 WebM recordings, and browser private-address denial, run:
+
+```bash
+npm run test:e2e:microvm-image
+```
+
+This Docker-gated canary is intentionally separate from `npm run check`; ordinary verification
+must not build or launch a MicroVM image. When `ffprobe` is installed, the canary also rejects any
+WebM/EBML diagnostic and verifies the recording is VP8 at 1280x720 and 5 fps.
+
+To validate the expanded JSON-RPC bridge directly against the repository-pinned Codex CLI and the
+device's cached ChatGPT login, run:
+
+```bash
+npm exec -- codex login status
+npm run test:e2e:codex-app-server
+```
+
+This bounded canary requires the real model to invoke a host-provided dynamic tool and return the
+tool's exact unpredictable marker. It does not require Docker or AWS.
+
 ## Real Codex Teams chat slice
 
 After signing in with the repository's pinned Codex CLI, run:
@@ -66,6 +90,13 @@ signed Teams webhook
 The suite also verifies webhook idempotency, the stored artifacts, execution attachment, the
 EventBridge envelope, the durable delivery fence, exact Adaptive Card content, and duplicate egress
 suppression.
+
+The control-plane path creates two Slack connections for the same owner, stores only credential
+references in DynamoDB and the values in Secrets Manager, groups the accounts in one connection
+set, creates a paused routine, and retries its manual run with one idempotency key. The resulting
+request crosses S3, DynamoDB, SQS, the dispatcher, and the real worker with the deterministic mock
+driver. This proves policy and account selectors survive the durable path without embedding tokens;
+the separate agent-loop simulation exercises actual integration and browser dynamic-tool calls.
 
 It also appends deferred and interrupting conversation messages, verifies interrupt-first GSI
 ordering, fences work with a renewable lease, records progress/history, and completes the turn. A

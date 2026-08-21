@@ -9,8 +9,15 @@ import {
   type AwsClients,
 } from '../adapters/aws-runtime.js';
 import { DynamoConversationStore } from '../adapters/dynamo-conversation-store.js';
+import { DynamoIntegrationStore } from '../adapters/dynamo-integration-store.js';
+import { DynamoRoutineStore } from '../adapters/dynamo-routine-store.js';
+import { SecretsManagerCredentialVault } from '../adapters/secrets-credential-vault.js';
 import { DynamoDeliveryFence } from '../adapters/dynamo-delivery-fence.js';
-import { createExecutorRegistryFromEnv, requiredEnv } from '../adapters/executors.js';
+import {
+  createAgentInteractionControllerFromEnv,
+  createExecutorRegistryFromEnv,
+  requiredEnv,
+} from '../adapters/executors.js';
 import { ConversationService } from '../conversation/service.js';
 import { ConversationSubmissionService } from './conversation-submission.js';
 import { CredentialBroker } from '../credentials/broker.js';
@@ -19,9 +26,18 @@ import type { TeamsDeliveryMode } from '../delivery/providers/teams.js';
 import type { RunDestination, SandboxMode } from '../domain/contracts.js';
 import { WebhookIngressService } from '../ingress/service.js';
 import { RuntimePluginRegistry } from '../plugins/registry.js';
+import { IntegrationPluginRegistry } from '../plugins/integration-registry.js';
+import { ConnectionService } from '../plugins/connection-service.js';
+import { createBuiltinIntegrationPlugins } from '../plugins/integrations/builtins.js';
+import {
+  CapabilityProfileRegistry,
+  createBuiltinCapabilityProfiles,
+} from '../plugins/capability-profiles.js';
+import { StoredSourcePolicyResolver } from '../plugins/source-policies.js';
 import { createBuiltinPlugins } from '../plugins/builtins.js';
-import type { ExecutionController } from '../core/ports.js';
+import type { AgentInteractionController, ExecutionController } from '../core/ports.js';
 import { RunService } from '../core/run-service.js';
+import { RoutineService } from '../core/routine-service.js';
 
 interface BaseServices {
   clients: AwsClients;
@@ -41,6 +57,12 @@ let ingressService: WebhookIngressService | undefined;
 let deliveryService: DeliveryService | undefined;
 let conversationService: ConversationService | undefined;
 let conversationSubmissionService: ConversationSubmissionService | undefined;
+let agentInteractionController: AgentInteractionController | undefined;
+let integrationPluginRegistry: IntegrationPluginRegistry | undefined;
+let connectionService: ConnectionService | undefined;
+let capabilityProfileRegistry: CapabilityProfileRegistry | undefined;
+let sourcePolicyResolver: StoredSourcePolicyResolver | undefined;
+let routineService: RoutineService | undefined;
 
 const noExecutions: ExecutionController = {
   stop: async () => {
@@ -58,12 +80,73 @@ export function getRunService(enableExecutionControl = false): RunService {
     queue: base.queue,
     executions: enableExecutionControl ? createExecutorRegistryFromEnv() : noExecutions,
     allowedRepositoryHosts: csv(process.env.ALLOWED_REPOSITORY_HOSTS ?? 'github.com,gitlab.com'),
-    allowedSandboxModes: sandboxModes(process.env.ALLOWED_SANDBOX_MODES ?? 'read-only,workspace-write'),
+    allowedSandboxModes: sandboxModes(
+      process.env.ALLOWED_SANDBOX_MODES ?? 'read-only,workspace-write,danger-full-access',
+    ),
     retentionSeconds: Number(process.env.RUN_RETENTION_SECONDS ?? 2_592_000),
   });
   if (enableExecutionControl) controlService = service;
   else submissionService = service;
   return service;
+}
+
+export function getAgentInteractionController(): AgentInteractionController {
+  agentInteractionController ??= createAgentInteractionControllerFromEnv();
+  return agentInteractionController;
+}
+
+export function getIntegrationPluginRegistry(): IntegrationPluginRegistry {
+  integrationPluginRegistry ??= new IntegrationPluginRegistry(createBuiltinIntegrationPlugins());
+  return integrationPluginRegistry;
+}
+
+export function getCapabilityProfileRegistry(): CapabilityProfileRegistry {
+  capabilityProfileRegistry ??= new CapabilityProfileRegistry(createBuiltinCapabilityProfiles());
+  return capabilityProfileRegistry;
+}
+
+export function getSourcePolicyResolver(): StoredSourcePolicyResolver {
+  sourcePolicyResolver ??= new StoredSourcePolicyResolver(new DynamoIntegrationStore(
+    getBaseServices().clients.dynamodb,
+    requiredEnv('INTEGRATIONS_TABLE_NAME'),
+  ));
+  return sourcePolicyResolver;
+}
+
+export function getConnectionService(): ConnectionService {
+  if (connectionService) return connectionService;
+  const base = getBaseServices();
+  connectionService = new ConnectionService({
+    store: new DynamoIntegrationStore(
+      base.clients.dynamodb,
+      requiredEnv('INTEGRATIONS_TABLE_NAME'),
+    ),
+    vault: new SecretsManagerCredentialVault(
+      base.clients.secrets,
+      process.env.INTEGRATION_CREDENTIAL_KMS_KEY_ARN,
+    ),
+    registry: getIntegrationPluginRegistry(),
+    credentialNamePrefix: requiredEnv('INTEGRATION_CREDENTIAL_NAME_PREFIX'),
+  });
+  return connectionService;
+}
+
+export function getRoutineService(): RoutineService {
+  if (routineService) return routineService;
+  const base = getBaseServices();
+  routineService = new RoutineService({
+    store: new DynamoRoutineStore(
+      base.clients.dynamodb,
+      requiredEnv('ROUTINES_TABLE_NAME'),
+    ),
+    artifacts: base.artifacts,
+    runs: getRunService(false),
+    allowedRepositoryHosts: csv(process.env.ALLOWED_REPOSITORY_HOSTS ?? 'github.com,gitlab.com'),
+    allowedSandboxModes: sandboxModes(
+      process.env.ALLOWED_SANDBOX_MODES ?? 'read-only,workspace-write,danger-full-access',
+    ),
+  });
+  return routineService;
 }
 
 export function getPluginRegistry(): RuntimePluginRegistry {
@@ -104,6 +187,7 @@ export function getWebhookIngressService(): WebhookIngressService {
     getPluginRegistry(),
     getRunService(),
     getConversationSubmissionService(),
+    getSourcePolicyResolver(),
   );
   return ingressService;
 }

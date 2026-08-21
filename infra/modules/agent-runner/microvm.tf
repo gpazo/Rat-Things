@@ -1,10 +1,15 @@
+locals {
+  microvm_source_sha256     = fileexists(local.microvm_source_zip_path) ? filesha256(local.microvm_source_zip_path) : "missing"
+  microvm_source_object_key = "microvm/source-${local.microvm_source_sha256}.zip"
+}
+
 resource "aws_s3_object" "microvm_source" {
   count = var.enable_microvm ? 1 : 0
 
   bucket      = aws_s3_bucket.microvm_source.id
-  key         = "microvm/source-${fileexists(local.microvm_source_zip_path) ? filebase64sha256(local.microvm_source_zip_path) : "missing"}.zip"
+  key         = local.microvm_source_object_key
   source      = local.microvm_source_zip_path
-  source_hash = fileexists(local.microvm_source_zip_path) ? filebase64sha256(local.microvm_source_zip_path) : null
+  source_hash = local.microvm_source_sha256 == "missing" ? null : local.microvm_source_sha256
 
   server_side_encryption = "aws:kms"
   kms_key_id             = aws_kms_key.data.arn
@@ -16,6 +21,11 @@ resource "aws_s3_object" "microvm_source" {
     precondition {
       condition     = fileexists(local.microvm_source_zip_path)
       error_message = "The MicroVM source ZIP does not exist. Run npm run package before enabling MicroVM infrastructure."
+    }
+
+    precondition {
+      condition     = can(regex("^microvm/source-[0-9a-f]{64}\\.zip$", local.microvm_source_object_key))
+      error_message = "The MicroVM source object key must use a path-safe hexadecimal SHA-256 digest."
     }
   }
 
@@ -48,6 +58,14 @@ resource "awscc_lambda_microvm_image" "runner" {
     {
       key   = "ALLOWED_SANDBOX_MODES"
       value = join(",", var.allowed_sandbox_modes)
+    },
+    {
+      key   = "DEFAULT_SANDBOX_MODE"
+      value = var.default_sandbox_mode
+    },
+    {
+      key   = "DEFAULT_AGENT_NETWORK_ACCESS"
+      value = tostring(var.default_agent_network_access)
     },
     {
       key   = "CODEX_AUTH_MODE"

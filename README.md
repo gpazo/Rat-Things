@@ -76,6 +76,17 @@ customer VPC; durable native Codex restoration optionally adds a small VPC/NAT p
   S3 Files mount, so a replacement MicroVM resumes the same thread and bytes.
 - **Real tool use** — shell, Git, filesystem, and explicitly enabled network access execute inside
   the isolated worker rather than being reduced to a chat-only interface.
+- **Live agent control** — follow App Server events, answer approval/input requests, steer an active
+  turn, or interrupt it through the same owner-checked control API and CLI.
+- **Capability profiles** — select network, web search, browser use, skills, apps, MCP servers,
+  approval routing, and the inner Codex sandbox without widening the deployment policy ceiling.
+- **Multi-account integrations** — connect multiple accounts for the same service, group them into
+  reusable sets, and expose each run to read-only, read-write, full, or operation-level grants.
+- **Browser computer use** — a persistent headless browser navigates, observes, clicks, types,
+  selects, scrolls, captures screenshots, and records WebM inside the MicroVM; private/link-local
+  destinations are blocked and consequential interactions follow live approval policy.
+- **Durable routines** — interval schedules submit ordinary idempotent runs while prompts remain in
+  encrypted S3 and DynamoDB stores only schedule metadata and request references.
 - **Durable publications** — retained files become isolated browser-ready images, static sites, or
   video players behind owner-authorized, time-bounded CloudFront delivery.
 - **Webhook to result** — signed GitHub, GitLab, Teams, and optional Slack paths share one run model.
@@ -216,6 +227,32 @@ automation can use the explicit `chat` command with `--json`, `--no-wait`, `--id
 model, sandbox, reasoning, polling, and timeout controls. Run `rat-things help --all` (or
 `npm run rat-things -- help --all`) for that complete surface.
 
+The remote MicroVM defaults to `danger-full-access` and network access because the dedicated VM is
+the isolation boundary. Narrow either per run or with a capability profile when the task needs less:
+
+```bash
+rat-things --thread shop-ops --profile small-business \
+  --connection slack-shop=read-only \
+  --connection stripe-shop=read-write \
+  "Review support traffic and investigate payment exceptions"
+
+rat-things watch RUN_ID --follow
+rat-things approve RUN_ID REQUEST_ID --decision accept
+rat-things steer RUN_ID "Only examine the newest invoices"
+```
+
+Create a retry-safe scheduled run from a versioned definition:
+
+```bash
+rat-things routine-create --file examples/routine.json
+rat-things routines
+```
+
+Integration credentials are accepted only by connection-management endpoints and are stored in
+Secrets Manager. They are never copied into run requests, DynamoDB records, MicroVM launch payloads,
+tool schemas, or model-visible environment variables. See [integrations and permissions](docs/plugins.md)
+and the [control API](docs/api.md).
+
 ### Durable files and one-turn sharing
 
 An agent retains a screenshot, image, video, document, website, or other output by writing it below
@@ -341,7 +378,19 @@ npm run test:e2e:localstack
 The test covers signed GitHub/GitLab ingress, a complete signed Teams path through LocalStack
 Secrets Manager, S3, DynamoDB Streams, SQS, EventBridge, durable delivery fencing, and WireMock
 egress. It also exercises the durable conversation mailbox through interrupt/defer ordering,
-leases, progress, checkpoint/reacquire/resume, history, completion, and idempotent retry.
+leases, progress, checkpoint/reacquire/resume, history, completion, and idempotent retry. The
+control-plane scenario adds two accounts for one integration, credential isolation, a connection
+set, routine submission/retry, dispatch, and worker completion.
+
+To build the packaged Linux ARM64 image and exercise lifecycle startup, the UID-scoped cgroup eBPF
+guard, its external-port-8080 exception, real Chromium navigation, retained screenshots and VP8
+WebM recordings, and private-address denial:
+
+```bash
+npm run test:e2e:microvm-image
+```
+
+This is an opt-in Docker image canary and is intentionally not part of `npm run check`.
 
 To exercise the same Teams path with your signed-in Codex subscription and verify that the outbound
 reply retains the exact source conversation and activity reference:
@@ -409,6 +458,7 @@ Read the complete [security and threat model](docs/security.md) and [status and 
 
 - [Architecture](docs/architecture.md)
 - [Durable conversations](docs/conversations.md)
+- [Browser computer use](docs/browser-computer-use.md)
 - [Share agent work safely](docs/sharing-work.md)
 - [Publications: files, sites, and video](docs/publications.md)
 - [Control API](docs/api.md)

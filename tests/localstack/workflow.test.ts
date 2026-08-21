@@ -12,6 +12,7 @@ import {
   type Shard,
 } from '@aws-sdk/client-dynamodb-streams';
 import { GetObjectCommand } from '@aws-sdk/client-s3';
+import { GetSecretValueCommand } from '@aws-sdk/client-secrets-manager';
 import {
   DeleteMessageCommand,
   ReceiveMessageCommand,
@@ -36,6 +37,7 @@ import {
   SqsConversationQueue,
 } from '../../src/adapters/aws-runtime.js';
 import { DynamoConversationStore } from '../../src/adapters/dynamo-conversation-store.js';
+import { DynamoIntegrationStore } from '../../src/adapters/dynamo-integration-store.js';
 import {
   ExecutorRegistry,
   type RunExecutor,
@@ -174,6 +176,277 @@ integration('LocalStack webhook-to-egress workflow', () => {
     expect(JSON.parse(message.Body ?? '{}')).toEqual({ version: '1', runId, traceId: webhookId });
     await deleteMessage(clients.sqs, required('RUN_QUEUE_URL'), message);
   }, 30_000);
+
+  it('runs multi-account connection and routine APIs through Secrets Manager, DynamoDB, S3, SQS, and the worker', async () => {
+    const clients = createAwsClients();
+    const control = await import('../../src/lambdas/control.js');
+    const ownerId = 'api:arn:aws:iam::000000000000:user/local-operator';
+    const fixtureId = randomUUID().slice(0, 8);
+    const personalAlias = `slack-personal-${fixtureId}`;
+    const businessAlias = `slack-business-${fixtureId}`;
+    const connectionSetName = `local-shop-operations-${fixtureId}`;
+    const personalToken = `xoxp-local-${randomUUID()}`;
+    const businessToken = `xoxb-local-${randomUUID()}`;
+    const createConnection = async (
+      alias: string,
+      externalTenantId: string,
+      token: string,
+      scopes: string[],
+      preset: 'read-only' | 'read-write',
+    ) => invoke<APIGatewayProxyStructuredResultV2>(control.handler, controlEvent({
+      method: 'POST',
+      path: '/v1/integrations/connections',
+      body: {
+        version: '1',
+        pluginId: 'slack',
+        alias,
+        externalTenantId,
+        authorization: {
+          scheme: 'oauth2',
+          access: 'full',
+          scopeModel: 'granular',
+          scopes,
+        },
+        credential: { access_token: token },
+        grant: {
+          version: '1',
+          preset,
+          ...(preset === 'read-write'
+            ? { resourceConstraints: { channel: ['C-SUPPORT'] } }
+            : {}),
+        },
+      },
+    }));
+
+    const personalResponse = await createConnection(
+      personalAlias,
+      'T-PERSONAL-LOCAL',
+      personalToken,
+      ['search:read'],
+      'read-only',
+    );
+    const businessResponse = await createConnection(
+      businessAlias,
+      'T-BUSINESS-LOCAL',
+      businessToken,
+      ['search:read', 'chat:write'],
+      'read-write',
+    );
+    expect(personalResponse.statusCode).toBe(201);
+    expect(businessResponse.statusCode).toBe(201);
+    expect(personalResponse.body).not.toContain(personalToken);
+    expect(businessResponse.body).not.toContain(businessToken);
+    const personal = jsonResponse<{
+      connection: { connectionId: string; alias: string };
+    }>(personalResponse);
+    const business = jsonResponse<{
+      connection: { connectionId: string; alias: string };
+    }>(businessResponse);
+
+    const listResponse = await invoke<APIGatewayProxyStructuredResultV2>(
+      control.handler,
+      controlEvent({ method: 'GET', path: '/v1/integrations/connections' }),
+    );
+    expect(listResponse.statusCode).toBe(200);
+    expect(listResponse.body).not.toContain(personalToken);
+    expect(listResponse.body).not.toContain(businessToken);
+    const listed = jsonResponse<{
+      connections: Array<{ connection: { alias: string } }>;
+    }>(listResponse).connections;
+    expect(listed.map((item) => item.connection.alias)).toEqual(
+      expect.arrayContaining([personalAlias, businessAlias]),
+    );
+
+    const integrationStore = new DynamoIntegrationStore(
+      clients.dynamodb,
+      required('INTEGRATIONS_TABLE_NAME'),
+    );
+    const personalBinding = await integrationStore.getCredentialBinding(
+      ownerId,
+      personal.connection.connectionId,
+    );
+    const businessBinding = await integrationStore.getCredentialBinding(
+      ownerId,
+      business.connection.connectionId,
+    );
+    expect(personalBinding?.reference).toContain('secretsmanager');
+    expect(businessBinding?.reference).toContain('secretsmanager');
+    if (!personalBinding || !businessBinding) throw new Error('connection credential binding is missing');
+    const [personalSecret, businessSecret] = await Promise.all([
+      clients.secrets.send(new GetSecretValueCommand({ SecretId: personalBinding.reference })),
+      clients.secrets.send(new GetSecretValueCommand({ SecretId: businessBinding.reference })),
+    ]);
+    expect(JSON.parse(personalSecret.SecretString ?? '{}')).toEqual({ access_token: personalToken });
+    expect(JSON.parse(businessSecret.SecretString ?? '{}')).toEqual({ access_token: businessToken });
+
+    const setResponse = await invoke<APIGatewayProxyStructuredResultV2>(
+      control.handler,
+      controlEvent({
+        method: 'POST',
+        path: '/v1/integrations/connection-sets',
+        body: {
+          version: '1',
+          name: connectionSetName,
+          connections: [personalAlias, businessAlias],
+          defaults: { messaging: businessAlias },
+        },
+      }),
+    );
+    expect(setResponse.statusCode).toBe(201);
+    expect(jsonResponse<{ connectionIds: string[]; defaults: Record<string, string> }>(setResponse))
+      .toMatchObject({
+        connectionIds: [personal.connection.connectionId, business.connection.connectionId],
+        defaults: { messaging: business.connection.connectionId },
+      });
+
+    const routineResponse = await invoke<APIGatewayProxyStructuredResultV2>(
+      control.handler,
+      controlEvent({
+        method: 'POST',
+        path: '/v1/routines',
+        body: {
+          version: '1',
+          name: 'Local customer operations',
+          enabled: false,
+          schedule: { kind: 'interval', everyMinutes: 15 },
+          request: {
+            version: '1',
+            prompt: 'Review the connected customer operations accounts.',
+            agent: {
+              driver: 'mock',
+              sandbox: 'danger-full-access',
+              capabilities: {
+                profile: 'small-business',
+                networkAccess: true,
+                computerUse: 'disabled',
+              },
+            },
+            integrations: {
+              connectionSet: connectionSetName,
+              connections: [{ connection: businessAlias, preset: 'read-write' }],
+            },
+            destinations: [{ kind: 'none' }],
+          },
+        },
+      }),
+    );
+    expect(routineResponse.statusCode).toBe(201);
+    expect(routineResponse.body).not.toContain('Review the connected');
+    expect(routineResponse.body).not.toContain(personalToken);
+    expect(routineResponse.body).not.toContain(businessToken);
+    const routine = jsonResponse<{ routineId: string; status: string }>(routineResponse);
+    expect(routine.status).toBe('paused');
+
+    const idempotencyKey = `local-routine-${randomUUID()}`;
+    const runEvent = () => controlEvent({
+      method: 'POST',
+      path: `/v1/routines/${routine.routineId}/run`,
+      routeKey: 'POST /v1/routines/{routineId}/run',
+      pathParameters: { routineId: routine.routineId },
+      headers: { 'idempotency-key': idempotencyKey },
+      body: {},
+    });
+    const firstRunResponse = await invoke<APIGatewayProxyStructuredResultV2>(
+      control.handler,
+      runEvent(),
+    );
+    const repeatedRunResponse = await invoke<APIGatewayProxyStructuredResultV2>(
+      control.handler,
+      runEvent(),
+    );
+    expect(firstRunResponse.statusCode).toBe(202);
+    expect(repeatedRunResponse.statusCode).toBe(202);
+    const firstRun = jsonResponse<{ runId: string }>(firstRunResponse);
+    const repeatedRun = jsonResponse<{ runId: string }>(repeatedRunResponse);
+    expect(repeatedRun.runId).toBe(firstRun.runId);
+
+    const runStore = new DynamoRunStore(clients.dynamodb, required('RUNS_TABLE_NAME'));
+    const artifacts = new S3ArtifactStore(clients.s3, required('ARTIFACT_BUCKET'));
+    const queued = await runStore.get(firstRun.runId);
+    expect(queued).toMatchObject({
+      ownerId,
+      capabilityOwnerId: ownerId,
+      status: 'queued',
+      provenance: {
+        actor: { kind: 'system', id: `routine:${routine.routineId}` },
+      },
+    });
+    if (!queued) throw new Error('routine run was not persisted');
+    const storedRequest = await artifacts.getJson<RunRequest>(queued.input);
+    expect(storedRequest).toMatchObject({
+      prompt: 'Review the connected customer operations accounts.',
+      agent: {
+        driver: 'mock',
+        sandbox: 'danger-full-access',
+        capabilities: {
+          profile: 'small-business',
+          networkAccess: true,
+          computerUse: 'disabled',
+        },
+      },
+      integrations: {
+        connectionSet: connectionSetName,
+        connections: [{ connection: businessAlias, preset: 'read-write' }],
+      },
+    });
+    expect(JSON.stringify(storedRequest)).not.toContain(personalToken);
+    expect(JSON.stringify(storedRequest)).not.toContain(businessToken);
+
+    const firstWake = await receiveRequired(
+      clients.sqs,
+      required('RUN_QUEUE_URL'),
+      10_000,
+      (message) => queuedRunId(message) === firstRun.runId,
+    );
+    const duplicateWake = await receiveRequired(
+      clients.sqs,
+      required('RUN_QUEUE_URL'),
+      10_000,
+      (message) => queuedRunId(message) === firstRun.runId,
+    );
+    await deleteMessage(clients.sqs, required('RUN_QUEUE_URL'), duplicateWake);
+
+    const localExecutor: RunExecutor = {
+      backend: 'microvm',
+      start: async (record) => ({ backend: 'microvm', id: `localstack:${record.runId}` }),
+      stop: async () => undefined,
+    };
+    const dispatch = createDispatcher({
+      store: runStore,
+      artifacts,
+      executors: new ExecutorRegistry([localExecutor]),
+    });
+    const dispatchResponse = await invoke<{ batchItemFailures: { itemIdentifier: string }[] }>(
+      dispatch,
+      sqsEvent(firstWake, required('RUN_QUEUE_URL')),
+    );
+    expect(dispatchResponse.batchItemFailures).toEqual([]);
+    await deleteMessage(clients.sqs, required('RUN_QUEUE_URL'), firstWake);
+    const dispatched = await runStore.get(firstRun.runId);
+    if (!dispatched) throw new Error('routine run disappeared after dispatch');
+    process.env.RUN_ID = firstRun.runId;
+    process.env.RUN_INPUT_BUCKET = dispatched.input.bucket;
+    process.env.RUN_INPUT_KEY = dispatched.input.key;
+    process.env.RUN_TIMEOUT_SECONDS = '30';
+    process.env.PERSISTENT_SESSION = 'false';
+    delete process.env.AGENT_THREAD_ID;
+    delete process.env.RUN_AGENT_UID;
+    delete process.env.RUN_AGENT_GID;
+    await runAgentWorker();
+
+    const completed = await runStore.get(firstRun.runId);
+    expect(completed).toMatchObject({
+      status: 'succeeded',
+      execution: { backend: 'microvm', id: `localstack:${firstRun.runId}` },
+      result: { exitCode: 0, agentThreadId: 'mock-thread' },
+    });
+    if (!completed?.result?.output) throw new Error('routine run produced no output');
+    await expect(objectText(
+      clients.s3,
+      completed.result.output.bucket,
+      completed.result.output.key,
+    )).resolves.toContain('mock-agent: Review the connected customer operations accounts.');
+  }, 60_000);
 
   it('persists an interruptible and resumable conversation mailbox in DynamoDB and S3', async () => {
     const clients = createAwsClients();
@@ -442,6 +715,26 @@ integration('LocalStack webhook-to-egress workflow', () => {
     expect(coordination.batchItemFailures).toEqual([]);
     await deleteMessage(clients.sqs, conversationQueueUrl, conversationWake);
 
+    // Reproduce the live-provider race: coordination has consumed the message
+    // and bound an active turn, so deriving delivery priority again would now
+    // choose "interrupt" even though this is the same deferred activity.
+    const racedRepeatedResponse = await invoke<APIGatewayProxyStructuredResultV2>(
+      teamsWebhook.handler,
+      event,
+    );
+    expect(racedRepeatedResponse.statusCode).toBe(200);
+    expect(racedRepeatedResponse.body).toBe(firstResponse.body);
+    const racedDuplicateWake = await receiveRequired(
+      clients.sqs,
+      conversationQueueUrl,
+      10_000,
+    );
+    await deleteMessage(clients.sqs, conversationQueueUrl, racedDuplicateWake);
+    await expect(conversationStore.getConversation(conversationId)).resolves.toMatchObject({
+      status: 'running',
+      pendingCount: 0,
+    });
+
     const wakeUp = await receiveRequired(clients.sqs, runQueueUrl, 10_000);
     const queueMessage = JSON.parse(wakeUp.Body ?? '{}') as {
       version?: string;
@@ -505,6 +798,11 @@ integration('LocalStack webhook-to-egress workflow', () => {
     process.env.RUN_INPUT_KEY = dispatched.input.key;
     process.env.RUN_TIMEOUT_SECONDS = realTeamsCodex ? '180' : '30';
     process.env.PERSISTENT_SESSION = 'true';
+    if (!realTeamsCodex) {
+      // Persistent-session cleanup must never target a developer's real Codex
+      // home during the deterministic mock workflow.
+      process.env.CODEX_HOME = `${required('WORKSPACE_ROOT')}/mock-codex-home`;
+    }
     delete process.env.AGENT_THREAD_ID;
     delete process.env.RUN_AGENT_UID;
     delete process.env.RUN_AGENT_GID;
@@ -724,6 +1022,36 @@ function teamsEvent(body: string, authorization: string): APIGatewayProxyEventV2
   return webhookEvent('/webhooks/teams', body, { authorization });
 }
 
+function controlEvent(input: {
+  method: string;
+  path: string;
+  routeKey?: string;
+  body?: unknown;
+  headers?: Record<string, string>;
+  pathParameters?: Record<string, string>;
+}): APIGatewayProxyEventV2 {
+  const routeKey = input.routeKey ?? `${input.method} ${input.path}`;
+  const event = webhookEvent(
+    input.path,
+    input.body === undefined ? '' : JSON.stringify(input.body),
+    input.headers ?? {},
+  );
+  event.routeKey = routeKey;
+  event.requestContext.routeKey = routeKey;
+  event.requestContext.http.method = input.method;
+  if (input.pathParameters) event.pathParameters = input.pathParameters;
+  (event.requestContext as APIGatewayProxyEventV2['requestContext'] & {
+    authorizer: { iam: { userArn: string } };
+  }).authorizer = {
+    iam: { userArn: 'arn:aws:iam::000000000000:user/local-operator' },
+  };
+  return event;
+}
+
+function jsonResponse<T>(response: APIGatewayProxyStructuredResultV2): T {
+  return JSON.parse(response.body ?? '{}') as T;
+}
+
 function webhookEvent(
   path: string,
   body: string,
@@ -800,7 +1128,10 @@ async function receiveRequired(
   while (Date.now() < deadline) {
     const received = await sqs.send(new ReceiveMessageCommand({
       QueueUrl: queueUrl,
-      MaxNumberOfMessages: 10,
+      // The helper returns one receipt handle. Asking SQS for a batch can make
+      // additional matching messages invisible and then discard their handles,
+      // which breaks assertions that intentionally observe duplicate wake-ups.
+      MaxNumberOfMessages: 1,
       WaitTimeSeconds: 1,
       MessageAttributeNames: ['All'],
       AttributeNames: ['All'],

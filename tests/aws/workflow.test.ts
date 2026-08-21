@@ -1,5 +1,7 @@
 import { createHash, createHmac, randomUUID } from 'node:crypto';
 import { execFile } from 'node:child_process';
+import { writeFile } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
 import { Sha256 } from '@aws-crypto/sha256-js';
 import { SignatureV4 } from '@smithy/signature-v4';
 import { HttpRequest } from '@smithy/protocol-http';
@@ -26,10 +28,12 @@ import {
   SqsRunQueue,
 } from '../../src/adapters/aws-runtime.js';
 import { DynamoConversationStore } from '../../src/adapters/dynamo-conversation-store.js';
+import { fetchSharedResource } from '../../src/adapters/publication-client.js';
 import { ConversationCoordinator } from '../../src/conversation/coordinator.js';
 import { ConversationService } from '../../src/conversation/service.js';
 import { RunService } from '../../src/core/run-service.js';
 import type { RunRecord, RunStateEvent } from '../../src/domain/contracts.js';
+import type { AgentRuntimeSnapshot, PendingAgentRequest } from '../../src/domain/interaction.js';
 import type {
   ConversationEventPayload,
   ConversationExecutionPolicy,
@@ -83,7 +87,9 @@ integration('live AWS agent-runner workflow', () => {
       `/v1/runs/${submitted.runId}/artifacts/output`,
       'GET',
     );
-    const outputResponse = await fetch(descriptor.url);
+    const outputResponse = process.env.AWS_E2E_PUBLICATION_DOMAIN
+      ? await waitForSharedResource(descriptor.url, 'assets/output')
+      : await fetch(descriptor.url);
     expect(outputResponse.status).toBe(200);
     expect(await outputResponse.text()).toBe(`mock-agent: Return AWS live marker ${controlMarker}`);
 
@@ -456,15 +462,22 @@ integration('live AWS agent-runner workflow', () => {
       driver: 'codex',
       model: process.env.AWS_E2E_CODEX_MODEL_ID ?? 'openai.gpt-5.6-terra',
       sandbox: 'workspace-write',
-      reasoningEffort: 'low',
+      reasoningEffort: 'medium',
     };
+    const writeCommand = [
+      `printf '%s\\n' '${marker}' > './${filename}'`,
+      `test "$(cat './${filename}')" = '${marker}'`,
+      'pwd',
+      `cat './${filename}'`,
+    ].join(' && ');
 
     const firstReceipt = await submitApiConversation(
       conversationKey,
       [
-        `Use the shell tool to create ${filename} in the current workspace.`,
-        `Its only line must be exactly: ${marker}`,
-        `Then run pwd and cat ${filename}. End your response with FIRST-WRITE ${marker}.`,
+        'This is an end-to-end tool-use verification.',
+        `Use the shell tool to execute this exact command before responding: ${writeCommand}`,
+        'Do not merely describe the command or synthesize its output.',
+        `After it succeeds, end your response with exactly: FIRST-WRITE ${marker}`,
       ].join(' '),
       policy,
     );
@@ -479,8 +492,8 @@ integration('live AWS agent-runner workflow', () => {
     if (!runtimeConversationId) throw new Error('real Codex run has no conversation binding');
     const firstVmId = requiredExecutionId(firstCompleted);
     const firstThreadId = requiredAgentThreadId(firstCompleted);
-    expect(await outputText(clients.s3, firstCompleted)).toContain(marker);
-    expect(await resultArtifactText(clients.s3, firstCompleted, 'workspacePatch')).toContain(marker);
+    expect(await outputText(clients.s3, firstCompleted)).toContain(`FIRST-WRITE ${marker}`);
+    expect(await requiredWorkspacePatchText(clients.s3, firstCompleted)).toContain(marker);
     const firstEvents = await resultArtifactText(clients.s3, firstCompleted, 'events');
     expect(firstEvents).toContain('commandExecution');
     expect(firstEvents).toContain(filename);
@@ -496,12 +509,14 @@ integration('live AWS agent-runner workflow', () => {
     await waitForMicrovmTerminated(microvms, firstVmId);
     await waitForStateObject(clients.s3, filename);
 
+    const readCommand = `pwd && test -f './${filename}' && cat './${filename}'`;
     const secondReceipt = await submitApiConversation(
       conversationKey,
       [
-        `Use the shell tool to run pwd and cat the existing ${filename}.`,
-        'Do not create, recreate, or modify the file.',
-        'End your response with SECOND-READ followed by the exact file content.',
+        'This is the replacement-MicroVM half of an end-to-end tool-use verification.',
+        `Use the shell tool to execute this exact read-only command: ${readCommand}`,
+        'Do not create, recreate, or modify the file, and do not synthesize the command output.',
+        `After it succeeds, end your response with exactly: SECOND-READ ${marker}`,
       ].join(' '),
       policy,
     );
@@ -518,8 +533,8 @@ integration('live AWS agent-runner workflow', () => {
     assertSuccessfulRealCodexRun(secondCompleted);
     expect(requiredExecutionId(secondCompleted)).not.toBe(firstVmId);
     expect(requiredAgentThreadId(secondCompleted)).toBe(firstThreadId);
-    expect(await outputText(clients.s3, secondCompleted)).toContain(marker);
-    expect(await resultArtifactText(clients.s3, secondCompleted, 'workspacePatch')).toContain(marker);
+    expect(await outputText(clients.s3, secondCompleted)).toContain(`SECOND-READ ${marker}`);
+    expect(await requiredWorkspacePatchText(clients.s3, secondCompleted)).toContain(marker);
     const secondEvents = await resultArtifactText(clients.s3, secondCompleted, 'events');
     expect(secondEvents).toContain('commandExecution');
     expect(secondEvents).toContain(filename);
@@ -529,6 +544,239 @@ integration('live AWS agent-runner workflow', () => {
     await waitForMicrovmState(microvms, replacementVmId, 'SUSPENDED');
 
     await expectTerminalEvents(clients.sqs, new Set([firstRun.runId, secondRun.runId]));
+    await expectEmptyFailureQueues(clients.sqs);
+  }, timeoutMs);
+
+  const browserPublicationTest = process.env.AWS_E2E_REAL_CODEX === 'true' &&
+    Boolean(process.env.AWS_E2E_PUBLICATION_DOMAIN) ? it : it.skip;
+  browserPublicationTest('uses the full browser interaction surface with approvals and shares evidence', async () => {
+    delete process.env.AWS_ENDPOINT_URL;
+    const clients = createAwsClients();
+    const marker = `browser-publication-${randomUUID()}`;
+    const shareRequest = JSON.stringify({
+      version: '1',
+      publications: [
+        {
+          version: '1',
+          kind: 'file',
+          path: 'browser/form-filled.png',
+          title: 'Browser full-page form screenshot',
+        },
+        {
+          version: '1',
+          kind: 'file',
+          path: 'browser/submitted.jpg',
+          title: 'Browser submitted screenshot',
+        },
+        {
+          version: '1',
+          kind: 'video',
+          path: 'browser/full-interaction.webm',
+          poster: 'browser/submitted.jpg',
+          title: 'Browser interaction recording',
+        },
+      ],
+    });
+    const shareCommand = [
+      'mkdir -p .rat-things',
+      `printf '%s' '${shareRequest}' > .rat-things/share.json`,
+    ].join(' && ');
+    const browserFixture = process.env.AWS_E2E_BROWSER_FIXTURE_URL ??
+      'https://www.selenium.dev/selenium/web/web-form.html';
+    const formMarker = `rat-browser-${randomUUID()}`;
+    const appendedMarker = `${formMarker}-append`;
+    const submitted = await signedApi<RunRecord>('/v1/runs', 'POST', {
+      version: '1',
+      prompt: [
+        'This is a strict end-to-end browser interaction, approval, and publication verification.',
+        'Use the rat_browser tools for every browser action; do not substitute curl, web search, or shell browser automation.',
+        `Navigate to ${browserFixture} and explicitly call observe with includeScreenshot true.`,
+        'Start a recording at browser/full-interaction.webm with 5 fps.',
+        `Type ${formMarker} into Text input with clear true and submit false.`,
+        'Type -append into the same Text input with clear false and submit false.',
+        'Press Tab, then select value 2 from Dropdown (select).',
+        'Use the current element box to click Default checkbox by x/y coordinates, not by ref, and confirm checked is true.',
+        'Save a full-page PNG screenshot at browser/form-filled.png.',
+        'Click Submit by element ref and confirm the target page says Received!',
+        `Confirm the submitted URL contains my-text=${appendedMarker}, my-select=2, and two my-check values.`,
+        'Wait 800 milliseconds, explicitly observe again with includeScreenshot true, and save a viewport JPEG at browser/submitted.jpg.',
+        'Navigate back, confirm the Web form title, then type rat-things-submit-with-enter into Text input with clear true and submit true.',
+        'Confirm that Enter submits the form and the target page says Received! again.',
+        'Navigate to https://www.selenium.dev/selenium/web/longContentPage.html, scroll down 600 pixels, confirm scrollY is greater than zero, and wait 800 milliseconds.',
+        'Navigate back and confirm the submitted target page is restored.',
+        'Stop and finalize the recording.',
+        `Then use the shell tool to execute this exact command: ${shareCommand}`,
+        'Do not invent share URLs; the trusted runner will append them.',
+        `After every step succeeds, end your own response with exactly: BROWSER-SHARE ${marker}`,
+      ].join(' '),
+      agent: {
+        driver: 'codex',
+        model: process.env.AWS_E2E_CODEX_MODEL_ID ?? 'openai.gpt-5.6-terra',
+        sandbox: 'danger-full-access',
+        reasoningEffort: 'low',
+        capabilities: {
+          profile: 'small-business',
+          approvalPolicy: 'on-request',
+          networkAccess: true,
+          computerUse: 'browser',
+        },
+      },
+      execution: { backend: 'microvm', timeoutSeconds: 720 },
+      destinations: [{ kind: 'none' }],
+    }, { 'idempotency-key': `aws-e2e-browser-${randomUUID()}` });
+    const [completed, approvals] = await Promise.all([
+      waitForApiRun(submitted.runId),
+      superviseAgentApprovals(submitted.runId),
+    ]);
+    assertSuccessfulRealCodexRun(completed);
+    const output = await outputText(clients.s3, completed);
+    expect(output).toContain(`BROWSER-SHARE ${marker}`);
+    const events = await resultArtifactText(clients.s3, completed, 'events');
+    for (const tool of [
+      'navigate',
+      'observe',
+      'record_start',
+      'type',
+      'press',
+      'select',
+      'click',
+      'scroll',
+      'wait',
+      'screenshot',
+      'back',
+      'record_stop',
+    ]) {
+      expect(events).toContain(tool);
+    }
+    expect(events).toContain('rat_browser');
+    expect(events).toContain(encodeURIComponent(appendedMarker));
+    expect(events).toContain('my-select=2');
+    expect(events.match(/my-check=on/g)?.length ?? 0).toBeGreaterThanOrEqual(2);
+    expect(events).toContain('rat-things-submit-with-enter');
+    const browserApprovals = approvals.filter(
+      (approval) => approval.method === 'ratThings/browser/requestApproval',
+    );
+    expect(new Set(browserApprovals.map((approval) => approval.tool))).toEqual(
+      new Set(['type', 'press', 'select', 'click']),
+    );
+    expect(browserApprovals.find((approval) => approval.tool === 'click')?.command).toMatchObject({
+      type: 'click',
+      x: expect.any(Number),
+      y: expect.any(Number),
+    });
+
+    const fullPageArtifact = completed.result?.artifacts?.find(
+      (artifact) => artifact.path === 'browser/form-filled.png',
+    );
+    const screenshotArtifact = completed.result?.artifacts?.find(
+      (artifact) => artifact.path === 'browser/submitted.jpg',
+    );
+    const videoArtifact = completed.result?.artifacts?.find(
+      (artifact) => artifact.path === 'browser/full-interaction.webm',
+    );
+    expect(fullPageArtifact).toMatchObject({ mediaType: 'image/png' });
+    expect(screenshotArtifact).toMatchObject({ mediaType: 'image/jpeg' });
+    expect(videoArtifact).toMatchObject({ mediaType: 'video/webm' });
+    if (!fullPageArtifact || !screenshotArtifact || !videoArtifact) {
+      throw new Error('browser run did not return all capture artifacts');
+    }
+    const [fullPageBytes, screenshotBytes, videoBytes] = await Promise.all([
+      artifactBytes(clients.s3, fullPageArtifact.file),
+      artifactBytes(clients.s3, screenshotArtifact.file),
+      artifactBytes(clients.s3, videoArtifact.file),
+    ]);
+    expect(fullPageBytes.subarray(0, 8)).toEqual(
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    );
+    expect(screenshotBytes.subarray(0, 3)).toEqual(Buffer.from([0xff, 0xd8, 0xff]));
+    expect(videoBytes.subarray(0, 4)).toEqual(Buffer.from([0x1a, 0x45, 0xdf, 0xa3]));
+    expect(videoBytes.includes(Buffer.from('V_VP8'))).toBe(true);
+    expect(createHash('sha256').update(fullPageBytes).digest('hex'))
+      .toBe(fullPageArtifact.file.sha256);
+    expect(createHash('sha256').update(screenshotBytes).digest('hex'))
+      .toBe(screenshotArtifact.file.sha256);
+    expect(createHash('sha256').update(videoBytes).digest('hex'))
+      .toBe(videoArtifact.file.sha256);
+
+    const links = new Map(
+      [...output.matchAll(/- \[([^\]]+)\]\((https:\/\/[^)]+)\)/g)]
+        .flatMap((match) => match[1] && match[2] ? [[match[1], match[2]] as const] : []),
+    );
+    expect([...links.keys()]).toEqual([
+      'Browser full-page form screenshot',
+      'Browser submitted screenshot',
+      'Browser interaction recording',
+    ]);
+    const fullPageUrl = links.get('Browser full-page form screenshot');
+    const screenshotUrl = links.get('Browser submitted screenshot');
+    const videoUrl = links.get('Browser interaction recording');
+    if (!fullPageUrl || !screenshotUrl || !videoUrl) {
+      throw new Error('browser publication links are missing');
+    }
+    expect(new Set([fullPageUrl, screenshotUrl, videoUrl].map((url) => new URL(url).hostname)).size)
+      .toBe(3);
+
+    const [
+      fullPageViewer,
+      screenshotViewer,
+      videoViewer,
+      sharedFullPage,
+      sharedScreenshot,
+      sharedVideo,
+    ] = await Promise.all([
+      waitForSharedResource(fullPageUrl),
+      waitForSharedResource(screenshotUrl),
+      waitForSharedResource(videoUrl),
+      waitForSharedResource(fullPageUrl, 'assets/form-filled.png'),
+      waitForSharedResource(screenshotUrl, 'assets/submitted.jpg'),
+      waitForSharedResource(videoUrl, 'assets/full-interaction.webm'),
+    ]);
+    expect(fullPageViewer.headers.get('content-type')).toContain('text/html');
+    expect(await fullPageViewer.text()).toContain('<img');
+    expect(screenshotViewer.headers.get('content-type')).toContain('text/html');
+    expect(await screenshotViewer.text()).toContain('<img');
+    expect(videoViewer.headers.get('content-type')).toContain('text/html');
+    expect(await videoViewer.text()).toContain('<video');
+    expect(sharedFullPage.headers.get('content-type')).toContain('image/png');
+    expect(Buffer.from(await sharedFullPage.arrayBuffer())).toEqual(fullPageBytes);
+    expect(sharedScreenshot.headers.get('content-type')).toContain('image/jpeg');
+    expect(Buffer.from(await sharedScreenshot.arrayBuffer())).toEqual(screenshotBytes);
+    expect(sharedVideo.headers.get('content-type')).toContain('video/webm');
+    expect(Buffer.from(await sharedVideo.arrayBuffer())).toEqual(videoBytes);
+
+    const evidencePath = process.env.AWS_E2E_BROWSER_EVIDENCE_FILE;
+    if (evidencePath) {
+      await writeFile(evidencePath, `${JSON.stringify({
+        runId: completed.runId,
+        marker,
+        browserFixture,
+        formMarker: appendedMarker,
+        approvals,
+        fullPageScreenshot: {
+          url: fullPageUrl,
+          bytes: fullPageBytes.byteLength,
+          sha256: fullPageArtifact.file.sha256,
+        },
+        screenshot: {
+          url: screenshotUrl,
+          bytes: screenshotBytes.byteLength,
+          sha256: screenshotArtifact.file.sha256,
+        },
+        video: {
+          url: videoUrl,
+          bytes: videoBytes.byteLength,
+          sha256: videoArtifact.file.sha256,
+        },
+        verifiedAt: new Date().toISOString(),
+      }, null, 2)}\n`, { mode: 0o600 });
+      const evidenceDirectory = dirname(evidencePath);
+      await Promise.all([
+        writeFile(join(evidenceDirectory, 'browser-form-filled-evidence.png'), fullPageBytes, { mode: 0o600 }),
+        writeFile(join(evidenceDirectory, 'browser-submitted-evidence.jpg'), screenshotBytes, { mode: 0o600 }),
+        writeFile(join(evidenceDirectory, 'browser-full-interaction-evidence.webm'), videoBytes, { mode: 0o600 }),
+      ]);
+    }
+    await expectTerminalEvents(clients.sqs, new Set([submitted.runId]));
     await expectEmptyFailureQueues(clients.sqs);
   }, timeoutMs);
 });
@@ -619,6 +867,85 @@ interface ApiConversationMessageStatus {
   state: 'pending' | 'consumed' | 'dead_letter';
   conversation: ConversationRecord;
   run?: RunRecord;
+}
+
+interface ObservedApproval {
+  requestId: string;
+  method: string;
+  decision: 'accept-for-session';
+  tool?: string;
+  command?: Record<string, unknown>;
+}
+
+async function superviseAgentApprovals(runId: string): Promise<ObservedApproval[]> {
+  const deadline = Date.now() + timeoutMs;
+  const handled = new Set<string>();
+  const reportedEventMethods = new Set<string>();
+  const observed: ObservedApproval[] = [];
+  const approvalMethods = new Set([
+    'item/commandExecution/requestApproval',
+    'item/fileChange/requestApproval',
+    'execCommandApproval',
+    'applyPatchApproval',
+    'ratThings/integration/requestApproval',
+    'ratThings/browser/requestApproval',
+  ]);
+  while (Date.now() < deadline) {
+    let snapshot: AgentRuntimeSnapshot | undefined;
+    try {
+      snapshot = await signedApi<AgentRuntimeSnapshot>(`/v1/runs/${runId}/events`, 'GET');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (!message.includes('HTTP 404') && !message.includes('HTTP 409')) throw error;
+    }
+    for (const event of snapshot?.events ?? []) {
+      if (reportedEventMethods.has(event.method)) continue;
+      reportedEventMethods.add(event.method);
+      process.stderr.write(`[aws-e2e browser] observed ${event.method}\n`);
+    }
+    for (const request of snapshot?.pendingRequests ?? []) {
+      if (handled.has(request.requestId)) continue;
+      if (!approvalMethods.has(request.method)) {
+        throw new Error(`live browser run requested unsupported input ${request.method}`);
+      }
+      const approval = approvalEvidence(request);
+      await signedApi(
+        `/v1/runs/${runId}/approvals/${encodeURIComponent(request.requestId)}`,
+        'POST',
+        {
+          decision: approval.decision,
+          reason: 'Accepted by the bounded live-AWS browser interaction test.',
+        },
+      );
+      process.stderr.write(
+        `[aws-e2e browser] approved ${approval.method}${approval.tool ? ` (${approval.tool})` : ''}\n`,
+      );
+      handled.add(request.requestId);
+      observed.push(approval);
+    }
+    const run = await signedApi<RunRecord>(`/v1/runs/${runId}`, 'GET');
+    if (['succeeded', 'failed', 'cancelled'].includes(run.status)) return observed;
+    await delay(500);
+  }
+  throw new Error(`timed out supervising approval requests for run ${runId}`);
+}
+
+function approvalEvidence(request: PendingAgentRequest): ObservedApproval {
+  const tool = typeof request.params.tool === 'string' ? request.params.tool : undefined;
+  const command = recordValue(request.params.command);
+  return {
+    requestId: request.requestId,
+    method: request.method,
+    decision: 'accept-for-session',
+    ...(tool ? { tool } : {}),
+    ...(command ? { command } : {}),
+  };
+}
+
+function recordValue(value: unknown): Record<string, unknown> | undefined {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : undefined;
 }
 
 async function runRatThingsCli(args: string[]): Promise<{ stdout: string; stderr: string }> {
@@ -723,8 +1050,8 @@ async function submitTeamsWebhook(
   const firstText = await first.text();
   const repeated = await request();
   const repeatedText = await repeated.text();
-  expect(first.status).toBe(200);
-  expect(repeated.status).toBe(200);
+  expect(first.status, firstText).toBe(200);
+  expect(repeated.status, repeatedText).toBe(200);
   expect(repeatedText).toBe(firstText);
   expect(JSON.parse(firstText)).toMatchObject({
     type: 'message',
@@ -945,6 +1272,33 @@ async function outputText(
   return response.Body ? response.Body.transformToString('utf8') : '';
 }
 
+async function artifactBytes(
+  s3: ReturnType<typeof createAwsClients>['s3'],
+  reference: { bucket: string; key: string },
+): Promise<Buffer> {
+  const response = await s3.send(new GetObjectCommand({
+    Bucket: reference.bucket,
+    Key: reference.key,
+  }));
+  return response.Body ? Buffer.from(await response.Body.transformToByteArray()) : Buffer.alloc(0);
+}
+
+async function waitForSharedResource(url: string, path?: string): Promise<Response> {
+  const deadline = Date.now() + 120_000;
+  let diagnostic = 'not attempted';
+  while (Date.now() < deadline) {
+    try {
+      const response = await fetchSharedResource(url, 30_000, path);
+      if (response.status === 200) return response;
+      diagnostic = `HTTP ${response.status}: ${(await response.text()).slice(0, 500)}`;
+    } catch (error) {
+      diagnostic = error instanceof Error ? error.message : String(error);
+    }
+    await delay(3_000);
+  }
+  throw new Error(`shared browser resource did not become available: ${diagnostic}`);
+}
+
 async function resultArtifactText(
   s3: ReturnType<typeof createAwsClients>['s3'],
   run: RunRecord,
@@ -957,6 +1311,25 @@ async function resultArtifactText(
     Key: reference.key,
   }));
   return response.Body ? response.Body.transformToString('utf8') : '';
+}
+
+async function requiredWorkspacePatchText(
+  s3: ReturnType<typeof createAwsClients>['s3'],
+  run: RunRecord,
+): Promise<string> {
+  if (run.result?.workspacePatch) return resultArtifactText(s3, run, 'workspacePatch');
+  const [output, events] = await Promise.all([
+    outputText(s3, run).catch((error: unknown) => `unavailable: ${String(error)}`),
+    run.result?.events
+      ? resultArtifactText(s3, run, 'events')
+        .catch((error: unknown) => `unavailable: ${String(error)}`)
+      : Promise.resolve('unavailable: no events artifact'),
+  ]);
+  throw new Error([
+    `run ${run.runId} has no workspacePatch artifact`,
+    `output: ${output.slice(-2_000)}`,
+    `events: ${events.slice(-4_000)}`,
+  ].join('\n'));
 }
 
 async function expectTerminalEvents(

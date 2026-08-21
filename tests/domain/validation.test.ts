@@ -5,6 +5,19 @@ import { parseRunRequest, ValidationError } from '../../src/domain/validation.js
 const secretArn = 'arn:aws:secretsmanager:us-west-2:123456789012:secret:github/runtime-token-AbCd12';
 
 describe('parseRunRequest', () => {
+  it('requires network access when browser computer use is explicitly requested', () => {
+    expect(() => parseRunRequest({
+      version: '1',
+      prompt: 'browse',
+      agent: {
+        capabilities: {
+          computerUse: 'browser',
+          networkAccess: false,
+        },
+      },
+    })).toThrow('computerUse browser requires networkAccess');
+  });
+
   it('accepts and normalizes a complete version 1 request', () => {
     const request = parseRunRequest(
       {
@@ -23,7 +36,31 @@ describe('parseRunRequest', () => {
           model: 'openai.gpt-5.6-terra',
           sandbox: 'read-only',
           reasoningEffort: 'high',
+          reasoningSummary: 'concise',
+          personality: 'pragmatic',
+          capabilities: {
+            profile: 'trusted-browser',
+            approvalPolicy: 'on-request',
+            approvalsReviewer: 'auto-review',
+            networkAccess: true,
+            webSearch: 'live',
+            computerUse: 'browser',
+            skills: ['outbound-copy-studio'],
+            apps: ['gmail'],
+            mcpServers: ['github'],
+          },
           outputSchema: { type: 'object', required: ['summary'] },
+        },
+        integrations: {
+          connectionSet: 'acme-operations',
+          connections: [
+            {
+              connection: 'google-work',
+              preset: 'custom',
+              allowOperations: ['gmail.messages.search'],
+              denyOperations: ['gmail.messages.delete'],
+            },
+          ],
         },
         execution: { backend: 'microvm', timeoutSeconds: 900 },
         source: {
@@ -52,13 +89,37 @@ describe('parseRunRequest', () => {
         installationId: '42',
         credentialSecretArn: secretArn,
       },
-      agent: {
-        driver: 'codex',
-        model: 'openai.gpt-5.6-terra',
-        sandbox: 'read-only',
-        reasoningEffort: 'high',
-        outputSchema: { type: 'object', required: ['summary'] },
-      },
+        agent: {
+          driver: 'codex',
+          model: 'openai.gpt-5.6-terra',
+          sandbox: 'read-only',
+          reasoningEffort: 'high',
+          reasoningSummary: 'concise',
+          personality: 'pragmatic',
+          capabilities: {
+            profile: 'trusted-browser',
+            approvalPolicy: 'on-request',
+            approvalsReviewer: 'auto-review',
+            networkAccess: true,
+            webSearch: 'live',
+            computerUse: 'browser',
+            skills: ['outbound-copy-studio'],
+            apps: ['gmail'],
+            mcpServers: ['github'],
+          },
+          outputSchema: { type: 'object', required: ['summary'] },
+        },
+        integrations: {
+          connectionSet: 'acme-operations',
+          connections: [
+            {
+              connection: 'google-work',
+              preset: 'custom',
+              allowOperations: ['gmail.messages.search'],
+              denyOperations: ['gmail.messages.delete'],
+            },
+          ],
+        },
       execution: { backend: 'microvm', timeoutSeconds: 900 },
       source: {
         kind: 'github',
@@ -225,5 +286,33 @@ describe('parseRunRequest', () => {
       prompt: 'hello',
       agent: { driver: 'claude-code' },
     })).toThrow('agent.driver must be codex or mock');
+  });
+
+  it('validates capability and multi-account integration requests', () => {
+    expect(parseRunRequest({
+      version: '1',
+      prompt: 'hello',
+      agent: { reasoningEffort: 'ultra', capabilities: { networkAccess: true } },
+      integrations: {
+        connections: [{ connection: 'google-work', preset: 'read-only' }],
+      },
+    })).toMatchObject({
+      agent: { reasoningEffort: 'ultra', capabilities: { networkAccess: true } },
+      integrations: {
+        connections: [{ connection: 'google-work', preset: 'read-only' }],
+      },
+    });
+    expect(() => parseRunRequest({
+      version: '1',
+      prompt: 'hello',
+      integrations: {
+        connections: [{ connection: 'google-work', preset: 'custom' }],
+      },
+    })).toThrow('custom integration access requires allowOperations');
+    expect(() => parseRunRequest({
+      version: '1',
+      prompt: 'hello',
+      agent: { capabilities: { apps: ['gmail', 'gmail'] } },
+    })).toThrow('agent.capabilities.apps contains duplicate gmail');
   });
 });

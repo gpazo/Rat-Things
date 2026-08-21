@@ -26,14 +26,33 @@ if [[ ! -f "$state_file" ]]; then
   exit 0
 fi
 
-microvm_image_arn="$(aws_e2e_terraform output -state="$state_file" -json microvm 2>/dev/null | jq -r '.image_arn // empty' 2>/dev/null || true)"
-if [[ -n "$microvm_image_arn" ]]; then
-  echo "Stopping any running Lambda MicroVMs for $deployment_id..."
-  node "$script_dir/terminate-microvms.mjs" "$aws_region" "$microvm_image_arn"
+if [[ "$publication_enabled" == "true" ]]; then
+  # Deployment intentionally removes its temporary PEM files. Terraform still
+  # evaluates the CloudFront public-key resource during destroy, so recover the
+  # non-secret encoded public key from state instead of requiring operators to
+  # retain deployment-time material solely for teardown.
+  publication_public_key_pem="$(
+    aws_e2e_terraform show -json "$state_file" |
+      jq -r '[.. | objects | select(.address? == "module.agent_runner.aws_cloudfront_public_key.publications[0]") | (.values.encoded_key // empty)][0] // empty'
+  )"
+  if [[ -z "$publication_public_key_pem" ]]; then
+    echo "could not recover the publication public key from Terraform state" >&2
+    exit 1
+  fi
+  tf_vars+=("-var=publication_public_key_pem=$publication_public_key_pem")
 fi
+
+microvm_image_arn="$(aws_e2e_terraform output -state="$state_file" -json microvm 2>/dev/null | jq -r '.image_arn // empty' 2>/dev/null || true)"
 echo "Destroying Terraform resources for $deployment_id..."
 destroy_status=1
 for destroy_attempt in 1 2 3; do
+  # A test can fail after enqueueing work but before its replacement MicroVM
+  # starts. Re-scan before every destroy attempt so a late instance cannot
+  # keep the image, execution role, and source bucket alive.
+  if [[ -n "$microvm_image_arn" ]]; then
+    echo "Stopping any running Lambda MicroVMs for $deployment_id..."
+    node "$script_dir/terminate-microvms.mjs" "$aws_region" "$microvm_image_arn"
+  fi
   set +e
   aws_e2e_terraform destroy \
     -state="$state_file" \

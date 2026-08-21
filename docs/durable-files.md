@@ -163,8 +163,9 @@ share URL; following its redirect downloaded the exact bytes with SHA-256
 `2ee07cbbdc885a7c6f5bfa30b484aa3198356fe9b960683a31b1bf486ea62058`. The public link and S3
 redirect used the replacement Rat Things stack; the legacy test stack was then destroyed.
 
-This proves the headless MicroVM-to-private-storage-to-browser path and resumable catalog contract.
-It is not evidence that every image or browser tool is already installed in the MicroVM image.
+This proves the headless MicroVM-to-private-storage-to-recipient-browser path and resumable catalog
+contract. Agent computer use is a separate Chromium dynamic-tool path with its own security and
+validation status; see [architecture](architecture.md) and [status](status-and-roadmap.md).
 
 See [the control API](api.md#durable-files), [conversation durability](conversations.md), and the
 [security model](security.md) for lower-level contracts and production caveats.
