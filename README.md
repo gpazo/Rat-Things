@@ -19,6 +19,8 @@
 <p align="center">
   <a href="https://gpazo.github.io/Rat-Things/">Website</a> ·
   <a href="https://gpazo.github.io/Rat-Things/docs/">Documentation</a> ·
+  <a href="docs/things.md">Build a Thing</a> ·
+  <a href="https://gpazo.github.io/Rat-Things/llms.txt">Agent docs</a> ·
   <a href="docs/codex-subscription.md">Use your Codex subscription</a> ·
   <a href="docs/publications.md">Publish files, sites, and video</a> ·
   <a href="docs/github-webhook-onboarding.md">Connect a GitHub webhook</a> ·
@@ -28,7 +30,8 @@
   <a href="docs/status-and-roadmap.md">Validation status</a>
 </p>
 
-Rat Things is an AWS-native, Codex-first agent runtime. It accepts authenticated API requests and
+Rat Things is a self-hosted, headless agent automation backend and AWS-native Codex runtime. It
+publishes reusable **Things** for operator and embedded-product consumers, accepts authenticated API requests and
 signed GitHub, GitLab, or chat webhooks; coordinates durable conversations; executes tool-capable
 work in AWS Lambda MicroVMs; and delivers results back to the originating thread. Microsoft Teams
 is the preferred chat surface, with Slack available as an optional adapter.
@@ -82,11 +85,16 @@ customer VPC; durable native Codex restoration optionally adds a small VPC/NAT p
   approval routing, and the inner Codex sandbox without widening the deployment policy ceiling.
 - **Multi-account integrations** — connect multiple accounts for the same service, group them into
   reusable sets, and expose each run to read-only, read-write, full, or operation-level grants.
+- **Reusable Things** — define a goal, trigger, capability profile, multiple accounts, and delivery
+  once; immutable revisions and lifecycle controls compile into ordinary owner-scoped runs.
+- **Self-describing backend** — every deployment publishes discovery, OpenAPI, JSON Schemas, stable
+  errors, Thing explanations, and CLI diagnostics for humans and agents integrating with it.
 - **Browser computer use** — a persistent headless browser navigates, observes, clicks, types,
   selects, scrolls, captures screenshots, and records WebM inside the MicroVM; private/link-local
   destinations are blocked and consequential interactions follow live approval policy.
-- **Durable routines** — interval schedules submit ordinary idempotent runs while prompts remain in
-  encrypted S3 and DynamoDB stores only schedule metadata and request references.
+- **Durable scheduling** — interval Things submit ordinary idempotent runs while definitions remain
+  in private encrypted versioned S3 and DynamoDB stores only lifecycle metadata and references;
+  lower-level routines remain compatible.
 - **Durable publications** — retained files become isolated browser-ready images, static sites, or
   video players behind owner-authorized, time-bounded CloudFront delivery.
 - **Webhook to result** — signed GitHub, GitLab, Teams, and optional Slack paths share one run model.
@@ -226,6 +234,20 @@ People only need a prompt and, when continuity matters, a memorable thread name.
 automation can use the explicit `chat` command with `--json`, `--no-wait`, `--idempotency-key`,
 model, sandbox, reasoning, polling, and timeout controls. Run `rat-things help --all` (or
 `npm run rat-things -- help --all`) for that complete surface.
+
+Products and operators that need repeatable automation can create a Thing, inspect its effective
+permissions, test it while still a draft, and then enable it:
+
+```bash
+rat-things thing-create --file examples/thing-create.json
+rat-things thing-explain THING_ID
+rat-things thing-run THING_ID --idempotency-key first-safe-test
+rat-things thing-enable THING_ID
+```
+
+Start programmatic integration at `GET /.well-known/rat-things`; it links to the deployment's
+OpenAPI and ThingSpec schemas. See [Things](docs/things.md),
+[embedding and self-hosting](docs/embedding.md), and [diagnostics](docs/diagnostics.md).
 
 The remote MicroVM defaults to `danger-full-access` and network access because the dedicated VM is
 the isolation boundary. Narrow either per run or with a capability profile when the task needs less:
@@ -380,7 +402,8 @@ Secrets Manager, S3, DynamoDB Streams, SQS, EventBridge, durable delivery fencin
 egress. It also exercises the durable conversation mailbox through interrupt/defer ordering,
 leases, progress, checkpoint/reacquire/resume, history, completion, and idempotent retry. The
 control-plane scenario adds two accounts for one integration, credential isolation, a connection
-set, routine submission/retry, dispatch, and worker completion.
+set, immutable Thing revisions and explanation, idempotent Thing/routine submission, dispatch, and
+worker completion.
 
 To build the packaged Linux ARM64 image and exercise lifecycle startup, the UID-scoped cgroup eBPF
 guard, its external-port-8080 exception, real Chromium navigation, retained screenshots and VP8
@@ -414,12 +437,14 @@ AWS_E2E_MICROVM_BASE_IMAGE_VERSION="<available pinned version>" \
 npm run test:e2e:aws
 ```
 
-The default live suite uses the mock driver and spends no model tokens. It includes two-turn Teams
-and headless API conversations that validate AWS-authenticated continuation, same-ID MicroVM suspend/resume,
-session-expiry replacement, and coordinator crash-window recovery. Add a bounded, two-turn
-Codex-on-Bedrock app-server/S3 Files persistence probe with `AWS_E2E_REAL_CODEX=true`. The harness
-always attempts teardown from an exit trap; the customer-managed KMS key is disabled and enters
-AWS's mandatory pending-deletion period.
+The default live suite uses the mock driver and spends no model tokens. It validates the discovery
+and Thing APIs, two accounts for one integration, permission intersection, immutable KMS-encrypted
+Thing definitions, idempotent MicroVM dispatch, credential rotation/revocation, and lifecycle
+changes. It also includes two-turn Teams and headless API conversations that validate
+AWS-authenticated continuation, same-ID MicroVM suspend/resume, session-expiry replacement, and
+coordinator crash-window recovery. Add a bounded, two-turn Codex-on-Bedrock app-server/S3 Files
+persistence probe with `AWS_E2E_REAL_CODEX=true`. The harness always attempts teardown from an exit
+trap; the customer-managed KMS key is disabled and enters AWS's mandatory pending-deletion period.
 
 ## Repository layout
 

@@ -22,6 +22,11 @@ output "artifact_bucket_name" {
   value = aws_s3_bucket.artifacts.id
 }
 
+output "definition_bucket_name" {
+  description = "Non-expiring encrypted S3 bucket holding immutable Thing definitions."
+  value       = aws_s3_bucket.definitions.id
+}
+
 output "conversation_state_bucket_name" {
   description = "S3 bucket backing durable S3 Files conversation state, or null when disabled."
   value       = try(aws_s3_bucket.conversation_state[0].id, null)
@@ -72,6 +77,11 @@ output "integrations_table_name" {
 output "routines_table_name" {
   description = "DynamoDB table holding owner-scoped routine schedules and encrypted request references."
   value       = aws_dynamodb_table.routines.name
+}
+
+output "things_table_name" {
+  description = "DynamoDB table holding owner-scoped Thing lifecycle metadata and immutable version references."
+  value       = aws_dynamodb_table.things.name
 }
 
 output "run_queue_url" {

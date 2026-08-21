@@ -43,6 +43,13 @@ resource "aws_s3_bucket" "artifacts" {
   tags = merge(local.tags, { Name = "${local.name}-artifacts" })
 }
 
+resource "aws_s3_bucket" "definitions" {
+  bucket        = "${substr(local.name, 0, 35)}-definitions-${local.bucket_suffix}"
+  force_destroy = var.force_destroy_data
+
+  tags = merge(local.tags, { Name = "${local.name}-definitions" })
+}
+
 resource "aws_s3_bucket" "microvm_source" {
   bucket        = "${substr(local.name, 0, 35)}-mvm-src-${local.bucket_suffix}"
   force_destroy = var.force_destroy_data
@@ -62,6 +69,7 @@ resource "aws_s3_bucket" "conversation_state" {
 resource "aws_s3_bucket_public_access_block" "this" {
   for_each = merge({
     artifacts      = aws_s3_bucket.artifacts.id
+    definitions    = aws_s3_bucket.definitions.id
     microvm_source = aws_s3_bucket.microvm_source.id
     }, var.enable_s3_files ? {
     conversation_state = aws_s3_bucket.conversation_state[0].id
@@ -78,6 +86,7 @@ resource "aws_s3_bucket_public_access_block" "this" {
 resource "aws_s3_bucket_versioning" "this" {
   for_each = merge({
     artifacts      = aws_s3_bucket.artifacts.id
+    definitions    = aws_s3_bucket.definitions.id
     microvm_source = aws_s3_bucket.microvm_source.id
     }, var.enable_s3_files ? {
     conversation_state = aws_s3_bucket.conversation_state[0].id
@@ -95,6 +104,17 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "artifacts" {
     apply_server_side_encryption_by_default {
       sse_algorithm = "AES256"
     }
+  }
+}
+
+resource "aws_s3_bucket_server_side_encryption_configuration" "definitions" {
+  bucket = aws_s3_bucket.definitions.id
+  rule {
+    apply_server_side_encryption_by_default {
+      kms_master_key_id = aws_kms_key.data.arn
+      sse_algorithm     = "aws:kms"
+    }
+    bucket_key_enabled = true
   }
 }
 
@@ -167,6 +187,7 @@ resource "aws_s3_bucket_lifecycle_configuration" "artifacts" {
 data "aws_iam_policy_document" "bucket_transport" {
   for_each = merge({
     artifacts      = aws_s3_bucket.artifacts.arn
+    definitions    = aws_s3_bucket.definitions.arn
     microvm_source = aws_s3_bucket.microvm_source.arn
     }, var.enable_s3_files ? {
     conversation_state = aws_s3_bucket.conversation_state[0].arn
@@ -218,6 +239,10 @@ resource "aws_s3_bucket_policy" "this" {
     artifacts = {
       id     = aws_s3_bucket.artifacts.id
       policy = data.aws_iam_policy_document.bucket_transport["artifacts"].json
+    }
+    definitions = {
+      id     = aws_s3_bucket.definitions.id
+      policy = data.aws_iam_policy_document.bucket_transport["definitions"].json
     }
     microvm_source = {
       id     = aws_s3_bucket.microvm_source.id
@@ -452,6 +477,68 @@ resource "aws_dynamodb_table" "routines" {
   }
 
   tags = merge(local.tags, { Name = "${local.name}-routines" })
+}
+
+resource "aws_dynamodb_table" "things" {
+  name         = "${local.name}-things"
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "thingId"
+  range_key    = "recordKey"
+
+  attribute {
+    name = "thingId"
+    type = "S"
+  }
+
+  attribute {
+    name = "recordKey"
+    type = "S"
+  }
+
+  attribute {
+    name = "ownerId"
+    type = "S"
+  }
+
+  attribute {
+    name = "ownerCreated"
+    type = "S"
+  }
+
+  attribute {
+    name = "status"
+    type = "S"
+  }
+
+  attribute {
+    name = "nextRunAt"
+    type = "S"
+  }
+
+  global_secondary_index {
+    name            = "owner-created-index"
+    hash_key        = "ownerId"
+    range_key       = "ownerCreated"
+    projection_type = "ALL"
+  }
+
+  global_secondary_index {
+    name            = "status-next-run-index"
+    hash_key        = "status"
+    range_key       = "nextRunAt"
+    projection_type = "ALL"
+  }
+
+  point_in_time_recovery {
+    enabled = var.enable_point_in_time_recovery
+  }
+
+  server_side_encryption {
+    enabled     = true
+    kms_key_arn = aws_kms_key.data.arn
+  }
+
+  tags = merge(local.tags, { Name = "${local.name}-things" })
 }
 
 resource "aws_sqs_queue" "run_dlq" {

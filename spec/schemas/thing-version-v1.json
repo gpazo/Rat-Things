@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gpazo.github.io/Rat-Things/schemas/thing-version-v1.json",
+  "title": "Create immutable Thing version request v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "expectedRevision", "spec"],
+  "properties": {
+    "version": { "const": "1" },
+    "expectedRevision": { "type": "integer", "minimum": 1 },
+    "spec": { "$ref": "thing-v1.json" }
+  }
+}

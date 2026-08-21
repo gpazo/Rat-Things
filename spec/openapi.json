@@ -1,0 +1,978 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Rat Things API",
+    "version": "0.1.0",
+    "description": "Self-hosted, headless agent automation. Each deployment owns identity, OAuth applications, credentials, and data."
+  },
+  "servers": [{ "url": "/", "description": "This independent Rat Things deployment" }],
+  "tags": [
+    { "name": "Discovery" },
+    { "name": "Things", "description": "Reusable, revisioned agent automations." },
+    { "name": "Capabilities" },
+    { "name": "Integrations" },
+    { "name": "Runs" },
+    { "name": "Conversations" },
+    { "name": "Routines", "description": "Lower-level interval compatibility primitive." },
+    { "name": "Publications" },
+    { "name": "Webhooks", "description": "Optional unauthenticated routes that authenticate provider signatures before parsing." }
+  ],
+  "paths": {
+    "/health": {
+      "get": {
+        "tags": ["Discovery"],
+        "operationId": "getHealth",
+        "security": [],
+        "responses": { "200": { "description": "Healthy deployment" } }
+      }
+    },
+    "/.well-known/rat-things": {
+      "get": {
+        "tags": ["Discovery"],
+        "operationId": "discoverRatThings",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Machine-readable deployment capabilities and contract links",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Discovery" } } }
+          }
+        }
+      }
+    },
+    "/openapi.json": {
+      "get": {
+        "tags": ["Discovery"],
+        "operationId": "getOpenApi",
+        "security": [],
+        "responses": { "200": { "description": "OpenAPI 3.1 contract" } }
+      }
+    },
+    "/schemas/thing-v1.json": {
+      "get": {
+        "tags": ["Discovery"],
+        "operationId": "getThingSchema",
+        "security": [],
+        "responses": { "200": { "description": "ThingSpec v1 JSON Schema" } }
+      }
+    },
+    "/schemas/thing-create-v1.json": {
+      "get": {
+        "tags": ["Discovery"],
+        "operationId": "getThingCreateSchema",
+        "security": [],
+        "responses": { "200": { "description": "Create Thing v1 JSON Schema" } }
+      }
+    },
+    "/schemas/thing-version-v1.json": {
+      "get": {
+        "tags": ["Discovery"],
+        "operationId": "getThingVersionSchema",
+        "security": [],
+        "responses": { "200": { "description": "Create immutable Thing version v1 JSON Schema" } }
+      }
+    },
+    "/v1/capability-profiles": {
+      "get": {
+        "tags": ["Capabilities"],
+        "operationId": "listCapabilityProfiles",
+        "responses": { "200": { "description": "Installed deployment policy ceilings" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/v1/integrations/plugins": {
+      "get": {
+        "tags": ["Integrations"],
+        "operationId": "listIntegrationPlugins",
+        "responses": { "200": { "description": "Trusted plugin manifests and operation schemas" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/v1/integrations/connections": {
+      "get": {
+        "tags": ["Integrations"],
+        "operationId": "listConnections",
+        "responses": { "200": { "description": "Owner-scoped account metadata and grants; never credentials" }, "default": { "$ref": "#/components/responses/Error" } }
+      },
+      "post": {
+        "tags": ["Integrations"],
+        "operationId": "createConnection",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CreateConnection" } } } },
+        "responses": { "201": { "description": "Connection, secret binding, and initial grant created" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/v1/integrations/connections/{connectionId}/grant": {
+      "post": {
+        "tags": ["Integrations"],
+        "operationId": "replaceConnectionGrant",
+        "parameters": [{ "$ref": "#/components/parameters/ConnectionId" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/GrantPolicy" } } } },
+        "responses": { "200": { "description": "Rat-side permission grant replaced" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/v1/integrations/connections/{connectionId}/credential": {
+      "post": {
+        "tags": ["Integrations"],
+        "operationId": "rotateConnectionCredential",
+        "parameters": [{ "$ref": "#/components/parameters/ConnectionId" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CredentialRotation" } } } },
+        "responses": { "200": { "description": "Credential replaced in the host vault" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/v1/integrations/connections/{connectionId}/revoke": {
+      "post": {
+        "tags": ["Integrations"],
+        "operationId": "revokeConnection",
+        "parameters": [{ "$ref": "#/components/parameters/ConnectionId" }],
+        "requestBody": { "$ref": "#/components/requestBodies/EmptyObject" },
+        "responses": { "200": { "description": "Connection and credential revoked" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/v1/integrations/connection-sets": {
+      "get": {
+        "tags": ["Integrations"],
+        "operationId": "listConnectionSets",
+        "responses": { "200": { "description": "Reusable owner-scoped multi-account sets" }, "default": { "$ref": "#/components/responses/Error" } }
+      },
+      "post": {
+        "tags": ["Integrations"],
+        "operationId": "createConnectionSet",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CreateConnectionSet" } } } },
+        "responses": { "201": { "description": "Connection set created" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/v1/integrations/source-bindings": {
+      "get": {
+        "tags": ["Integrations"],
+        "operationId": "listSourceBindings",
+        "responses": { "200": { "description": "Verified-source policy bindings" }, "default": { "$ref": "#/components/responses/Error" } }
+      },
+      "post": {
+        "tags": ["Integrations"],
+        "operationId": "createSourceBinding",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CreateSourceBinding" } } } },
+        "responses": { "201": { "description": "Source binding created" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/v1/routines": {
+      "get": {
+        "tags": ["Routines"],
+        "operationId": "listRoutines",
+        "parameters": [{ "$ref": "#/components/parameters/Limit" }, { "$ref": "#/components/parameters/NextToken" }],
+        "responses": { "200": { "description": "Owner-scoped interval routines" }, "default": { "$ref": "#/components/responses/Error" } }
+      },
+      "post": {
+        "tags": ["Routines"],
+        "operationId": "createRoutine",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CreateRoutine" } } } },
+        "responses": { "201": { "description": "Routine created" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/v1/routines/{routineId}": {
+      "get": {
+        "tags": ["Routines"],
+        "operationId": "getRoutine",
+        "parameters": [{ "$ref": "#/components/parameters/RoutineId" }],
+        "responses": { "200": { "description": "Routine metadata" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/v1/routines/{routineId}/run": {
+      "post": {
+        "tags": ["Routines"],
+        "operationId": "runRoutine",
+        "parameters": [{ "$ref": "#/components/parameters/RoutineId" }, { "$ref": "#/components/parameters/IdempotencyKey" }],
+        "requestBody": { "$ref": "#/components/requestBodies/EmptyObject" },
+        "responses": { "202": { "description": "Routine run queued" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/v1/routines/{routineId}/pause": { "post": { "tags": ["Routines"], "operationId": "pauseRoutine", "parameters": [{ "$ref": "#/components/parameters/RoutineId" }], "requestBody": { "$ref": "#/components/requestBodies/EmptyObject" }, "responses": { "200": { "description": "Routine paused" }, "default": { "$ref": "#/components/responses/Error" } } } },
+    "/v1/routines/{routineId}/resume": { "post": { "tags": ["Routines"], "operationId": "resumeRoutine", "parameters": [{ "$ref": "#/components/parameters/RoutineId" }], "requestBody": { "$ref": "#/components/requestBodies/EmptyObject" }, "responses": { "200": { "description": "Routine resumed" }, "default": { "$ref": "#/components/responses/Error" } } } },
+    "/v1/routines/{routineId}/delete": { "post": { "tags": ["Routines"], "operationId": "deleteRoutine", "parameters": [{ "$ref": "#/components/parameters/RoutineId" }], "requestBody": { "$ref": "#/components/requestBodies/EmptyObject" }, "responses": { "200": { "description": "Routine soft-deleted" }, "default": { "$ref": "#/components/responses/Error" } } } },
+    "/v1/conversations/{conversationId}/messages": {
+      "post": {
+        "tags": ["Conversations"],
+        "operationId": "appendConversationMessage",
+        "parameters": [{ "$ref": "#/components/parameters/ConversationId" }, { "$ref": "#/components/parameters/RequiredIdempotencyKey" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConversationMessage" } } } },
+        "responses": { "202": { "description": "Message appended" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/v1/conversations/{conversationId}/messages/{messageId}": {
+      "get": {
+        "tags": ["Conversations"],
+        "operationId": "getConversationMessage",
+        "parameters": [{ "$ref": "#/components/parameters/ConversationId" }, { "$ref": "#/components/parameters/MessageId" }],
+        "responses": { "200": { "description": "Mailbox, conversation, session, and bound run state" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/v1/conversations/{conversationId}/artifacts": {
+      "get": {
+        "tags": ["Conversations"],
+        "operationId": "listConversationArtifacts",
+        "parameters": [{ "$ref": "#/components/parameters/ConversationId" }],
+        "responses": { "200": { "description": "Current durable file catalog without S3 coordinates" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/v1/conversations/{conversationId}/artifacts/{artifact}": {
+      "get": {
+        "tags": ["Conversations"],
+        "operationId": "getConversationArtifact",
+        "parameters": [{ "$ref": "#/components/parameters/ConversationId" }, { "$ref": "#/components/parameters/Artifact" }],
+        "responses": { "200": { "description": "Owner-checked short-lived artifact descriptor" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/v1/conversations/{conversationId}/publications": {
+      "post": {
+        "tags": ["Publications"],
+        "operationId": "publishConversationArtifact",
+        "parameters": [{ "$ref": "#/components/parameters/ConversationId" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PublicationSpec" } } } },
+        "responses": { "201": { "description": "Publication and share created" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/v1/runs": {
+      "get": {
+        "tags": ["Runs"],
+        "operationId": "listRuns",
+        "parameters": [{ "$ref": "#/components/parameters/Limit" }, { "$ref": "#/components/parameters/NextToken" }],
+        "responses": { "200": { "description": "Newest owner-scoped runs" }, "default": { "$ref": "#/components/responses/Error" } }
+      },
+      "post": {
+        "tags": ["Runs"],
+        "operationId": "submitRun",
+        "parameters": [{ "$ref": "#/components/parameters/IdempotencyKey" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RunRequest" } } } },
+        "responses": { "202": { "description": "Run durably queued" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/v1/runs/{runId}": {
+      "get": {
+        "tags": ["Runs"],
+        "operationId": "getRun",
+        "parameters": [{ "$ref": "#/components/parameters/RunId" }],
+        "responses": { "200": { "description": "Current owner-scoped run record" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/v1/runs/{runId}/events": {
+      "get": {
+        "tags": ["Runs"],
+        "operationId": "getRunEvents",
+        "parameters": [{ "$ref": "#/components/parameters/RunId" }, { "name": "after", "in": "query", "schema": { "type": "integer", "minimum": 0, "default": 0 } }, { "name": "limit", "in": "query", "schema": { "type": "integer", "minimum": 1, "maximum": 100, "default": 100 } }],
+        "responses": { "200": { "description": "Ordered live App Server events and pending requests" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/v1/runs/{runId}/steer": {
+      "post": {
+        "tags": ["Runs"],
+        "operationId": "steerRun",
+        "parameters": [{ "$ref": "#/components/parameters/RunId" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "additionalProperties": false, "required": ["prompt"], "properties": { "prompt": { "type": "string", "minLength": 1, "maxLength": 12288 } } } } } },
+        "responses": { "202": { "description": "Direction sent to active turn" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/v1/runs/{runId}/interrupt": { "post": { "tags": ["Runs"], "operationId": "interruptRun", "parameters": [{ "$ref": "#/components/parameters/RunId" }], "requestBody": { "$ref": "#/components/requestBodies/EmptyObject" }, "responses": { "202": { "description": "Active turn interrupted" }, "default": { "$ref": "#/components/responses/Error" } } } },
+    "/v1/runs/{runId}/cancel": { "post": { "tags": ["Runs"], "operationId": "cancelRun", "parameters": [{ "$ref": "#/components/parameters/RunId" }], "requestBody": { "$ref": "#/components/requestBodies/EmptyObject" }, "responses": { "202": { "description": "Cancellation requested" }, "default": { "$ref": "#/components/responses/Error" } } } },
+    "/v1/runs/{runId}/approvals/{requestId}": {
+      "post": {
+        "tags": ["Runs"],
+        "operationId": "decideRunApproval",
+        "parameters": [{ "$ref": "#/components/parameters/RunId" }, { "$ref": "#/components/parameters/RequestId" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "additionalProperties": false, "required": ["decision"], "properties": { "decision": { "enum": ["accept", "accept-for-session", "decline", "cancel"] }, "reason": { "type": "string", "maxLength": 1000 } } } } } },
+        "responses": { "202": { "description": "Approval decision sent" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/v1/runs/{runId}/requests/{requestId}/respond": {
+      "post": {
+        "tags": ["Runs"],
+        "operationId": "respondToRunRequest",
+        "parameters": [{ "$ref": "#/components/parameters/RunId" }, { "$ref": "#/components/parameters/RequestId" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "additionalProperties": false, "required": ["result"], "properties": { "result": {} } } } } },
+        "responses": { "202": { "description": "JSON result returned to App Server" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/v1/runs/{runId}/artifacts": {
+      "get": {
+        "tags": ["Runs"],
+        "operationId": "listRunArtifacts",
+        "parameters": [{ "$ref": "#/components/parameters/RunId" }],
+        "responses": { "200": { "description": "Run file catalog without S3 coordinates" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/v1/runs/{runId}/artifacts/{artifact}": {
+      "get": {
+        "tags": ["Runs"],
+        "operationId": "getRunArtifact",
+        "parameters": [{ "$ref": "#/components/parameters/RunId" }, { "$ref": "#/components/parameters/Artifact" }],
+        "responses": { "200": { "description": "Owner-checked short-lived artifact descriptor" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/v1/runs/{runId}/publications": {
+      "post": {
+        "tags": ["Publications"],
+        "operationId": "publishRunArtifact",
+        "parameters": [{ "$ref": "#/components/parameters/RunId" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PublicationSpec" } } } },
+        "responses": { "201": { "description": "Publication and share created" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/v1/shares/{token}": {
+      "get": {
+        "tags": ["Publications"],
+        "operationId": "redeemLegacyShare",
+        "security": [],
+        "parameters": [{ "$ref": "#/components/parameters/ShareToken" }],
+        "responses": { "302": { "description": "Time-bounded redirect to private object" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/__share/{token}": {
+      "get": {
+        "tags": ["Publications"],
+        "operationId": "redeemPublicationShare",
+        "security": [],
+        "parameters": [{ "$ref": "#/components/parameters/ShareToken" }],
+        "responses": { "302": { "description": "Publication redirect with host-only signed cookies" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/webhooks/github": { "post": { "tags": ["Webhooks"], "operationId": "receiveGitHubWebhook", "security": [], "responses": { "202": { "description": "Authenticated event accepted or ignored" }, "401": { "$ref": "#/components/responses/Error" } } } },
+    "/webhooks/gitlab": { "post": { "tags": ["Webhooks"], "operationId": "receiveGitLabWebhook", "security": [], "responses": { "202": { "description": "Authenticated event accepted or ignored" }, "401": { "$ref": "#/components/responses/Error" } } } },
+    "/webhooks/teams": { "post": { "tags": ["Webhooks"], "operationId": "receiveTeamsWebhook", "security": [], "responses": { "202": { "description": "Authenticated activity acknowledged" }, "401": { "$ref": "#/components/responses/Error" } } } },
+    "/webhooks/slack": { "post": { "tags": ["Webhooks"], "operationId": "receiveSlackWebhook", "security": [], "responses": { "202": { "description": "Authenticated event accepted or ignored" }, "401": { "$ref": "#/components/responses/Error" } } } },
+    "/v1/things": {
+      "get": {
+        "tags": ["Things"],
+        "operationId": "listThings",
+        "parameters": [
+          { "$ref": "#/components/parameters/Limit" },
+          { "$ref": "#/components/parameters/NextToken" },
+          {
+            "name": "includeArchived",
+            "in": "query",
+            "schema": { "type": "boolean", "default": false }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Owner-scoped Thing summaries",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["items"],
+                  "properties": {
+                    "items": { "type": "array", "items": { "$ref": "#/components/schemas/ThingSummary" } },
+                    "nextToken": { "type": "string" }
+                  }
+                }
+              }
+            }
+          },
+          "default": { "$ref": "#/components/responses/Error" }
+        }
+      },
+      "post": {
+        "tags": ["Things"],
+        "operationId": "createThing",
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "/schemas/thing-create-v1.json" } } }
+        },
+        "responses": {
+          "201": {
+            "description": "Thing created",
+            "headers": { "Location": { "schema": { "type": "string" } } },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ThingSummary" } } }
+          },
+          "default": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/v1/things/{thingId}": {
+      "get": {
+        "tags": ["Things"],
+        "operationId": "getThing",
+        "parameters": [{ "$ref": "#/components/parameters/ThingId" }],
+        "responses": {
+          "200": {
+            "description": "Current Thing revision",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Thing" } } }
+          },
+          "default": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/v1/things/{thingId}/versions": {
+      "get": {
+        "tags": ["Things"],
+        "operationId": "listThingVersions",
+        "parameters": [{ "$ref": "#/components/parameters/ThingId" }],
+        "responses": {
+          "200": {
+            "description": "Immutable version metadata",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["versions"],
+                  "properties": {
+                    "versions": {
+                      "type": "array",
+                      "items": { "$ref": "#/components/schemas/ThingVersionSummary" }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": { "$ref": "#/components/responses/Error" }
+        }
+      },
+      "post": {
+        "tags": ["Things"],
+        "operationId": "createThingVersion",
+        "parameters": [{ "$ref": "#/components/parameters/ThingId" }],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "/schemas/thing-version-v1.json" } } }
+        },
+        "responses": {
+          "201": {
+            "description": "New immutable revision selected",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ThingSummary" } } }
+          },
+          "default": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/v1/things/{thingId}/versions/{revision}": {
+      "get": {
+        "tags": ["Things"],
+        "operationId": "getThingVersion",
+        "parameters": [
+          { "$ref": "#/components/parameters/ThingId" },
+          { "name": "revision", "in": "path", "required": true, "schema": { "type": "integer", "minimum": 1 } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Immutable Thing revision",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ThingVersion" } } }
+          },
+          "default": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/v1/things/{thingId}/explain": {
+      "get": {
+        "tags": ["Things"],
+        "operationId": "explainThing",
+        "parameters": [{ "$ref": "#/components/parameters/ThingId" }],
+        "responses": {
+          "200": {
+            "description": "Compiled run request and diagnostics without credentials",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ThingExplanation" } } }
+          },
+          "default": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/v1/things/{thingId}/run": {
+      "post": {
+        "tags": ["Things"],
+        "operationId": "runThing",
+        "parameters": [
+          { "$ref": "#/components/parameters/ThingId" },
+          { "$ref": "#/components/parameters/IdempotencyKey" }
+        ],
+        "requestBody": { "$ref": "#/components/requestBodies/EmptyObject" },
+        "responses": {
+          "202": {
+            "description": "Run queued",
+            "headers": { "Location": { "schema": { "type": "string" } } },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RunReceipt" } } }
+          },
+          "default": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/v1/things/{thingId}/enable": {
+      "post": {
+        "tags": ["Things"],
+        "operationId": "enableThing",
+        "parameters": [{ "$ref": "#/components/parameters/ThingId" }],
+        "requestBody": { "$ref": "#/components/requestBodies/EmptyObject" },
+        "responses": {
+          "200": { "description": "Thing enabled", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ThingSummary" } } } },
+          "default": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/v1/things/{thingId}/pause": {
+      "post": {
+        "tags": ["Things"],
+        "operationId": "pauseThing",
+        "parameters": [{ "$ref": "#/components/parameters/ThingId" }],
+        "requestBody": { "$ref": "#/components/requestBodies/EmptyObject" },
+        "responses": {
+          "200": { "description": "Thing paused", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ThingSummary" } } } },
+          "default": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/v1/things/{thingId}/archive": {
+      "post": {
+        "tags": ["Things"],
+        "operationId": "archiveThing",
+        "parameters": [{ "$ref": "#/components/parameters/ThingId" }],
+        "requestBody": { "$ref": "#/components/requestBodies/EmptyObject" },
+        "responses": {
+          "200": { "description": "Thing archived", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ThingSummary" } } } },
+          "default": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "awsSigV4": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "Authorization",
+        "description": "AWS Signature Version 4 for execute-api. A host may replace this transport adapter and must still provide a trusted principal."
+      }
+    },
+    "parameters": {
+      "ThingId": { "name": "thingId", "in": "path", "required": true, "schema": { "type": "string", "pattern": "^[A-Za-z0-9-]{1,128}$" } },
+      "ConnectionId": { "name": "connectionId", "in": "path", "required": true, "description": "Owner-scoped connection ID or alias.", "schema": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@-]{0,255}$" } },
+      "RoutineId": { "name": "routineId", "in": "path", "required": true, "schema": { "type": "string", "pattern": "^[A-Za-z0-9-]{1,128}$" } },
+      "ConversationId": { "name": "conversationId", "in": "path", "required": true, "description": "Caller-chosen owner-scoped conversation key.", "schema": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@-]{0,127}$" } },
+      "MessageId": { "name": "messageId", "in": "path", "required": true, "schema": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@-]{0,199}$" } },
+      "RunId": { "name": "runId", "in": "path", "required": true, "schema": { "type": "string", "pattern": "^[A-Za-z0-9-]{1,128}$" } },
+      "RequestId": { "name": "requestId", "in": "path", "required": true, "schema": { "type": "string", "pattern": "^[A-Za-z0-9-]{1,128}$" } },
+      "Artifact": { "name": "artifact", "in": "path", "required": true, "description": "Opaque artifact ID from the corresponding catalog endpoint.", "schema": { "type": "string", "pattern": "^[A-Za-z0-9-]{1,128}$" } },
+      "ShareToken": { "name": "token", "in": "path", "required": true, "schema": { "type": "string", "pattern": "^[a-f0-9]{32}-[a-f0-9]{64}$" } },
+      "Limit": { "name": "limit", "in": "query", "schema": { "type": "integer", "minimum": 1, "maximum": 100, "default": 25 } },
+      "NextToken": { "name": "nextToken", "in": "query", "schema": { "type": "string" } },
+      "IdempotencyKey": { "name": "Idempotency-Key", "in": "header", "required": false, "schema": { "type": "string", "pattern": "^[A-Za-z0-9._:-]{1,200}$" } },
+      "RequiredIdempotencyKey": { "name": "Idempotency-Key", "in": "header", "required": true, "description": "Becomes the durable message ID; reuse it to retry safely.", "schema": { "type": "string", "pattern": "^[A-Za-z0-9._:-]{1,200}$" } }
+    },
+    "requestBodies": {
+      "EmptyObject": { "required": true, "content": { "application/json": { "schema": { "type": "object", "maxProperties": 0 } } } }
+    },
+    "responses": {
+      "Error": {
+        "description": "Stable error envelope",
+        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+      }
+    },
+    "schemas": {
+      "Credential": {
+        "type": "object",
+        "description": "Provider credential fields written directly to the deployment's secret vault. Values are never returned by the API.",
+        "minProperties": 1,
+        "propertyNames": { "pattern": "^[A-Za-z][A-Za-z0-9_]{0,63}$" },
+        "additionalProperties": { "type": "string", "minLength": 1, "maxLength": 32768 },
+        "writeOnly": true
+      },
+      "ProviderAuthorization": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["scheme", "access", "scopeModel", "scopes"],
+        "properties": {
+          "scheme": { "enum": ["oauth2", "api-key", "session", "basic", "none"] },
+          "access": { "enum": ["read", "write", "full"] },
+          "scopeModel": { "enum": ["granular", "coarse", "unknown"] },
+          "scopes": { "type": "array", "maxItems": 256, "items": { "type": "string", "minLength": 1, "maxLength": 512 } }
+        }
+      },
+      "GrantPolicy": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["version", "preset"],
+        "properties": {
+          "version": { "const": "1" },
+          "preset": { "enum": ["read-only", "read-write", "full", "custom"] },
+          "allowOperations": { "$ref": "#/components/schemas/OperationList" },
+          "denyOperations": { "$ref": "#/components/schemas/OperationList" },
+          "approvalOverrides": {
+            "type": "array",
+            "maxItems": 128,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["operationId", "approval"],
+              "properties": {
+                "operationId": { "$ref": "#/components/schemas/OperationId" },
+                "approval": { "enum": ["never", "on-request", "always"] }
+              }
+            }
+          },
+          "resourceConstraints": {
+            "type": "object",
+            "maxProperties": 64,
+            "additionalProperties": {
+              "type": "array",
+              "maxItems": 256,
+              "items": { "type": "string", "minLength": 1, "maxLength": 512 }
+            }
+          },
+          "expiresAt": { "type": "string", "format": "date-time" }
+        },
+        "allOf": [
+          {
+            "if": { "properties": { "preset": { "const": "custom" } }, "required": ["preset"] },
+            "then": { "required": ["allowOperations"], "properties": { "allowOperations": { "minItems": 1 } } }
+          }
+        ]
+      },
+      "OperationId": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9-]{0,63}(?:\\.[a-z][a-zA-Z0-9-]{0,63})+$",
+        "maxLength": 256
+      },
+      "OperationList": {
+        "type": "array",
+        "maxItems": 128,
+        "uniqueItems": true,
+        "items": { "$ref": "#/components/schemas/OperationId" }
+      },
+      "CreateConnection": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["version", "pluginId", "alias", "authorization", "credential", "grant"],
+        "properties": {
+          "version": { "const": "1" },
+          "pluginId": { "type": "string", "minLength": 1, "maxLength": 64 },
+          "alias": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@-]{0,127}$" },
+          "authorization": { "$ref": "#/components/schemas/ProviderAuthorization" },
+          "credential": { "$ref": "#/components/schemas/Credential" },
+          "externalTenantId": { "type": "string", "minLength": 1, "maxLength": 512 },
+          "externalSubjectId": { "type": "string", "minLength": 1, "maxLength": 512 },
+          "grant": { "$ref": "#/components/schemas/GrantPolicy" }
+        }
+      },
+      "CredentialRotation": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["version", "credential"],
+        "properties": {
+          "version": { "const": "1" },
+          "credential": { "$ref": "#/components/schemas/Credential" }
+        }
+      },
+      "CreateConnectionSet": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["version", "name", "connections"],
+        "properties": {
+          "version": { "const": "1" },
+          "name": { "type": "string", "minLength": 1, "maxLength": 128 },
+          "connections": { "type": "array", "minItems": 1, "maxItems": 128, "uniqueItems": true, "items": { "type": "string", "minLength": 1, "maxLength": 512 } },
+          "defaults": { "type": "object", "maxProperties": 64, "additionalProperties": { "type": "string", "minLength": 1, "maxLength": 512 } }
+        }
+      },
+      "CreateSourceBinding": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["version", "sourceKind", "selector"],
+        "properties": {
+          "version": { "const": "1" },
+          "sourceKind": { "enum": ["api", "github", "gitlab", "teams", "slack"] },
+          "selector": { "type": "object", "minProperties": 1, "maxProperties": 32, "additionalProperties": { "type": "string", "minLength": 1, "maxLength": 512 } },
+          "capabilityProfile": { "type": "string", "minLength": 1, "maxLength": 256 },
+          "connectionSetId": { "type": "string", "minLength": 1, "maxLength": 256 }
+        }
+      },
+      "AgentCapabilities": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "profile": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,255}$" },
+          "approvalPolicy": { "enum": ["untrusted", "on-request", "never"] },
+          "approvalsReviewer": { "enum": ["user", "auto-review", "guardian-subagent"] },
+          "networkAccess": { "type": "boolean" },
+          "webSearch": { "enum": ["disabled", "cached", "indexed", "live"] },
+          "computerUse": { "enum": ["disabled", "browser"] },
+          "skills": { "$ref": "#/components/schemas/IdentifierList" },
+          "apps": { "$ref": "#/components/schemas/IdentifierList" },
+          "mcpServers": { "$ref": "#/components/schemas/IdentifierList" }
+        }
+      },
+      "IdentifierList": {
+        "type": "array",
+        "minItems": 1,
+        "maxItems": 64,
+        "uniqueItems": true,
+        "items": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,255}$" }
+      },
+      "Agent": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "driver": { "enum": ["codex", "mock"] },
+          "model": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]{0,254}$" },
+          "sandbox": { "enum": ["read-only", "workspace-write", "danger-full-access"] },
+          "reasoningEffort": { "enum": ["low", "medium", "high", "xhigh", "ultra"] },
+          "reasoningSummary": { "enum": ["auto", "concise", "detailed", "none"] },
+          "personality": { "enum": ["none", "friendly", "pragmatic"] },
+          "capabilities": { "$ref": "#/components/schemas/AgentCapabilities" },
+          "outputSchema": { "type": "object" }
+        }
+      },
+      "ConversationAgent": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "driver": { "enum": ["codex", "mock"] },
+          "model": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]{0,254}$" },
+          "sandbox": { "enum": ["read-only", "workspace-write", "danger-full-access"] },
+          "reasoningEffort": { "enum": ["low", "medium", "high", "xhigh", "ultra"] },
+          "reasoningSummary": { "enum": ["auto", "concise", "detailed", "none"] },
+          "personality": { "enum": ["none", "friendly", "pragmatic"] },
+          "capabilities": { "$ref": "#/components/schemas/AgentCapabilities" }
+        }
+      },
+      "IntegrationAccess": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "connectionSet": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,255}$" },
+          "connections": {
+            "type": "array",
+            "maxItems": 32,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["connection"],
+              "properties": {
+                "connection": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,255}$" },
+                "preset": { "enum": ["read-only", "read-write", "full", "custom"] },
+                "allowOperations": { "$ref": "#/components/schemas/OperationList" },
+                "denyOperations": { "$ref": "#/components/schemas/OperationList" }
+              }
+            }
+          }
+        },
+        "anyOf": [
+          { "required": ["connectionSet"] },
+          { "required": ["connections"], "properties": { "connections": { "minItems": 1 } } }
+        ]
+      },
+      "Repository": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["provider", "url"],
+        "properties": {
+          "provider": { "enum": ["github", "gitlab", "generic"] },
+          "url": { "type": "string", "format": "uri", "maxLength": 2048, "description": "Credential-free HTTPS URL on a deployment-allowed host." },
+          "ref": { "type": "string", "minLength": 1, "maxLength": 255 },
+          "baseRef": { "type": "string", "minLength": 1, "maxLength": 255 },
+          "installationId": { "type": "string", "minLength": 1, "maxLength": 64 },
+          "credentialSecretArn": { "type": "string", "minLength": 1, "maxLength": 2048, "description": "Advanced host-side Secrets Manager binding; never embedded credentials." }
+        }
+      },
+      "RunRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["version", "prompt"],
+        "properties": {
+          "version": { "const": "1" },
+          "prompt": { "type": "string", "minLength": 1, "maxLength": 100000 },
+          "repository": { "$ref": "#/components/schemas/Repository" },
+          "agent": { "$ref": "#/components/schemas/Agent" },
+          "integrations": { "$ref": "#/components/schemas/IntegrationAccess" },
+          "execution": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "backend": { "const": "microvm" },
+              "timeoutSeconds": { "type": "integer", "minimum": 30, "maximum": 28000 }
+            }
+          },
+          "destinations": {
+            "type": "array",
+            "maxItems": 8,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["kind"],
+              "properties": {
+                "kind": { "enum": ["source", "teams", "slack", "none"] },
+                "route": { "type": "string", "minLength": 1, "maxLength": 128 }
+              }
+            }
+          },
+          "metadata": { "type": "object", "additionalProperties": true },
+          "parentRunId": { "type": "string", "minLength": 1, "maxLength": 128 }
+        }
+      },
+      "ConversationMessage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["version", "prompt"],
+        "properties": {
+          "version": { "const": "1" },
+          "prompt": { "type": "string", "minLength": 1, "maxLength": 100000 },
+          "agent": { "$ref": "#/components/schemas/ConversationAgent" },
+          "integrations": { "$ref": "#/components/schemas/IntegrationAccess" }
+        }
+      },
+      "CreateRoutine": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["version", "name", "schedule", "request"],
+        "properties": {
+          "version": { "const": "1" },
+          "name": { "type": "string", "minLength": 1, "maxLength": 128 },
+          "schedule": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["kind", "everyMinutes"],
+            "properties": {
+              "kind": { "const": "interval" },
+              "everyMinutes": { "type": "integer", "minimum": 1, "maximum": 525600 },
+              "startAt": { "type": "string", "format": "date-time" }
+            }
+          },
+          "request": { "$ref": "#/components/schemas/RunRequest", "description": "Must not use parentRunId or a source destination; use a Thing for new automation definitions." },
+          "enabled": { "type": "boolean", "default": true }
+        }
+      },
+      "PublicationSpec": {
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["version", "kind", "path"],
+            "properties": {
+              "version": { "const": "1" },
+              "kind": { "const": "file" },
+              "path": { "type": "string", "minLength": 1 },
+              "title": { "type": "string", "minLength": 1, "maxLength": 500 }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["version", "kind"],
+            "properties": {
+              "version": { "const": "1" },
+              "kind": { "const": "site" },
+              "root": { "type": "string", "minLength": 1 },
+              "entrypoint": { "type": "string", "minLength": 1 },
+              "title": { "type": "string", "minLength": 1, "maxLength": 500 }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["version", "kind", "path"],
+            "properties": {
+              "version": { "const": "1" },
+              "kind": { "const": "video" },
+              "path": { "type": "string", "minLength": 1 },
+              "poster": { "type": "string", "minLength": 1 },
+              "title": { "type": "string", "minLength": 1, "maxLength": 500 }
+            }
+          }
+        ]
+      },
+      "ThingSummary": {
+        "type": "object",
+        "required": ["version", "thingId", "revision", "name", "status", "trigger", "specHash", "createdAt", "updatedAt"],
+        "properties": {
+          "version": { "const": "1" },
+          "thingId": { "type": "string" },
+          "revision": { "type": "integer", "minimum": 1 },
+          "name": { "type": "string" },
+          "status": { "enum": ["draft", "enabled", "paused", "archived"] },
+          "trigger": { "type": "object" },
+          "nextRunAt": { "type": "string", "format": "date-time" },
+          "specHash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+          "createdAt": { "type": "string", "format": "date-time" },
+          "updatedAt": { "type": "string", "format": "date-time" },
+          "lastRunAt": { "type": "string", "format": "date-time" },
+          "lastRunId": { "type": "string" }
+        }
+      },
+      "Thing": {
+        "allOf": [
+          { "$ref": "#/components/schemas/ThingSummary" },
+          { "type": "object", "required": ["spec"], "properties": { "spec": { "$ref": "/schemas/thing-v1.json" } } }
+        ]
+      },
+      "ThingVersionSummary": {
+        "type": "object",
+        "required": ["version", "thingId", "revision", "specHash", "createdAt"],
+        "properties": {
+          "version": { "const": "1" },
+          "thingId": { "type": "string" },
+          "revision": { "type": "integer", "minimum": 1 },
+          "specHash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+          "createdAt": { "type": "string", "format": "date-time" }
+        }
+      },
+      "ThingVersion": {
+        "allOf": [
+          { "$ref": "#/components/schemas/ThingVersionSummary" },
+          { "type": "object", "required": ["spec"], "properties": { "spec": { "$ref": "/schemas/thing-v1.json" } } }
+        ]
+      },
+      "RunReceipt": {
+        "type": "object",
+        "description": "The queued run record. Consumers may follow the Location header for current state.",
+        "required": ["runId", "status"],
+        "properties": {
+          "runId": { "type": "string", "pattern": "^[A-Za-z0-9-]{1,128}$" },
+          "status": { "enum": ["queued", "dispatching", "running", "cancelling", "succeeded", "failed", "cancelled"] }
+        },
+        "additionalProperties": true
+      },
+      "ThingExplanation": {
+        "type": "object",
+        "required": ["version", "thing", "compiledRun", "runnable", "diagnostics"],
+        "properties": {
+          "version": { "const": "1" },
+          "thing": { "$ref": "#/components/schemas/Thing" },
+          "compiledRun": { "type": "object" },
+          "runnable": { "type": "boolean" },
+          "diagnostics": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["id", "status", "message"],
+              "properties": {
+                "id": { "type": "string" },
+                "status": { "enum": ["pass", "warning", "error"] },
+                "message": { "type": "string" }
+              }
+            }
+          }
+        }
+      },
+      "Discovery": {
+        "type": "object",
+        "required": ["version", "service", "api", "capabilities"],
+        "properties": {
+          "version": { "const": "1" },
+          "service": { "const": "rat-things" },
+          "api": { "type": "object" },
+          "capabilities": { "type": "object" }
+        }
+      },
+      "Error": {
+        "type": "object",
+        "required": ["error"],
+        "properties": {
+          "error": {
+            "type": "object",
+            "required": ["code", "message", "retryable"],
+            "properties": {
+              "code": { "type": "string" },
+              "message": { "type": "string" },
+              "retryable": { "type": "boolean" },
+              "traceId": { "type": "string" }
+            }
+          }
+        }
+      }
+    }
+  },
+  "security": [{ "awsSigV4": [] }]
+}

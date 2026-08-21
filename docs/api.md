@@ -11,7 +11,10 @@ open for the agent.
 
 ## Authentication and ownership
 
-Except for `GET /health`, every control route requires a principal supplied by API Gateway:
+Thing discovery and contract documents (`GET /health`, `GET /.well-known/rat-things`,
+`GET /openapi.json`, and `GET /schemas/*.json`) are public and contain no owner data. Publication
+share redemption uses its own bearer grant. Every other control route requires a principal supplied
+by API Gateway:
 
 - an IAM authorizer's `userArn` or `callerId`; or
 - a JWT authorizer's `sub` claim.
@@ -20,9 +23,9 @@ The handler derives `ownerId` from that value. A caller cannot supply or select 
 `X-Runtime-Owner` escape hatch works only when `ALLOW_OWNER_HEADER=true`; this is for isolated local
 testing and must be false in a deployed stack.
 
-The included Terraform module configures `AWS_IAM` on every control route and no authorization on
-`GET /health`. JWT principal extraction is a handler capability for a separately reviewed API
-Gateway configuration; it is not enabled by the provided root stack.
+The included Terraform module configures `AWS_IAM` on owner-scoped control routes and no
+authorization on the discovery/contract routes. JWT principal extraction is a handler capability
+for a separately reviewed API Gateway configuration; it is not enabled by the provided root stack.
 
 Runs are readable, listable, and cancellable only by the exact derived owner. Webhook-created runs
 use provider-specific owner namespaces and are therefore not automatically visible to an API user.
@@ -33,6 +36,11 @@ Cross-identity lookup is an administrative capability outside v1.
 | Method and path | Auth | Behavior |
 | --- | --- | --- |
 | `GET /health` | None | Liveness response; does not prove worker/model/provider readiness |
+| `GET /.well-known/rat-things` | None | Deployment capabilities plus relative OpenAPI and schema links |
+| `GET /openapi.json` | None | OpenAPI 3.1 contract for headless consumers |
+| `GET /schemas/thing-v1.json` | None | Portable ThingSpec v1 JSON Schema |
+| `GET /schemas/thing-create-v1.json` | None | Create-Thing envelope JSON Schema |
+| `GET /schemas/thing-version-v1.json` | None | Immutable-version envelope JSON Schema |
 | `GET /v1/capability-profiles` | Required | List installed capability-policy ceilings |
 | `GET /v1/integrations/plugins` | Required | List trusted integration manifests and operation schemas |
 | `GET /v1/integrations/connections` | Required | List the owner's connections and persistent grants; never returns credentials |
@@ -44,6 +52,17 @@ Cross-identity lookup is an administrative capability outside v1.
 | `POST /v1/integrations/connection-sets` | Required | Create a reusable multi-account connection set |
 | `GET /v1/integrations/source-bindings` | Required | List verified-source capability bindings |
 | `POST /v1/integrations/source-bindings` | Required | Bind a verified source selector to a profile and/or connection set |
+| `GET /v1/things?limit=25&nextToken=...` | Required | List owner-scoped Thing summaries; `includeArchived=true` includes archived entries |
+| `POST /v1/things` | Required | Create a draft or enabled Thing and immutable revision 1 |
+| `GET /v1/things/{thingId}` | Required | Get the current complete Thing definition |
+| `GET /v1/things/{thingId}/versions` | Required | List immutable version metadata |
+| `GET /v1/things/{thingId}/versions/{revision}` | Required | Get one historical immutable definition |
+| `POST /v1/things/{thingId}/versions` | Required | Select a new immutable revision using `expectedRevision` compare-and-swap |
+| `GET /v1/things/{thingId}/explain` | Required | Resolve effective profile, accounts, grants, operations, and diagnostics without credentials |
+| `POST /v1/things/{thingId}/run` | Required | Test/explicitly invoke a non-archived Thing and return `202` |
+| `POST /v1/things/{thingId}/enable` | Required | Mark enabled and activate interval scheduling; explicit manual runs also work in draft/paused |
+| `POST /v1/things/{thingId}/pause` | Required | Stop scheduled occurrences while retaining explicit test runs |
+| `POST /v1/things/{thingId}/archive` | Required | Terminally archive a Thing |
 | `GET /v1/routines?limit=25&nextToken=...` | Required | List owner-scoped interval routines |
 | `POST /v1/routines` | Required | Store a versioned routine and its encrypted run request |
 | `GET /v1/routines/{routineId}` | Required | Get one non-deleted routine |
@@ -70,12 +89,52 @@ Cross-identity lookup is an administrative capability outside v1.
 | `GET /__share/{token}` | Bearer token | Redeem a publication grant for host-only CloudFront signed cookies |
 | `GET /v1/shares/{token}` | Bearer token | Validate a time-bounded file share and redirect to private S3 |
 | `POST /v1/runs/{runId}/cancel` | Required | Request cancellation and return `202`; terminal runs are unchanged |
+| `POST /webhooks/github` | Provider signature | Optional GitHub event ingress; verifies the raw body before normalization |
+| `POST /webhooks/gitlab` | Provider signature | Optional GitLab event ingress with signed-standard and legacy verification |
+| `POST /webhooks/teams` | Provider signature | Optional Teams activity ingress with immediate acknowledgement |
+| `POST /webhooks/slack` | Provider signature | Optional Slack event ingress with timestamp/replay checks |
 
 `nextToken` is opaque and must be returned unchanged. Live events use an ordered polling snapshot,
 not a long-held HTTP stream. Interactive routes are available only while the exact run has an active
 MicroVM execution; stale, terminal, or non-interactive runs return `409`. Callers never select a
 MicroVM or receive its AWS-issued proxy token. Durable conversation continuation remains trusted
 orchestration selected from the stored owner-scoped session.
+
+## Discovery and error contract
+
+Consumers should fetch `/.well-known/rat-things` from the deployment instead of assuming a central
+runtime URL. Its links are relative so custom domains and reverse proxies remain independent. The
+same OpenAPI and JSON Schema files are published with the documentation for generation and CI, but
+an installed deployment is authoritative for the capabilities it advertises.
+
+Errors use a stable envelope:
+
+```json
+{
+  "error": {
+    "code": "invalid_request",
+    "message": "Thing spec trigger.kind must be manual or interval",
+    "retryable": false,
+    "traceId": "API_GATEWAY_REQUEST_ID"
+  }
+}
+```
+
+Preserve `traceId` when reporting an issue. `invalid_request`, `forbidden`, `not_found`, and
+`conflict` are not retryable without changing state or input. Unexpected internal failures hide
+their details from the caller and set `retryable: true`; use bounded structured logs for diagnosis.
+
+## Things
+
+Things are the recommended facade for new operator and embedded-product consumers. A Thing compiles
+to the existing run request while hiding routine storage and scheduler details. Definitions are
+immutable, content-digested objects in a private encrypted non-expiring definition bucket;
+DynamoDB stores lifecycle and references only. Every occurrence adds trusted Thing provenance and
+still passes through ordinary run validation, capability profiles, connection grants, approval
+policy, and idempotent queue submission.
+
+See [Things](things.md) for the complete contract, lifecycle, multi-account example, CLI mapping,
+and `explain` output. Raw runs and routines remain supported lower-level interfaces.
 
 ## Headless durable conversations
 

@@ -63,7 +63,10 @@ export function response(
   };
 }
 
-export function errorResponse(error: unknown): APIGatewayProxyStructuredResultV2 {
+export function errorResponse(
+  error: unknown,
+  traceId?: string,
+): APIGatewayProxyStructuredResultV2 {
   const requestError =
     error instanceof ValidationError ||
     error instanceof ConflictError ||
@@ -97,7 +100,14 @@ export function errorResponse(error: unknown): APIGatewayProxyStructuredResultV2
   if (!requestError) {
     console.error(JSON.stringify({ level: 'error', message: 'request failed', error: safeError(error) }));
   }
-  return response(statusCode, { error: { code: errorCode(error), message } });
+  return response(statusCode, {
+    error: {
+      code: errorCode(error),
+      message,
+      retryable: statusCode >= 500,
+      ...(traceId ? { traceId } : {}),
+    },
+  });
 }
 
 export function header(headers: Record<string, string | undefined>, name: string): string | undefined {

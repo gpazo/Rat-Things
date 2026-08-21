@@ -169,15 +169,19 @@ responses by default.
 
 ## Storage and retention
 
-The adapter currently requests S3 server-side encryption with Amazon S3 managed keys (`AES256`) and
-stores SHA-256 checksums. TLS is provided by AWS SDK HTTPS endpoints. If policy requires customer
-managed KMS keys, update both bucket policy and `PutObject` behavior together, then test every writer;
-an enforced SSE-KMS bucket will reject an explicit SSE-S3 write.
+Run artifacts use S3-managed encryption (`AES256`); the immutable Thing definition bucket uses the
+deployment data KMS key and bucket keys. Both store SHA-256 checksums and require TLS. If policy
+changes either encryption mode, update bucket policy and writer behavior together and test every
+writer.
 
 DynamoDB TTL removes expired records asynchronously, not at an exact second. Configure an S3
 lifecycle at least as strict as the run-retention policy and account for EventBridge/SQS DLQ replay
 windows. Deleting the DynamoDB record before the artifact does not authorize the remaining object.
 CloudWatch retention and notification-provider retention are separate.
+
+Thing definitions intentionally have no run-artifact expiry because current and historical
+revisions must remain executable/auditable. Archive does not delete a definition. Apply an explicit
+reviewed product retention/deletion process before introducing automated definition expiry.
 
 ## Repository and process isolation
 

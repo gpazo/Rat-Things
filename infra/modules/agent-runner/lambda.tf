@@ -5,10 +5,13 @@ locals {
     DEFAULT_SANDBOX_MODE                = var.default_sandbox_mode
     DEFAULT_AGENT_NETWORK_ACCESS        = tostring(var.default_agent_network_access)
     ARTIFACT_BUCKET                     = aws_s3_bucket.artifacts.id
+    DEFINITION_BUCKET                   = aws_s3_bucket.definitions.id
+    DEFINITION_KMS_KEY_ARN              = aws_kms_key.data.arn
     AWS_NODEJS_CONNECTION_REUSE_ENABLED = "1"
     CONVERSATIONS_TABLE_NAME            = aws_dynamodb_table.conversations.name
     INTEGRATIONS_TABLE_NAME             = aws_dynamodb_table.integrations.name
     ROUTINES_TABLE_NAME                 = aws_dynamodb_table.routines.name
+    THINGS_TABLE_NAME                   = aws_dynamodb_table.things.name
     INTEGRATION_CREDENTIAL_NAME_PREFIX  = "${local.name}/connections"
     INTEGRATION_CREDENTIAL_KMS_KEY_ARN  = aws_kms_key.data.arn
     CONVERSATION_QUEUE_URL              = aws_sqs_queue.conversations.url

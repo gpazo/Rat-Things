@@ -42,8 +42,13 @@ locals {
   )
 
   control_routes = toset([
+    "GET /.well-known/rat-things",
     "GET /__share/{token}",
     "GET /health",
+    "GET /openapi.json",
+    "GET /schemas/thing-create-v1.json",
+    "GET /schemas/thing-v1.json",
+    "GET /schemas/thing-version-v1.json",
     "GET /v1/capability-profiles",
     "GET /v1/integrations/plugins",
     "GET /v1/integrations/connections",
@@ -59,6 +64,11 @@ locals {
     "GET /v1/runs/{runId}/artifacts/{artifact}",
     "GET /v1/routines",
     "GET /v1/routines/{routineId}",
+    "GET /v1/things",
+    "GET /v1/things/{thingId}",
+    "GET /v1/things/{thingId}/explain",
+    "GET /v1/things/{thingId}/versions",
+    "GET /v1/things/{thingId}/versions/{revision}",
     "GET /v1/shares/{token}",
     "POST /v1/runs",
     "POST /v1/integrations/connections",
@@ -77,6 +87,12 @@ locals {
     "POST /v1/routines/{routineId}/pause",
     "POST /v1/routines/{routineId}/resume",
     "POST /v1/routines/{routineId}/run",
+    "POST /v1/things",
+    "POST /v1/things/{thingId}/archive",
+    "POST /v1/things/{thingId}/enable",
+    "POST /v1/things/{thingId}/pause",
+    "POST /v1/things/{thingId}/run",
+    "POST /v1/things/{thingId}/versions",
     "POST /v1/conversations/{conversationId}/messages",
     "POST /v1/conversations/{conversationId}/publications",
     "POST /v1/runs/{runId}/publications",
@@ -107,8 +123,13 @@ resource "aws_apigatewayv2_route" "control" {
   api_id    = aws_apigatewayv2_api.this.id
   route_key = each.value
   authorization_type = contains([
+    "GET /.well-known/rat-things",
     "GET /__share/{token}",
     "GET /health",
+    "GET /openapi.json",
+    "GET /schemas/thing-create-v1.json",
+    "GET /schemas/thing-v1.json",
+    "GET /schemas/thing-version-v1.json",
     "GET /v1/shares/{token}",
   ], each.value) ? "NONE" : "AWS_IAM"
   target = "integrations/${aws_apigatewayv2_integration.lambda["control"].id}"

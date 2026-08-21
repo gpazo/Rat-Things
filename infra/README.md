@@ -9,11 +9,12 @@ provider and the AWS Cloud Control provider required for the MicroVM image resou
 
 ## What it creates
 
-- HTTP API Gateway with public signature-validated provider routes and IAM-authenticated `/v1/runs`
-  routes.
+- HTTP API Gateway with public signature-validated provider routes, public machine-readable
+  discovery/contracts, and IAM-authenticated owner-scoped control routes.
 - Lambda ingress, control, dispatcher, reconciler, state-stream, and notification functions.
-- An encrypted, streamed DynamoDB run table, encrypted S3 artifact and MicroVM-source buckets, and
-  an encrypted SQS run queue/dead-letter queue.
+- Encrypted DynamoDB run, conversation, integration, routine, and revisioned Thing stores;
+  encrypted S3 artifact, non-expiring definition, and MicroVM-source buckets; and encrypted SQS
+  work/dead-letter queues.
 - A custom EventBridge bus, terminal-state notifier target, failure queues, and alarms.
 - A Lambda MicroVM image built from `dist/microvm-source.zip`, its execution/build roles, log group,
   and SSM image metadata.

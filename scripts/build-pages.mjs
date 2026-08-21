@@ -12,6 +12,9 @@ marked.setOptions({ gfm: true });
 
 await rm(output, { recursive: true, force: true });
 await cp('site', output, { recursive: true });
+await cp('spec/openapi.json', join(output, 'openapi.json'));
+await cp('spec/schemas', join(output, 'schemas'), { recursive: true });
+await cp('examples', join(output, 'examples'), { recursive: true });
 await mkdir(join(output, 'assets', 'architecture'), { recursive: true });
 await cp('assets/rat-things-hero.jpg', join(output, 'assets', 'rat-things-hero.jpg'));
 await cp('assets/rat-things-og-v2.jpg', join(output, 'assets', 'rat-things-og-v2.jpg'));
@@ -41,6 +44,8 @@ await copyDocumentationAssets(docsEntries);
 await writeFile(join(docsOutput, 'index.html'), renderDocsHome(groups, docs));
 
 const orderedDocs = groups.flatMap((group) => group.documents.map((file) => docs.get(file)));
+await writeFile(join(output, 'llms.txt'), renderLlmsIndex(groups, docs));
+await writeFile(join(output, 'llms-full.txt'), renderLlmsFull(orderedDocs));
 const generatedHtmlFiles = [join(output, 'index.html'), join(docsOutput, 'index.html')];
 for (const [index, doc] of orderedDocs.entries()) {
   const pageDirectory = join(docsOutput, doc.slug);
@@ -66,7 +71,21 @@ function documentMetadata(file, source) {
   const description = extractDescription(source);
   const rendered = addHeadingIds(rewriteDocumentLinks(marked.parse(source), file));
   const tableOfContents = extractTableOfContents(rendered);
-  return { file, slug, title, description, rendered, tableOfContents };
+  return { file, slug, title, description, source, rendered, tableOfContents };
+}
+
+function renderLlmsIndex(groups, documents) {
+  const sections = groups.map((group) => `## ${group.title}\n\n${group.documents.map((file) => {
+    const document = documents.get(file);
+    return `- [${document.title}](${pagesUrl}/docs/${document.slug}/): ${document.description}`;
+  }).join('\n')}`).join('\n\n');
+  return `# Rat Things\n\n> Self-hosted, headless agent automation with isolated Codex execution, reusable Things, multi-account integrations, browser use, and durable work.\n\n${sections}\n\n## Machine-readable contracts\n\n- [OpenAPI 3.1](${pagesUrl}/openapi.json): Deployment API contract and authentication model.\n- [ThingSpec v1 JSON Schema](${pagesUrl}/schemas/thing-v1.json): Portable credential-free automation definition.\n- [Create Thing schema](${pagesUrl}/schemas/thing-create-v1.json): Draft or enabled creation envelope.\n- [Create Thing version schema](${pagesUrl}/schemas/thing-version-v1.json): Compare-and-swap immutable revision envelope.\n- [Complete documentation corpus](${pagesUrl}/llms-full.txt): Repository Markdown combined into one agent-readable document.\n\n## Source and examples\n\n- [Repository](${repositoryUrl})\n- [Thing create example](${pagesUrl}/examples/thing-create.json)\n- [Thing version example](${pagesUrl}/examples/thing-version.json)\n`;
+}
+
+function renderLlmsFull(documents) {
+  return `# Rat Things complete documentation\n\nSource: ${repositoryUrl}\nCanonical index: ${pagesUrl}/llms.txt\n\n${documents.map((document) => (
+    `---\n\n<!-- ${document.file} -->\n\n${document.source.trim()}\n`
+  )).join('\n')}\n`;
 }
 
 function extractDescription(source) {
@@ -168,37 +187,37 @@ function renderDocsHome(groups, documents) {
     </section>`).join('\n');
   return pageTemplate({
     title: 'Documentation',
-    description: 'Build durable Codex workflows, run tools in isolated AWS MicroVMs, and publish agent-created files, sites, and video.',
+    description: 'Build and embed reusable agent automations through a self-hosted OpenAPI backend with isolated Codex execution.',
     canonicalPath: '/docs/',
     assetPrefix: '../',
     nav,
     main: `
       <div class="docs-home">
-        <p class="docs-eyebrow">Build with Rat Things</p>
-        <h1>Give agents a real<br>place to work.</h1>
-        <p class="docs-home-lede">Run Codex locally or inside an isolated AWS MicroVM, continue the same project across machines, and turn the result into a file, site, or video anyone you choose can open.</p>
+        <p class="docs-eyebrow">Build on Rat Things</p>
+        <h1>Agent automation.<br>Your infrastructure.</h1>
+        <p class="docs-home-lede">Define reusable Things, connect multiple accounts with explicit permissions, and expose isolated Codex execution through one headless API for operators, products, and other agents.</p>
         <div class="docs-home-actions">
-          <a class="docs-button docs-button-primary" href="./codex-subscription/">Start with Codex</a>
-          <a class="docs-button" href="./sharing-work/">Publish the work</a>
-          <a class="docs-button" href="./costs/#two-turn-publication-measurement">Performance &amp; cost</a>
-          <a class="docs-button" href="./development-and-deployment/">Deploy the runtime</a>
+          <a class="docs-button docs-button-primary" href="./things/">Build a Thing</a>
+          <a class="docs-button" href="./embedding/">Embed the API</a>
+          <a class="docs-button" href="./development-and-deployment/">Self-host the runtime</a>
+          <a class="docs-button" href="./diagnostics/">Debug a deployment</a>
         </div>
         <dl class="docs-proof" aria-label="Rat Things capabilities">
-          <div><dt>27.45 seconds</dt><dd>cold message to agent runner, live measured</dd></div>
-          <div><dt>1.99 seconds</dt><dd>warm message to resumed agent runner</dd></div>
-          <div><dt>$0.046</dt><dd>non-model infrastructure for the two-turn site canary</dd></div>
-          <div><dt>$0.380</dt><dd>complete public-list estimate including model inference</dd></div>
+          <div><dt>OpenAPI 3.1</dt><dd>machine-readable installed routes and request contract</dd></div>
+          <div><dt>BYO OAuth</dt><dd>the host owns apps, consent, credentials, and UX</dd></div>
+          <div><dt>Multi-account</dt><dd>several accounts per integration with intersected grants</dd></div>
+          <div><dt>Independent</dt><dd>each deployment owns its identity, data, and runtime</dd></div>
         </dl>
         <section class="product-outcomes" aria-labelledby="product-outcomes-title">
           <div>
-            <p class="docs-card-kicker">The runtime around Codex</p>
-            <h2 id="product-outcomes-title">From prompt to durable, shareable work.</h2>
+            <p class="docs-card-kicker">A backend consumers can build on</p>
+            <h2 id="product-outcomes-title">From reusable intent to durable, shareable work.</h2>
           </div>
           <ul>
+            <li><strong>Define a Thing once.</strong><span>Version a goal, trigger, capability profile, accounts, and delivery without embedding credentials.</span></li>
+            <li><strong>Bring the exact accounts.</strong><span>Resolve provider scopes, persistent grants, per-Thing narrowing, resource limits, and approvals before use.</span></li>
             <li><strong>Keep the project, not the machine.</strong><span>Conversation history, Codex state, workspace bytes, and published files survive disposable compute.</span></li>
-            <li><strong>Let agents use real tools.</strong><span>Shell, Git, filesystems, and controlled network access run inside a dedicated VM boundary.</span></li>
-            <li><strong>Ship more than an answer.</strong><span>Publish one file, a complete static experience, or streamable video through the same capability.</span></li>
-            <li><strong>Bring the agent to the work.</strong><span>Use one runtime from the CLI, repository conversations, or team chat.</span></li>
+            <li><strong>Bring your own product.</strong><span>Use the same discoverable API from a small-business console, SaaS backend, CLI, provider event, or another agent.</span></li>
           </ul>
         </section>
         ${cards}

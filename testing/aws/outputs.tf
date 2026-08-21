@@ -10,6 +10,10 @@ output "artifact_bucket_name" {
   value = module.agent_runner.artifact_bucket_name
 }
 
+output "definition_bucket_name" {
+  value = module.agent_runner.definition_bucket_name
+}
+
 output "conversation_state_bucket_name" {
   value = module.agent_runner.conversation_state_bucket_name
 }
@@ -32,6 +36,14 @@ output "runs_table_name" {
 
 output "conversations_table_name" {
   value = module.agent_runner.conversations_table_name
+}
+
+output "integrations_table_name" {
+  value = module.agent_runner.integrations_table_name
+}
+
+output "things_table_name" {
+  value = module.agent_runner.things_table_name
 }
 
 output "run_queue_url" {

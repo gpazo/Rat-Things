@@ -8,7 +8,8 @@ persists the result; and optionally posts that result to a channel. It also cont
 durable conversation foundation for prioritized messages, worker leases, progress, history, and
 checkpointed turn slices. Signed Teams mentions enter that mailbox and wake the bounded slice
 coordinator. The same control plane now owns capability profiles, multi-account API connections,
-live App Server interaction, isolated browser use, and durable interval routines. Rat Things is not
+live App Server interaction, isolated browser use, durable interval routines, and the revisioned
+Thing facade for headless consumers. Rat Things is not
 yet a general visual workflow builder, source-control installation manager, or chat identity
 service.
 
@@ -18,7 +19,7 @@ Rat Things separates the lifetime of an agent from the lifetime of its compute:
 
 - a channel thread or API conversation is the durable unit of work;
 - DynamoDB owns coordination, fencing, ordering, and bounded history indexes;
-- immutable S3 objects own messages, events, checkpoints, results, and normalized replay;
+- immutable S3 objects own Thing definitions, messages, events, checkpoints, results, and normalized replay;
 - S3 Files owns durable Codex state and workspace bytes expected by app-server, while high-churn
   temp, cache, plugin-cache, and exported-artifact paths remain VM-local;
 - a Lambda MicroVM owns exactly one fenced conversation while it runs; and
@@ -32,7 +33,7 @@ The code is divided by responsibility:
 | Area | Responsibility |
 | --- | --- |
 | `src/domain` | Stable request/result types, validation, and the run state machine; no AWS imports |
-| `src/core` | Submission, idempotency, ownership, cancellation, routines, and orchestration through ports |
+| `src/core` | Submission, idempotency, ownership, cancellation, Things, routines, and orchestration through ports |
 | `src/conversation` | Durable mailbox, lease, progress, history, and resumable-turn coordination |
 | `src/identity` | Explicit actor, owner, source, and credential-subject context |
 | `src/credentials` | Host-owned secret/vault contracts, credential bindings, and bounded extraction |
@@ -104,6 +105,12 @@ Routines enter at the same boundary. Their prompts and canonical run requests li
 the routine table stores schedule metadata, a digest, and an artifact reference. Each interval uses a
 deterministic occurrence key, and the schedule advances conditionally only after ordinary run
 submission succeeds.
+
+Things are the product-facing entry to that boundary. The control API authenticates the owner,
+validates a credential-free ThingSpec, writes an immutable content-digested revision to the private
+definition bucket, and stores only lifecycle/index metadata in the Thing table. Explicit and
+scheduled occurrences compile to ordinary RunRequests and add trusted Thing revision/provenance.
+They do not bypass run idempotency, profiles, connection grants, approvals, or queue durability.
 
 ### 2. Dispatch
 
@@ -308,9 +315,16 @@ persistent grants, connection sets, and source bindings. It never stores credent
 separate routines table stores interval schedules and encrypted request references; a due-time GSI
 lets the one-minute reconciler find enabled occurrences without scanning prompts or runs.
 
+The Thing table stores one root lifecycle item and immutable version references per Thing. Sparse
+owner-created and status-next-run GSIs index root items only. Compare-and-swap on the current
+revision prevents two editors from silently overwriting each other; scheduled advancement also
+checks the revision and due time so a new definition cannot advance an old schedule.
+
 ### S3
 
-S3 is the durable body/artifact plane. Prompts, full results, event streams, patches, conversation
+S3 is the durable definition/body/artifact plane. The separate definition bucket holds encrypted,
+versioned Thing revisions without the run-artifact expiry rule. The artifact bucket holds prompts,
+full results, event streams, patches, conversation
 message bodies, history payloads, turn checkpoints, and user-visible files are stored under
 owner-hashed prefixes with checksums. Each completed conversation turn commits a bounded file
 catalog. The runner restores those files into `.rat-things/artifacts/` before execution, so a new

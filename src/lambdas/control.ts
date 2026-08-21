@@ -13,6 +13,12 @@ import {
 import { AgentInteractionUnavailableError, requiredEnv } from '../adapters/executors.js';
 import { apiConversationId } from '../app/conversation-submission.js';
 import {
+  RAT_THINGS_OPENAPI,
+  RAT_THINGS_SCHEMAS,
+  ratThingsDiscovery,
+} from '../app/discovery.js';
+import { explainThingEnvironment } from '../app/thing-explanation.js';
+import {
   getConversationService,
   getConversationSubmissionService,
   getAgentInteractionController,
@@ -20,9 +26,11 @@ import {
   getIntegrationPluginRegistry,
   getCapabilityProfileRegistry,
   getRoutineService,
+  getThingService,
 } from '../app/composition.js';
 import { ConflictError, NotFoundError } from '../core/run-service.js';
 import { publicRoutine } from '../core/routine-service.js';
+import { publicThingSummary } from '../core/thing-service.js';
 import {
   latestPublicationSourceRunId,
   PublicationPublisher,
@@ -87,6 +95,23 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
     const path = event.rawPath;
     if (method === 'GET' && path === '/health') {
       return response(200, { status: 'ok', service: 'rat-things' });
+    }
+    if (method === 'GET' && path === '/.well-known/rat-things') {
+      return response(200, ratThingsDiscovery(process.env.RAT_THINGS_DOCS_URL), {
+        'cache-control': 'public, max-age=300',
+      });
+    }
+    if (method === 'GET' && path === '/openapi.json') {
+      return response(200, RAT_THINGS_OPENAPI, {
+        'cache-control': 'public, max-age=300',
+      });
+    }
+    const schema = RAT_THINGS_SCHEMAS[path];
+    if (method === 'GET' && schema) {
+      return response(200, schema, {
+        'cache-control': 'public, max-age=300',
+        'content-type': 'application/schema+json; charset=utf-8',
+      });
     }
     const shareToken = sharePathParameter(event);
     if (
@@ -217,6 +242,121 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
           ? { connectionSetId: boundedText(body.connectionSetId, 'connectionSetId', 256) }
           : {}),
       }));
+    }
+    if (method === 'GET' && path === '/v1/things') {
+      return response(200, await getThingService().list(
+        ownerId,
+        parseLimit(event.queryStringParameters?.limit),
+        event.queryStringParameters?.nextToken,
+        event.queryStringParameters?.includeArchived === 'true',
+      ));
+    }
+    if (method === 'POST' && path === '/v1/things') {
+      const thing = await getThingService().create(ownerId, jsonBody(event));
+      return response(201, publicThingSummary(thing), {
+        location: `/v1/things/${thing.thingId}`,
+      });
+    }
+    const thingId = pathParameter(event, 'thingId');
+    if (
+      method === 'GET' &&
+      thingId &&
+      routeMatches(event, 'GET /v1/things/{thingId}', `/v1/things/${thingId}`)
+    ) {
+      return response(200, await getThingService().getPublic(ownerId, thingId));
+    }
+    if (
+      method === 'GET' &&
+      thingId &&
+      routeMatches(
+        event,
+        'GET /v1/things/{thingId}/versions',
+        `/v1/things/${thingId}/versions`,
+      )
+    ) {
+      return response(200, {
+        versions: await getThingService().listVersions(ownerId, thingId),
+      });
+    }
+    const thingRevision = numericPathParameter(event, 'revision');
+    if (
+      method === 'GET' &&
+      thingId &&
+      thingRevision &&
+      routeMatches(
+        event,
+        'GET /v1/things/{thingId}/versions/{revision}',
+        `/v1/things/${thingId}/versions/${thingRevision}`,
+      )
+    ) {
+      return response(200, await getThingService().getVersion(ownerId, thingId, thingRevision));
+    }
+    if (
+      method === 'GET' &&
+      thingId &&
+      routeMatches(
+        event,
+        'GET /v1/things/{thingId}/explain',
+        `/v1/things/${thingId}/explain`,
+      )
+    ) {
+      return response(200, await explainThingEnvironment(
+        ownerId,
+        await getThingService().explain(ownerId, thingId),
+        {
+          profiles: getCapabilityProfileRegistry(),
+          connections: getConnectionService(),
+          plugins: getIntegrationPluginRegistry(),
+        },
+      ));
+    }
+    if (
+      method === 'POST' &&
+      thingId &&
+      routeMatches(
+        event,
+        'POST /v1/things/{thingId}/versions',
+        `/v1/things/${thingId}/versions`,
+      )
+    ) {
+      return response(
+        201,
+        publicThingSummary(await getThingService().addVersion(ownerId, thingId, jsonBody(event))),
+      );
+    }
+    for (const operation of ['enable', 'pause', 'archive'] as const) {
+      if (
+        method === 'POST' &&
+        thingId &&
+        routeMatches(
+          event,
+          `POST /v1/things/{thingId}/${operation}`,
+          `/v1/things/${thingId}/${operation}`,
+        )
+      ) {
+        strictBody(jsonBody(event), []);
+        return response(200, publicThingSummary(
+          operation === 'enable'
+            ? await getThingService().enable(ownerId, thingId)
+            : operation === 'pause'
+              ? await getThingService().pause(ownerId, thingId)
+              : await getThingService().archive(ownerId, thingId),
+        ));
+      }
+    }
+    if (
+      method === 'POST' &&
+      thingId &&
+      routeMatches(event, 'POST /v1/things/{thingId}/run', `/v1/things/${thingId}/run`)
+    ) {
+      strictBody(jsonBody(event), []);
+      const idempotencyKey = header(event.headers, 'idempotency-key');
+      const run = await getThingService().runNow(
+        ownerId,
+        thingId,
+        ...(idempotencyKey ? [requiredIdempotencyKey(idempotencyKey)] : []),
+      );
+      return response(202, publicRun(run), { location: `/v1/runs/${run.runId}` });
     }
     if (method === 'GET' && path === '/v1/routines') {
       const result = await getRoutineService().list(
@@ -509,12 +649,12 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
     if (method === 'POST' && runId && path === `/v1/runs/${runId}/cancel`) {
       return response(202, publicRun(await service().cancel(ownerId, runId)));
     }
-    return response(404, { error: { code: 'not_found', message: 'route not found' } });
+    return errorResponse(new NotFoundError('route not found'), event.requestContext.requestId);
   } catch (error) {
     if (error instanceof AgentInteractionUnavailableError) {
-      return errorResponse(new ConflictError(error.message));
+      return errorResponse(new ConflictError(error.message), event.requestContext.requestId);
     }
-    return errorResponse(error);
+    return errorResponse(error, event.requestContext.requestId);
   }
 };
 
@@ -624,6 +764,13 @@ function conversationPathParameter(
   return value && value.length <= maximum && /^[A-Za-z0-9][A-Za-z0-9._:@-]*$/.test(value)
     ? value
     : undefined;
+}
+
+function numericPathParameter(event: APIGatewayProxyEventV2, name: string): number | undefined {
+  const value = event.pathParameters?.[name];
+  if (!value || !/^\d+$/.test(value)) return undefined;
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : undefined;
 }
 
 function routeMatches(

@@ -2,6 +2,7 @@ import {
   CompleteMultipartUploadCommand,
   CopyObjectCommand,
   CreateMultipartUploadCommand,
+  PutObjectCommand,
   S3Client,
   UploadPartCommand,
 } from '@aws-sdk/client-s3';
@@ -82,6 +83,30 @@ describe('AWS runtime client configuration', () => {
       bucket: 'artifact-bucket',
       key: 'owners/abc/runs/run-2/video.mp4',
       sha256: uploaded.sha256,
+    });
+  });
+
+  it('uses the configured KMS key for immutable definition objects', async () => {
+    const commands: unknown[] = [];
+    const client = {
+      send: vi.fn(async (command: unknown) => {
+        commands.push(command);
+        return {};
+      }),
+    } as unknown as S3Client;
+    const store = new S3ArtifactStore(client, 'definition-bucket', {
+      algorithm: 'aws:kms',
+      kmsKeyId: 'arn:aws:kms:us-west-2:123456789012:key/key-1',
+    });
+
+    await store.putJson('owners/abc/things/thing-1/revision-1.json', { version: '1' });
+
+    expect(commands).toHaveLength(1);
+    expect(commands[0]).toBeInstanceOf(PutObjectCommand);
+    expect((commands[0] as PutObjectCommand).input).toMatchObject({
+      Bucket: 'definition-bucket',
+      ServerSideEncryption: 'aws:kms',
+      SSEKMSKeyId: 'arn:aws:kms:us-west-2:123456789012:key/key-1',
     });
   });
 

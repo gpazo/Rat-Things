@@ -158,6 +158,7 @@ export RAT_THINGS_API_URL="$(terraform -chdir=infra output -raw api_endpoint)"
 export AWS_REGION="<stack region>"
 
 npm run rat-things -- doctor
+npm run rat-things -- doctor --json
 npm run rat-things -- submit \
   --driver mock \
   --backend microvm \
@@ -179,6 +180,18 @@ npm run rat-things -- get RUN_ID
 npm run rat-things -- artifact RUN_ID events
 npm run rat-things -- cancel RUN_ID
 ```
+
+Create and validate the public facade before enabling scheduled work:
+
+```bash
+npm run rat-things -- thing-create --file examples/thing-create.json
+npm run rat-things -- thing-explain THING_ID
+npm run rat-things -- thing-run THING_ID --idempotency-key deployment-smoke-001
+```
+
+`doctor` checks deployment discovery and authenticated control access. Thing definitions live in
+the `definition_bucket_name` output and lifecycle metadata in `things_table_name`; they are separate
+from expiring run artifacts. Never use the local owner-header escape hatch in a deployed stack.
 
 To exercise the same durable mailbox and Lambda MicroVM continuation path used by a chat webhook,
 send two headless turns under one owner-scoped conversation name:
@@ -216,15 +229,17 @@ AWS_E2E_MICROVM_BASE_IMAGE_VERSION="<available pinned version>" \
 npm run test:e2e:aws
 ```
 
-The harness exercises real API Gateway/Lambda/IAM/KMS, the headless conversation API, signed
-GitHub/GitLab/Teams ingress, a pinned
-repository checkout inside the MicroVM, durable artifacts/state/events, captured Teams egress,
-failure queues, one-shot self-termination, and a two-turn Teams conversation that suspends and
-resumes the same MicroVM through its AWS-authenticated continuation endpoint. The mock suite also
-validates expired-session replacement and coordinator crash-window repair. Its opt-in real-Codex
-probe terminates the first VM and restores workspace bytes and one Codex app-server thread in a
-replacement VM. The harness destroys the
-tagged stack from an exit trap. LocalStack cannot replace that isolation/lifecycle test. See
+The harness exercises real API Gateway/Lambda/IAM/KMS, public discovery and schemas, the Thing and
+headless conversation APIs, two accounts on one integration, signed GitHub/GitLab/Teams ingress, a
+pinned repository checkout inside the MicroVM, durable definitions/artifacts/state/events,
+captured Teams egress, failure queues, one-shot self-termination, and a two-turn Teams conversation
+that suspends and resumes the same MicroVM through its AWS-authenticated continuation endpoint.
+The Thing scenario verifies immutable KMS-encrypted definitions, permission intersection,
+idempotent dispatch, lifecycle changes, rotation, revocation, and absence of credential values.
+The mock suite also validates expired-session replacement and coordinator crash-window repair. Its
+opt-in real-Codex probe terminates the first VM and restores workspace bytes and one Codex
+app-server thread in a replacement VM. The harness destroys the tagged stack from an exit trap.
+LocalStack cannot replace that isolation/lifecycle test. See
 [`testing/aws/README.md`](../testing/aws/README.md).
 
 Add the bounded two-turn real-Codex persistence probe before teardown with:
@@ -301,7 +316,8 @@ merge run IDs or replay the same business event without checking for an existing
 
 ## Destruction and retention
 
-`force_destroy_data=false` protects a non-empty S3 bucket from Terraform deletion; it does not retain
+`force_destroy_data=false` protects non-empty artifact and definition buckets from Terraform
+deletion; it does not retain
 DynamoDB, queues, logs, or KMS keys during an approved full destroy. Use reviewed backups and
 organization policy for durable environments.
 

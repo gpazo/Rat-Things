@@ -211,6 +211,12 @@ data "aws_iam_policy_document" "control" {
   }
 
   statement {
+    sid       = "Things"
+    actions   = concat(local.run_table_read_write_actions, ["dynamodb:TransactWriteItems"])
+    resources = [aws_dynamodb_table.things.arn, "${aws_dynamodb_table.things.arn}/index/*"]
+  }
+
+  statement {
     sid = "IntegrationCredentials"
     actions = [
       "secretsmanager:CreateSecret",
@@ -225,6 +231,12 @@ data "aws_iam_policy_document" "control" {
     sid       = "Artifacts"
     actions   = ["s3:GetObject", "s3:PutObject"]
     resources = ["${aws_s3_bucket.artifacts.arn}/owners/*"]
+  }
+
+  statement {
+    sid       = "Definitions"
+    actions   = ["s3:GetObject", "s3:PutObject"]
+    resources = ["${aws_s3_bucket.definitions.arn}/owners/*"]
   }
 
   dynamic "statement" {
@@ -588,6 +600,16 @@ data "aws_iam_policy_document" "reconciler" {
   }
 
   statement {
+    sid = "Things"
+    actions = [
+      "dynamodb:GetItem",
+      "dynamodb:Query",
+      "dynamodb:UpdateItem",
+    ]
+    resources = [aws_dynamodb_table.things.arn, "${aws_dynamodb_table.things.arn}/index/*"]
+  }
+
+  statement {
     sid       = "RoutineRuns"
     actions   = ["dynamodb:GetItem", "dynamodb:PutItem"]
     resources = [aws_dynamodb_table.runs.arn]
@@ -597,6 +619,12 @@ data "aws_iam_policy_document" "reconciler" {
     sid       = "RoutineArtifacts"
     actions   = ["s3:GetObject", "s3:PutObject"]
     resources = ["${aws_s3_bucket.artifacts.arn}/owners/*"]
+  }
+
+  statement {
+    sid       = "ThingDefinitions"
+    actions   = ["s3:GetObject"]
+    resources = ["${aws_s3_bucket.definitions.arn}/owners/*"]
   }
 
   statement {

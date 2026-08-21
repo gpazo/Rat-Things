@@ -3,6 +3,7 @@ output "test_environment" {
   sensitive   = true
   value = {
     ARTIFACT_BUCKET                    = aws_s3_bucket.artifacts.id
+    DEFINITION_BUCKET                  = aws_s3_bucket.definitions.id
     CONVERSATIONS_TABLE_NAME           = aws_dynamodb_table.conversations.name
     CONVERSATION_QUEUE_URL             = aws_sqs_queue.conversations.url
     EVENT_BUS_NAME                     = aws_cloudwatch_event_bus.runs.name
@@ -14,6 +15,7 @@ output "test_environment" {
     INTEGRATION_CREDENTIAL_NAME_PREFIX = "${local.name}/connections"
     RUNS_TABLE_NAME                    = aws_dynamodb_table.runs.name
     ROUTINES_TABLE_NAME                = aws_dynamodb_table.routines.name
+    THINGS_TABLE_NAME                  = aws_dynamodb_table.things.name
     RUN_QUEUE_URL                      = aws_sqs_queue.runs.url
     TERMINAL_EVENTS_QUEUE_URL          = aws_sqs_queue.terminal_events.url
     TEAMS_OUTGOING_WEBHOOK_SECRET_ARN  = aws_secretsmanager_secret.teams_webhook.name

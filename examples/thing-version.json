@@ -1,0 +1,40 @@
+{
+  "version": "1",
+  "expectedRevision": 1,
+  "spec": {
+    "version": "1",
+    "name": "Customer operations review",
+    "goal": "Review support messages and payment exceptions. Draft recommended follow-ups and do not perform external writes without approval.",
+    "trigger": {
+      "kind": "interval",
+      "everyMinutes": 30
+    },
+    "agent": {
+      "driver": "codex",
+      "capabilities": {
+        "profile": "small-business",
+        "networkAccess": true,
+        "computerUse": "browser"
+      }
+    },
+    "connections": {
+      "set": "customer-operations",
+      "accounts": [
+        {
+          "account": "slack-support",
+          "access": "read-only"
+        },
+        {
+          "account": "stripe-business",
+          "access": "read-only"
+        }
+      ]
+    },
+    "deliver": [
+      {
+        "kind": "slack",
+        "route": "C01234567"
+      }
+    ]
+  }
+}

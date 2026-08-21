@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gpazo.github.io/Rat-Things/schemas/thing-create-v1.json",
+  "title": "Create Thing request v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "spec"],
+  "properties": {
+    "version": { "const": "1" },
+    "status": { "enum": ["draft", "enabled"], "default": "draft" },
+    "spec": { "$ref": "thing-v1.json" }
+  }
+}

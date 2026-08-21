@@ -16,7 +16,7 @@ export function createWebhookHandler(
       });
       return response(result.statusCode, result.body);
     } catch (error) {
-      return errorResponse(error);
+      return errorResponse(error, event.requestContext.requestId);
     }
   };
 }

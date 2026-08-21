@@ -38,6 +38,7 @@ import {
 } from '../../src/adapters/aws-runtime.js';
 import { DynamoConversationStore } from '../../src/adapters/dynamo-conversation-store.js';
 import { DynamoIntegrationStore } from '../../src/adapters/dynamo-integration-store.js';
+import { DynamoThingStore } from '../../src/adapters/dynamo-thing-store.js';
 import {
   ExecutorRegistry,
   type RunExecutor,
@@ -177,7 +178,7 @@ integration('LocalStack webhook-to-egress workflow', () => {
     await deleteMessage(clients.sqs, required('RUN_QUEUE_URL'), message);
   }, 30_000);
 
-  it('runs multi-account connection and routine APIs through Secrets Manager, DynamoDB, S3, SQS, and the worker', async () => {
+  it('runs multi-account Thing and routine APIs through Secrets Manager, DynamoDB, S3, SQS, and the worker', async () => {
     const clients = createAwsClients();
     const control = await import('../../src/lambdas/control.js');
     const ownerId = 'api:arn:aws:iam::000000000000:user/local-operator';
@@ -298,6 +299,255 @@ integration('LocalStack webhook-to-egress workflow', () => {
         connectionIds: [personal.connection.connectionId, business.connection.connectionId],
         defaults: { messaging: business.connection.connectionId },
       });
+
+    const thingGoalV1 = 'Review both connected accounts without making changes.';
+    const thingResponse = await invoke<APIGatewayProxyStructuredResultV2>(
+      control.handler,
+      controlEvent({
+        method: 'POST',
+        path: '/v1/things',
+        body: {
+          version: '1',
+          status: 'draft',
+          spec: {
+            version: '1',
+            name: 'Local multi-account Thing',
+            goal: thingGoalV1,
+            trigger: { kind: 'manual' },
+            agent: {
+              driver: 'mock',
+              sandbox: 'danger-full-access',
+              capabilities: {
+                profile: 'small-business',
+                networkAccess: true,
+                computerUse: 'disabled',
+              },
+            },
+            connections: {
+              set: connectionSetName,
+              accounts: [
+                { account: personalAlias, access: 'read-only' },
+                { account: businessAlias, access: 'read-only' },
+              ],
+            },
+            deliver: [{ kind: 'none' }],
+          },
+        },
+      }),
+    );
+    expect(thingResponse.statusCode).toBe(201);
+    expect(thingResponse.body).not.toContain(thingGoalV1);
+    expect(thingResponse.body).not.toContain(personalToken);
+    expect(thingResponse.body).not.toContain(businessToken);
+    const thing = jsonResponse<{ thingId: string; revision: number; status: string }>(thingResponse);
+    expect(thing).toMatchObject({ revision: 1, status: 'draft' });
+
+    const thingGet = await invoke<APIGatewayProxyStructuredResultV2>(
+      control.handler,
+      controlEvent({
+        method: 'GET',
+        path: `/v1/things/${thing.thingId}`,
+        routeKey: 'GET /v1/things/{thingId}',
+        pathParameters: { thingId: thing.thingId },
+      }),
+    );
+    expect(thingGet.statusCode).toBe(200);
+    expect(jsonResponse<{ spec: { goal: string } }>(thingGet).spec.goal).toBe(thingGoalV1);
+
+    const explanationResponse = await invoke<APIGatewayProxyStructuredResultV2>(
+      control.handler,
+      controlEvent({
+        method: 'GET',
+        path: `/v1/things/${thing.thingId}/explain`,
+        routeKey: 'GET /v1/things/{thingId}/explain',
+        pathParameters: { thingId: thing.thingId },
+      }),
+    );
+    expect(explanationResponse.statusCode).toBe(200);
+    const explanation = jsonResponse<{
+      runnable: boolean;
+      effectiveRun: RunRequest;
+      resolvedConnections: Array<{
+        alias: string;
+        operations: Array<{ id: string; allowed: boolean }>;
+      }>;
+      diagnostics: Array<{ id: string; status: string }>;
+    }>(explanationResponse);
+    expect(explanation.runnable).toBe(true);
+    expect(explanation.effectiveRun.agent).toMatchObject({
+      sandbox: 'danger-full-access',
+      capabilities: { profile: 'small-business', computerUse: 'disabled' },
+    });
+    expect(explanation.resolvedConnections.map((candidate) => candidate.alias)).toEqual(
+      expect.arrayContaining([personalAlias, businessAlias]),
+    );
+    expect(explanation.diagnostics).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'profile', status: 'pass' }),
+      expect.objectContaining({ id: 'connection-set', status: 'pass' }),
+    ]));
+    expect(explanationResponse.body).not.toContain(personalToken);
+    expect(explanationResponse.body).not.toContain(businessToken);
+
+    const thingGoalV2 = 'Review both connected accounts and return the local Thing marker.';
+    const versionResponse = await invoke<APIGatewayProxyStructuredResultV2>(
+      control.handler,
+      controlEvent({
+        method: 'POST',
+        path: `/v1/things/${thing.thingId}/versions`,
+        routeKey: 'POST /v1/things/{thingId}/versions',
+        pathParameters: { thingId: thing.thingId },
+        body: {
+          version: '1',
+          expectedRevision: 1,
+          spec: {
+            version: '1',
+            name: 'Local multi-account Thing',
+            goal: thingGoalV2,
+            trigger: { kind: 'manual' },
+            agent: {
+              driver: 'mock',
+              sandbox: 'danger-full-access',
+              capabilities: {
+                profile: 'small-business',
+                networkAccess: true,
+                computerUse: 'disabled',
+              },
+            },
+            connections: {
+              accounts: [
+                { account: personalAlias, access: 'read-only' },
+                { account: businessAlias, access: 'read-only' },
+              ],
+            },
+            deliver: [{ kind: 'none' }],
+          },
+        },
+      }),
+    );
+    expect(versionResponse.statusCode).toBe(201);
+    expect(jsonResponse<{ revision: number }>(versionResponse).revision).toBe(2);
+    expect(versionResponse.body).not.toContain(thingGoalV2);
+
+    const firstVersionResponse = await invoke<APIGatewayProxyStructuredResultV2>(
+      control.handler,
+      controlEvent({
+        method: 'GET',
+        path: `/v1/things/${thing.thingId}/versions/1`,
+        routeKey: 'GET /v1/things/{thingId}/versions/{revision}',
+        pathParameters: { thingId: thing.thingId, revision: '1' },
+      }),
+    );
+    expect(firstVersionResponse.statusCode).toBe(200);
+    expect(jsonResponse<{ spec: { goal: string } }>(firstVersionResponse).spec.goal).toBe(thingGoalV1);
+
+    const thingStore = new DynamoThingStore(clients.dynamodb, required('THINGS_TABLE_NAME'));
+    const storedThing = await thingStore.get(thing.thingId);
+    expect(storedThing).toMatchObject({
+      ownerId,
+      revision: 2,
+      status: 'draft',
+      spec: { bucket: required('DEFINITION_BUCKET') },
+    });
+    if (!storedThing) throw new Error('Thing metadata was not persisted');
+    await expect(objectText(
+      clients.s3,
+      storedThing.spec.bucket,
+      storedThing.spec.key,
+    )).resolves.toContain(thingGoalV2);
+
+    const thingIdempotencyKey = `local-thing-${randomUUID()}`;
+    const thingRunEvent = () => controlEvent({
+      method: 'POST',
+      path: `/v1/things/${thing.thingId}/run`,
+      routeKey: 'POST /v1/things/{thingId}/run',
+      pathParameters: { thingId: thing.thingId },
+      headers: { 'idempotency-key': thingIdempotencyKey },
+      body: {},
+    });
+    const firstThingRunResponse = await invoke<APIGatewayProxyStructuredResultV2>(
+      control.handler,
+      thingRunEvent(),
+    );
+    const repeatedThingRunResponse = await invoke<APIGatewayProxyStructuredResultV2>(
+      control.handler,
+      thingRunEvent(),
+    );
+    expect(firstThingRunResponse.statusCode).toBe(202);
+    expect(repeatedThingRunResponse.statusCode).toBe(202);
+    const thingRun = jsonResponse<{ runId: string }>(firstThingRunResponse);
+    expect(jsonResponse<{ runId: string }>(repeatedThingRunResponse).runId).toBe(thingRun.runId);
+
+    const thingRunStore = new DynamoRunStore(clients.dynamodb, required('RUNS_TABLE_NAME'));
+    const thingArtifacts = new S3ArtifactStore(clients.s3, required('ARTIFACT_BUCKET'));
+    const queuedThingRun = await thingRunStore.get(thingRun.runId);
+    expect(queuedThingRun).toMatchObject({
+      ownerId,
+      capabilityOwnerId: ownerId,
+      status: 'queued',
+      provenance: { actor: { kind: 'system', id: `thing:${thing.thingId}` } },
+    });
+    if (!queuedThingRun) throw new Error('Thing run was not persisted');
+    await expect(thingArtifacts.getJson<RunRequest>(queuedThingRun.input)).resolves.toMatchObject({
+      prompt: thingGoalV2,
+      metadata: {
+        thingId: thing.thingId,
+        thingName: 'Local multi-account Thing',
+        thingRevision: 2,
+      },
+      integrations: {
+        connections: [
+          { connection: personalAlias, preset: 'read-only' },
+          { connection: businessAlias, preset: 'read-only' },
+        ],
+      },
+    });
+
+    const firstThingWake = await receiveRequired(
+      clients.sqs,
+      required('RUN_QUEUE_URL'),
+      10_000,
+      (message) => queuedRunId(message) === thingRun.runId,
+    );
+    const duplicateThingWake = await receiveRequired(
+      clients.sqs,
+      required('RUN_QUEUE_URL'),
+      10_000,
+      (message) => queuedRunId(message) === thingRun.runId,
+    );
+    await deleteMessage(clients.sqs, required('RUN_QUEUE_URL'), duplicateThingWake);
+    const thingDispatch = createDispatcher({
+      store: thingRunStore,
+      artifacts: thingArtifacts,
+      executors: new ExecutorRegistry([{
+        backend: 'microvm',
+        start: async (record) => ({ backend: 'microvm', id: `localstack:${record.runId}` }),
+        stop: async () => undefined,
+      }]),
+    });
+    expect((await invoke<{ batchItemFailures: { itemIdentifier: string }[] }>(
+      thingDispatch,
+      sqsEvent(firstThingWake, required('RUN_QUEUE_URL')),
+    )).batchItemFailures).toEqual([]);
+    await deleteMessage(clients.sqs, required('RUN_QUEUE_URL'), firstThingWake);
+    const dispatchedThingRun = await thingRunStore.get(thingRun.runId);
+    if (!dispatchedThingRun) throw new Error('Thing run disappeared after dispatch');
+    process.env.RUN_ID = thingRun.runId;
+    process.env.RUN_INPUT_BUCKET = dispatchedThingRun.input.bucket;
+    process.env.RUN_INPUT_KEY = dispatchedThingRun.input.key;
+    process.env.RUN_TIMEOUT_SECONDS = '30';
+    process.env.PERSISTENT_SESSION = 'false';
+    delete process.env.AGENT_THREAD_ID;
+    delete process.env.RUN_AGENT_UID;
+    delete process.env.RUN_AGENT_GID;
+    await runAgentWorker();
+    const completedThingRun = await thingRunStore.get(thingRun.runId);
+    expect(completedThingRun).toMatchObject({ status: 'succeeded', result: { exitCode: 0 } });
+    if (!completedThingRun?.result?.output) throw new Error('Thing run produced no output');
+    await expect(objectText(
+      clients.s3,
+      completedThingRun.result.output.bucket,
+      completedThingRun.result.output.key,
+    )).resolves.toContain(`mock-agent: ${thingGoalV2}`);
 
     const routineResponse = await invoke<APIGatewayProxyStructuredResultV2>(
       control.handler,

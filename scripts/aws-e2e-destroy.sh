@@ -43,6 +43,26 @@ if [[ "$publication_enabled" == "true" ]]; then
 fi
 
 microvm_image_arn="$(aws_e2e_terraform output -state="$state_file" -json microvm 2>/dev/null | jq -r '.image_arn // empty' 2>/dev/null || true)"
+
+# Connection credentials are runtime-created resources rather than Terraform
+# resources. Remove the exact deployment prefix before destroying its KMS key.
+credential_prefix="rat-things-${deployment_id}/connections/"
+connection_secret_arns="$(aws secretsmanager list-secrets \
+  --region "$aws_region" \
+  --include-planned-deletion \
+  --filters "Key=name,Values=$credential_prefix" \
+  --output json | jq -r --arg prefix "$credential_prefix" \
+    '.SecretList[] | select(.Name | startswith($prefix)) | .ARN')"
+for connection_secret_arn in $connection_secret_arns; do
+  aws secretsmanager delete-secret \
+    --region "$aws_region" \
+    --secret-id "$connection_secret_arn" \
+    --force-delete-without-recovery >/dev/null
+done
+if [[ -n "$connection_secret_arns" ]]; then
+  echo "Removed runtime-created connection credentials for $deployment_id."
+fi
+
 echo "Destroying Terraform resources for $deployment_id..."
 destroy_status=1
 for destroy_attempt in 1 2 3; do

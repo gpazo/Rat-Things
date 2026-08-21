@@ -11,6 +11,7 @@ import {
 import { DynamoConversationStore } from '../adapters/dynamo-conversation-store.js';
 import { DynamoIntegrationStore } from '../adapters/dynamo-integration-store.js';
 import { DynamoRoutineStore } from '../adapters/dynamo-routine-store.js';
+import { DynamoThingStore } from '../adapters/dynamo-thing-store.js';
 import { SecretsManagerCredentialVault } from '../adapters/secrets-credential-vault.js';
 import { DynamoDeliveryFence } from '../adapters/dynamo-delivery-fence.js';
 import {
@@ -38,12 +39,14 @@ import { createBuiltinPlugins } from '../plugins/builtins.js';
 import type { AgentInteractionController, ExecutionController } from '../core/ports.js';
 import { RunService } from '../core/run-service.js';
 import { RoutineService } from '../core/routine-service.js';
+import { ThingService } from '../core/thing-service.js';
 
 interface BaseServices {
   clients: AwsClients;
   store: DynamoRunStore;
   conversations: DynamoConversationStore;
   artifacts: S3ArtifactStore;
+  definitions: S3ArtifactStore;
   queue: SqsRunQueue;
   conversationQueue: SqsConversationQueue;
   credentials: CredentialBroker;
@@ -63,6 +66,7 @@ let connectionService: ConnectionService | undefined;
 let capabilityProfileRegistry: CapabilityProfileRegistry | undefined;
 let sourcePolicyResolver: StoredSourcePolicyResolver | undefined;
 let routineService: RoutineService | undefined;
+let thingService: ThingService | undefined;
 
 const noExecutions: ExecutionController = {
   stop: async () => {
@@ -147,6 +151,24 @@ export function getRoutineService(): RoutineService {
     ),
   });
   return routineService;
+}
+
+export function getThingService(): ThingService {
+  if (thingService) return thingService;
+  const base = getBaseServices();
+  thingService = new ThingService({
+    store: new DynamoThingStore(
+      base.clients.dynamodb,
+      requiredEnv('THINGS_TABLE_NAME'),
+    ),
+    artifacts: base.definitions,
+    runs: getRunService(false),
+    allowedRepositoryHosts: csv(process.env.ALLOWED_REPOSITORY_HOSTS ?? 'github.com,gitlab.com'),
+    allowedSandboxModes: sandboxModes(
+      process.env.ALLOWED_SANDBOX_MODES ?? 'read-only,workspace-write,danger-full-access',
+    ),
+  });
+  return thingService;
 }
 
 export function getPluginRegistry(): RuntimePluginRegistry {
@@ -239,6 +261,13 @@ function getBaseServices(): BaseServices {
       requiredEnv('CONVERSATIONS_TABLE_NAME'),
     ),
     artifacts: new S3ArtifactStore(clients.s3, requiredEnv('ARTIFACT_BUCKET')),
+    definitions: new S3ArtifactStore(
+      clients.s3,
+      requiredEnv('DEFINITION_BUCKET'),
+      process.env.DEFINITION_KMS_KEY_ARN
+        ? { algorithm: 'aws:kms', kmsKeyId: process.env.DEFINITION_KMS_KEY_ARN }
+        : { algorithm: 'AES256' },
+    ),
     queue: new SqsRunQueue(clients.sqs, requiredEnv('RUN_QUEUE_URL')),
     conversationQueue: new SqsConversationQueue(
       clients.sqs,

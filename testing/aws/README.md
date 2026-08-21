@@ -17,20 +17,25 @@ The wrapper:
 1. Packages the Lambda functions and MicroVM source bundle.
 2. Applies the complete ephemeral Terraform stack and waits for the managed image.
 3. Populates disposable GitHub, GitLab, Teams, and egress-capture secrets.
-4. Sends IAM-authenticated one-shot and headless conversation requests plus real signed provider
-   webhook requests.
-5. Verifies MicroVM execution, pinned public-repository checkout, S3 output/events, DynamoDB state,
+4. Reads public discovery, OpenAPI, and Thing schemas, then sends IAM-authenticated Thing, one-shot,
+   and headless conversation requests plus real signed provider webhook requests.
+5. Registers two separately credentialed accounts for one integration and verifies connection sets,
+   provider/grant/Thing/profile permission intersection, immutable KMS-encrypted definitions,
+   idempotent Thing execution, lifecycle changes, rotation, revocation, and no secret leakage.
+6. Verifies MicroVM execution, pinned public-repository checkout, S3 output/events, DynamoDB state,
    EventBridge terminal events, Teams Adaptive Card egress, empty failure queues, and self-termination.
-6. Sends two signed Teams activities and runs two messages through the actual Rat Things CLI,
+7. Sends two signed Teams activities and runs two messages through the actual Rat Things CLI,
    proves actual AWS suspension, authenticated continuation and resume on the same MicroVM ID,
    replay, provider egress where applicable, and re-suspension.
-7. Backdates a suspended session to prove replacement, replay, and expired-VM termination, then
+8. Backdates a suspended session to prove replacement, replay, and expired-VM termination, then
    injects the coordinator launch/attach crash window and proves idempotent repair.
-8. Terminates any remaining MicroVMs and runs `terraform destroy` from an exit trap.
+9. Terminates any remaining MicroVMs, force-deletes runtime-created connection secrets, runs
+   `terraform destroy` from an exit trap, and audits tagged residual resources.
 
 The default stack uses the mock driver. It does not invoke Codex or Bedrock, so it spends no model
-tokens. It creates no ECS/ECR resources, customer VPC, NAT gateway, or customer network connector;
-MicroVMs use AWS-managed public egress.
+tokens. It creates no ECS/ECR resources. The S3 Files persistence leg does create a disposable VPC,
+NAT gateway, VPC endpoints, and customer network connector; MicroVMs also retain AWS-managed public
+egress. Every one of those resources is tagged and included in teardown auditing.
 
 Set `AWS_E2E_REAL_CODEX=true` to add a bounded two-turn `openai.gpt-5.6-terra` probe through
 Bedrock. The worker execution role mints a short-term token and the unprivileged Codex process
@@ -60,6 +65,11 @@ availability again before relying on that value.
 A fresh version `1` deployment passed all seven live workflows again on 2026-08-14. A focused
 canary also launched the built `rat-things` executable twice against that stack and proved named
 thread continuation on the same suspended MicroVM.
+
+On 2026-08-21 deployment `th260821c` passed all seven applicable workflows (two opt-in cases were
+skipped), including the revisioned multi-account Thing path. The harness terminated six MicroVMs,
+removed runtime-created secrets, destroyed all 208 Terraform resources, and passed its tagged
+post-destroy audit.
 
 AWS does not allow immediate deletion of a customer-managed KMS key. Teardown disables the key and
 schedules it for deletion after AWS's minimum waiting period; only that `PendingDeletion` key is an

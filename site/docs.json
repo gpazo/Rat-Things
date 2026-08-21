@@ -4,6 +4,7 @@
       "title": "Start here",
       "documents": [
         "codex-subscription.md",
+        "things.md",
         "conversations.md",
         "browser-computer-use.md",
         "durable-files.md",
@@ -22,7 +23,9 @@
     {
       "title": "Build and operate",
       "documents": [
+        "embedding.md",
         "development-and-deployment.md",
+        "diagnostics.md",
         "runbook.md",
         "costs.md"
       ]

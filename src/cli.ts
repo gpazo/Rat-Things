@@ -103,6 +103,16 @@ const commands = new Set([
   'connection-set',
   'source-bindings',
   'bind-source',
+  'things',
+  'thing',
+  'thing-create',
+  'thing-version',
+  'thing-versions',
+  'thing-run',
+  'thing-enable',
+  'thing-pause',
+  'thing-archive',
+  'thing-explain',
   'routines',
   'routine',
   'routine-create',
@@ -236,6 +246,74 @@ async function main(): Promise<void> {
     case 'bind-source':
       print(await api('/v1/integrations/source-bindings', 'POST', await requiredJsonFile(args)));
       return;
+    case 'things': {
+      const query = new URLSearchParams();
+      if (args.values.get('limit')) query.set('limit', args.values.get('limit') as string);
+      if (args.values.get('next-token')) query.set('nextToken', args.values.get('next-token') as string);
+      if (args.flags.has('all')) query.set('includeArchived', 'true');
+      print(await api(`/v1/things${query.size > 0 ? `?${query.toString()}` : ''}`, 'GET'));
+      return;
+    }
+    case 'thing':
+      print(await api(
+        `/v1/things/${encodeURIComponent(requiredPositional(args, 0, 'Thing ID'))}`,
+        'GET',
+      ));
+      return;
+    case 'thing-create':
+      print(await api('/v1/things', 'POST', await requiredJsonFile(args)));
+      return;
+    case 'thing-version': {
+      const thingId = encodeURIComponent(requiredPositional(args, 0, 'Thing ID'));
+      if (args.values.has('file')) {
+        print(await api(
+          `/v1/things/${thingId}/versions`,
+          'POST',
+          await requiredJsonFile(args),
+        ));
+      } else {
+        print(await api(
+          `/v1/things/${thingId}/versions/${encodeURIComponent(requiredPositional(args, 1, 'revision'))}`,
+          'GET',
+        ));
+      }
+      return;
+    }
+    case 'thing-versions':
+      print(await api(
+        `/v1/things/${encodeURIComponent(requiredPositional(args, 0, 'Thing ID'))}/versions`,
+        'GET',
+      ));
+      return;
+    case 'thing-explain':
+      print(await api(
+        `/v1/things/${encodeURIComponent(requiredPositional(args, 0, 'Thing ID'))}/explain`,
+        'GET',
+      ));
+      return;
+    case 'thing-run': {
+      const headers: Record<string, string> = {};
+      const key = args.values.get('idempotency-key');
+      if (key) headers['idempotency-key'] = key;
+      print(await api(
+        `/v1/things/${encodeURIComponent(requiredPositional(args, 0, 'Thing ID'))}/run`,
+        'POST',
+        {},
+        headers,
+      ));
+      return;
+    }
+    case 'thing-enable':
+    case 'thing-pause':
+    case 'thing-archive': {
+      const operation = args.command.slice('thing-'.length);
+      print(await api(
+        `/v1/things/${encodeURIComponent(requiredPositional(args, 0, 'Thing ID'))}/${operation}`,
+        'POST',
+        {},
+      ));
+      return;
+    }
     case 'routines': {
       const query = new URLSearchParams();
       if (args.values.get('limit')) query.set('limit', args.values.get('limit') as string);
@@ -301,7 +379,7 @@ async function main(): Promise<void> {
       return;
     }
     case 'doctor':
-      await doctor();
+      await doctor(args);
       return;
     case 'help':
     case '--help':
@@ -900,20 +978,89 @@ async function api(
   return value;
 }
 
-async function doctor(): Promise<void> {
-  const checks = [
-    { name: 'node', value: process.version, ok: Number(process.versions.node.split('.')[0]) >= 20 },
-    { name: 'AWS_REGION', value: process.env.AWS_REGION ?? '(unset)', ok: Boolean(process.env.AWS_REGION) },
+interface DoctorCheck {
+  name: string;
+  status: 'pass' | 'warning' | 'fail';
+  detail: string;
+}
+
+async function doctor(args: Arguments): Promise<void> {
+  const base = process.env.RAT_THINGS_API_URL ?? process.env.AGENT_RUNTIME_API_URL;
+  let validBase = base;
+  let inferredRegion: string | undefined;
+  if (base) {
+    try {
+      inferredRegion = regionFromHostname(new URL(base).hostname);
+    } catch {
+      validBase = undefined;
+    }
+  }
+  const region = process.env.AWS_REGION ?? inferredRegion;
+  const checks: DoctorCheck[] = [
     {
-      name: 'RAT_THINGS_API_URL',
-      value: process.env.RAT_THINGS_API_URL ?? process.env.AGENT_RUNTIME_API_URL ?? '(unset)',
-      ok: Boolean(process.env.RAT_THINGS_API_URL ?? process.env.AGENT_RUNTIME_API_URL),
+      name: 'node',
+      status: Number(process.versions.node.split('.')[0]) >= 20 ? 'pass' : 'fail',
+      detail: process.version,
     },
-    { name: 'CODEX_BINARY', value: process.env.CODEX_BINARY ?? 'codex', ok: true },
-    { name: 'CODEX_AUTH_MODE', value: process.env.CODEX_AUTH_MODE ?? 'bedrock', ok: true },
+    {
+      name: 'api-url',
+      status: validBase ? 'pass' : base ? 'fail' : 'warning',
+      detail: validBase ?? (base
+        ? `RAT_THINGS_API_URL is not a valid URL: ${base}`
+        : 'RAT_THINGS_API_URL is unset; remote checks skipped'),
+    },
+    {
+      name: 'aws-region',
+      status: process.env.AGENT_RUNTIME_UNSIGNED === 'true' || region ? 'pass' : 'warning',
+      detail: process.env.AGENT_RUNTIME_UNSIGNED === 'true'
+        ? 'unsigned local API mode'
+        : region ?? 'set AWS_REGION for non-API-Gateway endpoints',
+    },
+    { name: 'codex-binary', status: 'pass', detail: process.env.CODEX_BINARY ?? 'codex' },
+    { name: 'codex-auth', status: 'pass', detail: process.env.CODEX_AUTH_MODE ?? 'bedrock' },
   ];
-  for (const check of checks) process.stdout.write(`${check.ok ? 'ok' : 'warn'}\t${check.name}\t${check.value}\n`);
-  if (!checks[0]?.ok) process.exitCode = 1;
+  if (validBase) {
+    checks.push(await publicEndpointCheck(validBase, '/health', 'api-health'));
+    checks.push(await publicEndpointCheck(validBase, '/.well-known/rat-things', 'discovery'));
+    try {
+      await api('/v1/capability-profiles', 'GET');
+      checks.push({ name: 'authenticated-api', status: 'pass', detail: 'control API authentication works' });
+    } catch (error) {
+      checks.push({
+        name: 'authenticated-api',
+        status: 'fail',
+        detail: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+  if (args.flags.has('json')) {
+    print({
+      version: '1',
+      ok: !checks.some((check) => check.status === 'fail'),
+      checks,
+    });
+  } else {
+    for (const check of checks) {
+      process.stdout.write(`${check.status}\t${check.name}\t${check.detail}\n`);
+    }
+  }
+  if (checks.some((check) => check.status === 'fail')) process.exitCode = 1;
+}
+
+async function publicEndpointCheck(base: string, path: string, name: string): Promise<DoctorCheck> {
+  try {
+    const url = new URL(path, `${base.replace(/\/$/, '')}/`);
+    const response = await fetch(url, {
+      headers: { accept: 'application/json' },
+      signal: AbortSignal.timeout(10_000),
+    });
+    const text = await response.text();
+    return response.ok
+      ? { name, status: 'pass', detail: `HTTP ${response.status}` }
+      : { name, status: 'fail', detail: `HTTP ${response.status}: ${text.slice(0, 300)}` };
+  } catch (error) {
+    return { name, status: 'fail', detail: error instanceof Error ? error.message : String(error) };
+  }
 }
 
 function parseArguments(argv: string[]): Arguments {
@@ -1063,6 +1210,16 @@ function help(showAll: boolean): void {
   process.stdout.write(`  rat-things connection-set --file SET.json\n`);
   process.stdout.write(`  rat-things source-bindings\n`);
   process.stdout.write(`  rat-things bind-source --file BINDING.json\n`);
+  process.stdout.write(`\nThings\n\n`);
+  process.stdout.write(`  rat-things things [--limit 25] [--all]\n`);
+  process.stdout.write(`  rat-things thing THING_ID\n`);
+  process.stdout.write(`  rat-things thing-create --file THING.json\n`);
+  process.stdout.write(`  rat-things thing-version THING_ID --file VERSION.json\n`);
+  process.stdout.write(`  rat-things thing-version THING_ID REVISION\n`);
+  process.stdout.write(`  rat-things thing-versions THING_ID\n`);
+  process.stdout.write(`  rat-things thing-explain THING_ID\n`);
+  process.stdout.write(`  rat-things thing-run THING_ID [--idempotency-key KEY]\n`);
+  process.stdout.write(`  rat-things thing-enable|thing-pause|thing-archive THING_ID\n`);
   process.stdout.write(`\nRoutines\n\n`);
   process.stdout.write(`  rat-things routines [--limit 25]\n`);
   process.stdout.write(`  rat-things routine ROUTINE_ID\n`);
@@ -1079,7 +1236,7 @@ function help(showAll: boolean): void {
   process.stdout.write(`  rat-things publish site ROOT [--entrypoint PATH] [--thread NAME | --run RUN_ID]\n`);
   process.stdout.write(`  rat-things publish video PATH [--poster PATH] [--thread NAME | --run RUN_ID]\n`);
   process.stdout.write(`  rat-things list [--limit 25]\n`);
-  process.stdout.write(`  rat-things doctor\n`);
+  process.stdout.write(`  rat-things doctor [--json]\n`);
 }
 
 main().catch((error: unknown) => {

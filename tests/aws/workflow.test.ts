@@ -28,11 +28,12 @@ import {
   SqsRunQueue,
 } from '../../src/adapters/aws-runtime.js';
 import { DynamoConversationStore } from '../../src/adapters/dynamo-conversation-store.js';
+import { DynamoThingStore } from '../../src/adapters/dynamo-thing-store.js';
 import { fetchSharedResource } from '../../src/adapters/publication-client.js';
 import { ConversationCoordinator } from '../../src/conversation/coordinator.js';
 import { ConversationService } from '../../src/conversation/service.js';
 import { RunService } from '../../src/core/run-service.js';
-import type { RunRecord, RunStateEvent } from '../../src/domain/contracts.js';
+import type { RunRecord, RunRequest, RunStateEvent } from '../../src/domain/contracts.js';
 import type { AgentRuntimeSnapshot, PendingAgentRequest } from '../../src/domain/interaction.js';
 import type {
   ConversationEventPayload,
@@ -157,6 +158,258 @@ integration('live AWS agent-runner workflow', () => {
       [teamsRunId, `Return AWS live marker ${teamsMarker}`],
     ]));
 
+    await expectEmptyFailureQueues(clients.sqs);
+  }, timeoutMs);
+
+  it('runs a revisioned multi-account Thing through the live headless API', async () => {
+    delete process.env.AWS_ENDPOINT_URL;
+    const clients = createAwsClients();
+    const fixture = randomUUID().slice(0, 8);
+    const personalAlias = `slack-personal-${fixture}`;
+    const businessAlias = `slack-business-${fixture}`;
+    const connectionSetName = `shop-accounts-${fixture}`;
+    const personalToken = `xoxp-live-${randomUUID()}`;
+    const businessToken = `xoxb-live-${randomUUID()}`;
+
+    const discoveryResponse = await fetch(new URL(
+      '/.well-known/rat-things',
+      `${required('AGENT_RUNTIME_API_URL')}/`,
+    ));
+    expect(discoveryResponse.status).toBe(200);
+    expect(await discoveryResponse.json()).toMatchObject({
+      service: 'rat-things',
+      deployment: { operation: 'independent', oauthApplications: 'bring-your-own' },
+      capabilities: {
+        things: { immutableRevisions: true, explain: true },
+        integrations: { multipleAccounts: true },
+      },
+    });
+
+    const createConnection = (
+      alias: string,
+      token: string,
+      authorization: { access: 'read' | 'full'; scopes: string[] },
+      grant: Record<string, unknown>,
+    ) => signedApi<{
+      connection: { connectionId: string; alias: string };
+      grant: { preset: string };
+    }>('/v1/integrations/connections', 'POST', {
+      version: '1',
+      pluginId: 'slack',
+      alias,
+      externalTenantId: `workspace-${alias}`,
+      authorization: {
+        scheme: 'oauth2',
+        access: authorization.access,
+        scopeModel: 'granular',
+        scopes: authorization.scopes,
+      },
+      credential: { access_token: token },
+      grant: { version: '1', ...grant },
+    });
+    const personal = await createConnection(
+      personalAlias,
+      personalToken,
+      { access: 'read', scopes: ['search:read'] },
+      { preset: 'read-only' },
+    );
+    const business = await createConnection(
+      businessAlias,
+      businessToken,
+      { access: 'full', scopes: ['search:read', 'chat:write', 'reactions:write'] },
+      {
+        preset: 'read-write',
+        resourceConstraints: { channel: ['C-LIVE-SUPPORT'] },
+      },
+    );
+    expect(JSON.stringify([personal, business])).not.toContain(personalToken);
+    expect(JSON.stringify([personal, business])).not.toContain(businessToken);
+
+    const connectionSet = await signedApi<{
+      connectionIds: string[];
+      defaults: Record<string, string>;
+    }>('/v1/integrations/connection-sets', 'POST', {
+      version: '1',
+      name: connectionSetName,
+      connections: [personalAlias, businessAlias],
+      defaults: { slack: businessAlias },
+    });
+    expect(connectionSet).toMatchObject({
+      connectionIds: [personal.connection.connectionId, business.connection.connectionId],
+      defaults: { slack: business.connection.connectionId },
+    });
+
+    const firstGoal = `Review both live accounts ${fixture}.`;
+    const created = await signedApi<{
+      thingId: string;
+      revision: number;
+      status: string;
+    }>('/v1/things', 'POST', {
+      version: '1',
+      status: 'draft',
+      spec: liveThingSpec(
+        'Live multi-account Thing',
+        firstGoal,
+        connectionSetName,
+        personalAlias,
+        businessAlias,
+      ),
+    });
+    expect(created).toMatchObject({ revision: 1, status: 'draft' });
+    expect(JSON.stringify(created)).not.toContain(firstGoal);
+
+    const secondGoal = `Return live Thing marker ${randomUUID()}`;
+    const revised = await signedApi<{ revision: number; status: string }>(
+      `/v1/things/${created.thingId}/versions`,
+      'POST',
+      {
+        version: '1',
+        expectedRevision: 1,
+        spec: liveThingSpec(
+          'Live multi-account Thing',
+          secondGoal,
+          connectionSetName,
+          personalAlias,
+          businessAlias,
+        ),
+      },
+    );
+    expect(revised).toMatchObject({ revision: 2, status: 'draft' });
+    const versions = await signedApi<{ versions: Array<{ revision: number }> }>(
+      `/v1/things/${created.thingId}/versions`,
+      'GET',
+    );
+    expect(versions.versions.map(({ revision }) => revision)).toEqual([1, 2]);
+    const original = await signedApi<{ spec: { goal: string } }>(
+      `/v1/things/${created.thingId}/versions/1`,
+      'GET',
+    );
+    expect(original.spec.goal).toBe(firstGoal);
+
+    const explanation = await signedApi<{
+      runnable: boolean;
+      resolvedConnections: Array<{
+        alias: string;
+        grant?: { resourceConstraints?: Record<string, string[]> };
+        operations: Array<{ id: string; allowed: boolean }>;
+      }>;
+      diagnostics: Array<{ id: string; status: string }>;
+    }>(`/v1/things/${created.thingId}/explain`, 'GET');
+    expect(explanation.runnable).toBe(true);
+    expect(explanation.diagnostics).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'profile', status: 'pass' }),
+      expect.objectContaining({ id: 'connection-set', status: 'pass' }),
+    ]));
+    const personalResolution = explanation.resolvedConnections.find(
+      ({ alias }) => alias === personalAlias,
+    );
+    const businessResolution = explanation.resolvedConnections.find(
+      ({ alias }) => alias === businessAlias,
+    );
+    expect(personalResolution?.operations).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'slack.messages.search', allowed: true }),
+      expect.objectContaining({ id: 'slack.messages.post', allowed: false }),
+    ]));
+    expect(businessResolution).toMatchObject({
+      grant: { resourceConstraints: { channel: ['C-LIVE-SUPPORT'] } },
+      operations: expect.arrayContaining([
+        expect.objectContaining({ id: 'slack.messages.search', allowed: true }),
+        expect.objectContaining({ id: 'slack.messages.post', allowed: false }),
+      ]),
+    });
+    expect(JSON.stringify(explanation)).not.toContain(personalToken);
+    expect(JSON.stringify(explanation)).not.toContain(businessToken);
+
+    const thingStore = new DynamoThingStore(
+      clients.dynamodb,
+      required('THINGS_TABLE_NAME'),
+    );
+    const storedThing = await thingStore.get(created.thingId);
+    expect(storedThing).toMatchObject({
+      revision: 2,
+      status: 'draft',
+      spec: { bucket: required('DEFINITION_BUCKET') },
+    });
+    if (!storedThing) throw new Error('live Thing metadata was not persisted');
+    expect(JSON.stringify(storedThing)).not.toContain(secondGoal);
+    const definition = await clients.s3.send(new GetObjectCommand({
+      Bucket: storedThing.spec.bucket,
+      Key: storedThing.spec.key,
+    }));
+    expect(definition.ServerSideEncryption).toBe('aws:kms');
+    expect(definition.SSEKMSKeyId).toBeTruthy();
+    expect(definition.Body ? await definition.Body.transformToString('utf8') : '').toContain(
+      secondGoal,
+    );
+
+    const idempotencyKey = `thing-live-${randomUUID()}`;
+    const runThing = () => signedApi<RunRecord>(
+      `/v1/things/${created.thingId}/run`,
+      'POST',
+      {},
+      { 'idempotency-key': idempotencyKey },
+    );
+    const queued = await runThing();
+    const duplicate = await runThing();
+    expect(duplicate.runId).toBe(queued.runId);
+    const completed = await waitForApiRun(queued.runId);
+    assertSuccessfulMicrovmRun(completed);
+    expect(completed).toMatchObject({
+      capabilityOwnerId: completed.ownerId,
+      provenance: { actor: { kind: 'system', id: `thing:${created.thingId}` } },
+    });
+    expect(await outputText(clients.s3, completed)).toContain(secondGoal);
+    const runInput = await new S3ArtifactStore(
+      clients.s3,
+      required('ARTIFACT_BUCKET'),
+    ).getJson<RunRequest>(completed.input);
+    expect(runInput).toMatchObject({
+      prompt: secondGoal,
+      integrations: {
+        connectionSet: connectionSetName,
+        connections: [
+          { connection: personalAlias, preset: 'full' },
+          { connection: businessAlias, preset: 'read-only' },
+        ],
+      },
+      metadata: {
+        thingId: created.thingId,
+        thingRevision: 2,
+      },
+    });
+    await expectTerminalEvents(clients.sqs, new Set([completed.runId]));
+
+    await signedApi(`/v1/things/${created.thingId}/enable`, 'POST', {});
+    await signedApi(`/v1/things/${created.thingId}/pause`, 'POST', {});
+    const archived = await signedApi<{ status: string }>(
+      `/v1/things/${created.thingId}/archive`,
+      'POST',
+      {},
+    );
+    expect(archived.status).toBe('archived');
+    const allThings = await signedApi<{ items: Array<{ thingId: string; status: string }> }>(
+      '/v1/things?includeArchived=true',
+      'GET',
+    );
+    expect(allThings.items).toEqual(expect.arrayContaining([
+      expect.objectContaining({ thingId: created.thingId, status: 'archived' }),
+    ]));
+
+    const rotatedToken = `xoxb-live-rotated-${randomUUID()}`;
+    await signedApi(`/v1/integrations/connections/${businessAlias}/credential`, 'POST', {
+      version: '1',
+      credential: { access_token: rotatedToken },
+    });
+    await signedApi(`/v1/integrations/connections/${personalAlias}/revoke`, 'POST', {});
+    await signedApi(`/v1/integrations/connections/${businessAlias}/revoke`, 'POST', {});
+    const listedConnections = await signedApi<{
+      connections: Array<{ connection: { alias: string; status: string } }>;
+    }>('/v1/integrations/connections', 'GET');
+    expect(listedConnections.connections).toEqual(expect.arrayContaining([
+      expect.objectContaining({ connection: expect.objectContaining({ alias: personalAlias, status: 'revoked' }) }),
+      expect.objectContaining({ connection: expect.objectContaining({ alias: businessAlias, status: 'revoked' }) }),
+    ]));
+    expect(JSON.stringify(listedConnections)).not.toContain(rotatedToken);
     await expectEmptyFailureQueues(clients.sqs);
   }, timeoutMs);
 
@@ -1466,6 +1719,38 @@ async function signedApi<T>(
   const text = await response.text();
   if (!response.ok) throw new Error(`API returned HTTP ${response.status}: ${text.slice(0, 1_000)}`);
   return JSON.parse(text) as T;
+}
+
+function liveThingSpec(
+  name: string,
+  goal: string,
+  connectionSet: string,
+  personalAccount: string,
+  businessAccount: string,
+) {
+  return {
+    version: '1',
+    name,
+    goal,
+    trigger: { kind: 'manual' },
+    agent: {
+      driver: 'mock',
+      sandbox: 'danger-full-access',
+      capabilities: {
+        profile: 'small-business',
+        networkAccess: true,
+        computerUse: 'disabled',
+      },
+    },
+    connections: {
+      set: connectionSet,
+      accounts: [
+        { account: personalAccount, access: 'full' },
+        { account: businessAccount, access: 'read-only' },
+      ],
+    },
+    deliver: [{ kind: 'none' }],
+  };
 }
 
 function required(name: string): string {

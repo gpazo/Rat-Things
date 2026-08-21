@@ -7,6 +7,11 @@ resource "aws_s3_bucket" "artifacts" {
   force_destroy = true
 }
 
+resource "aws_s3_bucket" "definitions" {
+  bucket        = "${local.name}-definitions"
+  force_destroy = true
+}
+
 resource "aws_dynamodb_table" "runs" {
   name         = "${local.name}-runs"
   billing_mode = "PAY_PER_REQUEST"
@@ -180,6 +185,57 @@ resource "aws_dynamodb_table" "routines" {
   ttl {
     attribute_name = "expiresAt"
     enabled        = true
+  }
+}
+
+resource "aws_dynamodb_table" "things" {
+  name         = "${local.name}-things"
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "thingId"
+  range_key    = "recordKey"
+
+  attribute {
+    name = "thingId"
+    type = "S"
+  }
+
+  attribute {
+    name = "recordKey"
+    type = "S"
+  }
+
+  attribute {
+    name = "ownerId"
+    type = "S"
+  }
+
+  attribute {
+    name = "ownerCreated"
+    type = "S"
+  }
+
+  attribute {
+    name = "status"
+    type = "S"
+  }
+
+  attribute {
+    name = "nextRunAt"
+    type = "S"
+  }
+
+  global_secondary_index {
+    name            = "owner-created-index"
+    hash_key        = "ownerId"
+    range_key       = "ownerCreated"
+    projection_type = "ALL"
+  }
+
+  global_secondary_index {
+    name            = "status-next-run-index"
+    hash_key        = "status"
+    range_key       = "nextRunAt"
+    projection_type = "ALL"
   }
 }
 

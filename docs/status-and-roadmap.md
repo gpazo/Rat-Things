@@ -15,6 +15,7 @@ disaster-recovery proof.
 | Run contract and state machine | Implemented/tested | Strict validation, conditional transitions, owner-scoped idempotency |
 | Provider plugin boundary | Implemented/tested | Trusted manifests bind ingress/delivery; dependency checks prevent authority inversion |
 | Control API | Core live validated; browser event/approval path live validated | Submit/list/get/cancel, artifacts, live events/steer/interrupt/approval/response, integrations, profiles, and routines |
+| Thing facade | Implemented/local and live AWS validated | Credential-free versioned definitions, draft/enable/pause/archive lifecycle, manual and interval triggers, explain diagnostics, idempotent invocation, and complete API/CLI contracts |
 | Durable agent files | Implemented/live validated | `.rat-things/artifacts/` outbox, immutable S3 bytes, conversation catalog restoration, and CLI list/24-hour URL/download commands passed in a real Codex MicroVM |
 | File/site/video publications | Implemented/live validated | Agent-declared publishing, content-derived reuse, manifest-last commit, isolated wildcard hosts, CloudFront OAC, signed redemption, and API/CLI commands passed recipient-open validation |
 | Durable AWS orchestration | Locally/live validated | DynamoDB, S3, SQS, Streams, EventBridge, notifier delivery, failure queues |
@@ -23,7 +24,7 @@ disaster-recovery proof.
 | ECS replacement | Complete | Before removal, the same pinned checkout produced byte-identical output/events and equivalent execution metadata on the legacy task and MicroVM paths; the post-removal live suite then passed with no ECS/VPC fallback |
 | Codex App Server bridge | Core live validated; expanded protocol simulated and local-live tested | Thread start/resume, turn control, events, approvals/server requests, reasoning/personality, skills, apps, MCP config, and experimental dynamic tools |
 | Capability profiles | Implemented/locally tested | Deployment ceiling plus `read-only`, `small-business`, and `microvm-full`; requests can narrow but not widen profiles |
-| Multi-account integrations | Implemented/local end-to-end and agent-loop simulated | Owner-scoped connections, Secrets Manager vault, grants, account sets, source bindings, provider-scope intersection, resource constraints, and approvals |
+| Multi-account integrations | Implemented/local and live AWS validated | Owner-scoped connections, Secrets Manager vault, grants, account sets, source bindings, provider-scope intersection, resource constraints, rotation, revocation, and approvals |
 | Reference integration tools | Implemented/locally tested | Fixed-origin Slack search/post/reaction and Stripe customer/invoice/refund operations; no hosted OAuth lifecycle yet |
 | Browser computer use | Implemented v1 surface/live AWS validated | Real Codex exercised all 12 implemented command types, four interactive approval types, PNG/JPEG capture, VP8 WebM recording, private-target blocking, native cgroup eBPF lifecycle-port isolation, and trusted publication from an ARM64 Lambda MicroVM; takeover/auth/file transfer/desktop control remain out of scope |
 | Durable routines | Implemented/local end-to-end and simulated | Owner-scoped interval create/list/get/pause/resume/delete/run-now, encrypted S3 request, due-time GSI, deterministic occurrence submission, duplicate-tick fencing, and request-digest verification |
@@ -38,6 +39,30 @@ disaster-recovery proof.
 
 ## Validation completed on 2026-08-21
 
+- A fresh 208-resource disposable `us-west-2` stack (`th260821c`) passed all seven applicable live
+  workflows; the custom-domain publication and paid real-Codex cases were the two expected opt-in
+  skips. The new live Thing scenario used public discovery/OpenAPI/schema endpoints, registered two
+  separately credentialed Slack accounts, grouped them in one connection set, and proved provider
+  authorization, persistent grants, per-Thing narrowing, capability-profile narrowing, and
+  per-operation explanation without returning secret values.
+- The same scenario created two immutable Thing revisions, verified the owner-scoped definition
+  bytes and SHA-256 digest in a dedicated versioned S3 bucket, and confirmed `aws:kms` object
+  encryption with the deployment key. It submitted an idempotent Thing invocation through the
+  production API, SQS dispatcher, and actual Lambda MicroVM mock runner; the resulting run retained
+  trusted Thing ID/revision provenance and the resolved two-account policy. Enable, pause, archive,
+  credential rotation, and revocation also passed against real AWS services.
+- A clean Docker/LocalStack deployment passed all five workflows. Its Thing path covered two
+  same-plugin accounts, Secrets Manager reference/value separation, connection-set selection,
+  immutable definition storage, historical revision retrieval, explain diagnostics, duplicate
+  invocation/wake-up fencing, run compilation, SQS dispatch, and host worker completion.
+- The complete local gate passed 60 test files and 246 tests with 15 intentional opt-in skips.
+  Architecture and TypeScript checks, MicroVM syntax, 11 packaged Lambda smoke tests, the 20-page
+  documentation build, Terraform formatting, all three Terraform validations, and exact equality
+  between the 58 OpenAPI operations and 58 deployed API Gateway routes were green.
+- Teardown removed runtime-created connection secrets, terminated six MicroVMs, and destroyed all
+  208 Terraform resources. The post-destroy tagged-resource audit passed for the managed image,
+  connector, NAT gateway, VPC endpoints, and KMS key. As required by AWS, the disabled
+  customer-managed KMS key remains only in its mandatory scheduled-deletion state.
 - A second disposable `us-west-2` stack (`br260821b`) expanded the live browser proof from simple
   navigation to every implemented v1 command. A real Codex agent invoked `navigate`, `observe`,
   `record_start`, clear and append `type`, `press`, `select`, coordinate and reference `click`,
@@ -269,9 +294,9 @@ teardown.
   is no signed package catalog, arbitrary runtime plugin loading, visual mapper, or Zapier-compatible
   trigger engine yet.
 - Run live AWS canaries for steering, interruption, decline/cancel decisions, Codex and integration
-  approval routing, multi-account credential selection, and scheduled routine submission. Event
-  polling, `accept-for-session` browser approvals, and the complete implemented browser command
-  surface are now live-AWS validated.
+  approval routing, scheduled Thing/routine submission, and actual external-provider operations.
+  Multi-account credential resolution and permission intersection are now live-AWS validated, but
+  Slack/Stripe tool calls and provider-side denials still use local simulations or mocks.
 - Add browser takeover/return-control, secure human credential entry, uploads/downloads, tabs and
   popups, richer pointer interactions, and replacement-MicroVM authenticated-profile validation
   before making an unqualified “full computer use” claim. General graphical desktop control is not
@@ -302,10 +327,11 @@ The immediate priority is to make the new small-business/self-hosted surface bor
 1. Exercise live steering, interruption, negative approval decisions, Codex approval, and
    integration approval against one active run. Event polling and accepted browser approvals are
    already live validated.
-2. Prove two accounts for one plugin in a live stack, including read-only/read-write intersection,
-   provider-scope denial, resource constraints, rotation, and revocation without secret leakage.
-3. Prove the EventBridge reconciler submits one and only one routine occurrence across retry/crash
-   windows, then exercise pause/resume/delete/run-now through the built CLI.
+2. Exercise two test accounts against an actual external provider API, including a permitted read,
+   a permitted write, provider-scope denial, resource constraints, and integration approval. The
+   live AWS selection, rotation, revocation, and no-secret-leakage path is already proven.
+3. Prove the EventBridge reconciler submits one and only one scheduled Thing and routine occurrence
+   across retry/crash windows, then exercise both lifecycle surfaces through the built CLI.
 4. Add connection verification and OAuth/PKCE onboarding so non-technical operators can connect
    accounts without manually handling tokens.
 5. Extract the fixed-origin adapter pattern into a contributor-facing SDK, schema validator, and

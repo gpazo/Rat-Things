@@ -219,7 +219,12 @@ export class S3ArtifactStore implements ArtifactStore {
   public constructor(
     private readonly client: S3Client,
     private readonly bucket: string,
-  ) {}
+    private readonly encryption: S3ArtifactEncryption = { algorithm: 'AES256' },
+  ) {
+    if (encryption.algorithm === 'aws:kms' && !encryption.kmsKeyId) {
+      throw new Error('aws:kms artifact encryption requires a KMS key ID');
+    }
+  }
 
   public putJson(key: string, value: unknown): Promise<ArtifactReference> {
     return this.putBytes(key, Buffer.from(JSON.stringify(value)), 'application/json');
@@ -265,7 +270,7 @@ export class S3ArtifactStore implements ArtifactStore {
         Key: key,
         Body: value,
         ContentType: contentType,
-        ServerSideEncryption: 'AES256',
+        ...encryptionHeaders(this.encryption),
         ChecksumSHA256: digest.toString('base64'),
       }),
     );
@@ -281,7 +286,7 @@ export class S3ArtifactStore implements ArtifactStore {
       Bucket: this.bucket,
       Key: key,
       ContentType: contentType,
-      ServerSideEncryption: 'AES256',
+      ...encryptionHeaders(this.encryption),
     }));
     if (!created.UploadId) throw new Error(`S3 did not create multipart upload for ${key}`);
     const uploadId = created.UploadId;
@@ -344,10 +349,23 @@ export class S3ArtifactStore implements ArtifactStore {
       CopySource: encodeCopySource(source.bucket, source.key),
       ContentType: contentType,
       MetadataDirective: 'REPLACE',
-      ServerSideEncryption: 'AES256',
+      ...encryptionHeaders(this.encryption),
     }));
     return { bucket: this.bucket, key, sha256: source.sha256 };
   }
+}
+
+export type S3ArtifactEncryption =
+  | { algorithm: 'AES256' }
+  | { algorithm: 'aws:kms'; kmsKeyId: string };
+
+function encryptionHeaders(encryption: S3ArtifactEncryption): {
+  ServerSideEncryption: 'AES256' | 'aws:kms';
+  SSEKMSKeyId?: string;
+} {
+  return encryption.algorithm === 'aws:kms'
+    ? { ServerSideEncryption: 'aws:kms', SSEKMSKeyId: encryption.kmsKeyId }
+    : { ServerSideEncryption: 'AES256' };
 }
 
 const MULTIPART_PART_BYTES = 8 * 1024 * 1024;

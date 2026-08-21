@@ -19,6 +19,12 @@ import type {
   RoutineRecord,
   RoutineStatus,
 } from '../domain/routines.js';
+import type {
+  ListThingsResult,
+  ThingRecord,
+  ThingStatus,
+  ThingVersionRecord,
+} from '../domain/things.js';
 
 export interface CreateRunResult {
   created: boolean;
@@ -105,6 +111,41 @@ export interface RoutineStore {
   ): Promise<RoutineRecord>;
   advance(
     routineId: string,
+    expectedRunAt: string,
+    nextRunAt: string,
+    runId: string,
+    updatedAt: string,
+  ): Promise<boolean>;
+}
+
+export interface ThingStore {
+  create(record: ThingRecord, version: ThingVersionRecord): Promise<void>;
+  get(thingId: string): Promise<ThingRecord | undefined>;
+  getVersion(thingId: string, revision: number): Promise<ThingVersionRecord | undefined>;
+  listVersions(thingId: string): Promise<ThingVersionRecord[]>;
+  list(
+    ownerId: string,
+    limit: number,
+    nextToken?: string,
+    includeArchived?: boolean,
+  ): Promise<ListThingsResult>;
+  listDue(cutoff: string, limit: number): Promise<ThingRecord[]>;
+  addVersion(
+    record: ThingRecord,
+    version: ThingVersionRecord,
+    expectedRevision: number,
+  ): Promise<ThingRecord>;
+  setStatus(
+    ownerId: string,
+    thingId: string,
+    from: ThingStatus[],
+    status: ThingStatus,
+    nextRunAt: string | undefined,
+    updatedAt: string,
+  ): Promise<ThingRecord>;
+  advance(
+    thingId: string,
+    expectedRevision: number,
     expectedRunAt: string,
     nextRunAt: string,
     runId: string,
