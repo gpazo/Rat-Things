@@ -6,6 +6,7 @@ const lambdaEntries = {
   'conversation-completion': 'src/lambdas/conversation-completion.ts',
   'conversation-coordinator': 'src/lambdas/conversation-coordinator.ts',
   dispatcher: 'src/lambdas/dispatcher.ts',
+  'integration-fixture': 'src/lambdas/integration-fixture.ts',
   notifier: 'src/lambdas/notifier.ts',
   reconciler: 'src/lambdas/reconciler.ts',
   'state-stream': 'src/lambdas/state-stream.ts',

@@ -228,6 +228,20 @@ variable "lambda_zip_paths" {
   default     = {}
 }
 
+variable "integration_plugin_base_urls" {
+  description = "Non-secret HTTPS API base URLs for optional compiled integration plugins, keyed by plugin ID."
+  type        = map(string)
+  default     = {}
+
+  validation {
+    condition = alltrue([
+      for id, url in var.integration_plugin_base_urls :
+      can(regex("^[a-z][a-z0-9-]{0,63}$", id)) && can(regex("^https://[^[:space:]]+$", url))
+    ])
+    error_message = "integration_plugin_base_urls must map valid plugin IDs to HTTPS URLs."
+  }
+}
+
 variable "github_webhook_secret_arn" {
   description = "Secrets Manager ARN containing the GitHub webhook secret. Supplying it enables the GitHub route."
   type        = string

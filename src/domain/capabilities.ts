@@ -76,7 +76,7 @@ export type OperationApproval = (typeof OPERATION_APPROVALS)[number];
 export const CONNECTION_STATUSES = ['active', 'expired', 'revoked'] as const;
 export type ConnectionStatus = (typeof CONNECTION_STATUSES)[number];
 
-export const AUTH_SCHEMES = ['oauth2', 'api-key', 'session', 'basic', 'none'] as const;
+export const AUTH_SCHEMES = ['oauth2', 'api-key', 'session', 'basic'] as const;
 export type IntegrationAuthScheme = (typeof AUTH_SCHEMES)[number];
 
 export const PROVIDER_SCOPE_MODELS = ['granular', 'coarse', 'unknown'] as const;
@@ -96,6 +96,7 @@ export interface IntegrationConnection {
   ownerId: string;
   pluginId: string;
   alias: string;
+  label: string;
   externalTenantId?: string;
   externalSubjectId?: string;
   authorization: ProviderAuthorization;
@@ -254,6 +255,7 @@ export function validateIntegrationConnection(value: IntegrationConnection): Int
   if (!/^[A-Za-z0-9][A-Za-z0-9._:@-]{0,127}$/.test(value.alias)) {
     throw new Error('connection alias is invalid');
   }
+  requireLabel(value.label, 'connection label', 256);
   if (value.externalTenantId !== undefined) requireLabel(value.externalTenantId, 'external tenant ID', 512);
   if (value.externalSubjectId !== undefined) requireLabel(value.externalSubjectId, 'external subject ID', 512);
   if (!AUTH_SCHEMES.includes(value.authorization.scheme)) throw new Error('connection auth scheme is invalid');

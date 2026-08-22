@@ -127,7 +127,9 @@ export class IntegrationRuntime {
         throw new Error(`integration connection ${connection.alias} is ${connection.status}`);
       }
       const plugin = this.options.registry.plugin(connection.pluginId);
-      if (!plugin.manifest.authSchemes.includes(connection.authorization.scheme)) {
+      if (!plugin.manifest.authentication.some(
+        (authentication) => authentication.scheme === connection.authorization.scheme,
+      )) {
         throw new Error(`integration connection ${connection.alias} uses an unsupported auth scheme`);
       }
       const grant = await this.options.store.getGrant(input.ownerId, connection.connectionId);

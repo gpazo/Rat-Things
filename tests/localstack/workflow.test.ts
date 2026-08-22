@@ -183,54 +183,48 @@ integration('LocalStack webhook-to-egress workflow', () => {
     const control = await import('../../src/lambdas/control.js');
     const ownerId = 'api:arn:aws:iam::000000000000:user/local-operator';
     const fixtureId = randomUUID().slice(0, 8);
-    const personalAlias = `slack-personal-${fixtureId}`;
-    const businessAlias = `slack-business-${fixtureId}`;
+    const personalAlias = `fixture-alpha-${fixtureId}`;
+    const businessAlias = `fixture-beta-${fixtureId}`;
     const connectionSetName = `local-shop-operations-${fixtureId}`;
-    const personalToken = `xoxp-local-${randomUUID()}`;
-    const businessToken = `xoxb-local-${randomUUID()}`;
+    const personalToken = required('INTEGRATION_FIXTURE_ALPHA_KEY');
+    const businessToken = required('INTEGRATION_FIXTURE_BETA_KEY');
     const createConnection = async (
       alias: string,
-      externalTenantId: string,
       token: string,
-      scopes: string[],
       preset: 'read-only' | 'read-write',
     ) => invoke<APIGatewayProxyStructuredResultV2>(control.handler, controlEvent({
       method: 'POST',
       path: '/v1/integrations/connections',
       body: {
         version: '1',
-        pluginId: 'slack',
+        pluginId: 'fixture-crm',
         alias,
-        externalTenantId,
-        authorization: {
-          scheme: 'oauth2',
-          access: 'full',
-          scopeModel: 'granular',
-          scopes,
-        },
-        credential: { access_token: token },
+        authScheme: 'api-key',
+        credential: { api_key: token },
         grant: {
           version: '1',
           preset,
-          ...(preset === 'read-write'
-            ? { resourceConstraints: { channel: ['C-SUPPORT'] } }
-            : {}),
         },
       },
     }));
 
+    const rejectedResponse = await createConnection(
+      `fixture-invalid-${fixtureId}`,
+      `invalid-${fixtureId}`,
+      'read-only',
+    );
+    expect(rejectedResponse.statusCode).toBe(400);
+    expect(rejectedResponse.body).toContain('could not verify the supplied credential');
+    expect(rejectedResponse.body).not.toContain(`invalid-${fixtureId}`);
+
     const personalResponse = await createConnection(
       personalAlias,
-      'T-PERSONAL-LOCAL',
       personalToken,
-      ['search:read'],
       'read-only',
     );
     const businessResponse = await createConnection(
       businessAlias,
-      'T-BUSINESS-LOCAL',
       businessToken,
-      ['search:read', 'chat:write'],
       'read-write',
     );
     expect(personalResponse.statusCode).toBe(201);
@@ -238,11 +232,19 @@ integration('LocalStack webhook-to-egress workflow', () => {
     expect(personalResponse.body).not.toContain(personalToken);
     expect(businessResponse.body).not.toContain(businessToken);
     const personal = jsonResponse<{
-      connection: { connectionId: string; alias: string };
+      connection: { connectionId: string; alias: string; label: string; externalTenantId: string };
     }>(personalResponse);
     const business = jsonResponse<{
-      connection: { connectionId: string; alias: string };
+      connection: { connectionId: string; alias: string; label: string; externalTenantId: string };
     }>(businessResponse);
+    expect(personal.connection).toMatchObject({
+      label: 'Alpha Support',
+      externalTenantId: 'fixture-alpha',
+    });
+    expect(business.connection).toMatchObject({
+      label: 'Beta Support',
+      externalTenantId: 'fixture-beta',
+    });
 
     const listResponse = await invoke<APIGatewayProxyStructuredResultV2>(
       control.handler,
@@ -277,8 +279,8 @@ integration('LocalStack webhook-to-egress workflow', () => {
       clients.secrets.send(new GetSecretValueCommand({ SecretId: personalBinding.reference })),
       clients.secrets.send(new GetSecretValueCommand({ SecretId: businessBinding.reference })),
     ]);
-    expect(JSON.parse(personalSecret.SecretString ?? '{}')).toEqual({ access_token: personalToken });
-    expect(JSON.parse(businessSecret.SecretString ?? '{}')).toEqual({ access_token: businessToken });
+    expect(JSON.parse(personalSecret.SecretString ?? '{}')).toEqual({ api_key: personalToken });
+    expect(JSON.parse(businessSecret.SecretString ?? '{}')).toEqual({ api_key: businessToken });
 
     const setResponse = await invoke<APIGatewayProxyStructuredResultV2>(
       control.handler,

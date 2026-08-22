@@ -51,9 +51,14 @@ export function ratThingsDiscovery(docsUrl?: string): Record<string, unknown> {
       integrations: {
         multipleAccounts: true,
         connectionSets: true,
+        credentialOnboarding: 'manifest-driven',
+        credentialVerification: 'before-persistence',
+        providerIdentity: 'derived',
         permissionPresets: ['read-only', 'read-write', 'full', 'custom'],
         providerAndBrokerEnforcement: true,
         bringYourOwnOAuth: true,
+        hostedOAuthCallbacks: false,
+        automaticTokenRefresh: false,
       },
       agent: {
         browserComputerUse: true,

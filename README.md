@@ -249,6 +249,20 @@ Start programmatic integration at `GET /.well-known/rat-things`; it links to the
 OpenAPI and ThingSpec schemas. See [Things](docs/things.md),
 [embedding and self-hosting](docs/embedding.md), and [diagnostics](docs/diagnostics.md).
 
+Connect an external account from a credential-only file. Rat discovers the plugin fields, verifies
+the credential with the provider, derives the account label and authorization, and defaults to a
+read-only grant:
+
+```bash
+rat-things plugins
+rat-things connect stripe --credential-file /secure/tmp/stripe.json
+rat-things connections
+```
+
+Repeat `connect` for any number of accounts, even for the same plugin. Use `--access read-write`
+only when the intended Thing or run needs writes; consequential operations still retain their
+approval policy.
+
 The remote MicroVM defaults to `danger-full-access` and network access because the dedicated VM is
 the isolation boundary. Narrow either per run or with a capability profile when the task needs less:
 
@@ -270,10 +284,10 @@ rat-things routine-create --file examples/routine.json
 rat-things routines
 ```
 
-Integration credentials are accepted only by connection-management endpoints and are stored in
-Secrets Manager. They are never copied into run requests, DynamoDB records, MicroVM launch payloads,
-tool schemas, or model-visible environment variables. See [integrations and permissions](docs/plugins.md)
-and the [control API](docs/api.md).
+Integration credentials are accepted only by connection-management endpoints, verified before
+persistence, and stored in Secrets Manager. They are never copied into run requests, DynamoDB
+records, MicroVM launch payloads, tool schemas, or model-visible environment variables. See the
+[Integration Contract v1](docs/plugins.md) and the [control API](docs/api.md).
 
 ### Durable files and one-turn sharing
 
@@ -401,9 +415,10 @@ The test covers signed GitHub/GitLab ingress, a complete signed Teams path throu
 Secrets Manager, S3, DynamoDB Streams, SQS, EventBridge, durable delivery fencing, and WireMock
 egress. It also exercises the durable conversation mailbox through interrupt/defer ordering,
 leases, progress, checkpoint/reacquire/resume, history, completion, and idempotent retry. The
-control-plane scenario adds two accounts for one integration, credential isolation, a connection
-set, immutable Thing revisions and explanation, idempotent Thing/routine submission, dispatch, and
-worker completion.
+control-plane scenario uses the disposable Fixture CRM to reject an invalid credential, verify two
+permission-distinct accounts, preserve credential isolation, build a connection set, explain the
+permission intersection, create immutable Thing revisions, and complete idempotent Thing/routine
+submission through dispatch and the worker.
 
 To build the packaged Linux ARM64 image and exercise lifecycle startup, the UID-scoped cgroup eBPF
 guard, its external-port-8080 exception, real Chromium navigation, retained screenshots and VP8

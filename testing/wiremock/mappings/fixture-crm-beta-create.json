@@ -1,0 +1,16 @@
+{
+  "request": {
+    "method": "POST",
+    "urlPath": "/fixture-crm/records",
+    "headers": { "Authorization": { "equalTo": "Bearer beta-local" } }
+  },
+  "response": {
+    "status": 201,
+    "headers": { "Content-Type": "application/json" },
+    "jsonBody": {
+      "ok": true,
+      "account": "beta",
+      "record": { "id": "beta-created-local", "name": "Created customer" }
+    }
+  }
+}

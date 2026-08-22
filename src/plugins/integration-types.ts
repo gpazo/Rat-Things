@@ -10,17 +10,44 @@ import type {
   IntegrationAuthScheme,
   IntegrationConnection,
   OperationDefinition,
+  ProviderAuthorization,
   SourceCapabilityBinding,
 } from '../domain/capabilities.js';
 import type { JsonValue } from '../domain/contracts.js';
+
+export class IntegrationProviderUnavailableError extends Error {
+  public constructor(pluginTitle: string) {
+    super(`${pluginTitle} credential verification is temporarily unavailable`);
+    this.name = 'IntegrationProviderUnavailableError';
+  }
+}
+
+export interface IntegrationCredentialField {
+  key: string;
+  label: string;
+  secret: boolean;
+}
+
+export interface IntegrationAuthenticationDefinition {
+  scheme: IntegrationAuthScheme;
+  title: string;
+  fields: IntegrationCredentialField[];
+}
 
 export interface IntegrationPluginManifest {
   id: string;
   version: '1';
   title: string;
   description: string;
-  authSchemes: IntegrationAuthScheme[];
+  authentication: IntegrationAuthenticationDefinition[];
   operations: OperationDefinition[];
+}
+
+export interface VerifiedIntegrationCredential {
+  label: string;
+  authorization: ProviderAuthorization;
+  externalTenantId?: string;
+  externalSubjectId?: string;
 }
 
 export interface IntegrationOperationContext {
@@ -31,6 +58,11 @@ export interface IntegrationOperationContext {
 
 export interface IntegrationPlugin {
   manifest: IntegrationPluginManifest;
+  verifyCredential(
+    scheme: IntegrationAuthScheme,
+    credential: IntegrationCredentialValue,
+    signal?: AbortSignal,
+  ): Promise<VerifiedIntegrationCredential>;
   execute(
     operationId: string,
     input: { [key: string]: JsonValue },

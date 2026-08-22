@@ -15,7 +15,18 @@ export function createSlackIntegrationPlugin(options: { fetch?: typeof fetch } =
       version: '1',
       title: 'Slack',
       description: 'Test API reachability, search messages, post messages, and add reactions in connected Slack workspaces.',
-      authSchemes: ['oauth2', 'api-key'],
+      authentication: [
+        {
+          scheme: 'oauth2',
+          title: 'OAuth access token',
+          fields: [{ key: 'access_token', label: 'Access token', secret: true }],
+        },
+        {
+          scheme: 'api-key',
+          title: 'Bot or app token',
+          fields: [{ key: 'token', label: 'Token', secret: true }],
+        },
+      ],
       operations: [
         {
           id: 'slack.api.test',
@@ -71,6 +82,26 @@ export function createSlackIntegrationPlugin(options: { fetch?: typeof fetch } =
       : {
         authorization: `Bearer ${requiredCredential(credential, 'access_token', 'token', 'value')}`,
       },
+    verification: {
+      request: (credential) => ({
+        method: 'POST',
+        path: 'auth.test',
+        headers: {
+          authorization: `Bearer ${requiredCredential(credential, 'access_token', 'token')}`,
+        },
+      }),
+      result: (value, scheme) => {
+        const result = requiredRecord(value, 'Slack verification response');
+        const team = requiredResultString(result, 'team');
+        const user = requiredResultString(result, 'user');
+        return {
+          label: `${team} — ${user}`,
+          authorization: { scheme, access: 'full', scopeModel: 'unknown', scopes: [] },
+          externalTenantId: requiredResultString(result, 'team_id'),
+          externalSubjectId: requiredResultString(result, 'user_id'),
+        };
+      },
+    },
     validateResponse: (value) => {
       if (isRecord(value) && value.ok === false) {
         const code = typeof value.error === 'string' && /^[A-Za-z0-9_:-]{1,128}$/.test(value.error)
@@ -126,6 +157,19 @@ export function createSlackIntegrationPlugin(options: { fetch?: typeof fetch } =
 
 function isRecord(value: JsonValue): value is { [key: string]: JsonValue } {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function requiredRecord(value: JsonValue, label: string): { [key: string]: JsonValue } {
+  if (!isRecord(value)) throw new Error(`${label} is invalid`);
+  return value;
+}
+
+function requiredResultString(value: { [key: string]: JsonValue }, key: string): string {
+  const result = value[key];
+  if (typeof result !== 'string' || !result || Buffer.byteLength(result, 'utf8') > 512) {
+    throw new Error(`Slack verification response ${key} is invalid`);
+  }
+  return result;
 }
 
 function stringSchema(description: string): JsonValue {

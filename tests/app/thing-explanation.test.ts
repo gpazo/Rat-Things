@@ -166,6 +166,7 @@ function connection(
     ownerId: 'owner-1',
     pluginId,
     alias,
+    label: alias,
     authorization,
     status: 'active',
     createdAt: '2026-08-21T00:00:00.000Z',

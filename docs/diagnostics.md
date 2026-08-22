@@ -32,6 +32,57 @@ Common repairs:
 `/health` is liveness only. It does not prove model access, MicroVM provisioning, an integration
 credential, or a particular Thing.
 
+## Debug an integration connection
+
+Start from discovery instead of guessing a provider's fields:
+
+```bash
+rat-things plugins > plugins.json
+rat-things connections > connections.json
+```
+
+Find the plugin's `authentication` entry and make the credential file contain exactly those keys.
+Use a non-secret path, owner-only file permissions, and never put the value on the command line:
+
+```bash
+chmod 600 /secure/tmp/provider.json
+rat-things connect PLUGIN --credential-file /secure/tmp/provider.json --access read-only
+```
+
+Connection creation follows four independently inspectable stages:
+
+| Stage | Failure meaning | Repair |
+| --- | --- | --- |
+| Manifest discovery | Plugin absent or scheme unavailable | Deploy/register the plugin; choose a listed scheme |
+| Local/API field validation | Missing, empty, or extra credential key | Match the manifest field keys exactly |
+| Provider verification rejected | `400` and no connection/secret created | Reissue the credential; check provider account/status and plugin identity endpoint |
+| Provider verification unavailable | `503 integration_unavailable` | Preserve the form and retry with backoff; check egress, DNS/TLS, provider status, and throttling |
+| Persistence | `500` with a trace ID | Inspect control Lambda, Secrets Manager, DynamoDB, KMS, and provider reachability |
+
+A successful response should have Rat-derived `label`, `externalTenantId` and/or
+`externalSubjectId`, and `authorization`. If those are wrong, fix the trusted plugin verifier; do
+not work around it by accepting caller-supplied metadata.
+
+For a connection that exists but exposes no expected tool, inspect in this order:
+
+1. provider `authorization.access`, `scopeModel`, and `scopes` from `rat-things connections`;
+2. the persistent Rat `grant` returned beside that connection;
+3. the selected capability profile;
+4. the Thing/run connection selection and any deny list; and
+5. the operation's required scopes, resource constraints, and approval policy.
+
+`rat-things thing-explain THING_ID` shows that intersection without reading the credential. A broad
+provider key with a read-only Rat grant is expected; widening the key is not a fix for a broker
+denial. To rotate, use the same credential-only shape:
+
+```bash
+rat-things rotate ACCOUNT --credential-file /secure/tmp/provider-rotated.json
+```
+
+Rotation rejects a credential for a different provider tenant/subject. Create another connection
+for that account instead. Revocation is terminal for the connection; reconnect as a new account if
+it is needed again.
+
 ## Explain a Thing
 
 ```bash
@@ -77,6 +128,7 @@ Control and webhook transport failures use:
 | `403 forbidden` | Principal absent or owner boundary denied | Repair authentication/ownership; never search other IDs |
 | `404 not_found` | Route or owner-visible object absent | Check deployment version and owner-scoped ID |
 | `409 conflict` | Stale revision, lifecycle conflict, or unavailable interaction | Refresh state, reconcile intent, then retry deliberately |
+| `503 integration_unavailable` | Provider verification is temporarily unavailable | Retry with bounded backoff; preserve the credential outside logs |
 | `500 internal_error` | Unexpected storage/runtime failure | Correlate `traceId`; retry only when `retryable` is true |
 
 The server logs bounded error metadata for internal failures, never the raw secret. Preserve the

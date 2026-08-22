@@ -10,14 +10,17 @@ import {
   validateSourceCapabilityBinding,
   type ConnectionGrant,
   type ConnectionSet,
+  type IntegrationAuthScheme,
   type IntegrationConnection,
-  type ProviderAuthorization,
   type SourceCapabilityBinding,
 } from '../domain/capabilities.js';
+import { ValidationError } from '../domain/validation.js';
 import type {
   IntegrationPluginRegistryLike,
   IntegrationStore,
+  VerifiedIntegrationCredential,
 } from './integration-types.js';
+import { IntegrationProviderUnavailableError } from './integration-types.js';
 
 export interface ConnectionServiceOptions {
   store: IntegrationStore;
@@ -31,11 +34,9 @@ export interface ConnectionServiceOptions {
 export interface CreateConnectionInput {
   ownerId: string;
   pluginId: string;
-  alias: string;
-  authorization: ProviderAuthorization;
+  alias?: string;
+  authScheme: IntegrationAuthScheme;
   credential: IntegrationCredentialValue;
-  externalTenantId?: string;
-  externalSubjectId?: string;
   grant: Omit<ConnectionGrant, 'version' | 'grantId' | 'ownerId' | 'connectionId'>;
 }
 
@@ -52,6 +53,13 @@ export interface CreateSourceBindingInput {
   selector: SourceCapabilityBinding['selector'];
   capabilityProfile?: string;
   connectionSetId?: string;
+}
+
+export class CredentialVerificationError extends ValidationError {
+  public constructor(pluginTitle: string) {
+    super(`${pluginTitle} could not verify the supplied credential`);
+    this.name = 'CredentialVerificationError';
+  }
 }
 
 export class ConnectionService {
@@ -71,13 +79,22 @@ export class ConnectionService {
     grant: ConnectionGrant;
   }> {
     requiredOwner(input.ownerId);
-    safeAlias(input.alias);
-    const plugin = this.options.registry.plugin(input.pluginId);
-    if (!plugin.manifest.authSchemes.includes(input.authorization.scheme)) {
-      throw new Error(`plugin ${input.pluginId} does not support ${input.authorization.scheme}`);
+    if (input.alias) safeAlias(input.alias);
+    const plugin = installedPlugin(this.options.registry, input.pluginId);
+    const authentication = plugin.manifest.authentication.find(
+      (candidate) => candidate.scheme === input.authScheme,
+    );
+    if (!authentication) {
+      throw new ValidationError(`plugin ${input.pluginId} does not support ${input.authScheme}`);
     }
-    const existing = await this.options.store.getConnection(input.ownerId, input.alias);
-    if (existing) throw new Error(`connection alias ${input.alias} already exists`);
+    validateCredentialFields(input.credential, authentication.fields);
+    const verified = await verifyCredential(plugin, input.authScheme, input.credential);
+    if (verified.authorization.scheme !== input.authScheme) {
+      throw new Error(`plugin ${input.pluginId} verified the wrong authentication scheme`);
+    }
+    const alias = input.alias
+      ? await this.requestedAlias(input.ownerId, input.alias)
+      : await this.availableAlias(input.ownerId, defaultAlias(input.pluginId, verified.label));
     const connectionId = this.ids.random();
     const timestamp = this.clock.now().toISOString();
     const connection = validateIntegrationConnection({
@@ -85,10 +102,11 @@ export class ConnectionService {
       connectionId,
       ownerId: input.ownerId,
       pluginId: input.pluginId,
-      alias: input.alias,
-      ...(input.externalTenantId ? { externalTenantId: input.externalTenantId } : {}),
-      ...(input.externalSubjectId ? { externalSubjectId: input.externalSubjectId } : {}),
-      authorization: input.authorization,
+      alias,
+      label: verified.label,
+      ...(verified.externalTenantId ? { externalTenantId: verified.externalTenantId } : {}),
+      ...(verified.externalSubjectId ? { externalSubjectId: verified.externalSubjectId } : {}),
+      authorization: verified.authorization,
       status: 'active',
       createdAt: timestamp,
       updatedAt: timestamp,
@@ -164,14 +182,37 @@ export class ConnectionService {
     credential: IntegrationCredentialValue,
   ): Promise<void> {
     const connection = await this.requiredConnection(ownerId, connectionIdOrAlias);
-    if (connection.status === 'revoked') throw new Error('revoked connections cannot be rotated');
+    if (connection.status === 'revoked') {
+      throw new ValidationError('revoked connections cannot be rotated');
+    }
+    const plugin = this.options.registry.plugin(connection.pluginId);
+    const authentication = plugin.manifest.authentication.find(
+      (candidate) => candidate.scheme === connection.authorization.scheme,
+    );
+    if (!authentication) throw new Error('connection authentication scheme is no longer installed');
+    validateCredentialFields(credential, authentication.fields);
+    const verified = await verifyCredential(plugin, connection.authorization.scheme, credential);
+    if (
+      verified.authorization.scheme !== connection.authorization.scheme ||
+      (connection.externalTenantId ?? '') !== (verified.externalTenantId ?? '') ||
+      (connection.externalSubjectId ?? '') !== (verified.externalSubjectId ?? '')
+    ) {
+      throw new ValidationError('rotated credential belongs to a different provider account');
+    }
     const binding = await this.options.store.getCredentialBinding(ownerId, connection.connectionId);
     if (!binding || binding.ownerId !== ownerId) throw new Error('connection credential is missing');
     await this.options.vault.replace(binding.reference, credential);
+    const timestamp = this.clock.now().toISOString();
     await this.options.store.putCredentialBinding({
       ...binding,
-      updatedAt: this.clock.now().toISOString(),
+      updatedAt: timestamp,
     });
+    await this.options.store.putConnection(validateIntegrationConnection({
+      ...connection,
+      label: verified.label,
+      authorization: verified.authorization,
+      updatedAt: timestamp,
+    }));
   }
 
   public async revoke(ownerId: string, connectionIdOrAlias: string): Promise<IntegrationConnection> {
@@ -249,6 +290,34 @@ export class ConnectionService {
     if (!connection || connection.ownerId !== ownerId) throw new Error('integration connection not found');
     return connection;
   }
+
+  private async requestedAlias(ownerId: string, alias: string): Promise<string> {
+    const existing = await this.options.store.getConnection(ownerId, alias);
+    if (existing) throw new ValidationError(`connection alias ${alias} already exists`);
+    return alias;
+  }
+
+  private async availableAlias(ownerId: string, base: string): Promise<string> {
+    for (let suffix = 1; suffix <= 1_000; suffix += 1) {
+      const ending = suffix === 1 ? '' : `-${suffix}`;
+      const candidate = `${base.slice(0, 128 - ending.length)}${ending}`;
+      if (!await this.options.store.getConnection(ownerId, candidate)) return candidate;
+    }
+    throw new Error(`could not allocate a connection alias for ${base}`);
+  }
+}
+
+async function verifyCredential(
+  plugin: ReturnType<IntegrationPluginRegistryLike['plugin']>,
+  scheme: IntegrationAuthScheme,
+  credential: IntegrationCredentialValue,
+): Promise<VerifiedIntegrationCredential> {
+  try {
+    return await plugin.verifyCredential(scheme, credential);
+  } catch (error) {
+    if (error instanceof IntegrationProviderUnavailableError) throw error;
+    throw new CredentialVerificationError(plugin.manifest.title);
+  }
 }
 
 function requiredOwner(value: string): void {
@@ -257,7 +326,33 @@ function requiredOwner(value: string): void {
 
 function safeAlias(value: string): void {
   if (!/^[A-Za-z0-9][A-Za-z0-9._:@-]{0,127}$/.test(value)) {
-    throw new Error('connection alias must be 1-128 safe ASCII characters');
+    throw new ValidationError('connection alias must be 1-128 safe ASCII characters');
+  }
+}
+
+function defaultAlias(pluginId: string, label: string): string {
+  const account = label
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 96);
+  return `${pluginId}${account ? `-${account}` : ''}`.slice(0, 128);
+}
+
+function validateCredentialFields(
+  credential: IntegrationCredentialValue,
+  fields: Array<{ key: string }>,
+): void {
+  const expected = new Set(fields.map((field) => field.key));
+  for (const field of expected) {
+    if (!credential[field]) throw new ValidationError(`integration credential requires ${field}`);
+  }
+  for (const field of Object.keys(credential)) {
+    if (!expected.has(field)) {
+      throw new ValidationError(`integration credential field ${field} is not accepted`);
+    }
   }
 }
 
@@ -272,7 +367,18 @@ function validateGrantOperations(
     ...(grant.approvalOverrides ?? []).map((override) => override.operationId),
   ]) {
     if (!installed.has(operationId)) {
-      throw new Error(`operation ${operationId} is not installed by plugin ${plugin.manifest.id}`);
+      throw new ValidationError(`operation ${operationId} is not installed by plugin ${plugin.manifest.id}`);
     }
+  }
+}
+
+function installedPlugin(
+  registry: IntegrationPluginRegistryLike,
+  pluginId: string,
+): ReturnType<IntegrationPluginRegistryLike['plugin']> {
+  try {
+    return registry.plugin(pluginId);
+  } catch {
+    throw new ValidationError(`integration plugin ${pluginId} is not installed`);
   }
 }

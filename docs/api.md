@@ -44,9 +44,9 @@ Cross-identity lookup is an administrative capability outside v1.
 | `GET /v1/capability-profiles` | Required | List installed capability-policy ceilings |
 | `GET /v1/integrations/plugins` | Required | List trusted integration manifests and operation schemas |
 | `GET /v1/integrations/connections` | Required | List the owner's connections and persistent grants; never returns credentials |
-| `POST /v1/integrations/connections` | Required | Create one account connection, its secret, and its initial grant |
+| `POST /v1/integrations/connections` | Required | Verify one provider credential, derive account metadata, then create its secret and initial grant |
 | `POST /v1/integrations/connections/{connectionId}/grant` | Required | Replace the account's persistent Rat-side grant |
-| `POST /v1/integrations/connections/{connectionId}/credential` | Required | Rotate the account credential in Secrets Manager |
+| `POST /v1/integrations/connections/{connectionId}/credential` | Required | Verify and rotate a credential without changing provider account identity |
 | `POST /v1/integrations/connections/{connectionId}/revoke` | Required | Revoke the connection and its credential |
 | `GET /v1/integrations/connection-sets` | Required | List reusable multi-account connection sets |
 | `POST /v1/integrations/connection-sets` | Required | Create a reusable multi-account connection set |
@@ -99,6 +99,37 @@ not a long-held HTTP stream. Interactive routes are available only while the exa
 MicroVM execution; stale, terminal, or non-interactive runs return `409`. Callers never select a
 MicroVM or receive its AWS-issued proxy token. Durable conversation continuation remains trusted
 orchestration selected from the stored owner-scoped session.
+
+## Integration connection contract
+
+`GET /v1/integrations/plugins` is the form and tool-generation contract. Each manifest declares one
+or more authentication schemes with exact credential fields, plus typed operations with access,
+risk, approval, scope, and input-schema metadata.
+
+Connection creation accepts only:
+
+```json
+{
+  "version": "1",
+  "pluginId": "stripe",
+  "authScheme": "api-key",
+  "credential": { "api_key": "..." },
+  "grant": { "version": "1", "preset": "read-only" }
+}
+```
+
+`alias` is the only optional setup field. The server verifies the credential before creating a
+secret and derives the label, provider tenant/subject, access, and scopes. Callers cannot submit
+those claims or an owner ID. A verification failure is `400 invalid_request` and creates no
+connection; provider throttling, 5xx, or network failure is retryable `503 integration_unavailable`.
+Repeating the request with another credential creates another independently permissioned account for
+the same plugin.
+
+The CLI implements this contract as
+`rat-things connect PLUGIN --credential-file FILE [--auth-scheme SCHEME] [--access PRESET]`.
+Credential rotation uses `rat-things rotate ACCOUNT --credential-file FILE`; the server verifies
+that the new credential resolves to the same provider tenant/subject before replacing it. See the
+[complete Integration Contract v1](plugins.md#the-integration-contract-v1).
 
 ## Discovery and error contract
 

@@ -12,6 +12,8 @@ process.env.ARTIFACT_BUCKET ||= 'bundle-smoke-artifacts';
 process.env.RUN_QUEUE_URL ||= 'https://sqs.us-west-2.amazonaws.com/000000000000/bundle-smoke-runs';
 process.env.CONVERSATION_QUEUE_URL ||= 'https://sqs.us-west-2.amazonaws.com/000000000000/bundle-smoke-conversations';
 process.env.EVENT_BUS_NAME ||= 'bundle-smoke-runs';
+process.env.DEPLOYMENT_ID ||= 'bundle-smoke';
+process.env.AUDIT_QUEUE_URL ||= 'https://sqs.us-west-2.amazonaws.com/000000000000/bundle-smoke-audit';
 
 const lambdaRoot = resolve('dist/lambdas');
 const lambdaNames = (await readdir(lambdaRoot)).sort();

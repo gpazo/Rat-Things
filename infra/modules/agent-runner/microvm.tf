@@ -83,7 +83,12 @@ resource "awscc_lambda_microvm_image" "runner" {
       key   = "RUN_AGENT_UID"
       value = "10001"
     },
-    ], local.publication_delivery_enabled ? [
+    ], length(var.integration_plugin_base_urls) > 0 ? [
+    {
+      key   = "INTEGRATION_PLUGIN_BASE_URLS"
+      value = jsonencode(var.integration_plugin_base_urls)
+    },
+    ] : [], local.publication_delivery_enabled ? [
     {
       key   = "AGENT_PUBLICATION_ENABLED"
       value = "true"

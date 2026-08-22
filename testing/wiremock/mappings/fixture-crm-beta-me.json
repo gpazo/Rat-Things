@@ -1,0 +1,19 @@
+{
+  "request": {
+    "method": "GET",
+    "urlPath": "/fixture-crm/me",
+    "headers": { "Authorization": { "equalTo": "Bearer beta-local" } }
+  },
+  "response": {
+    "status": 200,
+    "headers": { "Content-Type": "application/json" },
+    "jsonBody": {
+      "ok": true,
+      "label": "Beta Support",
+      "tenant_id": "fixture-beta",
+      "subject_id": "fixture-service-beta",
+      "access": "full",
+      "scopes": ["records:read", "records:write"]
+    }
+  }
+}

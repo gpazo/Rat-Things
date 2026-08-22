@@ -20,10 +20,12 @@ import type {
 } from './domain/contracts.js';
 import type {
   ConnectionAccessRequest,
+  IntegrationAuthScheme,
   IntegrationAccessRequest,
   IntegrationPermissionPreset,
 } from './domain/capabilities.js';
 import { INTEGRATION_PERMISSION_PRESETS } from './domain/capabilities.js';
+import type { IntegrationPluginManifest } from './plugins/integration-types.js';
 import type { AgentRuntimeSnapshot } from './domain/interaction.js';
 import { isTerminal } from './domain/state.js';
 import { parseRunRequest } from './domain/validation.js';
@@ -211,7 +213,7 @@ async function main(): Promise<void> {
       print(await api('/v1/integrations/connections', 'GET'));
       return;
     case 'connect':
-      print(await api('/v1/integrations/connections', 'POST', await requiredJsonFile(args)));
+      await connect(args);
       return;
     case 'grant':
       print(await api(
@@ -221,11 +223,7 @@ async function main(): Promise<void> {
       ));
       return;
     case 'rotate':
-      print(await api(
-        `/v1/integrations/connections/${encodeURIComponent(requiredPositional(args, 0, 'connection ID or alias'))}/credential`,
-        'POST',
-        await requiredJsonFile(args),
-      ));
+      await rotateCredential(args);
       return;
     case 'revoke':
       print(await api(
@@ -633,6 +631,113 @@ async function requiredJsonFile(args: Arguments): Promise<unknown> {
   } catch (error) {
     throw new Error(`could not read JSON file: ${error instanceof Error ? error.message : String(error)}`);
   }
+}
+
+async function connect(args: Arguments): Promise<void> {
+  const pluginId = requiredPositional(args, 0, 'plugin ID');
+  const plugin = await installedIntegrationPlugin(pluginId);
+  const requestedScheme = args.values.get('auth-scheme');
+  const authentication = requestedScheme
+    ? plugin.authentication.find((candidate) => candidate.scheme === requestedScheme)
+    : plugin.authentication.length === 1
+      ? plugin.authentication[0]
+      : undefined;
+  if (!authentication) {
+    const choices = plugin.authentication.map((candidate) => candidate.scheme).join(', ');
+    throw new Error(requestedScheme
+      ? `integration plugin ${pluginId} does not support ${requestedScheme}; choose ${choices}`
+      : `--auth-scheme is required; choose ${choices}`);
+  }
+  const credential = await credentialFile(args, authentication.fields);
+  const access = args.values.get('access') ?? 'read-only';
+  if (!['read-only', 'read-write', 'full'].includes(access)) {
+    throw new Error('--access must be read-only, read-write, or full');
+  }
+  print(await api('/v1/integrations/connections', 'POST', {
+    version: '1',
+    pluginId,
+    ...(args.values.get('alias') ? { alias: args.values.get('alias') } : {}),
+    authScheme: authentication.scheme as IntegrationAuthScheme,
+    credential,
+    grant: { version: '1', preset: access },
+  }));
+}
+
+async function installedIntegrationPlugin(pluginId: string): Promise<IntegrationPluginManifest> {
+  const catalog = await api('/v1/integrations/plugins', 'GET') as { plugins?: unknown };
+  if (!Array.isArray(catalog.plugins)) throw new Error('runtime returned an invalid integration catalog');
+  const plugin = (catalog.plugins as IntegrationPluginManifest[]).find(
+    (candidate) => candidate.id === pluginId,
+  );
+  if (!plugin) throw new Error(`integration plugin ${pluginId} is not installed`);
+  if (!Array.isArray(plugin.authentication) || plugin.authentication.length === 0) {
+    throw new Error(`integration plugin ${pluginId} has no authentication methods`);
+  }
+  return plugin;
+}
+
+async function rotateCredential(args: Arguments): Promise<void> {
+  const selector = requiredPositional(args, 0, 'connection ID or alias');
+  const listed = await api('/v1/integrations/connections', 'GET') as { connections?: unknown };
+  if (!Array.isArray(listed.connections)) throw new Error('runtime returned an invalid connection list');
+  const record = (listed.connections as Array<{ connection?: unknown }>).find((candidate) => {
+    const connection = candidate.connection;
+    if (!connection || typeof connection !== 'object' || Array.isArray(connection)) return false;
+    const value = connection as Record<string, unknown>;
+    return value.connectionId === selector || value.alias === selector;
+  });
+  if (!record?.connection || typeof record.connection !== 'object' || Array.isArray(record.connection)) {
+    throw new Error(`integration connection ${selector} was not found`);
+  }
+  const connection = record.connection as Record<string, unknown>;
+  if (typeof connection.pluginId !== 'string') throw new Error('runtime returned an invalid connection plugin');
+  const authorization = connection.authorization;
+  if (!authorization || typeof authorization !== 'object' || Array.isArray(authorization)) {
+    throw new Error('runtime returned an invalid connection authorization');
+  }
+  const scheme = (authorization as Record<string, unknown>).scheme;
+  const plugin = await installedIntegrationPlugin(connection.pluginId);
+  const authentication = plugin.authentication.find((candidate) => candidate.scheme === scheme);
+  if (!authentication) throw new Error('connection authentication method is no longer installed');
+  const credential = await credentialFile(args, authentication.fields);
+  print(await api(
+    `/v1/integrations/connections/${encodeURIComponent(selector)}/credential`,
+    'POST',
+    { version: '1', credential },
+  ));
+}
+
+async function credentialFile(
+  args: Arguments,
+  fields: IntegrationPluginManifest['authentication'][number]['fields'],
+): Promise<Record<string, string>> {
+  const path = args.values.get('credential-file');
+  if (!path) {
+    const expected = fields.map((field) => field.key).join(', ');
+    throw new Error(`--credential-file JSON is required with fields: ${expected || '(none)'}`);
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(await readFile(resolve(path), 'utf8')) as unknown;
+  } catch (error) {
+    throw new Error(`could not read credential JSON file: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error('credential file must contain one JSON object');
+  }
+  const result: Record<string, string> = {};
+  const expected = new Set(fields.map((field) => field.key));
+  for (const field of fields) {
+    const value = (parsed as Record<string, unknown>)[field.key];
+    if (typeof value !== 'string' || !value) {
+      throw new Error(`credential file requires non-empty string field ${field.key}`);
+    }
+    result[field.key] = value;
+  }
+  for (const key of Object.keys(parsed)) {
+    if (!expected.has(key)) throw new Error(`credential field ${key} is not used by ${args.positionals[0]}`);
+  }
+  return result;
 }
 
 async function writeArtifact(runId: string, name: string): Promise<void> {
@@ -1202,9 +1307,10 @@ function help(showAll: boolean): void {
   process.stdout.write(`  rat-things plugins\n`);
   process.stdout.write(`  rat-things profiles\n`);
   process.stdout.write(`  rat-things connections\n`);
-  process.stdout.write(`  rat-things connect --file CONNECTION.json\n`);
+  process.stdout.write(`  rat-things connect PLUGIN --credential-file CREDENTIAL.json\n`);
+  process.stdout.write(`    [--auth-scheme SCHEME] [--access read-only|read-write|full] [--alias NAME]\n`);
   process.stdout.write(`  rat-things grant ACCOUNT --file GRANT.json\n`);
-  process.stdout.write(`  rat-things rotate ACCOUNT --file CREDENTIAL.json\n`);
+  process.stdout.write(`  rat-things rotate ACCOUNT --credential-file CREDENTIAL.json\n`);
   process.stdout.write(`  rat-things revoke ACCOUNT\n`);
   process.stdout.write(`  rat-things connection-sets\n`);
   process.stdout.write(`  rat-things connection-set --file SET.json\n`);

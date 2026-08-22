@@ -37,11 +37,22 @@ describe('simulated agent capability loop', () => {
     const outbound: Array<{ url: string; authorization: string; body?: string }> = [];
     const fetcher = vi.fn<typeof fetch>(async (input, init) => {
       const headers = new Headers(init?.headers);
+      const url = new URL(String(input));
       outbound.push({
         url: String(input),
         authorization: headers.get('authorization') ?? '',
         ...(typeof init?.body === 'string' ? { body: init.body } : {}),
       });
+      if (url.pathname === '/api/auth.test') {
+        const business = headers.get('authorization')?.includes('business');
+        return new Response(JSON.stringify({
+          ok: true,
+          team: business ? 'Business' : 'Personal',
+          user: 'Rat',
+          team_id: business ? 'T-BUSINESS' : 'T-PERSONAL',
+          user_id: business ? 'U-BUSINESS' : 'U-PERSONAL',
+        }), { headers: { 'content-type': 'application/json' } });
+      }
       return new Response(JSON.stringify({
         ok: true,
         endpoint: new URL(String(input)).pathname,
@@ -64,13 +75,7 @@ describe('simulated agent capability loop', () => {
       ownerId,
       pluginId: 'slack',
       alias: 'slack-personal',
-      externalTenantId: 'T-PERSONAL',
-      authorization: {
-        scheme: 'oauth2',
-        access: 'full',
-        scopeModel: 'granular',
-        scopes: ['search:read'],
-      },
+      authScheme: 'oauth2',
       credential: { access_token: 'xoxp-personal-secret' },
       grant: { preset: 'read-only' },
     });
@@ -78,13 +83,7 @@ describe('simulated agent capability loop', () => {
       ownerId,
       pluginId: 'slack',
       alias: 'slack-business',
-      externalTenantId: 'T-BUSINESS',
-      authorization: {
-        scheme: 'oauth2',
-        access: 'full',
-        scopeModel: 'granular',
-        scopes: ['search:read', 'chat:write'],
-      },
+      authScheme: 'oauth2',
       credential: { access_token: 'xoxb-business-secret' },
       grant: {
         preset: 'read-write',
@@ -187,6 +186,14 @@ describe('simulated agent capability loop', () => {
         { type: 'record_stop' },
       ]);
       expect(outbound).toEqual([
+        expect.objectContaining({
+          url: 'https://slack.com/api/auth.test',
+          authorization: 'Bearer xoxp-personal-secret',
+        }),
+        expect.objectContaining({
+          url: 'https://slack.com/api/auth.test',
+          authorization: 'Bearer xoxb-business-secret',
+        }),
         expect.objectContaining({
           url: 'https://slack.com/api/search.messages?query=invoice',
           authorization: 'Bearer xoxp-personal-secret',

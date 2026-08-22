@@ -156,7 +156,11 @@ function mailPlugin(execute: IntegrationPlugin['execute']): IntegrationPlugin {
       version: '1',
       title: 'Mail',
       description: 'Search and send mail.',
-      authSchemes: ['oauth2'],
+      authentication: [{
+        scheme: 'oauth2',
+        title: 'OAuth access token',
+        fields: [{ key: 'access_token', label: 'Access token', secret: true }],
+      }],
       operations: [
         {
           id: 'mail.messages.search',
@@ -180,6 +184,10 @@ function mailPlugin(execute: IntegrationPlugin['execute']): IntegrationPlugin {
         },
       ],
     },
+    verifyCredential: async (scheme) => ({
+      label: 'Mail account',
+      authorization: { scheme, access: 'full', scopeModel: 'unknown', scopes: [] },
+    }),
     execute,
   };
 }
@@ -196,6 +204,7 @@ function connection(
     ownerId: 'owner-1',
     pluginId: 'mail',
     alias,
+    label: alias,
     authorization: { scheme: 'oauth2', access, scopeModel: 'granular', scopes },
     status: 'active',
     createdAt: now,

@@ -82,20 +82,38 @@
       "get": {
         "tags": ["Integrations"],
         "operationId": "listIntegrationPlugins",
-        "responses": { "200": { "description": "Trusted plugin manifests and operation schemas" }, "default": { "$ref": "#/components/responses/Error" } }
+        "responses": {
+          "200": {
+            "description": "Trusted plugin manifests, authentication fields, and operation schemas",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/IntegrationPluginList" } } }
+          },
+          "default": { "$ref": "#/components/responses/Error" }
+        }
       }
     },
     "/v1/integrations/connections": {
       "get": {
         "tags": ["Integrations"],
         "operationId": "listConnections",
-        "responses": { "200": { "description": "Owner-scoped account metadata and grants; never credentials" }, "default": { "$ref": "#/components/responses/Error" } }
+        "responses": {
+          "200": {
+            "description": "Owner-scoped account metadata and grants; never credentials",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/IntegrationConnectionList" } } }
+          },
+          "default": { "$ref": "#/components/responses/Error" }
+        }
       },
       "post": {
         "tags": ["Integrations"],
         "operationId": "createConnection",
         "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CreateConnection" } } } },
-        "responses": { "201": { "description": "Connection, secret binding, and initial grant created" }, "default": { "$ref": "#/components/responses/Error" } }
+        "responses": {
+          "201": {
+            "description": "Credential verified; derived connection metadata, secret binding, and initial grant created",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/IntegrationConnectionBundle" } } }
+          },
+          "default": { "$ref": "#/components/responses/Error" }
+        }
       }
     },
     "/v1/integrations/connections/{connectionId}/grant": {
@@ -104,7 +122,13 @@
         "operationId": "replaceConnectionGrant",
         "parameters": [{ "$ref": "#/components/parameters/ConnectionId" }],
         "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/GrantPolicy" } } } },
-        "responses": { "200": { "description": "Rat-side permission grant replaced" }, "default": { "$ref": "#/components/responses/Error" } }
+        "responses": {
+          "200": {
+            "description": "Rat-side permission grant replaced",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConnectionGrant" } } }
+          },
+          "default": { "$ref": "#/components/responses/Error" }
+        }
       }
     },
     "/v1/integrations/connections/{connectionId}/credential": {
@@ -122,7 +146,13 @@
         "operationId": "revokeConnection",
         "parameters": [{ "$ref": "#/components/parameters/ConnectionId" }],
         "requestBody": { "$ref": "#/components/requestBodies/EmptyObject" },
-        "responses": { "200": { "description": "Connection and credential revoked" }, "default": { "$ref": "#/components/responses/Error" } }
+        "responses": {
+          "200": {
+            "description": "Connection and credential revoked",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/IntegrationConnection" } } }
+          },
+          "default": { "$ref": "#/components/responses/Error" }
+        }
       }
     },
     "/v1/integrations/connection-sets": {
@@ -562,6 +592,82 @@
       }
     },
     "schemas": {
+      "IntegrationCredentialField": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["key", "label", "secret"],
+        "properties": {
+          "key": { "type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_]{0,63}$" },
+          "label": { "type": "string", "minLength": 1, "maxLength": 128 },
+          "secret": { "type": "boolean" }
+        }
+      },
+      "IntegrationAuthentication": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["scheme", "title", "fields"],
+        "properties": {
+          "scheme": { "enum": ["oauth2", "api-key", "session", "basic"] },
+          "title": { "type": "string", "minLength": 1, "maxLength": 128 },
+          "fields": {
+            "type": "array",
+            "maxItems": 32,
+            "items": { "$ref": "#/components/schemas/IntegrationCredentialField" }
+          }
+        }
+      },
+      "IntegrationOperation": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "title", "kind", "access", "risk", "defaultApproval"],
+        "properties": {
+          "id": { "$ref": "#/components/schemas/OperationId" },
+          "title": { "type": "string", "minLength": 1, "maxLength": 256 },
+          "kind": { "enum": ["trigger", "search", "action", "tool"] },
+          "access": { "enum": ["read", "write", "full"] },
+          "risk": { "enum": ["routine", "consequential", "destructive", "privileged"] },
+          "requiredProviderScopes": {
+            "type": "array",
+            "maxItems": 64,
+            "uniqueItems": true,
+            "items": { "type": "string", "minLength": 1, "maxLength": 256 }
+          },
+          "defaultApproval": { "enum": ["never", "on-request", "always"] },
+          "inputSchema": { "type": "object" }
+        }
+      },
+      "IntegrationPluginManifest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "version", "title", "description", "authentication", "operations"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$" },
+          "version": { "const": "1" },
+          "title": { "type": "string", "minLength": 1, "maxLength": 256 },
+          "description": { "type": "string", "minLength": 1, "maxLength": 1024 },
+          "authentication": {
+            "type": "array",
+            "minItems": 1,
+            "items": { "$ref": "#/components/schemas/IntegrationAuthentication" }
+          },
+          "operations": {
+            "type": "array",
+            "minItems": 1,
+            "items": { "$ref": "#/components/schemas/IntegrationOperation" }
+          }
+        }
+      },
+      "IntegrationPluginList": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["plugins"],
+        "properties": {
+          "plugins": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/IntegrationPluginManifest" }
+          }
+        }
+      },
       "Credential": {
         "type": "object",
         "description": "Provider credential fields written directly to the deployment's secret vault. Values are never returned by the API.",
@@ -575,10 +681,94 @@
         "additionalProperties": false,
         "required": ["scheme", "access", "scopeModel", "scopes"],
         "properties": {
-          "scheme": { "enum": ["oauth2", "api-key", "session", "basic", "none"] },
+          "scheme": { "enum": ["oauth2", "api-key", "session", "basic"] },
           "access": { "enum": ["read", "write", "full"] },
           "scopeModel": { "enum": ["granular", "coarse", "unknown"] },
           "scopes": { "type": "array", "maxItems": 256, "items": { "type": "string", "minLength": 1, "maxLength": 512 } }
+        }
+      },
+      "IntegrationConnection": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["version", "connectionId", "ownerId", "pluginId", "alias", "label", "authorization", "status", "createdAt", "updatedAt"],
+        "properties": {
+          "version": { "const": "1" },
+          "connectionId": { "type": "string", "minLength": 1, "maxLength": 256 },
+          "ownerId": { "type": "string", "minLength": 1, "maxLength": 1024 },
+          "pluginId": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$" },
+          "alias": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@-]{0,127}$" },
+          "label": { "type": "string", "minLength": 1, "maxLength": 256 },
+          "externalTenantId": { "type": "string", "minLength": 1, "maxLength": 512 },
+          "externalSubjectId": { "type": "string", "minLength": 1, "maxLength": 512 },
+          "authorization": { "$ref": "#/components/schemas/ProviderAuthorization" },
+          "status": { "enum": ["active", "expired", "revoked"] },
+          "createdAt": { "type": "string", "format": "date-time" },
+          "updatedAt": { "type": "string", "format": "date-time" }
+        }
+      },
+      "ConnectionGrant": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["version", "grantId", "ownerId", "connectionId", "preset"],
+        "properties": {
+          "version": { "const": "1" },
+          "grantId": { "type": "string", "minLength": 1, "maxLength": 256 },
+          "ownerId": { "type": "string", "minLength": 1, "maxLength": 1024 },
+          "connectionId": { "type": "string", "minLength": 1, "maxLength": 256 },
+          "preset": { "enum": ["read-only", "read-write", "full", "custom"] },
+          "allowOperations": { "$ref": "#/components/schemas/OperationList" },
+          "denyOperations": { "$ref": "#/components/schemas/OperationList" },
+          "approvalOverrides": {
+            "type": "array",
+            "maxItems": 128,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["operationId", "approval"],
+              "properties": {
+                "operationId": { "$ref": "#/components/schemas/OperationId" },
+                "approval": { "enum": ["never", "on-request", "always"] }
+              }
+            }
+          },
+          "resourceConstraints": {
+            "type": "object",
+            "maxProperties": 64,
+            "additionalProperties": {
+              "type": "array",
+              "maxItems": 256,
+              "items": { "type": "string", "minLength": 1, "maxLength": 512 }
+            }
+          },
+          "expiresAt": { "type": "string", "format": "date-time" }
+        }
+      },
+      "IntegrationConnectionBundle": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["connection", "grant"],
+        "properties": {
+          "connection": { "$ref": "#/components/schemas/IntegrationConnection" },
+          "grant": { "$ref": "#/components/schemas/ConnectionGrant" }
+        }
+      },
+      "IntegrationConnectionList": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["connections"],
+        "properties": {
+          "connections": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["connection"],
+              "properties": {
+                "connection": { "$ref": "#/components/schemas/IntegrationConnection" },
+                "grant": { "$ref": "#/components/schemas/ConnectionGrant" }
+              }
+            }
+          }
         }
       },
       "GrantPolicy": {
@@ -635,15 +825,13 @@
       "CreateConnection": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["version", "pluginId", "alias", "authorization", "credential", "grant"],
+        "required": ["version", "pluginId", "authScheme", "credential", "grant"],
         "properties": {
           "version": { "const": "1" },
           "pluginId": { "type": "string", "minLength": 1, "maxLength": 64 },
           "alias": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@-]{0,127}$" },
-          "authorization": { "$ref": "#/components/schemas/ProviderAuthorization" },
+          "authScheme": { "enum": ["oauth2", "api-key", "session", "basic"] },
           "credential": { "$ref": "#/components/schemas/Credential" },
-          "externalTenantId": { "type": "string", "minLength": 1, "maxLength": 512 },
-          "externalSubjectId": { "type": "string", "minLength": 1, "maxLength": 512 },
           "grant": { "$ref": "#/components/schemas/GrantPolicy" }
         }
       },

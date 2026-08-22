@@ -1,0 +1,17 @@
+{
+  "request": {
+    "method": "GET",
+    "urlPath": "/fixture-crm/records/search",
+    "headers": { "Authorization": { "equalTo": "Bearer beta-local" } },
+    "queryParameters": { "query": { "matches": ".+" } }
+  },
+  "response": {
+    "status": 200,
+    "headers": { "Content-Type": "application/json" },
+    "jsonBody": {
+      "ok": true,
+      "account": "beta",
+      "records": [{ "id": "beta-customer-1", "name": "Beta customer" }]
+    }
+  }
+}

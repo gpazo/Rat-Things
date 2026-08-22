@@ -1,5 +1,5 @@
 locals {
-  lambda_common_environment = {
+  lambda_common_environment = merge({
     ALLOWED_REPOSITORY_HOSTS            = join(",", var.allowed_repository_hosts)
     ALLOWED_SANDBOX_MODES               = join(",", var.allowed_sandbox_modes)
     DEFAULT_SANDBOX_MODE                = var.default_sandbox_mode
@@ -20,7 +20,9 @@ locals {
     RUNS_TABLE_NAME                     = aws_dynamodb_table.runs.name
     RUN_QUEUE_URL                       = aws_sqs_queue.runs.url
     RUN_RETENTION_SECONDS               = tostring(var.run_retention_seconds)
-  }
+    }, length(var.integration_plugin_base_urls) > 0 ? {
+    INTEGRATION_PLUGIN_BASE_URLS = jsonencode(var.integration_plugin_base_urls)
+  } : {})
 
   executor_environment = merge(local.lambda_common_environment, {
     ALLOW_AGENT_AWS_CREDENTIAL_CHAIN     = tostring(var.allow_agent_aws_credential_chain)

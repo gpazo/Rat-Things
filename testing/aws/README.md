@@ -19,9 +19,10 @@ The wrapper:
 3. Populates disposable GitHub, GitLab, Teams, and egress-capture secrets.
 4. Reads public discovery, OpenAPI, and Thing schemas, then sends IAM-authenticated Thing, one-shot,
    and headless conversation requests plus real signed provider webhook requests.
-5. Registers two separately credentialed accounts for one integration and verifies connection sets,
-   provider/grant/Thing/profile permission intersection, immutable KMS-encrypted definitions,
-   idempotent Thing execution, lifecycle changes, rotation, revocation, and no secret leakage.
+5. Uses a disposable provider fixture to reject an invalid credential, derives two distinct account
+   identities/authorizations, and verifies connection sets, provider/grant/Thing/profile permission
+   intersection, immutable KMS-encrypted definitions, idempotent Thing execution, CLI rotation,
+   revocation, and no secret leakage.
 6. Enables an interval Thing and waits for EventBridge to submit the occurrence without an explicit
    run request, then verifies exactly one durable run with trusted schedule and Thing provenance.
 7. Verifies MicroVM execution, pinned public-repository checkout, S3 output/events, DynamoDB state,
@@ -42,13 +43,13 @@ egress. Every one of those resources is tagged and included in teardown auditing
 Set `AWS_E2E_REAL_CODEX=true` to add two bounded `openai.gpt-5.6-terra` probes through Bedrock. The
 worker execution role mints a short-term token and the unprivileged Codex process receives only that
 token. The persistence probe writes unique bytes through a command tool call, resumes the same
-MicroVM and Codex thread, and reads those bytes from the same workspace path. A provider probe has
-Codex call Slack's real `api.test` endpoint successfully and then verifies Slack's real
-`invalid_auth` denial through a credentialed read-only operation using a disposable invalid token.
-The tests verify tool events, provider error propagation, workspace patches, usage, state,
-re-suspension, no credential leakage, and empty failure queues. The provider probe does not require
-or claim access to workspace data; supply a dedicated OAuth fixture before testing authenticated
-reads or writes.
+MicroVM and Codex thread, and reads those bytes from the same workspace path. The integration probe
+connects two separately credentialed Fixture CRM accounts through the built CLI, gives one verified
+read scope and the other verified read/write scopes, and asks the real agent to search the first and
+create through the second. The harness accepts the exact write approval, verifies one provider-side
+audit message, and scans run state/output/events for both credential values. Together the probes
+verify dynamic tools, approval routing, exact-account selection, workspace patches, usage, state,
+re-suspension, no credential leakage, and empty failure queues.
 
 Set both publication variables to add the isolated CloudFront delivery path to the disposable stack:
 
@@ -85,6 +86,22 @@ scheduled Thing run without an API invocation; a real Codex agent then completed
 and observed Slack's expected `invalid_auth` denial on the credentialed operation. Teardown
 terminated seven MicroVMs, destroyed all 208 Terraform resources, passed the tagged-resource audit,
 and left Terraform state empty.
+
+On 2026-08-22 deployment `int260822a` passed all ten applicable workflows with the real-Codex option
+enabled; only the unconfigured custom-domain publication case was skipped. The built CLI rejected an
+invalid credential, connected two verified Fixture CRM accounts, and the real agent completed one
+read on the read-only account plus one approval-gated write on the read/write account. The provider
+audit queue contained exactly one mutation and neither credential appeared in durable run state,
+output, or events. The full suite also repeated scheduled Thing, MicroVM continuation/replacement,
+CLI continuity, crash repair, repository checkout, and real Codex workspace restoration. Teardown
+then destroyed the 216-resource stack and audited tagged residuals.
+
+A second fresh deployment, `int260822b`, reran the focused user journey after the final
+credential-error and rotation changes. It passed in 22.78 seconds: the live API returned the exact
+invalid-credential `400`, the built CLI onboarded both provider-derived accounts, permission
+explanation selected the intended account, a real Lambda MicroVM completed the Thing, the CLI
+rotated a credential-only file, and revocation removed access. Teardown destroyed all 216 resources,
+left zero resources in Terraform state, and passed the direct post-destroy audit.
 
 AWS does not allow immediate deletion of a customer-managed KMS key. Teardown disables the key and
 schedules it for deletion after AWS's minimum waiting period; only that `PendingDeletion` key is an

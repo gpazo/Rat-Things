@@ -24,8 +24,9 @@ disaster-recovery proof.
 | ECS replacement | Complete | Before removal, the same pinned checkout produced byte-identical output/events and equivalent execution metadata on the legacy task and MicroVM paths; the post-removal live suite then passed with no ECS/VPC fallback |
 | Codex App Server bridge | Core live validated; expanded protocol simulated and local-live tested | Thread start/resume, turn control, events, approvals/server requests, reasoning/personality, skills, apps, MCP config, and experimental dynamic tools |
 | Capability profiles | Implemented/locally tested | Deployment ceiling plus `read-only`, `small-business`, and `microvm-full`; requests can narrow but not widen profiles |
-| Multi-account integrations | Implemented/local and live AWS validated | Owner-scoped connections, Secrets Manager vault, grants, account sets, source bindings, provider-scope intersection, resource constraints, rotation, revocation, and approvals |
-| Reference integration tools | Implemented/partially live provider validated | Fixed-origin Slack reachability/search/post/reaction and Stripe customer/invoice/refund operations; live proof covers Slack reachability and provider-side credential denial, while authenticated workspace data and hosted OAuth remain |
+| Integration Contract v1 | Implemented/local and live AWS validated | Manifest-driven credential-only CLI/API onboarding, pre-persistence verification, provider-derived account identity/access/scopes, stable invalid-credential errors, and verified rotation |
+| Multi-account integrations | Implemented/local and live AWS validated | Owner-scoped connections, Secrets Manager vault, grants, same-plugin account sets, source bindings, permission intersection, resource constraints, revocation, and approvals |
+| Reference integration tools | Built-ins locally tested; fixture live AWS validated | Fixed-origin Slack search/post/reaction and Stripe customer/invoice/refund adapters; disposable Fixture CRM proves authenticated read/write behavior without claiming customer-provider coverage |
 | Browser computer use | Implemented v1 surface/live AWS validated | Real Codex exercised all 12 implemented command types, four interactive approval types, PNG/JPEG capture, VP8 WebM recording, private-target blocking, native cgroup eBPF lifecycle-port isolation, and trusted publication from an ARM64 Lambda MicroVM; takeover/auth/file transfer/desktop control remain out of scope |
 | Durable routines | Implemented/local end-to-end and simulated | Owner-scoped interval create/list/get/pause/resume/delete/run-now, encrypted S3 request, due-time GSI, deterministic occurrence submission, duplicate-tick fencing, and request-digest verification |
 | Codex authentication | Live/local validated | Short-term Bedrock in AWS; trusted local runs can reuse the device's ChatGPT subscription without copying it into remote runs |
@@ -36,6 +37,35 @@ disaster-recovery proof.
 | Observability/recovery | Partial/live measured | Low-cardinality queue/processing metrics, structured logs, durable queues/events, reconciler, delivery leases, failure queues/alarms; broader chaos drills remain |
 | Cost model | Live canary baseline measured | The 2026-08-16 two-turn site canary is about $0.380 at public list rates; non-model infrastructure fell to about $0.046, while sustained-load ceilings remain unmeasured |
 | Multi-tenant hardening | Not complete | Requires safe response projection, destination authorization, budgets, rate limits, and security review |
+
+## Validation completed on 2026-08-22
+
+- A fresh 216-resource disposable `us-west-2` stack (`int260822a`) passed all ten applicable
+  workflows with `AWS_E2E_REAL_CODEX=true`; only the optional custom-domain browser-publication case
+  was skipped because no publication domain was configured. The suite completed in 460.85 seconds.
+- The built CLI discovered Fixture CRM authentication fields, rejected an invalid credential before
+  persistence, then connected two distinct accounts from credential-only files. The API derived
+  `Alpha Support` with provider read/`records:read` authorization and `Beta Support` with provider
+  full/`records:read`+`records:write` authorization. It never accepted caller-authored tenant,
+  subject, or scope claims.
+- A real Codex agent selected the read-only Alpha account for search and the read/write Beta account
+  for create. The owner-checked event API surfaced exactly one
+  `ratThings/integration/requestApproval` for `fixture-crm.records.create`; the harness accepted it,
+  the provider audit queue recorded exactly one mutation, and the run succeeded. Neither credential
+  appeared in stored run state, output, or events.
+- The same suite repeated revisioned Things and permission explanation, an actual EventBridge
+  occurrence, same-MicroVM conversations, built-CLI continuity, expired-MicroVM replacement,
+  coordinator crash repair, repository checkout, and real Codex thread/workspace restoration.
+- A second fresh stack (`int260822b`) reran the focused integration journey after the final
+  credential-error and rotation changes. In 22.78 seconds it proved the exact `400 invalid_request`
+  contract, manifest-driven CLI onboarding for both accounts, effective-permission explanation, a
+  real Lambda MicroVM Thing run, credential-only CLI rotation, and revocation.
+- Docker/LocalStack passed all five workflows, including the provider-verification and same-plugin
+  multi-account path. The complete unit gate passed 60 files and 254 tests with 17 intentional
+  opt-in skips; 12 ARM64 Lambda bundles packaged and smoke-loaded successfully.
+- Teardown destroyed both 216-resource disposable stacks and their Terraform states are empty. The
+  independent tag audits found no active resources; each customer-managed KMS key follows AWS's
+  mandatory disabled `PendingDeletion` lifecycle.
 
 ## Validation completed on 2026-08-21
 
@@ -299,9 +329,9 @@ teardown.
 ## Known gaps
 
 - Test private repository checkout and rotation of short-lived installation/project credentials.
-- Add hosted OAuth authorization-code/PKCE callbacks, credential tests/account labels, token refresh,
-  and verified provider tenant/subject discovery. Current connections register already-issued
-  credentials.
+- Add hosted OAuth authorization-code/PKCE callbacks and token refresh for hosts that want Rat to
+  own that lifecycle. Current connections accept already-issued credentials, verify them, derive
+  provider tenant/subject and account labels, and keep OAuth application ownership with the host.
 - Tie source-binding creation to a verified provider installation/account. It is currently a trusted
   operator action and should not be delegated to arbitrary tenants.
 - ChatGPT subscription reuse remains a trusted-device local path. Remote AWS MicroVMs use short-term
@@ -310,12 +340,11 @@ teardown.
 - Turn the trusted TypeScript integration contract into a documented SDK and add more adapters. There
   is no signed package catalog, arbitrary runtime plugin loading, visual mapper, or Zapier-compatible
   trigger engine yet.
-- Run live AWS canaries for steering, interruption, decline/cancel decisions, Codex and integration
-  approval routing, scheduled routine submission, scheduled-Thing retry/crash injection, and
-  authenticated external-provider account-data operations. A normal scheduled Thing occurrence
-  plus real Slack reachability and provider-side invalid-credential denial are now live-AWS
-  validated. Multi-account credential resolution and permission intersection are also live
-  validated; permitted authenticated reads/writes still need customer-supplied test accounts.
+- Run live AWS canaries for steering, interruption, decline/cancel decisions, Codex approval,
+  scheduled routine submission, scheduled-Thing retry/crash injection, and authenticated customer
+  provider accounts. Integration approval routing, verified multi-account resolution, permission
+  intersection, and permitted authenticated fixture reads/writes are live validated without
+  requiring customer-supplied accounts.
 - Add browser takeover/return-control, secure human credential entry, uploads/downloads, tabs and
   popups, richer pointer interactions, and replacement-MicroVM authenticated-profile validation
   before making an unqualified “full computer use” claim. General graphical desktop control is not
@@ -346,16 +375,17 @@ The immediate priority is to make the new small-business/self-hosted surface bor
 1. Exercise live steering, interruption, negative approval decisions, Codex approval, and
    integration approval against one active run. Event polling and accepted browser approvals are
    already live validated.
-2. Exercise two authenticated test accounts against an actual external provider API, including a
-   permitted read, a permitted write, provider-scope denial, resource constraints, and integration
-   approval. Live AWS now proves provider reachability, invalid-credential denial, account
-   selection, rotation, revocation, and no secret leakage.
+2. Extend the now-live two-account fixture proof with explicit provider-scope denial and resource
+   constraint cases, then repeat the conformance journey for each built-in provider when operators
+   supply disposable accounts. Permitted read, approval-gated write, account selection, rotation,
+   revocation, exactly-one mutation, and no secret leakage are already proven.
 3. Prove the EventBridge reconciler submits one and only one scheduled routine occurrence, and
    extend the scheduled-Thing proof across injected retry/crash windows. Then exercise the routine
    lifecycle through the built CLI. A normal scheduled Thing occurrence and its lifecycle/provenance
    path are now live validated.
-4. Add connection verification and OAuth/PKCE onboarding so non-technical operators can connect
-   accounts without manually handling tokens.
+4. Add an optional BYO-OAuth helper for hosts that want authorization-code/PKCE and refresh support.
+   Manifest-driven credential onboarding, provider verification, derived account labels, and stable
+   invalid-credential errors are complete; hosted consent remains deliberately deferred.
 5. Extract the fixed-origin adapter pattern into a contributor-facing SDK, schema validator, and
    conformance suite before expanding the app catalog.
 6. Add browser and integration audit events, output redaction, destination authorization, budgets,

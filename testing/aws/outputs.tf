@@ -86,6 +86,14 @@ output "delivery_capture_url" {
   value = "${aws_apigatewayv2_api.delivery_capture.api_endpoint}/teams"
 }
 
+output "integration_fixture_url" {
+  value = aws_lambda_function_url.integration_fixture.function_url
+}
+
+output "integration_fixture_audit_queue_url" {
+  value = aws_sqs_queue.integration_fixture_audit.url
+}
+
 output "microvm" {
   value = {
     enabled       = module.agent_runner.microvm_enabled

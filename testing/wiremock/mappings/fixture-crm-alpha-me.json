@@ -1,0 +1,19 @@
+{
+  "request": {
+    "method": "GET",
+    "urlPath": "/fixture-crm/me",
+    "headers": { "Authorization": { "equalTo": "Bearer alpha-local" } }
+  },
+  "response": {
+    "status": 200,
+    "headers": { "Content-Type": "application/json" },
+    "jsonBody": {
+      "ok": true,
+      "label": "Alpha Support",
+      "tenant_id": "fixture-alpha",
+      "subject_id": "fixture-service-alpha",
+      "access": "read",
+      "scopes": ["records:read"]
+    }
+  }
+}

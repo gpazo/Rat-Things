@@ -9,7 +9,7 @@ The integration boundary is intentionally flexible and narrow:
 - the host authenticates people and services;
 - Rat derives an owner from the trusted principal and scopes all control data to it;
 - the host supplies its own OAuth applications and consent UI;
-- Rat stores provider credentials and enforces grants after a connection is created; and
+- Rat verifies provider credentials, derives account identity, stores them, and enforces grants; and
 - every consumer uses the same documented API—there is no privileged console-only path.
 
 ## Discover a deployment
@@ -39,6 +39,16 @@ without a central registry. Important entries are:
     "schemas": {
       "thing": "/schemas/thing-v1.json"
     }
+  },
+  "capabilities": {
+    "integrations": {
+      "multipleAccounts": true,
+      "credentialOnboarding": "manifest-driven",
+      "credentialVerification": "before-persistence",
+      "providerIdentity": "derived",
+      "bringYourOwnOAuth": true,
+      "hostedOAuthCallbacks": false
+    }
   }
 }
 ```
@@ -61,12 +71,13 @@ limits, deployment allowlists, installed profiles/plugins, owner scope, and curr
 Build a UI that calls the API on behalf of its signed-in principal:
 
 1. show installed profiles and integration plugin manifests;
-2. create connections through the host's own OAuth or API-key flow;
-3. group accounts into connection sets;
-4. create a draft Thing from a validated ThingSpec form;
-5. render `explain` diagnostics and operation permissions before enabling;
-6. submit an explicit run and follow its events; and
-7. display files/publications through the owner-checked artifact APIs.
+2. collect only the manifest-declared credential fields through the host's OAuth or API-key flow;
+3. submit the credential and let Rat verify and label the provider account;
+4. group accounts into connection sets;
+5. create a draft Thing from a validated ThingSpec form;
+6. render `explain` diagnostics and operation permissions before enabling;
+7. submit an explicit run and follow its events; and
+8. display files/publications through the owner-checked artifact APIs.
 
 The console must use an authenticated backend-for-frontend when the deployed control API uses AWS
 IAM. Do not expose AWS signing credentials, provider tokens, S3 coordinates, or MicroVM proxy tokens
@@ -79,6 +90,25 @@ state with connections, Things, conversations, and runs. The host can map every 
 tenant or end user to a distinct principal, or intentionally map a group to a shared principal.
 Rat does not implement signup, organizations, seats, billing, or invitations and does not infer
 them from request bodies.
+
+### One integration UX for every consumer
+
+A console, another agent, and a server-side integration should all implement the same small state
+machine:
+
+1. `GET /v1/integrations/plugins` and select a manifest.
+2. Select an authentication definition; when there is one, select it automatically.
+3. Collect exactly its declared fields. Secret fields must not be retained in browser state or logs.
+4. Ask for a Rat permission preset, defaulting to `read-only`.
+5. `POST /v1/integrations/connections` with the plugin, scheme, credential, and grant.
+6. Display Rat's verified label and generated alias. Never ask the user to type provider tenant IDs
+   or scopes.
+7. On `400 invalid_request`, keep the non-secret choices and ask for a corrected credential.
+
+That flow is intentionally form-generatable from the plugin catalog and suitable for an agent tool.
+The host may wrap it in polished OAuth consent, a terminal prompt, or its own product UI without
+changing the Rat API. See [Integration Contract v1](plugins.md#the-integration-contract-v1) for the
+exact request, multi-account model, and permission intersection.
 
 A typical server-side flow is:
 
@@ -122,6 +152,9 @@ Rat Things does not register a universal OAuth client. The host owns provider de
 redirect URLs, consent copy, PKCE/state verification, token exchange, refresh policy, and provider
 review obligations. After successful consent, the host submits the resulting credential over the
 authenticated connection-create API and immediately discards its plaintext copy where possible.
+Rat calls the plugin's fixed identity endpoint before storing anything and derives the label,
+tenant/subject identifiers, provider access, and reported scopes from that response. The host must
+not ask callers to assert those values.
 
 Connection metadata records the provider authorization separately from the Rat grant. This permits
 a broad upstream token to be exposed as read-only for one account selection, while accurately

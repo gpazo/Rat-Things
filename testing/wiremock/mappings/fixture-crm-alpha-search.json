@@ -1,0 +1,17 @@
+{
+  "request": {
+    "method": "GET",
+    "urlPath": "/fixture-crm/records/search",
+    "headers": { "Authorization": { "equalTo": "Bearer alpha-local" } },
+    "queryParameters": { "query": { "matches": ".+" } }
+  },
+  "response": {
+    "status": 200,
+    "headers": { "Content-Type": "application/json" },
+    "jsonBody": {
+      "ok": true,
+      "account": "alpha",
+      "records": [{ "id": "alpha-customer-1", "name": "Alpha customer" }]
+    }
+  }
+}

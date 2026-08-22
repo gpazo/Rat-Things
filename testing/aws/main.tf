@@ -121,6 +121,7 @@ module "agent_runner" {
   allow_agent_aws_credential_chain  = false
   codex_bedrock_model_ids           = [var.codex_model_id]
   default_delivery_destinations     = "teams"
+  integration_plugin_base_urls      = { fixture-crm = aws_lambda_function_url.integration_fixture.function_url }
   lambda_zip_paths                  = local.lambda_zip_paths
   github_webhook_secret_arn         = aws_secretsmanager_secret.github_webhook.arn
   github_webhook_enabled            = true
@@ -134,6 +135,114 @@ module "agent_runner" {
   microvm_source_zip_path           = "${path.root}/../../dist/microvm-source.zip"
   microvm_base_image_version        = var.microvm_base_image_version
   tags                              = local.tags
+}
+
+resource "aws_sqs_queue" "integration_fixture_audit" {
+  name                       = "${local.name_prefix}-${var.deployment_id}-integration-audit"
+  message_retention_seconds  = 3600
+  receive_wait_time_seconds  = 10
+  visibility_timeout_seconds = 30
+  sqs_managed_sse_enabled    = true
+  tags                       = local.tags
+}
+
+data "aws_iam_policy_document" "integration_fixture_assume" {
+  statement {
+    actions = ["sts:AssumeRole"]
+
+    principals {
+      type        = "Service"
+      identifiers = ["lambda.amazonaws.com"]
+    }
+  }
+}
+
+resource "aws_iam_role" "integration_fixture" {
+  name               = "${local.name_prefix}-${var.deployment_id}-integration-fixture"
+  assume_role_policy = data.aws_iam_policy_document.integration_fixture_assume.json
+  tags               = local.tags
+}
+
+data "aws_iam_policy_document" "integration_fixture" {
+  statement {
+    actions   = ["sqs:SendMessage"]
+    resources = [aws_sqs_queue.integration_fixture_audit.arn]
+  }
+
+  statement {
+    actions = [
+      "logs:CreateLogStream",
+      "logs:PutLogEvents",
+    ]
+    resources = ["${aws_cloudwatch_log_group.integration_fixture.arn}:*"]
+  }
+}
+
+resource "aws_iam_role_policy" "integration_fixture" {
+  name   = "fixture-runtime"
+  role   = aws_iam_role.integration_fixture.id
+  policy = data.aws_iam_policy_document.integration_fixture.json
+}
+
+resource "aws_cloudwatch_log_group" "integration_fixture" {
+  name              = "/aws/lambda/${local.name_prefix}-${var.deployment_id}-integration-fixture"
+  retention_in_days = 1
+  tags              = local.tags
+}
+
+resource "aws_lambda_function" "integration_fixture" {
+  function_name    = "${local.name_prefix}-${var.deployment_id}-integration-fixture"
+  description      = "Disposable integration provider for live end-to-end validation"
+  role             = aws_iam_role.integration_fixture.arn
+  handler          = "index.handler"
+  runtime          = "nodejs22.x"
+  architectures    = ["arm64"]
+  filename         = "${path.root}/../../dist/integration-fixture.zip"
+  source_code_hash = fileexists("${path.root}/../../dist/integration-fixture.zip") ? filebase64sha256("${path.root}/../../dist/integration-fixture.zip") : null
+  timeout          = 10
+  memory_size      = 256
+
+  environment {
+    variables = {
+      AUDIT_QUEUE_URL = aws_sqs_queue.integration_fixture_audit.url
+      DEPLOYMENT_ID   = var.deployment_id
+    }
+  }
+
+  tags = merge(local.tags, { Component = "integration-fixture" })
+
+  lifecycle {
+    precondition {
+      condition     = fileexists("${path.root}/../../dist/integration-fixture.zip")
+      error_message = "The integration fixture Lambda package is missing. Run npm run package first."
+    }
+  }
+
+  depends_on = [
+    aws_cloudwatch_log_group.integration_fixture,
+    aws_iam_role_policy.integration_fixture,
+  ]
+}
+
+resource "aws_lambda_function_url" "integration_fixture" {
+  function_name      = aws_lambda_function.integration_fixture.function_name
+  authorization_type = "NONE"
+}
+
+resource "aws_lambda_permission" "integration_fixture_url" {
+  statement_id           = "AllowPublicFunctionUrl"
+  action                 = "lambda:InvokeFunctionUrl"
+  function_name          = aws_lambda_function.integration_fixture.function_name
+  principal              = "*"
+  function_url_auth_type = "NONE"
+}
+
+resource "aws_lambda_permission" "integration_fixture_invoke" {
+  statement_id             = "AllowPublicFunctionUrlInvoke"
+  action                   = "lambda:InvokeFunction"
+  function_name            = aws_lambda_function.integration_fixture.function_name
+  principal                = "*"
+  invoked_via_function_url = true
 }
 
 resource "aws_sqs_queue" "terminal_events" {

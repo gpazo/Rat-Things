@@ -23,6 +23,7 @@ function connection(overrides: Partial<IntegrationConnection> = {}): Integration
     ownerId: 'owner-1',
     pluginId: 'google-workspace',
     alias: 'work-google',
+    label: 'Work Google',
     authorization: {
       scheme: 'api-key',
       access: 'full',

@@ -7,6 +7,7 @@ import {
 import { ConflictError, ForbiddenError, NotFoundError } from '../core/run-service.js';
 import { PublicationError } from '../domain/publications.js';
 import { ValidationError } from '../domain/validation.js';
+import { IntegrationProviderUnavailableError } from '../plugins/integration-types.js';
 export { getRunService } from '../app/composition.js';
 
 export function rawBody(event: APIGatewayProxyEventV2): string {
@@ -69,6 +70,7 @@ export function errorResponse(
 ): APIGatewayProxyStructuredResultV2 {
   const requestError =
     error instanceof ValidationError ||
+    error instanceof IntegrationProviderUnavailableError ||
     error instanceof ConflictError ||
     error instanceof ConversationConflictError ||
     error instanceof ConversationLeaseError ||
@@ -79,23 +81,25 @@ export function errorResponse(
   const statusCode =
     error instanceof ValidationError
       ? 400
-      : error instanceof PublicationError
-        ? error.code === 'not_found'
-          ? 404
-          : error.code === 'storage'
-            ? 500
-            : 400
-      : error instanceof ConflictError
-        ? 409
-        : error instanceof ConversationConflictError || error instanceof ConversationLeaseError
-          ? 409
-          : error instanceof ConversationStateError
-            ? 400
-            : error instanceof NotFoundError
-              ? 404
-              : error instanceof ForbiddenError
-                ? 403
-                : 500;
+      : error instanceof IntegrationProviderUnavailableError
+        ? 503
+        : error instanceof PublicationError
+          ? error.code === 'not_found'
+            ? 404
+            : error.code === 'storage'
+              ? 500
+              : 400
+          : error instanceof ConflictError
+            ? 409
+            : error instanceof ConversationConflictError || error instanceof ConversationLeaseError
+              ? 409
+              : error instanceof ConversationStateError
+                ? 400
+                : error instanceof NotFoundError
+                  ? 404
+                  : error instanceof ForbiddenError
+                    ? 403
+                    : 500;
   const message = requestError && error instanceof Error ? error.message : 'internal server error';
   if (!requestError) {
     console.error(JSON.stringify({ level: 'error', message: 'request failed', error: safeError(error) }));
@@ -136,6 +140,7 @@ function stringClaim(value: unknown): string | undefined {
 
 function errorCode(error: unknown): string {
   if (error instanceof ValidationError) return 'invalid_request';
+  if (error instanceof IntegrationProviderUnavailableError) return 'integration_unavailable';
   if (error instanceof PublicationError) return error.code;
   if (error instanceof ConflictError) return 'conflict';
   if (error instanceof ConversationConflictError || error instanceof ConversationLeaseError) {

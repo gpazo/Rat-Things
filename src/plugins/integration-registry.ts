@@ -1,4 +1,4 @@
-import { validateOperationDefinition } from '../domain/capabilities.js';
+import { AUTH_SCHEMES, validateOperationDefinition } from '../domain/capabilities.js';
 import type { IntegrationPlugin } from './integration-types.js';
 
 const PLUGIN_ID = /^[a-z][a-z0-9-]{0,63}$/;
@@ -52,9 +52,7 @@ export class IntegrationPluginRegistry {
     ) {
       throw new Error(`integration plugin ${manifest.id} requires a title and description`);
     }
-    if (manifest.authSchemes.length === 0 || new Set(manifest.authSchemes).size !== manifest.authSchemes.length) {
-      throw new Error(`integration plugin ${manifest.id} auth schemes are invalid`);
-    }
+    validateAuthentication(manifest.id, manifest.authentication);
     if (manifest.operations.length === 0) throw new Error(`integration plugin ${manifest.id} has no operations`);
     const operationIds = new Set<string>();
     for (const operation of manifest.operations) {
@@ -66,5 +64,40 @@ export class IntegrationPluginRegistry {
       operationIds.add(operation.id);
     }
     this.plugins.set(manifest.id, plugin);
+  }
+}
+
+function validateAuthentication(
+  pluginId: string,
+  authentication: IntegrationPlugin['manifest']['authentication'],
+): void {
+  if (authentication.length === 0) {
+    throw new Error(`integration plugin ${pluginId} authentication is required`);
+  }
+  const schemes = new Set<string>();
+  for (const definition of authentication) {
+    if (!AUTH_SCHEMES.includes(definition.scheme) || schemes.has(definition.scheme)) {
+      throw new Error(`integration plugin ${pluginId} authentication schemes are invalid`);
+    }
+    schemes.add(definition.scheme);
+    if (!definition.title.trim() || Buffer.byteLength(definition.title, 'utf8') > 128) {
+      throw new Error(`integration plugin ${pluginId} authentication title is invalid`);
+    }
+    if (definition.fields.length === 0) {
+      throw new Error(`integration plugin ${pluginId} authentication fields are required`);
+    }
+    const fields = new Set<string>();
+    for (const field of definition.fields) {
+      if (!/^[A-Za-z][A-Za-z0-9_]{0,63}$/.test(field.key) || fields.has(field.key)) {
+        throw new Error(`integration plugin ${pluginId} authentication fields are invalid`);
+      }
+      fields.add(field.key);
+      if (!field.label.trim() || Buffer.byteLength(field.label, 'utf8') > 128) {
+        throw new Error(`integration plugin ${pluginId} authentication field label is invalid`);
+      }
+      if (typeof field.secret !== 'boolean') {
+        throw new Error(`integration plugin ${pluginId} authentication field secrecy is invalid`);
+      }
+    }
   }
 }

@@ -6,15 +6,20 @@ import {
   TrustedHttpIntegrationPlugin,
 } from '../http.js';
 
-export function createStripeIntegrationPlugin(): TrustedHttpIntegrationPlugin {
+export function createStripeIntegrationPlugin(options: { fetch?: typeof fetch } = {}): TrustedHttpIntegrationPlugin {
   return new TrustedHttpIntegrationPlugin({
     baseUrl: 'https://api.stripe.com/v1/',
+    ...(options.fetch ? { fetch: options.fetch } : {}),
     manifest: {
       id: 'stripe',
       version: '1',
       title: 'Stripe',
       description: 'Search customers, list invoices, and create explicitly approved refunds.',
-      authSchemes: ['api-key'],
+      authentication: [{
+        scheme: 'api-key',
+        title: 'Secret API key',
+        fields: [{ key: 'api_key', label: 'Secret key', secret: true }],
+      }],
       operations: [
         {
           id: 'stripe.customers.search',
@@ -49,8 +54,26 @@ export function createStripeIntegrationPlugin(): TrustedHttpIntegrationPlugin {
       ],
     },
     authorization: (credential) => ({
-      authorization: `Bearer ${requiredCredential(credential, 'api_key', 'secret_key', 'value')}`,
+      authorization: `Bearer ${requiredCredential(credential, 'api_key')}`,
     }),
+    verification: {
+      request: () => ({ method: 'GET', path: 'account' }),
+      result: (value, scheme) => {
+        const account = requiredRecord(value);
+        const id = requiredString(account, 'id');
+        const settings = record(account.settings);
+        const dashboard = record(settings?.dashboard);
+        const label = optionalString(account.business_profile && record(account.business_profile)?.name)
+          ?? optionalString(dashboard?.display_name)
+          ?? optionalString(account.email)
+          ?? id;
+        return {
+          label,
+          authorization: { scheme, access: 'full', scopeModel: 'unknown', scopes: [] },
+          externalTenantId: id,
+        };
+      },
+    },
     operations: [
       {
         id: 'stripe.customers.search',
@@ -87,6 +110,30 @@ export function createStripeIntegrationPlugin(): TrustedHttpIntegrationPlugin {
       },
     ],
   });
+}
+
+function record(value: JsonValue | undefined): { [key: string]: JsonValue } | undefined {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+    ? value as { [key: string]: JsonValue }
+    : undefined;
+}
+
+function requiredRecord(value: JsonValue): { [key: string]: JsonValue } {
+  const result = record(value);
+  if (!result) throw new Error('Stripe verification response is invalid');
+  return result;
+}
+
+function requiredString(value: { [key: string]: JsonValue }, key: string): string {
+  const result = optionalString(value[key]);
+  if (!result) throw new Error(`Stripe verification response ${key} is invalid`);
+  return result;
+}
+
+function optionalString(value: JsonValue | undefined): string | undefined {
+  return typeof value === 'string' && value && Buffer.byteLength(value, 'utf8') <= 512
+    ? value
+    : undefined;
 }
 
 function stringSchema(description: string): JsonValue {

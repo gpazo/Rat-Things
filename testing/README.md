@@ -91,12 +91,14 @@ The suite also verifies webhook idempotency, the stored artifacts, execution att
 EventBridge envelope, the durable delivery fence, exact Adaptive Card content, and duplicate egress
 suppression.
 
-The control-plane path creates two Slack connections for the same owner, stores only credential
-references in DynamoDB and the values in Secrets Manager, groups the accounts in one connection
-set, creates a paused routine, and retries its manual run with one idempotency key. The resulting
-request crosses S3, DynamoDB, SQS, the dispatcher, and the real worker with the deterministic mock
-driver. This proves policy and account selectors survive the durable path without embedding tokens;
-the separate agent-loop simulation exercises actual integration and browser dynamic-tool calls.
+The control-plane path first proves Fixture CRM rejects an invalid credential with no persisted
+secret. It then verifies two permission-distinct provider accounts for the same owner, stores only
+credential references in DynamoDB and the values in Secrets Manager, groups the accounts in one
+connection set, creates a paused routine, and retries its manual run with one idempotency key. The
+resulting request crosses S3, DynamoDB, SQS, the dispatcher, and the real worker with the
+deterministic mock driver. This proves provider identity, permissions, and account selectors survive
+the durable path without embedding tokens; the separate agent-loop simulation exercises actual
+integration and browser dynamic-tool calls.
 
 It also appends deferred and interrupting conversation messages, verifies interrupt-first GSI
 ordering, fences work with a renewable lease, records progress/history, and completes the turn. A

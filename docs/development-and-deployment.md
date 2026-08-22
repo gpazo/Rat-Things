@@ -36,7 +36,9 @@ npm run test:e2e:microvm-image
 LocalStack owns S3, DynamoDB/Streams, SQS, EventBridge, Secrets Manager, and related event routing.
 The suite also validates the durable conversation table and S3 bodies through prioritized mailbox,
 lease, progress, checkpoint/resume, and completion operations. Handlers and the mock runner execute
-on the host because LocalStack does not implement the Lambda MicroVM APIs or lifecycle. See
+on the host because LocalStack does not implement the Lambda MicroVM APIs or lifecycle. WireMock's
+Fixture CRM rejects an invalid key, verifies two permission-distinct accounts, and serves the
+same-plugin multi-account Thing path without using a customer provider account. See
 [`testing/README.md`](../testing/README.md).
 
 The image canary packages and builds the real `linux/arm64` MicroVM context, validates lifecycle
@@ -230,16 +232,17 @@ npm run test:e2e:aws
 ```
 
 The harness exercises real API Gateway/Lambda/IAM/KMS, public discovery and schemas, the Thing and
-headless conversation APIs, two accounts on one integration, signed GitHub/GitLab/Teams ingress, a
-pinned repository checkout inside the MicroVM, durable definitions/artifacts/state/events,
-captured Teams egress, failure queues, one-shot self-termination, and a two-turn Teams conversation
-that suspends and resumes the same MicroVM through its AWS-authenticated continuation endpoint.
-The Thing scenario verifies immutable KMS-encrypted definitions, permission intersection,
-idempotent dispatch, lifecycle changes, rotation, revocation, and absence of credential values.
-The mock suite also validates expired-session replacement and coordinator crash-window repair. Its
-opt-in real-Codex probe terminates the first VM and restores workspace bytes and one Codex
-app-server thread in a replacement VM. The harness destroys the tagged stack from an exit trap.
-LocalStack cannot replace that isolation/lifecycle test. See
+headless conversation APIs, a disposable provider API with two verified accounts, signed
+GitHub/GitLab/Teams ingress, a pinned repository checkout inside the MicroVM, durable
+definitions/artifacts/state/events, captured Teams egress, failure queues, one-shot
+self-termination, and a two-turn Teams conversation that suspends and resumes the same MicroVM
+through its AWS-authenticated continuation endpoint. The Thing scenario verifies immutable
+KMS-encrypted definitions, provider/broker/profile/Thing permission intersection, idempotent
+dispatch, lifecycle changes, CLI rotation, revocation, and absence of credential values. The mock
+suite also validates expired-session replacement and coordinator crash-window repair. Its opt-in
+real-Codex probes restore workspace/thread state and perform one read plus one approval-gated write
+against exact Fixture CRM accounts, with exactly-one provider-side mutation. The harness destroys
+the tagged stack from an exit trap. LocalStack cannot replace that isolation/lifecycle test. See
 [`testing/aws/README.md`](../testing/aws/README.md).
 
 Add the bounded two-turn real-Codex persistence probe before teardown with:

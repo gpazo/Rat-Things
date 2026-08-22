@@ -9,6 +9,7 @@ import {
 } from '../../src/lambdas/control.js';
 import { ValidationError } from '../../src/domain/validation.js';
 import { errorResponse } from '../../src/lambdas/runtime.js';
+import { IntegrationProviderUnavailableError } from '../../src/plugins/integration-types.js';
 
 describe('artifact URL lifetime', () => {
   it('defaults to one day and bounds deployment configuration', () => {
@@ -134,7 +135,12 @@ describe('control API discovery', () => {
       },
       capabilities: {
         things: { immutableRevisions: true, explain: true },
-        integrations: { multipleAccounts: true },
+        integrations: {
+          multipleAccounts: true,
+          credentialOnboarding: 'manifest-driven',
+          credentialVerification: 'before-persistence',
+          providerIdentity: 'derived',
+        },
       },
     });
 
@@ -167,6 +173,17 @@ describe('control API errors', () => {
         message: 'invalid Thing fixture',
         retryable: false,
         traceId: 'trace-test-1',
+      },
+    });
+    expect(JSON.parse(errorResponse(
+      new IntegrationProviderUnavailableError('Fixture CRM'),
+      'trace-provider',
+    ).body ?? '{}')).toEqual({
+      error: {
+        code: 'integration_unavailable',
+        message: 'Fixture CRM credential verification is temporarily unavailable',
+        retryable: true,
+        traceId: 'trace-provider',
       },
     });
     expect(JSON.parse(errorResponse(new Error('secret internal detail'), 'trace-test-2').body ?? '{}'))

@@ -49,7 +49,7 @@ import type { IntegrationCredentialValue } from '../credentials/types.js';
 import {
   validateConnectionGrant,
   type ConnectionGrant,
-  type ProviderAuthorization,
+  type IntegrationAuthScheme,
 } from '../domain/capabilities.js';
 import type {
   PublicationDescriptor,
@@ -852,48 +852,22 @@ function createConnectionBody(body: unknown, ownerId: string) {
     'version',
     'pluginId',
     'alias',
-    'authorization',
+    'authScheme',
     'credential',
-    'externalTenantId',
-    'externalSubjectId',
     'grant',
   ]);
   requireVersion(input.version);
+  const authScheme = boundedText(input.authScheme, 'authScheme', 32);
+  if (!['oauth2', 'api-key', 'session', 'basic'].includes(authScheme)) {
+    throw new ValidationError('authScheme is invalid');
+  }
   return {
     ownerId,
     pluginId: boundedText(input.pluginId, 'pluginId', 64),
-    alias: boundedText(input.alias, 'alias', 128),
-    authorization: providerAuthorization(input.authorization),
+    ...(input.alias !== undefined ? { alias: boundedText(input.alias, 'alias', 128) } : {}),
+    authScheme: authScheme as IntegrationAuthScheme,
     credential: credentialValue(input.credential),
-    ...(input.externalTenantId !== undefined
-      ? { externalTenantId: boundedText(input.externalTenantId, 'externalTenantId', 512) }
-      : {}),
-    ...(input.externalSubjectId !== undefined
-      ? { externalSubjectId: boundedText(input.externalSubjectId, 'externalSubjectId', 512) }
-      : {}),
     grant: grantPolicy(input.grant),
-  };
-}
-
-function providerAuthorization(value: unknown): ProviderAuthorization {
-  const input = strictBody(value, ['scheme', 'access', 'scopeModel', 'scopes']);
-  const scheme = boundedText(input.scheme, 'authorization.scheme', 32);
-  const access = boundedText(input.access, 'authorization.access', 32);
-  const scopeModel = boundedText(input.scopeModel, 'authorization.scopeModel', 32);
-  if (!['oauth2', 'api-key', 'session', 'basic', 'none'].includes(scheme)) {
-    throw new ValidationError('authorization.scheme is invalid');
-  }
-  if (!['read', 'write', 'full'].includes(access)) {
-    throw new ValidationError('authorization.access is invalid');
-  }
-  if (!['granular', 'coarse', 'unknown'].includes(scopeModel)) {
-    throw new ValidationError('authorization.scopeModel is invalid');
-  }
-  return {
-    scheme: scheme as ProviderAuthorization['scheme'],
-    access: access as ProviderAuthorization['access'],
-    scopeModel: scopeModel as ProviderAuthorization['scopeModel'],
-    scopes: stringArray(input.scopes, 'authorization.scopes', 256),
   };
 }
 

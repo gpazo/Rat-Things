@@ -1,7 +1,9 @@
 import { execFile } from 'node:child_process';
 import { createServer, type IncomingMessage } from 'node:http';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { promisify } from 'node:util';
-import { resolve } from 'node:path';
+import { join, resolve } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 const execute = promisify(execFile);
@@ -27,6 +29,59 @@ describe('Thing CLI-to-HTTP workflow', () => {
       return send(response, { version: '1', service: 'rat-things', api: { openapi: '/openapi.json' } });
     }
     if (request.url === '/v1/capability-profiles') return send(response, { profiles: [] });
+    if (request.method === 'GET' && request.url === '/v1/integrations/plugins') {
+      return send(response, {
+        plugins: [{
+          id: 'fixture-crm',
+          version: '1',
+          title: 'Fixture CRM',
+          description: 'Test customer records.',
+          authentication: [{
+            scheme: 'api-key',
+            title: 'API key',
+            fields: [{ key: 'api_key', label: 'API key', secret: true }],
+          }],
+          operations: [],
+        }],
+      });
+    }
+    if (request.method === 'POST' && request.url === '/v1/integrations/connections') {
+      return send(response, {
+        connection: {
+          version: '1',
+          connectionId: 'connection-cli',
+          pluginId: 'fixture-crm',
+          alias: 'fixture-alpha',
+          label: 'Alpha Support',
+        },
+        grant: { version: '1', preset: 'read-only' },
+      }, 201);
+    }
+    if (request.method === 'GET' && request.url === '/v1/integrations/connections') {
+      return send(response, {
+        connections: [{
+          connection: {
+            version: '1',
+            connectionId: 'connection-cli',
+            pluginId: 'fixture-crm',
+            alias: 'fixture-alpha',
+            label: 'Alpha Support',
+            authorization: {
+              scheme: 'api-key',
+              access: 'read',
+              scopeModel: 'granular',
+              scopes: ['records:read'],
+            },
+          },
+        }],
+      });
+    }
+    if (
+      request.method === 'POST' &&
+      request.url === '/v1/integrations/connections/fixture-alpha/credential'
+    ) {
+      return send(response, { ok: true, connectionId: 'connection-cli' });
+    }
     if (request.method === 'POST' && request.url === '/v1/things') {
       return send(response, { version: '1', thingId: 'thing-cli', revision: 1, status: 'draft' }, 201);
     }
@@ -121,6 +176,54 @@ describe('Thing CLI-to-HTTP workflow', () => {
         expect.objectContaining({ name: 'authenticated-api', status: 'pass' }),
       ]),
     });
+  });
+
+  it('discovers authentication fields and creates and rotates a connection from credential-only files', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'rat-things-connect-'));
+    const credentialPath = join(directory, 'fixture-credential.json');
+    await writeFile(credentialPath, JSON.stringify({ api_key: 'fixture-secret' }), { mode: 0o600 });
+    try {
+      const result = await cli([
+        'connect',
+        'fixture-crm',
+        '--credential-file',
+        credentialPath,
+        '--alias',
+        'fixture-alpha',
+      ], apiUrl);
+      expect(JSON.parse(result.stdout)).toMatchObject({
+        connection: { alias: 'fixture-alpha', label: 'Alpha Support' },
+        grant: { preset: 'read-only' },
+      });
+      expect([...requests].reverse().find(
+        (request) => request.path === '/v1/integrations/connections',
+      ))
+        .toMatchObject({
+          method: 'POST',
+          body: {
+            version: '1',
+            pluginId: 'fixture-crm',
+            alias: 'fixture-alpha',
+            authScheme: 'api-key',
+            credential: { api_key: 'fixture-secret' },
+            grant: { version: '1', preset: 'read-only' },
+          },
+        });
+      await cli([
+        'rotate',
+        'fixture-alpha',
+        '--credential-file',
+        credentialPath,
+      ], apiUrl);
+      expect([...requests].reverse().find(
+        (request) => request.path === '/v1/integrations/connections/fixture-alpha/credential',
+      )).toMatchObject({
+        method: 'POST',
+        body: { version: '1', credential: { api_key: 'fixture-secret' } },
+      });
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
   });
 });
 

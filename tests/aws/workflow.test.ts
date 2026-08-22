@@ -1,6 +1,7 @@
 import { createHash, createHmac, randomUUID } from 'node:crypto';
 import { execFile } from 'node:child_process';
-import { writeFile } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { Sha256 } from '@aws-crypto/sha256-js';
 import { SignatureV4 } from '@smithy/signature-v4';
@@ -17,7 +18,7 @@ import {
   GetQueueAttributesCommand,
   ReceiveMessageCommand,
 } from '@aws-sdk/client-sqs';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, onTestFinished } from 'vitest';
 import { UpdateCommand } from '@aws-sdk/lib-dynamodb';
 import {
   createAwsClientConfig,
@@ -165,11 +166,21 @@ integration('live AWS agent-runner workflow', () => {
     delete process.env.AWS_ENDPOINT_URL;
     const clients = createAwsClients();
     const fixture = randomUUID().slice(0, 8);
-    const personalAlias = `slack-personal-${fixture}`;
-    const businessAlias = `slack-business-${fixture}`;
+    const personalAlias = `fixture-alpha-${fixture}`;
+    const businessAlias = `fixture-beta-${fixture}`;
     const connectionSetName = `shop-accounts-${fixture}`;
-    const personalToken = `xoxp-live-${randomUUID()}`;
-    const businessToken = `xoxb-live-${randomUUID()}`;
+    const personalToken = required('INTEGRATION_FIXTURE_ALPHA_KEY');
+    const businessToken = required('INTEGRATION_FIXTURE_BETA_KEY');
+    const credentialDirectory = await mkdtemp(join(tmpdir(), 'rat-things-aws-connect-'));
+    onTestFinished(() => rm(credentialDirectory, { recursive: true, force: true }));
+    const personalCredential = join(credentialDirectory, 'alpha.json');
+    const businessCredential = join(credentialDirectory, 'beta.json');
+    const invalidCredential = join(credentialDirectory, 'invalid.json');
+    await Promise.all([
+      writeFile(personalCredential, JSON.stringify({ api_key: personalToken }), { mode: 0o600 }),
+      writeFile(businessCredential, JSON.stringify({ api_key: businessToken }), { mode: 0o600 }),
+      writeFile(invalidCredential, JSON.stringify({ api_key: `invalid-${fixture}` }), { mode: 0o600 }),
+    ]);
 
     const discoveryResponse = await fetch(new URL(
       '/.well-known/rat-things',
@@ -181,47 +192,72 @@ integration('live AWS agent-runner workflow', () => {
       deployment: { operation: 'independent', oauthApplications: 'bring-your-own' },
       capabilities: {
         things: { immutableRevisions: true, explain: true },
-        integrations: { multipleAccounts: true },
+        integrations: {
+          multipleAccounts: true,
+          credentialOnboarding: 'manifest-driven',
+          credentialVerification: 'before-persistence',
+          providerIdentity: 'derived',
+        },
       },
     });
 
-    const createConnection = (
+    const createConnection = async (
       alias: string,
-      token: string,
-      authorization: { access: 'read' | 'full'; scopes: string[] },
-      grant: Record<string, unknown>,
-    ) => signedApi<{
-      connection: { connectionId: string; alias: string };
-      grant: { preset: string };
-    }>('/v1/integrations/connections', 'POST', {
-      version: '1',
-      pluginId: 'slack',
+      credentialFile: string,
+      access: 'read-only' | 'read-write',
+    ) => JSON.parse((await runRatThingsCli([
+      'connect',
+      'fixture-crm',
+      '--credential-file',
+      credentialFile,
+      '--access',
+      access,
+      '--alias',
       alias,
-      externalTenantId: `workspace-${alias}`,
-      authorization: {
-        scheme: 'oauth2',
-        access: authorization.access,
-        scopeModel: 'granular',
-        scopes: authorization.scopes,
-      },
-      credential: { access_token: token },
-      grant: { version: '1', ...grant },
-    });
+    ])).stdout) as {
+      connection: {
+        connectionId: string;
+        alias: string;
+        label: string;
+        externalTenantId: string;
+        authorization: { access: string; scopeModel: string; scopes: string[] };
+      };
+      grant: { preset: string };
+    };
+    await expect(runRatThingsCli([
+      'connect',
+      'fixture-crm',
+      '--credential-file',
+      invalidCredential,
+    ])).rejects.toThrow('runtime API returned HTTP 400');
     const personal = await createConnection(
       personalAlias,
-      personalToken,
-      { access: 'read', scopes: ['search:read'] },
-      { preset: 'read-only' },
+      personalCredential,
+      'read-only',
     );
     const business = await createConnection(
       businessAlias,
-      businessToken,
-      { access: 'full', scopes: ['search:read', 'chat:write', 'reactions:write'] },
-      {
-        preset: 'read-write',
-        resourceConstraints: { channel: ['C-LIVE-SUPPORT'] },
-      },
+      businessCredential,
+      'read-write',
     );
+    expect(personal.connection).toMatchObject({
+      label: 'Alpha Support',
+      externalTenantId: 'fixture-alpha',
+      authorization: {
+        access: 'read',
+        scopeModel: 'granular',
+        scopes: ['records:read'],
+      },
+    });
+    expect(business.connection).toMatchObject({
+      label: 'Beta Support',
+      externalTenantId: 'fixture-beta',
+      authorization: {
+        access: 'full',
+        scopeModel: 'granular',
+        scopes: ['records:read', 'records:write'],
+      },
+    });
     expect(JSON.stringify([personal, business])).not.toContain(personalToken);
     expect(JSON.stringify([personal, business])).not.toContain(businessToken);
 
@@ -232,11 +268,11 @@ integration('live AWS agent-runner workflow', () => {
       version: '1',
       name: connectionSetName,
       connections: [personalAlias, businessAlias],
-      defaults: { slack: businessAlias },
+      defaults: { crm: businessAlias },
     });
     expect(connectionSet).toMatchObject({
       connectionIds: [personal.connection.connectionId, business.connection.connectionId],
-      defaults: { slack: business.connection.connectionId },
+      defaults: { crm: business.connection.connectionId },
     });
 
     const firstGoal = `Review both live accounts ${fixture}.`;
@@ -307,14 +343,13 @@ integration('live AWS agent-runner workflow', () => {
       ({ alias }) => alias === businessAlias,
     );
     expect(personalResolution?.operations).toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: 'slack.messages.search', allowed: true }),
-      expect.objectContaining({ id: 'slack.messages.post', allowed: false }),
+      expect.objectContaining({ id: 'fixture-crm.records.search', allowed: true }),
+      expect.objectContaining({ id: 'fixture-crm.records.create', allowed: false }),
     ]));
     expect(businessResolution).toMatchObject({
-      grant: { resourceConstraints: { channel: ['C-LIVE-SUPPORT'] } },
       operations: expect.arrayContaining([
-        expect.objectContaining({ id: 'slack.messages.search', allowed: true }),
-        expect.objectContaining({ id: 'slack.messages.post', allowed: false }),
+        expect.objectContaining({ id: 'fixture-crm.records.search', allowed: true }),
+        expect.objectContaining({ id: 'fixture-crm.records.create', allowed: false }),
       ]),
     });
     expect(JSON.stringify(explanation)).not.toContain(personalToken);
@@ -395,11 +430,12 @@ integration('live AWS agent-runner workflow', () => {
       expect.objectContaining({ thingId: created.thingId, status: 'archived' }),
     ]));
 
-    const rotatedToken = `xoxb-live-rotated-${randomUUID()}`;
-    await signedApi(`/v1/integrations/connections/${businessAlias}/credential`, 'POST', {
-      version: '1',
-      credential: { access_token: rotatedToken },
-    });
+    await runRatThingsCli([
+      'rotate',
+      businessAlias,
+      '--credential-file',
+      businessCredential,
+    ]);
     await signedApi(`/v1/integrations/connections/${personalAlias}/revoke`, 'POST', {});
     await signedApi(`/v1/integrations/connections/${businessAlias}/revoke`, 'POST', {});
     const listedConnections = await signedApi<{
@@ -409,7 +445,7 @@ integration('live AWS agent-runner workflow', () => {
       expect.objectContaining({ connection: expect.objectContaining({ alias: personalAlias, status: 'revoked' }) }),
       expect.objectContaining({ connection: expect.objectContaining({ alias: businessAlias, status: 'revoked' }) }),
     ]));
-    expect(JSON.stringify(listedConnections)).not.toContain(rotatedToken);
+    expect(JSON.stringify(listedConnections)).not.toContain(businessToken);
     await expectEmptyFailureQueues(clients.sqs);
   }, timeoutMs);
 
@@ -878,41 +914,42 @@ integration('live AWS agent-runner workflow', () => {
     await expectEmptyFailureQueues(clients.sqs);
   }, timeoutMs);
 
-  realCodexTest('calls the real Slack API through an agent integration tool and observes denial', async () => {
+  realCodexTest('lets a real agent read one verified account and make one approved write to another', async () => {
     delete process.env.AWS_ENDPOINT_URL;
     const clients = createAwsClients();
-    const marker = `slack-provider-${randomUUID()}`;
-    const alias = `slack-provider-${randomUUID().slice(0, 8)}`;
-    const invalidToken = `rat-things-intentionally-invalid-${randomUUID()}`;
-
-    await signedApi('/v1/integrations/connections', 'POST', {
-      version: '1',
-      pluginId: 'slack',
-      alias,
-      externalTenantId: 'slack-public-api',
-      authorization: {
-        scheme: 'api-key',
-        access: 'read',
-        scopeModel: 'coarse',
-        scopes: [],
-      },
-      credential: { token: invalidToken },
-      grant: {
-        version: '1',
-        preset: 'read-only',
-        allowOperations: ['slack.api.test', 'slack.messages.search'],
-      },
-    });
+    const fixture = randomUUID().slice(0, 8);
+    const marker = `agent-integration-${randomUUID()}`;
+    const alphaAlias = `agent-alpha-${fixture}`;
+    const betaAlias = `agent-beta-${fixture}`;
+    const credentialDirectory = await mkdtemp(join(tmpdir(), 'rat-things-agent-integration-'));
+    onTestFinished(() => rm(credentialDirectory, { recursive: true, force: true }));
+    const alphaCredential = join(credentialDirectory, 'alpha.json');
+    const betaCredential = join(credentialDirectory, 'beta.json');
+    await Promise.all([
+      writeFile(alphaCredential, JSON.stringify({
+        api_key: required('INTEGRATION_FIXTURE_ALPHA_KEY'),
+      }), { mode: 0o600 }),
+      writeFile(betaCredential, JSON.stringify({
+        api_key: required('INTEGRATION_FIXTURE_BETA_KEY'),
+      }), { mode: 0o600 }),
+    ]);
+    await runRatThingsCli([
+      'connect', 'fixture-crm', '--credential-file', alphaCredential,
+      '--access', 'read-only', '--alias', alphaAlias,
+    ]);
+    await runRatThingsCli([
+      'connect', 'fixture-crm', '--credential-file', betaCredential,
+      '--access', 'read-write', '--alias', betaAlias,
+    ]);
 
     const submitted = await signedApi<RunRecord>('/v1/runs', 'POST', {
       version: '1',
       prompt: [
-        'This is a bounded live-provider integration test.',
-        `Using account ${alias}, first call the Slack api_test tool with marker ${marker}.`,
-        'Verify that the returned args.marker is identical.',
-        `Then call the Slack messages_search tool with query ${marker}.`,
-        'Its credential is intentionally invalid, so treat the Slack invalid_auth denial as expected.',
-        `After both tool calls, end your response with exactly: SLACK-PROVIDER-PROOF ${marker}`,
+        'This is a strict live integration test. You must use the Fixture CRM tools exactly twice.',
+        `First call records_search using account ${alphaAlias} and query ${marker}.`,
+        `Then call records_create using account ${betaAlias} and name ${marker}.`,
+        'Do not use either operation on any other account.',
+        `After both calls succeed, end your response with exactly: INTEGRATION-PROOF ${marker}`,
         'Do not use shell commands, browser tools, or web search.',
       ].join(' '),
       agent: {
@@ -921,36 +958,48 @@ integration('live AWS agent-runner workflow', () => {
         sandbox: 'read-only',
         reasoningEffort: 'medium',
         capabilities: {
-          approvalPolicy: 'never',
+          profile: 'small-business',
+          approvalPolicy: 'on-request',
           networkAccess: true,
           computerUse: 'disabled',
         },
       },
       integrations: {
-        connections: [{
-          connection: alias,
-          preset: 'read-only',
-          allowOperations: ['slack.api.test', 'slack.messages.search'],
-        }],
+        connections: [
+          { connection: alphaAlias, preset: 'read-only' },
+          { connection: betaAlias, preset: 'read-write' },
+        ],
       },
       execution: { backend: 'microvm', timeoutSeconds: 300 },
       destinations: [{ kind: 'none' }],
-    }, { 'idempotency-key': `aws-e2e-provider-${randomUUID()}` });
+    }, { 'idempotency-key': `aws-e2e-integration-${randomUUID()}` });
 
-    const completed = await waitForApiRun(submitted.runId);
+    const [completed, approvals] = await Promise.all([
+      waitForApiRun(submitted.runId),
+      superviseAgentApprovals(submitted.runId),
+    ]);
     assertSuccessfulRealCodexRun(completed);
     const [output, events] = await Promise.all([
       outputText(clients.s3, completed),
       resultArtifactText(clients.s3, completed, 'events'),
     ]);
-    expect(output).toContain(`SLACK-PROVIDER-PROOF ${marker}`);
-    expect(events).toContain('api_test');
-    expect(events).toContain('messages_search');
+    expect(output).toContain(`INTEGRATION-PROOF ${marker}`);
+    expect(events).toContain('records_search');
+    expect(events).toContain('records_create');
     expect(events).toContain(marker);
-    expect(events).toContain('invalid_auth');
-    expect(`${JSON.stringify(completed)}\n${output}\n${events}`).not.toContain(invalidToken);
+    expect(approvals).toEqual([
+      expect.objectContaining({
+        method: 'ratThings/integration/requestApproval',
+        operationId: 'fixture-crm.records.create',
+      }),
+    ]);
+    await expectFixtureAudit(clients.sqs, marker);
+    const evidence = `${JSON.stringify(completed)}\n${output}\n${events}`;
+    expect(evidence).not.toContain(required('INTEGRATION_FIXTURE_ALPHA_KEY'));
+    expect(evidence).not.toContain(required('INTEGRATION_FIXTURE_BETA_KEY'));
 
-    await signedApi(`/v1/integrations/connections/${alias}/revoke`, 'POST', {});
+    await signedApi(`/v1/integrations/connections/${alphaAlias}/revoke`, 'POST', {});
+    await signedApi(`/v1/integrations/connections/${betaAlias}/revoke`, 'POST', {});
     await expectTerminalEvents(clients.sqs, new Set([submitted.runId]));
     await expectEmptyFailureQueues(clients.sqs);
   }, timeoutMs);
@@ -1291,6 +1340,7 @@ interface ObservedApproval {
   method: string;
   decision: 'accept-for-session';
   tool?: string;
+  operationId?: string;
   command?: Record<string, unknown>;
 }
 
@@ -1350,11 +1400,14 @@ async function superviseAgentApprovals(runId: string): Promise<ObservedApproval[
 function approvalEvidence(request: PendingAgentRequest): ObservedApproval {
   const tool = typeof request.params.tool === 'string' ? request.params.tool : undefined;
   const command = recordValue(request.params.command);
+  const operation = recordValue(request.params.operation);
+  const operationId = typeof operation?.id === 'string' ? operation.id : undefined;
   return {
     requestId: request.requestId,
     method: request.method,
     decision: 'accept-for-session',
     ...(tool ? { tool } : {}),
+    ...(operationId ? { operationId } : {}),
     ...(command ? { command } : {}),
   };
 }
@@ -1844,6 +1897,53 @@ async function expectTeamsDeliveries(
     }
   }
   expect([...remaining.keys()], 'Teams delivery payloads not observed').toEqual([]);
+}
+
+async function expectFixtureAudit(
+  sqs: ReturnType<typeof createAwsClients>['sqs'],
+  marker: string,
+): Promise<void> {
+  const queueUrl = required('INTEGRATION_FIXTURE_AUDIT_QUEUE_URL');
+  const deadline = Date.now() + 60_000;
+  let matching = 0;
+  while (matching === 0 && Date.now() < deadline) {
+    const response = await sqs.send(new ReceiveMessageCommand({
+      QueueUrl: queueUrl,
+      MaxNumberOfMessages: 10,
+      WaitTimeSeconds: 10,
+      VisibilityTimeout: 20,
+    }));
+    for (const message of response.Messages ?? []) {
+      const value = JSON.parse(message.Body ?? '{}') as Record<string, unknown>;
+      if (value.name === marker) {
+        expect(value).toMatchObject({
+          version: '1',
+          operation: 'records.create',
+          account: 'beta',
+          name: marker,
+        });
+        matching += 1;
+      }
+      if (message.ReceiptHandle) {
+        await sqs.send(new DeleteMessageCommand({
+          QueueUrl: queueUrl,
+          ReceiptHandle: message.ReceiptHandle,
+        }));
+      }
+    }
+  }
+  expect(matching, 'fixture provider write was not observed').toBe(1);
+
+  const repeated = await sqs.send(new ReceiveMessageCommand({
+    QueueUrl: queueUrl,
+    MaxNumberOfMessages: 10,
+    WaitTimeSeconds: 5,
+  }));
+  const duplicates = (repeated.Messages ?? []).filter((message) => {
+    const value = JSON.parse(message.Body ?? '{}') as Record<string, unknown>;
+    return value.name === marker;
+  });
+  expect(duplicates, 'fixture provider observed a duplicate write').toEqual([]);
 }
 
 async function expectEmptyFailureQueues(
