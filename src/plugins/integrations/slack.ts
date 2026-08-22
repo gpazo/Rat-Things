@@ -14,9 +14,18 @@ export function createSlackIntegrationPlugin(options: { fetch?: typeof fetch } =
       id: 'slack',
       version: '1',
       title: 'Slack',
-      description: 'Search messages, post messages, and add reactions in connected Slack workspaces.',
+      description: 'Test API reachability, search messages, post messages, and add reactions in connected Slack workspaces.',
       authSchemes: ['oauth2', 'api-key'],
       operations: [
+        {
+          id: 'slack.api.test',
+          title: 'Test Slack API reachability',
+          kind: 'tool',
+          access: 'read',
+          risk: 'routine',
+          defaultApproval: 'never',
+          inputSchema: objectSchema({ marker: stringSchema('Opaque diagnostic marker') }, ['marker']),
+        },
         {
           id: 'slack.messages.search',
           title: 'Search Slack messages',
@@ -57,13 +66,28 @@ export function createSlackIntegrationPlugin(options: { fetch?: typeof fetch } =
         },
       ],
     },
-    authorization: (credential) => ({
-      authorization: `Bearer ${requiredCredential(credential, 'access_token', 'token', 'value')}`,
-    }),
+    authorization: (credential, operationId) => operationId === 'slack.api.test'
+      ? {}
+      : {
+        authorization: `Bearer ${requiredCredential(credential, 'access_token', 'token', 'value')}`,
+      },
     validateResponse: (value) => {
-      if (isRecord(value) && value.ok === false) throw new Error('Slack returned an API error');
+      if (isRecord(value) && value.ok === false) {
+        const code = typeof value.error === 'string' && /^[A-Za-z0-9_:-]{1,128}$/.test(value.error)
+          ? value.error
+          : 'unknown';
+        throw new Error(`Slack returned an API error: ${code}`);
+      }
     },
     operations: [
+      {
+        id: 'slack.api.test',
+        request: (input) => ({
+          method: 'POST',
+          path: 'api.test',
+          form: new URLSearchParams({ marker: requiredInputString(input, 'marker', 256) }),
+        }),
+      },
       {
         id: 'slack.messages.search',
         request: (input) => ({

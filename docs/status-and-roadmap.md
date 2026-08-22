@@ -25,7 +25,7 @@ disaster-recovery proof.
 | Codex App Server bridge | Core live validated; expanded protocol simulated and local-live tested | Thread start/resume, turn control, events, approvals/server requests, reasoning/personality, skills, apps, MCP config, and experimental dynamic tools |
 | Capability profiles | Implemented/locally tested | Deployment ceiling plus `read-only`, `small-business`, and `microvm-full`; requests can narrow but not widen profiles |
 | Multi-account integrations | Implemented/local and live AWS validated | Owner-scoped connections, Secrets Manager vault, grants, account sets, source bindings, provider-scope intersection, resource constraints, rotation, revocation, and approvals |
-| Reference integration tools | Implemented/locally tested | Fixed-origin Slack search/post/reaction and Stripe customer/invoice/refund operations; no hosted OAuth lifecycle yet |
+| Reference integration tools | Implemented/partially live provider validated | Fixed-origin Slack reachability/search/post/reaction and Stripe customer/invoice/refund operations; live proof covers Slack reachability and provider-side credential denial, while authenticated workspace data and hosted OAuth remain |
 | Browser computer use | Implemented v1 surface/live AWS validated | Real Codex exercised all 12 implemented command types, four interactive approval types, PNG/JPEG capture, VP8 WebM recording, private-target blocking, native cgroup eBPF lifecycle-port isolation, and trusted publication from an ARM64 Lambda MicroVM; takeover/auth/file transfer/desktop control remain out of scope |
 | Durable routines | Implemented/local end-to-end and simulated | Owner-scoped interval create/list/get/pause/resume/delete/run-now, encrypted S3 request, due-time GSI, deterministic occurrence submission, duplicate-tick fencing, and request-digest verification |
 | Codex authentication | Live/local validated | Short-term Bedrock in AWS; trusted local runs can reuse the device's ChatGPT subscription without copying it into remote runs |
@@ -39,6 +39,23 @@ disaster-recovery proof.
 
 ## Validation completed on 2026-08-21
 
+- A fresh 208-resource disposable `us-west-2` stack (`ev260821a`) passed ten applicable workflows;
+  only the custom-domain browser-publication case was skipped because that optional DNS fixture was
+  not configured. A live EventBridge one-minute rule, rather than an explicit `/run` call, submitted
+  exactly one interval Thing occurrence. The resulting durable run retained the expected Thing,
+  revision, scheduled-time, and source provenance, completed in a Lambda MicroVM, and left the
+  scheduler and failure queues clean. The focused scenario passed in 143.27 seconds.
+- With the real-Codex option enabled, a Codex agent selected the authorized Slack account and called
+  the production dynamic tools against Slack's actual API. The credential-free `api.test` operation
+  succeeded and echoed a unique marker; the subsequent credentialed message search reached Slack
+  and returned its expected `invalid_auth` denial for the deliberately disposable invalid token.
+  The 16.23-second test proved successful provider I/O, brokered credential use, provider-side error
+  propagation, read-only operation restriction, and absence of the credential value from durable
+  run state, output, and events. It does not claim authenticated access to workspace data.
+- The `ev260821a` teardown removed runtime-created secrets, terminated seven MicroVMs, destroyed all
+  208 Terraform resources, and passed its tagged-resource audit. Independent checks found zero
+  Terraform resources and no generated runtime environment file. AWS disabled the customer-managed
+  KMS key and scheduled its mandatory delayed deletion.
 - A fresh 208-resource disposable `us-west-2` stack (`th260821c`) passed all seven applicable live
   workflows; the custom-domain publication and paid real-Codex cases were the two expected opt-in
   skips. The new live Thing scenario used public discovery/OpenAPI/schema endpoints, registered two
@@ -55,7 +72,7 @@ disaster-recovery proof.
   same-plugin accounts, Secrets Manager reference/value separation, connection-set selection,
   immutable definition storage, historical revision retrieval, explain diagnostics, duplicate
   invocation/wake-up fencing, run compilation, SQS dispatch, and host worker completion.
-- The complete local gate passed 60 test files and 246 tests with 15 intentional opt-in skips.
+- The complete local gate passed 60 test files and 247 tests with 17 intentional opt-in skips.
   Architecture and TypeScript checks, MicroVM syntax, 11 packaged Lambda smoke tests, the 20-page
   documentation build, Terraform formatting, all three Terraform validations, and exact equality
   between the 58 OpenAPI operations and 58 deployed API Gateway routes were green.
@@ -294,9 +311,11 @@ teardown.
   is no signed package catalog, arbitrary runtime plugin loading, visual mapper, or Zapier-compatible
   trigger engine yet.
 - Run live AWS canaries for steering, interruption, decline/cancel decisions, Codex and integration
-  approval routing, scheduled Thing/routine submission, and actual external-provider operations.
-  Multi-account credential resolution and permission intersection are now live-AWS validated, but
-  Slack/Stripe tool calls and provider-side denials still use local simulations or mocks.
+  approval routing, scheduled routine submission, scheduled-Thing retry/crash injection, and
+  authenticated external-provider account-data operations. A normal scheduled Thing occurrence
+  plus real Slack reachability and provider-side invalid-credential denial are now live-AWS
+  validated. Multi-account credential resolution and permission intersection are also live
+  validated; permitted authenticated reads/writes still need customer-supplied test accounts.
 - Add browser takeover/return-control, secure human credential entry, uploads/downloads, tabs and
   popups, richer pointer interactions, and replacement-MicroVM authenticated-profile validation
   before making an unqualified “full computer use” claim. General graphical desktop control is not
@@ -327,11 +346,14 @@ The immediate priority is to make the new small-business/self-hosted surface bor
 1. Exercise live steering, interruption, negative approval decisions, Codex approval, and
    integration approval against one active run. Event polling and accepted browser approvals are
    already live validated.
-2. Exercise two test accounts against an actual external provider API, including a permitted read,
-   a permitted write, provider-scope denial, resource constraints, and integration approval. The
-   live AWS selection, rotation, revocation, and no-secret-leakage path is already proven.
-3. Prove the EventBridge reconciler submits one and only one scheduled Thing and routine occurrence
-   across retry/crash windows, then exercise both lifecycle surfaces through the built CLI.
+2. Exercise two authenticated test accounts against an actual external provider API, including a
+   permitted read, a permitted write, provider-scope denial, resource constraints, and integration
+   approval. Live AWS now proves provider reachability, invalid-credential denial, account
+   selection, rotation, revocation, and no secret leakage.
+3. Prove the EventBridge reconciler submits one and only one scheduled routine occurrence, and
+   extend the scheduled-Thing proof across injected retry/crash windows. Then exercise the routine
+   lifecycle through the built CLI. A normal scheduled Thing occurrence and its lifecycle/provenance
+   path are now live validated.
 4. Add connection verification and OAuth/PKCE onboarding so non-technical operators can connect
    accounts without manually handling tokens.
 5. Extract the fixed-origin adapter pattern into a contributor-facing SDK, schema validator, and

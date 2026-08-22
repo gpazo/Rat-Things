@@ -413,6 +413,84 @@ integration('live AWS agent-runner workflow', () => {
     await expectEmptyFailureQueues(clients.sqs);
   }, timeoutMs);
 
+  it('submits one interval Thing occurrence through the deployed EventBridge reconciler', async () => {
+    delete process.env.AWS_ENDPOINT_URL;
+    const clients = createAwsClients();
+    const marker = `scheduled-thing-${randomUUID()}`;
+    // Leave enough headroom for API creation, then let the one-minute AWS rule observe it as due.
+    const scheduledAt = new Date(Date.now() + 90_000).toISOString();
+    const created = await signedApi<{
+      thingId: string;
+      revision: number;
+      status: string;
+      nextRunAt?: string;
+    }>('/v1/things', 'POST', {
+      version: '1',
+      status: 'enabled',
+      spec: {
+        version: '1',
+        name: 'Live EventBridge Thing',
+        goal: `Return AWS scheduled Thing marker ${marker}`,
+        trigger: { kind: 'interval', everyMinutes: 60, startAt: scheduledAt },
+        agent: { driver: 'mock', sandbox: 'read-only' },
+        deliver: [{ kind: 'none' }],
+      },
+    });
+    expect(created).toMatchObject({ revision: 1, status: 'enabled', nextRunAt: scheduledAt });
+
+    const occurred = await waitForScheduledThing(created.thingId, scheduledAt);
+    const runId = occurred.lastRunId;
+    if (!runId) throw new Error('scheduled Thing has no run ID');
+    expect(occurred).toMatchObject({
+      status: 'enabled',
+      revision: 1,
+      lastRunAt: scheduledAt,
+      nextRunAt: new Date(Date.parse(scheduledAt) + 60 * 60_000).toISOString(),
+    });
+
+    const completed = await waitForApiRun(runId);
+    assertSuccessfulMicrovmRun(completed);
+    expect(completed.provenance).toMatchObject({
+      actor: { kind: 'system', id: `thing:${created.thingId}`, provider: 'api' },
+    });
+    const artifacts = new S3ArtifactStore(clients.s3, required('ARTIFACT_BUCKET'));
+    const input = await artifacts.getJson<RunRequest>(completed.input);
+    expect(input).toMatchObject({
+      prompt: `Return AWS scheduled Thing marker ${marker}`,
+      source: {
+        kind: 'api',
+        requestId: `thing:${created.thingId}:1:${scheduledAt}`,
+      },
+      metadata: {
+        thingId: created.thingId,
+        thingRevision: 1,
+        scheduledAt,
+      },
+    });
+    expect(await outputText(clients.s3, completed)).toContain(marker);
+
+    const runStore = new DynamoRunStore(clients.dynamodb, required('RUNS_TABLE_NAME'));
+    const recent = await runStore.list(completed.ownerId, 100);
+    const matching: string[] = [];
+    for (const candidate of recent.items) {
+      const candidateInput = await artifacts.getJson<RunRequest>(candidate.input);
+      if (
+        candidateInput.metadata?.thingId === created.thingId &&
+        candidateInput.metadata.scheduledAt === scheduledAt
+      ) matching.push(candidate.runId);
+    }
+    expect(matching).toEqual([runId]);
+
+    const paused = await signedApi<{ status: string; lastRunId?: string }>(
+      `/v1/things/${created.thingId}/pause`,
+      'POST',
+      {},
+    );
+    expect(paused).toMatchObject({ status: 'paused', lastRunId: runId });
+    await expectTerminalEvents(clients.sqs, new Set([runId]));
+    await expectEmptyFailureQueues(clients.sqs);
+  }, timeoutMs);
+
   const persistentMicrovmTest = process.env.AWS_E2E_ENABLE_MICROVM === 'true' ? it : it.skip;
   persistentMicrovmTest('suspends and resumes one conversation on the same live Lambda MicroVM', async () => {
     delete process.env.AWS_ENDPOINT_URL;
@@ -800,6 +878,83 @@ integration('live AWS agent-runner workflow', () => {
     await expectEmptyFailureQueues(clients.sqs);
   }, timeoutMs);
 
+  realCodexTest('calls the real Slack API through an agent integration tool and observes denial', async () => {
+    delete process.env.AWS_ENDPOINT_URL;
+    const clients = createAwsClients();
+    const marker = `slack-provider-${randomUUID()}`;
+    const alias = `slack-provider-${randomUUID().slice(0, 8)}`;
+    const invalidToken = `rat-things-intentionally-invalid-${randomUUID()}`;
+
+    await signedApi('/v1/integrations/connections', 'POST', {
+      version: '1',
+      pluginId: 'slack',
+      alias,
+      externalTenantId: 'slack-public-api',
+      authorization: {
+        scheme: 'api-key',
+        access: 'read',
+        scopeModel: 'coarse',
+        scopes: [],
+      },
+      credential: { token: invalidToken },
+      grant: {
+        version: '1',
+        preset: 'read-only',
+        allowOperations: ['slack.api.test', 'slack.messages.search'],
+      },
+    });
+
+    const submitted = await signedApi<RunRecord>('/v1/runs', 'POST', {
+      version: '1',
+      prompt: [
+        'This is a bounded live-provider integration test.',
+        `Using account ${alias}, first call the Slack api_test tool with marker ${marker}.`,
+        'Verify that the returned args.marker is identical.',
+        `Then call the Slack messages_search tool with query ${marker}.`,
+        'Its credential is intentionally invalid, so treat the Slack invalid_auth denial as expected.',
+        `After both tool calls, end your response with exactly: SLACK-PROVIDER-PROOF ${marker}`,
+        'Do not use shell commands, browser tools, or web search.',
+      ].join(' '),
+      agent: {
+        driver: 'codex',
+        model: process.env.AWS_E2E_CODEX_MODEL_ID ?? 'openai.gpt-5.6-terra',
+        sandbox: 'read-only',
+        reasoningEffort: 'medium',
+        capabilities: {
+          approvalPolicy: 'never',
+          networkAccess: true,
+          computerUse: 'disabled',
+        },
+      },
+      integrations: {
+        connections: [{
+          connection: alias,
+          preset: 'read-only',
+          allowOperations: ['slack.api.test', 'slack.messages.search'],
+        }],
+      },
+      execution: { backend: 'microvm', timeoutSeconds: 300 },
+      destinations: [{ kind: 'none' }],
+    }, { 'idempotency-key': `aws-e2e-provider-${randomUUID()}` });
+
+    const completed = await waitForApiRun(submitted.runId);
+    assertSuccessfulRealCodexRun(completed);
+    const [output, events] = await Promise.all([
+      outputText(clients.s3, completed),
+      resultArtifactText(clients.s3, completed, 'events'),
+    ]);
+    expect(output).toContain(`SLACK-PROVIDER-PROOF ${marker}`);
+    expect(events).toContain('api_test');
+    expect(events).toContain('messages_search');
+    expect(events).toContain(marker);
+    expect(events).toContain('invalid_auth');
+    expect(`${JSON.stringify(completed)}\n${output}\n${events}`).not.toContain(invalidToken);
+
+    await signedApi(`/v1/integrations/connections/${alias}/revoke`, 'POST', {});
+    await expectTerminalEvents(clients.sqs, new Set([submitted.runId]));
+    await expectEmptyFailureQueues(clients.sqs);
+  }, timeoutMs);
+
   const browserPublicationTest = process.env.AWS_E2E_REAL_CODEX === 'true' &&
     Boolean(process.env.AWS_E2E_PUBLICATION_DOMAIN) ? it : it.skip;
   browserPublicationTest('uses the full browser interaction surface with approvals and shares evidence', async () => {
@@ -1122,6 +1277,15 @@ interface ApiConversationMessageStatus {
   run?: RunRecord;
 }
 
+interface ScheduledThingState {
+  thingId: string;
+  revision: number;
+  status: string;
+  nextRunAt?: string;
+  lastRunAt?: string;
+  lastRunId?: string;
+}
+
 interface ObservedApproval {
   requestId: string;
   method: string;
@@ -1332,6 +1496,25 @@ async function webhook(
 
 async function waitForApiRun(runId: string): Promise<RunRecord> {
   return waitForRun(async () => signedApi<RunRecord>(`/v1/runs/${runId}`, 'GET'));
+}
+
+async function waitForScheduledThing(
+  thingId: string,
+  scheduledAt: string,
+): Promise<ScheduledThingState> {
+  const deadline = Date.now() + timeoutMs - 30_000;
+  let latest: ScheduledThingState | undefined;
+  while (Date.now() < deadline) {
+    latest = await signedApi<ScheduledThingState>(`/v1/things/${thingId}`, 'GET');
+    if (latest.lastRunAt === scheduledAt && latest.lastRunId) return latest;
+    if (latest.status !== 'enabled') {
+      throw new Error(`scheduled Thing ${thingId} unexpectedly entered ${latest.status}`);
+    }
+    await delay(2_000);
+  }
+  throw new Error(
+    `EventBridge did not submit Thing ${thingId} at ${scheduledAt}; last state ${JSON.stringify(latest)}`,
+  );
 }
 
 async function waitForStoredRun(store: DynamoRunStore, runId: string): Promise<RunRecord> {

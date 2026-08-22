@@ -247,12 +247,20 @@ Two reference integrations are registered:
 
 | Plugin | Operations |
 | --- | --- |
-| Slack | Search messages, post a message, add a reaction |
+| Slack | Test API reachability, search messages, post a message, add a reaction |
 | Stripe | Search customers, list invoices, create a refund |
 
 Their HTTPS origins are fixed in trusted code, redirects are rejected, request/response bodies are
 bounded, and credentials are added only to authorization headers. Slack's HTTP-200 error envelope is
-also checked. These adapters demonstrate the contract; they are not a broad app catalog.
+also checked. The no-scope `slack.api.test` diagnostic deliberately sends no authorization header;
+all account-data operations remain authenticated. These adapters demonstrate the contract; they are
+not a broad app catalog.
+
+The live AWS provider canary calls Slack's real `api.test` endpoint through a Codex-selected dynamic
+tool and then sends a credentialed read-only request with a deliberately invalid disposable token.
+It asserts Slack's `invalid_auth` response and scans durable state, output, and events for credential
+leakage. This proves the provider transport and denial path without requiring a workspace account;
+authenticated reads and writes still require a dedicated bring-your-own-OAuth test fixture.
 
 At turn start Rat Things registers only authorized operations as App Server dynamic tools. Each tool
 schema includes an `account` enum containing eligible aliases and a nested typed `input` object. The

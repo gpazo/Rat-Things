@@ -21,6 +21,26 @@ describe('trusted HTTP integration plugins', () => {
     expect(init.redirect).toBe('error');
   });
 
+  it('calls Slack api.test without attaching a credential to its no-scope operation', async () => {
+    const marker = 'rat-things-provider-proof';
+    const fetcher = vi.fn(async () => new Response(JSON.stringify({
+      ok: true,
+      args: { marker },
+    }), { status: 200 }));
+    const plugin = createSlackIntegrationPlugin({ fetch: fetcher as typeof fetch });
+
+    await expect(plugin.execute('slack.api.test', { marker }, {
+      connection: connection(),
+      credential: { token: 'must-not-leave-the-broker' },
+    })).resolves.toMatchObject({ ok: true, args: { marker } });
+
+    const [url, init] = fetcher.mock.calls[0] as unknown as [URL, RequestInit];
+    expect(url.toString()).toBe('https://slack.com/api/api.test');
+    expect(init.method).toBe('POST');
+    expect(init.headers).not.toHaveProperty('authorization');
+    expect(init.body).toBe(`marker=${marker}`);
+  });
+
   it('treats Slack HTTP-200 error envelopes as failed operations', async () => {
     const plugin = createSlackIntegrationPlugin({
       fetch: vi.fn(async () => new Response(JSON.stringify({ ok: false, error: 'missing_scope' }), {
@@ -31,7 +51,7 @@ describe('trusted HTTP integration plugins', () => {
     await expect(plugin.execute('slack.messages.search', { query: 'invoice' }, {
       connection: connection(),
       credential: { token: 'xoxb-private-token' },
-    })).rejects.toThrow('Slack returned an API error');
+    })).rejects.toThrow('Slack returned an API error: missing_scope');
   });
 });
 

@@ -131,6 +131,11 @@ occurrence is one interval after the Thing becomes enabled. The scheduler skips 
 backlog rather than launching a storm. A scheduled occurrence is idempotent on Thing ID, revision,
 and scheduled time; its schedule advances only after durable run submission succeeds.
 
+The live AWS suite enables a one-minute interval Thing, makes no explicit run request, waits for the
+EventBridge reconciler, and asserts that exactly one durable occurrence retains the expected Thing,
+revision, scheduled-time, and source provenance before pausing it. Scheduled routine occurrence
+validation remains separate.
+
 Generic signed-Thing webhooks and provider-event Thing triggers are not part of ThingSpec v1 yet.
 Do not simulate them with an unauthenticated manual route. Use the existing signature-verified
 provider webhooks until a per-Thing secret lifecycle and replay contract are added.

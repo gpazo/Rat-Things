@@ -27,7 +27,10 @@ export interface TrustedHttpPluginOptions {
   manifest: IntegrationPluginManifest;
   baseUrl: string;
   operations: TrustedHttpOperation[];
-  authorization(credential: IntegrationCredentialValue): Record<string, string>;
+  authorization(
+    credential: IntegrationCredentialValue,
+    operationId: string,
+  ): Record<string, string>;
   validateResponse?(value: JsonValue): void;
   fetch?: typeof fetch;
 }
@@ -79,7 +82,7 @@ export class TrustedHttpIntegrationPlugin implements IntegrationPlugin {
       : request.form?.toString();
     const headers = {
       accept: 'application/json',
-      ...this.options.authorization(context.credential),
+      ...this.options.authorization(context.credential, operationId),
       ...(request.json !== undefined ? { 'content-type': 'application/json' } : {}),
       ...(request.form !== undefined ? { 'content-type': 'application/x-www-form-urlencoded' } : {}),
       ...request.headers,
