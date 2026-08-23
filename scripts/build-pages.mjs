@@ -79,7 +79,7 @@ function renderLlmsIndex(groups, documents) {
     const document = documents.get(file);
     return `- [${document.title}](${pagesUrl}/docs/${document.slug}/): ${document.description}`;
   }).join('\n')}`).join('\n\n');
-  return `# Rat Things\n\n> Self-hosted, headless agent automation with isolated Codex execution, reusable Things, multi-account integrations, browser use, and durable work.\n\n${sections}\n\n## Machine-readable contracts\n\n- [OpenAPI 3.1](${pagesUrl}/openapi.json): Deployment API contract and authentication model.\n- [ThingSpec v1 JSON Schema](${pagesUrl}/schemas/thing-v1.json): Portable credential-free automation definition.\n- [Create Thing schema](${pagesUrl}/schemas/thing-create-v1.json): Draft or enabled creation envelope.\n- [Create Thing version schema](${pagesUrl}/schemas/thing-version-v1.json): Compare-and-swap immutable revision envelope.\n- [Complete documentation corpus](${pagesUrl}/llms-full.txt): Repository Markdown combined into one agent-readable document.\n\n## Source and examples\n\n- [Repository](${repositoryUrl})\n- [Thing create example](${pagesUrl}/examples/thing-create.json)\n- [Thing version example](${pagesUrl}/examples/thing-version.json)\n`;
+  return `# Rat Things\n\n> The open-source, self-hostable backend for cloud agents, with isolated Codex execution, reusable Things, multi-account integrations, browser use, and durable work.\n\n${sections}\n\n## Machine-readable contracts\n\n- [OpenAPI 3.1](${pagesUrl}/openapi.json): Deployment API contract and authentication model.\n- [ThingSpec v1 JSON Schema](${pagesUrl}/schemas/thing-v1.json): Portable credential-free automation definition.\n- [Create Thing schema](${pagesUrl}/schemas/thing-create-v1.json): Draft or enabled creation envelope.\n- [Create Thing version schema](${pagesUrl}/schemas/thing-version-v1.json): Compare-and-swap immutable revision envelope.\n- [Complete documentation corpus](${pagesUrl}/llms-full.txt): Repository Markdown combined into one agent-readable document.\n\n## Source and examples\n\n- [Repository](${repositoryUrl})\n- [Thing create example](${pagesUrl}/examples/thing-create.json)\n- [Thing version example](${pagesUrl}/examples/thing-version.json)\n`;
 }
 
 function renderLlmsFull(documents) {
@@ -194,7 +194,7 @@ function renderDocsHome(groups, documents) {
     main: `
       <div class="docs-home">
         <p class="docs-eyebrow">Build on Rat Things</p>
-        <h1>Agent automation.<br>Your infrastructure.</h1>
+        <h1>The open-source backend<br>for cloud agents.</h1>
         <p class="docs-home-lede">Install one independent backend, connect verified accounts with explicit permissions, and expose reusable Things through one discoverable API for operators, products, and other agents.</p>
         <div class="docs-home-actions">
           <a class="docs-button docs-button-primary" href="./operating-model/">How it works</a>

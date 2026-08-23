@@ -1,8 +1,9 @@
 # Embed and self-host Rat Things
 
-Rat Things is a headless automation backend. It can sit behind a small-business operator console,
-a CLI, another agent, or a SaaS product without requiring a Rat-operated control plane. The same
-deployment can serve one person or many authenticated users; the host decides that product model.
+Rat Things is an open-source, headless backend for cloud agents. It can sit behind a small-business
+operator console, a CLI, another agent, or a SaaS product without requiring a Rat-operated control
+plane. The same deployment can serve one person or many authenticated users; the host decides that
+product model.
 Every consumer follows the same [operating model](operating-model.md); this guide explains how a host
 turns those primitives into its own UX.
 

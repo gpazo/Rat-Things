@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <strong>Reusable agent automation. Your infrastructure.</strong>
+  <strong>The open-source backend for cloud agents.</strong>
 </p>
 
 <p align="center">
@@ -27,7 +27,7 @@
   <a href="docs/status-and-roadmap.md">Validation status</a>
 </p>
 
-Rat Things is a self-hostable, headless automation backend for agents, applications, CLIs, and
+Rat Things is the open-source, self-hostable backend for cloud agents, applications, CLIs, and
 provider events. Install one independent deployment in your AWS account, bring your identity and
 OAuth applications, connect provider-verified accounts, and publish reusable **Things** through one
 documented API.

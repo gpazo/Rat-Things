@@ -1,6 +1,6 @@
 # How Rat Things operates
 
-Rat Things is a self-hostable, headless automation backend for agents, applications, CLIs, and
+Rat Things is the open-source, self-hostable backend for cloud agents, applications, CLIs, and
 provider events. A host installs one independent deployment, supplies identity and OAuth, and
 decides whether that deployment serves one person, a team, or users of another product. Rat Things
 supplies the common automation contract and isolated execution runtime; it does not require a

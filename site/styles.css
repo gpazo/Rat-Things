@@ -147,6 +147,13 @@ h1 {
   letter-spacing: -0.075em;
 }
 
+.hero-title {
+  max-width: 1180px;
+  font-size: clamp(3.8rem, 7vw, 6.6rem);
+  line-height: 0.88;
+  letter-spacing: -0.065em;
+}
+
 h2 {
   margin-bottom: 1.5rem;
   font-size: clamp(2.65rem, 5vw, 5rem);
@@ -453,6 +460,7 @@ footer p { max-width: 600px; margin: 1rem 0 0; color: var(--muted); font-size: 0
   .route-section, .flow-section, .continuity-section, .economics-section, .caution-section { padding-left: 1rem; padding-right: 1rem; }
   .hero { min-height: 980px; }
   h1 { font-size: clamp(3.4rem, 16vw, 4.2rem); line-height: 0.88; letter-spacing: -0.06em; }
+  .hero-title { max-width: 100%; font-size: clamp(2.85rem, 12vw, 3.7rem); line-height: 0.92; }
   h2 { font-size: clamp(2.45rem, 13vw, 3.5rem); }
   .hero-lede { max-width: 94%; }
   .hero-stats { right: 1rem; left: 1rem; }
