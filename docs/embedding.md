@@ -33,17 +33,22 @@ without a central registry. Important entries are:
   "service": "rat-things",
   "deployment": {
     "operation": "independent",
+    "maturity": "engineering-preview",
     "tenancy": "host-defined",
     "identity": "host-authenticated principal",
     "oauthApplications": "bring-your-own"
   },
   "api": {
     "openapi": "/openapi.json",
+    "agentGuide": "https://gpazo.github.io/Rat-Things/docs/agents/",
+    "agentDocs": "https://gpazo.github.io/Rat-Things/llms.txt",
     "schemas": {
       "thing": "/schemas/thing-v1.json"
     }
   },
   "capabilities": {
+    "consumers": ["operator", "embedded-product", "agent", "cli", "provider-event"],
+    "recommendedFacade": "things",
     "integrations": {
       "multipleAccounts": true,
       "credentialOnboarding": "manifest-driven",
@@ -60,14 +65,14 @@ The published [OpenAPI contract](../spec/openapi.json) describes every installed
 request contract, including Things, integrations, runs, conversations, routines, publications,
 discovery, and optional provider webhooks. JSON Schemas are suitable for editor completion, form
 generation, agent tool definitions, CI fixtures, and validation before a network call. Centrally
-hosted agent-readable navigation is available at
-`https://gpazo.github.io/Rat-Things/llms.txt`; a deployment's discovery document links to the
-canonical documentation but never sends runtime data there.
+hosted agent-readable navigation is available at `https://gpazo.github.io/Rat-Things/llms.txt`, and
+the focused agent guide is at `https://gpazo.github.io/Rat-Things/docs/agents/`. A deployment's
+discovery document links to both but never sends runtime data there.
 
 Schema validation is preflight, not authority: the runtime remains authoritative for UTF-8 byte
 limits, deployment allowlists, installed profiles/plugins, owner scope, and current external state.
 
-## Two supported consumer shapes
+## Supported consumer shapes
 
 ### Operator or small-business console
 
@@ -78,13 +83,22 @@ Build a UI that calls the API on behalf of its signed-in principal:
 3. submit the credential and let Rat verify and label the provider account;
 4. group accounts into connection sets;
 5. create a draft Thing from a validated ThingSpec form;
-6. render `explain` diagnostics and operation permissions before enabling;
-7. submit an explicit run and follow its events; and
+6. render `explain` diagnostics and operation permissions before publishing;
+7. test the draft, publish the selected immutable revision, submit an explicit run, and follow its
+   events; and
 8. display files/publications through the owner-checked artifact APIs.
 
 The console must use an authenticated backend-for-frontend when the deployed control API uses AWS
 IAM. Do not expose AWS signing credentials, provider tokens, S3 coordinates, or MicroVM proxy tokens
 to browser JavaScript.
+
+### Another agent
+
+Give the agent the deployment base URL and an authenticated CLI, SigV4-capable HTTP tool, or
+host-owned backend tool. It starts at discovery, prefers the Thing facade, and follows links into
+raw runs, live events, conversations, files, publications, browser use, skills, apps, or MCP only
+when the task needs them. The complete progressive path and a copyable bootstrap instruction are in
+[Connect an agent to Rat Things](agents.md).
 
 ### Embedded product or SaaS
 
@@ -130,13 +144,14 @@ host database stores Rat IDs and product presentation state
 
 ## Identity contract
 
-The included AWS API Gateway adapter accepts an IAM authorizer's `userArn`/`callerId` or a JWT
-authorizer's `sub`, then prefixes it into Rat's identity namespace. Callers cannot submit an
-`ownerId`. Local testing may set `ALLOW_OWNER_HEADER=true`; production deployments must keep that
-escape hatch disabled.
+The included AWS API Gateway adapter uses an IAM authorizer's `userArn`/`callerId`, then prefixes it
+into Rat's identity namespace. Callers cannot submit an `ownerId`. Local testing may set
+`ALLOW_OWNER_HEADER=true`; production deployments must keep that escape hatch disabled. A
+host-owned backend can use its own customer authentication and SigV4-sign the downstream Rat call.
 
-If a host replaces API Gateway authorization, its transport adapter must still produce one trusted,
-stable principal before invoking core services. Keep these identities distinct:
+The handler has a JWT `sub` extraction hook for a separately maintained adapter, but the published
+v1 discovery/OpenAPI contract does not advertise bearer authentication. Any replacement direct
+transport must own and publish a corresponding machine contract. Keep these identities distinct:
 
 | Identity | Meaning |
 | --- | --- |

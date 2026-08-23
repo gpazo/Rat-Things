@@ -1022,7 +1022,7 @@ function stringRecord(value: unknown, label: string, maximum: number): Record<st
   ]));
 }
 
-function publicRun(run: RunRecord): RunRecord {
+function publicRun<TRun extends RunRecord>(run: TRun): TRun {
   return run;
 }
 

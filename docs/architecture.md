@@ -395,7 +395,7 @@ Keep these namespaces independent:
 | Identity | Examples | Decides | Must not decide |
 | --- | --- | --- | --- |
 | Actor | API principal, provider sender, or verified system event | Attribution retained in run provenance | Run ownership or provider credentials |
-| Owner | API JWT `sub`, GitHub installation/org, GitLab project, Teams tenant+sender | Run visibility and idempotency namespace | Destination or credential authority |
+| Owner | API IAM principal (or a separately maintained adapter's JWT `sub`), GitHub installation/org, GitLab project, Teams tenant+sender | Run visibility and idempotency namespace | Destination or credential authority |
 | Source | API, GitHub delivery, GitLab event, Teams activity, Slack event | Trusted trigger provenance and source reply resolution | Ownership by itself |
 | Destination | `source`, Teams route name, Slack channel | Where a terminal result is attempted | Run ownership or credential contents |
 | Credential subject | API actor or deployment runtime | Which host-owned authority may be considered | Destination, ownership, or secret value |

@@ -4,8 +4,9 @@
       "title": "Start here",
       "documents": [
         "operating-model.md",
-        "codex-subscription.md",
-        "things.md"
+        "agents.md",
+        "things.md",
+        "codex-subscription.md"
       ]
     },
     {

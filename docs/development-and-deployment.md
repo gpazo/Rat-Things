@@ -187,7 +187,7 @@ npm run rat-things -- artifact RUN_ID events
 npm run rat-things -- cancel RUN_ID
 ```
 
-Create and validate the public facade before enabling scheduled work:
+Create and validate the public facade before publishing scheduled work:
 
 ```bash
 npm run rat-things -- thing-create --file examples/thing-create.json

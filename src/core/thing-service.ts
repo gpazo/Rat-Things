@@ -10,7 +10,9 @@ import type {
   ThingExplanation,
   ThingRecord,
   ThingRevision,
+  ThingOccurrenceRun,
   ThingSpec,
+  ThingInvocationKind,
   ThingTrigger,
   ThingTriggerState,
   ThingVersionRecord,
@@ -38,8 +40,6 @@ interface ParsedThingVersionInput {
 interface ParsedPublishThingInput {
   expectedDraftRevision: number;
 }
-
-type ThingInvocationKind = 'test' | 'manual' | 'schedule';
 
 /** Product-facing lifecycle and compiler for reusable cloud-agent definitions. */
 export class ThingService {
@@ -240,7 +240,7 @@ export class ThingService {
     ownerId: string,
     thingId: string,
     idempotencyKey = `test:${thingId}:${this.randomId()}`,
-  ): Promise<RunRecord> {
+  ): Promise<ThingOccurrenceRun> {
     const thing = await this.get(ownerId, thingId);
     if (thing.status === 'archived') throw new ConflictError('archived Things cannot be tested');
     return this.submitOccurrence(thing, thing.draft, 'test', undefined, idempotencyKey);
@@ -251,7 +251,7 @@ export class ThingService {
     ownerId: string,
     thingId: string,
     idempotencyKey = `manual:${thingId}:${this.randomId()}`,
-  ): Promise<RunRecord> {
+  ): Promise<ThingOccurrenceRun> {
     const thing = await this.get(ownerId, thingId);
     if (thing.status === 'archived') throw new ConflictError('archived Things cannot run');
     if (!thing.active) throw new ConflictError('the Thing has no published revision; test or publish the draft first');
@@ -315,7 +315,7 @@ export class ThingService {
     invocation: ThingInvocationKind,
     scheduledAt: string | undefined,
     idempotencyKey: string,
-  ): Promise<RunRecord> {
+  ): Promise<ThingOccurrenceRun> {
     const spec = await this.loadSpec(thing, revision);
     const request = compileThingSpec(spec);
     const metadata = {
@@ -352,7 +352,17 @@ export class ThingService {
         this.clock.now().toISOString(),
       );
     }
-    return run;
+    return {
+      ...run,
+      thing: {
+        version: '1',
+        thingId: thing.thingId,
+        revision: revision.revision,
+        specHash: revision.specHash,
+        invocation,
+        ...(scheduledAt ? { scheduledAt } : {}),
+      },
+    };
   }
 
   private async reconcileTrigger(record: ThingRecord): Promise<ThingRecord> {

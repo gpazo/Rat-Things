@@ -30,8 +30,9 @@ install -> discover -> connect an account -> draft -> explain/test -> publish ->
    run never changes production.
 6. **Publish one exact revision.** The current draft becomes active atomically. Later edits create a
    new draft while production remains pinned to the published revision.
-7. **Run** the active Thing manually, through an EventBridge `rate(...)` or `cron(...)` schedule, or
-   from an authenticated event. Every path uses the same owner-scoped asynchronous contract.
+7. **Run** the active Thing manually or through an EventBridge `rate(...)` or `cron(...)` schedule.
+   Signed provider events use separate authenticated ingress and converge on the same owner-scoped
+   run backend; generic provider-event Thing triggers are not part of v1.
 8. **Observe and debug** through stable run states, events, approval requests, retained files,
    publications, error envelopes, and trace IDs.
 
@@ -42,7 +43,7 @@ agent, a SaaS backend, and a signed webhook can use the same primitives.
 
 | Product term | Meaning | Important boundary |
 | --- | --- | --- |
-| **Thing** | A versioned, reusable agent automation | Contains intent and account references, never credentials |
+| **Thing** | A versioned, reusable cloud agent | Contains intent and account references, never credentials |
 | **Integration** | A trusted manifest plus typed operations for an external service | User-facing term; the implementation is a trusted plugin |
 | **Account** | One provider-verified identity connected by one Rat owner | The API object is a connection; the provider supplies its identity |
 | **Grant** | The owner's persistent Rat-side permission ceiling for an account | Can narrow provider authority, never widen it |
@@ -121,6 +122,7 @@ evidence boundaries rather than separate product models.
 ## Continue by task
 
 - [Build and run a Thing](things.md)
+- [Connect another agent](agents.md)
 - [Connect accounts and understand permissions](plugins.md)
 - [Embed Rat Things in another product](embedding.md)
 - [Self-host a deployment](development-and-deployment.md)

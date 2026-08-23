@@ -1,41 +1,20 @@
 {
   "version": "1",
-  "name": "Customer operations review",
-  "goal": "Review support messages and payment exceptions. Summarize anything that needs an owner and do not issue refunds without approval.",
-  "trigger": {
-    "kind": "schedule",
-    "expression": "cron(0 9 ? * MON-FRI *)",
-    "timezone": "America/Los_Angeles"
-  },
+  "name": "Safe reusable baseline",
+  "goal": "Inspect the provided workspace and summarize its current state. Do not use external services or make changes.",
+  "trigger": { "kind": "manual" },
   "agent": {
     "driver": "codex",
+    "sandbox": "read-only",
     "capabilities": {
-      "profile": "small-business",
-      "networkAccess": true,
-      "computerUse": "browser"
+      "profile": "read-only",
+      "approvalPolicy": "untrusted",
+      "approvalsReviewer": "user",
+      "networkAccess": false,
+      "webSearch": "disabled",
+      "computerUse": "disabled"
     }
   },
-  "connections": {
-    "set": "customer-operations",
-    "accounts": [
-      {
-        "account": "slack-support",
-        "access": "read-only"
-      },
-      {
-        "account": "stripe-business",
-        "access": "read-write",
-        "denyOperations": ["stripe.refunds.create"]
-      }
-    ]
-  },
-  "deliver": [
-    {
-      "kind": "slack",
-      "route": "C01234567"
-    }
-  ],
-  "metadata": {
-    "team": "customer-operations"
-  }
+  "execution": { "backend": "microvm", "timeoutSeconds": 300 },
+  "deliver": [{ "kind": "none" }]
 }

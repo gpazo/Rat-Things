@@ -129,6 +129,18 @@ nav a:hover, nav a:focus-visible { color: var(--cyan); }
   padding-top: clamp(10rem, 23vh, 14rem);
 }
 
+.hero-status {
+  width: fit-content;
+  margin: 0 0 1.35rem;
+  padding: 0.38rem 0.68rem;
+  border: 1px solid rgba(255, 177, 59, 0.34);
+  border-radius: 999px;
+  background: rgba(3, 8, 11, 0.54);
+  color: #ffd08b;
+  font-size: 0.72rem;
+  letter-spacing: 0.03em;
+}
+
 .eyebrow, .section-label, .card-kicker {
   margin: 0 0 1rem;
   color: var(--cyan);

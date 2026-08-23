@@ -13,11 +13,15 @@ export const RAT_THINGS_SCHEMAS: Readonly<Record<string, unknown>> = {
 
 /** Relative links keep discovery valid for every independently operated deployment. */
 export function ratThingsDiscovery(docsUrl?: string): Record<string, unknown> {
+  const documentationRoot = withTrailingSlash(
+    docsUrl ?? 'https://gpazo.github.io/Rat-Things/docs/',
+  );
   return {
     version: '1',
     service: 'rat-things',
     deployment: {
       operation: 'independent',
+      maturity: 'engineering-preview',
       tenancy: 'host-defined',
       identity: 'host-authenticated principal',
       oauthApplications: 'bring-your-own',
@@ -30,17 +34,20 @@ export function ratThingsDiscovery(docsUrl?: string): Record<string, unknown> {
         createThing: '/schemas/thing-create-v1.json',
         createThingVersion: '/schemas/thing-version-v1.json',
       },
-      docs: docsUrl ?? 'https://gpazo.github.io/Rat-Things/docs/',
+      docs: documentationRoot,
+      agentGuide: `${documentationRoot}agents/`,
       agentDocs: 'https://gpazo.github.io/Rat-Things/llms.txt',
+      agentDocsFull: 'https://gpazo.github.io/Rat-Things/llms-full.txt',
       health: '/health',
     },
     authentication: {
       controlApi: 'aws-sigv4',
       service: 'execute-api',
-      note: 'Alternative transport adapters may replace SigV4 but must provide a trusted principal.',
+      note: 'Direct v1 control routes use SigV4. A host backend may wrap them while preserving a trusted principal.',
     },
     capabilities: {
-      consumers: ['operator', 'embedded-product'],
+      consumers: ['operator', 'embedded-product', 'agent', 'cli', 'provider-event'],
+      recommendedFacade: 'things',
       things: {
         specVersions: ['1'],
         triggers: ['manual', 'schedule:rate', 'schedule:cron'],
@@ -73,6 +80,25 @@ export function ratThingsDiscovery(docsUrl?: string): Record<string, unknown> {
         apps: true,
         mcp: true,
       },
+      runs: {
+        asynchronous: true,
+        liveEvents: true,
+        approvals: true,
+        steering: true,
+        interruption: true,
+      },
+      conversations: {
+        durable: true,
+        replacementCompute: true,
+      },
+      outputs: {
+        durableFiles: true,
+        publications: ['file', 'site', 'video'],
+      },
     },
   };
+}
+
+function withTrailingSlash(value: string): string {
+  return value.endsWith('/') ? value : `${value}/`;
 }

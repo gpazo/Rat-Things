@@ -15,7 +15,7 @@ disaster-recovery proof.
 | Run contract and state machine | Implemented/tested | Strict validation, conditional transitions, owner-scoped idempotency |
 | Provider plugin boundary | Implemented/tested | Trusted manifests bind ingress/delivery; dependency checks prevent authority inversion |
 | Control API | Core live validated; browser event/approval path live validated | Submit/list/get/cancel, artifacts, live events/steer/interrupt/approval/response, integrations, profiles, and routines |
-| Thing facade | Implemented/local and live AWS validated | Credential-free immutable definitions, explicit draft/active pointers, test/publish/run/pause/resume/archive lifecycle, manual and EventBridge Scheduler rate/cron triggers, explain diagnostics, and idempotent invocation |
+| Thing facade | Implemented/local and live AWS validated | Credential-free immutable definitions, explicit draft/active pointers, revision-evidenced test/run receipts, test/publish/run/pause/resume/archive lifecycle, manual and EventBridge Scheduler rate/cron triggers, explain diagnostics, and idempotent invocation |
 | Durable agent files | Implemented/live validated | `.rat-things/artifacts/` outbox, immutable S3 bytes, conversation catalog restoration, and CLI list/24-hour URL/download commands passed in a real Codex MicroVM |
 | File/site/video publications | Implemented/live validated | Agent-declared publishing, content-derived reuse, manifest-last commit, isolated wildcard hosts, CloudFront OAC, signed redemption, and API/CLI commands passed recipient-open validation |
 | Durable AWS orchestration | Locally/live validated | DynamoDB, S3, SQS, Streams, EventBridge, EventBridge Scheduler, notifier delivery, retries, and failure queues |

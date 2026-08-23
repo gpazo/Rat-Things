@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://gpazo.github.io/Rat-Things/schemas/thing-v1.json",
+  "$id": "thing-v1.json",
   "title": "Rat Things ThingSpec v1",
-  "description": "A portable, credential-free definition of a reusable agent automation.",
+  "description": "A portable, credential-free definition of a reusable cloud agent.",
   "type": "object",
   "additionalProperties": false,
   "required": ["version", "name", "goal", "trigger"],

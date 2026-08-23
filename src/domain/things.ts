@@ -51,7 +51,7 @@ export interface ThingConnections {
   accounts?: ThingAccountSelector[];
 }
 
-/** Stable, portable public contract for a reusable agent automation. */
+/** Stable, portable public contract for a reusable cloud agent. */
 export interface ThingSpec {
   version: '1';
   name: string;
@@ -192,4 +192,21 @@ export interface ScheduledThingResult {
   accepted: boolean;
   reason?: 'missing' | 'not-active' | 'stale-revision' | 'not-scheduled';
   run?: Pick<RunRecord, 'runId' | 'status'>;
+}
+
+export type ThingInvocationKind = 'test' | 'manual' | 'schedule';
+
+/** Immutable Thing revision evidence returned with a newly accepted occurrence. */
+export interface ThingRunEvidence {
+  version: '1';
+  thingId: string;
+  revision: number;
+  specHash: string;
+  invocation: ThingInvocationKind;
+  scheduledAt?: string;
+}
+
+/** The ordinary run receipt plus the exact Thing revision that produced it. */
+export interface ThingOccurrenceRun extends RunRecord {
+  thing: ThingRunEvidence;
 }

@@ -465,7 +465,23 @@ integration('LocalStack webhook-to-egress workflow', () => {
       }),
     );
     expect(draftTestResponse.statusCode).toBe(202);
-    const draftTestRun = jsonResponse<{ runId: string }>(draftTestResponse);
+    const draftTestRun = jsonResponse<{
+      runId: string;
+      thing: {
+        version: string;
+        thingId: string;
+        revision: number;
+        specHash: string;
+        invocation: string;
+      };
+    }>(draftTestResponse);
+    expect(draftTestRun.thing).toEqual({
+      version: '1',
+      thingId: thing.thingId,
+      revision: 2,
+      specHash: storedThing.draft.specHash,
+      invocation: 'test',
+    });
     const draftWake = await receiveRequired(
       clients.sqs,
       required('RUN_QUEUE_URL'),
@@ -516,8 +532,27 @@ integration('LocalStack webhook-to-egress workflow', () => {
     );
     expect(firstThingRunResponse.statusCode).toBe(202);
     expect(repeatedThingRunResponse.statusCode).toBe(202);
-    const thingRun = jsonResponse<{ runId: string }>(firstThingRunResponse);
-    expect(jsonResponse<{ runId: string }>(repeatedThingRunResponse).runId).toBe(thingRun.runId);
+    const thingRun = jsonResponse<{
+      runId: string;
+      thing: {
+        version: string;
+        thingId: string;
+        revision: number;
+        specHash: string;
+        invocation: string;
+      };
+    }>(firstThingRunResponse);
+    expect(thingRun.thing).toEqual({
+      version: '1',
+      thingId: thing.thingId,
+      revision: 2,
+      specHash: storedThing.draft.specHash,
+      invocation: 'manual',
+    });
+    expect(jsonResponse<{ runId: string; thing: unknown }>(repeatedThingRunResponse)).toMatchObject({
+      runId: thingRun.runId,
+      thing: thingRun.thing,
+    });
 
     const thingRunStore = new DynamoRunStore(clients.dynamodb, required('RUNS_TABLE_NAME'));
     const thingArtifacts = new S3ArtifactStore(clients.s3, required('ARTIFACT_BUCKET'));

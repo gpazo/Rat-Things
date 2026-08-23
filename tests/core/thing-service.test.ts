@@ -115,8 +115,22 @@ describe('ThingService', () => {
       draft: { revision: 2, spec: { goal: 'Candidate draft goal' } },
     });
 
-    await service.test('owner-1', 'thing-versioned', 'test-v2');
-    await service.runNow('owner-1', 'thing-versioned', 'production-v1');
+    const draftReceipt = await service.test('owner-1', 'thing-versioned', 'test-v2');
+    const productionReceipt = await service.runNow('owner-1', 'thing-versioned', 'production-v1');
+    expect(draftReceipt.thing).toEqual({
+      version: '1',
+      thingId: 'thing-versioned',
+      revision: 2,
+      specHash: beforePublish.draft.specHash,
+      invocation: 'test',
+    });
+    expect(productionReceipt.thing).toEqual({
+      version: '1',
+      thingId: 'thing-versioned',
+      revision: 1,
+      specHash: beforePublish.active?.specHash,
+      invocation: 'manual',
+    });
     expect(submit.mock.calls.map((call) => (call[1] as { metadata?: unknown }).metadata)).toEqual([
       expect.objectContaining({ thingRevision: 1, thingInvocation: 'test' }),
       expect.objectContaining({ thingRevision: 2, thingInvocation: 'test' }),

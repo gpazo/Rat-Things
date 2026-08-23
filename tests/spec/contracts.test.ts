@@ -20,19 +20,20 @@ describe('published machine contracts', () => {
       allowedSandboxModes: ['read-only', 'workspace-write', 'danger-full-access'],
     });
     expect(compileThingSpec(parsedCreate)).toMatchObject({
-      prompt: expect.stringContaining('Review support messages'),
-      integrations: {
-        connectionSet: 'customer-operations',
-        connections: [
-          { connection: 'slack-support', preset: 'read-only' },
-          {
-            connection: 'stripe-business',
-            preset: 'read-write',
-            denyOperations: ['stripe.refunds.create'],
-          },
-        ],
+      prompt: expect.stringContaining('Do not use external services'),
+      agent: {
+        sandbox: 'read-only',
+        capabilities: {
+          profile: 'read-only',
+          approvalPolicy: 'untrusted',
+          networkAccess: false,
+          webSearch: 'disabled',
+          computerUse: 'disabled',
+        },
       },
+      destinations: [{ kind: 'none' }],
     });
+    expect(compileThingSpec(parsedCreate)).not.toHaveProperty('integrations');
     expect(parsedVersion.trigger).toEqual({ kind: 'schedule', expression: 'rate(30 minutes)' });
   });
 
@@ -95,10 +96,10 @@ describe('published machine contracts', () => {
       $ref?: string;
       $defs?: Record<string, Record<string, unknown>>;
     }>;
-    expect(thing?.$id).toMatch(/thing-v1\.json$/);
-    expect(create?.$id).toMatch(/thing-create-v1\.json$/);
+    expect(thing?.$id).toBe('thing-v1.json');
+    expect(create?.$id).toBe('thing-create-v1.json');
     expect(create?.$ref).toBe('thing-v1.json');
-    expect(version?.$id).toMatch(/thing-version-v1\.json$/);
+    expect(version?.$id).toBe('thing-version-v1.json');
     expect(thing?.additionalProperties).toBe(false);
     expect(new Set(thing?.required)).toEqual(new Set(['version', 'name', 'goal', 'trigger']));
     expect(Object.keys(thing?.properties ?? {}).sort()).toEqual([
@@ -150,12 +151,70 @@ describe('published machine contracts', () => {
     expect(
       openapi.paths['/v1/things/{thingId}/run']?.post?.responses?.['202']
         ?.content?.['application/json']?.schema,
-    ).toEqual({ $ref: '#/components/schemas/RunReceipt' });
+    ).toEqual({ $ref: '#/components/schemas/ThingRunReceipt' });
     expect(openapi.components.schemas).toMatchObject({
       ThingVersionSummary: expect.any(Object),
       ThingVersion: expect.any(Object),
       RunReceipt: expect.any(Object),
+      ThingRunReceipt: expect.any(Object),
     });
+  });
+
+  it('types every JSON success response in the authenticated control API', async () => {
+    const openapi = await json('spec/openapi.json') as {
+      paths: Record<string, Record<string, {
+        responses?: Record<string, {
+          content?: { 'application/json'?: { schema?: unknown } };
+        }>;
+      }>>;
+    };
+
+    for (const [path, pathItem] of Object.entries(openapi.paths)) {
+      if (!path.startsWith('/v1/') || path.startsWith('/v1/shares/')) continue;
+      for (const method of ['get', 'post']) {
+        const operation = pathItem[method];
+        if (!operation) continue;
+        for (const [status, response] of Object.entries(operation.responses ?? {})) {
+          if (!/^2\d\d$/.test(status)) continue;
+          expect(
+            response.content?.['application/json']?.schema,
+            `${method.toUpperCase()} ${path} ${status} has no JSON success schema`,
+          ).toBeDefined();
+        }
+      }
+    }
+  });
+
+  it('keeps the agent quickstart progressive and aligned with installed routes', async () => {
+    const [guide, siteBuilder, docsConfig, openapi] = await Promise.all([
+      readFile('docs/agents.md', 'utf8'),
+      readFile('scripts/build-pages.mjs', 'utf8'),
+      json('site/docs.json'),
+      json('spec/openapi.json'),
+    ]) as [string, string, { groups: Array<{ title: string; documents: string[] }> }, {
+      paths: Record<string, unknown>;
+    }];
+
+    expect(docsConfig.groups.find((group) => group.title === 'Start here')?.documents)
+      .toContain('agents.md');
+    expect(siteBuilder).toContain('## Agent quickstart');
+    expect(siteBuilder).toContain('Do not load the full corpus for a simple Thing run');
+    expect(siteBuilder).toContain('For a run-starting');
+    expect(guide).toContain('Prefer the Thing lifecycle for reusable work');
+    expect(guide).toContain('Go deeper only when the task needs it');
+    expect(guide).toContain('not a Thing trigger in v1');
+    expect(guide).toContain('skills, apps, or MCP');
+    expect(guide).toContain('engineering preview');
+    expect(guide).toContain('do not have idempotency keys in v1');
+
+    const documentedPaths = new Set(
+      [...guide.matchAll(/`(?:GET|POST) (\/[^`\s]+)/g)]
+        .map((match) => match[1]?.split('?')[0])
+        .filter((path): path is string => Boolean(path)),
+    );
+    for (const path of documentedPaths) {
+      expect(openapi.paths, `agent guide route ${path} is absent from OpenAPI`).toHaveProperty(path);
+    }
   });
 });
 

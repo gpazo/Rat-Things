@@ -3,12 +3,12 @@
   "info": {
     "title": "Rat Things API",
     "version": "0.1.0",
-    "description": "Self-hosted, headless agent automation. Each deployment owns identity, OAuth applications, credentials, and data."
+    "description": "Open-source, self-hosted backend for cloud agents. Each deployment owns identity, OAuth applications, credentials, and data."
   },
   "servers": [{ "url": "/", "description": "This independent Rat Things deployment" }],
   "tags": [
     { "name": "Discovery" },
-    { "name": "Things", "description": "Reusable, revisioned agent automations." },
+    { "name": "Things", "description": "Reusable, revisioned cloud agents." },
     { "name": "Capabilities" },
     { "name": "Integrations" },
     { "name": "Runs" },
@@ -23,7 +23,7 @@
         "tags": ["Discovery"],
         "operationId": "getHealth",
         "security": [],
-        "responses": { "200": { "description": "Healthy deployment" } }
+        "responses": { "200": { "description": "Healthy deployment", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Health" } } } } }
       }
     },
     "/.well-known/rat-things": {
@@ -33,7 +33,7 @@
         "security": [],
         "responses": {
           "200": {
-            "description": "Machine-readable deployment capabilities and contract links",
+            "description": "Machine-readable deployment capabilities, agent guidance, and contract links",
             "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Discovery" } } }
           }
         }
@@ -44,7 +44,7 @@
         "tags": ["Discovery"],
         "operationId": "getOpenApi",
         "security": [],
-        "responses": { "200": { "description": "OpenAPI 3.1 contract" } }
+        "responses": { "200": { "description": "OpenAPI 3.1 contract", "content": { "application/json": { "schema": { "type": "object" } } } } }
       }
     },
     "/schemas/thing-v1.json": {
@@ -52,7 +52,7 @@
         "tags": ["Discovery"],
         "operationId": "getThingSchema",
         "security": [],
-        "responses": { "200": { "description": "ThingSpec v1 JSON Schema" } }
+        "responses": { "200": { "description": "ThingSpec v1 JSON Schema", "content": { "application/schema+json": { "schema": { "type": "object" } } } } }
       }
     },
     "/schemas/thing-create-v1.json": {
@@ -60,7 +60,7 @@
         "tags": ["Discovery"],
         "operationId": "getThingCreateSchema",
         "security": [],
-        "responses": { "200": { "description": "Create Thing v1 JSON Schema" } }
+        "responses": { "200": { "description": "Create Thing v1 JSON Schema", "content": { "application/schema+json": { "schema": { "type": "object" } } } } }
       }
     },
     "/schemas/thing-version-v1.json": {
@@ -68,14 +68,14 @@
         "tags": ["Discovery"],
         "operationId": "getThingVersionSchema",
         "security": [],
-        "responses": { "200": { "description": "Create immutable Thing version v1 JSON Schema" } }
+        "responses": { "200": { "description": "Create immutable Thing version v1 JSON Schema", "content": { "application/schema+json": { "schema": { "type": "object" } } } } }
       }
     },
     "/v1/capability-profiles": {
       "get": {
         "tags": ["Capabilities"],
         "operationId": "listCapabilityProfiles",
-        "responses": { "200": { "description": "Installed deployment policy ceilings" }, "default": { "$ref": "#/components/responses/Error" } }
+        "responses": { "200": { "description": "Installed deployment policy ceilings", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CapabilityProfileList" } } } }, "default": { "$ref": "#/components/responses/Error" } }
       }
     },
     "/v1/integrations/plugins": {
@@ -137,7 +137,7 @@
         "operationId": "rotateConnectionCredential",
         "parameters": [{ "$ref": "#/components/parameters/ConnectionId" }],
         "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CredentialRotation" } } } },
-        "responses": { "200": { "description": "Credential replaced in the host vault" }, "default": { "$ref": "#/components/responses/Error" } }
+        "responses": { "200": { "description": "Credential replaced in the host vault", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConnectionCredentialReceipt" } } } }, "default": { "$ref": "#/components/responses/Error" } }
       }
     },
     "/v1/integrations/connections/{connectionId}/revoke": {
@@ -159,26 +159,26 @@
       "get": {
         "tags": ["Integrations"],
         "operationId": "listConnectionSets",
-        "responses": { "200": { "description": "Reusable owner-scoped multi-account sets" }, "default": { "$ref": "#/components/responses/Error" } }
+        "responses": { "200": { "description": "Reusable owner-scoped multi-account sets", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConnectionSetList" } } } }, "default": { "$ref": "#/components/responses/Error" } }
       },
       "post": {
         "tags": ["Integrations"],
         "operationId": "createConnectionSet",
         "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CreateConnectionSet" } } } },
-        "responses": { "201": { "description": "Connection set created" }, "default": { "$ref": "#/components/responses/Error" } }
+        "responses": { "201": { "description": "Connection set created", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConnectionSet" } } } }, "default": { "$ref": "#/components/responses/Error" } }
       }
     },
     "/v1/integrations/source-bindings": {
       "get": {
         "tags": ["Integrations"],
         "operationId": "listSourceBindings",
-        "responses": { "200": { "description": "Verified-source policy bindings" }, "default": { "$ref": "#/components/responses/Error" } }
+        "responses": { "200": { "description": "Verified-source policy bindings", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/SourceBindingList" } } } }, "default": { "$ref": "#/components/responses/Error" } }
       },
       "post": {
         "tags": ["Integrations"],
         "operationId": "createSourceBinding",
         "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CreateSourceBinding" } } } },
-        "responses": { "201": { "description": "Source binding created" }, "default": { "$ref": "#/components/responses/Error" } }
+        "responses": { "201": { "description": "Source binding created", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/SourceBinding" } } } }, "default": { "$ref": "#/components/responses/Error" } }
       }
     },
     "/v1/routines": {
@@ -186,13 +186,13 @@
         "tags": ["Routines"],
         "operationId": "listRoutines",
         "parameters": [{ "$ref": "#/components/parameters/Limit" }, { "$ref": "#/components/parameters/NextToken" }],
-        "responses": { "200": { "description": "Owner-scoped interval routines" }, "default": { "$ref": "#/components/responses/Error" } }
+        "responses": { "200": { "description": "Owner-scoped interval routines", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RoutineList" } } } }, "default": { "$ref": "#/components/responses/Error" } }
       },
       "post": {
         "tags": ["Routines"],
         "operationId": "createRoutine",
         "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CreateRoutine" } } } },
-        "responses": { "201": { "description": "Routine created" }, "default": { "$ref": "#/components/responses/Error" } }
+        "responses": { "201": { "description": "Routine created", "headers": { "Location": { "$ref": "#/components/headers/Location" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Routine" } } } }, "default": { "$ref": "#/components/responses/Error" } }
       }
     },
     "/v1/routines/{routineId}": {
@@ -200,7 +200,7 @@
         "tags": ["Routines"],
         "operationId": "getRoutine",
         "parameters": [{ "$ref": "#/components/parameters/RoutineId" }],
-        "responses": { "200": { "description": "Routine metadata" }, "default": { "$ref": "#/components/responses/Error" } }
+        "responses": { "200": { "description": "Routine metadata", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Routine" } } } }, "default": { "$ref": "#/components/responses/Error" } }
       }
     },
     "/v1/routines/{routineId}/run": {
@@ -209,19 +209,23 @@
         "operationId": "runRoutine",
         "parameters": [{ "$ref": "#/components/parameters/RoutineId" }, { "$ref": "#/components/parameters/IdempotencyKey" }],
         "requestBody": { "$ref": "#/components/requestBodies/EmptyObject" },
-        "responses": { "202": { "description": "Routine run queued" }, "default": { "$ref": "#/components/responses/Error" } }
+        "responses": { "202": { "description": "Routine run queued", "headers": { "Location": { "$ref": "#/components/headers/Location" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RunReceipt" } } } }, "default": { "$ref": "#/components/responses/Error" } }
       }
     },
-    "/v1/routines/{routineId}/pause": { "post": { "tags": ["Routines"], "operationId": "pauseRoutine", "parameters": [{ "$ref": "#/components/parameters/RoutineId" }], "requestBody": { "$ref": "#/components/requestBodies/EmptyObject" }, "responses": { "200": { "description": "Routine paused" }, "default": { "$ref": "#/components/responses/Error" } } } },
-    "/v1/routines/{routineId}/resume": { "post": { "tags": ["Routines"], "operationId": "resumeRoutine", "parameters": [{ "$ref": "#/components/parameters/RoutineId" }], "requestBody": { "$ref": "#/components/requestBodies/EmptyObject" }, "responses": { "200": { "description": "Routine resumed" }, "default": { "$ref": "#/components/responses/Error" } } } },
-    "/v1/routines/{routineId}/delete": { "post": { "tags": ["Routines"], "operationId": "deleteRoutine", "parameters": [{ "$ref": "#/components/parameters/RoutineId" }], "requestBody": { "$ref": "#/components/requestBodies/EmptyObject" }, "responses": { "200": { "description": "Routine soft-deleted" }, "default": { "$ref": "#/components/responses/Error" } } } },
+    "/v1/routines/{routineId}/pause": { "post": { "tags": ["Routines"], "operationId": "pauseRoutine", "parameters": [{ "$ref": "#/components/parameters/RoutineId" }], "requestBody": { "$ref": "#/components/requestBodies/EmptyObject" }, "responses": { "200": { "description": "Routine paused", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Routine" } } } }, "default": { "$ref": "#/components/responses/Error" } } } },
+    "/v1/routines/{routineId}/resume": { "post": { "tags": ["Routines"], "operationId": "resumeRoutine", "parameters": [{ "$ref": "#/components/parameters/RoutineId" }], "requestBody": { "$ref": "#/components/requestBodies/EmptyObject" }, "responses": { "200": { "description": "Routine resumed", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Routine" } } } }, "default": { "$ref": "#/components/responses/Error" } } } },
+    "/v1/routines/{routineId}/delete": { "post": { "tags": ["Routines"], "operationId": "deleteRoutine", "parameters": [{ "$ref": "#/components/parameters/RoutineId" }], "requestBody": { "$ref": "#/components/requestBodies/EmptyObject" }, "responses": { "200": { "description": "Routine soft-deleted", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Routine" } } } }, "default": { "$ref": "#/components/responses/Error" } } } },
     "/v1/conversations/{conversationId}/messages": {
       "post": {
         "tags": ["Conversations"],
         "operationId": "appendConversationMessage",
         "parameters": [{ "$ref": "#/components/parameters/ConversationId" }, { "$ref": "#/components/parameters/RequiredIdempotencyKey" }],
         "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConversationMessage" } } } },
-        "responses": { "202": { "description": "Message appended" }, "default": { "$ref": "#/components/responses/Error" } }
+        "responses": {
+          "200": { "description": "Idempotent duplicate already exists", "headers": { "Location": { "$ref": "#/components/headers/Location" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConversationMessageReceipt" } } } },
+          "202": { "description": "Message appended to the durable mailbox; poll Location for its run binding and state", "headers": { "Location": { "$ref": "#/components/headers/Location" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConversationMessageReceipt" } } } },
+          "default": { "$ref": "#/components/responses/Error" }
+        }
       }
     },
     "/v1/conversations/{conversationId}/messages/{messageId}": {
@@ -229,7 +233,7 @@
         "tags": ["Conversations"],
         "operationId": "getConversationMessage",
         "parameters": [{ "$ref": "#/components/parameters/ConversationId" }, { "$ref": "#/components/parameters/MessageId" }],
-        "responses": { "200": { "description": "Mailbox, conversation, session, and bound run state" }, "default": { "$ref": "#/components/responses/Error" } }
+        "responses": { "200": { "description": "Mailbox, conversation, session, and bound run state", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConversationMessageStatus" } } } }, "default": { "$ref": "#/components/responses/Error" } }
       }
     },
     "/v1/conversations/{conversationId}/artifacts": {
@@ -237,7 +241,7 @@
         "tags": ["Conversations"],
         "operationId": "listConversationArtifacts",
         "parameters": [{ "$ref": "#/components/parameters/ConversationId" }],
-        "responses": { "200": { "description": "Current durable file catalog without S3 coordinates" }, "default": { "$ref": "#/components/responses/Error" } }
+        "responses": { "200": { "description": "Current durable file catalog without S3 coordinates", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ArtifactList" } } } }, "default": { "$ref": "#/components/responses/Error" } }
       }
     },
     "/v1/conversations/{conversationId}/artifacts/{artifact}": {
@@ -245,7 +249,7 @@
         "tags": ["Conversations"],
         "operationId": "getConversationArtifact",
         "parameters": [{ "$ref": "#/components/parameters/ConversationId" }, { "$ref": "#/components/parameters/Artifact" }],
-        "responses": { "200": { "description": "Owner-checked short-lived artifact descriptor" }, "default": { "$ref": "#/components/responses/Error" } }
+        "responses": { "200": { "description": "Owner-checked short-lived artifact descriptor", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ArtifactDescriptor" } } } }, "default": { "$ref": "#/components/responses/Error" } }
       }
     },
     "/v1/conversations/{conversationId}/publications": {
@@ -254,7 +258,7 @@
         "operationId": "publishConversationArtifact",
         "parameters": [{ "$ref": "#/components/parameters/ConversationId" }],
         "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PublicationSpec" } } } },
-        "responses": { "201": { "description": "Publication and share created" }, "default": { "$ref": "#/components/responses/Error" } }
+        "responses": { "201": { "description": "Publication and share created", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PublicationDescriptor" } } } }, "default": { "$ref": "#/components/responses/Error" } }
       }
     },
     "/v1/runs": {
@@ -262,14 +266,14 @@
         "tags": ["Runs"],
         "operationId": "listRuns",
         "parameters": [{ "$ref": "#/components/parameters/Limit" }, { "$ref": "#/components/parameters/NextToken" }],
-        "responses": { "200": { "description": "Newest owner-scoped runs" }, "default": { "$ref": "#/components/responses/Error" } }
+        "responses": { "200": { "description": "Newest owner-scoped runs", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RunList" } } } }, "default": { "$ref": "#/components/responses/Error" } }
       },
       "post": {
         "tags": ["Runs"],
         "operationId": "submitRun",
         "parameters": [{ "$ref": "#/components/parameters/IdempotencyKey" }],
         "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RunRequest" } } } },
-        "responses": { "202": { "description": "Run durably queued" }, "default": { "$ref": "#/components/responses/Error" } }
+        "responses": { "202": { "description": "Run durably queued", "headers": { "Location": { "$ref": "#/components/headers/Location" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RunReceipt" } } } }, "default": { "$ref": "#/components/responses/Error" } }
       }
     },
     "/v1/runs/{runId}": {
@@ -277,7 +281,7 @@
         "tags": ["Runs"],
         "operationId": "getRun",
         "parameters": [{ "$ref": "#/components/parameters/RunId" }],
-        "responses": { "200": { "description": "Current owner-scoped run record" }, "default": { "$ref": "#/components/responses/Error" } }
+        "responses": { "200": { "description": "Current owner-scoped run record", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Run" } } } }, "default": { "$ref": "#/components/responses/Error" } }
       }
     },
     "/v1/runs/{runId}/events": {
@@ -285,7 +289,7 @@
         "tags": ["Runs"],
         "operationId": "getRunEvents",
         "parameters": [{ "$ref": "#/components/parameters/RunId" }, { "name": "after", "in": "query", "schema": { "type": "integer", "minimum": 0, "default": 0 } }, { "name": "limit", "in": "query", "schema": { "type": "integer", "minimum": 1, "maximum": 100, "default": 100 } }],
-        "responses": { "200": { "description": "Ordered live App Server events and pending requests" }, "default": { "$ref": "#/components/responses/Error" } }
+        "responses": { "200": { "description": "Ordered live App Server events and pending requests", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RunEventSnapshot" } } } }, "default": { "$ref": "#/components/responses/Error" } }
       }
     },
     "/v1/runs/{runId}/steer": {
@@ -294,18 +298,18 @@
         "operationId": "steerRun",
         "parameters": [{ "$ref": "#/components/parameters/RunId" }],
         "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "additionalProperties": false, "required": ["prompt"], "properties": { "prompt": { "type": "string", "minLength": 1, "maxLength": 12288 } } } } } },
-        "responses": { "202": { "description": "Direction sent to active turn" }, "default": { "$ref": "#/components/responses/Error" } }
+        "responses": { "202": { "description": "Direction sent to active turn", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ActionReceipt" } } } }, "default": { "$ref": "#/components/responses/Error" } }
       }
     },
-    "/v1/runs/{runId}/interrupt": { "post": { "tags": ["Runs"], "operationId": "interruptRun", "parameters": [{ "$ref": "#/components/parameters/RunId" }], "requestBody": { "$ref": "#/components/requestBodies/EmptyObject" }, "responses": { "202": { "description": "Active turn interrupted" }, "default": { "$ref": "#/components/responses/Error" } } } },
-    "/v1/runs/{runId}/cancel": { "post": { "tags": ["Runs"], "operationId": "cancelRun", "parameters": [{ "$ref": "#/components/parameters/RunId" }], "requestBody": { "$ref": "#/components/requestBodies/EmptyObject" }, "responses": { "202": { "description": "Cancellation requested" }, "default": { "$ref": "#/components/responses/Error" } } } },
+    "/v1/runs/{runId}/interrupt": { "post": { "tags": ["Runs"], "operationId": "interruptRun", "parameters": [{ "$ref": "#/components/parameters/RunId" }], "requestBody": { "$ref": "#/components/requestBodies/EmptyObject" }, "responses": { "202": { "description": "Active turn interrupted", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ActionReceipt" } } } }, "default": { "$ref": "#/components/responses/Error" } } } },
+    "/v1/runs/{runId}/cancel": { "post": { "tags": ["Runs"], "operationId": "cancelRun", "parameters": [{ "$ref": "#/components/parameters/RunId" }], "requestBody": { "$ref": "#/components/requestBodies/EmptyObject" }, "responses": { "202": { "description": "Cancellation requested", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Run" } } } }, "default": { "$ref": "#/components/responses/Error" } } } },
     "/v1/runs/{runId}/approvals/{requestId}": {
       "post": {
         "tags": ["Runs"],
         "operationId": "decideRunApproval",
         "parameters": [{ "$ref": "#/components/parameters/RunId" }, { "$ref": "#/components/parameters/RequestId" }],
         "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "additionalProperties": false, "required": ["decision"], "properties": { "decision": { "enum": ["accept", "accept-for-session", "decline", "cancel"] }, "reason": { "type": "string", "maxLength": 1000 } } } } } },
-        "responses": { "202": { "description": "Approval decision sent" }, "default": { "$ref": "#/components/responses/Error" } }
+        "responses": { "202": { "description": "Approval decision sent", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ActionReceipt" } } } }, "default": { "$ref": "#/components/responses/Error" } }
       }
     },
     "/v1/runs/{runId}/requests/{requestId}/respond": {
@@ -314,7 +318,7 @@
         "operationId": "respondToRunRequest",
         "parameters": [{ "$ref": "#/components/parameters/RunId" }, { "$ref": "#/components/parameters/RequestId" }],
         "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "additionalProperties": false, "required": ["result"], "properties": { "result": {} } } } } },
-        "responses": { "202": { "description": "JSON result returned to App Server" }, "default": { "$ref": "#/components/responses/Error" } }
+        "responses": { "202": { "description": "JSON result returned to App Server", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ActionReceipt" } } } }, "default": { "$ref": "#/components/responses/Error" } }
       }
     },
     "/v1/runs/{runId}/artifacts": {
@@ -322,7 +326,7 @@
         "tags": ["Runs"],
         "operationId": "listRunArtifacts",
         "parameters": [{ "$ref": "#/components/parameters/RunId" }],
-        "responses": { "200": { "description": "Run file catalog without S3 coordinates" }, "default": { "$ref": "#/components/responses/Error" } }
+        "responses": { "200": { "description": "Run file catalog without S3 coordinates", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ArtifactList" } } } }, "default": { "$ref": "#/components/responses/Error" } }
       }
     },
     "/v1/runs/{runId}/artifacts/{artifact}": {
@@ -330,7 +334,7 @@
         "tags": ["Runs"],
         "operationId": "getRunArtifact",
         "parameters": [{ "$ref": "#/components/parameters/RunId" }, { "$ref": "#/components/parameters/Artifact" }],
-        "responses": { "200": { "description": "Owner-checked short-lived artifact descriptor" }, "default": { "$ref": "#/components/responses/Error" } }
+        "responses": { "200": { "description": "Owner-checked short-lived artifact descriptor", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ArtifactDescriptor" } } } }, "default": { "$ref": "#/components/responses/Error" } }
       }
     },
     "/v1/runs/{runId}/publications": {
@@ -339,7 +343,7 @@
         "operationId": "publishRunArtifact",
         "parameters": [{ "$ref": "#/components/parameters/RunId" }],
         "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PublicationSpec" } } } },
-        "responses": { "201": { "description": "Publication and share created" }, "default": { "$ref": "#/components/responses/Error" } }
+        "responses": { "201": { "description": "Publication and share created", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PublicationDescriptor" } } } }, "default": { "$ref": "#/components/responses/Error" } }
       }
     },
     "/v1/shares/{token}": {
@@ -518,7 +522,7 @@
           "202": {
             "description": "Run queued",
             "headers": { "Location": { "schema": { "type": "string" } } },
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RunReceipt" } } }
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ThingRunReceipt" } } }
           },
           "default": { "$ref": "#/components/responses/Error" }
         }
@@ -534,7 +538,7 @@
         ],
         "requestBody": { "$ref": "#/components/requestBodies/EmptyObject" },
         "responses": {
-          "202": { "description": "Draft test run queued", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RunReceipt" } } } },
+          "202": { "description": "Draft test run queued with exact revision evidence", "headers": { "Location": { "$ref": "#/components/headers/Location" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ThingRunReceipt" } } } },
           "default": { "$ref": "#/components/responses/Error" }
         }
       }
@@ -609,7 +613,13 @@
         "type": "apiKey",
         "in": "header",
         "name": "Authorization",
-        "description": "AWS Signature Version 4 for execute-api. A host may replace this transport adapter and must still provide a trusted principal."
+        "description": "AWS Signature Version 4 for the reference deployment's execute-api routes. Host backends may wrap this endpoint and preserve a trusted principal."
+      }
+    },
+    "headers": {
+      "Location": {
+        "description": "Relative owner-checked resource to poll or retrieve.",
+        "schema": { "type": "string", "pattern": "^/" }
       }
     },
     "parameters": {
@@ -1106,6 +1116,395 @@
           }
         ]
       },
+      "Health": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["status", "service"],
+        "properties": {
+          "status": { "const": "ok" },
+          "service": { "const": "rat-things" }
+        }
+      },
+      "CapabilityProfile": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "sandbox", "approvalPolicy", "approvalsReviewer", "networkAccess", "webSearch", "computerUse", "maximumIntegrationAccess"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,255}$" },
+          "sandbox": { "enum": ["read-only", "workspace-write", "danger-full-access"] },
+          "approvalPolicy": { "enum": ["untrusted", "on-request", "never"] },
+          "approvalsReviewer": { "enum": ["user", "auto-review", "guardian-subagent"] },
+          "networkAccess": { "type": "boolean" },
+          "webSearch": { "enum": ["disabled", "cached", "indexed", "live"] },
+          "computerUse": { "enum": ["disabled", "browser"] },
+          "allowedSkills": { "$ref": "#/components/schemas/IdentifierList" },
+          "allowedApps": { "$ref": "#/components/schemas/IdentifierList" },
+          "allowedMcpServers": { "$ref": "#/components/schemas/IdentifierList" },
+          "maximumIntegrationAccess": { "enum": ["read-only", "read-write", "full"] }
+        }
+      },
+      "CapabilityProfileList": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["profiles"],
+        "properties": {
+          "profiles": { "type": "array", "items": { "$ref": "#/components/schemas/CapabilityProfile" } }
+        }
+      },
+      "ConnectionCredentialReceipt": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["ok", "connectionId"],
+        "properties": {
+          "ok": { "const": true },
+          "connectionId": { "type": "string", "minLength": 1, "maxLength": 256 }
+        }
+      },
+      "ConnectionSet": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["version", "connectionSetId", "ownerId", "name", "connectionIds"],
+        "properties": {
+          "version": { "const": "1" },
+          "connectionSetId": { "type": "string", "minLength": 1, "maxLength": 256 },
+          "ownerId": { "type": "string", "minLength": 1, "maxLength": 1024 },
+          "name": { "type": "string", "minLength": 1, "maxLength": 128 },
+          "connectionIds": { "type": "array", "maxItems": 128, "items": { "type": "string", "minLength": 1, "maxLength": 256 } },
+          "defaults": { "type": "object", "maxProperties": 64, "additionalProperties": { "type": "string", "minLength": 1, "maxLength": 256 } }
+        }
+      },
+      "ConnectionSetList": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["connectionSets"],
+        "properties": {
+          "connectionSets": { "type": "array", "items": { "$ref": "#/components/schemas/ConnectionSet" } }
+        }
+      },
+      "SourceBinding": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["version", "bindingId", "ownerId", "sourceKind", "selector"],
+        "properties": {
+          "version": { "const": "1" },
+          "bindingId": { "type": "string", "minLength": 1, "maxLength": 256 },
+          "ownerId": { "type": "string", "minLength": 1, "maxLength": 1024 },
+          "sourceKind": { "enum": ["api", "github", "gitlab", "teams", "slack"] },
+          "selector": { "type": "object", "maxProperties": 32, "additionalProperties": { "type": "string", "minLength": 1, "maxLength": 512 } },
+          "capabilityProfile": { "type": "string", "minLength": 1, "maxLength": 256 },
+          "connectionSetId": { "type": "string", "minLength": 1, "maxLength": 256 }
+        }
+      },
+      "SourceBindingList": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["sourceBindings"],
+        "properties": {
+          "sourceBindings": { "type": "array", "items": { "$ref": "#/components/schemas/SourceBinding" } }
+        }
+      },
+      "Routine": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["version", "routineId", "name", "status", "schedule", "nextRunAt", "requestHash", "createdAt", "updatedAt"],
+        "properties": {
+          "version": { "const": "1" },
+          "routineId": { "type": "string", "pattern": "^[A-Za-z0-9-]{1,128}$" },
+          "name": { "type": "string", "minLength": 1, "maxLength": 128 },
+          "status": { "enum": ["enabled", "paused", "deleted"] },
+          "schedule": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["kind", "everyMinutes"],
+            "properties": {
+              "kind": { "const": "interval" },
+              "everyMinutes": { "type": "integer", "minimum": 1, "maximum": 525600 }
+            }
+          },
+          "nextRunAt": { "type": "string", "format": "date-time" },
+          "requestHash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+          "createdAt": { "type": "string", "format": "date-time" },
+          "updatedAt": { "type": "string", "format": "date-time" },
+          "lastRunAt": { "type": "string", "format": "date-time" },
+          "lastRunId": { "type": "string" },
+          "expiresAt": { "type": "integer" }
+        }
+      },
+      "RoutineList": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["items"],
+        "properties": {
+          "items": { "type": "array", "items": { "$ref": "#/components/schemas/Routine" } },
+          "nextToken": { "type": "string" }
+        }
+      },
+      "ConversationMessageReceipt": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["conversationId", "messageId", "status"],
+        "properties": {
+          "conversationId": { "type": "string" },
+          "messageId": { "type": "string" },
+          "status": { "enum": ["appended", "duplicate"] }
+        }
+      },
+      "ConversationMessageStatus": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["conversationId", "messageId", "state", "delivery", "createdAt", "conversation"],
+        "properties": {
+          "conversationId": { "type": "string" },
+          "messageId": { "type": "string" },
+          "state": { "enum": ["pending", "consumed", "dead_letter"] },
+          "delivery": { "enum": ["interrupt", "defer"] },
+          "createdAt": { "type": "string", "format": "date-time" },
+          "consumedAt": { "type": "string", "format": "date-time" },
+          "conversation": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["status", "pendingCount", "createdAt", "updatedAt"],
+            "properties": {
+              "status": { "enum": ["idle", "pending", "running", "awaiting_resume", "failed"] },
+              "pendingCount": { "type": "integer", "minimum": 0 },
+              "createdAt": { "type": "string", "format": "date-time" },
+              "updatedAt": { "type": "string", "format": "date-time" },
+              "latestProgress": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["eventId", "text", "reportedAt"],
+                "properties": {
+                  "eventId": { "type": "string" },
+                  "text": { "type": "string" },
+                  "reportedAt": { "type": "string", "format": "date-time" }
+                }
+              },
+              "session": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["backend", "id", "state", "updatedAt"],
+                "properties": {
+                  "backend": { "const": "microvm" },
+                  "id": { "type": "string" },
+                  "state": { "enum": ["running", "suspended", "unknown"] },
+                  "updatedAt": { "type": "string", "format": "date-time" },
+                  "expiresAt": { "type": "string", "format": "date-time" },
+                  "agentThreadId": { "type": "string" }
+                }
+              }
+            }
+          },
+          "run": { "$ref": "#/components/schemas/Run" }
+        }
+      },
+      "ArtifactReference": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["bucket", "key", "sha256"],
+        "properties": {
+          "bucket": { "type": "string" },
+          "key": { "type": "string" },
+          "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+        }
+      },
+      "PublishedArtifact": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "path", "mediaType", "bytes", "createdAt", "sourceRunId", "file"],
+        "properties": {
+          "id": { "type": "string" },
+          "path": { "type": "string" },
+          "mediaType": { "type": "string" },
+          "bytes": { "type": "integer", "minimum": 0 },
+          "createdAt": { "type": "string", "format": "date-time" },
+          "sourceRunId": { "type": "string" },
+          "file": { "$ref": "#/components/schemas/ArtifactReference" }
+        }
+      },
+      "RunError": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["code", "message", "retryable"],
+        "properties": {
+          "code": { "type": "string" },
+          "message": { "type": "string" },
+          "retryable": { "type": "boolean" }
+        }
+      },
+      "Run": {
+        "type": "object",
+        "description": "Current engineering-preview run record. Consumers should key behavior from runId, status, timestamps, result/error, and owner-checked artifact routes; tolerate additional internal metadata.",
+        "required": ["runId", "ownerId", "ownerCreated", "status", "createdAt", "updatedAt", "expiresAt", "requestHash", "input", "sourceKind"],
+        "properties": {
+          "runId": { "type": "string", "pattern": "^[A-Za-z0-9-]{1,128}$" },
+          "ownerId": { "type": "string" },
+          "capabilityOwnerId": { "type": "string" },
+          "ownerCreated": { "type": "string" },
+          "status": { "enum": ["queued", "dispatching", "running", "cancelling", "succeeded", "failed", "cancelled"] },
+          "createdAt": { "type": "string", "format": "date-time" },
+          "updatedAt": { "type": "string", "format": "date-time" },
+          "expiresAt": { "type": "integer" },
+          "requestHash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+          "input": { "$ref": "#/components/schemas/ArtifactReference" },
+          "sourceKind": { "enum": ["api", "github", "gitlab", "teams", "slack"] },
+          "provenance": { "type": "object" },
+          "conversation": { "type": "object" },
+          "execution": {
+            "type": "object",
+            "required": ["backend", "id"],
+            "properties": {
+              "backend": { "const": "microvm" },
+              "id": { "type": "string" },
+              "startedAt": { "type": "string", "format": "date-time" }
+            }
+          },
+          "result": {
+            "type": "object",
+            "required": ["output", "preview", "exitCode", "durationMs"],
+            "properties": {
+              "output": { "$ref": "#/components/schemas/ArtifactReference" },
+              "preview": { "type": "string" },
+              "exitCode": { "type": "integer" },
+              "durationMs": { "type": "integer", "minimum": 0 },
+              "agentThreadId": { "type": "string" },
+              "usage": { "type": "object" },
+              "events": { "$ref": "#/components/schemas/ArtifactReference" },
+              "workspacePatch": { "$ref": "#/components/schemas/ArtifactReference" },
+              "artifacts": { "type": "array", "items": { "$ref": "#/components/schemas/PublishedArtifact" } }
+            }
+          },
+          "error": { "$ref": "#/components/schemas/RunError" },
+          "cancelRequestedAt": { "type": "string", "format": "date-time" }
+        },
+        "additionalProperties": true
+      },
+      "RunList": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["items"],
+        "properties": {
+          "items": { "type": "array", "items": { "$ref": "#/components/schemas/Run" } },
+          "nextToken": { "type": "string" }
+        }
+      },
+      "RunEventSnapshot": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["runId", "active", "ready", "oldestSequence", "nextSequence", "events", "pendingRequests"],
+        "properties": {
+          "runId": { "type": "string" },
+          "active": { "type": "boolean" },
+          "ready": { "type": "boolean" },
+          "oldestSequence": { "type": "integer", "minimum": 0 },
+          "nextSequence": { "type": "integer", "minimum": 0 },
+          "events": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["sequence", "occurredAt", "method", "params"],
+              "properties": {
+                "sequence": { "type": "integer", "minimum": 0 },
+                "occurredAt": { "type": "string", "format": "date-time" },
+                "method": { "type": "string" },
+                "params": { "type": "object", "additionalProperties": true },
+                "requestId": { "type": "string" }
+              }
+            }
+          },
+          "pendingRequests": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["requestId", "method", "params", "receivedAt"],
+              "properties": {
+                "requestId": { "type": "string" },
+                "method": { "type": "string" },
+                "params": { "type": "object", "additionalProperties": true },
+                "receivedAt": { "type": "string", "format": "date-time" }
+              }
+            }
+          },
+          "turn": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["threadId", "turnId"],
+            "properties": {
+              "threadId": { "type": "string" },
+              "turnId": { "type": "string" }
+            }
+          }
+        }
+      },
+      "ActionReceipt": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["ok", "operation"],
+        "properties": {
+          "ok": { "const": true },
+          "operation": { "enum": ["steer", "interrupt", "approve", "respond"] }
+        }
+      },
+      "ArtifactMetadata": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "path", "mediaType", "bytes", "createdAt", "sourceRunId", "sha256"],
+        "properties": {
+          "id": { "type": "string" },
+          "path": { "type": "string" },
+          "mediaType": { "type": "string" },
+          "bytes": { "type": "integer", "minimum": 0 },
+          "createdAt": { "type": "string", "format": "date-time" },
+          "sourceRunId": { "type": "string" },
+          "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+        }
+      },
+      "ArtifactList": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["files"],
+        "properties": {
+          "files": { "type": "array", "items": { "$ref": "#/components/schemas/ArtifactMetadata" } }
+        }
+      },
+      "ArtifactDescriptor": {
+        "type": "object",
+        "description": "Owner-checked artifact metadata plus a time-bounded bearer URL. Legacy input/output/events/patch descriptors can use name instead of catalog fields.",
+        "required": ["url", "sha256", "expiresAt"],
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "path": { "type": "string" },
+          "mediaType": { "type": "string" },
+          "bytes": { "type": "integer", "minimum": 0 },
+          "createdAt": { "type": "string", "format": "date-time" },
+          "sourceRunId": { "type": "string" },
+          "url": { "type": "string", "format": "uri" },
+          "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+          "expiresAt": { "type": "string", "format": "date-time" },
+          "publicationId": { "type": "string" },
+          "kind": { "enum": ["file", "site", "video"] },
+          "entrypoint": { "const": "index.html" },
+          "primaryPath": { "type": "string" },
+          "paths": { "type": "array", "items": { "type": "string" } }
+        },
+        "additionalProperties": false
+      },
+      "PublicationDescriptor": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["publicationId", "kind", "url", "expiresAt", "entrypoint", "paths"],
+        "properties": {
+          "publicationId": { "type": "string", "pattern": "^[a-f0-9]{24}$" },
+          "kind": { "enum": ["file", "site", "video"] },
+          "url": { "type": "string", "format": "uri" },
+          "expiresAt": { "type": "string", "format": "date-time" },
+          "entrypoint": { "const": "index.html" },
+          "primaryPath": { "type": "string" },
+          "paths": { "type": "array", "items": { "type": "string" } }
+        }
+      },
       "ThingSummary": {
         "type": "object",
         "required": ["version", "thingId", "status", "draft", "hasUnpublishedChanges", "triggerState", "createdAt", "updatedAt"],
@@ -1186,6 +1585,30 @@
         },
         "additionalProperties": true
       },
+      "ThingRunReceipt": {
+        "allOf": [
+          { "$ref": "#/components/schemas/RunReceipt" },
+          {
+            "type": "object",
+            "required": ["thing"],
+            "properties": {
+              "thing": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["version", "thingId", "revision", "specHash", "invocation"],
+                "properties": {
+                  "version": { "const": "1" },
+                  "thingId": { "type": "string" },
+                  "revision": { "type": "integer", "minimum": 1 },
+                  "specHash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+                  "invocation": { "enum": ["test", "manual", "schedule"] },
+                  "scheduledAt": { "type": "string", "format": "date-time" }
+                }
+              }
+            }
+          }
+        ]
+      },
       "ThingExplanation": {
         "type": "object",
         "required": ["version", "target", "thing", "compiledRun", "runnable", "diagnostics"],
@@ -1211,12 +1634,146 @@
       },
       "Discovery": {
         "type": "object",
-        "required": ["version", "service", "api", "capabilities"],
+        "additionalProperties": false,
+        "required": ["version", "service", "deployment", "api", "authentication", "capabilities"],
         "properties": {
           "version": { "const": "1" },
           "service": { "const": "rat-things" },
-          "api": { "type": "object" },
-          "capabilities": { "type": "object" }
+          "deployment": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["operation", "maturity", "tenancy", "identity", "oauthApplications"],
+            "properties": {
+              "operation": { "const": "independent" },
+              "maturity": { "const": "engineering-preview" },
+              "tenancy": { "const": "host-defined" },
+              "identity": { "const": "host-authenticated principal" },
+              "oauthApplications": { "const": "bring-your-own" }
+            }
+          },
+          "api": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["version", "openapi", "schemas", "docs", "agentGuide", "agentDocs", "agentDocsFull", "health"],
+            "properties": {
+              "version": { "const": "v1" },
+              "openapi": { "type": "string", "format": "uri-reference" },
+              "schemas": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["thing", "createThing", "createThingVersion"],
+                "properties": {
+                  "thing": { "type": "string", "format": "uri-reference" },
+                  "createThing": { "type": "string", "format": "uri-reference" },
+                  "createThingVersion": { "type": "string", "format": "uri-reference" }
+                }
+              },
+              "docs": { "type": "string", "format": "uri-reference" },
+              "agentGuide": { "type": "string", "format": "uri-reference" },
+              "agentDocs": { "type": "string", "format": "uri" },
+              "agentDocsFull": { "type": "string", "format": "uri" },
+              "health": { "type": "string", "format": "uri-reference" }
+            }
+          },
+          "authentication": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["controlApi", "service", "note"],
+            "properties": {
+              "controlApi": { "const": "aws-sigv4" },
+              "service": { "const": "execute-api" },
+              "note": { "type": "string" }
+            }
+          },
+          "capabilities": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["consumers", "recommendedFacade", "things", "integrations", "agent", "runs", "conversations", "outputs"],
+            "properties": {
+              "consumers": {
+                "type": "array",
+                "items": { "enum": ["operator", "embedded-product", "agent", "cli", "provider-event"] }
+              },
+              "recommendedFacade": { "const": "things" },
+              "things": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["specVersions", "triggers", "scheduleBackend", "scheduleTimezones", "lifecycle", "draftAndActiveRevisions", "immutableRevisions", "explain"],
+                "properties": {
+                  "specVersions": { "type": "array", "items": { "const": "1" } },
+                  "triggers": { "type": "array", "items": { "enum": ["manual", "schedule:rate", "schedule:cron"] } },
+                  "scheduleBackend": { "const": "amazon-eventbridge-scheduler" },
+                  "scheduleTimezones": { "const": "iana" },
+                  "lifecycle": { "type": "array", "items": { "enum": ["draft", "active", "paused", "archived"] } },
+                  "draftAndActiveRevisions": { "const": true },
+                  "immutableRevisions": { "const": true },
+                  "explain": { "const": true }
+                }
+              },
+              "integrations": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["multipleAccounts", "connectionSets", "credentialOnboarding", "credentialVerification", "providerIdentity", "permissionPresets", "providerAndBrokerEnforcement", "bringYourOwnOAuth", "hostedOAuthCallbacks", "automaticTokenRefresh"],
+                "properties": {
+                  "multipleAccounts": { "const": true },
+                  "connectionSets": { "const": true },
+                  "credentialOnboarding": { "const": "manifest-driven" },
+                  "credentialVerification": { "const": "before-persistence" },
+                  "providerIdentity": { "const": "derived" },
+                  "permissionPresets": { "type": "array", "items": { "enum": ["read-only", "read-write", "full", "custom"] } },
+                  "providerAndBrokerEnforcement": { "const": true },
+                  "bringYourOwnOAuth": { "const": true },
+                  "hostedOAuthCallbacks": { "const": false },
+                  "automaticTokenRefresh": { "const": false }
+                }
+              },
+              "agent": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["browserComputerUse", "interactiveEvents", "steering", "interruption", "approvals", "skills", "apps", "mcp"],
+                "properties": {
+                  "browserComputerUse": { "const": true },
+                  "interactiveEvents": { "const": true },
+                  "steering": { "const": true },
+                  "interruption": { "const": true },
+                  "approvals": { "const": true },
+                  "skills": { "const": true },
+                  "apps": { "const": true },
+                  "mcp": { "const": true }
+                }
+              },
+              "runs": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["asynchronous", "liveEvents", "approvals", "steering", "interruption"],
+                "properties": {
+                  "asynchronous": { "const": true },
+                  "liveEvents": { "const": true },
+                  "approvals": { "const": true },
+                  "steering": { "const": true },
+                  "interruption": { "const": true }
+                }
+              },
+              "conversations": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["durable", "replacementCompute"],
+                "properties": {
+                  "durable": { "const": true },
+                  "replacementCompute": { "const": true }
+                }
+              },
+              "outputs": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["durableFiles", "publications"],
+                "properties": {
+                  "durableFiles": { "const": true },
+                  "publications": { "type": "array", "items": { "enum": ["file", "site", "video"] } }
+                }
+              }
+            }
+          }
         }
       },
       "Error": {

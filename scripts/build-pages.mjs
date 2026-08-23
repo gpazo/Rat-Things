@@ -79,7 +79,7 @@ function renderLlmsIndex(groups, documents) {
     const document = documents.get(file);
     return `- [${document.title}](${pagesUrl}/docs/${document.slug}/): ${document.description}`;
   }).join('\n')}`).join('\n\n');
-  return `# Rat Things\n\n> The open-source, self-hostable backend for cloud agents, with isolated Codex execution, reusable Things, multi-account integrations, browser use, and durable work.\n\n${sections}\n\n## Machine-readable contracts\n\n- [OpenAPI 3.1](${pagesUrl}/openapi.json): Deployment API contract and authentication model.\n- [ThingSpec v1 JSON Schema](${pagesUrl}/schemas/thing-v1.json): Portable credential-free automation definition.\n- [Create Thing schema](${pagesUrl}/schemas/thing-create-v1.json): Direct draft-only Thing creation contract.\n- [Create Thing version schema](${pagesUrl}/schemas/thing-version-v1.json): Compare-and-swap draft revision contract.\n- [Complete documentation corpus](${pagesUrl}/llms-full.txt): Repository Markdown combined into one agent-readable document.\n\n## Source and examples\n\n- [Repository](${repositoryUrl})\n- [Thing create example](${pagesUrl}/examples/thing-create.json)\n- [Thing version example](${pagesUrl}/examples/thing-version.json)\n`;
+  return `# Rat Things\n\n> The open-source, self-hostable backend for cloud agents, with isolated Codex execution, reusable Things, multi-account integrations, browser use, and durable work. Rat Things is an engineering preview, not a production-ready multi-tenant service.\n\n## Agent quickstart\n\nA host gives you a Rat Things deployment base URL and an authenticated calling method.\n\n1. Fetch \`/.well-known/rat-things\` from that deployment. Resolve its relative links against the deployment URL.\n2. Treat the installed OpenAPI, JSON Schemas, capability profiles, and integration manifests as authoritative.\n3. Prefer Things for reusable work: create a draft, explain it, test it, publish the exact immutable revision, then run or schedule the active revision. Start with explicit read-only/no-network capabilities and widen only for the task.\n4. For a run-starting \`202\`, retain its run ID and poll durable state or live events. Other asynchronous routes can return mailbox or operation receipts; follow their typed body and \`Location\` header.\n5. Use raw runs, conversations, browser use, skills, apps, MCP, publications, and provider-event ingress only when the task needs those deeper surfaces.\n6. Never submit an owner ID or place AWS, provider, S3, or MicroVM credentials in a Thing or run.\n\nRead [Connect an agent to Rat Things](${pagesUrl}/docs/agents/) for authentication options, the smallest complete journey, the deeper capability map, failure rules, and a copyable bootstrap instruction. Do not load the full corpus for a simple Thing run.\n\n${sections}\n\n## Machine-readable contracts\n\nString lengths in JSON Schema are preflight character limits; runtime UTF-8 byte limits remain authoritative.\n\n- [OpenAPI 3.1](${pagesUrl}/openapi.json): Published reference contract; an installed deployment's linked copy is authoritative.\n- [ThingSpec v1 JSON Schema](${pagesUrl}/schemas/thing-v1.json): Portable credential-free automation definition.\n- [Create Thing schema](${pagesUrl}/schemas/thing-create-v1.json): Direct draft-only Thing creation contract.\n- [Create Thing version schema](${pagesUrl}/schemas/thing-version-v1.json): Compare-and-swap draft revision contract.\n- [Complete documentation corpus](${pagesUrl}/llms-full.txt): Repository Markdown combined into one agent-readable document; load only when broad context is necessary.\n\n## Source and examples\n\n- [Repository](${repositoryUrl})\n- [Safe first-run ThingSpec](${pagesUrl}/examples/thing-create.json)\n- [Connected scheduled ThingSpec](${pagesUrl}/examples/thing-connected-schedule.json)\n- [Updated ThingSpec example for the CLI or nested version request](${pagesUrl}/examples/thing-version.json)\n`;
 }
 
 function renderLlmsFull(documents) {
@@ -187,7 +187,7 @@ function renderDocsHome(groups, documents) {
     </section>`).join('\n');
   return pageTemplate({
     title: 'Documentation',
-    description: 'Build and embed reusable agent automations through a self-hosted OpenAPI backend with isolated Codex execution.',
+    description: 'Build and embed reusable cloud agents through a self-hosted OpenAPI backend with isolated Codex execution.',
     canonicalPath: '/docs/',
     assetPrefix: '../',
     nav,
@@ -198,6 +198,7 @@ function renderDocsHome(groups, documents) {
         <p class="docs-home-lede">Install one independent backend, connect verified accounts with explicit permissions, and expose reusable Things through one discoverable API for operators, products, and other agents.</p>
         <div class="docs-home-actions">
           <a class="docs-button docs-button-primary" href="./operating-model/">How it works</a>
+          <a class="docs-button" href="./agents/">Connect an agent</a>
           <a class="docs-button" href="./plugins/">Connect accounts</a>
           <a class="docs-button" href="./things/">Build a Thing</a>
           <a class="docs-button" href="./embedding/">Embed the API</a>
@@ -214,7 +215,7 @@ function renderDocsHome(groups, documents) {
             <h2 id="product-outcomes-title">From reusable intent to durable, shareable work.</h2>
           </div>
           <ul>
-            <li><strong>Define a Thing once.</strong><span>Version a goal, trigger, capability profile, accounts, and delivery without embedding credentials.</span></li>
+            <li><strong>Draft safely. Publish exactly.</strong><span>Append immutable revisions, test the draft, and keep production pinned until publish moves the active pointer.</span></li>
             <li><strong>Bring the exact accounts.</strong><span>Resolve provider scopes, persistent grants, per-Thing narrowing, resource limits, and approvals before use.</span></li>
             <li><strong>Keep the project, not the machine.</strong><span>Conversation history, Codex state, workspace bytes, and published files survive disposable compute.</span></li>
             <li><strong>Bring your own product.</strong><span>Use the same discoverable API from a small-business console, SaaS backend, CLI, provider event, or another agent.</span></li>
@@ -224,10 +225,13 @@ function renderDocsHome(groups, documents) {
         <aside class="agent-source">
           <div>
             <p class="docs-card-kicker">For coding agents</p>
-            <h2>Documentation agents can use directly.</h2>
-            <p>Every page is generated from repository Markdown and links back to its source. Give an agent the relevant guide and it gets the same commands, contracts, and validation steps you see here.</p>
+            <h2>Give an agent one URL.</h2>
+            <p>The quickstart tells an agent to discover the installed deployment, use Things first, and open live controls, conversations, raw runs, browser use, skills, apps, MCP, files, and publications only as needed.</p>
           </div>
-          <a class="docs-button" href="${repositoryUrl}/tree/main/docs">Browse Markdown on GitHub</a>
+          <div class="docs-home-actions">
+            <a class="docs-button docs-button-primary" href="./agents/">Agent quickstart</a>
+            <a class="docs-button" href="../llms.txt">llms.txt</a>
+          </div>
         </aside>
       </div>`,
   });

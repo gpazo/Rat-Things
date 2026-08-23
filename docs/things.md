@@ -22,8 +22,19 @@ rat-things thing-run THING_ID --idempotency-key first-production-run
 `thing-publish` fetch the current draft revision and apply compare-and-swap automatically, so the
 common CLI path does not ask a person or agent to copy revision numbers.
 
+Remote execution defaults to `danger-full-access` with command networking enabled because the
+outer MicroVM is the primary isolation boundary. For a first test, explicitly choose the narrowest
+installed profile, `sandbox: "read-only"`, `approvalPolicy: "untrusted"`, user review, and disabled
+network/search/browser; widen only for the task. Rat Things is an engineering preview, so connected
+account writes and public sharing require deliberate review.
+
 Remote commands use `RAT_THINGS_API_URL`, infer the AWS Region from an API Gateway URL when
 possible, and SigV4-sign requests. Reusing an idempotency key safely retries the same semantic run.
+Creation itself has no idempotency key in v1. If its response is lost, list Things and reconcile the
+intended definition by `specHash` before retrying rather than blindly creating a duplicate.
+Every Thing test/run receipt includes the exact `thingId`, immutable `revision`, `specHash`, and
+invocation kind alongside the run ID. Compare that evidence with the draft you accepted before
+publishing.
 
 ## The mental model
 
@@ -81,6 +92,8 @@ inventory views do not unnecessarily copy goals into tables or logs.
 The machine contract is [ThingSpec v1 JSON Schema](../spec/schemas/thing-v1.json). A deployment
 serves it at `/schemas/thing-v1.json`; `GET /.well-known/rat-things` links the installed schema,
 OpenAPI document, capabilities, and centrally hosted agent documentation.
+JSON Schema `maxLength` counts characters while the runtime's documented limits count UTF-8 bytes;
+multibyte input can pass schema preflight and still be rejected by the runtime.
 
 Create accepts the ThingSpec itself:
 
@@ -90,32 +103,30 @@ Content-Type: application/json
 
 {
   "version": "1",
-  "name": "Customer operations review",
-  "goal": "Review support and payment exceptions. Do not issue refunds without approval.",
-  "trigger": {
-    "kind": "schedule",
-    "expression": "cron(0 9 ? * MON-FRI *)",
-    "timezone": "America/Los_Angeles"
-  },
+  "name": "Safe reusable baseline",
+  "goal": "Inspect the provided workspace and summarize its current state. Do not use external services or make changes.",
+  "trigger": { "kind": "manual" },
   "agent": {
+    "driver": "codex",
+    "sandbox": "read-only",
     "capabilities": {
-      "profile": "small-business",
-      "computerUse": "browser"
+      "profile": "read-only",
+      "approvalPolicy": "untrusted",
+      "approvalsReviewer": "user",
+      "networkAccess": false,
+      "webSearch": "disabled",
+      "computerUse": "disabled"
     }
   },
-  "connections": {
-    "accounts": [
-      { "account": "slack-support", "access": "read-only" },
-      {
-        "account": "stripe-business",
-        "access": "read-write",
-        "denyOperations": ["stripe.refunds.create"]
-      }
-    ]
-  },
-  "deliver": [{ "kind": "slack", "route": "C01234567" }]
+  "execution": { "backend": "microvm", "timeoutSeconds": 300 },
+  "deliver": [{ "kind": "none" }]
 }
 ```
+
+This is the checked-in [safe first-run example](https://gpazo.github.io/Rat-Things/examples/thing-create.json). The separate
+[connected schedule example](https://gpazo.github.io/Rat-Things/examples/thing-connected-schedule.json) demonstrates browser use,
+several accounts, a write-capable grant, Slack delivery, and EventBridge cron only after those
+capabilities are intentionally selected.
 
 | Field | Meaning |
 | --- | --- |
@@ -183,6 +194,12 @@ Thing ID, revision, and scheduled time as their idempotency key. Publishing, pau
 archiving wait for Scheduler synchronization. If AWS rejects synchronization, the API returns an
 error and the Thing exposes `triggerState.status: "error"`; retrying the same lifecycle operation
 is safe and attempts synchronization again.
+
+Interactive approvals and input requests exist only while that occurrence's MicroVM is active;
+there is no durable human-approval inbox in v1. Do not publish unattended scheduled work that can
+require user review unless the host watches active runs. Otherwise choose a policy/profile designed
+for unattended execution and bound every external side effect with account grants and operation
+rules.
 
 ## Lifecycle
 

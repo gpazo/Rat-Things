@@ -1,16 +1,17 @@
 # Control API reference
 
 The control API is the asynchronous backend contract shared by the CLI, operator tools, embedded
-products, other agents, and authenticated event adapters. Submission returns a run record
-immediately; the caller follows events, polls, or consumes the configured completion destination.
-It does not hold an HTTP connection open for the agent.
+products, other agents, and authenticated event adapters. Thing tests/runs, routine runs, and raw
+run submission return a run receipt immediately; the caller follows events, polls, or consumes the
+configured completion destination. Conversation append returns a mailbox receipt and `Location`
+to poll until a run is bound. The API does not hold an HTTP connection open for the agent.
 
 New consumers should begin with the [operating model](operating-model.md), then use this page for
 route-level behavior. The deployment's `/openapi.json` is authoritative for generated clients and
 installed routes.
 
 > The current run response projection is the stored `RunRecord`, including owner and S3 artifact
-> coordinates. Keep the API behind AWS IAM/JWT authorization and do not expose it directly to an
+> coordinates. Keep the API behind AWS IAM or a trusted host backend and do not expose it directly to an
 > untrusted browser client. File-list responses omit S3 coordinates and file-download endpoints
 > issue owner-checked, short-lived URLs; a fully public-safe run projection remains a roadmap item.
 
@@ -18,19 +19,17 @@ installed routes.
 
 Thing discovery and contract documents (`GET /health`, `GET /.well-known/rat-things`,
 `GET /openapi.json`, and `GET /schemas/*.json`) are public and contain no owner data. Publication
-share redemption uses its own bearer grant. Every other control route requires a principal supplied
-by API Gateway:
-
-- an IAM authorizer's `userArn` or `callerId`; or
-- a JWT authorizer's `sub` claim.
+share redemption uses its own bearer grant. Every other published v1 control route requires an IAM
+principal supplied by API Gateway through its `userArn` or `callerId`.
 
 The handler derives `ownerId` from that value. A caller cannot supply or select its owner. The
 `X-Runtime-Owner` escape hatch works only when `ALLOW_OWNER_HEADER=true`; this is for isolated local
 testing and must be false in a deployed stack.
 
 The included Terraform module configures `AWS_IAM` on owner-scoped control routes and no
-authorization on the discovery/contract routes. JWT principal extraction is a handler capability
-for a separately reviewed API Gateway configuration; it is not enabled by the provided root stack.
+authorization on the discovery/contract routes. The handler contains a JWT `sub` extraction hook
+for a separately maintained transport adapter, but v1 discovery/OpenAPI does not advertise bearer
+authentication; it is not a supported direct-client surface in the provided stack.
 
 Runs are readable, listable, and cancellable only by the exact derived owner. Webhook-created runs
 use provider-specific owner namespaces and are therefore not automatically visible to an API user.
@@ -77,7 +76,7 @@ Cross-identity lookup is an administrative capability outside v1.
 | `POST /v1/routines/{routineId}/pause` | Required | Pause future scheduled occurrences |
 | `POST /v1/routines/{routineId}/resume` | Required | Resume at the retained or next future occurrence |
 | `POST /v1/routines/{routineId}/delete` | Required | Soft-delete a routine; metadata expires after 30 days |
-| `POST /v1/conversations/{conversationId}/messages` | Required | Append one owner-scoped durable conversation turn and return `202` |
+| `POST /v1/conversations/{conversationId}/messages` | Required | Append one owner-scoped durable conversation turn (`202`), or return the idempotent duplicate (`200`); poll its `Location` |
 | `GET /v1/conversations/{conversationId}/messages/{messageId}` | Required | Poll the exact message, bound run, conversation, and suspended-session state |
 | `GET /v1/conversations/{conversationId}/artifacts` | Required | List the current durable files for an owner-scoped conversation |
 | `GET /v1/conversations/{conversationId}/artifacts/{artifact}` | Required | Return a fresh short-lived view/download URL for a conversation file |
@@ -107,6 +106,13 @@ MicroVM execution; stale, terminal, or non-interactive runs return `409`. Caller
 MicroVM or receive its AWS-issued proxy token. Durable conversation continuation remains trusted
 orchestration selected from the stored owner-scoped session.
 
+Every authenticated control-route success body is typed in `/openapi.json`. Run-starting `202`
+responses include a run receipt and `Location: /v1/runs/{runId}`; other `202` responses use their
+documented mailbox or operation receipt and must not be assumed to create a new run.
+Thing test/run receipts additionally include
+`thing: {version, thingId, revision, specHash, invocation}` so a caller can prove which immutable
+revision produced the run before moving the active pointer.
+
 ## Integration connection contract
 
 `GET /v1/integrations/plugins` is the form and tool-generation contract. Each manifest declares one
@@ -132,6 +138,11 @@ connection; provider throttling, 5xx, or network failure is retryable `503 integ
 Repeating the request with another credential creates another independently permissioned account for
 the same plugin.
 
+Connection and Thing creation do not accept an idempotency key in v1. If the HTTP response is lost,
+list owner-visible state and reconcile provider-derived identity or Thing `specHash` before
+retrying; do not blindly create a duplicate. Run invocation and conversation messages have explicit
+idempotency controls.
+
 The CLI implements this contract as
 `rat-things connect PLUGIN --credential-file FILE [--auth-scheme SCHEME] [--access PRESET]`.
 Credential rotation uses `rat-things rotate ACCOUNT --credential-file FILE`; the server verifies
@@ -144,6 +155,15 @@ Consumers should fetch `/.well-known/rat-things` from the deployment instead of 
 runtime URL. Its links are relative so custom domains and reverse proxies remain independent. The
 same OpenAPI and JSON Schema files are published with the documentation for generation and CI, but
 an installed deployment is authoritative for the capabilities it advertises.
+
+The response also links the focused agent guide, compact `llms.txt` navigation, and optional
+complete corpus. Agents should read the guide and progressively follow the installed contracts;
+they should not load the full corpus or guess every operation for a simple Thing run. See
+[Connect an agent to Rat Things](agents.md).
+
+Installed JSON Schemas use relative `$id` values, so relative references resolve against the exact
+deployment that served them rather than silently switching to the central documentation copy.
+Schema `maxLength` is character-based preflight; runtime UTF-8 byte limits remain authoritative.
 
 Errors use a stable envelope:
 
@@ -319,6 +339,10 @@ reach the caller or agent child.
 A routine stores one validated run request and submits it on an interval. DynamoDB keeps only the
 schedule, status, hash, and encrypted S3 reference; prompt and integration selections stay in the
 artifact plane.
+
+Routines remain a lower-level interval compatibility primitive. Use manual or EventBridge
+rate/cron Things for new reusable work so draft testing, immutable publish, explanation, and trigger
+health stay in one lifecycle.
 
 ```http
 POST /v1/routines HTTP/1.1
@@ -552,6 +576,9 @@ ignores them and returns deterministic output without contacting a model provide
 MCP servers are passed through the current App Server configuration surface. MCP selection enables
 the named servers but is not an exact deny-list for additional servers inherited from a project
 configuration; keep the MicroVM base configuration empty when exact deployment control matters.
+There is no owner-facing inventory endpoint for skill, app, or MCP names in v1. An omitted profile
+allowlist means that profile does not narrow names; it is not evidence that a name is installed.
+Hosts must supply valid names, and runtime resolution fails unavailable selections.
 
 The `small-business` profile allows browser use and up to read-write integrations while retaining
 on-request approval. `microvm-full` permits full integrations and automatic browser interaction.
@@ -702,12 +729,15 @@ Errors use this envelope:
 {
   "error": {
     "code": "invalid_request",
-    "message": "prompt cannot be empty"
+    "message": "prompt cannot be empty",
+    "retryable": false,
+    "traceId": "API_GATEWAY_REQUEST_ID"
   }
 }
 ```
 
 Expected mappings are `400 invalid_request`, `403 forbidden`, `404 not_found`, and `409 conflict`.
 Unexpected errors return `500 internal_error` with a generic client message; bounded details are sent
-to CloudWatch Logs. A `202` from a webhook can also mean an authenticated but unsupported event was
-intentionally ignored; see [channels](channels.md).
+to CloudWatch Logs. All error envelopes also include `retryable` and a transport `traceId`. A `202`
+from a webhook can mean an authenticated but unsupported event was intentionally ignored and need
+not contain a run ID; see [channels](channels.md).

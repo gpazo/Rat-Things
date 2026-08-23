@@ -48,12 +48,13 @@
         <div class="hero-copy">
           <p class="eyebrow">Open source · Self-hosted · Headless · Bring your own OAuth</p>
           <h1 class="hero-title">The open-source backend<br>for cloud agents.</h1>
-          <p class="hero-lede">Connect verified accounts. Define reusable intent. Explain every permission. Run it from your product, another agent, a CLI, a schedule, or a signed webhook—all through one backend in your AWS account.</p>
+          <p class="hero-lede">Connect verified accounts. Define reusable intent. Explain every permission. Give your product, another agent, a CLI, schedules, and signed provider events one durable backend in your AWS account.</p>
+          <p class="hero-status">Engineering preview · validated end to end, not yet production-hardened for untrusted multi-tenant use</p>
           <div class="hero-actions">
             <a class="button button-primary" href="docs/operating-model/">How it works</a>
             <a class="button button-secondary" href="docs/plugins/">Connect accounts</a>
             <a class="button button-secondary" href="docs/things/">Build a Thing</a>
-            <a class="button button-secondary" href="https://github.com/gpazo/Rat-Things">View GitHub</a>
+            <a class="button button-secondary" href="docs/agents/">Connect an agent</a>
           </div>
         </div>
         <dl class="hero-stats">
@@ -131,18 +132,19 @@
             <p class="card-kicker">Embedded product</p>
             <h3>Your UX, our primitives</h3>
             <p>Keep customer state and OAuth in your product while Rat owns automation and execution.</p>
-            <code>GET /.well-known/rat-things</code>
+            <code>POST /v1/things</code>
           </article>
           <article class="route-card">
             <p class="card-kicker">Agent-to-agent</p>
             <h3>Machine-readable backend</h3>
-            <p>Give another agent OpenAPI, JSON Schemas, manifests, stable errors, and durable evidence.</p>
-            <code>GET /openapi.json</code>
+            <p>Give an agent the deployment URL. It discovers the installed contract, starts with Things, and opens deeper controls only when needed.</p>
+            <code>GET /.well-known/rat-things</code>
+            <a class="text-link" href="docs/agents/">Agent quickstart <span aria-hidden="true">→</span></a>
           </article>
           <article class="route-card">
             <p class="card-kicker">Events and schedules</p>
             <h3>Automation without a UI</h3>
-            <p>Invoke the same Things manually, from an authenticated provider event, or with an EventBridge rate or cron schedule.</p>
+            <p>Things run manually or on EventBridge rate and cron schedules. Signed provider events enter the same durable run backend through separate authenticated ingress.</p>
             <code>cron(0 8 ? * MON-FRI *)</code>
           </article>
         </div>
@@ -213,7 +215,7 @@
   --idempotency-key first-safe-test
 <span>rat-things thing-publish</span> "$THING_ID"
 <span>rat-things thing-run</span> "$THING_ID"</code></pre>
-            <p class="demo-note">After an update, <code>draft → revision 3</code> while <code>active → revision 2</code>. Both are immutable. Test uses revision 3; production keeps revision 2 until publish atomically moves the active pointer.</p>
+            <p class="demo-note">After an update, <code>draft → revision 3</code> while <code>active → revision 2</code>. The test receipt proves revision 3 and its spec hash; production stays on revision 2 until publish moves the active pointer.</p>
             <a class="text-link" href="docs/things/">Thing contract and lifecycle <span aria-hidden="true">→</span></a>
           </article>
 

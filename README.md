@@ -20,6 +20,7 @@
   <a href="https://gpazo.github.io/Rat-Things/">Website</a> ·
   <a href="https://gpazo.github.io/Rat-Things/docs/">Documentation</a> ·
   <a href="docs/operating-model.md">How it works</a> ·
+  <a href="docs/agents.md">Connect an agent</a> ·
   <a href="docs/things.md">Build a Thing</a> ·
   <a href="docs/plugins.md">Connect accounts</a> ·
   <a href="docs/embedding.md">Embed the API</a> ·
@@ -85,8 +86,10 @@ workspace bytes, events, files, and results live outside the VM and remain owner
   storage retains orchestration, conversations, Codex state, workspace bytes, events, and results.
 - **Live control and evidence** — consumers can stream events, answer approvals and input requests,
   steer or interrupt work, and retain files, publications, screenshots, and video.
-- **One run model** — manual, EventBridge-scheduled, and provider-triggered Things plus conversations
-  converge on the same asynchronous execution and delivery contract.
+- **One run model** — manual and EventBridge-scheduled Things, signed provider-event runs, raw runs,
+  and conversations converge on the same asynchronous execution and delivery contract.
+- **Revision evidence** — every Thing test/run receipt identifies the exact immutable revision and
+  spec hash that produced its durable run.
 - **Codex-first access** — trusted local work can use an existing ChatGPT subscription; AWS runs use
   short-term Bedrock authentication.
 - **Disposable proof** — deterministic simulation, LocalStack, and live-AWS harnesses exercise the
@@ -239,7 +242,7 @@ rat-things thing-run THING_ID --idempotency-key first-production-run
 ```
 
 Start programmatic integration at `GET /.well-known/rat-things`; it links to the deployment's
-OpenAPI and ThingSpec schemas. See [Things](docs/things.md),
+agent quickstart, OpenAPI, and ThingSpec schemas. See [connect an agent](docs/agents.md), [Things](docs/things.md),
 [embedding and self-hosting](docs/embedding.md), and [diagnostics](docs/diagnostics.md).
 
 Connect an external account from a credential-only file. Rat discovers the plugin fields, verifies
@@ -270,11 +273,14 @@ rat-things approve RUN_ID REQUEST_ID --decision accept
 rat-things steer RUN_ID "Only examine the newest invoices"
 ```
 
-Create a retry-safe scheduled run from a versioned definition:
+Put an EventBridge rate or cron trigger in the ThingSpec, test its draft, and publish the exact
+revision that should run on schedule:
 
 ```bash
-rat-things routine-create --file examples/routine.json
-rat-things routines
+rat-things thing-create --file examples/thing-connected-schedule.json
+rat-things thing-explain THING_ID
+rat-things thing-test THING_ID --idempotency-key scheduled-thing-test-v1
+rat-things thing-publish THING_ID
 ```
 
 Integration credentials are accepted only by connection-management endpoints, verified before

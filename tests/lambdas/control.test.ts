@@ -128,12 +128,21 @@ describe('control API discovery', () => {
     expect(JSON.parse(discovery.body ?? '{}')).toMatchObject({
       version: '1',
       service: 'rat-things',
-      deployment: { operation: 'independent', oauthApplications: 'bring-your-own' },
+      deployment: {
+        operation: 'independent',
+        maturity: 'engineering-preview',
+        oauthApplications: 'bring-your-own',
+      },
       api: {
         openapi: '/openapi.json',
+        agentGuide: 'https://gpazo.github.io/Rat-Things/docs/agents/',
+        agentDocs: 'https://gpazo.github.io/Rat-Things/llms.txt',
+        agentDocsFull: 'https://gpazo.github.io/Rat-Things/llms-full.txt',
         schemas: { thing: '/schemas/thing-v1.json' },
       },
       capabilities: {
+        consumers: ['operator', 'embedded-product', 'agent', 'cli', 'provider-event'],
+        recommendedFacade: 'things',
         things: { immutableRevisions: true, explain: true },
         integrations: {
           multipleAccounts: true,
@@ -141,6 +150,9 @@ describe('control API discovery', () => {
           credentialVerification: 'before-persistence',
           providerIdentity: 'derived',
         },
+        runs: { asynchronous: true, liveEvents: true, approvals: true },
+        conversations: { durable: true, replacementCompute: true },
+        outputs: { durableFiles: true, publications: ['file', 'site', 'video'] },
       },
     });
 

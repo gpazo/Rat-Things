@@ -155,13 +155,15 @@ describe('Thing CLI-to-HTTP workflow', () => {
       method: 'POST',
       body: {
         version: '1',
-        name: 'Customer operations review',
-        connections: {
-          accounts: [
-            { account: 'slack-support', access: 'read-only' },
-            expect.objectContaining({ account: 'stripe-business', access: 'read-write' }),
-          ],
+        name: 'Safe reusable baseline',
+        agent: {
+          sandbox: 'read-only',
+          capabilities: expect.objectContaining({
+            networkAccess: false,
+            computerUse: 'disabled',
+          }),
         },
+        deliver: [{ kind: 'none' }],
       },
     });
 
