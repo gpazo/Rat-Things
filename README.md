@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <strong>VM-level isolation at serverless scale.</strong>
+  <strong>Reusable agent automation. Your infrastructure.</strong>
 </p>
 
 <p align="center">
@@ -19,33 +19,34 @@
 <p align="center">
   <a href="https://gpazo.github.io/Rat-Things/">Website</a> ·
   <a href="https://gpazo.github.io/Rat-Things/docs/">Documentation</a> ·
+  <a href="docs/operating-model.md">How it works</a> ·
   <a href="docs/things.md">Build a Thing</a> ·
+  <a href="docs/plugins.md">Connect accounts</a> ·
+  <a href="docs/embedding.md">Embed the API</a> ·
   <a href="https://gpazo.github.io/Rat-Things/llms.txt">Agent docs</a> ·
-  <a href="docs/codex-subscription.md">Use your Codex subscription</a> ·
-  <a href="docs/publications.md">Publish files, sites, and video</a> ·
-  <a href="docs/github-webhook-onboarding.md">Connect a GitHub webhook</a> ·
-  <a href="docs/costs.md">Measured costs</a> ·
-  <a href="#architecture">Architecture</a> ·
-  <a href="docs/microsoft-teams.md">Connect Microsoft Teams</a> ·
   <a href="docs/status-and-roadmap.md">Validation status</a>
 </p>
 
-Rat Things is a self-hosted, headless agent automation backend and AWS-native Codex runtime. It
-publishes reusable **Things** for operator and embedded-product consumers, accepts authenticated API requests and
-signed GitHub, GitLab, or chat webhooks; coordinates durable conversations; executes tool-capable
-work in AWS Lambda MicroVMs; and delivers results back to the originating thread. Microsoft Teams
-is the preferred chat surface, with Slack available as an optional adapter.
+Rat Things is a self-hostable, headless automation backend for agents, applications, CLIs, and
+provider events. Install one independent deployment in your AWS account, bring your identity and
+OAuth applications, connect provider-verified accounts, and publish reusable **Things** through one
+documented API.
 
-It provides VM-level isolation at serverless scale: no always-on agent fleet, one fenced MicroVM
-owner per active conversation, and durable state that can resume on replacement compute.
+Every consumer follows the same narrow path: discover the deployment, connect an account, define a
+Thing, explain its effective permissions, run it, and observe durable evidence. The CLI is a client
+of that contract—not a privileged interface—so a personal installation, small-business console,
+embedded SaaS product, another agent, or signed webhook can use the same primitives.
 
-The important idea is that compute is disposable but the agent is not. A conversation's mailbox,
-history, Codex app-server state, and workspace live outside the VM. Rat Things can terminate one
-MicroVM, start another, resume the exact Codex thread, and restore the exact workspace bytes.
+Rat Things does not require a central Rat-operated control plane, visual workflow editor,
+marketplace, or hosted OAuth service. The host chooses whether one deployment serves one person or
+many authenticated users and owns the surrounding product experience.
 
-The subsystem is deliberately narrow: it owns agent execution, not your product's application
-logic. There is no ECS worker service or long-lived agent container. One-shot deployments need no
-customer VPC; durable native Codex restoration optionally adds a small VPC/NAT path for S3 Files.
+Underneath that simple contract, tool-capable Codex work runs in AWS Lambda MicroVMs. Compute is
+disposable but the work is durable: account grants, Thing revisions, conversations, Codex state,
+workspace bytes, events, files, and results live outside the VM and remain owner-scoped.
+
+> Once this narrow journey is delightful and stable, expand it. Start with the
+> [operating model](docs/operating-model.md).
 
 > [!WARNING]
 > Rat Things is an engineering preview. Its deterministic workflow and minimal real-Codex paths
@@ -66,43 +67,28 @@ customer VPC; durable native Codex restoration optionally adds a small VPC/NAT p
 
 ## Why Rat Things?
 
-- **Dedicated VM boundary** — each active agent session runs in its own Firecracker-backed guest
-  rather than relying only on process-level or shared-kernel containment.
-- **Serverless lifecycle** — pre-initialized snapshots launch quickly; sessions suspend and resume
-  without operating an EC2, Fargate, or always-on worker fleet.
-- **Isolated, resumable execution** — one-shot jobs terminate their MicroVM; conversation VMs
-  suspend between turns and resume until their bounded session expires.
-- **Durable orchestration** — DynamoDB, S3, SQS, Streams, and EventBridge hold state outside compute.
-- **Durable conversation mailbox** — DynamoDB leases and prioritized messages coordinate turns;
-  S3 holds immutable bodies, replay context, progress events, and checkpoints.
-- **Native Codex continuity** — Codex app-server state and the conversation workspace can live on an
-  S3 Files mount, so a replacement MicroVM resumes the same thread and bytes.
-- **Real tool use** — shell, Git, filesystem, and explicitly enabled network access execute inside
-  the isolated worker rather than being reduced to a chat-only interface.
-- **Live agent control** — follow App Server events, answer approval/input requests, steer an active
-  turn, or interrupt it through the same owner-checked control API and CLI.
-- **Capability profiles** — select network, web search, browser use, skills, apps, MCP servers,
-  approval routing, and the inner Codex sandbox without widening the deployment policy ceiling.
-- **Multi-account integrations** — connect multiple accounts for the same service, group them into
-  reusable sets, and expose each run to read-only, read-write, full, or operation-level grants.
-- **Reusable Things** — define a goal, trigger, capability profile, multiple accounts, and delivery
-  once; immutable revisions and lifecycle controls compile into ordinary owner-scoped runs.
-- **Self-describing backend** — every deployment publishes discovery, OpenAPI, JSON Schemas, stable
-  errors, Thing explanations, and CLI diagnostics for humans and agents integrating with it.
-- **Browser computer use** — a persistent headless browser navigates, observes, clicks, types,
-  selects, scrolls, captures screenshots, and records WebM inside the MicroVM; private/link-local
-  destinations are blocked and consequential interactions follow live approval policy.
-- **Durable scheduling** — interval Things submit ordinary idempotent runs while definitions remain
-  in private encrypted versioned S3 and DynamoDB stores only lifecycle metadata and references;
-  lower-level routines remain compatible.
-- **Durable publications** — retained files become isolated browser-ready images, static sites, or
-  video players behind owner-authorized, time-bounded CloudFront delivery.
-- **Webhook to result** — signed GitHub, GitLab, Teams, and optional Slack paths share one run model.
-- **Codex-first execution** — ChatGPT account auth for trusted local work; short-term Bedrock auth in AWS.
-- **Provider-neutral boundaries** — ingress, identity, credentials, execution, delivery, and plugins
-  are separate TypeScript modules inspired by the architectural strengths of Sentry Junior.
-- **Disposable validation** — LocalStack and live-AWS harnesses exercise the complete data flow and
-  tear down temporary infrastructure.
+- **One backend, many consumers** — use the same owner-scoped API from a CLI, operator console,
+  embedded product, another agent, schedule, or signed provider event.
+- **Reusable Things** — version a goal, trigger, capability profile, account selection, and delivery
+  without embedding credentials or customer identity logic.
+- **Verified multi-account integrations** — connect several accounts for one service; provider
+  authority, Rat grants, Thing narrowing, resource constraints, and approvals intersect at runtime.
+- **Self-describing UX primitives** — discovery, OpenAPI, JSON Schemas, integration manifests,
+  stable errors, and Thing explanations let consumers generate simple, accurate experiences.
+- **Bring your own product boundary** — each deployment owns its identity, OAuth applications,
+  secrets, data, and runtime; Rat Things does not require a hosted tenant service.
+- **Dedicated VM isolation** — every active agent session runs in its own Firecracker-backed guest
+  with shell, Git, filesystem, explicitly permitted networking, and browser computer use.
+- **Serverless, durable execution** — MicroVMs suspend, resume, terminate, and replace while AWS
+  storage retains orchestration, conversations, Codex state, workspace bytes, events, and results.
+- **Live control and evidence** — consumers can stream events, answer approvals and input requests,
+  steer or interrupt work, and retain files, publications, screenshots, and video.
+- **One run model** — manual and interval Things, conversations, GitHub, GitLab, Teams, and optional
+  Slack paths converge on the same asynchronous execution and delivery contract.
+- **Codex-first access** — trusted local work can use an existing ChatGPT subscription; AWS runs use
+  short-term Bedrock authentication.
+- **Disposable proof** — deterministic simulation, LocalStack, and live-AWS harnesses exercise the
+  intended journeys and tear down their temporary infrastructure.
 
 The useful framing from this [r/aws discussion of Lambda MicroVM
 workloads](https://www.reddit.com/r/aws/comments/1ueul5o/hardest_problems_lambda_microvms_can_solve_now/)
@@ -196,7 +182,7 @@ thread and workspace from a replacement MicroVM.
 
 ![Rat Things C4 live AWS test harness](docs/c4-live-aws-test-harness-containers.png)
 
-## Quick start
+## Developer quick start
 
 Requirements: Node.js 20+, npm, and Git.
 
@@ -209,6 +195,10 @@ npm run smoke:local
 ```
 
 The default smoke test uses the deterministic mock driver. It does not call AWS or a model.
+
+Already have a deployment? Follow the product path instead: [connect an account](docs/plugins.md),
+[build a Thing](docs/things.md), run `thing-explain`, then execute and observe it. Deployment and
+consumer setup intentionally remain separate journeys.
 
 ### The Rat Things CLI
 
@@ -496,22 +486,23 @@ Read the complete [security and threat model](docs/security.md) and [status and 
 
 ## Documentation
 
-- [Architecture](docs/architecture.md)
-- [Durable conversations](docs/conversations.md)
-- [Browser computer use](docs/browser-computer-use.md)
-- [Share agent work safely](docs/sharing-work.md)
-- [Publications: files, sites, and video](docs/publications.md)
-- [Control API](docs/api.md)
-- [Connect Microsoft Teams](docs/microsoft-teams.md)
-- [Channels](docs/channels.md)
-- [Provider plugin model](docs/plugins.md)
-- [Development and deployment](docs/development-and-deployment.md)
-- [Use your Codex subscription](docs/codex-subscription.md)
-- [Connect a GitHub webhook](docs/github-webhook-onboarding.md)
-- [Cost model and measured AWS spend](docs/costs.md)
-- [Security model](docs/security.md)
-- [Operational runbook](docs/runbook.md)
-- [Status and roadmap](docs/status-and-roadmap.md)
+Start with the journey:
+
+- [How Rat Things operates](docs/operating-model.md)
+- [Build and run a Thing](docs/things.md)
+- [Connect accounts and understand permissions](docs/plugins.md)
+- [Embed Rat Things in another product](docs/embedding.md)
+
+Then go as deep as your role requires:
+
+- **Use capabilities:** [conversations](docs/conversations.md),
+  [browser computer use](docs/browser-computer-use.md), [sharing](docs/sharing-work.md),
+  [publications](docs/publications.md), and [channels](docs/channels.md)
+- **Install and operate:** [development and deployment](docs/development-and-deployment.md),
+  [diagnostics](docs/diagnostics.md), [runbook](docs/runbook.md), and
+  [measured costs](docs/costs.md)
+- **Reference and assurance:** [control API](docs/api.md), [architecture](docs/architecture.md),
+  [security](docs/security.md), and [validation status](docs/status-and-roadmap.md)
 
 ## Name and provenance
 

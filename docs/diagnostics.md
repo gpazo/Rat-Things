@@ -3,6 +3,8 @@
 Rat Things adds durable state and isolated execution so failures can be inspected rather than lost.
 The debugging contract is part of the product: use machine-readable discovery, stable error
 envelopes, Thing explanations, run state, and retained events in that order.
+This follows the same [operating journey](operating-model.md): diagnose installation and discovery,
+then the account, then the Thing's effective permissions, and finally the individual run.
 
 ## Start with doctor
 

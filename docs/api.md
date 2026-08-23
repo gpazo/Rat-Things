@@ -1,8 +1,13 @@
-# Control API and v1 run contract
+# Control API reference
 
-The control API is an internal asynchronous API. Submission returns a run record immediately; the
-caller polls or consumes the configured completion destination. It does not hold an HTTP connection
-open for the agent.
+The control API is the asynchronous backend contract shared by the CLI, operator tools, embedded
+products, other agents, and authenticated event adapters. Submission returns a run record
+immediately; the caller follows events, polls, or consumes the configured completion destination.
+It does not hold an HTTP connection open for the agent.
+
+New consumers should begin with the [operating model](operating-model.md), then use this page for
+route-level behavior. The deployment's `/openapi.json` is authoritative for generated clients and
+installed routes.
 
 > The current run response projection is the stored `RunRecord`, including owner and S3 artifact
 > coordinates. Keep the API behind AWS IAM/JWT authorization and do not expose it directly to an

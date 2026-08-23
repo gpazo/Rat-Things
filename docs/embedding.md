@@ -3,6 +3,8 @@
 Rat Things is a headless automation backend. It can sit behind a small-business operator console,
 a CLI, another agent, or a SaaS product without requiring a Rat-operated control plane. The same
 deployment can serve one person or many authenticated users; the host decides that product model.
+Every consumer follows the same [operating model](operating-model.md); this guide explains how a host
+turns those primitives into its own UX.
 
 The integration boundary is intentionally flexible and narrow:
 
@@ -70,7 +72,7 @@ limits, deployment allowlists, installed profiles/plugins, owner scope, and curr
 
 Build a UI that calls the API on behalf of its signed-in principal:
 
-1. show installed profiles and integration plugin manifests;
+1. show installed profiles and integration manifests;
 2. collect only the manifest-declared credential fields through the host's OAuth or API-key flow;
 3. submit the credential and let Rat verify and label the provider account;
 4. group accounts into connection sets;

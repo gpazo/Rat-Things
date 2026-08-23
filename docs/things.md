@@ -7,6 +7,8 @@ OAuth-client implementation.
 
 Use Things when building an operator workflow or embedding Rat Things in another product. The older
 routine and raw-run APIs remain lower-level primitives; new consumers should start with Things.
+See [how Rat Things operates](operating-model.md) for the complete discover-connect-explain-run
+journey. If the Thing needs an external service, [connect and verify its accounts](plugins.md) first.
 
 ## The shortest working flow
 

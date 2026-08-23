@@ -3,14 +3,15 @@
 Rat Things turns trusted external APIs into agent-visible tools. One deployment can serve one
 person, a team, or an embedded product; every connection remains scoped to the authenticated owner.
 An owner can connect several accounts for the same service and grant each account different access.
+This is the account-connection step in the [Rat Things operating model](operating-model.md).
 
 > Once this narrow journey is delightful and stable, expand it.
 
 The narrow journey is:
 
 ```text
-discover plugin -> supply credential -> verify provider account -> choose Rat access
-                -> select account for a Thing/run -> approve consequential writes
+discover integration -> supply credential -> verify provider account -> choose Rat access
+                     -> select account for a Thing/run -> approve consequential writes
 ```
 
 This is the useful core of a Zapier-like integration system, not a claim of Zapier parity. Zapier's
@@ -26,7 +27,7 @@ Rat Things applies that model to a headless, self-hosted agent backend with expl
 
 | Object | Purpose | Secret material? |
 | --- | --- | --- |
-| Plugin manifest | Describes authentication fields and typed operations | No |
+| Integration manifest | Describes authentication fields and typed operations; implemented by a trusted plugin | No |
 | Connection | One verified provider account for one Rat owner | No |
 | Credential binding | Host-only pointer to the encrypted credential | Reference only |
 | Grant | Persistent Rat-side permission ceiling for one connection | No |

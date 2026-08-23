@@ -3,21 +3,28 @@
     {
       "title": "Start here",
       "documents": [
+        "operating-model.md",
         "codex-subscription.md",
-        "things.md",
-        "conversations.md",
-        "browser-computer-use.md",
-        "durable-files.md",
-        "sharing-work.md"
+        "things.md"
       ]
     },
     {
-      "title": "Connect services",
+      "title": "Connect accounts and events",
       "documents": [
+        "plugins.md",
         "github-webhook-onboarding.md",
         "microsoft-teams.md",
-        "channels.md",
-        "plugins.md"
+        "channels.md"
+      ]
+    },
+    {
+      "title": "Use capabilities",
+      "documents": [
+        "conversations.md",
+        "browser-computer-use.md",
+        "durable-files.md",
+        "sharing-work.md",
+        "publications.md"
       ]
     },
     {
@@ -33,7 +40,6 @@
     {
       "title": "Reference",
       "documents": [
-        "publications.md",
         "api.md",
         "architecture.md",
         "security.md",

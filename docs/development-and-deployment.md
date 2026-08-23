@@ -1,5 +1,9 @@
 # Development, deployment, and migration
 
+This is the host/operator path for installing and maintaining an independent Rat Things deployment.
+Consumers of an existing deployment should start with the [operating model](operating-model.md)
+instead; they do not need Terraform, Docker, or access to the runtime account.
+
 ## Prerequisites
 
 - Node.js 20+, npm, and Git.

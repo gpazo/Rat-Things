@@ -195,12 +195,12 @@ function renderDocsHome(groups, documents) {
       <div class="docs-home">
         <p class="docs-eyebrow">Build on Rat Things</p>
         <h1>Agent automation.<br>Your infrastructure.</h1>
-        <p class="docs-home-lede">Define reusable Things, connect multiple accounts with explicit permissions, and expose isolated Codex execution through one headless API for operators, products, and other agents.</p>
+        <p class="docs-home-lede">Install one independent backend, connect verified accounts with explicit permissions, and expose reusable Things through one discoverable API for operators, products, and other agents.</p>
         <div class="docs-home-actions">
-          <a class="docs-button docs-button-primary" href="./things/">Build a Thing</a>
+          <a class="docs-button docs-button-primary" href="./operating-model/">How it works</a>
+          <a class="docs-button" href="./plugins/">Connect accounts</a>
+          <a class="docs-button" href="./things/">Build a Thing</a>
           <a class="docs-button" href="./embedding/">Embed the API</a>
-          <a class="docs-button" href="./development-and-deployment/">Self-host the runtime</a>
-          <a class="docs-button" href="./diagnostics/">Debug a deployment</a>
         </div>
         <dl class="docs-proof" aria-label="Rat Things capabilities">
           <div><dt>OpenAPI 3.1</dt><dd>machine-readable installed routes and request contract</dd></div>

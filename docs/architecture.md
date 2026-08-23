@@ -1,5 +1,9 @@
 # Architecture
 
+This page explains how Rat Things implements its product contract. Start with
+[how Rat Things operates](operating-model.md) if you are connecting accounts, defining Things, or
+building a consumer experience.
+
 ## Scope
 
 Rat Things is an asynchronous agent subsystem. Its deployed webhook flow accepts a bounded,
@@ -7,7 +11,7 @@ versioned run request; assigns trusted ownership and provenance; schedules one i
 persists the result; and optionally posts that result to a channel. It also contains an AWS-backed
 durable conversation foundation for prioritized messages, worker leases, progress, history, and
 checkpointed turn slices. Signed Teams mentions enter that mailbox and wake the bounded slice
-coordinator. The same control plane now owns capability profiles, multi-account API connections,
+coordinator. The same control plane owns capability profiles, multi-account API connections,
 live App Server interaction, isolated browser use, durable interval routines, and the revisioned
 Thing facade for headless consumers. Rat Things is not
 yet a general visual workflow builder, source-control installation manager, or chat identity
