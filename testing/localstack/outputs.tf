@@ -16,6 +16,7 @@ output "test_environment" {
     RUNS_TABLE_NAME                    = aws_dynamodb_table.runs.name
     ROUTINES_TABLE_NAME                = aws_dynamodb_table.routines.name
     THINGS_TABLE_NAME                  = aws_dynamodb_table.things.name
+    THING_SCHEDULER_MODE               = "simulation"
     RUN_QUEUE_URL                      = aws_sqs_queue.runs.url
     TERMINAL_EVENTS_QUEUE_URL          = aws_sqs_queue.terminal_events.url
     TEAMS_OUTGOING_WEBHOOK_SECRET_ARN  = aws_secretsmanager_secret.teams_webhook.name

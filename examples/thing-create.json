@@ -1,45 +1,41 @@
 {
   "version": "1",
-  "status": "draft",
-  "spec": {
-    "version": "1",
-    "name": "Customer operations review",
-    "goal": "Review support messages and payment exceptions. Summarize anything that needs an owner and do not issue refunds without approval.",
-    "trigger": {
-      "kind": "interval",
-      "everyMinutes": 60,
-      "startAt": "2026-08-24T09:00:00-07:00"
-    },
-    "agent": {
-      "driver": "codex",
-      "capabilities": {
-        "profile": "small-business",
-        "networkAccess": true,
-        "computerUse": "browser"
-      }
-    },
-    "connections": {
-      "set": "customer-operations",
-      "accounts": [
-        {
-          "account": "slack-support",
-          "access": "read-only"
-        },
-        {
-          "account": "stripe-business",
-          "access": "read-write",
-          "denyOperations": ["stripe.refunds.create"]
-        }
-      ]
-    },
-    "deliver": [
-      {
-        "kind": "slack",
-        "route": "C01234567"
-      }
-    ],
-    "metadata": {
-      "team": "customer-operations"
+  "name": "Customer operations review",
+  "goal": "Review support messages and payment exceptions. Summarize anything that needs an owner and do not issue refunds without approval.",
+  "trigger": {
+    "kind": "schedule",
+    "expression": "cron(0 9 ? * MON-FRI *)",
+    "timezone": "America/Los_Angeles"
+  },
+  "agent": {
+    "driver": "codex",
+    "capabilities": {
+      "profile": "small-business",
+      "networkAccess": true,
+      "computerUse": "browser"
     }
+  },
+  "connections": {
+    "set": "customer-operations",
+    "accounts": [
+      {
+        "account": "slack-support",
+        "access": "read-only"
+      },
+      {
+        "account": "stripe-business",
+        "access": "read-write",
+        "denyOperations": ["stripe.refunds.create"]
+      }
+    ]
+  },
+  "deliver": [
+    {
+      "kind": "slack",
+      "route": "C01234567"
+    }
+  ],
+  "metadata": {
+    "team": "customer-operations"
   }
 }

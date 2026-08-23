@@ -84,6 +84,16 @@ output "things_table_name" {
   value       = aws_dynamodb_table.things.name
 }
 
+output "thing_schedule_group_name" {
+  description = "EventBridge Scheduler group containing deployment-owned Thing schedules."
+  value       = aws_scheduler_schedule_group.things.name
+}
+
+output "thing_schedule_failure_queue_url" {
+  description = "Dead-letter queue for Thing schedules that exhaust target retries."
+  value       = aws_sqs_queue.thing_schedule_failures.url
+}
+
 output "run_queue_url" {
   value = aws_sqs_queue.runs.url
 }

@@ -10,6 +10,7 @@ const lambdaEntries = {
   notifier: 'src/lambdas/notifier.ts',
   reconciler: 'src/lambdas/reconciler.ts',
   'state-stream': 'src/lambdas/state-stream.ts',
+  'thing-schedule': 'src/lambdas/thing-schedule.ts',
   'webhook-github': 'src/lambdas/webhook-github.ts',
   'webhook-gitlab': 'src/lambdas/webhook-gitlab.ts',
   'webhook-teams': 'src/lambdas/webhook-teams.ts',

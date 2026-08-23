@@ -55,6 +55,7 @@ Expected log-group naming for a stack named `<prefix>-<environment>` is:
 /aws/lambda/<name>-control
 /aws/lambda/<name>-dispatcher
 /aws/lambda/<name>-reconciler
+/aws/lambda/<name>-thing-schedule
 /aws/lambda/<name>-state-stream
 /aws/lambda/<name>-notifier
 /aws/lambda/<name>-webhook-<provider>
@@ -104,6 +105,36 @@ must be inspected if that terminal event cannot be folded into the mailbox.
   monotonic terminal transitions.
 
 Escalate for audited state repair when the control API cannot safely reach a terminal state.
+
+## Thing schedule triage
+
+Start with the owner-scoped Thing record, not the AWS console:
+
+```bash
+npm run rat-things -- thing THING_ID
+npm run rat-things -- thing-explain THING_ID --target active
+```
+
+- `status: draft` means nothing is published. Test the draft, then publish it.
+- `status: paused` intentionally prevents scheduled delivery; an explicit `thing-run` still uses
+  the active revision.
+- `triggerState.status: error` contains the bounded Scheduler synchronization error. Repair IAM,
+  quota, expression, target, or service availability, then retry the same `thing-publish` or
+  `thing-resume`; lifecycle synchronization is idempotent.
+- `triggerState.status: ready` means Rat synchronized the active revision. Inspect the Terraform
+  `thing_schedule_group_name` output, the schedule expression/time zone/state, its fixed target and
+  invocation role, `/aws/lambda/<name>-thing-schedule`, and the encrypted queue from
+  `thing_schedule_failure_queue_url`.
+- Confirm the Scheduler input pins the current `active.revision` and carries
+  `<aws.scheduler.scheduled-time>`. The target deliberately acknowledges a stale revision, paused or
+  archived Thing, or non-schedule definition without creating a run.
+- For an accepted occurrence, correlate the Thing ID, revision, and scheduled time with the run's
+  `metadata.thingInvocation`. Those fields form its deterministic occurrence identity, so replaying
+  the same delivery must resolve to the same run.
+
+Do not edit the schedule target, role, or payload manually. Publish, pause, resume, and archive own
+that state through the control API. If the failure queue contains an item, preserve it until the
+cause is repaired and the pinned occurrence has been reconciled.
 
 ### `running` longer than `timeoutSeconds` plus start-up allowance
 

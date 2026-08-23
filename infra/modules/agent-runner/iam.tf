@@ -18,6 +18,26 @@ data "aws_iam_policy_document" "microvm_assume" {
   }
 }
 
+data "aws_iam_policy_document" "scheduler_assume" {
+  statement {
+    actions = ["sts:AssumeRole"]
+    principals {
+      type        = "Service"
+      identifiers = ["scheduler.amazonaws.com"]
+    }
+    condition {
+      test     = "StringEquals"
+      variable = "aws:SourceAccount"
+      values   = [data.aws_caller_identity.current.account_id]
+    }
+    condition {
+      test     = "ArnLike"
+      variable = "aws:SourceArn"
+      values   = [aws_scheduler_schedule_group.things.arn]
+    }
+  }
+}
+
 resource "aws_iam_role" "ingress" {
   name               = "${local.name}-lambda-ingress"
   assume_role_policy = data.aws_iam_policy_document.lambda_assume.json
@@ -63,6 +83,18 @@ resource "aws_iam_role" "state_stream" {
 resource "aws_iam_role" "reconciler" {
   name               = "${local.name}-lambda-reconciler"
   assume_role_policy = data.aws_iam_policy_document.lambda_assume.json
+  tags               = local.tags
+}
+
+resource "aws_iam_role" "thing_schedule" {
+  name               = "${local.name}-lambda-thing-schedule"
+  assume_role_policy = data.aws_iam_policy_document.lambda_assume.json
+  tags               = local.tags
+}
+
+resource "aws_iam_role" "thing_schedule_invoke" {
+  name               = "${local.name}-scheduler-thing-invoke"
+  assume_role_policy = data.aws_iam_policy_document.scheduler_assume.json
   tags               = local.tags
 }
 
@@ -214,6 +246,28 @@ data "aws_iam_policy_document" "control" {
     sid       = "Things"
     actions   = concat(local.run_table_read_write_actions, ["dynamodb:TransactWriteItems"])
     resources = [aws_dynamodb_table.things.arn, "${aws_dynamodb_table.things.arn}/index/*"]
+  }
+
+  statement {
+    sid = "ThingSchedules"
+    actions = [
+      "scheduler:CreateSchedule",
+      "scheduler:DeleteSchedule",
+      "scheduler:GetSchedule",
+      "scheduler:UpdateSchedule",
+    ]
+    resources = ["arn:${data.aws_partition.current.partition}:scheduler:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:schedule/${aws_scheduler_schedule_group.things.name}/*"]
+  }
+
+  statement {
+    sid       = "PassThingScheduleRole"
+    actions   = ["iam:PassRole"]
+    resources = [aws_iam_role.thing_schedule_invoke.arn]
+    condition {
+      test     = "StringEquals"
+      variable = "iam:PassedToService"
+      values   = ["scheduler.amazonaws.com"]
+    }
   }
 
   statement {
@@ -600,16 +654,6 @@ data "aws_iam_policy_document" "reconciler" {
   }
 
   statement {
-    sid = "Things"
-    actions = [
-      "dynamodb:GetItem",
-      "dynamodb:Query",
-      "dynamodb:UpdateItem",
-    ]
-    resources = [aws_dynamodb_table.things.arn, "${aws_dynamodb_table.things.arn}/index/*"]
-  }
-
-  statement {
     sid       = "RoutineRuns"
     actions   = ["dynamodb:GetItem", "dynamodb:PutItem"]
     resources = [aws_dynamodb_table.runs.arn]
@@ -619,12 +663,6 @@ data "aws_iam_policy_document" "reconciler" {
     sid       = "RoutineArtifacts"
     actions   = ["s3:GetObject", "s3:PutObject"]
     resources = ["${aws_s3_bucket.artifacts.arn}/owners/*"]
-  }
-
-  statement {
-    sid       = "ThingDefinitions"
-    actions   = ["s3:GetObject"]
-    resources = ["${aws_s3_bucket.definitions.arn}/owners/*"]
   }
 
   statement {
@@ -644,6 +682,82 @@ resource "aws_iam_role_policy" "reconciler" {
   name   = "reconciler"
   role   = aws_iam_role.reconciler.id
   policy = data.aws_iam_policy_document.reconciler.json
+}
+
+data "aws_iam_policy_document" "thing_schedule" {
+  statement {
+    sid       = "Logs"
+    actions   = ["logs:CreateLogStream", "logs:PutLogEvents"]
+    resources = ["${aws_cloudwatch_log_group.lambda["thing-schedule"].arn}:*"]
+  }
+
+  statement {
+    sid       = "ThingState"
+    actions   = ["dynamodb:GetItem", "dynamodb:UpdateItem"]
+    resources = [aws_dynamodb_table.things.arn]
+  }
+
+  statement {
+    sid       = "RunState"
+    actions   = ["dynamodb:GetItem", "dynamodb:PutItem"]
+    resources = [aws_dynamodb_table.runs.arn]
+  }
+
+  statement {
+    sid       = "ThingDefinitions"
+    actions   = ["s3:GetObject"]
+    resources = ["${aws_s3_bucket.definitions.arn}/owners/*"]
+  }
+
+  statement {
+    sid       = "RunArtifacts"
+    actions   = ["s3:PutObject"]
+    resources = ["${aws_s3_bucket.artifacts.arn}/owners/*"]
+  }
+
+  statement {
+    sid       = "RunQueue"
+    actions   = ["sqs:SendMessage"]
+    resources = [aws_sqs_queue.runs.arn]
+  }
+
+  statement {
+    sid       = "DataKey"
+    actions   = local.data_kms_actions
+    resources = [aws_kms_key.data.arn]
+  }
+}
+
+resource "aws_iam_role_policy" "thing_schedule" {
+  name   = "thing-schedule"
+  role   = aws_iam_role.thing_schedule.id
+  policy = data.aws_iam_policy_document.thing_schedule.json
+}
+
+data "aws_iam_policy_document" "thing_schedule_invoke" {
+  statement {
+    sid       = "InvokeThingSchedule"
+    actions   = ["lambda:InvokeFunction"]
+    resources = [local.thing_schedule_target_arn]
+  }
+
+  statement {
+    sid       = "DeadLetterQueue"
+    actions   = ["sqs:SendMessage"]
+    resources = [aws_sqs_queue.thing_schedule_failures.arn]
+  }
+
+  statement {
+    sid       = "DeadLetterQueueDataKey"
+    actions   = ["kms:Decrypt", "kms:GenerateDataKey"]
+    resources = [aws_kms_key.data.arn]
+  }
+}
+
+resource "aws_iam_role_policy" "thing_schedule_invoke" {
+  name   = "thing-schedule-invoke"
+  role   = aws_iam_role.thing_schedule_invoke.id
+  policy = data.aws_iam_policy_document.thing_schedule_invoke.json
 }
 
 data "aws_iam_policy_document" "worker" {

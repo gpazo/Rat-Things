@@ -4,6 +4,7 @@ import {
   DynamoDBClient,
 } from '@aws-sdk/client-dynamodb';
 import { EventBridgeClient, PutEventsCommand } from '@aws-sdk/client-eventbridge';
+import { SchedulerClient } from '@aws-sdk/client-scheduler';
 import {
   AbortMultipartUploadCommand,
   CompleteMultipartUploadCommand,
@@ -60,6 +61,7 @@ export interface AwsClients {
   s3: S3Client;
   sqs: SQSClient;
   events: EventBridgeClient;
+  scheduler: SchedulerClient;
   secrets: SecretsManagerClient;
 }
 
@@ -89,6 +91,7 @@ export function createAwsClients(region = process.env.AWS_REGION): AwsClients {
     }),
     sqs: new SQSClient(config),
     events: new EventBridgeClient(config),
+    scheduler: new SchedulerClient(config),
     secrets: new SecretsManagerClient(config),
   };
 }

@@ -12,6 +12,7 @@ import { DynamoConversationStore } from '../adapters/dynamo-conversation-store.j
 import { DynamoIntegrationStore } from '../adapters/dynamo-integration-store.js';
 import { DynamoRoutineStore } from '../adapters/dynamo-routine-store.js';
 import { DynamoThingStore } from '../adapters/dynamo-thing-store.js';
+import { EventBridgeThingScheduler } from '../adapters/eventbridge-thing-scheduler.js';
 import { SecretsManagerCredentialVault } from '../adapters/secrets-credential-vault.js';
 import { DynamoDeliveryFence } from '../adapters/dynamo-delivery-fence.js';
 import {
@@ -163,6 +164,19 @@ export function getThingService(): ThingService {
     ),
     artifacts: base.definitions,
     runs: getRunService(false),
+    scheduler: process.env.THING_SCHEDULER_MODE === 'simulation'
+      ? {
+        upsert: async () => undefined,
+        remove: async () => undefined,
+      }
+      : new EventBridgeThingScheduler(base.clients.scheduler, {
+        groupName: requiredEnv('THING_SCHEDULE_GROUP_NAME'),
+        targetArn: requiredEnv('THING_SCHEDULE_TARGET_ARN'),
+        executionRoleArn: requiredEnv('THING_SCHEDULE_ROLE_ARN'),
+        ...(process.env.THING_SCHEDULE_DLQ_ARN
+          ? { deadLetterArn: process.env.THING_SCHEDULE_DLQ_ARN }
+          : {}),
+      }),
     allowedRepositoryHosts: csv(process.env.ALLOWED_REPOSITORY_HOSTS ?? 'github.com,gitlab.com'),
     allowedSandboxModes: sandboxModes(
       process.env.ALLOWED_SANDBOX_MODES ?? 'read-only,workspace-write,danger-full-access',

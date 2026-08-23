@@ -46,6 +46,14 @@ output "things_table_name" {
   value = module.agent_runner.things_table_name
 }
 
+output "thing_schedule_group_name" {
+  value = module.agent_runner.thing_schedule_group_name
+}
+
+output "thing_schedule_failure_queue_url" {
+  value = module.agent_runner.thing_schedule_failure_queue_url
+}
+
 output "run_queue_url" {
   value = module.agent_runner.run_queue_url
 }

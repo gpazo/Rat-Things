@@ -8,6 +8,7 @@ import { SignatureV4 } from '@smithy/signature-v4';
 import { HttpRequest } from '@smithy/protocol-http';
 import { defaultProvider } from '@aws-sdk/credential-provider-node';
 import { GetObjectCommand, ListObjectsV2Command } from '@aws-sdk/client-s3';
+import { GetScheduleCommand } from '@aws-sdk/client-scheduler';
 import {
   GetMicrovmCommand,
   LambdaMicrovmsClient,
@@ -30,6 +31,7 @@ import {
 } from '../../src/adapters/aws-runtime.js';
 import { DynamoConversationStore } from '../../src/adapters/dynamo-conversation-store.js';
 import { DynamoThingStore } from '../../src/adapters/dynamo-thing-store.js';
+import { thingScheduleName } from '../../src/adapters/eventbridge-thing-scheduler.js';
 import { fetchSharedResource } from '../../src/adapters/publication-client.js';
 import { ConversationCoordinator } from '../../src/conversation/coordinator.js';
 import { ConversationService } from '../../src/conversation/service.js';
@@ -278,12 +280,10 @@ integration('live AWS agent-runner workflow', () => {
     const firstGoal = `Review both live accounts ${fixture}.`;
     const created = await signedApi<{
       thingId: string;
-      revision: number;
+      draft: { revision: number };
       status: string;
     }>('/v1/things', 'POST', {
-      version: '1',
-      status: 'draft',
-      spec: liveThingSpec(
+      ...liveThingSpec(
         'Live multi-account Thing',
         firstGoal,
         connectionSetName,
@@ -291,16 +291,16 @@ integration('live AWS agent-runner workflow', () => {
         businessAlias,
       ),
     });
-    expect(created).toMatchObject({ revision: 1, status: 'draft' });
+    expect(created).toMatchObject({ draft: { revision: 1 }, status: 'draft' });
     expect(JSON.stringify(created)).not.toContain(firstGoal);
 
     const secondGoal = `Return live Thing marker ${randomUUID()}`;
-    const revised = await signedApi<{ revision: number; status: string }>(
+    const revised = await signedApi<{ draft: { revision: number }; status: string }>(
       `/v1/things/${created.thingId}/versions`,
       'POST',
       {
         version: '1',
-        expectedRevision: 1,
+        expectedDraftRevision: 1,
         spec: liveThingSpec(
           'Live multi-account Thing',
           secondGoal,
@@ -310,7 +310,7 @@ integration('live AWS agent-runner workflow', () => {
         ),
       },
     );
-    expect(revised).toMatchObject({ revision: 2, status: 'draft' });
+    expect(revised).toMatchObject({ draft: { revision: 2 }, status: 'draft' });
     const versions = await signedApi<{ versions: Array<{ revision: number }> }>(
       `/v1/things/${created.thingId}/versions`,
       'GET',
@@ -361,21 +361,36 @@ integration('live AWS agent-runner workflow', () => {
     );
     const storedThing = await thingStore.get(created.thingId);
     expect(storedThing).toMatchObject({
-      revision: 2,
+      draft: { revision: 2, spec: { bucket: required('DEFINITION_BUCKET') } },
       status: 'draft',
-      spec: { bucket: required('DEFINITION_BUCKET') },
     });
     if (!storedThing) throw new Error('live Thing metadata was not persisted');
     expect(JSON.stringify(storedThing)).not.toContain(secondGoal);
     const definition = await clients.s3.send(new GetObjectCommand({
-      Bucket: storedThing.spec.bucket,
-      Key: storedThing.spec.key,
+      Bucket: storedThing.draft.spec.bucket,
+      Key: storedThing.draft.spec.key,
     }));
     expect(definition.ServerSideEncryption).toBe('aws:kms');
     expect(definition.SSEKMSKeyId).toBeTruthy();
     expect(definition.Body ? await definition.Body.transformToString('utf8') : '').toContain(
       secondGoal,
     );
+
+    const published = await signedApi<{
+      status: string;
+      draft: { revision: number };
+      active: { revision: number };
+      hasUnpublishedChanges: boolean;
+    }>(`/v1/things/${created.thingId}/publish`, 'POST', {
+      version: '1',
+      expectedDraftRevision: 2,
+    });
+    expect(published).toMatchObject({
+      status: 'active',
+      draft: { revision: 2 },
+      active: { revision: 2 },
+      hasUnpublishedChanges: false,
+    });
 
     const idempotencyKey = `thing-live-${randomUUID()}`;
     const runThing = () => signedApi<RunRecord>(
@@ -410,12 +425,13 @@ integration('live AWS agent-runner workflow', () => {
       metadata: {
         thingId: created.thingId,
         thingRevision: 2,
+        thingInvocation: 'manual',
       },
     });
     await expectTerminalEvents(clients.sqs, new Set([completed.runId]));
 
-    await signedApi(`/v1/things/${created.thingId}/enable`, 'POST', {});
     await signedApi(`/v1/things/${created.thingId}/pause`, 'POST', {});
+    await signedApi(`/v1/things/${created.thingId}/resume`, 'POST', {});
     const archived = await signedApi<{ status: string }>(
       `/v1/things/${created.thingId}/archive`,
       'POST',
@@ -449,40 +465,66 @@ integration('live AWS agent-runner workflow', () => {
     await expectEmptyFailureQueues(clients.sqs);
   }, timeoutMs);
 
-  it('submits one interval Thing occurrence through the deployed EventBridge reconciler', async () => {
+  it('publishes, invokes, pauses, resumes, and removes a real EventBridge Scheduler Thing', async () => {
     delete process.env.AWS_ENDPOINT_URL;
     const clients = createAwsClients();
     const marker = `scheduled-thing-${randomUUID()}`;
-    // Leave enough headroom for API creation, then let the one-minute AWS rule observe it as due.
-    const scheduledAt = new Date(Date.now() + 90_000).toISOString();
     const created = await signedApi<{
       thingId: string;
-      revision: number;
+      draft: { revision: number };
       status: string;
-      nextRunAt?: string;
     }>('/v1/things', 'POST', {
       version: '1',
-      status: 'enabled',
-      spec: {
-        version: '1',
-        name: 'Live EventBridge Thing',
-        goal: `Return AWS scheduled Thing marker ${marker}`,
-        trigger: { kind: 'interval', everyMinutes: 60, startAt: scheduledAt },
-        agent: { driver: 'mock', sandbox: 'read-only' },
-        deliver: [{ kind: 'none' }],
-      },
+      name: 'Live EventBridge Scheduler Thing',
+      goal: `Return AWS scheduled Thing marker ${marker}`,
+      trigger: { kind: 'schedule', expression: 'rate(1 minute)' },
+      agent: { driver: 'mock', sandbox: 'read-only' },
+      deliver: [{ kind: 'none' }],
     });
-    expect(created).toMatchObject({ revision: 1, status: 'enabled', nextRunAt: scheduledAt });
+    expect(created).toMatchObject({ draft: { revision: 1 }, status: 'draft' });
 
-    const occurred = await waitForScheduledThing(created.thingId, scheduledAt);
+    const published = await signedApi<{
+      status: string;
+      active: { revision: number };
+      triggerState: { status: string; revision?: number };
+    }>(`/v1/things/${created.thingId}/publish`, 'POST', {
+      version: '1',
+      expectedDraftRevision: 1,
+    });
+    expect(published).toMatchObject({
+      status: 'active',
+      active: { revision: 1 },
+      triggerState: { status: 'ready', revision: 1 },
+    });
+
+    const scheduleName = thingScheduleName(created.thingId);
+    const installed = await clients.scheduler.send(new GetScheduleCommand({
+      GroupName: required('THING_SCHEDULE_GROUP_NAME'),
+      Name: scheduleName,
+    }));
+    expect(installed).toMatchObject({
+      ScheduleExpression: 'rate(1 minute)',
+      State: 'ENABLED',
+      FlexibleTimeWindow: { Mode: 'OFF' },
+    });
+    expect(JSON.parse(installed.Target?.Input ?? '{}')).toEqual({
+      version: '1',
+      thingId: created.thingId,
+      revision: 1,
+      scheduledAt: '<aws.scheduler.scheduled-time>',
+    });
+
+    const occurred = await waitForScheduledThing(created.thingId);
     const runId = occurred.lastRunId;
     if (!runId) throw new Error('scheduled Thing has no run ID');
     expect(occurred).toMatchObject({
-      status: 'enabled',
-      revision: 1,
-      lastRunAt: scheduledAt,
-      nextRunAt: new Date(Date.parse(scheduledAt) + 60 * 60_000).toISOString(),
+      status: 'active',
+      active: { revision: 1 },
+      triggerState: { status: 'ready', revision: 1 },
     });
+    // A rate schedule keeps the second at which it was created; one-minute
+    // precision does not imply that every occurrence lands at second 00.
+    expect(occurred.lastRunAt).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.000Z$/);
 
     const completed = await waitForApiRun(runId);
     assertSuccessfulMicrovmRun(completed);
@@ -491,6 +533,8 @@ integration('live AWS agent-runner workflow', () => {
     });
     const artifacts = new S3ArtifactStore(clients.s3, required('ARTIFACT_BUCKET'));
     const input = await artifacts.getJson<RunRequest>(completed.input);
+    const scheduledAt = occurred.lastRunAt;
+    if (!scheduledAt) throw new Error('scheduled Thing has no occurrence timestamp');
     expect(input).toMatchObject({
       prompt: `Return AWS scheduled Thing marker ${marker}`,
       source: {
@@ -500,6 +544,7 @@ integration('live AWS agent-runner workflow', () => {
       metadata: {
         thingId: created.thingId,
         thingRevision: 1,
+        thingInvocation: 'schedule',
         scheduledAt,
       },
     });
@@ -523,6 +568,27 @@ integration('live AWS agent-runner workflow', () => {
       {},
     );
     expect(paused).toMatchObject({ status: 'paused', lastRunId: runId });
+    await expect(clients.scheduler.send(new GetScheduleCommand({
+      GroupName: required('THING_SCHEDULE_GROUP_NAME'),
+      Name: scheduleName,
+    }))).resolves.toMatchObject({ State: 'DISABLED' });
+
+    const resumed = await signedApi<{ status: string; triggerState: { status: string } }>(
+      `/v1/things/${created.thingId}/resume`,
+      'POST',
+      {},
+    );
+    expect(resumed).toMatchObject({ status: 'active', triggerState: { status: 'ready' } });
+    await expect(clients.scheduler.send(new GetScheduleCommand({
+      GroupName: required('THING_SCHEDULE_GROUP_NAME'),
+      Name: scheduleName,
+    }))).resolves.toMatchObject({ State: 'ENABLED' });
+
+    await signedApi(`/v1/things/${created.thingId}/archive`, 'POST', {});
+    await expect(clients.scheduler.send(new GetScheduleCommand({
+      GroupName: required('THING_SCHEDULE_GROUP_NAME'),
+      Name: scheduleName,
+    }))).rejects.toMatchObject({ name: 'ResourceNotFoundException' });
     await expectTerminalEvents(clients.sqs, new Set([runId]));
     await expectEmptyFailureQueues(clients.sqs);
   }, timeoutMs);
@@ -1328,9 +1394,9 @@ interface ApiConversationMessageStatus {
 
 interface ScheduledThingState {
   thingId: string;
-  revision: number;
   status: string;
-  nextRunAt?: string;
+  active?: { revision: number };
+  triggerState: { status: string; revision?: number };
   lastRunAt?: string;
   lastRunId?: string;
 }
@@ -1553,20 +1619,19 @@ async function waitForApiRun(runId: string): Promise<RunRecord> {
 
 async function waitForScheduledThing(
   thingId: string,
-  scheduledAt: string,
 ): Promise<ScheduledThingState> {
   const deadline = Date.now() + timeoutMs - 30_000;
   let latest: ScheduledThingState | undefined;
   while (Date.now() < deadline) {
     latest = await signedApi<ScheduledThingState>(`/v1/things/${thingId}`, 'GET');
-    if (latest.lastRunAt === scheduledAt && latest.lastRunId) return latest;
-    if (latest.status !== 'enabled') {
+    if (latest.lastRunAt && latest.lastRunId) return latest;
+    if (latest.status !== 'active') {
       throw new Error(`scheduled Thing ${thingId} unexpectedly entered ${latest.status}`);
     }
     await delay(2_000);
   }
   throw new Error(
-    `EventBridge did not submit Thing ${thingId} at ${scheduledAt}; last state ${JSON.stringify(latest)}`,
+    `EventBridge Scheduler did not submit Thing ${thingId}; last state ${JSON.stringify(latest)}`,
   );
 }
 
@@ -1955,6 +2020,7 @@ async function expectEmptyFailureQueues(
     'RUN_FAILURE_QUEUE_URL',
     'STATE_STREAM_FAILURE_QUEUE_URL',
     'NOTIFIER_DELIVERY_FAILURE_QUEUE_URL',
+    'THING_SCHEDULE_FAILURE_QUEUE_URL',
   ]) {
     const response = await sqs.send(new GetQueueAttributesCommand({
       QueueUrl: required(name),

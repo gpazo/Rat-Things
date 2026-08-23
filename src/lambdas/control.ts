@@ -302,7 +302,11 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
     ) {
       return response(200, await explainThingEnvironment(
         ownerId,
-        await getThingService().explain(ownerId, thingId),
+        await getThingService().explain(
+          ownerId,
+          thingId,
+          thingExplanationTarget(event.queryStringParameters?.target),
+        ),
         {
           profiles: getCapabilityProfileRegistry(),
           connections: getConnectionService(),
@@ -324,7 +328,20 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
         publicThingSummary(await getThingService().addVersion(ownerId, thingId, jsonBody(event))),
       );
     }
-    for (const operation of ['enable', 'pause', 'archive'] as const) {
+    if (
+      method === 'POST' &&
+      thingId &&
+      routeMatches(
+        event,
+        'POST /v1/things/{thingId}/publish',
+        `/v1/things/${thingId}/publish`,
+      )
+    ) {
+      return response(200, publicThingSummary(
+        await getThingService().publish(ownerId, thingId, jsonBody(event)),
+      ));
+    }
+    for (const operation of ['pause', 'resume', 'archive'] as const) {
       if (
         method === 'POST' &&
         thingId &&
@@ -336,13 +353,27 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
       ) {
         strictBody(jsonBody(event), []);
         return response(200, publicThingSummary(
-          operation === 'enable'
-            ? await getThingService().enable(ownerId, thingId)
-            : operation === 'pause'
+          operation === 'pause'
               ? await getThingService().pause(ownerId, thingId)
-              : await getThingService().archive(ownerId, thingId),
+              : operation === 'resume'
+                ? await getThingService().resume(ownerId, thingId)
+                : await getThingService().archive(ownerId, thingId),
         ));
       }
+    }
+    if (
+      method === 'POST' &&
+      thingId &&
+      routeMatches(event, 'POST /v1/things/{thingId}/test', `/v1/things/${thingId}/test`)
+    ) {
+      strictBody(jsonBody(event), []);
+      const idempotencyKey = header(event.headers, 'idempotency-key');
+      const run = await getThingService().test(
+        ownerId,
+        thingId,
+        ...(idempotencyKey ? [requiredIdempotencyKey(idempotencyKey)] : []),
+      );
+      return response(202, publicRun(run), { location: `/v1/runs/${run.runId}` });
     }
     if (
       method === 'POST' &&
@@ -666,6 +697,12 @@ export function apiRequestBody(body: unknown, source: { kind: 'api' } = { kind: 
     // in the queue trace, not the canonical request used for idempotency.
     source,
   };
+}
+
+function thingExplanationTarget(value: string | undefined): 'draft' | 'active' {
+  if (value === undefined || value === 'draft') return 'draft';
+  if (value === 'active') return 'active';
+  throw new ValidationError('target must be draft or active');
 }
 
 export interface ApiConversationMessageRequest {

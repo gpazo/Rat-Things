@@ -22,7 +22,10 @@ import type {
 import type {
   ListThingsResult,
   ThingRecord,
+  ThingRevision,
+  ScheduleThingTrigger,
   ThingStatus,
+  ThingTriggerState,
   ThingVersionRecord,
 } from '../domain/things.js';
 
@@ -129,26 +132,54 @@ export interface ThingStore {
     nextToken?: string,
     includeArchived?: boolean,
   ): Promise<ListThingsResult>;
-  listDue(cutoff: string, limit: number): Promise<ThingRecord[]>;
   addVersion(
-    record: ThingRecord,
+    ownerId: string,
+    thingId: string,
+    draft: ThingRevision,
     version: ThingVersionRecord,
-    expectedRevision: number,
+    expectedDraftRevision: number,
+    updatedAt: string,
+  ): Promise<ThingRecord>;
+  publish(
+    ownerId: string,
+    thingId: string,
+    draft: ThingRevision,
+    expectedStatus: ThingStatus,
+    triggerState: ThingTriggerState,
+    updatedAt: string,
   ): Promise<ThingRecord>;
   setStatus(
     ownerId: string,
     thingId: string,
     from: ThingStatus[],
     status: ThingStatus,
-    nextRunAt: string | undefined,
+    triggerState: ThingTriggerState,
     updatedAt: string,
   ): Promise<ThingRecord>;
-  advance(
+  setTriggerState(
     thingId: string,
-    expectedRevision: number,
-    expectedRunAt: string,
-    nextRunAt: string,
+    expectedRevision: number | undefined,
+    state: ThingTriggerState,
+    updatedAt: string,
+  ): Promise<ThingRecord>;
+  recordRun(
+    thingId: string,
+    expectedActiveRevision: number,
+    allowedStatuses: ThingStatus[],
+    runAt: string,
     runId: string,
     updatedAt: string,
   ): Promise<boolean>;
+}
+
+export interface ThingSchedulerTarget {
+  thingId: string;
+  revision: number;
+  trigger: ScheduleThingTrigger;
+}
+
+/** Backend-neutral desired-state port for a deployment-owned Thing schedule. */
+export interface ThingScheduler {
+  upsert(target: ThingSchedulerTarget, enabled: boolean): Promise<void>;
+  remove(thingId: string): Promise<void>;
 }

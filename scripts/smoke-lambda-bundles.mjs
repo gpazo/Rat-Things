@@ -14,6 +14,11 @@ process.env.CONVERSATION_QUEUE_URL ||= 'https://sqs.us-west-2.amazonaws.com/0000
 process.env.EVENT_BUS_NAME ||= 'bundle-smoke-runs';
 process.env.DEPLOYMENT_ID ||= 'bundle-smoke';
 process.env.AUDIT_QUEUE_URL ||= 'https://sqs.us-west-2.amazonaws.com/000000000000/bundle-smoke-audit';
+process.env.THINGS_TABLE_NAME ||= 'bundle-smoke-things';
+process.env.DEFINITION_BUCKET ||= 'bundle-smoke-definitions';
+process.env.THING_SCHEDULE_GROUP_NAME ||= 'bundle-smoke-things';
+process.env.THING_SCHEDULE_TARGET_ARN ||= 'arn:aws:lambda:us-west-2:000000000000:function:bundle-smoke-thing-schedule';
+process.env.THING_SCHEDULE_ROLE_ARN ||= 'arn:aws:iam::000000000000:role/bundle-smoke-thing-schedule';
 
 const lambdaRoot = resolve('dist/lambdas');
 const lambdaNames = (await readdir(lambdaRoot)).sort();

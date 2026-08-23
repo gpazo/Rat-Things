@@ -505,27 +505,10 @@ resource "aws_dynamodb_table" "things" {
     type = "S"
   }
 
-  attribute {
-    name = "status"
-    type = "S"
-  }
-
-  attribute {
-    name = "nextRunAt"
-    type = "S"
-  }
-
   global_secondary_index {
     name            = "owner-created-index"
     hash_key        = "ownerId"
     range_key       = "ownerCreated"
-    projection_type = "ALL"
-  }
-
-  global_secondary_index {
-    name            = "status-next-run-index"
-    hash_key        = "status"
-    range_key       = "nextRunAt"
     projection_type = "ALL"
   }
 
@@ -539,6 +522,14 @@ resource "aws_dynamodb_table" "things" {
   }
 
   tags = merge(local.tags, { Name = "${local.name}-things" })
+}
+
+resource "aws_sqs_queue" "thing_schedule_failures" {
+  name                      = "${local.name}-thing-schedule-failures"
+  message_retention_seconds = 1209600
+  kms_master_key_id         = aws_kms_key.data.arn
+
+  tags = merge(local.tags, { Name = "${local.name}-thing-schedule-failures" })
 }
 
 resource "aws_sqs_queue" "run_dlq" {

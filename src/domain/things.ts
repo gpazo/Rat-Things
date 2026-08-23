@@ -16,20 +16,22 @@ import type {
   ProviderAuthorization,
 } from './capabilities.js';
 
-export const THING_STATUSES = ['draft', 'enabled', 'paused', 'archived'] as const;
+export const THING_STATUSES = ['draft', 'active', 'paused', 'archived'] as const;
 export type ThingStatus = (typeof THING_STATUSES)[number];
 
 export interface ManualThingTrigger {
   kind: 'manual';
 }
 
-export interface IntervalThingTrigger {
-  kind: 'interval';
-  everyMinutes: number;
-  startAt?: string;
+export interface ScheduleThingTrigger {
+  kind: 'schedule';
+  /** Amazon EventBridge Scheduler rate(...) or cron(...) expression. */
+  expression: string;
+  /** IANA time-zone name. Omitted schedules use UTC. */
+  timezone?: string;
 }
 
-export type ThingTrigger = ManualThingTrigger | IntervalThingTrigger;
+export type ThingTrigger = ManualThingTrigger | ScheduleThingTrigger;
 
 /**
  * A deployment-owned account selector. The account is an owner-scoped
@@ -63,32 +65,44 @@ export interface ThingSpec {
   metadata?: { [key: string]: JsonValue };
 }
 
-/** Internal owner-scoped metadata. The complete spec remains in encrypted artifact storage. */
+/** Immutable revision metadata. The complete spec remains in encrypted artifact storage. */
+export interface ThingRevision {
+  revision: number;
+  name: string;
+  trigger: ThingTrigger;
+  spec: ArtifactReference;
+  specHash: string;
+  createdAt: string;
+}
+
+export type ThingTriggerStateStatus = 'inactive' | 'syncing' | 'ready' | 'paused' | 'error';
+
+export interface ThingTriggerState {
+  status: ThingTriggerStateStatus;
+  revision?: number;
+  updatedAt: string;
+  error?: string;
+}
+
+/** Internal owner-scoped metadata with separate draft and published pointers. */
 export interface ThingRecord {
   version: '1';
   thingId: string;
   ownerId: string;
   ownerCreated: string;
-  revision: number;
-  name: string;
   status: ThingStatus;
-  trigger: ThingTrigger;
-  nextRunAt?: string;
-  spec: ArtifactReference;
-  specHash: string;
+  draft: ThingRevision;
+  active?: ThingRevision;
+  triggerState: ThingTriggerState;
   createdAt: string;
   updatedAt: string;
   lastRunAt?: string;
   lastRunId?: string;
 }
 
-export interface ThingVersionRecord {
+export interface ThingVersionRecord extends ThingRevision {
   version: '1';
   thingId: string;
-  revision: number;
-  spec: ArtifactReference;
-  specHash: string;
-  createdAt: string;
 }
 
 export interface ListThingsResult {
@@ -96,17 +110,29 @@ export interface ListThingsResult {
   nextToken?: string;
 }
 
-export interface PublicThingSummary extends Omit<
-  ThingRecord,
-  'ownerId' | 'ownerCreated' | 'spec'
-> {}
-
-export interface PublicThing extends PublicThingSummary {
+export interface PublicThingVersion extends Omit<ThingVersionRecord, 'spec'> {
   spec: ThingSpec;
 }
 
-export interface PublicThingVersion extends Omit<ThingVersionRecord, 'spec'> {
-  spec: ThingSpec;
+export interface PublicThingRevisionSummary extends Omit<ThingRevision, 'spec'> {}
+
+export interface PublicThingSummary {
+  version: '1';
+  thingId: string;
+  status: ThingStatus;
+  draft: PublicThingRevisionSummary;
+  active?: PublicThingRevisionSummary;
+  hasUnpublishedChanges: boolean;
+  triggerState: ThingTriggerState;
+  createdAt: string;
+  updatedAt: string;
+  lastRunAt?: string;
+  lastRunId?: string;
+}
+
+export interface PublicThing extends Omit<PublicThingSummary, 'draft' | 'active'> {
+  draft: PublicThingVersion;
+  active?: PublicThingVersion;
 }
 
 export interface ThingDiagnostic {
@@ -117,6 +143,7 @@ export interface ThingDiagnostic {
 
 export interface ThingExplanation {
   version: '1';
+  target: 'draft' | 'active';
   thing: PublicThing;
   /** Direct, deterministic ThingSpec-to-RunRequest compilation. */
   compiledRun: RunRequest;
@@ -154,8 +181,15 @@ export interface ResolvedThingConnection {
   operations: ResolvedThingOperation[];
 }
 
-export interface ThingTickResult {
-  examined: number;
-  scheduled: number;
-  runs: Array<Pick<RunRecord, 'runId' | 'status'>>;
+export interface ScheduledThingInvocation {
+  version: '1';
+  thingId: string;
+  revision: number;
+  scheduledAt: string;
+}
+
+export interface ScheduledThingResult {
+  accepted: boolean;
+  reason?: 'missing' | 'not-active' | 'stale-revision' | 'not-scheduled';
+  run?: Pick<RunRecord, 'runId' | 'status'>;
 }

@@ -22,9 +22,9 @@
     },
     "metadata": {
       "type": "object",
-      "description": "Application metadata. thingId, thingName, thingRevision, and scheduledAt are reserved.",
+      "description": "Application metadata. thingId, thingName, thingRevision, thingInvocation, and scheduledAt are reserved.",
       "propertyNames": {
-        "not": { "enum": ["thingId", "thingName", "thingRevision", "scheduledAt"] }
+        "not": { "enum": ["thingId", "thingName", "thingRevision", "thingInvocation", "scheduledAt"] }
       }
     }
   },
@@ -44,11 +44,21 @@
         {
           "type": "object",
           "additionalProperties": false,
-          "required": ["kind", "everyMinutes"],
+          "required": ["kind", "expression"],
           "properties": {
-            "kind": { "const": "interval" },
-            "everyMinutes": { "type": "integer", "minimum": 1, "maximum": 525600 },
-            "startAt": { "type": "string", "format": "date-time" }
+            "kind": { "const": "schedule" },
+            "expression": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256,
+              "pattern": "^(rate|cron)\\(.*\\)$"
+            },
+            "timezone": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256,
+              "description": "IANA time-zone name; UTC when omitted."
+            }
           }
         }
       ]

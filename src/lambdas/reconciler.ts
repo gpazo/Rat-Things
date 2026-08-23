@@ -4,7 +4,7 @@ import { QueryCommand } from '@aws-sdk/lib-dynamodb';
 import { createAwsClients, DynamoRunStore } from '../adapters/aws-runtime.js';
 import { requiredEnv } from '../adapters/executors.js';
 import type { RunQueueMessage, RunRecord } from '../domain/contracts.js';
-import { getRoutineService, getThingService } from '../app/composition.js';
+import { getRoutineService } from '../app/composition.js';
 
 const clients = createAwsClients();
 const tableName = requiredEnv('RUNS_TABLE_NAME');
@@ -18,10 +18,7 @@ export const handler: EventBridgeHandler<'Scheduled Event', Record<string, never
   await requeue(cutoff);
   await redriveUnattachedExecutions(cutoff);
   await finalizeUnlaunchedCancellations(cutoff);
-  await Promise.all([
-    getRoutineService().tick(Number(process.env.ROUTINE_TICK_LIMIT ?? 100)),
-    getThingService().tick(Number(process.env.THING_TICK_LIMIT ?? 100)),
-  ]);
+  await getRoutineService().tick(Number(process.env.ROUTINE_TICK_LIMIT ?? 100));
 };
 
 async function requeue(cutoff: string): Promise<void> {

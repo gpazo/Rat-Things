@@ -35,10 +35,14 @@ export async function explainThingEnvironment(
   environment: ThingExplanationEnvironment,
 ): Promise<ThingExplanation> {
   const diagnostics = [...explanation.diagnostics];
+  const selectedSpec = explanation.target === 'draft'
+    ? explanation.thing.draft.spec
+    : explanation.thing.active?.spec;
+  if (!selectedSpec) throw new Error('Thing explanation target is unavailable');
   let effectiveRun = explanation.compiledRun;
   let maximumAccess: 'read-only' | 'read-write' | 'full' | undefined;
   try {
-    const resolved = resolveAgentProfile(explanation.thing.spec.agent, environment.profiles);
+    const resolved = resolveAgentProfile(selectedSpec.agent, environment.profiles);
     maximumAccess = resolved.maximumIntegrationAccess;
     effectiveRun = {
       ...explanation.compiledRun,
@@ -47,8 +51,8 @@ export async function explainThingEnvironment(
     diagnostics.push({
       id: 'profile',
       status: 'pass',
-      message: explanation.thing.spec.agent?.capabilities?.profile
-        ? `Capability profile ${explanation.thing.spec.agent.capabilities.profile} is installed and resolved.`
+      message: selectedSpec.agent?.capabilities?.profile
+        ? `Capability profile ${selectedSpec.agent.capabilities.profile} is installed and resolved.`
         : 'The Thing uses deployment defaults because it selects no capability profile.',
     });
   } catch (error) {
@@ -60,7 +64,7 @@ export async function explainThingEnvironment(
   }
 
   const resolvedConnections: ResolvedThingConnection[] = [];
-  const requestedConnections = explanation.thing.spec.connections;
+  const requestedConnections = selectedSpec.connections;
   if (requestedConnections) {
     const [bundles, sets] = await Promise.all([
       environment.connections.list(ownerId),

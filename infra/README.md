@@ -11,11 +11,13 @@ provider and the AWS Cloud Control provider required for the MicroVM image resou
 
 - HTTP API Gateway with public signature-validated provider routes, public machine-readable
   discovery/contracts, and IAM-authenticated owner-scoped control routes.
-- Lambda ingress, control, dispatcher, reconciler, state-stream, and notification functions.
+- Lambda ingress, control, dispatcher, reconciler, Thing-schedule, state-stream, and notification
+  functions.
 - Encrypted DynamoDB run, conversation, integration, routine, and revisioned Thing stores;
   encrypted S3 artifact, non-expiring definition, and MicroVM-source buckets; and encrypted SQS
   work/dead-letter queues.
-- A custom EventBridge bus, terminal-state notifier target, failure queues, and alarms.
+- A custom EventBridge bus, an EventBridge Scheduler group with a fixed Thing target and invocation
+  role, terminal-state notifier targets, failure queues, and alarms.
 - A Lambda MicroVM image built from `dist/microvm-source.zip`, its execution/build roles, log group,
   and SSM image metadata.
 - When enabled, one private-S3 CloudFront distribution with wildcard publication isolation, signed
@@ -96,6 +98,12 @@ failure message.
 The `notifier_delivery_failure_queue_url` output identifies terminal events EventBridge could not
 deliver after its configured retries. Repair the target, redrive each event, verify the
 per-destination delivery fence, and only then delete the DLQ message.
+
+The `thing_schedule_failure_queue_url` output identifies EventBridge Scheduler deliveries that
+exhausted retries. Inspect the pinned Thing revision and scheduled time, repair the fixed target or
+Thing state, and replay only after confirming the occurrence idempotency key is safe. The
+`thing_schedule_group_name` output identifies the deployment-owned group; consumers cannot select
+an arbitrary AWS target or IAM role.
 
 Service references:
 

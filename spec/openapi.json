@@ -401,7 +401,7 @@
         "operationId": "createThing",
         "requestBody": {
           "required": true,
-          "content": { "application/json": { "schema": { "$ref": "/schemas/thing-create-v1.json" } } }
+          "content": { "application/json": { "schema": { "$ref": "/schemas/thing-v1.json" } } }
         },
         "responses": {
           "201": {
@@ -420,7 +420,7 @@
         "parameters": [{ "$ref": "#/components/parameters/ThingId" }],
         "responses": {
           "200": {
-            "description": "Current Thing revision",
+            "description": "Thing lifecycle with explicit draft and published revisions",
             "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Thing" } } }
           },
           "default": { "$ref": "#/components/responses/Error" }
@@ -492,7 +492,10 @@
       "get": {
         "tags": ["Things"],
         "operationId": "explainThing",
-        "parameters": [{ "$ref": "#/components/parameters/ThingId" }],
+        "parameters": [
+          { "$ref": "#/components/parameters/ThingId" },
+          { "name": "target", "in": "query", "schema": { "enum": ["draft", "active"], "default": "draft" } }
+        ],
         "responses": {
           "200": {
             "description": "Compiled run request and diagnostics without credentials",
@@ -521,14 +524,44 @@
         }
       }
     },
-    "/v1/things/{thingId}/enable": {
+    "/v1/things/{thingId}/test": {
       "post": {
         "tags": ["Things"],
-        "operationId": "enableThing",
-        "parameters": [{ "$ref": "#/components/parameters/ThingId" }],
+        "operationId": "testThingDraft",
+        "parameters": [
+          { "$ref": "#/components/parameters/ThingId" },
+          { "$ref": "#/components/parameters/IdempotencyKey" }
+        ],
         "requestBody": { "$ref": "#/components/requestBodies/EmptyObject" },
         "responses": {
-          "200": { "description": "Thing enabled", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ThingSummary" } } } },
+          "202": { "description": "Draft test run queued", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RunReceipt" } } } },
+          "default": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/v1/things/{thingId}/publish": {
+      "post": {
+        "tags": ["Things"],
+        "operationId": "publishThing",
+        "parameters": [{ "$ref": "#/components/parameters/ThingId" }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["version", "expectedDraftRevision"],
+                "properties": {
+                  "version": { "const": "1" },
+                  "expectedDraftRevision": { "type": "integer", "minimum": 1 }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Draft revision published and trigger synchronized", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ThingSummary" } } } },
           "default": { "$ref": "#/components/responses/Error" }
         }
       }
@@ -541,6 +574,18 @@
         "requestBody": { "$ref": "#/components/requestBodies/EmptyObject" },
         "responses": {
           "200": { "description": "Thing paused", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ThingSummary" } } } },
+          "default": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/v1/things/{thingId}/resume": {
+      "post": {
+        "tags": ["Things"],
+        "operationId": "resumeThing",
+        "parameters": [{ "$ref": "#/components/parameters/ThingId" }],
+        "requestBody": { "$ref": "#/components/requestBodies/EmptyObject" },
+        "responses": {
+          "200": { "description": "Thing resumed", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ThingSummary" } } } },
           "default": { "$ref": "#/components/responses/Error" }
         }
       }
@@ -1063,16 +1108,15 @@
       },
       "ThingSummary": {
         "type": "object",
-        "required": ["version", "thingId", "revision", "name", "status", "trigger", "specHash", "createdAt", "updatedAt"],
+        "required": ["version", "thingId", "status", "draft", "hasUnpublishedChanges", "triggerState", "createdAt", "updatedAt"],
         "properties": {
           "version": { "const": "1" },
           "thingId": { "type": "string" },
-          "revision": { "type": "integer", "minimum": 1 },
-          "name": { "type": "string" },
-          "status": { "enum": ["draft", "enabled", "paused", "archived"] },
-          "trigger": { "type": "object" },
-          "nextRunAt": { "type": "string", "format": "date-time" },
-          "specHash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+          "status": { "enum": ["draft", "active", "paused", "archived"] },
+          "draft": { "$ref": "#/components/schemas/ThingRevisionSummary" },
+          "active": { "$ref": "#/components/schemas/ThingRevisionSummary" },
+          "hasUnpublishedChanges": { "type": "boolean" },
+          "triggerState": { "$ref": "#/components/schemas/ThingTriggerState" },
           "createdAt": { "type": "string", "format": "date-time" },
           "updatedAt": { "type": "string", "format": "date-time" },
           "lastRunAt": { "type": "string", "format": "date-time" },
@@ -1082,16 +1126,46 @@
       "Thing": {
         "allOf": [
           { "$ref": "#/components/schemas/ThingSummary" },
-          { "type": "object", "required": ["spec"], "properties": { "spec": { "$ref": "/schemas/thing-v1.json" } } }
+          {
+            "type": "object",
+            "required": ["draft"],
+            "properties": {
+              "draft": { "$ref": "#/components/schemas/ThingVersion" },
+              "active": { "$ref": "#/components/schemas/ThingVersion" }
+            }
+          }
         ]
+      },
+      "ThingRevisionSummary": {
+        "type": "object",
+        "required": ["revision", "name", "trigger", "specHash", "createdAt"],
+        "properties": {
+          "revision": { "type": "integer", "minimum": 1 },
+          "name": { "type": "string" },
+          "trigger": { "type": "object" },
+          "specHash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+          "createdAt": { "type": "string", "format": "date-time" }
+        }
+      },
+      "ThingTriggerState": {
+        "type": "object",
+        "required": ["status", "updatedAt"],
+        "properties": {
+          "status": { "enum": ["inactive", "syncing", "ready", "paused", "error"] },
+          "revision": { "type": "integer", "minimum": 1 },
+          "updatedAt": { "type": "string", "format": "date-time" },
+          "error": { "type": "string", "maxLength": 512 }
+        }
       },
       "ThingVersionSummary": {
         "type": "object",
-        "required": ["version", "thingId", "revision", "specHash", "createdAt"],
+        "required": ["version", "thingId", "revision", "name", "trigger", "specHash", "createdAt"],
         "properties": {
           "version": { "const": "1" },
           "thingId": { "type": "string" },
           "revision": { "type": "integer", "minimum": 1 },
+          "name": { "type": "string" },
+          "trigger": { "type": "object" },
           "specHash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
           "createdAt": { "type": "string", "format": "date-time" }
         }
@@ -1114,9 +1188,10 @@
       },
       "ThingExplanation": {
         "type": "object",
-        "required": ["version", "thing", "compiledRun", "runnable", "diagnostics"],
+        "required": ["version", "target", "thing", "compiledRun", "runnable", "diagnostics"],
         "properties": {
           "version": { "const": "1" },
+          "target": { "enum": ["draft", "active"] },
           "thing": { "$ref": "#/components/schemas/Thing" },
           "compiledRun": { "type": "object" },
           "runnable": { "type": "boolean" },

@@ -43,8 +43,11 @@ export function ratThingsDiscovery(docsUrl?: string): Record<string, unknown> {
       consumers: ['operator', 'embedded-product'],
       things: {
         specVersions: ['1'],
-        triggers: ['manual', 'interval'],
-        lifecycle: ['draft', 'enabled', 'paused', 'archived'],
+        triggers: ['manual', 'schedule:rate', 'schedule:cron'],
+        scheduleBackend: 'amazon-eventbridge-scheduler',
+        scheduleTimezones: 'iana',
+        lifecycle: ['draft', 'active', 'paused', 'archived'],
+        draftAndActiveRevisions: true,
         immutableRevisions: true,
         explain: true,
       },

@@ -8,6 +8,7 @@ locals {
       notifier                 = true
       reconciler               = true
       state-stream             = true
+      thing-schedule           = true
     },
     {
       webhook-github = local.github_enabled

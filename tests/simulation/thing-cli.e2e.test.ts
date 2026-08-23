@@ -83,19 +83,52 @@ describe('Thing CLI-to-HTTP workflow', () => {
       return send(response, { ok: true, connectionId: 'connection-cli' });
     }
     if (request.method === 'POST' && request.url === '/v1/things') {
-      return send(response, { version: '1', thingId: 'thing-cli', revision: 1, status: 'draft' }, 201);
+      return send(response, {
+        version: '1',
+        thingId: 'thing-cli',
+        draft: { revision: 1 },
+        status: 'draft',
+      }, 201);
+    }
+    if (request.method === 'GET' && request.url === '/v1/things/thing-cli') {
+      const revised = requests.filter((candidate) => (
+        candidate.method === 'POST' && candidate.path === '/v1/things/thing-cli/versions'
+      )).length > 0;
+      return send(response, {
+        version: '1',
+        thingId: 'thing-cli',
+        draft: { revision: revised ? 2 : 1 },
+        status: revised ? 'active' : 'draft',
+      });
     }
     if (request.method === 'GET' && request.url === '/v1/things/thing-cli/explain') {
       return send(response, { version: '1', runnable: true, diagnostics: [] });
     }
     if (request.method === 'POST' && request.url === '/v1/things/thing-cli/versions') {
-      return send(response, { version: '1', thingId: 'thing-cli', revision: 2, status: 'draft' }, 201);
+      return send(response, {
+        version: '1',
+        thingId: 'thing-cli',
+        draft: { revision: 2 },
+        status: 'draft',
+      }, 201);
     }
     if (request.method === 'GET' && request.url === '/v1/things/thing-cli/versions/1') {
       return send(response, { version: '1', thingId: 'thing-cli', revision: 1, spec: { goal: 'original' } });
     }
     if (request.method === 'POST' && request.url === '/v1/things/thing-cli/run') {
       return send(response, { runId: 'run-cli', status: 'queued' }, 202);
+    }
+    if (request.method === 'POST' && request.url === '/v1/things/thing-cli/test') {
+      return send(response, { runId: 'test-cli', status: 'queued' }, 202);
+    }
+    if (request.method === 'POST' && request.url === '/v1/things/thing-cli/publish') {
+      return send(response, {
+        version: '1',
+        thingId: 'thing-cli',
+        draft: { revision: 2 },
+        active: { revision: 2 },
+        status: 'active',
+      });
     }
     return send(response, { error: { code: 'not_found', message: 'route not found' } }, 404);
   });
@@ -122,15 +155,12 @@ describe('Thing CLI-to-HTTP workflow', () => {
       method: 'POST',
       body: {
         version: '1',
-        status: 'draft',
-        spec: {
-          name: 'Customer operations review',
-          connections: {
-            accounts: [
-              { account: 'slack-support', access: 'read-only' },
-              expect.objectContaining({ account: 'stripe-business', access: 'read-write' }),
-            ],
-          },
+        name: 'Customer operations review',
+        connections: {
+          accounts: [
+            { account: 'slack-support', access: 'read-only' },
+            expect.objectContaining({ account: 'stripe-business', access: 'read-write' }),
+          ],
         },
       },
     });
@@ -139,19 +169,37 @@ describe('Thing CLI-to-HTTP workflow', () => {
     expect(JSON.parse(explained.stdout)).toMatchObject({ runnable: true });
 
     const revised = await cli([
-      'thing-version',
+      'thing-update',
       'thing-cli',
       '--file',
       'examples/thing-version.json',
     ], apiUrl);
-    expect(JSON.parse(revised.stdout)).toMatchObject({ thingId: 'thing-cli', revision: 2 });
+    expect(JSON.parse(revised.stdout)).toMatchObject({ thingId: 'thing-cli', draft: { revision: 2 } });
     expect(requests.find((request) => request.path === '/v1/things/thing-cli/versions')).toMatchObject({
       method: 'POST',
-      body: { version: '1', expectedRevision: 1 },
+      body: { version: '1', expectedDraftRevision: 1, spec: expect.any(Object) },
     });
 
     const historical = await cli(['thing-version', 'thing-cli', '1'], apiUrl);
     expect(JSON.parse(historical.stdout)).toMatchObject({ revision: 1, spec: { goal: 'original' } });
+
+    const testRun = await cli([
+      'thing-test',
+      'thing-cli',
+      '--idempotency-key',
+      'cli-draft-test',
+    ], apiUrl);
+    expect(JSON.parse(testRun.stdout)).toMatchObject({ runId: 'test-cli', status: 'queued' });
+
+    const published = await cli(['thing-publish', 'thing-cli'], apiUrl);
+    expect(JSON.parse(published.stdout)).toMatchObject({
+      status: 'active',
+      draft: { revision: 2 },
+      active: { revision: 2 },
+    });
+    expect(requests.find((request) => request.path === '/v1/things/thing-cli/publish')).toMatchObject({
+      body: { version: '1', expectedDraftRevision: 2 },
+    });
 
     const run = await cli([
       'thing-run',

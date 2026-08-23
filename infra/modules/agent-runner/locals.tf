@@ -11,7 +11,8 @@ locals {
     Subsystem   = "agent-runner"
   })
 
-  bucket_suffix = substr(sha256("${data.aws_caller_identity.current.account_id}:${data.aws_region.current.region}:${local.name}"), 0, 12)
+  bucket_suffix             = substr(sha256("${data.aws_caller_identity.current.account_id}:${data.aws_region.current.region}:${local.name}"), 0, 12)
+  thing_schedule_target_arn = "arn:${data.aws_partition.current.partition}:lambda:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:function:${local.name}-thing-schedule"
 
   lambda_zip_paths = merge({
     control                  = "${path.root}/../dist/control.zip"
@@ -21,6 +22,7 @@ locals {
     notifier                 = "${path.root}/../dist/notifier.zip"
     reconciler               = "${path.root}/../dist/reconciler.zip"
     state-stream             = "${path.root}/../dist/state-stream.zip"
+    thing-schedule           = "${path.root}/../dist/thing-schedule.zip"
     webhook-github           = "${path.root}/../dist/webhook-github.zip"
     webhook-gitlab           = "${path.root}/../dist/webhook-gitlab.zip"
     webhook-teams            = "${path.root}/../dist/webhook-teams.zip"

@@ -15,10 +15,10 @@ disaster-recovery proof.
 | Run contract and state machine | Implemented/tested | Strict validation, conditional transitions, owner-scoped idempotency |
 | Provider plugin boundary | Implemented/tested | Trusted manifests bind ingress/delivery; dependency checks prevent authority inversion |
 | Control API | Core live validated; browser event/approval path live validated | Submit/list/get/cancel, artifacts, live events/steer/interrupt/approval/response, integrations, profiles, and routines |
-| Thing facade | Implemented/local and live AWS validated | Credential-free versioned definitions, draft/enable/pause/archive lifecycle, manual and interval triggers, explain diagnostics, idempotent invocation, and complete API/CLI contracts |
+| Thing facade | Implemented/local and live AWS validated | Credential-free immutable definitions, explicit draft/active pointers, test/publish/run/pause/resume/archive lifecycle, manual and EventBridge Scheduler rate/cron triggers, explain diagnostics, and idempotent invocation |
 | Durable agent files | Implemented/live validated | `.rat-things/artifacts/` outbox, immutable S3 bytes, conversation catalog restoration, and CLI list/24-hour URL/download commands passed in a real Codex MicroVM |
 | File/site/video publications | Implemented/live validated | Agent-declared publishing, content-derived reuse, manifest-last commit, isolated wildcard hosts, CloudFront OAC, signed redemption, and API/CLI commands passed recipient-open validation |
-| Durable AWS orchestration | Locally/live validated | DynamoDB, S3, SQS, Streams, EventBridge, notifier delivery, failure queues |
+| Durable AWS orchestration | Locally/live validated | DynamoDB, S3, SQS, Streams, EventBridge, EventBridge Scheduler, notifier delivery, retries, and failure queues |
 | Conversation mailbox | End-to-end locally/live validated | Teams ingress, DynamoDB/S3 mailbox, interrupt/defer ordering, leases, SQS coordinator, durable replay, terminal completion, expiry fallback, and crash-window repair |
 | Lambda MicroVM runner | One-shot/resume/replacement live validated | Same-ID suspend/resume plus S3 Files workspace restoration in a replacement VM passed in `us-west-2` |
 | ECS replacement | Complete | Before removal, the same pinned checkout produced byte-identical output/events and equivalent execution metadata on the legacy task and MicroVM paths; the post-removal live suite then passed with no ECS/VPC fallback |
@@ -37,6 +37,30 @@ disaster-recovery proof.
 | Observability/recovery | Partial/live measured | Low-cardinality queue/processing metrics, structured logs, durable queues/events, reconciler, delivery leases, failure queues/alarms; broader chaos drills remain |
 | Cost model | Live canary baseline measured | The 2026-08-16 two-turn site canary is about $0.380 at public list rates; non-model infrastructure fell to about $0.046, while sustained-load ceilings remain unmeasured |
 | Multi-tenant hardening | Not complete | Requires safe response projection, destination authorization, budgets, rate limits, and security review |
+
+## Validation completed on 2026-08-23
+
+- A fresh 226-resource disposable `us-west-2` stack (`sch260823b`) passed all eight applicable
+  live-AWS workflows in 273.18 seconds. The separate real-Codex restoration,
+  real-integration-write, and browser-publication scenarios were the three expected opt-in skips;
+  each already has dedicated live evidence recorded below.
+- The Thing journey created draft revision 1, tested the draft, published it as the exact active
+  revision, and created a real EventBridge Scheduler `rate(1 minute)` schedule with a fixed Lambda
+  target and invocation role. AWS fired the schedule at its actual context time; the resulting run
+  pinned the expected Thing ID, immutable revision, scheduled time, and occurrence idempotency key,
+  completed in a Lambda MicroVM, and left the schedule failure queue empty.
+- The same test inspected the deployed schedule, proved that pause disabled it, resume enabled it,
+  archive removed it, and a stale or duplicate occurrence could not submit additional work. The
+  broader suite also revalidated signed provider ingress, the revisioned multi-account Thing API,
+  same-VM and CLI conversation continuation, replacement-VM fallback, coordinator crash repair,
+  and repository-backed execution.
+- Docker/LocalStack passed all six workflows, including the trusted scheduled-invocation handler.
+  The complete local gate passed 61 files and 257 tests with 18 intentional opt-in skips; all 13
+  ARM64 Lambda bundles packaged and smoke-loaded, the 21-page documentation site built, and all
+  three Terraform configurations validated.
+- Teardown terminated six MicroVMs and destroyed all 226 Terraform resources. The post-destroy tag
+  audit found only resources already gone, terminal, or deleting. AWS disabled the customer-managed
+  KMS key and scheduled its mandatory delayed deletion.
 
 ## Validation completed on 2026-08-22
 
@@ -71,8 +95,8 @@ disaster-recovery proof.
 
 - A fresh 208-resource disposable `us-west-2` stack (`ev260821a`) passed ten applicable workflows;
   only the custom-domain browser-publication case was skipped because that optional DNS fixture was
-  not configured. A live EventBridge one-minute rule, rather than an explicit `/run` call, submitted
-  exactly one interval Thing occurrence. The resulting durable run retained the expected Thing,
+  not configured. The earlier reconciler-based implementation submitted exactly one scheduled
+  Thing occurrence without an explicit `/run` call. The resulting durable run retained the expected Thing,
   revision, scheduled-time, and source provenance, completed in a Lambda MicroVM, and left the
   scheduler and failure queues clean. The focused scenario passed in 143.27 seconds.
 - With the real-Codex option enabled, a Codex agent selected the authorized Slack account and called
@@ -96,8 +120,8 @@ disaster-recovery proof.
   bytes and SHA-256 digest in a dedicated versioned S3 bucket, and confirmed `aws:kms` object
   encryption with the deployment key. It submitted an idempotent Thing invocation through the
   production API, SQS dispatcher, and actual Lambda MicroVM mock runner; the resulting run retained
-  trusted Thing ID/revision provenance and the resolved two-account policy. Enable, pause, archive,
-  credential rotation, and revocation also passed against real AWS services.
+  trusted Thing ID/revision provenance and the resolved two-account policy. The lifecycle operations
+  then in place, credential rotation, and revocation also passed against real AWS services.
 - A clean Docker/LocalStack deployment passed all five workflows. Its Thing path covered two
   same-plugin accounts, Secrets Manager reference/value separation, connection-set selection,
   immutable definition storage, historical revision retrieval, explain diagnostics, duplicate

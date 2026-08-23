@@ -60,36 +60,51 @@ describe('DynamoThingStore', () => {
       thingId: 'thing-1',
       ownerId: 'owner-1',
       ownerCreated: 'owner-1#2026-08-21T00:00:00.000Z#thing-1',
-      revision: 2,
-      name: 'Thing',
       status: 'draft' as const,
-      trigger: { kind: 'manual' as const },
-      spec: { bucket: 'definitions', key: 'definition.json', sha256: 'a'.repeat(64) },
-      specHash: 'b'.repeat(64),
+      draft: {
+        revision: 2,
+        name: 'Thing',
+        trigger: { kind: 'manual' as const },
+        spec: { bucket: 'definitions', key: 'definition.json', sha256: 'a'.repeat(64) },
+        specHash: 'b'.repeat(64),
+        createdAt: '2026-08-21T00:01:00.000Z',
+      },
+      triggerState: { status: 'inactive' as const, updatedAt: '2026-08-21T00:00:00.000Z' },
       createdAt: '2026-08-21T00:00:00.000Z',
       updatedAt: '2026-08-21T00:01:00.000Z',
     };
     const version = {
       version: '1' as const,
       thingId: record.thingId,
-      revision: record.revision,
-      spec: record.spec,
-      specHash: record.specHash,
-      createdAt: record.updatedAt,
+      ...record.draft,
     };
 
-    await expect(store.addVersion(record, version, 1)).rejects.toThrow(
+    await expect(store.addVersion(
+      record.ownerId,
+      record.thingId,
+      record.draft,
+      version,
+      1,
+      record.updatedAt,
+    )).rejects.toThrow(
       'Thing changed concurrently',
     );
-    await expect(store.addVersion(record, version, 1)).rejects.toBe(throttled);
+    await expect(store.addVersion(
+      record.ownerId,
+      record.thingId,
+      record.draft,
+      version,
+      1,
+      record.updatedAt,
+    )).rejects.toBe(throttled);
     expect(send.mock.calls[0]?.[0]).toBeInstanceOf(TransactWriteCommand);
-    expect((send.mock.calls[0]?.[0] as TransactWriteCommand).input.TransactItems?.[0]?.Put)
+    expect((send.mock.calls[0]?.[0] as TransactWriteCommand).input.TransactItems?.[0]?.Update)
       .toMatchObject({
-        ConditionExpression: 'ownerId = :ownerId AND revision = :expected AND #status = :expectedStatus',
+        ConditionExpression: 'ownerId = :ownerId AND #draft.revision = :expected AND #status <> :archived',
         ExpressionAttributeValues: {
           ':ownerId': 'owner-1',
           ':expected': 1,
-          ':expectedStatus': 'draft',
+          ':archived': 'archived',
         },
       });
   });

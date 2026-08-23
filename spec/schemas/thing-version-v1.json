@@ -4,10 +4,10 @@
   "title": "Create immutable Thing version request v1",
   "type": "object",
   "additionalProperties": false,
-  "required": ["version", "expectedRevision", "spec"],
+  "required": ["version", "expectedDraftRevision", "spec"],
   "properties": {
     "version": { "const": "1" },
-    "expectedRevision": { "type": "integer", "minimum": 1 },
+    "expectedDraftRevision": { "type": "integer", "minimum": 1 },
     "spec": { "$ref": "thing-v1.json" }
   }
 }

@@ -91,7 +91,7 @@ it is needed again.
 rat-things thing-explain THING_ID > explanation.json
 ```
 
-Repair every `error` diagnostic before enabling. In particular:
+Repair every `error` diagnostic before publishing. In particular:
 
 - install or select an existing capability profile;
 - create a referenced connection set for the same authenticated owner;
@@ -105,7 +105,8 @@ The explanation contains no credential values. If its direct `compiledRun` diffe
 is expected when a Thing asks for read-only access; do not widen the provider token merely to make
 the explanation look uniform.
 
-Draft and paused Things remain runnable through the explicit test route. Archived Things do not.
+The latest draft runs through `thing-test`; the active revision runs through `thing-run`, including
+while its schedule is paused. Archived Things do not run.
 Use a unique test idempotency key for a changed test; repeat the same key only when retrying the same
 semantic attempt.
 
@@ -117,7 +118,7 @@ Control and webhook transport failures use:
 {
   "error": {
     "code": "invalid_request",
-    "message": "Thing spec trigger.kind must be manual or interval",
+    "message": "Thing spec trigger.kind must be manual or schedule",
     "retryable": false,
     "traceId": "API_GATEWAY_REQUEST_ID"
   }
@@ -165,7 +166,7 @@ logs instead.
 
 For a Thing that disappears or fails digest validation:
 
-1. confirm `THINGS_TABLE_NAME` and `DEFINITION_BUCKET` are present in the control/reconciler Lambda
+1. confirm `THINGS_TABLE_NAME` and `DEFINITION_BUCKET` are present in the control/Scheduler Lambda
    environments;
 2. confirm the authenticated principal matches the Thing owner;
 3. verify the Thing root and immutable version item exist in DynamoDB without copying the goal;
@@ -175,9 +176,12 @@ For a Thing that disappears or fails digest validation:
 6. do not rewrite an immutable definition object to repair a digest—create a new revision or restore
    the exact version from controlled backup.
 
-For an enabled interval that does not fire, inspect `nextRunAt`, the one-minute EventBridge rule,
-reconciler errors, the Thing table `status-next-run-index`, SQS send permission, and the run table.
-The same due occurrence stays due after submission failure and reuses its idempotency identity.
+For an active schedule that does not fire, inspect `triggerState` first. `error` contains the bounded
+Scheduler API failure; retry `thing-publish` or `thing-resume` after repairing it. Then inspect the
+deployment's EventBridge Scheduler group, the exact schedule's expression/time zone/state/target,
+its fixed invocation role, the Thing Scheduler Lambda logs, the schedule failure queue, SQS send
+permission, and the run table. Confirm the schedule payload pins the current `active.revision` and
+uses `<aws.scheduler.scheduled-time>`. Stale or paused deliveries intentionally produce no run.
 
 ## Deeper operator runbook
 

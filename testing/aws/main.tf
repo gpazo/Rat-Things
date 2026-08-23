@@ -14,6 +14,7 @@ locals {
     notifier                 = "${path.root}/../../dist/notifier.zip"
     reconciler               = "${path.root}/../../dist/reconciler.zip"
     state-stream             = "${path.root}/../../dist/state-stream.zip"
+    thing-schedule           = "${path.root}/../../dist/thing-schedule.zip"
     webhook-github           = "${path.root}/../../dist/webhook-github.zip"
     webhook-gitlab           = "${path.root}/../../dist/webhook-gitlab.zip"
     webhook-teams            = "${path.root}/../../dist/webhook-teams.zip"

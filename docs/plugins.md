@@ -202,7 +202,7 @@ rat-things --thread customer-ops \
 ```
 
 Or place the same aliases/set in a versioned Thing. `rat-things thing-explain THING_ID` resolves the
-accounts and shows why every operation is allowed or denied before the Thing is enabled.
+accounts and shows why every operation is allowed or denied before the Thing is published.
 
 ## 4. Understand effective permission
 

@@ -10,7 +10,9 @@ import type { ThingStore } from '../core/ports.js';
 import type {
   ListThingsResult,
   ThingRecord,
+  ThingRevision,
   ThingStatus,
+  ThingTriggerState,
   ThingVersionRecord,
 } from '../domain/things.js';
 
@@ -107,37 +109,30 @@ export class DynamoThingStore implements ThingStore {
     };
   }
 
-  public async listDue(cutoff: string, limit: number): Promise<ThingRecord[]> {
-    const result = await this.client.send(new QueryCommand({
-      TableName: this.tableName,
-      IndexName: 'status-next-run-index',
-      KeyConditionExpression: '#status = :enabled AND nextRunAt <= :cutoff',
-      ExpressionAttributeNames: { '#status': 'status' },
-      ExpressionAttributeValues: { ':enabled': 'enabled', ':cutoff': cutoff },
-      ScanIndexForward: true,
-      Limit: limit,
-    }));
-    return (result.Items ?? []).map(rootRecord);
-  }
-
   public async addVersion(
-    record: ThingRecord,
+    ownerId: string,
+    thingId: string,
+    draft: ThingRevision,
     version: ThingVersionRecord,
-    expectedRevision: number,
+    expectedDraftRevision: number,
+    updatedAt: string,
   ): Promise<ThingRecord> {
     try {
       await this.client.send(new TransactWriteCommand({
         TransactItems: [
           {
-            Put: {
+            Update: {
               TableName: this.tableName,
-              Item: rootItem(record),
-              ConditionExpression: 'ownerId = :ownerId AND revision = :expected AND #status = :expectedStatus',
-              ExpressionAttributeNames: { '#status': 'status' },
+              Key: { thingId, recordKey: ROOT_KEY },
+              UpdateExpression: 'SET #draft = :draft, updatedAt = :updatedAt',
+              ConditionExpression: 'ownerId = :ownerId AND #draft.revision = :expected AND #status <> :archived',
+              ExpressionAttributeNames: { '#draft': 'draft', '#status': 'status' },
               ExpressionAttributeValues: {
-                ':ownerId': record.ownerId,
-                ':expected': expectedRevision,
-                ':expectedStatus': record.status,
+                ':ownerId': ownerId,
+                ':draft': draft,
+                ':updatedAt': updatedAt,
+                ':expected': expectedDraftRevision,
+                ':archived': 'archived',
               },
             },
           },
@@ -150,7 +145,47 @@ export class DynamoThingStore implements ThingStore {
           },
         ],
       }));
-      return structuredClone(record);
+      const updated = await this.get(thingId);
+      if (!updated) throw new Error('Thing version update returned no record');
+      return updated;
+    } catch (error) {
+      if (!isConditionalFailure(error)) throw error;
+      throw new Error('Thing changed concurrently');
+    }
+  }
+
+  public async publish(
+    ownerId: string,
+    thingId: string,
+    draft: ThingRevision,
+    expectedStatus: ThingStatus,
+    triggerState: ThingTriggerState,
+    updatedAt: string,
+  ): Promise<ThingRecord> {
+    try {
+      const result = await this.client.send(new UpdateCommand({
+        TableName: this.tableName,
+        Key: { thingId, recordKey: ROOT_KEY },
+        UpdateExpression: 'SET #active = :draft, #status = :activeStatus, triggerState = :triggerState, updatedAt = :updatedAt',
+        ConditionExpression: 'ownerId = :ownerId AND #draft.revision = :revision AND #status = :expectedStatus',
+        ExpressionAttributeNames: {
+          '#active': 'active',
+          '#draft': 'draft',
+          '#status': 'status',
+        },
+        ExpressionAttributeValues: {
+          ':ownerId': ownerId,
+          ':draft': draft,
+          ':revision': draft.revision,
+          ':activeStatus': 'active',
+          ':expectedStatus': expectedStatus,
+          ':triggerState': triggerState,
+          ':updatedAt': updatedAt,
+        },
+        ReturnValues: 'ALL_NEW',
+      }));
+      if (!result.Attributes) throw new Error('Thing publish returned no record');
+      return rootRecord(result.Attributes);
     } catch (error) {
       if (!isConditionalFailure(error)) throw error;
       throw new Error('Thing changed concurrently');
@@ -162,7 +197,7 @@ export class DynamoThingStore implements ThingStore {
     thingId: string,
     from: ThingStatus[],
     status: ThingStatus,
-    nextRunAt: string | undefined,
+    triggerState: ThingTriggerState,
     updatedAt: string,
   ): Promise<ThingRecord> {
     const fromValues = Object.fromEntries(from.map((value, index) => [`:from${index}`, value]));
@@ -170,17 +205,15 @@ export class DynamoThingStore implements ThingStore {
       const result = await this.client.send(new UpdateCommand({
         TableName: this.tableName,
         Key: { thingId, recordKey: ROOT_KEY },
-        UpdateExpression: nextRunAt
-          ? 'SET #status = :status, nextRunAt = :nextRunAt, updatedAt = :updatedAt'
-          : 'SET #status = :status, updatedAt = :updatedAt REMOVE nextRunAt',
+        UpdateExpression: 'SET #status = :status, triggerState = :triggerState, updatedAt = :updatedAt',
         ConditionExpression: `ownerId = :ownerId AND #status IN (${from.map((_, index) => `:from${index}`).join(', ')})`,
         ExpressionAttributeNames: { '#status': 'status' },
         ExpressionAttributeValues: {
           ':ownerId': ownerId,
           ':status': status,
+          ':triggerState': triggerState,
           ':updatedAt': updatedAt,
           ...fromValues,
-          ...(nextRunAt ? { ':nextRunAt': nextRunAt } : {}),
         },
         ReturnValues: 'ALL_NEW',
       }));
@@ -192,29 +225,60 @@ export class DynamoThingStore implements ThingStore {
     }
   }
 
-  public async advance(
+  public async setTriggerState(
     thingId: string,
-    expectedRevision: number,
-    expectedRunAt: string,
-    nextRunAt: string,
+    expectedRevision: number | undefined,
+    state: ThingTriggerState,
+    updatedAt: string,
+  ): Promise<ThingRecord> {
+    try {
+      const result = await this.client.send(new UpdateCommand({
+        TableName: this.tableName,
+        Key: { thingId, recordKey: ROOT_KEY },
+        UpdateExpression: 'SET triggerState = :state, updatedAt = :updatedAt',
+        ConditionExpression: expectedRevision === undefined
+          ? 'attribute_not_exists(#active)'
+          : '#active.revision = :revision',
+        ExpressionAttributeNames: { '#active': 'active' },
+        ExpressionAttributeValues: {
+          ':state': state,
+          ':updatedAt': updatedAt,
+          ...(expectedRevision === undefined ? {} : { ':revision': expectedRevision }),
+        },
+        ReturnValues: 'ALL_NEW',
+      }));
+      if (!result.Attributes) throw new Error('Thing trigger-state update returned no record');
+      return rootRecord(result.Attributes);
+    } catch (error) {
+      if (!isConditionalFailure(error)) throw error;
+      throw new Error('Thing changed concurrently');
+    }
+  }
+
+  public async recordRun(
+    thingId: string,
+    expectedActiveRevision: number,
+    allowedStatuses: ThingStatus[],
+    runAt: string,
     runId: string,
     updatedAt: string,
   ): Promise<boolean> {
+    const statusValues = Object.fromEntries(
+      allowedStatuses.map((value, index) => [`:status${index}`, value]),
+    );
     try {
       await this.client.send(new UpdateCommand({
         TableName: this.tableName,
         Key: { thingId, recordKey: ROOT_KEY },
-        UpdateExpression: 'SET nextRunAt = :nextRunAt, lastRunAt = :lastRunAt, lastRunId = :runId, updatedAt = :updatedAt',
-        ConditionExpression: '#status = :enabled AND revision = :revision AND nextRunAt = :expectedRunAt',
-        ExpressionAttributeNames: { '#status': 'status' },
+        UpdateExpression: 'SET lastRunAt = :runAt, lastRunId = :runId, updatedAt = :updatedAt',
+        ConditionExpression: `#active.revision = :revision AND #status IN (${allowedStatuses.map((_, index) => `:status${index}`).join(', ')})`,
+        ExpressionAttributeNames: { '#active': 'active', '#status': 'status' },
         ExpressionAttributeValues: {
-          ':enabled': 'enabled',
-          ':revision': expectedRevision,
-          ':expectedRunAt': expectedRunAt,
-          ':nextRunAt': nextRunAt,
-          ':lastRunAt': expectedRunAt,
+          ':revision': expectedActiveRevision,
+          ':runAt': runAt,
           ':runId': runId,
           ':updatedAt': updatedAt,
+          ...statusValues,
         },
       }));
       return true;

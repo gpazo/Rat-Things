@@ -6,21 +6,17 @@ describe('published machine contracts', () => {
   it('accepts the checked-in create and version examples through the runtime parser', async () => {
     const create = await json('examples/thing-create.json') as {
       version: unknown;
-      spec: unknown;
     };
     const version = await json('examples/thing-version.json') as {
       version: unknown;
-      expectedRevision: unknown;
-      spec: unknown;
     };
 
     expect(create.version).toBe('1');
     expect(version.version).toBe('1');
-    expect(version.expectedRevision).toBe(1);
-    const parsedCreate = parseThingSpec(create.spec, {
+    const parsedCreate = parseThingSpec(create, {
       allowedSandboxModes: ['read-only', 'workspace-write', 'danger-full-access'],
     });
-    const parsedVersion = parseThingSpec(version.spec, {
+    const parsedVersion = parseThingSpec(version, {
       allowedSandboxModes: ['read-only', 'workspace-write', 'danger-full-access'],
     });
     expect(compileThingSpec(parsedCreate)).toMatchObject({
@@ -37,7 +33,7 @@ describe('published machine contracts', () => {
         ],
       },
     });
-    expect(parsedVersion.trigger).toEqual({ kind: 'interval', everyMinutes: 30 });
+    expect(parsedVersion.trigger).toEqual({ kind: 'schedule', expression: 'rate(30 minutes)' });
   });
 
   it('keeps the complete published API and installed API Gateway routes in lockstep', async () => {
@@ -80,7 +76,6 @@ describe('published machine contracts', () => {
     }
     expect(new Set(references.filter((candidate) => candidate.startsWith('/schemas/')))).toEqual(
       new Set([
-        '/schemas/thing-create-v1.json',
         '/schemas/thing-v1.json',
         '/schemas/thing-version-v1.json',
       ]),
@@ -94,13 +89,15 @@ describe('published machine contracts', () => {
       json('spec/schemas/thing-version-v1.json'),
     ]) as Array<{
       $id: string;
-      additionalProperties: boolean;
-      required: string[];
-      properties: Record<string, unknown>;
+      additionalProperties?: boolean;
+      required?: string[];
+      properties?: Record<string, unknown>;
+      $ref?: string;
       $defs?: Record<string, Record<string, unknown>>;
     }>;
     expect(thing?.$id).toMatch(/thing-v1\.json$/);
     expect(create?.$id).toMatch(/thing-create-v1\.json$/);
+    expect(create?.$ref).toBe('thing-v1.json');
     expect(version?.$id).toMatch(/thing-version-v1\.json$/);
     expect(thing?.additionalProperties).toBe(false);
     expect(new Set(thing?.required)).toEqual(new Set(['version', 'name', 'goal', 'trigger']));

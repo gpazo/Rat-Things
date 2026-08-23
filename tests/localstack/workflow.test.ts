@@ -310,30 +310,26 @@ integration('LocalStack webhook-to-egress workflow', () => {
         path: '/v1/things',
         body: {
           version: '1',
-          status: 'draft',
-          spec: {
-            version: '1',
-            name: 'Local multi-account Thing',
-            goal: thingGoalV1,
-            trigger: { kind: 'manual' },
-            agent: {
-              driver: 'mock',
-              sandbox: 'danger-full-access',
-              capabilities: {
-                profile: 'small-business',
-                networkAccess: true,
-                computerUse: 'disabled',
-              },
+          name: 'Local multi-account Thing',
+          goal: thingGoalV1,
+          trigger: { kind: 'manual' },
+          agent: {
+            driver: 'mock',
+            sandbox: 'danger-full-access',
+            capabilities: {
+              profile: 'small-business',
+              networkAccess: true,
+              computerUse: 'disabled',
             },
-            connections: {
-              set: connectionSetName,
-              accounts: [
-                { account: personalAlias, access: 'read-only' },
-                { account: businessAlias, access: 'read-only' },
-              ],
-            },
-            deliver: [{ kind: 'none' }],
           },
+          connections: {
+            set: connectionSetName,
+            accounts: [
+              { account: personalAlias, access: 'read-only' },
+              { account: businessAlias, access: 'read-only' },
+            ],
+          },
+          deliver: [{ kind: 'none' }],
         },
       }),
     );
@@ -341,8 +337,8 @@ integration('LocalStack webhook-to-egress workflow', () => {
     expect(thingResponse.body).not.toContain(thingGoalV1);
     expect(thingResponse.body).not.toContain(personalToken);
     expect(thingResponse.body).not.toContain(businessToken);
-    const thing = jsonResponse<{ thingId: string; revision: number; status: string }>(thingResponse);
-    expect(thing).toMatchObject({ revision: 1, status: 'draft' });
+    const thing = jsonResponse<{ thingId: string; draft: { revision: number }; status: string }>(thingResponse);
+    expect(thing).toMatchObject({ draft: { revision: 1 }, status: 'draft' });
 
     const thingGet = await invoke<APIGatewayProxyStructuredResultV2>(
       control.handler,
@@ -354,7 +350,8 @@ integration('LocalStack webhook-to-egress workflow', () => {
       }),
     );
     expect(thingGet.statusCode).toBe(200);
-    expect(jsonResponse<{ spec: { goal: string } }>(thingGet).spec.goal).toBe(thingGoalV1);
+    expect(jsonResponse<{ draft: { spec: { goal: string } } }>(thingGet).draft.spec.goal)
+      .toBe(thingGoalV1);
 
     const explanationResponse = await invoke<APIGatewayProxyStructuredResultV2>(
       control.handler,
@@ -400,7 +397,7 @@ integration('LocalStack webhook-to-egress workflow', () => {
         pathParameters: { thingId: thing.thingId },
         body: {
           version: '1',
-          expectedRevision: 1,
+          expectedDraftRevision: 1,
           spec: {
             version: '1',
             name: 'Local multi-account Thing',
@@ -427,7 +424,7 @@ integration('LocalStack webhook-to-egress workflow', () => {
       }),
     );
     expect(versionResponse.statusCode).toBe(201);
-    expect(jsonResponse<{ revision: number }>(versionResponse).revision).toBe(2);
+    expect(jsonResponse<{ draft: { revision: number } }>(versionResponse).draft.revision).toBe(2);
     expect(versionResponse.body).not.toContain(thingGoalV2);
 
     const firstVersionResponse = await invoke<APIGatewayProxyStructuredResultV2>(
@@ -446,16 +443,59 @@ integration('LocalStack webhook-to-egress workflow', () => {
     const storedThing = await thingStore.get(thing.thingId);
     expect(storedThing).toMatchObject({
       ownerId,
-      revision: 2,
+      draft: { revision: 2, spec: { bucket: required('DEFINITION_BUCKET') } },
       status: 'draft',
-      spec: { bucket: required('DEFINITION_BUCKET') },
     });
     if (!storedThing) throw new Error('Thing metadata was not persisted');
     await expect(objectText(
       clients.s3,
-      storedThing.spec.bucket,
-      storedThing.spec.key,
+      storedThing.draft.spec.bucket,
+      storedThing.draft.spec.key,
     )).resolves.toContain(thingGoalV2);
+
+    const draftTestResponse = await invoke<APIGatewayProxyStructuredResultV2>(
+      control.handler,
+      controlEvent({
+        method: 'POST',
+        path: `/v1/things/${thing.thingId}/test`,
+        routeKey: 'POST /v1/things/{thingId}/test',
+        pathParameters: { thingId: thing.thingId },
+        headers: { 'idempotency-key': `local-thing-draft-${randomUUID()}` },
+        body: {},
+      }),
+    );
+    expect(draftTestResponse.statusCode).toBe(202);
+    const draftTestRun = jsonResponse<{ runId: string }>(draftTestResponse);
+    const draftWake = await receiveRequired(
+      clients.sqs,
+      required('RUN_QUEUE_URL'),
+      10_000,
+      (message) => queuedRunId(message) === draftTestRun.runId,
+    );
+    await deleteMessage(clients.sqs, required('RUN_QUEUE_URL'), draftWake);
+
+    const publishResponse = await invoke<APIGatewayProxyStructuredResultV2>(
+      control.handler,
+      controlEvent({
+        method: 'POST',
+        path: `/v1/things/${thing.thingId}/publish`,
+        routeKey: 'POST /v1/things/{thingId}/publish',
+        pathParameters: { thingId: thing.thingId },
+        body: { version: '1', expectedDraftRevision: 2 },
+      }),
+    );
+    expect(publishResponse.statusCode).toBe(200);
+    expect(jsonResponse<{
+      status: string;
+      draft: { revision: number };
+      active: { revision: number };
+      hasUnpublishedChanges: boolean;
+    }>(publishResponse)).toMatchObject({
+      status: 'active',
+      draft: { revision: 2 },
+      active: { revision: 2 },
+      hasUnpublishedChanges: false,
+    });
 
     const thingIdempotencyKey = `local-thing-${randomUUID()}`;
     const thingRunEvent = () => controlEvent({
@@ -495,6 +535,7 @@ integration('LocalStack webhook-to-egress workflow', () => {
         thingId: thing.thingId,
         thingName: 'Local multi-account Thing',
         thingRevision: 2,
+        thingInvocation: 'manual',
       },
       integrations: {
         connections: [
@@ -698,6 +739,130 @@ integration('LocalStack webhook-to-egress workflow', () => {
       completed.result.output.bucket,
       completed.result.output.key,
     )).resolves.toContain('mock-agent: Review the connected customer operations accounts.');
+  }, 60_000);
+
+  it('simulates the trusted Scheduler Lambda with durable idempotency and stale-revision fencing', async () => {
+    const clients = createAwsClients();
+    const control = await import('../../src/lambdas/control.js');
+    const scheduledHandler = await import('../../src/lambdas/thing-schedule.js');
+    const createdResponse = await invoke<APIGatewayProxyStructuredResultV2>(
+      control.handler,
+      controlEvent({
+        method: 'POST',
+        path: '/v1/things',
+        body: {
+          version: '1',
+          name: 'Local scheduled Thing',
+          goal: 'Return the LocalStack Scheduler marker.',
+          trigger: { kind: 'schedule', expression: 'rate(5 minutes)' },
+          agent: { driver: 'mock', sandbox: 'read-only' },
+          deliver: [{ kind: 'none' }],
+        },
+      }),
+    );
+    expect(createdResponse.statusCode).toBe(201);
+    const created = jsonResponse<{ thingId: string }>(createdResponse);
+    const publishResponse = await invoke<APIGatewayProxyStructuredResultV2>(
+      control.handler,
+      controlEvent({
+        method: 'POST',
+        path: `/v1/things/${created.thingId}/publish`,
+        routeKey: 'POST /v1/things/{thingId}/publish',
+        pathParameters: { thingId: created.thingId },
+        body: { version: '1', expectedDraftRevision: 1 },
+      }),
+    );
+    expect(publishResponse.statusCode).toBe(200);
+
+    const invocation = {
+      version: '1' as const,
+      thingId: created.thingId,
+      revision: 1,
+      scheduledAt: '2026-08-23T17:05:00.000Z',
+    };
+    const first = await scheduledHandler.handler(invocation);
+    const duplicate = await scheduledHandler.handler(invocation);
+    expect(first).toMatchObject({ accepted: true, run: { status: 'queued' } });
+    expect(duplicate).toEqual(first);
+    if (!first.run) throw new Error('scheduled invocation did not return a run');
+
+    const runStore = new DynamoRunStore(clients.dynamodb, required('RUNS_TABLE_NAME'));
+    const artifacts = new S3ArtifactStore(clients.s3, required('ARTIFACT_BUCKET'));
+    const storedRun = await runStore.get(first.run.runId);
+    if (!storedRun) throw new Error('scheduled run was not persisted');
+    await expect(artifacts.getJson<RunRequest>(storedRun.input)).resolves.toMatchObject({
+      prompt: 'Return the LocalStack Scheduler marker.',
+      metadata: {
+        thingId: created.thingId,
+        thingRevision: 1,
+        thingInvocation: 'schedule',
+        scheduledAt: invocation.scheduledAt,
+      },
+    });
+    for (let index = 0; index < 2; index += 1) {
+      const wake = await receiveRequired(
+        clients.sqs,
+        required('RUN_QUEUE_URL'),
+        10_000,
+        (message) => queuedRunId(message) === first.run?.runId,
+      );
+      await deleteMessage(clients.sqs, required('RUN_QUEUE_URL'), wake);
+    }
+
+    const revisedResponse = await invoke<APIGatewayProxyStructuredResultV2>(
+      control.handler,
+      controlEvent({
+        method: 'POST',
+        path: `/v1/things/${created.thingId}/versions`,
+        routeKey: 'POST /v1/things/{thingId}/versions',
+        pathParameters: { thingId: created.thingId },
+        body: {
+          version: '1',
+          expectedDraftRevision: 1,
+          spec: {
+            version: '1',
+            name: 'Local scheduled Thing',
+            goal: 'Return the revised LocalStack Scheduler marker.',
+            trigger: { kind: 'schedule', expression: 'cron(0 8 ? * MON-FRI *)' },
+            agent: { driver: 'mock', sandbox: 'read-only' },
+            deliver: [{ kind: 'none' }],
+          },
+        },
+      }),
+    );
+    expect(revisedResponse.statusCode).toBe(201);
+    const republishedResponse = await invoke<APIGatewayProxyStructuredResultV2>(
+      control.handler,
+      controlEvent({
+        method: 'POST',
+        path: `/v1/things/${created.thingId}/publish`,
+        routeKey: 'POST /v1/things/{thingId}/publish',
+        pathParameters: { thingId: created.thingId },
+        body: { version: '1', expectedDraftRevision: 2 },
+      }),
+    );
+    expect(republishedResponse.statusCode).toBe(200);
+    await expect(scheduledHandler.handler({
+      ...invocation,
+      scheduledAt: '2026-08-23T17:10:00.000Z',
+    })).resolves.toEqual({ accepted: false, reason: 'stale-revision' });
+
+    const pausedResponse = await invoke<APIGatewayProxyStructuredResultV2>(
+      control.handler,
+      controlEvent({
+        method: 'POST',
+        path: `/v1/things/${created.thingId}/pause`,
+        routeKey: 'POST /v1/things/{thingId}/pause',
+        pathParameters: { thingId: created.thingId },
+        body: {},
+      }),
+    );
+    expect(pausedResponse.statusCode).toBe(200);
+    await expect(scheduledHandler.handler({
+      ...invocation,
+      revision: 2,
+      scheduledAt: '2026-08-23T17:15:00.000Z',
+    })).resolves.toEqual({ accepted: false, reason: 'not-active' });
   }, 60_000);
 
   it('persists an interruptible and resumable conversation mailbox in DynamoDB and S3', async () => {

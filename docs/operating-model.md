@@ -13,7 +13,7 @@ Rat-operated control plane or user interface.
 Every consumer uses the same path:
 
 ```text
-install -> discover -> connect an account -> define a Thing -> explain -> run -> observe
+install -> discover -> connect an account -> draft -> explain/test -> publish -> run -> observe
 ```
 
 1. **Install** one deployment in the host's AWS account and choose its authentication boundary.
@@ -22,13 +22,17 @@ install -> discover -> connect an account -> define a Thing -> explain -> run ->
 3. **Connect an account** with the fields declared by an integration manifest. Rat verifies the
    credential with the provider, derives the account identity and provider permissions, then stores
    the credential outside run state.
-4. **Define a Thing** containing reusable intent, a trigger, a capability profile, account
-   selections, and delivery—never credential values.
-5. **Explain before running.** Rat resolves the selected accounts and shows effective permissions,
-   approval requirements, and blocking diagnostics without exposing secrets.
-6. **Run** the Thing manually, on its interval, or from an authenticated event. The resulting run
-   uses the same owner-scoped asynchronous contract regardless of the consumer that invoked it.
-7. **Observe and debug** through stable run states, events, approval requests, retained files,
+4. **Draft a Thing** containing reusable intent, a trigger, a capability profile, account
+   selections, and delivery—never credential values. Updates create immutable revisions and move
+   only the draft pointer.
+5. **Explain and test the draft.** Rat resolves the selected accounts and shows effective
+   permissions, approval requirements, and blocking diagnostics without exposing secrets. A test
+   run never changes production.
+6. **Publish one exact revision.** The current draft becomes active atomically. Later edits create a
+   new draft while production remains pinned to the published revision.
+7. **Run** the active Thing manually, through an EventBridge `rate(...)` or `cron(...)` schedule, or
+   from an authenticated event. Every path uses the same owner-scoped asynchronous contract.
+8. **Observe and debug** through stable run states, events, approval requests, retained files,
    publications, error envelopes, and trace IDs.
 
 The CLI is one consumer of this contract, not a privileged path. An operator console, another
@@ -67,7 +71,7 @@ constraints provide narrower control. Approval is an additional decision point f
 operation. Approving an operation does not widen any permission layer.
 
 If a provider cannot report fine-grained scopes, Rat records that uncertainty rather than inventing
-precision. A host may still apply a narrower Rat grant. Use `thing-explain` before enabling a Thing
+precision. A host may still apply a narrower Rat grant. Use `thing-explain` before publishing a Thing
 to see the resolved intersection for every selected account and operation.
 
 ## The host owns identity and OAuth

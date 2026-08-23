@@ -1,47 +1,47 @@
 import { createHash, randomUUID } from 'node:crypto';
-import type {
-  RunRecord,
-  RunRequest,
-  SandboxMode,
-} from '../domain/contracts.js';
+import type { RunRecord, RunRequest, SandboxMode } from '../domain/contracts.js';
 import type {
   PublicThing,
   PublicThingSummary,
   PublicThingVersion,
+  ScheduledThingInvocation,
+  ScheduledThingResult,
   ThingDiagnostic,
   ThingExplanation,
   ThingRecord,
+  ThingRevision,
   ThingSpec,
-  ThingStatus,
-  ThingTickResult,
   ThingTrigger,
+  ThingTriggerState,
   ThingVersionRecord,
 } from '../domain/things.js';
 import { isRecord, parseRunRequest, ValidationError } from '../domain/validation.js';
-import type { ArtifactStore, Clock, ThingStore } from './ports.js';
+import type { ArtifactStore, Clock, ThingScheduler, ThingStore } from './ports.js';
 import { ConflictError, ForbiddenError, NotFoundError, type RunService } from './run-service.js';
 
 export interface ThingServiceOptions {
   store: ThingStore;
   artifacts: ArtifactStore;
   runs: Pick<RunService, 'submit'>;
+  scheduler: ThingScheduler;
   allowedRepositoryHosts?: string[];
   allowedSandboxModes?: SandboxMode[];
   clock?: Clock;
   randomId?: () => string;
 }
 
-interface ParsedCreateThingInput {
-  status: 'draft' | 'enabled';
-  spec: ThingSpec;
-}
-
 interface ParsedThingVersionInput {
-  expectedRevision: number;
+  expectedDraftRevision: number;
   spec: ThingSpec;
 }
 
-/** Product-facing lifecycle and compiler for reusable agent automations. */
+interface ParsedPublishThingInput {
+  expectedDraftRevision: number;
+}
+
+type ThingInvocationKind = 'test' | 'manual' | 'schedule';
+
+/** Product-facing lifecycle and compiler for reusable cloud-agent definitions. */
 export class ThingService {
   private readonly clock: Clock;
   private readonly randomId: () => string;
@@ -51,65 +51,52 @@ export class ThingService {
     this.randomId = options.randomId ?? randomUUID;
   }
 
+  /** Creation always produces draft revision 1 and never activates external work. */
   public async create(ownerId: string, raw: unknown): Promise<ThingRecord> {
     validateOwner(ownerId);
-    const input = this.parseCreateInput(raw);
+    const spec = parseThingSpec(raw, this.validationOptions());
     const thingId = this.randomId();
     validateThingId(thingId);
-    const now = this.clock.now();
-    const timestamp = now.toISOString();
-    const revision = 1;
-    const stored = await this.storeSpec(ownerId, thingId, revision, input.spec);
+    const timestamp = this.clock.now().toISOString();
+    const stored = await this.storeSpec(ownerId, thingId, 1, spec);
+    const draft = revisionPointer(1, spec, stored, timestamp);
     const record: ThingRecord = {
       version: '1',
       thingId,
       ownerId,
       ownerCreated: `${ownerId}#${timestamp}#${thingId}`,
-      revision,
-      name: input.spec.name,
-      status: input.status,
-      trigger: input.spec.trigger,
-      ...(input.status === 'enabled' && input.spec.trigger.kind === 'interval'
-        ? { nextRunAt: firstOccurrence(now, input.spec.trigger) }
-        : {}),
-      spec: stored.reference,
-      specHash: stored.hash,
+      status: 'draft',
+      draft,
+      triggerState: { status: 'inactive', updatedAt: timestamp },
       createdAt: timestamp,
       updatedAt: timestamp,
     };
-    await this.options.store.create(record, versionRecord(record));
+    await this.options.store.create(record, versionRecord(thingId, draft));
     return record;
   }
 
+  /** Editing appends an immutable revision and moves only the draft pointer. */
   public async addVersion(ownerId: string, thingId: string, raw: unknown): Promise<ThingRecord> {
     const current = await this.get(ownerId, thingId);
     if (current.status === 'archived') throw new ConflictError('archived Things cannot be changed');
     const input = this.parseVersionInput(raw);
-    if (input.expectedRevision !== current.revision) {
+    if (input.expectedDraftRevision !== current.draft.revision) {
       throw new ConflictError(
-        `Thing revision changed; expected ${input.expectedRevision}, current ${current.revision}`,
+        `Thing draft changed; expected ${input.expectedDraftRevision}, current ${current.draft.revision}`,
       );
     }
-    const revision = current.revision + 1;
+    const revision = current.draft.revision + 1;
     const stored = await this.storeSpec(ownerId, thingId, revision, input.spec);
-    const now = this.clock.now();
-    const timestamp = now.toISOString();
-    const { nextRunAt: _previousNextRunAt, ...currentWithoutSchedule } = current;
-    const record: ThingRecord = {
-      ...currentWithoutSchedule,
-      revision,
-      name: input.spec.name,
-      trigger: input.spec.trigger,
-      ...(current.status === 'enabled' && input.spec.trigger.kind === 'interval'
-        ? { nextRunAt: firstOccurrence(now, input.spec.trigger) }
-        : {}),
-      spec: stored.reference,
-      specHash: stored.hash,
-      updatedAt: timestamp,
-    };
-    return concurrentThingMutation(
-      this.options.store.addVersion(record, versionRecord(record), input.expectedRevision),
-    );
+    const timestamp = this.clock.now().toISOString();
+    const draft = revisionPointer(revision, input.spec, stored, timestamp);
+    return concurrentThingMutation(this.options.store.addVersion(
+      ownerId,
+      thingId,
+      draft,
+      versionRecord(thingId, draft),
+      input.expectedDraftRevision,
+      timestamp,
+    ));
   }
 
   public async get(ownerId: string, thingId: string): Promise<ThingRecord> {
@@ -123,7 +110,22 @@ export class ThingService {
 
   public async getPublic(ownerId: string, thingId: string): Promise<PublicThing> {
     const record = await this.get(ownerId, thingId);
-    return { ...publicThingSummary(record), spec: await this.loadSpec(record, versionRecord(record)) };
+    const draft = await this.publicVersion(record, record.draft);
+    const active = record.active
+      ? record.active.revision === record.draft.revision
+        ? draft
+        : await this.publicVersion(record, record.active)
+      : undefined;
+    const {
+      draft: _draftSummary,
+      active: _activeSummary,
+      ...summary
+    } = publicThingSummary(record);
+    return {
+      ...summary,
+      draft,
+      ...(active ? { active } : {}),
+    };
   }
 
   public async getVersion(
@@ -135,12 +137,13 @@ export class ThingService {
     validateRevision(revision);
     const version = await this.options.store.getVersion(thingId, revision);
     if (!version) throw new NotFoundError('Thing version not found');
-    const spec = await this.loadSpec(record, version);
-    const { spec: _reference, ...visible } = version;
-    return { ...visible, spec };
+    return this.publicVersion(record, version);
   }
 
-  public async listVersions(ownerId: string, thingId: string): Promise<Array<Omit<ThingVersionRecord, 'spec'>>> {
+  public async listVersions(
+    ownerId: string,
+    thingId: string,
+  ): Promise<Array<Omit<ThingVersionRecord, 'spec'>>> {
     await this.get(ownerId, thingId);
     return (await this.options.store.listVersions(thingId)).map(({ spec: _spec, ...version }) => version);
   }
@@ -155,10 +158,7 @@ export class ThingService {
     const bounded = Math.max(1, Math.min(100, Math.floor(limit)));
     try {
       const result = await this.options.store.list(ownerId, bounded, nextToken, includeArchived);
-      return {
-        ...result,
-        items: result.items.map(publicThingSummary),
-      };
+      return { ...result, items: result.items.map(publicThingSummary) };
     } catch (error) {
       if (error instanceof Error && error.message === 'invalid pagination token') {
         throw new ValidationError('nextToken is invalid');
@@ -167,51 +167,86 @@ export class ThingService {
     }
   }
 
-  public async enable(ownerId: string, thingId: string): Promise<ThingRecord> {
+  /** Publishing pins the current draft as production and activates its trigger. */
+  public async publish(ownerId: string, thingId: string, raw: unknown): Promise<ThingRecord> {
     const current = await this.get(ownerId, thingId);
-    if (current.status === 'enabled') return current;
-    if (current.status === 'archived') throw new ConflictError('archived Things cannot be enabled');
-    const now = this.clock.now();
-    return concurrentThingMutation(this.options.store.setStatus(
+    if (current.status === 'archived') throw new ConflictError('archived Things cannot be published');
+    const input = this.parsePublishInput(raw);
+    if (input.expectedDraftRevision !== current.draft.revision) {
+      throw new ConflictError(
+        `Thing draft changed; expected ${input.expectedDraftRevision}, current ${current.draft.revision}`,
+      );
+    }
+    const timestamp = this.clock.now().toISOString();
+    const published = await concurrentThingMutation(this.options.store.publish(
       ownerId,
       thingId,
-      ['draft', 'paused'],
-      'enabled',
-      current.trigger.kind === 'interval' ? firstOccurrence(now, current.trigger) : undefined,
-      now.toISOString(),
+      current.draft,
+      current.status,
+      syncingState(current.draft.revision, timestamp),
+      timestamp,
     ));
+    return this.reconcileTrigger(published);
   }
 
   public async pause(ownerId: string, thingId: string): Promise<ThingRecord> {
     const current = await this.get(ownerId, thingId);
-    if (current.status === 'paused') return current;
-    if (current.status !== 'enabled') {
-      throw new ConflictError(`only an enabled Thing can be paused; Thing is ${current.status}`);
-    }
-    return concurrentThingMutation(this.options.store.setStatus(
+    if (current.status === 'draft') throw new ConflictError('a draft Thing has no published revision to pause');
+    if (current.status === 'archived') throw new ConflictError('archived Things cannot be paused');
+    const timestamp = this.clock.now().toISOString();
+    const paused = await concurrentThingMutation(this.options.store.setStatus(
       ownerId,
       thingId,
-      ['enabled'],
+      [current.status],
       'paused',
-      current.nextRunAt,
-      this.clock.now().toISOString(),
+      syncingState(current.active?.revision, timestamp),
+      timestamp,
     ));
+    return this.reconcileTrigger(paused);
+  }
+
+  public async resume(ownerId: string, thingId: string): Promise<ThingRecord> {
+    const current = await this.get(ownerId, thingId);
+    if (current.status === 'draft') throw new ConflictError('a draft Thing must be published before it can resume');
+    if (current.status === 'archived') throw new ConflictError('archived Things cannot resume');
+    const timestamp = this.clock.now().toISOString();
+    const resumed = await concurrentThingMutation(this.options.store.setStatus(
+      ownerId,
+      thingId,
+      [current.status],
+      'active',
+      syncingState(current.active?.revision, timestamp),
+      timestamp,
+    ));
+    return this.reconcileTrigger(resumed);
   }
 
   public async archive(ownerId: string, thingId: string): Promise<ThingRecord> {
     const current = await this.get(ownerId, thingId);
-    if (current.status === 'archived') return current;
-    return concurrentThingMutation(this.options.store.setStatus(
+    const timestamp = this.clock.now().toISOString();
+    const archived = await concurrentThingMutation(this.options.store.setStatus(
       ownerId,
       thingId,
-      ['draft', 'enabled', 'paused'],
+      [current.status],
       'archived',
-      undefined,
-      this.clock.now().toISOString(),
+      syncingState(current.active?.revision, timestamp),
+      timestamp,
     ));
+    return this.reconcileTrigger(archived);
   }
 
-  /** Explicit invocation is also the safe test path for draft and paused Things. */
+  /** Test always runs the latest draft and never changes the published pointer. */
+  public async test(
+    ownerId: string,
+    thingId: string,
+    idempotencyKey = `test:${thingId}:${this.randomId()}`,
+  ): Promise<RunRecord> {
+    const thing = await this.get(ownerId, thingId);
+    if (thing.status === 'archived') throw new ConflictError('archived Things cannot be tested');
+    return this.submitOccurrence(thing, thing.draft, 'test', undefined, idempotencyKey);
+  }
+
+  /** Explicit production invocation always runs the pinned active revision. */
   public async runNow(
     ownerId: string,
     thingId: string,
@@ -219,87 +254,84 @@ export class ThingService {
   ): Promise<RunRecord> {
     const thing = await this.get(ownerId, thingId);
     if (thing.status === 'archived') throw new ConflictError('archived Things cannot run');
-    return this.submitOccurrence(thing, undefined, idempotencyKey);
+    if (!thing.active) throw new ConflictError('the Thing has no published revision; test or publish the draft first');
+    return this.submitOccurrence(thing, thing.active, 'manual', undefined, idempotencyKey);
   }
 
-  public async explain(ownerId: string, thingId: string): Promise<ThingExplanation> {
+  /** Trusted Scheduler entrypoint. Stale or inactive deliveries are acknowledged without a run. */
+  public async runScheduled(raw: unknown): Promise<ScheduledThingResult> {
+    const invocation = parseScheduledInvocation(raw);
+    const thing = await this.options.store.get(invocation.thingId);
+    if (!thing) return { accepted: false, reason: 'missing' };
+    if (thing.status !== 'active') return { accepted: false, reason: 'not-active' };
+    if (!thing.active || thing.active.revision !== invocation.revision) {
+      return { accepted: false, reason: 'stale-revision' };
+    }
+    if (thing.active.trigger.kind !== 'schedule') {
+      return { accepted: false, reason: 'not-scheduled' };
+    }
+    const idempotencyKey = `thing:${thing.thingId}:${thing.active.revision}:${invocation.scheduledAt}`;
+    const run = await this.submitOccurrence(
+      thing,
+      thing.active,
+      'schedule',
+      invocation.scheduledAt,
+      idempotencyKey,
+    );
+    return { accepted: true, run: { runId: run.runId, status: run.status } };
+  }
+
+  public async explain(
+    ownerId: string,
+    thingId: string,
+    target: 'draft' | 'active' = 'draft',
+  ): Promise<ThingExplanation> {
     const thing = await this.getPublic(ownerId, thingId);
+    const selected = target === 'draft' ? thing.draft : thing.active;
+    if (!selected) throw new ConflictError('the Thing has no published revision to explain');
     const diagnostics: ThingDiagnostic[] = [
       {
         id: 'spec.valid',
         status: 'pass',
-        message: `Thing spec revision ${thing.revision} is valid and its digest matches storage.`,
+        message: `Thing ${target} revision ${selected.revision} is valid and its digest matches storage.`,
       },
-      lifecycleDiagnostic(thing.status),
-      triggerDiagnostic(thing),
-      connectionDiagnostic(thing.spec),
+      lifecycleDiagnostic(thing, target),
+      triggerDiagnostic(thing, target),
+      connectionDiagnostic(selected.spec),
     ];
     return {
       version: '1',
+      target,
       thing,
-      compiledRun: compileThingSpec(thing.spec),
+      compiledRun: compileThingSpec(selected.spec),
       runnable: thing.status !== 'archived',
       diagnostics,
     };
   }
 
-  public async tick(limit = 100): Promise<ThingTickResult> {
-    const now = this.clock.now();
-    const due = await this.options.store.listDue(now.toISOString(), Math.max(1, Math.min(500, limit)));
-    const result: ThingTickResult = { examined: due.length, scheduled: 0, runs: [] };
-    const failures: Error[] = [];
-    for (const thing of due) {
-      const scheduledAt = thing.nextRunAt;
-      if (!scheduledAt || thing.trigger.kind !== 'interval') {
-        failures.push(new Error(`Thing ${thing.thingId} has an invalid scheduled trigger`));
-        continue;
-      }
-      try {
-        const run = await this.submitOccurrence(
-          thing,
-          scheduledAt,
-          `thing:${thing.thingId}:${thing.revision}:${scheduledAt}`,
-        );
-        const advanced = await this.options.store.advance(
-          thing.thingId,
-          thing.revision,
-          scheduledAt,
-          nextOccurrence(scheduledAt, thing.trigger, now),
-          run.runId,
-          now.toISOString(),
-        );
-        if (advanced) {
-          result.scheduled += 1;
-          result.runs.push({ runId: run.runId, status: run.status });
-        }
-      } catch (error) {
-        failures.push(error instanceof Error ? error : new Error(String(error)));
-      }
-    }
-    if (failures.length > 0) throw new AggregateError(failures, 'one or more due Things failed');
-    return result;
-  }
-
   private async submitOccurrence(
     thing: ThingRecord,
+    revision: ThingRevision,
+    invocation: ThingInvocationKind,
     scheduledAt: string | undefined,
     idempotencyKey: string,
   ): Promise<RunRecord> {
-    const spec = await this.loadSpec(thing, versionRecord(thing));
+    const spec = await this.loadSpec(thing, revision);
     const request = compileThingSpec(spec);
     const metadata = {
       ...request.metadata,
       thingId: thing.thingId,
-      thingName: thing.name,
-      thingRevision: thing.revision,
+      thingName: revision.name,
+      thingRevision: revision.revision,
+      thingInvocation: invocation,
       ...(scheduledAt ? { scheduledAt } : {}),
     };
-    const occurrenceId = scheduledAt ?? `manual:${sha256(idempotencyKey).slice(0, 32)}`;
-    return this.options.runs.submit(thing.ownerId, {
+    const occurrenceId = scheduledAt ?? `${invocation}:${sha256(idempotencyKey).slice(0, 32)}`;
+    const run = await this.options.runs.submit(thing.ownerId, {
       ...request,
       source: {
         kind: 'api',
-        requestId: `thing:${thing.thingId}:${thing.revision}:${occurrenceId}`,
+        requestId: `thing:${thing.thingId}:${revision.revision}:${occurrenceId}`,
       },
       metadata,
     }, {
@@ -310,28 +342,88 @@ export class ThingService {
         credentialSubject: { kind: 'runtime', id: thing.ownerId },
       },
     });
+    if (revision.revision === thing.active?.revision) {
+      await this.options.store.recordRun(
+        thing.thingId,
+        revision.revision,
+        invocation === 'schedule' ? ['active'] : ['active', 'paused'],
+        scheduledAt ?? this.clock.now().toISOString(),
+        run.runId,
+        this.clock.now().toISOString(),
+      );
+    }
+    return run;
   }
 
-  private parseCreateInput(raw: unknown): ParsedCreateThingInput {
-    if (!isRecord(raw)) throw new ValidationError('Thing create request must be an object');
-    rejectUnknown(raw, ['version', 'status', 'spec'], 'Thing create request');
-    if (raw.version !== '1') throw new ValidationError('Thing create request version must be "1"');
-    const status = raw.status ?? 'draft';
-    if (status !== 'draft' && status !== 'enabled') {
-      throw new ValidationError('Thing create status must be draft or enabled');
+  private async reconcileTrigger(record: ThingRecord): Promise<ThingRecord> {
+    const timestamp = this.clock.now().toISOString();
+    try {
+      if (record.status === 'archived' || !record.active || record.active.trigger.kind === 'manual') {
+        await this.options.scheduler.remove(record.thingId);
+      } else {
+        await this.options.scheduler.upsert({
+          thingId: record.thingId,
+          revision: record.active.revision,
+          trigger: record.active.trigger,
+        }, record.status === 'active');
+      }
+      const state: ThingTriggerState = record.status === 'active'
+        ? {
+          status: 'ready',
+          ...(record.active ? { revision: record.active.revision } : {}),
+          updatedAt: timestamp,
+        }
+        : record.status === 'paused'
+          ? {
+            status: 'paused',
+            ...(record.active ? { revision: record.active.revision } : {}),
+            updatedAt: timestamp,
+          }
+          : { status: 'inactive', updatedAt: timestamp };
+      return concurrentThingMutation(this.options.store.setTriggerState(
+        record.thingId,
+        record.active?.revision,
+        state,
+        timestamp,
+      ));
+    } catch (error) {
+      const message = boundedError(error);
+      try {
+        await this.options.store.setTriggerState(
+          record.thingId,
+          record.active?.revision,
+          {
+            status: 'error',
+            ...(record.active ? { revision: record.active.revision } : {}),
+            updatedAt: timestamp,
+            error: message,
+          },
+          timestamp,
+        );
+      } catch {
+        // Preserve the scheduling failure; a concurrent lifecycle operation won the state race.
+      }
+      throw new Error(`Thing trigger synchronization failed: ${message}`);
     }
-    return { status, spec: parseThingSpec(raw.spec, this.validationOptions()) };
   }
 
   private parseVersionInput(raw: unknown): ParsedThingVersionInput {
     if (!isRecord(raw)) throw new ValidationError('Thing version request must be an object');
-    rejectUnknown(raw, ['version', 'expectedRevision', 'spec'], 'Thing version request');
+    rejectUnknown(raw, ['version', 'expectedDraftRevision', 'spec'], 'Thing version request');
     if (raw.version !== '1') throw new ValidationError('Thing version request version must be "1"');
-    validateRevision(raw.expectedRevision);
+    validateRevision(raw.expectedDraftRevision);
     return {
-      expectedRevision: raw.expectedRevision,
+      expectedDraftRevision: raw.expectedDraftRevision,
       spec: parseThingSpec(raw.spec, this.validationOptions()),
     };
+  }
+
+  private parsePublishInput(raw: unknown): ParsedPublishThingInput {
+    if (!isRecord(raw)) throw new ValidationError('Thing publish request must be an object');
+    rejectUnknown(raw, ['version', 'expectedDraftRevision'], 'Thing publish request');
+    if (raw.version !== '1') throw new ValidationError('Thing publish request version must be "1"');
+    validateRevision(raw.expectedDraftRevision);
+    return { expectedDraftRevision: raw.expectedDraftRevision };
   }
 
   private async storeSpec(
@@ -339,7 +431,7 @@ export class ThingService {
     thingId: string,
     revision: number,
     spec: ThingSpec,
-  ): Promise<{ reference: ThingRecord['spec']; hash: string }> {
+  ): Promise<{ reference: ThingRevision['spec']; hash: string }> {
     const canonical = stableJson(spec);
     const hash = sha256(canonical);
     const ownerHash = sha256(ownerId).slice(0, 32);
@@ -350,16 +442,25 @@ export class ThingService {
     return { reference, hash };
   }
 
-  private async loadSpec(record: ThingRecord, version: ThingVersionRecord): Promise<ThingSpec> {
-    if (version.thingId !== record.thingId) throw new Error('Thing version belongs to another Thing');
+  private async publicVersion(
+    record: ThingRecord,
+    revision: ThingRevision,
+  ): Promise<PublicThingVersion> {
+    return {
+      ...versionRecord(record.thingId, revision),
+      spec: await this.loadSpec(record, revision),
+    };
+  }
+
+  private async loadSpec(record: ThingRecord, revision: ThingRevision): Promise<ThingSpec> {
     const ownerHash = sha256(record.ownerId).slice(0, 32);
-    const expectedKey = `owners/${ownerHash}/things/${record.thingId}/versions/${version.revision}-${version.specHash}.json`;
-    if (version.spec.key !== expectedKey) {
+    const expectedKey = `owners/${ownerHash}/things/${record.thingId}/versions/${revision.revision}-${revision.specHash}.json`;
+    if (revision.spec.key !== expectedKey) {
       throw new Error('Thing spec reference is outside its owner scope');
     }
-    const stored = await this.options.artifacts.getJson<unknown>(version.spec);
+    const stored = await this.options.artifacts.getJson<unknown>(revision.spec);
     const spec = parseThingSpec(stored, this.validationOptions());
-    if (sha256(stableJson(spec)) !== version.specHash) {
+    if (sha256(stableJson(spec)) !== revision.specHash) {
       throw new Error('Thing spec does not match its stored digest');
     }
     return spec;
@@ -409,7 +510,7 @@ export function parseThingSpec(
   if (request.destinations?.some((destination) => destination.kind === 'source')) {
     throw new ValidationError('Thing spec cannot use the source delivery destination');
   }
-  for (const reserved of ['thingId', 'thingName', 'thingRevision', 'scheduledAt']) {
+  for (const reserved of ['thingId', 'thingName', 'thingRevision', 'thingInvocation', 'scheduledAt']) {
     if (request.metadata?.[reserved] !== undefined) {
       throw new ValidationError(`Thing spec metadata uses reserved key ${reserved}`);
     }
@@ -466,8 +567,19 @@ export function compileThingSpec(spec: ThingSpec): RunRequest {
 }
 
 export function publicThingSummary(record: ThingRecord): PublicThingSummary {
-  const { ownerId: _ownerId, ownerCreated: _ownerCreated, spec: _spec, ...visible } = record;
-  return visible;
+  return {
+    version: '1',
+    thingId: record.thingId,
+    status: record.status,
+    draft: publicRevisionSummary(record.draft),
+    ...(record.active ? { active: publicRevisionSummary(record.active) } : {}),
+    hasUnpublishedChanges: !record.active || record.active.revision !== record.draft.revision,
+    triggerState: structuredClone(record.triggerState),
+    createdAt: record.createdAt,
+    updatedAt: record.updatedAt,
+    ...(record.lastRunAt ? { lastRunAt: record.lastRunAt } : {}),
+    ...(record.lastRunId ? { lastRunId: record.lastRunId } : {}),
+  };
 }
 
 function integrationInput(value: unknown): Record<string, unknown> {
@@ -511,73 +623,167 @@ function parseTrigger(value: unknown): ThingTrigger {
     rejectUnknown(value, ['kind'], 'Thing spec manual trigger');
     return { kind: 'manual' };
   }
-  if (value.kind !== 'interval') {
-    throw new ValidationError('Thing spec trigger.kind must be manual or interval');
+  if (value.kind !== 'schedule') {
+    throw new ValidationError('Thing spec trigger.kind must be manual or schedule');
   }
-  rejectUnknown(value, ['kind', 'everyMinutes', 'startAt'], 'Thing spec interval trigger');
-  if (
-    typeof value.everyMinutes !== 'number' ||
-    !Number.isInteger(value.everyMinutes) ||
-    value.everyMinutes < 1 ||
-    value.everyMinutes > 525_600
-  ) {
-    throw new ValidationError('Thing spec trigger.everyMinutes must be an integer from 1 through 525600');
-  }
+  rejectUnknown(value, ['kind', 'expression', 'timezone'], 'Thing spec schedule trigger');
+  const expression = scheduleExpression(value.expression);
+  const timezone = value.timezone === undefined
+    ? undefined
+    : timeZone(value.timezone, 'Thing spec trigger.timezone');
   return {
-    kind: 'interval',
-    everyMinutes: value.everyMinutes,
-    ...(value.startAt !== undefined
-      ? { startAt: isoDate(value.startAt, 'Thing spec trigger.startAt') }
-      : {}),
+    kind: 'schedule',
+    expression,
+    ...(timezone ? { timezone } : {}),
   };
 }
 
-function versionRecord(record: ThingRecord): ThingVersionRecord {
+function scheduleExpression(value: unknown): string {
+  if (typeof value !== 'string' || value.length > 256 || /[\r\n\0]/.test(value)) {
+    throw new ValidationError('Thing schedule expression is invalid');
+  }
+  const trimmed = value.trim();
+  const rate = /^rate\(\s*(\d+)\s+(minute|minutes|hour|hours|day|days)\s*\)$/i.exec(trimmed);
+  if (rate) {
+    const amount = Number(rate[1]);
+    const unit = rate[2]?.toLowerCase();
+    if (!Number.isSafeInteger(amount) || amount < 1 || amount > 999_999) {
+      throw new ValidationError('Thing rate value must be an integer from 1 through 999999');
+    }
+    if ((amount === 1) !== ['minute', 'hour', 'day'].includes(unit ?? '')) {
+      throw new ValidationError('Thing rate expression must use a singular unit only when its value is 1');
+    }
+    return `rate(${amount} ${unit})`;
+  }
+  const cron = /^cron\((.*)\)$/i.exec(trimmed);
+  if (!cron) {
+    throw new ValidationError('Thing schedule expression must use rate(...) or cron(...)');
+  }
+  const fields = cron[1]?.trim().split(/\s+/) ?? [];
+  if (fields.length !== 6 || fields.some((field) => !/^[A-Za-z0-9*?,/\-#LW]+$/.test(field))) {
+    throw new ValidationError('Thing cron expression must contain six valid EventBridge fields');
+  }
+  const [minutes, hours, dayOfMonth, month, dayOfWeek, year] = fields as [string, string, string, string, string, string];
+  simpleCronRange(minutes, 0, 59, 'minutes');
+  simpleCronRange(hours, 0, 23, 'hours');
+  simpleCronRange(month, 1, 12, 'month');
+  simpleCronRange(year, 1970, 2199, 'year');
+  if ((dayOfMonth === '?') === (dayOfWeek === '?')) {
+    throw new ValidationError('Thing cron expression must use ? in exactly one day field');
+  }
+  return `cron(${fields.join(' ')})`;
+}
+
+function simpleCronRange(value: string, minimum: number, maximum: number, label: string): void {
+  if (!/^\d+$/.test(value)) return;
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < minimum || parsed > maximum) {
+    throw new ValidationError(`Thing cron ${label} field is out of range`);
+  }
+}
+
+function timeZone(value: unknown, label: string): string {
+  if (typeof value !== 'string' || !value.trim() || value.length > 256 || /\s/.test(value)) {
+    throw new ValidationError(`${label} must be an IANA time-zone name`);
+  }
+  const normalized = value.trim();
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: normalized }).format(new Date(0));
+  } catch {
+    throw new ValidationError(`${label} must be an IANA time-zone name`);
+  }
+  return normalized;
+}
+
+function parseScheduledInvocation(raw: unknown): ScheduledThingInvocation {
+  if (!isRecord(raw)) throw new ValidationError('Scheduled Thing invocation must be an object');
+  rejectUnknown(raw, ['version', 'thingId', 'revision', 'scheduledAt'], 'Scheduled Thing invocation');
+  if (raw.version !== '1') throw new ValidationError('Scheduled Thing invocation version must be "1"');
+  if (typeof raw.thingId !== 'string') throw new ValidationError('Scheduled Thing invocation Thing ID is invalid');
+  validateThingId(raw.thingId);
+  validateRevision(raw.revision);
   return {
     version: '1',
-    thingId: record.thingId,
-    revision: record.revision,
-    spec: record.spec,
-    specHash: record.specHash,
-    createdAt: record.updatedAt,
+    thingId: raw.thingId,
+    revision: raw.revision,
+    scheduledAt: isoDate(raw.scheduledAt, 'Scheduled Thing invocation scheduledAt'),
   };
 }
 
-function lifecycleDiagnostic(status: ThingStatus): ThingDiagnostic {
-  if (status === 'archived') {
-    return { id: 'lifecycle', status: 'error', message: 'The Thing is archived and cannot run.' };
-  }
-  if (status === 'draft') {
-    return {
-      id: 'lifecycle',
-      status: 'warning',
-      message: 'The Thing is a draft. Explicit test runs work, but triggers are inactive.',
-    };
-  }
-  if (status === 'paused') {
-    return {
-      id: 'lifecycle',
-      status: 'warning',
-      message: 'The Thing is paused. Explicit test runs work, but scheduled runs are inactive.',
-    };
-  }
-  return { id: 'lifecycle', status: 'pass', message: 'The Thing is enabled.' };
+function revisionPointer(
+  revision: number,
+  spec: ThingSpec,
+  stored: { reference: ThingRevision['spec']; hash: string },
+  createdAt: string,
+): ThingRevision {
+  return {
+    revision,
+    name: spec.name,
+    trigger: spec.trigger,
+    spec: stored.reference,
+    specHash: stored.hash,
+    createdAt,
+  };
 }
 
-function triggerDiagnostic(thing: PublicThing): ThingDiagnostic {
-  if (thing.spec.trigger.kind === 'manual') {
+function versionRecord(thingId: string, revision: ThingRevision): ThingVersionRecord {
+  return { version: '1', thingId, ...structuredClone(revision) };
+}
+
+function publicRevisionSummary(revision: ThingRevision): Omit<ThingRevision, 'spec'> {
+  const { spec: _spec, ...visible } = revision;
+  return structuredClone(visible);
+}
+
+function syncingState(revision: number | undefined, updatedAt: string): ThingTriggerState {
+  return {
+    status: 'syncing',
+    ...(revision === undefined ? {} : { revision }),
+    updatedAt,
+  };
+}
+
+function lifecycleDiagnostic(thing: PublicThing, target: 'draft' | 'active'): ThingDiagnostic {
+  if (thing.status === 'archived') {
+    return { id: 'lifecycle', status: 'error', message: 'The Thing is archived and cannot run.' };
+  }
+  if (target === 'draft') {
+    return {
+      id: 'lifecycle',
+      status: thing.hasUnpublishedChanges ? 'warning' : 'pass',
+      message: thing.hasUnpublishedChanges
+        ? `Draft revision ${thing.draft.revision} is testable but is not the published production revision.`
+        : `Draft revision ${thing.draft.revision} is also the published production revision.`,
+    };
+  }
+  if (thing.status === 'paused') {
+    return {
+      id: 'lifecycle',
+      status: 'warning',
+      message: 'The published revision can be invoked explicitly, but scheduled delivery is paused.',
+    };
+  }
+  return { id: 'lifecycle', status: 'pass', message: 'The published revision is active.' };
+}
+
+function triggerDiagnostic(thing: PublicThing, target: 'draft' | 'active'): ThingDiagnostic {
+  const selected = target === 'draft' ? thing.draft : thing.active;
+  if (!selected) return { id: 'trigger', status: 'error', message: 'No published trigger exists.' };
+  if (selected.spec.trigger.kind === 'manual') {
     return {
       id: 'trigger',
       status: 'pass',
-      message: 'The Thing runs through an authenticated API or CLI invocation.',
+      message: 'The revision runs through an authenticated API or CLI invocation.',
     };
   }
+  const stateIsRelevant = target === 'active' || selected.revision === thing.active?.revision;
+  const state = stateIsRelevant ? thing.triggerState : undefined;
   return {
     id: 'trigger',
-    status: thing.status === 'enabled' && !thing.nextRunAt ? 'error' : 'pass',
-    message: thing.nextRunAt
-      ? `The next interval occurrence is ${thing.nextRunAt}.`
-      : `The ${thing.spec.trigger.everyMinutes}-minute interval is inactive.`,
+    status: state?.status === 'error' ? 'error' : state?.status === 'syncing' ? 'warning' : 'pass',
+    message: state?.status === 'error'
+      ? `EventBridge Scheduler synchronization failed: ${state.error ?? 'unknown error'}`
+      : `${selected.spec.trigger.expression} in ${selected.spec.trigger.timezone ?? 'UTC'}${state ? ` is ${state.status}` : ' will be provisioned when published'}.`,
   };
 }
 
@@ -592,42 +798,6 @@ function connectionDiagnostic(spec: ThingSpec): ThingDiagnostic {
     status: 'pass',
     message: `The Thing requests ${count} explicit account${count === 1 ? '' : 's'}${set ? ` plus connection set ${set}` : ''}; credentials remain deployment-owned.`,
   };
-}
-
-function firstOccurrence(now: Date, trigger: Extract<ThingTrigger, { kind: 'interval' }>): string {
-  if (trigger.startAt) return nextOccurrence(trigger.startAt, trigger, now, true);
-  return new Date(now.getTime() + intervalMilliseconds(trigger)).toISOString();
-}
-
-export function nextThingOccurrence(
-  scheduledAt: string,
-  trigger: Extract<ThingTrigger, { kind: 'interval' }>,
-  now: Date,
-  includeScheduled = false,
-): string {
-  return nextOccurrence(scheduledAt, trigger, now, includeScheduled);
-}
-
-function nextOccurrence(
-  scheduledAt: string,
-  trigger: Extract<ThingTrigger, { kind: 'interval' }>,
-  now: Date,
-  includeScheduled = false,
-): string {
-  const scheduledMs = Date.parse(scheduledAt);
-  if (!Number.isFinite(scheduledMs)) throw new Error('Thing has an invalid nextRunAt');
-  const interval = intervalMilliseconds(trigger);
-  let next = includeScheduled ? scheduledMs : scheduledMs + interval;
-  if (includeScheduled && next < now.getTime()) {
-    next += Math.ceil((now.getTime() - next) / interval) * interval;
-  } else if (!includeScheduled && next <= now.getTime()) {
-    next += (Math.floor((now.getTime() - next) / interval) + 1) * interval;
-  }
-  return new Date(next).toISOString();
-}
-
-function intervalMilliseconds(trigger: Extract<ThingTrigger, { kind: 'interval' }>): number {
-  return trigger.everyMinutes * 60_000;
 }
 
 function validateOwner(ownerId: string): void {
@@ -679,6 +849,11 @@ function stableJson(value: unknown): string {
 
 function sha256(value: string): string {
   return createHash('sha256').update(value).digest('hex');
+}
+
+function boundedError(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  return message.slice(0, 512) || 'unknown error';
 }
 
 async function concurrentThingMutation<T>(operation: Promise<T>): Promise<T> {

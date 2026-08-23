@@ -319,10 +319,11 @@ persistent grants, connection sets, and source bindings. It never stores credent
 separate routines table stores interval schedules and encrypted request references; a due-time GSI
 lets the one-minute reconciler find enabled occurrences without scanning prompts or runs.
 
-The Thing table stores one root lifecycle item and immutable version references per Thing. Sparse
-owner-created and status-next-run GSIs index root items only. Compare-and-swap on the current
-revision prevents two editors from silently overwriting each other; scheduled advancement also
-checks the revision and due time so a new definition cannot advance an old schedule.
+The Thing table stores one root lifecycle item and immutable version references per Thing. The root
+has separate draft and active revision pointers plus observable trigger synchronization state; the
+owner-created GSI indexes only root items. Compare-and-swap on the draft pointer prevents two
+editors from silently overwriting each other. Production runs and Scheduler deliveries load only
+the active pointer, so editing cannot silently change live behavior.
 
 ### S3
 
@@ -368,6 +369,15 @@ queue. Redelivery is expected, which is why state transitions and delivery fence
 The separate conversation queue follows the same rule: the mailbox is canonical. Its coordinator
 attaches a deterministic run before waking the run queue, and a duplicate wake repairs a missed
 enqueue without creating a second semantic slice.
+
+Thing schedules do not use that polling reconciler. Publishing a `schedule` trigger creates or
+updates one Amazon EventBridge Scheduler resource in a deployment-owned group. The control plane
+fixes its Lambda target, narrowly scoped invocation role, retry policy, and encrypted failure queue.
+The payload pins the Thing ID, active revision, and Scheduler-provided scheduled time. The target
+acknowledges stale revisions and paused/archived Things without a run; accepted duplicate delivery
+converges on one semantic run ID. Pause disables the resource, resume re-synchronizes it, and
+archive deletes it. The root `triggerState` makes cross-service synchronization failure visible and
+safe to retry.
 
 ### Secrets Manager and SSM
 

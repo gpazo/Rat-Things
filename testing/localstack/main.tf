@@ -214,16 +214,6 @@ resource "aws_dynamodb_table" "things" {
     type = "S"
   }
 
-  attribute {
-    name = "status"
-    type = "S"
-  }
-
-  attribute {
-    name = "nextRunAt"
-    type = "S"
-  }
-
   global_secondary_index {
     name            = "owner-created-index"
     hash_key        = "ownerId"
@@ -231,12 +221,6 @@ resource "aws_dynamodb_table" "things" {
     projection_type = "ALL"
   }
 
-  global_secondary_index {
-    name            = "status-next-run-index"
-    hash_key        = "status"
-    range_key       = "nextRunAt"
-    projection_type = "ALL"
-  }
 }
 
 resource "aws_sqs_queue" "run_dlq" {

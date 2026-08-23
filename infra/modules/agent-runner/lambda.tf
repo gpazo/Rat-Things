@@ -49,6 +49,13 @@ locals {
     S3_FILES_MOUNT_TARGET_IP          = aws_s3files_mount_target.conversation_state[0].ipv4_address
   } : {})
 
+  thing_scheduler_environment = {
+    THING_SCHEDULE_GROUP_NAME = aws_scheduler_schedule_group.things.name
+    THING_SCHEDULE_TARGET_ARN = local.thing_schedule_target_arn
+    THING_SCHEDULE_ROLE_ARN   = aws_iam_role.thing_schedule_invoke.arn
+    THING_SCHEDULE_DLQ_ARN    = aws_sqs_queue.thing_schedule_failures.arn
+  }
+
   lambda_definitions = {
     control = {
       enabled  = true
@@ -58,6 +65,7 @@ locals {
       memory   = 512
       environment = merge(
         local.executor_environment,
+        local.thing_scheduler_environment,
         {
           ALLOW_OWNER_HEADER       = "false"
           ARTIFACT_URL_TTL_SECONDS = tostring(var.artifact_url_ttl_seconds)
@@ -141,6 +149,17 @@ locals {
         EVENT_BUS_NAME                      = aws_cloudwatch_event_bus.runs.name
         EVENT_SOURCE                        = "rat-things.agent-runtime"
       }
+    }
+    thing-schedule = {
+      enabled  = true
+      zip_path = local.lambda_zip_paths["thing-schedule"]
+      role_arn = aws_iam_role.thing_schedule.arn
+      timeout  = 30
+      memory   = 256
+      environment = merge(
+        local.lambda_common_environment,
+        local.thing_scheduler_environment,
+      )
     }
     webhook-github = {
       enabled  = local.github_enabled

@@ -5,6 +5,8 @@ import type {
   CreateRunResult,
   RunQueue,
   RunStore,
+  ThingScheduler,
+  ThingSchedulerTarget,
   ThingStore,
 } from '../../src/core/ports.js';
 import { RunService } from '../../src/core/run-service.js';
@@ -20,16 +22,19 @@ import type {
 import type {
   ListThingsResult,
   ThingRecord,
+  ThingRevision,
   ThingStatus,
+  ThingTriggerState,
   ThingVersionRecord,
 } from '../../src/domain/things.js';
 
 describe('simulated Thing-to-run workflow', () => {
-  it('preserves a revisioned multi-account Thing across durable scheduling and duplicate ticks', async () => {
+  it('preserves draft/production isolation, schedule idempotency, and stale-delivery fencing', async () => {
     const clock = { now: () => new Date('2026-08-21T15:00:00.000Z') };
     const artifacts = new MemoryArtifacts();
     const runs = new MemoryRuns();
     const queue = new MemoryQueue();
+    const scheduler = new MemoryScheduler();
     const runService = new RunService({
       store: runs,
       artifacts,
@@ -39,12 +44,13 @@ describe('simulated Thing-to-run workflow', () => {
       clock,
       ids: {
         random: () => 'random-run',
-        deterministic: () => 'thing-run-deterministic',
+        deterministic: (_ownerId, key) => `run-${createHash('sha256').update(key).digest('hex').slice(0, 16)}`,
       },
     });
     const things = new MemoryThings();
     const service = new ThingService({
       store: things,
+      scheduler,
       artifacts,
       runs: runService,
       allowedSandboxModes: ['read-only', 'workspace-write', 'danger-full-access'],
@@ -52,84 +58,82 @@ describe('simulated Thing-to-run workflow', () => {
       randomId: () => 'thing-customer-ops',
     });
 
-    const thing = await service.create('api:shop-owner', {
+    await service.create('api:shop-owner', scheduledSpec(
+      'Review Slack escalations and Stripe refund exceptions.',
+      'rate(15 minutes)',
+    ));
+    await service.test('api:shop-owner', 'thing-customer-ops', 'draft-v1-test');
+    await service.publish('api:shop-owner', 'thing-customer-ops', {
       version: '1',
-      status: 'enabled',
-      spec: {
-        version: '1',
-        name: 'Customer operations check',
-        goal: 'Review Slack escalations and Stripe refund exceptions.',
-        trigger: {
-          kind: 'interval',
-          everyMinutes: 15,
-          startAt: '2026-08-21T15:00:00.000Z',
-        },
-        agent: {
-          driver: 'codex',
-          sandbox: 'danger-full-access',
-          capabilities: {
-            profile: 'small-business',
-            approvalPolicy: 'on-request',
-            networkAccess: true,
-            computerUse: 'browser',
-          },
-        },
-        connections: {
-          set: 'shop-operations',
-          accounts: [
-            { account: 'slack-support', access: 'read-only' },
-            { account: 'stripe-live', access: 'read-write' },
-          ],
-        },
-        deliver: [{ kind: 'slack', route: 'customer-operations' }],
-      },
+      expectedDraftRevision: 1,
+    });
+    await service.addVersion('api:shop-owner', 'thing-customer-ops', {
+      version: '1',
+      expectedDraftRevision: 1,
+      spec: scheduledSpec('Candidate goal that is not live yet.', 'cron(0 8 ? * MON-FRI *)'),
     });
 
-    expect(JSON.stringify(thing)).not.toContain('Review Slack escalations');
-    const ticks = await Promise.all([service.tick(), service.tick()]);
-    expect(ticks.reduce((sum, result) => sum + result.scheduled, 0)).toBe(1);
-    expect(runs.records).toHaveLength(1);
-    expect(new Set(queue.messages.map((message) => message.runId))).toEqual(
-      new Set(['thing-run-deterministic']),
-    );
+    await service.runScheduled({
+      version: '1',
+      thingId: 'thing-customer-ops',
+      revision: 1,
+      scheduledAt: '2026-08-21T15:15:00.000Z',
+    });
+    await service.publish('api:shop-owner', 'thing-customer-ops', {
+      version: '1',
+      expectedDraftRevision: 2,
+    });
+    await expect(service.runScheduled({
+      version: '1',
+      thingId: 'thing-customer-ops',
+      revision: 1,
+      scheduledAt: '2026-08-21T15:30:00.000Z',
+    })).resolves.toEqual({ accepted: false, reason: 'stale-revision' });
 
-    const run = runs.records[0];
-    expect(run).toMatchObject({
-      runId: 'thing-run-deterministic',
-      ownerId: 'api:shop-owner',
-      capabilityOwnerId: 'api:shop-owner',
-      status: 'queued',
-      sourceKind: 'api',
-      provenance: {
-        actor: { kind: 'system', id: 'thing:thing-customer-ops', provider: 'api' },
-        credentialSubject: { kind: 'runtime', id: 'api:shop-owner' },
-      },
-    });
-    if (!run) throw new Error('Thing did not persist a run');
-    await expect(artifacts.getJson(run.input)).resolves.toMatchObject({
-      prompt: 'Review Slack escalations and Stripe refund exceptions.',
-      source: {
-        kind: 'api',
-        requestId: 'thing:thing-customer-ops:1:2026-08-21T15:00:00.000Z',
-      },
-      metadata: {
-        thingId: 'thing-customer-ops',
-        thingName: 'Customer operations check',
-        thingRevision: 1,
-        scheduledAt: '2026-08-21T15:00:00.000Z',
-      },
-      integrations: {
-        connectionSet: 'shop-operations',
-        connections: [
-          { connection: 'slack-support', preset: 'read-only' },
-          { connection: 'stripe-live', preset: 'read-write' },
-        ],
-      },
-    });
-    expect(await things.get('thing-customer-ops')).toMatchObject({
-      lastRunId: 'thing-run-deterministic',
-      lastRunAt: '2026-08-21T15:00:00.000Z',
-      nextRunAt: '2026-08-21T15:15:00.000Z',
+    const currentInvocation = {
+      version: '1' as const,
+      thingId: 'thing-customer-ops',
+      revision: 2,
+      scheduledAt: '2026-08-21T15:31:00.000Z',
+    };
+    const duplicates = await Promise.all([
+      service.runScheduled(currentInvocation),
+      service.runScheduled(currentInvocation),
+    ]);
+    expect(duplicates.every((result) => result.accepted)).toBe(true);
+
+    expect(runs.records).toHaveLength(3);
+    expect(queue.messages).toHaveLength(3);
+    expect(new Set(queue.messages.map((message) => message.runId)).size).toBe(3);
+    const scheduledRuns = await Promise.all(runs.records
+      .map(async (record) => artifacts.getJson<Record<string, unknown>>(record.input)));
+    expect(scheduledRuns).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        prompt: 'Review Slack escalations and Stripe refund exceptions.',
+        metadata: expect.objectContaining({ thingRevision: 1, thingInvocation: 'schedule' }),
+      }),
+      expect.objectContaining({
+        prompt: 'Candidate goal that is not live yet.',
+        metadata: expect.objectContaining({ thingRevision: 2, thingInvocation: 'schedule' }),
+      }),
+    ]));
+
+    await service.pause('api:shop-owner', 'thing-customer-ops');
+    await expect(service.runScheduled({
+      ...currentInvocation,
+      scheduledAt: '2026-08-21T15:32:00.000Z',
+    })).resolves.toEqual({ accepted: false, reason: 'not-active' });
+    expect(scheduler.operations).toEqual([
+      expect.objectContaining({ kind: 'upsert', enabled: true, target: expect.objectContaining({ revision: 1 }) }),
+      expect.objectContaining({ kind: 'upsert', enabled: true, target: expect.objectContaining({ revision: 2 }) }),
+      expect.objectContaining({ kind: 'upsert', enabled: false, target: expect.objectContaining({ revision: 2 }) }),
+    ]);
+    await expect(service.getPublic('api:shop-owner', 'thing-customer-ops')).resolves.toMatchObject({
+      status: 'paused',
+      draft: { revision: 2 },
+      active: { revision: 2 },
+      hasUnpublishedChanges: false,
+      lastRunAt: '2026-08-21T15:31:00.000Z',
     });
   });
 });
@@ -195,6 +199,20 @@ class MemoryRuns implements RunStore {
   ): Promise<RunRecord> { throw new Error('not implemented'); }
 }
 
+class MemoryScheduler implements ThingScheduler {
+  public readonly operations: Array<
+    { kind: 'upsert'; target: ThingSchedulerTarget; enabled: boolean } | { kind: 'remove'; thingId: string }
+  > = [];
+
+  public async upsert(target: ThingSchedulerTarget, enabled: boolean): Promise<void> {
+    this.operations.push({ kind: 'upsert', target: structuredClone(target), enabled });
+  }
+
+  public async remove(thingId: string): Promise<void> {
+    this.operations.push({ kind: 'remove', thingId });
+  }
+}
+
 class MemoryThings implements ThingStore {
   private readonly records = new Map<string, ThingRecord>();
   private readonly versions = new Map<string, Map<number, ThingVersionRecord>>();
@@ -222,23 +240,48 @@ class MemoryThings implements ThingStore {
     return { items: [...this.records.values()].filter((record) => record.ownerId === ownerId) };
   }
 
-  public async listDue(cutoff: string, limit: number): Promise<ThingRecord[]> {
-    return [...this.records.values()]
-      .filter((record) => record.status === 'enabled' && Boolean(record.nextRunAt && record.nextRunAt <= cutoff))
-      .slice(0, limit)
-      .map((record) => structuredClone(record));
+  public async addVersion(
+    ownerId: string,
+    thingId: string,
+    draft: ThingRevision,
+    version: ThingVersionRecord,
+    expectedDraftRevision: number,
+    updatedAt: string,
+  ): Promise<ThingRecord> {
+    const current = this.records.get(thingId);
+    if (
+      !current ||
+      current.ownerId !== ownerId ||
+      current.draft.revision !== expectedDraftRevision ||
+      current.status === 'archived'
+    ) throw new Error('Thing changed concurrently');
+    const updated = { ...current, draft: structuredClone(draft), updatedAt };
+    this.records.set(thingId, updated);
+    this.versions.get(thingId)?.set(version.revision, structuredClone(version));
+    return structuredClone(updated);
   }
 
-  public async addVersion(
-    record: ThingRecord,
-    version: ThingVersionRecord,
-    expectedRevision: number,
+  public async publish(
+    ownerId: string,
+    thingId: string,
+    draft: ThingRevision,
+    expectedStatus: ThingStatus,
+    triggerState: ThingTriggerState,
+    updatedAt: string,
   ): Promise<ThingRecord> {
-    const current = this.records.get(record.thingId);
-    if (!current || current.revision !== expectedRevision) throw new Error('Thing changed concurrently');
-    this.records.set(record.thingId, structuredClone(record));
-    this.versions.get(record.thingId)?.set(version.revision, structuredClone(version));
-    return structuredClone(record);
+    const current = this.records.get(thingId);
+    if (!current || current.ownerId !== ownerId || current.status !== expectedStatus) {
+      throw new Error('Thing changed concurrently');
+    }
+    const updated: ThingRecord = {
+      ...current,
+      status: 'active',
+      active: structuredClone(draft),
+      triggerState: structuredClone(triggerState),
+      updatedAt,
+    };
+    this.records.set(thingId, updated);
+    return structuredClone(updated);
   }
 
   public async setStatus(
@@ -246,46 +289,73 @@ class MemoryThings implements ThingStore {
     thingId: string,
     from: ThingStatus[],
     status: ThingStatus,
-    nextRunAt: string | undefined,
+    triggerState: ThingTriggerState,
     updatedAt: string,
   ): Promise<ThingRecord> {
     const current = this.records.get(thingId);
     if (!current || current.ownerId !== ownerId || !from.includes(current.status)) {
       throw new Error('Thing changed concurrently');
     }
-    const { nextRunAt: _next, ...rest } = current;
-    const updated: ThingRecord = {
-      ...rest,
-      status,
-      updatedAt,
-      ...(nextRunAt ? { nextRunAt } : {}),
-    };
+    const updated = { ...current, status, triggerState: structuredClone(triggerState), updatedAt };
     this.records.set(thingId, updated);
     return structuredClone(updated);
   }
 
-  public async advance(
+  public async setTriggerState(
     thingId: string,
-    expectedRevision: number,
-    expectedRunAt: string,
-    nextRunAt: string,
+    expectedRevision: number | undefined,
+    state: ThingTriggerState,
+    updatedAt: string,
+  ): Promise<ThingRecord> {
+    const current = this.records.get(thingId);
+    if (!current || current.active?.revision !== expectedRevision) throw new Error('Thing changed concurrently');
+    const updated = { ...current, triggerState: structuredClone(state), updatedAt };
+    this.records.set(thingId, updated);
+    return structuredClone(updated);
+  }
+
+  public async recordRun(
+    thingId: string,
+    expectedActiveRevision: number,
+    allowedStatuses: ThingStatus[],
+    runAt: string,
     runId: string,
     updatedAt: string,
   ): Promise<boolean> {
     const current = this.records.get(thingId);
     if (
       !current ||
-      current.status !== 'enabled' ||
-      current.revision !== expectedRevision ||
-      current.nextRunAt !== expectedRunAt
+      current.active?.revision !== expectedActiveRevision ||
+      !allowedStatuses.includes(current.status)
     ) return false;
-    this.records.set(thingId, {
-      ...current,
-      nextRunAt,
-      lastRunAt: expectedRunAt,
-      lastRunId: runId,
-      updatedAt,
-    });
+    this.records.set(thingId, { ...current, lastRunAt: runAt, lastRunId: runId, updatedAt });
     return true;
   }
+}
+
+function scheduledSpec(goal: string, expression: string): Record<string, unknown> {
+  return {
+    version: '1',
+    name: 'Customer operations check',
+    goal,
+    trigger: { kind: 'schedule', expression },
+    agent: {
+      driver: 'codex',
+      sandbox: 'danger-full-access',
+      capabilities: {
+        profile: 'small-business',
+        approvalPolicy: 'on-request',
+        networkAccess: true,
+        computerUse: 'browser',
+      },
+    },
+    connections: {
+      set: 'shop-operations',
+      accounts: [
+        { account: 'slack-support', access: 'read-only' },
+        { account: 'stripe-live', access: 'read-write' },
+      ],
+    },
+    deliver: [{ kind: 'slack', route: 'customer-operations' }],
+  };
 }

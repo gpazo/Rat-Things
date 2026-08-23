@@ -192,7 +192,9 @@ Create and validate the public facade before enabling scheduled work:
 ```bash
 npm run rat-things -- thing-create --file examples/thing-create.json
 npm run rat-things -- thing-explain THING_ID
-npm run rat-things -- thing-run THING_ID --idempotency-key deployment-smoke-001
+npm run rat-things -- thing-test THING_ID --idempotency-key deployment-smoke-001
+npm run rat-things -- thing-publish THING_ID
+npm run rat-things -- thing-run THING_ID --idempotency-key deployment-production-001
 ```
 
 `doctor` checks deployment discovery and authenticated control access. Thing definitions live in

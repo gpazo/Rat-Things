@@ -33,9 +33,10 @@ OAuth applications, connect provider-verified accounts, and publish reusable **T
 documented API.
 
 Every consumer follows the same narrow path: discover the deployment, connect an account, define a
-Thing, explain its effective permissions, run it, and observe durable evidence. The CLI is a client
-of that contract—not a privileged interface—so a personal installation, small-business console,
-embedded SaaS product, another agent, or signed webhook can use the same primitives.
+Thing, explain and test its draft, publish the exact immutable revision, then run and observe durable
+evidence. The CLI is a client of that contract—not a privileged interface—so a personal
+installation, small-business console, embedded SaaS product, another agent, or signed webhook can
+use the same primitives.
 
 Rat Things does not require a central Rat-operated control plane, visual workflow editor,
 marketplace, or hosted OAuth service. The host chooses whether one deployment serves one person or
@@ -69,8 +70,9 @@ workspace bytes, events, files, and results live outside the VM and remain owner
 
 - **One backend, many consumers** — use the same owner-scoped API from a CLI, operator console,
   embedded product, another agent, schedule, or signed provider event.
-- **Reusable Things** — version a goal, trigger, capability profile, account selection, and delivery
-  without embedding credentials or customer identity logic.
+- **Reusable Things** — append immutable definitions with explicit draft and active pointers; test
+  safely, then publish the exact goal, trigger, capabilities, accounts, and delivery that production
+  will use without embedding credentials or customer identity logic.
 - **Verified multi-account integrations** — connect several accounts for one service; provider
   authority, Rat grants, Thing narrowing, resource constraints, and approvals intersect at runtime.
 - **Self-describing UX primitives** — discovery, OpenAPI, JSON Schemas, integration manifests,
@@ -83,8 +85,8 @@ workspace bytes, events, files, and results live outside the VM and remain owner
   storage retains orchestration, conversations, Codex state, workspace bytes, events, and results.
 - **Live control and evidence** — consumers can stream events, answer approvals and input requests,
   steer or interrupt work, and retain files, publications, screenshots, and video.
-- **One run model** — manual and interval Things, conversations, GitHub, GitLab, Teams, and optional
-  Slack paths converge on the same asynchronous execution and delivery contract.
+- **One run model** — manual, EventBridge-scheduled, and provider-triggered Things plus conversations
+  converge on the same asynchronous execution and delivery contract.
 - **Codex-first access** — trusted local work can use an existing ChatGPT subscription; AWS runs use
   short-term Bedrock authentication.
 - **Disposable proof** — deterministic simulation, LocalStack, and live-AWS harnesses exercise the
@@ -225,14 +227,15 @@ automation can use the explicit `chat` command with `--json`, `--no-wait`, `--id
 model, sandbox, reasoning, polling, and timeout controls. Run `rat-things help --all` (or
 `npm run rat-things -- help --all`) for that complete surface.
 
-Products and operators that need repeatable automation can create a Thing, inspect its effective
-permissions, test it while still a draft, and then enable it:
+Products and operators that need a reusable cloud agent can create a Thing, inspect its effective
+permissions, test the draft, and publish that exact immutable revision:
 
 ```bash
 rat-things thing-create --file examples/thing-create.json
 rat-things thing-explain THING_ID
-rat-things thing-run THING_ID --idempotency-key first-safe-test
-rat-things thing-enable THING_ID
+rat-things thing-test THING_ID --idempotency-key first-safe-test
+rat-things thing-publish THING_ID
+rat-things thing-run THING_ID --idempotency-key first-production-run
 ```
 
 Start programmatic integration at `GET /.well-known/rat-things`; it links to the deployment's

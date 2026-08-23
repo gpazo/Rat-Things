@@ -117,6 +117,11 @@ resource "aws_lambda_permission" "eventbridge_conversation_completion" {
   source_arn    = aws_cloudwatch_event_rule.terminal_runs.arn
 }
 
+resource "aws_scheduler_schedule_group" "things" {
+  name = "${local.name}-things"
+  tags = local.tags
+}
+
 resource "aws_cloudwatch_event_rule" "reconciler" {
   name                = "${local.name}-reconciler"
   description         = "Re-enqueue stale queued runs to close the DynamoDB-to-SQS crash window"

@@ -1,70 +1,65 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { ArtifactStore, ThingStore } from '../../src/core/ports.js';
+import type { ArtifactStore, ThingScheduler, ThingSchedulerTarget, ThingStore } from '../../src/core/ports.js';
 import { ThingService } from '../../src/core/thing-service.js';
 import type { RunService } from '../../src/core/run-service.js';
 import type { ArtifactReference, RunRecord } from '../../src/domain/contracts.js';
 import type {
   ListThingsResult,
   ThingRecord,
+  ThingRevision,
   ThingStatus,
+  ThingTriggerState,
   ThingVersionRecord,
 } from '../../src/domain/things.js';
 
 describe('ThingService', () => {
-  it('stores a goal as an immutable artifact and compiles simple multi-account UX', async () => {
+  it('creates only a draft, stores its goal as an immutable artifact, and explains multi-account UX', async () => {
     const store = new MemoryThingStore();
     const payloads = new Map<string, unknown>();
-    const service = new ThingService({
-      store,
-      artifacts: artifactStore(payloads),
-      runs: { submit: vi.fn() } as unknown as Pick<RunService, 'submit'>,
-      randomId: () => 'thing-customer-ops',
-      clock: fixedClock('2026-08-21T10:00:00.000Z'),
-    });
+    const service = serviceWith({ store, payloads, randomId: 'thing-customer-ops' });
 
     const created = await service.create('api:owner-1', {
       version: '1',
-      status: 'draft',
-      spec: {
-        version: '1',
-        name: 'Customer operations',
-        goal: 'Review messages and refund exceptions.',
-        trigger: { kind: 'manual' },
-        agent: {
-          sandbox: 'danger-full-access',
-          capabilities: {
-            profile: 'small-business',
-            networkAccess: true,
-            computerUse: 'browser',
-          },
+      name: 'Customer operations',
+      goal: 'Review messages and refund exceptions.',
+      trigger: { kind: 'manual' },
+      agent: {
+        sandbox: 'danger-full-access',
+        capabilities: {
+          profile: 'small-business',
+          networkAccess: true,
+          computerUse: 'browser',
         },
-        connections: {
-          set: 'front-office',
-          accounts: [
-            { account: 'slack-personal', access: 'read-only' },
-            { account: 'stripe-business', access: 'read-write' },
-          ],
-        },
-        deliver: [{ kind: 'slack', route: 'operations' }],
       },
+      connections: {
+        set: 'front-office',
+        accounts: [
+          { account: 'slack-personal', access: 'read-only' },
+          { account: 'stripe-business', access: 'read-write' },
+        ],
+      },
+      deliver: [{ kind: 'slack', route: 'operations' }],
     });
 
     expect(created).toMatchObject({
       thingId: 'thing-customer-ops',
-      revision: 1,
       status: 'draft',
-      trigger: { kind: 'manual' },
+      draft: { revision: 1, name: 'Customer operations', trigger: { kind: 'manual' } },
+      triggerState: { status: 'inactive' },
     });
+    expect(created).not.toHaveProperty('active');
     expect(JSON.stringify(created)).not.toContain('Review messages');
-    expect(created.spec.key).toMatch(
+    expect(created.draft.spec.key).toMatch(
       /^owners\/[a-f0-9]{32}\/things\/thing-customer-ops\/versions\/1-[a-f0-9]{64}\.json$/,
     );
 
     const explanation = await service.explain('api:owner-1', created.thingId);
     expect(explanation).toMatchObject({
+      target: 'draft',
       runnable: true,
       thing: {
-        spec: { goal: 'Review messages and refund exceptions.' },
+        hasUnpublishedChanges: true,
+        draft: { spec: { goal: 'Review messages and refund exceptions.' } },
       },
       compiledRun: {
         version: '1',
@@ -82,219 +77,264 @@ describe('ThingService', () => {
         expect.objectContaining({ id: 'lifecycle', status: 'warning' }),
       ]),
     });
+    await expect(service.runNow('api:owner-1', created.thingId)).rejects.toThrow(
+      'no published revision',
+    );
   });
 
-  it('schedules an enabled interval with stable provenance and advances it after submission', async () => {
-    let now = new Date('2026-08-21T11:00:00.000Z');
-    const store = new MemoryThingStore();
-    const submit = vi.fn(async () => run('run-thing-1'));
-    const service = new ThingService({
-      store,
-      artifacts: artifactStore(new Map()),
-      runs: { submit } as Pick<RunService, 'submit'>,
-      randomId: () => 'thing-daily',
-      clock: { now: () => now },
+  it('keeps published production immutable while a newer draft is edited and tested', async () => {
+    let submitCount = 0;
+    const submit = vi.fn<RunService['submit']>(async (): Promise<RunRecord> => {
+      submitCount += 1;
+      return run(`run-${submitCount}`);
     });
-    await service.create('owner-1', {
+    const scheduler = new MemoryScheduler();
+    const service = serviceWith({
+      store: new MemoryThingStore(),
+      scheduler,
+      submit,
+      randomId: 'thing-versioned',
+    });
+    await service.create('owner-1', manualSpec('Original production goal'));
+    await service.test('owner-1', 'thing-versioned', 'test-v1');
+    await service.publish('owner-1', 'thing-versioned', {
       version: '1',
-      status: 'enabled',
-      spec: {
-        version: '1',
-        name: 'Daily review',
-        goal: 'Review open tasks.',
-        trigger: { kind: 'interval', everyMinutes: 15 },
-      },
+      expectedDraftRevision: 1,
+    });
+    await service.addVersion('owner-1', 'thing-versioned', {
+      version: '1',
+      expectedDraftRevision: 1,
+      spec: manualSpec('Candidate draft goal'),
     });
 
-    expect(await service.get('owner-1', 'thing-daily')).toMatchObject({
-      nextRunAt: '2026-08-21T11:15:00.000Z',
+    const beforePublish = await service.getPublic('owner-1', 'thing-versioned');
+    expect(beforePublish).toMatchObject({
+      status: 'active',
+      hasUnpublishedChanges: true,
+      active: { revision: 1, spec: { goal: 'Original production goal' } },
+      draft: { revision: 2, spec: { goal: 'Candidate draft goal' } },
     });
-    now = new Date('2026-08-21T11:15:00.000Z');
-    await expect(service.tick()).resolves.toEqual({
-      examined: 1,
-      scheduled: 1,
-      runs: [{ runId: 'run-thing-1', status: 'queued' }],
+
+    await service.test('owner-1', 'thing-versioned', 'test-v2');
+    await service.runNow('owner-1', 'thing-versioned', 'production-v1');
+    expect(submit.mock.calls.map((call) => (call[1] as { metadata?: unknown }).metadata)).toEqual([
+      expect.objectContaining({ thingRevision: 1, thingInvocation: 'test' }),
+      expect.objectContaining({ thingRevision: 2, thingInvocation: 'test' }),
+      expect.objectContaining({ thingRevision: 1, thingInvocation: 'manual' }),
+    ]);
+
+    await service.publish('owner-1', 'thing-versioned', {
+      version: '1',
+      expectedDraftRevision: 2,
+    });
+    await expect(service.getPublic('owner-1', 'thing-versioned')).resolves.toMatchObject({
+      status: 'active',
+      hasUnpublishedChanges: false,
+      active: { revision: 2, spec: { goal: 'Candidate draft goal' } },
+      draft: { revision: 2 },
+    });
+    await expect(service.getVersion('owner-1', 'thing-versioned', 1)).resolves.toMatchObject({
+      revision: 1,
+      spec: { goal: 'Original production goal' },
+    });
+    expect(scheduler.removed).toEqual(['thing-versioned', 'thing-versioned']);
+  });
+
+  it('provisions rate and cron schedules and rejects stale, paused, and manual deliveries', async () => {
+    const submit = vi.fn<RunService['submit']>(async () => run('scheduled-run'));
+    const scheduler = new MemoryScheduler();
+    const service = serviceWith({
+      store: new MemoryThingStore(),
+      scheduler,
+      submit,
+      randomId: 'thing-scheduled',
+    });
+    await service.create('owner-1', scheduleSpec('Scheduled v1', 'rate(15 minutes)'));
+    await service.publish('owner-1', 'thing-scheduled', {
+      version: '1',
+      expectedDraftRevision: 1,
+    });
+    expect(scheduler.upserts).toEqual([{
+      enabled: true,
+      target: {
+        thingId: 'thing-scheduled',
+        revision: 1,
+        trigger: { kind: 'schedule', expression: 'rate(15 minutes)' },
+      },
+    }]);
+
+    await expect(service.runScheduled({
+      version: '1',
+      thingId: 'thing-scheduled',
+      revision: 1,
+      scheduledAt: '2026-08-21T11:15:00.000Z',
+    })).resolves.toEqual({
+      accepted: true,
+      run: { runId: 'scheduled-run', status: 'queued' },
     });
     expect(submit).toHaveBeenCalledWith(
       'owner-1',
       expect.objectContaining({
-        prompt: 'Review open tasks.',
         source: {
           kind: 'api',
-          requestId: 'thing:thing-daily:1:2026-08-21T11:15:00.000Z',
+          requestId: 'thing:thing-scheduled:1:2026-08-21T11:15:00.000Z',
         },
-        metadata: {
-          thingId: 'thing-daily',
-          thingName: 'Daily review',
+        metadata: expect.objectContaining({
           thingRevision: 1,
+          thingInvocation: 'schedule',
           scheduledAt: '2026-08-21T11:15:00.000Z',
-        },
+        }),
       }),
-      {
-        idempotencyKey: 'thing:thing-daily:1:2026-08-21T11:15:00.000Z',
-        capabilityOwnerId: 'owner-1',
-        provenance: {
-          actor: { kind: 'system', id: 'thing:thing-daily', provider: 'api' },
-          credentialSubject: { kind: 'runtime', id: 'owner-1' },
-        },
-      },
+      expect.objectContaining({
+        idempotencyKey: 'thing:thing-scheduled:1:2026-08-21T11:15:00.000Z',
+      }),
     );
-    expect(await service.get('owner-1', 'thing-daily')).toMatchObject({
-      nextRunAt: '2026-08-21T11:30:00.000Z',
-      lastRunAt: '2026-08-21T11:15:00.000Z',
-      lastRunId: 'run-thing-1',
-    });
-  });
 
-  it('creates immutable revisions with compare-and-swap protection', async () => {
-    const store = new MemoryThingStore();
-    const service = new ThingService({
-      store,
-      artifacts: artifactStore(new Map()),
-      runs: { submit: vi.fn() } as unknown as Pick<RunService, 'submit'>,
-      randomId: () => 'thing-versioned',
-      clock: fixedClock('2026-08-21T12:00:00.000Z'),
-    });
-    await service.create('owner-1', createInput('Original goal'));
-    await service.addVersion('owner-1', 'thing-versioned', {
+    await service.addVersion('owner-1', 'thing-scheduled', {
       version: '1',
-      expectedRevision: 1,
-      spec: manualSpec('Updated goal'),
+      expectedDraftRevision: 1,
+      spec: scheduleSpec('Scheduled v2', 'cron(0 8 ? * MON-FRI *)', 'America/Los_Angeles'),
     });
-
-    await expect(service.getVersion('owner-1', 'thing-versioned', 1)).resolves.toMatchObject({
+    await service.publish('owner-1', 'thing-scheduled', {
+      version: '1',
+      expectedDraftRevision: 2,
+    });
+    await expect(service.runScheduled({
+      version: '1',
+      thingId: 'thing-scheduled',
       revision: 1,
-      spec: { goal: 'Original goal' },
-    });
-    await expect(service.getVersion('owner-1', 'thing-versioned', 2)).resolves.toMatchObject({
-      revision: 2,
-      spec: { goal: 'Updated goal' },
-    });
-    await expect(service.addVersion('owner-1', 'thing-versioned', {
+      scheduledAt: '2026-08-21T11:30:00.000Z',
+    })).resolves.toEqual({ accepted: false, reason: 'stale-revision' });
+
+    await service.pause('owner-1', 'thing-scheduled');
+    await expect(service.runScheduled({
       version: '1',
-      expectedRevision: 1,
-      spec: manualSpec('Stale writer'),
-    })).rejects.toThrow('expected 1, current 2');
-    await expect(service.listVersions('owner-1', 'thing-versioned')).resolves.toHaveLength(2);
+      thingId: 'thing-scheduled',
+      revision: 2,
+      scheduledAt: '2026-08-21T11:31:00.000Z',
+    })).resolves.toEqual({ accepted: false, reason: 'not-active' });
+    await service.resume('owner-1', 'thing-scheduled');
+    await service.archive('owner-1', 'thing-scheduled');
+    expect(scheduler.upserts.map((item) => item.enabled)).toEqual([true, true, false, true]);
+    expect(scheduler.removed).toEqual(['thing-scheduled']);
   });
 
-  it('does not overwrite a concurrent lifecycle change while selecting a revision', async () => {
+  it('records trigger synchronization errors and heals them on an idempotent retry', async () => {
     const store = new MemoryThingStore();
-    let injectPause = false;
+    const scheduler = new MemoryScheduler();
+    scheduler.failure = new Error('simulated Scheduler outage');
+    const service = serviceWith({ store, scheduler, randomId: 'thing-retry' });
+    await service.create('owner-1', scheduleSpec('Retry schedule', 'rate(1 hour)'));
+
+    await expect(service.publish('owner-1', 'thing-retry', {
+      version: '1',
+      expectedDraftRevision: 1,
+    })).rejects.toThrow('simulated Scheduler outage');
+    await expect(service.getPublic('owner-1', 'thing-retry')).resolves.toMatchObject({
+      status: 'active',
+      active: { revision: 1 },
+      triggerState: { status: 'error', revision: 1, error: 'simulated Scheduler outage' },
+    });
+
+    scheduler.failure = undefined;
+    await expect(service.publish('owner-1', 'thing-retry', {
+      version: '1',
+      expectedDraftRevision: 1,
+    })).resolves.toMatchObject({ triggerState: { status: 'ready', revision: 1 } });
+  });
+
+  it('rejects invalid schedule expressions and time zones before persistence', async () => {
+    const service = serviceWith({ store: new MemoryThingStore(), randomId: 'thing-invalid' });
+    await expect(service.create('owner-1', scheduleSpec('Too fast', 'rate(0 minutes)')))
+      .rejects.toThrow('rate value');
+    await expect(service.create('owner-1', scheduleSpec('Bad cron', 'cron(0 8 * * * *)')))
+      .rejects.toThrow('exactly one day field');
+    await expect(service.create('owner-1', scheduleSpec('Bad zone', 'cron(0 8 ? * MON *)', 'Mars/Olympus')))
+      .rejects.toThrow('IANA time-zone');
+  });
+
+  it('uses compare-and-swap for drafts without overwriting a concurrent lifecycle change', async () => {
+    const store = new MemoryThingStore();
+    let injectArchive = false;
+    const payloads = new Map<string, unknown>();
     const service = new ThingService({
       store,
-      artifacts: artifactStore(new Map(), async () => {
-        if (!injectPause) return;
-        injectPause = false;
+      scheduler: new MemoryScheduler(),
+      artifacts: artifactStore(payloads, async () => {
+        if (!injectArchive) return;
+        injectArchive = false;
         await store.setStatus(
           'owner-1',
-          'thing-lifecycle-race',
-          ['enabled'],
-          'paused',
-          undefined,
+          'thing-race',
+          ['draft'],
+          'archived',
+          { status: 'syncing', updatedAt: '2026-08-21T12:01:00.000Z' },
           '2026-08-21T12:01:00.000Z',
         );
       }),
       runs: { submit: vi.fn() } as unknown as Pick<RunService, 'submit'>,
-      randomId: () => 'thing-lifecycle-race',
+      randomId: () => 'thing-race',
       clock: fixedClock('2026-08-21T12:00:00.000Z'),
     });
-    await service.create('owner-1', {
+    await service.create('owner-1', manualSpec('Original goal'));
+    injectArchive = true;
+    await expect(service.addVersion('owner-1', 'thing-race', {
       version: '1',
-      status: 'enabled',
-      spec: manualSpec('Original goal'),
-    });
-
-    injectPause = true;
-    await expect(service.addVersion('owner-1', 'thing-lifecycle-race', {
-      version: '1',
-      expectedRevision: 1,
+      expectedDraftRevision: 1,
       spec: manualSpec('Racing goal'),
     })).rejects.toThrow('Thing changed concurrently');
-    await expect(service.get('owner-1', 'thing-lifecycle-race')).resolves.toMatchObject({
-      revision: 1,
-      status: 'paused',
+    await expect(service.get('owner-1', 'thing-race')).resolves.toMatchObject({
+      status: 'archived',
+      draft: { revision: 1 },
     });
   });
 
-  it('allows explicit draft and paused test runs but makes archive terminal', async () => {
-    const submit = vi.fn<RunService['submit']>(async () => run('manual-run'));
-    const service = new ThingService({
-      store: new MemoryThingStore(),
-      artifacts: artifactStore(new Map()),
-      runs: { submit } as Pick<RunService, 'submit'>,
-      randomId: () => 'thing-lifecycle',
-      clock: fixedClock('2026-08-21T13:00:00.000Z'),
-    });
-    await service.create('owner-1', createInput('Test lifecycle'));
-    await service.runNow('owner-1', 'thing-lifecycle', 'stable-manual-key');
-    await service.enable('owner-1', 'thing-lifecycle');
-    await service.pause('owner-1', 'thing-lifecycle');
-    await service.runNow('owner-1', 'thing-lifecycle', 'paused-test-key');
-    await service.archive('owner-1', 'thing-lifecycle');
-
-    expect(submit).toHaveBeenCalledTimes(2);
-    expect(submit.mock.calls[0]?.[1]).toMatchObject({
-      source: {
-        kind: 'api',
-        requestId: expect.stringMatching(/^thing:thing-lifecycle:1:manual:[a-f0-9]{32}$/),
-      },
-    });
-    await expect(service.runNow('owner-1', 'thing-lifecycle')).rejects.toThrow(
-      'archived Things cannot run',
-    );
-    await expect(service.enable('owner-1', 'thing-lifecycle')).rejects.toThrow(
-      'archived Things cannot be enabled',
-    );
-  });
-
-  it('rejects ineffective delivery context and a tampered stored spec', async () => {
+  it('rejects ineffective delivery context, caller-selected secrets, and a tampered draft', async () => {
     const payloads = new Map<string, unknown>();
-    const store = new MemoryThingStore();
     const submit = vi.fn<RunService['submit']>();
-    const service = new ThingService({
-      store,
-      artifacts: artifactStore(payloads),
-      runs: { submit } as unknown as Pick<RunService, 'submit'>,
-      randomId: () => 'thing-tamper',
+    const service = serviceWith({
+      store: new MemoryThingStore(),
+      payloads,
+      submit,
+      randomId: 'thing-tamper',
     });
     await expect(service.create('owner-1', {
-      version: '1',
-      spec: { ...manualSpec('bad destination'), deliver: [{ kind: 'source' }] },
+      ...manualSpec('bad destination'),
+      deliver: [{ kind: 'source' }],
     })).rejects.toThrow('cannot use the source delivery destination');
+    await expect(service.create('owner-1', {
+      ...manualSpec('Clone a repository'),
+      repository: {
+        provider: 'github',
+        url: 'https://github.com/example/private.git',
+        credentialSecretArn: 'arn:aws:secretsmanager:us-west-2:123456789012:secret:caller',
+      },
+    })).rejects.toThrow('use a deployment-owned connection');
 
-    const created = await service.create('owner-1', createInput('Original trusted goal'));
-    payloads.set(created.spec.key, manualSpec('Tampered broader goal'));
-    await expect(service.runNow('owner-1', created.thingId, 'tamper-test')).rejects.toThrow(
+    const created = await service.create('owner-1', manualSpec('Original trusted goal'));
+    payloads.set(created.draft.spec.key, manualSpec('Tampered broader goal'));
+    await expect(service.test('owner-1', created.thingId, 'tamper-test')).rejects.toThrow(
       'does not match its stored digest',
     );
     expect(submit).not.toHaveBeenCalled();
   });
-
-  it('keeps portable Thing specs free of caller-selected credential secrets', async () => {
-    const service = new ThingService({
-      store: new MemoryThingStore(),
-      artifacts: artifactStore(new Map()),
-      runs: { submit: vi.fn() } as unknown as Pick<RunService, 'submit'>,
-      randomId: () => 'thing-portable',
-    });
-
-    await expect(service.create('owner-1', {
-      version: '1',
-      spec: {
-        ...manualSpec('Clone a repository'),
-        repository: {
-          provider: 'github',
-          url: 'https://github.com/example/private.git',
-          credentialSecretArn:
-            'arn:aws:secretsmanager:us-west-2:123456789012:secret:caller-selected',
-        },
-      },
-    })).rejects.toThrow(
-      'Thing spec repository cannot select a credential secret; use a deployment-owned connection',
-    );
-  });
 });
+
+class MemoryScheduler implements ThingScheduler {
+  public readonly upserts: Array<{ target: ThingSchedulerTarget; enabled: boolean }> = [];
+  public readonly removed: string[] = [];
+  public failure: Error | undefined;
+
+  public async upsert(target: ThingSchedulerTarget, enabled: boolean): Promise<void> {
+    if (this.failure) throw this.failure;
+    this.upserts.push({ target: structuredClone(target), enabled });
+  }
+
+  public async remove(thingId: string): Promise<void> {
+    if (this.failure) throw this.failure;
+    this.removed.push(thingId);
+  }
+}
 
 class MemoryThingStore implements ThingStore {
   private readonly records = new Map<string, ThingRecord>();
@@ -322,40 +362,63 @@ class MemoryThingStore implements ThingStore {
 
   public async list(
     ownerId: string,
-    _limit: number,
+    limit: number,
     _nextToken?: string,
     includeArchived = false,
   ): Promise<ListThingsResult> {
     return {
       items: [...this.records.values()]
         .filter((record) => record.ownerId === ownerId && (includeArchived || record.status !== 'archived'))
+        .slice(0, limit)
         .map((record) => structuredClone(record)),
     };
   }
 
-  public async listDue(cutoff: string, limit: number): Promise<ThingRecord[]> {
-    return [...this.records.values()]
-      .filter((record) => record.status === 'enabled' && Boolean(record.nextRunAt && record.nextRunAt <= cutoff))
-      .slice(0, limit)
-      .map((record) => structuredClone(record));
-  }
-
   public async addVersion(
-    record: ThingRecord,
+    ownerId: string,
+    thingId: string,
+    draft: ThingRevision,
     version: ThingVersionRecord,
-    expectedRevision: number,
+    expectedDraftRevision: number,
+    updatedAt: string,
   ): Promise<ThingRecord> {
-    const current = this.records.get(record.thingId);
+    const current = this.records.get(thingId);
     if (
       !current ||
-      current.revision !== expectedRevision ||
-      current.status !== record.status
-    ) {
-      throw new Error('Thing changed concurrently');
-    }
-    this.records.set(record.thingId, structuredClone(record));
-    this.versions.get(record.thingId)?.set(version.revision, structuredClone(version));
-    return structuredClone(record);
+      current.ownerId !== ownerId ||
+      current.draft.revision !== expectedDraftRevision ||
+      current.status === 'archived'
+    ) throw new Error('Thing changed concurrently');
+    const updated = { ...current, draft: structuredClone(draft), updatedAt };
+    this.records.set(thingId, updated);
+    this.versions.get(thingId)?.set(version.revision, structuredClone(version));
+    return structuredClone(updated);
+  }
+
+  public async publish(
+    ownerId: string,
+    thingId: string,
+    draft: ThingRevision,
+    expectedStatus: ThingStatus,
+    triggerState: ThingTriggerState,
+    updatedAt: string,
+  ): Promise<ThingRecord> {
+    const current = this.records.get(thingId);
+    if (
+      !current ||
+      current.ownerId !== ownerId ||
+      current.status !== expectedStatus ||
+      current.draft.revision !== draft.revision
+    ) throw new Error('Thing changed concurrently');
+    const updated: ThingRecord = {
+      ...current,
+      status: 'active',
+      active: structuredClone(draft),
+      triggerState: structuredClone(triggerState),
+      updatedAt,
+    };
+    this.records.set(thingId, updated);
+    return structuredClone(updated);
   }
 
   public async setStatus(
@@ -363,48 +426,67 @@ class MemoryThingStore implements ThingStore {
     thingId: string,
     from: ThingStatus[],
     status: ThingStatus,
-    nextRunAt: string | undefined,
+    triggerState: ThingTriggerState,
     updatedAt: string,
   ): Promise<ThingRecord> {
     const current = this.records.get(thingId);
     if (!current || current.ownerId !== ownerId || !from.includes(current.status)) {
       throw new Error('Thing changed concurrently');
     }
-    const { nextRunAt: _nextRunAt, ...withoutSchedule } = current;
-    const updated: ThingRecord = {
-      ...withoutSchedule,
-      status,
-      updatedAt,
-      ...(nextRunAt ? { nextRunAt } : {}),
-    };
+    const updated = { ...current, status, triggerState: structuredClone(triggerState), updatedAt };
     this.records.set(thingId, updated);
     return structuredClone(updated);
   }
 
-  public async advance(
+  public async setTriggerState(
     thingId: string,
-    expectedRevision: number,
-    expectedRunAt: string,
-    nextRunAt: string,
+    expectedRevision: number | undefined,
+    state: ThingTriggerState,
+    updatedAt: string,
+  ): Promise<ThingRecord> {
+    const current = this.records.get(thingId);
+    if (!current || current.active?.revision !== expectedRevision) {
+      throw new Error('Thing changed concurrently');
+    }
+    const updated = { ...current, triggerState: structuredClone(state), updatedAt };
+    this.records.set(thingId, updated);
+    return structuredClone(updated);
+  }
+
+  public async recordRun(
+    thingId: string,
+    expectedActiveRevision: number,
+    allowedStatuses: ThingStatus[],
+    runAt: string,
     runId: string,
     updatedAt: string,
   ): Promise<boolean> {
     const current = this.records.get(thingId);
     if (
       !current ||
-      current.status !== 'enabled' ||
-      current.revision !== expectedRevision ||
-      current.nextRunAt !== expectedRunAt
+      current.active?.revision !== expectedActiveRevision ||
+      !allowedStatuses.includes(current.status)
     ) return false;
-    this.records.set(thingId, {
-      ...current,
-      nextRunAt,
-      lastRunAt: expectedRunAt,
-      lastRunId: runId,
-      updatedAt,
-    });
+    this.records.set(thingId, { ...current, lastRunAt: runAt, lastRunId: runId, updatedAt });
     return true;
   }
+}
+
+function serviceWith(options: {
+  store: ThingStore;
+  scheduler?: ThingScheduler;
+  payloads?: Map<string, unknown>;
+  submit?: RunService['submit'];
+  randomId: string;
+}): ThingService {
+  return new ThingService({
+    store: options.store,
+    scheduler: options.scheduler ?? new MemoryScheduler(),
+    artifacts: artifactStore(options.payloads ?? new Map()),
+    runs: { submit: options.submit ?? vi.fn(async () => run('run-default')) },
+    randomId: () => options.randomId,
+    clock: fixedClock('2026-08-21T10:00:00.000Z'),
+  });
 }
 
 function artifactStore(
@@ -415,7 +497,7 @@ function artifactStore(
     putJson: vi.fn(async (key: string, value: unknown): Promise<ArtifactReference> => {
       payloads.set(key, structuredClone(value));
       await onPut?.();
-      return { bucket: 'artifacts', key, sha256: 'a'.repeat(64) };
+      return { bucket: 'definitions', key, sha256: 'a'.repeat(64) };
     }),
     getJson: vi.fn(async <T>(reference: Pick<ArtifactReference, 'key'>): Promise<T> => {
       const value = payloads.get(reference.key);
@@ -425,16 +507,21 @@ function artifactStore(
   } as unknown as ArtifactStore;
 }
 
-function createInput(goal: string): unknown {
-  return { version: '1', spec: manualSpec(goal) };
-}
-
 function manualSpec(goal: string): Record<string, unknown> {
   return {
     version: '1',
     name: 'Example Thing',
     goal,
     trigger: { kind: 'manual' },
+  };
+}
+
+function scheduleSpec(goal: string, expression: string, timezone?: string): Record<string, unknown> {
+  return {
+    version: '1',
+    name: 'Scheduled Thing',
+    goal,
+    trigger: { kind: 'schedule', expression, ...(timezone ? { timezone } : {}) },
   };
 }
 

@@ -1,33 +1,88 @@
-# Things: reusable agent automations
+# Things: reusable cloud agents
 
-A **Thing** is Rat Things' product-facing automation contract. It says what an agent should achieve,
-when it may run, which connected accounts it may use, the capability profile that limits it, and
-where its result should go. A Thing contains no credential value and no user, organization, or
-OAuth-client implementation.
+A **Thing** is Rat Things' product-facing contract for a reusable cloud agent. It defines the goal,
+trigger, capability profile, connected accounts, and result destinations without containing a
+credential value. Things work behind an operator UI, another product, a CLI, or another agent.
 
-Use Things when building an operator workflow or embedding Rat Things in another product. The older
-routine and raw-run APIs remain lower-level primitives; new consumers should start with Things.
-See [how Rat Things operates](operating-model.md) for the complete discover-connect-explain-run
-journey. If the Thing needs an external service, [connect and verify its accounts](plugins.md) first.
+The design rule is deliberately small: **once this narrow journey is delightful and stable,
+expand it.** The journey is create, explain, test, publish, and observe.
 
 ## The shortest working flow
-
-Create a draft from the repository example, inspect its deployment-specific resolution, test it,
-then enable it:
 
 ```bash
 rat-things thing-create --file examples/thing-create.json
 rat-things thing-explain THING_ID
-rat-things thing-run THING_ID --idempotency-key first-safe-test
+rat-things thing-test THING_ID --idempotency-key first-safe-test
 rat-things get RUN_ID
-rat-things thing-enable THING_ID
+rat-things thing-publish THING_ID
+rat-things thing-run THING_ID --idempotency-key first-production-run
 ```
 
-Remote CLI commands use `RAT_THINGS_API_URL`, infer an AWS Region from an API Gateway URL when
-possible, and SigV4-sign control requests. `thing-run` accepts an optional idempotency key; repeat
-the same key to retry the same semantic run safely.
+`thing-create` accepts a ThingSpec directly and always creates draft revision 1. `thing-update` and
+`thing-publish` fetch the current draft revision and apply compare-and-swap automatically, so the
+common CLI path does not ask a person or agent to copy revision numbers.
 
-The equivalent create request is:
+Remote commands use `RAT_THINGS_API_URL`, infer the AWS Region from an API Gateway URL when
+possible, and SigV4-sign requests. Reusing an idempotency key safely retries the same semantic run.
+
+## The mental model
+
+A Thing is a stable ID with immutable revisions and two explicit pointers:
+
+```text
+Thing ID
+  draft  ──> revision 3   safe to explain and test
+  active ──> revision 2   exact production definition
+```
+
+Editing appends revision 3 and moves only `draft`. Production stays on revision 2 until publish.
+Publishing atomically points `active` at the current draft; every run records its exact revision.
+There is no mutable definition and no silent production edit.
+
+`GET /v1/things/{thingId}` makes this state explicit:
+
+```json
+{
+  "version": "1",
+  "thingId": "...",
+  "status": "active",
+  "draft": {
+    "version": "1",
+    "thingId": "...",
+    "revision": 3,
+    "name": "Customer operations review",
+    "trigger": { "kind": "manual" },
+    "specHash": "...",
+    "createdAt": "...",
+    "spec": { "version": "1", "name": "...", "goal": "...", "trigger": { "kind": "manual" } }
+  },
+  "active": {
+    "version": "1",
+    "thingId": "...",
+    "revision": 2,
+    "name": "Customer operations review",
+    "trigger": { "kind": "manual" },
+    "specHash": "...",
+    "createdAt": "...",
+    "spec": { "version": "1", "name": "...", "goal": "...", "trigger": { "kind": "manual" } }
+  },
+  "hasUnpublishedChanges": true,
+  "triggerState": { "status": "ready", "revision": 2, "updatedAt": "..." },
+  "createdAt": "...",
+  "updatedAt": "..."
+}
+```
+
+List responses contain the same lifecycle and revision metadata but omit both complete specs, so
+inventory views do not unnecessarily copy goals into tables or logs.
+
+## ThingSpec v1
+
+The machine contract is [ThingSpec v1 JSON Schema](../spec/schemas/thing-v1.json). A deployment
+serves it at `/schemas/thing-v1.json`; `GET /.well-known/rat-things` links the installed schema,
+OpenAPI document, capabilities, and centrally hosted agent documentation.
+
+Create accepts the ThingSpec itself:
 
 ```http
 POST /v1/things HTTP/1.1
@@ -35,117 +90,151 @@ Content-Type: application/json
 
 {
   "version": "1",
-  "status": "draft",
-  "spec": {
-    "version": "1",
-    "name": "Customer operations review",
-    "goal": "Review support messages and payment exceptions. Do not issue refunds without approval.",
-    "trigger": { "kind": "interval", "everyMinutes": 60 },
-    "agent": {
-      "capabilities": {
-        "profile": "small-business",
-        "computerUse": "browser"
-      }
-    },
-    "connections": {
-      "accounts": [
-        { "account": "slack-support", "access": "read-only" },
-        {
-          "account": "stripe-business",
-          "access": "read-write",
-          "denyOperations": ["stripe.refunds.create"]
-        }
-      ]
-    },
-    "deliver": [{ "kind": "slack", "route": "C01234567" }]
-  }
-}
-```
-
-The response is metadata, not the complete goal:
-
-```json
-{
-  "version": "1",
-  "thingId": "...",
-  "revision": 1,
   "name": "Customer operations review",
-  "status": "draft",
-  "trigger": { "kind": "interval", "everyMinutes": 60 },
-  "specHash": "...",
-  "createdAt": "...",
-  "updatedAt": "..."
+  "goal": "Review support and payment exceptions. Do not issue refunds without approval.",
+  "trigger": {
+    "kind": "schedule",
+    "expression": "cron(0 9 ? * MON-FRI *)",
+    "timezone": "America/Los_Angeles"
+  },
+  "agent": {
+    "capabilities": {
+      "profile": "small-business",
+      "computerUse": "browser"
+    }
+  },
+  "connections": {
+    "accounts": [
+      { "account": "slack-support", "access": "read-only" },
+      {
+        "account": "stripe-business",
+        "access": "read-write",
+        "denyOperations": ["stripe.refunds.create"]
+      }
+    ]
+  },
+  "deliver": [{ "kind": "slack", "route": "C01234567" }]
 }
 ```
-
-`GET /v1/things/{thingId}` returns the authenticated owner's complete current spec. List responses
-omit it so a routine inventory does not unnecessarily copy goals into logs or UI tables.
-
-## ThingSpec v1
-
-The machine contract is published as
-[ThingSpec v1 JSON Schema](../spec/schemas/thing-v1.json). Create and version envelopes have their
-own [create schema](../spec/schemas/thing-create-v1.json) and
-[version schema](../spec/schemas/thing-version-v1.json). A deployment serves the same files from
-`/schemas/...`; the centrally hosted documentation serves them from `/schemas/...` as well.
 
 | Field | Meaning |
 | --- | --- |
 | `version` | Contract version; currently exactly `"1"` |
 | `name` | Human-facing label, at most 128 UTF-8 bytes |
 | `goal` | Agent instruction, at most 100,000 UTF-8 bytes |
-| `trigger` | `manual` or an `interval` from 1 to 525,600 minutes |
+| `trigger` | Authenticated `manual` invocation or an EventBridge `schedule` |
 | `repository` | Optional credential-free HTTPS repository selection |
 | `agent` | Model, reasoning, sandbox, profile, browser, search, skills, apps, and MCP selection |
 | `connections` | Optional connection set and/or multiple explicit account selections |
 | `execution` | Optional MicroVM backend and timeout selection |
 | `deliver` | Up to eight explicit `teams`, `slack`, or `none` destinations |
-| `metadata` | Bounded application JSON; trusted Thing occurrence keys are reserved |
+| `metadata` | Application JSON; Rat-owned Thing occurrence keys are reserved |
 
-Thing specs cannot contain `repository.credentialSecretArn`. Bind private source-control access as
-a deployment-owned connection; until that adapter is installed, use the lower-level run API for an
-explicit host-controlled repository secret reference.
+Thing specs cannot select a credential secret, forge a provider source, set a parent run, or use a
+`source` result destination. Provider events continue through signature-verified ingress adapters.
 
-Things deliberately cannot set a provider `source`, a parent run, or the `source` delivery
-destination. A manual Thing has an authenticated API source, not a forged Slack, Teams, GitHub, or
-GitLab source. Provider webhooks continue through their signature-verified ingress adapters.
+## Triggers
 
-### Triggers
-
-`manual` means an authenticated API or CLI consumer decides when to run:
+### Manual
 
 ```json
 { "kind": "manual" }
 ```
 
-`interval` runs through the deployment reconciler:
+An authenticated consumer invokes the active revision with `thing-run`. The latest draft uses the
+separate `thing-test` route, so production and validation are never ambiguous.
+
+### EventBridge Scheduler
 
 ```json
 {
-  "kind": "interval",
-  "everyMinutes": 15,
-  "startAt": "2026-08-24T09:00:00-07:00"
+  "kind": "schedule",
+  "expression": "rate(15 minutes)"
 }
 ```
 
-`startAt` is optional and requires an ISO date-time with an offset. Without it, the first
-occurrence is one interval after the Thing becomes enabled. The scheduler skips accumulated
-backlog rather than launching a storm. A scheduled occurrence is idempotent on Thing ID, revision,
-and scheduled time; its schedule advances only after durable run submission succeeds.
+```json
+{
+  "kind": "schedule",
+  "expression": "cron(0 9 ? * MON-FRI *)",
+  "timezone": "America/Los_Angeles"
+}
+```
 
-The live AWS suite enables a one-minute interval Thing, makes no explicit run request, waits for the
-EventBridge reconciler, and asserts that exactly one durable occurrence retains the expected Thing,
-revision, scheduled-time, and source provenance before pausing it. Scheduled routine occurrence
-validation remains separate.
+Rat uses Amazon EventBridge Scheduler, not legacy scheduled EventBridge rules. `rate(...)` supports
+minute, hour, and day units. `cron(...)` uses the six EventBridge fields: minutes, hours,
+day-of-month, month, day-of-week, and year. Exactly one day field uses `?`. `timezone` is an IANA
+name and defaults to UTC. Scheduler has one-minute precision; one-time `at(...)` schedules are not
+part of ThingSpec v1.
 
-Generic signed-Thing webhooks and provider-event Thing triggers are not part of ThingSpec v1 yet.
-Do not simulate them with an unauthenticated manual route. Use the existing signature-verified
-provider webhooks until a per-Thing secret lifecycle and replay contract are added.
+Each published scheduled Thing owns one opaque schedule in a deployment-owned schedule group. Rat
+owns the Lambda target, invocation role, retry policy, and dead-letter queue; a Thing cannot select
+an arbitrary AWS target or IAM role. The payload pins `thingId`, active revision, and
+`<aws.scheduler.scheduled-time>`.
 
-### Multiple accounts and permissions
+The trusted target checks all of these before submission:
 
-`connections.set` selects a reusable owner-scoped connection set by name or ID. `accounts` adds or
-narrows exact connection aliases or IDs. More than one account may use the same plugin:
+- the Thing still exists and is `active`;
+- the delivered revision is still the active revision; and
+- that revision still has a schedule trigger.
+
+Paused and stale deliveries are acknowledged without creating a run. Accepted occurrences use
+Thing ID, revision, and scheduled time as their idempotency key. Publishing, pausing, resuming, and
+archiving wait for Scheduler synchronization. If AWS rejects synchronization, the API returns an
+error and the Thing exposes `triggerState.status: "error"`; retrying the same lifecycle operation
+is safe and attempts synchronization again.
+
+## Lifecycle
+
+| Status | Draft test | Active explicit run | Scheduled delivery | Edit | Next action |
+| --- | --- | --- | --- | --- | --- |
+| `draft` | Yes | No active revision | No | Yes | Publish |
+| `active` | Yes | Yes | Yes when scheduled | Yes, without changing production | Pause or publish |
+| `paused` | Yes | Yes | No | Yes | Resume or publish |
+| `archived` | No | No | No; schedule removed | No | Terminal |
+
+The lifecycle operations are intentionally literal:
+
+- `test` runs `draft` and never publishes it;
+- `publish` pins the current draft as `active` and activates its trigger;
+- `run` invokes the active revision, even while scheduling is paused;
+- `pause` disables scheduled delivery but does not cancel an in-flight run;
+- `resume` re-synchronizes and enables the active schedule;
+- `archive` is terminal and removes the schedule.
+
+Publishing while paused publishes and activates the selected draft. Restoring a historical
+definition means using it as the input to `thing-update`, which creates a new immutable revision;
+history itself is never mutated.
+
+## Editing and immutable history
+
+The API uses an explicit compare-and-swap envelope:
+
+```http
+POST /v1/things/THING_ID/versions HTTP/1.1
+Content-Type: application/json
+
+{
+  "version": "1",
+  "expectedDraftRevision": 2,
+  "spec": {
+    "version": "1",
+    "name": "Customer operations review",
+    "goal": "Review only; make no external changes.",
+    "trigger": { "kind": "schedule", "expression": "rate(30 minutes)" }
+  }
+}
+```
+
+A stale writer receives `409 conflict`. `rat-things thing-update ID --file THING.json` discovers
+and supplies `expectedDraftRevision` automatically. Historical definitions remain at
+`GET .../versions/{revision}` and are content-digested. Complete specs live in a private,
+versioned, KMS-encrypted definition bucket; DynamoDB stores only lifecycle metadata and references.
+
+## Multiple accounts and permissions
+
+`connections.set` selects an owner-scoped connection set. `accounts` adds or narrows exact aliases
+or IDs, including several accounts for the same provider:
 
 ```json
 {
@@ -154,93 +243,72 @@ narrows exact connection aliases or IDs. More than one account may use the same 
     "accounts": [
       { "account": "slack-agency", "access": "read-write" },
       { "account": "slack-client-a", "access": "read-only" },
-      { "account": "slack-client-b", "access": "custom", "allowOperations": ["slack.messages.search"] }
+      {
+        "account": "slack-client-b",
+        "access": "custom",
+        "allowOperations": ["slack.messages.search"]
+      }
     ]
   }
 }
 ```
 
-`access` is a per-Thing ceiling. It cannot widen the provider token, persistent Rat grant, or
-capability profile. Effective authority is their intersection. `denyOperations` wins over an
-allowlist; `custom` requires explicit allowed operations. Credential values stay in the host's
-Secrets Manager and are read only immediately before an authorized tool call. See
-[integrations, accounts, and permissions](plugins.md) for provider scope, resource constraint, and
-approval behavior.
+The per-Thing request can only narrow authority. Effective access is the intersection of provider
+authorization, the persistent Rat grant, capability profile, and Thing selection.
+`denyOperations` wins. Credential values remain host-owned and are read only immediately before an
+authorized tool call. See [integrations, accounts, and permissions](plugins.md).
 
-## Lifecycle and immutable revisions
+## Explain and debug
 
-Thing lifecycle is separate from its immutable definition:
+`thing-explain` defaults to the draft so it answers “is this safe to publish?” Use
+`--target active` to explain production:
 
-| Status | Scheduled trigger | Explicit test run | Can add a revision? |
-| --- | --- | --- | --- |
-| `draft` | No | Yes | Yes |
-| `enabled` | Yes, for intervals | Yes | Yes |
-| `paused` | No | Yes | Yes |
-| `archived` | No | No | No |
-
-Create in `draft` unless the exact spec and its external side effects have already been reviewed.
-`POST .../enable`, `POST .../pause`, and `POST .../archive` accept `{}`. Archive is terminal so an
-old automation cannot be accidentally reactivated. Archived Things are omitted from list results
-unless `includeArchived=true` or CLI `things --all` is used.
-
-Editing creates another immutable revision with compare-and-swap protection:
-
-```http
-POST /v1/things/THING_ID/versions HTTP/1.1
-Content-Type: application/json
-
-{
-  "version": "1",
-  "expectedRevision": 1,
-  "spec": {
-    "version": "1",
-    "name": "Customer operations review",
-    "goal": "Review only; make no external changes.",
-    "trigger": { "kind": "interval", "everyMinutes": 30 }
-  }
-}
+```bash
+rat-things thing-explain THING_ID
+rat-things thing-explain THING_ID --target active
 ```
 
-If another writer selected revision 2 first, the stale request returns `409 conflict`. Historical
-definitions remain retrievable at `GET .../versions/{revision}` and are content-digested. The
-definition bucket is encrypted, versioned, private, and has no automatic run-artifact expiry;
-DynamoDB contains only lifecycle metadata and S3 references.
+The response validates the stored digest, compiles the exact run request, resolves profiles,
+accounts, grants, provider authorization, operations, approvals, and trigger health without
+reading credential values. `triggerState` is also returned by get/list for quick operational
+debugging:
 
-## Explain before running
-
-`GET /v1/things/{thingId}/explain` and `rat-things thing-explain` are the primary debugging surface.
-They do not read or return credential values. The response includes:
-
-- the stored spec after digest validation;
-- its direct compiled run request;
-- the effective run request after capability-profile resolution;
-- every resolved account and how it was selected;
-- provider authorization metadata and the persistent Rat grant;
-- each installed operation's final allowed/denied, approval, and enforcement decision; and
-- actionable lifecycle, missing-profile, missing-set, missing-account, revoked-account, and
-  unknown-operation diagnostics.
-
-`runnable` is false when the Thing is archived or an environment dependency cannot resolve. A
-warning means an explicit draft/paused test is still possible; an error predicts that execution
-would fail and should be repaired first.
+| Trigger state | Meaning |
+| --- | --- |
+| `inactive` | No published trigger exists, or the Thing is archived |
+| `syncing` | A lifecycle operation has committed and AWS synchronization is in progress |
+| `ready` | The active trigger matches the published revision |
+| `paused` | The active schedule exists but is disabled |
+| `error` | AWS synchronization failed; `error` contains a bounded diagnostic and retry is safe |
 
 ## API and CLI reference
 
 | API | CLI | Purpose |
 | --- | --- | --- |
-| `GET /v1/things` | `things [--all]` | List owner-scoped summaries |
-| `POST /v1/things` | `thing-create --file ...` | Create revision 1 |
-| `GET /v1/things/{id}` | `thing ID` | Get current definition |
-| `GET .../{id}/versions` | `thing-versions ID` | List immutable version metadata |
+| `GET /v1/things` | `things [--all]` | List owner-scoped lifecycle summaries |
+| `POST /v1/things` | `thing-create --file THING.json` | Create draft revision 1 from a ThingSpec |
+| `GET /v1/things/{id}` | `thing ID` | Get draft, active, and complete definitions |
+| `GET .../{id}/versions` | `thing-versions ID` | List immutable revision metadata |
 | `GET .../{id}/versions/{revision}` | `thing-version ID REVISION` | Get one historical definition |
-| `POST .../{id}/versions` | `thing-version ID --file ...` | Select a new immutable revision |
-| `GET .../{id}/explain` | `thing-explain ID` | Resolve effective environment and permissions |
-| `POST .../{id}/run` | `thing-run ID` | Submit an explicit/test run |
-| `POST .../{id}/enable` | `thing-enable ID` | Activate a trigger |
-| `POST .../{id}/pause` | `thing-pause ID` | Stop scheduled triggering |
-| `POST .../{id}/archive` | `thing-archive ID` | Make the Thing terminal |
+| `POST .../{id}/versions` | `thing-update ID --file THING.json` | Append and select a draft revision |
+| `GET .../{id}/explain?target=...` | `thing-explain ID [--target ...]` | Resolve draft or production behavior |
+| `POST .../{id}/test` | `thing-test ID` | Run the latest draft |
+| `POST .../{id}/publish` | `thing-publish ID` | Pin the draft as active and synchronize its trigger |
+| `POST .../{id}/run` | `thing-run ID` | Run the active revision explicitly |
+| `POST .../{id}/pause` | `thing-pause ID` | Disable scheduled delivery |
+| `POST .../{id}/resume` | `thing-resume ID` | Re-enable the active schedule |
+| `POST .../{id}/archive` | `thing-archive ID` | Make the Thing terminal and remove its schedule |
 
-Use `GET /.well-known/rat-things` to discover these contracts from a deployment rather than
-hard-coding the centrally hosted URL. See [embedding and self-hosting](embedding.md) for identity,
-deployment, and frontend boundaries, and [diagnostics](diagnostics.md) when a flow does not behave
-as expected.
+## Definition of done
+
+The lifecycle is covered at four levels:
+
+- unit tests validate parsing, immutable pointers, lifecycle retries, and trigger health;
+- simulation tests exercise the complete Thing-to-durable-run path and duplicate/stale delivery;
+- LocalStack tests run the control and trusted Scheduler Lambda handlers against real DynamoDB,
+  encrypted-definition references, S3 run inputs, and SQS wake-ups; and
+- live AWS tests inspect the created Scheduler resource, wait for an actual invocation, verify the
+  pinned run input, then pause, resume, archive, and confirm deletion and empty failure queues.
+
+See [embedding and self-hosting](embedding.md) for frontend boundaries and
+[diagnostics](diagnostics.md) when the narrow journey does not behave as expected.

@@ -108,11 +108,14 @@ const commands = new Set([
   'things',
   'thing',
   'thing-create',
+  'thing-update',
   'thing-version',
   'thing-versions',
+  'thing-test',
+  'thing-publish',
   'thing-run',
-  'thing-enable',
   'thing-pause',
+  'thing-resume',
   'thing-archive',
   'thing-explain',
   'routines',
@@ -261,22 +264,26 @@ async function main(): Promise<void> {
     case 'thing-create':
       print(await api('/v1/things', 'POST', await requiredJsonFile(args)));
       return;
-    case 'thing-version': {
+    case 'thing-update': {
       const thingId = encodeURIComponent(requiredPositional(args, 0, 'Thing ID'));
-      if (args.values.has('file')) {
-        print(await api(
-          `/v1/things/${thingId}/versions`,
-          'POST',
-          await requiredJsonFile(args),
-        ));
-      } else {
-        print(await api(
-          `/v1/things/${thingId}/versions/${encodeURIComponent(requiredPositional(args, 1, 'revision'))}`,
-          'GET',
-        ));
-      }
+      const current = await api(`/v1/things/${thingId}`, 'GET');
+      print(await api(
+        `/v1/things/${thingId}/versions`,
+        'POST',
+        {
+          version: '1',
+          expectedDraftRevision: thingDraftRevision(current),
+          spec: await requiredJsonFile(args),
+        },
+      ));
       return;
     }
+    case 'thing-version':
+      print(await api(
+        `/v1/things/${encodeURIComponent(requiredPositional(args, 0, 'Thing ID'))}/versions/${encodeURIComponent(requiredPositional(args, 1, 'revision'))}`,
+        'GET',
+      ));
+      return;
     case 'thing-versions':
       print(await api(
         `/v1/things/${encodeURIComponent(requiredPositional(args, 0, 'Thing ID'))}/versions`,
@@ -284,25 +291,42 @@ async function main(): Promise<void> {
       ));
       return;
     case 'thing-explain':
+      {
+        const target = args.values.get('target');
+        if (target && target !== 'draft' && target !== 'active') {
+          throw new Error('--target must be draft or active');
+        }
       print(await api(
-        `/v1/things/${encodeURIComponent(requiredPositional(args, 0, 'Thing ID'))}/explain`,
+        `/v1/things/${encodeURIComponent(requiredPositional(args, 0, 'Thing ID'))}/explain${target ? `?target=${target}` : ''}`,
         'GET',
       ));
       return;
+      }
+    case 'thing-test':
     case 'thing-run': {
       const headers: Record<string, string> = {};
       const key = args.values.get('idempotency-key');
       if (key) headers['idempotency-key'] = key;
       print(await api(
-        `/v1/things/${encodeURIComponent(requiredPositional(args, 0, 'Thing ID'))}/run`,
+        `/v1/things/${encodeURIComponent(requiredPositional(args, 0, 'Thing ID'))}/${args.command === 'thing-test' ? 'test' : 'run'}`,
         'POST',
         {},
         headers,
       ));
       return;
     }
-    case 'thing-enable':
+    case 'thing-publish': {
+      const thingId = encodeURIComponent(requiredPositional(args, 0, 'Thing ID'));
+      const current = await api(`/v1/things/${thingId}`, 'GET');
+      print(await api(
+        `/v1/things/${thingId}/publish`,
+        'POST',
+        { version: '1', expectedDraftRevision: thingDraftRevision(current) },
+      ));
+      return;
+    }
     case 'thing-pause':
+    case 'thing-resume':
     case 'thing-archive': {
       const operation = args.command.slice('thing-'.length);
       print(await api(
@@ -1256,6 +1280,23 @@ function requiredPositional(args: Arguments, index: number, label: string): stri
   return value;
 }
 
+function thingDraftRevision(value: unknown): number {
+  if (
+    !value ||
+    typeof value !== 'object' ||
+    !('draft' in value) ||
+    !value.draft ||
+    typeof value.draft !== 'object' ||
+    !('revision' in value.draft) ||
+    typeof value.draft.revision !== 'number' ||
+    !Number.isSafeInteger(value.draft.revision) ||
+    value.draft.revision < 1
+  ) {
+    throw new Error('Thing response does not contain a valid draft revision');
+  }
+  return value.draft.revision;
+}
+
 function parseResponse(value: string): unknown {
   try {
     return JSON.parse(value) as unknown;
@@ -1320,12 +1361,14 @@ function help(showAll: boolean): void {
   process.stdout.write(`  rat-things things [--limit 25] [--all]\n`);
   process.stdout.write(`  rat-things thing THING_ID\n`);
   process.stdout.write(`  rat-things thing-create --file THING.json\n`);
-  process.stdout.write(`  rat-things thing-version THING_ID --file VERSION.json\n`);
+  process.stdout.write(`  rat-things thing-update THING_ID --file THING.json\n`);
   process.stdout.write(`  rat-things thing-version THING_ID REVISION\n`);
   process.stdout.write(`  rat-things thing-versions THING_ID\n`);
-  process.stdout.write(`  rat-things thing-explain THING_ID\n`);
+  process.stdout.write(`  rat-things thing-explain THING_ID [--target draft|active]\n`);
+  process.stdout.write(`  rat-things thing-test THING_ID [--idempotency-key KEY]\n`);
+  process.stdout.write(`  rat-things thing-publish THING_ID\n`);
   process.stdout.write(`  rat-things thing-run THING_ID [--idempotency-key KEY]\n`);
-  process.stdout.write(`  rat-things thing-enable|thing-pause|thing-archive THING_ID\n`);
+  process.stdout.write(`  rat-things thing-pause|thing-resume|thing-archive THING_ID\n`);
   process.stdout.write(`\nRoutines\n\n`);
   process.stdout.write(`  rat-things routines [--limit 25]\n`);
   process.stdout.write(`  rat-things routine ROUTINE_ID\n`);
