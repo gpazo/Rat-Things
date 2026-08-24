@@ -2,7 +2,7 @@
 
 import { spawn, spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { appendFile, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { access, appendFile, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -19,6 +19,7 @@ const quickstartRoot = join(projectRoot, '.runtime', 'aws-quickstart');
 const configPath = join(quickstartRoot, 'quickstart.tfvars.json');
 const statePath = join(quickstartRoot, 'terraform.tfstate');
 const metadataPath = join(quickstartRoot, 'result.json');
+const contextPath = join(quickstartRoot, 'context.json');
 const thingPath = join(quickstartRoot, 'first-thing.json');
 const debugLogPath = join(quickstartRoot, 'quickstart.log');
 const terraformDataDir = join(quickstartRoot, 'terraform-data');
@@ -67,10 +68,11 @@ interface QuickstartRunEvidence {
 }
 
 interface QuickstartResult {
-  version: 2;
+  version: 3;
   status: 'ready' | 'destroyed';
   apiUrl: string;
   region: string;
+  profile?: string;
   environment: string;
   driver: 'codex' | 'mock';
   model?: string;
@@ -78,7 +80,13 @@ interface QuickstartResult {
   source: {
     repository: 'https://github.com/gpazo/Rat-Things';
     commit: string;
+    tag?: string;
     clean: boolean;
+  };
+  host: {
+    platform: NodeJS.Platform;
+    architecture: string;
+    tools: QuickstartPreflight['tools'];
   };
   terraformManagedResourceCount: number;
   proofMarker: string;
@@ -134,6 +142,46 @@ interface QuickstartPreflight {
   };
 }
 
+interface QuickstartSetupContext {
+  version: 1;
+  status: 'setup-started';
+  region: string;
+  profile?: string;
+  environment: string;
+  driver: 'codex' | 'mock';
+  model?: string;
+  baseImageVersion: string;
+  startedAt: string;
+}
+
+interface QuickstartRecoveredDestroy {
+  version: 3;
+  status: 'destroyed';
+  recoveredFrom: 'interrupted-setup';
+  region: string;
+  profile?: string;
+  environment: string;
+  destroyedAt: string;
+  teardown: {
+    terraformStateEntries: 0;
+    microvmImageResolved: boolean;
+    listedMicrovms: number;
+    activeMicrovms: 0;
+    kmsKey?: {
+      enabled: false;
+      state: 'PendingDeletion';
+      deletionDate: string;
+    };
+  };
+}
+
+type QuickstartMetadata = QuickstartResult | QuickstartRecoveredDestroy;
+
+export interface QuickstartAwsContext {
+  region: string;
+  profile?: string;
+}
+
 export function parseAwsQuickstartOptions(argv: string[]): AwsQuickstartOptions {
   const args = [...argv];
   let command: AwsQuickstartOptions['command'] = 'setup';
@@ -175,13 +223,19 @@ export function parseAwsQuickstartOptions(argv: string[]): AwsQuickstartOptions 
   if (!model || /[\r\n]/.test(model)) throw new Error('--model must be a non-empty single-line value');
   const region = values.get('region') ?? process.env.AWS_REGION ??
     process.env.AWS_DEFAULT_REGION ?? 'us-west-2';
-  if (!microvmRegions.has(region)) {
+  const validatesExecutionRegion = command === 'setup' || command === 'preflight';
+  if (validatesExecutionRegion && !microvmRegions.has(region)) {
     throw new Error(
       `Lambda MicroVM quickstart is not supported in ${region}; use ap-northeast-1, eu-west-1, ` +
       'us-east-1, us-east-2, or us-west-2',
     );
   }
-  if (driver === 'codex' && model === defaultCodexModel && !defaultCodexRegions.has(region)) {
+  if (
+    validatesExecutionRegion &&
+    driver === 'codex' &&
+    model === defaultCodexModel &&
+    !defaultCodexRegions.has(region)
+  ) {
     throw new Error(
       `the default Lambda MicroVM + ${defaultCodexModel} quickstart is not supported in ${region}; ` +
       'use us-east-1, us-east-2, or us-west-2',
@@ -330,6 +384,14 @@ async function setup(options: AwsQuickstartOptions): Promise<void> {
     return;
   }
 
+  const existingMetadata = await readMetadataOptional();
+  if (existingMetadata?.status === 'ready') {
+    throw new Error('an AWS quickstart deployment is already ready; run status or destroy before starting again');
+  }
+  if (!existingMetadata && (await fileExists(contextPath) || await fileExists(statePath))) {
+    throw new Error('an interrupted or orphaned AWS quickstart exists; run status, then destroy before starting again');
+  }
+
   await mkdir(quickstartRoot, { recursive: true, mode: 0o700 });
   await mkdir(terraformPluginCache, { recursive: true, mode: 0o700 });
   await writeFile(debugLogPath, `Rat Things AWS quickstart\nStarted ${new Date().toISOString()}\n`, {
@@ -357,6 +419,20 @@ async function setup(options: AwsQuickstartOptions): Promise<void> {
     '',
   ].join('\n'));
   await confirm(options.yes, 'Deploy this disposable quickstart stack?');
+
+  await rm(metadataPath, { force: true });
+  const setupContext: QuickstartSetupContext = {
+    version: 1,
+    status: 'setup-started',
+    region: options.region,
+    ...(options.profile ? { profile: options.profile } : {}),
+    environment: options.environment,
+    driver: options.driver,
+    ...(options.driver === 'codex' ? { model: options.model } : {}),
+    baseImageVersion,
+    startedAt,
+  };
+  await writeFile(contextPath, `${JSON.stringify(setupContext, null, 2)}\n`, { mode: 0o600 });
 
   await writeFile(
     configPath,
@@ -472,11 +548,13 @@ async function setup(options: AwsQuickstartOptions): Promise<void> {
   progress('      active revision executed successfully');
 
   const completed = Date.now();
+  const sourceTag = exactSourceTag();
   const result: QuickstartResult = {
-    version: 2,
+    version: 3,
     status: 'ready',
     apiUrl,
     region: options.region,
+    ...(options.profile ? { profile: options.profile } : {}),
     environment: options.environment,
     driver: options.driver,
     ...(options.driver === 'codex' ? { model: options.model } : {}),
@@ -484,7 +562,13 @@ async function setup(options: AwsQuickstartOptions): Promise<void> {
     source: {
       repository: 'https://github.com/gpazo/Rat-Things',
       commit: capture('git', ['rev-parse', 'HEAD']),
+      ...(sourceTag ? { tag: sourceTag } : {}),
       clean: capture('git', ['status', '--porcelain']) === '',
+    },
+    host: {
+      platform: process.platform,
+      architecture: process.arch,
+      tools: readiness.tools,
     },
     terraformManagedResourceCount: terraformManagedResourceCount(env),
     proofMarker: marker,
@@ -504,12 +588,22 @@ async function setup(options: AwsQuickstartOptions): Promise<void> {
 }
 
 async function status(options: AwsQuickstartOptions): Promise<void> {
-  const result = await readMetadata();
-  if (result.status === 'destroyed') {
-    printValue(result, options.json);
+  const metadata = await readMetadataOptional();
+  if (metadata?.status === 'destroyed') {
+    printValue(metadata, options.json);
     return;
   }
-  const env = commandEnvironment({ ...options, region: result.region });
+  if (!metadata) {
+    const context = await readSetupContext();
+    printValue({
+      status: 'incomplete',
+      context,
+      recovery: 'run npm run quickstart:aws -- destroy',
+    }, options.json);
+    return;
+  }
+  const result = metadata;
+  const env = commandEnvironment(resolveQuickstartAwsContext(options, result));
   const doctor = JSON.parse(capture(process.execPath, cliArguments(['doctor', '--json']), {
     env: { ...env, RAT_THINGS_API_URL: result.apiUrl },
   })) as unknown;
@@ -520,42 +614,49 @@ async function status(options: AwsQuickstartOptions): Promise<void> {
 }
 
 async function destroy(options: AwsQuickstartOptions): Promise<void> {
-  const result = await readMetadata();
-  if (result.status === 'destroyed') {
-    printValue(result, options.json);
+  const metadata = await readMetadataOptional();
+  if (metadata?.status === 'destroyed') {
+    printValue(metadata, options.json);
     return;
   }
+  const stored = metadata ?? await readSetupContext();
   if (options.dryRun) {
-    printValue({ action: 'destroy', changesExternalState: false, environment: result.environment }, options.json);
+    printValue({ action: 'destroy', changesExternalState: false, environment: stored.environment }, options.json);
     return;
   }
-  await confirm(options.yes, `Destroy the ${result.environment} quickstart stack in ${result.region}?`);
-  const env = commandEnvironment({
-    region: result.region,
-    ...(options.profile ? { profile: options.profile } : {}),
-  });
+  await confirm(options.yes, `Destroy the ${stored.environment} quickstart stack in ${stored.region}?`);
+  const awsContext = resolveQuickstartAwsContext(options, stored);
+  const env = commandEnvironment(awsContext);
   const terraformEnv = terraformEnvironment(env);
-  const kmsKeyId = terraformKmsKeyId(env);
-  const microvm = command('terraform', [
-    '-chdir=infra',
-    'output',
-    `-state=${statePath}`,
-    '-json',
-    'microvm',
-  ], { env: terraformEnv, allowFailure: true });
-  if (microvm.status !== 0) throw new Error('could not resolve the quickstart MicroVM image before teardown');
-  const imageArn = requiredString(
-    (JSON.parse(microvm.stdout) as { image_arn?: unknown }).image_arn,
-    'the quickstart Terraform state returned no MicroVM image ARN',
-  );
+  if (!await fileExists(statePath)) {
+    if (metadata) {
+      throw new Error('the completed quickstart result exists but its Terraform state is missing; refusing unverified teardown');
+    }
+    const destroyed = recoveredQuickstartDestroyEvidence(
+      stored,
+      false,
+      { listedMicrovms: 0, activeMicrovms: 0 },
+    );
+    await writeFile(metadataPath, `${JSON.stringify(destroyed, null, 2)}\n`, { mode: 0o600 });
+    printValue(destroyed, options.json);
+    return;
+  }
+  await loggedCommand('terraform', ['-chdir=infra', 'init', '-input=false'], { env: terraformEnv });
+  const kmsKeyId = terraformKmsKeyIdOptional(env);
+  const imageArn = terraformMicrovmImageArnOptional(env);
+  if (metadata && (!kmsKeyId || !imageArn)) {
+    throw new Error('the completed quickstart state is missing its MicroVM image or KMS key');
+  }
   progress('[1/3] Terminate quickstart MicroVMs');
-  const termination = await loggedCommand(
-    process.execPath,
-    [join(projectRoot, 'scripts', 'terminate-microvms.mjs'), result.region, imageArn],
-    { env },
-  );
-  if (termination.stdout.trim()) {
-    progress(`      ${termination.stdout.trim()}`);
+  if (imageArn) {
+    const termination = await loggedCommand(
+      process.execPath,
+      [join(projectRoot, 'scripts', 'terminate-microvms.mjs'), stored.region, imageArn],
+      { env },
+    );
+    if (termination.stdout.trim()) progress(`      ${termination.stdout.trim()}`);
+  } else {
+    progress('      no deployed image output; setup stopped before agent execution');
   }
   progress('[2/3] Destroy the quickstart AWS backend');
   await loggedCommand('terraform', [
@@ -572,15 +673,25 @@ async function destroy(options: AwsQuickstartOptions): Promise<void> {
   if (terraformStateEntries !== 0) {
     throw new Error(`quickstart teardown left ${terraformStateEntries} Terraform state entries`);
   }
-  const microvms = await microvmTeardownStatus(options, result.region, imageArn);
+  const microvms = imageArn
+    ? await microvmTeardownStatus({ ...options, ...awsContext }, stored.region, imageArn)
+    : { listedMicrovms: 0, activeMicrovms: 0 };
   if (microvms.activeMicrovms !== 0) {
     throw new Error(`quickstart teardown left ${microvms.activeMicrovms} active MicroVMs`);
   }
-  const kmsKey = kmsTeardownStatus(env, kmsKeyId);
-  if (kmsKey.enabled || kmsKey.state !== 'PendingDeletion') {
+  const kmsKey = kmsKeyId ? kmsTeardownStatus(env, kmsKeyId) : undefined;
+  if (kmsKey && (kmsKey.enabled || kmsKey.state !== 'PendingDeletion')) {
     throw new Error(`quickstart KMS key is ${kmsKey.state} after teardown instead of PendingDeletion`);
   }
   progress('      destroyed and verified');
+  if (!metadata) {
+    const destroyed = recoveredQuickstartDestroyEvidence(stored, Boolean(imageArn), microvms, kmsKey);
+    await writeFile(metadataPath, `${JSON.stringify(destroyed, null, 2)}\n`, { mode: 0o600 });
+    printValue(destroyed, options.json);
+    return;
+  }
+  if (!kmsKey) throw new Error('the completed quickstart teardown returned no KMS key state');
+  const result = metadata;
   const destroyed: QuickstartResult = {
     ...result,
     status: 'destroyed',
@@ -655,12 +766,86 @@ async function assertBedrockModelVisible(options: AwsQuickstartOptions): Promise
   }
 }
 
-async function readMetadata(): Promise<QuickstartResult> {
+async function readMetadataOptional(): Promise<QuickstartMetadata | undefined> {
+  if (!await fileExists(metadataPath)) return undefined;
   try {
-    return JSON.parse(await readFile(metadataPath, 'utf8')) as QuickstartResult;
-  } catch {
-    throw new Error('no AWS quickstart result exists; run npm run quickstart:aws first');
+    return JSON.parse(await readFile(metadataPath, 'utf8')) as QuickstartMetadata;
+  } catch (error) {
+    throw new Error(`could not read the AWS quickstart result: ${error instanceof Error ? error.message : String(error)}`);
   }
+}
+
+async function readSetupContext(): Promise<QuickstartSetupContext> {
+  if (!await fileExists(contextPath)) {
+    throw new Error('no AWS quickstart context exists; run npm run quickstart:aws first');
+  }
+  try {
+    return JSON.parse(await readFile(contextPath, 'utf8')) as QuickstartSetupContext;
+  } catch (error) {
+    throw new Error(`could not read the AWS quickstart context: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
+async function fileExists(path: string): Promise<boolean> {
+  try {
+    await access(path);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function resolveQuickstartAwsContext(
+  requested: Pick<AwsQuickstartOptions, 'profile'>,
+  stored: QuickstartAwsContext,
+): QuickstartAwsContext {
+  const profile = requested.profile ?? stored.profile;
+  return {
+    region: stored.region,
+    ...(profile ? { profile } : {}),
+  };
+}
+
+export function recoveredQuickstartDestroyEvidence(
+  stored: Pick<QuickstartSetupContext, 'region' | 'profile' | 'environment'>,
+  microvmImageResolved: boolean,
+  microvms: { listedMicrovms: number; activeMicrovms: number },
+  kmsKey?: { enabled: boolean; state: string; deletionDate: string },
+): QuickstartRecoveredDestroy {
+  if (microvms.activeMicrovms !== 0) {
+    throw new Error(`quickstart teardown left ${microvms.activeMicrovms} active MicroVMs`);
+  }
+  if (kmsKey && (kmsKey.enabled || kmsKey.state !== 'PendingDeletion')) {
+    throw new Error(`quickstart KMS key is ${kmsKey.state} after teardown instead of PendingDeletion`);
+  }
+  return {
+    version: 3,
+    status: 'destroyed',
+    recoveredFrom: 'interrupted-setup',
+    region: stored.region,
+    ...(stored.profile ? { profile: stored.profile } : {}),
+    environment: stored.environment,
+    destroyedAt: new Date().toISOString(),
+    teardown: {
+      terraformStateEntries: 0,
+      microvmImageResolved,
+      listedMicrovms: microvms.listedMicrovms,
+      activeMicrovms: 0,
+      ...(kmsKey ? {
+        kmsKey: {
+          enabled: false,
+          state: 'PendingDeletion',
+          deletionDate: kmsKey.deletionDate,
+        },
+      } : {}),
+    },
+  };
+}
+
+function exactSourceTag(): string | undefined {
+  const result = command('git', ['tag', '--points-at', 'HEAD'], { allowFailure: true });
+  if (result.status !== 0) return undefined;
+  return result.stdout.split('\n').map((value) => value.trim()).find(Boolean);
 }
 
 function cliArguments(args: string[]): string[] {
@@ -866,18 +1051,43 @@ function terraformStateEntryCount(env: NodeJS.ProcessEnv): number {
   return terraformStateAddresses(env).length;
 }
 
-function terraformKmsKeyId(env: NodeJS.ProcessEnv): string {
-  const state = JSON.parse(capture('terraform', [
+function terraformKmsKeyIdOptional(env: NodeJS.ProcessEnv): string | undefined {
+  const shown = command('terraform', [
     '-chdir=infra',
     'show',
     '-json',
     statePath,
-  ], { env: terraformEnvironment(env) })) as {
+  ], { env: terraformEnvironment(env), allowFailure: true });
+  if (shown.status !== 0) return undefined;
+  let state: {
     values?: { root_module?: TerraformStateModule };
   };
+  try {
+    state = JSON.parse(shown.stdout) as typeof state;
+  } catch {
+    return undefined;
+  }
   const resources = state.values?.root_module ? terraformModuleResources(state.values.root_module) : [];
   const kms = resources.find((resource) => resource.type === 'aws_kms_key');
-  return requiredString(kms?.values?.key_id ?? kms?.values?.id, 'Terraform state returned no KMS key ID');
+  const keyId = kms?.values?.key_id ?? kms?.values?.id;
+  return typeof keyId === 'string' && keyId ? keyId : undefined;
+}
+
+function terraformMicrovmImageArnOptional(env: NodeJS.ProcessEnv): string | undefined {
+  const output = command('terraform', [
+    '-chdir=infra',
+    'output',
+    `-state=${statePath}`,
+    '-json',
+    'microvm',
+  ], { env: terraformEnvironment(env), allowFailure: true });
+  if (output.status !== 0) return undefined;
+  try {
+    const imageArn = (JSON.parse(output.stdout) as { image_arn?: unknown }).image_arn;
+    return typeof imageArn === 'string' && imageArn ? imageArn : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 interface TerraformStateModule {
@@ -996,6 +1206,7 @@ function printHelp(): void {
   process.stdout.write(`  npm run quickstart:aws -- destroy\n\n`);
   process.stdout.write(`A fresh clone installs pinned dependencies automatically. Preflight creates or modifies no AWS resources.\n`);
   process.stdout.write(`The default model path runs in us-east-1, us-east-2, or us-west-2.\n`);
+  process.stdout.write(`Status and destroy automatically reuse the setup Region and named profile.\n`);
   process.stdout.write(`The default runs a real Codex Thing with paid Amazon Bedrock tokens.\n`);
   process.stdout.write(`Use --driver mock for a token-free infrastructure proof that is explicitly not a model.\n\n`);
   process.stdout.write(`Options:\n`);

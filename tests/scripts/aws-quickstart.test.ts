@@ -5,6 +5,8 @@ import {
   managedTerraformAddresses,
   parseAwsQuickstartOptions,
   quickstartRunEvidence,
+  recoveredQuickstartDestroyEvidence,
+  resolveQuickstartAwsContext,
 } from '../../scripts/aws-quickstart.js';
 
 describe('AWS quickstart', () => {
@@ -73,6 +75,17 @@ describe('AWS quickstart', () => {
     ])).toMatchObject({ region: 'ap-northeast-1', driver: 'mock' });
   });
 
+  it('uses stored deployment context rather than rejecting recovery from the shell Region', () => {
+    expect(parseAwsQuickstartOptions(['status', '--region', 'eu-central-1'])).toMatchObject({
+      command: 'status',
+      region: 'eu-central-1',
+    });
+    expect(parseAwsQuickstartOptions(['destroy', '--region', 'eu-central-1'])).toMatchObject({
+      command: 'destroy',
+      region: 'eu-central-1',
+    });
+  });
+
   it('offers a non-mutating readiness command in every default-model Region', () => {
     for (const region of ['us-east-1', 'us-east-2', 'us-west-2']) {
       expect(parseAwsQuickstartOptions([
@@ -88,6 +101,60 @@ describe('AWS quickstart', () => {
         region,
       });
     }
+  });
+
+  it('reuses the stored setup identity for status and teardown unless explicitly overridden', () => {
+    expect(resolveQuickstartAwsContext(
+      {},
+      { region: 'us-west-2', profile: 'rat-things-sandbox' },
+    )).toEqual({ region: 'us-west-2', profile: 'rat-things-sandbox' });
+    expect(resolveQuickstartAwsContext(
+      { profile: 'recovery-admin' },
+      { region: 'us-west-2', profile: 'rat-things-sandbox' },
+    )).toEqual({ region: 'us-west-2', profile: 'recovery-admin' });
+    expect(resolveQuickstartAwsContext({}, { region: 'us-east-1' })).toEqual({ region: 'us-east-1' });
+  });
+
+  it('records a verifiable recovery result for setup interrupted before or after deployment', () => {
+    const context = {
+      region: 'us-west-2',
+      profile: 'rat-things-sandbox',
+      environment: 'quickstart',
+    };
+    expect(recoveredQuickstartDestroyEvidence(
+      context,
+      false,
+      { listedMicrovms: 0, activeMicrovms: 0 },
+    )).toMatchObject({
+      version: 3,
+      status: 'destroyed',
+      recoveredFrom: 'interrupted-setup',
+      region: 'us-west-2',
+      profile: 'rat-things-sandbox',
+      teardown: {
+        terraformStateEntries: 0,
+        microvmImageResolved: false,
+        activeMicrovms: 0,
+      },
+    });
+    expect(recoveredQuickstartDestroyEvidence(
+      context,
+      true,
+      { listedMicrovms: 2, activeMicrovms: 0 },
+      { enabled: false, state: 'PendingDeletion', deletionDate: '2026-09-23T00:00:00Z' },
+    )).toMatchObject({
+      teardown: {
+        microvmImageResolved: true,
+        listedMicrovms: 2,
+        activeMicrovms: 0,
+        kmsKey: { enabled: false, state: 'PendingDeletion' },
+      },
+    });
+    expect(() => recoveredQuickstartDestroyEvidence(
+      context,
+      true,
+      { listedMicrovms: 1, activeMicrovms: 1 },
+    )).toThrow('left 1 active MicroVM');
   });
 
   it('accepts only successful Runs bound to the exact Thing revision and proof marker', () => {
