@@ -87,15 +87,16 @@ actual charge.
 ```bash
 git clone --depth 1 --branch golden-path-v1.0.0 https://github.com/gpazo/Rat-Things.git
 cd Rat-Things
-git rev-parse HEAD
+test "$(git rev-parse HEAD)" = "f1c5487f1eb0c1bbf778a75fea939f4474ee68ff"
 npm run quickstart:aws -- --profile rat-things-sandbox --region us-west-2
 ```
 
 `golden-path-v1.0.0` is an immutable public tag; Git's detached-HEAD notice is expected. Before
-granting deployer authority, compare the printed commit with `source.commit` in the
+granting deployer authority, the `test` command verifies `source.commit` in the
 [centrally published evidence](https://gpazo.github.io/Rat-Things/docs/assets/aws-quickstart-evidence.json).
-Do not proceed if they differ. The `main` branch is the development line; switch to it only after
-this proof if you want newer, not-yet-recorded changes.
+It prints nothing on success and stops the pasted command sequence if the checkout differs. The
+`main` branch is the development line; switch to it only after this proof if you want newer,
+not-yet-recorded changes.
 
 Omit `--profile` only when your shell already supplies the intended AWS credentials. Omit `--region`
 only when `AWS_REGION` or `AWS_DEFAULT_REGION` already selects one of the three supported default
@@ -126,11 +127,11 @@ Success is deliberately redundant and machine-readable:
   "status": "ready",
   "region": "us-west-2",
   "profile": "rat-things-sandbox",
-  "source": { "commit": "...", "tag": "golden-path-2026-08-24", "clean": true },
+  "source": { "commit": "...", "tag": "golden-path-v1.0.0", "clean": true },
   "host": {
     "platform": "darwin",
     "architecture": "arm64",
-    "tools": { "node": "v24.1.0", "terraform": "Terraform v1.5.7" }
+    "tools": { "node": "v20.19.5", "terraform": "Terraform v1.5.7" }
   },
   "terraformManagedResourceCount": 158,
   "thing": {
@@ -144,7 +145,7 @@ Success is deliberately redundant and machine-readable:
     "active": { "runId": "...", "status": "succeeded", "invocation": "manual" }
   },
   "measurementScope": "quickstart command through successful active-revision Run",
-  "elapsedSeconds": 476,
+  "elapsedSeconds": 402,
   "underTenMinutes": true
 }
 ```
@@ -184,12 +185,12 @@ available when the tag was cut; the central record above is the authority for ve
 commit before deployment. This keeps the tested source immutable instead of rewriting a tag after
 validation.
 
-On August 24, 2026 UTC, a clean clone of immutable tag `golden-path-v1`, commit
-[`c6752b8`](https://github.com/gpazo/Rat-Things/commit/c6752b816dbc78952a05907daf95e39ceb9edf6c)
+On August 24, 2026 UTC, a clean clone of immutable tag `golden-path-v1.0.0`, commit
+[`f1c5487`](https://github.com/gpazo/Rat-Things/commit/f1c5487f1eb0c1bbf778a75fea939f4474ee68ff)
 installed its pinned dependencies, passed
 preflight, created 158 managed resources in `us-west-2`, tested and published revision 1, then ran
-that active revision through a second real `openai.gpt-5.6-terra` invocation in **476 seconds
-(7m56s)**. The post-run status check, invoked without repeating the profile or Region, found a
+that active revision through a second real `openai.gpt-5.6-terra` invocation in **402 seconds
+(6m42s)**. The post-run status check, invoked without repeating the profile or Region, found a
 healthy API, an active Thing with no unpublished
 changes, and the active Run as `lastRunId`. The self-verifying destroy then found zero Terraform
 state entries, zero active MicroVMs, and only the disabled KMS key in `PendingDeletion`.
@@ -197,7 +198,8 @@ state entries, zero active MicroVMs, and only the disabled KMS key in `PendingDe
 The same code also recovered a deliberately interrupted fresh setup after the workstation filled
 its disk before Terraform could write AWS resources: `status` reported `incomplete`, and a generic
 `destroy` command reused the stored profile and Region and proved that no resources existed. That is
-recovery validation, not part of the 476-second success measurement.
+recovery validation on the preceding release candidate, not part of the 402-second success
+measurement.
 
 This recorded validation covers the narrow path, not load, quota, multi-tenant, or disaster recovery.
 

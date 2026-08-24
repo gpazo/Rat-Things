@@ -32,7 +32,7 @@ describe('AWS-ready golden-path documentation', () => {
     expect(homepage).toContain('intentionally a readiness canary');
     expect(homepage).toContain('Installing host tools and arranging AWS service, quota, and Bedrock access');
     expect(homepage).toContain('Latest recorded live validation:');
-    expect(homepage).toContain('476 seconds (7m56s)');
+    expect(homepage).toContain('402 seconds (6m42s)');
     expect(homepage).not.toContain('Auditable proof:');
     expect(homepage).not.toContain('One command. One real Thing.');
 
@@ -45,15 +45,15 @@ describe('AWS-ready golden-path documentation', () => {
     expect(JSON.parse(evidenceJson)).toMatchObject({
       status: 'passed',
       source: {
-        cloneRef: 'golden-path-v1',
-        commit: 'c6752b816dbc78952a05907daf95e39ceb9edf6c',
+        cloneRef: 'golden-path-v1.0.0',
+        commit: 'f1c5487f1eb0c1bbf778a75fea939f4474ee68ff',
         clean: true,
       },
       host: { platform: 'darwin', architecture: 'arm64' },
       environment: { terraformManagedResourceCount: 158 },
       measurement: {
-        elapsedMilliseconds: 475708,
-        elapsedSeconds: 476,
+        elapsedMilliseconds: 401106,
+        elapsedSeconds: 402,
         elapsedSecondsRounding: 'ceiling to whole seconds',
         underTenMinutes: true,
       },

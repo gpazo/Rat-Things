@@ -40,19 +40,19 @@ disaster-recovery proof.
 
 ## Golden-path validation completed on 2026-08-24
 
-- A clean clone of immutable tag `golden-path-v1`, commit `c6752b8`, ran the documented
+- A clean clone of immutable tag `golden-path-v1.0.0`, commit `f1c5487`, ran the documented
   `npm run quickstart:aws` journey from fresh
   dependency installation through a 158-managed-resource disposable `us-west-2` deployment. A real
   `openai.gpt-5.6-terra` Run tested the exact draft, publication pinned its revision and `specHash`,
   and a second real Run invoked that published active revision. The complete measured command,
-  including the interactive confirmation wait, passed in 476 seconds (7m56s). The evidence records
+  including the interactive confirmation wait, passed in 402 seconds (6m42s). The evidence records
   the host OS and exact Node, npm, Git, Terraform, and AWS CLI versions.
 - `status` and `destroy` were then invoked without repeating the AWS profile or Region; both reused
   the saved non-secret context. Status found the healthy API, exact active Thing, no unpublished
   revision, and latest Run. Destroy removed the deployment and verified zero state entries and zero
   active MicroVMs. An independent state and AWS control-plane check found zero deployed instances,
-  all nine historical MicroVMs terminated, and the exact disabled KMS key in `PendingDeletion`.
-- A separate fresh tagged clone was intentionally recovered after the workstation filled its disk
+  all 11 historical MicroVMs terminated, and the exact disabled KMS key in `PendingDeletion`.
+- A separate fresh predecessor-tag clone was intentionally recovered after the workstation filled its disk
   while Terraform downloaded providers, before any AWS write. Status reported `incomplete`; generic
   destroy reused the stored identity context and verified an empty state and no active MicroVMs.
 - The immediately preceding live deployment proved the universal execution path with two named-thread CLI turns.

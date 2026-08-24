@@ -6,17 +6,17 @@
   "validatedOn": "2026-08-24",
   "source": {
     "repository": "https://github.com/gpazo/Rat-Things",
-    "cloneRef": "golden-path-v1",
-    "tagRecordedByQuickstart": "golden-path-2026-08-24",
-    "commit": "c6752b816dbc78952a05907daf95e39ceb9edf6c",
+    "cloneRef": "golden-path-v1.0.0",
+    "tagRecordedByQuickstart": "golden-path-v1.0.0",
+    "commit": "f1c5487f1eb0c1bbf778a75fea939f4474ee68ff",
     "clean": true
   },
   "host": {
     "platform": "darwin",
     "architecture": "arm64",
     "tools": {
-      "node": "v24.1.0",
-      "npm": "11.4.2",
+      "node": "v20.19.5",
+      "npm": "10.8.2",
       "git": "git version 2.49.0",
       "terraform": "Terraform v1.5.7",
       "aws": "aws-cli/2.13.25 Python/3.11.5 Darwin/25.3.0 exe/x86_64 prompt/off"
@@ -31,66 +31,66 @@
   },
   "measurement": {
     "scope": "quickstart command through successful active-revision Run",
-    "startedAt": "2026-08-24T06:23:31.236Z",
-    "completedAt": "2026-08-24T06:31:26.944Z",
-    "elapsedMilliseconds": 475708,
-    "elapsedSeconds": 476,
+    "startedAt": "2026-08-24T07:07:59.680Z",
+    "completedAt": "2026-08-24T07:14:40.786Z",
+    "elapsedMilliseconds": 401106,
+    "elapsedSeconds": 402,
     "elapsedSecondsRounding": "ceiling to whole seconds",
     "underTenMinutes": true,
     "includesFreshDependencyInstall": true,
     "includesInteractiveConfirmationWait": true
   },
   "thing": {
-    "thingId": "5d98884f-ac20-4908-b03b-bac3f8bcb291",
+    "thingId": "c84be707-93db-4691-a186-bb559194ce92",
     "status": "active",
     "activeRevision": 1,
-    "specHash": "849a9271cf15fc94ca6c2fa0d550b7c36a07c119e998d02e3124b967aefc2cad",
+    "specHash": "e7739637646092c9abfdb4f359537ed9b91e301238f025a82b50566f8b4927dc",
     "hasUnpublishedChanges": false,
-    "proofMarker": "RAT-THINGS-READY-8EBC9522"
+    "proofMarker": "RAT-THINGS-READY-D84BCF14"
   },
   "runs": {
     "draftTest": {
-      "runId": "4fd17c9b-3dba-58be-9aea-7e4f7b8c21ed",
+      "runId": "051ef672-b82d-527b-b2ec-8ee169e0ab65",
       "status": "succeeded",
       "invocation": "test",
       "revision": 1,
-      "specHash": "849a9271cf15fc94ca6c2fa0d550b7c36a07c119e998d02e3124b967aefc2cad",
-      "outputPreview": "RAT-THINGS-READY-8EBC9522 The Thing is ready."
+      "specHash": "e7739637646092c9abfdb4f359537ed9b91e301238f025a82b50566f8b4927dc",
+      "outputPreview": "RAT-THINGS-READY-D84BCF14 The Thing is ready."
     },
     "active": {
-      "runId": "2630d91c-9ae0-5168-9cb9-46e0b726e5e0",
+      "runId": "d89aec54-b4db-53fd-a187-03d1919ec399",
       "status": "succeeded",
       "invocation": "manual",
       "revision": 1,
-      "specHash": "849a9271cf15fc94ca6c2fa0d550b7c36a07c119e998d02e3124b967aefc2cad",
-      "outputPreview": "RAT-THINGS-READY-8EBC9522 The Thing is ready."
+      "specHash": "e7739637646092c9abfdb4f359537ed9b91e301238f025a82b50566f8b4927dc",
+      "outputPreview": "RAT-THINGS-READY-D84BCF14\n\nThe Thing is ready."
     }
   },
   "postRunStatus": {
     "doctorOk": true,
     "thingStatus": "active",
     "hasUnpublishedChanges": false,
-    "lastRunId": "2630d91c-9ae0-5168-9cb9-46e0b726e5e0"
+    "lastRunId": "d89aec54-b4db-53fd-a187-03d1919ec399"
   },
   "teardown": {
-    "completedAt": "2026-08-24T06:34:37.864Z",
+    "completedAt": "2026-08-24T07:18:12.362Z",
     "terraformStateEntries": 0,
-    "listedMicrovms": 9,
+    "listedMicrovms": 11,
     "activeMicrovms": 0,
     "kmsKey": {
       "enabled": false,
       "state": "PendingDeletion",
-      "deletionDate": "2026-09-22T23:34:35.927000-07:00"
+      "deletionDate": "2026-09-23T00:18:10.402000-07:00"
     }
   },
   "independentPostcheck": {
-    "observedAt": "2026-08-24T06:43:51Z",
+    "observedAt": "2026-08-24T07:18:36Z",
     "destroyedStateManagedInstances": 0,
     "exactMicrovmImage": {
-      "listedMicrovms": 9,
+      "listedMicrovms": 11,
       "activeMicrovms": 0,
       "states": {
-        "TERMINATED": 9
+        "TERMINATED": 11
       }
     },
     "exactKmsKey": {
@@ -98,15 +98,16 @@
       "state": "PendingDeletion"
     },
     "projectPurposeTagInventory": {
-      "resources": 4,
+      "resources": 5,
       "services": {
-        "kms": 4
+        "kms": 5
       },
       "enabledKmsKeys": 0,
-      "pendingDeletionKmsKeys": 4
+      "pendingDeletionKmsKeys": 5
     }
   },
   "interruptionRecovery": {
+    "sourceCommit": "c6752b816dbc78952a05907daf95e39ceb9edf6c",
     "exercise": "Fresh tagged clone stopped by a full workstation disk while Terraform downloaded providers, before an AWS write",
     "statusAfterInterruption": "incomplete",
     "storedProfileAndRegionReused": true,

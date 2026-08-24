@@ -197,12 +197,12 @@ Bedrock model access ready:
 ```bash
 git clone --depth 1 --branch golden-path-v1.0.0 https://github.com/gpazo/Rat-Things.git
 cd Rat-Things
-git rev-parse HEAD
+test "$(git rev-parse HEAD)" = "f1c5487f1eb0c1bbf778a75fea939f4474ee68ff"
 npm run quickstart:aws
 ```
 
 `golden-path-v1.0.0` is the immutable release of this journey; Git's detached-HEAD notice is
-expected. Before using a privileged deployer role, compare the printed commit with `source.commit`
+expected. Before using a privileged deployer role, the `test` command verifies `source.commit`
 in the [centrally published evidence](https://gpazo.github.io/Rat-Things/docs/assets/aws-quickstart-evidence.json).
 Use `main` for current development after the first proof succeeds.
 
@@ -220,8 +220,8 @@ and model access happens first and may take longer. Read the
 deployment permissions, paid-use scope, dated cost measurements, public evidence, debugging, and
 exact teardown.
 
-The [latest recorded clean-commit validation](docs/aws-quickstart-evidence.json) completed in **476 seconds
-(7m56s)**, including fresh dependency
+The [latest recorded clean-commit validation](docs/aws-quickstart-evidence.json) completed in **402 seconds
+(6m42s)**, including fresh dependency
 installation and the interactive pause, then passed the automated empty-state, no-active-MicroVM,
 and KMS-deletion-window teardown checks.
 
