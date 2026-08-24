@@ -1,12 +1,26 @@
 {
-  "version": 2,
+  "version": 3,
   "status": "passed",
+  "statusMeaning": "The published validation workflow passed; the local quickstart result reached ready and was then rewritten as destroyed after verified teardown.",
   "evidenceType": "fresh-clone-real-codex-aws-quickstart",
-  "validatedOn": "2026-08-23",
+  "validatedOn": "2026-08-24",
   "source": {
     "repository": "https://github.com/gpazo/Rat-Things",
-    "commit": "7ff0bbfa183f2b85e063ff5e5c27d839e07cc85a",
+    "cloneRef": "golden-path-v1",
+    "tagRecordedByQuickstart": "golden-path-2026-08-24",
+    "commit": "c6752b816dbc78952a05907daf95e39ceb9edf6c",
     "clean": true
+  },
+  "host": {
+    "platform": "darwin",
+    "architecture": "arm64",
+    "tools": {
+      "node": "v24.1.0",
+      "npm": "11.4.2",
+      "git": "git version 2.49.0",
+      "terraform": "Terraform v1.5.7",
+      "aws": "aws-cli/2.13.25 Python/3.11.5 Darwin/25.3.0 exe/x86_64 prompt/off"
+    }
   },
   "environment": {
     "region": "us-west-2",
@@ -17,59 +31,94 @@
   },
   "measurement": {
     "scope": "quickstart command through successful active-revision Run",
-    "startedAt": "2026-08-24T05:24:51.894Z",
-    "completedAt": "2026-08-24T05:33:18.989Z",
-    "elapsedSeconds": 508,
+    "startedAt": "2026-08-24T06:23:31.236Z",
+    "completedAt": "2026-08-24T06:31:26.944Z",
+    "elapsedMilliseconds": 475708,
+    "elapsedSeconds": 476,
+    "elapsedSecondsRounding": "ceiling to whole seconds",
     "underTenMinutes": true,
     "includesFreshDependencyInstall": true,
     "includesInteractiveConfirmationWait": true
   },
   "thing": {
-    "thingId": "f0c80c34-a851-4adb-a367-1d11b8ab4e8f",
+    "thingId": "5d98884f-ac20-4908-b03b-bac3f8bcb291",
     "status": "active",
     "activeRevision": 1,
-    "specHash": "b7c28e82481ec4b2a16a249c09035c49afbefb467341e78d69f58b834c912730",
+    "specHash": "849a9271cf15fc94ca6c2fa0d550b7c36a07c119e998d02e3124b967aefc2cad",
     "hasUnpublishedChanges": false,
-    "proofMarker": "RAT-THINGS-READY-684B14FE"
+    "proofMarker": "RAT-THINGS-READY-8EBC9522"
   },
   "runs": {
     "draftTest": {
-      "runId": "2603d0d6-2a20-5ad9-b2a8-d5e30ea24e38",
+      "runId": "4fd17c9b-3dba-58be-9aea-7e4f7b8c21ed",
       "status": "succeeded",
       "invocation": "test",
       "revision": 1,
-      "specHash": "b7c28e82481ec4b2a16a249c09035c49afbefb467341e78d69f58b834c912730",
-      "outputPreview": "RAT-THINGS-READY-684B14FE\n\nThe Thing is ready."
+      "specHash": "849a9271cf15fc94ca6c2fa0d550b7c36a07c119e998d02e3124b967aefc2cad",
+      "outputPreview": "RAT-THINGS-READY-8EBC9522 The Thing is ready."
     },
     "active": {
-      "runId": "451b3d84-7f4b-5da6-9889-5dae2b15e2aa",
+      "runId": "2630d91c-9ae0-5168-9cb9-46e0b726e5e0",
       "status": "succeeded",
       "invocation": "manual",
       "revision": 1,
-      "specHash": "b7c28e82481ec4b2a16a249c09035c49afbefb467341e78d69f58b834c912730",
-      "outputPreview": "RAT-THINGS-READY-684B14FE The Thing is ready."
+      "specHash": "849a9271cf15fc94ca6c2fa0d550b7c36a07c119e998d02e3124b967aefc2cad",
+      "outputPreview": "RAT-THINGS-READY-8EBC9522 The Thing is ready."
     }
   },
   "postRunStatus": {
     "doctorOk": true,
     "thingStatus": "active",
     "hasUnpublishedChanges": false,
-    "lastRunId": "451b3d84-7f4b-5da6-9889-5dae2b15e2aa"
+    "lastRunId": "2630d91c-9ae0-5168-9cb9-46e0b726e5e0"
   },
   "teardown": {
-    "completedAt": "2026-08-24T05:36:34.095Z",
+    "completedAt": "2026-08-24T06:34:37.864Z",
     "terraformStateEntries": 0,
-    "listedMicrovms": 7,
+    "listedMicrovms": 9,
     "activeMicrovms": 0,
     "kmsKey": {
       "enabled": false,
       "state": "PendingDeletion",
-      "deletionDate": "2026-09-22T22:36:31.058000-07:00"
+      "deletionDate": "2026-09-22T23:34:35.927000-07:00"
     }
+  },
+  "independentPostcheck": {
+    "observedAt": "2026-08-24T06:43:51Z",
+    "destroyedStateManagedInstances": 0,
+    "exactMicrovmImage": {
+      "listedMicrovms": 9,
+      "activeMicrovms": 0,
+      "states": {
+        "TERMINATED": 9
+      }
+    },
+    "exactKmsKey": {
+      "enabled": false,
+      "state": "PendingDeletion"
+    },
+    "projectPurposeTagInventory": {
+      "resources": 4,
+      "services": {
+        "kms": 4
+      },
+      "enabledKmsKeys": 0,
+      "pendingDeletionKmsKeys": 4
+    }
+  },
+  "interruptionRecovery": {
+    "exercise": "Fresh tagged clone stopped by a full workstation disk while Terraform downloaded providers, before an AWS write",
+    "statusAfterInterruption": "incomplete",
+    "storedProfileAndRegionReused": true,
+    "destroyResult": "destroyed",
+    "terraformStateEntries": 0,
+    "activeMicrovms": 0
   },
   "limits": [
     "Narrow single-operator journey, not a load or quota test",
-    "Read-only no-network Thing with no connected account, schedule, OAuth, or public delivery",
+    "Read-only no-network readiness canary with no useful integration, schedule, OAuth, or public delivery",
+    "Project-published and unsigned evidence, not a third-party attestation",
+    "The deployment was destroyed, so Thing and Run IDs are historical receipts rather than live query targets",
     "Engineering preview, not a multi-tenant hardening or disaster-recovery claim"
   ]
 }

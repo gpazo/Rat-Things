@@ -35,17 +35,27 @@ disaster-recovery proof.
 | Teams | Durable chat path locally/live AWS validated | Signed mentions get an immediate acknowledgement, enter the mailbox, and complete through threaded gateway egress; Microsoft authentication and live tenant delivery remain |
 | Slack | Optional initial adapter | App mentions and threaded posts; not the primary deployment target |
 | Observability/recovery | Partial/live measured | Low-cardinality queue/processing metrics, structured logs, durable queues/events, reconciler, delivery leases, failure queues/alarms; broader chaos drills remain |
-| Cost model | Live canary baseline measured | The 2026-08-16 two-turn site canary is about $0.380 at public list rates; non-model infrastructure fell to about $0.046, while sustained-load ceilings remain unmeasured |
+| Cost model | Live canary baseline measured | The 2026-08-16 two-turn site canary has a dated $0.380 estimate using rates captured then; non-model infrastructure was about $0.046, while current repricing and sustained-load ceilings remain unmeasured |
 | Multi-tenant hardening | Not complete | Requires safe response projection, destination authorization, budgets, rate limits, and security review |
 
-## Golden-path validation completed on 2026-08-23
+## Golden-path validation completed on 2026-08-24
 
-- A clean clone of commit `7ff0bbf` ran the documented `npm run quickstart:aws` journey from fresh
+- A clean clone of immutable tag `golden-path-v1`, commit `c6752b8`, ran the documented
+  `npm run quickstart:aws` journey from fresh
   dependency installation through a 158-managed-resource disposable `us-west-2` deployment. A real
   `openai.gpt-5.6-terra` Run tested the exact draft, publication pinned its revision and `specHash`,
   and a second real Run invoked that published active revision. The complete measured command,
-  including the interactive confirmation wait, passed in 508 seconds (8m28s).
-- The same live deployment proved the universal execution path with two named-thread CLI turns.
+  including the interactive confirmation wait, passed in 476 seconds (7m56s). The evidence records
+  the host OS and exact Node, npm, Git, Terraform, and AWS CLI versions.
+- `status` and `destroy` were then invoked without repeating the AWS profile or Region; both reused
+  the saved non-secret context. Status found the healthy API, exact active Thing, no unpublished
+  revision, and latest Run. Destroy removed the deployment and verified zero state entries and zero
+  active MicroVMs. An independent state and AWS control-plane check found zero deployed instances,
+  all nine historical MicroVMs terminated, and the exact disabled KMS key in `PendingDeletion`.
+- A separate fresh tagged clone was intentionally recovered after the workstation filled its disk
+  while Terraform downloaded providers, before any AWS write. Status reported `incomplete`; generic
+  destroy reused the stored identity context and verified an empty state and no active MicroVMs.
+- The immediately preceding live deployment proved the universal execution path with two named-thread CLI turns.
   Each accepted prompt returned one Run. The first Run executed the coordinator-prepared input; the
   second continued from suspended-session state and executed a transcript containing the first user prompt,
   first result, and follow-up prompt.
@@ -57,11 +67,10 @@ disaster-recovery proof.
   and coordinator-prepared `executionInput` assertions were separated. The signed Teams case proves
   raw prompt immutability, full replay preparation, one Run per message, state transitions, and
   threaded delivery.
-- The quickstart teardown now verifies its own postconditions. The final live proof destroyed all
-  managed resources, found zero Terraform state entries and zero active MicroVMs, and confirmed the
-  sole unavoidable remnant was the disabled KMS key in AWS's mandatory `PendingDeletion` lifecycle.
-  The sanitized [public evidence bundle](aws-quickstart-evidence.json) pins the source commit, Thing,
-  both Run receipts, elapsed time, status check, and teardown result.
+- The sanitized [project-published evidence bundle](aws-quickstart-evidence.json) pins the immutable
+  source, host toolchain, Thing, both Run receipts, exact elapsed milliseconds and rounding, status
+  check, teardown, and independent postcheck. It is unsigned project evidence, not a third-party
+  attestation, and its destroyed resource IDs are historical receipts rather than live query targets.
 
 ## Validation completed on 2026-08-23
 
@@ -292,8 +301,9 @@ disaster-recovery proof.
   and 124 ms.
 - High-churn Codex temp/cache/plugin-cache and publication-staging directories stayed on VM-local
   bind mounts. The conversation's S3 Files backing set was 155 objects and 13.39 MB.
-- The two-turn public-list estimate is about $0.380: $0.334 model inference and about $0.046 other
-  infrastructure.
+- The two-turn estimate captured on 2026-08-16 was about $0.380: $0.334 model inference and about
+  $0.046 other infrastructure. GPT-5.6 Terra pricing has since changed; the retained aggregate
+  token buckets cannot be honestly repriced without per-request context classification.
 - The full local quality gate passed with 162 tests and 11 intentional skips, plus architecture,
   package, site, and Terraform validation.
 

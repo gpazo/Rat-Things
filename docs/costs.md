@@ -5,9 +5,10 @@ conversations. Operators can see the cost of each layer: model usage, MicroVM ex
 snapshots, request-scale control-plane services, and optional continuity infrastructure.
 
 > **Current live measurement:** 27.45 seconds from a cold message to the agent runner, 1.99 seconds
-> warm, about $0.046 of non-model infrastructure, and about $0.380 total at public list rates for
-> one two-turn site-generation canary. See [Two-turn publication measurement](#two-turn-publication-measurement)
-> for the exact scope, breakdown, and caveats.
+> warm, and about $0.046 of non-model infrastructure for one two-turn site-generation canary. Its
+> $0.380 total is a historical estimate using public rates captured on 2026-08-16, not a current
+> quote. See [Two-turn publication measurement](#two-turn-publication-measurement) for the exact
+> scope, breakdown, and caveats.
 
 Agent threads, workspaces, and published files remain durable while execution scales with active
 work. The result is an inspectable per-run cost with no continuously running agent worker.
@@ -65,8 +66,8 @@ started 24.11 seconds after the reported VM start. On the warm turn, the dispatc
 `14:42:01.030Z` and the runner started 0.91 seconds later. The two SQS queue-delay measurements were
 695 ms plus 565 ms cold and 133 ms plus 124 ms warm.
 
-The current public-list estimate for this exact two-turn canary is **about $0.380** before credits,
-taxes, image-build cost, or the stack's idle floor:
+The public-list estimate captured for this exact two-turn canary on 2026-08-16 was **about $0.380**
+before credits, taxes, image-build cost, or the stack's idle floor:
 
 | Component | Estimated list cost |
 | --- | ---: |
@@ -82,6 +83,11 @@ The model emitted 373,826 cumulative input tokens: 351,634 cache-read, 22,148 ca
 uncached, plus 9,654 output tokens. The estimated non-model infrastructure portion is **$0.046**.
 If the account's observed 20% effective model discount persists, the same canary is about **$0.313**
 before credits.
+
+GPT-5.6 Terra prices have changed since that measurement. The retained evidence has aggregate token
+buckets across both turns, not each request's context-window classification, so recomputing a
+single “current” total would imply precision the evidence does not support. Keep $0.380 as the dated
+estimate and use the current short- or long-context rates below for new runs.
 
 S3 Files access is the only provisional line because its operation-level billing records post
 later. The estimate applies the observed access amplification to the durable working set. The
@@ -143,6 +149,17 @@ credits, negotiated pricing, taxes, and later AWS price changes can alter the ac
 | NAT gateway | $0.045 per hour and $0.045 per processed GB |
 | Public IPv4 address | $0.005 per hour |
 
+### Quickstart KMS deletion window
+
+The disposable quickstart creates one customer-managed KMS key and configures Terraform's 30-day
+deletion window. `destroy` schedules deletion, verifies that the exact key is disabled in
+`PendingDeletion`, and records its deletion date. AWS keeps the key visible during the mandatory
+waiting period, but it cannot perform cryptographic operations. AWS's current pricing page says
+there is no monthly key charge while a customer-managed key is scheduled for deletion; canceling
+deletion causes charges as though deletion had never been scheduled. See
+[AWS KMS deletion behavior](https://docs.aws.amazon.com/kms/latest/developerguide/deleting-keys.html)
+and [AWS KMS pricing](https://aws.amazon.com/kms/pricing/).
+
 The API stage disables route-level detailed metrics by default because their cardinality grows with
 the number of active routes and can cost more than API requests at low volume. Set
 `enable_detailed_api_metrics=true` only when that breakdown is operationally useful. Queue delay and
@@ -194,13 +211,20 @@ about $0.081 plus snapshot storage and model usage.
 
 ## Model cost is separate
 
-Infrastructure economics do not make model inference free. Current public GPT-5.6 Terra pricing in
-`us-west-2` is $2.75 per million input tokens, $3.44 per million 30-minute cache-write tokens, $0.28
-per million cache-read tokens, and $16.50 per million output tokens.
+Infrastructure economics do not make model inference free. As checked on **2026-08-23**, current
+public in-Region GPT-5.6 Terra pricing in `us-west-2` distinguishes short and long contexts:
 
-The measured canaries received effective Cost Explorer rates about 20% below those public prices.
-Because that may be account-specific, capacity planning should use public prices unless the target
-account has a documented discount.
+| Context window | Input / 1M | 30-minute cache write / 1M | Cache read / 1M | Output / 1M |
+| --- | ---: | ---: | ---: | ---: |
+| Short, up to 272K | $2.20 | $2.75 | $0.22 | $13.20 |
+| Long, up to 1M | $4.40 | $5.50 | $0.44 | $19.80 |
+
+Check [Amazon Bedrock pricing](https://aws.amazon.com/bedrock/pricing/) before budgeting; rates and
+regional availability can change.
+
+The 2026-08-16 canaries received effective Cost Explorer rates about 20% below the public prices
+captured then. Because that may be account-specific, capacity planning should use current public
+prices unless the target account has a documented discount.
 
 ## Where Rat Things fits
 

@@ -82,14 +82,16 @@
           <li>
             <span class="step-number">01</span>
             <h3>Clone</h3>
-            <pre><code><span>git clone</span> --depth 1 \
+            <pre><code><span>git clone</span> --depth 1 --branch golden-path-v1 \
   https://github.com/gpazo/Rat-Things.git
 <span>cd</span> Rat-Things</code></pre>
           </li>
           <li>
             <span class="step-number">02</span>
             <h3>Deploy and prove</h3>
-            <pre><code><span>npm run</span> quickstart:aws
+            <pre><code><span>npm run</span> quickstart:aws -- \
+  --profile rat-things-sandbox \
+  --region us-west-2
 
 <span>install → preflight → deploy</span>
 <span>test → publish → run active</span></code></pre>
@@ -105,10 +107,11 @@
         </ol>
 
         <div class="setup-footer">
-          <p><strong>Honest boundary:</strong> the ten-minute gate starts at <code>npm run quickstart:aws</code> and includes dependency installation when absent; cloning is not timed. Installing host tools and arranging AWS service, quota, and Bedrock access happens first and may take longer. The default model path uses <code>us-east-1</code>, <code>us-east-2</code>, or <code>us-west-2</code>. The complete guide provides a no-resource-write preflight, concrete account checks, paid-use boundary, and teardown.</p>
-          <p>The default invokes paid Codex on Bedrock twice: once to prove the draft and once through the published active revision. <code>--driver mock</code> is explicitly infrastructure-only. OAuth, VPC/NAT, schedules, and public sharing stay out of this first journey.</p>
+          <p><strong>Honest boundary:</strong> the ten-minute gate starts at <code>npm run quickstart:aws</code> and includes dependency installation when absent; cloning is not timed. Installing host tools and arranging AWS service, quota, and Bedrock access happens first and may take longer. The default model path uses <code>us-east-1</code>, <code>us-east-2</code>, or <code>us-west-2</code>. Setup stores the non-secret profile and Region names, so the generic status and destroy commands reuse the exact target. The complete guide provides a no-resource-write preflight, concrete account checks, paid-use boundary, and teardown.</p>
+          <p><code>golden-path-v1</code> is the immutable, live-tested source for this journey; Git's detached-HEAD notice is expected. <code>main</code> remains the development line.</p>
+          <p>The default invokes paid Codex on Bedrock twice: once to prove the draft and once through the published active revision. That first Thing is intentionally a readiness canary, not a useful integration. <code>--driver mock</code> is explicitly infrastructure-only. OAuth, VPC/NAT, schedules, and public sharing stay out of this first journey.</p>
           <p><strong>Published validation record:</strong> the <a href="docs/assets/aws-quickstart-evidence.json">latest evidence JSON</a> records a clean source commit, active revision and <code>specHash</code>, both successful Run IDs, elapsed time, teardown, empty Terraform state, and the no-MicroVM check. It is project-published evidence, not a third-party attestation.</p>
-          <p><strong>Latest recorded live validation:</strong> clean commit <code>7ff0bbf</code> completed the fresh-install path in 508 seconds (8m28s), including the interactive pause. Its deployment was then removed: the self-verifying teardown passed with zero state entries and zero active MicroVMs.</p>
+          <p><strong>Latest recorded live validation:</strong> immutable tag <code>golden-path-v1</code>, clean commit <code>c6752b8</code>, completed the fresh-install path in 476 seconds (7m56s), including the interactive pause. Its deployment was then removed: both the self-verifying teardown and an independent AWS postcheck found zero deployed state instances and zero active MicroVMs.</p>
           <a class="text-link" href="docs/quickstart/">Follow the complete golden path <span aria-hidden="true">→</span></a>
         </div>
       </section>
@@ -329,11 +332,11 @@
         <div class="economics-heading">
           <div>
             <div class="section-label">Measured live on AWS · August 16, 2026</div>
-            <h2 id="economics-title">Fast starts. Durable work.<br>Costs you can audit.</h2>
+            <h2 id="economics-title">Fast starts. Durable work.<br>Costs you can inspect.</h2>
           </div>
           <div class="economics-copy">
             <p>Start a fresh isolated agent in 27.45 seconds, resume it in 1.99 seconds, and keep its thread and files between turns. The figures below come from one complete two-turn site-building run.</p>
-            <a class="text-link" href="docs/costs/#two-turn-publication-measurement">Audit the measurements and cost model <span aria-hidden="true">→</span></a>
+            <a class="text-link" href="docs/costs/#two-turn-publication-measurement">Inspect the measurements and cost model <span aria-hidden="true">→</span></a>
           </div>
         </div>
         <p class="baseline-kicker">Message received → agent runner</p>
@@ -343,14 +346,14 @@
           <div><dt>106.77s</dt><dd>cold message to successful site-producing run</dd></div>
           <div><dt>24.10s</dt><dd>warm message to successful revision</dd></div>
         </dl>
-        <p class="baseline-kicker baseline-kicker-cost">Public-list estimate for the exact two-turn demo</p>
+        <p class="baseline-kicker baseline-kicker-cost">Historical estimate for the exact two-turn demo</p>
         <dl class="cost-ledger">
-          <div><dt>$0.380</dt><dd>complete two-turn site canary at public list rates</dd></div>
-          <div><dt>$0.334</dt><dd>model inference—the largest and most variable component</dd></div>
+          <div><dt>$0.380</dt><dd>using public rates captured with the August 16 canary</dd></div>
+          <div><dt>$0.334</dt><dd>historical model estimate—the largest and most variable component</dd></div>
           <div><dt>$0.046</dt><dd>MicroVM, snapshots, storage, network, and control plane</dd></div>
           <div><dt>≈$36/mo</dt><dd>optional S3 Files networking floor when continuously enabled</dd></div>
         </dl>
-        <p class="cost-disclosure">Measured in <code>us-west-2</code> with one fresh turn and one same-VM continuation. The optional monthly floor is not included in the $0.380 run estimate. S3 Files access is estimated until operation-level billing posts. This is a live canary, not a concurrency or production forecast.</p>
+        <p class="cost-disclosure">Measured in <code>us-west-2</code> with one fresh turn and one same-VM continuation. GPT-5.6 Terra prices have since changed, and the per-request context buckets needed for an honest reprice were not retained, so $0.380 remains a dated estimate rather than a current quote. The optional monthly floor is excluded. This is a live canary, not a concurrency or production forecast.</p>
       </section>
 
       <section class="section architecture-section" id="architecture" aria-labelledby="architecture-title">

@@ -15,10 +15,11 @@ successful Run. Time spent obtaining an AWS account, installing the host toolcha
 Lambda MicroVM capacity, or arranging Bedrock access is **not** part of the gate and can take longer
 than ten minutes.
 
-The command writes its source commit, clean/dirty state, consistent start and finish timestamps,
-elapsed seconds, Terraform resource count, active revision and `specHash`, both Run IDs, and both
-output previews to `.runtime/aws-quickstart/result.json`. It fails above ten minutes. Complete npm,
-package, and Terraform diagnostics go to `.runtime/aws-quickstart/quickstart.log`.
+The command writes its source commit and tag, clean/dirty state, host OS and exact tool versions,
+consistent start and finish timestamps, elapsed seconds, Terraform resource count, active revision
+and `specHash`, both Run IDs, and both output previews to
+`.runtime/aws-quickstart/result.json`. It fails above ten minutes. Complete npm, package, and
+Terraform diagnostics go to `.runtime/aws-quickstart/quickstart.log`.
 
 ## Get the workstation and AWS account ready
 
@@ -40,17 +41,21 @@ aws sso login --profile rat-things-sandbox
 aws sts get-caller-identity --profile rat-things-sandbox
 ```
 
-Keep that profile name. The setup, optional preflight, status, and destroy commands below must use
-the same identity and Region.
+Keep that profile name. Pass it and the Region to setup once. Setup stores only their non-secret
+names under `.runtime/aws-quickstart/`; later `status` and `destroy` commands automatically reuse
+them. Pass the same flags to a standalone preflight because no setup context exists yet.
 
-For the first proof, use a disposable AWS sandbox account or an isolated sandbox role. The fastest
-known path is temporary administrator deployment access, revoked after teardown. Those credentials
-stay in the host process: the generated agent role is separate and
-`allow_agent_aws_credential_chain=false`. If your organization requires a custom deployer policy,
-it must cover API Gateway, CloudWatch Logs/alarms, DynamoDB, EventBridge/Scheduler, IAM role and
-policy management including `iam:PassRole`, KMS, Lambda and Lambda MicroVMs, S3, SQS, SSM, STS,
-tagging, and the AWS Cloud Control API used by the Terraform AWSCC provider. The checked-in
-Terraform plan is the exact resource source of truth; do not treat a stale copied policy as safer.
+For the first proof, use a disposable AWS sandbox account or an isolated sandbox role. The only
+deployer policy exercised end to end in the published validation is temporary AWS-managed
+`AdministratorAccess`, revoked after teardown. Those credentials stay in the host process: the
+generated agent role is separate and `allow_agent_aws_credential_chain=false`.
+
+Rat Things does not yet ship or claim a live-tested exact least-privilege deployer policy. If your
+organization requires one, derive it from the checked-in Terraform plan and validate it in a
+sandbox. API Gateway, CloudWatch Logs/alarms, DynamoDB, EventBridge/Scheduler, IAM role and policy
+management including `iam:PassRole`, KMS, Lambda and Lambda MicroVMs, S3, SQS, SSM, STS, tagging,
+and the AWS Cloud Control API used by the Terraform AWSCC provider are design inputs, not a promise
+that a copied service list is sufficient.
 
 The account also needs:
 
@@ -75,10 +80,14 @@ actual charge.
 ## Run the complete path
 
 ```bash
-git clone --depth 1 https://github.com/gpazo/Rat-Things.git
+git clone --depth 1 --branch golden-path-v1 https://github.com/gpazo/Rat-Things.git
 cd Rat-Things
 npm run quickstart:aws -- --profile rat-things-sandbox --region us-west-2
 ```
+
+`golden-path-v1` is an immutable public tag pinned to the exact live-tested source. Git's
+detached-HEAD notice is expected. The `main` branch is the development line; switch to it only after
+this proof if you want newer, not-yet-recorded changes.
 
 Omit `--profile` only when your shell already supplies the intended AWS credentials. Omit `--region`
 only when `AWS_REGION` or `AWS_DEFAULT_REGION` already selects one of the three supported default
@@ -105,9 +114,16 @@ Success is deliberately redundant and machine-readable:
 
 ```json
 {
-  "version": 2,
+  "version": 3,
   "status": "ready",
-  "source": { "commit": "...", "clean": true },
+  "region": "us-west-2",
+  "profile": "rat-things-sandbox",
+  "source": { "commit": "...", "tag": "golden-path-2026-08-24", "clean": true },
+  "host": {
+    "platform": "darwin",
+    "architecture": "arm64",
+    "tools": { "node": "v24.1.0", "terraform": "Terraform v1.5.7" }
+  },
   "terraformManagedResourceCount": 158,
   "thing": {
     "thingId": "...",
@@ -120,10 +136,14 @@ Success is deliberately redundant and machine-readable:
     "active": { "runId": "...", "status": "succeeded", "invocation": "manual" }
   },
   "measurementScope": "quickstart command through successful active-revision Run",
-  "elapsedSeconds": 0,
+  "elapsedSeconds": 476,
   "underTenMinutes": true
 }
 ```
+
+`ready` is the local result after the active Run succeeds. The later destroy command rewrites that
+local record to `destroyed`; the public evidence wrapper uses `passed` to mean the entire recorded
+setup, Run, status, teardown, and independent postcheck workflow passed.
 
 ## Review first without AWS writes
 
@@ -149,14 +169,20 @@ The published validation record pins the exact tested commit and contains no cre
 updated only after a fresh-clone real-Codex run, active-revision invocation, teardown, empty-state
 check, and no-MicroVM check all pass: [latest AWS quickstart evidence](aws-quickstart-evidence.json).
 
-On August 23, 2026, a clean clone of commit
-[`7ff0bbf`](https://github.com/gpazo/Rat-Things/commit/7ff0bbfa183f2b85e063ff5e5c27d839e07cc85a)
+On August 24, 2026 UTC, a clean clone of immutable tag `golden-path-v1`, commit
+[`c6752b8`](https://github.com/gpazo/Rat-Things/commit/c6752b816dbc78952a05907daf95e39ceb9edf6c)
 installed its pinned dependencies, passed
 preflight, created 158 managed resources in `us-west-2`, tested and published revision 1, then ran
-that active revision through a second real `openai.gpt-5.6-terra` invocation in **508 seconds
-(8m28s)**. The post-run status check found a healthy API, an active Thing with no unpublished
+that active revision through a second real `openai.gpt-5.6-terra` invocation in **476 seconds
+(7m56s)**. The post-run status check, invoked without repeating the profile or Region, found a
+healthy API, an active Thing with no unpublished
 changes, and the active Run as `lastRunId`. The self-verifying destroy then found zero Terraform
 state entries, zero active MicroVMs, and only the disabled KMS key in `PendingDeletion`.
+
+The same code also recovered a deliberately interrupted fresh setup after the workstation filled
+its disk before Terraform could write AWS resources: `status` reported `incomplete`, and a generic
+`destroy` command reused the stored profile and Region and proved that no resources existed. That is
+recovery validation, not part of the 476-second success measurement.
 
 This recorded validation covers the narrow path, not load, quota, multi-tenant, or disaster recovery.
 
@@ -185,12 +211,15 @@ state backend. The full debug log is local, ignored by Git, and intended to make
 inspectable without filling the normal terminal path with thousands of Terraform lines.
 
 ```bash
-npm run quickstart:aws -- status --profile rat-things-sandbox --region us-west-2
-npm run quickstart:aws -- destroy --profile rat-things-sandbox --region us-west-2
+npm run quickstart:aws -- status
+npm run quickstart:aws -- destroy
 ```
 
-`status` reruns deployment diagnostics and reads the exact Thing. `destroy` confirms the target,
-terminates any remaining MicroVM for this image, destroys only the quickstart state, then fails
+Both commands reuse the profile, Region, and environment stored by setup; explicit flags can
+override a stored profile if its credentials were renamed or replaced. `status` reports
+`incomplete` when setup stopped after confirmation but before the final result, otherwise it reruns
+deployment diagnostics and reads the exact Thing. `destroy` confirms the target, terminates any
+remaining MicroVM for this image, destroys only the quickstart state, then fails
 unless Terraform state is empty, no MicroVM remains active, and the disabled customer-managed KMS
 key is in AWS's mandatory `PendingDeletion` window. Those postchecks are appended to the local
 result record.
@@ -211,8 +240,9 @@ durable conversations, integrations, schedules, and publication delivery deliber
   with another `--model`. Use `--driver mock` only when the goal is infrastructure diagnosis.
 - A failed Thing explanation or test prints the created Thing ID before stopping. Inspect it with
   `npm run rat-things -- thing THING_ID`, then use [diagnostics](diagnostics.md).
-- An interrupted setup may leave exact resources in the quickstart state. Run
-  `npm run quickstart:aws -- destroy`; do not delete the state file first.
+- An interrupted setup after the confirmation may leave exact resources in the quickstart state.
+  Run `npm run quickstart:aws -- status`, then `npm run quickstart:aws -- destroy`; both reuse the
+  saved identity context. Do not delete the state or context file first.
 
 The quickstart intentionally proves one small product path. Continue with [Things](things.md), then
 add [accounts and permissions](plugins.md) or the [deeper agent controls](agents.md) only when the
