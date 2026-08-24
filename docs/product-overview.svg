@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 840 300" role="img"
+  aria-labelledby="product-overview-title product-overview-desc"
+  data-visual-question="What does Rat Things do?">
+  <title id="product-overview-title">Rat Things product overview</title>
+  <desc id="product-overview-desc">Your product, agent, or event gives work to Rat Things. Rat Things defines, runs, and retains the work, then returns durable replies, files, and URLs.</desc>
+  <defs>
+    <style>
+      .frame { fill: #071319; stroke: rgba(128, 230, 255, 0.22); stroke-width: 1.5; }
+      .node { fill: #102129; stroke: #3c6672; stroke-width: 1.5; }
+      .node--rat { fill: #10323c; stroke: #80e6ff; stroke-width: 2; }
+      .label { fill: #edf6f8; font-family: Inter, ui-sans-serif, system-ui, sans-serif; font-size: 25px; font-weight: 700; text-anchor: middle; }
+      .label--rat { fill: #edf6f8; font-family: Inter, ui-sans-serif, system-ui, sans-serif; font-size: 30px; font-weight: 700; text-anchor: middle; }
+      .detail { fill: #9db2b8; font-family: Inter, ui-sans-serif, system-ui, sans-serif; font-size: 16px; text-anchor: middle; }
+      .detail--rat { fill: #bff3ff; font-family: Inter, ui-sans-serif, system-ui, sans-serif; font-size: 16px; font-weight: 650; text-anchor: middle; }
+      .flow { fill: none; stroke: #80e6ff; stroke-width: 3; }
+      .arrow { fill: #80e6ff; }
+    </style>
+  </defs>
+
+  <rect class="frame" x="1" y="1" width="838" height="298" rx="22"/>
+
+  <g data-node="primary">
+    <rect class="node" x="35" y="85" width="220" height="130" rx="16"/>
+    <text class="label" x="145" y="135">
+      <tspan x="145">Your product,</tspan>
+      <tspan x="145" dy="31">agent, or event</tspan>
+    </text>
+    <text class="detail" x="145" y="194">gives Rat work</text>
+  </g>
+
+  <line class="flow" x1="255" y1="150" x2="300" y2="150"/>
+  <path class="arrow" d="M 294 141 L 308 150 L 294 159 Z"/>
+
+  <g data-node="primary">
+    <rect class="node--rat" x="315" y="62" width="210" height="176" rx="18"/>
+    <text class="label--rat" x="420" y="132">Rat Things</text>
+    <text class="detail--rat" x="420" y="170">Define · Run · Retain</text>
+    <text class="detail" x="420" y="202">in your AWS account</text>
+  </g>
+
+  <line class="flow" x1="525" y1="150" x2="570" y2="150"/>
+  <path class="arrow" d="M 564 141 L 578 150 L 564 159 Z"/>
+
+  <g data-node="primary">
+    <rect class="node" x="585" y="85" width="220" height="130" rx="16"/>
+    <text class="label" x="695" y="135">
+      <tspan x="695">Durable</tspan>
+      <tspan x="695" dy="31">results</tspan>
+    </text>
+    <text class="detail" x="695" y="194">replies · files · URLs</text>
+  </g>
+</svg>

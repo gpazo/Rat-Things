@@ -1,0 +1,83 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 940" role="img"
+  aria-labelledby="durable-execution-title durable-execution-desc"
+  data-visual-question="What happens during one durable Rat Things run?">
+  <title id="durable-execution-title">Durable execution sequence</title>
+  <desc id="durable-execution-desc">Rat Things authenticates and stores a request, queues one durable occurrence, runs an isolated cloud agent, retains events files and results outside the compute, and delivers or exposes the durable outcome.</desc>
+  <defs>
+    <style>
+      .frame { fill: #071319; stroke: rgba(128, 230, 255, 0.22); stroke-width: 1.5; }
+      .node { fill: #102129; stroke: #3c6672; stroke-width: 1.5; }
+      .node--run { fill: #10323c; stroke: #80e6ff; stroke-width: 2; }
+      .number { fill: #071319; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 16px; font-weight: 800; text-anchor: middle; dominant-baseline: middle; }
+      .number-ring { fill: #ffb13b; stroke: #ffb13b; stroke-width: 2; }
+      .label { fill: #edf6f8; font-family: Inter, ui-sans-serif, system-ui, sans-serif; font-size: 27px; font-weight: 700; }
+      .detail { fill: #9db2b8; font-family: Inter, ui-sans-serif, system-ui, sans-serif; font-size: 17px; }
+      .evidence { fill: #bff3ff; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 14px; }
+      .flow { fill: none; stroke: #80e6ff; stroke-width: 3; }
+      .arrow { fill: #80e6ff; }
+      .boundary-label { fill: #ffca79; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; font-weight: 700; letter-spacing: 0.05em; }
+    </style>
+  </defs>
+
+  <rect class="frame" x="1" y="1" width="758" height="938" rx="24"/>
+
+  <g data-node="primary">
+    <circle class="number-ring" cx="92" cy="105" r="25"/>
+    <text class="number" x="92" y="106">1</text>
+    <rect class="node" x="145" y="42" width="555" height="126" rx="16"/>
+    <text class="label" x="180" y="89">Accept</text>
+    <text class="detail" x="180" y="121">Authenticate the owner, validate, and store the request.</text>
+    <text class="evidence" x="180" y="146">API or verified provider ingress</text>
+  </g>
+
+  <line class="flow" x1="92" y1="131" x2="92" y2="234"/>
+  <path class="arrow" d="M 83 227 L 92 241 L 101 227 Z"/>
+
+  <g data-node="primary">
+    <circle class="number-ring" cx="92" cy="269" r="25"/>
+    <text class="number" x="92" y="270">2</text>
+    <rect class="node" x="145" y="206" width="555" height="126" rx="16"/>
+    <text class="label" x="180" y="253">Queue</text>
+    <text class="detail" x="180" y="285">Create one owner-scoped, idempotent durable occurrence.</text>
+    <text class="evidence" x="180" y="310">DynamoDB + encrypted S3 + SQS</text>
+  </g>
+
+  <line class="flow" x1="92" y1="295" x2="92" y2="398"/>
+  <path class="arrow" d="M 83 391 L 92 405 L 101 391 Z"/>
+
+  <text class="boundary-label" x="145" y="391">ISOLATED LAMBDA MICROVM · ONE RUN</text>
+  <g data-node="primary">
+    <circle class="number-ring" cx="92" cy="433" r="25"/>
+    <text class="number" x="92" y="434">3</text>
+    <rect class="node--run" x="145" y="402" width="555" height="126" rx="16"/>
+    <text class="label" x="180" y="449">Run</text>
+    <text class="detail" x="180" y="481">Launch the agent in a Lambda MicroVM with resolved policy.</text>
+    <text class="evidence" x="180" y="506">browser · integrations · skills · apps · MCP</text>
+  </g>
+
+  <line class="flow" x1="92" y1="459" x2="92" y2="598"/>
+  <path class="arrow" d="M 83 591 L 92 605 L 101 591 Z"/>
+
+  <g data-node="primary">
+    <circle class="number-ring" cx="92" cy="633" r="25"/>
+    <text class="number" x="92" y="634">4</text>
+    <rect class="node" x="145" y="570" width="555" height="126" rx="16"/>
+    <text class="label" x="180" y="617">Retain</text>
+    <text class="detail" x="180" y="649">Persist events, files, checkpoints, and the final result.</text>
+    <text class="evidence" x="180" y="674">durability lives outside the MicroVM</text>
+  </g>
+
+  <line class="flow" x1="92" y1="659" x2="92" y2="762"/>
+  <path class="arrow" d="M 83 755 L 92 769 L 101 755 Z"/>
+
+  <g data-node="primary">
+    <circle class="number-ring" cx="92" cy="797" r="25"/>
+    <text class="number" x="92" y="798">5</text>
+    <rect class="node" x="145" y="734" width="555" height="126" rx="16"/>
+    <text class="label" x="180" y="781">Deliver</text>
+    <text class="detail" x="180" y="813">Expose state, reply to a destination, or publish retained work.</text>
+    <text class="evidence" x="180" y="838">poll · threaded reply · file/site/video URL</text>
+  </g>
+
+  <text class="detail" x="145" y="906">Compute is disposable. Run evidence and user-visible work are durable.</text>
+</svg>

@@ -8,6 +8,11 @@ Rat-operated control plane or user interface.
 
 > Once this narrow journey is delightful and stable, expand it.
 
+<figure class="doc-visual doc-visual-wide">
+  <a href="product-overview.svg"><img src="product-overview.svg" alt="Your product, agent, or event gives work to Rat Things, which defines, runs, and retains it before returning durable replies, files, and URLs."></a>
+  <figcaption><strong>One backend, one durable result.</strong> Implementation detail stays out of the product overview.</figcaption>
+</figure>
+
 ## The narrow journey
 
 Every consumer uses the same path:

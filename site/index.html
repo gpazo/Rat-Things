@@ -357,24 +357,24 @@
       <section class="section architecture-section" id="architecture" aria-labelledby="architecture-title">
         <div class="section-heading compact-heading">
           <div>
-            <div class="section-label">Under the hood</div>
-            <h2 id="architecture-title">A small, explicit boundary.</h2>
+            <div class="section-label">How it works</div>
+            <h2 id="architecture-title">One durable backend.</h2>
           </div>
           <div class="heading-copy">
-            <p>Provider ingress, durable coordination, isolated execution, storage, and result delivery remain separate. Lower layers cannot import the composition root or own provider credentials.</p>
+            <p>Your product, another agent, a CLI, or a signed event gives Rat Things work. Rat defines, runs, and retains it in your AWS account, then returns a durable result.</p>
             <a class="text-link" href="docs/architecture/">Architecture guide <span aria-hidden="true">→</span></a>
           </div>
         </div>
         <figure class="diagram">
-          <a href="assets/architecture/c4-system-context.png">
-            <img src="assets/architecture/c4-system-context.png" alt="C4 system context showing callers, Rat Things, model provider, and result destinations" loading="lazy">
+          <a href="assets/visuals/product-overview.svg">
+            <img src="assets/visuals/product-overview.svg" alt="Your product, agent, or event gives work to Rat Things and receives durable replies, files, and URLs" loading="lazy">
           </a>
-          <figcaption><span>C1</span><strong>Rat Things system context</strong></figcaption>
+          <figcaption><span>Overview</span><strong>Define · Run · Retain</strong></figcaption>
         </figure>
-        <div class="architecture-links" aria-label="Additional architecture diagrams">
-          <a href="assets/architecture/c4-runtime-containers.png">Agent runtime</a>
-          <a href="assets/architecture/c4-localstack-test-harness-containers.png">LocalStack harness</a>
-          <a href="assets/architecture/c4-live-aws-test-harness-containers.png">Live AWS harness</a>
+        <div class="architecture-links" aria-label="Focused system diagrams">
+          <a href="docs/things/#lifecycle">Thing lifecycle</a>
+          <a href="docs/plugins/#4-understand-effective-permission">Permission intersection</a>
+          <a href="docs/architecture/#one-durable-run">Durable execution</a>
         </div>
       </section>
 

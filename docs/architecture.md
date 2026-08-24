@@ -76,16 +76,23 @@ own orchestration, durable state, execution, or credentials. Agent-callable inte
 likewise receive only an already-authorized operation input, one connection's credential value, and
 an abort signal. See [integrations and permissions](plugins.md).
 
-## C4 diagrams
+## One durable run
 
-- **C1 — system context:** [PNG](c4-system-context.png), [SVG](c4-system-context.svg),
-  [Mermaid source](c4-system-context.mmd)
-- **C2 — agent runtime:** [PNG](c4-runtime-containers.png), [editable SVG](c4-runtime-containers.svg)
-- **C2 — live AWS test harness:** [PNG](c4-live-aws-test-harness-containers.png),
-  [SVG](c4-live-aws-test-harness-containers.svg),
+<figure class="doc-visual doc-visual-tall">
+  <a href="durable-execution.svg"><img src="durable-execution.svg" alt="One run is authenticated and stored, queued durably, executed in an isolated Lambda MicroVM, retained outside the compute, and then exposed or delivered as a durable result."></a>
+  <figcaption><strong>Compute is disposable; work is durable.</strong> Each stage has one responsibility and a recoverable boundary.</figcaption>
+</figure>
+
+The diagram deliberately stops at the five stages a consumer or operator must understand. The
+sections below describe the internal services and failure behavior behind each stage.
+
+### Validation topology
+
+The test harnesses are separate from the product path:
+
+- **Live AWS harness:** [SVG](c4-live-aws-test-harness-containers.svg),
   [Mermaid source](c4-live-aws-test-harness-containers.mmd)
-- **C2 — LocalStack test harness:** [PNG](c4-localstack-test-harness-containers.png),
-  [SVG](c4-localstack-test-harness-containers.svg),
+- **LocalStack harness:** [SVG](c4-localstack-test-harness-containers.svg),
   [Mermaid source](c4-localstack-test-harness-containers.mmd)
 
 ## Lifecycle

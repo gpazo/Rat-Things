@@ -206,6 +206,11 @@ accounts and shows why every operation is allowed or denied before the Thing is 
 
 ## 4. Understand effective permission
 
+<figure class="doc-visual doc-visual-tall">
+  <a href="permission-intersection.svg"><img src="permission-intersection.svg" alt="Effective integration operations are the intersection of provider authorization, the persistent account grant, the capability profile, and Thing or run narrowing. A deny at any layer wins."></a>
+  <figcaption><strong>Permission is always an intersection.</strong> Approval can authorize a permitted operation, but it cannot widen authority.</figcaption>
+</figure>
+
 An operation is available only when every applicable layer permits it:
 
 1. The verified provider authorization permits the access level and required provider scopes.

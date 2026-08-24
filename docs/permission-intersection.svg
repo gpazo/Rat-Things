@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 900" role="img"
+  aria-labelledby="permission-intersection-title permission-intersection-desc"
+  data-visual-question="How does Rat Things determine effective permission?">
+  <title id="permission-intersection-title">Permission intersection</title>
+  <desc id="permission-intersection-desc">Effective operations are the intersection of verified provider authorization, the account grant, the deployment capability profile, and Thing or run narrowing. Any layer can deny access; no layer can widen an earlier one.</desc>
+  <defs>
+    <style>
+      .frame { fill: #071319; stroke: rgba(128, 230, 255, 0.22); stroke-width: 1.5; }
+      .node { fill: #102129; stroke: #3c6672; stroke-width: 1.5; }
+      .node--result { fill: #10323c; stroke: #80e6ff; stroke-width: 2; }
+      .label { fill: #edf6f8; font-family: Inter, ui-sans-serif, system-ui, sans-serif; font-size: 25px; font-weight: 700; text-anchor: middle; }
+      .detail { fill: #9db2b8; font-family: Inter, ui-sans-serif, system-ui, sans-serif; font-size: 16px; text-anchor: middle; }
+      .and-label { fill: #ffca79; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; font-weight: 800; letter-spacing: 0.08em; text-anchor: middle; }
+      .equals { fill: #80e6ff; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 30px; font-weight: 800; text-anchor: middle; }
+      .result-detail { fill: #bff3ff; font-family: Inter, ui-sans-serif, system-ui, sans-serif; font-size: 16px; text-anchor: middle; }
+      .rule { fill: #ffca79; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 14px; font-weight: 700; letter-spacing: 0.03em; text-anchor: middle; }
+    </style>
+  </defs>
+
+  <rect class="frame" x="1" y="1" width="758" height="898" rx="24"/>
+
+  <g data-node="primary">
+    <rect class="node" x="120" y="42" width="520" height="112" rx="16"/>
+    <text class="label" x="380" y="88">Provider authorization</text>
+    <text class="detail" x="380" y="121">Verified account access and reported scopes</text>
+  </g>
+  <text class="and-label" x="380" y="183">AND</text>
+
+  <g data-node="primary">
+    <rect class="node" x="120" y="208" width="520" height="112" rx="16"/>
+    <text class="label" x="380" y="254">Account grant</text>
+    <text class="detail" x="380" y="287">Persistent read-only, read-write, full, or custom ceiling</text>
+  </g>
+  <text class="and-label" x="380" y="349">AND</text>
+
+  <g data-node="primary">
+    <rect class="node" x="120" y="374" width="520" height="112" rx="16"/>
+    <text class="label" x="380" y="420">Capability profile</text>
+    <text class="detail" x="380" y="453">Deployment-approved sandbox, network, tools, and policy</text>
+  </g>
+  <text class="and-label" x="380" y="515">AND</text>
+
+  <g data-node="primary">
+    <rect class="node" x="120" y="540" width="520" height="112" rx="16"/>
+    <text class="label" x="380" y="586">Thing or run narrowing</text>
+    <text class="detail" x="380" y="619">Selected accounts, operation lists, and resources</text>
+  </g>
+
+  <text class="equals" x="380" y="701">=</text>
+
+  <g data-node="primary">
+    <rect class="node--result" x="90" y="718" width="580" height="120" rx="18"/>
+    <text class="label" x="380" y="766">Effective operations</text>
+    <text class="result-detail" x="380" y="800">Only what every layer permits; approval may still be required</text>
+  </g>
+
+  <text class="rule" x="380" y="872">A DENY ALWAYS WINS · NO LAYER CAN WIDEN AN EARLIER LAYER</text>
+</svg>

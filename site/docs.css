@@ -194,6 +194,14 @@ body { margin: 0; }
 .doc-article th { background: rgba(128, 230, 255, 0.06); color: var(--docs-text); }
 .doc-article hr { margin: 3rem 0; border: 0; border-top: 1px solid var(--docs-line); }
 
+.doc-visual { margin: 2rem 0; overflow: hidden; border: 1px solid var(--docs-line); border-radius: var(--docs-radius); background: #071319; }
+.doc-visual > a { display: block; padding: clamp(0.35rem, 1.5vw, 0.9rem); }
+.doc-visual img { width: 100%; margin: 0 auto; object-fit: contain; }
+.doc-visual-wide img { max-height: 420px; }
+.doc-visual-tall img { max-height: 760px; }
+.doc-visual figcaption { padding: 0.9rem 1rem; border-top: 1px solid var(--docs-line); background: var(--docs-surface); color: var(--docs-muted); font-size: 0.78rem; }
+.doc-visual figcaption strong { color: var(--docs-text); }
+
 .docs-toc { padding-left: 1rem; border-left: 1px solid var(--docs-line); }
 .docs-toc > p { margin: 0 0 0.8rem; color: var(--docs-muted); font-size: 0.68rem; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; }
 .docs-toc a { display: block; padding: 0.28rem 0; color: #829aa1; font-size: 0.72rem; line-height: 1.35; text-decoration: none; }

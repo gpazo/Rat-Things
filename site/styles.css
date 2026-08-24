@@ -402,11 +402,11 @@ pre span { color: var(--cyan); }
 .cost-disclosure { max-width: 980px; margin: 1.4rem 0 0; color: var(--muted); font-size: 0.76rem; }
 
 .architecture-section { border-bottom: 1px solid var(--line); }
-.diagram { margin: 0; overflow: hidden; border: 1px solid var(--line); border-radius: var(--radius); background: #f7fafb; }
-.diagram a { display: block; padding: 1rem; }
-.diagram img { width: 100%; max-height: 680px; object-fit: contain; }
-.diagram figcaption { display: flex; align-items: center; gap: 0.8rem; padding: 0.9rem 1.1rem; border-top: 1px solid #dbe5e8; background: #edf3f5; color: #122027; }
-.diagram figcaption span { color: #087d9c; font: 700 0.75rem ui-monospace, monospace; }
+.diagram { margin: 0; overflow: hidden; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface-3); }
+.diagram a { display: block; padding: clamp(0.5rem, 2vw, 1.4rem); }
+.diagram img { width: 100%; max-height: 520px; object-fit: contain; }
+.diagram figcaption { display: flex; align-items: center; gap: 0.8rem; padding: 0.9rem 1.1rem; border-top: 1px solid var(--line); background: var(--surface); color: var(--text); }
+.diagram figcaption span { color: var(--cyan); font: 700 0.75rem ui-monospace, monospace; }
 .architecture-links { display: flex; flex-wrap: wrap; gap: 1.5rem; margin-top: 1.2rem; }
 .architecture-links a { color: var(--muted); font-size: 0.82rem; }
 .architecture-links a:hover, .architecture-links a:focus-visible { color: var(--cyan); }

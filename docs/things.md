@@ -203,6 +203,11 @@ rules.
 
 ## Lifecycle
 
+<figure class="doc-visual doc-visual-tall">
+  <a href="thing-lifecycle.svg"><img src="thing-lifecycle.svg" alt="A Thing moves from an immutable draft revision through explain, exact-draft testing, compare-and-swap publish, and a pinned active revision that can run manually or on an EventBridge schedule."></a>
+  <figcaption><strong>Draft and active are separate pointers.</strong> Testing proves an exact revision; publishing moves production deliberately.</figcaption>
+</figure>
+
 | Status | Draft test | Active explicit run | Scheduled delivery | Edit | Next action |
 | --- | --- | --- | --- | --- | --- |
 | `draft` | Yes | No active revision | No | Yes | Publish |

@@ -7,6 +7,12 @@ const docsOutput = join(output, 'docs');
 const repositoryUrl = 'https://github.com/gpazo/Rat-Things';
 const pagesUrl = 'https://gpazo.github.io/Rat-Things';
 const docsConfig = JSON.parse(await readFile('site/docs.json', 'utf8'));
+const visualAssetFiles = [
+  'product-overview.svg',
+  'thing-lifecycle.svg',
+  'permission-intersection.svg',
+  'durable-execution.svg',
+];
 
 marked.setOptions({ gfm: true });
 
@@ -16,11 +22,13 @@ await cp('spec/openapi.json', join(output, 'openapi.json'));
 await cp('spec/schemas', join(output, 'schemas'), { recursive: true });
 await cp('examples', join(output, 'examples'), { recursive: true });
 await mkdir(join(output, 'assets', 'architecture'), { recursive: true });
+await mkdir(join(output, 'assets', 'visuals'), { recursive: true });
 await cp('assets/rat-things-hero.jpg', join(output, 'assets', 'rat-things-hero.jpg'));
 await cp('assets/rat-things-og-v2.jpg', join(output, 'assets', 'rat-things-og-v2.jpg'));
 await writeFile(join(output, '.nojekyll'), '');
 
 const docsEntries = await readdir('docs', { withFileTypes: true });
+await validateVisualAssets();
 const markdownFiles = docsEntries
   .filter((entry) => entry.isFile() && entry.name.endsWith('.md'))
   .map((entry) => entry.name)
@@ -154,6 +162,34 @@ async function copyDocumentationAssets(entries) {
     await cp(join('docs', entry.name), join(assetsDirectory, entry.name));
     if (entry.name.endsWith('.png')) {
       await cp(join('docs', entry.name), join(output, 'assets', 'architecture', entry.name));
+    }
+    if (visualAssetFiles.includes(entry.name)) {
+      await cp(join('docs', entry.name), join(output, 'assets', 'visuals', entry.name));
+    }
+  }
+}
+
+async function validateVisualAssets() {
+  for (const file of visualAssetFiles) {
+    const source = await readFile(join('docs', file), 'utf8');
+    const primaryNodes = [...source.matchAll(/data-node="primary"/g)].length;
+    const required = [
+      '<svg',
+      'viewBox=',
+      'role="img"',
+      'aria-labelledby=',
+      'data-visual-question=',
+      '<title id=',
+      '<desc id=',
+    ];
+    for (const token of required) {
+      if (!source.includes(token)) throw new Error(`visual ${file} is missing ${token}`);
+    }
+    if (primaryNodes < 3 || primaryNodes > 5) {
+      throw new Error(`visual ${file} must contain three to five primary nodes; found ${primaryNodes}`);
+    }
+    if (/<(?:script|foreignObject|image)\b/i.test(source)) {
+      throw new Error(`visual ${file} must remain text-native and script-free`);
     }
   }
 }
