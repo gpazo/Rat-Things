@@ -44,7 +44,7 @@ The account also needs:
   [Mantle inference policy](https://docs.aws.amazon.com/bedrock/latest/userguide/inference.html) and
   the [`openai.gpt-5.6-terra` model card](https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-openai-gpt-56-terra.html).
 
-The quickstart creates roughly 158 mostly request-scale resources and invokes the paid model twice.
+The validated quickstart creates 158 mostly request-scale managed resources and invokes the paid model twice.
 Our validated narrow runs have cost well below $1, but that is an observation, not a spending cap.
 Use a sandbox account and review the [cost model and residual KMS deletion window](costs.md) before
 confirming.
@@ -117,6 +117,15 @@ or successful inference; the live Runs prove those.
 The public evidence bundle pins the exact tested commit and contains no credential values. It is
 updated only after a fresh-clone real-Codex run, active-revision invocation, teardown, empty-state
 check, and no-MicroVM check all pass: [latest AWS quickstart evidence](aws-quickstart-evidence.json).
+
+On August 23, 2026, a clean clone of commit
+[`7ff0bbf`](https://github.com/gpazo/Rat-Things/commit/7ff0bbfa183f2b85e063ff5e5c27d839e07cc85a)
+installed its pinned dependencies, passed
+preflight, created 158 managed resources in `us-west-2`, tested and published revision 1, then ran
+that active revision through a second real `openai.gpt-5.6-terra` invocation in **508 seconds
+(8m28s)**. The post-run status check found a healthy API, an active Thing with no unpublished
+changes, and the active Run as `lastRunId`. The self-verifying destroy then found zero Terraform
+state entries, zero active MicroVMs, and only the disabled KMS key in `PendingDeletion`.
 
 This is proof of the narrow path, not a load, quota, multi-tenant, or disaster-recovery claim.
 

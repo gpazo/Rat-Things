@@ -212,6 +212,11 @@ and model access happens first and may take longer. Read the
 [AWS-ready quickstart](docs/quickstart.md) for that boundary, a read-only preflight, deployment
 permissions, expected cost, public evidence, debugging, and exact teardown.
 
+The [latest clean-commit proof](docs/aws-quickstart-evidence.json) completed in **508 seconds
+(8m28s)**, including fresh dependency
+installation and the interactive pause, then passed the automated empty-state, no-active-MicroVM,
+and KMS-deletion-window teardown checks.
+
 ## Developer quick start
 
 Requirements: Node.js 20+, npm, and Git.

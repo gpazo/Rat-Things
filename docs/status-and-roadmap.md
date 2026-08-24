@@ -40,10 +40,11 @@ disaster-recovery proof.
 
 ## Golden-path validation completed on 2026-08-23
 
-- The exact documented `npm run quickstart:aws` journey created a fresh 158-resource disposable
-  `us-west-2` deployment, ran a real Codex-on-Bedrock Thing test with
-  `openai.gpt-5.6-terra`, verified its unique output marker, and published only the exact tested
-  revision and `specHash`. The measured create-to-active time was 413 seconds (6m53s).
+- A clean clone of commit `7ff0bbf` ran the documented `npm run quickstart:aws` journey from fresh
+  dependency installation through a 158-managed-resource disposable `us-west-2` deployment. A real
+  `openai.gpt-5.6-terra` Run tested the exact draft, publication pinned its revision and `specHash`,
+  and a second real Run invoked that published active revision. The complete measured command,
+  including the interactive confirmation wait, passed in 508 seconds (8m28s).
 - The same live deployment proved the universal execution path with two named-thread CLI turns.
   Each accepted prompt returned one Run. The first Run executed the coordinator-prepared input; the
   second continued from suspended-session state and executed a transcript containing the first user prompt,
@@ -56,9 +57,11 @@ disaster-recovery proof.
   and coordinator-prepared `executionInput` assertions were separated. The signed Teams case proves
   raw prompt immutability, full replay preparation, one Run per message, state transitions, and
   threaded delivery.
-- Teardown terminated the remaining MicroVM and destroyed all 158 Terraform resources. Terraform
-  state is empty, no quickstart MicroVMs remain, and the sole tagged remnant is the disabled KMS key
-  in AWS's mandatory `PendingDeletion` lifecycle.
+- The quickstart teardown now verifies its own postconditions. The final live proof destroyed all
+  managed resources, found zero Terraform state entries and zero active MicroVMs, and confirmed the
+  sole unavoidable remnant was the disabled KMS key in AWS's mandatory `PendingDeletion` lifecycle.
+  The sanitized [public evidence bundle](aws-quickstart-evidence.json) pins the source commit, Thing,
+  both Run receipts, elapsed time, status check, and teardown result.
 
 ## Validation completed on 2026-08-23
 

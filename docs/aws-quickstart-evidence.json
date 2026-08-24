@@ -1,5 +1,75 @@
 {
   "version": 2,
-  "status": "validation-pending",
-  "note": "Local staging placeholder; replace with fresh-clone live-AWS evidence before publication."
+  "status": "passed",
+  "evidenceType": "fresh-clone-real-codex-aws-quickstart",
+  "validatedOn": "2026-08-23",
+  "source": {
+    "repository": "https://github.com/gpazo/Rat-Things",
+    "commit": "7ff0bbfa183f2b85e063ff5e5c27d839e07cc85a",
+    "clean": true
+  },
+  "environment": {
+    "region": "us-west-2",
+    "driver": "codex",
+    "model": "openai.gpt-5.6-terra",
+    "microvmBaseImage": "al2023-1:1",
+    "terraformManagedResourceCount": 158
+  },
+  "measurement": {
+    "scope": "quickstart command through successful active-revision Run",
+    "startedAt": "2026-08-24T05:24:51.894Z",
+    "completedAt": "2026-08-24T05:33:18.989Z",
+    "elapsedSeconds": 508,
+    "underTenMinutes": true,
+    "includesFreshDependencyInstall": true,
+    "includesInteractiveConfirmationWait": true
+  },
+  "thing": {
+    "thingId": "f0c80c34-a851-4adb-a367-1d11b8ab4e8f",
+    "status": "active",
+    "activeRevision": 1,
+    "specHash": "b7c28e82481ec4b2a16a249c09035c49afbefb467341e78d69f58b834c912730",
+    "hasUnpublishedChanges": false,
+    "proofMarker": "RAT-THINGS-READY-684B14FE"
+  },
+  "runs": {
+    "draftTest": {
+      "runId": "2603d0d6-2a20-5ad9-b2a8-d5e30ea24e38",
+      "status": "succeeded",
+      "invocation": "test",
+      "revision": 1,
+      "specHash": "b7c28e82481ec4b2a16a249c09035c49afbefb467341e78d69f58b834c912730",
+      "outputPreview": "RAT-THINGS-READY-684B14FE\n\nThe Thing is ready."
+    },
+    "active": {
+      "runId": "451b3d84-7f4b-5da6-9889-5dae2b15e2aa",
+      "status": "succeeded",
+      "invocation": "manual",
+      "revision": 1,
+      "specHash": "b7c28e82481ec4b2a16a249c09035c49afbefb467341e78d69f58b834c912730",
+      "outputPreview": "RAT-THINGS-READY-684B14FE The Thing is ready."
+    }
+  },
+  "postRunStatus": {
+    "doctorOk": true,
+    "thingStatus": "active",
+    "hasUnpublishedChanges": false,
+    "lastRunId": "451b3d84-7f4b-5da6-9889-5dae2b15e2aa"
+  },
+  "teardown": {
+    "completedAt": "2026-08-24T05:36:34.095Z",
+    "terraformStateEntries": 0,
+    "listedMicrovms": 7,
+    "activeMicrovms": 0,
+    "kmsKey": {
+      "enabled": false,
+      "state": "PendingDeletion",
+      "deletionDate": "2026-09-22T22:36:31.058000-07:00"
+    }
+  },
+  "limits": [
+    "Narrow single-operator journey, not a load or quota test",
+    "Read-only no-network Thing with no connected account, schedule, OAuth, or public delivery",
+    "Engineering preview, not a multi-tenant hardening or disaster-recovery claim"
+  ]
 }

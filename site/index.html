@@ -108,6 +108,7 @@
           <p><strong>Honest boundary:</strong> the ten-minute gate starts at <code>npm run quickstart:aws</code> and includes dependency installation when absent. Installing host tools and arranging AWS service, quota, and Bedrock access happens first and may take longer. The complete guide provides a read-only preflight, IAM/service checklist, expected-cost boundary, and teardown.</p>
           <p>The default invokes paid Codex on Bedrock twice: once to prove the draft and once through the published active revision. <code>--driver mock</code> is explicitly infrastructure-only. OAuth, VPC/NAT, schedules, and public sharing stay out of this first journey.</p>
           <p><strong>Auditable proof:</strong> the <a href="docs/assets/aws-quickstart-evidence.json">latest evidence bundle</a> pins a clean source commit, active revision and <code>specHash</code>, both successful Run IDs, elapsed time, teardown, empty Terraform state, and the no-MicroVM check.</p>
+          <p><strong>Latest live result:</strong> clean commit <code>7ff0bbf</code> completed the fresh-install path in 508 seconds (8m28s), including the interactive pause. The self-verifying teardown passed with zero state entries and zero active MicroVMs.</p>
           <a class="text-link" href="docs/quickstart/">Follow the complete golden path <span aria-hidden="true">→</span></a>
         </div>
       </section>
