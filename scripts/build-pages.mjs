@@ -127,7 +127,7 @@ function rewriteHref(href, file) {
     const repositoryPath = posix.normalize(posix.join('docs', path));
     return `${repositoryUrl}/blob/main/${repositoryPath}${fragment ? `#${fragment}` : ''}`;
   }
-  if (['.png', '.svg', '.mmd'].includes(extname(path))) {
+  if (['.json', '.png', '.svg', '.mmd'].includes(extname(path))) {
     return `../assets/${basename(path)}${fragment ? `#${fragment}` : ''}`;
   }
   throw new Error(`unsupported local documentation link ${href} in ${file}`);
@@ -233,7 +233,7 @@ function renderDocsHome(groups, documents) {
         <h1>The open-source backend<br>for cloud agents.</h1>
         <p class="docs-home-lede">Install one independent backend, connect verified accounts with explicit permissions, and expose reusable Things through one discoverable API for operators, products, and other agents.</p>
         <div class="docs-home-actions">
-          <a class="docs-button docs-button-primary" href="./quickstart/">Ten-minute quickstart</a>
+          <a class="docs-button docs-button-primary" href="./quickstart/">AWS-ready quickstart</a>
           <a class="docs-button" href="./operating-model/">How it works</a>
           <a class="docs-button" href="./agents/">Connect an agent</a>
           <a class="docs-button" href="./plugins/">Connect accounts</a>

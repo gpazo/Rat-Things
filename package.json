@@ -29,7 +29,7 @@
     "aws:e2e:test": "./scripts/aws-e2e-test.sh",
     "aws:e2e:destroy": "./scripts/aws-e2e-destroy.sh",
     "test:e2e:aws": "./scripts/aws-e2e.sh",
-    "quickstart:aws": "tsx scripts/aws-quickstart.ts",
+    "quickstart:aws": "./scripts/aws-quickstart.sh",
     "smoke:local": "tsx src/cli.ts local --driver mock --prompt \"Return the local smoke-test marker\"",
     "codex:login": "codex login",
     "codex:status": "codex login status",

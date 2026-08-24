@@ -10,6 +10,7 @@ import {
   LambdaMicrovmsClient,
   ListManagedMicrovmImageVersionsCommand,
 } from '@aws-sdk/client-lambda-microvms';
+import { getTokenProvider } from '@aws/bedrock-token-generator';
 import { defaultProvider } from '@aws-sdk/credential-provider-node';
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -30,7 +31,7 @@ const supportedRegions = new Set([
 ]);
 
 export interface AwsQuickstartOptions {
-  command: 'setup' | 'status' | 'destroy' | 'help';
+  command: 'setup' | 'preflight' | 'status' | 'destroy' | 'help';
   region: string;
   environment: string;
   driver: 'codex' | 'mock';
@@ -53,8 +54,17 @@ interface CommandResult {
   stderr: string;
 }
 
+interface QuickstartRunEvidence {
+  runId: string;
+  status: 'succeeded';
+  invocation: 'test' | 'manual';
+  revision: number;
+  specHash: string;
+  outputPreview: string;
+}
+
 interface QuickstartResult {
-  version: 1;
+  version: 2;
   status: 'ready' | 'destroyed';
   apiUrl: string;
   region: string;
@@ -62,9 +72,24 @@ interface QuickstartResult {
   driver: 'codex' | 'mock';
   model?: string;
   baseImageVersion: string;
-  thingId: string;
-  testRunId: string;
-  outputPreview: string;
+  source: {
+    repository: 'https://github.com/gpazo/Rat-Things';
+    commit: string;
+    clean: boolean;
+  };
+  terraformResourceCount: number;
+  proofMarker: string;
+  thing: {
+    thingId: string;
+    status: 'active';
+    activeRevision: number;
+    specHash: string;
+  };
+  runs: {
+    draftTest: QuickstartRunEvidence;
+    active: QuickstartRunEvidence;
+  };
+  measurementScope: 'quickstart command through successful active-revision Run';
   startedAt: string;
   completedAt: string;
   destroyedAt?: string;
@@ -72,10 +97,34 @@ interface QuickstartResult {
   underTenMinutes: boolean;
 }
 
+interface QuickstartPreflight {
+  version: 1;
+  status: 'ready';
+  changesExternalState: false;
+  region: string;
+  tools: Record<'node' | 'npm' | 'git' | 'terraform' | 'aws', string>;
+  aws: {
+    accountId: string;
+    principalArn: string;
+  };
+  microvm: {
+    serviceReachable: true;
+    baseImage: 'al2023-1';
+    baseImageVersion: string;
+    capacityProvenOnlyByLiveRun: true;
+  };
+  agent: {
+    driver: 'codex' | 'mock';
+    model?: string;
+    modelVisible?: true;
+    modelInvocationProvenOnlyByLiveRun: true;
+  };
+}
+
 export function parseAwsQuickstartOptions(argv: string[]): AwsQuickstartOptions {
   const args = [...argv];
   let command: AwsQuickstartOptions['command'] = 'setup';
-  if (['setup', 'status', 'destroy'].includes(args[0] ?? '')) {
+  if (['setup', 'preflight', 'status', 'destroy'].includes(args[0] ?? '')) {
     command = args.shift() as AwsQuickstartOptions['command'];
   }
   if (args.includes('--help') || args.includes('-h')) command = 'help';
@@ -194,9 +243,56 @@ export function awsQuickstartThing(
 async function main(): Promise<void> {
   const options = parseAwsQuickstartOptions(process.argv.slice(2));
   if (options.command === 'help') return printHelp();
+  if (options.command === 'preflight') return printPreflight(options);
   if (options.command === 'status') return status(options);
   if (options.command === 'destroy') return destroy(options);
   return setup(options);
+}
+
+async function printPreflight(options: AwsQuickstartOptions): Promise<void> {
+  printValue(await preflight(options), options.json);
+}
+
+async function preflight(options: AwsQuickstartOptions): Promise<QuickstartPreflight> {
+  const nodeMajor = Number(process.versions.node.split('.')[0]);
+  if (!Number.isInteger(nodeMajor) || nodeMajor < 20) {
+    throw new Error(`Node.js 20 or newer is required; found ${process.version}`);
+  }
+  const tools = {
+    node: process.version,
+    npm: toolVersion('npm'),
+    git: toolVersion('git'),
+    terraform: toolVersion('terraform'),
+    aws: toolVersion('aws'),
+  };
+  const env = commandEnvironment(options);
+  const identity = JSON.parse(capture('aws', ['sts', 'get-caller-identity', '--output', 'json'], { env })) as {
+    Account?: unknown;
+    Arn?: unknown;
+  };
+  const accountId = requiredString(identity.Account, 'AWS returned no account ID');
+  const principalArn = requiredString(identity.Arn, 'AWS returned no principal ARN');
+  const baseImageVersion = options.baseImageVersion ?? await discoverBaseImageVersion(options);
+  if (options.driver === 'codex') await assertBedrockModelVisible(options);
+  return {
+    version: 1,
+    status: 'ready',
+    changesExternalState: false,
+    region: options.region,
+    tools,
+    aws: { accountId, principalArn },
+    microvm: {
+      serviceReachable: true,
+      baseImage: 'al2023-1',
+      baseImageVersion,
+      capacityProvenOnlyByLiveRun: true,
+    },
+    agent: {
+      driver: options.driver,
+      ...(options.driver === 'codex' ? { model: options.model, modelVisible: true as const } : {}),
+      modelInvocationProvenOnlyByLiveRun: true,
+    },
+  };
 }
 
 async function setup(options: AwsQuickstartOptions): Promise<void> {
@@ -208,29 +304,27 @@ async function setup(options: AwsQuickstartOptions): Promise<void> {
       driver: options.driver,
       modelUsage: options.driver === 'codex' ? 'paid Amazon Bedrock tokens' : 'none (deterministic mock)',
       terraform: awsQuickstartTerraformConfig(options, baseImageVersion),
-      finish: 'create, explain, test, and publish one safe manual Thing',
+      finish: 'create, explain, test, publish, and invoke one safe manual Thing',
     }, options.json);
     return;
   }
 
-  for (const tool of ['aws', 'npm', 'terraform']) requireTool(tool);
   await mkdir(quickstartRoot, { recursive: true, mode: 0o700 });
   await mkdir(terraformPluginCache, { recursive: true, mode: 0o700 });
   await writeFile(debugLogPath, `Rat Things AWS quickstart\nStarted ${new Date().toISOString()}\n`, {
     mode: 0o600,
   });
+  progress('[1/6] Verify local tools, AWS identity, MicroVM access, and model visibility');
+  const readiness = await preflight(options);
+  progress('      ready');
   const env = commandEnvironment(options);
-  const identity = JSON.parse(capture('aws', ['sts', 'get-caller-identity', '--output', 'json'], { env })) as {
-    Account?: unknown;
-    Arn?: unknown;
-  };
-  const baseImageVersion = options.baseImageVersion ?? await discoverBaseImageVersion(options);
-  const started = Date.now();
+  const baseImageVersion = readiness.microvm.baseImageVersion;
+  const started = journeyStartedAt();
   const startedAt = new Date(started).toISOString();
 
   progress([
     'Rat Things ten-minute AWS quickstart',
-    `AWS account: ${String(identity.Account ?? 'unknown')} (${String(identity.Arn ?? 'unknown')})`,
+    `AWS account: ${readiness.aws.accountId} (${readiness.aws.principalArn})`,
     `Region:      ${options.region}`,
     `Runtime:     Lambda MicroVM al2023-1:${baseImageVersion}`,
     `Agent:       ${options.driver === 'codex'
@@ -248,11 +342,11 @@ async function setup(options: AwsQuickstartOptions): Promise<void> {
     `${JSON.stringify(awsQuickstartTerraformConfig(options, baseImageVersion), null, 2)}\n`,
     { mode: 0o600 },
   );
-  progress('[1/4] Package Rat Things');
+  progress('[2/6] Package Rat Things');
   await loggedCommand('npm', ['run', 'package'], { env });
   progress('      ready');
 
-  progress('[2/4] Deploy the disposable AWS backend');
+  progress('[3/6] Deploy the disposable AWS backend');
   await loggedCommand('terraform', ['-chdir=infra', 'init', '-input=false'], {
     env: terraformEnvironment(env),
   });
@@ -278,7 +372,7 @@ async function setup(options: AwsQuickstartOptions): Promise<void> {
     ...env,
     RAT_THINGS_API_URL: apiUrl,
   };
-  progress('[3/4] Verify discovery and the authenticated API');
+  progress('[4/6] Verify discovery and the authenticated API');
   await loggedCommand(process.execPath, cliArguments(['doctor', '--json']), { env: cliEnv });
   progress('      healthy');
 
@@ -286,7 +380,7 @@ async function setup(options: AwsQuickstartOptions): Promise<void> {
   await writeFile(thingPath, `${JSON.stringify(awsQuickstartThing(options.driver, marker), null, 2)}\n`, {
     mode: 0o600,
   });
-  progress('[4/4] Create → explain → test → publish the exact Thing revision');
+  progress('[5/6] Create → explain → test → publish the exact Thing revision');
   const release = JSON.parse(await captureWithProgress(process.execPath, cliArguments([
     'thing-release',
     '--file',
@@ -298,28 +392,67 @@ async function setup(options: AwsQuickstartOptions): Promise<void> {
   ]), { env: cliEnv })) as {
     released?: unknown;
     created?: { thingId?: unknown };
-    testRun?: { runId?: unknown; status?: unknown; result?: { preview?: unknown } };
-    thing?: { status?: unknown };
+    testRun?: {
+      runId?: unknown;
+      status?: unknown;
+      thing?: { thingId?: unknown; revision?: unknown; specHash?: unknown; invocation?: unknown };
+      result?: { preview?: unknown };
+    };
+    thing?: {
+      thingId?: unknown;
+      status?: unknown;
+      active?: { revision?: unknown; specHash?: unknown };
+    };
   };
   const thingId = requiredString(release.created?.thingId, 'release returned no Thing ID');
-  const testRunId = requiredString(release.testRun?.runId, 'release returned no test Run ID');
-  const outputPreview = requiredString(
-    release.testRun?.result?.preview,
-    'the successful test Run returned no output preview',
-  );
   if (
     release.released !== true ||
     release.testRun?.status !== 'succeeded' ||
     release.thing?.status !== 'active'
   ) throw new Error('the first Thing did not reach active after a successful exact-draft test');
-  if (!outputPreview.includes(marker)) {
-    throw new Error(`the first Thing output did not contain its proof marker ${marker}`);
-  }
-  progress('      active and proven');
+  const activeRevision = requiredPositiveInteger(
+    release.thing.active?.revision,
+    'release returned no active Thing revision',
+  );
+  const specHash = requiredSha256(
+    release.thing.active?.specHash,
+    'release returned no active Thing specHash',
+  );
+  const draftTest = quickstartRunEvidence(
+    release.testRun,
+    'test',
+    thingId,
+    activeRevision,
+    specHash,
+    marker,
+  );
+  progress('      active');
+
+  progress('[6/6] Invoke the published active revision and verify its exact evidence');
+  const activeRunRaw = JSON.parse(await captureWithProgress(process.execPath, cliArguments([
+    'thing-run',
+    thingId,
+    '--wait',
+    '--idempotency-key',
+    `quickstart:active:${thingId}:${activeRevision}:${specHash.slice(0, 16)}`,
+    '--poll-seconds',
+    '2',
+    '--wait-timeout',
+    '420',
+  ]), { env: cliEnv })) as unknown;
+  const activeRun = quickstartRunEvidence(
+    activeRunRaw,
+    'manual',
+    thingId,
+    activeRevision,
+    specHash,
+    marker,
+  );
+  progress('      active revision executed successfully');
 
   const completed = Date.now();
   const result: QuickstartResult = {
-    version: 1,
+    version: 2,
     status: 'ready',
     apiUrl,
     region: options.region,
@@ -327,9 +460,16 @@ async function setup(options: AwsQuickstartOptions): Promise<void> {
     driver: options.driver,
     ...(options.driver === 'codex' ? { model: options.model } : {}),
     baseImageVersion,
-    thingId,
-    testRunId,
-    outputPreview,
+    source: {
+      repository: 'https://github.com/gpazo/Rat-Things',
+      commit: capture('git', ['rev-parse', 'HEAD']),
+      clean: capture('git', ['status', '--porcelain']) === '',
+    },
+    terraformResourceCount: terraformResourceCount(env),
+    proofMarker: marker,
+    thing: { thingId, status: 'active', activeRevision, specHash },
+    runs: { draftTest, active: activeRun },
+    measurementScope: 'quickstart command through successful active-revision Run',
     startedAt,
     completedAt: new Date(completed).toISOString(),
     elapsedSeconds: Math.ceil((completed - started) / 1_000),
@@ -352,7 +492,7 @@ async function status(options: AwsQuickstartOptions): Promise<void> {
   const doctor = JSON.parse(capture(process.execPath, cliArguments(['doctor', '--json']), {
     env: { ...env, RAT_THINGS_API_URL: result.apiUrl },
   })) as unknown;
-  const thing = JSON.parse(capture(process.execPath, cliArguments(['thing', result.thingId]), {
+  const thing = JSON.parse(capture(process.execPath, cliArguments(['thing', result.thing.thingId]), {
     env: { ...env, RAT_THINGS_API_URL: result.apiUrl },
   })) as unknown;
   printValue({ status: 'ready', deployment: result, doctor, thing }, options.json);
@@ -433,6 +573,37 @@ async function discoverBaseImageVersion(options: AwsQuickstartOptions): Promise<
   }
 }
 
+async function assertBedrockModelVisible(options: AwsQuickstartOptions): Promise<void> {
+  let response: Response;
+  try {
+    const token = await getTokenProvider({
+      region: options.region,
+      expiresInSeconds: 900,
+      ...(options.profile ? { profile: options.profile } : {}),
+    })();
+    response = await fetch(`https://bedrock-mantle.${options.region}.api.aws/v1/models`, {
+      headers: { Authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(15_000),
+    });
+  } catch (error) {
+    throw new Error(
+      `could not check the Amazon Bedrock model catalog: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+  if (!response.ok) {
+    throw new Error(`Amazon Bedrock model-catalog check failed with HTTP ${response.status}`);
+  }
+  const payload = await response.json() as { data?: Array<{ id?: unknown }> };
+  const modelIds = Array.isArray(payload.data)
+    ? payload.data.flatMap((item) => typeof item.id === 'string' ? [item.id] : [])
+    : [];
+  if (!modelIds.includes(options.model)) {
+    throw new Error(
+      `Amazon Bedrock model ${options.model} is not visible in ${options.region}; choose an available --model or fix model access`,
+    );
+  }
+}
+
 async function readMetadata(): Promise<QuickstartResult> {
   try {
     return JSON.parse(await readFile(metadataPath, 'utf8')) as QuickstartResult;
@@ -463,9 +634,13 @@ function commandEnvironment(options: Pick<AwsQuickstartOptions, 'profile' | 'reg
   };
 }
 
-function requireTool(name: string): void {
+function toolVersion(name: string): string {
   const result = command(name, ['--version'], { allowFailure: true });
   if (result.status !== 0) throw new Error(`${name} is required for the AWS quickstart`);
+  return requiredString(
+    (result.stdout.trim() || result.stderr.trim()).split('\n')[0],
+    `${name} returned no version`,
+  );
 }
 
 function capture(name: string, args: string[], options: CommandOptions = {}): string {
@@ -598,6 +773,71 @@ function requiredString(value: unknown, message: string): string {
   return value;
 }
 
+function requiredPositiveInteger(value: unknown, message: string): number {
+  if (!Number.isInteger(value) || Number(value) < 1) throw new Error(message);
+  return Number(value);
+}
+
+function requiredSha256(value: unknown, message: string): string {
+  if (typeof value !== 'string' || !/^[a-f0-9]{64}$/.test(value)) throw new Error(message);
+  return value;
+}
+
+function journeyStartedAt(): number {
+  const raw = process.env.RAT_THINGS_QUICKSTART_STARTED_AT_MS;
+  if (!raw) return Date.now();
+  const value = Number(raw);
+  if (!Number.isFinite(value) || value <= 0 || value > Date.now()) {
+    throw new Error('RAT_THINGS_QUICKSTART_STARTED_AT_MS is invalid');
+  }
+  return value;
+}
+
+function terraformResourceCount(env: NodeJS.ProcessEnv): number {
+  const listed = capture('terraform', [
+    '-chdir=infra',
+    'state',
+    'list',
+    `-state=${statePath}`,
+  ], { env: terraformEnvironment(env) });
+  return listed ? listed.split('\n').filter(Boolean).length : 0;
+}
+
+export function quickstartRunEvidence(
+  value: unknown,
+  invocation: 'test' | 'manual',
+  thingId: string,
+  revision: number,
+  specHash: string,
+  marker: string,
+): QuickstartRunEvidence {
+  if (!value || typeof value !== 'object') throw new Error(`the ${invocation} Run result is invalid`);
+  const record = value as {
+    runId?: unknown;
+    status?: unknown;
+    thing?: { thingId?: unknown; revision?: unknown; specHash?: unknown; invocation?: unknown };
+    result?: { preview?: unknown };
+  };
+  const runId = requiredString(record.runId, `the ${invocation} Run returned no Run ID`);
+  if (record.status !== 'succeeded') throw new Error(`the ${invocation} Run ${runId} did not succeed`);
+  if (
+    record.thing?.thingId !== thingId ||
+    record.thing.revision !== revision ||
+    record.thing.specHash !== specHash ||
+    record.thing.invocation !== invocation
+  ) {
+    throw new Error(`the ${invocation} Run ${runId} did not bind the expected active Thing revision`);
+  }
+  const outputPreview = requiredString(
+    record.result?.preview,
+    `the successful ${invocation} Run returned no output preview`,
+  );
+  if (!outputPreview.includes(marker)) {
+    throw new Error(`the ${invocation} Run ${runId} output did not contain its proof marker ${marker}`);
+  }
+  return { runId, status: 'succeeded', invocation, revision, specHash, outputPreview };
+}
+
 function printValue(value: unknown, json: boolean): void {
   if (json) {
     process.stdout.write(`${JSON.stringify(value)}\n`);
@@ -609,8 +849,10 @@ function printValue(value: unknown, json: boolean): void {
 function printHelp(): void {
   process.stdout.write(`Rat Things ten-minute AWS quickstart\n\n`);
   process.stdout.write(`  npm run quickstart:aws\n`);
+  process.stdout.write(`  npm run quickstart:aws -- preflight\n`);
   process.stdout.write(`  npm run quickstart:aws -- status\n`);
   process.stdout.write(`  npm run quickstart:aws -- destroy\n\n`);
+  process.stdout.write(`A fresh clone installs pinned dependencies automatically. Preflight performs only read-only checks.\n`);
   process.stdout.write(`The default runs a real Codex Thing with paid Amazon Bedrock tokens.\n`);
   process.stdout.write(`Use --driver mock for a token-free infrastructure proof that is explicitly not a model.\n\n`);
   process.stdout.write(`Options:\n`);

@@ -5,7 +5,7 @@ Consumers of an existing deployment should start with the [operating model](oper
 instead; they do not need Terraform, Docker, or access to the runtime account.
 
 For the smallest fresh-clone deployment and a measured real-Codex Thing, start with the
-[ten-minute AWS quickstart](quickstart.md). It deliberately omits accounts, VPC/NAT, schedules, and
+[AWS-ready ten-minute quickstart](quickstart.md). It deliberately omits accounts, VPC/NAT, schedules, and
 public sharing. Return here when choosing a longer-lived installation shape.
 
 ## Prerequisites

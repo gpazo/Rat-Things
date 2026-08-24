@@ -1,5 +1,8 @@
 # Integrations, accounts, and permissions
 
+Command convention: this guide uses the installed `rat-things` shorthand. From a source checkout,
+use `npm run rat-things --` before the same arguments, or run `npm run build && npm link` once.
+
 Rat Things turns trusted external APIs into agent-visible tools. One deployment can serve one
 person, a team, or an embedded product; every connection remains scoped to the authenticated owner.
 An owner can connect several accounts for the same service and grant each account different access.

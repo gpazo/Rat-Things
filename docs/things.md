@@ -7,6 +7,10 @@ credential value. Things work behind an operator UI, another product, a CLI, or 
 The design rule is deliberately small: **once this narrow journey is delightful and stable,
 expand it.** The journey is create, explain, test, publish, and observe.
 
+Command convention: examples below use the installed `rat-things` shorthand. From a source
+checkout, prefix the same arguments with `npm run rat-things --`; or run `npm run build && npm link`
+once to install the shorthand on that device.
+
 ## The shortest working flow
 
 ```bash

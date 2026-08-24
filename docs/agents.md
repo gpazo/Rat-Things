@@ -1,5 +1,8 @@
 # Connect an agent to Rat Things
 
+Command convention: this guide uses the installed `rat-things` shorthand. From a source checkout,
+use `npm run rat-things --` before the same arguments, or run `npm run build && npm link` once.
+
 Give an agent two things: the base URL of one Rat Things deployment and an authenticated way to
 call it. The agent can discover everything else. Start with the deployment, not a remembered list of
 routes and not the centrally hosted OpenAPI file.

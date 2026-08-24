@@ -51,7 +51,7 @@
           <p class="hero-lede">Connect verified accounts. Define reusable intent. Explain every permission. Give your product, another agent, a CLI, schedules, and signed provider events one durable backend in your AWS account.</p>
           <p class="hero-status">Engineering preview · validated end to end, not yet production-hardened for untrusted multi-tenant use</p>
           <div class="hero-actions">
-            <a class="button button-primary" href="docs/quickstart/">Ten-minute quickstart</a>
+            <a class="button button-primary" href="docs/quickstart/">AWS-ready quickstart</a>
             <a class="button button-secondary" href="docs/operating-model/">How it works</a>
             <a class="button button-secondary" href="docs/plugins/">Connect accounts</a>
             <a class="button button-secondary" href="docs/things/">Build a Thing</a>
@@ -69,11 +69,11 @@
       <section class="section start-section" id="start" aria-labelledby="start-title">
         <div class="section-heading compact-heading">
           <div>
-            <div class="section-label">The ten-minute golden path</div>
-            <h2 id="start-title">One command. One real Thing.</h2>
+            <div class="section-label">The AWS-ready ten-minute golden path</div>
+            <h2 id="start-title">One narrow path. One active Thing.</h2>
           </div>
           <div class="heading-copy">
-            <p>From AWS credentials to an independently operated backend, a real Codex test Run, and an active Thing. The command measures itself and keeps the exact evidence.</p>
+            <p>From a fresh clone and prepared AWS account to an independently operated backend, an exact-draft Codex test, and a successful Run of the published active revision.</p>
             <p class="requirement-line">Once this narrow journey is delightful and stable, expand it.</p>
           </div>
         </div>
@@ -81,20 +81,18 @@
         <ol class="setup-grid">
           <li>
             <span class="step-number">01</span>
-            <h3>Review without changes</h3>
-            <pre><code><span>npm run</span> quickstart:aws -- \
-  --dry-run
-
-<span># Real Codex is the default.</span>
-<span># Paid Bedrock tokens are explicit.</span></code></pre>
+            <h3>Clone</h3>
+            <pre><code><span>git clone</span> --depth 1 \
+  https://github.com/gpazo/Rat-Things.git
+<span>cd</span> Rat-Things</code></pre>
           </li>
           <li>
             <span class="step-number">02</span>
-            <h3>Deploy and release</h3>
+            <h3>Deploy and prove</h3>
             <pre><code><span>npm run</span> quickstart:aws
 
-<span>create → explain → test</span>
-<span>successful proof → publish</span></code></pre>
+<span>install → preflight → deploy</span>
+<span>test → publish → run active</span></code></pre>
           </li>
           <li>
             <span class="step-number">03</span>
@@ -107,8 +105,9 @@
         </ol>
 
         <div class="setup-footer">
-          <p>The default is a real Codex-on-Bedrock run. <code>--driver mock</code> is available only as an explicitly labeled, token-free infrastructure diagnostic. The quickstart omits OAuth, VPC/NAT, schedules, and public sharing until the first narrow journey works.</p>
-          <p><strong>Latest live proof:</strong> a fresh 158-resource stack reached an exact tested-and-active Thing in 413 seconds (6m53s), then passed a two-turn suspended-session continuation. Teardown removed all runnable resources.</p>
+          <p><strong>Honest boundary:</strong> the ten-minute gate starts at <code>npm run quickstart:aws</code> and includes dependency installation when absent. Installing host tools and arranging AWS service, quota, and Bedrock access happens first and may take longer. The complete guide provides a read-only preflight, IAM/service checklist, expected-cost boundary, and teardown.</p>
+          <p>The default invokes paid Codex on Bedrock twice: once to prove the draft and once through the published active revision. <code>--driver mock</code> is explicitly infrastructure-only. OAuth, VPC/NAT, schedules, and public sharing stay out of this first journey.</p>
+          <p><strong>Auditable proof:</strong> the <a href="docs/assets/aws-quickstart-evidence.json">latest evidence bundle</a> pins a clean source commit, active revision and <code>specHash</code>, both successful Run IDs, elapsed time, teardown, empty Terraform state, and the no-MicroVM check.</p>
           <a class="text-link" href="docs/quickstart/">Follow the complete golden path <span aria-hidden="true">→</span></a>
         </div>
       </section>
@@ -121,6 +120,7 @@
           </div>
           <p>Rat Things does not require a first-party console. A personal installation, small-business tool, SaaS product, another agent, or provider event can use the same owner-scoped contract.</p>
         </div>
+        <p>The examples below use the linked <code>rat-things</code> shorthand. In a source checkout, use <code>npm run rat-things -- …</code>, or install the shorthand once with <code>npm run build &amp;&amp; npm link</code>.</p>
 
         <div class="route-grid">
           <article class="route-card route-primary">
@@ -383,7 +383,7 @@
           <p>Deploy one small backend, prove one safe real-agent test, and publish only its exact revision. Add accounts and deeper capabilities after that path feels dependable.</p>
         </div>
         <div class="next-actions">
-          <a class="button button-primary" href="docs/quickstart/">Start in ten minutes</a>
+          <a class="button button-primary" href="docs/quickstart/">Start from an AWS-ready account</a>
           <a class="button button-secondary" href="docs/operating-model/">How it works</a>
           <a class="button button-secondary" href="docs/plugins/">Connect accounts</a>
           <a class="button button-secondary" href="docs/things/">Build a Thing</a>
@@ -409,7 +409,7 @@
       <div class="footer-links">
         <a href="https://github.com/gpazo/Rat-Things">GitHub</a>
         <a href="docs/">Documentation</a>
-        <a href="docs/quickstart/">Ten-minute quickstart</a>
+        <a href="docs/quickstart/">AWS-ready quickstart</a>
         <a href="docs/operating-model/">How it works</a>
         <a href="docs/plugins/">Connect accounts</a>
         <a href="docs/codex-subscription/">Local setup</a>

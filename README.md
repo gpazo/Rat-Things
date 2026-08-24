@@ -19,7 +19,7 @@
 <p align="center">
   <a href="https://gpazo.github.io/Rat-Things/">Website</a> ·
   <a href="https://gpazo.github.io/Rat-Things/docs/">Documentation</a> ·
-  <a href="docs/quickstart.md">Ten-minute quickstart</a> ·
+  <a href="docs/quickstart.md">AWS-ready quickstart</a> ·
   <a href="docs/operating-model.md">How it works</a> ·
   <a href="docs/agents.md">Connect an agent</a> ·
   <a href="docs/things.md">Build a Thing</a> ·
@@ -49,7 +49,7 @@ disposable but the work is durable: account grants, Thing revisions, conversatio
 workspace bytes, events, files, and results live outside the VM and remain owner-scoped.
 
 > Once this narrow journey is delightful and stable, expand it. Start with the
-> [ten-minute AWS quickstart](docs/quickstart.md), then read the
+> [AWS-ready ten-minute quickstart](docs/quickstart.md), then read the
 > [operating model](docs/operating-model.md).
 
 > [!WARNING]
@@ -189,28 +189,28 @@ thread and workspace from a replacement MicroVM.
 
 ![Rat Things C4 live AWS test harness](docs/c4-live-aws-test-harness-containers.png)
 
-## Ten-minute first Thing on AWS
+## AWS-ready first Thing in ten minutes
 
-With Node, npm, Git, Terraform, AWS credentials, Lambda MicroVM access, and Bedrock model access
-ready:
+With Node, npm, Git, Terraform, an isolated AWS deployment role, Lambda MicroVM capacity, and
+Bedrock model access ready:
 
 ```bash
 git clone https://github.com/gpazo/Rat-Things.git
 cd Rat-Things
-npm ci
 npm run quickstart:aws
 ```
 
-One reviewed setup command deploys the narrow backend needed for a first manual Thing, verifies its public discovery and
-IAM-authenticated API, creates a safe Thing, explains and tests its exact draft with real Codex in a
-Lambda MicroVM, verifies the output marker, and publishes only that tested revision. It records the
-measured result and fails the golden-path gate above ten minutes. The default uses paid Bedrock
-tokens; `--driver mock` is an explicitly labeled infrastructure-only diagnostic. Progress stays
-short and readable; complete package and Terraform output is retained in
-`.runtime/aws-quickstart/quickstart.log` for debugging.
+The setup command installs pinned Node dependencies when absent, runs read-only AWS and model
+preflight checks, deploys the narrow backend, verifies discovery and its IAM-authenticated API,
+tests and publishes an exact Thing revision, then invokes that published active revision in a
+second successful real-Codex Run. Its evidence pins the source commit, revision, `specHash`, both
+Run IDs, and elapsed time; the gate fails above ten minutes. `--driver mock` is explicitly
+infrastructure-only.
 
-Read the [ten-minute AWS quickstart](docs/quickstart.md) for the exact boundary, dry run,
-prerequisites, output evidence, troubleshooting, status, and teardown commands.
+The clock starts at the setup command. Obtaining the AWS account, host tools, service/quota access,
+and model access happens first and may take longer. Read the
+[AWS-ready quickstart](docs/quickstart.md) for that boundary, a read-only preflight, deployment
+permissions, expected cost, public evidence, debugging, and exact teardown.
 
 ## Developer quick start
 

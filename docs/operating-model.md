@@ -23,7 +23,7 @@ install -> discover -> draft -> explain/test -> publish -> run -> observe
 ```
 
 1. **Install** one deployment in the host's AWS account and choose its authentication boundary. The
-   [ten-minute quickstart](quickstart.md) proves the smallest honest version before optional systems
+   [AWS-ready ten-minute quickstart](quickstart.md) proves the smallest honest version before optional systems
    are added.
 2. **Discover** its OpenAPI contract, schemas, capability profiles, and installed integration
    manifests instead of assuming what it supports.
@@ -130,7 +130,7 @@ evidence boundaries rather than separate product models.
 
 ## Continue by task
 
-- [Reach the first active Thing in ten minutes](quickstart.md)
+- [Reach and invoke the first active Thing from an AWS-ready account](quickstart.md)
 - [Build and run a Thing](things.md)
 - [Connect another agent](agents.md)
 - [Connect accounts and understand permissions](plugins.md)

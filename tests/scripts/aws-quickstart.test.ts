@@ -3,6 +3,7 @@ import {
   awsQuickstartTerraformConfig,
   awsQuickstartThing,
   parseAwsQuickstartOptions,
+  quickstartRunEvidence,
 } from '../../scripts/aws-quickstart.js';
 
 describe('AWS quickstart', () => {
@@ -49,5 +50,59 @@ describe('AWS quickstart', () => {
       'Lambda MicroVM quickstart is not supported',
     );
     expect(() => parseAwsQuickstartOptions(['--unknown', 'value'])).toThrow('unknown option');
+  });
+
+  it('offers a read-only readiness command before deployment', () => {
+    expect(parseAwsQuickstartOptions(['preflight', '--profile', 'sandbox'])).toMatchObject({
+      command: 'preflight',
+      profile: 'sandbox',
+      driver: 'codex',
+    });
+  });
+
+  it('accepts only successful Runs bound to the exact Thing revision and proof marker', () => {
+    const specHash = 'a'.repeat(64);
+    const run = {
+      runId: 'run-active',
+      status: 'succeeded',
+      thing: {
+        thingId: 'thing-first',
+        revision: 1,
+        specHash,
+        invocation: 'manual',
+      },
+      result: { preview: 'RAT-THINGS-READY-TEST The Thing is ready.' },
+    };
+    expect(quickstartRunEvidence(
+      run,
+      'manual',
+      'thing-first',
+      1,
+      specHash,
+      'RAT-THINGS-READY-TEST',
+    )).toEqual({
+      runId: 'run-active',
+      status: 'succeeded',
+      invocation: 'manual',
+      revision: 1,
+      specHash,
+      outputPreview: 'RAT-THINGS-READY-TEST The Thing is ready.',
+    });
+    expect(() => quickstartRunEvidence(
+      { ...run, thing: { ...run.thing, specHash: 'b'.repeat(64) } },
+      'manual',
+      'thing-first',
+      1,
+      specHash,
+      'RAT-THINGS-READY-TEST',
+    )).toThrow('did not bind the expected active Thing revision');
+    expect(() => quickstartRunEvidence(
+      { ...run, result: { preview: 'wrong output' } },
+      'manual',
+      'thing-first',
+      1,
+      specHash,
+      'RAT-THINGS-READY-TEST',
+    )).toThrow('did not contain its proof marker');
   });
 });
