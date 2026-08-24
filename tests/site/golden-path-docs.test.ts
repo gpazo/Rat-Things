@@ -11,7 +11,10 @@ describe('AWS-ready golden-path documentation', () => {
     ]);
 
     expect(guide).toContain('# AWS-ready ten-minute quickstart');
-    expect(guide).toContain('can take longer than ten minutes');
+    expect(guide).toMatch(/can take longer\s+than ten minutes/);
+    expect(guide).toContain('`us-east-1`, `us-east-2`, or `us-west-2`');
+    expect(guide).toContain('creates, updates, and deletes no AWS resources');
+    expect(guide).not.toContain('cost well below $1');
     expect(guide).toContain('invokes the published active revision');
     expect(guide).toContain('"activeRevision": 1');
     expect(guide).toContain('"terraformManagedResourceCount": 158');
@@ -20,6 +23,8 @@ describe('AWS-ready golden-path documentation', () => {
 
     expect(homepage).toContain('One narrow path. One active Thing.');
     expect(homepage).toContain('Installing host tools and arranging AWS service, quota, and Bedrock access');
+    expect(homepage).toContain('Latest recorded live validation:');
+    expect(homepage).not.toContain('Auditable proof:');
     expect(homepage).not.toContain('One command. One real Thing.');
 
     expect(JSON.parse(packageJson).scripts['quickstart:aws']).toBe('./scripts/aws-quickstart.sh');

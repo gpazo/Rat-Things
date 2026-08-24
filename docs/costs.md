@@ -10,7 +10,7 @@ snapshots, request-scale control-plane services, and optional continuity infrast
 > for the exact scope, breakdown, and caveats.
 
 Agent threads, workspaces, and published files remain durable while execution scales with active
-work. The result is an auditable per-run cost with no continuously running agent worker.
+work. The result is an inspectable per-run cost with no continuously running agent worker.
 
 ## Measured build and test spend
 

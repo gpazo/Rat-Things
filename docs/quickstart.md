@@ -1,17 +1,19 @@
 # AWS-ready ten-minute quickstart
 
-This is the shortest honest path from a fresh clone to one independently operated Rat Things
-deployment and one **published, invoked, active Thing**. The default runs real Codex through Amazon
-Bedrock inside an AWS Lambda MicroVM. It never substitutes a mock response for the agent proof.
+This is the shortest honest path from running one command in a fresh clone, with an authenticated
+and prepared AWS account, to one independently operated Rat Things deployment and one **published,
+invoked, active Thing**. The default runs real Codex through Amazon Bedrock inside an AWS Lambda
+MicroVM. It never substitutes a mock response for the agent proof.
 
 ## What “ten minutes” means
 
-The product gate starts when `npm run quickstart:aws` starts in the cloned repository. On a fresh
-clone that command installs the pinned Node dependencies, performs read-only readiness checks,
-packages and deploys the backend, tests and publishes the exact Thing revision, invokes that active
-revision, and waits for its second successful Run. Time spent obtaining an AWS account, installing
-the four host tools, receiving Lambda MicroVM capacity, or arranging Bedrock access is **not** part
-of the gate and can take longer than ten minutes.
+The product gate starts when `npm run quickstart:aws` starts in the cloned repository; cloning is
+not timed. On a fresh clone that command installs the pinned Node dependencies, performs readiness
+checks without creating or modifying AWS resources, packages and deploys the backend, tests and
+publishes the exact Thing revision, invokes that active revision, and waits for its second
+successful Run. Time spent obtaining an AWS account, installing the host toolchain, receiving
+Lambda MicroVM capacity, or arranging Bedrock access is **not** part of the gate and can take longer
+than ten minutes.
 
 The command writes its source commit, clean/dirty state, consistent start and finish timestamps,
 elapsed seconds, Terraform resource count, active revision and `specHash`, both Run IDs, and both
@@ -22,8 +24,24 @@ package, and Terraform diagnostics go to `.runtime/aws-quickstart/quickstart.log
 
 Install [Node.js 20+](https://nodejs.org/en/download), npm, [Git](https://git-scm.com/downloads),
 [Terraform 1.5+](https://developer.hashicorp.com/terraform/install), and the
-[AWS CLI](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html). Use one of
-`ap-northeast-1`, `eu-west-1`, `us-east-1`, `us-east-2`, or `us-west-2`.
+[AWS CLI](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html). The default
+`openai.gpt-5.6-terra` path supports `us-east-1`, `us-east-2`, or `us-west-2`: the intersection of
+the model's [documented Regions](https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-openai-gpt-56-terra.html)
+and Lambda MicroVM availability. A deliberate custom run can use another supported MicroVM Region
+only by naming a model available there; preflight checks that choice. This first path does not guess
+the pairing.
+
+Authenticate the AWS CLI before cloning. AWS IAM Identity Center is the recommended local path;
+reuse an existing profile or environment-based credentials if your account already supplies one.
+
+```bash
+aws configure sso --profile rat-things-sandbox
+aws sso login --profile rat-things-sandbox
+aws sts get-caller-identity --profile rat-things-sandbox
+```
+
+Keep that profile name. The setup, optional preflight, status, and destroy commands below must use
+the same identity and Region.
 
 For the first proof, use a disposable AWS sandbox account or an isolated sandbox role. The fastest
 known path is temporary administrator deployment access, revoked after teardown. Those credentials
@@ -36,26 +54,35 @@ Terraform plan is the exact resource source of truth; do not treat a stale copie
 
 The account also needs:
 
-- Lambda MicroVM service access and free regional capacity. AWS documents the
-  [quota and capacity model](https://docs.aws.amazon.com/lambda/latest/dg/microvms-launching.html)
-  and the [operator IAM actions](https://docs.aws.amazon.com/lambda/latest/dg/microvms-security.html).
+- Lambda MicroVM service access and at least 4 GiB of unused regional memory quota for the default
+  Run. In the [Service Quotas console](https://console.aws.amazon.com/servicequotas/home/services/lambda/quotas),
+  choose AWS Lambda and search for “MicroVM.” AWS documents the
+  [quota and capacity model](https://docs.aws.amazon.com/lambda/latest/dg/microvms-launching.html),
+  including how to request an increase, and the
+  [operator IAM actions](https://docs.aws.amazon.com/lambda/latest/dg/microvms-security.html).
 - `bedrock-mantle:CallWithBearerToken` plus model-list access for preflight, and inference access for
-  the generated runtime role. AWS publishes the
+  the generated runtime role. The preflight command is the concrete access check: it must report
+  `modelVisible: true`. AWS publishes the
   [Mantle inference policy](https://docs.aws.amazon.com/bedrock/latest/userguide/inference.html) and
   the [`openai.gpt-5.6-terra` model card](https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-openai-gpt-56-terra.html).
 
-The validated quickstart creates 158 mostly request-scale managed resources and invokes the paid model twice.
-Our validated narrow runs have cost well below $1, but that is an observation, not a spending cap.
-Use a sandbox account and review the [cost model and residual KMS deletion window](costs.md) before
-confirming.
+The validated quickstart creates 158 mostly request-scale managed resources and invokes the paid
+model twice. The validation record does not include an AWS bill, so it makes no dollar claim. Use a
+sandbox account and review the dated [cost measurements and residual KMS deletion window](costs.md)
+before confirming; your Region, tokens, account pricing, and later AWS price changes determine the
+actual charge.
 
 ## Run the complete path
 
 ```bash
 git clone --depth 1 https://github.com/gpazo/Rat-Things.git
 cd Rat-Things
-npm run quickstart:aws
+npm run quickstart:aws -- --profile rat-things-sandbox --region us-west-2
 ```
+
+Omit `--profile` only when your shell already supplies the intended AWS credentials. Omit `--region`
+only when `AWS_REGION` or `AWS_DEFAULT_REGION` already selects one of the three supported default
+Regions.
 
 The quickstart command output is a six-stage readiness and deployment journey. It pauses once before any
 AWS write to show the exact account, Region, MicroVM image, driver, model-cost boundary, local state
@@ -103,18 +130,22 @@ Success is deliberately redundant and machine-readable:
 Run these after cloning. The wrapper installs pinned local dependencies when they are absent.
 
 ```bash
-npm run quickstart:aws -- preflight
-npm run quickstart:aws -- --dry-run
+npm run quickstart:aws -- preflight --profile rat-things-sandbox --region us-west-2
+npm run quickstart:aws -- --dry-run --profile rat-things-sandbox --region us-west-2
 ```
 
-`preflight` calls only read/list operations: it checks the active AWS identity, resolves a managed
-MicroVM base image, mints a short-lived Bedrock authentication token, and confirms that the selected
-model appears in the model catalog. It cannot prove remaining capacity, organization SCP behavior,
-or successful inference; the live Runs prove those.
+`preflight` creates, updates, and deletes no AWS resources. It checks the active AWS identity,
+resolves a managed MicroVM base image, mints a short-lived Bedrock authentication token, and
+confirms that the selected model appears in the model catalog. Token minting is an authentication
+action, not a read/list call. Preflight cannot prove remaining capacity, organization SCP behavior,
+Marketplace readiness, or successful inference; the two live Runs prove the end-to-end path. If the
+first invocation reports `AccessDeniedException`, follow Amazon Bedrock's
+[model-access prerequisites](https://docs.aws.amazon.com/bedrock/latest/userguide/model-access.html),
+wait for any first-use subscription to settle, and rerun.
 
 ## Published validation evidence
 
-The public evidence bundle pins the exact tested commit and contains no credential values. It is
+The published validation record pins the exact tested commit and contains no credential values. It is
 updated only after a fresh-clone real-Codex run, active-revision invocation, teardown, empty-state
 check, and no-MicroVM check all pass: [latest AWS quickstart evidence](aws-quickstart-evidence.json).
 
@@ -127,7 +158,7 @@ that active revision through a second real `openai.gpt-5.6-terra` invocation in 
 changes, and the active Run as `lastRunId`. The self-verifying destroy then found zero Terraform
 state entries, zero active MicroVMs, and only the disabled KMS key in `PendingDeletion`.
 
-This is proof of the narrow path, not a load, quota, multi-tenant, or disaster-recovery claim.
+This recorded validation covers the narrow path, not load, quota, multi-tenant, or disaster recovery.
 
 Use a named AWS profile or Region without editing Terraform:
 
@@ -154,8 +185,8 @@ state backend. The full debug log is local, ignored by Git, and intended to make
 inspectable without filling the normal terminal path with thousands of Terraform lines.
 
 ```bash
-npm run quickstart:aws -- status
-npm run quickstart:aws -- destroy
+npm run quickstart:aws -- status --profile rat-things-sandbox --region us-west-2
+npm run quickstart:aws -- destroy --profile rat-things-sandbox --region us-west-2
 ```
 
 `status` reruns deployment diagnostics and reads the exact Thing. `destroy` confirms the target,

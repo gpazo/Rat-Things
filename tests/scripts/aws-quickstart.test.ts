@@ -47,18 +47,47 @@ describe('AWS quickstart', () => {
 
   it('rejects ambiguous and unsupported setup choices before AWS changes', () => {
     expect(() => parseAwsQuickstartOptions(['--driver', 'auto'])).toThrow('--driver must be codex or mock');
+    for (const region of ['ap-northeast-1', 'eu-west-1']) {
+      expect(() => parseAwsQuickstartOptions(['--region', region])).toThrow(
+        'default Lambda MicroVM + openai.gpt-5.6-terra quickstart is not supported',
+      );
+    }
     expect(() => parseAwsQuickstartOptions(['--region', 'eu-central-1'])).toThrow(
       'Lambda MicroVM quickstart is not supported',
     );
     expect(() => parseAwsQuickstartOptions(['--unknown', 'value'])).toThrow('unknown option');
   });
 
-  it('offers a read-only readiness command before deployment', () => {
-    expect(parseAwsQuickstartOptions(['preflight', '--profile', 'sandbox'])).toMatchObject({
-      command: 'preflight',
-      profile: 'sandbox',
-      driver: 'codex',
-    });
+  it('allows a deliberate model or mock diagnostic in the other MicroVM Regions', () => {
+    expect(parseAwsQuickstartOptions([
+      '--region',
+      'eu-west-1',
+      '--model',
+      'operator.selected-model',
+    ])).toMatchObject({ region: 'eu-west-1', driver: 'codex', model: 'operator.selected-model' });
+    expect(parseAwsQuickstartOptions([
+      '--region',
+      'ap-northeast-1',
+      '--driver',
+      'mock',
+    ])).toMatchObject({ region: 'ap-northeast-1', driver: 'mock' });
+  });
+
+  it('offers a non-mutating readiness command in every default-model Region', () => {
+    for (const region of ['us-east-1', 'us-east-2', 'us-west-2']) {
+      expect(parseAwsQuickstartOptions([
+        'preflight',
+        '--profile',
+        'sandbox',
+        '--region',
+        region,
+      ])).toMatchObject({
+        command: 'preflight',
+        profile: 'sandbox',
+        driver: 'codex',
+        region,
+      });
+    }
   });
 
   it('accepts only successful Runs bound to the exact Thing revision and proof marker', () => {

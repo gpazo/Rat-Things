@@ -23,13 +23,15 @@ const thingPath = join(quickstartRoot, 'first-thing.json');
 const debugLogPath = join(quickstartRoot, 'quickstart.log');
 const terraformDataDir = join(quickstartRoot, 'terraform-data');
 const terraformPluginCache = join(projectRoot, '.runtime', 'terraform-plugin-cache');
-const supportedRegions = new Set([
+const defaultCodexModel = 'openai.gpt-5.6-terra';
+const microvmRegions = new Set([
   'ap-northeast-1',
   'eu-west-1',
   'us-east-1',
   'us-east-2',
   'us-west-2',
 ]);
+const defaultCodexRegions = new Set(['us-east-1', 'us-east-2', 'us-west-2']);
 
 export interface AwsQuickstartOptions {
   command: 'setup' | 'preflight' | 'status' | 'destroy' | 'help';
@@ -109,9 +111,9 @@ interface QuickstartResult {
 }
 
 interface QuickstartPreflight {
-  version: 1;
+  version: 2;
   status: 'ready';
-  changesExternalState: false;
+  createsOrModifiesAwsResources: false;
   region: string;
   tools: Record<'node' | 'npm' | 'git' | 'terraform' | 'aws', string>;
   aws: {
@@ -167,20 +169,28 @@ export function parseAwsQuickstartOptions(argv: string[]): AwsQuickstartOptions 
     if (!known.has(name)) throw new Error(`unknown option --${name}`);
   }
 
+  const driver = values.get('driver') ?? 'codex';
+  if (driver !== 'codex' && driver !== 'mock') throw new Error('--driver must be codex or mock');
+  const model = values.get('model') ?? defaultCodexModel;
+  if (!model || /[\r\n]/.test(model)) throw new Error('--model must be a non-empty single-line value');
   const region = values.get('region') ?? process.env.AWS_REGION ??
     process.env.AWS_DEFAULT_REGION ?? 'us-west-2';
-  if (!supportedRegions.has(region)) {
-    throw new Error(`Lambda MicroVM quickstart is not supported in ${region}`);
+  if (!microvmRegions.has(region)) {
+    throw new Error(
+      `Lambda MicroVM quickstart is not supported in ${region}; use ap-northeast-1, eu-west-1, ` +
+      'us-east-1, us-east-2, or us-west-2',
+    );
+  }
+  if (driver === 'codex' && model === defaultCodexModel && !defaultCodexRegions.has(region)) {
+    throw new Error(
+      `the default Lambda MicroVM + ${defaultCodexModel} quickstart is not supported in ${region}; ` +
+      'use us-east-1, us-east-2, or us-west-2',
+    );
   }
   const environment = values.get('environment') ?? 'quickstart';
   if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,31}$/.test(environment)) {
     throw new Error('--environment must contain 1-32 letters, numbers, underscores, or hyphens');
   }
-  const driver = values.get('driver') ?? 'codex';
-  if (driver !== 'codex' && driver !== 'mock') throw new Error('--driver must be codex or mock');
-  const model = values.get('model') ?? 'openai.gpt-5.6-terra';
-  if (!model || /[\r\n]/.test(model)) throw new Error('--model must be a non-empty single-line value');
-
   return {
     command,
     region,
@@ -286,9 +296,9 @@ async function preflight(options: AwsQuickstartOptions): Promise<QuickstartPrefl
   const baseImageVersion = options.baseImageVersion ?? await discoverBaseImageVersion(options);
   if (options.driver === 'codex') await assertBedrockModelVisible(options);
   return {
-    version: 1,
+    version: 2,
     status: 'ready',
-    changesExternalState: false,
+    createsOrModifiesAwsResources: false,
     region: options.region,
     tools,
     aws: { accountId, principalArn },
@@ -984,7 +994,8 @@ function printHelp(): void {
   process.stdout.write(`  npm run quickstart:aws -- preflight\n`);
   process.stdout.write(`  npm run quickstart:aws -- status\n`);
   process.stdout.write(`  npm run quickstart:aws -- destroy\n\n`);
-  process.stdout.write(`A fresh clone installs pinned dependencies automatically. Preflight performs only read-only checks.\n`);
+  process.stdout.write(`A fresh clone installs pinned dependencies automatically. Preflight creates or modifies no AWS resources.\n`);
+  process.stdout.write(`The default model path runs in us-east-1, us-east-2, or us-west-2.\n`);
   process.stdout.write(`The default runs a real Codex Thing with paid Amazon Bedrock tokens.\n`);
   process.stdout.write(`Use --driver mock for a token-free infrastructure proof that is explicitly not a model.\n\n`);
   process.stdout.write(`Options:\n`);

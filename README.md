@@ -200,8 +200,9 @@ cd Rat-Things
 npm run quickstart:aws
 ```
 
-The setup command installs pinned Node dependencies when absent, runs read-only AWS and model
-preflight checks, deploys the narrow backend, verifies discovery and its IAM-authenticated API,
+The setup command installs pinned Node dependencies when absent, runs AWS and model readiness
+checks without creating or modifying AWS resources, deploys the narrow backend, verifies discovery
+and its IAM-authenticated API,
 tests and publishes an exact Thing revision, then invokes that published active revision in a
 second successful real-Codex Run. Its evidence pins the source commit, revision, `specHash`, both
 Run IDs, and elapsed time; the gate fails above ten minutes. `--driver mock` is explicitly
@@ -209,10 +210,11 @@ infrastructure-only.
 
 The clock starts at the setup command. Obtaining the AWS account, host tools, service/quota access,
 and model access happens first and may take longer. Read the
-[AWS-ready quickstart](docs/quickstart.md) for that boundary, a read-only preflight, deployment
-permissions, expected cost, public evidence, debugging, and exact teardown.
+[AWS-ready quickstart](docs/quickstart.md) for that boundary, a no-resource-write preflight,
+deployment permissions, paid-use scope, dated cost measurements, public evidence, debugging, and
+exact teardown.
 
-The [latest clean-commit proof](docs/aws-quickstart-evidence.json) completed in **508 seconds
+The [latest recorded clean-commit validation](docs/aws-quickstart-evidence.json) completed in **508 seconds
 (8m28s)**, including fresh dependency
 installation and the interactive pause, then passed the automated empty-state, no-active-MicroVM,
 and KMS-deletion-window teardown checks.
