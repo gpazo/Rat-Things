@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   awsQuickstartTerraformConfig,
   awsQuickstartThing,
+  managedTerraformAddresses,
   parseAwsQuickstartOptions,
   quickstartRunEvidence,
 } from '../../scripts/aws-quickstart.js';
@@ -104,5 +105,17 @@ describe('AWS quickstart', () => {
       specHash,
       'RAT-THINGS-READY-TEST',
     )).toThrow('did not contain its proof marker');
+  });
+
+  it('reports managed Terraform resources separately from data-source state entries', () => {
+    expect(managedTerraformAddresses([
+      'data.aws_caller_identity.current',
+      'aws_s3_bucket.artifacts',
+      'module.agent_runner.data.aws_partition.current',
+      'module.agent_runner.aws_lambda_function.this["control"]',
+    ])).toEqual([
+      'aws_s3_bucket.artifacts',
+      'module.agent_runner.aws_lambda_function.this["control"]',
+    ]);
   });
 });

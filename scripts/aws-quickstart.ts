@@ -9,6 +9,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import {
   LambdaMicrovmsClient,
   ListManagedMicrovmImageVersionsCommand,
+  ListMicrovmsCommand,
 } from '@aws-sdk/client-lambda-microvms';
 import { getTokenProvider } from '@aws/bedrock-token-generator';
 import { defaultProvider } from '@aws-sdk/credential-provider-node';
@@ -77,7 +78,7 @@ interface QuickstartResult {
     commit: string;
     clean: boolean;
   };
-  terraformResourceCount: number;
+  terraformManagedResourceCount: number;
   proofMarker: string;
   thing: {
     thingId: string;
@@ -93,6 +94,16 @@ interface QuickstartResult {
   startedAt: string;
   completedAt: string;
   destroyedAt?: string;
+  teardown?: {
+    terraformStateEntries: 0;
+    listedMicrovms: number;
+    activeMicrovms: 0;
+    kmsKey: {
+      enabled: false;
+      state: 'PendingDeletion';
+      deletionDate: string;
+    };
+  };
   elapsedSeconds: number;
   underTenMinutes: boolean;
 }
@@ -465,7 +476,7 @@ async function setup(options: AwsQuickstartOptions): Promise<void> {
       commit: capture('git', ['rev-parse', 'HEAD']),
       clean: capture('git', ['status', '--porcelain']) === '',
     },
-    terraformResourceCount: terraformResourceCount(env),
+    terraformManagedResourceCount: terraformManagedResourceCount(env),
     proofMarker: marker,
     thing: { thingId, status: 'active', activeRevision, specHash },
     runs: { draftTest, active: activeRun },
@@ -514,6 +525,7 @@ async function destroy(options: AwsQuickstartOptions): Promise<void> {
     ...(options.profile ? { profile: options.profile } : {}),
   });
   const terraformEnv = terraformEnvironment(env);
+  const kmsKeyId = terraformKmsKeyId(env);
   const microvm = command('terraform', [
     '-chdir=infra',
     'output',
@@ -521,19 +533,21 @@ async function destroy(options: AwsQuickstartOptions): Promise<void> {
     '-json',
     'microvm',
   ], { env: terraformEnv, allowFailure: true });
-  if (microvm.status === 0) {
-    const imageArn = (JSON.parse(microvm.stdout) as { image_arn?: unknown }).image_arn;
-    if (typeof imageArn === 'string' && imageArn) {
-      progress('[1/2] Terminate quickstart MicroVMs');
-      const termination = await loggedCommand(
-        process.execPath,
-        [join(projectRoot, 'scripts', 'terminate-microvms.mjs'), result.region, imageArn],
-        { env },
-      );
-      if (termination.stdout.trim()) progress(`      ${termination.stdout.trim()}`);
-    }
+  if (microvm.status !== 0) throw new Error('could not resolve the quickstart MicroVM image before teardown');
+  const imageArn = requiredString(
+    (JSON.parse(microvm.stdout) as { image_arn?: unknown }).image_arn,
+    'the quickstart Terraform state returned no MicroVM image ARN',
+  );
+  progress('[1/3] Terminate quickstart MicroVMs');
+  const termination = await loggedCommand(
+    process.execPath,
+    [join(projectRoot, 'scripts', 'terminate-microvms.mjs'), result.region, imageArn],
+    { env },
+  );
+  if (termination.stdout.trim()) {
+    progress(`      ${termination.stdout.trim()}`);
   }
-  progress('[2/2] Destroy the quickstart AWS backend');
+  progress('[2/3] Destroy the quickstart AWS backend');
   await loggedCommand('terraform', [
     '-chdir=infra',
     'destroy',
@@ -543,8 +557,35 @@ async function destroy(options: AwsQuickstartOptions): Promise<void> {
     '-auto-approve',
     '-compact-warnings',
   ], { env: terraformEnv });
-  progress('      destroyed');
-  const destroyed = { ...result, status: 'destroyed' as const, destroyedAt: new Date().toISOString() };
+  progress('[3/3] Verify empty state, no active MicroVMs, and the KMS deletion window');
+  const terraformStateEntries = terraformStateEntryCount(env);
+  if (terraformStateEntries !== 0) {
+    throw new Error(`quickstart teardown left ${terraformStateEntries} Terraform state entries`);
+  }
+  const microvms = await microvmTeardownStatus(options, result.region, imageArn);
+  if (microvms.activeMicrovms !== 0) {
+    throw new Error(`quickstart teardown left ${microvms.activeMicrovms} active MicroVMs`);
+  }
+  const kmsKey = kmsTeardownStatus(env, kmsKeyId);
+  if (kmsKey.enabled || kmsKey.state !== 'PendingDeletion') {
+    throw new Error(`quickstart KMS key is ${kmsKey.state} after teardown instead of PendingDeletion`);
+  }
+  progress('      destroyed and verified');
+  const destroyed: QuickstartResult = {
+    ...result,
+    status: 'destroyed',
+    destroyedAt: new Date().toISOString(),
+    teardown: {
+      terraformStateEntries: 0,
+      listedMicrovms: microvms.listedMicrovms,
+      activeMicrovms: 0,
+      kmsKey: {
+        enabled: false,
+        state: 'PendingDeletion',
+        deletionDate: kmsKey.deletionDate,
+      },
+    },
+  };
   await writeFile(metadataPath, `${JSON.stringify(destroyed, null, 2)}\n`, { mode: 0o600 });
   printValue(destroyed, options.json);
 }
@@ -793,14 +834,105 @@ function journeyStartedAt(): number {
   return value;
 }
 
-function terraformResourceCount(env: NodeJS.ProcessEnv): number {
+function terraformStateAddresses(env: NodeJS.ProcessEnv): string[] {
   const listed = capture('terraform', [
     '-chdir=infra',
     'state',
     'list',
     `-state=${statePath}`,
   ], { env: terraformEnvironment(env) });
-  return listed ? listed.split('\n').filter(Boolean).length : 0;
+  return listed ? listed.split('\n').filter(Boolean) : [];
+}
+
+function terraformManagedResourceCount(env: NodeJS.ProcessEnv): number {
+  return managedTerraformAddresses(terraformStateAddresses(env)).length;
+}
+
+export function managedTerraformAddresses(addresses: string[]): string[] {
+  return addresses.filter((address) => !/(^|\.)data\./.test(address));
+}
+
+function terraformStateEntryCount(env: NodeJS.ProcessEnv): number {
+  return terraformStateAddresses(env).length;
+}
+
+function terraformKmsKeyId(env: NodeJS.ProcessEnv): string {
+  const state = JSON.parse(capture('terraform', [
+    '-chdir=infra',
+    'show',
+    '-json',
+    statePath,
+  ], { env: terraformEnvironment(env) })) as {
+    values?: { root_module?: TerraformStateModule };
+  };
+  const resources = state.values?.root_module ? terraformModuleResources(state.values.root_module) : [];
+  const kms = resources.find((resource) => resource.type === 'aws_kms_key');
+  return requiredString(kms?.values?.key_id ?? kms?.values?.id, 'Terraform state returned no KMS key ID');
+}
+
+interface TerraformStateModule {
+  resources?: Array<{ type?: unknown; values?: Record<string, unknown> }>;
+  child_modules?: TerraformStateModule[];
+}
+
+function terraformModuleResources(
+  module: TerraformStateModule,
+): Array<{ type?: unknown; values?: Record<string, unknown> }> {
+  return [
+    ...(module.resources ?? []),
+    ...(module.child_modules ?? []).flatMap(terraformModuleResources),
+  ];
+}
+
+async function microvmTeardownStatus(
+  options: AwsQuickstartOptions,
+  region: string,
+  imageArn: string,
+): Promise<{ listedMicrovms: number; activeMicrovms: number }> {
+  const client = new LambdaMicrovmsClient({
+    region,
+    ...(options.profile ? { credentials: defaultProvider({ profile: options.profile }) } : {}),
+  });
+  try {
+    const items = [];
+    let nextToken: string | undefined;
+    do {
+      const page = await client.send(new ListMicrovmsCommand({
+        imageIdentifier: imageArn,
+        maxResults: 50,
+        ...(nextToken ? { nextToken } : {}),
+      }));
+      items.push(...(page.items ?? []));
+      nextToken = page.nextToken;
+    } while (nextToken);
+    return {
+      listedMicrovms: items.length,
+      activeMicrovms: items.filter((item) => item.state !== 'TERMINATED').length,
+    };
+  } finally {
+    client.destroy();
+  }
+}
+
+function kmsTeardownStatus(
+  env: NodeJS.ProcessEnv,
+  keyId: string,
+): { enabled: boolean; state: string; deletionDate: string } {
+  const response = JSON.parse(capture('aws', [
+    'kms',
+    'describe-key',
+    '--key-id',
+    keyId,
+    '--output',
+    'json',
+  ], { env })) as {
+    KeyMetadata?: { Enabled?: unknown; KeyState?: unknown; DeletionDate?: unknown };
+  };
+  return {
+    enabled: response.KeyMetadata?.Enabled === true,
+    state: requiredString(response.KeyMetadata?.KeyState, 'AWS returned no KMS key state'),
+    deletionDate: requiredString(response.KeyMetadata?.DeletionDate, 'AWS returned no KMS deletion date'),
+  };
 }
 
 export function quickstartRunEvidence(

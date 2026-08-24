@@ -81,7 +81,7 @@ Success is deliberately redundant and machine-readable:
   "version": 2,
   "status": "ready",
   "source": { "commit": "...", "clean": true },
-  "terraformResourceCount": 158,
+  "terraformManagedResourceCount": 158,
   "thing": {
     "thingId": "...",
     "status": "active",
@@ -150,9 +150,10 @@ npm run quickstart:aws -- destroy
 ```
 
 `status` reruns deployment diagnostics and reads the exact Thing. `destroy` confirms the target,
-terminates any remaining MicroVM for this image, destroys only the quickstart state, and retains the
-local result record as evidence. AWS schedules the customer-managed KMS key for deletion because it
-does not permit immediate key deletion.
+terminates any remaining MicroVM for this image, destroys only the quickstart state, then fails
+unless Terraform state is empty, no MicroVM remains active, and the disabled customer-managed KMS
+key is in AWS's mandatory `PendingDeletion` window. Those postchecks are appended to the local
+result record.
 
 Do not use this disposable state layout as an unreviewed shared production deployment. Once the
 narrow journey is delightful and stable, choose retention, state backend, identity boundary,

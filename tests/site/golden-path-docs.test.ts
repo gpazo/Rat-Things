@@ -13,6 +13,7 @@ describe('AWS-ready golden-path documentation', () => {
     expect(guide).toContain('can take longer than ten minutes');
     expect(guide).toContain('invokes the published active revision');
     expect(guide).toContain('"activeRevision": 1');
+    expect(guide).toContain('"terraformManagedResourceCount": 158');
     expect(guide).toContain('"invocation": "manual"');
     expect(guide).toContain('[latest AWS quickstart evidence](aws-quickstart-evidence.json)');
 
