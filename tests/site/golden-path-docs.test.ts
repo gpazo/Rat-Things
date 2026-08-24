@@ -14,7 +14,9 @@ describe('AWS-ready golden-path documentation', () => {
     expect(guide).toContain('# AWS-ready ten-minute quickstart');
     expect(guide).toMatch(/can take longer\s+than ten minutes/);
     expect(guide).toContain('`us-east-1`, `us-east-2`, or `us-west-2`');
-    expect(guide).toContain('golden-path-v1');
+    expect(guide).toContain('golden-path-v1.0.0');
+    expect(guide).toContain('requires Bash');
+    expect(guide).toContain('Linux, including WSL 2');
     expect(guide).toContain('automatically reuse');
     expect(guide).toContain('creates, updates, and deletes no AWS resources');
     expect(guide).not.toContain('cost well below $1');
@@ -22,10 +24,11 @@ describe('AWS-ready golden-path documentation', () => {
     expect(guide).toContain('"activeRevision": 1');
     expect(guide).toContain('"terraformManagedResourceCount": 158');
     expect(guide).toContain('"invocation": "manual"');
-    expect(guide).toContain('[latest AWS quickstart evidence](aws-quickstart-evidence.json)');
+    expect(guide).toContain('[centrally published AWS quickstart evidence]');
+    expect(guide).toContain('An immutable source tag cannot contain evidence produced after that same commit exists.');
 
     expect(homepage).toContain('One narrow path. One active Thing.');
-    expect(homepage).toContain('--branch golden-path-v1');
+    expect(homepage).toContain('--branch golden-path-v1.0.0');
     expect(homepage).toContain('intentionally a readiness canary');
     expect(homepage).toContain('Installing host tools and arranging AWS service, quota, and Bedrock access');
     expect(homepage).toContain('Latest recorded live validation:');

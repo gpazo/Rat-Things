@@ -23,9 +23,14 @@ Terraform diagnostics go to `.runtime/aws-quickstart/quickstart.log`.
 
 ## Get the workstation and AWS account ready
 
-Install [Node.js 20+](https://nodejs.org/en/download), npm, [Git](https://git-scm.com/downloads),
+The entry point requires Bash and is intended for macOS or Linux, including WSL 2. Native Windows
+PowerShell and Command Prompt are not supported by this path. The published host proof is macOS
+ARM64; Linux and WSL are supported-by-design but do not yet have a published live run.
+
+Install [Bash](https://www.gnu.org/software/bash/),
+[Node.js 20+](https://nodejs.org/en/download), npm, [Git](https://git-scm.com/downloads),
 [Terraform 1.5+](https://developer.hashicorp.com/terraform/install), and the
-[AWS CLI](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html). The default
+[AWS CLI v2](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html). The default
 `openai.gpt-5.6-terra` path supports `us-east-1`, `us-east-2`, or `us-west-2`: the intersection of
 the model's [documented Regions](https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-openai-gpt-56-terra.html)
 and Lambda MicroVM availability. A deliberate custom run can use another supported MicroVM Region
@@ -80,13 +85,16 @@ actual charge.
 ## Run the complete path
 
 ```bash
-git clone --depth 1 --branch golden-path-v1 https://github.com/gpazo/Rat-Things.git
+git clone --depth 1 --branch golden-path-v1.0.0 https://github.com/gpazo/Rat-Things.git
 cd Rat-Things
+git rev-parse HEAD
 npm run quickstart:aws -- --profile rat-things-sandbox --region us-west-2
 ```
 
-`golden-path-v1` is an immutable public tag pinned to the exact live-tested source. Git's
-detached-HEAD notice is expected. The `main` branch is the development line; switch to it only after
+`golden-path-v1.0.0` is an immutable public tag; Git's detached-HEAD notice is expected. Before
+granting deployer authority, compare the printed commit with `source.commit` in the
+[centrally published evidence](https://gpazo.github.io/Rat-Things/docs/assets/aws-quickstart-evidence.json).
+Do not proceed if they differ. The `main` branch is the development line; switch to it only after
 this proof if you want newer, not-yet-recorded changes.
 
 Omit `--profile` only when your shell already supplies the intended AWS credentials. Omit `--region`
@@ -165,9 +173,16 @@ wait for any first-use subscription to settle, and rerun.
 
 ## Published validation evidence
 
-The published validation record pins the exact tested commit and contains no credential values. It is
-updated only after a fresh-clone real-Codex run, active-revision invocation, teardown, empty-state
-check, and no-MicroVM check all pass: [latest AWS quickstart evidence](aws-quickstart-evidence.json).
+The published validation record pins the exact tested commit and contains no credential values. It
+is updated only after a fresh-clone real-Codex run, active-revision invocation, teardown,
+empty-state check, and no-MicroVM check all pass:
+[centrally published AWS quickstart evidence](https://gpazo.github.io/Rat-Things/docs/assets/aws-quickstart-evidence.json).
+
+An immutable source tag cannot contain evidence produced after that same commit exists. Its bundled
+[`aws-quickstart-evidence.json`](aws-quickstart-evidence.json) is therefore the preceding proof
+available when the tag was cut; the central record above is the authority for verifying the release
+commit before deployment. This keeps the tested source immutable instead of rewriting a tag after
+validation.
 
 On August 24, 2026 UTC, a clean clone of immutable tag `golden-path-v1`, commit
 [`c6752b8`](https://github.com/gpazo/Rat-Things/commit/c6752b816dbc78952a05907daf95e39ceb9edf6c)

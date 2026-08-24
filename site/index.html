@@ -82,9 +82,10 @@
           <li>
             <span class="step-number">01</span>
             <h3>Clone</h3>
-            <pre><code><span>git clone</span> --depth 1 --branch golden-path-v1 \
+            <pre><code><span>git clone</span> --depth 1 --branch golden-path-v1.0.0 \
   https://github.com/gpazo/Rat-Things.git
-<span>cd</span> Rat-Things</code></pre>
+<span>cd</span> Rat-Things
+<span>git rev-parse</span> HEAD</code></pre>
           </li>
           <li>
             <span class="step-number">02</span>
@@ -107,8 +108,8 @@
         </ol>
 
         <div class="setup-footer">
-          <p><strong>Honest boundary:</strong> the ten-minute gate starts at <code>npm run quickstart:aws</code> and includes dependency installation when absent; cloning is not timed. Installing host tools and arranging AWS service, quota, and Bedrock access happens first and may take longer. The default model path uses <code>us-east-1</code>, <code>us-east-2</code>, or <code>us-west-2</code>. Setup stores the non-secret profile and Region names, so the generic status and destroy commands reuse the exact target. The complete guide provides a no-resource-write preflight, concrete account checks, paid-use boundary, and teardown.</p>
-          <p><code>golden-path-v1</code> is the immutable, live-tested source for this journey; Git's detached-HEAD notice is expected. <code>main</code> remains the development line.</p>
+          <p><strong>Honest boundary:</strong> the ten-minute gate starts at <code>npm run quickstart:aws</code> and includes dependency installation when absent; cloning is not timed. Installing host tools and arranging AWS service, quota, and Bedrock access happens first and may take longer. The Bash entry point is intended for macOS or Linux, including WSL 2; only macOS ARM64 has a published host proof. The default model path uses <code>us-east-1</code>, <code>us-east-2</code>, or <code>us-west-2</code>. Setup stores the non-secret profile and Region names, so the generic status and destroy commands reuse the exact target. The complete guide provides a no-resource-write preflight, concrete account checks, paid-use boundary, and teardown.</p>
+          <p><code>golden-path-v1.0.0</code> is the immutable release source; Git's detached-HEAD notice is expected. Compare the printed commit with <code>source.commit</code> in the evidence JSON before granting deployer authority. <code>main</code> remains the development line.</p>
           <p>The default invokes paid Codex on Bedrock twice: once to prove the draft and once through the published active revision. That first Thing is intentionally a readiness canary, not a useful integration. <code>--driver mock</code> is explicitly infrastructure-only. OAuth, VPC/NAT, schedules, and public sharing stay out of this first journey.</p>
           <p><strong>Published validation record:</strong> the <a href="docs/assets/aws-quickstart-evidence.json">latest evidence JSON</a> records a clean source commit, active revision and <code>specHash</code>, both successful Run IDs, elapsed time, teardown, empty Terraform state, and the no-MicroVM check. It is project-published evidence, not a third-party attestation.</p>
           <p><strong>Latest recorded live validation:</strong> immutable tag <code>golden-path-v1</code>, clean commit <code>c6752b8</code>, completed the fresh-install path in 476 seconds (7m56s), including the interactive pause. Its deployment was then removed: both the self-verifying teardown and an independent AWS postcheck found zero deployed state instances and zero active MicroVMs.</p>

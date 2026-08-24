@@ -195,13 +195,16 @@ With Node, npm, Git, Terraform, an isolated AWS deployment role, Lambda MicroVM 
 Bedrock model access ready:
 
 ```bash
-git clone --depth 1 --branch golden-path-v1 https://github.com/gpazo/Rat-Things.git
+git clone --depth 1 --branch golden-path-v1.0.0 https://github.com/gpazo/Rat-Things.git
 cd Rat-Things
+git rev-parse HEAD
 npm run quickstart:aws
 ```
 
-`golden-path-v1` is the immutable, live-tested release of this journey; Git's detached-HEAD notice
-is expected. Use `main` for current development after the first proof succeeds.
+`golden-path-v1.0.0` is the immutable release of this journey; Git's detached-HEAD notice is
+expected. Before using a privileged deployer role, compare the printed commit with `source.commit`
+in the [centrally published evidence](https://gpazo.github.io/Rat-Things/docs/assets/aws-quickstart-evidence.json).
+Use `main` for current development after the first proof succeeds.
 
 The setup command installs pinned Node dependencies when absent, runs AWS and model readiness
 checks without creating or modifying AWS resources, deploys the narrow backend, verifies discovery
