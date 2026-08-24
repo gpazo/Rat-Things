@@ -1,100 +1,110 @@
 import { createHash } from 'node:crypto';
 import type { ConversationQueue } from '../conversation/types.js';
 import { ConversationService } from '../conversation/service.js';
-import type { ConversationExecutionPolicy } from '../domain/conversations.js';
-import type { IntegrationAccessRequest } from '../domain/capabilities.js';
+import type { RunDestination, RunRecord, RunRequest } from '../domain/contracts.js';
 import { ValidationError } from '../domain/validation.js';
 import type { IngressContext } from '../identity/context.js';
-import type { IngressWork } from '../ingress/types.js';
-
-export interface ApiConversationMessageInput {
-  conversationKey: string;
-  messageId: string;
-  prompt: string;
-  context: IngressContext & { source: { kind: 'api' } };
-  traceId: string;
-  executionPolicy?: ConversationExecutionPolicy;
-  integrationPolicy?: IntegrationAccessRequest;
-}
-
-export interface ConversationMessageReceipt {
-  conversationId: string;
-  messageId: string;
-  status: 'appended' | 'duplicate';
-}
+import type { RunService, SubmitOptions } from '../core/run-service.js';
+import type { ThreadTarget } from '../core/run-submission-service.js';
 
 export class ConversationSubmissionService {
   public constructor(
     private readonly conversations: ConversationService,
     private readonly queue: ConversationQueue,
+    private readonly runs: Pick<RunService, 'submit'>,
   ) {}
 
-  public async submit(work: IngressWork): Promise<{ conversationId: string; messageId: string }> {
-    const source = work.context.source;
-    if (source.kind !== 'teams') throw new Error('conversation submission currently supports Teams');
-    const conversationId = [
-      'teams',
-      source.tenantId ?? 'unknown',
-      source.senderId ?? 'unknown',
-      source.conversationId,
-    ].join(':');
-    const messageId = source.activityId;
-    const delivery = await this.deliveryFor(conversationId, messageId);
-    const receipt = await this.conversations.appendMessage({
-      conversationId,
-      ownerId: work.context.owner.id,
-      ...(work.policyOwnerId ? { capabilityOwnerId: work.policyOwnerId } : {}),
-      messageId,
+  /** Reserves one public Run, then queues only its optional thread preparation. */
+  public async submitThread(
+    ownerId: string,
+    request: RunRequest,
+    submit: SubmitOptions,
+    thread: ThreadTarget,
+  ): Promise<RunRecord> {
+    if (!request.source) throw new ValidationError('threaded Run requires a source');
+    if (!submit.provenance) throw new ValidationError('threaded Run requires trusted provenance');
+    const delivery = thread.delivery ?? await this.deliveryFor(
+      thread.conversationId,
+      thread.messageId,
+    );
+    const result = await this.appendRun({
+      conversationId: thread.conversationId,
+      ownerId,
+      ...(submit.capabilityOwnerId ? { capabilityOwnerId: submit.capabilityOwnerId } : {}),
+      messageId: thread.messageId,
       delivery,
-      content: {
-        text: work.request.prompt,
-        metadata: { provider: 'teams', traceId: work.submit.traceId ?? messageId },
+      request,
+      context: {
+        owner: { id: ownerId },
+        actor: submit.provenance.actor,
+        credentialSubject: submit.provenance.credentialSubject,
+        source: request.source,
       },
-      source,
-      destination: { kind: 'source' },
-      actor: work.context.actor,
-      credentialSubject: work.context.credentialSubject,
-      ...(work.request.agent ? { executionPolicy: work.request.agent } : {}),
-      ...(work.request.integrations ? { integrationPolicy: work.request.integrations } : {}),
+      destination: request.destinations?.[0] ?? { kind: 'none' },
+      submit,
     });
-    await this.queue.enqueue({
-      version: '1',
-      conversationId,
-      traceId: work.submit.traceId ?? `teams:${hash(messageId).slice(0, 24)}`,
-    });
-    return { conversationId, messageId: receipt.message.messageId };
+    return result.run;
   }
 
-  /**
-   * Appends an IAM-authenticated CLI/API prompt to the same durable mailbox used by providers.
-   * The caller-visible key is owner-scoped before it becomes a runtime conversation ID.
-   */
-  public async submitApi(input: ApiConversationMessageInput): Promise<ConversationMessageReceipt> {
-    const conversationId = apiConversationId(input.context.owner.id, input.conversationKey);
-    const delivery = await this.deliveryFor(conversationId, input.messageId);
+  private async appendRun(input: {
+    conversationId: string;
+    ownerId: string;
+    capabilityOwnerId?: string;
+    messageId: string;
+    delivery: 'interrupt' | 'defer';
+    request: RunRequest;
+    context: IngressContext;
+    destination: RunDestination;
+    submit: SubmitOptions;
+  }): Promise<{
+    messageId: string;
+    runId: string;
+    status: 'appended' | 'duplicate';
+    run: RunRecord;
+  }> {
+    const idempotencyKey = input.submit.idempotencyKey ?? input.messageId;
+    // The Run is the durable acceptance record and recovery source. If the
+    // process dies before the mailbox write, the queued-run reconciler can
+    // reconstruct this thread occurrence from the immutable input artifact.
+    const run = await this.runs.submit(input.ownerId, input.request, {
+      ...input.submit,
+      idempotencyKey,
+      enqueue: false,
+      conversation: {
+        conversationId: input.conversationId,
+        messageId: input.messageId,
+        delivery: input.delivery,
+      },
+    });
     const receipt = await this.conversations.appendMessage({
-      conversationId,
-      ownerId: input.context.owner.id,
+      conversationId: input.conversationId,
+      ownerId: input.ownerId,
+      ...(input.capabilityOwnerId ? { capabilityOwnerId: input.capabilityOwnerId } : {}),
       messageId: input.messageId,
-      delivery,
-      content: { text: input.prompt },
+      runId: run.runId,
+      delivery: input.delivery,
+      content: {
+        text: input.request.prompt,
+        request: input.request,
+        metadata: {
+          traceId: input.submit.traceId ?? run.runId,
+        },
+      },
       source: input.context.source,
-      destination: { kind: 'none' },
+      destination: input.destination,
       actor: input.context.actor,
       credentialSubject: input.context.credentialSubject,
-      ...(input.executionPolicy ? { executionPolicy: input.executionPolicy } : {}),
-      ...(input.integrationPolicy ? { integrationPolicy: input.integrationPolicy } : {}),
+      ...(input.request.agent ? { executionPolicy: input.request.agent } : {}),
+      ...(input.request.integrations ? { integrationPolicy: input.request.integrations } : {}),
     });
     await this.queue.enqueue({
       version: '1',
-      conversationId,
-      traceId: input.traceId,
+      conversationId: input.conversationId,
+      traceId: input.submit.traceId ?? run.runId,
+      runId: run.runId,
+      ownerId: input.ownerId,
     });
-    return {
-      conversationId: input.conversationKey,
-      messageId: receipt.message.messageId,
-      status: receipt.status,
-    };
+    return { messageId: receipt.message.messageId, runId: run.runId, status: receipt.status, run };
   }
 
   /**

@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
 import {
   artifactUrlTtlSeconds,
-  apiConversationRequestBody,
+  apiRunSubmissionBody,
   apiRequestBody,
   handler,
 } from '../../src/lambdas/control.js';
@@ -36,88 +36,37 @@ describe('control API request normalization', () => {
     });
     expect(apiRequestBody(body)).toEqual(apiRequestBody(body));
   });
-});
 
-describe('control API conversation request normalization', () => {
-  it('accepts durable capability and multi-account integration policy fields', () => {
-    expect(apiConversationRequestBody({
+  it('turns an owner-scoped thread key into optional continuity on the same Run', () => {
+    const result = apiRunSubmissionBody(
+      {
+        version: '1',
+        prompt: 'Continue the release.',
+        thread: { key: 'release', delivery: 'defer' },
+      },
+      { kind: 'api' },
+      'api:owner-1',
+      'release-message-1',
+    );
+
+    expect(result.request).toEqual({
       version: '1',
-      prompt: 'Inspect the workspace with shell tools.',
-      agent: {
-        driver: 'codex',
-        model: 'openai.gpt-5.6-terra',
-        sandbox: 'workspace-write',
-        reasoningEffort: 'low',
-        reasoningSummary: 'concise',
-        personality: 'pragmatic',
-        capabilities: {
-          approvalPolicy: 'on-request',
-          approvalsReviewer: 'guardian-subagent',
-          networkAccess: true,
-          webSearch: 'live',
-          computerUse: 'browser',
-          skills: ['invoice-review'],
-          apps: ['google-drive'],
-          mcpServers: ['accounting'],
-        },
-      },
-      integrations: {
-        connectionSet: 'small-business',
-        connections: [
-          { connection: 'gmail-sales', preset: 'read-only' },
-          { connection: 'stripe-live', preset: 'read-write' },
-        ],
-      },
-    })).toEqual({
-      version: '1',
-      prompt: 'Inspect the workspace with shell tools.',
-      agent: {
-        driver: 'codex',
-        model: 'openai.gpt-5.6-terra',
-        sandbox: 'workspace-write',
-        reasoningEffort: 'low',
-        reasoningSummary: 'concise',
-        personality: 'pragmatic',
-        capabilities: {
-          approvalPolicy: 'on-request',
-          approvalsReviewer: 'guardian-subagent',
-          networkAccess: true,
-          webSearch: 'live',
-          computerUse: 'browser',
-          skills: ['invoice-review'],
-          apps: ['google-drive'],
-          mcpServers: ['accounting'],
-        },
-      },
-      integrations: {
-        connectionSet: 'small-business',
-        connections: [
-          { connection: 'gmail-sales', preset: 'read-only' },
-          { connection: 'stripe-live', preset: 'read-write' },
-        ],
-      },
+      prompt: 'Continue the release.',
+      source: { kind: 'api' },
+    });
+    expect(result.thread).toMatchObject({
+      conversationId: expect.stringMatching(/^api:[a-f0-9]{32}:release$/),
+      messageId: 'release-message-1',
+      delivery: 'defer',
     });
   });
 
-  it('rejects caller-selected provider and delivery context', () => {
-    expect(() => apiConversationRequestBody({
-      version: '1',
-      prompt: 'test',
-      source: { kind: 'teams' },
-    })).toThrow('request contains unknown field source');
-    expect(() => apiConversationRequestBody({
-      version: '1',
-      prompt: 'test',
-      destinations: [{ kind: 'slack', route: 'arbitrary' }],
-    })).toThrow('request contains unknown field destinations');
-  });
-
-  it('rejects output schemas because execution policy is fixed for the conversation', () => {
-    expect(() => apiConversationRequestBody({
-      version: '1',
-      prompt: 'test',
-      agent: { outputSchema: { type: 'object' } },
-    })).toThrow('agent.outputSchema is not supported');
+  it('requires idempotency before accepting threaded work', () => {
+    expect(() => apiRunSubmissionBody(
+      { version: '1', prompt: 'test', thread: { key: 'release' } },
+      { kind: 'api' },
+      'api:owner-1',
+    )).toThrow('Idempotency-Key must be 1-200 safe ASCII characters');
   });
 });
 

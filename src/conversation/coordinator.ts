@@ -18,7 +18,6 @@ import type {
 import type { ConversationQueue } from './types.js';
 import { ConversationService } from './service.js';
 
-const MAX_SLICE_MESSAGES = 20;
 const MAX_REPLAY_BYTES = 80_000;
 const MAX_CONTEXT_MESSAGES = 200;
 const MAX_CONTEXT_BYTES = 4_500_000;
@@ -33,7 +32,7 @@ export interface ConversationSessionController {
 
 export interface ConversationCoordinatorOptions {
   conversations: ConversationService;
-  runs: Pick<RunService, 'submit' | 'wake'>;
+  runs: Pick<RunService, 'get' | 'prepareConversation' | 'wake'>;
   artifacts: ArtifactStore;
   sliceTimeoutSeconds?: number;
 }
@@ -57,6 +56,7 @@ export class ConversationCoordinator {
 
   public async handle(message: ConversationWakeMessage): Promise<{ status: string; runId?: string }> {
     validateWakeMessage(message);
+    await this.repairMailbox(message);
     const acquired = await this.options.conversations.acquireLease(message.conversationId);
     if (acquired.status !== 'acquired') return { status: acquired.status };
     const { conversation, lease } = acquired;
@@ -89,17 +89,23 @@ export class ConversationCoordinator {
       const pending = await this.options.conversations.pending(
         conversation.conversationId,
         lease.token,
-        { limit: MAX_SLICE_MESSAGES },
+        // One accepted input is one public Run. Thread continuity may delay
+        // dispatch, but it never batches several receipts into another Run.
+        { limit: 1 },
       );
       if (pending.length === 0) {
         await this.options.conversations.releaseLease(conversation.conversationId, lease.token);
         return { status: 'no_work' };
       }
+      const contents = await Promise.all(pending.map(
+        (item) => this.options.artifacts.getJson<ConversationMessageContent>(item.content),
+      ));
       const continuation: ContinuationBatch = {
         version: '1',
-        messages: await Promise.all(pending.map(async (item) => {
-          const content = await this.options.artifacts.getJson<ConversationMessageContent>(item.content);
-          return { messageId: item.messageId, text: content.text, receivedAt: item.receivedAt };
+        messages: pending.map((item, index) => ({
+          messageId: item.messageId,
+          text: contents[index]!.text,
+          receivedAt: item.receivedAt,
         })),
       };
       const continuationArtifact = await this.options.artifacts.putJson(
@@ -109,23 +115,32 @@ export class ConversationCoordinator {
       const context = conversation.context
         ? await this.options.artifacts.getJson<ConversationCheckpoint>(conversation.context)
         : { version: '1' as const, messages: [] };
-      const request = requestForSlice(conversation, context, continuation, this.sliceTimeoutSeconds);
+      const rawRequest = contents[0]?.request ?? requestForMessage(conversation, continuation);
+      const runId = pending[0]!.runId;
+      if (!runId) throw new Error('thread mailbox item has no Run binding');
+      const reserved = await this.options.runs.get(conversation.ownerId, runId);
+      if (
+        reserved.conversation?.conversationId !== conversation.conversationId ||
+        reserved.conversation.messageId !== pending[0]!.messageId
+      ) throw new Error('mailbox item is bound to a different thread Run');
+      const request = requestForSlice(
+        conversation,
+        context,
+        continuation,
+        this.sliceTimeoutSeconds,
+        rawRequest,
+      );
       const resumable = sessionIsResumable(conversation);
-      const run = await this.options.runs.submit(conversation.ownerId, request, {
-        idempotencyKey: sliceIdempotencyKey(conversation.conversationId, turn.turnId, turn.slice),
-        traceId: message.traceId,
-        provenance: {
-          actor: conversation.actor,
-          credentialSubject: conversation.credentialSubject,
-        },
-        ...(conversation.capabilityOwnerId
-          ? { capabilityOwnerId: conversation.capabilityOwnerId }
-          : {}),
-        enqueue: false,
-        conversation: {
+      const run = await this.options.runs.prepareConversation(
+        conversation.ownerId,
+        reserved.runId,
+        request,
+        {
           conversationId: conversation.conversationId,
+          messageId: pending[0]!.messageId,
           turnId: turn.turnId,
           slice: turn.slice,
+          delivery: reserved.conversation.delivery ?? pending[0]!.delivery,
           continuation: continuationArtifact,
           ...(conversation.artifacts ? { artifacts: conversation.artifacts } : {}),
           ...(resumable ? { preferredMicrovmId: conversation.session!.id } : {}),
@@ -136,7 +151,7 @@ export class ConversationCoordinator {
             ? { agentThreadId: conversation.session.agentThreadId }
             : {}),
         },
-      });
+      );
       await this.options.conversations.scheduleRun({
         conversationId: conversation.conversationId,
         turnId: turn.turnId,
@@ -152,6 +167,43 @@ export class ConversationCoordinator {
         .catch(() => undefined);
       throw error;
     }
+  }
+
+  /** Repairs the Run-reserved/mailbox-write crash window from trusted Run state. */
+  private async repairMailbox(message: ConversationWakeMessage): Promise<void> {
+    if (!message.runId || !message.ownerId) return;
+    const run = await this.options.runs.get(message.ownerId, message.runId);
+    const binding = run.conversation;
+    if (
+      !binding?.messageId ||
+      binding.conversationId !== message.conversationId ||
+      run.executionInput
+    ) return;
+    if (await this.options.conversations.getMessage(message.conversationId, binding.messageId)) {
+      return;
+    }
+    if (!run.provenance) throw new Error('thread Run has no trusted provenance');
+    const request = await this.options.artifacts.getJson<RunRequest>(run.input);
+    if (!request.source) throw new Error('thread Run input has no trusted source');
+    await this.options.conversations.appendMessage({
+      conversationId: binding.conversationId,
+      ownerId: run.ownerId,
+      ...(run.capabilityOwnerId ? { capabilityOwnerId: run.capabilityOwnerId } : {}),
+      messageId: binding.messageId,
+      runId: run.runId,
+      delivery: binding.delivery ?? 'defer',
+      content: {
+        text: request.prompt,
+        request,
+        metadata: { traceId: message.traceId },
+      },
+      source: request.source,
+      destination: request.destinations?.[0] ?? { kind: 'none' },
+      actor: run.provenance.actor,
+      credentialSubject: run.provenance.credentialSubject,
+      ...(request.agent ? { executionPolicy: request.agent } : {}),
+      ...(request.integrations ? { integrationPolicy: request.integrations } : {}),
+    });
   }
 }
 
@@ -178,6 +230,7 @@ export class ConversationCompletionCoordinator {
     const run = await this.options.runs.get(event.runId);
     if (!run?.conversation) return { status: 'not_conversation' };
     const binding = run.conversation;
+    if (!binding.turnId) return { status: 'unprepared' };
     const acquired = await this.options.conversations.acquireLease(binding.conversationId);
     if (acquired.status !== 'acquired') return { status: acquired.status };
     const { conversation, lease } = acquired;
@@ -258,7 +311,10 @@ function validateWakeMessage(message: Partial<ConversationWakeMessage>): void {
     typeof message.conversationId !== 'string' ||
     !message.conversationId ||
     typeof message.traceId !== 'string' ||
-    !message.traceId
+    !message.traceId ||
+    ((message.runId === undefined) !== (message.ownerId === undefined)) ||
+    (message.runId !== undefined && !/^[A-Za-z0-9-]{1,128}$/.test(message.runId)) ||
+    (message.ownerId !== undefined && (!message.ownerId || Buffer.byteLength(message.ownerId, 'utf8') > 1_024))
   ) throw new Error('invalid conversation queue message');
 }
 
@@ -267,22 +323,45 @@ function requestForSlice(
   context: ConversationCheckpoint,
   continuation: ContinuationBatch,
   timeoutSeconds: number,
+  rawRequest: RunRequest,
+): RunRequest {
+  return {
+    ...rawRequest,
+    prompt: replayPrompt(context, continuation),
+    agent: {
+      ...rawRequest.agent,
+      sandbox: rawRequest.agent?.sandbox ?? conversation.executionPolicy?.sandbox ?? 'danger-full-access',
+    },
+    ...(rawRequest.integrations ?? conversation.integrationPolicy
+      ? { integrations: rawRequest.integrations ?? conversation.integrationPolicy }
+      : {}),
+    execution: {
+      ...rawRequest.execution,
+      backend: 'microvm',
+      timeoutSeconds: Math.min(rawRequest.execution?.timeoutSeconds ?? timeoutSeconds, timeoutSeconds),
+    },
+    metadata: {
+      ...rawRequest.metadata,
+      conversationId: conversation.conversationId,
+      messageIds: continuation.messages.map((message) => message.messageId),
+    },
+  };
+}
+
+function requestForMessage(
+  conversation: ConversationRecord,
+  continuation: ContinuationBatch,
 ): RunRequest {
   return {
     version: '1',
-    prompt: replayPrompt(context, continuation),
+    prompt: continuation.messages[0]?.text ?? 'Continue the conversation.',
     agent: {
       ...conversation.executionPolicy,
       sandbox: conversation.executionPolicy?.sandbox ?? 'danger-full-access',
     },
     ...(conversation.integrationPolicy ? { integrations: conversation.integrationPolicy } : {}),
-    execution: { backend: 'microvm', timeoutSeconds },
     source: conversation.source,
     destinations: [conversation.destination],
-    metadata: {
-      conversationId: conversation.conversationId,
-      messageIds: continuation.messages.map((message) => message.messageId),
-    },
   };
 }
 
@@ -363,9 +442,6 @@ function continuationKey(conversation: ConversationRecord, turnId: string, slice
   return `owners/${hash(conversation.ownerId).slice(0, 32)}/conversations/${hash(conversation.conversationId).slice(0, 32)}/turns/${hash(turnId).slice(0, 32)}/slice-${slice}-input.json`;
 }
 
-function sliceIdempotencyKey(conversationId: string, turnId: string, slice: number): string {
-  return `conversation:${hash(conversationId).slice(0, 32)}:${hash(turnId).slice(0, 32)}:${slice}`;
-}
 
 function hash(value: string): string {
   return createHash('sha256').update(value).digest('hex');

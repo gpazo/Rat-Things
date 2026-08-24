@@ -233,6 +233,7 @@ class MemoryRuns implements RunStore {
 
   public async list(): Promise<ListRunsResult> { return { items: structuredClone(this.records) }; }
   public async transition(): Promise<RunRecord> { throw new Error('not implemented'); }
+  public async prepareConversation(): Promise<RunRecord> { throw new Error('not implemented'); }
   public async attachExecution(): Promise<RunRecord> { throw new Error('not implemented'); }
   public async complete(_runId: string, _result: RunResult): Promise<RunRecord> {
     throw new Error('not implemented');

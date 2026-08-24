@@ -57,6 +57,8 @@ export interface AppendConversationMessageInput {
   ownerId: string;
   capabilityOwnerId?: string;
   messageId: string;
+  /** Public Run reserved for this exact mailbox item before coordination. */
+  runId?: string;
   delivery: ConversationDelivery;
   content: ConversationMessageContent;
   source: RunSource;
@@ -86,6 +88,7 @@ export class ConversationService {
     requiredId(input.ownerId, 'ownerId', 1_024);
     if (input.capabilityOwnerId) requiredId(input.capabilityOwnerId, 'capabilityOwnerId', 1_024);
     requiredId(input.messageId, 'messageId', 512);
+    if (input.runId) requiredId(input.runId, 'runId', 128);
     validateMessageContent(input.content);
     if (input.delivery !== 'interrupt' && input.delivery !== 'defer') {
       throw new ConversationStateError('delivery must be interrupt or defer');
@@ -147,6 +150,7 @@ export class ConversationService {
       createdAt,
       receivedAt,
       expiresAt,
+      ...(input.runId ? { runId: input.runId } : {}),
     };
     const event: ConversationEventRecord = {
       version: '1',
@@ -693,6 +697,19 @@ function validateMessageContent(content: ConversationMessageContent): void {
   }
   if (content.metadata && Buffer.byteLength(canonicalJson(content.metadata), 'utf8') > MAX_METADATA_BYTES) {
     throw new ConversationStateError(`message metadata exceeds ${MAX_METADATA_BYTES} bytes`);
+  }
+  if (content.request) {
+    let parsed;
+    try {
+      parsed = parseRunRequest(content.request);
+    } catch (error) {
+      throw new ConversationStateError(
+        error instanceof Error ? error.message : 'message request is invalid',
+      );
+    }
+    if (parsed.prompt !== content.text) {
+      throw new ConversationStateError('message text must match its canonical Run prompt');
+    }
   }
 }
 

@@ -10,17 +10,20 @@ expand it.** The journey is create, explain, test, publish, and observe.
 ## The shortest working flow
 
 ```bash
-rat-things thing-create --file examples/thing-create.json
-rat-things thing-explain THING_ID
-rat-things thing-test THING_ID --idempotency-key first-safe-test
-rat-things get RUN_ID
-rat-things thing-publish THING_ID
+rat-things thing-release --file examples/thing-create.json
 rat-things thing-run THING_ID --idempotency-key first-production-run
 ```
 
-`thing-create` accepts a ThingSpec directly and always creates draft revision 1. `thing-update` and
-`thing-publish` fetch the current draft revision and apply compare-and-swap automatically, so the
-common CLI path does not ask a person or agent to copy revision numbers.
+`thing-release --file` is the first-use path. It creates draft revision 1, explains it, stops on any
+blocking diagnostic, tests it, waits for success, and publishes only when the successful Run proves
+the same Thing ID, revision, and `specHash`. Its JSON result contains the created Thing, test Run,
+and active Thing, so `THING_ID` above comes from `created.thingId`.
+
+For an existing draft, `thing-release THING_ID` performs the same explain→test→exact-publish gate.
+`thing-update` fetches the current draft revision and applies compare-and-swap automatically. The
+lower-level `thing-publish THING_ID --test-run RUN_ID` is intentionally inconvenient: it still sends
+the current draft revision and hash, and the service independently verifies that the referenced Run
+succeeded as a test of that exact draft.
 
 Remote execution defaults to `danger-full-access` with command networking enabled because the
 outer MicroVM is the primary isolation boundary. For a first test, explicitly choose the narrowest
@@ -315,7 +318,8 @@ debugging:
 | `POST .../{id}/versions` | `thing-update ID --file THING.json` | Append and select a draft revision |
 | `GET .../{id}/explain?target=...` | `thing-explain ID [--target ...]` | Resolve draft or production behavior |
 | `POST .../{id}/test` | `thing-test ID` | Run the latest draft |
-| `POST .../{id}/publish` | `thing-publish ID` | Pin the draft as active and synchronize its trigger |
+| `POST .../{id}/publish` | `thing-publish ID --test-run RUN_ID` | Verify exact successful test evidence, pin the draft as active, and synchronize its trigger |
+| Create + explain + test + publish | `thing-release --file THING.json` or `thing-release ID` | Safe one-command release journey built from the same public routes |
 | `POST .../{id}/run` | `thing-run ID` | Run the active revision explicitly |
 | `POST .../{id}/pause` | `thing-pause ID` | Disable scheduled delivery |
 | `POST .../{id}/resume` | `thing-resume ID` | Re-enable the active schedule |

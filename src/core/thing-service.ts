@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import type { RunRecord, RunRequest, SandboxMode } from '../domain/contracts.js';
+import type { RunRecord, RunRequest, SandboxMode, ThingRunBinding } from '../domain/contracts.js';
 import type {
   PublicThing,
   PublicThingSummary,
@@ -24,7 +24,7 @@ import { ConflictError, ForbiddenError, NotFoundError, type RunService } from '.
 export interface ThingServiceOptions {
   store: ThingStore;
   artifacts: ArtifactStore;
-  runs: Pick<RunService, 'submit'>;
+  runs: Pick<RunService, 'submit' | 'get'>;
   scheduler: ThingScheduler;
   allowedRepositoryHosts?: string[];
   allowedSandboxModes?: SandboxMode[];
@@ -39,6 +39,8 @@ interface ParsedThingVersionInput {
 
 interface ParsedPublishThingInput {
   expectedDraftRevision: number;
+  expectedSpecHash: string;
+  testRunId: string;
 }
 
 /** Product-facing lifecycle and compiler for reusable cloud-agent definitions. */
@@ -176,6 +178,21 @@ export class ThingService {
       throw new ConflictError(
         `Thing draft changed; expected ${input.expectedDraftRevision}, current ${current.draft.revision}`,
       );
+    }
+    if (input.expectedSpecHash !== current.draft.specHash) {
+      throw new ConflictError('Thing draft content changed after the tested revision was selected');
+    }
+    const testRun = await this.options.runs.get(ownerId, input.testRunId);
+    if (testRun.status !== 'succeeded') {
+      throw new ConflictError(`Thing test Run ${input.testRunId} has not succeeded`);
+    }
+    if (
+      testRun.thing?.thingId !== thingId ||
+      testRun.thing.revision !== current.draft.revision ||
+      testRun.thing.specHash !== current.draft.specHash ||
+      testRun.thing.invocation !== 'test'
+    ) {
+      throw new ConflictError('Thing test Run does not prove this exact draft revision');
     }
     const timestamp = this.clock.now().toISOString();
     const published = await concurrentThingMutation(this.options.store.publish(
@@ -327,6 +344,14 @@ export class ThingService {
       ...(scheduledAt ? { scheduledAt } : {}),
     };
     const occurrenceId = scheduledAt ?? `${invocation}:${sha256(idempotencyKey).slice(0, 32)}`;
+    const evidence: ThingRunBinding = {
+      version: '1',
+      thingId: thing.thingId,
+      revision: revision.revision,
+      specHash: revision.specHash,
+      invocation,
+      ...(scheduledAt ? { scheduledAt } : {}),
+    };
     const run = await this.options.runs.submit(thing.ownerId, {
       ...request,
       source: {
@@ -341,6 +366,7 @@ export class ThingService {
         actor: { kind: 'system', id: `thing:${thing.thingId}`, provider: 'api' },
         credentialSubject: { kind: 'runtime', id: thing.ownerId },
       },
+      thing: evidence,
     });
     if (revision.revision === thing.active?.revision) {
       await this.options.store.recordRun(
@@ -352,17 +378,8 @@ export class ThingService {
         this.clock.now().toISOString(),
       );
     }
-    return {
-      ...run,
-      thing: {
-        version: '1',
-        thingId: thing.thingId,
-        revision: revision.revision,
-        specHash: revision.specHash,
-        invocation,
-        ...(scheduledAt ? { scheduledAt } : {}),
-      },
-    };
+    if (!run.thing) throw new Error('Thing occurrence Run was stored without revision evidence');
+    return { ...run, thing: run.thing };
   }
 
   private async reconcileTrigger(record: ThingRecord): Promise<ThingRecord> {
@@ -430,10 +447,24 @@ export class ThingService {
 
   private parsePublishInput(raw: unknown): ParsedPublishThingInput {
     if (!isRecord(raw)) throw new ValidationError('Thing publish request must be an object');
-    rejectUnknown(raw, ['version', 'expectedDraftRevision'], 'Thing publish request');
+    rejectUnknown(
+      raw,
+      ['version', 'expectedDraftRevision', 'expectedSpecHash', 'testRunId'],
+      'Thing publish request',
+    );
     if (raw.version !== '1') throw new ValidationError('Thing publish request version must be "1"');
     validateRevision(raw.expectedDraftRevision);
-    return { expectedDraftRevision: raw.expectedDraftRevision };
+    if (typeof raw.expectedSpecHash !== 'string' || !/^[a-f0-9]{64}$/.test(raw.expectedSpecHash)) {
+      throw new ValidationError('Thing publish request expectedSpecHash must be a SHA-256 digest');
+    }
+    if (typeof raw.testRunId !== 'string' || !/^[A-Za-z0-9-]{1,128}$/.test(raw.testRunId)) {
+      throw new ValidationError('Thing publish request testRunId is invalid');
+    }
+    return {
+      expectedDraftRevision: raw.expectedDraftRevision,
+      expectedSpecHash: raw.expectedSpecHash,
+      testRunId: raw.testRunId,
+    };
   }
 
   private async storeSpec(

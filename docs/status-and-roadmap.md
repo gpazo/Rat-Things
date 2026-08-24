@@ -12,7 +12,7 @@ disaster-recovery proof.
 
 | Capability | Status | Notes |
 | --- | --- | --- |
-| Run contract and state machine | Implemented/tested | Strict validation, conditional transitions, owner-scoped idempotency |
+| Run contract and state machine | Implemented/local and live AWS validated | One receipt and lifecycle across raw, Thing, schedule, provider, and threaded ingress; strict validation, conditional transitions, owner-scoped idempotency, and crash-window recovery |
 | Provider plugin boundary | Implemented/tested | Trusted manifests bind ingress/delivery; dependency checks prevent authority inversion |
 | Control API | Core live validated; browser event/approval path live validated | Submit/list/get/cancel, artifacts, live events/steer/interrupt/approval/response, integrations, profiles, and routines |
 | Thing facade | Implemented/local and live AWS validated | Credential-free immutable definitions, explicit draft/active pointers, revision-evidenced test/run receipts, test/publish/run/pause/resume/archive lifecycle, manual and EventBridge Scheduler rate/cron triggers, explain diagnostics, and idempotent invocation |
@@ -37,6 +37,28 @@ disaster-recovery proof.
 | Observability/recovery | Partial/live measured | Low-cardinality queue/processing metrics, structured logs, durable queues/events, reconciler, delivery leases, failure queues/alarms; broader chaos drills remain |
 | Cost model | Live canary baseline measured | The 2026-08-16 two-turn site canary is about $0.380 at public list rates; non-model infrastructure fell to about $0.046, while sustained-load ceilings remain unmeasured |
 | Multi-tenant hardening | Not complete | Requires safe response projection, destination authorization, budgets, rate limits, and security review |
+
+## Golden-path validation completed on 2026-08-23
+
+- The exact documented `npm run quickstart:aws` journey created a fresh 158-resource disposable
+  `us-west-2` deployment, ran a real Codex-on-Bedrock Thing test with
+  `openai.gpt-5.6-terra`, verified its unique output marker, and published only the exact tested
+  revision and `specHash`. The measured create-to-active time was 413 seconds (6m53s).
+- The same live deployment proved the universal execution path with two named-thread CLI turns.
+  Each accepted prompt returned one Run. The first Run executed the coordinator-prepared input; the
+  second continued from suspended-session state and executed a transcript containing the first user prompt,
+  first result, and follow-up prompt.
+- That continuation test exposed and fixed an AWS resume race: the lifecycle proxy could accept a
+  Run before AWS completed its own resume hook, then terminate the MicroVM and strand the Run in
+  `dispatching`. Dispatch now waits for AWS to report `RUNNING` and launches a replacement if the
+  resumed session becomes terminal. A focused regression test covers the fallback.
+- A clean Docker/LocalStack deployment passed all six workflows after the immutable accepted input
+  and coordinator-prepared `executionInput` assertions were separated. The signed Teams case proves
+  raw prompt immutability, full replay preparation, one Run per message, state transitions, and
+  threaded delivery.
+- Teardown terminated the remaining MicroVM and destroyed all 158 Terraform resources. Terraform
+  state is empty, no quickstart MicroVMs remain, and the sole tagged remnant is the disabled KMS key
+  in AWS's mandatory `PendingDeletion` lifecycle.
 
 ## Validation completed on 2026-08-23
 

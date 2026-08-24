@@ -26,6 +26,7 @@ import {
 } from '@aws-sdk/lib-dynamodb';
 import type {
   ArtifactReference,
+  ConversationRunBinding,
   ExecutionReference,
   ListRunsResult,
   RunError,
@@ -155,6 +156,14 @@ export class DynamoRunStore implements RunStore {
     patch: Partial<RunRecord> = {},
   ): Promise<RunRecord> {
     return this.update(runId, { ...patch, status: to }, from);
+  }
+
+  public prepareConversation(
+    runId: string,
+    executionInput: ArtifactReference,
+    conversation: ConversationRunBinding,
+  ): Promise<RunRecord> {
+    return this.update(runId, { executionInput, conversation }, ['queued']);
   }
 
   public attachExecution(runId: string, execution: ExecutionReference): Promise<RunRecord> {

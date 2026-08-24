@@ -79,12 +79,13 @@ describe('executor idempotency', () => {
   });
 
   it('resumes an existing conversation MicroVM and posts the next bounded run', async () => {
+    let getCount = 0;
     const sendMicrovm = vi.fn().mockImplementation((command: { constructor: { name: string } }) => {
       switch (command.constructor.name) {
         case 'GetMicrovmCommand':
           return Promise.resolve({
             microvmId: 'microvm-session-1',
-            state: 'SUSPENDED',
+            state: getCount++ === 0 ? 'SUSPENDED' : 'RUNNING',
             endpoint: 'session.lambda-microvm.us-east-1.on.aws',
           });
         case 'ResumeMicrovmCommand':
@@ -119,6 +120,11 @@ describe('executor idempotency', () => {
     );
     const continuationRecord: RunRecord = {
       ...record,
+      executionInput: {
+        bucket: 'input-bucket',
+        key: 'runs/prepared-conversation-input.json',
+        sha256: 'c'.repeat(64),
+      },
       conversation: {
         conversationId: 'teams:tenant:user:thread',
         turnId: 'turn-1',
@@ -148,17 +154,20 @@ describe('executor idempotency', () => {
     expect(JSON.parse(body.runHookPayload)).toMatchObject({
       persistentSession: true,
       agentThreadId: 'codex-thread-1',
+      inputBucket: 'input-bucket',
+      inputKey: 'runs/prepared-conversation-input.json',
     });
     vi.unstubAllGlobals();
   });
 
   it('retries a transient proxy response while a resumed MicroVM becomes ready', async () => {
+    let getCount = 0;
     const sendMicrovm = vi.fn().mockImplementation((command: { constructor: { name: string } }) => {
       switch (command.constructor.name) {
         case 'GetMicrovmCommand':
           return Promise.resolve({
             microvmId: 'microvm-session-1',
-            state: 'SUSPENDED',
+            state: getCount++ === 0 ? 'SUSPENDED' : 'RUNNING',
             endpoint: 'session.lambda-microvm.us-east-1.on.aws',
           });
         case 'ResumeMicrovmCommand':
@@ -209,6 +218,69 @@ describe('executor idempotency', () => {
     expect(fetchMock.mock.calls[1]?.[0]).toBe(fetchMock.mock.calls[0]?.[0]);
     expect(fetchMock.mock.calls[1]?.[1]?.body).toBe(fetchMock.mock.calls[0]?.[1]?.body);
     vi.unstubAllGlobals();
+  });
+
+  it('launches a replacement when AWS terminates a MicroVM during resume', async () => {
+    let getCount = 0;
+    const sendMicrovm = vi.fn().mockImplementation((command: { constructor: { name: string } }) => {
+      switch (command.constructor.name) {
+        case 'GetMicrovmCommand':
+          return Promise.resolve({
+            microvmId: 'microvm-session-1',
+            state: getCount++ === 0 ? 'SUSPENDED' : 'TERMINATED',
+            endpoint: 'session.lambda-microvm.us-east-1.on.aws',
+          });
+        case 'ResumeMicrovmCommand':
+          return Promise.resolve({});
+        case 'RunMicrovmCommand':
+          return Promise.resolve({ microvmId: 'microvm-replacement' });
+        default:
+          throw new Error(`unexpected ${command.constructor.name}`);
+      }
+    });
+    const sendSsm = vi.fn().mockImplementation((command: { input: { Name: string } }) =>
+      Promise.resolve({ Parameter: { Value: command.input.Name === 'image' ? 'image-arn' : '4' } }),
+    );
+    const executor = new MicrovmRunExecutor(
+      { send: sendMicrovm } as unknown as LambdaMicrovmsClient,
+      { send: sendSsm } as unknown as SSMClient,
+      {
+        imageParameterName: 'image',
+        imageVersionParameterName: 'version',
+        executionRoleArn: 'arn:aws:iam::account:role/runtime',
+        logGroupName: '/aws/lambda-microvm/runtime',
+        runsTableName: 'runs',
+        integrationsTableName: 'integrations',
+        artifactBucket: 'artifacts',
+        eventBusName: 'events',
+        region: 'us-east-1',
+        allowedRepositoryHosts: 'github.com,gitlab.com',
+        allowedSandboxModes: 'read-only,workspace-write',
+        defaultAgentDriver: 'mock',
+        allowAgentAwsCredentialChain: false,
+      },
+    );
+    const continuationRecord: RunRecord = {
+      ...record,
+      conversation: {
+        conversationId: 'api:test-owner:cli',
+        turnId: 'turn-3',
+        slice: 3,
+        preferredMicrovmId: 'microvm-session-1',
+        agentThreadId: 'codex-thread-1',
+      },
+    };
+
+    await expect(executor.start(continuationRecord, request, 'trace'))
+      .resolves.toEqual({ backend: 'microvm', id: 'microvm-replacement' });
+
+    expect(sendMicrovm.mock.calls.map((call) => call[0].constructor.name)).toEqual([
+      'GetMicrovmCommand',
+      'ResumeMicrovmCommand',
+      'GetMicrovmCommand',
+      'RunMicrovmCommand',
+    ]);
+    expect(sendSsm).toHaveBeenCalledTimes(2);
   });
 
   it('mounts durable S3 Files state and resumes a Codex thread in a replacement MicroVM', async () => {

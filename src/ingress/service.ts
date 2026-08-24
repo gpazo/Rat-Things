@@ -1,7 +1,6 @@
 import type { ProviderKind } from '../identity/context.js';
 import type { RuntimePluginRegistry } from '../plugins/registry.js';
 import type {
-  ConversationSubmissionPort,
   RunSubmissionPort,
   WebhookRequest,
   WebhookResponse,
@@ -12,7 +11,6 @@ export class WebhookIngressService {
   public constructor(
     private readonly plugins: RuntimePluginRegistry,
     private readonly runs: RunSubmissionPort,
-    private readonly conversations?: ConversationSubmissionPort,
     private readonly sourcePolicies?: SourcePolicyResolver,
   ) {}
 
@@ -32,10 +30,6 @@ export class WebhookIngressService {
       request: sourcePolicy.request,
       ...(sourcePolicy.policyOwnerId ? { policyOwnerId: sourcePolicy.policyOwnerId } : {}),
     };
-    if (provider === 'teams' && this.conversations && adapter.acknowledgeConversation) {
-      const receipt = await this.conversations.submit(work);
-      return adapter.acknowledgeConversation(receipt, work);
-    }
     const trustedRequest = { ...work.request, source: work.context.source };
     const run = await this.runs.submit(
       work.context.owner.id,

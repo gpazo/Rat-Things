@@ -95,7 +95,6 @@ locals {
     "POST /v1/things/{thingId}/run",
     "POST /v1/things/{thingId}/test",
     "POST /v1/things/{thingId}/versions",
-    "POST /v1/conversations/{conversationId}/messages",
     "POST /v1/conversations/{conversationId}/publications",
     "POST /v1/runs/{runId}/publications",
   ])

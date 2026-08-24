@@ -9,6 +9,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 const execute = promisify(execFile);
 
 describe('Thing CLI-to-HTTP workflow', () => {
+  const draftHash = 'b'.repeat(64);
   const requests: Array<{
     method: string;
     path: string;
@@ -97,12 +98,17 @@ describe('Thing CLI-to-HTTP workflow', () => {
       return send(response, {
         version: '1',
         thingId: 'thing-cli',
-        draft: { revision: revised ? 2 : 1 },
+        draft: { revision: revised ? 2 : 1, specHash: draftHash },
         status: revised ? 'active' : 'draft',
       });
     }
     if (request.method === 'GET' && request.url === '/v1/things/thing-cli/explain') {
-      return send(response, { version: '1', runnable: true, diagnostics: [] });
+      return send(response, {
+        version: '1',
+        runnable: true,
+        diagnostics: [],
+        thing: { thingId: 'thing-cli', draft: { revision: 2, specHash: draftHash } },
+      });
     }
     if (request.method === 'POST' && request.url === '/v1/things/thing-cli/versions') {
       return send(response, {
@@ -119,7 +125,30 @@ describe('Thing CLI-to-HTTP workflow', () => {
       return send(response, { runId: 'run-cli', status: 'queued' }, 202);
     }
     if (request.method === 'POST' && request.url === '/v1/things/thing-cli/test') {
-      return send(response, { runId: 'test-cli', status: 'queued' }, 202);
+      return send(response, {
+        runId: 'test-cli',
+        status: 'queued',
+        thing: {
+          version: '1',
+          thingId: 'thing-cli',
+          revision: 2,
+          specHash: draftHash,
+          invocation: 'test',
+        },
+      }, 202);
+    }
+    if (request.method === 'GET' && request.url === '/v1/runs/test-cli') {
+      return send(response, {
+        runId: 'test-cli',
+        status: 'succeeded',
+        thing: {
+          version: '1',
+          thingId: 'thing-cli',
+          revision: 2,
+          specHash: draftHash,
+          invocation: 'test',
+        },
+      });
     }
     if (request.method === 'POST' && request.url === '/v1/things/thing-cli/publish') {
       return send(response, {
@@ -185,23 +214,27 @@ describe('Thing CLI-to-HTTP workflow', () => {
     const historical = await cli(['thing-version', 'thing-cli', '1'], apiUrl);
     expect(JSON.parse(historical.stdout)).toMatchObject({ revision: 1, spec: { goal: 'original' } });
 
-    const testRun = await cli([
-      'thing-test',
+    const published = await cli([
+      'thing-release',
       'thing-cli',
-      '--idempotency-key',
-      'cli-draft-test',
+      '--poll-seconds',
+      '1',
     ], apiUrl);
-    expect(JSON.parse(testRun.stdout)).toMatchObject({ runId: 'test-cli', status: 'queued' });
-
-    const published = await cli(['thing-publish', 'thing-cli'], apiUrl);
     expect(JSON.parse(published.stdout)).toMatchObject({
-      status: 'active',
-      draft: { revision: 2 },
-      active: { revision: 2 },
+      released: true,
+      testRun: { runId: 'test-cli', status: 'succeeded' },
+      thing: { status: 'active', draft: { revision: 2 }, active: { revision: 2 } },
     });
     expect(requests.find((request) => request.path === '/v1/things/thing-cli/publish')).toMatchObject({
-      body: { version: '1', expectedDraftRevision: 2 },
+      body: {
+        version: '1',
+        expectedDraftRevision: 2,
+        expectedSpecHash: draftHash,
+        testRunId: 'test-cli',
+      },
     });
+    expect(requests.find((request) => request.path === '/v1/things/thing-cli/test')
+      ?.headers['idempotency-key']).toBe(`release:thing-cli:2:${draftHash.slice(0, 16)}`);
 
     const run = await cli([
       'thing-run',
@@ -227,6 +260,23 @@ describe('Thing CLI-to-HTTP workflow', () => {
       ]),
     });
   });
+
+  it('creates, tests, and publishes a first Thing in one command', async () => {
+    const released = await cli([
+      'thing-release',
+      '--file',
+      'examples/thing-create.json',
+      '--poll-seconds',
+      '1',
+    ], apiUrl);
+    expect(released.stderr).toContain('created Thing thing-cli');
+    expect(JSON.parse(released.stdout)).toMatchObject({
+      released: true,
+      created: { thingId: 'thing-cli', status: 'draft' },
+      testRun: { runId: 'test-cli', status: 'succeeded' },
+      thing: { thingId: 'thing-cli', status: 'active' },
+    });
+  }, 20_000);
 
   it('discovers authentication fields and creates and rotates a connection from credential-only files', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'rat-things-connect-'));

@@ -19,7 +19,7 @@
     <meta name="twitter:description" content="Connect verified accounts, define reusable Things, and run durable cloud agents with explainable permissions on your infrastructure.">
     <meta name="twitter:image" content="https://gpazo.github.io/Rat-Things/assets/rat-things-og-v2.jpg">
     <link rel="canonical" href="https://gpazo.github.io/Rat-Things/">
-    <link rel="stylesheet" href="styles.css?v=10">
+    <link rel="stylesheet" href="styles.css?v=11">
   </head>
   <body>
     <a class="skip-link" href="#main">Skip to content</a>
@@ -51,7 +51,8 @@
           <p class="hero-lede">Connect verified accounts. Define reusable intent. Explain every permission. Give your product, another agent, a CLI, schedules, and signed provider events one durable backend in your AWS account.</p>
           <p class="hero-status">Engineering preview · validated end to end, not yet production-hardened for untrusted multi-tenant use</p>
           <div class="hero-actions">
-            <a class="button button-primary" href="docs/operating-model/">How it works</a>
+            <a class="button button-primary" href="docs/quickstart/">Ten-minute quickstart</a>
+            <a class="button button-secondary" href="docs/operating-model/">How it works</a>
             <a class="button button-secondary" href="docs/plugins/">Connect accounts</a>
             <a class="button button-secondary" href="docs/things/">Build a Thing</a>
             <a class="button button-secondary" href="docs/agents/">Connect an agent</a>
@@ -68,11 +69,11 @@
       <section class="section start-section" id="start" aria-labelledby="start-title">
         <div class="section-heading compact-heading">
           <div>
-            <div class="section-label">The narrow journey</div>
-            <h2 id="start-title">Connect. Test. Publish. Run.</h2>
+            <div class="section-label">The ten-minute golden path</div>
+            <h2 id="start-title">One command. One real Thing.</h2>
           </div>
           <div class="heading-copy">
-            <p>Every consumer follows the same path. Rat Things discovers what is installed, verifies each provider account, resolves permissions before execution, and retains evidence after the run.</p>
+            <p>From AWS credentials to an independently operated backend, a real Codex test Run, and an active Thing. The command measures itself and keeps the exact evidence.</p>
             <p class="requirement-line">Once this narrow journey is delightful and stable, expand it.</p>
           </div>
         </div>
@@ -80,35 +81,35 @@
         <ol class="setup-grid">
           <li>
             <span class="step-number">01</span>
-            <h3>Discover and connect</h3>
-            <pre><code><span>rat-things doctor</span>
-<span>rat-things plugins</span>
-<span>rat-things connect</span> slack \
-  --credential-file support.json \
-  --access read-only</code></pre>
+            <h3>Review without changes</h3>
+            <pre><code><span>npm run</span> quickstart:aws -- \
+  --dry-run
+
+<span># Real Codex is the default.</span>
+<span># Paid Bedrock tokens are explicit.</span></code></pre>
           </li>
           <li>
             <span class="step-number">02</span>
-            <h3>Draft, explain, and test</h3>
-            <pre><code><span>rat-things thing-create</span> \
-  --file thing.json
-<span>rat-things thing-explain</span> \
-  "$THING_ID"
-<span>rat-things thing-test</span> "$THING_ID"</code></pre>
+            <h3>Deploy and release</h3>
+            <pre><code><span>npm run</span> quickstart:aws
+
+<span>create → explain → test</span>
+<span>successful proof → publish</span></code></pre>
           </li>
           <li>
             <span class="step-number">03</span>
-            <h3>Publish, run, and observe</h3>
-            <pre><code><span>rat-things thing-publish</span> "$THING_ID"
-<span>rat-things thing-run</span> "$THING_ID" \
-  --idempotency-key first-safe-test
-<span>rat-things watch</span> "$RUN_ID" --follow</code></pre>
+            <h3>Inspect or remove</h3>
+            <pre><code><span>npm run</span> quickstart:aws -- status
+
+<span>npm run</span> quickstart:aws -- destroy
+<span># Exact local state. Exact target.</span></code></pre>
           </li>
         </ol>
 
         <div class="setup-footer">
-          <p>The host installs the deployment and brings identity and OAuth. The consumer renders manifests and preserves opaque IDs. Rat Things remains authoritative for ownership, provider verification, permissions, and run state.</p>
-          <a class="text-link" href="docs/operating-model/">Read the complete operating model <span aria-hidden="true">→</span></a>
+          <p>The default is a real Codex-on-Bedrock run. <code>--driver mock</code> is available only as an explicitly labeled, token-free infrastructure diagnostic. The quickstart omits OAuth, VPC/NAT, schedules, and public sharing until the first narrow journey works.</p>
+          <p><strong>Latest live proof:</strong> a fresh 158-resource stack reached an exact tested-and-active Thing in 413 seconds (6m53s), then passed a two-turn suspended-session continuation. Teardown removed all runnable resources.</p>
+          <a class="text-link" href="docs/quickstart/">Follow the complete golden path <span aria-hidden="true">→</span></a>
         </div>
       </section>
 
@@ -209,11 +210,8 @@
                 <h3>Draft safely. Publish exactly.</h3>
               </div>
             </div>
-            <pre><code><span>rat-things thing-create</span> --file thing.json
-<span>rat-things thing-explain</span> "$THING_ID"
-<span>rat-things thing-test</span> "$THING_ID" \
-  --idempotency-key first-safe-test
-<span>rat-things thing-publish</span> "$THING_ID"
+            <pre><code><span>rat-things thing-release</span> \
+  --file thing.json
 <span>rat-things thing-run</span> "$THING_ID"</code></pre>
             <p class="demo-note">After an update, <code>draft → revision 3</code> while <code>active → revision 2</code>. The test receipt proves revision 3 and its spec hash; production stays on revision 2 until publish moves the active pointer.</p>
             <a class="text-link" href="docs/things/">Thing contract and lifecycle <span aria-hidden="true">→</span></a>
@@ -232,7 +230,7 @@
 
 <span># Then comment on a pull request</span>
 @rat-things review this change</code></pre>
-            <p class="demo-note">The onboarding flow confirms the account and repository before it creates secrets, deploys AWS, and registers the signed webhook.</p>
+            <p class="demo-note">The safe default uses the deterministic mock driver to prove signed webhook plumbing and a GitHub comment—not a real agent review. Rerun with <code>--driver codex</code> after enabling Bedrock.</p>
             <a class="text-link" href="docs/github-webhook-onboarding/">GitHub onboarding guide <span aria-hidden="true">→</span></a>
           </article>
         </div>
@@ -244,14 +242,14 @@
             <div class="section-label">What happens after enter</div>
             <h2 id="flow-title">Disposable compute.<br>Durable work.</h2>
           </div>
-          <p>A webhook and the CLI differ only at ingress. Rat Things authenticates the caller, commits work before compute, fences one session owner, and preserves state before returning a result.</p>
+          <p>A webhook, Thing, schedule, and CLI all create the same Run receipt and lifecycle. Thread continuity is optional preparation on that Run, not another public execution model.</p>
         </div>
         <ol class="flow">
-          <li><span>01</span><strong>Receive</strong><p>Verify IAM or a provider signature and derive the owner.</p></li>
-          <li><span>02</span><strong>Remember</strong><p>Commit the prompt and mailbox entry before scheduling.</p></li>
-          <li><span>03</span><strong>Fence</strong><p>Give one MicroVM ownership of the thread and filesystem.</p></li>
-          <li><span>04</span><strong>Run</strong><p>Launch or resume Codex with its tools and durable workspace.</p></li>
-          <li><span>05</span><strong>Return</strong><p>Publish files, checkpoint state, suspend, and deliver.</p></li>
+          <li><span>01</span><strong>Authenticate</strong><p>Verify IAM or a provider signature and derive the owner.</p></li>
+          <li><span>02</span><strong>Commit</strong><p>Store one immutable request and return its durable Run ID.</p></li>
+          <li><span>03</span><strong>Prepare</strong><p>Wake immediately, or attach trusted thread replay to that same Run.</p></li>
+          <li><span>04</span><strong>Execute</strong><p>Launch or resume Codex with resolved tools and permissions.</p></li>
+          <li><span>05</span><strong>Retain</strong><p>Store evidence and files, then suspend or terminate and deliver.</p></li>
         </ol>
       </section>
 
@@ -382,10 +380,11 @@
         <div>
           <div class="section-label">Ready to try it?</div>
           <h2 id="next-title">Start with one narrow Thing.</h2>
-          <p>Connect the accounts it needs, explain the effective permissions, run one safe test, and expand only after that journey feels dependable.</p>
+          <p>Deploy one small backend, prove one safe real-agent test, and publish only its exact revision. Add accounts and deeper capabilities after that path feels dependable.</p>
         </div>
         <div class="next-actions">
-          <a class="button button-primary" href="docs/operating-model/">How it works</a>
+          <a class="button button-primary" href="docs/quickstart/">Start in ten minutes</a>
+          <a class="button button-secondary" href="docs/operating-model/">How it works</a>
           <a class="button button-secondary" href="docs/plugins/">Connect accounts</a>
           <a class="button button-secondary" href="docs/things/">Build a Thing</a>
           <a class="button button-secondary" href="https://github.com/gpazo/Rat-Things">View the source</a>
@@ -410,6 +409,7 @@
       <div class="footer-links">
         <a href="https://github.com/gpazo/Rat-Things">GitHub</a>
         <a href="docs/">Documentation</a>
+        <a href="docs/quickstart/">Ten-minute quickstart</a>
         <a href="docs/operating-model/">How it works</a>
         <a href="docs/plugins/">Connect accounts</a>
         <a href="docs/codex-subscription/">Local setup</a>

@@ -5,10 +5,11 @@ import {
 } from '../../src/app/conversation-submission.js';
 import type { ConversationService } from '../../src/conversation/service.js';
 import type { ConversationQueue } from '../../src/conversation/types.js';
+import type { RunService } from '../../src/core/run-service.js';
 import { apiIngressContext } from '../../src/identity/context.js';
 
-describe('API conversation submission', () => {
-  it('owner-scopes the key and appends a provider-neutral durable message', async () => {
+describe('threaded Run submission', () => {
+  it('appends thread state while returning the public Run immediately', async () => {
     const conversations = {
       get: vi.fn().mockResolvedValue(undefined),
       appendMessage: vi.fn().mockImplementation(async (input) => ({
@@ -20,41 +21,53 @@ describe('API conversation submission', () => {
     const queue = {
       enqueue: vi.fn().mockResolvedValue(undefined),
     } as ConversationQueue;
-    const service = new ConversationSubmissionService(conversations, queue);
+    const runs = runServices();
+    const service = new ConversationSubmissionService(conversations, queue, runs);
     const context = apiIngressContext('api:arn:aws:iam::123456789012:user/operator');
 
-    await expect(service.submitApi({
-      conversationKey: 'headless-smoke',
-      messageId: 'message-1',
-      prompt: 'Use a shell command and report its output.',
-      context,
-      traceId: 'trace-1',
-      executionPolicy: {
+    const runtimeId = apiConversationId(context.owner.id, 'headless-smoke');
+    await expect(service.submitThread(
+      context.owner.id,
+      {
+        version: '1',
+        prompt: 'Use a shell command and report its output.',
+        source: context.source,
+        destinations: [{ kind: 'none' }],
+        agent: {
         driver: 'codex',
         sandbox: 'workspace-write',
         reasoningEffort: 'low',
         capabilities: { networkAccess: true, computerUse: 'browser' },
+        },
+        integrations: {
+          connections: [
+            { connection: 'gmail-personal', preset: 'read-only' },
+            { connection: 'gmail-business', preset: 'read-write' },
+          ],
+        },
       },
-      integrationPolicy: {
-        connections: [
-          { connection: 'gmail-personal', preset: 'read-only' },
-          { connection: 'gmail-business', preset: 'read-write' },
-        ],
+      {
+        idempotencyKey: 'message-1',
+        traceId: 'trace-1',
+        provenance: {
+          actor: context.actor,
+          credentialSubject: context.credentialSubject,
+        },
       },
-    })).resolves.toEqual({
-      conversationId: 'headless-smoke',
-      messageId: 'message-1',
-      status: 'appended',
-    });
+      { conversationId: runtimeId, messageId: 'message-1' },
+    )).resolves.toMatchObject({ runId: 'run-message-1' });
 
-    const runtimeId = apiConversationId(context.owner.id, 'headless-smoke');
     expect(runtimeId).toMatch(/^api:[a-f0-9]{32}:headless-smoke$/);
-    expect(conversations.appendMessage).toHaveBeenCalledWith({
+    expect(conversations.appendMessage).toHaveBeenCalledWith(expect.objectContaining({
       conversationId: runtimeId,
       ownerId: context.owner.id,
       messageId: 'message-1',
+      runId: 'run-message-1',
       delivery: 'defer',
-      content: { text: 'Use a shell command and report its output.' },
+      content: expect.objectContaining({
+        text: 'Use a shell command and report its output.',
+        request: expect.objectContaining({ version: '1' }),
+      }),
       source: { kind: 'api' },
       destination: { kind: 'none' },
       actor: context.actor,
@@ -71,11 +84,22 @@ describe('API conversation submission', () => {
           { connection: 'gmail-business', preset: 'read-write' },
         ],
       },
-    });
+    }));
+    expect(runs.submit).toHaveBeenCalledWith(
+      context.owner.id,
+      expect.objectContaining({ prompt: 'Use a shell command and report its output.' }),
+      expect.objectContaining({
+        idempotencyKey: 'message-1',
+        enqueue: false,
+        conversation: expect.objectContaining({ messageId: 'message-1' }),
+      }),
+    );
     expect(queue.enqueue).toHaveBeenCalledWith({
       version: '1',
       conversationId: runtimeId,
       traceId: 'trace-1',
+      runId: 'run-message-1',
+      ownerId: context.owner.id,
     });
   });
 
@@ -90,15 +114,22 @@ describe('API conversation submission', () => {
       })),
     } as unknown as ConversationService;
     const queue = { enqueue: vi.fn().mockResolvedValue(undefined) } as ConversationQueue;
-    const service = new ConversationSubmissionService(conversations, queue);
+    const service = new ConversationSubmissionService(conversations, queue, runServices());
 
-    await service.submitApi({
-      conversationKey: 'headless-smoke',
-      messageId: 'message-2',
-      prompt: 'Follow up now.',
-      context: apiIngressContext('api:operator'),
-      traceId: 'trace-2',
-    });
+    const context = apiIngressContext('api:operator');
+    await service.submitThread(
+      context.owner.id,
+      { version: '1', prompt: 'Follow up now.', source: context.source },
+      {
+        idempotencyKey: 'message-2',
+        traceId: 'trace-2',
+        provenance: { actor: context.actor, credentialSubject: context.credentialSubject },
+      },
+      {
+        conversationId: apiConversationId(context.owner.id, 'headless-smoke'),
+        messageId: 'message-2',
+      },
+    );
 
     expect(conversations.appendMessage).toHaveBeenCalledWith(
       expect.objectContaining({ delivery: 'interrupt' }),
@@ -119,15 +150,22 @@ describe('API conversation submission', () => {
       })),
     } as unknown as ConversationService;
     const queue = { enqueue: vi.fn().mockResolvedValue(undefined) } as ConversationQueue;
-    const service = new ConversationSubmissionService(conversations, queue);
+    const service = new ConversationSubmissionService(conversations, queue, runServices());
 
-    await service.submitApi({
-      conversationKey: 'headless-smoke',
-      messageId: 'message-1',
-      prompt: 'Retry the same message.',
-      context: apiIngressContext('api:operator'),
-      traceId: 'trace-retry',
-    });
+    const context = apiIngressContext('api:operator');
+    await service.submitThread(
+      context.owner.id,
+      { version: '1', prompt: 'Retry the same message.', source: context.source },
+      {
+        idempotencyKey: 'message-1',
+        traceId: 'trace-retry',
+        provenance: { actor: context.actor, credentialSubject: context.credentialSubject },
+      },
+      {
+        conversationId: apiConversationId(context.owner.id, 'headless-smoke'),
+        messageId: 'message-1',
+      },
+    );
 
     expect(conversations.getMessage).toHaveBeenCalledWith(
       apiConversationId('api:operator', 'headless-smoke'),
@@ -144,3 +182,17 @@ describe('API conversation submission', () => {
     );
   });
 });
+
+function runServices() {
+  return {
+    idFor: vi.fn((_ownerId: string, key: string) => `run-${key}`),
+    submit: vi.fn(async (ownerId: string, request: unknown, options: { idempotencyKey?: string }) => ({
+      runId: `run-${options.idempotencyKey}`,
+      ownerId,
+      request,
+    })),
+  } as unknown as Pick<RunService, 'idFor' | 'submit'> & {
+    idFor: ReturnType<typeof vi.fn>;
+    submit: ReturnType<typeof vi.fn>;
+  };
+}

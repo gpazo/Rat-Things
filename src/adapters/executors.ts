@@ -63,6 +63,7 @@ const MICROVM_RESUME_START_RETRY_WINDOW_MS = 20_000;
 const MICROVM_RESUME_START_ATTEMPT_TIMEOUT_MS = 5_000;
 const MICROVM_RESUME_START_INITIAL_DELAY_MS = 250;
 const MICROVM_RESUME_START_MAX_DELAY_MS = 2_000;
+const MICROVM_RESUME_STATE_WINDOW_MS = 20_000;
 const MICROVM_RESUME_START_RETRYABLE_STATUS = new Set([502, 503, 504]);
 
 export class MicrovmRunExecutor implements RunExecutor {
@@ -144,6 +145,11 @@ export class MicrovmRunExecutor implements RunExecutor {
         if (isUnavailableSessionError(error)) throw new MicrovmSessionUnavailableError();
         throw error;
       }
+      // ResumeMicrovm is asynchronous. The lifecycle proxy can briefly accept
+      // traffic before AWS has completed the resume hook; starting a Run in
+      // that window can strand it if the hook then fails and terminates the
+      // MicroVM. Only hand work to a session AWS reports as RUNNING.
+      microvm = await this.waitForResumedMicrovm(microvmId);
     }
     const endpoint = microvm.endpoint;
     if (!endpoint) throw new MicrovmSessionUnavailableError();
@@ -166,6 +172,32 @@ export class MicrovmRunExecutor implements RunExecutor {
       throw new Error(`persistent MicroVM rejected run ${record.runId} with HTTP ${response.status}`);
     }
     return { backend: 'microvm', id: microvmId };
+  }
+
+  private async waitForResumedMicrovm(microvmId: string): Promise<{
+    state: string | undefined;
+    endpoint: string | undefined;
+  }> {
+    const deadline = Date.now() + MICROVM_RESUME_STATE_WINDOW_MS;
+    let delay = MICROVM_RESUME_START_INITIAL_DELAY_MS;
+    while (Date.now() < deadline) {
+      let microvm;
+      try {
+        microvm = await this.client.send(new GetMicrovmCommand({ microvmIdentifier: microvmId }));
+      } catch (error) {
+        if (isUnavailableSessionError(error)) throw new MicrovmSessionUnavailableError();
+        throw error;
+      }
+      if (microvm.state === 'RUNNING') return microvm;
+      if (microvm.state === 'TERMINATED' || microvm.state === 'TERMINATING') {
+        throw new MicrovmSessionUnavailableError();
+      }
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) break;
+      await sleep(Math.min(delay, remaining));
+      delay = Math.min(delay * 2, MICROVM_RESUME_START_MAX_DELAY_MS);
+    }
+    throw new MicrovmSessionUnavailableError();
   }
 
   private async postRunToResumedMicrovm(
@@ -207,11 +239,14 @@ export class MicrovmRunExecutor implements RunExecutor {
   }
 
   private runHookPayload(record: RunRecord, request: RunRequest, resuming: boolean): string {
+    const executionInput = record.executionInput ?? record.input;
     const payload = JSON.stringify({
       version: 1,
       runId: record.runId,
-      inputBucket: record.input.bucket,
-      inputKey: record.input.key,
+      // Threaded Runs retain their immutable accepted request in `input`, but
+      // execute the coordinator-prepared transcript in `executionInput`.
+      inputBucket: executionInput.bucket,
+      inputKey: executionInput.key,
       runsTableName: this.options.runsTableName,
       integrationsTableName: this.options.integrationsTableName,
       artifactBucket: this.options.artifactBucket,

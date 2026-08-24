@@ -39,6 +39,7 @@ import { StoredSourcePolicyResolver } from '../plugins/source-policies.js';
 import { createBuiltinPlugins } from '../plugins/builtins.js';
 import type { AgentInteractionController, ExecutionController } from '../core/ports.js';
 import { RunService } from '../core/run-service.js';
+import { RunSubmissionService } from '../core/run-submission-service.js';
 import { RoutineService } from '../core/routine-service.js';
 import { ThingService } from '../core/thing-service.js';
 
@@ -56,6 +57,7 @@ interface BaseServices {
 let baseServices: BaseServices | undefined;
 let submissionService: RunService | undefined;
 let controlService: RunService | undefined;
+let runSubmissionService: RunSubmissionService | undefined;
 let pluginRegistry: RuntimePluginRegistry | undefined;
 let ingressService: WebhookIngressService | undefined;
 let deliveryService: DeliveryService | undefined;
@@ -98,6 +100,14 @@ export function getRunService(enableExecutionControl = false): RunService {
 export function getAgentInteractionController(): AgentInteractionController {
   agentInteractionController ??= createAgentInteractionControllerFromEnv();
   return agentInteractionController;
+}
+
+export function getRunSubmissionService(): RunSubmissionService {
+  runSubmissionService ??= new RunSubmissionService(
+    getRunService(false),
+    getConversationSubmissionService(),
+  );
+  return runSubmissionService;
 }
 
 export function getIntegrationPluginRegistry(): IntegrationPluginRegistry {
@@ -145,7 +155,7 @@ export function getRoutineService(): RoutineService {
       requiredEnv('ROUTINES_TABLE_NAME'),
     ),
     artifacts: base.artifacts,
-    runs: getRunService(false),
+    runs: getRunSubmissionService(),
     allowedRepositoryHosts: csv(process.env.ALLOWED_REPOSITORY_HOSTS ?? 'github.com,gitlab.com'),
     allowedSandboxModes: sandboxModes(
       process.env.ALLOWED_SANDBOX_MODES ?? 'read-only,workspace-write,danger-full-access',
@@ -163,7 +173,7 @@ export function getThingService(): ThingService {
       requiredEnv('THINGS_TABLE_NAME'),
     ),
     artifacts: base.definitions,
-    runs: getRunService(false),
+    runs: getRunSubmissionService(),
     scheduler: process.env.THING_SCHEDULER_MODE === 'simulation'
       ? {
         upsert: async () => undefined,
@@ -221,8 +231,7 @@ export function getPluginRegistry(): RuntimePluginRegistry {
 export function getWebhookIngressService(): WebhookIngressService {
   ingressService ??= new WebhookIngressService(
     getPluginRegistry(),
-    getRunService(),
-    getConversationSubmissionService(),
+    getRunSubmissionService(),
     getSourcePolicyResolver(),
   );
   return ingressService;
@@ -233,6 +242,7 @@ export function getConversationSubmissionService(): ConversationSubmissionServic
   conversationSubmissionService = new ConversationSubmissionService(
     getConversationService(),
     getBaseServices().conversationQueue,
+    getRunService(false),
   );
   return conversationSubmissionService;
 }

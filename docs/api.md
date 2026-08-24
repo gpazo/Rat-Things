@@ -1,10 +1,12 @@
 # Control API reference
 
 The control API is the asynchronous backend contract shared by the CLI, operator tools, embedded
-products, other agents, and authenticated event adapters. Thing tests/runs, routine runs, and raw
-run submission return a run receipt immediately; the caller follows events, polls, or consumes the
-configured completion destination. Conversation append returns a mailbox receipt and `Location`
-to poll until a run is bound. The API does not hold an HTTP connection open for the agent.
+products, other agents, and authenticated event adapters. Every accepted execution returns one Run
+receipt immediately: Thing tests/runs, schedules, routine runs, raw calls, signed provider events,
+and threaded calls all use the same durable object and lifecycle. A thread adds continuity
+preparation behind that receipt; it does not create a mailbox receipt first and a Run later. The
+caller follows events, polls, or consumes the configured completion destination. The API does not
+hold an HTTP connection open for the agent.
 
 New consumers should begin with the [operating model](operating-model.md), then use this page for
 route-level behavior. The deployment's `/openapi.json` is authoritative for generated clients and
@@ -64,7 +66,7 @@ Cross-identity lookup is an administrative capability outside v1.
 | `POST /v1/things/{thingId}/versions` | Required | Append a draft revision using `expectedDraftRevision` compare-and-swap |
 | `GET /v1/things/{thingId}/explain?target=draft\|active` | Required | Resolve one exact revision's profile, accounts, operations, trigger health, and diagnostics |
 | `POST /v1/things/{thingId}/test` | Required | Invoke the latest draft without publishing it and return `202` |
-| `POST /v1/things/{thingId}/publish` | Required | Pin the current draft as active and synchronize its EventBridge Scheduler trigger |
+| `POST /v1/things/{thingId}/publish` | Required | Verify one successful exact-draft test Run, pin that unchanged draft as active, and synchronize its EventBridge Scheduler trigger |
 | `POST /v1/things/{thingId}/run` | Required | Explicitly invoke the active revision and return `202` |
 | `POST /v1/things/{thingId}/pause` | Required | Disable scheduled occurrences while retaining explicit active runs and draft tests |
 | `POST /v1/things/{thingId}/resume` | Required | Re-synchronize and enable the active schedule |
@@ -76,12 +78,11 @@ Cross-identity lookup is an administrative capability outside v1.
 | `POST /v1/routines/{routineId}/pause` | Required | Pause future scheduled occurrences |
 | `POST /v1/routines/{routineId}/resume` | Required | Resume at the retained or next future occurrence |
 | `POST /v1/routines/{routineId}/delete` | Required | Soft-delete a routine; metadata expires after 30 days |
-| `POST /v1/conversations/{conversationId}/messages` | Required | Append one owner-scoped durable conversation turn (`202`), or return the idempotent duplicate (`200`); poll its `Location` |
 | `GET /v1/conversations/{conversationId}/messages/{messageId}` | Required | Poll the exact message, bound run, conversation, and suspended-session state |
 | `GET /v1/conversations/{conversationId}/artifacts` | Required | List the current durable files for an owner-scoped conversation |
 | `GET /v1/conversations/{conversationId}/artifacts/{artifact}` | Required | Return a fresh short-lived view/download URL for a conversation file |
 | `POST /v1/conversations/{conversationId}/publications` | Required | Build and share a file, site, or video from the current conversation catalog |
-| `POST /v1/runs` | Required | Validate, durably store, enqueue, and return `202` |
+| `POST /v1/runs` | Required | Validate, durably store, and return the universal Run receipt (`202`); optional `thread` adds owner-scoped continuity preparation |
 | `GET /v1/runs?limit=25&nextToken=...` | Required | Newest-first runs for the current owner; limit is clamped to 1–100 |
 | `GET /v1/runs/{runId}` | Required | Current record for the current owner |
 | `GET /v1/runs/{runId}/events?after=0&limit=100` | Required | Poll ordered App Server events plus outstanding server requests for an active run |
@@ -106,9 +107,9 @@ MicroVM execution; stale, terminal, or non-interactive runs return `409`. Caller
 MicroVM or receive its AWS-issued proxy token. Durable conversation continuation remains trusted
 orchestration selected from the stored owner-scoped session.
 
-Every authenticated control-route success body is typed in `/openapi.json`. Run-starting `202`
-responses include a run receipt and `Location: /v1/runs/{runId}`; other `202` responses use their
-documented mailbox or operation receipt and must not be assumed to create a new run.
+Every authenticated control-route success body is typed in `/openapi.json`. Every execution-starting
+`202` response includes a Run receipt and `Location: /v1/runs/{runId}`. Non-execution actions such as
+cancellation retain their separately documented action receipts.
 Thing test/run receipts additionally include
 `thing: {version, thingId, revision, specHash, invocation}` so a caller can prove which immutable
 revision produced the run before moving the active pointer.
@@ -198,33 +199,34 @@ and `explain` output. Raw runs and routines remain supported lower-level interfa
 
 ## Headless durable conversations
 
-The conversation routes are the headless equivalent of a provider thread. They enter the same
-DynamoDB/S3 mailbox, SQS coordinator, bounded run, Lambda MicroVM suspend/resume, Codex thread, and
-completion path as conversational webhook ingress. They deliberately bypass provider signature
-parsing and provider delivery; the control API's IAM principal is the actor and owner, the source is
-`api`, and the destination is `none`.
+Headless continuity is an option on the universal Run submission, not a second submission API. Add
+`thread.key` to `POST /v1/runs`. Rat commits that exact Run first, then uses the durable mailbox and
+coordinator to prepare replay context before dispatch. Provider threads enter the same service after
+signature verification and normalization.
 
-`conversationId` is a caller-visible key containing 1–128 letters, digits, `.`, `_`, `:`, or `-`,
-starting with a letter or digit. The runtime hashes the authenticated owner into its internal
-conversation ID, so two IAM principals using `smoke` cannot share state. `Idempotency-Key` is
-required and becomes the message identity within that conversation. Repeating the same key and
-prompt is safe; reusing it for different content returns `409 conflict`.
+`thread.key` is a caller-visible value containing 1–128 letters, digits, `.`, `_`, `:`, or `-`,
+starting with a letter or digit. Rat hashes the authenticated owner into the internal conversation
+ID, so two principals using `release-smoke` do not share state. `Idempotency-Key` is required for a
+threaded submission and is also the message identity. Repeating the same key and request returns the
+same Run; reusing it for different content or thread state returns `409 conflict`.
 
 ```http
-POST /v1/conversations/release-smoke/messages HTTP/1.1
+POST /v1/runs HTTP/1.1
 Content-Type: application/json
 Idempotency-Key: 93811d8e-2368-4ff8-9e93-706d344e5c8e
 
 {
   "version": "1",
   "prompt": "Use the shell tool to run pwd and report the result.",
+  "thread": { "key": "release-smoke" },
   "agent": {
     "driver": "codex",
     "sandbox": "danger-full-access",
     "reasoningEffort": "low",
     "capabilities": {
       "profile": "small-business",
-      "computerUse": "browser"
+      "computerUse": "browser",
+      "networkAccess": true
     }
   },
   "integrations": {
@@ -236,25 +238,26 @@ Idempotency-Key: 93811d8e-2368-4ff8-9e93-706d344e5c8e
 }
 ```
 
-Only `version`, `prompt`, `agent`, and `integrations` are accepted. Durable conversations support
-the normal agent fields except `outputSchema`, plus the multi-account integration selection
-described below. A conversation's execution and integration policies are fixed by its first message;
-later attempts to change them return `409`. Callers cannot submit a provider source, destination,
-repository credential, output schema, MicroVM ID, Codex thread ID, or auth mode through this route.
-
-The response is a durable mailbox receipt:
+The response is the same queued Run returned for a one-shot request, with one conversation binding
+and `Location: /v1/runs/{runId}`. There is never a second public Run for that accepted input:
 
 ```json
 {
-  "conversationId": "release-smoke",
-  "messageId": "93811d8e-2368-4ff8-9e93-706d344e5c8e",
-  "status": "appended"
+  "runId": "...",
+  "status": "queued",
+  "sourceKind": "api",
+  "conversation": {
+    "conversationId": "api:<owner-hash>:release-smoke",
+    "messageId": "93811d8e-2368-4ff8-9e93-706d344e5c8e",
+    "delivery": "defer"
+  }
 }
 ```
 
-Poll its `Location` until `run.status` is terminal. A fully folded successful turn has message state
-`consumed`, conversation status `idle`, pending count `0`, and session state `suspended`. The bound
-run uses the existing owner-checked artifact route for full output and events:
+Poll the Run location for execution state. When a consumer also needs proof that completion has been
+folded into durable thread context and the MicroVM is suspended, poll
+`GET /v1/conversations/release-smoke/messages/93811d8e-...`. That deep status surface returns the
+same bound Run plus mailbox/session state:
 
 ```json
 {
@@ -279,7 +282,7 @@ run uses the existing owner-checked artifact route for full output and events:
 }
 ```
 
-The bundled CLI performs the append, polling, completion/suspension check, artifact download, and
+The bundled CLI performs Run submission, polling, completion/suspension checks, artifact download, and
 SigV4 signing:
 
 ```bash
@@ -304,7 +307,8 @@ the same thread name and exact execution policy for continuation. Agents can use
 submission, or an explicit
 `--idempotency-key` when a supervising test process needs retry-safe message identity. AWS Codex
 authentication remains deployment-controlled (normally short-term Bedrock auth); the CLI never
-uploads local ChatGPT credentials.
+uploads local ChatGPT credentials. A thread's execution and integration policies are fixed by its
+first accepted Run; incompatible later requests fail with `409`.
 
 ## Live App Server interaction
 
@@ -477,8 +481,8 @@ authenticated webhook adapters.
 
 ### Idempotency
 
-`Idempotency-Key` is optional and must contain 1–200 characters from
-`A-Z a-z 0-9 . _ : -`. Within one owner namespace:
+`Idempotency-Key` is required when `thread` is present, otherwise optional, and must contain 1–200
+characters from `A-Z a-z 0-9 . _ : -`. Within one owner namespace:
 
 - the same key and canonically identical request return the existing run;
 - if that existing run is still `queued`, the retry also sends another safe SQS wake-up;
@@ -511,6 +515,7 @@ Unknown fields are rejected at every validated object level.
 | `destinations` | No | At most 8 result destinations; deployment default otherwise |
 | `metadata` | No | JSON object, at most 32,000 serialized bytes |
 | `parentRunId` | No | Opaque lineage value, at most 128 bytes; v1 stores it but does not resume a parent |
+| `thread` | No | `{ "key": "...", "delivery"?: "interrupt"|"defer" }`; requires `Idempotency-Key` and still returns this Run immediately |
 
 ### `repository`
 

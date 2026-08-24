@@ -215,19 +215,6 @@
     "/v1/routines/{routineId}/pause": { "post": { "tags": ["Routines"], "operationId": "pauseRoutine", "parameters": [{ "$ref": "#/components/parameters/RoutineId" }], "requestBody": { "$ref": "#/components/requestBodies/EmptyObject" }, "responses": { "200": { "description": "Routine paused", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Routine" } } } }, "default": { "$ref": "#/components/responses/Error" } } } },
     "/v1/routines/{routineId}/resume": { "post": { "tags": ["Routines"], "operationId": "resumeRoutine", "parameters": [{ "$ref": "#/components/parameters/RoutineId" }], "requestBody": { "$ref": "#/components/requestBodies/EmptyObject" }, "responses": { "200": { "description": "Routine resumed", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Routine" } } } }, "default": { "$ref": "#/components/responses/Error" } } } },
     "/v1/routines/{routineId}/delete": { "post": { "tags": ["Routines"], "operationId": "deleteRoutine", "parameters": [{ "$ref": "#/components/parameters/RoutineId" }], "requestBody": { "$ref": "#/components/requestBodies/EmptyObject" }, "responses": { "200": { "description": "Routine soft-deleted", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Routine" } } } }, "default": { "$ref": "#/components/responses/Error" } } } },
-    "/v1/conversations/{conversationId}/messages": {
-      "post": {
-        "tags": ["Conversations"],
-        "operationId": "appendConversationMessage",
-        "parameters": [{ "$ref": "#/components/parameters/ConversationId" }, { "$ref": "#/components/parameters/RequiredIdempotencyKey" }],
-        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConversationMessage" } } } },
-        "responses": {
-          "200": { "description": "Idempotent duplicate already exists", "headers": { "Location": { "$ref": "#/components/headers/Location" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConversationMessageReceipt" } } } },
-          "202": { "description": "Message appended to the durable mailbox; poll Location for its run binding and state", "headers": { "Location": { "$ref": "#/components/headers/Location" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConversationMessageReceipt" } } } },
-          "default": { "$ref": "#/components/responses/Error" }
-        }
-      }
-    },
     "/v1/conversations/{conversationId}/messages/{messageId}": {
       "get": {
         "tags": ["Conversations"],
@@ -272,8 +259,8 @@
         "tags": ["Runs"],
         "operationId": "submitRun",
         "parameters": [{ "$ref": "#/components/parameters/IdempotencyKey" }],
-        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RunRequest" } } } },
-        "responses": { "202": { "description": "Run durably queued", "headers": { "Location": { "$ref": "#/components/headers/Location" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RunReceipt" } } } }, "default": { "$ref": "#/components/responses/Error" } }
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RunSubmission" } } } },
+        "responses": { "202": { "description": "One durable Run accepted immediately. A thread only adds continuity preparation before dispatch.", "headers": { "Location": { "$ref": "#/components/headers/Location" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RunReceipt" } } } }, "default": { "$ref": "#/components/responses/Error" } }
       }
     },
     "/v1/runs/{runId}": {
@@ -555,17 +542,19 @@
               "schema": {
                 "type": "object",
                 "additionalProperties": false,
-                "required": ["version", "expectedDraftRevision"],
+                "required": ["version", "expectedDraftRevision", "expectedSpecHash", "testRunId"],
                 "properties": {
                   "version": { "const": "1" },
-                  "expectedDraftRevision": { "type": "integer", "minimum": 1 }
+                  "expectedDraftRevision": { "type": "integer", "minimum": 1 },
+                  "expectedSpecHash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+                  "testRunId": { "type": "string", "pattern": "^[A-Za-z0-9-]{1,128}$" }
                 }
               }
             }
           }
         },
         "responses": {
-          "200": { "description": "Draft revision published and trigger synchronized", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ThingSummary" } } } },
+          "200": { "description": "The exact successfully tested draft revision was published and its trigger synchronized", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ThingSummary" } } } },
           "default": { "$ref": "#/components/responses/Error" }
         }
       }
@@ -634,8 +623,7 @@
       "ShareToken": { "name": "token", "in": "path", "required": true, "schema": { "type": "string", "pattern": "^[a-f0-9]{32}-[a-f0-9]{64}$" } },
       "Limit": { "name": "limit", "in": "query", "schema": { "type": "integer", "minimum": 1, "maximum": 100, "default": 25 } },
       "NextToken": { "name": "nextToken", "in": "query", "schema": { "type": "string" } },
-      "IdempotencyKey": { "name": "Idempotency-Key", "in": "header", "required": false, "schema": { "type": "string", "pattern": "^[A-Za-z0-9._:-]{1,200}$" } },
-      "RequiredIdempotencyKey": { "name": "Idempotency-Key", "in": "header", "required": true, "description": "Becomes the durable message ID; reuse it to retry safely.", "schema": { "type": "string", "pattern": "^[A-Za-z0-9._:-]{1,200}$" } }
+      "IdempotencyKey": { "name": "Idempotency-Key", "in": "header", "required": false, "description": "Recommended for every submission and required when thread is present; reuse it to receive the same Run.", "schema": { "type": "string", "pattern": "^[A-Za-z0-9._:-]{1,200}$" } }
     },
     "requestBodies": {
       "EmptyObject": { "required": true, "content": { "application/json": { "schema": { "type": "object", "maxProperties": 0 } } } }
@@ -958,19 +946,6 @@
           "outputSchema": { "type": "object" }
         }
       },
-      "ConversationAgent": {
-        "type": "object",
-        "additionalProperties": false,
-        "properties": {
-          "driver": { "enum": ["codex", "mock"] },
-          "model": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]{0,254}$" },
-          "sandbox": { "enum": ["read-only", "workspace-write", "danger-full-access"] },
-          "reasoningEffort": { "enum": ["low", "medium", "high", "xhigh", "ultra"] },
-          "reasoningSummary": { "enum": ["auto", "concise", "detailed", "none"] },
-          "personality": { "enum": ["none", "friendly", "pragmatic"] },
-          "capabilities": { "$ref": "#/components/schemas/AgentCapabilities" }
-        }
-      },
       "IntegrationAccess": {
         "type": "object",
         "additionalProperties": false,
@@ -1045,15 +1020,50 @@
           "parentRunId": { "type": "string", "minLength": 1, "maxLength": 128 }
         }
       },
-      "ConversationMessage": {
+      "RunSubmission": {
         "type": "object",
+        "description": "The universal Run submission. Optional thread continuity changes preparation, never the receipt or lifecycle.",
         "additionalProperties": false,
         "required": ["version", "prompt"],
         "properties": {
           "version": { "const": "1" },
           "prompt": { "type": "string", "minLength": 1, "maxLength": 100000 },
-          "agent": { "$ref": "#/components/schemas/ConversationAgent" },
-          "integrations": { "$ref": "#/components/schemas/IntegrationAccess" }
+          "repository": { "$ref": "#/components/schemas/Repository" },
+          "agent": { "$ref": "#/components/schemas/Agent" },
+          "integrations": { "$ref": "#/components/schemas/IntegrationAccess" },
+          "execution": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "backend": { "const": "microvm" },
+              "timeoutSeconds": { "type": "integer", "minimum": 30, "maximum": 28000 }
+            }
+          },
+          "destinations": {
+            "type": "array",
+            "maxItems": 8,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["kind"],
+              "properties": {
+                "kind": { "enum": ["source", "teams", "slack", "none"] },
+                "route": { "type": "string", "minLength": 1, "maxLength": 128 }
+              }
+            }
+          },
+          "metadata": { "type": "object", "additionalProperties": true },
+          "parentRunId": { "type": "string", "minLength": 1, "maxLength": 128 },
+          "thread": {
+            "type": "object",
+            "description": "Optional owner-scoped continuity. Requires Idempotency-Key and still creates this request's Run immediately.",
+            "additionalProperties": false,
+            "required": ["key"],
+            "properties": {
+              "key": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$" },
+              "delivery": { "enum": ["interrupt", "defer"] }
+            }
+          }
         }
       },
       "CreateRoutine": {
@@ -1239,16 +1249,6 @@
           "nextToken": { "type": "string" }
         }
       },
-      "ConversationMessageReceipt": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["conversationId", "messageId", "status"],
-        "properties": {
-          "conversationId": { "type": "string" },
-          "messageId": { "type": "string" },
-          "status": { "enum": ["appended", "duplicate"] }
-        }
-      },
       "ConversationMessageStatus": {
         "type": "object",
         "additionalProperties": false,
@@ -1346,9 +1346,11 @@
           "expiresAt": { "type": "integer" },
           "requestHash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
           "input": { "$ref": "#/components/schemas/ArtifactReference" },
+          "executionInput": { "$ref": "#/components/schemas/ArtifactReference" },
           "sourceKind": { "enum": ["api", "github", "gitlab", "teams", "slack"] },
           "provenance": { "type": "object" },
           "conversation": { "type": "object" },
+          "thing": { "$ref": "#/components/schemas/ThingRunEvidence" },
           "execution": {
             "type": "object",
             "required": ["backend", "id"],
@@ -1592,22 +1594,23 @@
             "type": "object",
             "required": ["thing"],
             "properties": {
-              "thing": {
-                "type": "object",
-                "additionalProperties": false,
-                "required": ["version", "thingId", "revision", "specHash", "invocation"],
-                "properties": {
-                  "version": { "const": "1" },
-                  "thingId": { "type": "string" },
-                  "revision": { "type": "integer", "minimum": 1 },
-                  "specHash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
-                  "invocation": { "enum": ["test", "manual", "schedule"] },
-                  "scheduledAt": { "type": "string", "format": "date-time" }
-                }
-              }
+              "thing": { "$ref": "#/components/schemas/ThingRunEvidence" }
             }
           }
         ]
+      },
+      "ThingRunEvidence": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["version", "thingId", "revision", "specHash", "invocation"],
+        "properties": {
+          "version": { "const": "1" },
+          "thingId": { "type": "string" },
+          "revision": { "type": "integer", "minimum": 1 },
+          "specHash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+          "invocation": { "enum": ["test", "manual", "schedule"] },
+          "scheduledAt": { "type": "string", "format": "date-time" }
+        }
       },
       "ThingExplanation": {
         "type": "object",

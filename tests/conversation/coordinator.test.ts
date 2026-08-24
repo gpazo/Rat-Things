@@ -77,8 +77,11 @@ describe('conversation coordinator', () => {
       beginTurn: vi.fn().mockResolvedValue(turn),
       pending: vi.fn().mockResolvedValue([{
         messageId: 'message-1',
+        runId: 'run-1',
         receivedAt: conversation.createdAt,
         content: artifact('message.json'),
+        actor: conversation.actor,
+        credentialSubject: conversation.credentialSubject,
       }]),
       scheduleRun: vi.fn().mockResolvedValue({ ...turn, runId: 'run-1' }),
       releaseLease: vi.fn().mockResolvedValue({ ...conversation, lease: undefined }),
@@ -88,12 +91,23 @@ describe('conversation coordinator', () => {
       putJson: vi.fn().mockResolvedValue(artifact('continuation.json')),
       putBytes: vi.fn(),
     } as unknown as ArtifactStore;
-    const submit = vi.fn().mockResolvedValue({ runId: 'run-1' });
+    const get = vi.fn().mockResolvedValue({
+      runId: 'run-1',
+      conversation: {
+        conversationId: conversation.conversationId,
+        messageId: 'message-1',
+        delivery: 'defer',
+      },
+    });
+    const prepareConversation = vi.fn().mockResolvedValue({ runId: 'run-1' });
     const wake = vi.fn().mockResolvedValue(undefined);
     const coordinator = new ConversationCoordinator({
       conversations,
       artifacts,
-      runs: { submit, wake } as unknown as Pick<RunService, 'submit' | 'wake'>,
+      runs: { get, prepareConversation, wake } as unknown as Pick<
+        RunService,
+        'get' | 'prepareConversation' | 'wake'
+      >,
     });
 
     await expect(coordinator.handle({
@@ -102,24 +116,19 @@ describe('conversation coordinator', () => {
       traceId: 'trace-1',
     })).resolves.toEqual({ status: 'scheduled', runId: 'run-1' });
 
-    expect(submit).toHaveBeenCalledWith(
+    expect(get).toHaveBeenCalledWith(conversation.ownerId, 'run-1');
+    expect(prepareConversation).toHaveBeenCalledWith(
       conversation.ownerId,
+      'run-1',
+      expect.objectContaining({ prompt: expect.stringContaining('Inspect the deployment.') }),
       expect.objectContaining({
-        source: conversation.source,
-        destinations: [{ kind: 'source' }],
-        prompt: expect.stringContaining('Inspect the deployment.'),
-        agent: { driver: 'mock', sandbox: 'workspace-write' },
-      }),
-      expect.objectContaining({
-        enqueue: false,
-        conversation: expect.objectContaining({
-          conversationId: conversation.conversationId,
-          turnId: turn.turnId,
-          preferredMicrovmId: 'microvm-1',
-          agentThreadId: 'thread-1',
-          continuation: artifact('continuation.json'),
-          artifacts: artifact('artifact-catalog.json'),
-        }),
+        conversationId: conversation.conversationId,
+        messageId: 'message-1',
+        turnId: turn.turnId,
+        preferredMicrovmId: 'microvm-1',
+        agentThreadId: 'thread-1',
+        continuation: artifact('continuation.json'),
+        artifacts: artifact('artifact-catalog.json'),
       }),
     );
     expect(vi.mocked(conversations.scheduleRun)).toHaveBeenCalledBefore(wake);
@@ -141,7 +150,7 @@ describe('conversation coordinator', () => {
       conversation: expiredConversation,
       lease,
     });
-    submit.mockClear();
+    get.mockClear();
 
     await coordinator.handle({
       version: '1',
@@ -149,16 +158,82 @@ describe('conversation coordinator', () => {
       traceId: 'trace-2',
     });
 
-    expect(submit).toHaveBeenCalledWith(
+    expect(prepareConversation).toHaveBeenLastCalledWith(
       conversation.ownerId,
+      'run-1',
       expect.anything(),
       expect.objectContaining({
-        conversation: expect.objectContaining({
-          agentThreadId: 'thread-1',
-        }),
+        agentThreadId: 'thread-1',
       }),
     );
-    expect(submit.mock.calls[0]?.[2].conversation).not.toHaveProperty('preferredMicrovmId');
+    expect(prepareConversation.mock.calls.at(-1)?.[3]).not.toHaveProperty('preferredMicrovmId');
+  });
+
+  it('reconstructs a missing mailbox write from the already accepted Run', async () => {
+    const reserved: RunRecord = {
+      runId: 'run-recovery',
+      ownerId: conversation.ownerId,
+      ownerCreated: `${conversation.ownerId}#${conversation.createdAt}#run-recovery`,
+      status: 'queued',
+      createdAt: conversation.createdAt,
+      updatedAt: conversation.updatedAt,
+      expiresAt: conversation.expiresAt,
+      requestHash: 'a'.repeat(64),
+      input: artifact('recovery-input.json'),
+      sourceKind: 'teams',
+      provenance: {
+        actor: conversation.actor,
+        credentialSubject: conversation.credentialSubject,
+      },
+      conversation: {
+        conversationId: conversation.conversationId,
+        messageId: 'message-recovery',
+        delivery: 'defer',
+      },
+    };
+    const request = {
+      version: '1' as const,
+      prompt: 'Recover this accepted request.',
+      source: conversation.source,
+      destinations: [conversation.destination],
+      agent: conversation.executionPolicy,
+    };
+    const conversations = {
+      getMessage: vi.fn().mockResolvedValue(undefined),
+      appendMessage: vi.fn().mockResolvedValue({ status: 'appended' }),
+      acquireLease: vi.fn().mockResolvedValue({ status: 'busy' }),
+    } as unknown as ConversationService;
+    const artifacts = {
+      getJson: vi.fn().mockResolvedValue(request),
+    } as unknown as ArtifactStore;
+    const coordinator = new ConversationCoordinator({
+      conversations,
+      artifacts,
+      runs: {
+        get: vi.fn().mockResolvedValue(reserved),
+        prepareConversation: vi.fn(),
+        wake: vi.fn(),
+      } as unknown as Pick<RunService, 'get' | 'prepareConversation' | 'wake'>,
+    });
+
+    await expect(coordinator.handle({
+      version: '1',
+      conversationId: conversation.conversationId,
+      traceId: 'reconcile:run-recovery',
+      runId: reserved.runId,
+      ownerId: reserved.ownerId,
+    })).resolves.toEqual({ status: 'busy' });
+
+    expect(conversations.appendMessage).toHaveBeenCalledWith(expect.objectContaining({
+      conversationId: conversation.conversationId,
+      ownerId: conversation.ownerId,
+      messageId: 'message-recovery',
+      runId: reserved.runId,
+      delivery: 'defer',
+      content: expect.objectContaining({ text: request.prompt, request }),
+      source: conversation.source,
+      destination: conversation.destination,
+    }));
   });
 
   it('folds terminal output into history, suspends the VM, and wakes queued follow-up work', async () => {

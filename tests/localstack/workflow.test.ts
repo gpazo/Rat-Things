@@ -51,7 +51,7 @@ import {
 } from '../../src/conversation/types.js';
 import { createDispatcher } from '../../src/lambdas/dispatcher.js';
 import { runAgentWorker } from '../../src/runner/main.js';
-import type { RunRequest, RunStateEvent } from '../../src/domain/contracts.js';
+import type { RunRecord, RunRequest, RunStateEvent } from '../../src/domain/contracts.js';
 
 const integration = process.env.LOCALSTACK_E2E === 'true' ? describe : describe.skip;
 const realTeamsCodex = process.env.LOCALSTACK_REAL_CODEX === 'true';
@@ -488,7 +488,37 @@ integration('LocalStack webhook-to-egress workflow', () => {
       10_000,
       (message) => queuedRunId(message) === draftTestRun.runId,
     );
+    const draftRunStore = new DynamoRunStore(clients.dynamodb, required('RUNS_TABLE_NAME'));
+    const draftArtifacts = new S3ArtifactStore(clients.s3, required('ARTIFACT_BUCKET'));
+    const draftDispatcher = createDispatcher({
+      store: draftRunStore,
+      artifacts: draftArtifacts,
+      executors: new ExecutorRegistry([{
+        backend: 'microvm',
+        start: async (record) => ({ backend: 'microvm', id: `localstack:${record.runId}` }),
+        stop: async () => undefined,
+      }]),
+    });
+    expect((await invoke<{ batchItemFailures: { itemIdentifier: string }[] }>(
+      draftDispatcher,
+      sqsEvent(draftWake, required('RUN_QUEUE_URL')),
+    )).batchItemFailures).toEqual([]);
     await deleteMessage(clients.sqs, required('RUN_QUEUE_URL'), draftWake);
+    const dispatchedDraftTest = await draftRunStore.get(draftTestRun.runId);
+    if (!dispatchedDraftTest) throw new Error('Thing draft test disappeared after dispatch');
+    process.env.RUN_ID = draftTestRun.runId;
+    process.env.RUN_INPUT_BUCKET = dispatchedDraftTest.input.bucket;
+    process.env.RUN_INPUT_KEY = dispatchedDraftTest.input.key;
+    process.env.RUN_TIMEOUT_SECONDS = '30';
+    process.env.PERSISTENT_SESSION = 'false';
+    delete process.env.AGENT_THREAD_ID;
+    delete process.env.RUN_AGENT_UID;
+    delete process.env.RUN_AGENT_GID;
+    await runAgentWorker();
+    await expect(draftRunStore.get(draftTestRun.runId)).resolves.toMatchObject({
+      status: 'succeeded',
+      thing: draftTestRun.thing,
+    });
 
     const publishResponse = await invoke<APIGatewayProxyStructuredResultV2>(
       control.handler,
@@ -497,7 +527,12 @@ integration('LocalStack webhook-to-egress workflow', () => {
         path: `/v1/things/${thing.thingId}/publish`,
         routeKey: 'POST /v1/things/{thingId}/publish',
         pathParameters: { thingId: thing.thingId },
-        body: { version: '1', expectedDraftRevision: 2 },
+        body: {
+          version: '1',
+          expectedDraftRevision: 2,
+          expectedSpecHash: storedThing.draft.specHash,
+          testRunId: draftTestRun.runId,
+        },
       }),
     );
     expect(publishResponse.statusCode).toBe(200);
@@ -753,8 +788,9 @@ integration('LocalStack webhook-to-egress workflow', () => {
     const dispatched = await runStore.get(firstRun.runId);
     if (!dispatched) throw new Error('routine run disappeared after dispatch');
     process.env.RUN_ID = firstRun.runId;
-    process.env.RUN_INPUT_BUCKET = dispatched.input.bucket;
-    process.env.RUN_INPUT_KEY = dispatched.input.key;
+    const executionInput = dispatched.executionInput ?? dispatched.input;
+    process.env.RUN_INPUT_BUCKET = executionInput.bucket;
+    process.env.RUN_INPUT_KEY = executionInput.key;
     process.env.RUN_TIMEOUT_SECONDS = '30';
     process.env.PERSISTENT_SESSION = 'false';
     delete process.env.AGENT_THREAD_ID;
@@ -797,6 +833,13 @@ integration('LocalStack webhook-to-egress workflow', () => {
     );
     expect(createdResponse.statusCode).toBe(201);
     const created = jsonResponse<{ thingId: string }>(createdResponse);
+    const testedV1 = await completeThingDraftTest(
+      control.handler,
+      clients,
+      created.thingId,
+      `local-schedule-v1-${randomUUID()}`,
+    );
+    if (!testedV1.thing) throw new Error('scheduled Thing test has no revision evidence');
     const publishResponse = await invoke<APIGatewayProxyStructuredResultV2>(
       control.handler,
       controlEvent({
@@ -804,7 +847,12 @@ integration('LocalStack webhook-to-egress workflow', () => {
         path: `/v1/things/${created.thingId}/publish`,
         routeKey: 'POST /v1/things/{thingId}/publish',
         pathParameters: { thingId: created.thingId },
-        body: { version: '1', expectedDraftRevision: 1 },
+        body: {
+          version: '1',
+          expectedDraftRevision: testedV1.thing.revision,
+          expectedSpecHash: testedV1.thing.specHash,
+          testRunId: testedV1.runId,
+        },
       }),
     );
     expect(publishResponse.statusCode).toBe(200);
@@ -866,6 +914,13 @@ integration('LocalStack webhook-to-egress workflow', () => {
       }),
     );
     expect(revisedResponse.statusCode).toBe(201);
+    const testedV2 = await completeThingDraftTest(
+      control.handler,
+      clients,
+      created.thingId,
+      `local-schedule-v2-${randomUUID()}`,
+    );
+    if (!testedV2.thing) throw new Error('revised scheduled Thing test has no revision evidence');
     const republishedResponse = await invoke<APIGatewayProxyStructuredResultV2>(
       control.handler,
       controlEvent({
@@ -873,7 +928,12 @@ integration('LocalStack webhook-to-egress workflow', () => {
         path: `/v1/things/${created.thingId}/publish`,
         routeKey: 'POST /v1/things/{thingId}/publish',
         pathParameters: { thingId: created.thingId },
-        body: { version: '1', expectedDraftRevision: 2 },
+        body: {
+          version: '1',
+          expectedDraftRevision: testedV2.thing.revision,
+          expectedSpecHash: testedV2.thing.specHash,
+          testRunId: testedV2.runId,
+        },
       }),
     );
     expect(republishedResponse.statusCode).toBe(200);
@@ -1140,9 +1200,11 @@ integration('LocalStack webhook-to-egress workflow', () => {
 
     expect(firstResponse.statusCode).toBe(200);
     const acknowledgement = JSON.parse(firstResponse.body ?? '{}') as { text?: string };
-    expect(acknowledgement.text).toBe(
-      `Rat Things response received (${activityId.slice(0, 12)}). I'll reply in this thread when it finishes.`,
+    expect(acknowledgement.text).toMatch(
+      /^Rat Things request received\. I'll reply when run [A-Za-z0-9-]+ finishes\.$/,
     );
+    const acknowledgedRunId = /run ([A-Za-z0-9-]+) finishes/.exec(acknowledgement.text ?? '')?.[1];
+    expect(acknowledgedRunId).toBeTruthy();
 
     const conversationId = 'teams:local-tenant:local-user:local-conversation';
     const conversationStore = new DynamoConversationStore(
@@ -1158,6 +1220,8 @@ integration('LocalStack webhook-to-egress workflow', () => {
       version: '1',
       conversationId,
       traceId: activityId,
+      runId: acknowledgedRunId,
+      ownerId: 'teams:local-tenant:local-user',
     });
     const conversationCoordinator = await import('../../src/lambdas/conversation-coordinator.js');
     const coordination = await invoke<{ batchItemFailures: { itemIdentifier: string }[] }>(
@@ -1194,6 +1258,7 @@ integration('LocalStack webhook-to-egress workflow', () => {
       traceId?: string;
     };
     const runId = queueMessage.runId;
+    expect(runId).toBe(acknowledgedRunId);
     expect(runId).toBeTruthy();
     if (!runId) throw new Error('conversation coordinator did not create a run');
     expect(queueMessage).toEqual({ version: '1', runId, traceId: activityId });
@@ -1246,8 +1311,9 @@ integration('LocalStack webhook-to-egress workflow', () => {
     if (!dispatched) throw new Error('dispatcher did not persist the execution reference');
 
     process.env.RUN_ID = runId;
-    process.env.RUN_INPUT_BUCKET = dispatched.input.bucket;
-    process.env.RUN_INPUT_KEY = dispatched.input.key;
+    const preparedInput = dispatched.executionInput ?? dispatched.input;
+    process.env.RUN_INPUT_BUCKET = preparedInput.bucket;
+    process.env.RUN_INPUT_KEY = preparedInput.key;
     process.env.RUN_TIMEOUT_SECONDS = realTeamsCodex ? '180' : '30';
     process.env.PERSISTENT_SESSION = 'true';
     if (!realTeamsCodex) {
@@ -1438,10 +1504,15 @@ integration('LocalStack webhook-to-egress workflow', () => {
     });
     const followUpRun = await store.get(followUpRunId);
     if (!followUpRun) throw new Error('follow-up run was not persisted');
-    const followUpRequest = await artifacts.getJson<RunRequest>(followUpRun.input);
-    expect(followUpRequest.prompt).toContain(prompt);
-    expect(followUpRequest.prompt).toContain(`mock-agent: Continue this durable conversation.`);
-    expect(followUpRequest.prompt).toContain(followUpPrompt);
+    const acceptedFollowUp = await artifacts.getJson<RunRequest>(followUpRun.input);
+    expect(acceptedFollowUp.prompt).toBe(followUpPrompt);
+    expect(followUpRun.executionInput).toBeDefined();
+    const preparedFollowUp = await artifacts.getJson<RunRequest>(
+      followUpRun.executionInput ?? followUpRun.input,
+    );
+    expect(preparedFollowUp.prompt).toContain(prompt);
+    expect(preparedFollowUp.prompt).toContain(`mock-agent: Continue this durable conversation.`);
+    expect(preparedFollowUp.prompt).toContain(followUpPrompt);
     await deleteMessage(clients.sqs, runQueueUrl, followUpRunWake);
 
     if (realTeamsCodex) {
@@ -1612,6 +1683,64 @@ async function receiveOptional(
 async function deleteMessage(sqs: SQSClient, queueUrl: string, message: Message): Promise<void> {
   if (!message.ReceiptHandle) throw new Error('SQS message has no receipt handle');
   await sqs.send(new DeleteMessageCommand({ QueueUrl: queueUrl, ReceiptHandle: message.ReceiptHandle }));
+}
+
+async function completeThingDraftTest(
+  controlHandler: unknown,
+  clients: ReturnType<typeof createAwsClients>,
+  thingId: string,
+  idempotencyKey: string,
+): Promise<RunRecord> {
+  const response = await invoke<APIGatewayProxyStructuredResultV2>(
+    controlHandler,
+    controlEvent({
+      method: 'POST',
+      path: `/v1/things/${thingId}/test`,
+      routeKey: 'POST /v1/things/{thingId}/test',
+      pathParameters: { thingId },
+      headers: { 'idempotency-key': idempotencyKey },
+      body: {},
+    }),
+  );
+  if (response.statusCode !== 202) throw new Error(`Thing test returned ${response.statusCode}`);
+  const accepted = jsonResponse<RunRecord>(response);
+  const wake = await receiveRequired(
+    clients.sqs,
+    required('RUN_QUEUE_URL'),
+    10_000,
+    (message) => queuedRunId(message) === accepted.runId,
+  );
+  const store = new DynamoRunStore(clients.dynamodb, required('RUNS_TABLE_NAME'));
+  const artifacts = new S3ArtifactStore(clients.s3, required('ARTIFACT_BUCKET'));
+  const dispatcher = createDispatcher({
+    store,
+    artifacts,
+    executors: new ExecutorRegistry([{
+      backend: 'microvm',
+      start: async (record) => ({ backend: 'microvm', id: `localstack:${record.runId}` }),
+      stop: async () => undefined,
+    }]),
+  });
+  const dispatch = await invoke<{ batchItemFailures: { itemIdentifier: string }[] }>(
+    dispatcher,
+    sqsEvent(wake, required('RUN_QUEUE_URL')),
+  );
+  if (dispatch.batchItemFailures.length > 0) throw new Error('Thing test dispatch failed');
+  await deleteMessage(clients.sqs, required('RUN_QUEUE_URL'), wake);
+  const running = await store.get(accepted.runId);
+  if (!running) throw new Error('Thing test disappeared after dispatch');
+  process.env.RUN_ID = accepted.runId;
+  process.env.RUN_INPUT_BUCKET = (running.executionInput ?? running.input).bucket;
+  process.env.RUN_INPUT_KEY = (running.executionInput ?? running.input).key;
+  process.env.RUN_TIMEOUT_SECONDS = '30';
+  process.env.PERSISTENT_SESSION = 'false';
+  delete process.env.AGENT_THREAD_ID;
+  delete process.env.RUN_AGENT_UID;
+  delete process.env.RUN_AGENT_GID;
+  await runAgentWorker();
+  const completed = await store.get(accepted.runId);
+  if (!completed || completed.status !== 'succeeded') throw new Error('Thing draft test did not succeed');
+  return completed;
 }
 
 async function objectText(

@@ -96,11 +96,8 @@ describe('ThingService', () => {
       randomId: 'thing-versioned',
     });
     await service.create('owner-1', manualSpec('Original production goal'));
-    await service.test('owner-1', 'thing-versioned', 'test-v1');
-    await service.publish('owner-1', 'thing-versioned', {
-      version: '1',
-      expectedDraftRevision: 1,
-    });
+    const testV1 = await service.test('owner-1', 'thing-versioned', 'test-v1');
+    await publishTested(service, 'owner-1', 'thing-versioned', testV1.runId);
     await service.addVersion('owner-1', 'thing-versioned', {
       version: '1',
       expectedDraftRevision: 1,
@@ -137,10 +134,7 @@ describe('ThingService', () => {
       expect.objectContaining({ thingRevision: 1, thingInvocation: 'manual' }),
     ]);
 
-    await service.publish('owner-1', 'thing-versioned', {
-      version: '1',
-      expectedDraftRevision: 2,
-    });
+    await publishTested(service, 'owner-1', 'thing-versioned', draftReceipt.runId);
     await expect(service.getPublic('owner-1', 'thing-versioned')).resolves.toMatchObject({
       status: 'active',
       hasUnpublishedChanges: false,
@@ -164,10 +158,8 @@ describe('ThingService', () => {
       randomId: 'thing-scheduled',
     });
     await service.create('owner-1', scheduleSpec('Scheduled v1', 'rate(15 minutes)'));
-    await service.publish('owner-1', 'thing-scheduled', {
-      version: '1',
-      expectedDraftRevision: 1,
-    });
+    const testV1 = await service.test('owner-1', 'thing-scheduled', 'schedule-v1-test');
+    await publishTested(service, 'owner-1', 'thing-scheduled', testV1.runId);
     expect(scheduler.upserts).toEqual([{
       enabled: true,
       target: {
@@ -209,10 +201,8 @@ describe('ThingService', () => {
       expectedDraftRevision: 1,
       spec: scheduleSpec('Scheduled v2', 'cron(0 8 ? * MON-FRI *)', 'America/Los_Angeles'),
     });
-    await service.publish('owner-1', 'thing-scheduled', {
-      version: '1',
-      expectedDraftRevision: 2,
-    });
+    const testV2 = await service.test('owner-1', 'thing-scheduled', 'schedule-v2-test');
+    await publishTested(service, 'owner-1', 'thing-scheduled', testV2.runId);
     await expect(service.runScheduled({
       version: '1',
       thingId: 'thing-scheduled',
@@ -239,11 +229,11 @@ describe('ThingService', () => {
     scheduler.failure = new Error('simulated Scheduler outage');
     const service = serviceWith({ store, scheduler, randomId: 'thing-retry' });
     await service.create('owner-1', scheduleSpec('Retry schedule', 'rate(1 hour)'));
+    const testRun = await service.test('owner-1', 'thing-retry', 'retry-test');
+    const publishInput = await testedPublishInput(service, 'owner-1', 'thing-retry', testRun.runId);
 
-    await expect(service.publish('owner-1', 'thing-retry', {
-      version: '1',
-      expectedDraftRevision: 1,
-    })).rejects.toThrow('simulated Scheduler outage');
+    await expect(service.publish('owner-1', 'thing-retry', publishInput))
+      .rejects.toThrow('simulated Scheduler outage');
     await expect(service.getPublic('owner-1', 'thing-retry')).resolves.toMatchObject({
       status: 'active',
       active: { revision: 1 },
@@ -251,10 +241,8 @@ describe('ThingService', () => {
     });
 
     scheduler.failure = undefined;
-    await expect(service.publish('owner-1', 'thing-retry', {
-      version: '1',
-      expectedDraftRevision: 1,
-    })).resolves.toMatchObject({ triggerState: { status: 'ready', revision: 1 } });
+    await expect(service.publish('owner-1', 'thing-retry', publishInput))
+      .resolves.toMatchObject({ triggerState: { status: 'ready', revision: 1 } });
   });
 
   it('rejects invalid schedule expressions and time zones before persistence', async () => {
@@ -286,7 +274,7 @@ describe('ThingService', () => {
           '2026-08-21T12:01:00.000Z',
         );
       }),
-      runs: { submit: vi.fn() } as unknown as Pick<RunService, 'submit'>,
+      runs: { submit: vi.fn(), get: vi.fn() } as unknown as Pick<RunService, 'submit' | 'get'>,
       randomId: () => 'thing-race',
       clock: fixedClock('2026-08-21T12:00:00.000Z'),
     });
@@ -493,14 +481,57 @@ function serviceWith(options: {
   submit?: RunService['submit'];
   randomId: string;
 }): ThingService {
+  const accepted = new Map<string, RunRecord>();
+  const submit = options.submit ?? vi.fn(async () => run('run-default'));
   return new ThingService({
     store: options.store,
     scheduler: options.scheduler ?? new MemoryScheduler(),
     artifacts: artifactStore(options.payloads ?? new Map()),
-    runs: { submit: options.submit ?? vi.fn(async () => run('run-default')) },
+    runs: {
+      submit: async (...args) => {
+        const record = await submit(...args);
+        const evidence = args[2]?.thing;
+        const acceptedRecord = { ...record, ...(evidence ? { thing: evidence } : {}) };
+        accepted.set(record.runId, { ...acceptedRecord, status: 'succeeded' });
+        return acceptedRecord;
+      },
+      get: async (_ownerId, runId) => {
+        const record = accepted.get(runId);
+        if (!record) throw new Error('run not found');
+        return structuredClone(record);
+      },
+    },
     randomId: () => options.randomId,
     clock: fixedClock('2026-08-21T10:00:00.000Z'),
   });
+}
+
+async function testedPublishInput(
+  service: ThingService,
+  ownerId: string,
+  thingId: string,
+  testRunId: string,
+): Promise<{ version: '1'; expectedDraftRevision: number; expectedSpecHash: string; testRunId: string }> {
+  const thing = await service.get(ownerId, thingId);
+  return {
+    version: '1',
+    expectedDraftRevision: thing.draft.revision,
+    expectedSpecHash: thing.draft.specHash,
+    testRunId,
+  };
+}
+
+async function publishTested(
+  service: ThingService,
+  ownerId: string,
+  thingId: string,
+  testRunId: string,
+): Promise<ThingRecord> {
+  return service.publish(
+    ownerId,
+    thingId,
+    await testedPublishInput(service, ownerId, thingId, testRunId),
+  );
 }
 
 function artifactStore(

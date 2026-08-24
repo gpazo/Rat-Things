@@ -6,6 +6,7 @@ import type {
   RunCredentialSubjectContext,
   RunDestination,
   RunError,
+  RunRequest,
   RunSource,
 } from './contracts.js';
 import type { IntegrationAccessRequest } from './capabilities.js';
@@ -89,6 +90,8 @@ export interface ConversationRecord {
 
 export interface ConversationMessageContent {
   text: string;
+  /** Canonical caller/provider request used to reserve this message's public Run. */
+  request?: RunRequest;
   attachments?: ArtifactReference[];
   metadata?: { [key: string]: JsonValue };
 }
@@ -173,6 +176,9 @@ export interface ConversationWakeMessage {
   version: '1';
   conversationId: string;
   traceId: string;
+  /** Present when a queued Run is the recovery source for a missing mailbox write. */
+  runId?: string;
+  ownerId?: string;
 }
 
 export interface ConversationEventPayload {

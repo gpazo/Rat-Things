@@ -4,6 +4,10 @@ This is the host/operator path for installing and maintaining an independent Rat
 Consumers of an existing deployment should start with the [operating model](operating-model.md)
 instead; they do not need Terraform, Docker, or access to the runtime account.
 
+For the smallest fresh-clone deployment and a measured real-Codex Thing, start with the
+[ten-minute AWS quickstart](quickstart.md). It deliberately omits accounts, VPC/NAT, schedules, and
+public sharing. Return here when choosing a longer-lived installation shape.
+
 ## Prerequisites
 
 - Node.js 20+, npm, and Git.
@@ -15,8 +19,8 @@ instead; they do not need Terraform, Docker, or access to the runtime account.
 - A local `codex login` with ChatGPT, or Bedrock access, only for real local driver tests. `npm ci`
   installs the same pinned CLI version used in the MicroVM image.
 
-There is no worker-container build, ECR push, or ECS cluster. The one-shot stack needs no customer
-VPC. Enabling S3 Files creates a dedicated VPC, mount target, network connector, and NAT gateway for
+There is no worker-container build, ECR push, or ECS cluster. A deployment used only for one-shot
+Runs needs no customer VPC. Enabling S3 Files creates a dedicated VPC, mount target, network connector, and NAT gateway for
 durable conversations, so tear disposable stacks down promptly.
 
 ## Local workflow
@@ -190,10 +194,7 @@ npm run rat-things -- cancel RUN_ID
 Create and validate the public facade before publishing scheduled work:
 
 ```bash
-npm run rat-things -- thing-create --file examples/thing-create.json
-npm run rat-things -- thing-explain THING_ID
-npm run rat-things -- thing-test THING_ID --idempotency-key deployment-smoke-001
-npm run rat-things -- thing-publish THING_ID
+npm run rat-things -- thing-release --file examples/thing-create.json
 npm run rat-things -- thing-run THING_ID --idempotency-key deployment-production-001
 ```
 

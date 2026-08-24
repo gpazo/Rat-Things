@@ -37,16 +37,6 @@ export class TeamsIngressAdapter implements WebhookIngressAdapter {
       text: `Rat Things request received. I'll reply when run ${run.runId} finishes.`,
     });
   }
-
-  public acknowledgeConversation(
-    receipt: { conversationId: string; messageId: string },
-    _work: IngressWork,
-  ): WebhookResponse {
-    return jsonResponse(200, {
-      type: 'message',
-      text: `Rat Things response received (${receipt.messageId.slice(0, 12)}). I'll reply in this thread when it finishes.`,
-    });
-  }
 }
 
 function error(code: string, message: string): { error: { code: string; message: string } } {

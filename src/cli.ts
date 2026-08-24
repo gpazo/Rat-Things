@@ -48,12 +48,6 @@ interface Arguments {
   positionals: string[];
 }
 
-interface ConversationMessageReceipt {
-  conversationId: string;
-  messageId: string;
-  status: 'appended' | 'duplicate';
-}
-
 interface ConversationMessageStatus {
   conversationId: string;
   messageId: string;
@@ -113,6 +107,7 @@ const commands = new Set([
   'thing-versions',
   'thing-test',
   'thing-publish',
+  'thing-release',
   'thing-run',
   'thing-pause',
   'thing-resume',
@@ -307,24 +302,40 @@ async function main(): Promise<void> {
       const headers: Record<string, string> = {};
       const key = args.values.get('idempotency-key');
       if (key) headers['idempotency-key'] = key;
-      print(await api(
+      const run = await api(
         `/v1/things/${encodeURIComponent(requiredPositional(args, 0, 'Thing ID'))}/${args.command === 'thing-test' ? 'test' : 'run'}`,
         'POST',
         {},
         headers,
-      ));
+      ) as RunRecord;
+      const result = args.flags.has('wait') ? await waitForRun(run, args) : run;
+      print(result);
+      if (args.flags.has('wait') && result.status !== 'succeeded') process.exitCode = 1;
       return;
     }
     case 'thing-publish': {
       const thingId = encodeURIComponent(requiredPositional(args, 0, 'Thing ID'));
       const current = await api(`/v1/things/${thingId}`, 'GET');
+      const draft = thingDraftIdentity(current);
+      const testRunId = args.values.get('test-run');
+      if (!testRunId) {
+        throw new Error('--test-run RUN_ID is required; use thing-release to test and publish in one command');
+      }
       print(await api(
         `/v1/things/${thingId}/publish`,
         'POST',
-        { version: '1', expectedDraftRevision: thingDraftRevision(current) },
+        {
+          version: '1',
+          expectedDraftRevision: draft.revision,
+          expectedSpecHash: draft.specHash,
+          testRunId,
+        },
       ));
       return;
     }
+    case 'thing-release':
+      await releaseThing(args);
+      return;
     case 'thing-pause':
     case 'thing-resume':
     case 'thing-archive': {
@@ -426,14 +437,18 @@ async function chat(args: Arguments): Promise<void> {
   if (args.flags.has('new')) process.stderr.write(`thread=${conversationId}\n`);
   const messageId = args.values.get('idempotency-key') ?? randomUUID();
   const encodedConversation = encodeURIComponent(conversationId);
-  const receipt = await api(
-    `/v1/conversations/${encodedConversation}/messages`,
+  const request = await conversationRequestFromArguments(args) as Record<string, unknown>;
+  const run = await api(
+    '/v1/runs',
     'POST',
-    await conversationRequestFromArguments(args),
+    {
+      ...request,
+      thread: { key: conversationId },
+    },
     { 'idempotency-key': messageId },
-  ) as ConversationMessageReceipt;
+  ) as RunRecord;
   if (args.flags.has('no-wait')) {
-    print(receipt);
+    print(run);
     return;
   }
 
@@ -443,7 +458,7 @@ async function chat(args: Arguments): Promise<void> {
     'wait-timeout',
   );
   const deadline = Date.now() + waitSeconds * 1_000;
-  const statusPath = `/v1/conversations/${encodedConversation}/messages/${encodeURIComponent(receipt.messageId)}`;
+  const statusPath = `/v1/conversations/${encodedConversation}/messages/${encodeURIComponent(messageId)}`;
   let lastProgress = '';
   while (Date.now() < deadline) {
     const current = await api(statusPath, 'GET') as ConversationMessageStatus;
@@ -458,7 +473,7 @@ async function chat(args: Arguments): Promise<void> {
       lastProgress = progress;
     }
     if (current.state === 'dead_letter') {
-      throw new Error(`conversation message ${receipt.messageId} was dead-lettered`);
+      throw new Error(`conversation message ${messageId} was dead-lettered`);
     }
     if (current.run && isTerminal(current.run.status)) {
       if (current.run.status !== 'succeeded') {
@@ -480,7 +495,7 @@ async function chat(args: Arguments): Promise<void> {
     await new Promise((resolvePromise) => setTimeout(resolvePromise, interval * 1_000));
   }
   throw new Error(
-    `conversation message ${receipt.messageId} did not complete within ${waitSeconds} seconds`,
+    `conversation message ${messageId} did not complete within ${waitSeconds} seconds`,
   );
 }
 
@@ -563,18 +578,96 @@ async function submit(args: Arguments): Promise<void> {
     print(record);
     return;
   }
-  const interval = positiveNumber(args.values.get('poll-seconds') ?? '2', 'poll-seconds');
-  let current = record;
-  while (!isTerminal(current.status)) {
-    await new Promise((resolvePromise) => setTimeout(resolvePromise, interval * 1_000));
-    current = await api(`/v1/runs/${record.runId}`, 'GET') as RunRecord;
-    process.stderr.write(`run ${current.runId}: ${current.status}\n`);
-  }
+  const current = await waitForRun(record, args);
   print(current);
   if (current.status === 'succeeded' && args.flags.has('output')) {
     await writeArtifact(current.runId, 'output');
   }
   if (current.status !== 'succeeded') process.exitCode = 1;
+}
+
+async function releaseThing(args: Arguments): Promise<void> {
+  const file = args.values.get('file');
+  if (file && args.positionals.length > 0) {
+    throw new Error('thing-release accepts either THING_ID or --file THING.json, not both');
+  }
+  let created: unknown;
+  let rawThingId = args.positionals[0];
+  if (file) {
+    created = await api('/v1/things', 'POST', await requiredJsonFile(args));
+    rawThingId = thingIdFrom(created);
+    process.stderr.write(`created Thing ${rawThingId}\n`);
+  }
+  if (!rawThingId) {
+    throw new Error('provide a Thing ID or --file THING.json');
+  }
+  const thingId = encodeURIComponent(rawThingId);
+  const explanation = await api(`/v1/things/${thingId}/explain`, 'GET') as {
+    runnable?: unknown;
+    diagnostics?: Array<{ status?: unknown; message?: unknown }>;
+    thing?: unknown;
+  };
+  const errors = Array.isArray(explanation.diagnostics)
+    ? explanation.diagnostics.filter((item) => item.status === 'error')
+    : [];
+  if (explanation.runnable !== true || errors.length > 0) {
+    const detail = errors
+      .map((item) => typeof item.message === 'string' ? item.message : 'unknown diagnostic')
+      .join('; ');
+    throw new Error(`Thing draft is not runnable${detail ? `: ${detail}` : ''}`);
+  }
+  const draft = thingDraftIdentity(explanation.thing);
+  const idempotencyKey = args.values.get('idempotency-key') ??
+    `release:${rawThingId}:${draft.revision}:${draft.specHash.slice(0, 16)}`;
+  process.stderr.write(`testing Thing revision ${draft.revision} (${draft.specHash.slice(0, 12)})\n`);
+  const accepted = await api(
+    `/v1/things/${thingId}/test`,
+    'POST',
+    {},
+    { 'idempotency-key': idempotencyKey },
+  ) as RunRecord;
+  const testRun = await waitForRun(accepted, args);
+  if (testRun.status !== 'succeeded') {
+    print({ version: '1', released: false, ...(created ? { created } : {}), testRun });
+    process.exitCode = 1;
+    return;
+  }
+  process.stderr.write(`publishing tested Thing revision ${draft.revision}\n`);
+  const thing = await api(`/v1/things/${thingId}/publish`, 'POST', {
+    version: '1',
+    expectedDraftRevision: draft.revision,
+    expectedSpecHash: draft.specHash,
+    testRunId: testRun.runId,
+  });
+  print({ version: '1', released: true, ...(created ? { created } : {}), testRun, thing });
+}
+
+function thingIdFrom(value: unknown): string {
+  if (!value || typeof value !== 'object') throw new Error('runtime returned an invalid Thing');
+  const thingId = (value as { thingId?: unknown }).thingId;
+  if (typeof thingId !== 'string' || !thingId) throw new Error('runtime returned no Thing ID');
+  return thingId;
+}
+
+async function waitForRun(record: RunRecord, args: Arguments): Promise<RunRecord> {
+  const interval = positiveNumber(args.values.get('poll-seconds') ?? '2', 'poll-seconds');
+  const waitSeconds = positiveNumber(args.values.get('wait-timeout') ?? '2400', 'wait-timeout');
+  const deadline = Date.now() + waitSeconds * 1_000;
+  let current = record;
+  let previousStatus: string | undefined;
+  while (!isTerminal(current.status)) {
+    if (Date.now() >= deadline) {
+      throw new Error(`timed out after ${waitSeconds}s waiting for Run ${record.runId}`);
+    }
+    if (current.status !== previousStatus) {
+      process.stderr.write(`run ${current.runId}: ${current.status}\n`);
+      previousStatus = current.status;
+    }
+    await new Promise((resolvePromise) => setTimeout(resolvePromise, interval * 1_000));
+    current = await api(`/v1/runs/${record.runId}`, 'GET') as RunRecord;
+  }
+  if (current.status !== previousStatus) process.stderr.write(`run ${current.runId}: ${current.status}\n`);
+  return current;
 }
 
 async function watch(args: Arguments): Promise<void> {
@@ -1297,6 +1390,15 @@ function thingDraftRevision(value: unknown): number {
   return value.draft.revision;
 }
 
+function thingDraftIdentity(value: unknown): { revision: number; specHash: string } {
+  const revision = thingDraftRevision(value);
+  const draft = (value as { draft: { specHash?: unknown } }).draft;
+  if (typeof draft.specHash !== 'string' || !/^[a-f0-9]{64}$/.test(draft.specHash)) {
+    throw new Error('Thing response does not contain a valid draft spec hash');
+  }
+  return { revision, specHash: draft.specHash };
+}
+
 function parseResponse(value: string): unknown {
   try {
     return JSON.parse(value) as unknown;
@@ -1365,8 +1467,11 @@ function help(showAll: boolean): void {
   process.stdout.write(`  rat-things thing-version THING_ID REVISION\n`);
   process.stdout.write(`  rat-things thing-versions THING_ID\n`);
   process.stdout.write(`  rat-things thing-explain THING_ID [--target draft|active]\n`);
-  process.stdout.write(`  rat-things thing-test THING_ID [--idempotency-key KEY]\n`);
-  process.stdout.write(`  rat-things thing-publish THING_ID\n`);
+  process.stdout.write(`  rat-things thing-test THING_ID [--wait] [--idempotency-key KEY]\n`);
+  process.stdout.write(`  rat-things thing-release THING_ID [--poll-seconds N] [--wait-timeout N]\n`);
+  process.stdout.write(`  rat-things thing-release --file THING.json [--poll-seconds N] [--wait-timeout N]\n`);
+  process.stdout.write(`    validates, tests, waits for success, then publishes that exact draft revision\n`);
+  process.stdout.write(`  rat-things thing-publish THING_ID --test-run RUN_ID\n`);
   process.stdout.write(`  rat-things thing-run THING_ID [--idempotency-key KEY]\n`);
   process.stdout.write(`  rat-things thing-pause|thing-resume|thing-archive THING_ID\n`);
   process.stdout.write(`\nRoutines\n\n`);

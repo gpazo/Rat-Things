@@ -22,7 +22,11 @@ export class RunDispatcher {
     const { store, artifacts, executors } = this.options;
     const current = await store.get(message.runId);
     if (!current || !isDispatchable(current)) return;
-    const request = await artifacts.getJson<RunRequest>(current.input);
+    // A threaded Run exists before its predecessor state is known. Conversation
+    // wake-ups prepare its trusted execution input and only then enqueue it.
+    // Ignore an accidental/reconciler wake-up while that preparation is pending.
+    if (current.conversation && !current.executionInput) return;
+    const request = await artifacts.getJson<RunRequest>(current.executionInput ?? current.input);
     const backend = request.execution?.backend ?? this.options.defaultBackend;
     const executor = executors.get(backend);
     if (current.status === 'queued') {

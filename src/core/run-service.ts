@@ -4,6 +4,7 @@ import type {
   RunProvenance,
   RunRecord,
   RunRequest,
+  ThingRunBinding,
 } from '../domain/contracts.js';
 import type { SandboxMode } from '../domain/contracts.js';
 import { isTerminal } from '../domain/state.js';
@@ -50,6 +51,8 @@ export interface SubmitOptions {
   enqueue?: boolean;
   /** Internal coordinator-only metadata; never copied from a public RunRequest. */
   conversation?: ConversationRunBinding;
+  /** Internal Thing compiler metadata; never copied from a public RunRequest. */
+  thing?: ThingRunBinding;
 }
 
 export interface RunServiceOptions {
@@ -75,27 +78,34 @@ export class RunService {
     this.retentionSeconds = options.retentionSeconds ?? DEFAULT_RETENTION_SECONDS;
   }
 
+  /** Resolves the stable public Run ID before thread coordination begins. */
+  public idFor(ownerId: string, idempotencyKey: string): string {
+    if (!ownerId.trim()) throw new ForbiddenError('an authenticated owner is required');
+    if (Buffer.byteLength(ownerId, 'utf8') > 1_024) throw new ForbiddenError('owner identity is too large');
+    return this.ids.deterministic(ownerId, validateIdempotencyKey(idempotencyKey));
+  }
+
+  /** Returns the exact canonical request accepted by this deployment. */
+  public canonicalize(rawRequest: unknown): RunRequest {
+    return this.parse(rawRequest);
+  }
+
   public async submit(ownerId: string, rawRequest: unknown, submit: SubmitOptions = {}): Promise<RunRecord> {
     if (!ownerId.trim()) throw new ForbiddenError('an authenticated owner is required');
     if (Buffer.byteLength(ownerId, 'utf8') > 1_024) throw new ForbiddenError('owner identity is too large');
-    const request = parseRunRequest(rawRequest, {
-      ...(this.options.allowedRepositoryHosts
-        ? { allowedRepositoryHosts: this.options.allowedRepositoryHosts }
-        : {}),
-      ...(this.options.allowedSandboxModes
-        ? { allowedSandboxModes: this.options.allowedSandboxModes }
-        : {}),
-    });
+    const request = this.parse(rawRequest);
     const canonical = stableJson(request);
     const requestHash = sha256(canonical);
     const runId = submit.idempotencyKey
-      ? this.ids.deterministic(ownerId, validateIdempotencyKey(submit.idempotencyKey))
+      ? this.idFor(ownerId, submit.idempotencyKey)
       : this.ids.random();
 
     if (submit.idempotencyKey) {
       const existing = await this.options.store.get(runId);
       if (existing) {
         const same = assertSameRequest(existing, requestHash);
+        assertSameThing(same.thing, submit.thing);
+        assertSameConversationBinding(same.conversation, submit.conversation);
         // SQS is a wake-up hint, not the source of truth. Re-nudging a still-queued run is safe
         // and repairs the create-record/enqueue crash window.
         if (same.status === 'queued' && submit.enqueue !== false) {
@@ -128,6 +138,7 @@ export class RunService {
       sourceKind: request.source?.kind ?? 'api',
       ...(submit.provenance ? { provenance: submit.provenance } : {}),
       ...(submit.conversation ? { conversation: validateConversationBinding(submit.conversation) } : {}),
+      ...(submit.thing ? { thing: validateThingBinding(submit.thing) } : {}),
     };
 
     const created = await this.options.store.create(record);
@@ -148,6 +159,47 @@ export class RunService {
     if (!record) throw new NotFoundError('run not found');
     assertOwner(record, ownerId);
     return record;
+  }
+
+  /**
+   * Attaches the trusted, late-bound input for a threaded Run. The caller's
+   * original input remains immutable and continues to define idempotency.
+   */
+  public async prepareConversation(
+    ownerId: string,
+    runId: string,
+    rawExecutionRequest: unknown,
+    binding: ConversationRunBinding,
+  ): Promise<RunRecord> {
+    const current = await this.get(ownerId, runId);
+    if (current.status !== 'queued') {
+      if (current.executionInput && sameConversation(current.conversation, binding)) return current;
+      throw new ConflictError(`run ${runId} cannot be prepared from ${current.status}`);
+    }
+    if (!current.conversation) throw new ConflictError('run is not awaiting thread preparation');
+    if (
+      current.conversation.conversationId !== binding.conversationId ||
+      current.conversation.messageId !== binding.messageId
+    ) {
+      throw new ConflictError('run thread binding changed before preparation');
+    }
+    const preparedBinding = validateConversationBinding(binding, true);
+    const request = this.parse(rawExecutionRequest);
+    const canonical = stableJson(request);
+    const executionHash = sha256(canonical);
+    const ownerHash = sha256(ownerId).slice(0, 32);
+    const executionInput = await this.options.artifacts.putJson(
+      `owners/${ownerHash}/runs/${runId}/execution-${executionHash}.json`,
+      request,
+    );
+    if (current.executionInput) {
+      if (
+        current.executionInput.sha256 === executionInput.sha256 &&
+        sameConversation(current.conversation, preparedBinding)
+      ) return current;
+      throw new ConflictError('run was already prepared with different thread state');
+    }
+    return this.options.store.prepareConversation(runId, executionInput, preparedBinding);
   }
 
   public async list(ownerId: string, limit = 25, nextToken?: string) {
@@ -205,6 +257,17 @@ export class RunService {
       traceId: traceId ?? runId,
     });
   }
+
+  private parse(rawRequest: unknown): RunRequest {
+    return parseRunRequest(rawRequest, {
+      ...(this.options.allowedRepositoryHosts
+        ? { allowedRepositoryHosts: this.options.allowedRepositoryHosts }
+        : {}),
+      ...(this.options.allowedSandboxModes
+        ? { allowedSandboxModes: this.options.allowedSandboxModes }
+        : {}),
+    });
+  }
 }
 
 function validateCapabilityOwner(value: string): string {
@@ -214,17 +277,32 @@ function validateCapabilityOwner(value: string): string {
   return value;
 }
 
-function validateConversationBinding(binding: ConversationRunBinding): ConversationRunBinding {
-  for (const [label, value, maximum] of [
-    ['conversationId', binding.conversationId, 512],
-    ['turnId', binding.turnId, 512],
-  ] as const) {
-    if (!value || Buffer.byteLength(value, 'utf8') > maximum) {
-      throw new ValidationError(`${label} is invalid`);
-    }
+function validateConversationBinding(
+  binding: ConversationRunBinding,
+  prepared = false,
+): ConversationRunBinding {
+  if (!binding.conversationId || Buffer.byteLength(binding.conversationId, 'utf8') > 512) {
+    throw new ValidationError('conversationId is invalid');
   }
-  if (!Number.isInteger(binding.slice) || binding.slice < 0 || binding.slice > 10_000) {
+  if (
+    binding.messageId !== undefined &&
+    (!binding.messageId || Buffer.byteLength(binding.messageId, 'utf8') > 512)
+  ) {
+    throw new ValidationError('messageId is invalid');
+  }
+  if (!binding.messageId && !binding.turnId) {
+    throw new ValidationError('conversation binding requires a messageId or turnId');
+  }
+  if (prepared && !binding.messageId) throw new ValidationError('messageId is invalid');
+  if (binding.turnId !== undefined && (!binding.turnId || Buffer.byteLength(binding.turnId, 'utf8') > 512)) {
+    throw new ValidationError('turnId is invalid');
+  }
+  if (prepared && !binding.turnId) throw new ValidationError('turnId is invalid');
+  if (prepared && (!Number.isInteger(binding.slice) || binding.slice! < 0 || binding.slice! > 10_000)) {
     throw new ValidationError('conversation slice is invalid');
+  }
+  if (binding.delivery !== undefined && !['interrupt', 'defer'].includes(binding.delivery)) {
+    throw new ValidationError('conversation delivery is invalid');
   }
   if (binding.preferredMicrovmId && !/^[A-Za-z0-9._:-]{1,256}$/.test(binding.preferredMicrovmId)) {
     throw new ValidationError('preferred MicroVM ID is invalid');
@@ -243,6 +321,59 @@ function validateConversationBinding(binding: ConversationRunBinding): Conversat
     )) throw new ValidationError(`conversation ${label} artifact is invalid`);
   }
   return { ...binding };
+}
+
+function sameConversation(
+  left: ConversationRunBinding | undefined,
+  right: ConversationRunBinding,
+): boolean {
+  return Boolean(left && stableJson(left) === stableJson(right));
+}
+
+function validateThingBinding(binding: ThingRunBinding): ThingRunBinding {
+  if (binding.version !== '1') throw new ValidationError('Thing run binding version must be "1"');
+  if (!/^[A-Za-z0-9-]{1,128}$/.test(binding.thingId)) {
+    throw new ValidationError('Thing run binding ID is invalid');
+  }
+  if (!Number.isSafeInteger(binding.revision) || binding.revision < 1) {
+    throw new ValidationError('Thing run binding revision is invalid');
+  }
+  if (!/^[a-f0-9]{64}$/.test(binding.specHash)) {
+    throw new ValidationError('Thing run binding spec hash is invalid');
+  }
+  if (!['test', 'manual', 'schedule'].includes(binding.invocation)) {
+    throw new ValidationError('Thing run binding invocation is invalid');
+  }
+  if (binding.invocation === 'schedule' && !binding.scheduledAt) {
+    throw new ValidationError('scheduled Thing run binding requires scheduledAt');
+  }
+  if (binding.scheduledAt !== undefined && !Number.isFinite(Date.parse(binding.scheduledAt))) {
+    throw new ValidationError('Thing run binding scheduledAt is invalid');
+  }
+  return { ...binding };
+}
+
+function assertSameThing(
+  existing: ThingRunBinding | undefined,
+  requested: ThingRunBinding | undefined,
+): void {
+  if (stableJson(existing) !== stableJson(requested)) {
+    throw new ConflictError('the idempotency key was already used for a different Thing occurrence');
+  }
+}
+
+function assertSameConversationBinding(
+  existing: ConversationRunBinding | undefined,
+  requested: ConversationRunBinding | undefined,
+): void {
+  const same = existing && requested
+    ? existing.conversationId === requested.conversationId &&
+      existing.messageId === requested.messageId &&
+      existing.delivery === requested.delivery
+    : existing === requested;
+  if (!same) {
+    throw new ConflictError('the idempotency key was already used for a different thread occurrence');
+  }
 }
 
 export function requestForRun(request: RunRequest): RunRequest {

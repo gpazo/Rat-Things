@@ -197,9 +197,11 @@ describe('published machine contracts', () => {
 
     expect(docsConfig.groups.find((group) => group.title === 'Start here')?.documents)
       .toContain('agents.md');
+    expect(docsConfig.groups.find((group) => group.title === 'Start here')?.documents?.[0])
+      .toBe('quickstart.md');
     expect(siteBuilder).toContain('## Agent quickstart');
     expect(siteBuilder).toContain('Do not load the full corpus for a simple Thing run');
-    expect(siteBuilder).toContain('For a run-starting');
+    expect(siteBuilder).toContain('Every accepted execution returns one Run');
     expect(guide).toContain('Prefer the Thing lifecycle for reusable work');
     expect(guide).toContain('Go deeper only when the task needs it');
     expect(guide).toContain('not a Thing trigger in v1');

@@ -19,9 +19,11 @@ service.
 
 ## System promise
 
-Rat Things separates the lifetime of an agent from the lifetime of its compute:
+Rat Things separates the lifetime of accepted work from the lifetime of its compute:
 
-- a channel thread or API conversation is the durable unit of work;
+- one Run is the durable acceptance, state, evidence, and result unit for every execution;
+- an optional owner-scoped conversation adds mailbox ordering, replay, and workspace continuity to
+  that same Run rather than creating another public execution object;
 - DynamoDB owns coordination, fencing, ordering, and bounded history indexes;
 - immutable S3 objects own Thing definitions, messages, events, checkpoints, results, and normalized replay;
 - S3 Files owns durable Codex state and workspace bytes expected by app-server, while high-churn
@@ -111,6 +113,12 @@ wake-up message is sent. With an idempotency key, the run ID is deterministic wi
 namespace: replaying the same body returns the existing run and re-nudges it when still queued;
 reusing the key for a different body returns a conflict. If queue send fails, the durable record stays
 `queued`; the same idempotent client retry or the one-minute reconciler repairs the wake-up.
+
+For a threaded input, the same service reserves the Run before appending its owner-scoped mailbox
+item. The coordinator writes the replay transcript to `executionInput` while leaving the accepted
+request in `input` immutable, then wakes that same Run. The reconciler repairs both the
+Run-reserved/mailbox-write window and the prepared-Run/dispatcher-wake window. A thread therefore
+changes preparation and retention, not admission or the public receipt.
 
 Routines enter at the same boundary. Their prompts and canonical run requests live in encrypted S3;
 the routine table stores schedule metadata, a digest, and an artifact reference. Each interval uses a

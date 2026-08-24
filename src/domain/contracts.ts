@@ -162,14 +162,32 @@ export interface ExecutionReference {
  */
 export interface ConversationRunBinding {
   conversationId: string;
-  turnId: string;
-  slice: number;
+  /** The exact durable mailbox item represented by this public Run. */
+  messageId?: string;
+  /** Assigned by the thread coordinator before the Run is dispatched. */
+  turnId?: string;
+  /** Assigned by the thread coordinator before the Run is dispatched. */
+  slice?: number;
+  /** Delivery priority selected when the Run was accepted. */
+  delivery?: 'interrupt' | 'defer';
   preferredMicrovmId?: string;
   agentThreadId?: string;
   /** S3 batch containing only the messages consumed by this slice. */
   continuation?: ArtifactReference;
   /** Trusted catalog used to restore durable files into a replacement MicroVM. */
   artifacts?: ArtifactReference;
+}
+
+export type ThingInvocationKind = 'test' | 'manual' | 'schedule';
+
+/** Trusted, immutable evidence identifying the Thing revision that produced a Run. */
+export interface ThingRunBinding {
+  version: '1';
+  thingId: string;
+  revision: number;
+  specHash: string;
+  invocation: ThingInvocationKind;
+  scheduledAt?: string;
 }
 
 export interface RunError {
@@ -207,10 +225,17 @@ export interface RunRecord {
   updatedAt: string;
   expiresAt: number;
   requestHash: string;
+  /** Original caller/provider input. It is immutable and drives idempotency. */
   input: ArtifactReference;
+  /**
+   * Trusted execution input prepared for a threaded Run after its predecessor
+   * state is known. One-shot Runs execute `input` directly.
+   */
+  executionInput?: ArtifactReference;
   sourceKind: RunSource['kind'];
   provenance?: RunProvenance;
   conversation?: ConversationRunBinding;
+  thing?: ThingRunBinding;
   execution?: ExecutionReference;
   result?: RunResult;
   error?: RunError;

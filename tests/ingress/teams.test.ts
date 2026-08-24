@@ -21,22 +21,4 @@ describe('Teams ingress adapter', () => {
       },
     });
   });
-
-  it('acknowledges a durable conversation message without claiming a run exists yet', () => {
-    const adapter = new TeamsIngressAdapter(
-      new CredentialBroker({ get: vi.fn() }),
-      { webhookSecretArn: 'secret:teams-webhook' },
-    );
-
-    expect(adapter.acknowledgeConversation(
-      { conversationId: 'conversation-1', messageId: 'activity-1234567890' },
-      {} as IngressWork,
-    )).toEqual({
-      statusCode: 200,
-      body: {
-        type: 'message',
-        text: "Rat Things response received (activity-123). I'll reply in this thread when it finishes.",
-      },
-    });
-  });
 });

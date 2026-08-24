@@ -20,12 +20,12 @@ import {
 import { explainThingEnvironment } from '../app/thing-explanation.js';
 import {
   getConversationService,
-  getConversationSubmissionService,
   getAgentInteractionController,
   getConnectionService,
   getIntegrationPluginRegistry,
   getCapabilityProfileRegistry,
   getRoutineService,
+  getRunSubmissionService,
   getThingService,
 } from '../app/composition.js';
 import { ConflictError, NotFoundError } from '../core/run-service.js';
@@ -37,7 +37,7 @@ import {
   publicationTtlSeconds,
 } from '../core/publication-publisher.js';
 import { artifactIdForPath, validateArtifactCatalog } from '../domain/artifacts.js';
-import type { AgentInput, ArtifactReference, JsonValue, RunRecord, RunRequest } from '../domain/contracts.js';
+import type { ArtifactReference, JsonValue, RunRecord, RunRequest } from '../domain/contracts.js';
 import type { ArtifactCatalog, PublishedArtifact } from '../domain/contracts.js';
 import type { ConversationRecord } from '../domain/conversations.js';
 import {
@@ -448,33 +448,6 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
     const conversationKey = conversationPathParameter(event, 'conversationId');
     const messageId = conversationPathParameter(event, 'messageId', 200);
     if (
-      method === 'POST' &&
-      conversationKey &&
-      routeMatches(
-        event,
-        'POST /v1/conversations/{conversationId}/messages',
-        `/v1/conversations/${conversationKey}/messages`,
-      )
-    ) {
-      const request = apiConversationRequestBody(jsonBody(event));
-      const idempotencyKey = requiredIdempotencyKey(header(event.headers, 'idempotency-key'));
-      const receipt = await getConversationSubmissionService().submitApi({
-        conversationKey,
-        messageId: idempotencyKey,
-        prompt: request.prompt,
-        context,
-        traceId: event.requestContext.requestId,
-        executionPolicy: {
-          ...request.agent,
-          sandbox: request.agent?.sandbox ?? 'danger-full-access',
-        },
-        ...(request.integrations ? { integrationPolicy: request.integrations } : {}),
-      });
-      return response(receipt.status === 'appended' ? 202 : 200, receipt, {
-        location: `/v1/conversations/${conversationKey}/messages/${receipt.messageId}`,
-      });
-    }
-    if (
       method === 'GET' &&
       conversationKey &&
       messageId &&
@@ -540,15 +513,21 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
     }
     if (method === 'POST' && path === '/v1/runs') {
       const body = jsonBody(event);
-      const trustedBody = apiRequestBody(body, context.source);
       const idempotencyKey = header(event.headers, 'idempotency-key');
-      const run = await service().submit(ownerId, trustedBody, {
+      const submission = apiRunSubmissionBody(
+        body,
+        context.source,
+        ownerId,
+        idempotencyKey,
+      );
+      const run = await getRunSubmissionService().submit(ownerId, submission.request, {
         ...(idempotencyKey ? { idempotencyKey } : {}),
         traceId: event.requestContext.requestId,
         provenance: {
           actor: context.actor,
           credentialSubject: context.credentialSubject,
         },
+        ...(submission.thread ? { thread: submission.thread } : {}),
       });
       return response(202, publicRun(run), { location: `/v1/runs/${run.runId}` });
     }
@@ -699,17 +678,42 @@ export function apiRequestBody(body: unknown, source: { kind: 'api' } = { kind: 
   };
 }
 
+export function apiRunSubmissionBody(
+  body: unknown,
+  source: { kind: 'api' },
+  ownerId: string,
+  idempotencyKey?: string,
+): { request: unknown; thread?: { conversationId: string; messageId: string; delivery?: 'interrupt' | 'defer' } } {
+  if (!isRecord(body) || body.thread === undefined) {
+    return { request: apiRequestBody(body, source) };
+  }
+  const { thread: rawThread, ...request } = body;
+  const thread = strictBody(rawThread, ['key', 'delivery']);
+  const key = boundedText(thread.key, 'thread.key', 128);
+  if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(key)) {
+    throw new ValidationError('thread.key must be 1-128 safe ASCII characters');
+  }
+  const messageId = requiredIdempotencyKey(idempotencyKey);
+  const delivery = thread.delivery === undefined
+    ? undefined
+    : boundedText(thread.delivery, 'thread.delivery', 16);
+  if (delivery !== undefined && delivery !== 'interrupt' && delivery !== 'defer') {
+    throw new ValidationError('thread.delivery must be interrupt or defer');
+  }
+  return {
+    request: apiRequestBody(request, source),
+    thread: {
+      conversationId: apiConversationId(ownerId, key),
+      messageId,
+      ...(delivery ? { delivery } : {}),
+    },
+  };
+}
+
 function thingExplanationTarget(value: string | undefined): 'draft' | 'active' {
   if (value === undefined || value === 'draft') return 'draft';
   if (value === 'active') return 'active';
   throw new ValidationError('target must be draft or active');
-}
-
-export interface ApiConversationMessageRequest {
-  version: '1';
-  prompt: string;
-  agent?: Omit<AgentInput, 'outputSchema'>;
-  integrations?: RunRequest['integrations'];
 }
 
 export interface ApiConversationMessageStatus {
@@ -724,31 +728,6 @@ export interface ApiConversationMessageStatus {
     'status' | 'pendingCount' | 'createdAt' | 'updatedAt' | 'latestProgress' | 'session'
   >;
   run?: RunRecord;
-}
-
-export function apiConversationRequestBody(body: unknown): ApiConversationMessageRequest {
-  if (!isRecord(body)) throw new ValidationError('request must be an object');
-  const unknown = Object.keys(body).filter(
-    (key) => !['version', 'prompt', 'agent', 'integrations'].includes(key),
-  );
-  if (unknown.length > 0) throw new ValidationError(`request contains unknown field ${unknown[0]}`);
-  const parsed = parseRunRequest(body, {
-    allowedSandboxModes: (
-      process.env.ALLOWED_SANDBOX_MODES ?? 'read-only,workspace-write,danger-full-access'
-    )
-      .split(',')
-      .map((value) => value.trim())
-      .filter(Boolean) as NonNullable<AgentInput['sandbox']>[],
-  });
-  if (parsed.agent?.outputSchema) {
-    throw new ValidationError('agent.outputSchema is not supported for durable conversations');
-  }
-  return {
-    version: '1',
-    prompt: parsed.prompt,
-    ...(parsed.agent ? { agent: parsed.agent } : {}),
-    ...(parsed.integrations ? { integrations: parsed.integrations } : {}),
-  };
 }
 
 async function conversationMessageStatus(

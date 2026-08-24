@@ -7,6 +7,8 @@ import type {
   RunDestination,
   RunRecord,
   RunRequest,
+  ThingInvocationKind,
+  ThingRunBinding,
 } from './contracts.js';
 import type {
   ConnectionStatus,
@@ -194,17 +196,10 @@ export interface ScheduledThingResult {
   run?: Pick<RunRecord, 'runId' | 'status'>;
 }
 
-export type ThingInvocationKind = 'test' | 'manual' | 'schedule';
+export type { ThingInvocationKind } from './contracts.js';
 
 /** Immutable Thing revision evidence returned with a newly accepted occurrence. */
-export interface ThingRunEvidence {
-  version: '1';
-  thingId: string;
-  revision: number;
-  specHash: string;
-  invocation: ThingInvocationKind;
-  scheduledAt?: string;
-}
+export type ThingRunEvidence = ThingRunBinding;
 
 /** The ordinary run receipt plus the exact Thing revision that produced it. */
 export interface ThingOccurrenceRun extends RunRecord {

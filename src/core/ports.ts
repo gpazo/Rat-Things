@@ -1,5 +1,6 @@
 import type {
   ArtifactReference,
+  ConversationRunBinding,
   ExecutionReference,
   ListRunsResult,
   RunError,
@@ -39,6 +40,11 @@ export interface RunStore {
   get(runId: string): Promise<RunRecord | undefined>;
   list(ownerId: string, limit: number, nextToken?: string): Promise<ListRunsResult>;
   transition(runId: string, from: RunStatus[], to: RunStatus, patch?: Partial<RunRecord>): Promise<RunRecord>;
+  prepareConversation(
+    runId: string,
+    executionInput: ArtifactReference,
+    conversation: ConversationRunBinding,
+  ): Promise<RunRecord>;
   attachExecution(runId: string, execution: ExecutionReference): Promise<RunRecord>;
   complete(runId: string, result: RunResult): Promise<RunRecord>;
   fail(runId: string, error: RunError, from?: RunStatus[]): Promise<RunRecord>;

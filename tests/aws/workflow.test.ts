@@ -376,6 +376,22 @@ integration('live AWS agent-runner workflow', () => {
       secondGoal,
     );
 
+    const draftTest = await signedApi<RunRecord>(
+      `/v1/things/${created.thingId}/test`,
+      'POST',
+      {},
+      { 'idempotency-key': `thing-live-test-${randomUUID()}` },
+    );
+    const completedDraftTest = await waitForApiRun(draftTest.runId);
+    assertSuccessfulMicrovmRun(completedDraftTest);
+    expect(completedDraftTest.thing).toEqual({
+      version: '1',
+      thingId: created.thingId,
+      revision: 2,
+      specHash: storedThing.draft.specHash,
+      invocation: 'test',
+    });
+
     const published = await signedApi<{
       status: string;
       draft: { revision: number };
@@ -384,6 +400,8 @@ integration('live AWS agent-runner workflow', () => {
     }>(`/v1/things/${created.thingId}/publish`, 'POST', {
       version: '1',
       expectedDraftRevision: 2,
+      expectedSpecHash: storedThing.draft.specHash,
+      testRunId: completedDraftTest.runId,
     });
     expect(published).toMatchObject({
       status: 'active',
@@ -483,6 +501,18 @@ integration('live AWS agent-runner workflow', () => {
     });
     expect(created).toMatchObject({ draft: { revision: 1 }, status: 'draft' });
 
+    const draft = await signedApi<{
+      draft: { revision: number; specHash: string };
+    }>(`/v1/things/${created.thingId}`, 'GET');
+    const testRun = await signedApi<RunRecord>(
+      `/v1/things/${created.thingId}/test`,
+      'POST',
+      {},
+      { 'idempotency-key': `scheduled-thing-test-${randomUUID()}` },
+    );
+    const completedTest = await waitForApiRun(testRun.runId);
+    assertSuccessfulMicrovmRun(completedTest);
+
     const published = await signedApi<{
       status: string;
       active: { revision: number };
@@ -490,6 +520,8 @@ integration('live AWS agent-runner workflow', () => {
     }>(`/v1/things/${created.thingId}/publish`, 'POST', {
       version: '1',
       expectedDraftRevision: 1,
+      expectedSpecHash: draft.draft.specHash,
+      testRunId: completedTest.runId,
     });
     expect(published).toMatchObject({
       status: 'active',
@@ -805,18 +837,41 @@ integration('live AWS agent-runner workflow', () => {
     );
     const fixture = directConversationFixture(`aws-e2e-recovery-${randomUUID()}`);
     const marker = `recovery-${randomUUID()}`;
+    const messageId = `message-${randomUUID()}`;
+    const request: RunRequest = {
+      version: '1',
+      prompt: `Return AWS live marker ${marker}`,
+      source: fixture.source,
+      destinations: [fixture.destination],
+      agent: { driver: 'mock', sandbox: 'read-only' },
+    };
+    const reserved = await liveRuns.submit(fixture.ownerId, request, {
+      idempotencyKey: messageId,
+      enqueue: false,
+      provenance: {
+        actor: fixture.actor,
+        credentialSubject: fixture.credentialSubject,
+      },
+      conversation: {
+        conversationId: fixture.conversationId,
+        messageId,
+        delivery: 'defer',
+      },
+    });
     await conversations.appendMessage({
       ...fixture,
-      messageId: `message-${randomUUID()}`,
+      messageId,
+      runId: reserved.runId,
       delivery: 'defer',
-      content: { text: `Return AWS live marker ${marker}` },
+      content: { text: request.prompt, request },
       executionPolicy: { driver: 'mock', sandbox: 'read-only' },
     });
     const interruptedCoordinator = new ConversationCoordinator({
       conversations,
       artifacts,
       runs: {
-        submit: liveRuns.submit.bind(liveRuns),
+        get: liveRuns.get.bind(liveRuns),
+        prepareConversation: liveRuns.prepareConversation.bind(liveRuns),
         wake: async () => { throw new Error('simulated crash before run queue wake-up'); },
       },
       sliceTimeoutSeconds: 120,
@@ -1381,6 +1436,7 @@ interface TeamsReceipt {
 interface ApiConversationReceipt {
   conversationId: string;
   messageId: string;
+  runId: string;
   status: 'appended' | 'duplicate';
 }
 
@@ -1516,12 +1572,14 @@ async function submitApiConversation(
   prompt: string,
   agent: ConversationExecutionPolicy,
 ): Promise<ApiConversationReceipt> {
-  return signedApi<ApiConversationReceipt>(
-    `/v1/conversations/${encodeURIComponent(conversationId)}/messages`,
+  const messageId = randomUUID();
+  const run = await signedApi<RunRecord>(
+    '/v1/runs',
     'POST',
-    { version: '1', prompt, agent },
-    { 'idempotency-key': randomUUID() },
+    { version: '1', prompt, agent, thread: { key: conversationId } },
+    { 'idempotency-key': messageId },
   );
+  return { conversationId, messageId, runId: run.runId, status: 'appended' };
 }
 
 async function waitForApiConversationMessage(

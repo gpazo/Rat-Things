@@ -1,6 +1,6 @@
 import type { RunRecord, RunRequest, RunSource } from '../domain/contracts.js';
 import type { IngressContext, ProviderKind } from '../identity/context.js';
-import type { SubmitOptions } from '../core/run-service.js';
+import type { RunSubmissionOptions } from '../core/run-submission-service.js';
 
 export interface WebhookRequest {
   body: string;
@@ -15,7 +15,7 @@ export interface WebhookResponse {
 export interface IngressWork {
   context: IngressContext;
   request: RunRequest;
-  submit: SubmitOptions;
+  submit: RunSubmissionOptions;
   /** Trusted owner whose source binding delegated capabilities to this work. */
   policyOwnerId?: string;
 }
@@ -28,18 +28,10 @@ export interface WebhookIngressAdapter {
   readonly provider: ProviderKind;
   receive(request: WebhookRequest): Promise<IngressDecision>;
   acknowledge(run: RunRecord, work: IngressWork): WebhookResponse;
-  acknowledgeConversation?(
-    receipt: { conversationId: string; messageId: string },
-    work: IngressWork,
-  ): WebhookResponse;
 }
 
 export interface RunSubmissionPort {
-  submit(ownerId: string, request: unknown, options?: SubmitOptions): Promise<RunRecord>;
-}
-
-export interface ConversationSubmissionPort {
-  submit(work: IngressWork): Promise<{ conversationId: string; messageId: string }>;
+  submit(ownerId: string, request: unknown, options?: RunSubmissionOptions): Promise<RunRecord>;
 }
 
 export interface SourcePolicyResolver {

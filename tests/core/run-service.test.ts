@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 
 import type {
   ArtifactReference,
+  ConversationRunBinding,
   ExecutionReference,
   ListRunsResult,
   RunError,
@@ -69,6 +70,17 @@ class MemoryRunStore implements RunStore {
     assertTransition(record.status, to);
     this.transitionCalls.push({ runId, from: [...from], to });
     Object.assign(record, structuredClone(patch), { status: to });
+    return structuredClone(record);
+  }
+
+  public async prepareConversation(
+    runId: string,
+    executionInput: ArtifactReference,
+    conversation: ConversationRunBinding,
+  ): Promise<RunRecord> {
+    const record = this.required(runId);
+    record.executionInput = structuredClone(executionInput);
+    record.conversation = structuredClone(conversation);
     return structuredClone(record);
   }
 
@@ -331,6 +343,65 @@ describe('RunService.submit', () => {
     expect(store.createCalls).toBe(0);
     expect(artifacts.jsonWrites).toEqual([]);
     expect(queue.messages).toEqual([]);
+  });
+
+  it('keeps the public input immutable while attaching trusted thread execution input', async () => {
+    const { service, artifacts, queue } = harness();
+    const submitted = await service.submit('owner-1', baseRequest, {
+      idempotencyKey: 'thread-message-1',
+      enqueue: false,
+      conversation: {
+        conversationId: 'api:owner-1:release',
+        messageId: 'message-1',
+        delivery: 'defer',
+      },
+    });
+    const originalInput = submitted.input;
+    const prepared = await service.prepareConversation(
+      'owner-1',
+      submitted.runId,
+      { ...baseRequest, prompt: 'Canonical transcript\n\nReview the runtime change.' },
+      {
+        conversationId: 'api:owner-1:release',
+        messageId: 'message-1',
+        turnId: 'turn-1',
+        slice: 0,
+        delivery: 'defer',
+      },
+    );
+
+    expect(prepared.input).toEqual(originalInput);
+    expect(prepared.executionInput).toBeDefined();
+    expect(prepared.executionInput).not.toEqual(originalInput);
+    expect(prepared.conversation).toMatchObject({
+      messageId: 'message-1',
+      turnId: 'turn-1',
+      slice: 0,
+    });
+    expect(artifacts.jsonWrites).toHaveLength(2);
+    expect(queue.messages).toEqual([]);
+
+    await expect(service.submit('owner-1', baseRequest, {
+      idempotencyKey: 'thread-message-1',
+      enqueue: false,
+      conversation: {
+        conversationId: 'api:owner-1:release',
+        messageId: 'message-1',
+        delivery: 'defer',
+      },
+    })).resolves.toMatchObject({
+      runId: submitted.runId,
+      executionInput: prepared.executionInput,
+    });
+    await expect(service.submit('owner-1', baseRequest, {
+      idempotencyKey: 'thread-message-1',
+      enqueue: false,
+      conversation: {
+        conversationId: 'api:owner-1:another-thread',
+        messageId: 'message-1',
+        delivery: 'defer',
+      },
+    })).rejects.toThrow('different thread occurrence');
   });
 });
 

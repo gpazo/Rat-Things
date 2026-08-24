@@ -7,6 +7,7 @@ export function normalizedWork(normalized: NormalizedWebhookRun, traceId: string
   const source = normalized.request.source;
   if (!source || source.kind === 'api') throw new Error('provider ingress must supply trusted source context');
   const actor = providerActor(source);
+  const thread = threadForSource(source);
   return {
     context: providerIngressContext({
       ownerId: normalized.ownerId,
@@ -15,7 +16,11 @@ export function normalizedWork(normalized: NormalizedWebhookRun, traceId: string
       source,
     }),
     request: normalized.request,
-    submit: { idempotencyKey: normalized.idempotencyKey, traceId },
+    submit: {
+      idempotencyKey: normalized.idempotencyKey,
+      traceId,
+      ...(thread ? { thread } : {}),
+    },
   };
 }
 
@@ -45,5 +50,34 @@ function providerActor(source: Exclude<RunSource, { kind: 'api' }>): {
         id: `slack:${source.teamId ?? 'unknown'}:${source.userId ?? 'unknown'}`,
         kind: 'human',
       };
+  }
+}
+
+function threadForSource(source: Exclude<RunSource, { kind: 'api' }>) {
+  switch (source.kind) {
+    case 'teams':
+      return {
+        conversationId: [
+          'teams',
+          source.tenantId ?? 'unknown',
+          source.senderId ?? 'unknown',
+          source.conversationId,
+        ].join(':'),
+        messageId: source.activityId,
+      };
+    case 'slack':
+      return {
+        conversationId: [
+          'slack',
+          source.teamId ?? 'unknown',
+          source.userId ?? 'unknown',
+          source.channelId,
+          source.threadTs ?? source.eventId,
+        ].join(':'),
+        messageId: source.eventId,
+      };
+    case 'github':
+    case 'gitlab':
+      return undefined;
   }
 }

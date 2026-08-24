@@ -19,6 +19,7 @@
 <p align="center">
   <a href="https://gpazo.github.io/Rat-Things/">Website</a> ·
   <a href="https://gpazo.github.io/Rat-Things/docs/">Documentation</a> ·
+  <a href="docs/quickstart.md">Ten-minute quickstart</a> ·
   <a href="docs/operating-model.md">How it works</a> ·
   <a href="docs/agents.md">Connect an agent</a> ·
   <a href="docs/things.md">Build a Thing</a> ·
@@ -48,6 +49,7 @@ disposable but the work is durable: account grants, Thing revisions, conversatio
 workspace bytes, events, files, and results live outside the VM and remain owner-scoped.
 
 > Once this narrow journey is delightful and stable, expand it. Start with the
+> [ten-minute AWS quickstart](docs/quickstart.md), then read the
 > [operating model](docs/operating-model.md).
 
 > [!WARNING]
@@ -187,6 +189,29 @@ thread and workspace from a replacement MicroVM.
 
 ![Rat Things C4 live AWS test harness](docs/c4-live-aws-test-harness-containers.png)
 
+## Ten-minute first Thing on AWS
+
+With Node, npm, Git, Terraform, AWS credentials, Lambda MicroVM access, and Bedrock model access
+ready:
+
+```bash
+git clone https://github.com/gpazo/Rat-Things.git
+cd Rat-Things
+npm ci
+npm run quickstart:aws
+```
+
+One reviewed setup command deploys the narrow backend needed for a first manual Thing, verifies its public discovery and
+IAM-authenticated API, creates a safe Thing, explains and tests its exact draft with real Codex in a
+Lambda MicroVM, verifies the output marker, and publishes only that tested revision. It records the
+measured result and fails the golden-path gate above ten minutes. The default uses paid Bedrock
+tokens; `--driver mock` is an explicitly labeled infrastructure-only diagnostic. Progress stays
+short and readable; complete package and Terraform output is retained in
+`.runtime/aws-quickstart/quickstart.log` for debugging.
+
+Read the [ten-minute AWS quickstart](docs/quickstart.md) for the exact boundary, dry run,
+prerequisites, output evidence, troubleshooting, status, and teardown commands.
+
 ## Developer quick start
 
 Requirements: Node.js 20+, npm, and Git.
@@ -231,15 +256,16 @@ model, sandbox, reasoning, polling, and timeout controls. Run `rat-things help -
 `npm run rat-things -- help --all`) for that complete surface.
 
 Products and operators that need a reusable cloud agent can create a Thing, inspect its effective
-permissions, test the draft, and publish that exact immutable revision:
+permissions, test the draft, and publish that exact immutable revision in one release command:
 
 ```bash
-rat-things thing-create --file examples/thing-create.json
-rat-things thing-explain THING_ID
-rat-things thing-test THING_ID --idempotency-key first-safe-test
-rat-things thing-publish THING_ID
+rat-things thing-release --file examples/thing-create.json
 rat-things thing-run THING_ID --idempotency-key first-production-run
 ```
+
+`thing-release --file` returns the created Thing, successful test Run, exact revision evidence, and
+active Thing as one JSON result. Use the individual lifecycle commands when reviewing or editing an
+existing draft; manual `thing-publish` requires `--test-run RUN_ID`.
 
 Start programmatic integration at `GET /.well-known/rat-things`; it links to the deployment's
 agent quickstart, OpenAPI, and ThingSpec schemas. See [connect an agent](docs/agents.md), [Things](docs/things.md),
@@ -277,10 +303,7 @@ Put an EventBridge rate or cron trigger in the ThingSpec, test its draft, and pu
 revision that should run on schedule:
 
 ```bash
-rat-things thing-create --file examples/thing-connected-schedule.json
-rat-things thing-explain THING_ID
-rat-things thing-test THING_ID --idempotency-key scheduled-thing-test-v1
-rat-things thing-publish THING_ID
+rat-things thing-release --file examples/thing-connected-schedule.json
 ```
 
 Integration credentials are accepted only by connection-management endpoints, verified before

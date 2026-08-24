@@ -4,11 +4,13 @@ import { QueryCommand } from '@aws-sdk/lib-dynamodb';
 import { createAwsClients, DynamoRunStore } from '../adapters/aws-runtime.js';
 import { requiredEnv } from '../adapters/executors.js';
 import type { RunQueueMessage, RunRecord } from '../domain/contracts.js';
+import { recoveryWakeForQueuedRun } from '../core/run-recovery.js';
 import { getRoutineService } from '../app/composition.js';
 
 const clients = createAwsClients();
 const tableName = requiredEnv('RUNS_TABLE_NAME');
 const queueUrl = requiredEnv('RUN_QUEUE_URL');
+const conversationQueueUrl = requiredEnv('CONVERSATION_QUEUE_URL');
 const store = new DynamoRunStore(clients.dynamodb, tableName);
 
 /** Repairs the durable-record/SQS crash window by periodically re-nudging stale queued runs. */
@@ -35,7 +37,7 @@ async function requeue(cutoff: string): Promise<void> {
       ...(startKey ? { ExclusiveStartKey: startKey } : {}),
     }));
     for (const run of (result.Items ?? []) as RunRecord[]) {
-      await nudge(run.runId);
+      await nudgeQueued(run);
       sent += 1;
     }
     startKey = result.LastEvaluatedKey;
@@ -69,6 +71,17 @@ async function nudge(runId: string): Promise<void> {
     MessageBody: JSON.stringify(message),
     MessageAttributes: {
       traceId: { DataType: 'String', StringValue: message.traceId },
+    },
+  }));
+}
+
+async function nudgeQueued(run: RunRecord): Promise<void> {
+  const wake = recoveryWakeForQueuedRun(run);
+  await clients.sqs.send(new SendMessageCommand({
+    QueueUrl: wake.kind === 'thread' ? conversationQueueUrl : queueUrl,
+    MessageBody: JSON.stringify(wake.message),
+    MessageAttributes: {
+      traceId: { DataType: 'String', StringValue: wake.message.traceId },
     },
   }));
 }

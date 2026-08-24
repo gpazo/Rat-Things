@@ -3,6 +3,7 @@
     {
       "title": "Start here",
       "documents": [
+        "quickstart.md",
         "operating-model.md",
         "agents.md",
         "things.md",

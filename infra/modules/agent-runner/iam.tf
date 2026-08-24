@@ -668,7 +668,7 @@ data "aws_iam_policy_document" "reconciler" {
   statement {
     sid       = "RenudgeQueue"
     actions   = ["sqs:SendMessage"]
-    resources = [aws_sqs_queue.runs.arn]
+    resources = [aws_sqs_queue.runs.arn, aws_sqs_queue.conversations.arn]
   }
 
   statement {

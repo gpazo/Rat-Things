@@ -5,10 +5,12 @@ durable-mailbox invariants of Sentry Junior while using AWS-native storage: Dyna
 coordination plane, the artifact bucket is the immutable body/event/checkpoint/result plane, and S3
 Files optionally exposes durable Codex app-server state and workspaces as a mounted filesystem.
 
-Teams ingress and the IAM-authenticated headless conversation API append messages to this mailbox
-and send an SQS wake-up. A coordinator converts the durable turn into a bounded run, resumes a
-suspended MicroVM and Codex thread when possible, and folds terminal output back into replayable
-context. GitHub, GitLab, Slack, and `/v1/runs` retain their one-shot v1 run behavior.
+Every accepted input first becomes one durable Run. When `POST /v1/runs` includes `thread.key`, or a
+verified provider event maps to a thread, trusted orchestration binds that same Run to the mailbox
+and sends an SQS wake-up. A coordinator attaches replayable context as `executionInput`, resumes a
+suspended MicroVM and Codex thread when possible, and folds terminal output back into history. With
+no thread binding, the same Run wakes the dispatcher directly. There is one public receipt and one
+Run lifecycle in both cases.
 
 ## Conversation identity and concurrency
 
@@ -100,13 +102,14 @@ Catalogs preserve each file's relative name, media type, source run, and digest 
 content-addressed blob key. Existing catalogs with legacy `runs/<run-id>/artifacts/...` keys remain
 readable during migration.
 
-## Turn lifecycle
+## Turn lifecycle behind the Run
 
 ```text
-authenticated activity -> durable append -> SQS wake -> acquire lease
-                                                    |
-                                                    v
-                                      attach run -> dispatch slice
+authenticated activity -> reserve Run -> optional mailbox append -> SQS wake
+       public receipt <------ same Run ID -------------------------+
+                                                                  |
+                                                                  v
+                                      acquire lease -> attach replay -> dispatch Run
                                                     |
                                       +-------------+-------------+
                                       |                           |
@@ -143,9 +146,11 @@ the state in a replacement VM, resumes the exact Codex thread ID, and reads the 
 recreating them. It does not yet measure sustained concurrency/cost or validate Microsoft identity
 and delivery into a real Teams tenant.
 
-## Remaining Junior-parity gaps
+## Current boundaries
 
-The current interrupt policy is safe-boundary steering: a queued `interrupt` is selected before
-deferred work for the next slice. It does not yet interrupt a running Codex command or stream live
-progress. Recovery has leases, idempotent wake-ups, and durable replay, but still needs an active
-session heartbeat/reconciler, explicit compaction summaries, and a user-visible handoff contract.
+Mailbox `interrupt` priority applies to queued thread work; the separate active-Run control route
+can interrupt a currently running Codex turn. Live App Server events and approval requests are
+pollable but bounded and ephemeral, while terminal JSONL is durable. Rat Things does not yet offer
+a durable human-approval inbox, browser takeover, automatic long-history compaction summaries, or
+sustained-concurrency guarantees. Those are deliberate boundaries of the current engineering
+preview, not alternate execution models.

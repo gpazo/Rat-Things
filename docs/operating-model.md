@@ -18,13 +18,16 @@ Rat-operated control plane or user interface.
 Every consumer uses the same path:
 
 ```text
-install -> discover -> connect an account -> draft -> explain/test -> publish -> run -> observe
+install -> discover -> draft -> explain/test -> publish -> run -> observe
+                              \-> connect accounts only when the Thing needs them
 ```
 
-1. **Install** one deployment in the host's AWS account and choose its authentication boundary.
+1. **Install** one deployment in the host's AWS account and choose its authentication boundary. The
+   [ten-minute quickstart](quickstart.md) proves the smallest honest version before optional systems
+   are added.
 2. **Discover** its OpenAPI contract, schemas, capability profiles, and installed integration
    manifests instead of assuming what it supports.
-3. **Connect an account** with the fields declared by an integration manifest. Rat verifies the
+3. **Connect an account only when needed** with the fields declared by an integration manifest. Rat verifies the
    credential with the provider, derives the account identity and provider permissions, then stores
    the credential outside run state.
 4. **Draft a Thing** containing reusable intent, a trigger, a capability profile, account
@@ -33,8 +36,9 @@ install -> discover -> connect an account -> draft -> explain/test -> publish ->
 5. **Explain and test the draft.** Rat resolves the selected accounts and shows effective
    permissions, approval requirements, and blocking diagnostics without exposing secrets. A test
    run never changes production.
-6. **Publish one exact revision.** The current draft becomes active atomically. Later edits create a
-   new draft while production remains pinned to the published revision.
+6. **Publish one exact tested revision.** The caller supplies the successful test Run ID, expected
+   draft revision, and expected `specHash`; Rat verifies all four identities before atomically moving
+   the active pointer. Later edits create a new draft while production remains pinned.
 7. **Run** the active Thing manually or through an EventBridge `rate(...)` or `cron(...)` schedule.
    Signed provider events use separate authenticated ingress and converge on the same owner-scoped
    run backend; generic provider-event Thing triggers are not part of v1.
@@ -126,6 +130,7 @@ evidence boundaries rather than separate product models.
 
 ## Continue by task
 
+- [Reach the first active Thing in ten minutes](quickstart.md)
 - [Build and run a Thing](things.md)
 - [Connect another agent](agents.md)
 - [Connect accounts and understand permissions](plugins.md)

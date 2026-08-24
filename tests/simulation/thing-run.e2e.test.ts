@@ -62,10 +62,14 @@ describe('simulated Thing-to-run workflow', () => {
       'Review Slack escalations and Stripe refund exceptions.',
       'rate(15 minutes)',
     ));
-    await service.test('api:shop-owner', 'thing-customer-ops', 'draft-v1-test');
+    const testV1 = await service.test('api:shop-owner', 'thing-customer-ops', 'draft-v1-test');
+    runs.succeed(testV1.runId);
+    const draftV1 = await service.get('api:shop-owner', 'thing-customer-ops');
     await service.publish('api:shop-owner', 'thing-customer-ops', {
       version: '1',
       expectedDraftRevision: 1,
+      expectedSpecHash: draftV1.draft.specHash,
+      testRunId: testV1.runId,
     });
     await service.addVersion('api:shop-owner', 'thing-customer-ops', {
       version: '1',
@@ -79,9 +83,14 @@ describe('simulated Thing-to-run workflow', () => {
       revision: 1,
       scheduledAt: '2026-08-21T15:15:00.000Z',
     });
+    const testV2 = await service.test('api:shop-owner', 'thing-customer-ops', 'draft-v2-test');
+    runs.succeed(testV2.runId);
+    const draftV2 = await service.get('api:shop-owner', 'thing-customer-ops');
     await service.publish('api:shop-owner', 'thing-customer-ops', {
       version: '1',
       expectedDraftRevision: 2,
+      expectedSpecHash: draftV2.draft.specHash,
+      testRunId: testV2.runId,
     });
     await expect(service.runScheduled({
       version: '1',
@@ -102,9 +111,9 @@ describe('simulated Thing-to-run workflow', () => {
     ]);
     expect(duplicates.every((result) => result.accepted)).toBe(true);
 
-    expect(runs.records).toHaveLength(3);
-    expect(queue.messages).toHaveLength(3);
-    expect(new Set(queue.messages.map((message) => message.runId)).size).toBe(3);
+    expect(runs.records).toHaveLength(4);
+    expect(queue.messages).toHaveLength(4);
+    expect(new Set(queue.messages.map((message) => message.runId)).size).toBe(4);
     const scheduledRuns = await Promise.all(runs.records
       .map(async (record) => artifacts.getJson<Record<string, unknown>>(record.input)));
     expect(scheduledRuns).toEqual(expect.arrayContaining([
@@ -186,8 +195,15 @@ class MemoryRuns implements RunStore {
     return record ? structuredClone(record) : undefined;
   }
 
+  public succeed(runId: string): void {
+    const record = this.records.find((candidate) => candidate.runId === runId);
+    if (!record) throw new Error('run not found');
+    record.status = 'succeeded';
+  }
+
   public async list(): Promise<ListRunsResult> { return { items: structuredClone(this.records) }; }
   public async transition(): Promise<RunRecord> { throw new Error('not implemented'); }
+  public async prepareConversation(): Promise<RunRecord> { throw new Error('not implemented'); }
   public async attachExecution(): Promise<RunRecord> { throw new Error('not implemented'); }
   public async complete(_runId: string, _result: RunResult): Promise<RunRecord> {
     throw new Error('not implemented');

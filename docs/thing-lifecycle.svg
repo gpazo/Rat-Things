@@ -55,7 +55,7 @@
     <rect class="node" x="145" y="375" width="555" height="126" rx="16"/>
     <text class="label" x="180" y="422">Test exact draft</text>
     <text class="detail" x="180" y="454">Create a durable run without changing production.</text>
-    <text class="evidence" x="180" y="479">receipt proves revision + specHash</text>
+    <text class="evidence" x="180" y="479">testRunId + revision + specHash</text>
   </g>
 
   <line class="flow" x1="92" y1="464" x2="92" y2="567"/>
@@ -67,7 +67,7 @@
     <rect class="node" x="145" y="539" width="555" height="126" rx="16"/>
     <text class="label" x="180" y="586">Publish</text>
     <text class="detail" x="180" y="618">Compare-and-swap the tested draft into the active pointer.</text>
-    <text class="evidence" x="180" y="643">expectedDraftRevision</text>
+    <text class="evidence" x="180" y="643">testRunId + expected revision + expected specHash</text>
   </g>
 
   <line class="flow" x1="92" y1="628" x2="92" y2="731"/>

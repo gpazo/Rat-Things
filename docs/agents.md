@@ -4,10 +4,10 @@ Give an agent two things: the base URL of one Rat Things deployment and an authe
 call it. The agent can discover everything else. Start with the deployment, not a remembered list of
 routes and not the centrally hosted OpenAPI file.
 
-Thing tests/runs and raw runs are asynchronous: an accepted request returns a durable run, then the
-agent polls state or live events, answers any requests, and retrieves the result or files. Other
-asynchronous routes can return a mailbox or operation receipt instead; follow the response body and
-`Location` header defined by the installed OpenAPI document.
+Every accepted execution returns one durable Run immediately, whether it came from a raw API call,
+a Thing, a schedule, a signed provider event, or an optional thread. The agent retains that Run ID,
+then polls state or live events, answers any requests, and retrieves the result or files. A thread
+adds continuity preparation; it does not introduce a second public receipt or execution model.
 
 > Rat Things is an engineering preview, not a production-ready multi-tenant service. Start with
 > narrow capabilities and read-only accounts. Browser use, broad egress, connected-account writes,
@@ -27,9 +27,8 @@ You can use Rat Things at RAT_THINGS_API_URL.
    provider, S3, or MicroVM credentials into a Thing or run.
 4. Prefer the Thing lifecycle for reusable work: create a draft, explain it, test it, publish the
    exact revision, then run or schedule the active revision.
-5. For a run-starting `202`, retain the returned run ID and follow run state or live events. For any
-   other `202`, follow its typed receipt and `Location`. Answer only outstanding approval/input
-   requests and preserve `traceId` from any error.
+5. For an accepted `202`, retain the returned Run ID and follow its `Location`, run state, or live
+   events. Answer only outstanding approval/input requests and preserve `traceId` from any error.
 6. Use raw runs only when the task needs one-off control that does not belong in a reusable Thing.
 ```
 
@@ -48,21 +47,22 @@ rather than receiving AWS signing credentials.
 1. `GET /.well-known/rat-things` and follow its installed contract links.
 2. `GET /v1/capability-profiles` and `GET /v1/integrations/plugins` instead of assuming what is
    installed.
-3. Reuse an owner-visible connection from `GET /v1/integrations/connections`, or ask the host to
-   complete the manifest-declared credential/OAuth flow. Default new grants to `read-only`.
-4. Validate a credential-free ThingSpec with the linked schema and `POST /v1/things`. For the first
+3. Validate a credential-free ThingSpec with the linked schema and `POST /v1/things`. For the first
    test, explicitly select the narrowest installed profile, `sandbox: "read-only"`,
    `approvalPolicy: "untrusted"`, user review, no network/search/browser, no accounts, and
    `deliver: [{"kind":"none"}]`; widen only for the stated task.
-5. `GET /v1/things/{thingId}/explain?target=draft`. Repair every error diagnostic.
-6. `POST /v1/things/{thingId}/test` with body `{}` and a semantic `Idempotency-Key`, then follow the
+4. `GET /v1/things/{thingId}/explain?target=draft`. Repair every error diagnostic.
+5. `POST /v1/things/{thingId}/test` with body `{}` and a semantic `Idempotency-Key`, then follow the
    returned run. Its Thing evidence must identify the same draft revision and `specHash` you tested.
-7. Re-read the Thing, confirm the tested draft has not changed, then
+6. Re-read the Thing, confirm the tested draft has not changed, then
    `POST /v1/things/{thingId}/publish` with
-   `{"version":"1","expectedDraftRevision":TESTED_REVISION}`.
-8. `POST /v1/things/{thingId}/run` with body `{}` and a stable business-occurrence
+   `{"version":"1","expectedDraftRevision":TESTED_REVISION,"expectedSpecHash":"TESTED_HASH","testRunId":"SUCCEEDED_TEST_RUN_ID"}`.
+7. `POST /v1/things/{thingId}/run` with body `{}` and a stable business-occurrence
    `Idempotency-Key`. A published
    `rate(...)` or `cron(...)` trigger is synchronized to Amazon EventBridge Scheduler automatically.
+8. Only when the Thing needs an external service, reuse an owner-visible account from
+   `GET /v1/integrations/connections` or ask the host to complete the manifest-declared
+   credential/OAuth flow. Default new grants to `read-only`.
 
 Profiles are ceilings across several independent dimensions, not a single ordered scale. Compare
 their sandbox, approval, network, search, browser, integration, and allowlist fields. If two profiles
@@ -75,18 +75,15 @@ The CLI performs the same sequence:
 rat-things doctor --json
 rat-things plugins
 rat-things connections
-rat-things thing-create --file thing.json
-rat-things thing-explain THING_ID
-rat-things thing-test THING_ID --idempotency-key test-customer-review-v1
-rat-things watch RUN_ID --follow --json
-rat-things thing-publish THING_ID
+rat-things thing-release --file thing.json
 rat-things thing-run THING_ID --idempotency-key customer-review-2026-08-23
 ```
 
-Create and update move only the draft pointer. Test uses that draft. Publish atomically selects one
-immutable revision as active. Explicit production runs and Scheduler occurrences always pin that
-active revision. See [Things](things.md) for lifecycle, schedules, permissions, and exact request
-examples.
+The release command still uses the public create, explain, test, Run polling, and exact-evidence
+publish routes; it only removes copy/paste from the first-use path. Create and update move only the
+draft pointer. Test uses that draft. Publish atomically selects one immutable revision as active.
+Explicit production runs and Scheduler occurrences always pin that active revision. See
+[Things](things.md) for lifecycle, schedules, permissions, and exact request examples.
 
 ## Go deeper only when the task needs it
 
@@ -97,7 +94,7 @@ examples.
 | Browser, web search, skills, apps, or MCP | ThingSpec or run `agent.capabilities` | Deployment profile remains the ceiling; requested capabilities can narrow, never widen it |
 | Several external accounts | Integration manifests, connections, grants, and connection sets | Provider authority, Rat grant, profile, and Thing/run selection are intersected |
 | Active progress and human decisions | Run events, approval, response, steer, and interrupt routes | Available only while the exact run has an active MicroVM |
-| Durable multi-turn work | Conversation message and artifact routes | Conversation ID is caller-chosen; mailbox and workspace survive suspended/replacement compute |
+| Durable multi-turn work | `POST /v1/runs` with `thread.key`, plus conversation status/artifact routes | The same Run receipt is returned immediately; mailbox and workspace survive suspended/replacement compute |
 | Generated files | Run or conversation artifact routes | Returns owner-checked metadata and short-lived access URLs |
 | Shareable file, site, or video | Run or conversation publication routes | Publishing is explicit and produces a time-bounded bearer URL |
 | Provider event ingress | Signed GitHub, GitLab, Teams, or Slack routes | Separate authenticated ingress into the shared run backend; not a Thing trigger in v1 |
