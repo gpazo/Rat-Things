@@ -60,8 +60,9 @@ The outbox is cleared before every turn, capped at ten requests and 32 KiB, and 
 symbolic link, hard link, or malformed document. It is a declaration rather than authority: the
 trusted runner resolves every path through the authenticated owner's catalog, performs publication,
 mints the grant, and appends the real link to the stored result. Bearer URLs remain in encrypted S3
-result bodies rather than DynamoDB previews. Persistent workspaces and Codex state still support the
-next conversational turn; the outbox itself is cleared after it is consumed and never replayed.
+result bodies rather than DynamoDB previews. When S3 Files is enabled, its persistent workspace and
+Codex state still support the next conversational turn; the outbox itself is cleared after it is
+consumed and never replayed.
 
 The publication ID is derived from the normalized publication spec plus the selected paths, content
 digests, and media types—not from a particular run or conversation. Before materializing a

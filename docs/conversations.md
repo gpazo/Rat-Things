@@ -1,9 +1,25 @@
 # Durable conversations
 
-Rat Things has a provider-neutral persistence model for long-running conversations. It adopts the
-durable-mailbox invariants of Sentry Junior while using AWS-native storage: DynamoDB is the bounded
-coordination plane, the artifact bucket is the immutable body/event/checkpoint/result plane, and S3
-Files optionally exposes durable Codex app-server state and workspaces as a mounted filesystem.
+Rat Things conversations keep multi-turn work available after a browser, CLI process, or MicroVM
+goes away. The public API and local test console let an authenticated owner:
+
+- start or continue a named conversation;
+- search and page its transcript;
+- attach files, target a reply, and add a reaction;
+- answer questions that provide information without granting permission;
+- inspect generated files through an owner-gated viewer; and
+- interrupt active work, then continue later through the same durable Run model.
+
+See [Connect an agent to Rat Things](agents.md) for the smallest machine-facing journey and the
+[Control API reference](api.md#headless-durable-conversations) for exact routes. The console is a
+reference client for those routes, not a hosted product or a second backend.
+
+## How durability works
+
+The provider-neutral persistence model uses DynamoDB as a bounded coordination plane and encrypted
+S3 for immutable message bodies, events, checkpoints, results, uploads, and generated files. When
+S3 Files is enabled, it also mounts durable native Codex state and workspace bytes so replacement
+compute can restore them exactly.
 
 Every accepted input first becomes one durable Run. When `POST /v1/runs` includes `thread.key`, or a
 verified provider event maps to a thread, trusted orchestration binds that same Run to the mailbox
@@ -18,9 +34,10 @@ The provider's existing thread is the user-facing conversation boundary. In Micr
 top-level post starts a new Rat Things conversation and replies in that thread add turns to it. No
 session command or special `new:` syntax is required.
 
-Different provider threads use different DynamoDB partitions and S3 Files directories, so they may
-run concurrently. Turns within one thread are serialized. A fenced DynamoDB lease ensures that only
-one MicroVM at a time owns the conversation and opens its Codex SQLite state.
+Different provider threads use different DynamoDB partitions and, when S3 Files is enabled,
+different filesystem directories, so they may run concurrently. Turns within one thread are
+serialized. A fenced DynamoDB lease ensures that only one MicroVM at a time owns the conversation
+and opens its Codex SQLite state.
 
 ## Invariants
 
@@ -231,10 +248,10 @@ live deployment ID. `npm run aws:e2e:status` lists local deployment records as `
 `partial-local`, or `destroyed`; this is a read-only local inventory, not proof that every AWS
 resource still exists.
 
-The full `npm run test:e2e:aws` lifecycle now runs both the existing AWS workflow suite and this
-browser journey before its exit trap destroys and audits the ephemeral stack.
-requires the one-time Chromium installation above. Never leave a manually deployed test stack
-running after the test; if the browser leg fails, run the printed destroy command.
+The full `npm run test:e2e:aws` lifecycle runs both the existing AWS workflow suite and this browser
+journey before its exit trap destroys and audits the ephemeral stack. It requires the one-time
+Chromium installation above. Never leave a manually deployed test stack running after the test; if
+the browser leg fails, run the printed destroy command.
 
 For an isolated unsigned local control plane, set `AGENT_RUNTIME_UNSIGNED=true` and
 `RAT_THINGS_LOCAL_OWNER=<test-owner>` on the console process while the backend separately opts into

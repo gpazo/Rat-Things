@@ -1,18 +1,19 @@
 # Durable files and share links
 
-Rat Things lets an agent return more than text. A successful run can publish screenshots, images,
-video, PDFs, reports, logs, or other deliverables from the MicroVM, keep them with a durable thread,
-and give the authenticated caller a temporary URL that can be opened outside AWS.
+Rat Things lets an agent return screenshots, images, video, PDFs, reports, logs, and other
+deliverables—not only text. Treat storage, private inspection, and external sharing as three
+separate decisions:
 
-The interface has three parts:
+1. **Retain the file.** The agent writes below `.rat-things/artifacts/`; trusted orchestration
+   validates the bytes and commits them to the owner-scoped durable catalog after a successful turn.
+2. **Inspect or download it privately.** An authenticated owner can list the catalog and open file
+   content through the conversation console or owner-checked API routes.
+3. **Share it externally.** Explicitly create an expiring bearer publication. `rat-things file` is
+   the single-file convenience path; `rat-things publish file|site|video` chooses a richer viewer.
+   Continue with [Publish and share agent work](sharing-work.md) before sending a link.
 
-- inside the agent workspace, `.rat-things/artifacts/` is the managed file directory; and
-- outside the MicroVM, `rat-things files` and `rat-things file` list, share, or download those files;
-  and
-- `rat-things publish` explicitly turns retained files into a browser-ready file, site, or video.
-
-The MicroVM never receives an S3 credential for sharing. Trusted orchestration validates and stores
-the bytes after a successful turn, and the IAM-authenticated control API mints the bearer link.
+The MicroVM never receives an S3 credential for sharing. Trusted orchestration creates the
+publication and mints its time-bounded bearer grant only after the file has been retained.
 
 ## Simple image demo
 

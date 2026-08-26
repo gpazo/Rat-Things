@@ -350,7 +350,8 @@ while native compaction is covered by the separate real-Codex App Server regress
 terminated both MicroVMs, destroyed all 226 resources, and passed the tag audit.
 
 At the time of this intake, the gate emitted a Node 20 future-support notice from the AWS SDK and
-Terraform secondary-index key-schema deprecation warnings. Both were removed on 2026-08-26 by
+Terraform secondary-index key-schema deprecation warnings. Both were removed on 2026-08-26 UTC
+(August 25 PDT) by
 raising the supported toolchain and bundle target to Node 22 and migrating secondary indexes to
 `key_schema` blocks; the historical validation result above is otherwise unchanged.
 

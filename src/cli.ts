@@ -55,7 +55,7 @@ interface ConversationMessageStatus {
   conversation: {
     status: 'idle' | 'pending' | 'running' | 'awaiting_resume' | 'failed';
     pendingCount: number;
-    session?: { id: string; state: 'running' | 'suspended' | 'unknown' };
+    session?: { state: 'running' | 'suspended' | 'unknown' };
   };
   run?: RunRecord;
 }

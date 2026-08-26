@@ -3,7 +3,10 @@ environment = "dev"
 
 # Safe bring-up: package Lambda and MicroVM code, provision the control plane,
 # then choose a non-mock driver.
-default_agent_driver      = "mock"
+default_agent_driver             = "mock"
+allowed_sandbox_modes            = ["read-only"]
+default_sandbox_mode             = "read-only"
+default_agent_network_access     = false
 allow_agent_aws_credential_chain = false
 codex_bedrock_model_ids          = ["openai.gpt-5.6-terra"]
 

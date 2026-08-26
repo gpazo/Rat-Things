@@ -1,5 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { describe, expect, it } from 'vitest';
+import { ratThingsDiscovery } from '../../src/app/discovery.js';
 import { compileThingSpec, parseThingSpec } from '../../src/core/thing-service.js';
 
 describe('published machine contracts', () => {
@@ -80,6 +81,18 @@ describe('published machine contracts', () => {
         '/schemas/thing-version-v1.json',
       ]),
     );
+  });
+
+  it('keeps installed discovery valid against its strict OpenAPI schema', async () => {
+    const openapi = await json('spec/openapi.json') as {
+      components: { schemas: Record<string, Record<string, unknown>> };
+    };
+    const schema = openapi.components.schemas.Discovery;
+    if (!schema) {
+      throw new Error('OpenAPI components.schemas.Discovery is missing');
+    }
+    expect(validateJsonSchema(ratThingsDiscovery(), schema, openapi as unknown as Record<string, unknown>))
+      .toEqual([]);
   });
 
   it('publishes aligned schema identifiers and strict top-level Thing fields', async () => {
@@ -190,14 +203,23 @@ describe('published machine contracts', () => {
       readFile('scripts/build-pages.mjs', 'utf8'),
       json('site/docs.json'),
       json('spec/openapi.json'),
-    ]) as [string, string, { groups: Array<{ title: string; documents: string[] }> }, {
+    ]) as [string, string, {
+      groups: Array<{ title: string; documents: string[] }>;
+      archive: string[];
+      agentCorpusExclude: string[];
+    }, {
       paths: Record<string, unknown>;
     }];
 
-    expect(docsConfig.groups.find((group) => group.title === 'Start here')?.documents)
+    expect(docsConfig.groups.find((group) => group.title === 'Choose your path')?.documents)
       .toContain('agents.md');
-    expect(docsConfig.groups.find((group) => group.title === 'Start here')?.documents?.[0])
-      .toBe('quickstart.md');
+    expect(docsConfig.groups.find((group) => group.title === 'Choose your path')?.documents?.[0])
+      .toBe('operating-model.md');
+    expect(docsConfig.archive).toEqual(expect.arrayContaining([
+      'grok-bot-0.18-port-audit.md',
+      'grok-bot-current-comparison.md',
+    ]));
+    expect(docsConfig.agentCorpusExclude).toContain('status-and-roadmap.md');
     expect(siteBuilder).toContain('## Agent quickstart');
     expect(siteBuilder).toContain('Do not load the full corpus for a simple Thing run');
     expect(siteBuilder).toContain('Every accepted execution returns one Run');
@@ -235,4 +257,53 @@ function collectReferences(value: unknown, references: string[]): void {
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function validateJsonSchema(
+  value: unknown,
+  schema: Record<string, unknown>,
+  root: Record<string, unknown>,
+  path = '$',
+): string[] {
+  if (typeof schema.$ref === 'string' && schema.$ref.startsWith('#/')) {
+    let resolved: unknown = root;
+    for (const segment of schema.$ref.slice(2).split('/')) {
+      resolved = isObject(resolved) ? resolved[segment] : undefined;
+    }
+    return isObject(resolved)
+      ? validateJsonSchema(value, resolved, root, path)
+      : [`${path}: unresolved ${schema.$ref}`];
+  }
+  if ('const' in schema && value !== schema.const) return [`${path}: expected constant ${String(schema.const)}`];
+  if (Array.isArray(schema.enum) && !schema.enum.includes(value)) return [`${path}: value is outside enum`];
+  if (schema.type === 'object') {
+    if (!isObject(value)) return [`${path}: expected object`];
+    const errors: string[] = [];
+    const required = Array.isArray(schema.required) ? schema.required : [];
+    for (const key of required) {
+      if (typeof key === 'string' && !(key in value)) errors.push(`${path}.${key}: required`);
+    }
+    const properties = isObject(schema.properties) ? schema.properties : {};
+    if (schema.additionalProperties === false) {
+      for (const key of Object.keys(value)) {
+        if (!(key in properties)) errors.push(`${path}.${key}: additional property`);
+      }
+    }
+    for (const [key, child] of Object.entries(properties)) {
+      if (key in value && isObject(child)) {
+        errors.push(...validateJsonSchema(value[key], child, root, `${path}.${key}`));
+      }
+    }
+    return errors;
+  }
+  if (schema.type === 'array') {
+    if (!Array.isArray(value)) return [`${path}: expected array`];
+    if (!isObject(schema.items)) return [];
+    return value.flatMap((item, index) => validateJsonSchema(item, schema.items as Record<string, unknown>, root, `${path}[${index}]`));
+  }
+  if (schema.type === 'string' && typeof value !== 'string') return [`${path}: expected string`];
+  if (schema.type === 'boolean' && typeof value !== 'boolean') return [`${path}: expected boolean`];
+  if (schema.type === 'number' && typeof value !== 'number') return [`${path}: expected number`];
+  if (schema.type === 'integer' && !Number.isInteger(value)) return [`${path}: expected integer`];
+  return [];
 }

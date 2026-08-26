@@ -1,12 +1,17 @@
-# Rat Things Guide
+# Repository agent guide
 
 This repository is the standalone execution subsystem extracted from
 `indubitably-serverless`.
+
+These instructions are for coding agents modifying this repository. The deployment-facing guide
+for agents that use Rat Things is [`docs/agents.md`](docs/agents.md).
 
 ## Boundaries
 
 - `src/domain` owns stable run contracts and state transitions. It must not import AWS SDKs.
 - `src/core` owns orchestration against ports. It must not know about webhook payload shapes.
+- `src/conversation` owns durable mailbox coordination and conversation-facing service contracts.
+  It depends on domain/core ports rather than AWS implementations.
 - `src/identity` keeps actor, owner, source, destination, and credential subject distinct.
 - `src/credentials` owns the host-side secret-reader contract and credential-value parsing.
 - `src/ingress` authenticates and normalizes provider requests behind an ingress port.

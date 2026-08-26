@@ -10,8 +10,10 @@ snapshots, request-scale control-plane services, and optional continuity infrast
 > quote. See [Two-turn publication measurement](#two-turn-publication-measurement) for the exact
 > scope, breakdown, and caveats.
 
-Agent threads, workspaces, and published files remain durable while execution scales with active
-work. The result is an inspectable per-run cost with no continuously running agent worker.
+Conversation transcripts, retained files, and published files remain durable while execution
+scales with active work. With S3 Files enabled, native agent-thread state and workspaces also
+survive replacement compute. The result is an inspectable per-run cost with no continuously running
+agent worker.
 
 ## Measured build and test spend
 

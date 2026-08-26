@@ -1992,10 +1992,19 @@
               "conversations": {
                 "type": "object",
                 "additionalProperties": false,
-                "required": ["durable", "replacementCompute"],
+                "required": ["durable", "replacementCompute", "cursorPagedTranscript", "serverSearch", "organization"],
                 "properties": {
                   "durable": { "const": true },
-                  "replacementCompute": { "const": true }
+                  "replacementCompute": { "const": true },
+                  "cursorPagedTranscript": { "const": true },
+                  "serverSearch": {
+                    "type": "array",
+                    "items": { "enum": ["messages", "files"] }
+                  },
+                  "organization": {
+                    "type": "array",
+                    "items": { "enum": ["pin", "hide", "read-state"] }
+                  }
                 }
               },
               "outputs": {

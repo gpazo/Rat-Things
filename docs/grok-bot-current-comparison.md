@@ -1,6 +1,6 @@
 # Rat Things and Grok Bot: current product and implementation comparison
 
-Date: 2026-08-26
+Date: 2026-08-26 UTC (August 25 PDT)
 
 ## Scope and evidence
 

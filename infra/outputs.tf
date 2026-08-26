@@ -70,6 +70,16 @@ output "notifier_delivery_failure_queue_url" {
   value = module.agent_runner.notifier_delivery_failure_queue_url
 }
 
+output "thing_schedule_failure_queue_url" {
+  description = "Queue URL for EventBridge Scheduler deliveries that exhausted retries."
+  value       = module.agent_runner.thing_schedule_failure_queue_url
+}
+
+output "thing_schedule_group_name" {
+  description = "Deployment-owned EventBridge Scheduler group for active Thing schedules."
+  value       = module.agent_runner.thing_schedule_group_name
+}
+
 output "event_bus_name" {
   value = module.agent_runner.event_bus_name
 }

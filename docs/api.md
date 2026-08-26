@@ -164,8 +164,8 @@ same OpenAPI and JSON Schema files are published with the documentation for gene
 an installed deployment is authoritative for the capabilities it advertises.
 
 The response also links the focused agent guide, compact `llms.txt` navigation, and optional
-complete corpus. Agents should read the guide and progressively follow the installed contracts;
-they should not load the full corpus or guess every operation for a simple Thing run. See
+operational agent corpus. Agents should read the guide and progressively follow the installed
+contracts; they should not load that broad corpus or guess every operation for a simple Thing run. See
 [Connect an agent to Rat Things](agents.md).
 
 Installed JSON Schemas use relative `$id` values, so relative references resolve against the exact
@@ -252,19 +252,19 @@ Idempotency-Key: 93811d8e-2368-4ff8-9e93-706d344e5c8e
 }
 ```
 
-The response is the same queued Run returned for a one-shot request, with one conversation binding
-and `Location: /v1/runs/{runId}`. There is never a second public Run for that accepted input:
+The response is the same public queued Run returned for a one-shot request, with
+`Location: /v1/runs/{runId}`. Trusted orchestration binds it to the conversation internally, but the
+public Run projection exposes neither that binding nor its owner/storage coordinates. There is never
+a second public Run for the accepted input:
 
 ```json
 {
   "runId": "...",
   "status": "queued",
   "sourceKind": "api",
-  "conversation": {
-    "conversationId": "api:<owner-hash>:release-smoke",
-    "messageId": "93811d8e-2368-4ff8-9e93-706d344e5c8e",
-    "delivery": "defer"
-  }
+  "createdAt": "2026-08-25T18:00:00.000Z",
+  "updatedAt": "2026-08-25T18:00:00.000Z",
+  "expiresAt": 1798231200
 }
 ```
 
@@ -279,25 +279,35 @@ same bound Run plus mailbox/session state:
   "messageId": "93811d8e-2368-4ff8-9e93-706d344e5c8e",
   "state": "consumed",
   "delivery": "defer",
+  "createdAt": "2026-08-25T18:00:00.000Z",
+  "consumedAt": "2026-08-25T18:01:04.000Z",
   "conversation": {
     "status": "idle",
     "pendingCount": 0,
+    "createdAt": "2026-08-25T18:00:00.000Z",
+    "updatedAt": "2026-08-25T18:01:04.000Z",
     "session": {
       "backend": "microvm",
-      "id": "mvm-...",
       "state": "suspended",
-      "agentThreadId": "..."
+      "updatedAt": "2026-08-25T18:01:04.000Z",
+      "expiresAt": "2026-08-25T18:31:04.000Z"
     }
   },
   "run": {
     "runId": "...",
-    "status": "succeeded"
+    "status": "succeeded",
+    "sourceKind": "api",
+    "createdAt": "2026-08-25T18:00:00.000Z",
+    "updatedAt": "2026-08-25T18:01:03.000Z",
+    "expiresAt": 1798231200
   }
 }
 ```
 
-The bundled CLI performs Run submission, polling, completion/suspension checks, artifact download, and
-SigV4 signing:
+The bundled CLI performs Run submission, polling, completion/suspension checks, artifact download,
+and SigV4 signing. With `--json`, retain the public message and Run IDs, timestamps, Run state, and
+suspended-session state; private MicroVM and native Codex thread identifiers are intentionally
+omitted:
 
 ```bash
 npm run build

@@ -19,7 +19,7 @@
     <meta name="twitter:description" content="Persistent conversations, private files, verified accounts, and isolated cloud agents in your AWS account.">
     <meta name="twitter:image" content="https://gpazo.github.io/Rat-Things/assets/rat-things-og-v2.jpg">
     <link rel="canonical" href="https://gpazo.github.io/Rat-Things/">
-    <link rel="stylesheet" href="styles.css?v=13">
+    <link rel="stylesheet" href="styles.css?v=14">
   </head>
   <body>
     <a class="skip-link" href="#main">Skip to content</a>
@@ -31,13 +31,11 @@
       </a>
       <nav aria-label="Primary navigation">
         <a href="#start">How it works</a>
-        <a href="#use">Consumers</a>
-        <a href="#demos">Demos</a>
         <a href="#console">Console</a>
-        <a href="#features">Features</a>
-        <a href="#proof">Proof</a>
-        <a href="#economics">Performance</a>
-        <a href="docs/">Docs</a>
+        <a href="#features">Capabilities</a>
+        <a class="nav-optional" href="#proof">Evidence</a>
+        <a class="nav-optional" href="#economics">Performance</a>
+        <a class="nav-docs" href="docs/">Docs</a>
         <a class="nav-cta" href="https://github.com/gpazo/Rat-Things">GitHub</a>
       </nav>
     </header>
@@ -47,36 +45,32 @@
         <div class="hero-art" role="img" aria-label="An original cybernetic guard dog emerging from a refrigerated hutch"></div>
         <div class="hero-scrim"></div>
         <div class="hero-copy">
-          <p class="eyebrow">Open source · Self-hosted · Headless · Bring your own OAuth</p>
+          <p class="eyebrow">Open source · Self-hosted · Isolated · Durable</p>
           <h1 class="hero-title">The open-source backend<br>for cloud agents.</h1>
-          <p class="hero-lede">Connect verified accounts. Define reusable intent. Continue durable conversations. Give your product, another agent, a CLI, schedules, and signed provider events one isolated backend in your AWS account.</p>
-          <p class="hero-status">Engineering preview · validated end to end, not yet production-hardened for untrusted multi-tenant use</p>
+          <p class="hero-lede">Run agents in isolated AWS MicroVMs. Keep conversations and generated files durable. Connect only the accounts and network access each job needs. Use the same backend from your product, CLI, or another agent.</p>
+          <p class="hero-status">Engineering preview · live AWS validated · not ready for untrusted multi-tenant production</p>
           <div class="hero-actions">
             <a class="button button-primary" href="docs/quickstart/">AWS-ready quickstart</a>
             <a class="button button-secondary" href="#console">See the conversation UI</a>
-            <a class="button button-secondary" href="docs/operating-model/">How it works</a>
-            <a class="button button-secondary" href="docs/plugins/">Connect accounts</a>
-            <a class="button button-secondary" href="docs/things/">Build a Thing</a>
-            <a class="button button-secondary" href="docs/agents/">Connect an agent</a>
           </div>
         </div>
         <dl class="hero-stats">
-          <div><dt>MIT</dt><dd>inspect, fork, extend, and self-host</dd></div>
-          <div><dt>Independent</dt><dd>your identity, data, secrets, and infrastructure</dd></div>
-          <div><dt>BYO OAuth</dt><dd>your apps, credentials, and consent flow</dd></div>
-          <div><dt>OpenAPI</dt><dd>one discoverable contract for every consumer</dd></div>
+          <div><dt>Your AWS</dt><dd>a self-hosted stack with no central Rat service</dd></div>
+          <div><dt>Fixed access</dt><dd>permissions are resolved before each run</dd></div>
+          <div><dt>Durable</dt><dd>conversations and generated files survive compute</dd></div>
+          <div><dt>OpenAPI</dt><dd>one discoverable API for products, CLIs, and agents</dd></div>
         </dl>
       </section>
 
       <section class="section start-section" id="start" aria-labelledby="start-title">
         <div class="section-heading compact-heading">
           <div>
-            <div class="section-label">The AWS-ready ten-minute golden path</div>
-            <h2 id="start-title">One narrow path. One active Thing.</h2>
+            <div class="section-label">The AWS-ready golden path</div>
+            <h2 id="start-title">Deploy, test, then decide.</h2>
           </div>
           <div class="heading-copy">
-            <p>From one command in a fresh clone and prepared AWS account to an independently operated backend, an exact-draft Codex test, and a successful Run of the published active revision.</p>
-            <p class="requirement-line">Once this narrow journey is delightful and stable, expand it.</p>
+            <p>One command checks a prepared AWS account, deploys the backend, tests an exact Thing draft, activates that revision, and runs it again.</p>
+            <p class="requirement-line">Start with the smallest proof. Add accounts and capabilities after it is dependable.</p>
           </div>
         </div>
 
@@ -98,7 +92,7 @@
   --region us-west-2
 
 <span>install → preflight → deploy</span>
-<span>test → publish → run active</span></code></pre>
+<span>test → activate exact revision → run</span></code></pre>
           </li>
           <li>
             <span class="step-number">03</span>
@@ -111,13 +105,18 @@
         </ol>
 
         <div class="setup-footer">
-          <p><strong>Honest boundary:</strong> the ten-minute gate starts at <code>npm run quickstart:aws</code> and includes dependency installation when absent; cloning is not timed. Installing host tools and arranging AWS service, quota, and Bedrock access happens first and may take longer. The Bash entry point is intended for macOS or Linux, including WSL 2; only macOS ARM64 has a published host proof. The default model path uses <code>us-east-1</code>, <code>us-east-2</code>, or <code>us-west-2</code>. Setup stores the non-secret profile and Region names, so the generic status and destroy commands reuse the exact target. The complete guide provides a no-resource-write preflight, concrete account checks, paid-use boundary, and teardown.</p>
-          <p><code>golden-path-v1.0.0</code> is the immutable release source; Git's detached-HEAD notice is expected. The copyable <code>test</code> stops if the checkout differs from <code>source.commit</code> in the evidence JSON. <code>main</code> remains the development line.</p>
-          <p>The default invokes paid Codex on Bedrock twice: once to prove the draft and once through the published active revision. That first Thing is intentionally a readiness canary, not a useful integration. <code>--driver mock</code> is explicitly infrastructure-only. OAuth, VPC/NAT, schedules, and public sharing stay out of this first journey.</p>
-          <p><strong>Published validation record:</strong> the <a href="docs/assets/aws-quickstart-evidence.json">latest evidence JSON</a> records a clean source commit, active revision and <code>specHash</code>, both successful Run IDs, elapsed time, teardown, empty Terraform state, and the no-MicroVM check. It is project-published evidence, not a third-party attestation.</p>
-          <p><strong>Latest recorded live validation:</strong> immutable tag <code>golden-path-v1.0.0</code>, clean commit <code>f1c5487</code>, completed the fresh-install path in 402 seconds (6m42s), including the interactive pause. Its deployment was then removed: both the self-verifying teardown and an independent AWS postcheck found zero deployed state instances and zero active MicroVMs.</p>
-          <p><strong>Latest conversation proof:</strong> a fresh real-Codex AWS journey restored an encrypted upload, paused for ordinary structured input, rendered a generated private artifact, retained a reaction, and continued through a targeted reply in the same suspended MicroVM and native Codex thread. The public transcript exposed no owner, storage, MicroVM, or native thread coordinates; all inspected failure queues were empty before the 230-resource stack was destroyed.</p>
-          <a class="text-link" href="docs/quickstart/">Follow the complete golden path <span aria-hidden="true">→</span></a>
+          <div class="setup-summary">
+            <p><strong>What ten minutes means:</strong> the timer starts at <code>npm run quickstart:aws</code>. Host tools, AWS quota, Lambda MicroVM access, and Bedrock access must already be ready.</p>
+            <p><strong>Published proof:</strong> immutable tag <code>golden-path-v1.0.0</code> completed the fresh-install path in 402 seconds (6m42s), then teardown found no deployed state or active MicroVMs.</p>
+            <a class="text-link" href="docs/quickstart/">Follow the complete golden path <span aria-hidden="true">→</span></a>
+          </div>
+          <details class="setup-details">
+            <summary>Prerequisites and evidence details</summary>
+            <div>
+              <p>The Bash entry point supports macOS and Linux, including WSL 2; the published host proof is macOS ARM64. The default model path uses <code>us-east-1</code>, <code>us-east-2</code>, or <code>us-west-2</code>. The quickstart stores only the non-secret profile and Region names so status and destroy reuse the exact target.</p>
+              <p>The checkout test pins the same commit recorded in the <a href="docs/assets/aws-quickstart-evidence.json">project-published evidence JSON</a>. The default runs paid Codex on Bedrock twice; <code>--driver mock</code> validates infrastructure only. S3 Files, hosted OAuth, schedules, and external sharing stay outside this first journey.</p>
+            </div>
+          </details>
         </div>
       </section>
 
@@ -125,11 +124,10 @@
         <div class="route-heading">
           <div>
             <div class="section-label">Bring your own experience</div>
-            <h2 id="use-title">One backend.<br>Every consumer.</h2>
+            <h2 id="use-title">Use it from<br>the interface you own.</h2>
           </div>
-          <p>Rat Things does not require a first-party console. A personal installation, small-business tool, SaaS product, another agent, or provider event can use the same owner-scoped contract.</p>
+          <p>Rat Things is a self-hosted AWS stack with no central Rat service. A CLI, your product, another agent, a schedule, or a signed provider event can use the same public API and durable Run model.</p>
         </div>
-        <p>The examples below use the linked <code>rat-things</code> shorthand. In a source checkout, use <code>npm run rat-things -- …</code>, or install the shorthand once with <code>npm run build &amp;&amp; npm link</code>.</p>
 
         <div class="route-grid">
           <article class="route-card route-primary">
@@ -141,7 +139,7 @@
           <article class="route-card">
             <p class="card-kicker">Embedded product</p>
             <h3>Your UX, our primitives</h3>
-            <p>Keep customer state and OAuth in your product while Rat owns automation and execution.</p>
+            <p>Keep customer identity and the consent flow in your product. Rat verifies and stores issued credentials; hosted OAuth callbacks and refresh are not part of v1.</p>
             <code>POST /v1/things</code>
           </article>
           <article class="route-card">
@@ -159,90 +157,7 @@
           </article>
         </div>
 
-        <p class="route-note">One deployment may serve one person or many authenticated users. The host chooses that model; Rat derives an owner from each trusted principal and keeps accounts, Things, runs, and files inside that boundary.</p>
-      </section>
-
-      <section class="section demos-section" id="demos" aria-labelledby="demos-title">
-        <div class="section-heading compact-heading">
-          <div>
-            <div class="section-label">Copyable workflows</div>
-            <h2 id="demos-title">Four small demos.<br>The whole product.</h2>
-          </div>
-          <p>Start with the complete account-to-Thing journey, then add durable conversations, sharing, schedules, and provider events without changing the underlying run model.</p>
-        </div>
-
-        <div class="demo-grid">
-          <article class="demo-card">
-            <div class="demo-card-heading">
-              <span>01</span>
-              <div>
-                <p class="card-kicker">Multiple accounts</p>
-                <h3>Verify first. Label once.</h3>
-              </div>
-            </div>
-            <pre><code><span>rat-things connect</span> slack \
-  --credential-file support.json \
-  --access read-only --alias support
-
-<span>rat-things connect</span> slack \
-  --credential-file ops.json \
-  --access read-write --alias operations</code></pre>
-            <p class="demo-note">The integration verifies each credential, derives its provider identity and authority, then stores it outside Thing and run state.</p>
-            <a class="text-link" href="docs/plugins/">Accounts and permission model <span aria-hidden="true">→</span></a>
-          </article>
-
-          <article class="demo-card demo-highlight">
-            <div class="demo-card-heading">
-              <span>02</span>
-              <div>
-                <p class="card-kicker">Create and share</p>
-                <h3>Return the actual file.</h3>
-              </div>
-            </div>
-            <pre><code><span>rat-things</span> --thread pelican-demo \
-  --sandbox workspace-write \
-  "Create an image of a pelican riding a bicycle.
-  Save it under .rat-things/artifacts/."
-
-<span>rat-things files</span> --thread pelican-demo
-<span>rat-things file</span> pelican-bicycle.webp \
-  --thread pelican-demo</code></pre>
-            <p class="demo-note">The final command prints a fresh private URL. Publish a directory or MP4 with <code>publish site</code> or <code>publish video</code>; the retained source remains durable with the thread.</p>
-            <a class="text-link" href="docs/sharing-work/">Share files, sites, and video safely <span aria-hidden="true">→</span></a>
-          </article>
-
-          <article class="demo-card">
-            <div class="demo-card-heading">
-              <span>03</span>
-              <div>
-                <p class="card-kicker">Reusable Things</p>
-                <h3>Draft safely. Publish exactly.</h3>
-              </div>
-            </div>
-            <pre><code><span>rat-things thing-release</span> \
-  --file thing.json
-<span>rat-things thing-run</span> "$THING_ID"</code></pre>
-            <p class="demo-note">After an update, <code>draft → revision 3</code> while <code>active → revision 2</code>. The test receipt proves revision 3 and its spec hash; production stays on revision 2 until publish moves the active pointer.</p>
-            <a class="text-link" href="docs/things/">Thing contract and lifecycle <span aria-hidden="true">→</span></a>
-          </article>
-
-          <article class="demo-card">
-            <div class="demo-card-heading">
-              <span>04</span>
-              <div>
-                <p class="card-kicker">Connect GitHub</p>
-                <h3>One setup command.</h3>
-              </div>
-            </div>
-            <pre><code><span>npm run</span> webhook:github -- \
-  --repo OWNER/REPOSITORY
-
-<span># Then comment on a pull request</span>
-@rat-things review this change</code></pre>
-            <p class="demo-note">The safe default uses the deterministic mock driver to prove signed webhook plumbing and a GitHub comment—not a real agent review. Rerun with <code>--driver codex</code> after enabling Bedrock.</p>
-            <a class="text-link" href="docs/github-webhook-onboarding/">GitHub onboarding guide <span aria-hidden="true">→</span></a>
-          </article>
-        </div>
+        <p class="route-note">The host decides whether one deployment serves one person or many authenticated users. Rat derives an owner from each trusted principal and keeps accounts, Things, Runs, conversations, and files within that boundary.</p>
       </section>
 
       <section class="console-section" id="console" aria-labelledby="console-title">
@@ -252,7 +167,7 @@
             <h2 id="console-title">See the work.<br>Keep the thread.</h2>
           </div>
           <div class="console-copy">
-            <p>The Rat-native testing console exercises the same owner-scoped API, durable Runs, encrypted S3 artifacts, S3 Files workspace, and Lambda MicroVM continuation used by every other client. It makes the backend easy to inspect without replacing the CLI or becoming a second execution path.</p>
+            <p>The local test console shows conversations, live activity, uploads, replies, questions, reactions, and files through the public API. It is a reference client—not a hosted product or a second execution path.</p>
             <a class="text-link" href="docs/conversations/">Explore the conversation contract <span aria-hidden="true">→</span></a>
           </div>
         </div>
@@ -261,50 +176,50 @@
           <li><strong>Organize</strong><span>Search, pin, hide, and track unread work.</span></li>
           <li><strong>Observe</strong><span>Read transcripts and safe typed activity.</span></li>
           <li><strong>Continue</strong><span>Reply to a message in the same durable thread.</span></li>
-          <li><strong>Interact</strong><span>Answer ordinary structured questions—never approvals.</span></li>
+          <li><strong>Interact</strong><span>Answer questions that provide information, never permission.</span></li>
           <li><strong>Review</strong><span>React and open private generated files inline.</span></li>
           <li><strong>Attach</strong><span>Restore encrypted uploads before execution begins.</span></li>
         </ul>
 
         <div class="console-showcase">
           <figure class="console-shot console-shot-main">
-            <a href="assets/conversation-console-desktop.png">
-              <img src="assets/conversation-console-desktop.png" width="1280" height="800" loading="lazy" alt="Rat Things desktop conversation console showing the conversation list, completed transcript, reaction controls, generated file, and composer">
+            <a href="../assets/conversation-console-desktop.png">
+              <img src="../assets/conversation-console-desktop.png" width="1280" height="800" loading="lazy" alt="Rat Things desktop conversation console showing the conversation list, completed transcript, reaction controls, generated file, and composer">
             </a>
             <figcaption><span>Desktop conversation</span><strong>Transcript, activity, reactions, files, and continuation in one durable view.</strong></figcaption>
           </figure>
           <div class="console-shot-grid">
             <figure class="console-shot">
-              <a href="assets/conversation-console-artifact-viewer.png">
-                <img src="assets/conversation-console-artifact-viewer.png" width="1280" height="800" loading="lazy" alt="Private inline viewer displaying a generated Markdown release report over the conversation console">
+              <a href="../assets/conversation-console-artifact-viewer.png">
+                <img src="../assets/conversation-console-artifact-viewer.png" width="1280" height="800" loading="lazy" alt="Private inline viewer displaying a generated Markdown release report over the conversation console">
               </a>
               <figcaption><span>Private artifact viewer</span><strong>Owner-signed content stays reviewable without exposing S3 coordinates.</strong></figcaption>
             </figure>
             <figure class="console-shot console-shot-mobile">
-              <a href="assets/conversation-console-mobile-input.png">
-                <img src="assets/conversation-console-mobile-input.png" width="390" height="844" loading="lazy" alt="Rat Things mobile console showing an agent structured question with staging, production, and custom response options">
+              <a href="../assets/conversation-console-mobile-input.png">
+                <img src="../assets/conversation-console-mobile-input.png" width="390" height="844" loading="lazy" alt="Rat Things mobile console showing an agent structured question with staging, production, and custom response options">
               </a>
-              <figcaption><span>Mobile ordinary input</span><strong>Responsive questions continue work without widening the capability envelope.</strong></figcaption>
+              <figcaption><span>Mobile questions</span><strong>Provide missing information without widening the run's permissions.</strong></figcaption>
             </figure>
           </div>
         </div>
-        <p class="console-evidence-note">Screenshots use disposable deterministic E2E fixture data. The same UI and public API path passed separately against a fresh AWS deployment with a real Codex-on-Bedrock agent.</p>
+        <p class="console-evidence-note">Screenshots use disposable deterministic E2E fixture data. The same public API path and test console passed separately against a fresh AWS deployment with a real Codex-on-Bedrock agent and S3 Files enabled.</p>
       </section>
 
       <section class="flow-section" id="flow" aria-labelledby="flow-title">
         <div class="flow-heading">
           <div>
-            <div class="section-label">What happens after enter</div>
-            <h2 id="flow-title">Disposable compute.<br>Durable work.</h2>
+            <div class="section-label">How work survives</div>
+            <h2 id="flow-title">The machine can stop.<br>The work continues.</h2>
           </div>
-          <p>A webhook, Thing, schedule, and CLI all create the same Run receipt and lifecycle. Thread continuity is optional preparation on that Run, not another public execution model.</p>
+          <p>Every accepted request returns one durable Run. Rat stores the request and result outside compute. With S3 Files enabled, replacement compute also restores the exact workspace and native Codex state.</p>
         </div>
         <ol class="flow">
           <li><span>01</span><strong>Authenticate</strong><p>Verify IAM or a provider signature and derive the owner.</p></li>
           <li><span>02</span><strong>Commit</strong><p>Store one immutable request and return its durable Run ID.</p></li>
-          <li><span>03</span><strong>Prepare</strong><p>Wake immediately, or attach trusted thread replay to that same Run.</p></li>
-          <li><span>04</span><strong>Execute</strong><p>Launch or resume Codex with resolved tools and permissions.</p></li>
-          <li><span>05</span><strong>Retain</strong><p>Store evidence and files, then suspend or terminate and deliver.</p></li>
+          <li><span>03</span><strong>Prepare</strong><p>Load conversation context and, when enabled, restore workspace state.</p></li>
+          <li><span>04</span><strong>Execute</strong><p>Launch or resume Codex with the tools and access resolved before the run.</p></li>
+          <li><span>05</span><strong>Retain</strong><p>Store the result and generated files, then suspend or terminate compute.</p></li>
         </ol>
       </section>
 
@@ -315,7 +230,7 @@
             <h2 id="boundary-title">Autonomous inside.<br>Unavailable outside.</h2>
           </div>
           <div class="boundary-summary">
-            <p>Rat Things has no mid-Run approval button. The host resolves one fixed capability envelope, then the agent can use everything inside it without asking again.</p>
+            <p>Choose permissions before a run starts. The agent can use what you allowed; everything else is unavailable. Rat never pauses to ask for more permission mid-run.</p>
             <a class="text-link" href="docs/capability-envelope/">Read the complete capability contract <span aria-hidden="true">→</span></a>
           </div>
         </div>
@@ -332,78 +247,41 @@
             <p>The tool is missing, IAM returns <code>AccessDenied</code>, URL or egress policy blocks the destination, or the broker rejects the operation before reading a credential.</p>
           </article>
         </div>
-        <p class="boundary-note"><strong>No suspended permission state:</strong> a denial is final for that Run. To change authority, submit a new Run or publish a new Thing revision with a reviewed envelope; an input response cannot widen the active Run.</p>
+        <p class="boundary-note"><strong>No suspended permission state:</strong> a denial is final for that Run. To change authority, submit a new Run or activate a new Thing revision with a reviewed envelope; an input response cannot widen the active Run.</p>
       </section>
 
       <section class="section feature-section" id="features" aria-labelledby="feature-title">
-        <div class="section-label">What is included</div>
-        <h2 id="feature-title">The backend around every Thing.</h2>
+        <div class="section-label">Core capabilities</div>
+        <h2 id="feature-title">Build, connect, run, and retain.</h2>
         <div class="feature-grid">
-          <article><span>01</span><h3>Reusable Things</h3><p>Edit and test a draft without changing production, then publish one exact immutable revision for manual, rate, or cron execution.</p></article>
-          <article><span>02</span><h3>Verified accounts</h3><p>Connect several accounts per integration and derive their identity and provider authority before persistence.</p></article>
-          <article><span>03</span><h3>Fixed capability envelope</h3><p>Intersect provider authorization, account grants, Thing narrowing, IAM, network policy, operations, and resources before launch. Inside is autonomous; outside is absent or denied, never approval-pending.</p></article>
-          <article><span>04</span><h3>Built for embedding</h3><p>Discover OpenAPI, JSON Schemas, integration manifests, and stable errors from every independent deployment.</p></article>
-          <article><span>05</span><h3>Isolated tool use</h3><p>Shell, Git, filesystem, and policy-controlled network access inside an unprivileged Firecracker guest.</p></article>
-          <article><span>06</span><h3>Browser computer use</h3><p>Navigate, inspect, click, type, select, scroll, capture screenshots, and record WebM autonomously inside the admitted envelope.</p></article>
-          <article><span>07</span><h3>Durable conversations</h3><p>Searchable transcripts, uploads, targeted replies, reactions, ordinary structured input, private viewers, Codex state, workspace bytes, and execution policy survive the client and compute.</p></article>
-          <article><span>08</span><h3>Durable files</h3><p>Images, video, screenshots, PDFs, reports, and nested file paths survive the MicroVM.</p></article>
-          <article><span>09</span><h3>Private sharing</h3><p>Owner-authorized metadata, verified downloads, and renewable bearer links lasting up to 24 hours.</p></article>
-          <article><span>10</span><h3>One run model</h3><p>Manual Things, schedules, GitHub, GitLab, Teams, and optional Slack converge on durable execution.</p></article>
-          <article><span>11</span><h3>Bring your Codex</h3><p>ChatGPT subscription authentication locally and short-term Bedrock authentication in AWS.</p></article>
-          <article><span>12</span><h3>No worker fleet</h3><p>MicroVMs run only while conversations are active; DynamoDB, S3, and S3 Files hold continuity.</p></article>
+          <article><span>01</span><h3>Build and schedule</h3><p>Test a Thing draft, activate one immutable revision, then run it manually or on rate and cron schedules.</p></article>
+          <article><span>02</span><h3>Connect accounts safely</h3><p>Verify several accounts per integration and narrow provider access before any credential is used.</p></article>
+          <article><span>03</span><h3>Run tools in isolation</h3><p>Use shell, Git, files, permitted networking, and browser computer use inside a dedicated MicroVM.</p></article>
+          <article><span>04</span><h3>Keep conversations</h3><p>Search transcripts, attach files, reply, react, answer questions, and continue work across clients.</p></article>
+          <article><span>05</span><h3>Retain and share files</h3><p>Keep generated files privately, inspect them through owner-gated viewers, or create expiring external links.</p></article>
+          <article><span>06</span><h3>Use one Run model</h3><p>Manual Things, schedules, GitHub, GitLab, Teams, optional Slack, and raw API calls share one lifecycle.</p></article>
+          <article><span>07</span><h3>Embed the API</h3><p>Discover OpenAPI, JSON Schemas, integration manifests, stable errors, and capability profiles from each deployment.</p></article>
+          <article><span>08</span><h3>Bring Codex</h3><p>Use ChatGPT subscription authentication on a trusted local device or short-term Bedrock authentication in AWS.</p></article>
         </div>
-      </section>
-
-      <section class="continuity-section" id="continuity" aria-labelledby="continuity-title">
-        <div class="continuity-heading">
-          <div>
-            <div class="section-label">Resume means resume</div>
-            <h2 id="continuity-title">The machine can disappear.<br>The work does not.</h2>
-          </div>
-          <p>A thread is larger than a chat transcript. Rat Things stores the mailbox, Codex app-server state, workspace, and published file catalog outside the MicroVM, under a fenced owner lease.</p>
-        </div>
-        <div class="handoff" aria-label="A Codex conversation moves from one MicroVM through durable AWS state to a replacement MicroVM">
-          <article>
-            <p class="card-kicker">Turn one</p>
-            <h3>MicroVM A</h3>
-            <p>Codex uses tools, changes files, and records its native thread state.</p>
-            <span class="node-state">checkpointed</span>
-          </article>
-          <div class="handoff-arrow" aria-hidden="true"><span>save</span><b>→</b></div>
-          <article class="handoff-core">
-            <p class="card-kicker">Durable state</p>
-            <h3>S3 Files + DynamoDB</h3>
-            <p>Exact workspace bytes, Codex SQLite state, mailbox events, and the artifact catalog live outside compute.</p>
-          </article>
-          <div class="handoff-arrow" aria-hidden="true"><span>restore</span><b>→</b></div>
-          <article>
-            <p class="card-kicker">Later turn</p>
-            <h3>MicroVM B</h3>
-            <p>The replacement resumes the same thread and reads the same files.</p>
-            <span class="node-state node-state-live">live AWS proven</span>
-          </article>
-        </div>
+        <a class="text-link feature-reference-link" href="docs/">Explore the complete guides and agent reference <span aria-hidden="true">→</span></a>
       </section>
 
       <section class="section proof-section" id="proof" aria-labelledby="proof-title">
         <div class="proof-copy">
           <div class="section-label">Evidence, not assumptions</div>
           <h2 id="proof-title">Tested through the hard parts.</h2>
-          <p>LocalStack and disposable live-AWS suites cross provider verification, fixed multi-account permissions, queues, isolated tool and browser execution, MicroVM lifecycle, native Codex continuation, file publication, and threaded delivery.</p>
+          <p>Deterministic tests and disposable live-AWS suites cover the boundaries most likely to fail: permissions, queues, isolated execution, replacement compute, conversations, files, schedules, and delivery.</p>
           <div class="proof-links">
             <a class="text-link" href="docs/status-and-roadmap/">Validation status <span aria-hidden="true">→</span></a>
             <a class="text-link" href="docs/security/">Security model <span aria-hidden="true">→</span></a>
           </div>
         </div>
         <ul class="check-list">
-          <li><span>✓</span><div><strong>Two accounts, exact authority</strong><p>A real agent selected a read-only account for search and a read/write account for one narrowly admitted mutation; no credential entered run state.</p></div></li>
-          <li><span>✓</span><div><strong>Same thread, different VM</strong><p>One real Codex app-server thread and exact workspace bytes restored on replacement compute.</p></div></li>
-          <li><span>✓</span><div><strong>Actual CLI continuation</strong><p>Independent headless processes reused one named AWS conversation and suspended session.</p></div></li>
-          <li><span>✓</span><div><strong>Full conversation UI path</strong><p>A real Codex AWS turn restored an upload, requested mobile input, generated a private artifact, retained a reaction, and continued through a targeted reply in the same thread.</p></div></li>
-          <li><span>✓</span><div><strong>Files all the way out</strong><p>Exact WebP bytes traveled from a live MicroVM to private S3 and a verified 24-hour link.</p></div></li>
-          <li><span>✓</span><div><strong>Browser use, not a mock</strong><p>Real Codex exercised every implemented browser command, screenshots, video, and three isolated share viewers in live AWS; the current runtime admits this surface before launch.</p></div></li>
-          <li><span>✓</span><div><strong>Real rate and cron scheduling</strong><p>A published Thing created a fixed EventBridge Scheduler target. AWS fired the pinned immutable revision; pause, resume, and archive changed or removed the schedule exactly as declared.</p></div></li>
-          <li><span>✓</span><div><strong>Signed ingress to threaded result</strong><p>GitHub, GitLab, and Teams paths completed through the durable control plane.</p></div></li>
+          <li><span>✓</span><div><strong>Exact account authority</strong><p>A real agent used separate read-only and read/write accounts for their admitted operations without putting credentials in Run state.</p></div></li>
+          <li><span>✓</span><div><strong>Conversation API through the test console</strong><p>A real Codex turn restored an upload, asked for information, generated a private file, retained a reaction, and continued through a targeted reply.</p></div></li>
+          <li><span>✓</span><div><strong>Replacement continuity with S3 Files</strong><p>A real Codex thread and exact workspace bytes resumed on replacement compute; separate CLI processes continued the same named conversation.</p></div></li>
+          <li><span>✓</span><div><strong>Generated and browser-created work</strong><p>Live MicroVM tests retained exact files and opened isolated file, site, and video viewers. A historical canary exercised the complete browser surface under the former approval bridge; the autonomous revision still needs a fresh live rerun.</p></div></li>
+          <li><span>✓</span><div><strong>Schedules and signed events</strong><p>AWS fired a pinned Thing revision, and GitHub, GitLab, and Teams paths completed through the durable control plane.</p></div></li>
         </ul>
       </section>
 
@@ -439,16 +317,16 @@
         <div class="section-heading compact-heading">
           <div>
             <div class="section-label">How it works</div>
-            <h2 id="architecture-title">One durable backend.</h2>
+            <h2 id="architecture-title">A small public contract.<br>Durable AWS internals.</h2>
           </div>
           <div class="heading-copy">
-            <p>Your product, another agent, a CLI, or a signed event gives Rat Things work. Rat defines, runs, and retains it in your AWS account, then returns a durable result.</p>
+            <p>Your product, another agent, a CLI, or a signed event submits work. Rat authenticates it, returns a Run receipt, executes it in your AWS account, and retains the result.</p>
             <a class="text-link" href="docs/architecture/">Architecture guide <span aria-hidden="true">→</span></a>
           </div>
         </div>
         <figure class="diagram">
-          <a href="assets/visuals/product-overview.svg">
-            <img src="assets/visuals/product-overview.svg" alt="Your product, agent, or event gives work to Rat Things and receives durable replies, files, and URLs" loading="lazy">
+          <a href="../docs/product-overview.svg">
+            <img src="../docs/product-overview.svg" alt="Your product, agent, or event gives work to Rat Things and receives durable replies, files, and URLs" loading="lazy">
           </a>
           <figcaption><span>Overview</span><strong>Define · Run · Retain</strong></figcaption>
         </figure>
@@ -463,23 +341,13 @@
         <div>
           <div class="section-label">Ready to try it?</div>
           <h2 id="next-title">Start with one narrow Thing.</h2>
-          <p>Deploy one small backend, prove one safe real-agent test, and publish only its exact revision. Add accounts and deeper capabilities after that path feels dependable.</p>
+          <p>Deploy one small backend, prove one safe real-agent test, and activate only its exact revision. Add accounts and deeper capabilities after that path feels dependable.</p>
+          <p class="next-note">Engineering preview: validated end to end, but not yet production-hardened for untrusted multi-tenant use.</p>
         </div>
         <div class="next-actions">
-          <a class="button button-primary" href="docs/quickstart/">Start from an AWS-ready account</a>
-          <a class="button button-secondary" href="docs/operating-model/">How it works</a>
-          <a class="button button-secondary" href="docs/plugins/">Connect accounts</a>
-          <a class="button button-secondary" href="docs/things/">Build a Thing</a>
+          <a class="button button-primary" href="docs/quickstart/">AWS-ready quickstart</a>
+          <a class="button button-secondary" href="docs/">Browse documentation</a>
           <a class="button button-secondary" href="https://github.com/gpazo/Rat-Things">View the source</a>
-        </div>
-      </section>
-
-      <section class="caution-section">
-        <div class="caution-mark" aria-hidden="true">✓</div>
-        <div>
-          <div class="section-label">Built for serious agent work</div>
-          <h2>Move quickly. Keep the boundary.</h2>
-          <p>Dedicated MicroVM isolation, signed ingress, owner-scoped storage, durable state, and explicit publication grants let agents use real tools without pretending generated work is trusted by default.</p>
         </div>
       </section>
     </main>

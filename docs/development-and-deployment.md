@@ -217,10 +217,12 @@ npm run rat-things -- \
   "Read the existing marker.txt and explain what you remember from the first turn."
 ```
 
-Each command waits for the exact message's run to succeed and for completion orchestration to fold
-the result into durable context and suspend the MicroVM before printing Codex output. Add `--json`
-to capture the run ID, MicroVM ID, Codex thread ID, and suspension evidence. Reuse the exact agent
-policy on later turns; it is immutable for the conversation.
+Each command waits for the exact message's Run to succeed and for completion orchestration to fold
+the result into durable context and suspend the session before printing Codex output. Add `--json`
+to capture the message and Run IDs, public Run state, and suspended session state. Public responses
+intentionally omit private MicroVM and native Codex thread identifiers; trusted operators can
+correlate those only through AWS logs and dedicated test evidence. Reuse the exact agent policy on
+later turns; it is immutable for the conversation.
 
 For a one-shot control run, verify exactly one execution ID, successful self-termination,
 output/event checksums, terminal state, empty queues/DLQs, provider delivery state, and correlated

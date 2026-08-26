@@ -18,7 +18,7 @@ Rat-operated control plane or user interface.
 Every consumer uses the same path:
 
 ```text
-install -> discover -> draft -> explain/test -> publish -> run -> observe
+install -> discover -> draft -> explain/test -> activate -> run -> observe
                               \-> connect accounts only when the Thing needs them
 ```
 
@@ -36,9 +36,10 @@ install -> discover -> draft -> explain/test -> publish -> run -> observe
 5. **Explain and test the draft.** Rat resolves the selected accounts and shows the fixed effective
    capability envelope and blocking diagnostics without exposing secrets. A test
    run never changes production.
-6. **Publish one exact tested revision.** The caller supplies the successful test Run ID, expected
-   draft revision, and expected `specHash`; Rat verifies all four identities before atomically moving
-   the active pointer. Later edits create a new draft while production remains pinned.
+6. **Activate one exact tested revision.** The API calls this operation `publish`. The caller
+   supplies the successful test Run ID, expected draft revision, and expected `specHash`; Rat
+   verifies all four identities before atomically moving the active pointer. Later edits create a
+   new draft while production remains pinned.
 7. **Run** the active Thing manually or through an EventBridge `rate(...)` or `cron(...)` schedule.
    Signed provider events use separate authenticated ingress and converge on the same owner-scoped
    run backend; generic provider-event Thing triggers are not part of v1.
@@ -58,10 +59,19 @@ agent, a SaaS backend, and a signed webhook can use the same primitives.
 | **Grant** | The owner's persistent Rat-side permission ceiling for an account | Can narrow provider authority, never widen it |
 | **Account set** | A reusable group of accounts, including several accounts for one integration | The API calls this a connection set |
 | **Run** | One durable execution of a Thing or lower-level request | Asynchronous, owner-scoped, observable, and idempotent |
+| **Conversation** | The durable continuity boundary for related work | Holds transcript, organization state, files, and optional native workspace continuity |
+| **Thread** | A caller or provider key that selects a conversation | A thread key is an input coordinate, not another execution receipt |
+| **Message** | One durable user or assistant transcript entry | Public IDs are opaque and do not expose provider, storage, or runtime coordinates |
+| **Turn** | Agent processing for one accepted conversation input | The accepted input still returns a normal Run receipt |
 
 Product documentation uses **integration**, **account**, and **account set**. Plugin, connection,
 credential binding, and broker are implementation or API-reference terms used when their precision
 matters.
+
+Documentation uses **activate a Thing revision** for moving the tested draft to the active pointer.
+It uses **retain a file** for durable owner-scoped storage, **owner-gated viewing** for authenticated
+access, and **expiring external sharing** for bearer links. This avoids using “publish” or “private
+sharing” for several different security boundaries.
 
 ## Permission is an intersection
 
@@ -84,7 +94,7 @@ omitted or denied by its enforcing layer. The denial does not suspend the Run or
 that a person can approve.
 
 If a provider cannot report fine-grained scopes, Rat records that uncertainty rather than inventing
-precision. A host may still apply a narrower Rat grant. Use `thing-explain` before publishing a Thing
+precision. A host may still apply a narrower Rat grant. Use `thing-explain` before activating a Thing
 to see the resolved intersection for every selected account and operation.
 
 ## The host owns identity and OAuth

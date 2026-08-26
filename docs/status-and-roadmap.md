@@ -1,5 +1,10 @@
 # Status and roadmap
 
+> This page has two jobs: the capability table is the current product status; the dated sections
+> below are a validation ledger. The ledger is historical evidence, not an API contract, and is
+> excluded from the operational `llms.txt` agent corpus. Installed discovery, OpenAPI, JSON
+> Schemas, and the focused feature guides remain authoritative for behavior.
+
 ## Current maturity
 
 Rat Things is an **engineering preview**, not a production-ready service. The focused tests cover
@@ -40,7 +45,7 @@ disaster-recovery proof.
 | Cost model | Live canary baseline measured | The 2026-08-16 two-turn site canary has a dated $0.380 estimate using rates captured then; non-model infrastructure was about $0.046, while current repricing and sustained-load ceilings remain unmeasured |
 | Multi-tenant hardening | Not complete | Run responses now strip storage/authority internals; destination authorization, budgets, rate limits, output policy, and security review remain |
 
-## Validation completed on 2026-08-26
+## Validation completed on 2026-08-26 UTC (August 25 PDT)
 
 - A fresh disposable `us-west-2` deployment passed the focused IAM-authenticated conversation
   browser test with a real Codex-on-Bedrock agent in a Lambda MicroVM. The first turn restored an

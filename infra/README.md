@@ -24,9 +24,11 @@ provider and the AWS Cloud Control provider required for the MicroVM image resou
   entry URLs and cookies, response hardening, and optional Route 53 aliases for file, site, and
   video sharing.
 
-It does not create ECS, ECR, a customer VPC, subnets, a NAT gateway, or a customer MicroVM network
-connector. Image builds and runs use AWS-managed networking. Add a customer VPC connector only in a
-separate reviewed deployment that must reach private VPC resources.
+It does not create ECS or ECR. With `enable_s3_files=false`, image builds and runs use AWS-managed
+networking and the stack creates no customer VPC. Enabling S3 Files creates a dedicated VPC,
+private and public subnets, NAT gateway, service endpoints, and Lambda MicroVM network connector so
+replacement compute can mount the same conversation workspace. That optional path adds a continuous
+networking cost floor and should not be confused with access to an existing application VPC.
 
 ## Package, validate, and deploy
 
@@ -71,8 +73,11 @@ therefore needs `lambda:PassNetworkConnector`; AWS currently documents no resour
 key for this action, so it is isolated in its own `Resource = "*"` statement on the dispatcher role.
 Re-check that limitation as the service matures.
 
-`allowed_sandbox_modes` defaults to `read-only,workspace-write`. Add `danger-full-access` only after
-reviewing the MicroVM, workload-role, repository, and egress boundaries.
+The module permits `read-only`, `workspace-write`, and `danger-full-access` by default; its default
+inner sandbox is `danger-full-access`, and agent network access defaults on. Those broad inner
+defaults rely on the outer MicroVM, IAM, integration broker, and network policy as the security
+boundary. The supplied `terraform.tfvars.example` explicitly narrows its mock-driver bring-up to
+read-only/no-network. Review and set these values deliberately for every real deployment.
 
 ## MicroVM lifecycle
 

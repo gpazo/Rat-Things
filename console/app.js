@@ -2,6 +2,7 @@ const elements = {
   sidebar: document.querySelector('#sidebar'),
   sidebarToggle: document.querySelector('#sidebar-toggle'),
   sidebarScrim: document.querySelector('#sidebar-scrim'),
+  workspace: document.querySelector('#workspace'),
   list: document.querySelector('#conversation-list'),
   count: document.querySelector('#conversation-count'),
   filter: document.querySelector('#conversation-filter'),
@@ -110,10 +111,12 @@ elements.transcript.addEventListener('scroll', updateJumpLatest);
 elements.jumpLatest.addEventListener('click', () => scrollTranscriptToBottom('smooth'));
 elements.sidebarToggle.addEventListener('click', () => setSidebarOpen(!sidebarIsOpen()));
 elements.sidebarScrim.addEventListener('click', () => setSidebarOpen(false));
+document.addEventListener('keydown', handleSidebarKeydown);
 window.addEventListener('resize', () => {
-  if (!compactLayout()) setSidebarOpen(false);
+  setSidebarOpen(false);
 });
 
+setSidebarOpen(false);
 void initialize();
 
 async function initialize() {
@@ -1888,14 +1891,51 @@ function sidebarIsOpen() {
 }
 
 function setSidebarOpen(open) {
-  const next = compactLayout() && open;
+  const compact = compactLayout();
+  const wasOpen = sidebarIsOpen();
+  const next = compact && open;
   elements.sidebar.dataset.open = String(next);
   elements.sidebarToggle.setAttribute('aria-expanded', String(next));
   elements.sidebarScrim.dataset.open = String(next);
+  elements.workspace.inert = next;
+  elements.sidebar.inert = compact && !next;
+  if (compact) elements.sidebar.setAttribute('aria-hidden', String(!next));
+  else elements.sidebar.removeAttribute('aria-hidden');
+  if (next) {
+    window.requestAnimationFrame(() => elements.filter.focus());
+  } else if (wasOpen && compact) {
+    window.requestAnimationFrame(() => elements.sidebarToggle.focus());
+  }
+}
+
+function handleSidebarKeydown(event) {
+  if (!sidebarIsOpen()) return;
+  if (event.key === 'Escape') {
+    event.preventDefault();
+    setSidebarOpen(false);
+    return;
+  }
+  if (event.key !== 'Tab') return;
+  const focusable = [...elements.sidebar.querySelectorAll(
+    'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+  )].filter((element) => !element.hidden && element.getClientRects().length > 0);
+  if (focusable.length === 0) {
+    event.preventDefault();
+    return;
+  }
+  const first = focusable[0];
+  const last = focusable.at(-1);
+  if (event.shiftKey && document.activeElement === first) {
+    event.preventDefault();
+    last.focus();
+  } else if (!event.shiftKey && document.activeElement === last) {
+    event.preventDefault();
+    first.focus();
+  }
 }
 
 function compactLayout() {
-  return window.matchMedia('(max-width: 760px)').matches;
+  return window.matchMedia('(max-width: 900px)').matches;
 }
 
 async function api(path, options = {}) {

@@ -1,9 +1,10 @@
 # Browser computer use
 
 Rat Things has built-in, agent-controlled browser use in remote Lambda MicroVM runs. It is an
-**engineering preview**: the complete browser tool surface implemented today has passed a real
-Codex live-AWS test, but this is headless public-web automation rather than unrestricted desktop
-computer control.
+**engineering preview**: the complete implemented browser surface passed a historical real-Codex
+live-AWS canary under the former approval bridge. The current autonomous fixed-envelope revision is
+locally validated and still needs a fresh live-AWS rerun. This is headless public-web automation,
+not unrestricted desktop computer control.
 
 ## What works today
 

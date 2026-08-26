@@ -1,29 +1,27 @@
 {
   "groups": [
     {
-      "title": "Start here",
+      "title": "Choose your path",
       "documents": [
-        "quickstart.md",
         "operating-model.md",
-        "capability-envelope.md",
+        "quickstart.md",
+        "codex-subscription.md",
         "agents.md",
-        "things.md",
-        "codex-subscription.md"
+        "embedding.md"
       ]
     },
     {
-      "title": "Connect accounts and events",
+      "title": "Core concepts",
       "documents": [
+        "things.md",
         "plugins.md",
-        "github-webhook-onboarding.md",
-        "microsoft-teams.md",
-        "channels.md"
+        "capability-envelope.md",
+        "conversations.md"
       ]
     },
     {
       "title": "Use capabilities",
       "documents": [
-        "conversations.md",
         "browser-computer-use.md",
         "durable-files.md",
         "sharing-work.md",
@@ -31,9 +29,16 @@
       ]
     },
     {
-      "title": "Build and operate",
+      "title": "Connect channels and events",
       "documents": [
-        "embedding.md",
+        "github-webhook-onboarding.md",
+        "microsoft-teams.md",
+        "channels.md"
+      ]
+    },
+    {
+      "title": "Operate",
+      "documents": [
         "development-and-deployment.md",
         "diagnostics.md",
         "runbook.md",
@@ -46,9 +51,26 @@
         "api.md",
         "architecture.md",
         "security.md",
-        "grok-bot-current-comparison.md",
         "status-and-roadmap.md"
       ]
     }
-  ]
+  ],
+  "archive": [
+    "grok-bot-0.18-port-audit.md",
+    "grok-bot-current-comparison.md"
+  ],
+  "agentCorpusExclude": [
+    "status-and-roadmap.md"
+  ],
+  "descriptions": {
+    "operating-model.md": "Understand the core objects, ownership boundary, permission model, and paths through Rat Things.",
+    "quickstart.md": "Deploy and prove the immutable AWS golden path, then inspect or remove the exact stack.",
+    "codex-subscription.md": "Run Codex locally with a trusted ChatGPT sign-in instead of remote Bedrock credentials.",
+    "agents.md": "Give another agent one deployment URL and a progressive, machine-readable operating contract.",
+    "embedding.md": "Discover, authenticate, and embed a self-hosted Rat Things deployment in your own product.",
+    "things.md": "Create, test, activate, schedule, and inspect reusable revisioned agent workflows.",
+    "plugins.md": "Connect and verify accounts, choose grants, and understand the effective permission intersection.",
+    "capability-envelope.md": "Learn what an agent can use autonomously and what remains unavailable for the entire Run.",
+    "conversations.md": "Start, continue, search, organize, attach, reply, react, answer questions, and inspect durable work."
+  }
 }

@@ -60,7 +60,7 @@ describe('visual documentation', () => {
 
   it('uses the focused product SVG instead of the old raster C4 overview on the homepage', async () => {
     const homepage = await readFile('site/index.html', 'utf8');
-    expect(homepage).toContain('assets/visuals/product-overview.svg');
+    expect(homepage).toContain('../docs/product-overview.svg');
     expect(homepage).toContain('Thing lifecycle');
     expect(homepage).toContain('Permission intersection');
     expect(homepage).toContain('Durable execution');
@@ -84,7 +84,7 @@ describe('visual documentation', () => {
       expect(bytes.subarray(1, 4).toString('ascii')).toBe('PNG');
       expect(bytes.byteLength).toBeGreaterThan(20_000);
       expect(homepage).toMatch(new RegExp(
-        `src="assets/${escapeRegExp(screenshot)}"[^>]+alt="[^"]+"`,
+        `src="../assets/${escapeRegExp(screenshot)}"[^>]+alt="[^"]+"`,
       ));
       expect(buildScript).toContain(`'${screenshot}'`);
     }

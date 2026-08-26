@@ -5,7 +5,8 @@ trigger, capability profile, connected accounts, and result destinations without
 credential value. Things work behind an operator UI, another product, a CLI, or another agent.
 
 The design rule is deliberately small: **once this narrow journey is delightful and stable,
-expand it.** The journey is create, explain, test, publish, and observe.
+expand it.** The journey is create, explain, test, activate, and observe. The API and CLI use
+`publish` for the activation operation.
 
 Command convention: examples below use the installed `rat-things` shorthand. From a source
 checkout, prefix the same arguments with `npm run rat-things --`; or run `npm run build && npm link`
@@ -19,11 +20,11 @@ rat-things thing-run THING_ID --idempotency-key first-production-run
 ```
 
 `thing-release --file` is the first-use path. It creates draft revision 1, explains it, stops on any
-blocking diagnostic, tests it, waits for success, and publishes only when the successful Run proves
+blocking diagnostic, tests it, waits for success, and activates only when the successful Run proves
 the same Thing ID, revision, and `specHash`. Its JSON result contains the created Thing, test Run,
 and active Thing, so `THING_ID` above comes from `created.thingId`.
 
-For an existing draft, `thing-release THING_ID` performs the same explain→test→exact-publish gate.
+For an existing draft, `thing-release THING_ID` performs the same explain→test→exact-activation gate.
 `thing-update` fetches the current draft revision and applies compare-and-swap automatically. The
 lower-level `thing-publish THING_ID --test-run RUN_ID` is intentionally inconvenient: it still sends
 the current draft revision and hash, and the service independently verifies that the referenced Run
@@ -41,7 +42,7 @@ Creation itself has no idempotency key in v1. If its response is lost, list Thin
 intended definition by `specHash` before retrying rather than blindly creating a duplicate.
 Every Thing test/run receipt includes the exact `thingId`, immutable `revision`, `specHash`, and
 invocation kind alongside the run ID. Compare that evidence with the draft you accepted before
-publishing.
+activating it.
 
 ## The mental model
 
@@ -53,8 +54,9 @@ Thing ID
   active ──> revision 2   exact production definition
 ```
 
-Editing appends revision 3 and moves only `draft`. Production stays on revision 2 until publish.
-Publishing atomically points `active` at the current draft; every run records its exact revision.
+Editing appends revision 3 and moves only `draft`. Production stays on revision 2 until activation.
+The API's `publish` operation atomically points `active` at the current draft; every run records its
+exact revision.
 There is no mutable definition and no silent production edit.
 
 `GET /v1/things/{thingId}` makes this state explicit:

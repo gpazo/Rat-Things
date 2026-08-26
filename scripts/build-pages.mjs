@@ -25,6 +25,7 @@ marked.setOptions({ gfm: true });
 
 await rm(output, { recursive: true, force: true });
 await cp('site', output, { recursive: true });
+await normalizeCopiedSitePaths();
 await cp('spec/openapi.json', join(output, 'openapi.json'));
 await cp('spec/schemas', join(output, 'schemas'), { recursive: true });
 await cp('examples', join(output, 'examples'), { recursive: true });
@@ -48,20 +49,30 @@ for (const file of markdownFiles) {
 }
 
 const configuredFiles = new Set(docsConfig.groups.flatMap((group) => group.documents));
+const archivedFiles = new Set(docsConfig.archive ?? []);
 const unconfiguredFiles = markdownFiles.filter((file) => !configuredFiles.has(file));
-const groups = [
-  ...docsConfig.groups,
-  ...(unconfiguredFiles.length > 0 ? [{ title: 'More', documents: unconfiguredFiles }] : []),
-];
-validateDocumentationConfig(groups, docs);
+const unexpectedlyUnconfigured = unconfiguredFiles.filter((file) => !archivedFiles.has(file));
+if (unexpectedlyUnconfigured.length > 0) {
+  throw new Error(`documentation files must be explicitly published or archived: ${unexpectedlyUnconfigured.join(', ')}`);
+}
+const groups = docsConfig.groups;
+validateDocumentationConfig(groups, archivedFiles, docs);
 
 await mkdir(docsOutput, { recursive: true });
 await copyDocumentationAssets(docsEntries);
 await writeFile(join(docsOutput, 'index.html'), renderDocsHome(groups, docs));
 
 const orderedDocs = groups.flatMap((group) => group.documents.map((file) => docs.get(file)));
-await writeFile(join(output, 'llms.txt'), addCapabilityBoundaryInstruction(renderLlmsIndex(groups, docs)));
-await writeFile(join(output, 'llms-full.txt'), renderLlmsFull(orderedDocs));
+const agentCorpusExclude = new Set(docsConfig.agentCorpusExclude ?? []);
+const agentGroups = groups
+  .map((group) => ({
+    ...group,
+    documents: group.documents.filter((file) => !agentCorpusExclude.has(file)),
+  }))
+  .filter((group) => group.documents.length > 0);
+const agentDocs = orderedDocs.filter((doc) => !agentCorpusExclude.has(doc.file));
+await writeFile(join(output, 'llms.txt'), addCapabilityBoundaryInstruction(renderLlmsIndex(agentGroups, docs)));
+await writeFile(join(output, 'llms-full.txt'), renderLlmsFull(agentDocs));
 const generatedHtmlFiles = [join(output, 'index.html'), join(docsOutput, 'index.html')];
 for (const [index, doc] of orderedDocs.entries()) {
   const pageDirectory = join(docsOutput, doc.slug);
@@ -81,13 +92,32 @@ await writeFile(join(output, 'sitemap.xml'), renderSitemap(orderedDocs));
 await validateGeneratedLinks(generatedHtmlFiles);
 process.stdout.write(`built ${output} with ${orderedDocs.length} documentation pages\n`);
 
+async function normalizeCopiedSitePaths() {
+  const homepagePath = join(output, 'index.html');
+  const homepage = (await readFile(homepagePath, 'utf8'))
+    .replaceAll('../assets/', 'assets/')
+    .replaceAll('../docs/product-overview.svg', 'assets/visuals/product-overview.svg');
+  await writeFile(homepagePath, homepage);
+
+  const stylesheetPath = join(output, 'styles.css');
+  const stylesheet = (await readFile(stylesheetPath, 'utf8'))
+    .replaceAll('../assets/', 'assets/');
+  await writeFile(stylesheetPath, stylesheet);
+}
+
 function documentMetadata(file, source) {
   const title = source.match(/^#\s+(.+)$/m)?.[1]?.trim() ?? basename(file, '.md');
   const slug = basename(file, '.md');
-  const description = extractDescription(source);
-  const rendered = addHeadingIds(rewriteDocumentLinks(marked.parse(source), file));
+  const description = docsConfig.descriptions?.[file] ?? extractDescription(source);
+  const rendered = addHeadingIds(wrapTables(rewriteDocumentLinks(marked.parse(source), file)));
   const tableOfContents = extractTableOfContents(rendered);
   return { file, slug, title, description, source, rendered, tableOfContents };
+}
+
+function wrapTables(html) {
+  return html
+    .replaceAll('<table>', '<div class="table-scroll" role="region" aria-label="Scrollable table" tabindex="0"><table>')
+    .replaceAll('</table>', '</table></div>');
 }
 
 function renderLlmsIndex(groups, documents) {
@@ -95,11 +125,11 @@ function renderLlmsIndex(groups, documents) {
     const document = documents.get(file);
     return `- [${document.title}](${pagesUrl}/docs/${document.slug}/): ${document.description}`;
   }).join('\n')}`).join('\n\n');
-  return `# Rat Things\n\n> The open-source, self-hostable backend for cloud agents, with isolated Codex execution, reusable Things, multi-account integrations, browser use, and durable work. Rat Things is an engineering preview, not a production-ready multi-tenant service.\n\n## Agent quickstart\n\nA host gives you a Rat Things deployment base URL and an authenticated calling method.\n\n1. Fetch \`/.well-known/rat-things\` from that deployment. Resolve its relative links against the deployment URL.\n2. Treat the installed OpenAPI, JSON Schemas, capability profiles, and integration manifests as authoritative.\n3. Prefer Things for reusable work: create a draft, explain it, test it, publish the exact immutable revision, then run or schedule the active revision. Start with explicit read-only/no-network capabilities and widen only for the task.\n4. Every accepted execution returns one Run. Retain its Run ID and follow its \`Location\`, durable state, or live events; optional \`thread\` continuity does not create another public receipt.\n5. Use raw runs, thread continuity, browser use, skills, apps, MCP, publications, and provider-event ingress only when the task needs those deeper surfaces.\n6. Never submit an owner ID or place AWS, provider, S3, or MicroVM credentials in a Thing or run.\n\nRead [Connect an agent to Rat Things](${pagesUrl}/docs/agents/) for authentication options, the smallest complete journey, the deeper capability map, failure rules, and a copyable bootstrap instruction. Do not load the full corpus for a simple Thing run.\n\n${sections}\n\n## Machine-readable contracts\n\nString lengths in JSON Schema are preflight character limits; runtime UTF-8 byte limits remain authoritative.\n\n- [OpenAPI 3.1](${pagesUrl}/openapi.json): Published reference contract; an installed deployment's linked copy is authoritative.\n- [ThingSpec v1 JSON Schema](${pagesUrl}/schemas/thing-v1.json): Portable credential-free automation definition.\n- [Create Thing schema](${pagesUrl}/schemas/thing-create-v1.json): Direct draft-only Thing creation contract.\n- [Create Thing version schema](${pagesUrl}/schemas/thing-version-v1.json): Compare-and-swap draft revision contract.\n- [Complete documentation corpus](${pagesUrl}/llms-full.txt): Repository Markdown combined into one agent-readable document; load only when broad context is necessary.\n\n## Source and examples\n\n- [Repository](${repositoryUrl})\n- [Safe first-run ThingSpec](${pagesUrl}/examples/thing-create.json)\n- [Connected scheduled ThingSpec](${pagesUrl}/examples/thing-connected-schedule.json)\n- [Updated ThingSpec example for the CLI or nested version request](${pagesUrl}/examples/thing-version.json)\n`;
+  return `# Rat Things\n\n> The open-source, self-hostable backend for cloud agents, with isolated Codex execution, reusable Things, multi-account integrations, browser use, and durable work. Rat Things is an engineering preview, not a production-ready multi-tenant service.\n\n## Agent quickstart\n\nA host gives you a Rat Things deployment base URL and an authenticated calling method.\n\n1. Fetch \`/.well-known/rat-things\` from that deployment. Resolve its relative links against the deployment URL.\n2. Treat the installed OpenAPI, JSON Schemas, capability profiles, and integration manifests as authoritative.\n3. Prefer Things for reusable work: create a draft, explain it, test it, publish the exact immutable revision, then run or schedule the active revision. Start with explicit read-only/no-network capabilities and widen only for the task.\n4. Every accepted execution returns one Run. Retain its Run ID and follow its \`Location\`, durable state, or live events; optional \`thread\` continuity does not create another public receipt.\n5. Use raw runs, thread continuity, browser use, skills, apps, MCP, publications, and provider-event ingress only when the task needs those deeper surfaces.\n6. Never submit an owner ID or place AWS, provider, S3, or MicroVM credentials in a Thing or run.\n\nRead [Connect an agent to Rat Things](${pagesUrl}/docs/agents/) for authentication options, the smallest complete journey, the deeper capability map, failure rules, and a copyable bootstrap instruction. Do not load the full corpus for a simple Thing run.\n\n${sections}\n\n## Machine-readable contracts\n\nString lengths in JSON Schema are preflight character limits; runtime UTF-8 byte limits remain authoritative.\n\n- [OpenAPI 3.1](${pagesUrl}/openapi.json): Published reference contract; an installed deployment's linked copy is authoritative.\n- [ThingSpec v1 JSON Schema](${pagesUrl}/schemas/thing-v1.json): Portable credential-free automation definition.\n- [Create Thing schema](${pagesUrl}/schemas/thing-create-v1.json): Direct draft-only Thing creation contract.\n- [Create Thing version schema](${pagesUrl}/schemas/thing-version-v1.json): Compare-and-swap draft revision contract.\n- [Operational agent corpus](${pagesUrl}/llms-full.txt): Published agent documentation combined into one document; load only when broad context is necessary.\n\n## Source and examples\n\n- [Repository](${repositoryUrl})\n- [Safe first-run ThingSpec](${pagesUrl}/examples/thing-create.json)\n- [Connected scheduled ThingSpec](${pagesUrl}/examples/thing-connected-schedule.json)\n- [Updated ThingSpec example for the CLI or nested version request](${pagesUrl}/examples/thing-version.json)\n`;
 }
 
 function renderLlmsFull(documents) {
-  return `# Rat Things complete documentation\n\nSource: ${repositoryUrl}\nCanonical index: ${pagesUrl}/llms.txt\n\n${documents.map((document) => (
+  return `# Rat Things operational agent documentation\n\nSource: ${repositoryUrl}\nCanonical index: ${pagesUrl}/llms.txt\n\n${documents.map((document) => (
     `---\n\n<!-- ${document.file} -->\n\n${document.source.trim()}\n`
   )).join('\n')}\n`;
 }
@@ -214,7 +244,7 @@ async function validateVisualAssets() {
   }
 }
 
-function validateDocumentationConfig(groups, documents) {
+function validateDocumentationConfig(groups, archivedFiles, documents) {
   const seen = new Set();
   for (const group of groups) {
     if (!group.title || group.documents.length === 0) throw new Error('documentation groups need a title and documents');
@@ -224,17 +254,21 @@ function validateDocumentationConfig(groups, documents) {
       seen.add(file);
     }
   }
+  for (const file of archivedFiles) {
+    if (!documents.has(file)) throw new Error(`archived documentation page ${file} does not exist`);
+    if (seen.has(file)) throw new Error(`documentation page ${file} cannot be both published and archived`);
+  }
 }
 
 function renderDocsHome(groups, documents) {
   const nav = renderDocumentationNav(groups, documents, undefined, './');
-  const cards = groups.map((group) => `
-    <section class="docs-card-group" aria-labelledby="${slugify(group.title)}-title">
+  const cards = groups.slice(1).map((group) => `
+    <section class="docs-card-group" data-doc-group aria-labelledby="${slugify(group.title)}-title">
       <p class="docs-card-kicker">${escapeHtml(group.title)}</p>
       <div class="docs-card-grid">
         ${group.documents.map((file) => {
           const doc = documents.get(file);
-          return `<a class="docs-card" data-doc-card href="./${doc.slug}/">
+          return `<a class="docs-card" data-doc-card data-doc-link href="./${doc.slug}/">
             <span>${escapeHtml(doc.title)}</span>
             <small>${escapeHtml(doc.description)}</small>
           </a>`;
@@ -249,34 +283,15 @@ function renderDocsHome(groups, documents) {
     nav,
     main: `
       <div class="docs-home">
-        <p class="docs-eyebrow">Build on Rat Things</p>
-        <h1>The open-source backend<br>for cloud agents.</h1>
-        <p class="docs-home-lede">Install one independent backend, connect verified accounts with explicit permissions, and expose reusable Things through one discoverable API for operators, products, and other agents.</p>
-        <div class="docs-home-actions">
-          <a class="docs-button docs-button-primary" href="./quickstart/">AWS-ready quickstart</a>
-          <a class="docs-button" href="./operating-model/">How it works</a>
-          <a class="docs-button" href="./agents/">Connect an agent</a>
-          <a class="docs-button" href="./plugins/">Connect accounts</a>
-          <a class="docs-button" href="./things/">Build a Thing</a>
-          <a class="docs-button" href="./embedding/">Embed the API</a>
-        </div>
-        <dl class="docs-proof" aria-label="Rat Things capabilities">
-          <div><dt>OpenAPI 3.1</dt><dd>machine-readable installed routes and request contract</dd></div>
-          <div><dt>BYO OAuth</dt><dd>the host owns apps, consent, credentials, and UX</dd></div>
-          <div><dt>Multi-account</dt><dd>several accounts per integration with intersected grants</dd></div>
-          <div><dt>Independent</dt><dd>each deployment owns its identity, data, and runtime</dd></div>
-        </dl>
-        <section class="product-outcomes" aria-labelledby="product-outcomes-title">
-          <div>
-            <p class="docs-card-kicker">A backend consumers can build on</p>
-            <h2 id="product-outcomes-title">From reusable intent to durable, shareable work.</h2>
-          </div>
-          <ul>
-            <li><strong>Draft safely. Publish exactly.</strong><span>Append immutable revisions, test the draft, and keep production pinned until publish moves the active pointer.</span></li>
-            <li><strong>Admit authority once.</strong><span>Resolve provider scopes, grants, Thing narrowing, IAM, network policy, and resource limits into a fixed envelope before launch.</span></li>
-            <li><strong>Keep the project, not the machine.</strong><span>Conversation history, Codex state, workspace bytes, and published files survive disposable compute.</span></li>
-            <li><strong>Bring your own product.</strong><span>Use the same discoverable API from a small-business console, SaaS backend, CLI, provider event, or another agent.</span></li>
-          </ul>
+        <p class="docs-eyebrow">Rat Things documentation</p>
+        <h1>Choose the path<br>you need.</h1>
+        <p class="docs-home-lede">Start with a product overview, deploy to AWS, connect an agent to an existing deployment, or embed the API. Deeper operator and agent reference stays available when the task needs it.</p>
+        <section class="docs-paths" data-doc-group aria-labelledby="docs-paths-title">
+          <h2 id="docs-paths-title" class="docs-sr-only">Choose a documentation path</h2>
+          <a data-doc-link href="./codex-subscription/"><span>Try it locally</span><small>Use a trusted ChatGPT sign-in on your own device.</small></a>
+          <a data-doc-link href="./quickstart/"><span>Deploy the backend</span><small>Run the bounded AWS golden path and retain evidence.</small></a>
+          <a data-doc-link href="./agents/"><span>Connect an agent</span><small>Discover an installed deployment from one URL.</small></a>
+          <a data-doc-link href="./embedding/"><span>Embed Rat Things</span><small>Put the owner-scoped API behind your own product UX.</small></a>
         </section>
         ${cards}
         <aside class="agent-source">
@@ -316,8 +331,8 @@ function renderDocumentPage({ doc, groups, docs, previous, next }) {
     toc,
     main: `
       <div class="doc-toolbar">
-        <a href="../">Documentation</a><span>/</span><span>${escapeHtml(doc.title)}</span>
-        <div>
+        <div class="doc-breadcrumb"><a href="../">Documentation</a><span>/</span><span>${escapeHtml(doc.title)}</span></div>
+        <div class="doc-toolbar-actions">
           <a href="https://raw.githubusercontent.com/gpazo/Rat-Things/main/docs/${doc.file}">Raw Markdown</a>
           <a href="${repositoryUrl}/edit/main/docs/${doc.file}">Edit this page</a>
         </div>
@@ -343,8 +358,8 @@ function pageTemplate({ title, description, canonicalPath, assetPrefix, nav, mai
     <meta property="og:image" content="${pagesUrl}/assets/rat-things-og-v2.jpg">
     <meta name="twitter:card" content="summary_large_image">
     <link rel="canonical" href="${pagesUrl}${canonicalPath}">
-    <link rel="stylesheet" href="${assetPrefix}docs.css?v=1">
-    <script defer src="${assetPrefix}docs.js?v=1"></script>
+    <link rel="stylesheet" href="${assetPrefix}docs.css?v=2">
+    <script defer src="${assetPrefix}docs.js?v=2"></script>
   </head>
   <body class="docs-body">
     <a class="docs-skip-link" href="#docs-main">Skip to documentation</a>
@@ -357,11 +372,11 @@ function pageTemplate({ title, description, canonicalPath, assetPrefix, nav, mai
     </header>
     <div class="docs-shell">
       <aside class="docs-sidebar">
-        <label for="docs-filter">Find a guide</label>
-        <input id="docs-filter" data-docs-filter type="search" placeholder="Filter documentation">
+        ${renderDocumentationFilter('docs-filter')}
         ${nav}
       </aside>
       <main id="docs-main" class="docs-main">
+        <div class="docs-mobile-filter">${renderDocumentationFilter('docs-mobile-filter')}</div>
         <details class="docs-mobile-nav"><summary>Browse documentation</summary>${nav}</details>
         ${main}
       </main>
@@ -370,6 +385,14 @@ function pageTemplate({ title, description, canonicalPath, assetPrefix, nav, mai
     <footer class="docs-footer"><span>Durable Codex work, isolated execution, and browser-ready publications.</span><a href="${repositoryUrl}/issues">Help improve the docs</a></footer>
   </body>
 </html>`;
+}
+
+function renderDocumentationFilter(id) {
+  return `<div class="docs-filter">
+    <label for="${id}">Find a guide</label>
+    <input id="${id}" data-docs-filter type="search" placeholder="Filter documentation" autocomplete="off">
+    <p data-docs-filter-status role="status" hidden></p>
+  </div>`;
 }
 
 function renderDocumentationNav(groups, documents, currentFile, prefix) {
@@ -394,12 +417,16 @@ ${urls.map((path) => `  <url><loc>${pagesUrl}${path}</loc></url>`).join('\n')}
 }
 
 async function validateGeneratedLinks(htmlFiles) {
+  const generatedHtml = new Map();
   for (const htmlFile of htmlFiles) {
-    const html = await readFile(htmlFile, 'utf8');
+    generatedHtml.set(relative(output, htmlFile).split('\\').join('/'), await readFile(htmlFile, 'utf8'));
+  }
+  for (const htmlFile of htmlFiles) {
+    const html = generatedHtml.get(relative(output, htmlFile).split('\\').join('/'));
     const pagePath = `/${relative(output, htmlFile).split('\\').join('/')}`;
     for (const match of html.matchAll(/(?:href|src)="([^"]+)"/g)) {
       const reference = match[1];
-      if (isExternalReference(reference) || reference.startsWith('#')) continue;
+      if (isExternalReference(reference)) continue;
       const targetUrl = new URL(reference, `https://pages.invalid${pagePath}`);
       let targetPath = decodeURIComponent(targetUrl.pathname).replace(/^\//, '');
       if (targetPath.endsWith('/')) targetPath += 'index.html';
@@ -407,6 +434,13 @@ async function validateGeneratedLinks(htmlFiles) {
         await access(join(output, targetPath));
       } catch {
         throw new Error(`generated link ${reference} in ${htmlFile} does not resolve`);
+      }
+      if (targetUrl.hash && targetPath.endsWith('.html')) {
+        const target = generatedHtml.get(targetPath) ?? await readFile(join(output, targetPath), 'utf8');
+        const fragment = decodeURIComponent(targetUrl.hash.slice(1));
+        if (!target.includes(`id="${escapeHtml(fragment)}"`)) {
+          throw new Error(`generated fragment ${reference} in ${htmlFile} does not resolve`);
+        }
       }
     }
   }

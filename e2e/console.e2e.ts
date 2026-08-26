@@ -229,6 +229,12 @@ test('creates, observes autonomous work, and completes a durable API conversatio
   await expect(page.getByText('turn/started', { exact: true })).toHaveCount(0);
 
   if (process.env.RAT_THINGS_CONSOLE_VIDEO !== 'on') {
+    await page.setViewportSize({ width: 768, height: 900 });
+    await page.waitForTimeout(250);
+    await expect(page.getByRole('button', { name: 'Open conversations' })).toBeVisible();
+    expect((await page.locator('#sidebar').boundingBox())?.x ?? 0).toBeLessThan(0);
+    await expect(page.locator('#sidebar')).toHaveAttribute('inert', '');
+    await expect(page.locator('#sidebar')).toHaveAttribute('aria-hidden', 'true');
     await page.setViewportSize({ width: 390, height: 844 });
     await page.waitForTimeout(250);
     await expect(progress).toBeVisible();
@@ -244,6 +250,17 @@ test('creates, observes autonomous work, and completes a durable API conversatio
     await page.getByRole('button', { name: 'Open conversations' }).click();
     await page.waitForTimeout(250);
     expect((await page.locator('#sidebar').boundingBox())?.x ?? -1).toBeGreaterThanOrEqual(0);
+    await expect(page.getByPlaceholder('Search conversations')).toBeFocused();
+    await expect(page.locator('#workspace')).toHaveAttribute('inert', '');
+    await expect(page.locator('#sidebar')).toHaveAttribute('aria-hidden', 'false');
+    await page.keyboard.press('Shift+Tab');
+    expect(await page.evaluate(() => document.querySelector('#sidebar')?.contains(document.activeElement))).toBe(true);
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('button', { name: 'Open conversations' })).toBeFocused();
+    await expect(page.locator('#workspace')).not.toHaveAttribute('inert', '');
+    await expect(page.locator('#sidebar')).toHaveAttribute('aria-hidden', 'true');
+    await page.getByRole('button', { name: 'Open conversations' }).click();
+    await expect(page.getByPlaceholder('Search conversations')).toBeFocused();
     if (process.env.RAT_THINGS_CONSOLE_SCREENSHOTS === 'on') {
       await page.screenshot({ path: 'test-results/rat-things-console-mobile-drawer.png' });
     }

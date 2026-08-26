@@ -26,11 +26,12 @@ Rat Things separates the lifetime of accepted work from the lifetime of its comp
   that same Run rather than creating another public execution object;
 - DynamoDB owns coordination, fencing, ordering, and bounded history indexes;
 - immutable S3 objects own Thing definitions, messages, events, checkpoints, results, and normalized replay;
-- S3 Files owns durable Codex state and workspace bytes expected by app-server, while high-churn
+- when enabled, S3 Files owns durable Codex state and workspace bytes expected by app-server, while high-churn
   temp, cache, plugin-cache, and exported-artifact paths remain VM-local;
 - a Lambda MicroVM owns exactly one fenced conversation while it runs; and
-- suspension is an optimization, not a durability boundary—a replacement VM can restore the same
-  Codex thread and workspace after the original is terminated.
+- suspension is an optimization, not a mailbox durability boundary—with S3 Files enabled, a
+  replacement VM can also restore the same Codex thread and workspace after the original is
+  terminated.
 
 This makes the execution layer serverless without reducing an agent to a stateless model call.
 
