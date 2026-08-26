@@ -14,7 +14,7 @@ export function createStripeIntegrationPlugin(options: { fetch?: typeof fetch } 
       id: 'stripe',
       version: '1',
       title: 'Stripe',
-      description: 'Search customers, list invoices, and create explicitly approved refunds.',
+      description: 'Search customers, list invoices, and create refunds when the capability envelope permits it.',
       authentication: [{
         scheme: 'api-key',
         title: 'Secret API key',
@@ -27,7 +27,6 @@ export function createStripeIntegrationPlugin(options: { fetch?: typeof fetch } 
           kind: 'search',
           access: 'read',
           risk: 'routine',
-          defaultApproval: 'never',
           inputSchema: objectSchema({ query: stringSchema('Stripe customer search query') }, ['query']),
         },
         {
@@ -36,7 +35,6 @@ export function createStripeIntegrationPlugin(options: { fetch?: typeof fetch } 
           kind: 'search',
           access: 'read',
           risk: 'routine',
-          defaultApproval: 'never',
           inputSchema: objectSchema({ customer: stringSchema('Optional Stripe customer ID') }, []),
         },
         {
@@ -45,7 +43,6 @@ export function createStripeIntegrationPlugin(options: { fetch?: typeof fetch } 
           kind: 'action',
           access: 'write',
           risk: 'destructive',
-          defaultApproval: 'always',
           inputSchema: objectSchema({
             paymentIntent: stringSchema('PaymentIntent ID to refund'),
             amount: { type: 'string', description: 'Optional amount in the smallest currency unit' },

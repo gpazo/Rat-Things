@@ -1,6 +1,10 @@
 import type { SQSBatchResponse, SQSEvent, SQSHandler } from 'aws-lambda';
 import { createAwsClients, DynamoRunStore, S3ArtifactStore } from '../adapters/aws-runtime.js';
-import { createExecutorRegistryFromEnv, requiredEnv } from '../adapters/executors.js';
+import {
+  createExecutorRegistryFromEnv,
+  requiredEnv,
+  type MicrovmStartupObservation,
+} from '../adapters/executors.js';
 import type { ExecutionBackend, RunQueueMessage } from '../domain/contracts.js';
 import {
   parseRunQueueMessage,
@@ -66,9 +70,25 @@ function defaultDependencies(): DispatcherDependencies {
   defaults = {
     store: new DynamoRunStore(clients.dynamodb, requiredEnv('RUNS_TABLE_NAME')),
     artifacts: new S3ArtifactStore(clients.s3, requiredEnv('ARTIFACT_BUCKET')),
-    executors: createExecutorRegistryFromEnv(),
+    executors: createExecutorRegistryFromEnv(emitMicrovmStartupObservation),
   };
   return defaults;
+}
+
+export function emitMicrovmStartupObservation(observation: MicrovmStartupObservation): void {
+  emitMetric(
+    'dispatcher',
+    observation.mode === 'launch'
+      ? 'MicrovmLaunchRequestDuration'
+      : 'MicrovmResumeRequestDuration',
+    observation.durationMs,
+    'Milliseconds',
+  );
+  if (observation.outcome === 'fallback') {
+    emitMetric('dispatcher', 'MicrovmResumeFallback', 1, 'Count');
+  } else if (observation.outcome === 'failed') {
+    emitMetric('dispatcher', 'MicrovmStartupFailure', 1, 'Count');
+  }
 }
 
 function defaultExecutionBackend(): ExecutionBackend {

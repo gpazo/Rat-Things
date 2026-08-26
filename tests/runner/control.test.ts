@@ -1,31 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { approvalResponseFor } from '../../src/runner/control.js';
+import { isApprovalRequest } from '../../src/runner/control.js';
 
-describe('runner approval response mapping', () => {
-  it('maps v2 command and file decisions', () => {
-    expect(approvalResponseFor(
-      'item/commandExecution/requestApproval',
-      'accept-for-session',
-    )).toEqual({ decision: 'acceptForSession' });
-    expect(approvalResponseFor(
-      'item/fileChange/requestApproval',
-      'decline',
-    )).toEqual({ decision: 'decline' });
-  });
-
-  it('maps legacy approvals without weakening a denial', () => {
-    expect(approvalResponseFor('execCommandApproval', 'accept')).toEqual({
-      decision: 'approved',
-    });
-    expect(approvalResponseFor('applyPatchApproval', 'decline', 'outside scope')).toEqual({
-      decision: { denied: { rejection: 'outside scope' } },
-    });
-  });
-
-  it('requires an explicit raw response for non-approval requests', () => {
-    expect(() => approvalResponseFor(
-      'item/tool/requestUserInput',
-      'accept',
-    )).toThrow('requires an explicit response');
+describe('runner approval protocol rejection', () => {
+  it('recognizes current and legacy approval requests without classifying ordinary input', () => {
+    expect(isApprovalRequest('item/commandExecution/requestApproval')).toBe(true);
+    expect(isApprovalRequest('item/fileChange/requestApproval')).toBe(true);
+    expect(isApprovalRequest('execCommandApproval')).toBe(true);
+    expect(isApprovalRequest('applyPatchApproval')).toBe(true);
+    expect(isApprovalRequest('item/tool/requestUserInput')).toBe(false);
   });
 });

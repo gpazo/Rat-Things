@@ -33,8 +33,8 @@ install -> discover -> draft -> explain/test -> publish -> run -> observe
 4. **Draft a Thing** containing reusable intent, a trigger, a capability profile, account
    selections, and delivery—never credential values. Updates create immutable revisions and move
    only the draft pointer.
-5. **Explain and test the draft.** Rat resolves the selected accounts and shows effective
-   permissions, approval requirements, and blocking diagnostics without exposing secrets. A test
+5. **Explain and test the draft.** Rat resolves the selected accounts and shows the fixed effective
+   capability envelope and blocking diagnostics without exposing secrets. A test
    run never changes production.
 6. **Publish one exact tested revision.** The caller supplies the successful test Run ID, expected
    draft revision, and expected `specHash`; Rat verifies all four identities before atomically moving
@@ -42,7 +42,7 @@ install -> discover -> draft -> explain/test -> publish -> run -> observe
 7. **Run** the active Thing manually or through an EventBridge `rate(...)` or `cron(...)` schedule.
    Signed provider events use separate authenticated ingress and converge on the same owner-scoped
    run backend; generic provider-event Thing triggers are not part of v1.
-8. **Observe and debug** through stable run states, events, approval requests, retained files,
+8. **Observe and debug** through stable run states, events, ordinary input requests, retained files,
    publications, error envelopes, and trace IDs.
 
 The CLI is one consumer of this contract, not a privileged path. An operator console, another
@@ -77,8 +77,11 @@ deployment/profile ceiling
 ```
 
 `read-only`, `read-write`, and `full` are useful presets; operation allow/deny lists and resource
-constraints provide narrower control. Approval is an additional decision point for a permitted
-operation. Approving an operation does not widen any permission layer.
+constraints provide narrower control. Together with provider scopes, profile ceilings, IAM, and
+network policy, they form the fixed envelope admitted before launch. The agent can autonomously use
+every exposed operation; there is no later approval step. Outside that envelope, an operation is
+omitted or denied by its enforcing layer. The denial does not suspend the Run or create a request
+that a person can approve.
 
 If a provider cannot report fine-grained scopes, Rat records that uncertainty rather than inventing
 precision. A host may still apply a narrower Rat grant. Use `thing-explain` before publishing a Thing
@@ -125,8 +128,11 @@ administration suite. Those features can be considered after the discover-connec
 is consistently simple and reliable.
 
 Browser computer use, conversations, files, publications, schedules, and channels extend what a
-Thing can do. They remain capabilities behind the same Thing, permission, approval, run, and
+Thing can do. They remain capabilities behind the same Thing, fixed-envelope, run, and
 evidence boundaries rather than separate product models.
+
+Read [the capability envelope](capability-envelope.md) before enabling connected-account writes,
+broad egress, or browser interaction.
 
 ## Continue by task
 

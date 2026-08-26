@@ -30,7 +30,7 @@ import { runCodexAppServer } from '../../src/runner/codex-app-server.js';
 import { createDynamicToolRequestHandler } from '../../src/runner/dynamic-tools.js';
 
 describe('simulated agent capability loop', () => {
-  it('runs App Server through multi-account grants, approvals, secret brokering, and browser tools', async () => {
+  it('runs App Server autonomously through multi-account grants, secret brokering, and browser tools', async () => {
     const ownerId = 'api:small-business-owner';
     const state = memoryIntegrationState();
     const vault = memoryVault();
@@ -101,7 +101,6 @@ describe('simulated agent capability loop', () => {
     expect(state.connections).toHaveLength(2);
     expect(state.bindings).toHaveLength(2);
 
-    const integrationApproval = vi.fn().mockResolvedValue(true);
     const integrations = await new IntegrationRuntime({
       registry,
       store: state.store,
@@ -109,7 +108,6 @@ describe('simulated agent capability loop', () => {
     }).prepare({
       ownerId,
       request: { connectionSet: 'shop-operations' },
-      approve: integrationApproval,
       maximumIntegrationAccess: 'read-write',
     });
     const postTool = integrations.tools[0]?.tools.find((tool) => tool.name === 'messages_post');
@@ -118,8 +116,7 @@ describe('simulated agent capability loop', () => {
       required: ['input'],
     });
     const browserBackend = new SimulatedBrowserBackend();
-    const browserApproval = vi.fn().mockResolvedValue(true);
-    const browser = new BrowserToolSession(browserBackend, browserApproval, true);
+    const browser = new BrowserToolSession(browserBackend);
     const dynamicTools = [
       ...integrations.tools.map((tool) => ({ ...tool })),
       ...browser.tools,
@@ -140,8 +137,6 @@ describe('simulated agent capability loop', () => {
         persistent: false,
         modelProvider: 'openai',
         networkAccess: true,
-        approvalPolicy: 'on-request',
-        approvalsReviewer: 'user',
         dynamicTools,
         onEvent: (event) => { events.push(event); },
         onServerRequest: createDynamicToolRequestHandler({ browser, integrations }),
@@ -158,19 +153,6 @@ describe('simulated agent capability loop', () => {
       for (const [index, result] of toolResults.entries()) {
         if (index !== 1) expect(result).toEqual(expect.objectContaining({ success: true }));
       }
-      expect(integrationApproval).toHaveBeenCalledOnce();
-      expect(integrationApproval).toHaveBeenCalledWith(expect.objectContaining({
-        connectionAlias: 'slack-business',
-        approval: 'always',
-        input: { channel: 'C-SUPPORT', text: 'Customer issue resolved.' },
-      }));
-      expect(browserApproval).toHaveBeenCalledTimes(4);
-      expect(browserApproval.mock.calls.map(([request]) => request.tool)).toEqual([
-        'type',
-        'press',
-        'select',
-        'click',
-      ]);
       expect(browserBackend.commands).toEqual([
         { type: 'navigate', url: 'https://example.com/' },
         { type: 'observe', includeScreenshot: true },

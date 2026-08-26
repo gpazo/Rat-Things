@@ -34,7 +34,6 @@ export function createSlackIntegrationPlugin(options: { fetch?: typeof fetch } =
           kind: 'tool',
           access: 'read',
           risk: 'routine',
-          defaultApproval: 'never',
           inputSchema: objectSchema({ marker: stringSchema('Opaque diagnostic marker') }, ['marker']),
         },
         {
@@ -44,7 +43,6 @@ export function createSlackIntegrationPlugin(options: { fetch?: typeof fetch } =
           access: 'read',
           risk: 'routine',
           requiredProviderScopes: ['search:read'],
-          defaultApproval: 'never',
           inputSchema: objectSchema({ query: stringSchema('Slack search query') }, ['query']),
         },
         {
@@ -54,7 +52,6 @@ export function createSlackIntegrationPlugin(options: { fetch?: typeof fetch } =
           access: 'write',
           risk: 'consequential',
           requiredProviderScopes: ['chat:write'],
-          defaultApproval: 'always',
           inputSchema: objectSchema({
             channel: stringSchema('Channel ID'),
             text: stringSchema('Message text'),
@@ -68,7 +65,6 @@ export function createSlackIntegrationPlugin(options: { fetch?: typeof fetch } =
           access: 'write',
           risk: 'consequential',
           requiredProviderScopes: ['reactions:write'],
-          defaultApproval: 'on-request',
           inputSchema: objectSchema({
             channel: stringSchema('Channel ID'),
             timestamp: stringSchema('Message timestamp'),

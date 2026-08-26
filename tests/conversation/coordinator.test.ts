@@ -3,8 +3,10 @@ import { describe, expect, it, vi } from 'vitest';
 import type { ArtifactStore, RunStore } from '../../src/core/ports.js';
 import type { RunService } from '../../src/core/run-service.js';
 import {
+  appendContext,
   ConversationCompletionCoordinator,
   ConversationCoordinator,
+  replayPrompt,
 } from '../../src/conversation/coordinator.js';
 import type { ConversationService } from '../../src/conversation/service.js';
 import type { ConversationRecord, ConversationTurnRecord } from '../../src/domain/conversations.js';
@@ -70,6 +72,44 @@ function artifact(key: string) {
 }
 
 describe('conversation coordinator', () => {
+  it('makes bounded replay loss explicit and accumulates compaction evidence', () => {
+    const previous = {
+      version: '1' as const,
+      messages: Array.from({ length: 200 }, (_, index) => ({
+        role: index % 2 === 0 ? 'user' : 'assistant',
+        content: `history-${index}`,
+      })),
+      metadata: { compactedMessages: 7, preserved: 'value' },
+    };
+    const continuation = {
+      version: '1' as const,
+      messages: [{
+        messageId: 'message-new',
+        text: 'Newest request',
+        receivedAt: conversation.createdAt,
+      }],
+    };
+
+    const next = appendContext(previous, continuation, 'Newest response');
+
+    expect(next.messages).toHaveLength(200);
+    expect(next.metadata).toEqual({ compactedMessages: 9, preserved: 'value' });
+
+    const prompt = replayPrompt({
+      version: '1',
+      messages: [
+        { role: 'user', content: 'x'.repeat(90_000) },
+        { role: 'assistant', content: 'recent response' },
+      ],
+      metadata: { compactedMessages: 9 },
+    }, continuation);
+    expect(prompt).toContain('9 older transcript item(s) were compacted');
+    expect(prompt).toContain('1 retained item(s) were omitted');
+    expect(prompt).toContain('do not invent omitted details');
+    expect(prompt).toContain('Newest request');
+    expect(prompt).not.toContain('x'.repeat(100));
+  });
+
   it('turns mailbox state into a trusted resumable run and consumes only after scheduling', async () => {
     const conversations = {
       acquireLease: vi.fn().mockResolvedValue({ status: 'acquired', conversation, lease }),
@@ -337,5 +377,103 @@ describe('conversation coordinator', () => {
     expect(queue.enqueue).toHaveBeenCalledWith(expect.objectContaining({
       conversationId: conversation.conversationId,
     }));
+  });
+
+  it('persists an unknown-outcome handoff and drops native resume after an interrupted tool call', async () => {
+    const continuation = artifact('interrupted-continuation.json');
+    const run: RunRecord = {
+      runId: 'run-interrupted',
+      ownerId: conversation.ownerId,
+      ownerCreated: `${conversation.ownerId}#${conversation.createdAt}#run-interrupted`,
+      status: 'failed',
+      createdAt: conversation.createdAt,
+      updatedAt: conversation.updatedAt,
+      expiresAt: conversation.expiresAt,
+      requestHash: 'a'.repeat(64),
+      input: artifact('interrupted-input.json'),
+      sourceKind: 'teams',
+      conversation: {
+        conversationId: conversation.conversationId,
+        turnId: turn.turnId,
+        slice: 0,
+        continuation,
+      },
+      execution: {
+        backend: 'microvm',
+        id: 'microvm-1',
+        generation: 'b'.repeat(64),
+      },
+      agentToolCalls: [{
+        version: '1',
+        runId: 'run-interrupted',
+        requestId: 'tool-unknown',
+        method: 'item/tool/call',
+        executionId: 'microvm-1',
+        executionGeneration: 'b'.repeat(64),
+        namespace: 'fixture_crm',
+        tool: 'records_create',
+        argumentDigest: 'c'.repeat(64),
+        admittedToolsDigest: 'd'.repeat(64),
+        status: 'interrupted',
+        startedAt: '2026-08-03T12:00:01.000Z',
+        settledAt: '2026-08-03T12:00:02.000Z',
+        error: 'execution ended before settlement',
+      }],
+      error: { code: 'execution_lost', message: 'MicroVM terminated', retryable: true },
+    };
+    const activeConversation = { ...conversation, activeTurnId: turn.turnId };
+    const conversations = {
+      acquireLease: vi.fn().mockResolvedValue({
+        status: 'acquired',
+        conversation: activeConversation,
+        lease,
+      }),
+      getTurn: vi.fn().mockResolvedValue({ ...turn, runId: run.runId }),
+      failTurn: vi.fn().mockResolvedValue({ ...turn, state: 'failed' }),
+      releaseLease: vi.fn(),
+      get: vi.fn().mockResolvedValue({ ...conversation, pendingCount: 0 }),
+    } as unknown as ConversationService;
+    const artifacts = {
+      getJson: vi.fn().mockResolvedValue({
+        version: '1',
+        messages: [{
+          messageId: 'message-interrupted',
+          text: 'Create the record once.',
+          receivedAt: conversation.createdAt,
+        }],
+      }),
+    } as unknown as ArtifactStore;
+    const sessions = { suspend: vi.fn().mockResolvedValue(undefined) };
+    const completion = new ConversationCompletionCoordinator({
+      conversations,
+      runs: { get: vi.fn().mockResolvedValue(run) } as unknown as Pick<RunStore, 'get'>,
+      artifacts,
+      results: { read: vi.fn() },
+      queue: { enqueue: vi.fn() },
+      sessions,
+    });
+
+    await expect(completion.handle({
+      version: '1',
+      runId: run.runId,
+      ownerId: run.ownerId,
+      sourceKind: 'teams',
+      status: 'failed',
+      occurredAt: run.updatedAt,
+    })).resolves.toEqual({ status: 'completed' });
+
+    expect(conversations.failTurn).toHaveBeenCalledWith(expect.objectContaining({
+      clearSession: true,
+      context: expect.objectContaining({
+        messages: expect.arrayContaining([
+          expect.objectContaining({ role: 'user', content: 'Create the record once.' }),
+          expect.objectContaining({
+            role: 'system',
+            content: expect.stringContaining('Do not replay any of these calls automatically'),
+          }),
+        ]),
+      }),
+    }));
+    expect(sessions.suspend).toHaveBeenCalledWith('microvm-1');
   });
 });

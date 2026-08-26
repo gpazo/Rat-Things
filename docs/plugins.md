@@ -14,7 +14,7 @@ The narrow journey is:
 
 ```text
 discover integration -> supply credential -> verify provider account -> choose Rat access
-                     -> select account for a Thing/run -> approve consequential writes
+                     -> select and narrow accounts for a Thing/run -> launch autonomously
 ```
 
 This is the useful core of a Zapier-like integration system, not a claim of Zapier parity. Zapier's
@@ -75,7 +75,7 @@ A manifest describes the exact authentication fields and operations installed in
       "kind": "search",
       "access": "read",
       "risk": "routine",
-      "defaultApproval": "never"
+      "requiredProviderScopes": ["customers.read"]
     }
   ]
 }
@@ -211,7 +211,7 @@ accounts and shows why every operation is allowed or denied before the Thing is 
 
 <figure class="doc-visual doc-visual-tall">
   <a href="permission-intersection.svg"><img src="permission-intersection.svg" alt="Effective integration operations are the intersection of provider authorization, the persistent account grant, the capability profile, and Thing or run narrowing. A deny at any layer wins."></a>
-  <figcaption><strong>Permission is always an intersection.</strong> Approval can authorize a permitted operation, but it cannot widen authority.</figcaption>
+  <figcaption><strong>Permission is always an intersection.</strong> The resulting operation set is fixed before launch and autonomous during the Run.</figcaption>
 </figure>
 
 An operation is available only when every applicable layer permits it:
@@ -220,7 +220,7 @@ An operation is available only when every applicable layer permits it:
 2. The persistent connection grant permits the operation.
 3. The selected capability profile does not forbid it.
 4. A Thing or run-level selection may narrow it again.
-5. Deny lists, expiry, resource constraints, and approval policy are enforced.
+5. Deny lists, expiry, resource constraints, IAM, and egress policy are enforced.
 
 The effective permission is the intersection, never the union. A full-access provider key can be
 exposed to Rat as read-only. A read-only provider token cannot be widened by a Rat grant.
@@ -249,9 +249,6 @@ rat-things grant slack-client-a --file /secure/config/slack-client-a-grant.json
   "preset": "custom",
   "allowOperations": ["slack.messages.search", "slack.messages.post"],
   "denyOperations": [],
-  "approvalOverrides": [
-    { "operationId": "slack.messages.post", "approval": "always" }
-  ],
   "resourceConstraints": {
     "channel": ["C01234567"]
   },
@@ -259,9 +256,10 @@ rat-things grant slack-client-a --file /secure/config/slack-client-a-grant.json
 }
 ```
 
-`resourceConstraints` match operation input fields before approval and before the credential is
-read. Operations declare `never`, `on-request`, or `always` approval. An `always` write asks on every
-call; an accepted request does not silently authorize a later write.
+`resourceConstraints` match operation input fields before the credential is read. Every exposed
+operation is available for autonomous use during the Run. There is no approval step, so omit or
+deny an operation unless the full admitted input range is safe. See [the capability
+envelope](capability-envelope.md).
 
 ## 5. Rotate or revoke safely
 
@@ -330,8 +328,9 @@ arbitrary tenants until the provider installation itself is authenticated.
 The HTTP adapters pin credential-free API base URLs, reject redirects and origin escapes, bound
 request/response bodies, and attach credentials only inside trusted code. Fixture CRM is compiled
 only when `INTEGRATION_PLUGIN_BASE_URLS` supplies its base URL. It exists to prove onboarding,
-verified identity, provider scopes, multiple accounts, read/write intersection, approval, exact-once
-provider mutation, and secret non-disclosure without depending on a customer's third-party account.
+verified identity, provider scopes, multiple accounts, autonomous read/write intersection,
+exactly-one fixture mutation, and secret non-disclosure without depending on a customer's
+third-party account.
 
 ## Add a trusted integration
 
@@ -342,13 +341,14 @@ Integration plugins are trusted TypeScript adapters compiled into the MicroVM im
 2. Implement `verifyCredential`. Call a fixed provider identity endpoint and return a bounded label,
    provider authorization, and stable tenant/subject IDs when available. Never trust those values
    from the connection-create request.
-3. Define each operation's access, risk, default approval, required provider scopes, and closed JSON
+3. Define each operation's access, risk, required provider scopes, and closed JSON
    input schema.
 4. Prefer `TrustedHttpIntegrationPlugin`: use a credential-free HTTPS base URL and construct only
    relative paths from validated inputs. Never let the model provide an origin.
 5. Register the adapter in `src/plugins/integrations/builtins.ts` and rebuild the trusted image.
 6. Add contract, simulation, LocalStack, and disposable live-AWS tests. Prove a read, an
-   approval-gated write, a denied credential/scope, account selection, and absence of secret values.
+   autonomously admitted write, a denied credential/scope, account selection, and absence of secret
+   values.
 
 Ingress signature parsing remains in `src/ingress`/`src/channels`; outbound result notification
 remains in `src/delivery`. Agent-callable integration operations belong here. The architecture check

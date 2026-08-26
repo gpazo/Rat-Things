@@ -1,7 +1,7 @@
 {
   "version": "1",
   "name": "Customer operations review",
-  "goal": "Review support messages and payment exceptions. Summarize anything that needs an owner and do not issue refunds without approval.",
+  "goal": "Review support messages and payment exceptions. Summarize anything that needs an owner. Refund creation is explicitly denied.",
   "trigger": {
     "kind": "schedule",
     "expression": "cron(0 9 ? * MON-FRI *)",

@@ -33,11 +33,6 @@ export interface BrowserBackend {
   close(): Promise<void>;
 }
 
-export interface BrowserApprovalRequest {
-  tool: string;
-  command: BrowserCommand;
-}
-
 export type BrowserCommand =
   | { type: 'navigate'; url: string }
   | { type: 'observe'; includeScreenshot: boolean }
@@ -55,22 +50,13 @@ export type BrowserCommand =
 export class BrowserToolSession {
   public readonly tools = browserDynamicTools();
 
-  public constructor(
-    private readonly backend: BrowserBackend = new BrowserHostBackend(),
-    private readonly approve?: (request: BrowserApprovalRequest) => Promise<boolean>,
-    private readonly requireInteractiveApproval = false,
-  ) {}
+  public constructor(private readonly backend: BrowserBackend = new BrowserHostBackend()) {}
 
   public async call(call: BrowserToolCall, signal?: AbortSignal): Promise<BrowserToolResponse> {
     if (call.namespace !== BROWSER_TOOL_NAMESPACE) {
       throw new Error(`browser tool namespace must be ${BROWSER_TOOL_NAMESPACE}`);
     }
     const command = parseBrowserCommand(call.tool, call.arguments);
-    if (this.requireInteractiveApproval && isInteractiveBrowserCommand(command)) {
-      if (!this.approve || !(await this.approve({ tool: call.tool, command }))) {
-        throw new Error('browser interaction was not approved');
-      }
-    }
     const result = await this.backend.execute(command, signal);
     assertBoundedText(result.text);
     const contentItems: BrowserToolResponse['contentItems'] = [
@@ -86,10 +72,6 @@ export class BrowserToolSession {
   public close(): Promise<void> {
     return this.backend.close();
   }
-}
-
-function isInteractiveBrowserCommand(command: BrowserCommand): boolean {
-  return ['click', 'type', 'press', 'select'].includes(command.type);
 }
 
 interface PendingBrowserCommand {

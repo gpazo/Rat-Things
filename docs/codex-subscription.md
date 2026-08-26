@@ -11,7 +11,7 @@ apply; see the official [Codex pricing](https://learn.chatgpt.com/docs/pricing) 
 
 ## Fastest path
 
-Requirements: Node.js 20+, npm, Git, and a supported ChatGPT account.
+Requirements: Node.js 22.20+, npm, Git, and a supported ChatGPT account.
 
 ```bash
 git clone https://github.com/gpazo/Rat-Things.git
@@ -50,10 +50,13 @@ npm run rat-things -- local \
 Add `--events` to either form to print the complete Codex JSONL event stream. Add `--workspace PATH`
 to work in a directory other than the repository root.
 
-Local execution supports direct Codex skill, app, MCP, approval, search, reasoning, and personality
+Local execution supports direct Codex skill, app, MCP, search, reasoning, and personality
 flags. Multi-account connections and the Chromium computer-use helper depend on the deployed
 Secrets Manager/DynamoDB/MicroVM host, so `rat-things local` rejects them instead of silently running
 without the requested capability. Use the remote signed CLI for those features.
+
+Local and remote execution both pin Codex to `approvalPolicy: "never"`. Narrow the sandbox,
+networking, and selected capabilities before starting; there is no mid-Run approval command.
 
 ## What the command does
 

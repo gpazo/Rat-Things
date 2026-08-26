@@ -92,8 +92,6 @@ describe('CodexDriver', () => {
           reasoningSummary: 'concise',
           personality: 'pragmatic',
           capabilities: {
-            approvalPolicy: 'on-request',
-            approvalsReviewer: 'auto-review',
             networkAccess: true,
             webSearch: 'live',
             skills: ['support-triage'],
@@ -119,8 +117,6 @@ describe('CodexDriver', () => {
       outputSchema: { type: 'object', required: ['summary'] },
       sandbox: 'workspace-write',
       networkAccess: true,
-      approvalPolicy: 'on-request',
-      approvalsReviewer: 'auto-review',
       webSearch: 'live',
       skills: ['support-triage'],
       apps: ['gmail', 'google-calendar'],

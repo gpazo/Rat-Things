@@ -51,7 +51,7 @@
   <g data-node="primary">
     <rect class="node--result" x="90" y="718" width="580" height="120" rx="18"/>
     <text class="label" x="380" y="766">Effective operations</text>
-    <text class="result-detail" x="380" y="800">Only what every layer permits; approval may still be required</text>
+    <text class="result-detail" x="380" y="800">Only what every layer permits; autonomous for this Run</text>
   </g>
 
   <text class="rule" x="380" y="872">A DENY ALWAYS WINS · NO LAYER CAN WIDEN AN EARLIER LAYER</text>

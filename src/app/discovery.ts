@@ -48,6 +48,11 @@ export function ratThingsDiscovery(docsUrl?: string): Record<string, unknown> {
     capabilities: {
       consumers: ['operator', 'embedded-product', 'agent', 'cli', 'provider-event'],
       recommendedFacade: 'things',
+      authorization: {
+        model: 'fixed-before-launch',
+        insideEnvelope: 'autonomous',
+        midRunApproval: false,
+      },
       things: {
         specVersions: ['1'],
         triggers: ['manual', 'schedule:rate', 'schedule:cron'],
@@ -75,7 +80,7 @@ export function ratThingsDiscovery(docsUrl?: string): Record<string, unknown> {
         interactiveEvents: true,
         steering: true,
         interruption: true,
-        approvals: true,
+        approvals: false,
         skills: true,
         apps: true,
         mcp: true,
@@ -83,13 +88,16 @@ export function ratThingsDiscovery(docsUrl?: string): Record<string, unknown> {
       runs: {
         asynchronous: true,
         liveEvents: true,
-        approvals: true,
+        approvals: false,
         steering: true,
         interruption: true,
       },
       conversations: {
         durable: true,
         replacementCompute: true,
+        cursorPagedTranscript: true,
+        serverSearch: ['messages', 'files'],
+        organization: ['pin', 'hide', 'read-state'],
       },
       outputs: {
         durableFiles: true,

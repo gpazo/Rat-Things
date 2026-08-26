@@ -6,6 +6,7 @@ import type {
   ConversationEventRecord,
   ConversationMessageRecord,
   ConversationRecord,
+  ConversationTranscriptRecord,
 } from '../../src/domain/conversations.js';
 
 const occurredAt = '2026-08-21T00:00:00.000Z';
@@ -14,6 +15,91 @@ const actor = { kind: 'human' as const, id: 'user-1', provider: 'api' as const }
 const credentialSubject = { kind: 'runtime' as const, id: 'runtime:api' };
 
 describe('Dynamo conversation policy stability', () => {
+  it('lists only an owner partition through the conversation index', async () => {
+    const current = conversation();
+    const send = vi.fn().mockResolvedValue({
+      Items: [stored(current)],
+      LastEvaluatedKey: { pk: 'CONVERSATION#hash', sk: 'META', ownerId: 'owner-1' },
+    });
+    const store = new DynamoConversationStore(
+      { send } as unknown as DynamoDBDocumentClient,
+      'conversations',
+    );
+
+    const result = await store.list('owner-1', 1);
+
+    expect(result.items).toEqual([current]);
+    expect(result.nextToken).toEqual(expect.any(String));
+    expect(send).toHaveBeenCalledWith(expect.objectContaining({
+      input: expect.objectContaining({
+        TableName: 'conversations',
+        IndexName: 'owner-created-index',
+        KeyConditionExpression: 'ownerId = :ownerId',
+        FilterExpression: 'attribute_not_exists(hiddenAt)',
+        ExpressionAttributeValues: { ':ownerId': 'owner-1' },
+        ScanIndexForward: false,
+        Limit: 1,
+      }),
+    }));
+  });
+
+  it('persists owner-scoped organization toggles without changing message recency', async () => {
+    const current = conversation({ pinnedAt: occurredAt });
+    const send = vi.fn().mockResolvedValue({ Attributes: stored(current) });
+    const store = new DynamoConversationStore(
+      { send } as unknown as DynamoDBDocumentClient,
+      'conversations',
+    );
+
+    await expect(store.updateOrganization({
+      conversationId: current.conversationId,
+      ownerId: current.ownerId,
+      pinned: true,
+      hidden: false,
+      now: occurredAt,
+    })).resolves.toEqual(current);
+    expect(send).toHaveBeenCalledWith(expect.objectContaining({
+      input: expect.objectContaining({
+        UpdateExpression: 'SET pinnedAt = :now REMOVE hiddenAt',
+        ConditionExpression: 'ownerId = :ownerId',
+        ReturnValues: 'ALL_NEW',
+      }),
+    }));
+  });
+
+  it('intersects encrypted token postings and returns only owner conversations', async () => {
+    const current = conversation({ pinnedAt: occurredAt });
+    const posting = (token: string) => ({
+      version: '1',
+      itemType: 'search',
+      ownerId: current.ownerId,
+      conversationId: current.conversationId,
+      entryId: 'message-1',
+      token,
+      kind: 'message',
+      role: 'user',
+      snippet: 'Release deployment evidence.',
+      occurredAt,
+      expiresAt: current.expiresAt,
+      pk: `SEARCH#hash#${token}`,
+      sk: `MATCH#${occurredAt}`,
+    });
+    const send = vi.fn()
+      .mockResolvedValueOnce({ Items: [posting('release')] })
+      .mockResolvedValueOnce({ Items: [posting('deployment')] })
+      .mockResolvedValueOnce({ Responses: { conversations: [stored(current)] } });
+    const store = new DynamoConversationStore(
+      { send } as unknown as DynamoDBDocumentClient,
+      'conversations',
+    );
+
+    await expect(store.search(current.ownerId, ['release', 'deployment'], 20)).resolves.toEqual([{
+      conversation: current,
+      matches: [expect.objectContaining({ snippet: 'Release deployment evidence.' })],
+    }]);
+    expect(send).toHaveBeenCalledTimes(3);
+  });
+
   it('treats DynamoDB maps with different key order as the same policy', async () => {
     const current = conversation({
       // Deliberately use the reverse insertion order from the incoming policy.
@@ -21,7 +107,6 @@ describe('Dynamo conversation policy stability', () => {
         capabilities: {
           webSearch: 'live',
           networkAccess: true,
-          approvalPolicy: 'never',
         },
         sandbox: 'danger-full-access',
         driver: 'mock',
@@ -36,7 +121,6 @@ describe('Dynamo conversation policy stability', () => {
         driver: 'mock',
         sandbox: 'danger-full-access',
         capabilities: {
-          approvalPolicy: 'never',
           networkAccess: true,
           webSearch: 'live',
         },
@@ -58,7 +142,9 @@ describe('Dynamo conversation policy stability', () => {
     await expect(store.appendMessage({
       conversation: incoming,
       message: message(),
+      transcript: transcript(),
       event: event(),
+      search: [],
     })).resolves.toMatchObject({ status: 'appended' });
     expect(send).toHaveBeenCalledTimes(3);
   });
@@ -79,9 +165,76 @@ describe('Dynamo conversation policy stability', () => {
     await expect(store.appendMessage({
       conversation: incoming,
       message: message(),
+      transcript: transcript(),
       event: event(),
+      search: [],
     })).rejects.toBeInstanceOf(ConversationConflictError);
     expect(send).toHaveBeenCalledTimes(1);
+  });
+
+  it('pages transcript entries newest first with an opaque cursor', async () => {
+    const item = transcript();
+    const send = vi.fn().mockResolvedValue({
+      Items: [{ ...item, pk: 'CONVERSATION#hash', sk: 'TRANSCRIPT#time#hash' }],
+      LastEvaluatedKey: { pk: 'CONVERSATION#hash', sk: 'TRANSCRIPT#time#hash' },
+    });
+    const store = new DynamoConversationStore(
+      { send } as unknown as DynamoDBDocumentClient,
+      'conversations',
+    );
+
+    const result = await store.listTranscript('conversation-1', 20);
+
+    expect(result).toEqual({ items: [item], nextToken: expect.any(String) });
+    expect(send).toHaveBeenCalledWith(expect.objectContaining({
+      input: expect.objectContaining({
+        KeyConditionExpression: 'pk = :pk AND begins_with(sk, :transcript)',
+        ScanIndexForward: false,
+        Limit: 20,
+      }),
+    }));
+  });
+
+  it('writes and reads owner-scoped durable reactions without starting work', async () => {
+    const reaction = {
+      version: '1' as const,
+      itemType: 'reaction' as const,
+      conversationId: 'conversation-1',
+      messageId: 'assistant-1',
+      emoji: '👍' as const,
+      ownerId: 'owner-1',
+      createdAt: occurredAt,
+      expiresAt: 1_900_000_000,
+    };
+    const send = vi.fn()
+      .mockResolvedValueOnce({})
+      .mockResolvedValueOnce({
+        Responses: {
+          conversations: [{ ...reaction, pk: 'CONVERSATION#hash', sk: 'REACTION#hash' }],
+        },
+      });
+    const store = new DynamoConversationStore(
+      { send } as unknown as DynamoDBDocumentClient,
+      'conversations',
+    );
+
+    await store.setReaction({ ...reaction, reacted: true });
+    await expect(store.listReactions(
+      reaction.conversationId,
+      reaction.ownerId,
+      [reaction.messageId],
+    )).resolves.toEqual([reaction]);
+    expect(send).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      input: expect.objectContaining({
+        TransactItems: [
+          expect.objectContaining({ ConditionCheck: expect.objectContaining({ ConditionExpression: 'ownerId = :ownerId' }) }),
+          expect.objectContaining({ Put: expect.objectContaining({ TableName: 'conversations' }) }),
+        ],
+      }),
+    }));
+    expect(send).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      input: expect.objectContaining({ RequestItems: expect.objectContaining({ conversations: expect.any(Object) }) }),
+    }));
   });
 });
 
@@ -134,6 +287,21 @@ function event(): ConversationEventRecord {
     type: 'message_received',
     occurredAt,
     payload: artifact,
+    expiresAt: 1_900_000_000,
+    messageId: 'message-1',
+  };
+}
+
+function transcript(): ConversationTranscriptRecord {
+  return {
+    version: '1',
+    itemType: 'transcript',
+    conversationId: 'conversation-1',
+    entryId: 'message-message-1',
+    role: 'user',
+    contentKind: 'message',
+    content: artifact,
+    occurredAt,
     expiresAt: 1_900_000_000,
     messageId: 'message-1',
   };

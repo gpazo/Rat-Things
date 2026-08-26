@@ -270,23 +270,14 @@ function resolveOperation(
     id: operation.id,
     access: operation.access,
     allowed: decision.allowed,
-    requiresApproval: decision.requiresApproval,
-    approval: decision.approval,
     enforcement: decision.enforcement,
     ...(decision.reason ? { reason: decision.reason } : {}),
   };
 }
 
 function combinedDecision(decisions: OperationAuthorizationDecision[]): OperationAuthorizationDecision {
-  const approval = decisions.some((decision) => decision.approval === 'always')
-    ? 'always'
-    : decisions.some((decision) => decision.approval === 'on-request')
-      ? 'on-request'
-      : 'never';
   return {
     allowed: true,
-    requiresApproval: approval !== 'never',
-    approval,
     enforcement: decisions.some((decision) => decision.enforcement === 'provider-and-broker')
       ? 'provider-and-broker'
       : 'broker',

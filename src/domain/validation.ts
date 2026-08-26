@@ -12,8 +12,6 @@ import type {
 } from './contracts.js';
 import {
   AGENT_PERSONALITIES,
-  APPROVAL_POLICIES,
-  APPROVAL_REVIEWERS,
   COMPUTER_USE_MODES,
   INTEGRATION_PERMISSION_PRESETS,
   REASONING_SUMMARIES,
@@ -246,8 +244,6 @@ function parseAgentCapabilities(value: unknown): AgentCapabilityRequest {
   const input = requiredRecord(value, 'agent.capabilities');
   rejectUnknown(input, [
     'profile',
-    'approvalPolicy',
-    'approvalsReviewer',
     'networkAccess',
     'webSearch',
     'computerUse',
@@ -258,18 +254,6 @@ function parseAgentCapabilities(value: unknown): AgentCapabilityRequest {
   const result: AgentCapabilityRequest = {};
   if (input.profile !== undefined) {
     result.profile = safeIdentifier(input.profile, 'agent.capabilities.profile');
-  }
-  if (input.approvalPolicy !== undefined) {
-    if (!APPROVAL_POLICIES.includes(input.approvalPolicy as never)) {
-      throw new ValidationError('agent.capabilities.approvalPolicy is invalid');
-    }
-    result.approvalPolicy = input.approvalPolicy as NonNullable<AgentCapabilityRequest['approvalPolicy']>;
-  }
-  if (input.approvalsReviewer !== undefined) {
-    if (!APPROVAL_REVIEWERS.includes(input.approvalsReviewer as never)) {
-      throw new ValidationError('agent.capabilities.approvalsReviewer is invalid');
-    }
-    result.approvalsReviewer = input.approvalsReviewer as NonNullable<AgentCapabilityRequest['approvalsReviewer']>;
   }
   if (input.networkAccess !== undefined) {
     if (typeof input.networkAccess !== 'boolean') {

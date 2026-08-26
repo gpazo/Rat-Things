@@ -44,16 +44,32 @@ resource "aws_dynamodb_table" "runs" {
 
   global_secondary_index {
     name            = "owner-created-index"
-    hash_key        = "ownerId"
-    range_key       = "ownerCreated"
     projection_type = "ALL"
+
+    key_schema {
+      attribute_name = "ownerId"
+      key_type       = "HASH"
+    }
+
+    key_schema {
+      attribute_name = "ownerCreated"
+      key_type       = "RANGE"
+    }
   }
 
   global_secondary_index {
     name            = "status-updated-index"
-    hash_key        = "status"
-    range_key       = "updatedAt"
     projection_type = "ALL"
+
+    key_schema {
+      attribute_name = "status"
+      key_type       = "HASH"
+    }
+
+    key_schema {
+      attribute_name = "updatedAt"
+      key_type       = "RANGE"
+    }
   }
 
   ttl {
@@ -101,18 +117,59 @@ resource "aws_dynamodb_table" "conversations" {
     type = "S"
   }
 
+  attribute {
+    name = "ownerId"
+    type = "S"
+  }
+
+  attribute {
+    name = "ownerCreated"
+    type = "S"
+  }
+
   global_secondary_index {
     name            = "conversation-work-index"
-    hash_key        = "workPartition"
-    range_key       = "workOrder"
     projection_type = "ALL"
+
+    key_schema {
+      attribute_name = "workPartition"
+      key_type       = "HASH"
+    }
+
+    key_schema {
+      attribute_name = "workOrder"
+      key_type       = "RANGE"
+    }
   }
 
   global_secondary_index {
     name            = "status-updated-index"
-    hash_key        = "status"
-    range_key       = "updatedAt"
     projection_type = "ALL"
+
+    key_schema {
+      attribute_name = "status"
+      key_type       = "HASH"
+    }
+
+    key_schema {
+      attribute_name = "updatedAt"
+      key_type       = "RANGE"
+    }
+  }
+
+  global_secondary_index {
+    name            = "owner-created-index"
+    projection_type = "ALL"
+
+    key_schema {
+      attribute_name = "ownerId"
+      key_type       = "HASH"
+    }
+
+    key_schema {
+      attribute_name = "ownerCreated"
+      key_type       = "RANGE"
+    }
   }
 
   ttl {
@@ -170,16 +227,32 @@ resource "aws_dynamodb_table" "routines" {
 
   global_secondary_index {
     name            = "owner-created-index"
-    hash_key        = "ownerId"
-    range_key       = "ownerCreated"
     projection_type = "ALL"
+
+    key_schema {
+      attribute_name = "ownerId"
+      key_type       = "HASH"
+    }
+
+    key_schema {
+      attribute_name = "ownerCreated"
+      key_type       = "RANGE"
+    }
   }
 
   global_secondary_index {
     name            = "status-next-run-index"
-    hash_key        = "status"
-    range_key       = "nextRunAt"
     projection_type = "ALL"
+
+    key_schema {
+      attribute_name = "status"
+      key_type       = "HASH"
+    }
+
+    key_schema {
+      attribute_name = "nextRunAt"
+      key_type       = "RANGE"
+    }
   }
 
   ttl {
@@ -216,9 +289,17 @@ resource "aws_dynamodb_table" "things" {
 
   global_secondary_index {
     name            = "owner-created-index"
-    hash_key        = "ownerId"
-    range_key       = "ownerCreated"
     projection_type = "ALL"
+
+    key_schema {
+      attribute_name = "ownerId"
+      key_type       = "HASH"
+    }
+
+    key_schema {
+      attribute_name = "ownerCreated"
+      key_type       = "RANGE"
+    }
   }
 
 }

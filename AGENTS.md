@@ -54,6 +54,13 @@ The Lambda functions and MicroVM image are ARM64. Container builds must use `lin
 - Workers have no public or user-facing ingress. The MicroVM image listens only on the
   service-required lifecycle port; conversation continuation requires an AWS-issued proxy token.
 - `danger-full-access` is accepted only because the outer MicroVM is the isolation boundary.
+- Rat Things has no mid-Run human approval layer. Resolve a fixed capability envelope before
+  launch from profiles, Run/Thing narrowing, IAM, network policy, provider scopes, connection
+  grants, operation allow/deny lists, and resource constraints. The agent is autonomous inside it.
+  Outside it, tools are absent or the enforcing layer denies the operation (for example
+  `AccessDenied`, a blocked URL, or a broker rejection before credential access); denial never
+  becomes a pending approval. If Codex emits an approval-shaped request, fail closed; never add a
+  path that lets the guest widen its own authority.
 - Results and prompts live in encrypted S3; DynamoDB stores references and bounded summaries.
 
 ## Verification

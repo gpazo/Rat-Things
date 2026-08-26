@@ -244,7 +244,6 @@ function testPlugin(id: 'slack' | 'stripe', credentialField: string): Integratio
         kind: 'search',
         access: 'read',
         risk: 'routine',
-        defaultApproval: 'never',
       }],
     },
     verifyCredential: async (scheme, credential) => {

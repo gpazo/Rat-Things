@@ -131,24 +131,15 @@ describe('browser dynamic tools', () => {
     }
   });
 
-  it('fails closed on interactive actions when approval policy requires a reviewer', async () => {
+  it('executes interactive actions autonomously once browser use is admitted', async () => {
     const execute = vi.fn(async () => ({ text: '{}' }));
-    const approve = vi.fn().mockResolvedValue(false);
-    const session = new BrowserToolSession(
-      { execute, close: vi.fn(async () => undefined) },
-      approve,
-      true,
-    );
+    const session = new BrowserToolSession({ execute, close: vi.fn(async () => undefined) });
 
     await expect(session.call({
       namespace: 'rat_browser',
       tool: 'click',
       arguments: { ref: 'r1' },
-    })).rejects.toThrow('browser interaction was not approved');
-    expect(approve).toHaveBeenCalledWith({
-      tool: 'click',
-      command: { type: 'click', ref: 'r1' },
-    });
-    expect(execute).not.toHaveBeenCalled();
+    })).resolves.toMatchObject({ success: true });
+    expect(execute).toHaveBeenCalledWith({ type: 'click', ref: 'r1' }, undefined);
   });
 });

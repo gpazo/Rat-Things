@@ -30,7 +30,6 @@ export function createFixtureCrmIntegrationPlugin(
           access: 'read',
           risk: 'routine',
           requiredProviderScopes: ['records:read'],
-          defaultApproval: 'never',
           inputSchema: objectSchema({ query: stringSchema('Customer search query') }, ['query']),
         },
         {
@@ -40,7 +39,6 @@ export function createFixtureCrmIntegrationPlugin(
           access: 'write',
           risk: 'consequential',
           requiredProviderScopes: ['records:write'],
-          defaultApproval: 'always',
           inputSchema: objectSchema({ name: stringSchema('Customer name') }, ['name']),
         },
       ],

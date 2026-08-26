@@ -4,9 +4,6 @@ import type {
   CodexTurnController,
 } from './codex-app-server.js';
 import type { AgentDriverControl } from './agent-driver.js';
-import { randomUUID } from 'node:crypto';
-import type { IntegrationApprovalRequest } from '../plugins/integration-types.js';
-import type { BrowserApprovalRequest } from './browser.js';
 
 const CHANNEL = 'rat-things-agent-control';
 
@@ -18,15 +15,12 @@ interface PendingServerRequest {
 
 export interface RunnerControlBridge {
   hooks: AgentDriverControl;
-  requestIntegrationApproval(request: IntegrationApprovalRequest): Promise<boolean>;
-  requestBrowserApproval(request: BrowserApprovalRequest): Promise<boolean>;
   close(): void;
 }
 
 export function createRunnerControlBridge(runId: string): RunnerControlBridge | undefined {
   if (!process.send || !process.connected) return undefined;
   const pending = new Map<string, PendingServerRequest>();
-  const sessionApprovals = new Set<string>();
   let controller: CodexTurnController | undefined;
   let closed = false;
 
@@ -61,16 +55,6 @@ export function createRunnerControlBridge(runId: string): RunnerControlBridge | 
             if (!controller) throw new Error('the Codex turn is not ready for interruption');
             await controller.interrupt();
             break;
-          case 'approve': {
-            const requestId = requiredRequestId(value.requestId);
-            const waiter = pending.get(requestId);
-            if (!waiter) throw new Error(`approval request ${requestId} is not pending`);
-            const decision = typeof value.decision === 'string' ? value.decision : '';
-            const reason = typeof value.reason === 'string' ? value.reason : undefined;
-            waiter.resolve(approvalResponseFor(waiter.request.method, decision, reason));
-            pending.delete(requestId);
-            break;
-          }
           case 'respond': {
             const requestId = requiredRequestId(value.requestId);
             const waiter = pending.get(requestId);
@@ -109,6 +93,12 @@ export function createRunnerControlBridge(runId: string): RunnerControlBridge | 
     },
     onServerRequest: (request: CodexAppServerInitiatedRequest) => new Promise((resolve, reject) => {
       const requestId = String(request.requestId);
+      if (isApprovalRequest(request.method)) {
+        reject(new Error(
+          'interactive approvals are disabled; capabilities must be admitted before MicroVM launch',
+        ));
+        return;
+      }
       if (pending.has(requestId)) {
         reject(new Error(`duplicate app-server request ${requestId}`));
         return;
@@ -124,85 +114,16 @@ export function createRunnerControlBridge(runId: string): RunnerControlBridge | 
       });
     },
   };
-  const customApproval = async (
-    method: string,
-    key: string,
-    params: Record<string, unknown>,
-    allowSessionCache = true,
-  ): Promise<boolean> => {
-    if (allowSessionCache && sessionApprovals.has(key)) return true;
-    if (closed || !process.connected) throw new Error('agent control channel is not connected');
-    const requestId = `approval-${randomUUID()}`;
-    const response = await new Promise<unknown>((resolve, reject) => {
-      const initiated: CodexAppServerInitiatedRequest = {
-        method,
-        requestId,
-        params,
-      };
-      pending.set(requestId, { request: initiated, resolve, reject });
-      send({ type: 'server-request', request: initiated });
-    });
-    const decision = isRecord(response) ? String(response.decision) : '';
-    if (allowSessionCache && decision === 'acceptForSession') sessionApprovals.add(key);
-    return ['accept', 'acceptForSession'].includes(decision);
-  };
-  const requestIntegrationApproval = (
-    request: IntegrationApprovalRequest,
-  ): Promise<boolean> => customApproval(
-    'ratThings/integration/requestApproval',
-    `integration:${request.connectionId}:${request.operation.id}`,
-    {
-      connectionId: request.connectionId,
-      connectionAlias: request.connectionAlias,
-      pluginId: request.pluginId,
-      operation: request.operation,
-      approval: request.approval,
-      input: request.input,
-    },
-    request.approval !== 'always',
-  );
-  const requestBrowserApproval = (
-    request: BrowserApprovalRequest,
-  ): Promise<boolean> => customApproval(
-    'ratThings/browser/requestApproval',
-    `browser:${request.tool}`,
-    { tool: request.tool, command: request.command },
-  );
-  return { hooks, requestIntegrationApproval, requestBrowserApproval, close };
+  return { hooks, close };
 }
 
-export function approvalResponseFor(method: string, decision: string, reason?: string): unknown {
-  if (!['accept', 'accept-for-session', 'decline', 'cancel'].includes(decision)) {
-    throw new Error('approval decision is invalid');
-  }
-  if (
-    method === 'item/commandExecution/requestApproval' ||
-    method === 'item/fileChange/requestApproval'
-  ) {
-    return {
-      decision: decision === 'accept-for-session' ? 'acceptForSession' : decision,
-    };
-  }
-  if (
-    method === 'ratThings/integration/requestApproval' ||
-    method === 'ratThings/browser/requestApproval'
-  ) {
-    return {
-      decision: decision === 'accept-for-session' ? 'acceptForSession' : decision,
-      ...(reason ? { reason: reason.slice(0, 1_000) } : {}),
-    };
-  }
-  if (method === 'execCommandApproval' || method === 'applyPatchApproval') {
-    const legacy = decision === 'accept'
-      ? 'approved'
-      : decision === 'accept-for-session'
-        ? 'approved_for_session'
-        : decision === 'cancel'
-          ? 'abort'
-          : { denied: { rejection: reason?.slice(0, 1_000) ?? 'declined by user' } };
-    return { decision: legacy };
-  }
-  throw new Error(`server request ${method} requires an explicit response, not an approval decision`);
+export function isApprovalRequest(method: string): boolean {
+  return [
+    'item/commandExecution/requestApproval',
+    'item/fileChange/requestApproval',
+    'execCommandApproval',
+    'applyPatchApproval',
+  ].includes(method);
 }
 
 function requiredRequestId(value: unknown): string {

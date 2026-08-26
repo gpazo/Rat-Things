@@ -1,4 +1,7 @@
+import { createHash } from 'node:crypto';
+import type { AgentToolCallStore } from '../core/ports.js';
 import type { JsonValue } from '../domain/contracts.js';
+import type { ExecutionReference } from '../domain/contracts.js';
 import type { IntegrationToolSession } from '../plugins/integration-types.js';
 import type {
   CodexAppServerInitiatedRequest,
@@ -13,6 +16,13 @@ export interface DynamicToolRequestHandlerOptions {
   integrations?: Pick<IntegrationToolSession, 'call'>;
   signal?: AbortSignal;
   fallback?: (request: CodexAppServerInitiatedRequest) => unknown | Promise<unknown>;
+  ledger?: {
+    store: AgentToolCallStore;
+    runId: string;
+    execution: ExecutionReference;
+    admittedToolsDigest: string;
+    now?: () => Date;
+  };
 }
 
 /**
@@ -27,27 +37,63 @@ export function createDynamicToolRequestHandler(
       if (options.fallback) return options.fallback(request);
       throw new Error(`unsupported server request: ${request.method}`);
     }
+    let call: ReturnType<typeof dynamicToolCall>;
     try {
-      const call = dynamicToolCall(request.params);
+      call = dynamicToolCall(request.params);
+    } catch (error) {
+      return failedToolResult(error);
+    }
+    const requestId = String(request.requestId);
+    if (!requestId || Buffer.byteLength(requestId, 'utf8') > 256) {
+      return failedToolResult(new Error('dynamic tool request ID is invalid'));
+    }
+    if (options.ledger) {
+      const generation = options.ledger.execution.generation;
+      if (!generation) throw new Error('dynamic tool ledger requires an execution generation');
+      await options.ledger.store.beginAgentToolCall({
+        version: '1',
+        runId: options.ledger.runId,
+        requestId,
+        method: 'item/tool/call',
+        executionId: options.ledger.execution.id,
+        executionGeneration: generation,
+        namespace: call.namespace,
+        tool: call.tool,
+        argumentDigest: digestJson(call.arguments),
+        admittedToolsDigest: options.ledger.admittedToolsDigest,
+        status: 'pending',
+        startedAt: (options.ledger.now ?? (() => new Date()))().toISOString(),
+      });
+    }
+    let result: unknown;
+    try {
       if (call.namespace === BROWSER_TOOL_NAMESPACE) {
         if (!options.browser) throw new Error('browser tools are not enabled');
-        return await options.browser.call(call, options.signal);
+        result = await options.browser.call(call, options.signal);
+      } else {
+        if (!options.integrations) throw new Error('integration tools are not enabled');
+        const integrationResult = await options.integrations.call(call, options.signal);
+        result = {
+          success: true,
+          contentItems: [{ type: 'inputText', text: JSON.stringify(integrationResult) }],
+        };
       }
-      if (!options.integrations) throw new Error('integration tools are not enabled');
-      const result = await options.integrations.call(call, options.signal);
-      return {
-        success: true,
-        contentItems: [{ type: 'inputText', text: JSON.stringify(result) }],
-      };
     } catch (error) {
-      return {
-        success: false,
-        contentItems: [{
-          type: 'inputText',
-          text: error instanceof Error ? error.message.slice(0, 2_000) : 'dynamic tool failed',
-        }],
-      };
+      result = failedToolResult(error);
     }
+    if (options.ledger) {
+      const failed = isFailedToolResult(result);
+      await options.ledger.store.settleAgentToolCall({
+        runId: options.ledger.runId,
+        execution: options.ledger.execution,
+        requestId,
+        status: failed ? 'failed' : 'succeeded',
+        settledAt: (options.ledger.now ?? (() => new Date()))().toISOString(),
+        resultDigest: digestJson(result),
+        ...(failed ? { error: failedToolMessage(result) } : {}),
+      });
+    }
+    return result;
   };
 }
 
@@ -74,4 +120,47 @@ function assertJson(value: unknown, label: string): asserts value is JsonValue {
   } catch {
     throw new Error(`${label} is invalid`);
   }
+}
+
+function failedToolResult(error: unknown): {
+  success: false;
+  contentItems: Array<{ type: 'inputText'; text: string }>;
+} {
+  return {
+    success: false,
+    contentItems: [{
+      type: 'inputText',
+      text: error instanceof Error ? error.message.slice(0, 2_000) : 'dynamic tool failed',
+    }],
+  };
+}
+
+function isFailedToolResult(value: unknown): boolean {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value) && (
+    value as Record<string, unknown>
+  ).success === false);
+}
+
+function failedToolMessage(value: unknown): string {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return 'dynamic tool failed';
+  const items = (value as Record<string, unknown>).contentItems;
+  if (!Array.isArray(items)) return 'dynamic tool failed';
+  const first = items[0];
+  return first && typeof first === 'object' && !Array.isArray(first) &&
+    typeof (first as Record<string, unknown>).text === 'string'
+    ? String((first as Record<string, unknown>).text).slice(0, 500)
+    : 'dynamic tool failed';
+}
+
+function digestJson(value: unknown): string {
+  return createHash('sha256').update(stableJson(value)).digest('hex');
+}
+
+function stableJson(value: unknown): string {
+  if (value === null || typeof value !== 'object') return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(',')}]`;
+  const record = value as Record<string, unknown>;
+  return `{${Object.keys(record).sort().map(
+    (key) => `${JSON.stringify(key)}:${stableJson(record[key])}`,
+  ).join(',')}}`;
 }

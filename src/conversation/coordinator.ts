@@ -9,6 +9,7 @@ import type {
   RunRequest,
   RunStateEvent,
 } from '../domain/contracts.js';
+import type { AgentToolCallRecord } from '../domain/interaction.js';
 import type {
   ConversationCheckpoint,
   ConversationMessageContent,
@@ -43,6 +44,13 @@ interface ContinuationBatch {
     messageId: string;
     text: string;
     receivedAt: string;
+    replyToMessageId?: string;
+    attachments?: Array<{
+      id: string;
+      path: string;
+      mediaType: string;
+      bytes: number;
+    }>;
   }>;
 }
 
@@ -100,12 +108,31 @@ export class ConversationCoordinator {
       const contents = await Promise.all(pending.map(
         (item) => this.options.artifacts.getJson<ConversationMessageContent>(item.content),
       ));
+      const attachedFiles = contents.flatMap((content) => content.attachments ?? []);
+      const preparedConversation = attachedFiles.length > 0
+        ? await this.options.conversations.attachArtifacts({
+            conversationId: conversation.conversationId,
+            leaseToken: lease.token,
+            files: attachedFiles,
+          })
+        : conversation;
       const continuation: ContinuationBatch = {
         version: '1',
         messages: pending.map((item, index) => ({
           messageId: item.messageId,
           text: contents[index]!.text,
           receivedAt: item.receivedAt,
+          ...(contents[index]!.replyToMessageId
+            ? { replyToMessageId: contents[index]!.replyToMessageId }
+            : {}),
+          ...(contents[index]!.attachments?.length ? {
+            attachments: contents[index]!.attachments!.map((attachment) => ({
+              id: attachment.id,
+              path: `.rat-things/artifacts/${attachment.path}`,
+              mediaType: attachment.mediaType,
+              bytes: attachment.bytes,
+            })),
+          } : {}),
         })),
       };
       const continuationArtifact = await this.options.artifacts.putJson(
@@ -142,7 +169,16 @@ export class ConversationCoordinator {
           slice: turn.slice,
           delivery: reserved.conversation.delivery ?? pending[0]!.delivery,
           continuation: continuationArtifact,
-          ...(conversation.artifacts ? { artifacts: conversation.artifacts } : {}),
+          ...(preparedConversation.artifacts ? { artifacts: preparedConversation.artifacts } : {}),
+          ...(reserved.conversation.attachmentManifest
+            ? { attachmentManifest: reserved.conversation.attachmentManifest }
+            : {}),
+          ...(reserved.conversation.attachmentDigest
+            ? { attachmentDigest: reserved.conversation.attachmentDigest }
+            : {}),
+          ...(reserved.conversation.replyToMessageId
+            ? { replyToMessageId: reserved.conversation.replyToMessageId }
+            : {}),
           ...(resumable ? { preferredMicrovmId: conversation.session!.id } : {}),
           // The MicroVM lease expires independently of the durable Codex
           // thread stored in S3 Files. Carry the thread ID into a replacement
@@ -185,6 +221,9 @@ export class ConversationCoordinator {
     if (!run.provenance) throw new Error('thread Run has no trusted provenance');
     const request = await this.options.artifacts.getJson<RunRequest>(run.input);
     if (!request.source) throw new Error('thread Run input has no trusted source');
+    const attachments = binding.attachmentManifest
+      ? (await this.options.conversations.readAttachmentManifest(binding.attachmentManifest)).files
+      : undefined;
     await this.options.conversations.appendMessage({
       conversationId: binding.conversationId,
       ownerId: run.ownerId,
@@ -195,6 +234,8 @@ export class ConversationCoordinator {
       content: {
         text: request.prompt,
         request,
+        ...(attachments?.length ? { attachments } : {}),
+        ...(binding.replyToMessageId ? { replyToMessageId: binding.replyToMessageId } : {}),
         metadata: { traceId: message.traceId },
       },
       source: request.source,
@@ -271,6 +312,20 @@ export class ConversationCompletionCoordinator {
           } : {}),
         });
       } else {
+        const interruptedToolCalls = (run.agentToolCalls ?? []).filter(
+          (call) => call.status === 'interrupted',
+        );
+        const interruptedContext = interruptedToolCalls.length > 0
+          ? appendInterruptedToolContext(
+              conversation.context
+                ? await this.options.artifacts.getJson<ConversationCheckpoint>(conversation.context)
+                : { version: '1', messages: [] },
+              binding.continuation
+                ? await this.options.artifacts.getJson<ContinuationBatch>(binding.continuation)
+                : { version: '1', messages: [] },
+              interruptedToolCalls,
+            )
+          : undefined;
         await this.options.conversations.failTurn({
           conversationId: binding.conversationId,
           turnId: binding.turnId,
@@ -280,6 +335,7 @@ export class ConversationCompletionCoordinator {
             message: `conversation slice ${run.status}`,
             retryable: false,
           },
+          ...(interruptedContext ? { context: interruptedContext, clearSession: true } : {}),
         });
       }
       const latest = await this.options.conversations.get(binding.conversationId);
@@ -365,11 +421,16 @@ function requestForMessage(
   };
 }
 
-function replayPrompt(context: ConversationCheckpoint, continuation: ContinuationBatch): string {
+export function replayPrompt(
+  context: ConversationCheckpoint,
+  continuation: ContinuationBatch,
+): string {
   const latest: JsonValue[] = continuation.messages.map((message) => ({
     role: 'user',
     content: message.text,
     messageId: message.messageId,
+    ...(message.replyToMessageId ? { replyToMessageId: message.replyToMessageId } : {}),
+    ...(message.attachments?.length ? { attachments: message.attachments } : {}),
   }));
   const transcript = [...context.messages, ...latest];
   const selected: JsonValue[] = [];
@@ -380,14 +441,25 @@ function replayPrompt(context: ConversationCheckpoint, continuation: Continuatio
     selected.unshift(item);
     bytes += Buffer.byteLength(encoded);
   }
+  const compacted = compactedMessageCount(context);
+  const omittedFromReplay = transcript.length - selected.length;
+  const handoff = compacted > 0 || omittedFromReplay > 0
+    ? [
+        'Durable replay handoff:',
+        `- ${compacted} older transcript item(s) were compacted before this turn.`,
+        `- ${omittedFromReplay} retained item(s) were omitted from this bounded replay.`,
+        '- Warm session memory may contain more context, but do not invent omitted details. Ask the user or inspect durable files when an omitted fact is required.',
+      ].join('\n')
+    : 'Durable replay handoff: no known transcript items were omitted.';
   return [
     'Continue this durable conversation. The JSON transcript is canonical and may overlap with warm session memory.',
     'Respond to the newest user message. Use tools when the request requires them.',
+    handoff,
     JSON.stringify(selected),
   ].join('\n\n');
 }
 
-function appendContext(
+export function appendContext(
   previous: ConversationCheckpoint,
   continuation: ContinuationBatch,
   output: string,
@@ -398,6 +470,8 @@ function appendContext(
       role: 'user',
       content: message.text,
       messageId: message.messageId,
+      ...(message.replyToMessageId ? { replyToMessageId: message.replyToMessageId } : {}),
+      ...(message.attachments?.length ? { attachments: message.attachments } : {}),
       receivedAt: message.receivedAt,
     })),
     { role: 'assistant', content: output },
@@ -406,10 +480,77 @@ function appendContext(
   while (messages.length > 1 && Buffer.byteLength(JSON.stringify(messages)) > MAX_CONTEXT_BYTES) {
     messages.shift();
   }
+  const newlyCompacted = appended.length - messages.length;
   return {
     version: '1',
     messages,
-    metadata: { compactedMessages: Math.max(0, appended.length - messages.length) },
+    metadata: {
+      ...previous.metadata,
+      compactedMessages: Math.min(
+        Number.MAX_SAFE_INTEGER,
+        compactedMessageCount(previous) + newlyCompacted,
+      ),
+    },
+  };
+}
+
+export function appendInterruptedToolContext(
+  previous: ConversationCheckpoint,
+  continuation: ContinuationBatch,
+  interrupted: AgentToolCallRecord[],
+): ConversationCheckpoint {
+  const listed = interrupted.slice(0, 20).map((call) => (
+    `- request ${call.requestId}: ${call.namespace ? `${call.namespace}.` : ''}${call.tool} ` +
+    `(started ${call.startedAt}; argument digest ${call.argumentDigest})`
+  ));
+  const content = [
+    'Execution interruption handoff:',
+    `${interrupted.length} host tool call(s) ended without a durably settled result.`,
+    ...listed,
+    ...(interrupted.length > listed.length
+      ? [`- ${interrupted.length - listed.length} additional interrupted call(s) omitted from this bounded handoff.`]
+      : []),
+    'The external outcome is unknown. Do not replay any of these calls automatically.',
+    'Verify durable/provider state and wait for an explicit new user instruction before attempting a consequential call again.',
+  ].join('\n');
+  const appended: JsonValue[] = [
+    ...previous.messages,
+    ...continuation.messages.map((message) => ({
+      role: 'user',
+      content: message.text,
+      messageId: message.messageId,
+      receivedAt: message.receivedAt,
+    })),
+    { role: 'system', content },
+  ];
+  return boundedCheckpoint(previous, appended);
+}
+
+function compactedMessageCount(context: ConversationCheckpoint): number {
+  const value = context.metadata?.compactedMessages;
+  return typeof value === 'number' && Number.isSafeInteger(value) && value > 0
+    ? value
+    : 0;
+}
+
+function boundedCheckpoint(
+  previous: ConversationCheckpoint,
+  appended: JsonValue[],
+): ConversationCheckpoint {
+  const messages = appended.slice(-MAX_CONTEXT_MESSAGES);
+  while (messages.length > 1 && Buffer.byteLength(JSON.stringify(messages)) > MAX_CONTEXT_BYTES) {
+    messages.shift();
+  }
+  return {
+    version: '1',
+    messages,
+    metadata: {
+      ...previous.metadata,
+      compactedMessages: Math.min(
+        Number.MAX_SAFE_INTEGER,
+        compactedMessageCount(previous) + appended.length - messages.length,
+      ),
+    },
   };
 }
 

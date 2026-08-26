@@ -35,7 +35,6 @@ describe('Thing environment explanation', () => {
           profile: 'small-business',
           networkAccess: true,
           computerUse: 'browser',
-          approvalPolicy: 'on-request',
         },
       },
     });

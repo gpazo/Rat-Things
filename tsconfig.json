@@ -17,5 +17,12 @@
     "types": ["node", "aws-lambda"],
     "noEmit": true
   },
-  "include": ["src/**/*.ts", "scripts/**/*.ts", "testing/**/*.ts", "tests/**/*.ts"]
+  "include": [
+    "src/**/*.ts",
+    "scripts/**/*.ts",
+    "testing/**/*.ts",
+    "tests/**/*.ts",
+    "e2e/**/*.ts",
+    "playwright.config.ts"
+  ]
 }

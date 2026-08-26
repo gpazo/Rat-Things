@@ -112,15 +112,6 @@ export interface DynamicIntegrationToolCall {
   arguments: JsonValue;
 }
 
-export interface IntegrationApprovalRequest {
-  connectionId: string;
-  connectionAlias: string;
-  pluginId: string;
-  operation: OperationDefinition;
-  approval: OperationDefinition['defaultApproval'];
-  input: { [key: string]: JsonValue };
-}
-
 export interface IntegrationToolSession {
   tools: DynamicIntegrationTool[];
   call(call: DynamicIntegrationToolCall, signal?: AbortSignal): Promise<JsonValue>;
@@ -140,6 +131,5 @@ export interface IntegrationPluginRegistryLike {
 export interface PrepareIntegrationToolsInput {
   ownerId: string;
   request: IntegrationAccessRequest;
-  approve?: (request: IntegrationApprovalRequest) => Promise<boolean>;
   maximumIntegrationAccess?: 'read-only' | 'read-write' | 'full';
 }

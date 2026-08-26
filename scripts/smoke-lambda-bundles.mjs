@@ -12,6 +12,12 @@ process.env.ARTIFACT_BUCKET ||= 'bundle-smoke-artifacts';
 process.env.RUN_QUEUE_URL ||= 'https://sqs.us-west-2.amazonaws.com/000000000000/bundle-smoke-runs';
 process.env.CONVERSATION_QUEUE_URL ||= 'https://sqs.us-west-2.amazonaws.com/000000000000/bundle-smoke-conversations';
 process.env.EVENT_BUS_NAME ||= 'bundle-smoke-runs';
+process.env.MICROVM_IMAGE_PARAMETER_NAME ||= '/bundle-smoke/microvm/image';
+process.env.MICROVM_IMAGE_VERSION_PARAMETER_NAME ||= '/bundle-smoke/microvm/version';
+process.env.MICROVM_EXECUTION_ROLE_ARN ||=
+  'arn:aws:iam::000000000000:role/bundle-smoke-microvm-execution';
+process.env.MICROVM_LOG_GROUP_NAME ||= '/bundle-smoke/microvms';
+process.env.INTEGRATIONS_TABLE_NAME ||= 'bundle-smoke-integrations';
 process.env.DEPLOYMENT_ID ||= 'bundle-smoke';
 process.env.AUDIT_QUEUE_URL ||= 'https://sqs.us-west-2.amazonaws.com/000000000000/bundle-smoke-audit';
 process.env.THINGS_TABLE_NAME ||= 'bundle-smoke-things';

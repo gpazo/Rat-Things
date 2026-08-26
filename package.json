@@ -8,7 +8,7 @@
     "rat-things": "dist/cli.mjs"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22.20.0"
   },
   "scripts": {
     "build": "node scripts/build.mjs",
@@ -26,7 +26,10 @@
     "test:e2e:teams:codex": "./testing/run-teams-codex-e2e.sh",
     "test:e2e:codex-app-server": "CODEX_APP_SERVER_E2E=true vitest run tests/live/codex-app-server.test.ts --no-file-parallelism",
     "aws:e2e:deploy": "./scripts/aws-e2e-deploy.sh",
+    "aws:e2e:status": "./scripts/aws-e2e-status.sh",
     "aws:e2e:test": "./scripts/aws-e2e-test.sh",
+    "aws:e2e:console:test": "./scripts/aws-e2e-console-test.sh",
+    "aws:e2e:console:demo": "./scripts/aws-e2e-console-demo.sh",
     "aws:e2e:destroy": "./scripts/aws-e2e-destroy.sh",
     "test:e2e:aws": "./scripts/aws-e2e.sh",
     "quickstart:aws": "./scripts/aws-quickstart.sh",
@@ -39,6 +42,10 @@
     "webhook:github:status": "tsx scripts/onboard-github.ts status",
     "site:build": "node scripts/build-pages.mjs",
     "site:serve": "npm run site:build && npx --yes serve dist-pages",
+    "console:serve": "tsx scripts/console-server.ts",
+    "test:e2e:console": "playwright test --config=playwright.config.ts",
+    "test:e2e:console:install": "playwright install chromium",
+    "demo:console": "RAT_THINGS_CONSOLE_VIDEO=on playwright test --config=playwright.config.ts e2e/console.e2e.ts && node scripts/export-console-demo.mjs",
     "terraform:fmt": "terraform -chdir=infra fmt -recursive",
     "terraform:fmt:check": "terraform -chdir=infra fmt -recursive -check",
     "terraform:validate": "terraform -chdir=infra init -backend=false -input=false && terraform -chdir=infra validate",
@@ -70,6 +77,7 @@
   "devDependencies": {
     "@aws-sdk/client-dynamodb-streams": "3.1088.0",
     "@openai/codex": "0.146.0",
+    "@playwright/test": "1.62.1",
     "@types/archiver": "7.0.0",
     "@types/aws-lambda": "8.10.152",
     "@types/node": "22.15.3",

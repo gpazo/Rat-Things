@@ -7,7 +7,7 @@ only to the authenticated source repository and pull-request thread.
 
 ## Prerequisites
 
-- Node.js 20+, npm, and Git.
+- Node.js 22.20+, npm, and Git.
 - Terraform 1.5+.
 - AWS credentials for an account and Region with Lambda MicroVM access and quota.
 - GitHub CLI (`gh`) authenticated to the target repository with permission to manage webhooks.

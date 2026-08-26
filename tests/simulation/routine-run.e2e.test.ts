@@ -64,7 +64,6 @@ describe('simulated routine-to-run workflow', () => {
           sandbox: 'danger-full-access',
           capabilities: {
             profile: 'small-business',
-            approvalPolicy: 'on-request',
             networkAccess: true,
             computerUse: 'browser',
           },
@@ -117,7 +116,6 @@ describe('simulated routine-to-run workflow', () => {
         sandbox: 'danger-full-access',
         capabilities: {
           profile: 'small-business',
-          approvalPolicy: 'on-request',
           networkAccess: true,
           computerUse: 'browser',
         },

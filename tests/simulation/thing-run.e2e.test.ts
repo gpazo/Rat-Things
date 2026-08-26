@@ -360,7 +360,6 @@ function scheduledSpec(goal: string, expression: string): Record<string, unknown
       sandbox: 'danger-full-access',
       capabilities: {
         profile: 'small-business',
-        approvalPolicy: 'on-request',
         networkAccess: true,
         computerUse: 'browser',
       },

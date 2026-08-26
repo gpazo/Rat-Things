@@ -8,12 +8,11 @@ import {
 const registry = new CapabilityProfileRegistry(createBuiltinCapabilityProfiles());
 
 describe('capability profiles', () => {
-  it('uses a MicroVM-oriented small-business profile while preserving its approval ceiling', () => {
+  it('uses a fixed pre-launch capability envelope for the small-business profile', () => {
     expect(resolveAgentProfile({
       sandbox: 'danger-full-access',
       capabilities: {
         profile: 'small-business',
-        approvalPolicy: 'never',
         networkAccess: true,
         webSearch: 'live',
         computerUse: 'browser',
@@ -23,8 +22,6 @@ describe('capability profiles', () => {
         sandbox: 'danger-full-access',
         capabilities: {
           profile: 'small-business',
-          approvalPolicy: 'on-request',
-          approvalsReviewer: 'user',
           networkAccess: true,
           webSearch: 'live',
           computerUse: 'browser',
@@ -39,14 +36,12 @@ describe('capability profiles', () => {
       sandbox: 'danger-full-access',
       capabilities: {
         profile: 'read-only',
-        approvalPolicy: 'never',
         computerUse: 'browser',
       },
     }, registry)).toMatchObject({
       agent: {
         sandbox: 'read-only',
         capabilities: {
-          approvalPolicy: 'untrusted',
           computerUse: 'disabled',
         },
       },

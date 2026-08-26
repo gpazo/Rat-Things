@@ -1,12 +1,21 @@
 import type { RunRecord, RunRequest } from '../domain/contracts.js';
 import type { RunService, SubmitOptions } from './run-service.js';
 
+export interface ConversationAttachmentUpload {
+  name: string;
+  mediaType: string;
+  bytes: Uint8Array;
+  sha256: string;
+}
+
 export interface ThreadTarget {
   /** Owner-scoped internal thread identifier selected by trusted ingress. */
   conversationId: string;
   /** Stable provider/API occurrence identifier. */
   messageId: string;
   delivery?: 'interrupt' | 'defer';
+  attachments?: ConversationAttachmentUpload[];
+  replyToMessageId?: string;
 }
 
 export interface RunSubmissionOptions extends SubmitOptions {

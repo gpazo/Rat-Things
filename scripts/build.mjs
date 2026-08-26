@@ -34,7 +34,7 @@ async function bundle(entry, outfile, options = {}) {
     outfile,
     bundle: true,
     platform: 'node',
-    target: 'node20',
+    target: 'node22',
     format: 'esm',
     // Several AWS SDK v3 packages still contain CommonJS modules that load
     // Node built-ins dynamically. ESM bundles do not expose `require` unless

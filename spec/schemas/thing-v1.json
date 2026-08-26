@@ -94,8 +94,6 @@
       "additionalProperties": false,
       "properties": {
         "profile": { "$ref": "#/$defs/safeIdentifier" },
-        "approvalPolicy": { "enum": ["untrusted", "on-request", "never"] },
-        "approvalsReviewer": { "enum": ["user", "auto-review", "guardian-subagent"] },
         "networkAccess": { "type": "boolean" },
         "webSearch": { "enum": ["disabled", "cached", "indexed", "live"] },
         "computerUse": { "enum": ["disabled", "browser"] },

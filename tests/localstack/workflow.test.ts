@@ -495,7 +495,11 @@ integration('LocalStack webhook-to-egress workflow', () => {
       artifacts: draftArtifacts,
       executors: new ExecutorRegistry([{
         backend: 'microvm',
-        start: async (record) => ({ backend: 'microvm', id: `localstack:${record.runId}` }),
+        start: async (record) => ({
+          backend: 'microvm',
+          id: `localstack:${record.runId}`,
+          generation: record.execution!.generation!,
+        }),
         stop: async () => undefined,
       }]),
     });
@@ -507,6 +511,8 @@ integration('LocalStack webhook-to-egress workflow', () => {
     const dispatchedDraftTest = await draftRunStore.get(draftTestRun.runId);
     if (!dispatchedDraftTest) throw new Error('Thing draft test disappeared after dispatch');
     process.env.RUN_ID = draftTestRun.runId;
+    process.env.MICROVM_ID = dispatchedDraftTest.execution!.id;
+    process.env.EXECUTION_GENERATION = dispatchedDraftTest.execution!.generation!;
     process.env.RUN_INPUT_BUCKET = dispatchedDraftTest.input.bucket;
     process.env.RUN_INPUT_KEY = dispatchedDraftTest.input.key;
     process.env.RUN_TIMEOUT_SECONDS = '30';
@@ -633,7 +639,11 @@ integration('LocalStack webhook-to-egress workflow', () => {
       artifacts: thingArtifacts,
       executors: new ExecutorRegistry([{
         backend: 'microvm',
-        start: async (record) => ({ backend: 'microvm', id: `localstack:${record.runId}` }),
+        start: async (record) => ({
+          backend: 'microvm',
+          id: `localstack:${record.runId}`,
+          generation: record.execution!.generation!,
+        }),
         stop: async () => undefined,
       }]),
     });
@@ -645,6 +655,8 @@ integration('LocalStack webhook-to-egress workflow', () => {
     const dispatchedThingRun = await thingRunStore.get(thingRun.runId);
     if (!dispatchedThingRun) throw new Error('Thing run disappeared after dispatch');
     process.env.RUN_ID = thingRun.runId;
+    process.env.MICROVM_ID = dispatchedThingRun.execution!.id;
+    process.env.EXECUTION_GENERATION = dispatchedThingRun.execution!.generation!;
     process.env.RUN_INPUT_BUCKET = dispatchedThingRun.input.bucket;
     process.env.RUN_INPUT_KEY = dispatchedThingRun.input.key;
     process.env.RUN_TIMEOUT_SECONDS = '30';
@@ -771,7 +783,11 @@ integration('LocalStack webhook-to-egress workflow', () => {
 
     const localExecutor: RunExecutor = {
       backend: 'microvm',
-      start: async (record) => ({ backend: 'microvm', id: `localstack:${record.runId}` }),
+      start: async (record) => ({
+        backend: 'microvm',
+        id: `localstack:${record.runId}`,
+        generation: record.execution!.generation!,
+      }),
       stop: async () => undefined,
     };
     const dispatch = createDispatcher({
@@ -788,6 +804,8 @@ integration('LocalStack webhook-to-egress workflow', () => {
     const dispatched = await runStore.get(firstRun.runId);
     if (!dispatched) throw new Error('routine run disappeared after dispatch');
     process.env.RUN_ID = firstRun.runId;
+    process.env.MICROVM_ID = dispatched.execution!.id;
+    process.env.EXECUTION_GENERATION = dispatched.execution!.generation!;
     const executionInput = dispatched.executionInput ?? dispatched.input;
     process.env.RUN_INPUT_BUCKET = executionInput.bucket;
     process.env.RUN_INPUT_KEY = executionInput.key;
@@ -1286,7 +1304,11 @@ integration('LocalStack webhook-to-egress workflow', () => {
       backend: 'microvm',
       start: async (record) => {
         launches += 1;
-        return { backend: 'microvm', id: `localstack:${record.runId}` };
+        return {
+          backend: 'microvm',
+          id: `localstack:${record.runId}`,
+          generation: record.execution!.generation!,
+        };
       },
       stop: async () => undefined,
     };
@@ -1311,6 +1333,8 @@ integration('LocalStack webhook-to-egress workflow', () => {
     if (!dispatched) throw new Error('dispatcher did not persist the execution reference');
 
     process.env.RUN_ID = runId;
+    process.env.MICROVM_ID = dispatched.execution!.id;
+    process.env.EXECUTION_GENERATION = dispatched.execution!.generation!;
     const preparedInput = dispatched.executionInput ?? dispatched.input;
     process.env.RUN_INPUT_BUCKET = preparedInput.bucket;
     process.env.RUN_INPUT_KEY = preparedInput.key;
@@ -1717,7 +1741,11 @@ async function completeThingDraftTest(
     artifacts,
     executors: new ExecutorRegistry([{
       backend: 'microvm',
-      start: async (record) => ({ backend: 'microvm', id: `localstack:${record.runId}` }),
+      start: async (record) => ({
+        backend: 'microvm',
+        id: `localstack:${record.runId}`,
+        generation: record.execution!.generation!,
+      }),
       stop: async () => undefined,
     }]),
   });
@@ -1730,6 +1758,8 @@ async function completeThingDraftTest(
   const running = await store.get(accepted.runId);
   if (!running) throw new Error('Thing test disappeared after dispatch');
   process.env.RUN_ID = accepted.runId;
+  process.env.MICROVM_ID = running.execution!.id;
+  process.env.EXECUTION_GENERATION = running.execution!.generation!;
   process.env.RUN_INPUT_BUCKET = (running.executionInput ?? running.input).bucket;
   process.env.RUN_INPUT_KEY = (running.executionInput ?? running.input).key;
   process.env.RUN_TIMEOUT_SECONDS = '30';

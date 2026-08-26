@@ -10,7 +10,6 @@ import type { JsonValue } from '../domain/contracts.js';
 import type {
   DynamicIntegrationTool,
   DynamicIntegrationToolCall,
-  IntegrationApprovalRequest,
   IntegrationPlugin,
   IntegrationRuntimeOptions,
   IntegrationToolSession,
@@ -184,19 +183,6 @@ export class IntegrationRuntime {
     const decision = operationDecision(selected, resolved.operation);
     if (!decision.allowed) throw new Error(decision.reason ?? 'integration operation is not authorized');
     enforceResourceConstraints(selected.grants, operationInput);
-    if (decision.requiresApproval) {
-      const approval: IntegrationApprovalRequest = {
-        connectionId: selected.connection.connectionId,
-        connectionAlias: selected.connection.alias,
-        pluginId: selected.connection.pluginId,
-        operation: resolved.operation,
-        approval: decision.approval,
-        input: operationInput,
-      };
-      if (!input.approve || !(await input.approve(approval))) {
-        throw new Error('integration operation was not approved');
-      }
-    }
     const binding = await this.options.store.getCredentialBinding(
       input.ownerId,
       selected.connection.connectionId,
@@ -245,15 +231,8 @@ function operationDecision(
   }));
   const denied = decisions.find((decision) => !decision.allowed);
   if (denied) return denied;
-  const approval = decisions.some((decision) => decision.approval === 'always')
-    ? 'always'
-    : decisions.some((decision) => decision.approval === 'on-request')
-      ? 'on-request'
-      : 'never';
   return {
     allowed: true,
-    requiresApproval: approval !== 'never',
-    approval,
     enforcement: decisions.some((decision) => decision.enforcement === 'provider-and-broker')
       ? 'provider-and-broker'
       : 'broker',

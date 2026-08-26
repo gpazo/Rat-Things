@@ -13,6 +13,13 @@ const visualAssetFiles = [
   'permission-intersection.svg',
   'durable-execution.svg',
 ];
+const homepageAssetFiles = [
+  'rat-things-hero.jpg',
+  'rat-things-og-v2.jpg',
+  'conversation-console-desktop.png',
+  'conversation-console-artifact-viewer.png',
+  'conversation-console-mobile-input.png',
+];
 
 marked.setOptions({ gfm: true });
 
@@ -23,8 +30,9 @@ await cp('spec/schemas', join(output, 'schemas'), { recursive: true });
 await cp('examples', join(output, 'examples'), { recursive: true });
 await mkdir(join(output, 'assets', 'architecture'), { recursive: true });
 await mkdir(join(output, 'assets', 'visuals'), { recursive: true });
-await cp('assets/rat-things-hero.jpg', join(output, 'assets', 'rat-things-hero.jpg'));
-await cp('assets/rat-things-og-v2.jpg', join(output, 'assets', 'rat-things-og-v2.jpg'));
+for (const file of homepageAssetFiles) {
+  await cp(join('assets', file), join(output, 'assets', file));
+}
 await writeFile(join(output, '.nojekyll'), '');
 
 const docsEntries = await readdir('docs', { withFileTypes: true });
@@ -52,7 +60,7 @@ await copyDocumentationAssets(docsEntries);
 await writeFile(join(docsOutput, 'index.html'), renderDocsHome(groups, docs));
 
 const orderedDocs = groups.flatMap((group) => group.documents.map((file) => docs.get(file)));
-await writeFile(join(output, 'llms.txt'), renderLlmsIndex(groups, docs));
+await writeFile(join(output, 'llms.txt'), addCapabilityBoundaryInstruction(renderLlmsIndex(groups, docs)));
 await writeFile(join(output, 'llms-full.txt'), renderLlmsFull(orderedDocs));
 const generatedHtmlFiles = [join(output, 'index.html'), join(docsOutput, 'index.html')];
 for (const [index, doc] of orderedDocs.entries()) {
@@ -94,6 +102,18 @@ function renderLlmsFull(documents) {
   return `# Rat Things complete documentation\n\nSource: ${repositoryUrl}\nCanonical index: ${pagesUrl}/llms.txt\n\n${documents.map((document) => (
     `---\n\n<!-- ${document.file} -->\n\n${document.source.trim()}\n`
   )).join('\n')}\n`;
+}
+
+function addCapabilityBoundaryInstruction(source) {
+  return source
+    .replace(
+      '\n5. Use raw runs,',
+      '\n5. Rat Things has no mid-Run approval flow. Inside the fixed pre-launch capability envelope, execution is autonomous. Outside it, a tool is absent or the enforcing layer denies the operation; report that boundary instead of waiting for permission or searching for another identity, credential, path, or route.\n6. Use raw runs,',
+    )
+    .replace(
+      '\n6. Never submit an owner ID',
+      '\n7. Never submit an owner ID',
+    );
 }
 
 function extractDescription(source) {
@@ -253,7 +273,7 @@ function renderDocsHome(groups, documents) {
           </div>
           <ul>
             <li><strong>Draft safely. Publish exactly.</strong><span>Append immutable revisions, test the draft, and keep production pinned until publish moves the active pointer.</span></li>
-            <li><strong>Bring the exact accounts.</strong><span>Resolve provider scopes, persistent grants, per-Thing narrowing, resource limits, and approvals before use.</span></li>
+            <li><strong>Admit authority once.</strong><span>Resolve provider scopes, grants, Thing narrowing, IAM, network policy, and resource limits into a fixed envelope before launch.</span></li>
             <li><strong>Keep the project, not the machine.</strong><span>Conversation history, Codex state, workspace bytes, and published files survive disposable compute.</span></li>
             <li><strong>Bring your own product.</strong><span>Use the same discoverable API from a small-business console, SaaS backend, CLI, provider event, or another agent.</span></li>
           </ul>

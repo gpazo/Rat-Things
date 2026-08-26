@@ -4,6 +4,7 @@ import type {
   IntegrationAccessRequest,
   ReasoningSummary,
 } from './capabilities.js';
+import type { AgentToolCallRecord } from './interaction.js';
 
 export type JsonPrimitive = string | number | boolean | null;
 export type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue };
@@ -152,7 +153,20 @@ export interface ArtifactCatalog {
 export interface ExecutionReference {
   backend: ExecutionBackend;
   id: string;
+  /** Immutable worker generation; absent only on records created before liveness fencing. */
+  generation?: string;
   startedAt?: string;
+}
+
+export type ExecutionLivenessOutcome = 'active' | 'conflict' | 'unknown';
+
+/** Internal repair evidence. This is intentionally absent from public Run projections. */
+export interface ExecutionLivenessObservation {
+  checkedAt: string;
+  outcome: ExecutionLivenessOutcome;
+  consecutiveUncertain: number;
+  reason?: string;
+  quarantinedAt?: string;
 }
 
 /**
@@ -176,6 +190,12 @@ export interface ConversationRunBinding {
   continuation?: ArtifactReference;
   /** Trusted catalog used to restore durable files into a replacement MicroVM. */
   artifacts?: ArtifactReference;
+  /** Private manifest for files attached to this exact mailbox occurrence. */
+  attachmentManifest?: ArtifactReference;
+  /** Stable digest of attachment names, types, sizes, and checksums for idempotency fencing. */
+  attachmentDigest?: string;
+  /** Immutable reply edge used to detect idempotency-key reuse with different context. */
+  replyToMessageId?: string;
 }
 
 export type ThingInvocationKind = 'test' | 'manual' | 'schedule';
@@ -237,6 +257,11 @@ export interface RunRecord {
   conversation?: ConversationRunBinding;
   thing?: ThingRunBinding;
   execution?: ExecutionReference;
+  /** Indexed independently from semantic updatedAt so heartbeats do not resemble state changes. */
+  heartbeatAt?: string;
+  liveness?: ExecutionLivenessObservation;
+  /** Internal bounded dynamic-tool ledger; omitted from public Run projections. */
+  agentToolCalls?: AgentToolCallRecord[];
   result?: RunResult;
   error?: RunError;
   cancelRequestedAt?: string;

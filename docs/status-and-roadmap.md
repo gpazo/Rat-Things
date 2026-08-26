@@ -14,29 +14,88 @@ disaster-recovery proof.
 | --- | --- | --- |
 | Run contract and state machine | Implemented/local and live AWS validated | One receipt and lifecycle across raw, Thing, schedule, provider, and threaded ingress; strict validation, conditional transitions, owner-scoped idempotency, and crash-window recovery |
 | Provider plugin boundary | Implemented/tested | Trusted manifests bind ingress/delivery; dependency checks prevent authority inversion |
-| Control API | Core live validated; browser event/approval path live validated | Submit/list/get/cancel, artifacts, live events/steer/interrupt/approval/response, integrations, profiles, and routines |
+| Control API | Core live validated; fixed-envelope revision locally validated | Submit/list/get/cancel, artifacts, live events/steer/interrupt/ordinary-response, integrations, profiles, and routines; no approval route |
 | Thing facade | Implemented/local and live AWS validated | Credential-free immutable definitions, explicit draft/active pointers, revision-evidenced test/run receipts, test/publish/run/pause/resume/archive lifecycle, manual and EventBridge Scheduler rate/cron triggers, explain diagnostics, and idempotent invocation |
 | Durable agent files | Implemented/live validated | `.rat-things/artifacts/` outbox, immutable S3 bytes, conversation catalog restoration, and CLI list/24-hour URL/download commands passed in a real Codex MicroVM |
 | File/site/video publications | Implemented/live validated | Agent-declared publishing, content-derived reuse, manifest-last commit, isolated wildcard hosts, CloudFront OAC, signed redemption, and API/CLI commands passed recipient-open validation |
 | Durable AWS orchestration | Locally/live validated | DynamoDB, S3, SQS, Streams, EventBridge, EventBridge Scheduler, notifier delivery, retries, and failure queues |
 | Conversation mailbox | End-to-end locally/live validated | Teams ingress, DynamoDB/S3 mailbox, interrupt/defer ordering, leases, SQS coordinator, durable replay, terminal completion, expiry fallback, and crash-window repair |
+| Conversation read model | Implemented/local and live AWS E2E validated | Stable titles/previews, paged transcripts, search and organization, durable uploads, targeted replies, reactions, structured ordinary input, private artifact viewers, typed activity, and responsive Rat-native console controls |
 | Lambda MicroVM runner | One-shot/resume/replacement live validated | Same-ID suspend/resume plus S3 Files workspace restoration in a replacement VM passed in `us-west-2` |
 | ECS replacement | Complete | Before removal, the same pinned checkout produced byte-identical output/events and equivalent execution metadata on the legacy task and MicroVM paths; the post-removal live suite then passed with no ECS/VPC fallback |
-| Codex App Server bridge | Core live validated; expanded protocol simulated and local-live tested | Thread start/resume, turn control, events, approvals/server requests, reasoning/personality, skills, apps, MCP config, and experimental dynamic tools |
+| Codex App Server bridge | Core and structured-input path live validated | Thread start/resume, turn control, events/server requests, ordinary structured input, reasoning/personality, skills, apps, MCP config, experimental dynamic tools, and fixed `approvalPolicy: never` |
+| Context compaction and memory | Native compaction locally live validated; semantic memory missing | Conversation-scoped S3 Files persists `CODEX_HOME`; a fresh App Server process resumed a forced-compacted thread. Codex `memories` is disabled and Rat has no cross-conversation semantic-memory contract |
 | Capability profiles | Implemented/locally tested | Deployment ceiling plus `read-only`, `small-business`, and `microvm-full`; requests can narrow but not widen profiles |
 | Integration Contract v1 | Implemented/local and live AWS validated | Manifest-driven credential-only CLI/API onboarding, pre-persistence verification, provider-derived account identity/access/scopes, stable invalid-credential errors, and verified rotation |
-| Multi-account integrations | Implemented/local and live AWS validated | Owner-scoped connections, Secrets Manager vault, grants, same-plugin account sets, source bindings, permission intersection, resource constraints, revocation, and approvals |
+| Multi-account integrations | Implemented/local and live AWS validated | Owner-scoped connections, Secrets Manager vault, grants, same-plugin account sets, source bindings, fixed pre-launch permission intersection, resource constraints, and revocation |
 | Reference integration tools | Built-ins locally tested; fixture live AWS validated | Fixed-origin Slack search/post/reaction and Stripe customer/invoice/refund adapters; disposable Fixture CRM proves authenticated read/write behavior without claiming customer-provider coverage |
-| Browser computer use | Implemented v1 surface/live AWS validated | Real Codex exercised all 12 implemented command types, four interactive approval types, PNG/JPEG capture, VP8 WebM recording, private-target blocking, native cgroup eBPF lifecycle-port isolation, and trusted publication from an ARM64 Lambda MicroVM; takeover/auth/file transfer/desktop control remain out of scope |
+| Browser computer use | Implemented v1 surface; former approval-era surface live validated, autonomous revision pending fresh live rerun | Real Codex exercised all 12 implemented command types, PNG/JPEG capture, VP8 WebM recording, private-target blocking, native cgroup eBPF lifecycle-port isolation, and trusted publication from an ARM64 Lambda MicroVM; takeover/auth/file transfer/desktop control remain out of scope |
 | Durable routines | Implemented/local end-to-end and simulated | Owner-scoped interval create/list/get/pause/resume/delete/run-now, encrypted S3 request, due-time GSI, deterministic occurrence submission, duplicate-tick fencing, and request-digest verification |
 | Codex authentication | Live/local validated | Short-term Bedrock in AWS; trusted local runs can reuse the device's ChatGPT subscription without copying it into remote runs |
 | Mock driver | Implemented/tested | Used for deterministic local and live infrastructure validation |
 | GitHub/GitLab | Initial adapters | Signed ingress, loop guards, source-thread egress; credential and policy hardening remain |
 | Teams | Durable chat path locally/live AWS validated | Signed mentions get an immediate acknowledgement, enter the mailbox, and complete through threaded gateway egress; Microsoft authentication and live tenant delivery remain |
 | Slack | Optional initial adapter | App mentions and threaded posts; not the primary deployment target |
-| Observability/recovery | Partial/live measured | Low-cardinality queue/processing metrics, structured logs, durable queues/events, reconciler, delivery leases, failure queues/alarms; broader chaos drills remain |
+| Observability/recovery | Generation-fenced liveness live validated; broader drills remain | Low-cardinality queue/processing metrics, structured logs, durable queues/events, worker heartbeats, exact MicroVM health inspection, conditional stale failure/cancellation, conflict quarantine, delivery leases, failure queues, and alarms |
 | Cost model | Live canary baseline measured | The 2026-08-16 two-turn site canary has a dated $0.380 estimate using rates captured then; non-model infrastructure was about $0.046, while current repricing and sustained-load ceilings remain unmeasured |
-| Multi-tenant hardening | Not complete | Requires safe response projection, destination authorization, budgets, rate limits, and security review |
+| Multi-tenant hardening | Not complete | Run responses now strip storage/authority internals; destination authorization, budgets, rate limits, output policy, and security review remain |
+
+## Validation completed on 2026-08-26
+
+- A fresh disposable `us-west-2` deployment passed the focused IAM-authenticated conversation
+  browser test with a real Codex-on-Bedrock agent in a Lambda MicroVM. The first turn restored an
+  uploaded marker file from encrypted S3, paused for a structured ordinary-input question, accepted
+  the answer from the 390-pixel mobile form, generated a durable Markdown artifact, and rendered its
+  exact content through the private inline viewer. The transcript retained an opaque attachment ID,
+  a deterministic assistant message ID, and a durable owner reaction across reload.
+- The second turn targeted the first assistant message through `replyToMessageId`, continued the
+  same conversation without restating its first continuity marker, recovered that marker exactly,
+  and added a fresh marker. Both successful Runs used the same private MicroVM execution and native
+  Codex thread identities; the four-entry public transcript exposed neither identity, storage
+  coordinates, nor authority principals. Pin, unread, hide/unhide, message/file search, and
+  artifact navigation also passed through the deployed public API and console.
+- The live test found and closed five integration defects: unused DynamoDB expression values on an
+  absent first tool-call ledger, an upload key outside the runner's owner-scoped blob envelope, the
+  disabled-by-default Codex structured-input tool in Default mode, SigV4 headers retained while the
+  console followed an opaque content redirect to S3, and a missing DynamoDB
+  `ConditionCheckItem` IAM action for reaction transactions. Focused regressions now cover each
+  application-level failure, and redirect handling is bounded to the exact API share path and
+  configured regional S3 bucket with clean per-hop headers.
+- The successful run left every inspected completion, notifier, Run, state-stream, Thing-schedule,
+  and dead-letter queue at zero visible, in-flight, or delayed messages. The deterministic Chromium
+  suite separately passed the desktop and 390-by-844 mobile layouts. The complete repository gate
+  passed afterward; the disposable stack was then destroyed and its tagged-resource audit passed.
+- The supported toolchain now starts at Node.js 22.20, CI and `.nvmrc` select Node 22, esbuild emits
+  Node 22 bundles, and quickstart rejects older runtimes before touching AWS. DynamoDB secondary
+  indexes use AWS provider 6.x `key_schema` blocks in both production and LocalStack configurations;
+  table primary keys retain the provider's required top-level arguments. The complete gate passed
+  under Node 22.23.2 with no AWS SDK future-support or Terraform key-schema deprecation warnings.
+
+## Validation completed on 2026-08-25
+
+- The conversation read model now transactionally indexes accepted user messages and completed
+  assistant results while leaving immutable bodies in encrypted S3. Focused tests cover stable
+  title/preview metadata, cursor pagination, attachment-coordinate removal, legacy checkpoint
+  fallback, DynamoDB transactions, and the typed live-activity projection.
+- The real local Codex 0.146.0 App Server test forced automatic compaction, stopped the first server,
+  resumed the exact native thread from a fresh process using the same durable `CODEX_HOME`, recovered
+  the pre-compaction marker, and observed `contextCompaction`. The packaged `memories` feature is
+  disabled, and Rat still has no cross-conversation semantic-memory contract.
+- The deterministic browser E2E passed conversation creation, title/preview rendering, lifecycle UX,
+  typed activity without raw App Server method names, durable completion, and older-transcript
+  pagination.
+- Fresh disposable live-AWS deployment `rm260825a` created 226 resources in `us-west-2`. Its focused
+  IAM-authenticated console journey passed in 51.3 seconds with two mock-agent turns in one durable
+  Lambda MicroVM conversation, four ordered public transcript entries, stable opaque identifiers,
+  and the same private execution identity across continuation. This validates the deployed read
+  model, not real-model activity projection or semantic memory.
+- `npm run check` passed 75 files and 316 enabled tests with 20 intentional opt-in skips, packaged and
+  smoke-loaded all 13 Lambda bundles, built the 26-page documentation site, and validated all three
+  Terraform configurations. LocalStack execution was not rerun because Docker Desktop's daemon was
+  unresponsive; configuration validation still passed.
+- Teardown terminated both MicroVMs, destroyed all 226 resources, and passed the tagged-resource
+  audit. The deployment KMS key is disabled and scheduled for deletion because AWS does not permit
+  immediate key deletion.
 
 ## Golden-path validation completed on 2026-08-24
 
@@ -107,10 +166,10 @@ disaster-recovery proof.
   full/`records:read`+`records:write` authorization. It never accepted caller-authored tenant,
   subject, or scope claims.
 - A real Codex agent selected the read-only Alpha account for search and the read/write Beta account
-  for create. The owner-checked event API surfaced exactly one
-  `ratThings/integration/requestApproval` for `fixture-crm.records.create`; the harness accepted it,
-  the provider audit queue recorded exactly one mutation, and the run succeeded. Neither credential
-  appeared in stored run state, output, or events.
+  for create. Under the former interactive-approval contract, the event API surfaced one write
+  request and the harness accepted it; the provider audit queue recorded exactly one mutation and
+  neither credential appeared in stored run state, output, or events. The current contract removes
+  that approval path and admits or denies the write before launch.
 - The same suite repeated revisioned Things and permission explanation, an actual EventBridge
   occurrence, same-MicroVM conversations, built-CLI continuity, expired-MicroVM replacement,
   coordinator crash repair, repository checkout, and real Codex thread/workspace restoration.
@@ -174,9 +233,10 @@ disaster-recovery proof.
   full-page and viewport `screenshot`, `wait`, `back`, `scroll`, and `record_stop`. It submitted the
   Selenium web form twice, including Enter-to-submit, verified the exact query values, and restored
   page history after a long-page scroll.
-- Owner-checked event polling surfaced and accepted distinct `type`, `press`, `select`, and
-  coordinate-`click` requests with `accept-for-session`. The test verified that the click approval
-  contained numeric viewport coordinates. An initial lifecycle-proxy HTTP 502 exposed a control
+- Under the former approval contract, owner-checked event polling surfaced distinct `type`, `press`,
+  `select`, and coordinate-`click` requests. This remains historical browser evidence, not current
+  API behavior; the current fixed envelope runs admitted actions autonomously. An initial
+  lifecycle-proxy HTTP 502 exposed a control
   API startup race; gateway startup responses now map to retryable interaction conflicts and the
   exact behavior has a unit test.
 - The successful run retained a 59,298-byte PNG, 10,746-byte JPEG, and 1,547,168-byte WebM. FFprobe
@@ -236,7 +296,7 @@ disaster-recovery proof.
 - A deterministic App Server agent-loop simulation invoked two separately credentialed Slack
   accounts and browser navigation/input through the production dynamic-tool dispatcher. It proved
   read-only versus read-write account selection, provider-scope intersection, resource constraints,
-  integration and browser approval routing, host-side credential reads, and absence of credential
+  autonomous integration/browser routing, host-side credential reads, and absence of credential
   values from App Server JSON-RPC events.
 - A boundary-spanning routine simulation used the real `RoutineService` and `RunService` with
   durable-port fakes. Concurrent duplicate ticks produced one semantic run, preserved capability
@@ -399,9 +459,9 @@ teardown.
 - Turn the trusted TypeScript integration contract into a documented SDK and add more adapters. There
   is no signed package catalog, arbitrary runtime plugin loading, visual mapper, or Zapier-compatible
   trigger engine yet.
-- Run live AWS canaries for steering, interruption, decline/cancel decisions, Codex approval,
+- Run live AWS canaries for steering, interruption, unexpected Codex approval-protocol failure,
   scheduled routine submission, scheduled-Thing retry/crash injection, and authenticated customer
-  provider accounts. Integration approval routing, verified multi-account resolution, permission
+  provider accounts. Fixed-envelope routing, verified multi-account resolution, permission
   intersection, and permitted authenticated fixture reads/writes are live validated without
   requiring customer-supplied accounts.
 - Add browser takeover/return-control, secure human credential entry, uploads/downloads, tabs and
@@ -422,8 +482,10 @@ teardown.
 - Repeat image/lifecycle validation in every intended Region and after each service/provider upgrade.
 - Replace the Teams Workflow bridge with an authenticated Entra/Bot/Teams SDK gateway.
 - Validate teardown under injected failure and measure actual suspended-storage cost behavior.
-- Add active-session heartbeats and reconciliation, summarized context compaction, and an explicit
-  agent handoff contract. Live polling/steering/interrupt/approval is implemented for active runs.
+- Generation-fenced active-session heartbeats and exact MicroVM/worker reconciliation are
+  implemented, including conditional stale failure, cancellation settlement, and conflict
+  quarantine. Native Codex compaction is durably preserved; Rat-specific fallback summaries,
+  semantic memory, and an explicit agent handoff contract remain.
 - Complete an independent IAM, snapshot, malicious-repository, SSRF, credential-boundary, and
   cross-owner security review.
 
@@ -431,12 +493,12 @@ teardown.
 
 The immediate priority is to make the new small-business/self-hosted surface boringly reliable:
 
-1. Exercise live steering, interruption, negative approval decisions, Codex approval, and
-   integration approval against one active run. Event polling and accepted browser approvals are
-   already live validated.
+1. Exercise live steering, interruption, ordinary input response, and unexpected Codex
+   approval-protocol failure against one active run. Event polling and the former browser approval
+   bridge are already live validated; the autonomous replacement still needs a fresh live rerun.
 2. Extend the now-live two-account fixture proof with explicit provider-scope denial and resource
    constraint cases, then repeat the conformance journey for each built-in provider when operators
-   supply disposable accounts. Permitted read, approval-gated write, account selection, rotation,
+   supply disposable accounts. Permitted read, statically admitted write, account selection, rotation,
    revocation, exactly-one mutation, and no secret leakage are already proven.
 3. Prove the EventBridge reconciler submits one and only one scheduled routine occurrence, and
    extend the scheduled-Thing proof across injected retry/crash windows. Then exercise the routine
@@ -477,14 +539,24 @@ Deferred by product choice until the core above works well:
 - Build the AWS-hosted Microsoft Entra/Bot/Teams SDK gateway described in
   [channels](channels.md#recommended-production-teams-gateway).
 - Persist authorized installation/conversation references independently from run state.
-- Surface exact-thread progress plus signed human approval/cancel actions using the implemented live
-  control API.
+- Surface exact-thread progress plus cancellation and ordinary input actions using the implemented
+  live control API. Authority changes require a new Run/Thing revision, not an active-turn action.
 
 ### 4. Conversation parity and resilience
 
+- Add multi-owner collaboration only after defining shared-conversation authorization, membership,
+  reaction attribution, presence, notification, and revocation semantics. The current reactions,
+  organization state, and read markers are intentionally owner-scoped.
+- Decide whether edit/regenerate, branch/fork, and richer link/office-document previews are product
+  requirements; they are not hidden backend primitives and need explicit durable transcript
+  semantics before UI controls are added.
 - Add teardown-under-failure drills and measure suspended-session storage cost and lifecycle limits.
-- Add active-session heartbeat/recovery, compaction summaries, and handoff/replay tooling around the
-  implemented mid-command controls.
+- Exercise generation-fenced heartbeat/recovery under sustained load and Region upgrades, then add
+  Rat-specific fallback summaries and handoff/replay tooling around the implemented native Codex
+  compaction and mid-command controls.
+- Define owner-, Thing-, and conversation-scoped semantic memory with evidence provenance,
+  correction/tombstone semantics, bounded recall, and synthesis outside the per-turn App Server
+  process. Do not market S3 durability or native context compaction as semantic memory.
 - Add usage/budget accounting around the implemented capability and integration profiles.
 
 ## Reference provenance

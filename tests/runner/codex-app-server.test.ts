@@ -44,7 +44,7 @@ describe('Codex app-server notifications', () => {
     });
   });
 
-  it('bridges events, approvals, capabilities, and steering bidirectionally', async () => {
+  it('bridges events, fixed capabilities, and steering bidirectionally', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'rat-app-server-test-'));
     const fakeServer = join(directory, 'fake-app-server.mjs');
     await writeFile(fakeServer, FAKE_APP_SERVER);
@@ -65,8 +65,6 @@ describe('Codex app-server notifications', () => {
         reasoningSummary: 'concise',
         personality: 'pragmatic',
         networkAccess: true,
-        approvalPolicy: 'on-request',
-        approvalsReviewer: 'auto-review',
         webSearch: 'live',
         skills: ['test-skill'],
         apps: ['gmail'],
@@ -83,10 +81,7 @@ describe('Codex app-server notifications', () => {
           }],
         }],
         onEvent: (event) => { events.push(event); },
-        onServerRequest: async (request) => {
-          expect(request.method).toBe('item/commandExecution/requestApproval');
-          return { decision: 'accept' };
-        },
+        onServerRequest: async () => ({ answers: {} }),
         onTurnStarted: async (controller) => {
           expect(controller).toMatchObject({ threadId: 'thread-1', turnId: 'turn-1' });
           await controller.steer('Focus on the failing test');
@@ -103,8 +98,8 @@ describe('Codex app-server notifications', () => {
         });
       const thread = events.find((event) => event.method === 'test/threadParams')?.params;
       expect(thread).toMatchObject({
-        approvalPolicy: 'on-request',
-        approvalsReviewer: 'auto_review',
+        approvalPolicy: 'never',
+        approvalsReviewer: 'user',
         sandbox: 'workspace-write',
         personality: 'pragmatic',
         dynamicTools: [{
@@ -113,19 +108,20 @@ describe('Codex app-server notifications', () => {
           tools: [{ type: 'function', name: 'messages_search' }],
         }],
         config: {
+          'features.default_mode_request_user_input': true,
           sandbox_workspace_write: { network_access: true },
           web_search: 'live',
           apps: {
-            _default: { enabled: false },
-            gmail: { enabled: true, destructive_enabled: true },
+            _default: { enabled: false, default_tools_approval_mode: 'never' },
+            gmail: { enabled: true, destructive_enabled: true, default_tools_approval_mode: 'never' },
           },
           mcp_servers: { calendar: { enabled: true } },
         },
       });
       const turn = events.find((event) => event.method === 'test/turnParams')?.params;
       expect(turn).toMatchObject({
-        approvalPolicy: 'on-request',
-        approvalsReviewer: 'auto_review',
+        approvalPolicy: 'never',
+        approvalsReviewer: 'user',
         effort: 'high',
         summary: 'concise',
         personality: 'pragmatic',
@@ -143,8 +139,6 @@ describe('Codex app-server notifications', () => {
         expectedTurnId: 'turn-1',
         input: [{ type: 'text', text: 'Focus on the failing test' }],
       });
-      expect(events.find((event) => event.method === 'test/approvalResponse')?.params)
-        .toEqual({ decision: 'accept' });
     } finally {
       await rm(directory, { recursive: true, force: true });
     }
@@ -155,12 +149,11 @@ const FAKE_APP_SERVER = String.raw`
 import { createInterface } from 'node:readline';
 
 const input = createInterface({ input: process.stdin });
-let approvalAnswered = false;
 let steerAnswered = false;
 let completed = false;
 const send = (message) => process.stdout.write(JSON.stringify(message) + '\n');
 const finish = () => {
-  if (completed || !approvalAnswered || !steerAnswered) return;
+  if (completed || !steerAnswered) return;
   completed = true;
   send({ method: 'item/completed', params: {
     threadId: 'thread-1',
@@ -196,18 +189,6 @@ input.on('line', (line) => {
   if (message.method === 'turn/start') {
     send({ id: message.id, result: { turn: { id: 'turn-1', status: 'inProgress', items: [] } } });
     send({ method: 'test/turnParams', params: message.params });
-    send({
-      id: 'approval-1',
-      method: 'item/commandExecution/requestApproval',
-      params: {
-        threadId: 'thread-1',
-        turnId: 'turn-1',
-        itemId: 'item-1',
-        startedAtMs: Date.now(),
-        environmentId: null,
-        command: 'npm test',
-      },
-    });
     return;
   }
   if (message.method === 'turn/steer') {
@@ -216,11 +197,6 @@ input.on('line', (line) => {
     steerAnswered = true;
     finish();
     return;
-  }
-  if (message.id === 'approval-1' && message.result) {
-    send({ method: 'test/approvalResponse', params: message.result });
-    approvalAnswered = true;
-    finish();
   }
 });
 `;

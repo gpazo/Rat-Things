@@ -225,8 +225,11 @@ data "aws_iam_policy_document" "control" {
   }
 
   statement {
-    sid       = "Conversations"
-    actions   = local.conversation_table_coordinator_actions
+    sid = "Conversations"
+    actions = concat(local.conversation_table_coordinator_actions, [
+      "dynamodb:BatchGetItem",
+      "dynamodb:ConditionCheckItem",
+    ])
     resources = [aws_dynamodb_table.conversations.arn, "${aws_dynamodb_table.conversations.arn}/index/*"]
   }
 
@@ -632,15 +635,31 @@ data "aws_iam_policy_document" "reconciler" {
   }
 
   statement {
-    sid       = "QueryStaleQueuedRuns"
-    actions   = ["dynamodb:Query"]
-    resources = ["${aws_dynamodb_table.runs.arn}/index/status-updated-index"]
+    sid     = "QueryStaleQueuedRuns"
+    actions = ["dynamodb:Query"]
+    resources = [
+      "${aws_dynamodb_table.runs.arn}/index/status-updated-index",
+      "${aws_dynamodb_table.runs.arn}/index/status-heartbeat-index",
+    ]
   }
 
   statement {
     sid       = "FinalizeUnlaunchedCancellations"
     actions   = ["dynamodb:GetItem", "dynamodb:UpdateItem"]
     resources = [aws_dynamodb_table.runs.arn]
+  }
+
+  dynamic "statement" {
+    for_each = var.enable_microvm ? [1] : []
+    content {
+      sid = "InspectAndStopMicrovmExecutions"
+      actions = [
+        "lambda:CreateMicrovmAuthToken",
+        "lambda:GetMicrovm",
+        "lambda:TerminateMicrovm",
+      ]
+      resources = ["*"]
+    }
   }
 
   statement {

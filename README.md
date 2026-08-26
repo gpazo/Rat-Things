@@ -11,7 +11,7 @@
 <p align="center">
   <a href="https://github.com/gpazo/Rat-Things/actions/workflows/ci.yml"><img alt="CI status" src="https://github.com/gpazo/Rat-Things/actions/workflows/ci.yml/badge.svg"></a>
   <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-0b0f14.svg"></a>
-  <img alt="Node.js 20 or newer" src="https://img.shields.io/badge/node-%3E%3D20-2f855a.svg">
+  <img alt="Node.js 22.20 or newer" src="https://img.shields.io/badge/node-%3E%3D22.20-2f855a.svg">
   <img alt="AWS Lambda MicroVM" src="https://img.shields.io/badge/runtime-AWS%20Lambda%20MicroVM-ff9900.svg">
   <img alt="Engineering preview" src="https://img.shields.io/badge/status-engineering%20preview-1d9bf0.svg">
 </p>
@@ -77,7 +77,8 @@ workspace bytes, events, files, and results live outside the VM and remain owner
   safely, then publish the exact goal, trigger, capabilities, accounts, and delivery that production
   will use without embedding credentials or customer identity logic.
 - **Verified multi-account integrations** — connect several accounts for one service; provider
-  authority, Rat grants, Thing narrowing, resource constraints, and approvals intersect at runtime.
+  authority, Rat grants, Thing narrowing, resource constraints, IAM, and network policy intersect
+  into one fixed pre-launch capability envelope.
 - **Self-describing UX primitives** — discovery, OpenAPI, JSON Schemas, integration manifests,
   stable errors, and Thing explanations let consumers generate simple, accurate experiences.
 - **Bring your own product boundary** — each deployment owns its identity, OAuth applications,
@@ -86,8 +87,9 @@ workspace bytes, events, files, and results live outside the VM and remain owner
   with shell, Git, filesystem, explicitly permitted networking, and browser computer use.
 - **Serverless, durable execution** — MicroVMs suspend, resume, terminate, and replace while AWS
   storage retains orchestration, conversations, Codex state, workspace bytes, events, and results.
-- **Live control and evidence** — consumers can stream events, answer approvals and input requests,
-  steer or interrupt work, and retain files, publications, screenshots, and video.
+- **Autonomous inside a fixed envelope** — consumers admit authority before launch, then stream
+  events, answer ordinary input requests, steer or interrupt work, and retain files, publications,
+  screenshots, and video. There is no mid-Run approval layer.
 - **One run model** — manual and EventBridge-scheduled Things, signed provider-event runs, raw runs,
   and conversations converge on the same asynchronous execution and delivery contract.
 - **Revision evidence** — every Thing test/run receipt identifies the exact immutable revision and
@@ -227,7 +229,7 @@ and KMS-deletion-window teardown checks.
 
 ## Developer quick start
 
-Requirements: Node.js 20+, npm, and Git.
+Requirements: Node.js 22.20+, npm, and Git.
 
 ```bash
 git clone https://github.com/gpazo/Rat-Things.git
@@ -295,8 +297,8 @@ rat-things connections
 ```
 
 Repeat `connect` for any number of accounts, even for the same plugin. Use `--access read-write`
-only when the intended Thing or run needs writes; consequential operations still retain their
-approval policy.
+only when the intended Thing or Run may autonomously perform writes. Narrow grants, operation lists,
+resource constraints, provider scopes, IAM, and egress before launch.
 
 The remote MicroVM defaults to `danger-full-access` and network access because the dedicated VM is
 the isolation boundary. Narrow either per run or with a capability profile when the task needs less:
@@ -308,9 +310,15 @@ rat-things --thread shop-ops --profile small-business \
   "Review support traffic and investigate payment exceptions"
 
 rat-things watch RUN_ID --follow
-rat-things approve RUN_ID REQUEST_ID --decision accept
 rat-things steer RUN_ID "Only examine the newest invoices"
 ```
+
+Rat Things does not pause for human approval. The capability profile, Run/Thing narrowing,
+execution-role IAM, network policy, provider scopes, and connection grants form a fixed envelope
+before the MicroVM starts. The agent is autonomous inside that envelope; anything outside it is
+absent or denied by the enforcing layer. A missing tool, AWS `AccessDenied`, blocked URL, or rejected
+integration call is final for that Run—not a prompt waiting for permission. See [the capability
+envelope](docs/capability-envelope.md).
 
 Put an EventBridge rate or cron trigger in the ThingSpec, test its draft, and publish the exact
 revision that should run on schedule:
@@ -331,6 +339,12 @@ An agent retains a screenshot, image, video, document, website, or other output 
 the private artifact bucket after a successful turn. A conversation catalog restores the same
 relative paths before a later turn, including when the previous MicroVM has expired and been
 replaced.
+
+The local conversation console can also attach user files to a message. They enter that same
+encrypted catalog—not a browser-only upload area—and are restored below
+`.rat-things/artifacts/uploads/` before the agent begins. The console exposes only opaque attachment
+IDs, can preview common private formats through its loopback signer, and supports durable reply
+edges, reactions, and structured ordinary-input questions without adding an approval layer.
 
 When publication delivery is enabled, creating and sharing is one conversational turn:
 

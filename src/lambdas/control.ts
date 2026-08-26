@@ -13,6 +13,11 @@ import {
 import { AgentInteractionUnavailableError, requiredEnv } from '../adapters/executors.js';
 import { apiConversationId } from '../app/conversation-submission.js';
 import {
+  MAX_CONVERSATION_UPLOAD_FILES,
+  MAX_CONVERSATION_UPLOAD_FILE_BYTES,
+  MAX_CONVERSATION_UPLOAD_TOTAL_BYTES,
+} from '../conversation/service.js';
+import {
   RAT_THINGS_OPENAPI,
   RAT_THINGS_SCHEMAS,
   ratThingsDiscovery,
@@ -29,6 +34,14 @@ import {
   getThingService,
 } from '../app/composition.js';
 import { ConflictError, NotFoundError } from '../core/run-service.js';
+import {
+  projectPublicConversation,
+  projectPublicConversationDetail,
+  projectPublicConversationSearchHit,
+  type PublicConversationSummary,
+} from '../core/conversation-projection.js';
+import { projectPublicRun, type PublicRunRecord } from '../core/run-projection.js';
+import { projectPublicAgentRuntime } from '../core/agent-activity-projection.js';
 import { publicRoutine } from '../core/routine-service.js';
 import { publicThingSummary } from '../core/thing-service.js';
 import {
@@ -40,11 +53,8 @@ import { artifactIdForPath, validateArtifactCatalog } from '../domain/artifacts.
 import type { ArtifactReference, JsonValue, RunRecord, RunRequest } from '../domain/contracts.js';
 import type { ArtifactCatalog, PublishedArtifact } from '../domain/contracts.js';
 import type { ConversationRecord } from '../domain/conversations.js';
-import {
-  AGENT_APPROVAL_DECISIONS,
-  type AgentApprovalDecision,
-  type AgentInteractionTarget,
-} from '../domain/interaction.js';
+import { CONVERSATION_REACTION_EMOJIS, type ConversationReactionEmoji } from '../domain/conversations.js';
+import type { AgentInteractionTarget } from '../domain/interaction.js';
 import type { IntegrationCredentialValue } from '../credentials/types.js';
 import {
   validateConnectionGrant,
@@ -467,6 +477,32 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
     if (
       method === 'GET' &&
       conversationKey &&
+      conversationArtifactId &&
+      routeMatches(
+        event,
+        'GET /v1/conversations/{conversationId}/artifacts/{artifact}/content',
+        `/v1/conversations/${conversationKey}/artifacts/${conversationArtifactId}/content`,
+      )
+    ) {
+      const catalog = await conversationArtifactCatalog(ownerId, conversationKey);
+      const published = catalog.files.find((file) => file.id === conversationArtifactId);
+      if (!published) throw new ConflictError(`artifact ${conversationArtifactId} is not available`);
+      const descriptor = await artifactDescriptor(event, ownerId, published.file, published) as { url?: string };
+      if (!descriptor.url) throw new ConflictError('artifact does not have a private viewer URL');
+      return {
+        statusCode: 302,
+        headers: {
+          'cache-control': 'private, no-store',
+          location: descriptor.url,
+          'referrer-policy': 'no-referrer',
+          'x-content-type-options': 'nosniff',
+        },
+        body: '',
+      };
+    }
+    if (
+      method === 'GET' &&
+      conversationKey &&
       routeMatches(
         event,
         'GET /v1/conversations/{conversationId}/artifacts',
@@ -531,6 +567,98 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
       });
       return response(202, publicRun(run), { location: `/v1/runs/${run.runId}` });
     }
+    if (method === 'GET' && path === '/v1/conversations') {
+      const limit = parseLimit(event.queryStringParameters?.limit);
+      const result = await getConversationService().list(
+        ownerId,
+        limit,
+        event.queryStringParameters?.nextToken,
+        conversationVisibility(event.queryStringParameters?.visibility),
+      );
+      return response(200, {
+        ...result,
+        items: result.items.map(projectPublicConversation),
+      });
+    }
+    if (method === 'GET' && path === '/v1/conversations/search') {
+      const query = boundedText(event.queryStringParameters?.q, 'q', 512);
+      const hits = await getConversationService().search(
+        ownerId,
+        query,
+        boundedInteger(event.queryStringParameters?.limit, 'limit', 20, 1, 50),
+      );
+      return response(200, {
+        query,
+        items: hits.map(projectPublicConversationSearchHit),
+      });
+    }
+    const publicConversationId = pathParameter(event, 'conversationId');
+    if (
+      method === 'POST' &&
+      publicConversationId &&
+      messageId &&
+      routeMatches(
+        event,
+        'POST /v1/conversations/{conversationId}/messages/{messageId}/reactions',
+        `/v1/conversations/${publicConversationId}/messages/${messageId}/reactions`,
+      )
+    ) {
+      const body = strictBody(jsonBody(event), ['emoji', 'reacted']);
+      const emoji = boundedText(body.emoji, 'emoji', 16) as ConversationReactionEmoji;
+      if (!CONVERSATION_REACTION_EMOJIS.includes(emoji)) {
+        throw new ValidationError('emoji must be one of 👍, ❤️, 🎉, or 👀');
+      }
+      if (typeof body.reacted !== 'boolean') throw new ValidationError('reacted must be a boolean');
+      const found = await getConversationService().setReaction(
+        ownerId,
+        publicConversationId,
+        messageId,
+        emoji,
+        body.reacted,
+      );
+      if (!found) throw new NotFoundError('conversation not found');
+      return response(200, { emoji, reacted: body.reacted });
+    }
+    if (
+      method === 'POST' &&
+      publicConversationId &&
+      routeMatches(
+        event,
+        'POST /v1/conversations/{conversationId}/organization',
+        `/v1/conversations/${publicConversationId}/organization`,
+      )
+    ) {
+      const updated = await getConversationService().updateOrganization(
+        ownerId,
+        publicConversationId,
+        conversationOrganizationUpdate(jsonBody(event)),
+      );
+      if (!updated) throw new NotFoundError('conversation not found');
+      return response(200, projectPublicConversation(updated));
+    }
+    if (
+      method === 'GET' &&
+      publicConversationId &&
+      routeMatches(
+        event,
+        'GET /v1/conversations/{conversationId}',
+        `/v1/conversations/${publicConversationId}`,
+      )
+    ) {
+      const detail = await getConversationService().getPublicDetail(ownerId, publicConversationId, {
+        limit: boundedInteger(event.queryStringParameters?.limit, 'limit', 50, 1, 100),
+        ...(event.queryStringParameters?.nextToken
+          ? { nextToken: event.queryStringParameters.nextToken }
+          : {}),
+      });
+      if (!detail) throw new NotFoundError('conversation not found');
+      return response(200, projectPublicConversationDetail(
+        detail.conversation,
+        detail.checkpoint,
+        detail.transcript,
+        detail.activeTurn,
+      ));
+    }
     if (method === 'GET' && path === '/v1/runs') {
       const limit = parseLimit(event.queryStringParameters?.limit);
       const result = await service().list(ownerId, limit, event.queryStringParameters?.nextToken);
@@ -548,10 +676,12 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
       )
     ) {
       const target = await agentInteractionTarget(service(), ownerId, runId);
-      return response(200, await getAgentInteractionController().events(
-        target,
-        nonNegativeInteger(event.queryStringParameters?.after, 'after', 0),
-        boundedInteger(event.queryStringParameters?.limit, 'limit', 100, 1, 100),
+      return response(200, projectPublicAgentRuntime(
+        await getAgentInteractionController().events(
+          target,
+          nonNegativeInteger(event.queryStringParameters?.after, 'after', 0),
+          boundedInteger(event.queryStringParameters?.limit, 'limit', 100, 1, 100),
+        ),
       ));
     }
     if (
@@ -577,30 +707,6 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
         await agentInteractionTarget(service(), ownerId, runId),
       );
       return response(202, { ok: true, operation: 'interrupt' });
-    }
-    if (
-      method === 'POST' &&
-      runId &&
-      agentRequestId &&
-      routeMatches(
-        event,
-        'POST /v1/runs/{runId}/approvals/{requestId}',
-        `/v1/runs/${runId}/approvals/${agentRequestId}`,
-      )
-    ) {
-      const body = strictBody(jsonBody(event), ['decision', 'reason']);
-      const decision = boundedText(body.decision, 'decision', 32) as AgentApprovalDecision;
-      if (!AGENT_APPROVAL_DECISIONS.includes(decision)) {
-        throw new ValidationError('decision must be accept, accept-for-session, decline, or cancel');
-      }
-      const reason = body.reason === undefined ? undefined : boundedText(body.reason, 'reason', 1_000);
-      await getAgentInteractionController().approve(
-        await agentInteractionTarget(service(), ownerId, runId),
-        agentRequestId,
-        decision,
-        reason,
-      );
-      return response(202, { ok: true, operation: 'approve' });
     }
     if (
       method === 'POST' &&
@@ -683,12 +789,21 @@ export function apiRunSubmissionBody(
   source: { kind: 'api' },
   ownerId: string,
   idempotencyKey?: string,
-): { request: unknown; thread?: { conversationId: string; messageId: string; delivery?: 'interrupt' | 'defer' } } {
+): {
+  request: unknown;
+  thread?: {
+    conversationId: string;
+    messageId: string;
+    delivery?: 'interrupt' | 'defer';
+    attachments?: Array<{ name: string; mediaType: string; bytes: Uint8Array; sha256: string }>;
+    replyToMessageId?: string;
+  };
+} {
   if (!isRecord(body) || body.thread === undefined) {
     return { request: apiRequestBody(body, source) };
   }
   const { thread: rawThread, ...request } = body;
-  const thread = strictBody(rawThread, ['key', 'delivery']);
+  const thread = strictBody(rawThread, ['key', 'delivery', 'attachments', 'replyToMessageId']);
   const key = boundedText(thread.key, 'thread.key', 128);
   if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(key)) {
     throw new ValidationError('thread.key must be 1-128 safe ASCII characters');
@@ -700,14 +815,66 @@ export function apiRunSubmissionBody(
   if (delivery !== undefined && delivery !== 'interrupt' && delivery !== 'defer') {
     throw new ValidationError('thread.delivery must be interrupt or defer');
   }
+  const attachments = parseConversationAttachments(thread.attachments);
+  const replyToMessageId = thread.replyToMessageId === undefined
+    ? undefined
+    : boundedText(thread.replyToMessageId, 'thread.replyToMessageId', 512);
   return {
     request: apiRequestBody(request, source),
     thread: {
       conversationId: apiConversationId(ownerId, key),
       messageId,
       ...(delivery ? { delivery } : {}),
+      ...(attachments.length ? { attachments } : {}),
+      ...(replyToMessageId ? { replyToMessageId } : {}),
     },
   };
+}
+
+function parseConversationAttachments(
+  value: unknown,
+): Array<{ name: string; mediaType: string; bytes: Uint8Array; sha256: string }> {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || value.length > MAX_CONVERSATION_UPLOAD_FILES) {
+    throw new ValidationError(`thread.attachments must contain at most ${MAX_CONVERSATION_UPLOAD_FILES} files`);
+  }
+  let totalBytes = 0;
+  return value.map((candidate, index) => {
+    const input = strictBody(candidate, ['name', 'mediaType', 'base64', 'sha256']);
+    const name = boundedText(input.name, `thread.attachments[${index}].name`, 255);
+    if (name === '.' || name === '..' || /[\\/\0-\x1f\x7f]/.test(name)) {
+      throw new ValidationError(`thread.attachments[${index}].name is invalid`);
+    }
+    const mediaType = boundedText(
+      input.mediaType ?? 'application/octet-stream',
+      `thread.attachments[${index}].mediaType`,
+      128,
+    ).toLowerCase();
+    if (!/^[a-z0-9!#$&^_.+-]+\/[a-z0-9!#$&^_.+-]+$/.test(mediaType)) {
+      throw new ValidationError(`thread.attachments[${index}].mediaType is invalid`);
+    }
+    const base64 = boundedText(
+      input.base64,
+      `thread.attachments[${index}].base64`,
+      Math.ceil(MAX_CONVERSATION_UPLOAD_FILE_BYTES * 4 / 3) + 8,
+    );
+    if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(base64)) {
+      throw new ValidationError(`thread.attachments[${index}].base64 is invalid`);
+    }
+    const bytes = Buffer.from(base64, 'base64');
+    if (bytes.byteLength > MAX_CONVERSATION_UPLOAD_FILE_BYTES) {
+      throw new ValidationError(`thread.attachments[${index}] exceeds ${MAX_CONVERSATION_UPLOAD_FILE_BYTES} bytes`);
+    }
+    totalBytes += bytes.byteLength;
+    if (totalBytes > MAX_CONVERSATION_UPLOAD_TOTAL_BYTES) {
+      throw new ValidationError(`thread.attachments exceed ${MAX_CONVERSATION_UPLOAD_TOTAL_BYTES} bytes`);
+    }
+    const sha256 = createHash('sha256').update(bytes).digest('hex');
+    if (input.sha256 !== undefined && input.sha256 !== sha256) {
+      throw new ValidationError(`thread.attachments[${index}].sha256 does not match its content`);
+    }
+    return { name, mediaType, bytes, sha256 };
+  });
 }
 
 function thingExplanationTarget(value: string | undefined): 'draft' | 'active' {
@@ -724,10 +891,10 @@ export interface ApiConversationMessageStatus {
   createdAt: string;
   consumedAt?: string;
   conversation: Pick<
-    ConversationRecord,
+    PublicConversationSummary,
     'status' | 'pendingCount' | 'createdAt' | 'updatedAt' | 'latestProgress' | 'session'
   >;
-  run?: RunRecord;
+  run?: PublicRunRecord;
 }
 
 async function conversationMessageStatus(
@@ -747,6 +914,7 @@ async function conversationMessageStatus(
   const run = message.runId
     ? await getRunService(true).get(ownerId, message.runId)
     : undefined;
+  const projected = projectPublicConversation(conversation);
   return {
     conversationId: conversationKey,
     messageId,
@@ -755,14 +923,14 @@ async function conversationMessageStatus(
     createdAt: message.createdAt,
     ...(message.consumedAt ? { consumedAt: message.consumedAt } : {}),
     conversation: {
-      status: conversation.status,
-      pendingCount: conversation.pendingCount,
-      createdAt: conversation.createdAt,
-      updatedAt: conversation.updatedAt,
-      ...(conversation.latestProgress ? { latestProgress: conversation.latestProgress } : {}),
-      ...(conversation.session ? { session: conversation.session } : {}),
+      status: projected.status,
+      pendingCount: projected.pendingCount,
+      createdAt: projected.createdAt,
+      updatedAt: projected.updatedAt,
+      ...(projected.latestProgress ? { latestProgress: projected.latestProgress } : {}),
+      ...(projected.session ? { session: projected.session } : {}),
     },
-    ...(run ? { run } : {}),
+    ...(run ? { run: projectPublicRun(run) } : {}),
   };
 }
 
@@ -808,6 +976,28 @@ function parseLimit(value: string | undefined): number {
   if (!value) return 25;
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : 25;
+}
+
+function conversationVisibility(value: string | undefined): 'visible' | 'hidden' | 'all' {
+  if (value === undefined || value === 'visible') return 'visible';
+  if (value === 'hidden' || value === 'all') return value;
+  throw new ValidationError('visibility must be visible, hidden, or all');
+}
+
+function conversationOrganizationUpdate(
+  value: unknown,
+): { pinned?: boolean; hidden?: boolean; read?: boolean } {
+  const body = strictBody(value, ['pinned', 'hidden', 'read']);
+  const update: { pinned?: boolean; hidden?: boolean; read?: boolean } = {};
+  for (const key of ['pinned', 'hidden', 'read'] as const) {
+    if (!(key in body)) continue;
+    if (typeof body[key] !== 'boolean') throw new ValidationError(`${key} must be a boolean`);
+    update[key] = body[key];
+  }
+  if (Object.keys(update).length === 0) {
+    throw new ValidationError('organization update requires pinned, hidden, or read');
+  }
+  return update;
 }
 
 async function agentInteractionTarget(
@@ -908,7 +1098,6 @@ function grantPolicy(
     'preset',
     'allowOperations',
     'denyOperations',
-    'approvalOverrides',
     'resourceConstraints',
     'expiresAt',
   ]);
@@ -931,9 +1120,6 @@ function grantPolicy(
       ...(input.denyOperations !== undefined
         ? { denyOperations: stringArray(input.denyOperations, 'denyOperations', 128) }
         : {}),
-      ...(input.approvalOverrides !== undefined
-        ? { approvalOverrides: approvalOverrides(input.approvalOverrides) }
-        : {}),
       ...(input.resourceConstraints !== undefined
         ? { resourceConstraints: resourceConstraints(input.resourceConstraints) }
         : {}),
@@ -947,27 +1133,6 @@ function grantPolicy(
   }
   const { version: _version, grantId: _grantId, ownerId: _ownerId, connectionId: _connectionId, ...policy } = validated;
   return policy;
-}
-
-function approvalOverrides(value: unknown): NonNullable<ConnectionGrant['approvalOverrides']> {
-  if (!Array.isArray(value) || value.length > 128) {
-    throw new ValidationError('approvalOverrides must be an array with at most 128 entries');
-  }
-  return value.map((candidate, index) => {
-    const item = strictBody(candidate, ['operationId', 'approval']);
-    const approval = boundedText(item.approval, `approvalOverrides[${index}].approval`, 32);
-    if (!['never', 'on-request', 'always'].includes(approval)) {
-      throw new ValidationError(`approvalOverrides[${index}].approval is invalid`);
-    }
-    return {
-      operationId: boundedText(
-        item.operationId,
-        `approvalOverrides[${index}].operationId`,
-        256,
-      ),
-      approval: approval as NonNullable<ConnectionGrant['approvalOverrides']>[number]['approval'],
-    };
-  });
 }
 
 function resourceConstraints(value: unknown): NonNullable<ConnectionGrant['resourceConstraints']> {
@@ -1001,8 +1166,8 @@ function stringRecord(value: unknown, label: string, maximum: number): Record<st
   ]));
 }
 
-function publicRun<TRun extends RunRecord>(run: TRun): TRun {
-  return run;
+function publicRun(run: RunRecord) {
+  return projectPublicRun(run);
 }
 
 function artifactFor(run: RunRecord, name: string): ArtifactReference | undefined {

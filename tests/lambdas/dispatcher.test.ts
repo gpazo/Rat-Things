@@ -29,7 +29,11 @@ function queuedRun(): RunRecord {
 describe('dispatcher factory', () => {
   it('dispatches a queued run and attaches its execution reference', async () => {
     let run = queuedRun();
-    const start = vi.fn(async () => ({ backend: 'microvm' as const, id: 'microvm-1' }));
+    const start = vi.fn(async (record: RunRecord) => ({
+      backend: 'microvm' as const,
+      id: 'microvm-1',
+      generation: record.execution!.generation!,
+    }));
     const dependencies: DispatcherDependencies = {
       store: {
         get: async () => run,
@@ -62,7 +66,11 @@ describe('dispatcher factory', () => {
     expect(start).toHaveBeenCalledWith(expect.objectContaining({ runId: 'run-1' }), request, 'trace-1');
     expect(run).toMatchObject({
       status: 'dispatching',
-      execution: { backend: 'microvm', id: 'microvm-1' },
+      execution: {
+        backend: 'microvm',
+        id: 'microvm-1',
+        generation: expect.stringMatching(/^[a-f0-9]{64}$/),
+      },
     });
   });
 
@@ -95,6 +103,46 @@ describe('dispatcher factory', () => {
         get: () => ({
           backend: 'microvm',
           start: async () => { throw creationInProgress; },
+          stop: async () => undefined,
+        }),
+      },
+    };
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+
+    const response = await invoke(createDispatcher(dependencies), queueEvent(JSON.stringify({
+      version: '1',
+      runId: run.runId,
+      traceId: 'trace-1',
+    })));
+
+    expect(response).toEqual({ batchItemFailures: [{ itemIdentifier: 'message-1' }] });
+    expect(run.status).toBe('dispatching');
+    expect(fail).not.toHaveBeenCalled();
+    error.mockRestore();
+  });
+
+  it('retries an AWS control-plane HTML response that the SDK cannot deserialize', async () => {
+    let run = queuedRun();
+    const gatewayResponse = new SyntaxError(
+      `Unexpected token '<', "<html>"... is not valid JSON\n` +
+      '  Deserialization error: to see the raw response, inspect {error}.$response.',
+    );
+    const fail = vi.fn();
+    const dependencies: DispatcherDependencies = {
+      store: {
+        get: async () => run,
+        transition: async (_runId, _from, status, patch = {}) => {
+          run = { ...run, ...patch, status, updatedAt: '2026-01-01T00:00:01.000Z' };
+          return run;
+        },
+        attachExecution: vi.fn(),
+        fail,
+      },
+      artifacts: { getJson: async <T>() => request as T },
+      executors: {
+        get: () => ({
+          backend: 'microvm',
+          start: async () => { throw gatewayResponse; },
           stop: async () => undefined,
         }),
       },

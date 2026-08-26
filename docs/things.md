@@ -31,9 +31,9 @@ succeeded as a test of that exact draft.
 
 Remote execution defaults to `danger-full-access` with command networking enabled because the
 outer MicroVM is the primary isolation boundary. For a first test, explicitly choose the narrowest
-installed profile, `sandbox: "read-only"`, `approvalPolicy: "untrusted"`, user review, and disabled
-network/search/browser; widen only for the task. Rat Things is an engineering preview, so connected
-account writes and public sharing require deliberate review.
+installed profile, `sandbox: "read-only"`, and disabled network/search/browser; widen only for the
+task. Rat Things is an engineering preview, so connected-account writes and public sharing require
+deliberate review before the Run is launched.
 
 Remote commands use `RAT_THINGS_API_URL`, infer the AWS Region from an API Gateway URL when
 possible, and SigV4-sign requests. Reusing an idempotency key safely retries the same semantic run.
@@ -118,8 +118,6 @@ Content-Type: application/json
     "sandbox": "read-only",
     "capabilities": {
       "profile": "read-only",
-      "approvalPolicy": "untrusted",
-      "approvalsReviewer": "user",
       "networkAccess": false,
       "webSearch": "disabled",
       "computerUse": "disabled"
@@ -202,11 +200,11 @@ archiving wait for Scheduler synchronization. If AWS rejects synchronization, th
 error and the Thing exposes `triggerState.status: "error"`; retrying the same lifecycle operation
 is safe and attempts synchronization again.
 
-Interactive approvals and input requests exist only while that occurrence's MicroVM is active;
-there is no durable human-approval inbox in v1. Do not publish unattended scheduled work that can
-require user review unless the host watches active runs. Otherwise choose a policy/profile designed
-for unattended execution and bound every external side effect with account grants and operation
-rules.
+Rat Things has no interactive approval step. Every scheduled occurrence runs autonomously inside
+the fixed capability envelope of its published revision plus current deployment IAM, network,
+provider-scope, and grant ceilings. Do not publish a schedule until every exposed side effect is
+safe without a human watching. For human review, publish a read-only preparation Thing and submit a
+separate narrowly authorized execution Run after review.
 
 ## Lifecycle
 
@@ -298,7 +296,7 @@ rat-things thing-explain THING_ID --target active
 ```
 
 The response validates the stored digest, compiles the exact run request, resolves profiles,
-accounts, grants, provider authorization, operations, approvals, and trigger health without
+accounts, grants, provider authorization, operations, resource constraints, and trigger health without
 reading credential values. `triggerState` is also returned by get/list for quick operational
 debugging:
 

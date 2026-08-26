@@ -1,4 +1,5 @@
 import {
+  BatchGetCommand,
   DynamoDBDocumentClient,
   GetCommand,
   QueryCommand,
@@ -12,6 +13,10 @@ import type {
   ConversationMessageRecord,
   ConversationExecutionPolicy,
   ConversationRecord,
+  ConversationReactionEmoji,
+  ConversationReactionRecord,
+  ConversationSearchRecord,
+  ConversationTranscriptRecord,
   ConversationTurnRecord,
 } from '../domain/conversations.js';
 import {
@@ -21,10 +26,16 @@ import {
   type AcquireConversationLeaseResult,
   type AppendConversationMessageResult,
   type ConversationStore,
+  type ConversationSearchHit,
+  type ConversationVisibility,
+  type ListConversationsResult,
+  type ListConversationTranscriptResult,
   type PendingMessageOptions,
 } from '../conversation/types.js';
+import { CONVERSATION_REACTION_EMOJIS } from '../domain/conversations.js';
 
 const WORK_INDEX = 'conversation-work-index';
+const OWNER_INDEX = 'owner-created-index';
 const MAX_OPTIMISTIC_ATTEMPTS = 5;
 
 export class DynamoConversationStore implements ConversationStore {
@@ -42,6 +53,148 @@ export class DynamoConversationStore implements ConversationStore {
     return storedRecord<ConversationRecord>(result.Item);
   }
 
+  public async getConversationByPublicId(publicId: string): Promise<ConversationRecord | undefined> {
+    const result = await this.client.send(new GetCommand({
+      TableName: this.tableName,
+      Key: { pk: `CONVERSATION#${publicId}`, sk: 'META' },
+      ConsistentRead: true,
+    }));
+    return storedRecord<ConversationRecord>(result.Item);
+  }
+
+  public async list(
+    ownerId: string,
+    limit: number,
+    nextToken?: string,
+    visibility: ConversationVisibility = 'visible',
+  ): Promise<ListConversationsResult> {
+    const items: ConversationRecord[] = [];
+    let cursor = nextToken ? decodeToken(nextToken) : undefined;
+    do {
+      const result = await this.client.send(new QueryCommand({
+        TableName: this.tableName,
+        IndexName: OWNER_INDEX,
+        KeyConditionExpression: 'ownerId = :ownerId',
+        ...(visibility === 'hidden'
+          ? { FilterExpression: 'attribute_exists(hiddenAt)' }
+          : visibility === 'visible'
+            ? { FilterExpression: 'attribute_not_exists(hiddenAt)' }
+            : {}),
+        ExpressionAttributeValues: { ':ownerId': ownerId },
+        ScanIndexForward: false,
+        Limit: Math.max(1, limit - items.length),
+        ...(cursor ? { ExclusiveStartKey: cursor } : {}),
+      }));
+      items.push(...(result.Items ?? [])
+        .map((item) => storedRecord<ConversationRecord>(item))
+        .filter((item): item is ConversationRecord => Boolean(item)));
+      cursor = result.LastEvaluatedKey;
+    } while (items.length < limit && cursor);
+    const response: ListConversationsResult = {
+      items,
+    };
+    if (cursor) response.nextToken = encodeToken(cursor);
+    return response;
+  }
+
+  public async updateOrganization(input: {
+    conversationId: string;
+    ownerId: string;
+    pinned?: boolean;
+    hidden?: boolean;
+    read?: boolean;
+    now: string;
+  }): Promise<ConversationRecord> {
+    const assignments: string[] = [];
+    const removals: string[] = [];
+    for (const [field, enabled] of [
+      ['pinnedAt', input.pinned],
+      ['hiddenAt', input.hidden],
+      ['readAt', input.read],
+    ] as const) {
+      if (enabled === true) assignments.push(`${field} = :now`);
+      if (enabled === false) removals.push(field);
+    }
+    const result = await this.client.send(new UpdateCommand({
+      TableName: this.tableName,
+      Key: metaKey(input.conversationId),
+      UpdateExpression: [
+        ...(assignments.length > 0 ? [`SET ${assignments.join(', ')}`] : []),
+        ...(removals.length > 0 ? [`REMOVE ${removals.join(', ')}`] : []),
+      ].join(' '),
+      ConditionExpression: 'ownerId = :ownerId',
+      ExpressionAttributeValues: {
+        ':ownerId': input.ownerId,
+        ...(assignments.length > 0 ? { ':now': input.now } : {}),
+      },
+      ReturnValues: 'ALL_NEW',
+    }));
+    return requiredStoredRecord<ConversationRecord>(result.Attributes);
+  }
+
+  public async search(
+    ownerId: string,
+    tokens: string[],
+    limit: number,
+  ): Promise<ConversationSearchHit[]> {
+    const pages = await Promise.all(tokens.map(async (token) => {
+      const result = await this.client.send(new QueryCommand({
+        TableName: this.tableName,
+        KeyConditionExpression: 'pk = :pk AND begins_with(sk, :match)',
+        ExpressionAttributeValues: {
+          ':pk': searchPartitionKey(ownerId, token),
+          ':match': 'MATCH#',
+        },
+        ScanIndexForward: false,
+        Limit: Math.min(250, Math.max(100, limit * 10)),
+      }));
+      return (result.Items ?? [])
+        .map((item) => storedRecord<ConversationSearchRecord>(item))
+        .filter((item): item is ConversationSearchRecord => item !== undefined && item.ownerId === ownerId);
+    }));
+    if (pages.some((page) => page.length === 0)) return [];
+    const candidates = pages
+      .map((page) => new Set(page.map((item) => item.conversationId)))
+      .reduce((current, next) => new Set([...current].filter((id) => next.has(id))));
+    const matchesByConversation = new Map<string, ConversationSearchRecord[]>();
+    for (const match of pages.flat()) {
+      if (!candidates.has(match.conversationId)) continue;
+      const matches = matchesByConversation.get(match.conversationId) ?? [];
+      if (!matches.some((item) => item.entryId === match.entryId && item.kind === match.kind)) {
+        matches.push(match);
+      }
+      matchesByConversation.set(match.conversationId, matches);
+    }
+    const candidateIds = [...candidates]
+      .sort((left, right) => newestMatch(matchesByConversation.get(right)) - newestMatch(matchesByConversation.get(left)))
+      .slice(0, 100);
+    if (candidateIds.length === 0) return [];
+    const loaded = await this.client.send(new BatchGetCommand({
+      RequestItems: {
+        [this.tableName]: {
+          Keys: candidateIds.map(metaKey),
+          ConsistentRead: true,
+        },
+      },
+    }));
+    const conversations = (loaded.Responses?.[this.tableName] ?? [])
+      .map((item) => storedRecord<ConversationRecord>(item))
+      .filter((item): item is ConversationRecord => item !== undefined && item.ownerId === ownerId);
+    return conversations
+      .map((conversation) => ({
+        conversation,
+        matches: (matchesByConversation.get(conversation.conversationId) ?? [])
+          .sort((left, right) => Date.parse(right.occurredAt) - Date.parse(left.occurredAt))
+          .slice(0, 5),
+      }))
+      .sort((left, right) => (
+        Number(Boolean(right.conversation.pinnedAt)) - Number(Boolean(left.conversation.pinnedAt)) ||
+        right.matches.length - left.matches.length ||
+        newestMatch(right.matches) - newestMatch(left.matches)
+      ))
+      .slice(0, limit);
+  }
+
   public getMessage(
     conversationId: string,
     messageId: string,
@@ -52,7 +205,9 @@ export class DynamoConversationStore implements ConversationStore {
   public async appendMessage(input: {
     conversation: ConversationRecord;
     message: ConversationMessageRecord;
+    transcript: ConversationTranscriptRecord;
     event: ConversationEventRecord;
+    search: ConversationSearchRecord[];
   }): Promise<AppendConversationMessageResult> {
     const pk = partitionKey(input.conversation.conversationId);
     const messageKey = mailboxKey(input.conversation.conversationId, input.message.messageId);
@@ -98,7 +253,9 @@ export class DynamoConversationStore implements ConversationStore {
                 ConditionExpression: 'attribute_not_exists(pk)',
               },
             },
+            transcriptPut(this.tableName, input.transcript),
             eventPut(this.tableName, input.event),
+            ...input.search.map((record) => searchPut(this.tableName, record)),
             {
               Update: {
                 TableName: this.tableName,
@@ -108,11 +265,18 @@ export class DynamoConversationStore implements ConversationStore {
                   'itemType = :itemType',
                   'conversationId = if_not_exists(conversationId, :conversationId)',
                   'ownerId = if_not_exists(ownerId, :ownerId)',
+                  'ownerCreated = if_not_exists(ownerCreated, :ownerCreated)',
                   'createdAt = if_not_exists(createdAt, :createdAt)',
                   'updatedAt = :updatedAt',
                   'expiresAt = :expiresAt',
                   '#status = :status',
                   'pendingCount = if_not_exists(pendingCount, :zero) + :one',
+                  ...(input.conversation.title
+                    ? ['title = if_not_exists(title, :title)']
+                    : []),
+                  ...(input.conversation.lastMessagePreview
+                    ? ['lastMessagePreview = :lastMessagePreview']
+                    : []),
                   '#source = :source',
                   'destination = :destination',
                   'actor = :actor',
@@ -140,6 +304,7 @@ export class DynamoConversationStore implements ConversationStore {
                   ':itemType': 'conversation',
                   ':conversationId': input.conversation.conversationId,
                   ':ownerId': input.conversation.ownerId,
+                  ':ownerCreated': ownerCreated(input.conversation),
                   ':createdAt': input.conversation.createdAt,
                   ':updatedAt': input.conversation.updatedAt,
                   ':expiresAt': input.conversation.expiresAt,
@@ -150,6 +315,10 @@ export class DynamoConversationStore implements ConversationStore {
                   ':destination': input.conversation.destination,
                   ':actor': input.conversation.actor,
                   ':credentialSubject': input.conversation.credentialSubject,
+                  ...(input.conversation.title ? { ':title': input.conversation.title } : {}),
+                  ...(input.conversation.lastMessagePreview
+                    ? { ':lastMessagePreview': input.conversation.lastMessagePreview }
+                    : {}),
                   ...(input.conversation.executionPolicy
                     ? { ':executionPolicy': input.conversation.executionPolicy }
                     : {}),
@@ -190,6 +359,104 @@ export class DynamoConversationStore implements ConversationStore {
       }
     }
     throw new ConversationStateError('conversation changed too frequently while appending work');
+  }
+
+  public async updateArtifacts(input: {
+    conversationId: string;
+    artifacts: ConversationRecord['artifacts'];
+    expectedToken: string;
+    updatedAt: string;
+  }): Promise<ConversationRecord> {
+    if (!input.artifacts) throw new ConversationStateError('artifact catalog reference is required');
+    try {
+      const result = await this.client.send(new UpdateCommand({
+        TableName: this.tableName,
+        Key: metaKey(input.conversationId),
+        UpdateExpression: 'SET artifacts = :artifacts, updatedAt = :updatedAt',
+        ConditionExpression: 'lease.#token = :token',
+        ExpressionAttributeNames: { '#token': 'token' },
+        ExpressionAttributeValues: {
+          ':artifacts': input.artifacts,
+          ':updatedAt': input.updatedAt,
+          ':token': input.expectedToken,
+        },
+        ReturnValues: 'ALL_NEW',
+      }));
+      return requiredStoredRecord<ConversationRecord>(result.Attributes);
+    } catch (error) {
+      if (isConditionalFailure(error)) {
+        throw new ConversationLeaseError('artifact update lost its conversation lease');
+      }
+      throw error;
+    }
+  }
+
+  public async setReaction(input: {
+    conversationId: string;
+    ownerId: string;
+    messageId: string;
+    emoji: ConversationReactionEmoji;
+    reacted: boolean;
+    createdAt: string;
+    expiresAt: number;
+  }): Promise<void> {
+    const key = reactionKey(input.conversationId, input.messageId, input.emoji, input.ownerId);
+    const record: ConversationReactionRecord = {
+      version: '1',
+      itemType: 'reaction',
+      conversationId: input.conversationId,
+      messageId: input.messageId,
+      emoji: input.emoji,
+      ownerId: input.ownerId,
+      createdAt: input.createdAt,
+      expiresAt: input.expiresAt,
+    };
+    try {
+      await this.client.send(new TransactWriteCommand({
+        TransactItems: [
+          {
+            ConditionCheck: {
+              TableName: this.tableName,
+              Key: metaKey(input.conversationId),
+              ConditionExpression: 'ownerId = :ownerId',
+              ExpressionAttributeValues: { ':ownerId': input.ownerId },
+            },
+          },
+          input.reacted
+            ? { Put: { TableName: this.tableName, Item: { ...record, ...key } } }
+            : { Delete: { TableName: this.tableName, Key: key } },
+        ],
+      }));
+    } catch (error) {
+      if (isConditionalFailure(error)) throw new ConversationConflictError('conversation reaction is not authorized');
+      throw error;
+    }
+  }
+
+  public async listReactions(
+    conversationId: string,
+    ownerId: string,
+    messageIds: string[],
+  ): Promise<ConversationReactionRecord[]> {
+    const unique = [...new Set(messageIds)];
+    const keys = unique.flatMap((messageId) => CONVERSATION_REACTION_EMOJIS.map(
+      (emoji) => reactionKey(conversationId, messageId, emoji, ownerId),
+    ));
+    const records: ConversationReactionRecord[] = [];
+    for (let offset = 0; offset < keys.length; offset += 100) {
+      let pending = keys.slice(offset, offset + 100);
+      for (let attempt = 0; attempt < 3 && pending.length > 0; attempt += 1) {
+        const result = await this.client.send(new BatchGetCommand({
+          RequestItems: { [this.tableName]: { Keys: pending, ConsistentRead: true } },
+        }));
+        records.push(...(result.Responses?.[this.tableName] ?? [])
+          .map((item) => storedRecord<ConversationReactionRecord>(item))
+          .filter((item): item is ConversationReactionRecord => Boolean(item)));
+        pending = (result.UnprocessedKeys?.[this.tableName]?.Keys ?? []) as typeof pending;
+      }
+      if (pending.length > 0) throw new ConversationStateError('reaction records could not be read');
+    }
+    return records;
   }
 
   public async listPending(
@@ -693,6 +960,9 @@ export class DynamoConversationStore implements ConversationStore {
     context?: ConversationRecord['context'];
     artifacts?: ConversationRecord['artifacts'];
     session?: ConversationRecord['session'];
+    transcript?: ConversationTranscriptRecord;
+    lastMessagePreview?: string;
+    search?: ConversationSearchRecord[];
     event: ConversationEventRecord;
     leaseToken: string;
     completedAt: string;
@@ -704,6 +974,8 @@ export class DynamoConversationStore implements ConversationStore {
     conversationId: string;
     turnId: string;
     error: NonNullable<ConversationTurnRecord['error']>;
+    context?: ConversationRecord['context'];
+    clearSession?: boolean;
     event: ConversationEventRecord;
     leaseToken: string;
     failedAt: string;
@@ -712,6 +984,8 @@ export class DynamoConversationStore implements ConversationStore {
       conversationId: input.conversationId,
       turnId: input.turnId,
       error: input.error,
+      ...(input.context ? { context: input.context } : {}),
+      ...(input.clearSession ? { clearSession: true } : {}),
       event: input.event,
       leaseToken: input.leaseToken,
       completedAt: input.failedAt,
@@ -741,6 +1015,31 @@ export class DynamoConversationStore implements ConversationStore {
       .filter((item): item is ConversationEventRecord => Boolean(item));
   }
 
+  public async listTranscript(
+    conversationId: string,
+    limit: number,
+    nextToken?: string,
+  ): Promise<ListConversationTranscriptResult> {
+    const result = await this.client.send(new QueryCommand({
+      TableName: this.tableName,
+      KeyConditionExpression: 'pk = :pk AND begins_with(sk, :transcript)',
+      ExpressionAttributeValues: {
+        ':pk': partitionKey(conversationId),
+        ':transcript': 'TRANSCRIPT#',
+      },
+      ScanIndexForward: false,
+      Limit: limit,
+      ...(nextToken ? { ExclusiveStartKey: decodeToken(nextToken) } : {}),
+    }));
+    const response: ListConversationTranscriptResult = {
+      items: (result.Items ?? [])
+        .map((item) => storedRecord<ConversationTranscriptRecord>(item))
+        .filter((item): item is ConversationTranscriptRecord => Boolean(item)),
+    };
+    if (result.LastEvaluatedKey) response.nextToken = encodeToken(result.LastEvaluatedKey);
+    return response;
+  }
+
   private async finishTurn(input: {
     conversationId: string;
     turnId: string;
@@ -748,6 +1047,10 @@ export class DynamoConversationStore implements ConversationStore {
     context?: ConversationRecord['context'];
     artifacts?: ConversationRecord['artifacts'];
     session?: ConversationRecord['session'];
+    transcript?: ConversationTranscriptRecord;
+    lastMessagePreview?: string;
+    search?: ConversationSearchRecord[];
+    clearSession?: boolean;
     error?: ConversationTurnRecord['error'];
     event: ConversationEventRecord;
     leaseToken: string;
@@ -790,7 +1093,9 @@ export class DynamoConversationStore implements ConversationStore {
                 ExpressionAttributeValues: turnValues,
               },
             },
+            ...(input.transcript ? [transcriptPut(this.tableName, input.transcript)] : []),
             eventPut(this.tableName, input.event),
+            ...(input.search?.map((record) => searchPut(this.tableName, record)) ?? []),
             {
               Update: {
                 TableName: this.tableName,
@@ -800,7 +1105,8 @@ export class DynamoConversationStore implements ConversationStore {
                   ...(input.context ? [', #context = :context'] : []),
                   ...(input.artifacts ? [', artifacts = :artifacts'] : []),
                   ...(input.session ? [', #session = :session'] : []),
-                  ' REMOVE lease, activeTurnId, latestProgress',
+                  ...(input.lastMessagePreview ? [', lastMessagePreview = :lastMessagePreview'] : []),
+                  ` REMOVE lease, activeTurnId, latestProgress${input.clearSession ? ', #session' : ''}`,
                 ].join(''),
                 ConditionExpression: [
                   'lease.#token = :token',
@@ -812,6 +1118,7 @@ export class DynamoConversationStore implements ConversationStore {
                   '#token': 'token',
                   ...(input.context ? { '#context': 'context' } : {}),
                   ...(input.session ? { '#session': 'session' } : {}),
+                  ...(input.clearSession ? { '#session': 'session' } : {}),
                 },
                 ExpressionAttributeValues: {
                   ':status': nextStatus,
@@ -822,6 +1129,9 @@ export class DynamoConversationStore implements ConversationStore {
                   ...(input.context ? { ':context': input.context } : {}),
                   ...(input.artifacts ? { ':artifacts': input.artifacts } : {}),
                   ...(input.session ? { ':session': input.session } : {}),
+                  ...(input.lastMessagePreview
+                    ? { ':lastMessagePreview': input.lastMessagePreview }
+                    : {}),
                 },
               },
             },
@@ -894,12 +1204,28 @@ function partitionKey(conversationId: string): string {
   return `CONVERSATION#${hash(conversationId)}`;
 }
 
+function ownerCreated(conversation: Pick<ConversationRecord, 'ownerId' | 'createdAt' | 'conversationId'>): string {
+  return `${conversation.ownerId}#${conversation.createdAt}#${hash(conversation.conversationId)}`;
+}
+
 function metaKey(conversationId: string): { pk: string; sk: string } {
   return { pk: partitionKey(conversationId), sk: 'META' };
 }
 
 function mailboxKey(conversationId: string, messageId: string): { pk: string; sk: string } {
   return { pk: partitionKey(conversationId), sk: `MAILBOX#${hash(messageId)}` };
+}
+
+function reactionKey(
+  conversationId: string,
+  messageId: string,
+  emoji: ConversationReactionEmoji,
+  ownerId: string,
+): { pk: string; sk: string } {
+  return {
+    pk: partitionKey(conversationId),
+    sk: `REACTION#${hash(messageId)}#${hash(emoji).slice(0, 16)}#${hash(ownerId).slice(0, 32)}`,
+  };
 }
 
 function turnKey(conversationId: string, turnId: string): { pk: string; sk: string } {
@@ -911,6 +1237,47 @@ function eventKey(event: ConversationEventRecord): { pk: string; sk: string } {
     pk: partitionKey(event.conversationId),
     sk: `EVENT#${event.occurredAt}#${hash(event.eventId)}`,
   };
+}
+
+function transcriptKey(
+  transcript: ConversationTranscriptRecord,
+): { pk: string; sk: string } {
+  return {
+    pk: partitionKey(transcript.conversationId),
+    sk: `TRANSCRIPT#${transcript.occurredAt}#${hash(transcript.entryId)}`,
+  };
+}
+
+function transcriptPut(tableName: string, transcript: ConversationTranscriptRecord) {
+  return {
+    Put: {
+      TableName: tableName,
+      Item: { ...transcript, ...transcriptKey(transcript) },
+      ConditionExpression: 'attribute_not_exists(pk)',
+    },
+  };
+}
+
+function searchPut(tableName: string, record: ConversationSearchRecord) {
+  return {
+    Put: {
+      TableName: tableName,
+      Item: {
+        ...record,
+        pk: searchPartitionKey(record.ownerId, record.token),
+        sk: `MATCH#${record.occurredAt}#${hash(record.conversationId)}#${hash(record.entryId)}#${record.kind}`,
+      },
+      ConditionExpression: 'attribute_not_exists(pk)',
+    },
+  };
+}
+
+function searchPartitionKey(ownerId: string, token: string): string {
+  return `SEARCH#${hash(ownerId).slice(0, 32)}#${token}`;
+}
+
+function newestMatch(matches: ConversationSearchRecord[] | undefined): number {
+  return Math.max(0, ...(matches ?? []).map((match) => Date.parse(match.occurredAt) || 0));
 }
 
 function eventPut(tableName: string, event: ConversationEventRecord) {
@@ -942,9 +1309,24 @@ function storedRecord<T>(item: Record<string, unknown> | undefined): T | undefin
     sk: _sk,
     workPartition: _workPartition,
     workOrder: _workOrder,
+    ownerCreated: _ownerCreated,
     ...record
   } = item;
   return record as T;
+}
+
+function encodeToken(key: Record<string, unknown>): string {
+  return Buffer.from(JSON.stringify(key), 'utf8').toString('base64url');
+}
+
+function decodeToken(value: string): Record<string, unknown> {
+  try {
+    const parsed = JSON.parse(Buffer.from(value, 'base64url').toString('utf8')) as unknown;
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error();
+    return parsed as Record<string, unknown>;
+  } catch {
+    throw new ConversationStateError('invalid pagination token');
+  }
 }
 
 function requiredStoredRecord<T>(item: Record<string, unknown> | undefined): T {

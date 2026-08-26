@@ -8,8 +8,6 @@
     "sandbox": "read-only",
     "capabilities": {
       "profile": "read-only",
-      "approvalPolicy": "untrusted",
-      "approvalsReviewer": "user",
       "networkAccess": false,
       "webSearch": "disabled",
       "computerUse": "disabled"

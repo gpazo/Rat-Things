@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { emitMicrovmStartupObservation } from '../../src/lambdas/dispatcher.js';
 import { embeddedMetric, emitSqsQueueDelay } from '../../src/lambdas/metrics.js';
 
 describe('low-cardinality Lambda metrics', () => {
@@ -50,5 +51,19 @@ describe('low-cardinality Lambda metrics', () => {
       QueueDelay: 750,
     });
     expect(JSON.stringify(metric)).not.toContain('messageId');
+  });
+
+  it('separates cold launch, resume, and fallback timing without execution identifiers', () => {
+    const info = vi.spyOn(console, 'info').mockImplementation(() => undefined);
+
+    emitMicrovmStartupObservation({ mode: 'launch', outcome: 'succeeded', durationMs: 42_000 });
+    emitMicrovmStartupObservation({ mode: 'resume', outcome: 'fallback', durationMs: 6_000 });
+
+    const metrics = info.mock.calls.map((call) => JSON.parse(String(call[0])) as Record<string, unknown>);
+    expect(metrics).toHaveLength(3);
+    expect(metrics[0]).toMatchObject({ Component: 'dispatcher', MicrovmLaunchRequestDuration: 42_000 });
+    expect(metrics[1]).toMatchObject({ Component: 'dispatcher', MicrovmResumeRequestDuration: 6_000 });
+    expect(metrics[2]).toMatchObject({ Component: 'dispatcher', MicrovmResumeFallback: 1 });
+    expect(JSON.stringify(metrics)).not.toMatch(/runId|microvmId|ownerId/);
   });
 });

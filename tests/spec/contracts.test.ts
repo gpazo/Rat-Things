@@ -25,7 +25,6 @@ describe('published machine contracts', () => {
         sandbox: 'read-only',
         capabilities: {
           profile: 'read-only',
-          approvalPolicy: 'untrusted',
           networkAccess: false,
           webSearch: 'disabled',
           computerUse: 'disabled',

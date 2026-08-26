@@ -281,7 +281,8 @@ Replace the bridge—not the v1 run contract—with an AWS-hosted Teams app/bot 
 
 This keeps AWS as the compute/data plane while using the Microsoft identity and messaging plane that
 Teams requires. It enables tenant policy, installation lifecycle, exact conversation references,
-proactive completion, and future approvals without coupling runs to a Power Automate owner.
+proactive completion, and future ordinary-input/cancel actions without coupling runs to a Power
+Automate owner. It must not add a mid-Run authority-widening path.
 
 ## Slack: optional adapter
 

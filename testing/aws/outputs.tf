@@ -34,6 +34,10 @@ output "runs_table_name" {
   value = module.agent_runner.runs_table_name
 }
 
+output "reconciler_function_name" {
+  value = module.agent_runner.reconciler_function_name
+}
+
 output "conversations_table_name" {
   value = module.agent_runner.conversations_table_name
 }

@@ -7,7 +7,7 @@ resources owned by the extracted agent runtime.
 
 ## One-command E2E test
 
-Prerequisites: Docker with Compose, Node.js 20+, npm, Git, `curl`, and `jq`.
+Prerequisites: Docker with Compose, Node.js 22.20+, npm, Git, `curl`, and `jq`.
 
 ```bash
 npm run test:e2e:localstack

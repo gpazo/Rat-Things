@@ -12,10 +12,11 @@ New consumers should begin with the [operating model](operating-model.md), then 
 route-level behavior. The deployment's `/openapi.json` is authoritative for generated clients and
 installed routes.
 
-> The current run response projection is the stored `RunRecord`, including owner and S3 artifact
-> coordinates. Keep the API behind AWS IAM or a trusted host backend and do not expose it directly to an
-> untrusted browser client. File-list responses omit S3 coordinates and file-download endpoints
-> issue owner-checked, short-lived URLs; a fully public-safe run projection remains a roadmap item.
+> Run responses are a deliberately smaller projection of the stored `RunRecord`. They omit owner
+> keys, object-store coordinates, execution handles, conversation bindings, agent thread IDs, and
+> provenance. File-list responses also omit S3 coordinates, while file-download endpoints issue
+> owner-checked, short-lived URLs. The API still requires its documented authentication and is not
+> an unauthenticated public data surface.
 
 ## Authentication and ownership
 
@@ -78,18 +79,23 @@ Cross-identity lookup is an administrative capability outside v1.
 | `POST /v1/routines/{routineId}/pause` | Required | Pause future scheduled occurrences |
 | `POST /v1/routines/{routineId}/resume` | Required | Resume at the retained or next future occurrence |
 | `POST /v1/routines/{routineId}/delete` | Required | Soft-delete a routine; metadata expires after 30 days |
+| `GET /v1/conversations?limit=25&nextToken=...&visibility=visible` | Required | List owner-scoped durable conversation summaries with opaque IDs and durable pin/hide/read state |
+| `GET /v1/conversations/search?q=...&limit=20` | Required | Search indexed user/assistant messages and artifact paths across the owner's visible and hidden conversations |
+| `GET /v1/conversations/{opaqueConversationId}?limit=50&nextToken=...` | Required | Read safe conversation state and one cursor-paged durable transcript window |
+| `POST /v1/conversations/{opaqueConversationId}/organization` | Required | Set owner-scoped `pinned`, `hidden`, or `read` booleans without changing execution authority or lifecycle |
+| `POST /v1/conversations/{opaqueConversationId}/messages/{messageId}/reactions` | Required | Add or remove one supported durable owner reaction without starting a Run |
 | `GET /v1/conversations/{conversationId}/messages/{messageId}` | Required | Poll the exact message, bound run, conversation, and suspended-session state |
 | `GET /v1/conversations/{conversationId}/artifacts` | Required | List the current durable files for an owner-scoped conversation |
 | `GET /v1/conversations/{conversationId}/artifacts/{artifact}` | Required | Return a fresh short-lived view/download URL for a conversation file |
+| `GET /v1/conversations/{conversationId}/artifacts/{artifact}/content` | Required | Owner-check and redirect an inline viewer to short-lived private content |
 | `POST /v1/conversations/{conversationId}/publications` | Required | Build and share a file, site, or video from the current conversation catalog |
 | `POST /v1/runs` | Required | Validate, durably store, and return the universal Run receipt (`202`); optional `thread` adds owner-scoped continuity preparation |
 | `GET /v1/runs?limit=25&nextToken=...` | Required | Newest-first runs for the current owner; limit is clamped to 1–100 |
 | `GET /v1/runs/{runId}` | Required | Current record for the current owner |
-| `GET /v1/runs/{runId}/events?after=0&limit=100` | Required | Poll ordered App Server events plus outstanding server requests for an active run |
+| `GET /v1/runs/{runId}/events?after=0&limit=100` | Required | Poll ordered typed activity cards plus outstanding ordinary input requests for an active run |
 | `POST /v1/runs/{runId}/steer` | Required | Add text to the active turn |
 | `POST /v1/runs/{runId}/interrupt` | Required | Interrupt the active turn without selecting a MicroVM directly |
-| `POST /v1/runs/{runId}/approvals/{requestId}` | Required | Accept, accept for the session, decline, or cancel an approval request |
-| `POST /v1/runs/{runId}/requests/{requestId}/respond` | Required | Return an arbitrary JSON result for another App Server request |
+| `POST /v1/runs/{runId}/requests/{requestId}/respond` | Required | Return JSON data for an ordinary App Server input request; cannot widen authority |
 | `GET /v1/runs/{runId}/artifacts` | Required | List user-visible files captured by the run |
 | `GET /v1/runs/{runId}/artifacts/{name}` | Required | Owner-checked URL for a generated-file ID or `input`, `output`, `events`, or `patch` |
 | `POST /v1/runs/{runId}/publications` | Required | Build and share a file, site, or video from a successful run's catalog |
@@ -102,7 +108,7 @@ Cross-identity lookup is an administrative capability outside v1.
 | `POST /webhooks/slack` | Provider signature | Optional Slack event ingress with timestamp/replay checks |
 
 `nextToken` is opaque and must be returned unchanged. Live events use an ordered polling snapshot,
-not a long-held HTTP stream. Interactive routes are available only while the exact run has an active
+not a long-held HTTP stream. Live-control routes are available only while the exact run has an active
 MicroVM execution; stale, terminal, or non-interactive runs return `409`. Callers never select a
 MicroVM or receive its AWS-issued proxy token. Durable conversation continuation remains trusted
 orchestration selected from the stored owner-scoped session.
@@ -118,7 +124,7 @@ revision produced the run before moving the active pointer.
 
 `GET /v1/integrations/plugins` is the form and tool-generation contract. Each manifest declares one
 or more authentication schemes with exact credential fields, plus typed operations with access,
-risk, approval, scope, and input-schema metadata.
+risk, required provider scopes, and input-schema metadata.
 
 Connection creation accepts only:
 
@@ -190,7 +196,7 @@ has separate `draft` and `active` pointers into immutable, content-digested revi
 uses the draft; production invocation and Amazon EventBridge Scheduler always use the pinned active
 revision. DynamoDB stores lifecycle and references while complete definitions stay in a private,
 encrypted, non-expiring definition bucket. Every occurrence adds trusted Thing provenance and still
-passes through ordinary run validation, capability profiles, connection grants, approval policy,
+passes through ordinary run validation, fixed capability-envelope resolution, connection grants,
 and idempotent queue submission. The complete lifecycle and schedule contract is in
 [Things](things.md).
 
@@ -209,6 +215,14 @@ starting with a letter or digit. Rat hashes the authenticated owner into the int
 ID, so two principals using `release-smoke` do not share state. `Idempotency-Key` is required for a
 threaded submission and is also the message identity. Repeating the same key and request returns the
 same Run; reusing it for different content or thread state returns `409 conflict`.
+
+`thread.replyToMessageId` creates an immutable reply edge to a public transcript message. Optional
+`thread.attachments` accepts at most six base64 files, 4 MiB per file and 6 MiB decoded total. The
+adapter verifies an optional SHA-256, writes the bytes and a private manifest to encrypted S3, and
+strips the transport representation before execution. The coordinator merges those files into the
+ordinary durable conversation catalog under its lease, so the agent sees them below
+`.rat-things/artifacts/uploads/` and replacement MicroVMs restore them through the existing path.
+Attachment names, media types, sizes, and checksums are part of threaded idempotency.
 
 ```http
 POST /v1/runs HTTP/1.1
@@ -318,19 +332,20 @@ assigned an in-memory sequence and can be polled while the run is active:
 ```bash
 rat-things watch RUN_ID --follow
 rat-things steer RUN_ID "Use the newly uploaded specification"
-rat-things approve RUN_ID REQUEST_ID --decision accept-for-session
 rat-things respond RUN_ID REQUEST_ID --result '{"answers":{"region":"us-west-2"}}'
 rat-things interrupt RUN_ID
 ```
 
 `GET .../events` returns
-`{runId,active,ready,oldestSequence,nextSequence,events,pendingRequests,turn}`. Pass the last seen
-`sequence` back as `after`; results are ordered and bounded to 100. If a client falls behind
-`oldestSequence`, it missed entries from the bounded ring and must rely on the terminal JSONL event
-artifact. `pendingRequests` includes
-Codex command/file approvals, dynamic integration approvals, browser-interaction approvals, and any
-other server request awaiting a JSON result. Approval decisions are `accept`,
-`accept-for-session`, `decline`, and `cancel`.
+`{runId,active,ready,oldestSequence,nextSequence,events,pendingRequests}`. Each public event has a
+stable `kind`, `status`, `title`, optional bounded `detail`, sequence, and timestamp. Raw App Server
+methods and parameters, commands, results, reasoning, request parameters, and native thread/turn IDs
+remain inside the execution boundary and terminal evidence. Pass the last seen `sequence` back as
+`after`; results are ordered and bounded to 100. If a client falls behind `oldestSequence`, it
+missed entries from the bounded ring and must rely on the terminal JSONL event artifact.
+`pendingRequests` includes only ordinary server requests awaiting JSON data. The response route does
+not authorize commands, file changes, browser actions, integrations, or broader account access. Rat
+Things has no approval route; its capability envelope is fixed before launch.
 
 This is a live control plane, not the durable event archive. The complete JSONL event artifact is
 written to encrypted S3 after the turn, while the live in-MicroVM ring is bounded and disappears
@@ -391,8 +406,8 @@ records when that manual execution was first accepted.
 Routine requests cannot set `source`, `parentRunId`, a `source` delivery destination, or reserved
 routine metadata. At execution, trusted orchestration rechecks the owner-scoped S3 key and canonical
 request digest, adds system provenance and schedule metadata, and submits through the ordinary run
-service. Routines do not bypass account grants or capability profiles. Use an approval-free profile
-and tightly bounded grants for intentionally unattended side effects.
+service. Routines do not bypass account grants or capability profiles. Use the narrowest profile,
+IAM, egress, provider scopes, and grants for autonomous side effects.
 
 ## Durable files
 
@@ -448,7 +463,6 @@ Idempotency-Key: review-example-01234567
     "personality": "pragmatic",
     "capabilities": {
       "profile": "small-business",
-      "approvalPolicy": "on-request",
       "networkAccess": true,
       "webSearch": "live",
       "computerUse": "browser",
@@ -551,7 +565,7 @@ Unknown fields are rejected at every validated object level.
 | `reasoningEffort` | `low`, `medium`, `high`, `xhigh`, or `ultra` |
 | `reasoningSummary` | `auto`, `concise`, `detailed`, or `none` |
 | `personality` | `none`, `friendly`, or `pragmatic` |
-| `capabilities` | Profile plus approval, network, search, browser, skill, app, and MCP selections |
+| `capabilities` | Profile plus network, search, browser, skill, app, and MCP selections |
 | `outputSchema` | JSON object, at most 32,000 serialized bytes; passed to supported drivers |
 
 Remote MicroVM execution defaults to `danger-full-access` with agent command networking enabled.
@@ -568,8 +582,6 @@ ignores them and returns deterministic output without contacting a model provide
 | Field | Values and behavior |
 | --- | --- |
 | `profile` | Installed profile ID: currently `read-only`, `small-business`, or `microvm-full` |
-| `approvalPolicy` | `untrusted`, `on-request`, or `never`; a request cannot relax its profile |
-| `approvalsReviewer` | `user`, `auto-review`, or `guardian-subagent` |
 | `networkAccess` | Boolean command-network selection, capped by the profile |
 | `webSearch` | `disabled`, `cached`, `indexed`, or `live`, capped by the profile |
 | `computerUse` | `disabled` or `browser`; browser requires network access |
@@ -585,13 +597,14 @@ There is no owner-facing inventory endpoint for skill, app, or MCP names in v1. 
 allowlist means that profile does not narrow names; it is not evidence that a name is installed.
 Hosts must supply valid names, and runtime resolution fails unavailable selections.
 
-The `small-business` profile allows browser use and up to read-write integrations while retaining
-on-request approval. `microvm-full` permits full integrations and automatic browser interaction.
+The `small-business` profile allows browser use and up to read-write integrations.
+`microvm-full` permits full integrations. Both are autonomous once launched; the difference is the
+size of the admitted envelope, not an approval mode.
 Because Codex's `danger-full-access` policy has no independent command-network switch, explicitly
 setting `networkAccess: false` automatically narrows the effective inner sandbox to
 `workspace-write`; the outer MicroVM remains the isolation boundary.
-Use the latter only for intentionally unattended work whose external side effects are already
-bounded by connection grants.
+Use broad profiles only when every external side effect is already bounded by connection grants,
+provider scopes, IAM, and egress policy. See [the capability envelope](capability-envelope.md).
 
 See [browser computer use](browser-computer-use.md) for the implemented command surface, live-AWS
 evidence, safety boundaries, and the capabilities still required before making an unqualified
@@ -603,7 +616,7 @@ evidence, safety boundaries, and the capabilities still required before making a
 each entry can add a `read-only`, `read-write`, `full`, or `custom` per-run ceiling plus operation
 allow/deny lists. When both are present their connection selections are merged, and all applicable
 provider authorization, persistent grant, profile, and run constraints are intersected. Credentials,
-grant IDs, provider scopes, approval overrides, resource constraints, and secret references are not
+grant IDs, provider scopes, resource constraints, and secret references are not
 accepted in a run request. See [integrations and permissions](plugins.md).
 
 ### `execution`
@@ -633,43 +646,27 @@ A newly accepted run resembles:
 ```json
 {
   "runId": "79cc833c-97bf-5a75-ae80-ff80fbaedb3c",
-  "ownerId": "api:arn:aws:iam::123456789012:user/operator",
-  "ownerCreated": "api:...#2026-08-02T19:12:20.000Z#79cc833c-...",
   "status": "queued",
   "createdAt": "2026-08-02T19:12:20.000Z",
   "updatedAt": "2026-08-02T19:12:20.000Z",
   "expiresAt": 1788299540,
-  "requestHash": "<sha256>",
-  "input": {
-    "bucket": "<artifact-bucket>",
-    "key": "owners/<owner-hash>/runs/<run-id>/input-<hash>.json",
-    "sha256": "<sha256>"
-  },
-  "sourceKind": "api",
-  "provenance": {
-    "actor": {
-      "kind": "human",
-      "id": "api:arn:aws:iam::123456789012:user/operator",
-      "provider": "api"
-    },
-    "credentialSubject": {
-      "kind": "actor",
-      "id": "api:arn:aws:iam::123456789012:user/operator"
-    }
-  }
+  "sourceKind": "api"
 }
 ```
 
-`provenance` is host-created, bounded context. A caller cannot submit it as part of the v1 request.
-Actor attribution does not grant access to the run or to provider credentials; `ownerId` remains the
-authorization and idempotency namespace.
+The stored record still contains host-created provenance, the derived owner namespace, immutable
+request evidence, conversation bindings, and execution handles. A caller cannot submit those fields
+as part of the v1 request, and the public run projection never returns them. They remain available
+only to trusted orchestration and owner-checking code.
 
 All normal responses include `Cache-Control: no-store`. Submission also includes
 `Location: /v1/runs/{runId}`.
 
-Terminal success adds an `execution` reference and a `result` containing S3 references for the full
-Markdown output and JSONL events, an optional workspace patch, a complete user-visible file
-catalog, a 2,000-character preview, exit code, duration, optional agent thread ID, and token usage.
+Terminal success adds a sanitized `execution` summary and a `result` containing a 2,000-character
+preview, exit code, duration, optional token usage, and user-visible file metadata with checksums.
+The full Markdown output, JSONL events, optional workspace patch, and catalog bytes remain behind the
+owner-checked artifact routes; the response does not contain their S3 references or the Codex thread
+ID.
 Failure adds:
 
 ```json

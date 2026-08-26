@@ -19,8 +19,8 @@ An enabled Codex turn can:
 - record a bounded VP8 WebM and publish screenshots or video through time-bounded share URLs.
 
 The browser runs as a separate Chromium helper under the unprivileged agent UID inside the outer
-Firecracker-backed MicroVM. Interactive `click`, `type`, `press`, and `select` operations follow the
-run's approval policy. Navigation and observation are read-like operations.
+Firecracker-backed MicroVM. When browser use and network access are admitted before launch, all
+browser operations run autonomously. There is no interactive approval prompt.
 
 ## Enable it from the CLI
 
@@ -33,20 +33,18 @@ rat-things chat \
   --profile small-business \
   --browser \
   --network \
-  --approval-policy on-request \
   "Open the Selenium web form, fill it out, and retain a screenshot"
 ```
 
-`small-business` enables browser use with on-request approval and allows integrations only through
-read-write. `microvm-full` also enables the browser but removes interactive approval; reserve it for
-intentionally unattended work whose external effects are already bounded. A request can narrow a
+`small-business` enables browser use and allows integrations only through read-write.
+`microvm-full` enables browser use and full integration access. Both are autonomous; reserve broad
+profiles for work whose external effects are already bounded. A request can narrow a
 profile with `--no-browser` or `--no-network`, but it cannot widen the deployment policy ceiling.
 
-Use the live control surface to inspect and answer requests:
+Use the live control surface to inspect or interrupt work:
 
 ```bash
 rat-things watch RUN_ID --follow
-rat-things approve RUN_ID REQUEST_ID --decision accept-for-session
 rat-things interrupt RUN_ID
 ```
 
@@ -63,7 +61,6 @@ The equivalent run request is:
     "sandbox": "danger-full-access",
     "capabilities": {
       "profile": "small-business",
-      "approvalPolicy": "on-request",
       "networkAccess": true,
       "computerUse": "browser"
     }
@@ -109,8 +106,8 @@ Things still lacks:
   other long-tail browser interactions;
 - an outbound origin policy, DNS-rebinding defense, content DLP, and an independent browser-escape
   and cross-owner security review;
-- browser crash recovery, high-concurrency and long-SPA testing, and live negative approval,
-  cancellation, and interruption canaries; and
+- browser crash recovery, high-concurrency and long-SPA testing, and live cancellation and
+  interruption canaries; and
 - graphical desktop or native application control. Shell and filesystem tools exist, but there is
   no general remote desktop.
 
@@ -122,11 +119,16 @@ until the recorder is replaced or optimized.
 
 On 2026-08-21, a real Codex turn in a disposable ARM64 Lambda MicroVM exercised every implemented
 browser command: `navigate`, `observe`, `record_start`, `type`, `press`, `select`, coordinate and
-reference `click`, `screenshot`, `wait`, `back`, `scroll`, and `record_stop`. The control API surfaced
-and accepted separate type, press, select, and coordinate-click approvals.
+reference `click`, `screenshot`, `wait`, `back`, `scroll`, and `record_stop`. That historical canary
+used the former approval bridge; the current contract executes the same statically admitted browser
+surface autonomously and will be revalidated in the next live-AWS run.
 
 The test verified submitted form values, retained a 59,298-byte PNG and 10,746-byte JPEG, and
 produced a 1,547,168-byte, 1280x720, 5 fps VP8 WebM. It created three isolated publication hosts,
 loaded each generated viewer, fetched byte-identical media, and matched all SHA-256 digests. The
 screenshots and representative video frames were visually inspected. See the complete
 [validation record](status-and-roadmap.md) and [security model](security.md).
+
+See [the capability envelope](capability-envelope.md) before enabling browser use for sensitive
+work. Assume the agent can exercise every admitted browser action against every destination allowed
+by egress and the browser URL policy.

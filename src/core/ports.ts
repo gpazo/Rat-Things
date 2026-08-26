@@ -10,9 +10,9 @@ import type {
   RunStatus,
 } from '../domain/contracts.js';
 import type {
-  AgentApprovalDecision,
   AgentInteractionTarget,
   AgentRuntimeSnapshot,
+  AgentToolCallRecord,
 } from '../domain/interaction.js';
 import type { JsonValue } from '../domain/contracts.js';
 import type {
@@ -82,13 +82,20 @@ export interface AgentInteractionController {
   events(target: AgentInteractionTarget, after?: number, limit?: number): Promise<AgentRuntimeSnapshot>;
   steer(target: AgentInteractionTarget, prompt: string): Promise<void>;
   interrupt(target: AgentInteractionTarget): Promise<void>;
-  approve(
-    target: AgentInteractionTarget,
-    requestId: string,
-    decision: AgentApprovalDecision,
-    reason?: string,
-  ): Promise<void>;
   respond(target: AgentInteractionTarget, requestId: string, result: JsonValue): Promise<void>;
+}
+
+export interface AgentToolCallStore {
+  beginAgentToolCall(record: AgentToolCallRecord): Promise<AgentToolCallRecord>;
+  settleAgentToolCall(input: {
+    runId: string;
+    execution: ExecutionReference;
+    requestId: string;
+    status: 'succeeded' | 'failed';
+    settledAt: string;
+    resultDigest: string;
+    error?: string;
+  }): Promise<AgentToolCallRecord>;
 }
 
 export interface Clock {

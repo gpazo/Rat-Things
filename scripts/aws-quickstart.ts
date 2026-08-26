@@ -303,8 +303,6 @@ export function awsQuickstartThing(
       sandbox: 'read-only',
       capabilities: {
         profile: 'read-only',
-        approvalPolicy: 'untrusted',
-        approvalsReviewer: 'user',
         networkAccess: false,
         webSearch: 'disabled',
         computerUse: 'disabled',
@@ -329,10 +327,7 @@ async function printPreflight(options: AwsQuickstartOptions): Promise<void> {
 }
 
 async function preflight(options: AwsQuickstartOptions): Promise<QuickstartPreflight> {
-  const nodeMajor = Number(process.versions.node.split('.')[0]);
-  if (!Number.isInteger(nodeMajor) || nodeMajor < 20) {
-    throw new Error(`Node.js 20 or newer is required; found ${process.version}`);
-  }
+  assertSupportedNodeVersion(process.version);
   const tools = {
     node: process.version,
     npm: toolVersion('npm'),
@@ -368,6 +363,21 @@ async function preflight(options: AwsQuickstartOptions): Promise<QuickstartPrefl
       modelInvocationProvenOnlyByLiveRun: true,
     },
   };
+}
+
+export function assertSupportedNodeVersion(version: string): void {
+  const match = /^v?(\d+)\.(\d+)\.(\d+)/u.exec(version);
+  const actual = match?.slice(1).map(Number);
+  const supported = actual !== undefined && (
+    actual[0]! > 22
+    || (actual[0] === 22 && (
+      actual[1]! > 20
+      || (actual[1] === 20 && actual[2]! >= 0)
+    ))
+  );
+  if (!supported) {
+    throw new Error(`Node.js 22.20.0 or newer is required; found ${version}`);
+  }
 }
 
 async function setup(options: AwsQuickstartOptions): Promise<void> {

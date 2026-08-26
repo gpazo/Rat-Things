@@ -14,7 +14,6 @@ import type {
   ConnectionStatus,
   IntegrationAccessLevel,
   IntegrationPermissionPreset,
-  OperationApproval,
   ProviderAuthorization,
 } from './capabilities.js';
 
@@ -160,8 +159,6 @@ export interface ResolvedThingOperation {
   id: string;
   access: IntegrationAccessLevel;
   allowed: boolean;
-  requiresApproval: boolean;
-  approval: OperationApproval;
   enforcement: 'provider-and-broker' | 'broker';
   reason?: string;
 }

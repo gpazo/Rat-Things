@@ -35,6 +35,7 @@ locals {
     MICROVM_LOG_GROUP_NAME               = aws_cloudwatch_log_group.microvm.name
     MICROVM_SESSION_IDLE_SECONDS         = tostring(var.microvm_session_idle_seconds)
     MICROVM_SESSION_SUSPENDED_SECONDS    = tostring(var.microvm_session_suspended_seconds)
+    RUN_HEARTBEAT_INTERVAL_MS            = tostring(var.run_heartbeat_interval_seconds * 1000)
     S3_FILES_ENABLED                     = tostring(var.enable_s3_files)
     }, length(var.codex_bedrock_model_ids) > 0 ? {
     # Keep the unattended runtime default inside the same exact-model IAM
@@ -134,8 +135,9 @@ locals {
       role_arn = aws_iam_role.reconciler.arn
       timeout  = 30
       memory   = 256
-      environment = merge(local.lambda_common_environment, {
-        ROUTINE_TICK_LIMIT = "100"
+      environment = merge(local.executor_environment, {
+        ROUTINE_TICK_LIMIT          = "100"
+        RUN_HEARTBEAT_STALE_SECONDS = tostring(var.run_heartbeat_stale_seconds)
       })
     }
     state-stream = {
@@ -238,6 +240,11 @@ resource "aws_lambda_function" "this" {
     precondition {
       condition     = fileexists(each.value.zip_path)
       error_message = "Lambda package ${each.value.zip_path} does not exist. Run npm run package before planning or applying Terraform."
+    }
+
+    precondition {
+      condition     = var.run_heartbeat_stale_seconds >= var.run_heartbeat_interval_seconds * 2
+      error_message = "run_heartbeat_stale_seconds must cover at least two worker heartbeat intervals."
     }
   }
 

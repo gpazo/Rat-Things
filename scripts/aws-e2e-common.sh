@@ -22,6 +22,11 @@ aws_e2e_configure() {
   microvm_base_image_version="${AWS_E2E_MICROVM_BASE_IMAGE_VERSION:-}"
   real_codex_enabled="${AWS_E2E_REAL_CODEX:-false}"
   codex_model_id="${AWS_E2E_CODEX_MODEL_ID:-openai.gpt-5.6-terra}"
+  default_agent_driver="${AWS_E2E_DEFAULT_AGENT_DRIVER:-mock}"
+  if [[ "$default_agent_driver" != "mock" && "$default_agent_driver" != "codex" ]]; then
+    echo "AWS_E2E_DEFAULT_AGENT_DRIVER must be mock or codex" >&2
+    return 1
+  fi
   publication_domain="${AWS_E2E_PUBLICATION_DOMAIN:-}"
   publication_zone_id="${AWS_E2E_PUBLICATION_ROUTE53_ZONE_ID:-}"
   publication_enabled="false"
@@ -44,6 +49,7 @@ aws_e2e_configure() {
     "-var=deployment_id=$deployment_id"
     "-var=enable_microvm=$microvm_enabled"
     "-var=codex_model_id=$codex_model_id"
+    "-var=default_agent_driver=$default_agent_driver"
     "-var=enable_publication_delivery=$publication_enabled"
   )
   if [[ "$publication_enabled" == "true" ]]; then

@@ -28,7 +28,7 @@ PowerShell and Command Prompt are not supported by this path. The published host
 ARM64; Linux and WSL are supported-by-design but do not yet have a published live run.
 
 Install [Bash](https://www.gnu.org/software/bash/),
-[Node.js 20+](https://nodejs.org/en/download), npm, [Git](https://git-scm.com/downloads),
+[Node.js 22.20+](https://nodejs.org/en/download), npm, [Git](https://git-scm.com/downloads),
 [Terraform 1.5+](https://developer.hashicorp.com/terraform/install), and the
 [AWS CLI v2](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html). The default
 `openai.gpt-5.6-terra` path supports `us-east-1`, `us-east-2`, or `us-west-2`: the intersection of

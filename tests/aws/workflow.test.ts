@@ -1,6 +1,6 @@
 import { createHash, createHmac, randomUUID } from 'node:crypto';
 import { execFile } from 'node:child_process';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { Sha256 } from '@aws-crypto/sha256-js';
@@ -36,8 +36,8 @@ import { fetchSharedResource } from '../../src/adapters/publication-client.js';
 import { ConversationCoordinator } from '../../src/conversation/coordinator.js';
 import { ConversationService } from '../../src/conversation/service.js';
 import { RunService } from '../../src/core/run-service.js';
+import type { PublicRunRecord } from '../../src/core/run-projection.js';
 import type { RunRecord, RunRequest, RunStateEvent } from '../../src/domain/contracts.js';
-import type { AgentRuntimeSnapshot, PendingAgentRequest } from '../../src/domain/interaction.js';
 import type {
   ConversationEventPayload,
   ConversationExecutionPolicy,
@@ -64,7 +64,7 @@ integration('live AWS agent-runner workflow', () => {
 
     const controlMarker = `live-control-${randomUUID()}`;
     const idempotencyKey = `aws-e2e-${randomUUID()}`;
-    const submitted = await signedApi<RunRecord>('/v1/runs', 'POST', {
+    const submitted = await signedApi<PublicRunRecord>('/v1/runs', 'POST', {
       version: '1',
       prompt: `Return AWS live marker ${controlMarker}`,
       agent: { driver: 'mock', sandbox: 'read-only' },
@@ -73,7 +73,7 @@ integration('live AWS agent-runner workflow', () => {
     }, { 'idempotency-key': idempotencyKey });
     expect(submitted.status).toBe('queued');
 
-    const repeated = await signedApi<RunRecord>('/v1/runs', 'POST', {
+    const repeated = await signedApi<PublicRunRecord>('/v1/runs', 'POST', {
       version: '1',
       prompt: `Return AWS live marker ${controlMarker}`,
       agent: { driver: 'mock', sandbox: 'read-only' },
@@ -83,7 +83,7 @@ integration('live AWS agent-runner workflow', () => {
     expect(repeated.runId).toBe(submitted.runId);
 
     const controlRun = await waitForApiRun(submitted.runId);
-    assertSuccessfulMicrovmRun(controlRun);
+    assertSuccessfulPublicMicrovmRun(controlRun);
     expect(controlRun.result?.preview).toBe(`mock-agent: Return AWS live marker ${controlMarker}`);
     await expectTerminalEvents(clients.sqs, new Set([submitted.runId]));
 
@@ -109,20 +109,23 @@ integration('live AWS agent-runner workflow', () => {
       headlessReceipt.messageId,
     );
     const headlessRun = requiredConversationRun(headlessStatus);
-    assertSuccessfulMicrovmRun(headlessRun);
+    assertSuccessfulPublicMicrovmRun(headlessRun);
+    const storedHeadlessRun = await waitForStoredRun(store, headlessRun.runId);
+    assertSuccessfulMicrovmRun(storedHeadlessRun);
     expect(headlessRun.sourceKind).toBe('api');
-    expect(headlessRun.conversation).toMatchObject({
+    expect(storedHeadlessRun.conversation).toMatchObject({
       conversationId: expect.stringMatching(/^api:[a-f0-9]{32}:headless-/),
     });
     expect(headlessStatus.conversation).toMatchObject({
       status: 'idle',
       pendingCount: 0,
       session: {
-        id: requiredExecutionId(headlessRun),
+        backend: 'microvm',
         state: 'suspended',
       },
     });
-    expect(await outputText(clients.s3, headlessRun)).toContain(headlessMarker);
+    expect(headlessStatus.conversation.session).not.toHaveProperty('id');
+    expect(await outputText(clients.s3, storedHeadlessRun)).toContain(headlessMarker);
     await expectTerminalEvents(clients.sqs, new Set([headlessRun.runId]));
 
     const teamsMarker = `live-teams-${randomUUID()}`;
@@ -376,14 +379,14 @@ integration('live AWS agent-runner workflow', () => {
       secondGoal,
     );
 
-    const draftTest = await signedApi<RunRecord>(
+    const draftTest = await signedApi<PublicRunRecord>(
       `/v1/things/${created.thingId}/test`,
       'POST',
       {},
       { 'idempotency-key': `thing-live-test-${randomUUID()}` },
     );
     const completedDraftTest = await waitForApiRun(draftTest.runId);
-    assertSuccessfulMicrovmRun(completedDraftTest);
+    assertSuccessfulPublicMicrovmRun(completedDraftTest);
     expect(completedDraftTest.thing).toEqual({
       version: '1',
       thingId: created.thingId,
@@ -411,7 +414,7 @@ integration('live AWS agent-runner workflow', () => {
     });
 
     const idempotencyKey = `thing-live-${randomUUID()}`;
-    const runThing = () => signedApi<RunRecord>(
+    const runThing = () => signedApi<PublicRunRecord>(
       `/v1/things/${created.thingId}/run`,
       'POST',
       {},
@@ -420,7 +423,12 @@ integration('live AWS agent-runner workflow', () => {
     const queued = await runThing();
     const duplicate = await runThing();
     expect(duplicate.runId).toBe(queued.runId);
-    const completed = await waitForApiRun(queued.runId);
+    const publicCompleted = await waitForApiRun(queued.runId);
+    assertSuccessfulPublicMicrovmRun(publicCompleted);
+    const completed = await waitForStoredRun(
+      new DynamoRunStore(clients.dynamodb, required('RUNS_TABLE_NAME')),
+      queued.runId,
+    );
     assertSuccessfulMicrovmRun(completed);
     expect(completed).toMatchObject({
       capabilityOwnerId: completed.ownerId,
@@ -504,14 +512,14 @@ integration('live AWS agent-runner workflow', () => {
     const draft = await signedApi<{
       draft: { revision: number; specHash: string };
     }>(`/v1/things/${created.thingId}`, 'GET');
-    const testRun = await signedApi<RunRecord>(
+    const testRun = await signedApi<PublicRunRecord>(
       `/v1/things/${created.thingId}/test`,
       'POST',
       {},
       { 'idempotency-key': `scheduled-thing-test-${randomUUID()}` },
     );
     const completedTest = await waitForApiRun(testRun.runId);
-    assertSuccessfulMicrovmRun(completedTest);
+    assertSuccessfulPublicMicrovmRun(completedTest);
 
     const published = await signedApi<{
       status: string;
@@ -558,7 +566,10 @@ integration('live AWS agent-runner workflow', () => {
     // precision does not imply that every occurrence lands at second 00.
     expect(occurred.lastRunAt).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.000Z$/);
 
-    const completed = await waitForApiRun(runId);
+    const publicCompleted = await waitForApiRun(runId);
+    assertSuccessfulPublicMicrovmRun(publicCompleted);
+    const runStore = new DynamoRunStore(clients.dynamodb, required('RUNS_TABLE_NAME'));
+    const completed = await waitForStoredRun(runStore, runId);
     assertSuccessfulMicrovmRun(completed);
     expect(completed.provenance).toMatchObject({
       actor: { kind: 'system', id: `thing:${created.thingId}`, provider: 'api' },
@@ -582,7 +593,6 @@ integration('live AWS agent-runner workflow', () => {
     });
     expect(await outputText(clients.s3, completed)).toContain(marker);
 
-    const runStore = new DynamoRunStore(clients.dynamodb, required('RUNS_TABLE_NAME'));
     const recent = await runStore.list(completed.ownerId, 100);
     const matching: string[] = [];
     for (const candidate of recent.items) {
@@ -696,6 +706,7 @@ integration('live AWS agent-runner workflow', () => {
   persistentMicrovmTest('runs two turns through the actual Rat Things CLI on one suspended MicroVM', async () => {
     delete process.env.AWS_ENDPOINT_URL;
     const clients = createAwsClients();
+    const runStore = new DynamoRunStore(clients.dynamodb, required('RUNS_TABLE_NAME'));
     const conversationId = `headless-persistent-${randomUUID()}`;
     const firstMarker = `headless-first-${randomUUID()}`;
     const secondMarker = `headless-second-${randomUUID()}`;
@@ -709,14 +720,17 @@ integration('live AWS agent-runner workflow', () => {
       `Remember ${firstMarker}`,
     ]);
     const firstStatus = JSON.parse(firstCli.stdout) as ApiConversationMessageStatus;
-    const firstRun = requiredConversationRun(firstStatus);
+    const firstPublicRun = requiredConversationRun(firstStatus);
+    assertSuccessfulPublicMicrovmRun(firstPublicRun);
+    const firstRun = await waitForStoredRun(runStore, firstPublicRun.runId);
     assertSuccessfulMicrovmRun(firstRun);
     expect(firstCli.stderr).toContain('microvm=suspended');
     const microvmId = requiredExecutionId(firstRun);
     expect(firstStatus.conversation.session).toMatchObject({
-      id: microvmId,
+      backend: 'microvm',
       state: 'suspended',
     });
+    expect(firstStatus.conversation.session).not.toHaveProperty('id');
 
     const secondCli = await runRatThingsCli([
       '--thread',
@@ -727,7 +741,9 @@ integration('live AWS agent-runner workflow', () => {
       `Return both ${firstMarker} and ${secondMarker}`,
     ]);
     const secondStatus = JSON.parse(secondCli.stdout) as ApiConversationMessageStatus;
-    const secondRun = requiredConversationRun(secondStatus);
+    const secondPublicRun = requiredConversationRun(secondStatus);
+    assertSuccessfulPublicMicrovmRun(secondPublicRun);
+    const secondRun = await waitForStoredRun(runStore, secondPublicRun.runId);
     assertSuccessfulMicrovmRun(secondRun);
     expect(secondCli.stderr).toContain('microvm=suspended');
     expect(requiredExecutionId(secondRun)).toBe(microvmId);
@@ -736,9 +752,10 @@ integration('live AWS agent-runner workflow', () => {
     expect(output).toContain(firstMarker);
     expect(output).toContain(secondMarker);
     expect(secondStatus.conversation.session).toMatchObject({
-      id: microvmId,
+      backend: 'microvm',
       state: 'suspended',
     });
+    expect(secondStatus.conversation.session).not.toHaveProperty('id');
     await expectTerminalEvents(clients.sqs, new Set([firstRun.runId, secondRun.runId]));
     await expectEmptyFailureQueues(clients.sqs);
   }, timeoutMs);
@@ -908,11 +925,98 @@ integration('live AWS agent-runner workflow', () => {
   }, timeoutMs);
 
   const microvmTest = process.env.AWS_E2E_ENABLE_MICROVM === 'true' ? it : it.skip;
+  microvmTest('fences live heartbeats and repairs a dead attached MicroVM generation', async () => {
+    delete process.env.AWS_ENDPOINT_URL;
+    const clients = createAwsClients();
+    const store = new DynamoRunStore(clients.dynamodb, required('RUNS_TABLE_NAME'));
+    const microvms = new LambdaMicrovmsClient(createAwsClientConfig());
+    const marker = `live-liveness-${randomUUID()}`;
+    const submitted = await signedApi<PublicRunRecord>('/v1/runs', 'POST', {
+      version: '1',
+      prompt: `Hold the deterministic worker for liveness validation ${marker}`,
+      agent: { driver: 'mock', sandbox: 'read-only' },
+      execution: { backend: 'microvm', timeoutSeconds: 180 },
+      destinations: [{ kind: 'none' }],
+      metadata: { mockDelayMs: 150_000 },
+    }, { 'idempotency-key': `aws-e2e-liveness-${randomUUID()}` });
+
+    const running = await waitForStoredRunWhere(store, submitted.runId, (candidate) =>
+      candidate.status === 'running' && Boolean(candidate.heartbeatAt),
+    );
+    const microvmId = requiredExecutionId(running);
+    const generation = running.execution?.generation;
+    if (!generation) throw new Error('live Run has no execution generation');
+    expect(generation).toMatch(/^[a-f0-9]{64}$/);
+    const firstHeartbeat = running.heartbeatAt!;
+    const refreshed = await waitForStoredRunWhere(store, submitted.runId, (candidate) =>
+      candidate.status === 'running' &&
+      Boolean(candidate.heartbeatAt) &&
+      candidate.heartbeatAt !== firstHeartbeat,
+    );
+    expect(refreshed.updatedAt).toBe(running.updatedAt);
+
+    const staleHeartbeat = '2000-01-01T00:00:00.000Z';
+    await forceStaleHeartbeat(clients, submitted.runId, microvmId, generation, staleHeartbeat);
+    await delay(2_000);
+    await invokeReconciler();
+    const verifiedActive = await store.get(submitted.runId);
+    expect(verifiedActive).toMatchObject({
+      status: 'running',
+      execution: { id: microvmId, generation },
+      liveness: { outcome: 'active', consecutiveUncertain: 0 },
+    });
+
+    await microvms.send(new TerminateMicrovmCommand({ microvmIdentifier: microvmId }));
+    await waitForMicrovmTerminated(microvms, microvmId);
+    await waitForStoredRun(store, submitted.runId);
+    await clients.dynamodb.send(new UpdateCommand({
+      TableName: required('RUNS_TABLE_NAME'),
+      Key: { runId: submitted.runId },
+      UpdateExpression: [
+        'SET #status = :running, #heartbeatAt = :stale, #updatedAt = :stale',
+        'REMOVE #error, #result, #liveness',
+      ].join(' '),
+      ConditionExpression: '#execution.#id = :microvmId AND #execution.#generation = :generation',
+      ExpressionAttributeNames: {
+        '#status': 'status',
+        '#heartbeatAt': 'heartbeatAt',
+        '#updatedAt': 'updatedAt',
+        '#error': 'error',
+        '#result': 'result',
+        '#liveness': 'liveness',
+        '#execution': 'execution',
+        '#id': 'id',
+        '#generation': 'generation',
+      },
+      ExpressionAttributeValues: {
+        ':running': 'running',
+        ':stale': staleHeartbeat,
+        ':microvmId': microvmId,
+        ':generation': generation,
+      },
+    }));
+    await delay(2_000);
+
+    let repaired: RunRecord | undefined;
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      await invokeReconciler();
+      repaired = await store.get(submitted.runId);
+      if (repaired?.status === 'failed' && repaired.error?.code === 'execution_lost') break;
+      await delay(2_000);
+    }
+    expect(repaired).toMatchObject({
+      status: 'failed',
+      execution: { id: microvmId, generation },
+      error: { code: 'execution_lost', retryable: true },
+    });
+  }, timeoutMs);
+
   microvmTest('runs a repository-backed request in a real Lambda MicroVM', async () => {
     delete process.env.AWS_ENDPOINT_URL;
     const clients = createAwsClients();
+    const runStore = new DynamoRunStore(clients.dynamodb, required('RUNS_TABLE_NAME'));
     const microvmMarker = `live-microvm-${randomUUID()}`;
-    const microvmRun = await signedApi<RunRecord>('/v1/runs', 'POST', {
+    const microvmRun = await signedApi<PublicRunRecord>('/v1/runs', 'POST', {
       version: '1',
       prompt: `Return AWS live marker ${microvmMarker}`,
       repository: {
@@ -924,7 +1028,9 @@ integration('live AWS agent-runner workflow', () => {
       execution: { backend: 'microvm', timeoutSeconds: 120 },
       destinations: [{ kind: 'none' }],
     }, { 'idempotency-key': `aws-e2e-microvm-${randomUUID()}` });
-    const completedMicrovmRun = await waitForApiRun(microvmRun.runId);
+    const publicMicrovmRun = await waitForApiRun(microvmRun.runId);
+    assertSuccessfulPublicMicrovmRun(publicMicrovmRun);
+    const completedMicrovmRun = await waitForStoredRun(runStore, microvmRun.runId);
     assertSuccessfulRun(completedMicrovmRun, 'microvm');
     expect(completedMicrovmRun.execution?.id).not.toMatch(/^arn:aws:ecs:/);
     expect(await outputText(clients.s3, completedMicrovmRun))
@@ -1013,11 +1119,12 @@ integration('live AWS agent-runner workflow', () => {
       secondReceipt.messageId,
     );
     const secondRun = requiredConversationRun(secondStatus);
-    expect(secondRun.conversation).toMatchObject({
+    assertSuccessfulPublicMicrovmRun(secondRun);
+    const secondCompleted = await waitForStoredRun(runStore, secondRun.runId);
+    expect(secondCompleted.conversation).toMatchObject({
       preferredMicrovmId: firstVmId,
       agentThreadId: firstThreadId,
     });
-    const secondCompleted = await waitForStoredRun(runStore, secondRun.runId);
     assertSuccessfulRealCodexRun(secondCompleted);
     expect(requiredExecutionId(secondCompleted)).not.toBe(firstVmId);
     expect(requiredAgentThreadId(secondCompleted)).toBe(firstThreadId);
@@ -1035,9 +1142,10 @@ integration('live AWS agent-runner workflow', () => {
     await expectEmptyFailureQueues(clients.sqs);
   }, timeoutMs);
 
-  realCodexTest('lets a real agent read one verified account and make one approved write to another', async () => {
+  realCodexTest('lets a real agent read one verified account and make one statically admitted write to another', async () => {
     delete process.env.AWS_ENDPOINT_URL;
     const clients = createAwsClients();
+    const runStore = new DynamoRunStore(clients.dynamodb, required('RUNS_TABLE_NAME'));
     const fixture = randomUUID().slice(0, 8);
     const marker = `agent-integration-${randomUUID()}`;
     const alphaAlias = `agent-alpha-${fixture}`;
@@ -1063,7 +1171,7 @@ integration('live AWS agent-runner workflow', () => {
       '--access', 'read-write', '--alias', betaAlias,
     ]);
 
-    const submitted = await signedApi<RunRecord>('/v1/runs', 'POST', {
+    const submitted = await signedApi<PublicRunRecord>('/v1/runs', 'POST', {
       version: '1',
       prompt: [
         'This is a strict live integration test. You must use the Fixture CRM tools exactly twice.',
@@ -1080,7 +1188,6 @@ integration('live AWS agent-runner workflow', () => {
         reasoningEffort: 'medium',
         capabilities: {
           profile: 'small-business',
-          approvalPolicy: 'on-request',
           networkAccess: true,
           computerUse: 'disabled',
         },
@@ -1095,10 +1202,9 @@ integration('live AWS agent-runner workflow', () => {
       destinations: [{ kind: 'none' }],
     }, { 'idempotency-key': `aws-e2e-integration-${randomUUID()}` });
 
-    const [completed, approvals] = await Promise.all([
-      waitForApiRun(submitted.runId),
-      superviseAgentApprovals(submitted.runId),
-    ]);
+    const publicCompleted = await waitForApiRun(submitted.runId);
+    assertSuccessfulPublicMicrovmRun(publicCompleted);
+    const completed = await waitForStoredRun(runStore, submitted.runId);
     assertSuccessfulRealCodexRun(completed);
     const [output, events] = await Promise.all([
       outputText(clients.s3, completed),
@@ -1108,12 +1214,6 @@ integration('live AWS agent-runner workflow', () => {
     expect(events).toContain('records_search');
     expect(events).toContain('records_create');
     expect(events).toContain(marker);
-    expect(approvals).toEqual([
-      expect.objectContaining({
-        method: 'ratThings/integration/requestApproval',
-        operationId: 'fixture-crm.records.create',
-      }),
-    ]);
     await expectFixtureAudit(clients.sqs, marker);
     const evidence = `${JSON.stringify(completed)}\n${output}\n${events}`;
     expect(evidence).not.toContain(required('INTEGRATION_FIXTURE_ALPHA_KEY'));
@@ -1127,9 +1227,10 @@ integration('live AWS agent-runner workflow', () => {
 
   const browserPublicationTest = process.env.AWS_E2E_REAL_CODEX === 'true' &&
     Boolean(process.env.AWS_E2E_PUBLICATION_DOMAIN) ? it : it.skip;
-  browserPublicationTest('uses the full browser interaction surface with approvals and shares evidence', async () => {
+  browserPublicationTest('uses the autonomous browser interaction surface and shares evidence', async () => {
     delete process.env.AWS_ENDPOINT_URL;
     const clients = createAwsClients();
+    const runStore = new DynamoRunStore(clients.dynamodb, required('RUNS_TABLE_NAME'));
     const marker = `browser-publication-${randomUUID()}`;
     const shareRequest = JSON.stringify({
       version: '1',
@@ -1163,10 +1264,10 @@ integration('live AWS agent-runner workflow', () => {
       'https://www.selenium.dev/selenium/web/web-form.html';
     const formMarker = `rat-browser-${randomUUID()}`;
     const appendedMarker = `${formMarker}-append`;
-    const submitted = await signedApi<RunRecord>('/v1/runs', 'POST', {
+    const submitted = await signedApi<PublicRunRecord>('/v1/runs', 'POST', {
       version: '1',
       prompt: [
-        'This is a strict end-to-end browser interaction, approval, and publication verification.',
+        'This is a strict end-to-end autonomous browser interaction and publication verification.',
         'Use the rat_browser tools for every browser action; do not substitute curl, web search, or shell browser automation.',
         `Navigate to ${browserFixture} and explicitly call observe with includeScreenshot true.`,
         'Start a recording at browser/full-interaction.webm with 5 fps.',
@@ -1194,7 +1295,6 @@ integration('live AWS agent-runner workflow', () => {
         reasoningEffort: 'low',
         capabilities: {
           profile: 'small-business',
-          approvalPolicy: 'on-request',
           networkAccess: true,
           computerUse: 'browser',
         },
@@ -1202,10 +1302,9 @@ integration('live AWS agent-runner workflow', () => {
       execution: { backend: 'microvm', timeoutSeconds: 720 },
       destinations: [{ kind: 'none' }],
     }, { 'idempotency-key': `aws-e2e-browser-${randomUUID()}` });
-    const [completed, approvals] = await Promise.all([
-      waitForApiRun(submitted.runId),
-      superviseAgentApprovals(submitted.runId),
-    ]);
+    const publicCompleted = await waitForApiRun(submitted.runId);
+    assertSuccessfulPublicMicrovmRun(publicCompleted);
+    const completed = await waitForStoredRun(runStore, submitted.runId);
     assertSuccessfulRealCodexRun(completed);
     const output = await outputText(clients.s3, completed);
     expect(output).toContain(`BROWSER-SHARE ${marker}`);
@@ -1231,18 +1330,6 @@ integration('live AWS agent-runner workflow', () => {
     expect(events).toContain('my-select=2');
     expect(events.match(/my-check=on/g)?.length ?? 0).toBeGreaterThanOrEqual(2);
     expect(events).toContain('rat-things-submit-with-enter');
-    const browserApprovals = approvals.filter(
-      (approval) => approval.method === 'ratThings/browser/requestApproval',
-    );
-    expect(new Set(browserApprovals.map((approval) => approval.tool))).toEqual(
-      new Set(['type', 'press', 'select', 'click']),
-    );
-    expect(browserApprovals.find((approval) => approval.tool === 'click')?.command).toMatchObject({
-      type: 'click',
-      x: expect.any(Number),
-      y: expect.any(Number),
-    });
-
     const fullPageArtifact = completed.result?.artifacts?.find(
       (artifact) => artifact.path === 'browser/form-filled.png',
     );
@@ -1329,7 +1416,7 @@ integration('live AWS agent-runner workflow', () => {
         marker,
         browserFixture,
         formMarker: appendedMarker,
-        approvals,
+        capabilityModel: 'fixed-before-launch',
         fullPageScreenshot: {
           url: fullPageUrl,
           bytes: fullPageBytes.byteLength,
@@ -1445,7 +1532,7 @@ interface ApiConversationMessageStatus {
   messageId: string;
   state: 'pending' | 'consumed' | 'dead_letter';
   conversation: ConversationRecord;
-  run?: RunRecord;
+  run?: PublicRunRecord;
 }
 
 interface ScheduledThingState {
@@ -1455,89 +1542,6 @@ interface ScheduledThingState {
   triggerState: { status: string; revision?: number };
   lastRunAt?: string;
   lastRunId?: string;
-}
-
-interface ObservedApproval {
-  requestId: string;
-  method: string;
-  decision: 'accept-for-session';
-  tool?: string;
-  operationId?: string;
-  command?: Record<string, unknown>;
-}
-
-async function superviseAgentApprovals(runId: string): Promise<ObservedApproval[]> {
-  const deadline = Date.now() + timeoutMs;
-  const handled = new Set<string>();
-  const reportedEventMethods = new Set<string>();
-  const observed: ObservedApproval[] = [];
-  const approvalMethods = new Set([
-    'item/commandExecution/requestApproval',
-    'item/fileChange/requestApproval',
-    'execCommandApproval',
-    'applyPatchApproval',
-    'ratThings/integration/requestApproval',
-    'ratThings/browser/requestApproval',
-  ]);
-  while (Date.now() < deadline) {
-    let snapshot: AgentRuntimeSnapshot | undefined;
-    try {
-      snapshot = await signedApi<AgentRuntimeSnapshot>(`/v1/runs/${runId}/events`, 'GET');
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      if (!message.includes('HTTP 404') && !message.includes('HTTP 409')) throw error;
-    }
-    for (const event of snapshot?.events ?? []) {
-      if (reportedEventMethods.has(event.method)) continue;
-      reportedEventMethods.add(event.method);
-      process.stderr.write(`[aws-e2e browser] observed ${event.method}\n`);
-    }
-    for (const request of snapshot?.pendingRequests ?? []) {
-      if (handled.has(request.requestId)) continue;
-      if (!approvalMethods.has(request.method)) {
-        throw new Error(`live browser run requested unsupported input ${request.method}`);
-      }
-      const approval = approvalEvidence(request);
-      await signedApi(
-        `/v1/runs/${runId}/approvals/${encodeURIComponent(request.requestId)}`,
-        'POST',
-        {
-          decision: approval.decision,
-          reason: 'Accepted by the bounded live-AWS browser interaction test.',
-        },
-      );
-      process.stderr.write(
-        `[aws-e2e browser] approved ${approval.method}${approval.tool ? ` (${approval.tool})` : ''}\n`,
-      );
-      handled.add(request.requestId);
-      observed.push(approval);
-    }
-    const run = await signedApi<RunRecord>(`/v1/runs/${runId}`, 'GET');
-    if (['succeeded', 'failed', 'cancelled'].includes(run.status)) return observed;
-    await delay(500);
-  }
-  throw new Error(`timed out supervising approval requests for run ${runId}`);
-}
-
-function approvalEvidence(request: PendingAgentRequest): ObservedApproval {
-  const tool = typeof request.params.tool === 'string' ? request.params.tool : undefined;
-  const command = recordValue(request.params.command);
-  const operation = recordValue(request.params.operation);
-  const operationId = typeof operation?.id === 'string' ? operation.id : undefined;
-  return {
-    requestId: request.requestId,
-    method: request.method,
-    decision: 'accept-for-session',
-    ...(tool ? { tool } : {}),
-    ...(operationId ? { operationId } : {}),
-    ...(command ? { command } : {}),
-  };
-}
-
-function recordValue(value: unknown): Record<string, unknown> | undefined {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-    ? value as Record<string, unknown>
-    : undefined;
 }
 
 async function runRatThingsCli(args: string[]): Promise<{ stdout: string; stderr: string }> {
@@ -1573,7 +1577,7 @@ async function submitApiConversation(
   agent: ConversationExecutionPolicy,
 ): Promise<ApiConversationReceipt> {
   const messageId = randomUUID();
-  const run = await signedApi<RunRecord>(
+  const run = await signedApi<PublicRunRecord>(
     '/v1/runs',
     'POST',
     { version: '1', prompt, agent, thread: { key: conversationId } },
@@ -1608,7 +1612,7 @@ async function waitForApiConversationMessage(
   );
 }
 
-function requiredConversationRun(status: ApiConversationMessageStatus): RunRecord {
+function requiredConversationRun(status: ApiConversationMessageStatus): PublicRunRecord {
   if (!status.run) throw new Error(`conversation message ${status.messageId} has no run`);
   return status.run;
 }
@@ -1649,7 +1653,9 @@ async function submitTeamsWebhook(
   expect(repeatedText).toBe(firstText);
   expect(JSON.parse(firstText)).toMatchObject({
     type: 'message',
-    text: expect.stringContaining('response received'),
+    text: expect.stringMatching(
+      /^Rat Things request received\. I'll reply when run [A-Za-z0-9-]+ finishes\.$/,
+    ),
   });
   return {
     conversationId: `teams:aws-e2e-tenant:aws-e2e-user:${providerConversationId}`,
@@ -1671,8 +1677,8 @@ async function webhook(
   return { status: response.status, runId: value.runId };
 }
 
-async function waitForApiRun(runId: string): Promise<RunRecord> {
-  return waitForRun(async () => signedApi<RunRecord>(`/v1/runs/${runId}`, 'GET'));
+async function waitForApiRun(runId: string): Promise<PublicRunRecord> {
+  return waitForRun(async () => signedApi<PublicRunRecord>(`/v1/runs/${runId}`, 'GET'));
 }
 
 async function waitForScheduledThing(
@@ -1699,6 +1705,98 @@ async function waitForStoredRun(store: DynamoRunStore, runId: string): Promise<R
     if (!run) throw new Error(`run ${runId} was not found`);
     return run;
   });
+}
+
+async function waitForStoredRunWhere(
+  store: DynamoRunStore,
+  runId: string,
+  predicate: (run: RunRecord) => boolean,
+): Promise<RunRecord> {
+  const deadline = Date.now() + timeoutMs - 30_000;
+  let latest: RunRecord | undefined;
+  while (Date.now() < deadline) {
+    latest = await store.get(runId);
+    if (latest && predicate(latest)) return latest;
+    if (latest && ['failed', 'cancelled', 'succeeded'].includes(latest.status)) {
+      throw new Error(`run ${runId} became ${latest.status} before the expected state`);
+    }
+    await delay(1_000);
+  }
+  throw new Error(`run ${runId} did not reach the expected state: ${JSON.stringify(latest)}`);
+}
+
+async function forceStaleHeartbeat(
+  clients: ReturnType<typeof createAwsClients>,
+  runId: string,
+  microvmId: string,
+  generation: string,
+  heartbeatAt: string,
+): Promise<void> {
+  await clients.dynamodb.send(new UpdateCommand({
+    TableName: required('RUNS_TABLE_NAME'),
+    Key: { runId },
+    UpdateExpression: 'SET #heartbeatAt = :heartbeatAt REMOVE #liveness',
+    ConditionExpression: [
+      '#status = :running',
+      '#execution.#id = :microvmId',
+      '#execution.#generation = :generation',
+    ].join(' AND '),
+    ExpressionAttributeNames: {
+      '#status': 'status',
+      '#heartbeatAt': 'heartbeatAt',
+      '#liveness': 'liveness',
+      '#execution': 'execution',
+      '#id': 'id',
+      '#generation': 'generation',
+    },
+    ExpressionAttributeValues: {
+      ':running': 'running',
+      ':heartbeatAt': heartbeatAt,
+      ':microvmId': microvmId,
+      ':generation': generation,
+    },
+  }));
+}
+
+async function invokeReconciler(): Promise<void> {
+  const directory = await mkdtemp(join(tmpdir(), 'rat-things-reconciler-'));
+  const output = join(directory, 'response.json');
+  try {
+    await new Promise<void>((resolvePromise, rejectPromise) => {
+      execFile(
+        'aws',
+        [
+          'lambda',
+          'invoke',
+          '--region',
+          required('AWS_REGION'),
+          '--function-name',
+          required('RECONCILER_FUNCTION_NAME'),
+          '--cli-binary-format',
+          'raw-in-base64-out',
+          '--payload',
+          '{}',
+          output,
+        ],
+        { encoding: 'utf8', env: process.env },
+        (error, stdout, stderr) => {
+          if (error) {
+            rejectPromise(new Error(
+              `reconciler invocation failed: ${error.message}\nstdout:\n${stdout}\nstderr:\n${stderr}`,
+            ));
+            return;
+          }
+          resolvePromise();
+        },
+      );
+    });
+    const response = await readFile(output, 'utf8');
+    if (response.trim() && response.trim() !== 'null') {
+      throw new Error(`reconciler returned an unexpected payload: ${response.slice(0, 1_000)}`);
+    }
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
 }
 
 async function waitForConversationRun(
@@ -1849,9 +1947,9 @@ function conversationMetaKey(conversationId: string): { pk: string; sk: 'META' }
   };
 }
 
-async function waitForRun(load: () => Promise<RunRecord>): Promise<RunRecord> {
+async function waitForRun<T extends { status: string }>(load: () => Promise<T>): Promise<T> {
   const deadline = Date.now() + timeoutMs - 30_000;
-  let latest: RunRecord | undefined;
+  let latest: T | undefined;
   while (Date.now() < deadline) {
     latest = await load();
     if (['succeeded', 'failed', 'cancelled'].includes(latest.status)) return latest;
@@ -1863,6 +1961,20 @@ async function waitForRun(load: () => Promise<RunRecord>): Promise<RunRecord> {
 function assertSuccessfulMicrovmRun(run: RunRecord): void {
   assertSuccessfulRun(run, 'microvm');
   expect(run.execution?.id).not.toMatch(/^arn:aws:/);
+}
+
+function assertSuccessfulPublicMicrovmRun(run: PublicRunRecord): void {
+  expect(run.status, JSON.stringify(run.error)).toBe('succeeded');
+  expect(run.execution).toMatchObject({ backend: 'microvm' });
+  expect(run.execution).not.toHaveProperty('id');
+  expect(run.execution).not.toHaveProperty('generation');
+  expect(run.result).toMatchObject({ exitCode: 0 });
+  expect(run.result).not.toHaveProperty('agentThreadId');
+  expect(run.result).not.toHaveProperty('output');
+  expect(run.result).not.toHaveProperty('events');
+  expect(run).not.toHaveProperty('ownerId');
+  expect(run).not.toHaveProperty('input');
+  expect(run).not.toHaveProperty('conversation');
 }
 
 function assertSuccessfulRun(run: RunRecord, backend: 'microvm'): void {

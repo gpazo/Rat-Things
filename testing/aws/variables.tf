@@ -39,6 +39,17 @@ variable "codex_model_id" {
   default     = "openai.gpt-5.6-terra"
 }
 
+variable "default_agent_driver" {
+  description = "Default agent driver used by API Runs in the disposable stack."
+  type        = string
+  default     = "mock"
+
+  validation {
+    condition     = contains(["mock", "codex"], var.default_agent_driver)
+    error_message = "default_agent_driver must be mock or codex."
+  }
+}
+
 variable "enable_publication_delivery" {
   description = "Provision the disposable CloudFront publication delivery path."
   type        = bool

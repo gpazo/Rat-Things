@@ -5,6 +5,7 @@
       "documents": [
         "quickstart.md",
         "operating-model.md",
+        "capability-envelope.md",
         "agents.md",
         "things.md",
         "codex-subscription.md"
@@ -45,6 +46,7 @@
         "api.md",
         "architecture.md",
         "security.md",
+        "grok-bot-current-comparison.md",
         "status-and-roadmap.md"
       ]
     }

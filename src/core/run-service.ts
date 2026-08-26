@@ -313,6 +313,7 @@ function validateConversationBinding(
   for (const [label, artifact] of [
     ['continuation', binding.continuation],
     ['artifact catalog', binding.artifacts],
+    ['attachment manifest', binding.attachmentManifest],
   ] as const) {
     if (artifact && (
       !artifact.bucket ||
@@ -320,6 +321,13 @@ function validateConversationBinding(
       !/^[a-f0-9]{64}$/.test(artifact.sha256)
     )) throw new ValidationError(`conversation ${label} artifact is invalid`);
   }
+  if (binding.attachmentDigest !== undefined && !/^[a-f0-9]{64}$/.test(binding.attachmentDigest)) {
+    throw new ValidationError('conversation attachment digest is invalid');
+  }
+  if (
+    binding.replyToMessageId !== undefined &&
+    (!binding.replyToMessageId || Buffer.byteLength(binding.replyToMessageId, 'utf8') > 512)
+  ) throw new ValidationError('conversation reply target is invalid');
   return { ...binding };
 }
 
@@ -369,7 +377,9 @@ function assertSameConversationBinding(
   const same = existing && requested
     ? existing.conversationId === requested.conversationId &&
       existing.messageId === requested.messageId &&
-      existing.delivery === requested.delivery
+      existing.delivery === requested.delivery &&
+      existing.attachmentDigest === requested.attachmentDigest &&
+      existing.replyToMessageId === requested.replyToMessageId
     : existing === requested;
   if (!same) {
     throw new ConflictError('the idempotency key was already used for a different thread occurrence');

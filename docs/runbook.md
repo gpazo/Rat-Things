@@ -140,8 +140,13 @@ cause is repaired and the pinned occurrence has been reconciled.
 
 1. Inspect the execution ID in the run record.
    If it is missing or `pending`, check the unattached-launch reconciliation path first.
-2. Inspect the MicroVM state, image parameters, managed-connector selection, execution-role errors, lifecycle
-   hook logs, and maximum duration.
+2. For a fenced attachment, compare `heartbeatAt` with the configured stale threshold and inspect
+   `liveness`. `active` means the reconciler proved the exact root-supervised worker despite a stale
+   DynamoDB heartbeat. `conflict` or `unknown` with `quarantinedAt` requires operator review; do not
+   terminate an execution whose generation cannot be proven.
+3. Inspect the MicroVM state, image parameters, managed-connector selection, execution-role errors,
+   lifecycle hook logs, and maximum duration. `execution_lost` means the reconciler proved that the
+   exact attached backend or worker was absent and conditionally failed the unchanged generation.
 4. Check model/provider latency and repository-clone/network failures.
 5. If the execution is alive and cancellation is safe, use:
 
@@ -149,17 +154,19 @@ cause is repaired and the pinned occurrence has been reconciled.
    npm run rat-things -- cancel RUN_ID
    ```
 
-A MicroVM killed outside the worker may leave a `running` record because the worker could not commit
-failure. Automatic backend-state reconciliation is roadmap work; use the audited repair procedure.
+The scheduled reconciler repairs a dead attached MicroVM after two missed heartbeat windows. It
+does not create a replacement semantic Run. Submit a new idempotency identity only after reviewing
+whether the lost execution could already have caused an external side effect.
 
 ### `cancelling` does not finish
 
 Confirm `TerminateMicrovm` reached the execution ID, then check whether the worker
 observed `SIGTERM`/abort and committed `cancelled`. Repeating the API cancellation safely repeats the
-stop call when an execution is attached. The scheduled reconciler finalizes a stale `cancelling` run
-that never acquired an execution. If an attached backend is gone but state remains active, escalate
-for repair. Cancellation cannot retract an already-published provider message or other
-external side effect.
+stop call when an execution is attached. The scheduled reconciler finalizes an unattached
+cancellation directly. For an attached generation, it proves the backend identity, repeats
+termination only for that exact attachment, and conditionally finalizes once AWS reports it
+terminal or absent. Identity conflicts are quarantined. Cancellation cannot retract an
+already-published provider message or other external side effect.
 
 ### `failed`
 
@@ -171,6 +178,7 @@ Use `error.code`, bounded message, worker events, backend reason, and adjacent l
 | `repository_checkout_failed` | Host allowlist, ref existence, secret scope/expiry, DNS/egress, redirect behavior |
 | `agent_timeout` | Timeout sizing, model latency, repository size, tool loop, backend duration |
 | `agent_failed` | Driver binary/config/auth, Bedrock model access, output-schema failure, OOM/disk |
+| `execution_lost` | A generation-fenced heartbeat went stale and the exact MicroVM or supervised worker was proven absent; review possible side effects before submitting a new Run |
 | Dispatch error mentioning backend disabled | Requested `microvm` without an enabled/provisioned backend or invalid deployment default |
 | MicroVM image `UNPROVISIONED` | Explicit provisioning was not completed; stop new dispatch while repairing |
 

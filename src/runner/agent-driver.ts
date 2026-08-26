@@ -96,8 +96,6 @@ export class CodexDriver implements AgentDriver {
       ...(request.agent?.outputSchema ? { outputSchema: request.agent.outputSchema } : {}),
       ...(resumeThreadId ? { resumeThreadId } : {}),
       networkAccess,
-      approvalPolicy: capabilities?.approvalPolicy ?? 'never',
-      approvalsReviewer: capabilities?.approvalsReviewer ?? 'user',
       ...(capabilities?.webSearch ? { webSearch: capabilities.webSearch } : {}),
       ...(capabilities?.skills ? { skills: capabilities.skills } : {}),
       ...(capabilities?.apps ? { apps: capabilities.apps } : {}),
@@ -114,17 +112,48 @@ export class CodexDriver implements AgentDriver {
 export class MockDriver implements AgentDriver {
   public readonly name = 'mock' as const;
 
-  public async execute(request: RunRequest): Promise<AgentExecution> {
+  public async execute(
+    request: RunRequest,
+    _workspace?: string,
+    _timeoutMs?: number,
+    signal?: AbortSignal,
+  ): Promise<AgentExecution> {
+    const startedAt = Date.now();
+    const delayMs = mockDelayMs(request.metadata?.mockDelayMs);
+    if (delayMs > 0) await abortableMockDelay(delayMs, signal);
     const fullText = `mock-agent: ${request.prompt}`;
     return {
       fullText,
       exitCode: 0,
-      durationMs: 0,
+      durationMs: Date.now() - startedAt,
       events: Buffer.from(`${JSON.stringify({ type: 'item.completed', item: { type: 'agent_message', text: fullText } })}\n`),
       threadId: 'mock-thread',
       usage: { inputTokens: 1, outputTokens: 1 },
     };
   }
+}
+
+function mockDelayMs(value: unknown): number {
+  if (value === undefined) return 0;
+  if (!Number.isInteger(value) || Number(value) < 0 || Number(value) > 180_000) {
+    throw new Error('mockDelayMs must be a whole number from 0 through 180000');
+  }
+  return Number(value);
+}
+
+async function abortableMockDelay(milliseconds: number, signal?: AbortSignal): Promise<void> {
+  if (signal?.aborted) throw new Error('mock execution was cancelled');
+  await new Promise<void>((resolvePromise, reject) => {
+    const timer = setTimeout(done, milliseconds);
+    const abort = () => done(new Error('mock execution was cancelled'));
+    function done(error?: Error) {
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', abort);
+      if (error) reject(error);
+      else resolvePromise();
+    }
+    signal?.addEventListener('abort', abort, { once: true });
+  });
 }
 
 function agentEnvironment(workspace: string): NodeJS.ProcessEnv {

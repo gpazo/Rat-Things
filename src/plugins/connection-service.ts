@@ -364,7 +364,6 @@ function validateGrantOperations(
   for (const operationId of [
     ...(grant.allowOperations ?? []),
     ...(grant.denyOperations ?? []),
-    ...(grant.approvalOverrides ?? []).map((override) => override.operationId),
   ]) {
     if (!installed.has(operationId)) {
       throw new ValidationError(`operation ${operationId} is not installed by plugin ${plugin.manifest.id}`);

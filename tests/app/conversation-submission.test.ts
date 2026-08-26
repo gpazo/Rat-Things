@@ -7,6 +7,8 @@ import type { ConversationService } from '../../src/conversation/service.js';
 import type { ConversationQueue } from '../../src/conversation/types.js';
 import type { RunService } from '../../src/core/run-service.js';
 import { apiIngressContext } from '../../src/identity/context.js';
+import { artifactIdForPath } from '../../src/domain/artifacts.js';
+import { createHash } from 'node:crypto';
 
 describe('threaded Run submission', () => {
   it('appends thread state while returning the public Run immediately', async () => {
@@ -134,6 +136,72 @@ describe('threaded Run submission', () => {
     expect(conversations.appendMessage).toHaveBeenCalledWith(
       expect.objectContaining({ delivery: 'interrupt' }),
     );
+  });
+
+  it('binds durable attachment and reply context to the Run and mailbox message', async () => {
+    const path = 'uploads/abc123/notes.txt';
+    const bytes = Buffer.from('attached evidence');
+    const file = {
+      id: artifactIdForPath(path),
+      path,
+      mediaType: 'text/plain',
+      bytes: bytes.byteLength,
+      createdAt: '2026-08-25T10:00:00.000Z',
+      sourceRunId: 'run-message-upload',
+      file: { bucket: 'private-bucket', key: 'upload', sha256: createHash('sha256').update(bytes).digest('hex') },
+    };
+    const manifest = { bucket: 'private-bucket', key: 'manifest.json', sha256: 'a'.repeat(64) };
+    const conversations = {
+      get: vi.fn().mockResolvedValue(undefined),
+      prepareAttachments: vi.fn().mockResolvedValue({ files: [file], manifest }),
+      appendMessage: vi.fn().mockImplementation(async (input) => ({
+        status: 'appended',
+        conversation: {},
+        message: { messageId: input.messageId },
+      })),
+    } as unknown as ConversationService;
+    const queue = { enqueue: vi.fn().mockResolvedValue(undefined) } as ConversationQueue;
+    const runs = runServices();
+    const service = new ConversationSubmissionService(conversations, queue, runs);
+    const context = apiIngressContext('api:operator');
+    const sha256 = createHash('sha256').update(bytes).digest('hex');
+
+    await service.submitThread(
+      context.owner.id,
+      { version: '1', prompt: 'Review the attached notes.', source: context.source },
+      {
+        idempotencyKey: 'message-upload',
+        provenance: { actor: context.actor, credentialSubject: context.credentialSubject },
+      },
+      {
+        conversationId: apiConversationId(context.owner.id, 'upload-thread'),
+        messageId: 'message-upload',
+        replyToMessageId: 'assistant-prior',
+        attachments: [{ name: 'notes.txt', mediaType: 'text/plain', bytes, sha256 }],
+      },
+    );
+
+    expect(conversations.prepareAttachments).toHaveBeenCalledWith(expect.objectContaining({
+      sourceRunId: 'run-message-upload',
+      messageId: 'message-upload',
+    }));
+    expect(runs.submit).toHaveBeenCalledWith(
+      context.owner.id,
+      expect.anything(),
+      expect.objectContaining({
+        conversation: expect.objectContaining({
+          attachmentManifest: manifest,
+          attachmentDigest: expect.stringMatching(/^[a-f0-9]{64}$/),
+          replyToMessageId: 'assistant-prior',
+        }),
+      }),
+    );
+    expect(conversations.appendMessage).toHaveBeenCalledWith(expect.objectContaining({
+      content: expect.objectContaining({
+        attachments: [file],
+        replyToMessageId: 'assistant-prior',
+      }),
+    }));
   });
 
   it('retains the original delivery priority when an idempotent retry races a turn start', async () => {

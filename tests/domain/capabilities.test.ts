@@ -55,7 +55,6 @@ function operation(overrides: Partial<OperationDefinition> = {}): OperationDefin
     kind: 'search',
     access: 'read',
     risk: 'routine',
-    defaultApproval: 'never',
     ...overrides,
   };
 }
@@ -68,8 +67,6 @@ describe('integration capability contracts', () => {
       operation: operation(),
     })).toEqual({
       allowed: true,
-      requiresApproval: false,
-      approval: 'never',
       enforcement: 'broker',
     });
 
@@ -82,7 +79,6 @@ describe('integration capability contracts', () => {
         kind: 'action',
         access: 'write',
         risk: 'consequential',
-        defaultApproval: 'on-request',
       }),
     })).toMatchObject({
       allowed: false,
@@ -106,7 +102,6 @@ describe('integration capability contracts', () => {
       access: 'write',
       risk: 'consequential',
       requiredProviderScopes: ['gmail.send'],
-      defaultApproval: 'on-request',
     });
     expect(authorizeConnectionOperation({
       connection: oauth,
@@ -126,8 +121,6 @@ describe('integration capability contracts', () => {
       operation: send,
     })).toEqual({
       allowed: true,
-      requiresApproval: true,
-      approval: 'on-request',
       enforcement: 'provider-and-broker',
     });
   });

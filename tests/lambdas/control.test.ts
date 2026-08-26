@@ -1,5 +1,5 @@
 import type { APIGatewayProxyEventV2, APIGatewayProxyStructuredResultV2 } from 'aws-lambda';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
 import {
   artifactUrlTtlSeconds,
@@ -68,6 +68,44 @@ describe('control API request normalization', () => {
       'api:owner-1',
     )).toThrow('Idempotency-Key must be 1-200 safe ASCII characters');
   });
+
+  it('decodes bounded attachments and reply context outside the canonical Run request', () => {
+    const bytes = Buffer.from('durable attachment');
+    const result = apiRunSubmissionBody(
+      {
+        version: '1',
+        prompt: 'Review this file.',
+        thread: {
+          key: 'release',
+          replyToMessageId: 'assistant-prior',
+          attachments: [{
+            name: 'notes.txt',
+            mediaType: 'text/plain',
+            base64: bytes.toString('base64'),
+            sha256: createHash('sha256').update(bytes).digest('hex'),
+          }],
+        },
+      },
+      { kind: 'api' },
+      'api:owner-1',
+      'release-message-upload',
+    );
+
+    expect(result.request).toEqual({
+      version: '1',
+      prompt: 'Review this file.',
+      source: { kind: 'api' },
+    });
+    expect(result.thread).toMatchObject({
+      replyToMessageId: 'assistant-prior',
+      attachments: [{
+        name: 'notes.txt',
+        mediaType: 'text/plain',
+        bytes,
+        sha256: createHash('sha256').update(bytes).digest('hex'),
+      }],
+    });
+  });
 });
 
 describe('control API discovery', () => {
@@ -92,6 +130,11 @@ describe('control API discovery', () => {
       capabilities: {
         consumers: ['operator', 'embedded-product', 'agent', 'cli', 'provider-event'],
         recommendedFacade: 'things',
+        authorization: {
+          model: 'fixed-before-launch',
+          insideEnvelope: 'autonomous',
+          midRunApproval: false,
+        },
         things: { immutableRevisions: true, explain: true },
         integrations: {
           multipleAccounts: true,
@@ -99,7 +142,7 @@ describe('control API discovery', () => {
           credentialVerification: 'before-persistence',
           providerIdentity: 'derived',
         },
-        runs: { asynchronous: true, liveEvents: true, approvals: true },
+        runs: { asynchronous: true, liveEvents: true, approvals: false },
         conversations: { durable: true, replacementCompute: true },
         outputs: { durableFiles: true, publications: ['file', 'site', 'video'] },
       },

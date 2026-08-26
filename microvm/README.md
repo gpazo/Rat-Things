@@ -9,7 +9,8 @@ authority and the MicroVM execution role for DynamoDB, S3, and narrowly scoped S
 reads. The runner starts Codex and the Chromium helper as UID/GID 10001 with sanitized environments.
 Codex receives no execution-role credential-chain variables; Chromium receives no AWS or integration
 credential variables at all. Integration tokens remain transient inside the trusted runner and are
-passed directly to a fixed-origin adapter only after broker authorization and approval.
+passed directly to a fixed-origin adapter only after the fixed provider/grant/profile/resource
+authorization succeeds.
 
 Never change the image entrypoint to the `agent` user: doing so breaks trusted orchestration. Never
 remove the Codex/browser UID drop or pass the runner's credential environment to either child: doing
@@ -42,8 +43,14 @@ idle policy and explicit suspend/resume calls.
 
 A cgroup eBPF connect policy denies UID 10001 access to TCP port 8080 when the destination is
 loopback, unspecified, or one of the guest's own IPv4/IPv6 interface addresses. That prevents Codex
-or Chromium from calling the lifecycle/control plane or answering their own approvals while still
+or Chromium from calling the lifecycle/control plane or mutating their own capability envelope while still
 allowing the root-owned Lambda loopback proxy and unrelated external services that happen to use
 port 8080. The policy is installed and verified before the listener starts and validated again at
 the snapshot hook. External control requests still cross Lambda's port-scoped JWE-authenticated
 ingress endpoint; Lambda removes its reserved proxy headers before forwarding them to the listener.
+
+Rat Things has no mid-Run approval path. The runner pins Codex App Server to `approvalPolicy:
+"never"`; an unexpected command/file approval request fails closed. Every tool exposed to UID 10001
+has already been admitted by the capability profile, Run/Thing narrowing, IAM, network policy,
+provider scopes, and connection grants. `danger-full-access` is broad guest access, not permission
+to escape those outer boundaries.

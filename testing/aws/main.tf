@@ -116,9 +116,11 @@ module "agent_runner" {
   force_destroy_data                = true
   enable_point_in_time_recovery     = false
   run_retention_seconds             = 3600
+  run_heartbeat_interval_seconds    = 30
+  run_heartbeat_stale_seconds       = 60
   allowed_repository_hosts          = ["github.com", "gitlab.com"]
   allowed_sandbox_modes             = ["read-only", "workspace-write", "danger-full-access"]
-  default_agent_driver              = "mock"
+  default_agent_driver              = var.default_agent_driver
   allow_agent_aws_credential_chain  = false
   codex_bedrock_model_ids           = [var.codex_model_id]
   default_delivery_destinations     = "teams"

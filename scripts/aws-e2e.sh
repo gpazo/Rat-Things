@@ -50,6 +50,10 @@ trap 'exit 143' TERM
 set +e
 "$script_dir/aws-e2e-test.sh" "$deployment_id"
 test_status=$?
+if [[ "$test_status" -eq 0 ]]; then
+  "$script_dir/aws-e2e-console-test.sh" "$deployment_id"
+  test_status=$?
+fi
 set -e
 if [[ "$test_status" -ne 0 ]]; then
   exit "$test_status"

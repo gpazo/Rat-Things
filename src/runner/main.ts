@@ -47,6 +47,7 @@ import {
 import type { AgentDriverControl } from './agent-driver.js';
 import { BrowserHostBackend, BrowserToolSession } from './browser.js';
 import { createDynamicToolRequestHandler } from './dynamic-tools.js';
+import { ExecutionHeartbeat } from './heartbeat.js';
 
 export async function runAgentWorker(): Promise<void> {
   const clients = createAwsClients();
@@ -80,6 +81,7 @@ export async function runAgentWorker(): Promise<void> {
   const startedAt = new Date().toISOString();
   let loadedBedrockToken = false;
   let browserSession: BrowserToolSession | undefined;
+  let heartbeat: ExecutionHeartbeat | undefined;
   const runnerControl = createRunnerControlBridge(runId);
 
   try {
@@ -115,9 +117,27 @@ export async function runAgentWorker(): Promise<void> {
     if (!current.execution || current.execution.id === 'pending') {
       throw new Error('execution reference was not attached');
     }
-    await store.transition(runId, ['dispatching'], 'running', {
-      execution: { ...current.execution, startedAt },
+    const executionGeneration = requiredEnv('EXECUTION_GENERATION');
+    if (
+      current.execution.backend !== 'microvm' ||
+      current.execution.id !== requiredEnv('MICROVM_ID') ||
+      current.execution.generation !== executionGeneration
+    ) throw new Error('execution attachment does not match this worker generation');
+    current = await store.startExecution(runId, current.execution, startedAt);
+    heartbeat = new ExecutionHeartbeat({
+      store,
+      runId,
+      execution: current.execution!,
+      intervalMs: Number(process.env.RUN_HEARTBEAT_INTERVAL_MS ?? 15_000),
+      onAuthorityLost: () => abort.abort(),
+      onError: (error) => console.error(JSON.stringify({
+        level: 'error',
+        message: 'execution heartbeat failed',
+        runId,
+        error: safeMessage(error),
+      })),
     });
+    heartbeat.start();
     await prepareWorkspace(effectiveRequest.repository, workspace, credentials, {
       reuseExisting: persistentSession,
     });
@@ -153,8 +173,6 @@ export async function runAgentWorker(): Promise<void> {
         new BrowserHostBackend({
           artifactRoot: join(workspace, AGENT_ARTIFACT_DIRECTORY),
         }),
-        runnerControl?.requestBrowserApproval,
-        (effectiveRequest.agent.capabilities.approvalPolicy ?? 'never') !== 'never',
       );
       dynamicTools.push(...browserSession.tools);
     }
@@ -173,7 +191,6 @@ export async function runAgentWorker(): Promise<void> {
         ...(profile.maximumIntegrationAccess
           ? { maximumIntegrationAccess: profile.maximumIntegrationAccess }
           : {}),
-        ...(runnerControl ? { approve: runnerControl.requestIntegrationApproval } : {}),
       });
       dynamicTools.push(...integrationSession.tools.map((tool) => ({ ...tool })));
     }
@@ -186,6 +203,14 @@ export async function runAgentWorker(): Promise<void> {
           ...(browserSession ? { browser: browserSession } : {}),
           ...(integrationSession ? { integrations: integrationSession } : {}),
           signal: abort.signal,
+          ledger: {
+            store,
+            runId,
+            execution: current.execution!,
+            admittedToolsDigest: createHash('sha256')
+              .update(JSON.stringify(dynamicTools))
+              .digest('hex'),
+          },
           ...(fallbackServerRequest ? { fallback: fallbackServerRequest } : {}),
         }),
       };
@@ -270,7 +295,11 @@ export async function runAgentWorker(): Promise<void> {
     const latest = await store.get(runId);
     if (latest?.status === 'cancelling') {
       try {
-        await store.transition(runId, ['running', 'cancelling'], 'cancelled');
+        if (latest.execution?.generation) {
+          await store.cancelExecution(runId, latest.execution);
+        } else {
+          await store.transition(runId, ['running', 'cancelling'], 'cancelled');
+        }
       } catch (transitionError) {
         if (!(transitionError instanceof InvalidStateTransitionError)) throw transitionError;
       }
@@ -281,9 +310,26 @@ export async function runAgentWorker(): Promise<void> {
       message: safeMessage(error),
       retryable: false,
     };
-    await store.fail(runId, runError, ['dispatching', 'running']);
+    const execution = latest?.execution ?? current.execution;
+    const failed = execution?.generation
+      ? await store.failExecution(
+        runId,
+        execution,
+        latest?.heartbeatAt ?? current.heartbeatAt ?? startedAt,
+        runError,
+      )
+      : false;
+    if (
+      !execution?.generation &&
+      !failed &&
+      latest &&
+      ['dispatching', 'running'].includes(latest.status)
+    ) {
+      await store.fail(runId, runError, ['dispatching', 'running']);
+    }
     throw error;
   } finally {
+    await heartbeat?.stop();
     if (loadedBedrockToken) delete process.env.AWS_BEARER_TOKEN_BEDROCK;
     if (browserSession) {
       try {

@@ -10,7 +10,7 @@ public sharing. Return here when choosing a longer-lived installation shape.
 
 ## Prerequisites
 
-- Node.js 20+, npm, and Git.
+- Node.js 22.20+, npm, and Git.
 - Docker with Compose for LocalStack and Buildx for the opt-in ARM64 image canary.
 - Terraform 1.5+ and AWS credentials for infrastructure work.
 - GitHub CLI authenticated for the one-command GitHub webhook path.
@@ -247,7 +247,7 @@ through its AWS-authenticated continuation endpoint. The Thing scenario verifies
 KMS-encrypted definitions, provider/broker/profile/Thing permission intersection, idempotent
 dispatch, lifecycle changes, CLI rotation, revocation, and absence of credential values. The mock
 suite also validates expired-session replacement and coordinator crash-window repair. Its opt-in
-real-Codex probes restore workspace/thread state and perform one read plus one approval-gated write
+real-Codex probes restore workspace/thread state and perform one read plus one statically admitted write
 against exact Fixture CRM accounts, with exactly-one provider-side mutation. The harness destroys
 the tagged stack from an exit trap. LocalStack cannot replace that isolation/lifecycle test. See
 [`testing/aws/README.md`](../testing/aws/README.md).

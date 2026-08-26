@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   awsQuickstartTerraformConfig,
   awsQuickstartThing,
+  assertSupportedNodeVersion,
   managedTerraformAddresses,
   parseAwsQuickstartOptions,
   quickstartRunEvidence,
@@ -10,6 +11,14 @@ import {
 } from '../../scripts/aws-quickstart.js';
 
 describe('AWS quickstart', () => {
+  it('requires the repository Node 22.20 baseline', () => {
+    expect(() => assertSupportedNodeVersion('v20.19.5')).toThrow('Node.js 22.20.0 or newer');
+    expect(() => assertSupportedNodeVersion('22.19.0')).toThrow('Node.js 22.20.0 or newer');
+    expect(() => assertSupportedNodeVersion('not-a-version')).toThrow('Node.js 22.20.0 or newer');
+    expect(() => assertSupportedNodeVersion('v22.20.0')).not.toThrow();
+    expect(() => assertSupportedNodeVersion('24.1.0')).not.toThrow();
+  });
+
   it('defaults to a real, narrow Codex deployment', () => {
     const options = parseAwsQuickstartOptions([]);
     expect(options).toMatchObject({

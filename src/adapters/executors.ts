@@ -16,14 +16,15 @@ import type {
   RunRequest,
 } from '../domain/contracts.js';
 import type {
-  AgentApprovalDecision,
   AgentInteractionTarget,
   AgentRuntimeSnapshot,
 } from '../domain/interaction.js';
 import type { JsonValue } from '../domain/contracts.js';
 import type { AgentInteractionController } from '../core/ports.js';
 import { ExecutionRegistry } from '../execution/registry.js';
+import { executionGeneration } from '../execution/generation.js';
 import type { RunExecutor } from '../execution/types.js';
+import type { ExecutionInspection, ExecutionInspector } from '../execution/reconciler.js';
 
 export type { RunExecutor } from '../execution/types.js';
 export { ExecutionRegistry, ExecutionRegistry as ExecutorRegistry } from '../execution/registry.js';
@@ -48,12 +49,20 @@ export interface MicrovmExecutorOptions {
   allowAgentAwsCredentialChain: boolean;
   sessionIdleSeconds?: number;
   sessionSuspendedSeconds?: number;
+  heartbeatIntervalMs?: number;
+  onStartupObservation?: (observation: MicrovmStartupObservation) => void;
   s3Files?: {
     networkConnectorArn: string;
     fileSystemId: string;
     accessPointId: string;
     mountTargetIp: string;
   };
+}
+
+export interface MicrovmStartupObservation {
+  mode: 'launch' | 'resume';
+  outcome: 'succeeded' | 'fallback' | 'failed';
+  durationMs: number;
 }
 
 class MicrovmSessionUnavailableError extends Error {}
@@ -78,19 +87,41 @@ export class MicrovmRunExecutor implements RunExecutor {
 
   public async start(record: RunRecord, request: RunRequest, traceId: string): Promise<ExecutionReference> {
     if (record.conversation?.preferredMicrovmId) {
+      const startedAt = Date.now();
       try {
-        return await this.resumeAndStart(record, request, record.conversation.preferredMicrovmId);
+        const execution = await this.resumeAndStart(
+          record,
+          request,
+          record.conversation.preferredMicrovmId,
+        );
+        this.observeStartup('resume', 'succeeded', startedAt);
+        return execution;
       } catch (error) {
-        if (!(error instanceof MicrovmSessionUnavailableError)) throw error;
+        if (error instanceof MicrovmSessionUnavailableError) {
+          this.observeStartup('resume', 'fallback', startedAt);
+        } else {
+          this.observeStartup('resume', 'failed', startedAt);
+          throw error;
+        }
       }
     }
-    return this.launch(record, request);
+    const startedAt = Date.now();
+    try {
+      const execution = await this.launch(record, request);
+      this.observeStartup('launch', 'succeeded', startedAt);
+      return execution;
+    } catch (error) {
+      this.observeStartup('launch', 'failed', startedAt);
+      throw error;
+    }
   }
 
   private async launch(record: RunRecord, request: RunRequest): Promise<ExecutionReference> {
     const timeout = request.execution?.timeoutSeconds ?? 900;
-    const imageArn = await this.parameter('image');
-    const imageVersion = await this.parameter('version');
+    const [imageArn, imageVersion] = await Promise.all([
+      this.parameter('image'),
+      this.parameter('version'),
+    ]);
     const runHookPayload = this.runHookPayload(record, request, false);
     const persistent = Boolean(record.conversation);
     const result = await this.client.send(
@@ -120,7 +151,11 @@ export class MicrovmRunExecutor implements RunExecutor {
       }),
     );
     if (!result.microvmId) throw new Error('RunMicrovm returned no MicroVM ID');
-    return { backend: 'microvm', id: result.microvmId };
+    return {
+      backend: 'microvm',
+      id: result.microvmId,
+      generation: record.execution?.generation ?? executionGeneration(record),
+    };
   }
 
   private async resumeAndStart(
@@ -171,7 +206,11 @@ export class MicrovmRunExecutor implements RunExecutor {
     if (!response.ok) {
       throw new Error(`persistent MicroVM rejected run ${record.runId} with HTTP ${response.status}`);
     }
-    return { backend: 'microvm', id: microvmId };
+    return {
+      backend: 'microvm',
+      id: microvmId,
+      generation: record.execution?.generation ?? executionGeneration(record),
+    };
   }
 
   private async waitForResumedMicrovm(microvmId: string): Promise<{
@@ -243,6 +282,7 @@ export class MicrovmRunExecutor implements RunExecutor {
     const payload = JSON.stringify({
       version: 1,
       runId: record.runId,
+      executionGeneration: record.execution?.generation ?? executionGeneration(record),
       // Threaded Runs retain their immutable accepted request in `input`, but
       // execute the coordinator-prepared transcript in `executionInput`.
       inputBucket: executionInput.bucket,
@@ -253,6 +293,7 @@ export class MicrovmRunExecutor implements RunExecutor {
       eventBusName: this.options.eventBusName,
       region: this.options.region,
       timeoutSeconds: request.execution?.timeoutSeconds ?? 900,
+      heartbeatIntervalMs: this.options.heartbeatIntervalMs ?? 15_000,
       // RunMicrovm client tokens are limited to printable ASCII and 64 characters.
       traceId: record.runId,
       allowedRepositoryHosts: this.options.allowedRepositoryHosts,
@@ -288,6 +329,22 @@ export class MicrovmRunExecutor implements RunExecutor {
     await this.client.send(new TerminateMicrovmCommand({ microvmIdentifier: id }));
   }
 
+  private observeStartup(
+    mode: MicrovmStartupObservation['mode'],
+    outcome: MicrovmStartupObservation['outcome'],
+    startedAt: number,
+  ): void {
+    try {
+      this.options.onStartupObservation?.({
+        mode,
+        outcome,
+        durationMs: Math.max(0, Date.now() - startedAt),
+      });
+    } catch {
+      // Telemetry must never change execution behavior.
+    }
+  }
+
   private async parameter(kind: 'image' | 'version'): Promise<string> {
     // The image ARN is stable, but the active version changes on every image
     // deployment. A warm dispatcher must not keep launching the version that
@@ -314,6 +371,78 @@ export class MicrovmSessionController {
       await this.client.send(new SuspendMicrovmCommand({ microvmIdentifier: id }));
     } catch (error) {
       if (!isUnavailableSessionError(error) && errorName(error) !== 'ConflictException') throw error;
+    }
+  }
+}
+
+/** Proves both the AWS MicroVM state and the exact root-supervised worker generation. */
+export class MicrovmExecutionInspector implements ExecutionInspector {
+  public constructor(private readonly client: LambdaMicrovmsClient) {}
+
+  public async inspect(runId: string, execution: ExecutionReference): Promise<ExecutionInspection> {
+    if (execution.backend !== 'microvm' || !execution.generation) {
+      return { kind: 'conflict', reason: 'execution identity is incomplete' };
+    }
+    let microvm;
+    try {
+      microvm = await this.client.send(new GetMicrovmCommand({ microvmIdentifier: execution.id }));
+    } catch (error) {
+      if (isUnavailableSessionError(error)) {
+        return { kind: 'absent', reason: 'the attached MicroVM no longer exists' };
+      }
+      return { kind: 'unknown', reason: `could not describe attached MicroVM: ${safeError(error)}` };
+    }
+    if (microvm.state === 'TERMINATED' || microvm.state === 'TERMINATING') {
+      return { kind: 'terminal', reason: `the attached MicroVM is ${microvm.state.toLowerCase()}` };
+    }
+    if (microvm.state !== 'RUNNING' || !microvm.endpoint) {
+      return {
+        kind: 'unknown',
+        reason: `the attached MicroVM is ${microvm.state?.toLowerCase() ?? 'in an unknown state'}`,
+      };
+    }
+
+    try {
+      const tokenResult = await this.client.send(new CreateMicrovmAuthTokenCommand({
+        microvmIdentifier: execution.id,
+        expirationInMinutes: 2,
+        allowedPorts: [{ port: 8080 }],
+      }));
+      const token = tokenResult.authToken?.['X-aws-proxy-auth'];
+      if (!token) return { kind: 'unknown', reason: 'AWS returned no MicroVM health-probe token' };
+      const response = await fetch(
+        `${endpointUrl(microvm.endpoint)}/agent-runtime/v1/runs/${encodeURIComponent(runId)}/health`,
+        {
+          method: 'GET',
+          headers: {
+            accept: 'application/json',
+            'x-aws-proxy-auth': token,
+            'x-aws-proxy-port': '8080',
+          },
+          signal: AbortSignal.timeout(10_000),
+        },
+      );
+      const body = parseJson(await response.text());
+      if (response.status === 410) {
+        return { kind: 'inactive', reason: 'the MicroVM has no active worker for the attached Run' };
+      }
+      if (response.status === 409) {
+        return { kind: 'conflict', reason: 'the MicroVM reports a different active execution identity' };
+      }
+      if (!response.ok || !isRecord(body)) {
+        return { kind: 'unknown', reason: `MicroVM health probe returned HTTP ${response.status}` };
+      }
+      if (
+        body.active !== true ||
+        body.workerConnected !== true ||
+        body.runId !== runId ||
+        body.generation !== execution.generation
+      ) {
+        return { kind: 'conflict', reason: 'the MicroVM health identity does not match the Run attachment' };
+      }
+      return { kind: 'active' };
+    } catch (error) {
+      return { kind: 'unknown', reason: `MicroVM health probe failed: ${safeError(error)}` };
     }
   }
 }
@@ -349,20 +478,6 @@ export class MicrovmAgentInteractionController implements AgentInteractionContro
       `/agent-runtime/v1/runs/${encodeURIComponent(target.runId)}/interrupt`,
       'POST',
       {},
-    );
-  }
-
-  public async approve(
-    target: AgentInteractionTarget,
-    requestId: string,
-    decision: AgentApprovalDecision,
-    reason?: string,
-  ): Promise<void> {
-    await this.request(
-      target,
-      `/agent-runtime/v1/runs/${encodeURIComponent(target.runId)}/approvals/${encodeURIComponent(requestId)}`,
-      'POST',
-      { decision, ...(reason ? { reason } : {}) },
     );
   }
 
@@ -442,7 +557,9 @@ export class MicrovmAgentInteractionController implements AgentInteractionContro
   }
 }
 
-export function createExecutorRegistryFromEnv(): ExecutionRegistry {
+export function createExecutorRegistryFromEnv(
+  onStartupObservation?: (observation: MicrovmStartupObservation) => void,
+): ExecutionRegistry {
   const region = requiredEnv('AWS_REGION');
   const s3Files = s3FilesOptionsFromEnv();
   const microvm = new MicrovmRunExecutor(
@@ -470,6 +587,8 @@ export function createExecutorRegistryFromEnv(): ExecutionRegistry {
       allowAgentAwsCredentialChain: process.env.ALLOW_AGENT_AWS_CREDENTIAL_CHAIN === 'true',
       sessionIdleSeconds: Number(process.env.MICROVM_SESSION_IDLE_SECONDS ?? 1_200),
       sessionSuspendedSeconds: Number(process.env.MICROVM_SESSION_SUSPENDED_SECONDS ?? 21_600),
+      heartbeatIntervalMs: Number(process.env.RUN_HEARTBEAT_INTERVAL_MS ?? 15_000),
+      ...(onStartupObservation ? { onStartupObservation } : {}),
       ...(s3Files ? { s3Files } : {}),
     },
   );
@@ -478,6 +597,12 @@ export function createExecutorRegistryFromEnv(): ExecutionRegistry {
 
 export function createAgentInteractionControllerFromEnv(): MicrovmAgentInteractionController {
   return new MicrovmAgentInteractionController(
+    new LambdaMicrovmsClient({ region: requiredEnv('AWS_REGION') }),
+  );
+}
+
+export function createExecutionInspectorFromEnv(): MicrovmExecutionInspector {
+  return new MicrovmExecutionInspector(
     new LambdaMicrovmsClient({ region: requiredEnv('AWS_REGION') }),
   );
 }
@@ -506,6 +631,10 @@ function isUnavailableSessionError(error: unknown): boolean {
 
 function errorName(error: unknown): string {
   return error instanceof Error ? error.name : '';
+}
+
+function safeError(error: unknown): string {
+  return (error instanceof Error ? error.message : String(error)).replace(/[\r\n]+/g, ' ').slice(0, 500);
 }
 
 function parseJson(value: string): unknown {

@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="dark light">
+    <meta name="theme-color" content="#0d100d">
+    <title>Rat Things Console</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <a class="skip-link" href="#workspace">Skip to conversation</a>
+    <div class="app-shell">
+      <aside id="sidebar" class="sidebar" aria-label="Conversations">
+        <header class="sidebar-header">
+          <a class="brand" href="/" aria-label="Rat Things console">
+            <span class="brand-mark" aria-hidden="true">R</span>
+            <span>Rat Things</span>
+          </a>
+          <button class="icon-button" id="new-thread" type="button" aria-label="New conversation" title="New conversation" disabled>+</button>
+        </header>
+        <div class="sidebar-tools">
+          <label class="search-field">
+            <span class="sr-only">Search all conversations</span>
+            <input id="conversation-filter" type="search" placeholder="Search conversations" autocomplete="off">
+          </label>
+          <p id="conversation-search-state" class="conversation-search-state" aria-live="polite" hidden></p>
+        </div>
+        <div class="section-label">
+          <span><span id="conversation-view-label">Conversations</span> <span id="conversation-count" class="section-count">0</span></span>
+          <button id="refresh-list" class="text-button" type="button" disabled>Refresh</button>
+        </div>
+        <nav id="conversation-list" class="conversation-list" aria-live="polite"></nav>
+        <button id="hidden-conversations" class="hidden-conversations" type="button">
+          <span aria-hidden="true">◌</span>
+          <span>Show hidden conversations</span>
+        </button>
+        <footer class="sidebar-footer">
+          <span class="connection-dot" aria-hidden="true"></span>
+          <span id="connection-label">Local signed proxy</span>
+        </footer>
+      </aside>
+      <button id="sidebar-scrim" class="sidebar-scrim" type="button" aria-label="Close conversations" tabindex="-1"></button>
+
+      <main id="workspace" class="workspace" tabindex="-1">
+        <header class="workspace-header">
+          <div class="workspace-identity">
+            <button id="sidebar-toggle" class="icon-button sidebar-toggle" type="button" aria-label="Open conversations" aria-controls="sidebar" aria-expanded="false">☰</button>
+            <div class="agent-mark" aria-hidden="true">R</div>
+            <div>
+              <h1 id="conversation-title">New conversation</h1>
+              <p id="conversation-subtitle">Durable, isolated execution</p>
+            </div>
+          </div>
+          <div class="workspace-actions">
+            <span id="status-badge" class="status-badge" data-state="idle">Ready</span>
+            <button id="interrupt-run" class="secondary-button" type="button" hidden>Interrupt</button>
+          </div>
+        </header>
+
+        <section id="transcript" class="transcript" aria-live="polite" aria-label="Conversation transcript">
+          <div class="empty-state" id="empty-state">
+            <div class="empty-mark" aria-hidden="true">R</div>
+            <h2>What should Rat work on?</h2>
+            <p>Messages become durable Runs. The CLI and MicroVM execution path stay exactly the same.</p>
+          </div>
+        </section>
+        <button id="jump-latest" class="jump-latest" type="button" hidden>Jump to latest ↓</button>
+
+        <form id="composer" class="composer">
+          <div id="composer-context" class="composer-context" hidden></div>
+          <div id="composer-attachments" class="composer-attachments" hidden></div>
+          <label for="prompt" class="sr-only">Message</label>
+          <textarea id="prompt" rows="1" maxlength="100000" placeholder="Message Rat Things…" required></textarea>
+          <div class="composer-footer">
+            <div class="composer-tools">
+              <button id="attach-files" class="composer-tool" type="button" aria-label="Attach files" title="Attach files">＋ File</button>
+              <input id="file-input" type="file" multiple hidden>
+              <details class="composer-options">
+                <summary>Run options</summary>
+                <label>
+                  <span>Delivery</span>
+                  <select id="delivery">
+                    <option value="interrupt">Interrupt when useful</option>
+                    <option value="defer">After current turn</option>
+                  </select>
+                </label>
+              </details>
+            </div>
+            <button id="send" class="send-button" type="submit" aria-label="Send message">Send</button>
+          </div>
+        </form>
+        <p id="notice" class="notice" role="status"></p>
+      </main>
+    </div>
+
+    <dialog id="new-thread-dialog" class="new-thread-dialog">
+      <form method="dialog" id="new-thread-form">
+        <div class="dialog-heading">
+          <div>
+            <p class="eyebrow">Durable thread</p>
+            <h2>New conversation</h2>
+          </div>
+          <button class="icon-button" value="cancel" aria-label="Close">×</button>
+        </div>
+        <label class="dialog-field">
+          <span>Name</span>
+          <input id="thread-key" name="threadKey" maxlength="128" pattern="[A-Za-z0-9][A-Za-z0-9._:\-]{0,127}" placeholder="release-review" required>
+          <small>Letters, numbers, dots, underscores, colons, and dashes.</small>
+        </label>
+        <div class="dialog-actions">
+          <button class="secondary-button" value="cancel">Cancel</button>
+          <button id="create-thread" class="primary-button" value="default">Create</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="artifact-viewer" class="artifact-viewer" aria-labelledby="viewer-title">
+      <div class="viewer-heading">
+        <div>
+          <p class="eyebrow">Conversation file</p>
+          <h2 id="viewer-title">Artifact</h2>
+        </div>
+        <button id="close-viewer" class="icon-button" type="button" aria-label="Close viewer">×</button>
+      </div>
+      <div id="viewer-body" class="viewer-body"></div>
+      <div class="viewer-actions">
+        <span id="viewer-detail"></span>
+        <a id="viewer-open" class="secondary-button" target="_blank" rel="noopener noreferrer">Open in new tab</a>
+      </div>
+    </dialog>
+
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

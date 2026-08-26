@@ -167,3 +167,8 @@ output "microvm_image_version_parameter_name" {
 output "microvm_log_group_name" {
   value = aws_cloudwatch_log_group.microvm.name
 }
+
+output "reconciler_function_name" {
+  description = "Generation-fenced Run reconciler Lambda name."
+  value       = aws_lambda_function.this["reconciler"].function_name
+}

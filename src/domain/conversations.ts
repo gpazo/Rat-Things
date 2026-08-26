@@ -1,5 +1,6 @@
 import type {
   AgentInput,
+  PublishedArtifact,
   ArtifactReference,
   JsonValue,
   RunActorContext,
@@ -66,6 +67,14 @@ export interface ConversationRecord {
   capabilityOwnerId?: string;
   status: ConversationStatus;
   pendingCount: number;
+  /** Bounded, denormalized label derived from the first user message. */
+  title?: string;
+  /** Bounded, denormalized preview of the newest user or assistant message. */
+  lastMessagePreview?: string;
+  /** Owner-controlled organization metadata; these never influence execution authority. */
+  pinnedAt?: string;
+  hiddenAt?: string;
+  readAt?: string;
   createdAt: string;
   updatedAt: string;
   expiresAt: number;
@@ -88,12 +97,86 @@ export interface ConversationRecord {
   session?: ConversationSession;
 }
 
+export type ConversationSearchKind = 'message' | 'file';
+
+/**
+ * Bounded, encrypted DynamoDB search posting. Full prompt/result bodies remain
+ * in S3; this contains only the token and a short owner-visible snippet.
+ */
+export interface ConversationSearchRecord {
+  version: '1';
+  itemType: 'search';
+  ownerId: string;
+  conversationId: string;
+  entryId: string;
+  token: string;
+  kind: ConversationSearchKind;
+  snippet: string;
+  occurredAt: string;
+  expiresAt: number;
+  role?: 'user' | 'assistant';
+  artifactId?: string;
+}
+
+export interface ConversationTranscriptRecord {
+  version: '1';
+  itemType: 'transcript';
+  conversationId: string;
+  entryId: string;
+  role: 'user' | 'assistant';
+  /** Immutable S3 body. User entries contain ConversationMessageContent; assistant entries are text. */
+  contentKind: 'message' | 'text';
+  content: ArtifactReference;
+  occurredAt: string;
+  expiresAt: number;
+  messageId?: string;
+}
+
+export interface ConversationTranscriptMessage {
+  role: 'user' | 'assistant';
+  content: string;
+  messageId?: string;
+  receivedAt?: string;
+  /** Stable opaque content IDs; storage coordinates never cross the API boundary. */
+  attachmentIds?: string[];
+  /** Optional durable reply edge to another public transcript message. */
+  replyToMessageId?: string;
+  reactions?: ConversationMessageReaction[];
+}
+
+export interface ConversationTranscriptPage {
+  messages: ConversationTranscriptMessage[];
+  nextToken?: string;
+}
+
 export interface ConversationMessageContent {
   text: string;
   /** Canonical caller/provider request used to reserve this message's public Run. */
   request?: RunRequest;
-  attachments?: ArtifactReference[];
+  /** Private durable files. Public projections expose only their opaque IDs. */
+  attachments?: PublishedArtifact[];
+  replyToMessageId?: string;
   metadata?: { [key: string]: JsonValue };
+}
+
+export const CONVERSATION_REACTION_EMOJIS = ['👍', '❤️', '🎉', '👀'] as const;
+export type ConversationReactionEmoji = (typeof CONVERSATION_REACTION_EMOJIS)[number];
+
+export interface ConversationReactionRecord {
+  version: '1';
+  itemType: 'reaction';
+  conversationId: string;
+  messageId: string;
+  emoji: ConversationReactionEmoji;
+  ownerId: string;
+  createdAt: string;
+  expiresAt: number;
+}
+
+export interface ConversationMessageReaction {
+  emoji: ConversationReactionEmoji;
+  count: number;
+  reacted: boolean;
 }
 
 export interface ConversationMessageRecord {

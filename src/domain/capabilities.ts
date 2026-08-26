@@ -1,11 +1,5 @@
 import type { JsonValue, RunSource, SandboxMode } from './contracts.js';
 
-export const APPROVAL_POLICIES = ['untrusted', 'on-request', 'never'] as const;
-export type ApprovalPolicy = (typeof APPROVAL_POLICIES)[number];
-
-export const APPROVAL_REVIEWERS = ['user', 'auto-review', 'guardian-subagent'] as const;
-export type ApprovalReviewer = (typeof APPROVAL_REVIEWERS)[number];
-
 export const WEB_SEARCH_MODES = ['disabled', 'cached', 'indexed', 'live'] as const;
 export type WebSearchMode = (typeof WEB_SEARCH_MODES)[number];
 
@@ -24,8 +18,6 @@ export type AgentPersonality = (typeof AGENT_PERSONALITIES)[number];
  */
 export interface AgentCapabilityRequest {
   profile?: string;
-  approvalPolicy?: ApprovalPolicy;
-  approvalsReviewer?: ApprovalReviewer;
   networkAccess?: boolean;
   webSearch?: WebSearchMode;
   computerUse?: ComputerUseMode;
@@ -37,8 +29,6 @@ export interface AgentCapabilityRequest {
 export interface CapabilityProfileDefinition {
   id: string;
   sandbox: SandboxMode;
-  approvalPolicy: ApprovalPolicy;
-  approvalsReviewer: ApprovalReviewer;
   networkAccess: boolean;
   webSearch: WebSearchMode;
   computerUse: ComputerUseMode;
@@ -69,9 +59,6 @@ export const OPERATION_RISKS = [
   'privileged',
 ] as const;
 export type OperationRisk = (typeof OPERATION_RISKS)[number];
-
-export const OPERATION_APPROVALS = ['never', 'on-request', 'always'] as const;
-export type OperationApproval = (typeof OPERATION_APPROVALS)[number];
 
 export const CONNECTION_STATUSES = ['active', 'expired', 'revoked'] as const;
 export type ConnectionStatus = (typeof CONNECTION_STATUSES)[number];
@@ -112,13 +99,7 @@ export interface OperationDefinition {
   access: IntegrationAccessLevel;
   risk: OperationRisk;
   requiredProviderScopes?: string[];
-  defaultApproval: OperationApproval;
   inputSchema?: { [key: string]: JsonValue };
-}
-
-export interface OperationApprovalOverride {
-  operationId: string;
-  approval: OperationApproval;
 }
 
 /**
@@ -133,7 +114,6 @@ export interface ConnectionGrant {
   preset: IntegrationPermissionPreset;
   allowOperations?: string[];
   denyOperations?: string[];
-  approvalOverrides?: OperationApprovalOverride[];
   resourceConstraints?: { [key: string]: string[] };
   expiresAt?: string;
 }
@@ -174,8 +154,6 @@ export interface ConnectionAccessRequest {
 
 export interface OperationAuthorizationDecision {
   allowed: boolean;
-  requiresApproval: boolean;
-  approval: OperationApproval;
   enforcement: 'provider-and-broker' | 'broker';
   reason?: string;
 }
@@ -190,8 +168,6 @@ export function authorizeConnectionOperation(input: {
   const enforcement = operationEnforcement(connection, operation);
   const denied = (reason: string): OperationAuthorizationDecision => ({
     allowed: false,
-    requiresApproval: false,
-    approval: 'never',
     enforcement,
     reason,
   });
@@ -222,13 +198,8 @@ export function authorizeConnectionOperation(input: {
     )
   ) return denied('provider authorization is missing a required scope');
 
-  const approval = grant.approvalOverrides?.find(
-    (candidate) => candidate.operationId === operation.id,
-  )?.approval ?? operation.defaultApproval;
   return {
     allowed: true,
-    requiresApproval: approval !== 'never',
-    approval,
     enforcement,
   };
 }
@@ -274,7 +245,6 @@ export function validateOperationDefinition(value: OperationDefinition): Operati
   if (!OPERATION_KINDS.includes(value.kind)) throw new Error('operation kind is invalid');
   if (!INTEGRATION_ACCESS_LEVELS.includes(value.access)) throw new Error('operation access is invalid');
   if (!OPERATION_RISKS.includes(value.risk)) throw new Error('operation risk is invalid');
-  if (!OPERATION_APPROVALS.includes(value.defaultApproval)) throw new Error('operation approval is invalid');
   if (value.requiredProviderScopes) validateIdList(value.requiredProviderScopes, 'required provider scopes', 64);
   if (value.inputSchema) assertJson(value.inputSchema, 'operation input schema');
   return structuredClone(value);
@@ -292,14 +262,6 @@ export function validateConnectionGrant(value: ConnectionGrant): ConnectionGrant
   if (overlap) throw new Error(`operation ${overlap} is both allowed and denied`);
   if (value.preset === 'custom' && !value.allowOperations?.length) {
     throw new Error('custom grant requires allowed operations');
-  }
-  if ((value.approvalOverrides?.length ?? 0) > 128) throw new Error('grant has too many approval overrides');
-  const overrideIds = new Set<string>();
-  for (const override of value.approvalOverrides ?? []) {
-    requireOperationId(override.operationId, 'approval operation ID');
-    if (overrideIds.has(override.operationId)) throw new Error(`duplicate approval override ${override.operationId}`);
-    overrideIds.add(override.operationId);
-    if (!OPERATION_APPROVALS.includes(override.approval)) throw new Error('approval override is invalid');
   }
   if (value.resourceConstraints) {
     if (Object.keys(value.resourceConstraints).length > 64) throw new Error('grant has too many resource constraints');

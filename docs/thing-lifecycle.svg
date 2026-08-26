@@ -42,7 +42,7 @@
     <text class="step-number" x="92" y="275">2</text>
     <rect class="node" x="145" y="211" width="555" height="126" rx="16"/>
     <text class="label" x="180" y="258">Explain</text>
-    <text class="detail" x="180" y="290">Resolve accounts, permissions, approvals, and diagnostics.</text>
+    <text class="detail" x="180" y="290">Resolve accounts, fixed authority, and diagnostics.</text>
     <text class="evidence" x="180" y="315">GET …/explain?target=draft</text>
   </g>
 

@@ -71,7 +71,7 @@ For a connection that exists but exposes no expected tool, inspect in this order
 2. the persistent Rat `grant` returned beside that connection;
 3. the selected capability profile;
 4. the Thing/run connection selection and any deny list; and
-5. the operation's required scopes, resource constraints, and approval policy.
+5. the operation's required scopes and resource constraints.
 
 `rat-things thing-explain THING_ID` shows that intersection without reading the credential. A broad
 provider key with a read-only Rat grant is expected; widening the key is not a fix for a broker
@@ -98,7 +98,7 @@ Repair every `error` diagnostic before publishing. In particular:
 - correct account aliases/IDs and reactivate or rotate expired connections;
 - add a persistent Rat permission grant;
 - remove operation IDs not present in the installed plugin manifest; and
-- inspect each operation's provider, grant, Thing, profile, approval, and resource ceilings.
+- inspect each operation's provider, grant, Thing, profile, and resource ceilings.
 
 The explanation contains no credential values. If its direct `compiledRun` differs from
 `effectiveRun`, the capability profile narrowed the request. A denied write in `resolvedConnections`
@@ -152,7 +152,7 @@ Interpret durable states before looking at infrastructure:
 
 - `queued`: record exists; inspect SQS and dispatcher if stale;
 - `dispatching`: a backend is being attached; inspect MicroVM lifecycle if stale;
-- `running`: use live events, pending approvals, steering, and interruption;
+- `running`: use live events, ordinary pending input, steering, and interruption;
 - `cancelling`: cancellation requested; wait for backend or reconciler finalization;
 - `succeeded`: inspect output and user-visible file catalog;
 - `failed`: use bounded `error`, terminal events, and artifacts; and

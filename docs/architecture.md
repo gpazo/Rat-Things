@@ -129,7 +129,8 @@ Things are the product-facing entry to that boundary. The control API authentica
 validates a credential-free ThingSpec, writes an immutable content-digested revision to the private
 definition bucket, and stores only lifecycle/index metadata in the Thing table. Explicit and
 scheduled occurrences compile to ordinary RunRequests and add trusted Thing revision/provenance.
-They do not bypass run idempotency, profiles, connection grants, approvals, or queue durability.
+They do not bypass run idempotency, fixed capability-envelope resolution, connection grants, or
+queue durability.
 
 ### 2. Dispatch
 
@@ -173,16 +174,20 @@ as dynamic tools. App Server's experimental capability flag is enabled only when
 present.
 
 For integrations, the runner intersects provider authorization, the persistent account grant, the
-profile ceiling, and per-run narrowing before it exposes an operation. It retrieves exactly one
-selected connection secret only after resource constraints and any live approval succeed. The model
+profile ceiling, per-run narrowing, and resource constraints before it exposes an operation. It
+retrieves exactly one selected connection secret only after that fixed authorization succeeds. The model
 sees account aliases and JSON schemas, never credential values or Secrets Manager references.
 
 Browser computer use runs in a separate unprivileged Chromium helper process. It preserves a
 conversation-local profile, blocks loopback/private/link-local/metadata destinations and redirects,
-rejects downloads and popups, and returns bounded DOM snapshots/screenshots. Navigation and
-observation are read-like; click, type, press, and select can require a live approval according to the
-profile. This protects infrastructure destinations and accidental interaction, but broad public-web
+rejects downloads and popups, and returns bounded DOM snapshots/screenshots. Once browser use and
+network access are admitted, navigation, observation, click, type, press, and select run
+autonomously. This protects infrastructure destinations, but broad public-web
 egress can still disclose information to an attacker-controlled public site.
+
+The runner pins Codex App Server to `approvalPolicy: "never"`. Approval-shaped command or file
+requests are rejected because they indicate that the fixed pre-launch envelope was not represented
+correctly; they are never forwarded to a user. See [the capability envelope](capability-envelope.md).
 
 The child receives a small environment allowlist and, when configured, only
 `AWS_BEARER_TOKEN_BEDROCK` for model access. `ALLOW_AGENT_AWS_CREDENTIAL_CHAIN=true` is an explicit
@@ -212,7 +217,7 @@ its private port-8080 control routes.
 
 The IAM-authenticated control Lambda first proves run ownership and resolves the exact attached
 MicroVM. It then asks AWS for a five-minute, port-scoped proxy token and forwards event polling,
-steering, interruption, approval, or response commands. The lifecycle server forwards commands to
+steering, interruption, or ordinary response commands. The lifecycle server forwards commands to
 the exact runner IPC channel and waits for acknowledgement. Neither API callers nor the agent child
 receive the raw MicroVM endpoint or proxy token. Terminal event JSONL remains the durable record;
 the live ring is intentionally ephemeral.
@@ -424,24 +429,28 @@ delivery configuration keys, never secret values.
 ## Deliberate current limits
 
 - Live App Server events use owner-checked polling rather than push streaming and are retained only
-  in a bounded in-MicroVM ring until terminal artifacts are committed. Steering/interruption and
-  approvals work during an active turn; a queued conversation `interrupt` message still becomes
+  in a bounded in-MicroVM ring until terminal artifacts are committed. Steering, interruption, and
+  ordinary input responses work during an active turn; a queued conversation `interrupt` message still becomes
   input at the next safe slice boundary.
 - Connections currently accept already-issued API keys/tokens. There is no hosted OAuth redirect or
   refresh lifecycle, credential-test endpoint, visual field mapper, polling trigger engine, dynamic
   package loader, or broad app catalog. Integration code remains trusted and image-bundled.
 - Browser computer use is headless public-web automation, not arbitrary desktop control. It blocks
-  obvious local/private/metadata targets and interactive actions can require approval, but it does
+  obvious local/private/metadata targets and runs admitted interactive actions autonomously, but it does
   not provide content DLP or make attacker-controlled public origins trustworthy.
 - Routines support interval schedules only. They skip backlog and reuse ordinary run semantics; they
-  do not yet provide event triggers, branching workflows, calendars, retries of failed agent work,
-  or a durable asynchronous human-approval queue.
+  do not yet provide event triggers, branching workflows, calendars, or retries of failed agent
+  work. Rat Things deliberately has no asynchronous human-approval queue.
 - LocalStack validates persistent-session selection and durable replay, not the Lambda MicroVM
   suspend/resume APIs or endpoint auth. The disposable AWS suite covers that continuation path,
   including retained workspace bytes, real Codex thread resume, expiry fallback, and crash repair.
-- The reconciler repairs missing wake-ups and unattached launch handles, but there is no active-run
-  lease/heartbeat, backend-state repair for an attached execution, or automatic retry of a failed
-  agent run. A new semantic run requires a new submission.
+- Every newly attached execution has a generation token. The worker conditionally heartbeats only
+  while Run ID, MicroVM ID, generation, and `running` status still match; heartbeat writes do not
+  change semantic `updatedAt`. After two missed windows, the reconciler describes the MicroVM and
+  calls a root-owned health route that proves the exact supervised worker generation. A dead exact
+  attachment becomes retryable `execution_lost`; ambiguous identity is quarantined and never
+  terminated automatically. There is still no automatic semantic retry: a new attempt requires a
+  new Run submission.
 - Cancellation is cooperative at the worker and forceful at the backend; it is not guaranteed to
   retract an external side effect already made by an agent or notifier.
 - The GitHub/GitLab webhook prompts include untrusted issue content. Comment runs require the

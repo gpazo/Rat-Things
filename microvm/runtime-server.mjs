@@ -29,7 +29,7 @@ const agentUid = Number(process.env.RUN_AGENT_UID ?? 10001);
 const agentGid = Number(process.env.RUN_AGENT_GID ?? 10001);
 
 // Codex and Chromium run under `agentUid`. Even with inner full access they
-// must not call the root lifecycle/control plane and approve their own work.
+// must not call the root lifecycle/control plane or mutate their own capability envelope.
 ensureUntrustedUidCannotReachPort({ uid: agentUid, port: 8080 });
 
 let activeRun;
@@ -178,10 +178,12 @@ function parseRunHook(body) {
   }
 
   const runId = requiredString(payload, 'runId', 128, /^[A-Za-z0-9-]+$/);
+  const generation = requiredString(payload, 'executionGeneration', 64, /^[a-f0-9]{64}$/);
   const region = requiredString(payload, 'region', 32, /^[a-z]{2}(?:-gov)?-[a-z]+-\d$/);
   const timeoutSeconds = requiredInteger(payload, 'timeoutSeconds', 1, 28_500);
   const environment = {
     RUN_ID: runId,
+    EXECUTION_GENERATION: generation,
     RUN_INPUT_BUCKET: requiredString(payload, 'inputBucket', 63, /^[a-z0-9][a-z0-9.-]+[a-z0-9]$/),
     RUN_INPUT_KEY: requiredString(payload, 'inputKey', 1024),
     RUNS_TABLE_NAME: requiredString(payload, 'runsTableName', 255),
@@ -192,6 +194,7 @@ function parseRunHook(body) {
     DEFAULT_EXECUTION_BACKEND: 'microvm',
     MICROVM_ID: microvmId,
     RUN_TIMEOUT_SECONDS: String(timeoutSeconds),
+    RUN_HEARTBEAT_INTERVAL_MS: String(requiredInteger(payload, 'heartbeatIntervalMs', 10, 300_000)),
   };
   if (typeof payload.persistentSession !== 'boolean') {
     throw new InvalidHookRequest('persistentSession must be a boolean');
@@ -264,10 +267,14 @@ function parseRunHook(body) {
     throw new InvalidHookRequest('allowAgentAwsCredentialChain must be a boolean');
   }
   environment.ALLOW_AGENT_AWS_CREDENTIAL_CHAIN = String(payload.allowAgentAwsCredentialChain);
-  return { microvmId, runId, persistentSession: payload.persistentSession, environment, storage };
+  return { microvmId, runId, generation, persistentSession: payload.persistentSession, environment, storage };
 }
 
 function startRun(run) {
+  const startupStartedAt = Date.now();
+  let storageMountDurationMs = 0;
+  let storagePreparationDurationMs = 0;
+  let storageAlreadyMounted = false;
   validateImage();
   if (activeRun) {
     if (activeRun.runId === run.runId && activeRun.microvmId === run.microvmId) return;
@@ -278,10 +285,14 @@ function startRun(run) {
   }
   if (run.persistentSession) persistentMicrovmId = run.microvmId;
   if (run.storage) {
-    ensureS3FilesMounted(run.storage);
+    const mount = ensureS3FilesMounted(run.storage);
+    storageMountDurationMs = mount.durationMs;
+    storageAlreadyMounted = mount.alreadyMounted;
+    const preparationStartedAt = Date.now();
     const stateRoot = join(run.storage.mountRoot, run.storage.storageKey);
     prepareConversationState(stateRoot);
     prepareTransientRunState(stateRoot, run.runId);
+    storagePreparationDurationMs = Date.now() - preparationStartedAt;
     run.environment.CONVERSATION_STATE_ROOT = stateRoot;
     run.environment.CODEX_HOME = join(stateRoot, 'codex-home');
     run.environment.BROWSER_PROFILE_ROOT = join(stateRoot, 'codex-home', 'browser-profile');
@@ -306,7 +317,15 @@ function startRun(run) {
     },
   };
   child.on('message', (message) => handleRunnerControlMessage(run.runId, message));
-  log('info', 'agent runner started', { runId: run.runId, microvmId: run.microvmId, pid: child.pid });
+  log('info', 'agent runner started', {
+    runId: run.runId,
+    microvmId: run.microvmId,
+    pid: child.pid,
+    startupDurationMs: Date.now() - startupStartedAt,
+    storageMountDurationMs,
+    storagePreparationDurationMs,
+    storageAlreadyMounted,
+  });
   child.once('error', (error) => {
     log('error', 'agent runner process error', { runId: run.runId, error: error.message });
   });
@@ -330,11 +349,8 @@ function parseControlRoute(rawUrl) {
   if (parts.length < 5) return undefined;
   const runId = parts[3];
   if (!/^[A-Za-z0-9-]{1,128}$/.test(runId)) return undefined;
-  if (parts.length === 5 && ['events', 'steer', 'interrupt'].includes(parts[4])) {
+  if (parts.length === 5 && ['events', 'health', 'steer', 'interrupt'].includes(parts[4])) {
     return { runId, operation: parts[4], query: url.searchParams };
-  }
-  if (parts.length === 6 && parts[4] === 'approvals') {
-    return { runId, operation: 'approve', requestId: decodeControlId(parts[5]), query: url.searchParams };
   }
   if (parts.length === 7 && parts[4] === 'requests' && parts[6] === 'respond') {
     return { runId, operation: 'respond', requestId: decodeControlId(parts[5]), query: url.searchParams };
@@ -344,6 +360,27 @@ function parseControlRoute(rawUrl) {
 
 async function handleControlRequest(request, response, route) {
   const run = activeRun;
+  if (route.operation === 'health') {
+    if (request.method !== 'GET') {
+      send(response, 405, { error: 'method_not_allowed' });
+      return;
+    }
+    if (!run) {
+      send(response, 410, { error: 'execution_inactive' });
+      return;
+    }
+    if (run.runId !== route.runId) {
+      send(response, 409, { error: 'execution_identity_conflict' });
+      return;
+    }
+    send(response, 200, {
+      runId: run.runId,
+      generation: run.generation,
+      active: true,
+      workerConnected: run.child.connected,
+    });
+    return;
+  }
   if (!run || run.runId !== route.runId) {
     throw new RuntimeConflict(`run ${route.runId} is not active in this MicroVM`);
   }
@@ -381,24 +418,6 @@ async function handleControlRequest(request, response, route) {
     case 'interrupt':
       await sendControlCommand(run, { type: 'interrupt' });
       break;
-    case 'approve': {
-      if (!route.requestId || !run.control.pendingRequests.has(route.requestId)) {
-        throw new RuntimeConflict(`approval request ${route.requestId ?? ''} is not pending`);
-      }
-      const decision = requiredString(body, 'decision', 32);
-      if (!['accept', 'accept-for-session', 'decline', 'cancel'].includes(decision)) {
-        throw new InvalidHookRequest('approval decision is invalid');
-      }
-      const reason = optionalString(body.reason, 'reason', 1_000);
-      await sendControlCommand(run, {
-        type: 'approve',
-        requestId: route.requestId,
-        decision,
-        ...(reason ? { reason } : {}),
-      });
-      run.control.pendingRequests.delete(route.requestId);
-      break;
-    }
     case 'respond':
       if (!route.requestId || !run.control.pendingRequests.has(route.requestId)) {
         throw new RuntimeConflict(`server request ${route.requestId ?? ''} is not pending`);
@@ -572,6 +591,7 @@ async function terminateActiveRun() {
 }
 
 function ensureS3FilesMounted(storage) {
+  const startedAt = Date.now();
   mkdirSync(storage.mountRoot, { recursive: true, mode: 0o755 });
   // Require the state directory itself to be a mount point. `findmnt -T`
   // reports the parent filesystem (normally `/`) for an unmounted directory,
@@ -580,7 +600,9 @@ function ensureS3FilesMounted(storage) {
     encoding: 'utf8',
     timeout: 5_000,
   });
-  if (mounted.status === 0 && mounted.stdout.trim()) return;
+  if (mounted.status === 0 && mounted.stdout.trim()) {
+    return { alreadyMounted: true, durationMs: Date.now() - startedAt };
+  }
 
   ensureMountWatchdogRunning();
 
@@ -603,7 +625,9 @@ function ensureS3FilesMounted(storage) {
     fileSystemId: storage.fileSystemId,
     accessPointId: storage.accessPointId,
     mountRoot: storage.mountRoot,
+    durationMs: Date.now() - startedAt,
   });
+  return { alreadyMounted: false, durationMs: Date.now() - startedAt };
 }
 
 function ensureMountWatchdogRunning() {

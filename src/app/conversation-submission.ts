@@ -11,7 +11,7 @@ export class ConversationSubmissionService {
   public constructor(
     private readonly conversations: ConversationService,
     private readonly queue: ConversationQueue,
-    private readonly runs: Pick<RunService, 'submit'>,
+    private readonly runs: Pick<RunService, 'idFor' | 'submit'>,
   ) {}
 
   /** Reserves one public Run, then queues only its optional thread preparation. */
@@ -27,6 +27,16 @@ export class ConversationSubmissionService {
       thread.conversationId,
       thread.messageId,
     );
+    const runId = this.runs.idFor(ownerId, submit.idempotencyKey ?? thread.messageId);
+    const preparedAttachments = thread.attachments?.length
+      ? await this.conversations.prepareAttachments({
+          conversationId: thread.conversationId,
+          ownerId,
+          messageId: thread.messageId,
+          sourceRunId: runId,
+          uploads: thread.attachments,
+        })
+      : undefined;
     const result = await this.appendRun({
       conversationId: thread.conversationId,
       ownerId,
@@ -42,6 +52,12 @@ export class ConversationSubmissionService {
       },
       destination: request.destinations?.[0] ?? { kind: 'none' },
       submit,
+      ...(preparedAttachments ? {
+        attachments: preparedAttachments.files,
+        attachmentManifest: preparedAttachments.manifest,
+        attachmentDigest: attachmentDigest(thread.attachments!),
+      } : {}),
+      ...(thread.replyToMessageId ? { replyToMessageId: thread.replyToMessageId } : {}),
     });
     return result.run;
   }
@@ -56,6 +72,10 @@ export class ConversationSubmissionService {
     context: IngressContext;
     destination: RunDestination;
     submit: SubmitOptions;
+    attachments?: Awaited<ReturnType<ConversationService['prepareAttachments']>>['files'];
+    attachmentManifest?: Awaited<ReturnType<ConversationService['prepareAttachments']>>['manifest'];
+    attachmentDigest?: string;
+    replyToMessageId?: string;
   }): Promise<{
     messageId: string;
     runId: string;
@@ -74,8 +94,15 @@ export class ConversationSubmissionService {
         conversationId: input.conversationId,
         messageId: input.messageId,
         delivery: input.delivery,
+        ...(input.attachmentManifest ? { attachmentManifest: input.attachmentManifest } : {}),
+        ...(input.attachmentDigest ? { attachmentDigest: input.attachmentDigest } : {}),
+        ...(input.replyToMessageId ? { replyToMessageId: input.replyToMessageId } : {}),
       },
     });
+    const attachments = run.conversation?.attachmentManifest && input.attachmentManifest &&
+      run.conversation.attachmentManifest.sha256 !== input.attachmentManifest.sha256
+      ? (await this.conversations.readAttachmentManifest(run.conversation.attachmentManifest)).files
+      : input.attachments;
     const receipt = await this.conversations.appendMessage({
       conversationId: input.conversationId,
       ownerId: input.ownerId,
@@ -86,6 +113,8 @@ export class ConversationSubmissionService {
       content: {
         text: input.request.prompt,
         request: input.request,
+        ...(attachments?.length ? { attachments } : {}),
+        ...(input.replyToMessageId ? { replyToMessageId: input.replyToMessageId } : {}),
         metadata: {
           traceId: input.submit.traceId ?? run.runId,
         },
@@ -133,4 +162,15 @@ export function apiConversationId(ownerId: string, conversationKey: string): str
 
 function hash(value: string): string {
   return createHash('sha256').update(value).digest('hex');
+}
+
+function attachmentDigest(
+  attachments: NonNullable<ThreadTarget['attachments']>,
+): string {
+  return hash(JSON.stringify(attachments.map((attachment) => ({
+    name: attachment.name,
+    mediaType: attachment.mediaType,
+    bytes: attachment.bytes.byteLength,
+    sha256: attachment.sha256,
+  }))));
 }

@@ -31,6 +31,7 @@ const request: RunRequest = {
 describe('executor idempotency', () => {
   it('keeps RunMicrovm input stable when a reconciler supplies a new trace ID', async () => {
     const sendMicrovm = vi.fn().mockResolvedValue({ microvmId: 'microvm-1' });
+    const observeStartup = vi.fn();
     const parameterValues: Record<string, string> = {
       image: 'arn:aws:lambda:region:account:microvm-image/runtime',
       version: '3',
@@ -55,6 +56,7 @@ describe('executor idempotency', () => {
         allowedSandboxModes: 'read-only,workspace-write',
         defaultAgentDriver: 'mock',
         allowAgentAwsCredentialChain: false,
+        onStartupObservation: observeStartup,
       },
     );
 
@@ -69,8 +71,16 @@ describe('executor idempotency', () => {
       'version',
       'version',
     ]);
+    expect(observeStartup).toHaveBeenCalledTimes(2);
+    expect(observeStartup).toHaveBeenNthCalledWith(1, {
+      mode: 'launch',
+      outcome: 'succeeded',
+      durationMs: expect.any(Number),
+    });
     expect(JSON.parse(sendMicrovm.mock.calls[0]?.[0].input.runHookPayload)).toMatchObject({
       runId: record.runId,
+      executionGeneration: expect.stringMatching(/^[a-f0-9]{64}$/),
+      heartbeatIntervalMs: 15_000,
       traceId: record.runId,
     });
     expect(sendMicrovm.mock.calls[0]?.[0].input.ingressNetworkConnectors).toEqual([
@@ -135,7 +145,11 @@ describe('executor idempotency', () => {
     };
 
     await expect(executor.start(continuationRecord, request, 'trace'))
-      .resolves.toEqual({ backend: 'microvm', id: 'microvm-session-1' });
+      .resolves.toMatchObject({
+        backend: 'microvm',
+        id: 'microvm-session-1',
+        generation: expect.stringMatching(/^[a-f0-9]{64}$/),
+      });
 
     expect(sendSsm).not.toHaveBeenCalled();
     expect(fetchMock).toHaveBeenCalledWith(
@@ -212,7 +226,11 @@ describe('executor idempotency', () => {
     };
 
     await expect(executor.start(continuationRecord, request, 'trace'))
-      .resolves.toEqual({ backend: 'microvm', id: 'microvm-session-1' });
+      .resolves.toMatchObject({
+        backend: 'microvm',
+        id: 'microvm-session-1',
+        generation: expect.stringMatching(/^[a-f0-9]{64}$/),
+      });
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(fetchMock.mock.calls[1]?.[0]).toBe(fetchMock.mock.calls[0]?.[0]);
@@ -222,6 +240,7 @@ describe('executor idempotency', () => {
 
   it('launches a replacement when AWS terminates a MicroVM during resume', async () => {
     let getCount = 0;
+    const observeStartup = vi.fn();
     const sendMicrovm = vi.fn().mockImplementation((command: { constructor: { name: string } }) => {
       switch (command.constructor.name) {
         case 'GetMicrovmCommand':
@@ -258,6 +277,7 @@ describe('executor idempotency', () => {
         allowedSandboxModes: 'read-only,workspace-write',
         defaultAgentDriver: 'mock',
         allowAgentAwsCredentialChain: false,
+        onStartupObservation: observeStartup,
       },
     );
     const continuationRecord: RunRecord = {
@@ -272,7 +292,11 @@ describe('executor idempotency', () => {
     };
 
     await expect(executor.start(continuationRecord, request, 'trace'))
-      .resolves.toEqual({ backend: 'microvm', id: 'microvm-replacement' });
+      .resolves.toMatchObject({
+        backend: 'microvm',
+        id: 'microvm-replacement',
+        generation: expect.stringMatching(/^[a-f0-9]{64}$/),
+      });
 
     expect(sendMicrovm.mock.calls.map((call) => call[0].constructor.name)).toEqual([
       'GetMicrovmCommand',
@@ -281,6 +305,11 @@ describe('executor idempotency', () => {
       'RunMicrovmCommand',
     ]);
     expect(sendSsm).toHaveBeenCalledTimes(2);
+    expect(observeStartup).toHaveBeenCalledTimes(2);
+    expect(observeStartup.mock.calls.map((call) => call[0])).toEqual([
+      { mode: 'resume', outcome: 'fallback', durationMs: expect.any(Number) },
+      { mode: 'launch', outcome: 'succeeded', durationMs: expect.any(Number) },
+    ]);
   });
 
   it('mounts durable S3 Files state and resumes a Codex thread in a replacement MicroVM', async () => {
@@ -324,7 +353,11 @@ describe('executor idempotency', () => {
     };
 
     await expect(executor.start(continuationRecord, request, 'trace'))
-      .resolves.toEqual({ backend: 'microvm', id: 'microvm-replacement' });
+      .resolves.toMatchObject({
+        backend: 'microvm',
+        id: 'microvm-replacement',
+        generation: expect.stringMatching(/^[a-f0-9]{64}$/),
+      });
 
     const input = sendMicrovm.mock.calls[0]?.[0].input;
     expect(input.egressNetworkConnectors).toEqual([
@@ -342,7 +375,7 @@ describe('executor idempotency', () => {
 });
 
 describe('live MicroVM agent interaction', () => {
-  it('uses an AWS-issued port token for events, steering, and approvals', async () => {
+  it('uses an AWS-issued port token for events, steering, and requested input', async () => {
     const send = vi.fn().mockImplementation((command: { constructor: { name: string } }) => {
       if (command.constructor.name === 'GetMicrovmCommand') {
         return Promise.resolve({
@@ -385,12 +418,12 @@ describe('live MicroVM agent interaction', () => {
 
     await expect(controller.events(target, 0, 25)).resolves.toEqual(snapshot);
     await controller.steer(target, 'Focus on the failing test.');
-    await controller.approve(target, 'approval-7', 'accept-for-session');
+    await controller.respond(target, 'input-7', { answer: 'continue' });
 
     expect(fetchMock.mock.calls.map((call) => call[0])).toEqual([
       `https://live.lambda-microvm.us-east-1.on.aws/agent-runtime/v1/runs/${record.runId}/events?after=0&limit=25`,
       `https://live.lambda-microvm.us-east-1.on.aws/agent-runtime/v1/runs/${record.runId}/steer`,
-      `https://live.lambda-microvm.us-east-1.on.aws/agent-runtime/v1/runs/${record.runId}/approvals/approval-7`,
+      `https://live.lambda-microvm.us-east-1.on.aws/agent-runtime/v1/runs/${record.runId}/requests/input-7/respond`,
     ]);
     expect(fetchMock.mock.calls[2]?.[1]).toEqual(expect.objectContaining({
       method: 'POST',
@@ -398,7 +431,7 @@ describe('live MicroVM agent interaction', () => {
         'x-aws-proxy-auth': 'live-token',
         'x-aws-proxy-port': '8080',
       }),
-      body: JSON.stringify({ decision: 'accept-for-session' }),
+      body: JSON.stringify({ result: { answer: 'continue' } }),
     }));
     vi.unstubAllGlobals();
   });

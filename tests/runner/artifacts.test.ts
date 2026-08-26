@@ -217,6 +217,27 @@ describe('agent artifact catalog', () => {
     }, 'artifacts', 'owner-1')).toThrow('outside its owner scope');
   });
 
+  it('accepts content-addressed upload blobs in the authenticated owner scope', () => {
+    const ownerId = 'owner-1';
+    const digest = 'a'.repeat(64);
+    expect(() => assertArtifactCatalogScope({
+      version: '1',
+      files: [{
+        id: createHash('sha256').update('uploads/message/file.txt').digest('hex').slice(0, 24),
+        path: 'uploads/message/file.txt',
+        mediaType: 'text/plain',
+        bytes: 4,
+        createdAt: '2026-08-25T12:00:00.000Z',
+        sourceRunId: 'run-upload',
+        file: {
+          bucket: 'artifacts',
+          key: `owners/${createHash('sha256').update(ownerId).digest('hex').slice(0, 32)}/blobs/sha256/${digest}`,
+          sha256: digest,
+        },
+      }],
+    }, 'artifacts', ownerId)).not.toThrow();
+  });
+
   it('preserves browser media types for common site and audio assets', async () => {
     const root = await mkdtemp(join(tmpdir(), 'rat-artifact-site-types-'));
     const store = new MemoryArtifacts();

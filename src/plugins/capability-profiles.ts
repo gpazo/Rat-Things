@@ -33,8 +33,6 @@ export function createBuiltinCapabilityProfiles(): CapabilityProfileDefinition[]
     {
       id: 'read-only',
       sandbox: 'read-only',
-      approvalPolicy: 'untrusted',
-      approvalsReviewer: 'user',
       networkAccess: true,
       webSearch: 'live',
       computerUse: 'disabled',
@@ -43,8 +41,6 @@ export function createBuiltinCapabilityProfiles(): CapabilityProfileDefinition[]
     {
       id: 'small-business',
       sandbox: 'danger-full-access',
-      approvalPolicy: 'on-request',
-      approvalsReviewer: 'user',
       networkAccess: true,
       webSearch: 'live',
       computerUse: 'browser',
@@ -53,8 +49,6 @@ export function createBuiltinCapabilityProfiles(): CapabilityProfileDefinition[]
     {
       id: 'microvm-full',
       sandbox: 'danger-full-access',
-      approvalPolicy: 'never',
-      approvalsReviewer: 'user',
       networkAccess: true,
       webSearch: 'live',
       computerUse: 'browser',
@@ -74,8 +68,6 @@ export function resolveAgentProfile(
   const networkAccess = profile.networkAccess && requested.networkAccess !== false;
   const capabilities = {
     ...requested,
-    approvalPolicy: moreRestrictiveApproval(profile.approvalPolicy, requested.approvalPolicy),
-    approvalsReviewer: profile.approvalsReviewer,
     networkAccess,
     webSearch: lesserWebSearch(profile.webSearch, requested.webSearch),
     computerUse: !networkAccess || profile.computerUse === 'disabled' || requested.computerUse === 'disabled'
@@ -99,16 +91,6 @@ function lesserSandbox(profile: SandboxMode, requested?: SandboxMode): SandboxMo
   if (!requested) return profile;
   const order: SandboxMode[] = ['read-only', 'workspace-write', 'danger-full-access'];
   return order[Math.min(order.indexOf(profile), order.indexOf(requested))] as SandboxMode;
-}
-
-function moreRestrictiveApproval(
-  profile: CapabilityProfileDefinition['approvalPolicy'],
-  requested?: CapabilityProfileDefinition['approvalPolicy'],
-): CapabilityProfileDefinition['approvalPolicy'] {
-  if (!requested) return profile;
-  const order: CapabilityProfileDefinition['approvalPolicy'][] = ['never', 'on-request', 'untrusted'];
-  return order[Math.max(order.indexOf(profile), order.indexOf(requested))] as
-    CapabilityProfileDefinition['approvalPolicy'];
 }
 
 function lesserWebSearch(

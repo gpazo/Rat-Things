@@ -27,6 +27,7 @@ import {
 import type {
   ArtifactReference,
   ConversationRunBinding,
+  ExecutionLivenessObservation,
   ExecutionReference,
   ListRunsResult,
   RunError,
@@ -40,10 +41,12 @@ import type { ConversationWakeMessage } from '../domain/conversations.js';
 import { InvalidStateTransitionError } from '../domain/state.js';
 import type {
   ArtifactStore,
+  AgentToolCallStore,
   CreateRunResult,
   RunQueue,
   RunStore,
 } from '../core/ports.js';
+import type { AgentToolCallRecord } from '../domain/interaction.js';
 import type { PublicationGrantStore } from '../core/publication-publisher.js';
 import type { PublicationObjectStore } from '../core/publication-service.js';
 import { validateArtifactPath } from '../domain/artifacts.js';
@@ -97,7 +100,7 @@ export function createAwsClients(region = process.env.AWS_REGION): AwsClients {
   };
 }
 
-export class DynamoRunStore implements RunStore {
+export class DynamoRunStore implements RunStore, AgentToolCallStore {
   public constructor(
     private readonly client: DynamoDBDocumentClient,
     private readonly tableName: string,
@@ -166,8 +169,214 @@ export class DynamoRunStore implements RunStore {
     return this.update(runId, { executionInput, conversation }, ['queued']);
   }
 
-  public attachExecution(runId: string, execution: ExecutionReference): Promise<RunRecord> {
-    return this.update(runId, { execution }, ['dispatching', 'running']);
+  public async attachExecution(runId: string, execution: ExecutionReference): Promise<RunRecord> {
+    if (!execution.generation) return this.update(runId, { execution }, ['dispatching', 'running']);
+    const now = new Date().toISOString();
+    try {
+      const result = await this.client.send(new UpdateCommand({
+        TableName: this.tableName,
+        Key: { runId },
+        UpdateExpression: 'SET #execution = :execution, #heartbeatAt = :now, #updatedAt = :now REMOVE #liveness',
+        ConditionExpression: [
+          'attribute_exists(runId)',
+          '#status IN (:dispatching, :running)',
+          '(attribute_not_exists(#execution) OR (#execution.#id = :pending AND (attribute_not_exists(#execution.#generation) OR #execution.#generation = :generation)))',
+        ].join(' AND '),
+        ExpressionAttributeNames: {
+          '#status': 'status',
+          '#execution': 'execution',
+          '#id': 'id',
+          '#generation': 'generation',
+          '#heartbeatAt': 'heartbeatAt',
+          '#updatedAt': 'updatedAt',
+          '#liveness': 'liveness',
+        },
+        ExpressionAttributeValues: {
+          ':dispatching': 'dispatching',
+          ':running': 'running',
+          ':pending': 'pending',
+          ':generation': execution.generation,
+          ':execution': execution,
+          ':now': now,
+        },
+        ReturnValues: 'ALL_NEW',
+      }));
+      return result.Attributes as unknown as RunRecord;
+    } catch (error) {
+      if (!isConditionalFailure(error)) throw error;
+      const current = await this.get(runId);
+      if (!current) throw new Error(`run ${runId} not found`);
+      // RunMicrovm is idempotent by run ID. A reconciler/SQS redelivery can
+      // therefore receive the same MicroVM while the first delivery is
+      // attaching it. Treat an attachment that has already won as success;
+      // importantly, do not rewrite it because the runner may already have
+      // added startedAt or moved the Run to a terminal state.
+      if (
+        current.execution?.backend === execution.backend &&
+        current.execution.id === execution.id &&
+        current.execution.generation === execution.generation
+      ) {
+        return current;
+      }
+      throw new InvalidStateTransitionError(current.status, current.status);
+    }
+  }
+
+  /** Starts only the exact execution generation that the dispatcher attached. */
+  public async startExecution(
+    runId: string,
+    execution: ExecutionReference,
+    startedAt: string,
+  ): Promise<RunRecord> {
+    const result = await this.updateExactExecution({
+      runId,
+      execution,
+      expectedStatuses: ['dispatching'],
+      updateExpression: [
+        'SET #status = :running, #execution = :startedExecution,',
+        '#heartbeatAt = :startedAt, #updatedAt = :startedAt',
+        'REMOVE #liveness',
+      ].join(' '),
+      names: {
+        '#heartbeatAt': 'heartbeatAt',
+        '#updatedAt': 'updatedAt',
+        '#liveness': 'liveness',
+      },
+      values: {
+        ':running': 'running',
+        ':startedAt': startedAt,
+        ':startedExecution': { ...execution, startedAt },
+      },
+      returnValues: 'ALL_NEW',
+    });
+    if (!result || result === true) throw new InvalidStateTransitionError('dispatching', 'running');
+    return result;
+  }
+
+  /** Refreshes liveness without changing semantic updatedAt. */
+  public async heartbeatExecution(
+    runId: string,
+    execution: ExecutionReference,
+    heartbeatAt: string,
+  ): Promise<boolean> {
+    return Boolean(await this.updateExactExecution({
+      runId,
+      execution,
+      expectedStatuses: ['running'],
+      updateExpression: 'SET #heartbeatAt = :heartbeatAt REMOVE #liveness',
+      names: { '#heartbeatAt': 'heartbeatAt', '#liveness': 'liveness' },
+      values: { ':heartbeatAt': heartbeatAt },
+    }));
+  }
+
+  /** Fails a stale Run only if its attachment and observed heartbeat are unchanged. */
+  public async failExecution(
+    runId: string,
+    execution: ExecutionReference,
+    expectedHeartbeatAt: string,
+    error: RunError,
+  ): Promise<boolean> {
+    return this.terminalizeExactExecution({
+      runId,
+      execution,
+      expectedStatuses: ['dispatching', 'running'],
+      expectedHeartbeatAt,
+      status: 'failed',
+      error,
+    });
+  }
+
+  /** Finalizes cancellation only for the execution generation that was inspected. */
+  public async cancelExecution(
+    runId: string,
+    execution: ExecutionReference,
+  ): Promise<boolean> {
+    return this.terminalizeExactExecution({
+      runId,
+      execution,
+      expectedStatuses: ['cancelling'],
+      status: 'cancelled',
+    });
+  }
+
+  public async beginAgentToolCall(record: AgentToolCallRecord): Promise<AgentToolCallRecord> {
+    validateToolCallRecord(record);
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      const run = await this.get(record.runId);
+      if (!run) throw new Error(`run ${record.runId} not found`);
+      assertToolCallExecution(run, record.executionId, record.executionGeneration);
+      if (run.status !== 'running') throw new Error('dynamic tool call Run is not active');
+      const current = run.agentToolCalls ?? [];
+      const existing = current.find((candidate) => candidate.requestId === record.requestId);
+      if (existing) {
+        if (
+          existing.argumentDigest !== record.argumentDigest ||
+          existing.admittedToolsDigest !== record.admittedToolsDigest ||
+          existing.namespace !== record.namespace ||
+          existing.tool !== record.tool ||
+          existing.executionGeneration !== record.executionGeneration
+        ) throw new Error(`dynamic tool request ${record.requestId} was reused with different input`);
+        return existing;
+      }
+      if (current.length >= 256) throw new Error('dynamic tool call ledger exceeds 256 records');
+      if (await this.replaceAgentToolCalls(run, [...current, record], ['running'])) return record;
+    }
+    throw new Error('dynamic tool call ledger changed too frequently');
+  }
+
+  public async settleAgentToolCall(input: {
+    runId: string;
+    execution: ExecutionReference;
+    requestId: string;
+    status: 'succeeded' | 'failed';
+    settledAt: string;
+    resultDigest: string;
+    error?: string;
+  }): Promise<AgentToolCallRecord> {
+    if (!input.execution.generation) throw new Error('dynamic tool settlement requires a generation');
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      const run = await this.get(input.runId);
+      if (!run) throw new Error(`run ${input.runId} not found`);
+      assertToolCallExecution(run, input.execution.id, input.execution.generation);
+      if (run.status !== 'running') throw new Error('dynamic tool call Run is not active');
+      const current = run.agentToolCalls ?? [];
+      const index = current.findIndex((candidate) => candidate.requestId === input.requestId);
+      if (index < 0) throw new Error(`dynamic tool request ${input.requestId} is not recorded`);
+      const existing = current[index]!;
+      if (existing.status !== 'pending') {
+        if (existing.status === input.status && existing.resultDigest === input.resultDigest) return existing;
+        throw new Error(`dynamic tool request ${input.requestId} is already ${existing.status}`);
+      }
+      const settled: AgentToolCallRecord = {
+        ...existing,
+        status: input.status,
+        settledAt: input.settledAt,
+        resultDigest: input.resultDigest,
+        ...(input.error ? { error: input.error.replace(/[\r\n]+/g, ' ').slice(0, 500) } : {}),
+      };
+      const next = current.slice();
+      next[index] = settled;
+      if (await this.replaceAgentToolCalls(run, next, ['running'])) return settled;
+    }
+    throw new Error('dynamic tool call settlement raced too frequently');
+  }
+
+  /** Records bounded repair evidence without making the Run look semantically updated. */
+  public async recordLivenessInspection(
+    runId: string,
+    execution: ExecutionReference,
+    expectedHeartbeatAt: string,
+    observation: ExecutionLivenessObservation,
+  ): Promise<boolean> {
+    return Boolean(await this.updateExactExecution({
+      runId,
+      execution,
+      expectedStatuses: ['dispatching', 'running', 'cancelling'],
+      expectedHeartbeatAt,
+      updateExpression: 'SET #liveness = :liveness',
+      names: { '#liveness': 'liveness' },
+      values: { ':liveness': observation },
+    }));
   }
 
   public complete(runId: string, result: RunResult): Promise<RunRecord> {
@@ -180,6 +389,212 @@ export class DynamoRunStore implements RunStore {
     from: RunStatus[] = ['queued', 'dispatching', 'running', 'cancelling'],
   ): Promise<RunRecord> {
     return this.update(runId, { status: 'failed', error }, from);
+  }
+
+  /**
+   * Commits terminal Run state and marks every exact-generation pending tool
+   * call interrupted in the same conditional item update. Conversation
+   * completion can therefore never observe a terminal Run with a stale
+   * pending call.
+   */
+  private async terminalizeExactExecution(options: {
+    runId: string;
+    execution: ExecutionReference;
+    expectedStatuses: RunStatus[];
+    expectedHeartbeatAt?: string;
+    status: 'failed' | 'cancelled';
+    error?: RunError;
+  }): Promise<boolean> {
+    const generation = options.execution.generation;
+    if (!generation) return false;
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      const run = await this.get(options.runId);
+      if (
+        !run ||
+        !options.expectedStatuses.includes(run.status) ||
+        run.execution?.backend !== options.execution.backend ||
+        run.execution.id !== options.execution.id ||
+        run.execution.generation !== generation ||
+        (options.expectedHeartbeatAt !== undefined && run.heartbeatAt !== options.expectedHeartbeatAt)
+      ) return false;
+      const settledAt = new Date().toISOString();
+      const currentCalls = run.agentToolCalls ?? [];
+      const nextCalls = currentCalls.map((call): AgentToolCallRecord => (
+        call.status === 'pending' &&
+        call.executionId === options.execution.id &&
+        call.executionGeneration === generation
+          ? {
+              ...call,
+              status: 'interrupted',
+              settledAt,
+              error: 'execution ended before the tool result was durably settled; outcome is unknown and the call must not be replayed automatically',
+            }
+          : call
+      ));
+      const values: Record<string, unknown> = {
+        ':backend': options.execution.backend,
+        ':executionId': options.execution.id,
+        ':generation': generation,
+        ':status': options.status,
+        ':updatedAt': settledAt,
+        ':nextCalls': nextCalls,
+        ...(run.agentToolCalls ? { ':currentCalls': currentCalls } : {}),
+        ...(options.error ? { ':error': options.error } : {}),
+      };
+      const names: Record<string, string> = {
+        '#status': 'status',
+        '#execution': 'execution',
+        '#backend': 'backend',
+        '#id': 'id',
+        '#generation': 'generation',
+        '#updatedAt': 'updatedAt',
+        '#agentToolCalls': 'agentToolCalls',
+        ...(options.error ? { '#error': 'error' } : {}),
+      };
+      const statusValues = options.expectedStatuses.map((status, index) => {
+        values[`:expectedStatus${index}`] = status;
+        return `:expectedStatus${index}`;
+      });
+      const conditions = [
+        'attribute_exists(runId)',
+        `#status IN (${statusValues.join(', ')})`,
+        '#execution.#backend = :backend',
+        '#execution.#id = :executionId',
+        '#execution.#generation = :generation',
+        run.agentToolCalls
+          ? '#agentToolCalls = :currentCalls'
+          : 'attribute_not_exists(#agentToolCalls)',
+      ];
+      if (options.expectedHeartbeatAt !== undefined) {
+        names['#heartbeatAt'] = 'heartbeatAt';
+        values[':expectedHeartbeatAt'] = options.expectedHeartbeatAt;
+        conditions.push('#heartbeatAt = :expectedHeartbeatAt');
+      }
+      try {
+        await this.client.send(new UpdateCommand({
+          TableName: this.tableName,
+          Key: { runId: options.runId },
+          UpdateExpression: [
+            'SET #status = :status, #updatedAt = :updatedAt, #agentToolCalls = :nextCalls',
+            ...(options.error ? [', #error = :error'] : []),
+          ].join(''),
+          ConditionExpression: conditions.join(' AND '),
+          ExpressionAttributeNames: names,
+          ExpressionAttributeValues: values,
+        }));
+        return true;
+      } catch (error) {
+        if (!isConditionalFailure(error)) throw error;
+      }
+    }
+    return false;
+  }
+
+  private async replaceAgentToolCalls(
+    run: RunRecord,
+    next: AgentToolCallRecord[],
+    statuses: RunStatus[],
+  ): Promise<boolean> {
+    const execution = run.execution;
+    if (!execution?.generation) return false;
+    const values: Record<string, unknown> = {
+      ':backend': execution.backend,
+      ':executionId': execution.id,
+      ':generation': execution.generation,
+      ':next': next,
+      ...(run.agentToolCalls ? { ':current': run.agentToolCalls } : {}),
+    };
+    const expected = statuses.map((status, index) => {
+      values[`:status${index}`] = status;
+      return `:status${index}`;
+    });
+    try {
+      await this.client.send(new UpdateCommand({
+        TableName: this.tableName,
+        Key: { runId: run.runId },
+        UpdateExpression: 'SET #agentToolCalls = :next',
+        ConditionExpression: [
+          `#status IN (${expected.join(', ')})`,
+          '#execution.#backend = :backend',
+          '#execution.#id = :executionId',
+          '#execution.#generation = :generation',
+          run.agentToolCalls
+            ? '#agentToolCalls = :current'
+            : 'attribute_not_exists(#agentToolCalls)',
+        ].join(' AND '),
+        ExpressionAttributeNames: {
+          '#status': 'status',
+          '#execution': 'execution',
+          '#backend': 'backend',
+          '#id': 'id',
+          '#generation': 'generation',
+          '#agentToolCalls': 'agentToolCalls',
+        },
+        ExpressionAttributeValues: values,
+      }));
+      return true;
+    } catch (error) {
+      if (isConditionalFailure(error)) return false;
+      throw error;
+    }
+  }
+
+  private async updateExactExecution(options: {
+    runId: string;
+    execution: ExecutionReference;
+    expectedStatuses: RunStatus[];
+    expectedHeartbeatAt?: string;
+    updateExpression: string;
+    names?: Record<string, string>;
+    values?: Record<string, unknown>;
+    returnValues?: 'ALL_NEW';
+  }): Promise<RunRecord | true | undefined> {
+    if (!options.execution.generation) return undefined;
+    const names: Record<string, string> = {
+      '#status': 'status',
+      '#execution': 'execution',
+      '#backend': 'backend',
+      '#id': 'id',
+      '#generation': 'generation',
+      ...options.names,
+    };
+    const values: Record<string, unknown> = {
+      ':backend': options.execution.backend,
+      ':executionId': options.execution.id,
+      ':generation': options.execution.generation,
+      ...options.values,
+    };
+    const statuses = options.expectedStatuses.map((status, index) => {
+      values[`:expectedStatus${index}`] = status;
+      return `:expectedStatus${index}`;
+    });
+    const conditions = [
+      'attribute_exists(runId)',
+      `#status IN (${statuses.join(', ')})`,
+      '#execution.#backend = :backend',
+      '#execution.#id = :executionId',
+      '#execution.#generation = :generation',
+    ];
+    if (options.expectedHeartbeatAt !== undefined) {
+      names['#heartbeatAt'] = 'heartbeatAt';
+      values[':expectedHeartbeatAt'] = options.expectedHeartbeatAt;
+      conditions.push('#heartbeatAt = :expectedHeartbeatAt');
+    }
+    try {
+      const result = await this.client.send(new UpdateCommand({
+        TableName: this.tableName,
+        Key: { runId: options.runId },
+        UpdateExpression: options.updateExpression,
+        ConditionExpression: conditions.join(' AND '),
+        ExpressionAttributeNames: names,
+        ExpressionAttributeValues: values,
+        ...(options.returnValues ? { ReturnValues: options.returnValues } : {}),
+      }));
+      return options.returnValues ? result.Attributes as unknown as RunRecord : true;
+    } catch (error) {
+      if (isConditionalFailure(error)) return undefined;
+      throw error;
+    }
   }
 
   private async update(
@@ -669,6 +1084,37 @@ export class CachedSecretReader implements SecretReader {
     this.values.set(secretArn, { value, expiresAt: Date.now() + this.ttlMs });
     return value;
   }
+}
+
+function validateToolCallRecord(record: AgentToolCallRecord): void {
+  if (
+    record.version !== '1' ||
+    record.method !== 'item/tool/call' ||
+    record.status !== 'pending' ||
+    !record.runId ||
+    !record.requestId ||
+    Buffer.byteLength(record.requestId, 'utf8') > 256 ||
+    !record.executionId ||
+    !/^[a-f0-9]{64}$/.test(record.executionGeneration) ||
+    (record.namespace !== null && (!record.namespace || Buffer.byteLength(record.namespace, 'utf8') > 128)) ||
+    !record.tool ||
+    Buffer.byteLength(record.tool, 'utf8') > 128 ||
+    !/^[a-f0-9]{64}$/.test(record.argumentDigest) ||
+    !/^[a-f0-9]{64}$/.test(record.admittedToolsDigest) ||
+    !Number.isFinite(Date.parse(record.startedAt))
+  ) throw new Error('dynamic tool call record is invalid');
+}
+
+function assertToolCallExecution(
+  run: RunRecord,
+  executionId: string,
+  executionGeneration: string,
+): void {
+  if (
+    run.execution?.backend !== 'microvm' ||
+    run.execution.id !== executionId ||
+    run.execution.generation !== executionGeneration
+  ) throw new Error('dynamic tool call lost its execution authority');
 }
 
 function isConditionalFailure(error: unknown): boolean {

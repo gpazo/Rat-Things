@@ -31,7 +31,6 @@ describe('integration tool runtime', () => {
     const getSecret = vi.fn().mockImplementation((reference: string) => Promise.resolve(
       JSON.stringify({ token: `${reference}-token` }),
     ));
-    const approve = vi.fn().mockResolvedValue(true);
     const runtime = new IntegrationRuntime({
       registry: new IntegrationPluginRegistry([plugin]),
       store,
@@ -46,7 +45,6 @@ describe('integration tool runtime', () => {
           { connection: 'mail-business', preset: 'read-write' },
         ],
       },
-      approve,
     });
 
     expect(session.tools).toHaveLength(1);
@@ -75,11 +73,6 @@ describe('integration tool runtime', () => {
       arguments: { account: 'mail-business', input: { to: 'customer@example.com' } },
     })).resolves.toMatchObject({ account: 'mail-business', authenticated: true });
 
-    expect(approve).toHaveBeenCalledOnce();
-    expect(approve).toHaveBeenCalledWith(expect.objectContaining({
-      connectionAlias: 'mail-business',
-      approval: 'always',
-    }));
     expect(getSecret).toHaveBeenCalledTimes(2);
     expect(execute).toHaveBeenCalledTimes(2);
   });
@@ -117,7 +110,7 @@ describe('integration tool runtime', () => {
     expect(session.tools[0]?.tools.map((tool) => tool.name)).toEqual(['messages_search']);
   });
 
-  it('enforces resource constraints before approval or credential access', async () => {
+  it('enforces resource constraints before credential access', async () => {
     const execute = vi.fn();
     const plugin = mailPlugin(execute);
     const scoped = connection('scoped-id', 'mail-scoped', 'full', ['mail.read', 'mail.send']);
@@ -126,7 +119,6 @@ describe('integration tool runtime', () => {
       resourceConstraints: { to: ['allowed@example.com'] },
     };
     const getSecret = vi.fn();
-    const approve = vi.fn();
     const runtime = new IntegrationRuntime({
       registry: new IntegrationPluginRegistry([plugin]),
       store: memoryStore([scoped], [constrained]),
@@ -135,7 +127,6 @@ describe('integration tool runtime', () => {
     const session = await runtime.prepare({
       ownerId: 'owner-1',
       request: { connections: [{ connection: 'mail-scoped' }] },
-      approve,
     });
 
     await expect(session.call({
@@ -143,7 +134,6 @@ describe('integration tool runtime', () => {
       tool: 'messages_send',
       arguments: { account: 'mail-scoped', input: { to: 'blocked@example.com' } },
     })).rejects.toThrow('outside the connection resource grant');
-    expect(approve).not.toHaveBeenCalled();
     expect(getSecret).not.toHaveBeenCalled();
     expect(execute).not.toHaveBeenCalled();
   });
@@ -169,7 +159,6 @@ function mailPlugin(execute: IntegrationPlugin['execute']): IntegrationPlugin {
           access: 'read',
           risk: 'routine',
           requiredProviderScopes: ['mail.read'],
-          defaultApproval: 'never',
           inputSchema: { type: 'object' },
         },
         {
@@ -179,7 +168,6 @@ function mailPlugin(execute: IntegrationPlugin['execute']): IntegrationPlugin {
           access: 'write',
           risk: 'consequential',
           requiredProviderScopes: ['mail.send'],
-          defaultApproval: 'always',
           inputSchema: { type: 'object' },
         },
       ],

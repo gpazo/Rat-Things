@@ -86,7 +86,6 @@ const commands = new Set([
   'watch',
   'steer',
   'interrupt',
-  'approve',
   'respond',
   'plugins',
   'profiles',
@@ -194,9 +193,6 @@ async function main(): Promise<void> {
         'POST',
         {},
       ));
-      return;
-    case 'approve':
-      await approve(args);
       return;
     case 'respond':
       await respond(args);
@@ -686,9 +682,7 @@ async function watch(args: Arguments): Promise<void> {
         process.stdout.write(`${JSON.stringify(event)}\n`);
       }
       for (const pending of snapshot.pendingRequests) {
-        process.stderr.write(
-          `approval pending: ${pending.requestId} ${pending.method}\n`,
-        );
+        process.stderr.write(`agent request pending: ${pending.requestId} ${pending.method}\n`);
       }
     }
     const last = snapshot.events.at(-1);
@@ -708,17 +702,6 @@ async function steer(args: Arguments): Promise<void> {
     `/v1/runs/${encodeURIComponent(runId)}/steer`,
     'POST',
     { prompt },
-  ));
-}
-
-async function approve(args: Arguments): Promise<void> {
-  const runId = requiredPositional(args, 0, 'run ID');
-  const requestId = requiredPositional(args, 1, 'approval request ID');
-  const decision = args.values.get('decision') ?? 'accept';
-  print(await api(
-    `/v1/runs/${encodeURIComponent(runId)}/approvals/${encodeURIComponent(requestId)}`,
-    'POST',
-    compact({ decision, reason: args.values.get('reason') }),
   ));
 }
 
@@ -1057,8 +1040,6 @@ function agentFromArguments(args: Arguments, localMode: boolean): Record<string,
     SandboxMode | undefined;
   const capabilities = compact({
     profile: args.values.get('profile'),
-    approvalPolicy: args.values.get('approval-policy') ?? args.values.get('approval'),
-    approvalsReviewer: args.values.get('approval-reviewer'),
     networkAccess: args.flags.has('network')
       ? true
       : args.flags.has('no-network')
@@ -1426,7 +1407,7 @@ function help(showAll: boolean): void {
   process.stdout.write(`\nAgent and automation options\n\n`);
   process.stdout.write(`  rat-things chat [--thread NAME] [--driver codex] [--model ID]\n`);
   process.stdout.write(`    [--sandbox MODE] [--reasoning-effort LEVEL] [--reasoning-summary MODE]\n`);
-  process.stdout.write(`    [--profile NAME] [--approval-policy POLICY] [--approval-reviewer REVIEWER]\n`);
+  process.stdout.write(`    [--profile NAME]\n`);
   process.stdout.write(`    [--network|--no-network] [--web-search MODE] [--browser|--no-browser]\n`);
   process.stdout.write(`    [--skill NAME]... [--app NAME]... [--mcp NAME]...\n`);
   process.stdout.write(`    [--connection-set NAME] [--connection ACCOUNT[=PRESET]]...\n`);
@@ -1444,7 +1425,6 @@ function help(showAll: boolean): void {
   process.stdout.write(`  rat-things watch RUN_ID [--follow] [--after SEQUENCE] [--json]\n`);
   process.stdout.write(`  rat-things steer RUN_ID "Additional direction"\n`);
   process.stdout.write(`  rat-things interrupt RUN_ID\n`);
-  process.stdout.write(`  rat-things approve RUN_ID REQUEST_ID [--decision DECISION] [--reason TEXT]\n`);
   process.stdout.write(`  rat-things respond RUN_ID REQUEST_ID --result JSON\n`);
   process.stdout.write(`\nIntegrations\n\n`);
   process.stdout.write(`  rat-things plugins\n`);

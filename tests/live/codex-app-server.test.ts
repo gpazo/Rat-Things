@@ -1,5 +1,5 @@
-import { mkdtemp, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { copyFile, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { homedir, tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { runCodexAppServer } from '../../src/runner/codex-app-server.js';
@@ -26,8 +26,6 @@ live('real Codex App Server', () => {
         persistent: false,
         modelProvider: 'openai',
         networkAccess: false,
-        approvalPolicy: 'never',
-        approvalsReviewer: 'user',
         dynamicTools: [{
           type: 'namespace',
           name: 'rat_test',
@@ -62,4 +60,57 @@ live('real Codex App Server', () => {
       await rm(workspace, { recursive: true, force: true });
     }
   }, 130_000);
+
+  it('resumes and compacts a persisted native thread from a fresh app-server process', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'rat-codex-persistence-'));
+    const workspace = join(root, 'workspace');
+    const codexHome = join(root, 'codex-home');
+    const marker = `RAT_NATIVE_COMPACTION_${Date.now()}`;
+    try {
+      await Promise.all([
+        mkdir(workspace, { recursive: true }),
+        mkdir(codexHome, { recursive: true }),
+      ]);
+      await copyFile(join(homedir(), '.codex', 'auth.json'), join(codexHome, 'auth.json'));
+      await writeFile(join(codexHome, 'config.toml'), [
+        'approval_policy = "never"',
+        'sandbox_mode = "read-only"',
+        'model_auto_compact_token_limit = 1',
+        '',
+      ].join('\n'));
+
+      const environment = { ...process.env, CODEX_HOME: codexHome };
+      const first = await runCodexAppServer({
+        binary: process.env.CODEX_BINARY ?? resolve('node_modules/.bin/codex'),
+        workspace,
+        environment,
+        timeoutMs: 180_000,
+        prompt: `Remember this exact marker for the next turn: ${marker}. Reply only STORED.`,
+        sandbox: 'read-only',
+        persistent: true,
+        modelProvider: 'openai',
+        networkAccess: false,
+      });
+      expect(first.fullText.trim()).toBe('STORED');
+
+      const second = await runCodexAppServer({
+        binary: process.env.CODEX_BINARY ?? resolve('node_modules/.bin/codex'),
+        workspace,
+        environment,
+        timeoutMs: 240_000,
+        prompt: 'Reply with only the exact marker I asked you to remember in the previous turn.',
+        sandbox: 'read-only',
+        persistent: true,
+        modelProvider: 'openai',
+        resumeThreadId: first.threadId,
+        networkAccess: false,
+      });
+
+      expect(second.threadId).toBe(first.threadId);
+      expect(second.fullText.trim()).toBe(marker);
+      expect(second.events.toString('utf8')).toContain('contextCompaction');
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 430_000);
 });

@@ -40,8 +40,6 @@ describe('parseRunRequest', () => {
           personality: 'pragmatic',
           capabilities: {
             profile: 'trusted-browser',
-            approvalPolicy: 'on-request',
-            approvalsReviewer: 'auto-review',
             networkAccess: true,
             webSearch: 'live',
             computerUse: 'browser',
@@ -98,8 +96,6 @@ describe('parseRunRequest', () => {
           personality: 'pragmatic',
           capabilities: {
             profile: 'trusted-browser',
-            approvalPolicy: 'on-request',
-            approvalsReviewer: 'auto-review',
             networkAccess: true,
             webSearch: 'live',
             computerUse: 'browser',

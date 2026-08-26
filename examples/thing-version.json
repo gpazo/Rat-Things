@@ -1,7 +1,7 @@
 {
   "version": "1",
   "name": "Customer operations review",
-  "goal": "Review support messages and payment exceptions. Draft recommended follow-ups and do not perform external writes without approval.",
+  "goal": "Review support messages and payment exceptions. Draft recommended follow-ups. External writes are not granted.",
   "trigger": {
     "kind": "schedule",
     "expression": "rate(30 minutes)"

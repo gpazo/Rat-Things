@@ -194,5 +194,9 @@ if [[ "$unexpected" -ne 0 ]]; then
 fi
 
 printf 'destroyed %s in %s at %s\n' "$deployment_id" "$aws_region" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >"$run_dir/destroyed.txt"
+if [[ -f "$run_root/latest" && "$(<"$run_root/latest")" == "$deployment_id" ]]; then
+  : >"$run_root/latest"
+  find "$run_root/latest" -type f -delete
+fi
 echo "Ephemeral stack $deployment_id was destroyed."
 echo "The customer-managed KMS key is disabled and scheduled for deletion because AWS does not permit immediate KMS key deletion."

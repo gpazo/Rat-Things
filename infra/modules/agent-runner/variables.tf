@@ -129,6 +129,36 @@ variable "run_retention_seconds" {
   }
 }
 
+variable "run_heartbeat_interval_seconds" {
+  description = "Worker heartbeat interval for generation-fenced active Run liveness."
+  type        = number
+  default     = 15
+
+  validation {
+    condition = (
+      floor(var.run_heartbeat_interval_seconds) == var.run_heartbeat_interval_seconds &&
+      var.run_heartbeat_interval_seconds >= 5 &&
+      var.run_heartbeat_interval_seconds <= 60
+    )
+    error_message = "run_heartbeat_interval_seconds must be a whole number from 5 through 60."
+  }
+}
+
+variable "run_heartbeat_stale_seconds" {
+  description = "Age after which two or more missed worker heartbeats trigger backend inspection."
+  type        = number
+  default     = 90
+
+  validation {
+    condition = (
+      floor(var.run_heartbeat_stale_seconds) == var.run_heartbeat_stale_seconds &&
+      var.run_heartbeat_stale_seconds >= 30 &&
+      var.run_heartbeat_stale_seconds <= 600
+    )
+    error_message = "run_heartbeat_stale_seconds must be a whole number from 30 through 600."
+  }
+}
+
 variable "conversation_slice_timeout_seconds" {
   description = "Maximum runtime for one resumable conversation slice."
   type        = number

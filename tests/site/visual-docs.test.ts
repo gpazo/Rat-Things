@@ -67,6 +67,28 @@ describe('visual documentation', () => {
     expect(homepage).not.toContain('c4-system-context.png');
     expect(homepage).not.toContain('c4-runtime-containers.png');
   });
+
+  it('publishes accessible conversation console evidence from disposable fixture data', async () => {
+    const homepage = await readFile('site/index.html', 'utf8');
+    const buildScript = await readFile('scripts/build-pages.mjs', 'utf8');
+    const screenshots = [
+      'conversation-console-desktop.png',
+      'conversation-console-artifact-viewer.png',
+      'conversation-console-mobile-input.png',
+    ];
+
+    expect(homepage).toContain('id="console"');
+    expect(homepage).toContain('Screenshots use disposable deterministic E2E fixture data.');
+    for (const screenshot of screenshots) {
+      const bytes = await readFile(`assets/${screenshot}`);
+      expect(bytes.subarray(1, 4).toString('ascii')).toBe('PNG');
+      expect(bytes.byteLength).toBeGreaterThan(20_000);
+      expect(homepage).toMatch(new RegExp(
+        `src="assets/${escapeRegExp(screenshot)}"[^>]+alt="[^"]+"`,
+      ));
+      expect(buildScript).toContain(`'${screenshot}'`);
+    }
+  });
 });
 
 function escapeRegExp(value: string): string {

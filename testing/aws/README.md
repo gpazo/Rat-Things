@@ -18,7 +18,9 @@ The wrapper:
 2. Applies the complete ephemeral Terraform stack and waits for the managed image.
 3. Populates disposable GitHub, GitLab, Teams, and egress-capture secrets.
 4. Reads public discovery, OpenAPI, and Thing schemas, then sends IAM-authenticated Thing, one-shot,
-   and headless conversation requests plus real signed provider webhook requests.
+   and headless conversation requests plus real signed provider webhook requests. It also launches
+   the local browser console through its real SigV4 loopback proxy and completes two continuous
+   turns in one durable API conversation in Chromium against the deployed Lambda MicroVM backend.
 5. Uses a disposable provider fixture to reject an invalid credential, derives two distinct account
    identities/authorizations, and verifies connection sets, provider/grant/Thing/profile permission
    intersection, immutable KMS-encrypted definitions, idempotent Thing execution, CLI rotation,
@@ -32,7 +34,10 @@ The wrapper:
    replay, provider egress where applicable, and re-suspension.
 9. Backdates a suspended session to prove replacement, replay, and expired-VM termination, then
    injects the coordinator launch/attach crash window and proves idempotent repair.
-10. Terminates any remaining MicroVMs, force-deletes runtime-created connection secrets, runs
+10. Proves active-Run liveness fencing by observing a heartbeat without a semantic update, rejecting
+   a stale generation, terminating the exact attached MicroVM, invoking the reconciler, and
+   verifying a retryable `execution_lost` result.
+11. Terminates any remaining MicroVMs, force-deletes runtime-created connection secrets, runs
    `terraform destroy` from an exit trap, and audits tagged residual resources.
 
 The default stack uses the mock driver. It does not invoke Codex or Bedrock, so it spends no model
@@ -42,13 +47,15 @@ egress. Every one of those resources is tagged and included in teardown auditing
 
 Set `AWS_E2E_REAL_CODEX=true` to add two bounded `openai.gpt-5.6-terra` probes through Bedrock. The
 worker execution role mints a short-term token and the unprivileged Codex process receives only that
+token. Set `AWS_E2E_DEFAULT_AGENT_DRIVER=codex` when a focused browser or API journey itself should
+use Codex instead of the stack's default mock driver.
 token. The persistence probe writes unique bytes through a command tool call, resumes the same
 MicroVM and Codex thread, and reads those bytes from the same workspace path. The integration probe
 connects two separately credentialed Fixture CRM accounts through the built CLI, gives one verified
 read scope and the other verified read/write scopes, and asks the real agent to search the first and
-create through the second. The harness accepts the exact write approval, verifies one provider-side
-audit message, and scans run state/output/events for both credential values. Together the probes
-verify dynamic tools, approval routing, exact-account selection, workspace patches, usage, state,
+create through the second. The harness verifies one provider-side audit message and scans run
+state/output/events for both credential values. Together the probes verify autonomous dynamic tools,
+fixed-envelope exact-account selection, workspace patches, usage, state,
 re-suspension, no credential leakage, and empty failure queues.
 
 Set both publication variables to add the isolated CloudFront delivery path to the disposable stack:
@@ -90,7 +97,7 @@ and left Terraform state empty.
 On 2026-08-22 deployment `int260822a` passed all ten applicable workflows with the real-Codex option
 enabled; only the unconfigured custom-domain publication case was skipped. The built CLI rejected an
 invalid credential, connected two verified Fixture CRM accounts, and the real agent completed one
-read on the read-only account plus one approval-gated write on the read/write account. The provider
+read on the read-only account plus one statically admitted write on the read/write account. The provider
 audit queue contained exactly one mutation and neither credential appeared in durable run state,
 output, or events. The full suite also repeated scheduled Thing, MicroVM continuation/replacement,
 CLI continuity, crash repair, repository checkout, and real Codex workspace restoration. Teardown
@@ -102,6 +109,33 @@ invalid-credential `400`, the built CLI onboarded both provider-derived accounts
 explanation selected the intended account, a real Lambda MicroVM completed the Thing, the CLI
 rotated a credential-only file, and revocation removed access. Teardown destroyed all 216 resources,
 left zero resources in Terraform state, and passed the direct post-destroy audit.
+
+On 2026-08-24 deployment `perf260824a` ran the focused two-turn browser journey with the mock driver
+and cold-start phase instrumentation. The first Run took 52.789 seconds from creation to the
+runner's `startedAt`: 40.242 seconds mounted S3 Files and 4.178 seconds prepared the initial durable
+state directories. The same suspended MicroVM then continued the conversation in 2.015 seconds,
+with a 1 millisecond mount check and 108 milliseconds of state preparation. First-turn dispatcher
+and coordinator queue delays were 585 and 830 milliseconds respectively; AWS accepted the cold
+`RunMicrovm` request in 264 milliseconds, proving that request acceptance is not VM readiness.
+Teardown terminated the one MicroVM, destroyed all 227 Terraform resources, and passed the tagged
+post-destroy audit; only the disabled KMS key scheduled for deletion remains by AWS design.
+
+Later on 2026-08-24 deployment `hb260824a` passed the focused generation-fenced liveness gate. A
+live worker refreshed `heartbeatAt` without changing `updatedAt`; a stale generation was rejected;
+the harness terminated the exact attached MicroVM; and the reconciler conditionally settled the Run
+as retryable `execution_lost`. Teardown destroyed all 227 resources and passed the tagged-resource
+audit. A subsequent full-suite run also exposed and fixed two dispatcher reliability defects: an
+invalid generated DynamoDB attachment condition, and permanent classification of a transient AWS
+control-plane HTML response that the SDK could not deserialize.
+
+Fresh deployment `hb260824c` then passed all nine enabled live workflows with the patched bundle in
+343 seconds; the three real-Codex/custom-domain opt-ins were intentionally skipped. The run repeated
+signed provider concurrency, revisioned and scheduled Things, same-MicroVM Teams and CLI
+continuation, expired-session replacement, coordinator crash repair, live heartbeat fencing and
+forced termination, and repository checkout. The focused Chromium console journey also passed in
+19.6 seconds with two IAM-authenticated turns on one durable MicroVM conversation. Teardown
+terminated all seven test MicroVMs, destroyed all 227 Terraform resources, and passed the direct
+tagged-resource audit; only the expected disabled KMS key pending deletion remained.
 
 AWS does not allow immediate deletion of a customer-managed KMS key. Teardown disables the key and
 schedules it for deletion after AWS's minimum waiting period; only that `PendingDeletion` key is an
@@ -117,15 +151,49 @@ live-AWS-only test.
 ```bash
 ./scripts/aws-e2e-deploy.sh
 ./scripts/aws-e2e-test.sh
+./scripts/aws-e2e-console-test.sh
+./scripts/aws-e2e-console-demo.sh # optional H.264 recording of the focused browser journey
 ./scripts/aws-e2e-destroy.sh
+```
+
+Install the browser used by the focused console phase once per machine:
+
+```bash
+npm run test:e2e:console:install
 ```
 
 The deploy command stores the generated deployment ID in `.aws-e2e/latest`. Pass it explicitly when
 multiple runs exist:
 
 ```bash
+npm run aws:e2e:status
+cat .aws-e2e/latest
+AWS_PROFILE=YOUR_PROFILE ./scripts/aws-e2e-console-test.sh e2e-260802120000
 ./scripts/aws-e2e-destroy.sh e2e-260802120000
 ```
+
+The focused console command reuses an existing stack; it must run under the same AWS credential
+context used for deployment and does not assume permission to deploy or destroy. It creates one
+durable API conversation and two Runs, proves the second turn resumed the same MicroVM, and may
+leave the corresponding MicroVM suspended until normal
+lifecycle cleanup or stack teardown. Playwright failure artifacts can contain prompts and
+transcripts, are created with private permissions under ignored `test-results/`, and should use
+disposable content. Destroy clears `.aws-e2e/latest` only when the pointer still names that stack.
+`npm run aws:e2e:status` is a read-only inventory of local deployment records; `ready-local` means
+state and runtime files exist, not that AWS has independently confirmed every resource. Focused
+tests refuse older runtime records that lack the pinned deployment account and principal.
+
+For cold-start analysis, compare the dispatcher CloudWatch EMF metrics `QueueDelay`,
+`ProcessingDuration`, `MicrovmLaunchRequestDuration`, and `MicrovmResumeRequestDuration`. The
+request-duration names are intentional: AWS can accept a cold `RunMicrovm` request before the new
+VM has booted and completed its run hook. A resume that has to replace an expired or unavailable
+session also emits `MicrovmResumeFallback`; launch/resume errors emit `MicrovmStartupFailure`. The
+MicroVM log entry `agent runner started` reports
+`startupDurationMs`, `storageMountDurationMs`, `storagePreparationDurationMs`, and whether storage
+was already mounted. These fields contain durations and infrastructure state only—not prompts,
+transcripts, owner IDs, or credentials. Together they distinguish queueing, AWS launch/resume, and
+the synchronous persistent-storage portion of the run hook before considering prewarming or mount
+deferral.
 
 Terraform state and generated runtime configuration live under `.aws-e2e/<deployment-id>/` and are
 ignored by Git. The runtime file contains disposable signing secrets and is permissioned while the

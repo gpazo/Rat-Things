@@ -2,8 +2,6 @@ import { spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import type {
   AgentPersonality,
-  ApprovalPolicy,
-  ApprovalReviewer,
   ReasoningSummary,
   WebSearchMode,
 } from '../domain/capabilities.js';
@@ -45,8 +43,6 @@ export interface CodexAppServerRequest {
   outputSchema?: Record<string, unknown>;
   resumeThreadId?: string;
   networkAccess: boolean;
-  approvalPolicy: ApprovalPolicy;
-  approvalsReviewer: ApprovalReviewer;
   webSearch?: WebSearchMode;
   skills?: string[];
   apps?: string[];
@@ -266,8 +262,10 @@ export async function runCodexAppServer(
 
     const threadParams: Record<string, unknown> = {
       cwd: request.workspace,
-      approvalPolicy: request.approvalPolicy,
-      approvalsReviewer: appServerReviewer(request.approvalsReviewer),
+      // The outer MicroVM/IAM/grant envelope is the authorization boundary.
+      // Never ask for a mid-Run human authorization decision.
+      approvalPolicy: 'never',
+      approvalsReviewer: 'user',
       sandbox: request.sandbox,
       modelProvider: request.modelProvider,
       ...(request.model ? { model: request.model } : {}),
@@ -322,8 +320,8 @@ export async function runCodexAppServer(
         ...skillInputs,
       ],
       cwd: request.workspace,
-      approvalPolicy: request.approvalPolicy,
-      approvalsReviewer: appServerReviewer(request.approvalsReviewer),
+      approvalPolicy: 'never',
+      approvalsReviewer: 'user',
       sandboxPolicy: sandboxPolicyFor(request.sandbox, request.workspace, request.networkAccess),
       ...(request.model ? { model: request.model } : {}),
       ...(request.reasoningEffort ? { effort: request.reasoningEffort } : {}),
@@ -395,21 +393,16 @@ export function sandboxPolicyFor(
   }
 }
 
-function appServerReviewer(reviewer: ApprovalReviewer): 'user' | 'auto_review' | 'guardian_subagent' {
-  switch (reviewer) {
-    case 'user': return 'user';
-    case 'auto-review': return 'auto_review';
-    case 'guardian-subagent': return 'guardian_subagent';
-  }
-}
-
 function appServerConfig(request: CodexAppServerRequest): Record<string, unknown> {
   const config: Record<string, unknown> = {};
+  if (request.onServerRequest) {
+    config['features.default_mode_request_user_input'] = true;
+  }
   if (request.sandbox === 'workspace-write') {
     config.sandbox_workspace_write = { network_access: request.networkAccess };
   }
   if (request.webSearch) config.web_search = request.webSearch;
-  if (request.apps) config.apps = appsConfig(request.apps, request.approvalsReviewer);
+  if (request.apps) config.apps = appsConfig(request.apps);
   if (request.mcpServers) {
     config.mcp_servers = Object.fromEntries(request.mcpServers.map((name) => [
       name,
@@ -446,15 +439,15 @@ async function resolveSkillInputs(
   });
 }
 
-function appsConfig(apps: string[], reviewer: ApprovalReviewer): Record<string, unknown> {
-  const resolvedReviewer = appServerReviewer(reviewer);
+function appsConfig(apps: string[]): Record<string, unknown> {
+  const resolvedReviewer = 'auto_review';
   const result: Record<string, unknown> = {
     _default: {
       enabled: false,
       approvals_reviewer: resolvedReviewer,
       destructive_enabled: false,
       open_world_enabled: false,
-      default_tools_approval_mode: 'writes',
+      default_tools_approval_mode: 'never',
     },
   };
   for (const app of apps) {
@@ -463,7 +456,7 @@ function appsConfig(apps: string[], reviewer: ApprovalReviewer): Record<string, 
       approvals_reviewer: resolvedReviewer,
       destructive_enabled: true,
       open_world_enabled: false,
-      default_tools_approval_mode: 'writes',
+      default_tools_approval_mode: 'never',
       default_tools_enabled: true,
       tools: null,
     };
