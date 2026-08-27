@@ -72,23 +72,30 @@ describe('visual documentation', () => {
     const homepage = await readFile('site/index.html', 'utf8');
     const buildScript = await readFile('scripts/build-pages.mjs', 'utf8');
     const screenshots = [
-      'conversation-console-live-browser.png',
-      'conversation-console-live-activity.png',
-      'conversation-console-mobile-browser.png',
+      { file: 'conversation-console-live-browser.png', format: 'png' },
+      { file: 'conversation-console-live-activity.png', format: 'png' },
+      { file: 'conversation-console-mobile-browser.png', format: 'png' },
+      { file: 'cli-live-aws-attachment-reply.jpg', format: 'jpeg' },
     ];
 
     expect(homepage).toContain('id="console"');
     expect(homepage).toContain('screenshots come from the fresh disposable');
+    expect(homepage).toContain('CLI screenshot comes from a separate two-turn real-Codex review');
     expect(homepage).toContain('The compact screenshot uses deterministic E2E data.');
-    expect(homepage).toContain('all 234 stack resources were destroyed afterward.');
+    expect(homepage).toContain('passed all 12 enabled live workflow scenarios');
+    expect(homepage).toContain('every resource in all three stacks was destroyed afterward.');
     for (const screenshot of screenshots) {
-      const bytes = await readFile(`assets/${screenshot}`);
-      expect(bytes.subarray(1, 4).toString('ascii')).toBe('PNG');
+      const bytes = await readFile(`assets/${screenshot.file}`);
+      if (screenshot.format === 'png') {
+        expect(bytes.subarray(1, 4).toString('ascii')).toBe('PNG');
+      } else {
+        expect([...bytes.subarray(0, 3)]).toEqual([0xff, 0xd8, 0xff]);
+      }
       expect(bytes.byteLength).toBeGreaterThan(20_000);
       expect(homepage).toMatch(new RegExp(
-        `src="../assets/${escapeRegExp(screenshot)}"[^>]+alt="[^"]+"`,
+        `src="../assets/${escapeRegExp(screenshot.file)}"[^>]+alt="[^"]+"`,
       ));
-      expect(buildScript).toContain(`'${screenshot}'`);
+      expect(buildScript).toContain(`'${screenshot.file}'`);
     }
   });
 });

@@ -50,7 +50,7 @@ Status means parity with the useful product behavior, not similarity of deployme
 | Capability | Current Grok Bot docs and 0.18 code evidence | Rat Things after this port | Status |
 | --- | --- | --- | --- |
 | Product unit | Persistent named Bot with profile, role, conversation, routines, memory, avatar, pin/hide/duplicate lifecycle; up to 50 Bots and groups | Durable Conversation is the continuity unit; a Thing is the reusable immutable task unit; no named-agent roster | Partial; deliberate noun/model divergence |
-| Client surfaces | macOS, Windows, and iOS with synchronized Bots and conversations | CLI, authenticated OpenAPI, provider webhooks, and a loopback testing console; no mobile client | Partial |
+| Client surfaces | macOS, Windows, and iOS with synchronized Bots and conversations | Authenticated OpenAPI, provider webhooks, a loopback testing console, and a conversation-capable CLI with discovery, paging, attachments, replies, reactions, organization, readable activity, structured answers, and typed browser control; no mobile client | Partial; CLI coverage is now broad, native client breadth remains smaller |
 | Embedding/API | Product primarily presents desktop/mobile UI over private desktop/coordinator contracts | Self-describing IAM-authenticated API, discovery document, JSON Schemas, CLI, and embeddable control plane | Rat advantage |
 | Execution isolation | One managed Linux computer per user; all that user's Bots share files, browser logins, and command-line credentials, with separate screens | One Lambda MicroVM per active conversation/session; owner and conversation state are fenced; permissions are intersected before launch | Equivalent autonomy; Rat has a narrower per-conversation boundary |
 | Background work | Bots and routines keep working with the client closed | SQS/EventBridge/Lambda MicroVM orchestration is independent of the CLI or console | Parity |
@@ -58,14 +58,14 @@ Status means parity with the useful product behavior, not similarity of deployme
 | Native context compaction | 0.18 has provider-aware self-summary/compaction, summary archives, recent-tail preservation, durable prompt blocks, and a searchable full transcript location | Codex App Server compaction persists inside the S3-backed conversation `CODEX_HOME`; Rat also records truthful bounded-replay omission counts | Partial: native compaction works; Rat-specific fallback summaries do not |
 | Semantic long-term memory | Current docs promise stable preferences, role context, facts, and prior-work summaries. The dump has agent/user/project memory shards, extraction, episode summaries, relevance/decay, synthesis, explicit-memory protection, and prompt injection | Codex's optional memory feature is disabled; Rat has no cross-conversation owner/Thing memory contract | Missing and highest-priority gap |
 | Durable workspace | Server-synced shared computer files are recoverable independently from conversation history | S3 Files preserves workspace and Codex state; replacement MicroVM restore and exact file/thread continuation are live validated | Parity with different scope |
-| Conversation list | Named Bot/group sidebar, sections, attention/unread state, pin/hide, search | Owner-scoped Pinned/Needs attention/Recent sections, hidden view, durable pin/hide/read state, newest-first paging, opaque IDs, stable bounded titles/previews, progress/session health, and server search across unloaded messages/files | Core list and organization parity; named Bot/group roster remains separate |
-| Transcript history | Rich long-lived transcript with messages, tool/computer activity, files, questions, approvals, replies, reactions, search, and thread affordances | Cursor-paged durable user/assistant transcript windows with compaction count, safe attachment IDs, targeted replies, owner reactions, structured questions, legacy checkpoint fallback, and search-result navigation/highlighting | Core parity except approvals by design and richer collaboration/thread affordances |
-| Live activity | Human-readable tool/computer cards and attention states | Typed safe cards for agent, message, reasoning, command, file, tool, web, computer, plan, compaction, usage, and errors | Core parity for observation; fewer rich cards |
-| In-progress control | Follow-up messages redirect work; stop; questions and approvals | `steer`, `interrupt`, queued `interrupt`/`defer`, and ordinary structured input responses | Parity except approvals by design |
+| Conversation list | Named Bot/group sidebar, sections, attention/unread state, pin/hide, search | Owner-scoped Pinned/Needs attention/Recent sections, hidden view, durable pin/hide/read state, newest-first paging, opaque IDs, stable bounded titles/previews, progress/session health, and server search across unloaded messages/files; console and CLI use the same routes | Core list and organization parity; named Bot/group roster remains separate |
+| Transcript history | Rich long-lived transcript with messages, tool/computer activity, files, questions, approvals, replies, reactions, search, and thread affordances | Cursor-paged durable user/assistant transcript windows with compaction count, safe attachment IDs, targeted replies, owner reactions, structured questions, legacy checkpoint fallback, search-result navigation/highlighting, and matching CLI commands | Core parity except approvals by design and richer collaboration/thread affordances |
+| Live activity | Human-readable tool/computer cards and attention states | Typed safe cards for agent, message, reasoning, command, file, tool, web, computer, plan, compaction, usage, and errors; CLI watch is readable by default with JSON snapshot and JSONL diagnostic modes | Core parity for observation; fewer rich cards |
+| In-progress control | Follow-up messages redirect work; stop; questions and approvals | `steer`, `interrupt`, queued `interrupt`/`defer`, and ordinary structured input responses through API, console, and structured CLI answer commands | Parity except approvals by design |
 | Approvals | Per-action approvals, Auto Review rules, secure computer handoff, and local-computer command policy | No mid-Run permission inbox. IAM, network policy, grants, and the capability profile fix the maximum envelope before launch | Intentional divergence |
-| Attachments | Desktop accepts common document/media/code formats, six at a time, with documented size limits; cards and viewers are built in | Responsive composer accepts six bounded files; encrypted content-addressed bytes restore before execution; the public transcript emits only opaque IDs; private text/image/audio/video/PDF viewers use an owner-signed loopback proxy | Core parity for tested formats; fewer rich document/link previews |
+| Attachments | Desktop accepts common document/media/code formats, six at a time, with documented size limits; cards and viewers are built in | Responsive composer and repeatable CLI option accept six bounded files; encrypted content-addressed bytes restore before execution; the public transcript emits only opaque IDs; private text/image/audio/video/PDF viewers use an owner-signed loopback proxy | Core parity for tested formats; fewer rich document/link previews |
 | Files and results | Conversation cards preview generated files, links, images, and tool results; shared `/workspace` supports Bot handoff | Checksummed durable outbox, catalogs, private inline viewers, owner-checked URLs/downloads, conversation restoration, and signed publications | Backend parity or stronger; fewer rich result cards and no Bot handoff UI |
-| Browser/computer use | Browser, filesystem, terminal, full desktop computer use, human takeover for passwords/2FA/CAPTCHA, and per-Bot screens | Active browser-enabled Runs now have an owner-scoped live 1280×720 viewer, a renewable exclusive human browser lease, point-and-click/type/navigation controls, screenshots, and video through the existing MicroVM control plane; no general desktop/native-app control | Close browser parity; narrower intentional desktop scope |
+| Browser/computer use | Browser, filesystem, terminal, full desktop computer use, human takeover for passwords/2FA/CAPTCHA, and per-Bot screens | Active browser-enabled Runs now have an owner-scoped live 1280×720 viewer, a renewable exclusive human browser lease, console controls, and typed CLI commands for navigate/click/type/press/select/scroll/wait/back plus screenshots and video; no general desktop/native-app control | Close browser parity; narrower intentional desktop scope |
 | Teach by demonstration | Records a browser workflow for up to ten minutes and creates a draft skill | Records up to ten minutes/100 allowlisted browser actions, redacts typed/selected values and URL query/fragment data, and creates an unpublished manual Thing draft for review; the complete path is live AWS validated | Core lifecycle parity; different reusable unit |
 | Skills | Reusable instructions, private/marketplace skills, per-Bot enablement, `/` mentions | Codex skills can be selected and resolved through App Server; Thing definitions provide a separate immutable reusable-work contract | Partial; no hosted catalog or skill-management UI |
 | Routines/automations | Per-Bot schedules and supported event triggers, up to 50 routines and 20 recent records; test/edit/pause/run/delete UI | Durable interval Routines plus revisioned Things with manual, EventBridge rate/cron, and signed event ingress; retry fencing and evidence are stronger than the current UI | Backend parity; operator UI missing |
@@ -132,6 +132,10 @@ The port is Rat-native rather than a renderer transplant:
   same-origin share and exact regional-S3 redirect chain without forwarding API signing headers;
 - desktop and 390-pixel mobile controls cover the composer, transcript, activity, question form,
   artifact viewer, search, organization, and continuation flows; and
+- the CLI now covers list/search/show pagination, source collection, pin/hide/read state, reactions,
+  bounded local attachment preparation, targeted replies, interrupt/defer delivery, readable
+  activity, structured question answers, and every allowlisted human browser action without adding
+  a second backend or exposing private MicroVM/native-thread identities; and
 - OpenAPI, developer docs, focused unit tests, the browser E2E, architecture checks, packaging,
   documentation build, and Terraform validation cover the new contract.
 
@@ -143,6 +147,25 @@ backfill before they can appear in all-history results.
 
 ## Validation record
 
+- Fresh live AWS `clifix260827b`: the strict CLI and opaque-public-ID artifact changes passed the
+  26.6-second two-turn CLI scenario on a clean 234-resource S3 Files stack. List/search, complete
+  source collection, attachment retrieval, organization, reaction, targeted reply, delivery policy,
+  and same-MicroVM continuation were exercised through independent CLI processes; a deliberately
+  unknown mutation option failed before the request. All 12 enabled live scenarios passed across
+  the complete run and focused real-Codex replacement retries, the optional publication-domain
+  scenario was skipped, and all 234 resources were destroyed afterward.
+- Fresh live AWS `cli260826b`: all 12 enabled workflow scenarios passed in 662.74 seconds on a
+  clean 234-resource stack with S3 Files and Lambda MicroVMs enabled; only the optional
+  custom-domain publication scenario was skipped. The expanded CLI scenario covered discovery,
+  transcript/source inspection, bounded attachment upload, organization, reaction, targeted reply,
+  and interrupt/defer delivery over two turns on one suspended MicroVM. The typed computer scenario
+  covered status/watch, takeover, teaching, navigate/type, and release. The stack was destroyed and
+  its tagged-resource audit passed.
+- Real-Codex CLI review `cli260826a`: a cold attached-file turn completed in about 19.9 seconds and
+  a targeted follow-up resumed the same suspended MicroVM in about 5.8 seconds end to end. The
+  public client showed the attachment, answer, durable reaction, reply relationship, and organized
+  conversation without exposing the native Codex thread or MicroVM identity. Its 234 resources
+  were destroyed afterward.
 - Real local Codex 0.146.0: forced compaction survived App Server termination and exact-thread
   resume from the same durable `CODEX_HOME`; both the pre-compaction marker and
   `contextCompaction` were observed.

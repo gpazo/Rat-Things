@@ -34,6 +34,7 @@
     "test:e2e:aws": "./scripts/aws-e2e.sh",
     "quickstart:aws": "./scripts/aws-quickstart.sh",
     "smoke:local": "tsx src/cli.ts local --driver mock --prompt \"Return the local smoke-test marker\"",
+    "smoke:conversation-cli": "vitest run tests/simulation/conversation-cli.e2e.test.ts",
     "codex:login": "codex login",
     "codex:status": "codex login status",
     "codex:run": "tsx src/cli.ts local --driver codex --codex-auth chatgpt --sandbox read-only",

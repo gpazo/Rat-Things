@@ -292,7 +292,7 @@
       "get": {
         "tags": ["Conversations"],
         "operationId": "listConversationArtifacts",
-        "parameters": [{ "$ref": "#/components/parameters/ConversationId" }],
+        "parameters": [{ "$ref": "#/components/parameters/ConversationArtifactSelector" }],
         "responses": { "200": { "description": "Current durable file catalog without S3 coordinates", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ArtifactList" } } } }, "default": { "$ref": "#/components/responses/Error" } }
       }
     },
@@ -300,7 +300,7 @@
       "get": {
         "tags": ["Conversations"],
         "operationId": "getConversationArtifact",
-        "parameters": [{ "$ref": "#/components/parameters/ConversationId" }, { "$ref": "#/components/parameters/Artifact" }],
+        "parameters": [{ "$ref": "#/components/parameters/ConversationArtifactSelector" }, { "$ref": "#/components/parameters/Artifact" }],
         "responses": { "200": { "description": "Owner-checked short-lived artifact descriptor", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ArtifactDescriptor" } } } }, "default": { "$ref": "#/components/responses/Error" } }
       }
     },
@@ -308,7 +308,7 @@
       "get": {
         "tags": ["Conversations"],
         "operationId": "viewConversationArtifact",
-        "parameters": [{ "$ref": "#/components/parameters/ConversationId" }, { "$ref": "#/components/parameters/Artifact" }],
+        "parameters": [{ "$ref": "#/components/parameters/ConversationArtifactSelector" }, { "$ref": "#/components/parameters/Artifact" }],
         "responses": { "302": { "description": "Owner-checked redirect to short-lived private content" }, "default": { "$ref": "#/components/responses/Error" } }
       }
     },
@@ -316,7 +316,7 @@
       "post": {
         "tags": ["Publications"],
         "operationId": "publishConversationArtifact",
-        "parameters": [{ "$ref": "#/components/parameters/ConversationId" }],
+        "parameters": [{ "$ref": "#/components/parameters/ConversationArtifactSelector" }],
         "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PublicationSpec" } } } },
         "responses": { "201": { "description": "Publication and share created", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PublicationDescriptor" } } } }, "default": { "$ref": "#/components/responses/Error" } }
       }
@@ -726,6 +726,7 @@
       "ConnectionId": { "name": "connectionId", "in": "path", "required": true, "description": "Owner-scoped connection ID or alias.", "schema": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@-]{0,255}$" } },
       "RoutineId": { "name": "routineId", "in": "path", "required": true, "schema": { "type": "string", "pattern": "^[A-Za-z0-9-]{1,128}$" } },
       "ConversationId": { "name": "conversationId", "in": "path", "required": true, "description": "Caller-chosen owner-scoped conversation key.", "schema": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@-]{0,127}$" } },
+      "ConversationArtifactSelector": { "name": "conversationId", "in": "path", "required": true, "description": "Caller-chosen owner-scoped conversation key or opaque public conversation ID returned by list/search.", "schema": { "type": "string", "pattern": "^(?:[A-Za-z0-9][A-Za-z0-9._:@-]{0,127}|[a-f0-9]{64})$" } },
       "PublicConversationId": { "name": "conversationId", "in": "path", "required": true, "description": "Opaque owner-scoped ID returned by the conversation list.", "schema": { "type": "string", "pattern": "^[a-f0-9]{64}$" } },
       "MessageId": { "name": "messageId", "in": "path", "required": true, "schema": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@-]{0,199}$" } },
       "RunId": { "name": "runId", "in": "path", "required": true, "schema": { "type": "string", "pattern": "^[A-Za-z0-9-]{1,128}$" } },

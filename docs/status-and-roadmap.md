@@ -11,9 +11,10 @@ Rat Things is an **engineering preview**, not a production-ready service. The fo
 domain behavior, webhook signatures and normalization, process/workspace safeguards, drivers,
 executor payloads, the LocalStack data/event path, a disposable live-AWS mock-agent path, and a
 two-turn Codex-on-Bedrock persistence run in a live Lambda MicroVM. A signed, headless Rat Things
-CLI now exercises the same durable conversation path without a provider webhook. These tests do not
-constitute a penetration test, quota/load exercise, broad real-agent evaluation, or
-disaster-recovery proof.
+CLI now exercises the same durable conversation path without a provider webhook, including
+discovery, transcript paging, files, replies, reactions, organization, activity, structured input,
+and typed browser control. These tests do not constitute a penetration test, quota/load exercise,
+broad real-agent evaluation, or disaster-recovery proof.
 
 | Capability | Status | Notes |
 | --- | --- | --- |
@@ -25,7 +26,7 @@ disaster-recovery proof.
 | File/site/video publications | Implemented/live validated | Agent-declared publishing, content-derived reuse, manifest-last commit, isolated wildcard hosts, CloudFront OAC, signed redemption, and API/CLI commands passed recipient-open validation |
 | Durable AWS orchestration | Locally/live validated | DynamoDB, S3, SQS, Streams, EventBridge, EventBridge Scheduler, notifier delivery, retries, and failure queues |
 | Conversation mailbox | End-to-end locally/live validated | Teams ingress, DynamoDB/S3 mailbox, interrupt/defer ordering, leases, SQS coordinator, durable replay, terminal completion, expiry fallback, and crash-window repair |
-| Conversation read model | Implemented/local and live AWS E2E validated | Stable titles/previews, paged transcripts, search and organization, durable uploads, targeted replies, reactions, structured ordinary input, private artifact viewers, typed activity, and responsive Rat-native console controls |
+| Conversation read model | Implemented/local and live AWS E2E validated | Stable titles/previews, paged transcripts, search and organization, durable uploads, targeted replies, reactions, structured ordinary input, private artifact viewers, typed activity, and matching responsive console/CLI controls |
 | Lambda MicroVM runner | One-shot/resume/replacement live validated | Same-ID suspend/resume plus S3 Files workspace restoration in a replacement VM passed in `us-west-2` |
 | ECS replacement | Complete | Before removal, the same pinned checkout produced byte-identical output/events and equivalent execution metadata on the legacy task and MicroVM paths; the post-removal live suite then passed with no ECS/VPC fallback |
 | Codex App Server bridge | Core and structured-input path live validated | Thread start/resume, turn control, events/server requests, ordinary structured input, reasoning/personality, skills, apps, MCP config, experimental dynamic tools, and fixed `approvalPolicy: never` |
@@ -34,7 +35,7 @@ disaster-recovery proof.
 | Integration Contract v1 | Implemented/local and live AWS validated | Manifest-driven credential-only CLI/API onboarding, pre-persistence verification, provider-derived account identity/access/scopes, stable invalid-credential errors, and verified rotation |
 | Multi-account integrations | Implemented/local and live AWS validated | Owner-scoped connections, Secrets Manager vault, grants, same-plugin account sets, source bindings, fixed pre-launch permission intersection, resource constraints, and revocation |
 | Reference integration tools | Built-ins locally tested; fixture live AWS validated | Fixed-origin Slack search/post/reaction and Stripe customer/invoice/refund adapters; disposable Fixture CRM proves authenticated read/write behavior without claiming customer-provider coverage |
-| Browser computer use | Live view/takeover/teaching implemented and live AWS validated | Real-Codex AWS proofs cover the 12 agent command types, capture, recording, private-target blocking, lifecycle-port isolation, publication, authenticated screenshots, an exclusive renewable browser lease, redacted demonstrations, unpublished draft-Thing creation, and return of browser control; secure credential brokering, file transfer, and general desktop control remain out of scope |
+| Browser computer use | Live view/takeover/teaching implemented and live AWS validated | Real-Codex AWS proofs cover the 12 agent command types, capture, recording, private-target blocking, lifecycle-port isolation, publication, authenticated screenshots, an exclusive renewable browser lease, redacted demonstrations, unpublished draft-Thing creation, return of browser control, and the typed CLI action surface; secure credential brokering, file transfer, and general desktop control remain out of scope |
 | Durable routines | Implemented/local end-to-end and simulated | Owner-scoped interval create/list/get/pause/resume/delete/run-now, encrypted S3 request, due-time GSI, deterministic occurrence submission, duplicate-tick fencing, and request-digest verification |
 | Codex authentication | Live/local validated | Short-term Bedrock in AWS; trusted local runs can reuse the device's ChatGPT subscription without copying it into remote runs |
 | Mock driver | Implemented/tested | Used for deterministic local and live infrastructure validation |
@@ -45,8 +46,58 @@ disaster-recovery proof.
 | Cost model | Live canary baseline measured | The 2026-08-16 two-turn site canary has a dated $0.380 estimate using rates captured then; non-model infrastructure was about $0.046, while current repricing and sustained-load ceilings remain unmeasured |
 | Multi-tenant hardening | Not complete | Run responses now strip storage/authority internals; destination authorization, budgets, rate limits, output policy, and security review remain |
 
+## Validation completed on 2026-08-27 PDT
+
+- Fresh disposable stack `clifix260827b` created 234 AWS resources with S3 Files enabled. Across
+  the complete run and focused retries, all 12 enabled live scenarios passed; only the optional
+  custom-domain publication scenario was skipped. The expanded CLI scenario completed in 26.6
+  seconds and exercised attachment upload, list/search, opaque-public-ID source and file lookup,
+  pin/read organization, reactions, targeted reply, interrupt/defer delivery, strict rejection of
+  an unknown mutation option, and two turns on one suspended MicroVM.
+- The first complete-suite attempt passed 11 enabled scenarios but exposed a nondeterministic
+  real-Codex durability canary: Codex redirected private working state into the managed artifact
+  directory, which is intentionally excluded from the workspace patch. The product Run succeeded;
+  the canary's patch assertion did not. The test now explicitly distinguishes private working state
+  from a returned artifact. Independent focused reruns passed the full replacement-MicroVM thread
+  and exact-workspace restoration flow in 107.5 and 115.3 seconds.
+- Typed CLI watch/takeover/teach/navigate/type/release passed inside the 129.9-second live browser
+  scenario. Signed provider ingress, revisioned and scheduled Things, expiry replacement,
+  coordinator/heartbeat repair, repository execution, fixed-envelope cross-account tools, and all
+  inspected failure queues also passed on the same deployment.
+- Teardown terminated ten test MicroVMs and destroyed all 234 Terraform resources. The tagged audit
+  confirmed the KMS key, VPC endpoints, NAT gateway, and network connector gone, terminal, or
+  deleting; AWS retained only its mandatory disabled KMS-key deletion tombstone.
+- A second clean-room CLI review used only loopback fixtures and found one terminal-output trust
+  boundary: provider-authored ANSI/OSC controls reached the readable conversation list. Human views
+  now neutralize C0/C1 controls while JSON/JSONL preserves the exact escaped data. The same review
+  prompted contextual `watch`/`respond` help and more accurate wording for the automated local
+  verification.
+- The final complete repository gate passed 338 enabled tests with 21 intentional
+  skips, packaged and smoke-loaded all 13 Lambda bundles, rebuilt the 24-page published agent corpus,
+  and validated all three Terraform configurations. The focused service, control, OpenAPI, and CLI
+  contracts passed 30 tests.
+
 ## Validation completed on 2026-08-26 PDT
 
+- Fresh disposable stack `cli260826b` created 234 AWS resources with S3 Files enabled and passed
+  the complete live workflow suite: 12 scenarios passed and the optional custom-domain publication
+  scenario was skipped in 662.74 seconds. The suite covered signed provider ingress, versioned and
+  scheduled Things, same-MicroVM continuation, the expanded conversation CLI, expiry replacement,
+  coordinator and heartbeat repair, repository execution, real-Codex replacement restoration,
+  fixed-envelope cross-account tools, and typed browser viewing/takeover/teaching. The CLI case
+  completed in 26.3 seconds; the browser-control case completed in 128.7 seconds.
+- A separate real-Codex CLI review on disposable stack `cli260826a` created a conversation with an
+  attached release note, then continued it with a targeted reply on the same suspended MicroVM.
+  The cold attached-file turn completed in about 19.9 seconds and the resumed turn in about 5.8
+  seconds end to end; list/search/show, pin/read, a durable reaction, source discovery, and
+  interrupt/defer delivery were inspected through the built CLI and signed console. The resulting
+  screenshot is published with the conversation guide and homepage.
+- Both CLI deployments were destroyed after validation. Each teardown removed all 234 Terraform
+  resources; the post-destroy audit confirmed the remaining network-connector and VPC-endpoint
+  tombstones gone, terminal, or deleting.
+- The complete repository gate then passed: 76 test files and 335 enabled tests, 13 packaged and
+  smoke-loaded Lambda bundles, a 24-page generated documentation site with link/fragment/image
+  validation, and all three Terraform configurations.
 - Fresh disposable stack `comp260826a` passed the focused live-computer test with a real
   Codex-on-Bedrock agent in an ARM64 Lambda MicroVM. The 174.4-second journey read a live 1280×720
   browser image, acquired the owner-authenticated exclusive human lease, recorded a two-action

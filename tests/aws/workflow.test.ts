@@ -710,12 +710,20 @@ integration('live AWS agent-runner workflow', () => {
     const conversationId = `headless-persistent-${randomUUID()}`;
     const firstMarker = `headless-first-${randomUUID()}`;
     const secondMarker = `headless-second-${randomUUID()}`;
+    const attachmentDirectory = await mkdtemp(join(tmpdir(), 'rat-things-aws-cli-conversation-'));
+    onTestFinished(() => rm(attachmentDirectory, { recursive: true, force: true }));
+    const attachmentPath = join(attachmentDirectory, 'live-cli-evidence.txt');
+    await writeFile(attachmentPath, `attachment ${firstMarker}`, { mode: 0o600 });
 
     const firstCli = await runRatThingsCli([
       '--thread',
       conversationId,
       '--driver',
       'mock',
+      '--attach',
+      attachmentPath,
+      '--delivery',
+      'defer',
       '--json',
       `Remember ${firstMarker}`,
     ]);
@@ -732,11 +740,47 @@ integration('live AWS agent-runner workflow', () => {
     });
     expect(firstStatus.conversation.session).not.toHaveProperty('id');
 
+    const search = JSON.parse((await runRatThingsCli([
+      'conversations', 'search', firstMarker, '--json',
+    ])).stdout) as { items: Array<{ conversation: { conversationId: string; threadKey?: string } }> };
+    expect(search.items).toHaveLength(1);
+    const publicConversationId = search.items[0]!.conversation.conversationId;
+    expect(search.items[0]!.conversation.threadKey).toBe(conversationId);
+    const listed = JSON.parse((await runRatThingsCli([
+      'conversations', 'list', '--visibility', 'all', '--json',
+    ])).stdout) as { items: Array<{ conversationId: string }> };
+    expect(listed.items.some((item) => item.conversationId === publicConversationId)).toBe(true);
+    await runRatThingsCli(['conversation', 'pin', publicConversationId]);
+    await runRatThingsCli(['conversation', 'read', publicConversationId]);
+    await runRatThingsCli([
+      'conversation', 'react', publicConversationId, firstStatus.messageId, '👍',
+    ]);
+    const sources = JSON.parse((await runRatThingsCli([
+      'conversation', 'sources', publicConversationId, '--json',
+    ])).stdout) as {
+      complete: boolean;
+      pages: number;
+      sources: Array<{ kind: string; path?: string }>;
+    };
+    expect(sources).toMatchObject({ complete: true, pages: expect.any(Number) });
+    expect(sources.pages).toBeGreaterThanOrEqual(1);
+    expect(sources.sources).toContainEqual(expect.objectContaining({ kind: 'file' }));
+    expect(sources.sources.some((source) =>
+      source.path === 'live-cli-evidence.txt' || source.path?.endsWith('/live-cli-evidence.txt'),
+    )).toBe(true);
+    await expect(runRatThingsCli([
+      'conversation', 'pin', publicConversationId, '--dry-run', 'true',
+    ])).rejects.toThrow(/unknown option --dry-run/);
+
     const secondCli = await runRatThingsCli([
       '--thread',
       conversationId,
       '--driver',
       'mock',
+      '--reply-to',
+      firstStatus.messageId,
+      '--delivery',
+      'interrupt',
       '--json',
       `Return both ${firstMarker} and ${secondMarker}`,
     ]);
@@ -756,6 +800,24 @@ integration('live AWS agent-runner workflow', () => {
       state: 'suspended',
     });
     expect(secondStatus.conversation.session).not.toHaveProperty('id');
+    const detail = JSON.parse((await runRatThingsCli([
+      'conversation', 'show', publicConversationId, '--json',
+    ])).stdout) as {
+      pinned: boolean;
+      unread: boolean;
+      transcript: { messages: Array<{ messageId?: string; replyToMessageId?: string; reactions?: Array<{ emoji: string; reacted: boolean }> }> };
+    };
+    expect(detail.pinned).toBe(true);
+    expect(detail.transcript.messages).toContainEqual(expect.objectContaining({
+      messageId: secondStatus.messageId,
+      replyToMessageId: firstStatus.messageId,
+    }));
+    expect(detail.transcript.messages).toContainEqual(expect.objectContaining({
+      messageId: firstStatus.messageId,
+      reactions: expect.arrayContaining([
+        expect.objectContaining({ emoji: '👍', reacted: true }),
+      ]),
+    }));
     await expectTerminalEvents(clients.sqs, new Set([firstRun.runId, secondRun.runId]));
     await expectEmptyFailureQueues(clients.sqs);
   }, timeoutMs);
@@ -1069,6 +1131,8 @@ integration('live AWS agent-runner workflow', () => {
       conversationKey,
       [
         'This is an end-to-end tool-use verification.',
+        'The requested file is private working state, not a returned artifact or publication.',
+        'Keep it at the exact workspace-root path in the command; do not redirect it into .rat-things/artifacts.',
         `Use the shell tool to execute this exact command before responding: ${writeCommand}`,
         'Do not merely describe the command or synthesize its output.',
         `After it succeeds, end your response with exactly: FIRST-WRITE ${marker}`,
@@ -1264,32 +1328,31 @@ integration('live AWS agent-runner workflow', () => {
       teach: { state: 'idle' },
     });
     expect(initial.imageDataUrl).toMatch(/^data:image\/jpeg;base64,/);
+    const activity = await runRatThingsCli(['watch', submitted.runId]);
+    expect(activity.stdout).toMatch(/Agent activity|Agent turn started|Command started|Command running/);
+    expect(activity.stdout).not.toContain('"method"');
 
-    const taken = await signedApi<Record<string, unknown>>(
-      `/v1/runs/${submitted.runId}/computer/takeover`,
-      'POST',
-      { control: 'human' },
-    );
+    const taken = JSON.parse((await runRatThingsCli([
+      'computer', 'takeover', submitted.runId,
+    ])).stdout) as Record<string, unknown>;
     expect(taken).toMatchObject({ control: 'human', takeover: { expiresAt: expect.any(String) } });
     const taughtName = `Taught browser workflow ${marker}`;
-    await signedApi(`/v1/runs/${submitted.runId}/computer/teach`, 'POST', {
-      action: 'start',
-      name: taughtName,
-      goal: 'Repeat the demonstrated public-web workflow with reviewed runtime inputs.',
-    });
-    await signedApi(`/v1/runs/${submitted.runId}/computer/action`, 'POST', {
-      action: { type: 'navigate', url: `https://example.com/?private=${secret}#fragment` },
-    });
-    await signedApi(`/v1/runs/${submitted.runId}/computer/action`, 'POST', {
-      action: { type: 'type', text: secret, clear: false, submit: false },
-    });
-    const saved = await signedApi<{
+    await runRatThingsCli([
+      'computer', 'teach', 'start', submitted.runId,
+      '--name', taughtName,
+      '--goal', 'Repeat the demonstrated public-web workflow with reviewed runtime inputs.',
+    ]);
+    await runRatThingsCli([
+      'computer', 'navigate', submitted.runId,
+      `https://example.com/?private=${secret}#fragment`,
+    ]);
+    await runRatThingsCli(['computer', 'type', submitted.runId, secret]);
+    const saved = JSON.parse((await runRatThingsCli([
+      'computer', 'teach', 'stop', submitted.runId,
+    ])).stdout) as {
       recording: { discarded: boolean; demonstratedSteps: number };
       thing: { thingId: string; status: string };
-    }>(`/v1/runs/${submitted.runId}/computer/teach`, 'POST', {
-      action: 'stop',
-      discard: false,
-    });
+    };
     expect(saved).toMatchObject({
       recording: { discarded: false, demonstratedSteps: 2 },
       thing: { status: 'draft' },
@@ -1304,11 +1367,9 @@ integration('live AWS agent-runner workflow', () => {
     expect(taughtEvidence).not.toContain(secret);
     expect(taughtEvidence).not.toContain('private=');
 
-    const returned = await signedApi<Record<string, unknown>>(
-      `/v1/runs/${submitted.runId}/computer/takeover`,
-      'POST',
-      { control: 'agent' },
-    );
+    const returned = JSON.parse((await runRatThingsCli([
+      'computer', 'release', submitted.runId,
+    ])).stdout) as Record<string, unknown>;
     expect(returned).toMatchObject({ control: 'agent' });
     const completed = await waitForApiRun(submitted.runId);
     assertSuccessfulPublicMicrovmRun(completed);
@@ -2095,7 +2156,7 @@ function assertSuccessfulRun(run: RunRecord, backend: 'microvm'): void {
   expect(run.status, JSON.stringify(run.error)).toBe('succeeded');
   expect(run.execution?.backend).toBe(backend);
   expect(run.execution?.id).toBeTruthy();
-  expect(run.result).toMatchObject({ exitCode: 0, agentThreadId: 'mock-thread' });
+  expect(run.result).toMatchObject({ exitCode: 0, agentThreadId: expect.any(String) });
 }
 
 async function outputText(

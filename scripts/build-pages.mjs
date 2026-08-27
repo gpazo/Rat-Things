@@ -22,10 +22,13 @@ const homepageAssetFiles = [
   'conversation-console-live-browser.png',
   'conversation-console-live-activity.png',
   'conversation-console-mobile-browser.png',
+  'cli-live-aws-attachment-reply.jpg',
 ];
 const documentationSharedAssetFiles = [
   'conversation-console-live-browser.png',
   'conversation-console-live-activity.png',
+  'cli-live-aws-attachment-reply.jpg',
+  'cli-live-aws-conversation.jpg',
 ];
 
 marked.setOptions({ gfm: true });

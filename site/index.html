@@ -133,8 +133,8 @@
           <article class="route-card route-primary">
             <p class="card-kicker">Operator or individual</p>
             <h3>CLI or small console</h3>
-            <p>Discover integrations, connect accounts, explain the fixed capability envelope, and follow runs.</p>
-            <code>rat-things thing-explain THING_ID</code>
+            <p>Search durable conversations, attach and reply, follow readable activity, connect accounts, and operate the live browser.</p>
+            <code>rat-things conversations search "earnings"</code>
           </article>
           <article class="route-card">
             <p class="card-kicker">Embedded product</p>
@@ -168,6 +168,7 @@
           </div>
           <div class="console-copy">
             <p>The local reference console keeps the conversation, current Run, and isolated browser together. Resize the panes, watch progress, take temporary control, inspect sources, and continue the durable thread without losing context.</p>
+            <p class="console-cli-line"><code>rat-things conversations list</code><span>uses the same durable read model without opening a browser.</span></p>
             <p class="console-cli-line"><code>rat-things computer open --thread THREAD_NAME</code><span>opens this signed client directly from the CLI.</span></p>
             <a class="text-link" href="docs/conversations/">Explore the conversation contract <span aria-hidden="true">→</span></a>
           </div>
@@ -196,6 +197,12 @@
               </a>
               <figcaption><span>Human-readable activity</span><strong>Follow meaningful phases first and leave low-level evidence collapsed until it is useful.</strong></figcaption>
             </figure>
+            <figure class="console-shot">
+              <a href="../assets/cli-live-aws-attachment-reply.jpg">
+                <img src="../assets/cli-live-aws-attachment-reply.jpg" width="1280" height="720" loading="lazy" alt="Live AWS Rat Things conversation created through the CLI with a durable attachment, targeted follow-up, and reaction">
+              </a>
+              <figcaption><span>CLI and console, one conversation</span><strong>Search, attach, reply, react, and organize from the CLI; inspect the same durable state in the signed client.</strong></figcaption>
+            </figure>
             <figure class="console-shot console-shot-mobile">
               <a href="../assets/conversation-console-mobile-browser.png">
                 <img src="../assets/conversation-console-mobile-browser.png" width="390" height="844" loading="lazy" alt="Rat Things compact browser context sheet showing live controls, zoom, keyboard input, scrolling, and teach-by-demonstration fields">
@@ -204,7 +211,7 @@
             </figure>
           </div>
         </div>
-        <p class="console-evidence-note">The browser and Activity screenshots come from the fresh disposable <code>ux260826a</code> live-AWS Run against NVIDIA's official Q2 FY27 earnings release. The compact screenshot uses deterministic E2E data. The live journey passed in 2.8 minutes with real Codex-on-Bedrock and S3 Files enabled; all 234 stack resources were destroyed afterward.</p>
+        <p class="console-evidence-note">The browser and Activity screenshots come from the fresh disposable <code>ux260826a</code> live-AWS Run against NVIDIA's official Q2 FY27 earnings release. The CLI screenshot comes from a separate two-turn real-Codex review on disposable <code>cli260826a</code>, with an attached file, reaction, targeted reply, and same-MicroVM continuation. The compact screenshot uses deterministic E2E data. A later clean 234-resource stack, <code>cli260826b</code>, passed all 12 enabled live workflow scenarios in 662.74 seconds; only the optional custom-domain publication scenario was skipped. S3 Files was enabled, and every resource in all three stacks was destroyed afterward.</p>
       </section>
 
       <section class="flow-section" id="flow" aria-labelledby="flow-title">

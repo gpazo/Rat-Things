@@ -88,9 +88,15 @@ rat-things computer open --thread THREAD_NAME
 # Inspect state, optionally retaining the current JPEG locally.
 rat-things computer watch RUN_ID --screenshot screen.jpg
 
-# Take exclusive browser control, send allowlisted actions, then hand it back.
+# Take exclusive browser control, send typed allowlisted actions, then hand it back.
 rat-things computer takeover RUN_ID
-rat-things computer act RUN_ID --file browser-action.json
+rat-things computer navigate RUN_ID https://example.com
+rat-things computer click RUN_ID --ref r3
+rat-things computer type RUN_ID --ref r4 --clear --submit "quarterly revenue"
+rat-things computer type RUN_ID -- --literal-leading-dash
+rat-things computer press RUN_ID Enter
+rat-things computer scroll RUN_ID --delta-y 600
+rat-things computer back RUN_ID
 rat-things computer release RUN_ID
 
 # Record a demonstration. Stop creates an unpublished draft Thing; discard deletes the recording.
@@ -99,8 +105,10 @@ rat-things computer teach stop RUN_ID
 # or: rat-things computer teach discard RUN_ID
 ```
 
-`browser-action.json` uses the `HumanBrowserAction` schema in the installed OpenAPI document. The
-console is the ergonomic surface for point-and-click use; the CLI is intentionally scriptable. The
+The typed namespace covers `navigate`, `click`, `type`, `press`, `select`, `scroll`, `wait`, and
+`back`. For generated actions, `rat-things computer act RUN_ID --file browser-action.json` still
+accepts the installed OpenAPI `HumanBrowserAction` schema. The console is the ergonomic surface for
+point-and-click use; the CLI is intentionally scriptable. The
 older top-level `computer`, `takeover`, `handback`, `computer-act`, and `teach-*` commands remain
 compatible aliases.
 

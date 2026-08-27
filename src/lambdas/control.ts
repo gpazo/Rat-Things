@@ -484,7 +484,7 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
         `/v1/conversations/${conversationKey}/artifacts/${conversationArtifactId}/content`,
       )
     ) {
-      const catalog = await conversationArtifactCatalog(ownerId, conversationKey);
+      const { catalog } = await conversationArtifactContext(ownerId, conversationKey);
       const published = catalog.files.find((file) => file.id === conversationArtifactId);
       if (!published) throw new ConflictError(`artifact ${conversationArtifactId} is not available`);
       const descriptor = await artifactDescriptor(event, ownerId, published.file, published) as { url?: string };
@@ -509,7 +509,7 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
         `/v1/conversations/${conversationKey}/artifacts`,
       )
     ) {
-      const catalog = await conversationArtifactCatalog(ownerId, conversationKey);
+      const { catalog } = await conversationArtifactContext(ownerId, conversationKey);
       return response(200, { files: catalog.files.map(artifactMetadata) });
     }
     if (
@@ -522,7 +522,7 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
         `/v1/conversations/${conversationKey}/artifacts/${conversationArtifactId}`,
       )
     ) {
-      const catalog = await conversationArtifactCatalog(ownerId, conversationKey);
+      const { catalog } = await conversationArtifactContext(ownerId, conversationKey);
       const published = catalog.files.find((file) => file.id === conversationArtifactId);
       if (!published) throw new ConflictError(`artifact ${conversationArtifactId} is not available`);
       return response(200, await artifactDescriptor(event, ownerId, published.file, published));
@@ -536,7 +536,7 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
         `/v1/conversations/${conversationKey}/publications`,
       )
     ) {
-      const catalog = await conversationArtifactCatalog(ownerId, conversationKey);
+      const { catalog, conversation } = await conversationArtifactContext(ownerId, conversationKey);
       const spec = parsePublicationSpec(jsonBody(event));
       const sourceRunId = latestPublicationSourceRunId(catalog, spec);
       return response(201, await publishAndShare({
@@ -544,7 +544,7 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
         spec,
         catalog,
         runId: sourceRunId,
-        conversationId: apiConversationId(ownerId, conversationKey),
+        conversationId: conversation.conversationId,
       }));
     }
     if (method === 'POST' && path === '/v1/runs') {
@@ -1354,13 +1354,18 @@ function artifactFor(run: RunRecord, name: string): ArtifactReference | undefine
   return undefined;
 }
 
-async function conversationArtifactCatalog(
+async function conversationArtifactContext(
   ownerId: string,
-  conversationKey: string,
-): Promise<ArtifactCatalog> {
-  const conversation = await getConversationService().get(apiConversationId(ownerId, conversationKey));
+  conversationSelector: string,
+): Promise<{ catalog: ArtifactCatalog; conversation: ConversationRecord }> {
+  const publicConversation = /^[a-f0-9]{64}$/.test(conversationSelector)
+    ? await getConversationService().getByPublicId(ownerId, conversationSelector)
+    : undefined;
+  const conversation = publicConversation ?? await getConversationService().get(
+    apiConversationId(ownerId, conversationSelector),
+  );
   if (!conversation || conversation.ownerId !== ownerId) throw new NotFoundError('conversation not found');
-  if (!conversation.artifacts) return { version: '1', files: [] };
+  if (!conversation.artifacts) return { catalog: { version: '1', files: [] }, conversation };
   if (conversation.artifacts.bucket !== requiredEnv('ARTIFACT_BUCKET')) {
     throw new Error('conversation contains an artifact catalog outside the runtime bucket');
   }
@@ -1371,7 +1376,7 @@ async function conversationArtifactCatalog(
   if (!result.Body) throw new Error('conversation artifact catalog is empty');
   const catalog = JSON.parse(await result.Body.transformToString('utf8')) as ArtifactCatalog;
   validateArtifactCatalog(catalog);
-  return catalog;
+  return { catalog, conversation };
 }
 
 async function artifactDescriptor(

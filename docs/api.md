@@ -85,9 +85,9 @@ Cross-identity lookup is an administrative capability outside v1.
 | `POST /v1/conversations/{opaqueConversationId}/organization` | Required | Set owner-scoped `pinned`, `hidden`, or `read` booleans without changing execution authority or lifecycle |
 | `POST /v1/conversations/{opaqueConversationId}/messages/{messageId}/reactions` | Required | Add or remove one supported durable owner reaction without starting a Run |
 | `GET /v1/conversations/{conversationId}/messages/{messageId}` | Required | Poll the exact message, bound run, conversation, and suspended-session state |
-| `GET /v1/conversations/{conversationId}/artifacts` | Required | List the current durable files for an owner-scoped conversation |
-| `GET /v1/conversations/{conversationId}/artifacts/{artifact}` | Required | Return a fresh short-lived view/download URL for a conversation file |
-| `GET /v1/conversations/{conversationId}/artifacts/{artifact}/content` | Required | Owner-check and redirect an inline viewer to short-lived private content |
+| `GET /v1/conversations/{conversationId}/artifacts` | Required | List durable files using an API thread key or the opaque public conversation ID |
+| `GET /v1/conversations/{conversationId}/artifacts/{artifact}` | Required | Return a fresh short-lived view/download URL using either conversation selector |
+| `GET /v1/conversations/{conversationId}/artifacts/{artifact}/content` | Required | Owner-check either selector and redirect an inline viewer to short-lived private content |
 | `POST /v1/conversations/{conversationId}/publications` | Required | Build and share a file, site, or video from the current conversation catalog |
 | `POST /v1/runs` | Required | Validate, durably store, and return the universal Run receipt (`202`); optional `thread` adds owner-scoped continuity preparation |
 | `GET /v1/runs?limit=25&nextToken=...` | Required | Newest-first runs for the current owner; limit is clamped to 1–100 |
@@ -305,7 +305,9 @@ same bound Run plus mailbox/session state:
 ```
 
 The bundled CLI performs Run submission, polling, completion/suspension checks, artifact download,
-and SigV4 signing. With `--json`, retain the public message and Run IDs, timestamps, Run state, and
+conversation list/search/paging and organization, attachment preparation, replies, reactions,
+source collection, and SigV4 signing. With `--json`, retain the public message and Run IDs,
+timestamps, Run state, and
 suspended-session state; private MicroVM and native Codex thread identifiers are intentionally
 omitted:
 
@@ -323,6 +325,12 @@ npm run rat-things -- \
   --thread release-smoke \
   --sandbox workspace-write \
   "Read the existing marker.txt and tell me what the previous turn did."
+
+rat-things conversations search "marker.txt"
+rat-things conversation show PUBLIC_CONVERSATION_ID
+rat-things chat --thread release-smoke --attach updated-spec.pdf \
+  --reply-to MESSAGE_ID --delivery interrupt \
+  "Use this revision for the next analysis"
 ```
 
 With no options, `npm run rat-things -- "your prompt"` uses the owner's default `main` thread. Use
@@ -342,9 +350,23 @@ assigned an in-memory sequence and can be polled while the run is active:
 ```bash
 rat-things watch RUN_ID --follow
 rat-things steer RUN_ID "Use the newly uploaded specification"
-rat-things respond RUN_ID REQUEST_ID --result '{"answers":{"region":"us-west-2"}}'
+rat-things respond RUN_ID REQUEST_ID --answer region=us-west-2
+rat-things respond RUN_ID REQUEST_ID --answer-stdin api_token
 rat-things interrupt RUN_ID
 ```
+
+`watch` prints human-readable public activity by default. A single `--json` poll returns one complete
+snapshot; `--follow --json` emits one compact snapshot per JSONL line; `--raw` emits one public
+activity card per JSONL line. Conflicting `--json --raw` input fails before polling. When a pending
+request contains structured questions, the readable view prints each question ID and a copyable
+`respond --answer` command. Questions marked secret use `--answer-stdin QUESTION` instead: an
+interactive terminal reads without echo, while a pipe supplies exactly one line per repeated
+option. This keeps secret values out of shell arguments and process listings. `--result JSON`
+remains available for other ordinary request shapes.
+
+Human-readable conversation, activity, question, file, and diagnostic views neutralize C0/C1
+terminal controls before writing to a terminal. JSON/JSONL modes do not change the data; JSON
+escaping keeps the same strings safe for machine parsing.
 
 `GET .../events` returns
 `{runId,active,ready,oldestSequence,nextSequence,events,pendingRequests}`. Each public event has a
@@ -352,7 +374,8 @@ stable `kind`, `status`, `title`, optional bounded `detail`, sequence, and times
 methods and parameters, commands, results, reasoning, request parameters, and native thread/turn IDs
 remain inside the execution boundary and terminal evidence. Pass the last seen `sequence` back as
 `after`; results are ordered and bounded to 100. If a client falls behind `oldestSequence`, it
-missed entries from the bounded ring and must rely on the terminal JSONL event artifact.
+missed entries from the bounded ring and must rely on the terminal JSONL event artifact. The CLI
+prints that loss explicitly rather than presenting the retained window as complete.
 `pendingRequests` includes only ordinary server requests awaiting JSON data. The response route does
 not authorize commands, file changes, browser actions, integrations, or broader account access. Rat
 Things has no approval route; its capability envelope is fixed before launch.
@@ -372,6 +395,18 @@ IAM, networking, integration grants, provider scopes, or resource limits.
 `POST .../computer/action` accepts the OpenAPI `HumanBrowserAction` union (`navigate`, `click`,
 `type`, `press`, `select`, `scroll`, `wait`, or `back`) only while human control is active. There is
 no arbitrary DevTools, JavaScript, shell, VNC, or desktop command surface.
+
+The CLI provides a typed command for every member of that union and retains `computer act --file`
+for generated JSON actions:
+
+```bash
+rat-things computer takeover RUN_ID
+rat-things computer navigate RUN_ID https://example.com
+rat-things computer click RUN_ID --ref r3
+rat-things computer type RUN_ID --ref r4 --clear --submit "quarterly revenue"
+rat-things computer scroll RUN_ID --delta-y 600
+rat-things computer release RUN_ID
+```
 
 `POST .../computer/teach` starts or stops a bounded action demonstration for up to ten minutes and
 100 actions. It deliberately does not retain video. Navigation query strings/fragments and

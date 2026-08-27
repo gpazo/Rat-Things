@@ -115,6 +115,31 @@ The screenshot is from a disposable live-AWS real-Codex Run against NVIDIA's off
 earnings release. The complete client journey passed in 2.8 minutes and the 234-resource stack was
 destroyed afterward.
 
+The CLI exposes the same durable conversation primitives without requiring the console:
+
+```bash
+rat-things conversations list
+rat-things conversations search "NVIDIA earnings"
+rat-things conversation show PUBLIC_CONVERSATION_ID
+rat-things chat --thread earnings --attach report.pdf --reply-to MESSAGE_ID \
+  "Compare this with the previous quarter"
+rat-things watch RUN_ID --follow
+```
+
+List and search return an opaque public conversation ID for transcript, organization, reaction, and
+source commands. `conversation sources` pages the complete indexed transcript, labels transcript
+links as claims rather than verified visits, and reads durable files through the same opaque ID.
+API-created conversations also return their caller-chosen thread key; use that key with
+`chat --thread` to continue work. `watch` presents human-readable activity by default. A single
+`--json` poll is one JSON document; `--follow --json` is JSONL snapshots; `--raw` is JSONL activity
+cards. The CLI rejects unknown options, extra fixed operands, and conflicting output modes before
+making a request.
+
+Run `npm run smoke:conversation-cli` for a safe automated verification of the advertised
+conversation surface. It starts a disposable loopback fixture, exercises six black-box workflows,
+prints their pass/fail names, and exits; it is not an interactive mock server and does not create AWS
+resources.
+
 ## Mental model
 
 | Term | Meaning |

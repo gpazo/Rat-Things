@@ -108,11 +108,32 @@ Explicit production runs and Scheduler occurrences always pin that active revisi
 | Active progress and ordinary input | Run events, response, steer, and interrupt routes | Available only while the exact run has an active MicroVM; responses cannot widen authority |
 | Live browser and demonstration | Run computer, takeover, action, and teach routes | Browser-enabled active Runs only; takeover is an exclusive interaction lease, and save creates an unpublished draft Thing |
 | Durable multi-turn work | `POST /v1/runs` with `thread.key`, plus conversation status/artifact routes | The same Run receipt is returned immediately; the mailbox is always durable, and S3 Files adds workspace/native-thread restoration on replacement compute |
+| Conversation discovery and organization | Conversation list, search, detail, organization, reaction, and artifact routes | List/search return an opaque public ID; only API conversations expose a caller-visible thread key for continuation |
 | Generated files | Run or conversation artifact routes | Returns owner-checked metadata and short-lived access URLs |
 | Shareable file, site, or video | Run or conversation publication routes | Publishing is explicit and produces a time-bounded bearer URL |
 | Provider event ingress | Signed GitHub, GitLab, Teams, or Slack routes | Separate authenticated ingress into the shared run backend; not a Thing trigger in v1 |
 | Lower-level interval compatibility | `/v1/routines` | Still installed, but use scheduled Things for new reusable work |
 | Failure diagnosis | Thing explanation, stable error envelope, and `traceId` | Follow [diagnostics](diagnostics.md) before infrastructure mutation |
+
+The bundled CLI maps those conversation routes directly. Use `conversations list` or
+`conversations search`, then pass the returned opaque ID to `conversation show`, `sources`,
+`pin|hide|read`, or `react`. Continue an API conversation with its separate `threadKey`:
+
+```bash
+rat-things conversations search "customer renewal"
+rat-things conversation show PUBLIC_CONVERSATION_ID
+rat-things chat --thread customer-renewal --attach renewal.csv \
+  --reply-to MESSAGE_ID --delivery interrupt \
+  "Recalculate the proposal from this file"
+```
+
+`--attach` is repeatable and performs the public attachment limits and SHA-256 calculation before
+submission. `--delivery interrupt|defer` chooses what happens if that thread already has an active
+turn; it does not change the Run's capability envelope. `conversation sources` follows every
+available transcript cursor and lists transcript links separately from durable files. Artifact GET
+routes accept either the API thread key or the opaque public conversation ID, so provider-origin
+conversations do not need to reveal their internal key. The CLI rejects unknown options and extra
+fixed operands before any request is sent.
 
 ### Advanced run configuration
 

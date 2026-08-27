@@ -169,6 +169,96 @@ the same DynamoDB transaction as the transcript or completed turn. Search is for
 created before a deployment gains this feature needs a one-time reindex before it is discoverable by
 message or filename.
 
+### Conversation workflows from the CLI
+
+The CLI exposes the owner read model directly. The plural namespace discovers work; the singular
+namespace acts on one opaque public conversation ID:
+
+```bash
+rat-things conversations list --visibility visible --limit 25
+rat-things conversations search "NVIDIA earnings"
+rat-things conversation show PUBLIC_CONVERSATION_ID --limit 50
+rat-things conversation sources PUBLIC_CONVERSATION_ID
+rat-things conversation pin PUBLIC_CONVERSATION_ID
+rat-things conversation read PUBLIC_CONVERSATION_ID
+rat-things conversation react PUBLIC_CONVERSATION_ID MESSAGE_ID 👍
+```
+
+Use `--next-token` with `conversations list` or `conversation show` to page without interpreting the
+opaque cursor. Add `--json` for the installed OpenAPI response instead of the human-readable view.
+`pin|unpin`, `hide|unhide`, and `read|unread` change only owner organization state. Reactions are
+limited to `👍`, `❤️`, `🎉`, and `👀` and never start a Run.
+
+`conversation sources` is intentionally different from one transcript page: it follows every
+available cursor (bounded to 100 pages as a corruption guard), reads the durable file catalog by
+opaque public ID, and reports whether collection was complete. A URL copied into user or assistant
+text is labeled `link` with its transcript role; it is not claimed as a verified browser visit.
+Durable catalog entries are labeled `file`, while an attachment without catalog metadata remains an
+opaque `attachment` ID.
+
+The public conversation ID is not a continuation key. For an API-created conversation, list/show
+also displays `threadKey`; use that caller-chosen value with `chat --thread`:
+
+```bash
+rat-things chat \
+  --thread earnings-review \
+  --attach nvidia-q2.pdf \
+  --reply-to MESSAGE_ID \
+  --delivery interrupt \
+  "Compare the attached report with the earlier answer"
+```
+
+`--attach` can be repeated up to six times. The CLI rejects files above 4 MiB or a combined payload
+above 6 MiB, detects common media types, base64-encodes each file, and supplies its SHA-256. The API
+rechecks every limit and checksum before accepting the Run. `--delivery interrupt` interrupts the
+current turn before scheduling the new message; `defer` leaves it queued. Neither choice widens the
+fixed capability envelope.
+
+`rat-things watch RUN_ID --follow` renders the stable public activity cards as a readable timeline
+and prints answer commands for structured ordinary input. Use repeatable
+`--answer QUESTION_ID=VALUE` for ordinary values. Secret questions print
+`--answer-stdin QUESTION_ID`; TTY input is hidden and piped input consumes exactly one line per
+question, keeping the value out of process arguments. A single `--json` poll is one complete JSON
+document, `--follow --json` emits JSONL snapshots, and `--raw` emits one JSON activity card per line.
+The modes are mutually exclusive. If the bounded live ring has evicted requested activity, the CLI
+warns that the terminal JSONL artifact is the complete record. Raw App Server protocol events remain
+private.
+
+The parser rejects unknown options, duplicate single-value options, extra operands on fixed-arity
+commands, duplicate answers for one question, and ambiguous mode combinations before making an API
+request. Use the conventional `--` terminator when browser text begins with a dash:
+
+```bash
+rat-things computer type RUN_ID -- --literal-leading-dash
+```
+
+Human-readable CLI views neutralize C0/C1 terminal controls in provider- and agent-authored text,
+including ANSI and OSC sequences. JSON and JSONL modes retain the exact string data with JSON
+escaping for machine consumers.
+
+For a no-AWS first pass, run the focused automated verification:
+
+```bash
+npm run smoke:conversation-cli
+```
+
+It reports six black-box workflow names covering discovery/paging/sources, organization,
+attachments/replies, activity and structured/secret input, typed computer control, strict errors,
+JSONL/help, and terminal-control safety. The disposable loopback fixture exits with the test; this
+command verifies the CLI without deploying infrastructure but does not leave an interactive local
+backend running.
+
+The screenshot below is a live AWS conversation created and continued entirely through those CLI
+commands. It shows the same read model in the reference console: a pinned/read conversation, an
+S3-backed attachment, a real Codex response, a targeted follow-up, and a durable reaction.
+
+![Live AWS conversation created through the Rat Things CLI with an attachment, reaction, and targeted follow-up](../assets/cli-live-aws-attachment-reply.jpg)
+
+The continued view shows the reply relationship and the real Codex confirmation after the same
+conversation resumed on its suspended MicroVM:
+
+![Live AWS Rat Things conversation continued through a targeted CLI reply on the same suspended MicroVM](../assets/cli-live-aws-conversation.jpg)
+
 The desktop testing console uses only those public routes plus existing Run events and controls. It
 keeps AWS credentials in a loopback signer instead of browser storage:
 

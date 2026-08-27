@@ -462,12 +462,8 @@ export class ConversationService {
     transcript: ConversationTranscriptPage;
     activeTurn?: ConversationTurnRecord;
   } | undefined> {
-    requiredId(ownerId, 'ownerId', 1_024);
-    if (!/^[a-f0-9]{64}$/.test(publicId)) {
-      throw new ConversationStateError('conversation ID must be a 64-character lowercase hex value');
-    }
-    const conversation = await this.options.store.getConversationByPublicId(publicId);
-    if (!conversation || conversation.ownerId !== ownerId) return undefined;
+    const conversation = await this.getByPublicId(ownerId, publicId);
+    if (!conversation) return undefined;
     const limit = Math.max(
       1,
       Math.min(100, Math.floor(options.limit ?? DEFAULT_TRANSCRIPT_LIMIT)),
@@ -522,6 +518,18 @@ export class ConversationService {
       },
       ...(activeTurn ? { activeTurn } : {}),
     };
+  }
+
+  public async getByPublicId(
+    ownerId: string,
+    publicId: string,
+  ): Promise<ConversationRecord | undefined> {
+    requiredId(ownerId, 'ownerId', 1_024);
+    if (!/^[a-f0-9]{64}$/.test(publicId)) {
+      throw new ConversationStateError('conversation ID must be a 64-character lowercase hex value');
+    }
+    const conversation = await this.options.store.getConversationByPublicId(publicId);
+    return conversation?.ownerId === ownerId ? conversation : undefined;
   }
 
   public getMessage(conversationId: string, messageId: string) {
