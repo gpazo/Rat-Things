@@ -93,19 +93,27 @@ Read the [AWS-ready quickstart](docs/quickstart.md) before using a privileged ac
   the agent is autonomous; outside it, a tool is absent or denied. There is no mid-Run approval
   path.
 - **Isolated tools** — shell, Git, filesystem, policy-controlled networking, and browser computer
-  use run as an unprivileged process inside a dedicated Firecracker-backed guest.
+  use run as an unprivileged process inside a dedicated Firecracker-backed guest. Owners can view
+  the live browser, take temporary control, and turn a redacted demonstration into a draft Thing.
 - **Durable conversations and files** — searchable transcripts, replies, reactions, questions,
   uploads, generated files, and lifecycle state survive clients and compute. With S3 Files enabled,
   replacement compute also restores the exact native Codex state and workspace.
 - **One embeddable contract** — installed discovery, OpenAPI, JSON Schemas, integration manifests,
   capability profiles, and stable errors support CLIs, products, and other agents.
 
-The local reference console exercises the public conversation API; it is not a hosted product or a
-second execution path.
+The local reference console exercises the public conversation, live-computer, and Thing APIs; it is
+not a hosted product or a second execution path. Its resizable three-pane workspace keeps the
+conversation list, transcript, active Run, isolated browser, collected sources, and human-readable
+activity together. Operators can watch, steer, stop, temporarily take browser control, and return
+control without widening the Run's fixed capability envelope.
 
 <p align="center">
-  <a href="assets/conversation-console-desktop.png"><img src="assets/conversation-console-desktop.png" alt="Rat Things reference console showing a conversation list, transcript, activity, reactions, generated file, and composer" width="900"></a>
+  <a href="assets/conversation-console-live-browser.png"><img src="assets/conversation-console-live-browser.png" alt="Rat Things three-pane reference console during a live AWS NVIDIA earnings Run, with active progress, durable conversation, and isolated browser takeover" width="900"></a>
 </p>
+
+The screenshot is from a disposable live-AWS real-Codex Run against NVIDIA's official Q2 FY27
+earnings release. The complete client journey passed in 2.8 minutes and the 234-resource stack was
+destroyed afterward.
 
 ## Mental model
 

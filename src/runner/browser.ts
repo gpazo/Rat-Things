@@ -1,13 +1,25 @@
 import { fork, type ChildProcess } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import { isAbsolute } from 'node:path';
 import type { JsonValue } from '../domain/contracts.js';
 import { validateArtifactPath } from '../domain/artifacts.js';
+import {
+  COMPUTER_VIEWPORT,
+  type ComputerSnapshot,
+  type ComputerTakeoverReceipt,
+  type HumanBrowserAction,
+  type TeachRecordingInput,
+  type TeachRecordingResult,
+} from '../domain/interaction.js';
 
 // `browser` is reserved by the Responses runtime, so host-provided dynamic
 // tools use a Rat Things-specific namespace.
 export const BROWSER_TOOL_NAMESPACE = 'rat_browser';
 const MAX_BROWSER_TEXT_BYTES = 64 * 1024;
 const MAX_BROWSER_IMAGE_BYTES = 4 * 1024 * 1024;
+export const HUMAN_COMPUTER_LEASE_MS = 15 * 60 * 1_000;
+export const TEACH_DEMONSTRATION_MAXIMUM_MS = 10 * 60 * 1_000;
+const MAX_TEACH_STEPS = 100;
 
 export interface BrowserToolCall {
   namespace: string | null;
@@ -49,29 +61,335 @@ export type BrowserCommand =
 
 export class BrowserToolSession {
   public readonly tools = browserDynamicTools();
+  private takeover: { startedAt: number; expiresAt: number } | undefined;
+  private teaching: {
+    runId: string;
+    recordingId: string;
+    name: string;
+    goal?: string;
+    startedAt: number;
+    steps: HumanBrowserAction[];
+  } | undefined;
+  private operation: Promise<void> = Promise.resolve();
 
-  public constructor(private readonly backend: BrowserBackend = new BrowserHostBackend()) {}
+  public constructor(
+    private readonly backend: BrowserBackend = new BrowserHostBackend(),
+    private readonly now: () => Date = () => new Date(),
+  ) {}
 
   public async call(call: BrowserToolCall, signal?: AbortSignal): Promise<BrowserToolResponse> {
     if (call.namespace !== BROWSER_TOOL_NAMESPACE) {
       throw new Error(`browser tool namespace must be ${BROWSER_TOOL_NAMESPACE}`);
     }
     const command = parseBrowserCommand(call.tool, call.arguments);
-    const result = await this.backend.execute(command, signal);
-    assertBoundedText(result.text);
-    const contentItems: BrowserToolResponse['contentItems'] = [
-      { type: 'inputText', text: result.text },
-    ];
-    if (result.imageDataUrl) {
-      assertBoundedImage(result.imageDataUrl);
-      contentItems.push({ type: 'inputImage', imageUrl: result.imageDataUrl });
-    }
-    return { success: true, contentItems };
+    return this.serial(async () => {
+      await this.releaseExpiredTakeover();
+      if (this.takeover) {
+        throw new Error('browser is under temporary human control; wait until control is returned');
+      }
+      const result = await this.backend.execute(command, signal);
+      return toolResponse(result);
+    });
+  }
+
+  public computer(runId: string): Promise<ComputerSnapshot> {
+    return this.serial(async () => {
+      await this.releaseExpiredTakeover();
+      const result = await this.backend.execute({ type: 'observe', includeScreenshot: true });
+      return this.snapshot(runId, result);
+    });
+  }
+
+  public takeComputer(runId: string): Promise<ComputerTakeoverReceipt> {
+    return this.serial(async () => {
+      await this.releaseExpiredTakeover();
+      const timestamp = this.now().getTime();
+      this.takeover ??= {
+        startedAt: timestamp,
+        expiresAt: timestamp + HUMAN_COMPUTER_LEASE_MS,
+      };
+      return this.takeoverReceipt(runId);
+    });
+  }
+
+  public returnComputer(runId: string): Promise<ComputerTakeoverReceipt> {
+    return this.serial(async () => {
+      if (this.teaching) throw new Error('stop or discard the demonstration before returning control');
+      this.takeover = undefined;
+      return this.takeoverReceipt(runId);
+    });
+  }
+
+  public actOnComputer(runId: string, action: HumanBrowserAction): Promise<ComputerSnapshot> {
+    return this.serial(async () => {
+      await this.requireTakeover();
+      const command = parseHumanBrowserAction(action);
+      if (
+        this.teaching &&
+        this.now().getTime() - this.teaching.startedAt >= TEACH_DEMONSTRATION_MAXIMUM_MS
+      ) throw new Error('the demonstration reached ten minutes; stop and save or discard it');
+      if (this.teaching && this.teaching.steps.length >= MAX_TEACH_STEPS) {
+        throw new Error(`a demonstration is limited to ${MAX_TEACH_STEPS} browser actions`);
+      }
+      await this.backend.execute(command);
+      if (this.teaching) {
+        this.teaching.steps.push(redactedTeachStep(command, this.teaching.steps));
+      }
+      this.renewTakeover();
+      const observed = await this.backend.execute({ type: 'observe', includeScreenshot: true });
+      return this.snapshot(runId, observed);
+    });
+  }
+
+  public startTeaching(runId: string, input: TeachRecordingInput): Promise<ComputerSnapshot> {
+    return this.serial(async () => {
+      await this.requireTakeover();
+      if (this.teaching) throw new Error('a demonstration is already recording');
+      const name = boundedString(input.name, 120, 'name');
+      const goal = input.goal === undefined
+        ? undefined
+        : boundedString(input.goal, 4_000, 'goal');
+      const recordingId = randomUUID();
+      this.teaching = {
+        runId,
+        recordingId,
+        name,
+        ...(goal ? { goal } : {}),
+        startedAt: this.now().getTime(),
+        steps: [],
+      };
+      this.renewTakeover();
+      const observed = await this.backend.execute({ type: 'observe', includeScreenshot: true });
+      return this.snapshot(runId, observed);
+    });
+  }
+
+  public stopTeaching(discard: boolean): Promise<TeachRecordingResult> {
+    return this.serial(async () => {
+      await this.requireTakeover();
+      const teaching = this.teaching;
+      if (!teaching) throw new Error('no demonstration is recording');
+      if (!discard && teaching.steps.length === 0) {
+        throw new Error('demonstrate at least one browser action before saving a draft');
+      }
+      const stoppedAt = this.now();
+      this.teaching = undefined;
+      this.renewTakeover();
+      return {
+        version: '1',
+        recordingId: teaching.recordingId,
+        name: teaching.name,
+        startedAt: new Date(teaching.startedAt).toISOString(),
+        stoppedAt: stoppedAt.toISOString(),
+        demonstratedSteps: teaching.steps.length,
+        discarded: discard,
+        ...(discard ? {} : { draft: teachDraft(teaching) }),
+      };
+    });
   }
 
   public close(): Promise<void> {
-    return this.backend.close();
+    return this.serial(async () => {
+      this.teaching = undefined;
+      await this.backend.close();
+    });
   }
+
+  private snapshot(runId: string, result: BrowserBackendResult): ComputerSnapshot {
+    assertBoundedText(result.text);
+    if (!result.imageDataUrl) throw new Error('browser did not return a screen image');
+    assertBoundedImage(result.imageDataUrl);
+    const page = parsePageState(result.text);
+    return {
+      version: '1',
+      runId,
+      available: true,
+      control: this.takeover ? 'human' : 'agent',
+      viewport: COMPUTER_VIEWPORT,
+      observedAt: this.now().toISOString(),
+      page,
+      imageDataUrl: result.imageDataUrl,
+      ...(this.takeover ? { takeover: takeoverWindow(this.takeover) } : {}),
+      teach: this.teaching ? {
+        state: 'recording',
+        recordingId: this.teaching.recordingId,
+        name: this.teaching.name,
+        startedAt: new Date(this.teaching.startedAt).toISOString(),
+        maximumDurationMs: TEACH_DEMONSTRATION_MAXIMUM_MS,
+        demonstratedSteps: this.teaching.steps.length,
+      } : { state: 'idle' },
+    };
+  }
+
+  private takeoverReceipt(runId: string): ComputerTakeoverReceipt {
+    return {
+      version: '1',
+      runId,
+      control: this.takeover ? 'human' : 'agent',
+      ...(this.takeover ? { takeover: takeoverWindow(this.takeover) } : {}),
+    };
+  }
+
+  private async requireTakeover(): Promise<void> {
+    await this.releaseExpiredTakeover();
+    if (!this.takeover) throw new Error('take temporary control before interacting with the browser');
+  }
+
+  private renewTakeover(): void {
+    if (this.takeover) this.takeover.expiresAt = this.now().getTime() + HUMAN_COMPUTER_LEASE_MS;
+  }
+
+  private async releaseExpiredTakeover(): Promise<void> {
+    if (!this.takeover || this.takeover.expiresAt > this.now().getTime()) return;
+    this.teaching = undefined;
+    this.takeover = undefined;
+  }
+
+  private serial<T>(work: () => Promise<T>): Promise<T> {
+    const result = this.operation.then(work, work);
+    this.operation = result.then(() => undefined, () => undefined);
+    return result;
+  }
+}
+
+function toolResponse(result: BrowserBackendResult): BrowserToolResponse {
+  assertBoundedText(result.text);
+  const contentItems: BrowserToolResponse['contentItems'] = [
+    { type: 'inputText', text: result.text },
+  ];
+  if (result.imageDataUrl) {
+    assertBoundedImage(result.imageDataUrl);
+    contentItems.push({ type: 'inputImage', imageUrl: result.imageDataUrl });
+  }
+  return { success: true, contentItems };
+}
+
+function parseHumanBrowserAction(action: HumanBrowserAction): BrowserCommand {
+  if (!isRecord(action) || typeof action.type !== 'string') {
+    throw new Error('browser action is invalid');
+  }
+  switch (action.type) {
+    case 'navigate': return parseBrowserCommand('navigate', { url: action.url });
+    case 'click': return parseBrowserCommand('click', {
+      ...(action.ref !== undefined ? { ref: action.ref } : {}),
+      ...(action.x !== undefined ? { x: action.x } : {}),
+      ...(action.y !== undefined ? { y: action.y } : {}),
+    });
+    case 'type': return parseBrowserCommand('type', {
+      ...(action.ref !== undefined ? { ref: action.ref } : {}),
+      text: action.text,
+      ...(action.clear !== undefined ? { clear: action.clear } : {}),
+      ...(action.submit !== undefined ? { submit: action.submit } : {}),
+    });
+    case 'press': return parseBrowserCommand('press', { key: action.key });
+    case 'select': return parseBrowserCommand('select', {
+      ref: action.ref,
+      value: action.value,
+    });
+    case 'scroll': return parseBrowserCommand('scroll', {
+      ...(action.deltaX !== undefined ? { deltaX: action.deltaX } : {}),
+      deltaY: action.deltaY,
+    });
+    case 'wait': return parseBrowserCommand('wait', { milliseconds: action.milliseconds });
+    case 'back': return parseBrowserCommand('back', {});
+    default: throw new Error('browser action is not available to human control');
+  }
+}
+
+function redactedTeachStep(
+  command: BrowserCommand,
+  previous: HumanBrowserAction[],
+): HumanBrowserAction {
+  const parameter = () => {
+    const index = previous.filter((step) => step.type === 'type' || step.type === 'select').length + 1;
+    return `{{input_${index}}}`;
+  };
+  switch (command.type) {
+    case 'navigate': {
+      const url = new URL(command.url);
+      url.search = '';
+      url.hash = '';
+      return { type: 'navigate', url: url.toString() };
+    }
+    case 'click': return command.ref
+      ? { type: 'click', ref: command.ref }
+      : { type: 'click', x: command.x as number, y: command.y as number };
+    case 'type': return {
+      type: 'type',
+      ...(command.ref ? { ref: command.ref } : {}),
+      text: parameter(),
+      clear: command.clear,
+      submit: command.submit,
+    };
+    case 'press': return { type: 'press', key: command.key };
+    case 'select': return { type: 'select', ref: command.ref, value: parameter() };
+    case 'scroll': return { type: 'scroll', deltaX: command.deltaX, deltaY: command.deltaY };
+    case 'wait': return { type: 'wait', milliseconds: command.milliseconds };
+    case 'back': return { type: 'back' };
+    default: throw new Error('only interactive browser actions can become demonstration steps');
+  }
+}
+
+function teachDraft(teaching: {
+  runId: string;
+  recordingId: string;
+  name: string;
+  goal?: string;
+  steps: HumanBrowserAction[];
+}): NonNullable<TeachRecordingResult['draft']> {
+  const steps = teaching.steps.map((step, index) => `${index + 1}. ${JSON.stringify(step)}`);
+  return {
+    version: '1',
+    name: teaching.name,
+    goal: [
+      teaching.goal ?? `Repeat the demonstrated browser workflow named "${teaching.name}".`,
+      '',
+      'Use the isolated browser and reproduce these demonstrated actions in order:',
+      ...steps,
+      '',
+      'Treat {{input_N}} values as required runtime inputs. Never infer or persist demonstrated values.',
+      'Use current element observations when recorded refs or coordinates no longer match, then verify the final page state.',
+    ].join('\n'),
+    trigger: { kind: 'manual' },
+    agent: {
+      driver: 'codex',
+      sandbox: 'danger-full-access',
+      capabilities: { networkAccess: true, computerUse: 'browser' },
+    },
+    metadata: {
+      createdBy: 'teach-by-demonstration',
+      sourceRunId: teaching.runId,
+      recordingId: teaching.recordingId,
+      demonstratedActions: teaching.steps.length,
+      redactedInputs: teaching.steps.filter((step) => step.type === 'type' || step.type === 'select').length,
+    },
+  };
+}
+
+function parsePageState(text: string): { url: string; title: string } {
+  let value: unknown;
+  try {
+    value = JSON.parse(text);
+  } catch {
+    throw new Error('browser returned invalid page state');
+  }
+  if (!isRecord(value) || typeof value.url !== 'string' || typeof value.title !== 'string') {
+    throw new Error('browser returned invalid page state');
+  }
+  return {
+    url: value.url.slice(0, 4_096),
+    title: value.title.slice(0, 1_000),
+  };
+}
+
+function takeoverWindow(takeover: { startedAt: number; expiresAt: number }): {
+  startedAt: string;
+  expiresAt: string;
+} {
+  return {
+    startedAt: new Date(takeover.startedAt).toISOString(),
+    expiresAt: new Date(takeover.expiresAt).toISOString(),
+  };
 }
 
 interface PendingBrowserCommand {

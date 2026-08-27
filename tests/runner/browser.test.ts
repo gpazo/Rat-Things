@@ -142,4 +142,96 @@ describe('browser dynamic tools', () => {
     })).resolves.toMatchObject({ success: true });
     expect(execute).toHaveBeenCalledWith({ type: 'click', ref: 'r1' }, undefined);
   });
+
+  it('gives the human a bounded exclusive browser lease without widening browser actions', async () => {
+    const execute = vi.fn(async (command: BrowserCommand) => ({
+      text: JSON.stringify({ url: 'https://example.com/', title: command.type }),
+      ...(command.type === 'observe' && command.includeScreenshot
+        ? { imageDataUrl: 'data:image/jpeg;base64,YWJj' }
+        : {}),
+    }));
+    const session = new BrowserToolSession(
+      { execute, close: vi.fn(async () => undefined) },
+      () => new Date('2026-08-26T12:00:00.000Z'),
+    );
+
+    await expect(session.takeComputer('run-1')).resolves.toMatchObject({
+      runId: 'run-1',
+      control: 'human',
+      takeover: { expiresAt: '2026-08-26T12:15:00.000Z' },
+    });
+    await expect(session.call({
+      namespace: 'rat_browser',
+      tool: 'click',
+      arguments: { ref: 'r1' },
+    })).rejects.toThrow('temporary human control');
+    await expect(session.actOnComputer('run-1', { type: 'click', x: 640, y: 360 }))
+      .resolves.toMatchObject({ control: 'human', page: { title: 'observe' } });
+    await expect(session.returnComputer('run-1')).resolves.toMatchObject({ control: 'agent' });
+  });
+
+  it('turns a demonstration into an unpublished, redacted Thing draft', async () => {
+    const execute = vi.fn(async (command: BrowserCommand) => ({
+      text: JSON.stringify({ url: 'https://example.com/account?token=secret', title: command.type }),
+      ...(command.type === 'observe' && command.includeScreenshot
+        ? { imageDataUrl: 'data:image/jpeg;base64,YWJj' }
+        : {}),
+    }));
+    let tick = 0;
+    const session = new BrowserToolSession(
+      { execute, close: vi.fn(async () => undefined) },
+      () => new Date(Date.parse('2026-08-26T12:00:00.000Z') + tick++ * 1_000),
+    );
+    await session.takeComputer('run-1');
+    await session.startTeaching('run-1', {
+      name: 'Update account',
+      goal: 'Update the account setting shown by the operator.',
+    });
+    await session.actOnComputer('run-1', {
+      type: 'navigate',
+      url: 'https://example.com/account?token=secret#private',
+    });
+    await session.actOnComputer('run-1', {
+      type: 'type',
+      ref: 'r2',
+      text: 'super-secret-value',
+      clear: true,
+    });
+    const saved = await session.stopTeaching(false);
+
+    expect(saved).toMatchObject({
+      discarded: false,
+      demonstratedSteps: 2,
+      draft: {
+        name: 'Update account',
+        trigger: { kind: 'manual' },
+        agent: { capabilities: { computerUse: 'browser', networkAccess: true } },
+      },
+    });
+    expect(JSON.stringify(saved.draft)).not.toContain('super-secret-value');
+    expect(saved.draft?.goal).toContain('{{input_1}}');
+    expect(saved.draft?.goal).not.toContain('token=secret');
+    expect(saved.draft?.metadata).toMatchObject({
+      createdBy: 'teach-by-demonstration',
+      demonstratedActions: 2,
+    });
+  });
+
+  it('forgets an active action demonstration when it is discarded', async () => {
+    const execute = vi.fn(async (command: BrowserCommand) => ({
+      text: JSON.stringify({ url: 'about:blank', title: command.type }),
+      ...(command.type === 'observe' && command.includeScreenshot
+        ? { imageDataUrl: 'data:image/jpeg;base64,YWJj' }
+        : {}),
+    }));
+    const session = new BrowserToolSession({ execute, close: vi.fn(async () => undefined) });
+    await session.takeComputer('run-1');
+    await session.startTeaching('run-1', { name: 'Disposable example' });
+
+    await expect(session.stopTeaching(true)).resolves.toMatchObject({
+      discarded: true,
+      demonstratedSteps: 0,
+    });
+    expect(execute).not.toHaveBeenCalledWith({ type: 'record_stop' });
+  });
 });

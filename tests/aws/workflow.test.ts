@@ -1227,6 +1227,94 @@ integration('live AWS agent-runner workflow', () => {
 
   const browserPublicationTest = process.env.AWS_E2E_REAL_CODEX === 'true' &&
     Boolean(process.env.AWS_E2E_PUBLICATION_DOMAIN) ? it : it.skip;
+  const liveComputerTest = process.env.AWS_E2E_REAL_CODEX === 'true' ? it : it.skip;
+  liveComputerTest('views, takes over, teaches, and returns an active MicroVM browser', async () => {
+    delete process.env.AWS_ENDPOINT_URL;
+    const marker = `live-computer-${randomUUID()}`;
+    const secret = `redact-${randomUUID()}`;
+    const submitted = await signedApi<PublicRunRecord>('/v1/runs', 'POST', {
+      version: '1',
+      prompt: [
+        'Use the shell tool to run exactly: sleep 90',
+        'Do not use browser tools.',
+        `After the command completes, reply with exactly: COMPUTER-CONTROL ${marker}`,
+      ].join(' '),
+      agent: {
+        driver: 'codex',
+        model: process.env.AWS_E2E_CODEX_MODEL_ID ?? 'openai.gpt-5.6-terra',
+        sandbox: 'danger-full-access',
+        reasoningEffort: 'low',
+        capabilities: {
+          profile: 'small-business',
+          networkAccess: true,
+          computerUse: 'browser',
+        },
+      },
+      execution: { backend: 'microvm', timeoutSeconds: 180 },
+      destinations: [{ kind: 'none' }],
+    }, { 'idempotency-key': `aws-e2e-computer-${randomUUID()}` });
+
+    const initial = await waitForLiveComputer(submitted.runId);
+    expect(initial).toMatchObject({
+      version: '1',
+      runId: submitted.runId,
+      available: true,
+      control: 'agent',
+      viewport: { width: 1280, height: 720 },
+      teach: { state: 'idle' },
+    });
+    expect(initial.imageDataUrl).toMatch(/^data:image\/jpeg;base64,/);
+
+    const taken = await signedApi<Record<string, unknown>>(
+      `/v1/runs/${submitted.runId}/computer/takeover`,
+      'POST',
+      { control: 'human' },
+    );
+    expect(taken).toMatchObject({ control: 'human', takeover: { expiresAt: expect.any(String) } });
+    const taughtName = `Taught browser workflow ${marker}`;
+    await signedApi(`/v1/runs/${submitted.runId}/computer/teach`, 'POST', {
+      action: 'start',
+      name: taughtName,
+      goal: 'Repeat the demonstrated public-web workflow with reviewed runtime inputs.',
+    });
+    await signedApi(`/v1/runs/${submitted.runId}/computer/action`, 'POST', {
+      action: { type: 'navigate', url: `https://example.com/?private=${secret}#fragment` },
+    });
+    await signedApi(`/v1/runs/${submitted.runId}/computer/action`, 'POST', {
+      action: { type: 'type', text: secret, clear: false, submit: false },
+    });
+    const saved = await signedApi<{
+      recording: { discarded: boolean; demonstratedSteps: number };
+      thing: { thingId: string; status: string };
+    }>(`/v1/runs/${submitted.runId}/computer/teach`, 'POST', {
+      action: 'stop',
+      discard: false,
+    });
+    expect(saved).toMatchObject({
+      recording: { discarded: false, demonstratedSteps: 2 },
+      thing: { status: 'draft' },
+    });
+    const taughtThing = await signedApi<Record<string, unknown>>(
+      `/v1/things/${saved.thing.thingId}`,
+      'GET',
+    );
+    const taughtEvidence = JSON.stringify(taughtThing);
+    expect(taughtEvidence).toContain(taughtName);
+    expect(taughtEvidence).toContain('{{input_1}}');
+    expect(taughtEvidence).not.toContain(secret);
+    expect(taughtEvidence).not.toContain('private=');
+
+    const returned = await signedApi<Record<string, unknown>>(
+      `/v1/runs/${submitted.runId}/computer/takeover`,
+      'POST',
+      { control: 'agent' },
+    );
+    expect(returned).toMatchObject({ control: 'agent' });
+    const completed = await waitForApiRun(submitted.runId);
+    assertSuccessfulPublicMicrovmRun(completed);
+    expect(completed.result?.preview).toContain(`COMPUTER-CONTROL ${marker}`);
+  }, timeoutMs);
+
   browserPublicationTest('uses the autonomous browser interaction surface and shares evidence', async () => {
     delete process.env.AWS_ENDPOINT_URL;
     const clients = createAwsClients();
@@ -1679,6 +1767,32 @@ async function webhook(
 
 async function waitForApiRun(runId: string): Promise<PublicRunRecord> {
   return waitForRun(async () => signedApi<PublicRunRecord>(`/v1/runs/${runId}`, 'GET'));
+}
+
+async function waitForLiveComputer(runId: string): Promise<{
+  version: string;
+  runId: string;
+  available: boolean;
+  control: string;
+  viewport: { width: number; height: number };
+  imageDataUrl: string;
+  teach: { state: string };
+}> {
+  const deadline = Date.now() + timeoutMs - 30_000;
+  let diagnostic = 'computer endpoint has not been called';
+  while (Date.now() < deadline) {
+    try {
+      return await signedApi(`/v1/runs/${runId}/computer`, 'GET');
+    } catch (error) {
+      diagnostic = error instanceof Error ? error.message : String(error);
+    }
+    const run = await signedApi<PublicRunRecord>(`/v1/runs/${runId}`, 'GET');
+    if (['failed', 'cancelled', 'succeeded'].includes(run.status)) {
+      throw new Error(`run ${runId} became ${run.status} before its browser was available: ${diagnostic}`);
+    }
+    await delay(1_000);
+  }
+  throw new Error(`run ${runId} browser did not become available: ${diagnostic}`);
 }
 
 async function waitForScheduledThing(

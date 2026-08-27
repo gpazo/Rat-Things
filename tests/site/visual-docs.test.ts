@@ -68,17 +68,19 @@ describe('visual documentation', () => {
     expect(homepage).not.toContain('c4-runtime-containers.png');
   });
 
-  it('publishes accessible conversation console evidence from disposable fixture data', async () => {
+  it('publishes accessible conversation console evidence from live AWS and deterministic data', async () => {
     const homepage = await readFile('site/index.html', 'utf8');
     const buildScript = await readFile('scripts/build-pages.mjs', 'utf8');
     const screenshots = [
-      'conversation-console-desktop.png',
-      'conversation-console-artifact-viewer.png',
-      'conversation-console-mobile-input.png',
+      'conversation-console-live-browser.png',
+      'conversation-console-live-activity.png',
+      'conversation-console-mobile-browser.png',
     ];
 
     expect(homepage).toContain('id="console"');
-    expect(homepage).toContain('Screenshots use disposable deterministic E2E fixture data.');
+    expect(homepage).toContain('screenshots come from the fresh disposable');
+    expect(homepage).toContain('The compact screenshot uses deterministic E2E data.');
+    expect(homepage).toContain('all 234 stack resources were destroyed afterward.');
     for (const screenshot of screenshots) {
       const bytes = await readFile(`assets/${screenshot}`);
       expect(bytes.subarray(1, 4).toString('ascii')).toBe('PNG');

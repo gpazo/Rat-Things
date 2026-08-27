@@ -19,6 +19,13 @@ const homepageAssetFiles = [
   'conversation-console-desktop.png',
   'conversation-console-artifact-viewer.png',
   'conversation-console-mobile-input.png',
+  'conversation-console-live-browser.png',
+  'conversation-console-live-activity.png',
+  'conversation-console-mobile-browser.png',
+];
+const documentationSharedAssetFiles = [
+  'conversation-console-live-browser.png',
+  'conversation-console-live-activity.png',
 ];
 
 marked.setOptions({ gfm: true });
@@ -60,6 +67,9 @@ validateDocumentationConfig(groups, archivedFiles, docs);
 
 await mkdir(docsOutput, { recursive: true });
 await copyDocumentationAssets(docsEntries);
+for (const file of documentationSharedAssetFiles) {
+  await cp(join('assets', file), join(docsOutput, 'assets', file));
+}
 await writeFile(join(docsOutput, 'index.html'), renderDocsHome(groups, docs));
 
 const orderedDocs = groups.flatMap((group) => group.documents.map((file) => docs.get(file)));

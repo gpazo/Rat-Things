@@ -13,6 +13,11 @@ import type {
   AgentInteractionTarget,
   AgentRuntimeSnapshot,
   AgentToolCallRecord,
+  ComputerSnapshot,
+  ComputerTakeoverReceipt,
+  HumanBrowserAction,
+  TeachRecordingInput,
+  TeachRecordingResult,
 } from '../domain/interaction.js';
 import type { JsonValue } from '../domain/contracts.js';
 import type {
@@ -83,6 +88,15 @@ export interface AgentInteractionController {
   steer(target: AgentInteractionTarget, prompt: string): Promise<void>;
   interrupt(target: AgentInteractionTarget): Promise<void>;
   respond(target: AgentInteractionTarget, requestId: string, result: JsonValue): Promise<void>;
+  computer(target: AgentInteractionTarget): Promise<ComputerSnapshot>;
+  takeComputer(target: AgentInteractionTarget): Promise<ComputerTakeoverReceipt>;
+  returnComputer(target: AgentInteractionTarget): Promise<ComputerTakeoverReceipt>;
+  actOnComputer(target: AgentInteractionTarget, action: HumanBrowserAction): Promise<ComputerSnapshot>;
+  startTeaching(
+    target: AgentInteractionTarget,
+    input: TeachRecordingInput,
+  ): Promise<ComputerSnapshot>;
+  stopTeaching(target: AgentInteractionTarget, discard: boolean): Promise<TeachRecordingResult>;
 }
 
 export interface AgentToolCallStore {

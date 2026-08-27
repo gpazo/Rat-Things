@@ -39,6 +39,12 @@ interface FakeControlState {
   questionResponse?: unknown;
   questionResponded: boolean;
   reactions: Record<string, boolean>;
+  computerControl: 'agent' | 'human';
+  computerJourneyDone: boolean;
+  computerReads: number;
+  computerActions: unknown[];
+  teachRecording: boolean;
+  teachSteps: number;
 }
 
 let controlServer: Server;
@@ -70,6 +76,12 @@ test.beforeAll(async () => {
     visibilityValues: [],
     questionResponded: false,
     reactions: {},
+    computerControl: 'agent',
+    computerJourneyDone: false,
+    computerReads: 0,
+    computerActions: [],
+    teachRecording: false,
+    teachSteps: 0,
   };
   controlServer = createServer((request, response) => {
     void handleControlRequest(request, response).catch((error: unknown) => {
@@ -166,7 +178,7 @@ test('creates, observes autonomous work, and completes a durable API conversatio
   await page.getByPlaceholder('Search conversations').fill('');
 
   await page.getByRole('button', { name: 'New conversation' }).click();
-  const threadKeyInput = page.getByLabel('Name');
+  const threadKeyInput = page.locator('#thread-key');
   await threadKeyInput.fill('invalid thread key');
   expect(await threadKeyInput.evaluate((input: HTMLInputElement) => input.validity.valid)).toBe(false);
   await threadKeyInput.fill(threadKey);
@@ -176,6 +188,8 @@ test('creates, observes autonomous work, and completes a durable API conversatio
 
   await expect(page.getByRole('heading', { name: threadKey })).toBeVisible();
   await page.getByRole('textbox', { name: 'Message', exact: true }).fill(prompt);
+  await page.locator('.composer-options summary').click();
+  await page.getByLabel('Isolated browser').check();
   await page.getByRole('button', { name: 'Attach files' }).click();
   await page.locator('#file-input').setInputFiles({
     name: 'release-notes.txt',
@@ -217,16 +231,85 @@ test('creates, observes autonomous work, and completes a durable API conversatio
   await page.setViewportSize({ width: 1_280, height: 800 });
   await expect(page.locator('#run-progress-title')).toHaveText('Reviewing the release candidate');
   await expect(page.locator('#status-badge')).toHaveText('Working');
-  await expect(page.getByText('Agent turn started', { exact: true })).toBeVisible();
-  await expect(page.getByText('Writing response', { exact: true })).toBeVisible();
-  await expect(page.getByText('2 updates', { exact: true })).toBeVisible();
+  await expect(page.locator('#run-strip')).toBeVisible();
+  await expect(page.locator('#run-strip-phase')).toHaveText(/Working|Answering/);
   if (!await page.locator('.work-details').evaluate((details: HTMLDetailsElement) => details.open)) {
-    await page.locator('.work-details summary').click();
+    await page.locator('.work-details > summary').click();
   }
-  await expect(page.getByText('Command completed', { exact: true })).toBeVisible();
-  await expect(page.getByText('Context compacted', { exact: true })).toBeVisible();
+  const transcriptPhases = page.locator('.work-details > .work-activity .phase-card');
+  await expect(transcriptPhases.filter({ hasText: 'Rat started working' })).toBeVisible();
+  await expect(transcriptPhases.filter({ hasText: 'Preparing the answer' })).toContainText('2 related updates');
+  await expect(transcriptPhases.filter({ hasText: 'Using the workspace' })).toBeVisible();
+  await expect(transcriptPhases.filter({ hasText: 'Keeping context focused' })).toBeVisible();
   await expect(page.getByText(/Some early live activity expired/)).toBeVisible();
   await expect(page.getByText('turn/started', { exact: true })).toHaveCount(0);
+
+  const sidebarWidth = Number(await page.locator('#sidebar-resizer').getAttribute('aria-valuenow'));
+  await page.locator('#sidebar-resizer').focus();
+  await page.keyboard.press('ArrowRight');
+  await expect(page.locator('#sidebar-resizer')).toHaveAttribute('aria-valuenow', String(sidebarWidth + 16));
+  const sidebarDivider = await page.locator('#sidebar-resizer').boundingBox();
+  expect(sidebarDivider).toBeTruthy();
+  await page.mouse.move(sidebarDivider!.x + 3, sidebarDivider!.y + 120);
+  await page.mouse.down();
+  await page.mouse.move(sidebarDivider!.x + 27, sidebarDivider!.y + 120);
+  await page.mouse.up();
+  expect(Number(await page.locator('#sidebar-resizer').getAttribute('aria-valuenow'))).toBeGreaterThan(sidebarWidth + 30);
+
+  await page.getByRole('button', { name: 'Open computer' }).click();
+  await expect(page.locator('#context-pane')).toBeVisible();
+  await expect(page.getByRole('tab', { name: /^Browser/ })).toHaveAttribute('aria-selected', 'true');
+  await expect(page.locator('#computer-loading')).toContainText('Starting the isolated screen');
+  await expect(page.locator('#computer-screen')).toBeVisible();
+  await expect(page.locator('#computer-owner-label')).toHaveText('Rat has control');
+  const contextWidth = Number(await page.locator('#context-resizer').getAttribute('aria-valuenow'));
+  await page.locator('#context-resizer').focus();
+  await page.keyboard.press('ArrowLeft');
+  await expect(page.locator('#context-resizer')).toHaveAttribute('aria-valuenow', String(contextWidth + 16));
+  await page.getByRole('button', { name: 'Take control' }).click();
+  await expect(page.getByRole('button', { name: 'Return control' })).toBeVisible();
+  await expect(page.locator('#computer-owner-label')).toHaveText('You have control');
+  await expect(page.locator('#computer-lease-label')).toContainText('remaining');
+  await page.getByRole('button', { name: 'Zoom in' }).click();
+  await expect(page.locator('#computer-zoom-label')).toHaveText('125%');
+  await page.getByRole('button', { name: 'Fit', exact: true }).click();
+  await page.locator('#computer-inputs summary').click();
+  await page.locator('#computer-url').fill('https://example.com/report');
+  await page.locator('#computer-navigation').getByRole('button', { name: 'Go' }).click();
+  await page.locator('#teach-name').fill('Submit weekly report');
+  await page.locator('#teach-goal').fill('Submit the prepared weekly report.');
+  await page.getByRole('button', { name: 'Start teaching' }).click();
+  await expect(page.locator('#computer-recording-badge')).toBeVisible();
+  await page.locator('#computer-text').fill('sensitive demonstrated value');
+  await page.locator('#computer-type').getByRole('button', { name: 'Type' }).click();
+  await expect(page.locator('#teach-step-count')).toContainText('1 action demonstrated');
+  await page.getByRole('button', { name: 'Stop & save draft' }).click();
+  await expect(page.locator('#notice')).toContainText('Draft Thing');
+  await page.getByRole('tab', { name: /^Sources/ }).click();
+  await expect(page.locator('#context-sources')).toContainText('example.com');
+  await page.getByRole('tab', { name: 'Activity' }).click();
+  await expect(page.locator('#context-activity .phase-card').filter({ hasText: 'Using the workspace' })).toBeVisible();
+  await page.getByRole('tab', { name: /^Browser/ }).click();
+  if (process.env.RAT_THINGS_CONSOLE_SCREENSHOTS === 'on') {
+    await page.screenshot({ path: 'test-results/rat-things-console-three-pane-browser.png' });
+  }
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.waitForTimeout(250);
+  const contextBox = await page.locator('#context-pane').boundingBox();
+  expect(contextBox?.x).toBe(0);
+  expect(contextBox?.width).toBe(390);
+  await expect(page.locator('#workspace')).toHaveAttribute('inert', '');
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+  if (process.env.RAT_THINGS_CONSOLE_SCREENSHOTS === 'on') {
+    await page.screenshot({ path: 'test-results/rat-things-console-mobile-browser.png' });
+  }
+  await page.setViewportSize({ width: 1_280, height: 800 });
+  await page.getByRole('button', { name: 'Close context pane' }).click();
+  await expect.poll(() => state.computerControl).toBe('agent');
+  expect(state.computerActions).toEqual(expect.arrayContaining([
+    { type: 'navigate', url: 'https://example.com/report' },
+    { type: 'type', text: 'sensitive demonstrated value', clear: false, submit: false },
+  ]));
 
   if (process.env.RAT_THINGS_CONSOLE_VIDEO !== 'on') {
     await page.setViewportSize({ width: 768, height: 900 });
@@ -280,8 +363,8 @@ test('creates, observes autonomous work, and completes a durable API conversatio
   await expect(progress).toBeVisible();
   await expect(page.locator('#run-progress-title')).toHaveText('Work completed');
   await expect(page.locator('.work-details')).not.toHaveAttribute('open', '');
-  await page.locator('.work-details summary').click();
-  await expect(page.getByText('Command completed', { exact: true })).toBeVisible();
+  await page.locator('.work-details > summary').click();
+  await expect(page.locator('.work-details > .work-activity .phase-card').filter({ hasText: 'Using the workspace' })).toBeVisible();
   await expect(page.locator('.conversation-list .conversation-name', { hasText: threadKey })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Conversation files' })).toBeVisible();
   const artifactButton = page.getByRole('button', { name: /reports\/release-review\.md/ });
@@ -332,6 +415,14 @@ test('creates, observes autonomous work, and completes a durable API conversatio
   expect(state.submission).toMatchObject({
     version: '1',
     prompt,
+    agent: {
+      driver: 'codex',
+      capabilities: {
+        profile: 'small-business',
+        networkAccess: true,
+        computerUse: 'browser',
+      },
+    },
     thread: {
       key: threadKey,
       delivery: 'interrupt',
@@ -360,8 +451,9 @@ test('creates, observes autonomous work, and completes a durable API conversatio
   });
   expect(foreignOrigin.status).toBe(403);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
-  expect(consoleErrors).toHaveLength(1);
-  expect(consoleErrors[0]).toContain('503 (Service Unavailable)');
+  expect(consoleErrors).toHaveLength(2);
+  expect(consoleErrors.some((entry) => entry.includes('502 (Bad Gateway)'))).toBe(true);
+  expect(consoleErrors.some((entry) => entry.includes('503 (Service Unavailable)'))).toBe(true);
 
   await page.locator('.conversation-list .conversation-name', { hasText: 'Previous release summary' }).click();
   await expect(page.getByRole('button', { name: /requirements\.md/ })).toBeVisible();
@@ -534,7 +626,9 @@ async function handleControlRequest(
       'running',
       'succeeded',
     ] as const;
-    const status = statuses[Math.min(state.runReads, statuses.length - 1)]!;
+    const status = state.runReads >= 2 && !state.computerJourneyDone
+      ? 'running'
+      : statuses[Math.min(state.runReads, statuses.length - 1)]!;
     state.runReads += 1;
     state.completed = status === 'succeeded';
     return sendJson(response, 200, runProjection(status));
@@ -546,6 +640,52 @@ async function handleControlRequest(
       error: { code: 'temporarily_unavailable', message: 'runtime proxy is still starting' },
     });
     return sendJson(response, 200, runtimeSnapshot(after));
+  }
+  if (request.method === 'GET' && url.pathname === `/v1/runs/${runId}/computer`) {
+    state.computerReads += 1;
+    if (state.computerReads === 1) {
+      return sendJson(response, 502, {
+        error: { code: 'computer_starting', message: 'control endpoint returned HTTP 502' },
+      });
+    }
+    return sendJson(response, 200, computerSnapshot());
+  }
+  if (request.method === 'POST' && url.pathname === `/v1/runs/${runId}/computer/takeover`) {
+    const body = await readJson(request) as { control: 'agent' | 'human' };
+    state.computerControl = body.control;
+    if (body.control === 'agent') state.computerJourneyDone = true;
+    return sendJson(response, 200, {
+      version: '1',
+      runId,
+      control: state.computerControl,
+      ...(state.computerControl === 'human' ? { takeover: takeoverWindow() } : {}),
+    });
+  }
+  if (request.method === 'POST' && url.pathname === `/v1/runs/${runId}/computer/action`) {
+    const body = await readJson(request) as { action: unknown };
+    state.computerActions.push(body.action);
+    if (state.teachRecording) state.teachSteps += 1;
+    return sendJson(response, 200, computerSnapshot());
+  }
+  if (request.method === 'POST' && url.pathname === `/v1/runs/${runId}/computer/teach`) {
+    const body = await readJson(request) as { action: 'start' | 'stop'; discard?: boolean };
+    if (body.action === 'start') {
+      state.teachRecording = true;
+      state.teachSteps = 0;
+      return sendJson(response, 200, computerSnapshot());
+    }
+    state.teachRecording = false;
+    return sendJson(response, body.discard ? 200 : 201, body.discard ? {
+      recording: teachRecording(true),
+    } : {
+      recording: teachRecording(false),
+      thing: {
+        version: '1',
+        thingId: 'thing-taught-console-e2e',
+        status: 'draft',
+        draft: { revision: 1, name: 'Submit weekly report' },
+      },
+    });
   }
   if (request.method === 'POST' && url.pathname === `/v1/runs/${runId}/requests/request-console-e2e/respond`) {
     state.questionResponse = await readJson(request);
@@ -741,6 +881,47 @@ function outputArtifact(): Record<string, unknown> {
     createdAt: completedAt,
     sourceRunId: runId,
     sha256: 'e'.repeat(64),
+  };
+}
+
+function computerSnapshot(): Record<string, unknown> {
+  return {
+    version: '1',
+    runId,
+    available: true,
+    control: state.computerControl,
+    viewport: { width: 1280, height: 720 },
+    observedAt: new Date().toISOString(),
+    page: { url: 'https://example.com/report', title: 'Weekly report' },
+    imageDataUrl: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+    ...(state.computerControl === 'human' ? { takeover: takeoverWindow() } : {}),
+    teach: state.teachRecording ? {
+      state: 'recording',
+      recordingId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      name: 'Submit weekly report',
+      startedAt: new Date().toISOString(),
+      maximumDurationMs: 600_000,
+      demonstratedSteps: state.teachSteps,
+    } : { state: 'idle' },
+  };
+}
+
+function takeoverWindow(): Record<string, unknown> {
+  return {
+    startedAt: new Date().toISOString(),
+    expiresAt: new Date(Date.now() + 900_000).toISOString(),
+  };
+}
+
+function teachRecording(discarded: boolean): Record<string, unknown> {
+  return {
+    version: '1',
+    recordingId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+    name: 'Submit weekly report',
+    startedAt: createdAt,
+    stoppedAt: new Date().toISOString(),
+    demonstratedSteps: state.teachSteps,
+    discarded,
   };
 }
 

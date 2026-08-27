@@ -54,7 +54,7 @@ import type { ArtifactReference, JsonValue, RunRecord, RunRequest } from '../dom
 import type { ArtifactCatalog, PublishedArtifact } from '../domain/contracts.js';
 import type { ConversationRecord } from '../domain/conversations.js';
 import { CONVERSATION_REACTION_EMOJIS, type ConversationReactionEmoji } from '../domain/conversations.js';
-import type { AgentInteractionTarget } from '../domain/interaction.js';
+import type { AgentInteractionTarget, HumanBrowserAction } from '../domain/interaction.js';
 import type { IntegrationCredentialValue } from '../credentials/types.js';
 import {
   validateConnectionGrant,
@@ -729,6 +729,88 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
       );
       return response(202, { ok: true, operation: 'respond' });
     }
+    if (
+      method === 'GET' &&
+      runId &&
+      routeMatches(event, 'GET /v1/runs/{runId}/computer', `/v1/runs/${runId}/computer`)
+    ) {
+      return response(200, await getAgentInteractionController().computer(
+        await agentInteractionTarget(service(), ownerId, runId),
+      ));
+    }
+    if (
+      method === 'POST' &&
+      runId &&
+      routeMatches(
+        event,
+        'POST /v1/runs/{runId}/computer/takeover',
+        `/v1/runs/${runId}/computer/takeover`,
+      )
+    ) {
+      const body = strictBody(jsonBody(event), ['control']);
+      if (body.control !== 'human' && body.control !== 'agent') {
+        throw new ValidationError('control must be human or agent');
+      }
+      const controller = getAgentInteractionController();
+      const target = await agentInteractionTarget(service(), ownerId, runId);
+      return response(200, body.control === 'human'
+        ? await controller.takeComputer(target)
+        : await controller.returnComputer(target));
+    }
+    if (
+      method === 'POST' &&
+      runId &&
+      routeMatches(
+        event,
+        'POST /v1/runs/{runId}/computer/action',
+        `/v1/runs/${runId}/computer/action`,
+      )
+    ) {
+      const body = strictBody(jsonBody(event), ['action']);
+      return response(200, await getAgentInteractionController().actOnComputer(
+        await agentInteractionTarget(service(), ownerId, runId),
+        humanBrowserAction(body.action),
+      ));
+    }
+    if (
+      method === 'POST' &&
+      runId &&
+      routeMatches(
+        event,
+        'POST /v1/runs/{runId}/computer/teach',
+        `/v1/runs/${runId}/computer/teach`,
+      )
+    ) {
+      const body = strictBody(jsonBody(event), ['action', 'name', 'goal', 'discard']);
+      if (body.action === 'start') {
+        strictBody(body, ['action', 'name', 'goal']);
+        return response(200, await getAgentInteractionController().startTeaching(
+          await agentInteractionTarget(service(), ownerId, runId),
+          {
+            name: boundedText(body.name, 'name', 120),
+            ...(body.goal === undefined ? {} : { goal: boundedText(body.goal, 'goal', 4_000) }),
+          },
+        ));
+      }
+      if (body.action === 'stop') {
+        strictBody(body, ['action', 'discard']);
+        if (typeof body.discard !== 'boolean') {
+          throw new ValidationError('discard must be boolean');
+        }
+        const recording = await getAgentInteractionController().stopTeaching(
+          await agentInteractionTarget(service(), ownerId, runId),
+          body.discard,
+        );
+        if (!recording.draft) return response(200, { recording });
+        const { draft, ...recordingSummary } = recording;
+        const created = await getThingService().create(ownerId, draft);
+        return response(201, {
+          recording: recordingSummary,
+          thing: await getThingService().getPublic(ownerId, created.thingId),
+        });
+      }
+      throw new ValidationError('action must be start or stop');
+    }
     if (method === 'GET' && runId && path === `/v1/runs/${runId}`) {
       return response(200, publicRun(await service().get(ownerId, runId)));
     }
@@ -1016,6 +1098,100 @@ function strictBody(value: unknown, allowed: string[]): Record<string, unknown> 
   if (!isRecord(value)) throw new ValidationError('request must be an object');
   const unknown = Object.keys(value).find((key) => !allowed.includes(key));
   if (unknown) throw new ValidationError(`request contains unknown field ${unknown}`);
+  return value;
+}
+
+function humanBrowserAction(value: unknown): HumanBrowserAction {
+  const action = strictBody(value, browserActionFields(value));
+  switch (action.type) {
+    case 'navigate':
+      return { type: 'navigate', url: boundedText(action.url, 'action.url', 4_096) };
+    case 'click':
+      return {
+        type: 'click',
+        ...(action.ref === undefined ? {} : { ref: boundedText(action.ref, 'action.ref', 16) }),
+        ...(action.x === undefined ? {} : { x: boundedNumber(action.x, 'action.x', 0, 1_280) }),
+        ...(action.y === undefined ? {} : { y: boundedNumber(action.y, 'action.y', 0, 720) }),
+      };
+    case 'type':
+      return {
+        type: 'type',
+        ...(action.ref === undefined ? {} : { ref: boundedText(action.ref, 'action.ref', 16) }),
+        text: textValue(action.text, 'action.text', 20_000),
+        ...(action.clear === undefined ? {} : { clear: booleanValue(action.clear, 'action.clear') }),
+        ...(action.submit === undefined ? {} : { submit: booleanValue(action.submit, 'action.submit') }),
+      };
+    case 'press':
+      return { type: 'press', key: boundedText(action.key, 'action.key', 64) };
+    case 'select':
+      return {
+        type: 'select',
+        ref: boundedText(action.ref, 'action.ref', 16),
+        value: textValue(action.value, 'action.value', 2_000),
+      };
+    case 'scroll':
+      return {
+        type: 'scroll',
+        ...(action.deltaX === undefined
+          ? {}
+          : { deltaX: boundedNumber(action.deltaX, 'action.deltaX', -5_000, 5_000) }),
+        deltaY: boundedNumber(action.deltaY, 'action.deltaY', -5_000, 5_000),
+      };
+    case 'wait':
+      return {
+        type: 'wait',
+        milliseconds: boundedNumber(action.milliseconds, 'action.milliseconds', 0, 10_000, true),
+      };
+    case 'back':
+      return { type: 'back' };
+    default:
+      throw new ValidationError('action.type is not an available human browser action');
+  }
+}
+
+function browserActionFields(value: unknown): string[] {
+  if (!isRecord(value) || typeof value.type !== 'string') {
+    throw new ValidationError('action must be an object with a type');
+  }
+  const fields: Record<string, string[]> = {
+    navigate: ['type', 'url'],
+    click: ['type', 'ref', 'x', 'y'],
+    type: ['type', 'ref', 'text', 'clear', 'submit'],
+    press: ['type', 'key'],
+    select: ['type', 'ref', 'value'],
+    scroll: ['type', 'deltaX', 'deltaY'],
+    wait: ['type', 'milliseconds'],
+    back: ['type'],
+  };
+  return fields[value.type] ?? ['type'];
+}
+
+function boundedNumber(
+  value: unknown,
+  label: string,
+  minimum: number,
+  maximum: number,
+  integer = false,
+): number {
+  if (
+    typeof value !== 'number' ||
+    !Number.isFinite(value) ||
+    (integer && !Number.isInteger(value)) ||
+    value < minimum ||
+    value > maximum
+  ) throw new ValidationError(`${label} is invalid`);
+  return value;
+}
+
+function booleanValue(value: unknown, label: string): boolean {
+  if (typeof value !== 'boolean') throw new ValidationError(`${label} must be boolean`);
+  return value;
+}
+
+function textValue(value: unknown, label: string, maximumBytes: number): string {
+  if (typeof value !== 'string' || Buffer.byteLength(value, 'utf8') > maximumBytes) {
+    throw new ValidationError(`${label} is invalid`);
+  }
   return value;
 }
 

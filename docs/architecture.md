@@ -436,9 +436,11 @@ delivery configuration keys, never secret values.
 - Connections currently accept already-issued API keys/tokens. There is no hosted OAuth redirect or
   refresh lifecycle, credential-test endpoint, visual field mapper, polling trigger engine, dynamic
   package loader, or broad app catalog. Integration code remains trusted and image-bundled.
-- Browser computer use is headless public-web automation, not arbitrary desktop control. It blocks
-  obvious local/private/metadata targets and runs admitted interactive actions autonomously, but it does
-  not provide content DLP or make attacker-controlled public origins trustworthy.
+- Browser computer use is isolated public-web automation, not arbitrary desktop control. The
+  owner-scoped API can stream bounded screenshots, transfer a renewable exclusive browser lease,
+  and compile a redacted demonstration into an unpublished Thing draft without exposing Chromium
+  directly. It blocks obvious local/private/metadata targets and does not provide content DLP or
+  make attacker-controlled public origins trustworthy.
 - Routines support interval schedules only. They skip backlog and reuse ordinary run semantics; they
   do not yet provide event triggers, branching workflows, calendars, or retries of failed agent
   work. Rat Things deliberately has no asynchronous human-approval queue.

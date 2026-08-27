@@ -1,9 +1,12 @@
 #!/usr/bin/env node
 
 import { randomUUID } from 'node:crypto';
+import { spawn } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { Sha256 } from '@aws-crypto/sha256-js';
 import { defaultProvider } from '@aws-sdk/credential-provider-node';
 import { SecretsManagerClient } from '@aws-sdk/client-secrets-manager';
@@ -87,6 +90,14 @@ const commands = new Set([
   'steer',
   'interrupt',
   'respond',
+  'computer',
+  'console',
+  'takeover',
+  'handback',
+  'computer-act',
+  'teach-start',
+  'teach-stop',
+  'teach-discard',
   'plugins',
   'profiles',
   'connections',
@@ -162,7 +173,8 @@ async function main(): Promise<void> {
   }
   if (args.values.has('region')) process.env.AWS_REGION = args.values.get('region');
   if (args.flags.has('help')) {
-    help(args.flags.has('all'));
+    if (args.command === 'computer') computerHelp();
+    else help(args.flags.has('all'));
     return;
   }
   switch (args.command) {
@@ -196,6 +208,30 @@ async function main(): Promise<void> {
       return;
     case 'respond':
       await respond(args);
+      return;
+    case 'computer':
+      await computerCommand(args);
+      return;
+    case 'console':
+      await openConsole(args);
+      return;
+    case 'takeover':
+      await setComputerControl(args, 'human');
+      return;
+    case 'handback':
+      await setComputerControl(args, 'agent');
+      return;
+    case 'computer-act':
+      await computerAct(args);
+      return;
+    case 'teach-start':
+      await teachStart(args);
+      return;
+    case 'teach-stop':
+      await teachStop(args, false);
+      return;
+    case 'teach-discard':
+      await teachStop(args, true);
       return;
     case 'plugins':
       print(await api('/v1/integrations/plugins', 'GET'));
@@ -723,9 +759,215 @@ async function respond(args: Arguments): Promise<void> {
   ));
 }
 
+async function computerCommand(args: Arguments): Promise<void> {
+  const subcommand = args.positionals[0];
+  if (!subcommand || !['open', 'watch', 'screenshot', 'takeover', 'release', 'handback', 'act', 'teach', 'help'].includes(subcommand)) {
+    await computer(args);
+    return;
+  }
+  const nested = withPositionals(args, args.positionals.slice(1));
+  switch (subcommand) {
+    case 'open':
+      await openConsole(nested);
+      return;
+    case 'watch':
+    case 'screenshot':
+      await computer(nested);
+      return;
+    case 'takeover':
+      await setComputerControl(nested, 'human');
+      return;
+    case 'release':
+    case 'handback':
+      await setComputerControl(nested, 'agent');
+      return;
+    case 'act':
+      await computerAct(nested);
+      return;
+    case 'teach': {
+      const action = nested.positionals[0];
+      const teachArgs = withPositionals(nested, nested.positionals.slice(1));
+      if (action === 'start') await teachStart(teachArgs);
+      else if (action === 'stop') await teachStop(teachArgs, false);
+      else if (action === 'discard') await teachStop(teachArgs, true);
+      else throw new Error('computer teach requires start, stop, or discard');
+      return;
+    }
+    default:
+      computerHelp();
+  }
+}
+
+function withPositionals(args: Arguments, positionals: string[]): Arguments {
+  return { ...args, positionals };
+}
+
+async function openConsole(args: Arguments): Promise<void> {
+  const base = process.env.RAT_THINGS_API_URL ?? process.env.AGENT_RUNTIME_API_URL;
+  if (!base) throw new Error('RAT_THINGS_API_URL is required to open the signed console');
+  const port = Number(args.values.get('port') ?? '4174');
+  if (!Number.isInteger(port) || port < 1_024 || port > 65_535) {
+    throw new Error('--port must be an integer from 1024 through 65535');
+  }
+  const selector = new URLSearchParams();
+  const runId = args.values.get('run') ?? args.positionals[0];
+  const thread = args.values.get('thread');
+  if (runId && thread) throw new Error('choose either --run or --thread when opening the console');
+  if (runId) selector.set('run', runId);
+  if (thread) selector.set('thread', thread);
+
+  const cliDirectory = dirname(fileURLToPath(import.meta.url));
+  const bundledServer = join(cliDirectory, 'console-server.mjs');
+  const sourceRoot = dirname(cliDirectory);
+  const bundled = existsSync(bundledServer);
+  const executable = bundled ? process.execPath : join(sourceRoot, 'node_modules', '.bin', 'tsx');
+  const serverArgs = bundled ? [bundledServer] : [join(sourceRoot, 'scripts', 'console-server.ts')];
+  if (!existsSync(executable) || !existsSync(serverArgs[0]!)) {
+    throw new Error('the console runtime is missing; run npm run build from a Rat Things checkout');
+  }
+  const consoleRoot = bundled ? join(cliDirectory, 'console') : join(sourceRoot, 'console');
+  const child = spawn(executable, serverArgs, {
+    env: {
+      ...process.env,
+      RAT_THINGS_API_URL: base,
+      RAT_THINGS_CONSOLE_PORT: String(port),
+      RAT_THINGS_CONSOLE_ROOT: consoleRoot,
+    },
+    stdio: args.flags.has('no-wait') ? 'ignore' : 'inherit',
+    detached: args.flags.has('no-wait'),
+  });
+  const url = `http://127.0.0.1:${port}/${selector.size ? `?${selector.toString()}` : ''}`;
+  try {
+    await waitForLocalConsole(url, child);
+    launchBrowser(url);
+    process.stdout.write(`Rat Things console: ${url}\n`);
+    if (args.flags.has('no-wait')) {
+      child.unref();
+      return;
+    }
+    await new Promise<void>((resolvePromise, reject) => {
+      child.once('error', reject);
+      child.once('exit', (code) => code === 0 || code === null
+        ? resolvePromise()
+        : reject(new Error(`console server exited with code ${code}`)));
+    });
+  } catch (error) {
+    if (!child.killed) child.kill('SIGTERM');
+    throw error;
+  }
+}
+
+async function waitForLocalConsole(url: string, child: ReturnType<typeof spawn>): Promise<void> {
+  for (let attempt = 0; attempt < 60; attempt += 1) {
+    if (child.exitCode !== null) throw new Error(`console server exited with code ${child.exitCode}`);
+    try {
+      const response = await fetch(url, { signal: AbortSignal.timeout(500) });
+      if (response.ok) return;
+    } catch {
+      // Loopback server is still starting.
+    }
+    await new Promise((resolvePromise) => setTimeout(resolvePromise, 100));
+  }
+  throw new Error('console server did not become ready within 6 seconds');
+}
+
+function launchBrowser(url: string): void {
+  const command = process.platform === 'darwin'
+    ? ['open', [url]] as const
+    : process.platform === 'win32'
+      ? ['cmd', ['/c', 'start', '', url]] as const
+      : ['xdg-open', [url]] as const;
+  const browser = spawn(command[0], command[1], { detached: true, stdio: 'ignore' });
+  browser.unref();
+}
+
+function computerHelp(): void {
+  process.stdout.write(`Rat Things live computer\n\n`);
+  process.stdout.write(`  rat-things computer open [RUN_ID|--run RUN_ID|--thread NAME] [--port 4174]\n`);
+  process.stdout.write(`  rat-things computer watch RUN_ID [--screenshot screen.jpg]\n`);
+  process.stdout.write(`  rat-things computer takeover RUN_ID\n`);
+  process.stdout.write(`  rat-things computer release RUN_ID\n`);
+  process.stdout.write(`  rat-things computer act RUN_ID --file ACTION.json\n`);
+  process.stdout.write(`  rat-things computer teach start RUN_ID --name NAME [--goal TEXT]\n`);
+  process.stdout.write(`  rat-things computer teach stop|discard RUN_ID\n`);
+}
+
+async function computer(args: Arguments): Promise<void> {
+  const runId = requiredPositional(args, 0, 'run ID');
+  const snapshot = await api(
+    `/v1/runs/${encodeURIComponent(runId)}/computer`,
+    'GET',
+  );
+  if (!isObject(snapshot) || typeof snapshot.imageDataUrl !== 'string') {
+    throw new Error('computer response did not contain a screen image');
+  }
+  const screenshot = args.values.get('screenshot');
+  if (screenshot) {
+    const match = /^data:image\/(jpeg|png);base64,([A-Za-z0-9+/=]+)$/.exec(snapshot.imageDataUrl);
+    if (!match?.[2]) throw new Error('computer response contained an invalid screen image');
+    await writeFile(resolve(screenshot), Buffer.from(match[2], 'base64'), { mode: 0o600 });
+  }
+  const { imageDataUrl: _imageDataUrl, ...summary } = snapshot;
+  print({
+    ...summary,
+    screen: screenshot ? { writtenTo: resolve(screenshot) } : { available: true },
+  });
+}
+
+async function setComputerControl(args: Arguments, control: 'human' | 'agent'): Promise<void> {
+  const runId = requiredPositional(args, 0, 'run ID');
+  print(await api(
+    `/v1/runs/${encodeURIComponent(runId)}/computer/takeover`,
+    'POST',
+    { control },
+  ));
+}
+
+async function computerAct(args: Arguments): Promise<void> {
+  const runId = requiredPositional(args, 0, 'run ID');
+  const action = await requiredJsonFile(args);
+  const snapshot = await api(
+    `/v1/runs/${encodeURIComponent(runId)}/computer/action`,
+    'POST',
+    { action },
+  );
+  if (isObject(snapshot)) {
+    const { imageDataUrl: _imageDataUrl, ...summary } = snapshot;
+    print(summary);
+    return;
+  }
+  print(snapshot);
+}
+
+async function teachStart(args: Arguments): Promise<void> {
+  const runId = requiredPositional(args, 0, 'run ID');
+  const name = args.values.get('name');
+  if (!name?.trim()) throw new Error('--name is required');
+  const snapshot = await api(
+    `/v1/runs/${encodeURIComponent(runId)}/computer/teach`,
+    'POST',
+    { action: 'start', name, ...(args.values.has('goal') ? { goal: args.values.get('goal') } : {}) },
+  );
+  if (isObject(snapshot)) {
+    const { imageDataUrl: _imageDataUrl, ...summary } = snapshot;
+    print(summary);
+    return;
+  }
+  print(snapshot);
+}
+
+async function teachStop(args: Arguments, discard: boolean): Promise<void> {
+  const runId = requiredPositional(args, 0, 'run ID');
+  print(await api(
+    `/v1/runs/${encodeURIComponent(runId)}/computer/teach`,
+    'POST',
+    { action: 'stop', discard },
+  ));
+}
+
 async function requiredJsonFile(args: Arguments): Promise<unknown> {
   const path = args.values.get('file');
-  if (!path) throw new Error('--file JSON is required; credentials are not accepted on the command line');
+  if (!path) throw new Error('--file JSON is required');
   try {
     return JSON.parse(await readFile(resolve(path), 'utf8')) as unknown;
   } catch (error) {
@@ -1388,6 +1630,10 @@ function parseResponse(value: string): unknown {
   }
 }
 
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
 function print(value: unknown): void {
   process.stdout.write(`${JSON.stringify(value, null, 2)}\n`);
 }
@@ -1426,6 +1672,16 @@ function help(showAll: boolean): void {
   process.stdout.write(`  rat-things steer RUN_ID "Additional direction"\n`);
   process.stdout.write(`  rat-things interrupt RUN_ID\n`);
   process.stdout.write(`  rat-things respond RUN_ID REQUEST_ID --result JSON\n`);
+  process.stdout.write(`\nLive computer and demonstrations\n\n`);
+  process.stdout.write(`  rat-things computer open [RUN_ID|--run RUN_ID|--thread NAME] [--port 4174]\n`);
+  process.stdout.write(`  rat-things computer watch RUN_ID [--screenshot screen.jpg]\n`);
+  process.stdout.write(`  rat-things computer takeover RUN_ID\n`);
+  process.stdout.write(`  rat-things computer release RUN_ID\n`);
+  process.stdout.write(`  rat-things computer act RUN_ID --file ACTION.json\n`);
+  process.stdout.write(`  rat-things computer teach start RUN_ID --name NAME [--goal TEXT]\n`);
+  process.stdout.write(`  rat-things computer teach stop|discard RUN_ID\n`);
+  process.stdout.write(`    takeover is a temporary exclusive browser lease; teach-stop creates an unpublished draft Thing\n`);
+  process.stdout.write(`    legacy computer/takeover/handback/computer-act/teach-* aliases remain supported\n`);
   process.stdout.write(`\nIntegrations\n\n`);
   process.stdout.write(`  rat-things plugins\n`);
   process.stdout.write(`  rat-things profiles\n`);

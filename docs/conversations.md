@@ -14,6 +14,21 @@ See [Connect an agent to Rat Things](agents.md) for the smallest machine-facing 
 [Control API reference](api.md#headless-durable-conversations) for exact routes. The console is a
 reference client for those routes, not a hosted product or a second backend.
 
+On desktop, draggable separators resize the conversation list, transcript, and context pane. The
+active-Run strip keeps phase, progress, elapsed time, Watch, Steer, and Stop visible. Opening Watch
+places the isolated browser beside the transcript; Sources and grouped Activity share that context
+pane. At compact widths, the same context becomes a full-screen sheet and the hidden workspace is
+removed from keyboard and assistive-technology navigation.
+
+![Rat Things desktop console showing grouped Activity beside a live AWS NVIDIA earnings conversation](../assets/conversation-console-live-activity.png)
+
+The CLI opens the signed loopback client directly on either surface:
+
+```bash
+rat-things computer open --thread THREAD_NAME
+rat-things computer open --run RUN_ID
+```
+
 ## How durability works
 
 The provider-neutral persistence model uses DynamoDB as a bounded coordination plane and encrypted
@@ -164,7 +179,11 @@ AWS_REGION=YOUR_REGION \
 npm run console:serve
 ```
 
-Open `http://127.0.0.1:4174`. The console can create/continue API threads, attach up to six files
+Open `http://127.0.0.1:4174`, or launch a selected conversation/Run through
+`rat-things computer open --thread NAME` or `rat-things computer open --run RUN_ID`. The CLI starts
+the same loopback-only signed proxy and does not put AWS credentials in browser storage.
+
+The console can create/continue API threads, attach up to six files
 (4 MiB each and 6 MiB total), page older transcript
 windows, search messages and files across the owner's durable history, pin and hide conversations,
 persist read state, reply to a specific transcript message, add/remove durable reactions, preview
@@ -177,7 +196,13 @@ active, the console reports the durable lifecycle as
 `Queued`, `Starting`, `Working`, or `Stopping` and shows elapsed time. `Starting` deliberately covers
 both allocation or resumption of an owner-bound MicroVM and preparation of its durable workspace;
 it warns that first-use storage can take tens of seconds rather than presenting an indeterminate
-frozen state.
+frozen state. On desktop the conversation list, transcript, and Run context are independently
+resizable; the separators also support arrow-key resizing and reset on double-click. The active Run
+strip keeps goal/phase, elapsed time, progress, Watch, Steer, and Stop visible. Watching opens the
+browser beside the transcript, while Sources and Activity expose collected links/files and grouped
+human-readable phases. Raw bounded events remain available under an explicit technical-evidence
+disclosure. Narrow layouts turn the same context pane into a full-screen sheet without creating a
+second control implementation.
 
 When an App Server request bridge is present, the runner enables Codex's Default-mode structured
 input feature for that thread. The resulting question is an ordinary interaction inside the Run's
@@ -313,8 +338,10 @@ can interrupt a currently running Codex turn. Typed live activity and ordinary i
 pollable but bounded and ephemeral, while terminal JSONL is durable. Structured questions project
 only bounded labels/options and return the App Server's ordinary answer shape; they do not add an
 approval gate. Rat Things deliberately has no
-human-approval inbox; it also does not yet offer browser takeover, Rat-authored long-history fallback
-summaries, cross-conversation semantic memory, or sustained-concurrency guarantees. Native Codex
+human-approval inbox. Browser-enabled active Runs do offer owner-scoped live viewing, a bounded
+exclusive human browser lease, and teach-by-demonstration; none changes the capability envelope or
+creates an approval state. Rat does not yet offer Rat-authored long-history fallback summaries,
+cross-conversation semantic memory, or sustained-concurrency guarantees. Native Codex
 thread compaction is preserved under the conversation's S3-backed `CODEX_HOME` and has been verified
 across a fresh App Server process. Bounded replacement-VM replay remains a complementary fallback:
 it carries cumulative omission counts and an explicit handoff notice, but does not claim to summarize

@@ -34,7 +34,7 @@ disaster-recovery proof.
 | Integration Contract v1 | Implemented/local and live AWS validated | Manifest-driven credential-only CLI/API onboarding, pre-persistence verification, provider-derived account identity/access/scopes, stable invalid-credential errors, and verified rotation |
 | Multi-account integrations | Implemented/local and live AWS validated | Owner-scoped connections, Secrets Manager vault, grants, same-plugin account sets, source bindings, fixed pre-launch permission intersection, resource constraints, and revocation |
 | Reference integration tools | Built-ins locally tested; fixture live AWS validated | Fixed-origin Slack search/post/reaction and Stripe customer/invoice/refund adapters; disposable Fixture CRM proves authenticated read/write behavior without claiming customer-provider coverage |
-| Browser computer use | Implemented v1 surface; former approval-era surface live validated, autonomous revision pending fresh live rerun | Real Codex exercised all 12 implemented command types, PNG/JPEG capture, VP8 WebM recording, private-target blocking, native cgroup eBPF lifecycle-port isolation, and trusted publication from an ARM64 Lambda MicroVM; takeover/auth/file transfer/desktop control remain out of scope |
+| Browser computer use | Live view/takeover/teaching implemented and live AWS validated | Real-Codex AWS proofs cover the 12 agent command types, capture, recording, private-target blocking, lifecycle-port isolation, publication, authenticated screenshots, an exclusive renewable browser lease, redacted demonstrations, unpublished draft-Thing creation, and return of browser control; secure credential brokering, file transfer, and general desktop control remain out of scope |
 | Durable routines | Implemented/local end-to-end and simulated | Owner-scoped interval create/list/get/pause/resume/delete/run-now, encrypted S3 request, due-time GSI, deterministic occurrence submission, duplicate-tick fencing, and request-digest verification |
 | Codex authentication | Live/local validated | Short-term Bedrock in AWS; trusted local runs can reuse the device's ChatGPT subscription without copying it into remote runs |
 | Mock driver | Implemented/tested | Used for deterministic local and live infrastructure validation |
@@ -44,6 +44,20 @@ disaster-recovery proof.
 | Observability/recovery | Generation-fenced liveness live validated; broader drills remain | Low-cardinality queue/processing metrics, structured logs, durable queues/events, worker heartbeats, exact MicroVM health inspection, conditional stale failure/cancellation, conflict quarantine, delivery leases, failure queues, and alarms |
 | Cost model | Live canary baseline measured | The 2026-08-16 two-turn site canary has a dated $0.380 estimate using rates captured then; non-model infrastructure was about $0.046, while current repricing and sustained-load ceilings remain unmeasured |
 | Multi-tenant hardening | Not complete | Run responses now strip storage/authority internals; destination authorization, budgets, rate limits, output policy, and security review remain |
+
+## Validation completed on 2026-08-26 PDT
+
+- Fresh disposable stack `comp260826a` passed the focused live-computer test with a real
+  Codex-on-Bedrock agent in an ARM64 Lambda MicroVM. The 174.4-second journey read a live 1280×720
+  browser image, acquired the owner-authenticated exclusive human lease, recorded a two-action
+  demonstration, created an unpublished Thing draft, returned browser control, and observed the
+  agent complete with the exact expected marker.
+- The demonstration deliberately navigated to a URL whose query and fragment contained sensitive
+  material and typed a generated secret. The saved Thing contained a `{{input_1}}` runtime
+  parameter, but neither the value nor the URL query key. The stack installed all four owner-scoped
+  computer routes and created 234 resources. All were destroyed immediately after the successful
+  test; the tagged-resource audit confirmed the remaining AWS tombstones gone, terminal, or
+  deleting.
 
 ## Validation completed on 2026-08-26 UTC (August 25 PDT)
 
@@ -469,10 +483,11 @@ teardown.
   provider accounts. Fixed-envelope routing, verified multi-account resolution, permission
   intersection, and permitted authenticated fixture reads/writes are live validated without
   requiring customer-supplied accounts.
-- Add browser takeover/return-control, secure human credential entry, uploads/downloads, tabs and
-  popups, richer pointer interactions, and replacement-MicroVM authenticated-profile validation
-  before making an unqualified “full computer use” claim. General graphical desktop control is not
-  implemented.
+- Extend the live-validated browser viewer, renewable takeover/return-control lease, demonstration
+  recording, redaction, and draft-Thing creation with secure human credential entry,
+  uploads/downloads, tabs and popups, richer pointer interactions, and replacement-MicroVM
+  authenticated-profile validation. Those remain before any unqualified “full computer use”
+  claim. General graphical desktop control is not implemented.
 - Replace or optimize the current WebM encoder; the live 23.8-second/119-frame recording was valid
   but required 168 seconds to finalize.
 - Add a reviewed outbound proxy/DNS policy and browser-origin audit. Private-address checks do not
@@ -499,8 +514,8 @@ teardown.
 The immediate priority is to make the new small-business/self-hosted surface boringly reliable:
 
 1. Exercise live steering, interruption, ordinary input response, and unexpected Codex
-   approval-protocol failure against one active run. Event polling and the former browser approval
-   bridge are already live validated; the autonomous replacement still needs a fresh live rerun.
+   approval-protocol failure against one active run. Event polling, autonomous browser execution,
+   client viewing, temporary human takeover, and return of control are already live validated.
 2. Extend the now-live two-account fixture proof with explicit provider-scope denial and resource
    constraint cases, then repeat the conformance journey for each built-in provider when operators
    supply disposable accounts. Permitted read, statically admitted write, account selection, rotation,

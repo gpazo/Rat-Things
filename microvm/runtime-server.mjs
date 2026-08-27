@@ -17,10 +17,11 @@ import { untrustedChildOptions } from './runtime-process-policy.mjs';
 
 const hookPrefix = '/aws/lambda-microvms/runtime/v1';
 const maximumHookBodyBytes = 16 * 1024;
+const maximumControlBodyBytes = 32 * 1024;
 const maximumRunPayloadBytes = 4 * 1024;
 const maximumControlEvents = 512;
 const maximumControlEventBytes = 64 * 1024;
-const controlCommandTimeoutMs = 15_000;
+const controlCommandTimeoutMs = 25_000;
 const controlChannel = 'rat-things-agent-control';
 const s3FilesMountTimeoutMs = 50_000;
 const runnerEntry = process.env.AGENT_RUNNER_ENTRY ?? '/opt/agent-runtime/runner.mjs';
@@ -349,8 +350,11 @@ function parseControlRoute(rawUrl) {
   if (parts.length < 5) return undefined;
   const runId = parts[3];
   if (!/^[A-Za-z0-9-]{1,128}$/.test(runId)) return undefined;
-  if (parts.length === 5 && ['events', 'health', 'steer', 'interrupt'].includes(parts[4])) {
+  if (parts.length === 5 && ['events', 'health', 'steer', 'interrupt', 'computer'].includes(parts[4])) {
     return { runId, operation: parts[4], query: url.searchParams };
+  }
+  if (parts.length === 6 && parts[4] === 'computer' && ['takeover', 'action', 'teach'].includes(parts[5])) {
+    return { runId, operation: `computer_${parts[5]}`, query: url.searchParams };
   }
   if (parts.length === 7 && parts[4] === 'requests' && parts[6] === 'respond') {
     return { runId, operation: 'respond', requestId: decodeControlId(parts[5]), query: url.searchParams };
@@ -404,11 +408,19 @@ async function handleControlRequest(request, response, route) {
     });
     return;
   }
+  if (route.operation === 'computer') {
+    if (request.method !== 'GET') {
+      send(response, 405, { error: 'method_not_allowed' });
+      return;
+    }
+    send(response, 200, await sendControlCommand(run, { type: 'computer_snapshot' }));
+    return;
+  }
   if (request.method !== 'POST') {
     send(response, 405, { error: 'method_not_allowed' });
     return;
   }
-  const body = await readJsonBody(request);
+  const body = await readJsonBody(request, maximumControlBodyBytes);
   switch (route.operation) {
     case 'steer': {
       const prompt = requiredString(body, 'prompt', 12 * 1024);
@@ -432,6 +444,52 @@ async function handleControlRequest(request, response, route) {
       });
       run.control.pendingRequests.delete(route.requestId);
       break;
+    case 'computer_takeover': {
+      const control = requiredString(body, 'control', 16);
+      if (!['human', 'agent'].includes(control)) {
+        throw new InvalidHookRequest('computer control must be human or agent');
+      }
+      const result = await sendControlCommand(run, {
+        type: control === 'human' ? 'computer_takeover_start' : 'computer_takeover_stop',
+      });
+      send(response, 200, result);
+      return;
+    }
+    case 'computer_action': {
+      if (!isRecord(body.action) || typeof body.action.type !== 'string') {
+        throw new InvalidHookRequest('computer action is invalid');
+      }
+      const result = await sendControlCommand(run, {
+        type: 'computer_action',
+        action: body.action,
+      });
+      send(response, 200, result);
+      return;
+    }
+    case 'computer_teach': {
+      const action = requiredString(body, 'action', 16);
+      if (action === 'start') {
+        const result = await sendControlCommand(run, {
+          type: 'teach_start',
+          name: requiredString(body, 'name', 120),
+          ...(body.goal === undefined ? {} : { goal: requiredString(body, 'goal', 4_000) }),
+        });
+        send(response, 200, result);
+        return;
+      }
+      if (action === 'stop') {
+        if (typeof body.discard !== 'boolean') {
+          throw new InvalidHookRequest('demonstration discard must be boolean');
+        }
+        const result = await sendControlCommand(run, {
+          type: 'teach_stop',
+          discard: body.discard,
+        });
+        send(response, 200, result);
+        return;
+      }
+      throw new InvalidHookRequest('demonstration action must be start or stop');
+    }
     default:
       throw new InvalidHookRequest('control operation is invalid');
   }
@@ -476,7 +534,7 @@ function handleRunnerControlMessage(runId, message) {
       if (!waiter) break;
       run.control.commandWaiters.delete(message.commandId);
       clearTimeout(waiter.timer);
-      if (message.ok === true) waiter.resolve();
+      if (message.ok === true) waiter.resolve(message.result);
       else waiter.reject(new RuntimeConflict(
         typeof message.error === 'string' ? message.error.slice(0, 1_000) : 'agent rejected control command',
       ));
@@ -788,16 +846,16 @@ async function shutdown(signal) {
   process.exit(0);
 }
 
-async function readJsonBody(request) {
+async function readJsonBody(request, maximumBytes = maximumHookBodyBytes) {
   const declaredLength = Number(request.headers['content-length'] ?? 0);
-  if (!Number.isInteger(declaredLength) || declaredLength < 0 || declaredLength > maximumHookBodyBytes) {
+  if (!Number.isInteger(declaredLength) || declaredLength < 0 || declaredLength > maximumBytes) {
     throw new InvalidHookRequest('invalid Content-Length');
   }
   const chunks = [];
   let size = 0;
   for await (const chunk of request) {
     size += chunk.length;
-    if (size > maximumHookBodyBytes) throw new InvalidHookRequest('lifecycle body is too large');
+    if (size > maximumBytes) throw new InvalidHookRequest('request body is too large');
     chunks.push(chunk);
   }
   if (size === 0) return {};

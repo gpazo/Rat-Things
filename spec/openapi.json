@@ -12,6 +12,7 @@
     { "name": "Capabilities" },
     { "name": "Integrations" },
     { "name": "Runs" },
+    { "name": "Computer", "description": "Owner-scoped viewing, temporary human control, and teach-by-demonstration for an active browser Run." },
     { "name": "Conversations" },
     { "name": "Routines", "description": "Lower-level interval compatibility primitive." },
     { "name": "Publications" },
@@ -361,6 +362,52 @@
       }
     },
     "/v1/runs/{runId}/interrupt": { "post": { "tags": ["Runs"], "operationId": "interruptRun", "parameters": [{ "$ref": "#/components/parameters/RunId" }], "requestBody": { "$ref": "#/components/requestBodies/EmptyObject" }, "responses": { "202": { "description": "Active turn interrupted", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ActionReceipt" } } } }, "default": { "$ref": "#/components/responses/Error" } } } },
+    "/v1/runs/{runId}/computer": {
+      "get": {
+        "tags": ["Computer"],
+        "operationId": "viewRunComputer",
+        "description": "Returns a current screenshot of the isolated browser through the authenticated control plane. Chromium is never exposed directly.",
+        "parameters": [{ "$ref": "#/components/parameters/RunId" }],
+        "responses": { "200": { "description": "Current browser screen and control state", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ComputerSnapshot" } } } }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/v1/runs/{runId}/computer/takeover": {
+      "post": {
+        "tags": ["Computer"],
+        "operationId": "setRunComputerControl",
+        "description": "Takes or returns a bounded exclusive browser-control lease. This does not widen the Run capability envelope.",
+        "parameters": [{ "$ref": "#/components/parameters/RunId" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "additionalProperties": false, "required": ["control"], "properties": { "control": { "enum": ["human", "agent"] } } } } } },
+        "responses": { "200": { "description": "Updated control state", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ComputerTakeoverReceipt" } } } }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/v1/runs/{runId}/computer/action": {
+      "post": {
+        "tags": ["Computer"],
+        "operationId": "actOnRunComputer",
+        "description": "Executes one allowlisted browser action while the caller holds human control, then returns the updated screen.",
+        "parameters": [{ "$ref": "#/components/parameters/RunId" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "additionalProperties": false, "required": ["action"], "properties": { "action": { "$ref": "#/components/schemas/HumanBrowserAction" } } } } } },
+        "responses": { "200": { "description": "Updated browser screen", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ComputerSnapshot" } } } }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/v1/runs/{runId}/computer/teach": {
+      "post": {
+        "tags": ["Computer"],
+        "operationId": "teachRunComputer",
+        "description": "Starts, saves, or discards a bounded human demonstration. Saving creates an unpublished draft Thing; it never publishes or runs it.",
+        "parameters": [{ "$ref": "#/components/parameters/RunId" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "oneOf": [
+          { "type": "object", "additionalProperties": false, "required": ["action", "name"], "properties": { "action": { "const": "start" }, "name": { "type": "string", "minLength": 1, "maxLength": 120 }, "goal": { "type": "string", "minLength": 1, "maxLength": 4000 } } },
+          { "type": "object", "additionalProperties": false, "required": ["action", "discard"], "properties": { "action": { "const": "stop" }, "discard": { "type": "boolean" } } }
+        ] } } } },
+        "responses": {
+          "200": { "description": "Recording started or discarded", "content": { "application/json": { "schema": { "oneOf": [{ "$ref": "#/components/schemas/ComputerSnapshot" }, { "$ref": "#/components/schemas/TeachResult" }] } } } },
+          "201": { "description": "Recording saved and unpublished draft Thing created", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/TeachResult" } } } },
+          "default": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
     "/v1/runs/{runId}/cancel": { "post": { "tags": ["Runs"], "operationId": "cancelRun", "parameters": [{ "$ref": "#/components/parameters/RunId" }], "requestBody": { "$ref": "#/components/requestBodies/EmptyObject" }, "responses": { "202": { "description": "Cancellation requested", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Run" } } } }, "default": { "$ref": "#/components/responses/Error" } } } },
     "/v1/runs/{runId}/requests/{requestId}/respond": {
       "post": {
@@ -1670,6 +1717,90 @@
           "operation": { "enum": ["steer", "interrupt", "respond"] }
         }
       },
+      "HumanBrowserAction": {
+        "oneOf": [
+          { "type": "object", "additionalProperties": false, "required": ["type", "url"], "properties": { "type": { "const": "navigate" }, "url": { "type": "string", "format": "uri", "maxLength": 4096 } } },
+          { "type": "object", "additionalProperties": false, "required": ["type"], "properties": { "type": { "const": "click" }, "ref": { "type": "string", "pattern": "^r[1-9][0-9]{0,4}$" }, "x": { "type": "number", "minimum": 0, "maximum": 1280 }, "y": { "type": "number", "minimum": 0, "maximum": 720 } }, "oneOf": [{ "required": ["ref"] }, { "required": ["x", "y"] }] },
+          { "type": "object", "additionalProperties": false, "required": ["type", "text"], "properties": { "type": { "const": "type" }, "ref": { "type": "string", "pattern": "^r[1-9][0-9]{0,4}$" }, "text": { "type": "string", "maxLength": 20000 }, "clear": { "type": "boolean", "default": true }, "submit": { "type": "boolean", "default": false } } },
+          { "type": "object", "additionalProperties": false, "required": ["type", "key"], "properties": { "type": { "const": "press" }, "key": { "type": "string", "minLength": 1, "maxLength": 64 } } },
+          { "type": "object", "additionalProperties": false, "required": ["type", "ref", "value"], "properties": { "type": { "const": "select" }, "ref": { "type": "string", "pattern": "^r[1-9][0-9]{0,4}$" }, "value": { "type": "string", "maxLength": 2000 } } },
+          { "type": "object", "additionalProperties": false, "required": ["type", "deltaY"], "properties": { "type": { "const": "scroll" }, "deltaX": { "type": "number", "minimum": -5000, "maximum": 5000 }, "deltaY": { "type": "number", "minimum": -5000, "maximum": 5000 } } },
+          { "type": "object", "additionalProperties": false, "required": ["type", "milliseconds"], "properties": { "type": { "const": "wait" }, "milliseconds": { "type": "integer", "minimum": 0, "maximum": 10000 } } },
+          { "type": "object", "additionalProperties": false, "required": ["type"], "properties": { "type": { "const": "back" } } }
+        ]
+      },
+      "ComputerTakeoverReceipt": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["version", "runId", "control"],
+        "properties": {
+          "version": { "const": "1" },
+          "runId": { "type": "string" },
+          "control": { "enum": ["agent", "human"] },
+          "takeover": { "$ref": "#/components/schemas/ComputerTakeoverWindow" }
+        }
+      },
+      "ComputerTakeoverWindow": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["startedAt", "expiresAt"],
+        "properties": {
+          "startedAt": { "type": "string", "format": "date-time" },
+          "expiresAt": { "type": "string", "format": "date-time" }
+        }
+      },
+      "ComputerSnapshot": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["version", "runId", "available", "control", "viewport", "observedAt", "page", "imageDataUrl", "teach"],
+        "properties": {
+          "version": { "const": "1" },
+          "runId": { "type": "string" },
+          "available": { "const": true },
+          "control": { "enum": ["agent", "human"] },
+          "viewport": { "type": "object", "additionalProperties": false, "required": ["width", "height"], "properties": { "width": { "const": 1280 }, "height": { "const": 720 } } },
+          "observedAt": { "type": "string", "format": "date-time" },
+          "page": { "type": "object", "additionalProperties": false, "required": ["url", "title"], "properties": { "url": { "type": "string" }, "title": { "type": "string" } } },
+          "imageDataUrl": { "type": "string", "pattern": "^data:image/(jpeg|png);base64," },
+          "takeover": { "$ref": "#/components/schemas/ComputerTakeoverWindow" },
+          "teach": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["state"],
+            "properties": {
+              "state": { "enum": ["idle", "recording"] },
+              "recordingId": { "type": "string", "format": "uuid" },
+              "name": { "type": "string" },
+              "startedAt": { "type": "string", "format": "date-time" },
+              "maximumDurationMs": { "type": "integer", "minimum": 1000 },
+              "demonstratedSteps": { "type": "integer", "minimum": 0 }
+            }
+          }
+        }
+      },
+      "TeachRecordingSummary": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["version", "recordingId", "name", "startedAt", "stoppedAt", "demonstratedSteps", "discarded"],
+        "properties": {
+          "version": { "const": "1" },
+          "recordingId": { "type": "string", "format": "uuid" },
+          "name": { "type": "string" },
+          "startedAt": { "type": "string", "format": "date-time" },
+          "stoppedAt": { "type": "string", "format": "date-time" },
+          "demonstratedSteps": { "type": "integer", "minimum": 0 },
+          "discarded": { "type": "boolean" }
+        }
+      },
+      "TeachResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["recording"],
+        "properties": {
+          "recording": { "$ref": "#/components/schemas/TeachRecordingSummary" },
+          "thing": { "$ref": "#/components/schemas/Thing" }
+        }
+      },
       "ArtifactMetadata": {
         "type": "object",
         "additionalProperties": false,
@@ -1965,9 +2096,13 @@
               "agent": {
                 "type": "object",
                 "additionalProperties": false,
-                "required": ["browserComputerUse", "interactiveEvents", "steering", "interruption", "approvals", "skills", "apps", "mcp"],
+                "required": ["browserComputerUse", "liveComputerView", "humanComputerTakeover", "teachByDemonstration", "teachCreatesDraftThings", "interactiveEvents", "steering", "interruption", "approvals", "skills", "apps", "mcp"],
                 "properties": {
                   "browserComputerUse": { "const": true },
+                  "liveComputerView": { "const": true },
+                  "humanComputerTakeover": { "const": true },
+                  "teachByDemonstration": { "const": true },
+                  "teachCreatesDraftThings": { "const": true },
                   "interactiveEvents": { "const": true },
                   "steering": { "const": true },
                   "interruption": { "const": true },

@@ -1,4 +1,4 @@
-import { rm } from 'node:fs/promises';
+import { cp, rm } from 'node:fs/promises';
 import { build } from 'esbuild';
 
 const lambdaEntries = {
@@ -26,6 +26,8 @@ await Promise.all([
   bundle('src/runner/entry.ts', 'dist/runner.mjs'),
   bundle('src/runner/terminate-microvm.ts', 'dist/terminate-microvm.mjs'),
   bundle('src/cli.ts', 'dist/cli.mjs'),
+  bundle('scripts/console-server.ts', 'dist/console-server.mjs'),
+  cp('console', 'dist/console', { recursive: true }),
 ]);
 
 async function bundle(entry, outfile, options = {}) {

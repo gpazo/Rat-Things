@@ -19,7 +19,7 @@
     <meta name="twitter:description" content="Persistent conversations, private files, verified accounts, and isolated cloud agents in your AWS account.">
     <meta name="twitter:image" content="https://gpazo.github.io/Rat-Things/assets/rat-things-og-v2.jpg">
     <link rel="canonical" href="https://gpazo.github.io/Rat-Things/">
-    <link rel="stylesheet" href="styles.css?v=14">
+    <link rel="stylesheet" href="styles.css?v=15">
   </head>
   <body>
     <a class="skip-link" href="#main">Skip to content</a>
@@ -167,43 +167,44 @@
             <h2 id="console-title">See the work.<br>Keep the thread.</h2>
           </div>
           <div class="console-copy">
-            <p>The local test console shows conversations, live activity, uploads, replies, questions, reactions, and files through the public API. It is a reference client—not a hosted product or a second execution path.</p>
+            <p>The local reference console keeps the conversation, current Run, and isolated browser together. Resize the panes, watch progress, take temporary control, inspect sources, and continue the durable thread without losing context.</p>
+            <p class="console-cli-line"><code>rat-things computer open --thread THREAD_NAME</code><span>opens this signed client directly from the CLI.</span></p>
             <a class="text-link" href="docs/conversations/">Explore the conversation contract <span aria-hidden="true">→</span></a>
           </div>
         </div>
 
         <ul class="console-capabilities" aria-label="Conversation console capabilities">
-          <li><strong>Organize</strong><span>Search, pin, hide, and track unread work.</span></li>
-          <li><strong>Observe</strong><span>Read transcripts and safe typed activity.</span></li>
-          <li><strong>Continue</strong><span>Reply to a message in the same durable thread.</span></li>
-          <li><strong>Interact</strong><span>Answer questions that provide information, never permission.</span></li>
-          <li><strong>Review</strong><span>React and open private generated files inline.</span></li>
-          <li><strong>Attach</strong><span>Restore encrypted uploads before execution begins.</span></li>
+          <li><strong>Follow the Run</strong><span>See phase, progress, elapsed time, steering, and stop controls.</span></li>
+          <li><strong>Resize the workspace</strong><span>Give the transcript or browser the room it needs.</span></li>
+          <li><strong>Watch the browser</strong><span>Keep the live isolated page beside the conversation.</span></li>
+          <li><strong>Take control</strong><span>Use an exclusive lease, then return interaction to Rat.</span></li>
+          <li><strong>Understand activity</strong><span>Review human-readable phases; expand technical evidence only when needed.</span></li>
+          <li><strong>Continue durably</strong><span>Reply, react, attach files, answer questions, and revisit sources.</span></li>
         </ul>
 
         <div class="console-showcase">
           <figure class="console-shot console-shot-main">
-            <a href="../assets/conversation-console-desktop.png">
-              <img src="../assets/conversation-console-desktop.png" width="1280" height="800" loading="lazy" alt="Rat Things desktop conversation console showing the conversation list, completed transcript, reaction controls, generated file, and composer">
+            <a href="../assets/conversation-console-live-browser.png">
+              <img src="../assets/conversation-console-live-browser.png" width="1280" height="800" loading="lazy" alt="Rat Things three-pane console during a live AWS Run, showing the conversation list, active Run progress, NVIDIA earnings request, and isolated browser under a temporary human-control lease">
             </a>
-            <figcaption><span>Desktop conversation</span><strong>Transcript, activity, reactions, files, and continuation in one durable view.</strong></figcaption>
+            <figcaption><span>Live browser takeover</span><strong>Conversation, active Run, and the isolated browser stay visible together while control changes hands.</strong></figcaption>
           </figure>
           <div class="console-shot-grid">
             <figure class="console-shot">
-              <a href="../assets/conversation-console-artifact-viewer.png">
-                <img src="../assets/conversation-console-artifact-viewer.png" width="1280" height="800" loading="lazy" alt="Private inline viewer displaying a generated Markdown release report over the conversation console">
+              <a href="../assets/conversation-console-live-activity.png">
+                <img src="../assets/conversation-console-live-activity.png" width="1280" height="800" loading="lazy" alt="Rat Things three-pane console showing grouped human-readable Activity cards beside an active NVIDIA earnings conversation">
               </a>
-              <figcaption><span>Private artifact viewer</span><strong>Owner-signed content stays reviewable without exposing S3 coordinates.</strong></figcaption>
+              <figcaption><span>Human-readable activity</span><strong>Follow meaningful phases first and leave low-level evidence collapsed until it is useful.</strong></figcaption>
             </figure>
             <figure class="console-shot console-shot-mobile">
-              <a href="../assets/conversation-console-mobile-input.png">
-                <img src="../assets/conversation-console-mobile-input.png" width="390" height="844" loading="lazy" alt="Rat Things mobile console showing an agent structured question with staging, production, and custom response options">
+              <a href="../assets/conversation-console-mobile-browser.png">
+                <img src="../assets/conversation-console-mobile-browser.png" width="390" height="844" loading="lazy" alt="Rat Things compact browser context sheet showing live controls, zoom, keyboard input, scrolling, and teach-by-demonstration fields">
               </a>
-              <figcaption><span>Mobile questions</span><strong>Provide missing information without widening the run's permissions.</strong></figcaption>
+              <figcaption><span>Compact browser sheet</span><strong>The same viewing, takeover, and teaching controls remain usable on a narrow screen.</strong></figcaption>
             </figure>
           </div>
         </div>
-        <p class="console-evidence-note">Screenshots use disposable deterministic E2E fixture data. The same public API path and test console passed separately against a fresh AWS deployment with a real Codex-on-Bedrock agent and S3 Files enabled.</p>
+        <p class="console-evidence-note">The browser and Activity screenshots come from the fresh disposable <code>ux260826a</code> live-AWS Run against NVIDIA's official Q2 FY27 earnings release. The compact screenshot uses deterministic E2E data. The live journey passed in 2.8 minutes with real Codex-on-Bedrock and S3 Files enabled; all 234 stack resources were destroyed afterward.</p>
       </section>
 
       <section class="flow-section" id="flow" aria-labelledby="flow-title">
@@ -256,7 +257,7 @@
         <div class="feature-grid">
           <article><span>01</span><h3>Build and schedule</h3><p>Test a Thing draft, activate one immutable revision, then run it manually or on rate and cron schedules.</p></article>
           <article><span>02</span><h3>Connect accounts safely</h3><p>Verify several accounts per integration and narrow provider access before any credential is used.</p></article>
-          <article><span>03</span><h3>Run tools in isolation</h3><p>Use shell, Git, files, permitted networking, and browser computer use inside a dedicated MicroVM.</p></article>
+          <article><span>03</span><h3>See it, take over, teach it</h3><p>Watch the isolated browser live, take temporary control without changing permissions, and save a redacted demonstration as a draft Thing.</p></article>
           <article><span>04</span><h3>Keep conversations</h3><p>Search transcripts, attach files, reply, react, answer questions, and continue work across clients.</p></article>
           <article><span>05</span><h3>Retain and share files</h3><p>Keep generated files privately, inspect them through owner-gated viewers, or create expiring external links.</p></article>
           <article><span>06</span><h3>Use one Run model</h3><p>Manual Things, schedules, GitHub, GitLab, Teams, optional Slack, and raw API calls share one lifecycle.</p></article>
@@ -280,7 +281,7 @@
           <li><span>✓</span><div><strong>Exact account authority</strong><p>A real agent used separate read-only and read/write accounts for their admitted operations without putting credentials in Run state.</p></div></li>
           <li><span>✓</span><div><strong>Conversation API through the test console</strong><p>A real Codex turn restored an upload, asked for information, generated a private file, retained a reaction, and continued through a targeted reply.</p></div></li>
           <li><span>✓</span><div><strong>Replacement continuity with S3 Files</strong><p>A real Codex thread and exact workspace bytes resumed on replacement compute; separate CLI processes continued the same named conversation.</p></div></li>
-          <li><span>✓</span><div><strong>Generated and browser-created work</strong><p>Live MicroVM tests retained exact files and opened isolated file, site, and video viewers. A historical canary exercised the complete browser surface under the former approval bridge; the autonomous revision still needs a fresh live rerun.</p></div></li>
+          <li><span>✓</span><div><strong>See it, take over, teach it</strong><p>A real Codex MicroVM exposed its live 1280×720 browser, transferred temporary control, saved a secret-redacted demonstration as an unpublished Thing, returned control, and completed normally.</p></div></li>
           <li><span>✓</span><div><strong>Schedules and signed events</strong><p>AWS fired a pinned Thing revision, and GitHub, GitLab, and Teams paths completed through the durable control plane.</p></div></li>
         </ul>
       </section>

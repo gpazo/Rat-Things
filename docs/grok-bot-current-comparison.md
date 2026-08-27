@@ -31,7 +31,7 @@ generation-fenced recovery. Its isolation and authority model is intentionally d
 separate customer jobs, narrower than Grok's user-wide shared-computer boundary.
 
 The largest remaining product gap is **semantic memory**, followed by the named-Bot/group product
-model, hosted connector authorization, full desktop takeover/teaching, and rich chat/artifact UX.
+model, hosted connector authorization, general desktop control, and rich chat/artifact UX.
 Native Codex compaction is durable in Rat; semantic memory is not currently enabled or correctly
 scoped. Those are separate features and must not be reported as one.
 
@@ -65,8 +65,8 @@ Status means parity with the useful product behavior, not similarity of deployme
 | Approvals | Per-action approvals, Auto Review rules, secure computer handoff, and local-computer command policy | No mid-Run permission inbox. IAM, network policy, grants, and the capability profile fix the maximum envelope before launch | Intentional divergence |
 | Attachments | Desktop accepts common document/media/code formats, six at a time, with documented size limits; cards and viewers are built in | Responsive composer accepts six bounded files; encrypted content-addressed bytes restore before execution; the public transcript emits only opaque IDs; private text/image/audio/video/PDF viewers use an owner-signed loopback proxy | Core parity for tested formats; fewer rich document/link previews |
 | Files and results | Conversation cards preview generated files, links, images, and tool results; shared `/workspace` supports Bot handoff | Checksummed durable outbox, catalogs, private inline viewers, owner-checked URLs/downloads, conversation restoration, and signed publications | Backend parity or stronger; fewer rich result cards and no Bot handoff UI |
-| Browser/computer use | Browser, filesystem, terminal, full desktop computer use, human takeover for passwords/2FA/CAPTCHA, and per-Bot screens | Browser v1 with observe/click/type/press/select/scroll/navigation, screenshots, and video inside the MicroVM; no full desktop or takeover | Partial |
-| Teach by demonstration | Records a browser workflow for up to ten minutes and creates a draft skill | No demonstration recorder or learned workflow compiler | Missing |
+| Browser/computer use | Browser, filesystem, terminal, full desktop computer use, human takeover for passwords/2FA/CAPTCHA, and per-Bot screens | Active browser-enabled Runs now have an owner-scoped live 1280×720 viewer, a renewable exclusive human browser lease, point-and-click/type/navigation controls, screenshots, and video through the existing MicroVM control plane; no general desktop/native-app control | Close browser parity; narrower intentional desktop scope |
+| Teach by demonstration | Records a browser workflow for up to ten minutes and creates a draft skill | Records up to ten minutes/100 allowlisted browser actions, redacts typed/selected values and URL query/fragment data, and creates an unpublished manual Thing draft for review; the complete path is live AWS validated | Core lifecycle parity; different reusable unit |
 | Skills | Reusable instructions, private/marketplace skills, per-Bot enablement, `/` mentions | Codex skills can be selected and resolved through App Server; Thing definitions provide a separate immutable reusable-work contract | Partial; no hosted catalog or skill-management UI |
 | Routines/automations | Per-Bot schedules and supported event triggers, up to 50 routines and 20 recent records; test/edit/pause/run/delete UI | Durable interval Routines plus revisioned Things with manual, EventBridge rate/cron, and signed event ingress; retry fencing and evidence are stronger than the current UI | Backend parity; operator UI missing |
 | Plugins/connectors | Marketplace, account-owned OAuth connections, MCP, per-tool enablement, team restrictions, in-chat Connect cards | Trusted provider manifests, owner-scoped multi-account connections, brokered secrets, grants/resource constraints, Slack/Stripe/fixture adapters, and Codex MCP/app selection | Security core partial; hosted OAuth/marketplace breadth missing |
@@ -185,8 +185,11 @@ backfill before they can appear in all-history results.
    port the desktop loopback callback server.
 3. **Things, routines, and integrations console pages.** Expose the already-strong backend
    lifecycle instead of inventing a second automation model.
-4. **Browser takeover and teaching, if product scope requires them.** Treat takeover as a transfer
-   of interaction inside the existing envelope, never as an authority escalation.
+4. **Extend the live-validated browser takeover and teaching path.** The Rat-native implementation
+   transfers interaction inside the existing envelope and saves an unpublished Thing draft. Add
+   secure host-side credential injection, file transfer, richer pointer/tab workflows, and
+   replacement-session browser-profile validation without turning takeover into authority
+   escalation.
 5. **Interrupted tool settlement and large-result spill.** Close exact pending calls without
    replaying writes, then add bounded/redacted spill files under the conversation artifact policy.
 6. **Named Bots and groups only after a product decision.** This changes ownership, memory scope,

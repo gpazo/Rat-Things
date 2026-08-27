@@ -340,6 +340,9 @@ pre span { color: var(--cyan); }
 
 .console-heading h2 { margin-bottom: 0; }
 .console-copy p { margin-bottom: 1rem; color: var(--muted); font-size: 1.04rem; }
+.console-copy .console-cli-line { display: grid; gap: 0.25rem; margin: 1.1rem 0; font-size: 0.78rem; }
+.console-cli-line code { width: fit-content; max-width: 100%; color: #dff5be; font: 700 0.75rem/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; overflow-wrap: anywhere; }
+.console-cli-line span { color: var(--muted); }
 
 .console-capabilities {
   display: grid;

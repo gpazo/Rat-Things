@@ -11,7 +11,7 @@ import { SignatureV4 } from '@smithy/signature-v4';
 
 const host = '127.0.0.1';
 const port = boundedPort(process.env.RAT_THINGS_CONSOLE_PORT ?? '4174');
-const consoleRoot = resolve('console');
+const consoleRoot = resolve(process.env.RAT_THINGS_CONSOLE_ROOT ?? 'console');
 const upstreamBase = requiredApiUrl();
 
 const server = createServer((request, response) => {

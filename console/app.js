@@ -1,5 +1,7 @@
 const elements = {
+  shell: document.querySelector('.app-shell'),
   sidebar: document.querySelector('#sidebar'),
+  sidebarResizer: document.querySelector('#sidebar-resizer'),
   sidebarToggle: document.querySelector('#sidebar-toggle'),
   sidebarScrim: document.querySelector('#sidebar-scrim'),
   workspace: document.querySelector('#workspace'),
@@ -25,10 +27,22 @@ const elements = {
   composerAttachments: document.querySelector('#composer-attachments'),
   prompt: document.querySelector('#prompt'),
   delivery: document.querySelector('#delivery'),
+  browserUse: document.querySelector('#browser-use'),
   attachFiles: document.querySelector('#attach-files'),
   fileInput: document.querySelector('#file-input'),
   send: document.querySelector('#send'),
   interrupt: document.querySelector('#interrupt-run'),
+  openComputer: document.querySelector('#open-computer'),
+  runStrip: document.querySelector('#run-strip'),
+  runStripIndicator: document.querySelector('#run-strip-indicator'),
+  runStripPhase: document.querySelector('#run-strip-phase'),
+  runStripTitle: document.querySelector('#run-strip-title'),
+  runStripDetail: document.querySelector('#run-strip-detail'),
+  runStripProgress: document.querySelector('#run-strip-progress-value'),
+  runStripElapsed: document.querySelector('#run-strip-elapsed'),
+  watchRun: document.querySelector('#watch-run'),
+  steerRun: document.querySelector('#steer-run'),
+  stopRun: document.querySelector('#stop-run'),
   notice: document.querySelector('#notice'),
   viewer: document.querySelector('#artifact-viewer'),
   viewerTitle: document.querySelector('#viewer-title'),
@@ -36,6 +50,47 @@ const elements = {
   viewerDetail: document.querySelector('#viewer-detail'),
   viewerOpen: document.querySelector('#viewer-open'),
   closeViewer: document.querySelector('#close-viewer'),
+  contextResizer: document.querySelector('#context-resizer'),
+  contextPane: document.querySelector('#context-pane'),
+  contextPopout: document.querySelector('#context-popout'),
+  contextTabBrowser: document.querySelector('#context-tab-browser'),
+  contextTabSources: document.querySelector('#context-tab-sources'),
+  contextTabActivity: document.querySelector('#context-tab-activity'),
+  contextBrowser: document.querySelector('#context-browser'),
+  contextSources: document.querySelector('#context-sources'),
+  contextActivity: document.querySelector('#context-activity'),
+  contextSourceCount: document.querySelector('#context-source-count'),
+  computerOwnerDot: document.querySelector('#computer-owner-dot'),
+  computerOwnerLabel: document.querySelector('#computer-owner-label'),
+  computerLeaseLabel: document.querySelector('#computer-lease-label'),
+  computerControl: document.querySelector('#computer-control'),
+  closeComputer: document.querySelector('#close-computer'),
+  computerNavigation: document.querySelector('#computer-navigation'),
+  computerBack: document.querySelector('#computer-back'),
+  computerUrl: document.querySelector('#computer-url'),
+  computerStage: document.querySelector('#computer-stage'),
+  computerScreen: document.querySelector('#computer-screen'),
+  computerLoading: document.querySelector('#computer-loading'),
+  computerActionState: document.querySelector('#computer-action-state'),
+  computerZoomOut: document.querySelector('#computer-zoom-out'),
+  computerZoomIn: document.querySelector('#computer-zoom-in'),
+  computerZoomLabel: document.querySelector('#computer-zoom-label'),
+  computerFit: document.querySelector('#computer-fit'),
+  computerType: document.querySelector('#computer-type'),
+  computerText: document.querySelector('#computer-text'),
+  computerEnter: document.querySelector('#computer-enter'),
+  computerScrollUp: document.querySelector('#computer-scroll-up'),
+  computerScrollDown: document.querySelector('#computer-scroll-down'),
+  computerRecordingBadge: document.querySelector('#computer-recording-badge'),
+  computerRecordingTime: document.querySelector('#computer-recording-time'),
+  teachSetup: document.querySelector('#teach-setup'),
+  teachName: document.querySelector('#teach-name'),
+  teachGoal: document.querySelector('#teach-goal'),
+  teachStart: document.querySelector('#teach-start'),
+  teachRecordingActions: document.querySelector('#teach-recording-actions'),
+  teachStepCount: document.querySelector('#teach-step-count'),
+  teachSave: document.querySelector('#teach-save'),
+  teachDiscard: document.querySelector('#teach-discard'),
 };
 
 const LIST_PAGE_SIZE = 25;
@@ -73,11 +128,19 @@ const state = {
   artifacts: [],
   uploads: [],
   replyTarget: null,
+  steering: false,
   busy: false,
   pollTimer: null,
   progressTimer: null,
   refreshTimer: null,
   selectionRevision: 0,
+  computer: null,
+  computerBusy: false,
+  computerTimer: null,
+  computerClock: null,
+  contextOpen: false,
+  contextTab: 'browser',
+  computerZoom: 1,
 };
 
 elements.newThread.addEventListener('click', openNewThread);
@@ -107,6 +170,32 @@ elements.prompt.addEventListener('keydown', (event) => {
   }
 });
 elements.interrupt.addEventListener('click', interruptRun);
+elements.openComputer.addEventListener('click', openComputer);
+elements.watchRun.addEventListener('click', openComputer);
+elements.steerRun.addEventListener('click', focusSteeringComposer);
+elements.stopRun.addEventListener('click', interruptRun);
+elements.closeComputer.addEventListener('click', () => void closeComputer());
+elements.contextPopout.addEventListener('click', toggleContextFullscreen);
+elements.contextTabBrowser.addEventListener('click', () => setContextTab('browser'));
+elements.contextTabSources.addEventListener('click', () => setContextTab('sources'));
+elements.contextTabActivity.addEventListener('click', () => setContextTab('activity'));
+elements.computerControl.addEventListener('click', toggleComputerControl);
+elements.computerNavigation.addEventListener('submit', navigateComputer);
+elements.computerBack.addEventListener('click', () => void computerAction({ type: 'back' }));
+elements.computerType.addEventListener('submit', typeOnComputer);
+elements.computerEnter.addEventListener('click', () => void computerAction({ type: 'press', key: 'Enter' }));
+elements.computerScrollUp.addEventListener('click', () => void computerAction({ type: 'scroll', deltaY: -560 }));
+elements.computerScrollDown.addEventListener('click', () => void computerAction({ type: 'scroll', deltaY: 560 }));
+elements.computerScreen.addEventListener('click', clickComputerScreen);
+elements.computerStage.addEventListener('wheel', wheelComputerScreen, { passive: false });
+elements.computerStage.addEventListener('keydown', keyComputerScreen);
+elements.computerZoomOut.addEventListener('click', () => setComputerZoom(state.computerZoom - .25));
+elements.computerZoomIn.addEventListener('click', () => setComputerZoom(state.computerZoom + .25));
+elements.computerFit.addEventListener('click', () => setComputerZoom(1));
+elements.teachStart.addEventListener('click', startTeaching);
+elements.teachName.addEventListener('input', renderComputer);
+elements.teachSave.addEventListener('click', () => void stopTeaching(false));
+elements.teachDiscard.addEventListener('click', () => void stopTeaching(true));
 elements.transcript.addEventListener('scroll', updateJumpLatest);
 elements.jumpLatest.addEventListener('click', () => scrollTranscriptToBottom('smooth'));
 elements.sidebarToggle.addEventListener('click', () => setSidebarOpen(!sidebarIsOpen()));
@@ -114,18 +203,30 @@ elements.sidebarScrim.addEventListener('click', () => setSidebarOpen(false));
 document.addEventListener('keydown', handleSidebarKeydown);
 window.addEventListener('resize', () => {
   setSidebarOpen(false);
+  syncContextLayout();
 });
 
+setupPaneResizer(elements.sidebarResizer, 'sidebar');
+setupPaneResizer(elements.contextResizer, 'context');
+restorePaneWidths();
 setSidebarOpen(false);
+syncContextLayout();
 void initialize();
 
 async function initialize() {
   try {
     await refreshConversations(false);
+    const requested = new URLSearchParams(window.location.search);
+    const requestedThread = requested.get('thread');
+    const requestedRun = requested.get('run');
     const saved = localStorage.getItem('rat-things.selected-conversation');
-    const selected = state.conversations.find((item) => item.conversationId === saved) ?? state.conversations[0];
+    const selected = state.conversations.find((item) => requestedThread && item.threadKey === requestedThread)
+      ?? state.conversations.find((item) => requestedRun && item.activeRunId === requestedRun)
+      ?? state.conversations.find((item) => item.conversationId === saved)
+      ?? state.conversations[0];
     if (selected) await selectConversation(selected);
     else renderWorkspace({ scrollMode: 'bottom' });
+    if (requestedRun && state.activeRunId === requestedRun) await openComputer();
     state.refreshTimer = window.setInterval(() => {
       if (!document.hidden && !state.listLoading) void refreshConversations(false);
     }, AUTO_REFRESH_MS);
@@ -564,6 +665,7 @@ async function toggleHiddenConversations() {
 }
 
 async function selectConversation(conversation) {
+  if (state.contextOpen) await closeComputer();
   persistDraft();
   cacheLiveWork();
   const revision = ++state.selectionRevision;
@@ -626,6 +728,7 @@ function openNewThread() {
 function createDraftThread(event) {
   event.preventDefault();
   if (!elements.dialogForm.reportValidity()) return;
+  if (state.contextOpen) void closeComputer();
   persistDraft();
   state.selectionRevision += 1;
   state.selected = null;
@@ -675,6 +778,7 @@ function selectAttachments() {
 function clearComposerExtras() {
   state.uploads = [];
   state.replyTarget = null;
+  state.steering = false;
   if (elements.fileInput) elements.fileInput.value = '';
 }
 
@@ -687,8 +791,25 @@ function renderComposerContext(writable, conversation) {
       : 'Create a conversation before sending a message.';
     return;
   }
+  if (state.steering && state.activeRunId) {
+    elements.composerContext.hidden = false;
+    elements.composerContext.classList.add('composer-reply-context');
+    const copy = document.createElement('span');
+    copy.textContent = 'Steering the active Run · this direction is delivered immediately';
+    const cancel = document.createElement('button');
+    cancel.type = 'button';
+    cancel.setAttribute('aria-label', 'Cancel steering');
+    cancel.textContent = '×';
+    cancel.addEventListener('click', () => {
+      state.steering = false;
+      renderWorkspace({ scrollMode: 'keep' });
+    });
+    elements.composerContext.append(copy, cancel);
+    return;
+  }
   if (!state.replyTarget) {
     elements.composerContext.hidden = true;
+    elements.composerContext.classList.remove('composer-reply-context');
     return;
   }
   elements.composerContext.hidden = false;
@@ -742,9 +863,11 @@ function renderWorkspace(options = {}) {
   elements.badge.dataset.state = status;
   elements.badge.textContent = state.pendingRequests.length > 0 ? 'Needs input' : statusLabel(status);
   elements.interrupt.hidden = true;
+  elements.openComputer.hidden = !state.activeRunId;
 
   const messages = state.detail?.transcript?.messages ?? [];
   const work = currentWork(status);
+  renderRunStrip(work);
   elements.transcript.replaceChildren();
   if (state.detailLoading) {
     elements.transcript.append(transcriptLoadingNode());
@@ -756,11 +879,14 @@ function renderWorkspace(options = {}) {
 
   const writable = Boolean(threadKey);
   elements.prompt.disabled = !writable || state.busy;
+  elements.prompt.placeholder = state.steering ? 'Give Rat additional direction…' : 'Message Rat Things…';
   elements.send.disabled = !writable || state.busy;
   elements.delivery.disabled = !writable || state.busy;
+  elements.browserUse.disabled = !writable || state.busy;
   elements.attachFiles.disabled = !writable || state.busy;
   renderComposerContext(writable, conversation);
   renderComposerAttachments();
+  renderContextPane();
 
   restoreTranscriptScroll(scroll, options.scrollMode ?? 'auto');
   updateProgressTimer(Boolean(state.activeRunId));
@@ -1249,6 +1375,12 @@ function workNode(work) {
   elapsed.textContent = workDuration(work);
   header.append(indicator, copy, elapsed);
   if (work.active) {
+    const watch = document.createElement('button');
+    watch.type = 'button';
+    watch.className = 'work-stop';
+    watch.textContent = 'View browser';
+    watch.addEventListener('click', openComputer);
+    header.append(watch);
     const stop = document.createElement('button');
     stop.type = 'button';
     stop.className = 'work-stop';
@@ -1260,9 +1392,12 @@ function workNode(work) {
 
   const details = document.createElement('details');
   details.className = 'work-details';
-  details.open = Boolean(work.active);
+  details.open = Boolean(work.pendingRequests?.length);
   const summary = document.createElement('summary');
-  summary.textContent = `${activities.length} action${activities.length === 1 ? '' : 's'}`;
+  const phases = groupActivities(activities);
+  summary.textContent = phases.length
+    ? `${phases.length} phase${phases.length === 1 ? '' : 's'} · technical details hidden`
+    : 'What Rat is doing';
   details.append(summary);
   const body = document.createElement('div');
   body.className = 'work-activity';
@@ -1273,7 +1408,7 @@ function workNode(work) {
     body.append(gap);
   }
   for (const pending of work.pendingRequests ?? []) body.append(pendingRequestNode(pending));
-  if (activities.length === 0) {
+  if (phases.length === 0) {
     const waiting = document.createElement('p');
     waiting.className = 'activity-empty';
     waiting.textContent = work.active
@@ -1281,11 +1416,56 @@ function workNode(work) {
       : 'No live activity was retained in this browser.';
     body.append(waiting);
   } else {
-    for (const activity of activities) body.append(activityNode(activity));
+    for (const phase of phases) body.append(phaseNode(phase));
+    const technical = document.createElement('details');
+    technical.className = 'technical-evidence';
+    const technicalSummary = document.createElement('summary');
+    technicalSummary.textContent = `${activities.length} technical event${activities.length === 1 ? '' : 's'}`;
+    technical.append(technicalSummary);
+    for (const activity of activities) technical.append(activityNode(activity));
+    body.append(technical);
   }
   details.append(body);
   section.append(details);
   return section;
+}
+
+function renderRunStrip(work) {
+  elements.runStrip.hidden = !work?.active;
+  if (!work?.active) return;
+  const progress = progressText(work.status, state.detail?.latestProgress?.text ?? state.selected?.latestProgress?.text);
+  elements.runStrip.dataset.state = work.status;
+  elements.runStripPhase.textContent = phaseLabel(work.status, work.events ?? []);
+  elements.runStripTitle.textContent = progress.title;
+  elements.runStripDetail.textContent = work.pendingRequests?.length
+    ? work.pendingRequests[0].detail ?? work.pendingRequests[0].title
+    : progress.detail;
+  elements.runStripElapsed.textContent = workDuration(work);
+  elements.runStripProgress.style.width = `${phaseProgress(work.status, work.events ?? [])}%`;
+  elements.watchRun.hidden = !work.active;
+  elements.steerRun.hidden = !work.active;
+  elements.stopRun.hidden = !work.active;
+}
+
+function phaseLabel(status, events) {
+  if (status === 'dispatching' || status === 'queued' || status === 'pending') return 'Starting';
+  if (status === 'cancelling') return 'Stopping';
+  if (status === 'succeeded') return 'Completed';
+  if (status === 'failed') return 'Needs attention';
+  if (status === 'cancelled') return 'Stopped';
+  const latest = [...events].reverse().find((event) => event.status !== 'failed');
+  return ({ computer: 'Browsing', web_search: 'Researching', command: 'Running', file: 'Writing', message: 'Answering', reasoning: 'Thinking', plan: 'Planning' })[latest?.kind] ?? 'Working';
+}
+
+function phaseProgress(status, events) {
+  if (isTerminal(status)) return 100;
+  if (status === 'queued' || status === 'pending') return 12;
+  if (status === 'dispatching') return 28;
+  const kinds = new Set(events.map((event) => event.kind));
+  if (kinds.has('message')) return 86;
+  if (kinds.has('computer') || kinds.has('web_search') || kinds.has('command')) return 62;
+  if (kinds.has('reasoning') || kinds.has('plan')) return 44;
+  return 36;
 }
 
 function pendingRequestNode(request) {
@@ -1436,6 +1616,73 @@ function coalesceActivities(events) {
   return result;
 }
 
+function groupActivities(activities) {
+  const groups = [];
+  for (const activity of activities) {
+    const phase = activityPhase(activity);
+    const previous = groups.at(-1);
+    if (previous?.key === phase.key && activity.status !== 'failed') {
+      previous.count += activity.count ?? 1;
+      previous.occurredAt = activity.occurredAt;
+      previous.detail = phase.detail;
+      previous.status = activity.status;
+      continue;
+    }
+    groups.push({
+      ...phase,
+      count: activity.count ?? 1,
+      occurredAt: activity.occurredAt,
+      status: activity.status,
+    });
+  }
+  return groups;
+}
+
+function activityPhase(activity) {
+  const fallback = activity.detail || activity.title;
+  if (activity.status === 'failed' || activity.kind === 'error') {
+    return { key: 'attention', icon: '!', title: 'Something needs attention', detail: fallback };
+  }
+  return ({
+    plan: { key: 'plan', icon: '☷', title: 'Planning the work', detail: fallback },
+    reasoning: { key: 'reasoning', icon: '◇', title: 'Thinking through the task', detail: fallback },
+    web_search: { key: 'research', icon: '⌕', title: 'Researching the web', detail: fallback },
+    computer: { key: 'browser', icon: '▣', title: 'Working in the browser', detail: fallback },
+    command: { key: 'tools', icon: '›_', title: 'Using the workspace', detail: fallback },
+    tool: { key: 'tools', icon: '◆', title: 'Using a tool', detail: fallback },
+    file: { key: 'files', icon: '±', title: 'Updating files', detail: fallback },
+    message: { key: 'answer', icon: '↗', title: 'Preparing the answer', detail: fallback },
+    agent: { key: 'agent', icon: '●', title: 'Rat started working', detail: fallback },
+    compaction: { key: 'context', icon: '↻', title: 'Keeping context focused', detail: 'Older context was compacted without losing durable conversation state.' },
+    usage: { key: 'usage', icon: '#', title: 'Tracking Run usage', detail: fallback },
+  })[activity.kind] ?? { key: 'activity', icon: '·', title: activity.title || 'Working', detail: fallback };
+}
+
+function phaseNode(phase) {
+  const row = document.createElement('div');
+  row.className = 'phase-card';
+  row.dataset.phase = phase.key;
+  row.dataset.status = phase.status;
+  const icon = document.createElement('span');
+  icon.textContent = phase.icon;
+  const copy = document.createElement('div');
+  copy.className = 'phase-card-copy';
+  const title = document.createElement('strong');
+  title.textContent = phase.title;
+  const detail = document.createElement('span');
+  detail.textContent = [phase.detail, phase.count > 1 ? `${phase.count} related updates` : undefined]
+    .filter(Boolean).join(' · ');
+  copy.append(title, detail);
+  const time = document.createElement('time');
+  time.dateTime = phase.occurredAt;
+  time.title = phase.occurredAt ? new Date(phase.occurredAt).toLocaleString() : '';
+  time.textContent = phase.occurredAt
+    ? new Date(phase.occurredAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    : '';
+  row.append(icon, copy, time);
+  return row;
+}
+
 function activityNode(activity) {
   const row = document.createElement('div');
   row.className = 'activity-item';
@@ -1465,6 +1712,27 @@ async function submitMessage(event) {
   const prompt = elements.prompt.value.trim();
   const threadKey = state.draftThreadKey ?? state.detail?.threadKey ?? state.selected?.threadKey;
   if (!prompt || !threadKey || state.busy) return;
+  if (state.steering && state.activeRunId) {
+    state.busy = true;
+    renderWorkspace({ scrollMode: 'keep' });
+    try {
+      await api(`/v1/runs/${encodeURIComponent(state.activeRunId)}/steer`, {
+        method: 'POST',
+        body: { prompt },
+      });
+      elements.prompt.value = '';
+      state.steering = false;
+      clearDraft();
+      resizeComposer();
+      notice('Direction delivered to the active Run.');
+    } catch (error) {
+      notice(message(error), true);
+    } finally {
+      state.busy = false;
+      renderWorkspace({ scrollMode: 'keep' });
+    }
+    return;
+  }
   const files = [...state.uploads];
   const replyTarget = state.replyTarget;
   state.busy = true;
@@ -1477,6 +1745,16 @@ async function submitMessage(event) {
       body: {
         version: '1',
         prompt,
+        ...(elements.browserUse.checked ? {
+          agent: {
+            driver: 'codex',
+            capabilities: {
+              profile: 'small-business',
+              networkAccess: true,
+              computerUse: 'browser',
+            },
+          },
+        } : {}),
         thread: {
           key: threadKey,
           delivery: elements.delivery.value,
@@ -1657,6 +1935,9 @@ function activateRun(run) {
 }
 
 function clearActiveRun() {
+  window.clearTimeout(state.computerTimer);
+  state.computerTimer = null;
+  if (state.computer) state.computer = { ...state.computer, control: 'agent', takeover: undefined };
   state.activeRunId = null;
   state.activeRun = null;
   state.activeRunObservedAt = null;
@@ -1671,6 +1952,7 @@ function clearActiveRun() {
 
 function resetLiveRunState() {
   window.clearTimeout(state.pollTimer);
+  if (state.contextOpen) void closeComputer();
   clearActiveRun();
 }
 
@@ -1716,10 +1998,14 @@ function updateProgressTimer(active) {
 
 function updateProgressElapsed() {
   const elapsed = document.querySelector('#run-progress-elapsed');
-  if (!elapsed || !state.activeRunId || !state.activeRunObservedAt) return;
+  if (!state.activeRunId || !state.activeRunObservedAt) return;
   const seconds = Math.max(0, Math.floor((Date.now() - state.activeRunObservedAt) / 1_000));
-  elapsed.dateTime = `PT${seconds}S`;
-  elapsed.textContent = formatElapsed(seconds);
+  if (elapsed) {
+    elapsed.dateTime = `PT${seconds}S`;
+    elapsed.textContent = formatElapsed(seconds);
+  }
+  elements.runStripElapsed.dateTime = `PT${seconds}S`;
+  elements.runStripElapsed.textContent = formatElapsed(seconds);
 }
 
 function runStartedAt(run) {
@@ -1765,6 +2051,494 @@ function statusLabel(status) {
     idle: 'Ready', pending: 'Saving', queued: 'Queued', dispatching: 'Starting', running: 'Working',
     awaiting_resume: 'Resuming', cancelling: 'Stopping', succeeded: 'Complete', failed: 'Failed', cancelled: 'Cancelled',
   })[status] ?? String(status).replaceAll('_', ' ');
+}
+
+function focusSteeringComposer() {
+  if (!state.activeRunId) return;
+  state.steering = true;
+  state.replyTarget = null;
+  elements.delivery.value = 'interrupt';
+  renderWorkspace({ scrollMode: 'keep' });
+  elements.prompt.placeholder = 'Give Rat additional direction…';
+  elements.prompt.focus();
+}
+
+function setContextTab(tab) {
+  state.contextTab = tab;
+  const tabs = {
+    browser: [elements.contextTabBrowser, elements.contextBrowser],
+    sources: [elements.contextTabSources, elements.contextSources],
+    activity: [elements.contextTabActivity, elements.contextActivity],
+  };
+  for (const [name, [button, panel]] of Object.entries(tabs)) {
+    const selected = name === tab;
+    button.setAttribute('aria-selected', String(selected));
+    button.tabIndex = selected ? 0 : -1;
+    panel.hidden = !selected;
+  }
+  renderContextPane();
+}
+
+function renderContextPane() {
+  if (!state.contextOpen) return;
+  renderContextSources();
+  renderContextActivity();
+}
+
+function renderContextSources() {
+  const sources = conversationSources();
+  elements.contextSourceCount.textContent = String(sources.length);
+  elements.contextSources.replaceChildren();
+  if (sources.length === 0) {
+    elements.contextSources.append(contextEmptyNode(
+      'Sources will appear here',
+      'Web pages and durable files are collected without interrupting the conversation.',
+    ));
+    return;
+  }
+  const list = document.createElement('div');
+  list.className = 'source-list';
+  for (const source of sources) {
+    if (source.artifact) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'source-card';
+      button.innerHTML = `<strong></strong><span></span>`;
+      button.querySelector('strong').textContent = source.label;
+      button.querySelector('span').textContent = source.detail;
+      button.addEventListener('click', () => void openArtifact(source.artifact, button));
+      list.append(button);
+      continue;
+    }
+    const link = document.createElement('a');
+    link.className = 'source-card';
+    link.href = source.url;
+    link.target = '_blank';
+    link.rel = 'noopener noreferrer';
+    const title = document.createElement('strong');
+    title.textContent = source.label;
+    const detail = document.createElement('span');
+    detail.textContent = source.url;
+    link.append(title, detail);
+    list.append(link);
+  }
+  elements.contextSources.append(list);
+}
+
+function conversationSources() {
+  const result = [];
+  const seen = new Set();
+  const pageUrl = state.computer?.page?.url;
+  if (safePublicUrl(pageUrl)) {
+    seen.add(pageUrl);
+    result.push({ url: pageUrl, label: state.computer?.page?.title || new URL(pageUrl).hostname });
+  }
+  for (const item of state.detail?.transcript?.messages ?? []) {
+    for (const match of String(item.content ?? '').matchAll(/https:\/\/[^\s<>()\]]+/g)) {
+      const url = match[0].replace(/[.,;:!?]+$/, '');
+      if (!safePublicUrl(url) || seen.has(url)) continue;
+      seen.add(url);
+      result.push({ url, label: new URL(url).hostname });
+    }
+  }
+  for (const artifact of state.artifacts) {
+    if (!artifact.id) continue;
+    const key = `artifact:${artifact.id}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push({
+      artifact,
+      label: artifact.path ?? artifact.name ?? 'Conversation file',
+      detail: [artifact.mediaType, formatBytes(artifact.bytes)].filter(Boolean).join(' · '),
+    });
+  }
+  return result.slice(0, 40);
+}
+
+function safePublicUrl(value) {
+  if (typeof value !== 'string') return false;
+  try {
+    const url = new URL(value);
+    return url.protocol === 'https:' || url.protocol === 'http:';
+  } catch {
+    return false;
+  }
+}
+
+function renderContextActivity() {
+  const work = currentWork(state.activeRun?.status ?? state.detail?.status ?? state.selected?.status ?? 'idle');
+  const activities = coalesceActivities(work?.events ?? []);
+  const phases = groupActivities(activities);
+  elements.contextActivity.replaceChildren();
+  if (work?.eventGap) {
+    const gap = document.createElement('p');
+    gap.className = 'activity-gap';
+    gap.textContent = 'Early live events rolled out of the bounded window. Durable terminal evidence remains available.';
+    elements.contextActivity.append(gap);
+  }
+  if (phases.length === 0) {
+    elements.contextActivity.append(contextEmptyNode(
+      work?.active ? 'Rat is getting ready' : 'No recent activity',
+      work?.active ? 'Human-readable phases will appear as the Run progresses.' : 'Start a Run to see its work unfold.',
+    ));
+    return;
+  }
+  const list = document.createElement('div');
+  list.className = 'phase-list';
+  for (const phase of phases) list.append(phaseNode(phase));
+  elements.contextActivity.append(list);
+  const technical = document.createElement('details');
+  technical.className = 'technical-evidence';
+  const summary = document.createElement('summary');
+  summary.textContent = `Technical evidence · ${activities.length} event${activities.length === 1 ? '' : 's'}`;
+  technical.append(summary);
+  for (const activity of activities) technical.append(activityNode(activity));
+  elements.contextActivity.append(technical);
+}
+
+function contextEmptyNode(titleText, detailText) {
+  const empty = document.createElement('div');
+  empty.className = 'context-empty';
+  const title = document.createElement('strong');
+  title.textContent = titleText;
+  const detail = document.createElement('span');
+  detail.textContent = detailText;
+  empty.append(title, detail);
+  return empty;
+}
+
+function syncContextLayout() {
+  const open = state.contextOpen;
+  const compact = compactLayout();
+  elements.shell.dataset.contextOpen = String(open && !compact);
+  elements.contextPane.hidden = !open;
+  elements.contextResizer.hidden = !open || compact;
+  elements.contextPane.inert = !open;
+  elements.workspace.inert = sidebarIsOpen() || (compact && open);
+  if (open && compact) elements.contextPane.removeAttribute('aria-hidden');
+  else if (!open) elements.contextPane.setAttribute('aria-hidden', 'true');
+  else elements.contextPane.removeAttribute('aria-hidden');
+  if (open) setSidebarOpen(false);
+}
+
+function setupPaneResizer(resizer, kind) {
+  const bounds = kind === 'sidebar' ? [248, 440] : [360, 760];
+  const resize = (clientX) => {
+    const raw = kind === 'sidebar' ? clientX : window.innerWidth - clientX;
+    setPaneWidth(kind, Math.max(bounds[0], Math.min(bounds[1], raw)));
+  };
+  resizer.addEventListener('pointerdown', (event) => {
+    if (compactLayout()) return;
+    event.preventDefault();
+    resizer.setPointerCapture(event.pointerId);
+    resizer.dataset.dragging = 'true';
+    resize(event.clientX);
+  });
+  resizer.addEventListener('pointermove', (event) => {
+    if (resizer.dataset.dragging === 'true') resize(event.clientX);
+  });
+  const finish = (event) => {
+    if (resizer.dataset.dragging !== 'true') return;
+    resizer.dataset.dragging = 'false';
+    if (resizer.hasPointerCapture(event.pointerId)) resizer.releasePointerCapture(event.pointerId);
+  };
+  resizer.addEventListener('pointerup', finish);
+  resizer.addEventListener('pointercancel', finish);
+  resizer.addEventListener('dblclick', () => setPaneWidth(kind, kind === 'sidebar' ? 328 : 520));
+  resizer.addEventListener('keydown', (event) => {
+    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+    event.preventDefault();
+    const current = Number(resizer.getAttribute('aria-valuenow'));
+    if (event.key === 'Home') return setPaneWidth(kind, bounds[0]);
+    if (event.key === 'End') return setPaneWidth(kind, bounds[1]);
+    const direction = event.key === 'ArrowRight' ? 1 : -1;
+    setPaneWidth(kind, current + direction * (kind === 'context' ? -16 : 16));
+  });
+}
+
+function setPaneWidth(kind, width) {
+  const bounds = kind === 'sidebar' ? [248, 440] : [360, 760];
+  const bounded = Math.round(Math.max(bounds[0], Math.min(bounds[1], width)));
+  elements.shell.style.setProperty(kind === 'sidebar' ? '--sidebar-width' : '--context-width', `${bounded}px`);
+  const resizer = kind === 'sidebar' ? elements.sidebarResizer : elements.contextResizer;
+  resizer.setAttribute('aria-valuenow', String(bounded));
+  try { localStorage.setItem(`rat-things.${kind}-width`, String(bounded)); } catch { /* best effort */ }
+}
+
+function restorePaneWidths() {
+  for (const [kind, fallback] of [['sidebar', 328], ['context', 520]]) {
+    const value = Number(localStorage.getItem(`rat-things.${kind}-width`));
+    setPaneWidth(kind, Number.isFinite(value) && value > 0 ? value : fallback);
+  }
+  setComputerZoom(1);
+}
+
+async function openComputer() {
+  if (!state.activeRunId || state.computerBusy) return;
+  if (!state.contextOpen) state.computer = null;
+  state.contextOpen = true;
+  setContextTab('browser');
+  syncContextLayout();
+  renderComputer();
+  await refreshComputer();
+}
+
+async function closeComputer() {
+  window.clearTimeout(state.computerTimer);
+  window.clearInterval(state.computerClock);
+  state.computerTimer = null;
+  state.computerClock = null;
+  const shouldReturn = state.computer?.control === 'human' && state.computer?.teach?.state !== 'recording';
+  const runId = state.activeRunId;
+  state.contextOpen = false;
+  syncContextLayout();
+  state.computer = null;
+  if (shouldReturn && runId) {
+    await api(`/v1/runs/${encodeURIComponent(runId)}/computer/takeover`, {
+      method: 'POST',
+      body: { control: 'agent' },
+    }).catch(() => undefined);
+  }
+}
+
+async function refreshComputer() {
+  window.clearTimeout(state.computerTimer);
+  if (!state.contextOpen || !state.activeRunId || state.computerBusy) return;
+  const runId = state.activeRunId;
+  try {
+    const snapshot = await api(`/v1/runs/${encodeURIComponent(runId)}/computer`);
+    if (runId !== state.activeRunId || !state.contextOpen) return;
+    state.computer = snapshot;
+    renderComputer();
+  } catch (error) {
+    if (runId !== state.activeRunId) {
+      renderComputer();
+      return;
+    }
+    const detail = message(error);
+    const starting = /not active in this MicroVM|does not have browser computer use enabled|control command timed out|control endpoint returned HTTP 502/i
+      .test(detail);
+    elements.computerLoading.hidden = false;
+    elements.computerLoading.textContent = starting
+      ? 'Starting the isolated screen. First-use storage can take tens of seconds.'
+      : detail;
+    elements.computerOwnerLabel.textContent = starting ? 'Preparing browser' : 'Live view reconnecting';
+    elements.computerLeaseLabel.textContent = starting
+      ? 'The first durable start can take tens of seconds'
+      : 'Rat will retry automatically';
+  } finally {
+    if (state.contextOpen && state.activeRunId) {
+      state.computerTimer = window.setTimeout(
+        () => void refreshComputer(),
+        state.computer?.control === 'human' ? 650 : 1_200,
+      );
+    }
+  }
+}
+
+function renderComputer() {
+  const computer = state.computer;
+  const human = computer?.control === 'human';
+  const recording = computer?.teach?.state === 'recording';
+  elements.computerControl.textContent = human ? 'Return control' : 'Take control';
+  elements.computerControl.className = human ? 'secondary-button' : 'primary-button';
+  elements.computerControl.disabled = state.computerBusy || recording || !computer || !state.activeRunId;
+  elements.computerOwnerDot.dataset.owner = human ? 'human' : 'agent';
+  elements.computerOwnerLabel.textContent = computer
+    ? !state.activeRunId ? 'Final browser frame' : human ? 'You have control' : 'Rat has control'
+    : 'Connecting to browser';
+  updateComputerTemporalLabels();
+  elements.computerLoading.hidden = Boolean(computer?.imageDataUrl);
+  elements.computerScreen.hidden = !computer?.imageDataUrl;
+  if (computer?.imageDataUrl && elements.computerScreen.src !== computer.imageDataUrl) {
+    elements.computerScreen.src = computer.imageDataUrl;
+  }
+  if (computer?.page?.url && document.activeElement !== elements.computerUrl) {
+    elements.computerUrl.value = computer.page.url;
+  }
+  const interactive = human && !state.computerBusy;
+  for (const control of [
+    elements.computerUrl,
+    elements.computerBack,
+    elements.computerNavigation.querySelector('button[type="submit"]'),
+    elements.computerText,
+    elements.computerType.querySelector('button[type="submit"]'),
+    elements.computerEnter,
+    elements.computerScrollUp,
+    elements.computerScrollDown,
+  ]) control.disabled = !interactive;
+  elements.computerScreen.dataset.interactive = String(interactive);
+  elements.computerActionState.hidden = !state.computerBusy;
+  elements.computerRecordingBadge.hidden = !recording;
+  elements.teachSetup.hidden = recording;
+  elements.teachRecordingActions.hidden = !recording;
+  elements.teachStart.disabled = !interactive || !elements.teachName.value.trim();
+  elements.teachName.disabled = !interactive;
+  elements.teachGoal.disabled = !interactive;
+  elements.teachStepCount.textContent = `${computer?.teach?.demonstratedSteps ?? 0} action${computer?.teach?.demonstratedSteps === 1 ? '' : 's'} demonstrated`;
+  window.clearInterval(state.computerClock);
+  state.computerClock = null;
+  updateComputerRecordingClock();
+  state.computerClock = window.setInterval(() => {
+    updateComputerTemporalLabels();
+    updateComputerRecordingClock();
+  }, 1_000);
+}
+
+function updateComputerTemporalLabels() {
+  const computer = state.computer;
+  if (!computer) {
+    elements.computerLeaseLabel.textContent = 'Live isolated browser';
+    return;
+  }
+  if (!state.activeRunId) {
+    elements.computerLeaseLabel.textContent = 'Run completed · last captured view';
+    return;
+  }
+  if (computer.control !== 'human') {
+    elements.computerLeaseLabel.textContent = computer.page?.title || computer.page?.url || 'Live isolated browser';
+    return;
+  }
+  const expiresAt = Date.parse(computer.takeover?.expiresAt);
+  const seconds = Number.isFinite(expiresAt) ? Math.max(0, Math.ceil((expiresAt - Date.now()) / 1_000)) : undefined;
+  elements.computerLeaseLabel.textContent = seconds === undefined
+    ? 'Exclusive browser lease'
+    : `Exclusive lease · ${formatElapsed(seconds)} remaining`;
+}
+
+function updateComputerRecordingClock() {
+  const startedAt = Date.parse(state.computer?.teach?.startedAt);
+  const seconds = Number.isFinite(startedAt) ? Math.max(0, Math.floor((Date.now() - startedAt) / 1_000)) : 0;
+  elements.computerRecordingTime.textContent = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
+}
+
+async function toggleComputerControl() {
+  if (!state.activeRunId || !state.computer || state.computerBusy) return;
+  await computerMutation(
+    `/v1/runs/${encodeURIComponent(state.activeRunId)}/computer/takeover`,
+    { control: state.computer.control === 'human' ? 'agent' : 'human' },
+    (receipt) => { state.computer = { ...state.computer, ...receipt }; },
+  );
+}
+
+async function navigateComputer(event) {
+  event.preventDefault();
+  if (!elements.computerUrl.value.trim()) return;
+  await computerAction({ type: 'navigate', url: elements.computerUrl.value.trim() });
+}
+
+async function typeOnComputer(event) {
+  event.preventDefault();
+  const text = elements.computerText.value;
+  if (!text) return;
+  await computerAction({ type: 'type', text, clear: false, submit: false });
+  elements.computerText.value = '';
+}
+
+async function clickComputerScreen(event) {
+  if (state.computer?.control !== 'human' || state.computerBusy) return;
+  const rectangle = elements.computerScreen.getBoundingClientRect();
+  if (!rectangle.width || !rectangle.height) return;
+  const viewportWidth = state.computer.viewport?.width ?? 1280;
+  const viewportHeight = state.computer.viewport?.height ?? 720;
+  const scale = Math.min(rectangle.width / viewportWidth, rectangle.height / viewportHeight);
+  const renderedWidth = viewportWidth * scale;
+  const renderedHeight = viewportHeight * scale;
+  const offsetX = (rectangle.width - renderedWidth) / 2;
+  const offsetY = (rectangle.height - renderedHeight) / 2;
+  const renderedX = event.clientX - rectangle.left - offsetX;
+  const renderedY = event.clientY - rectangle.top - offsetY;
+  if (renderedX < 0 || renderedY < 0 || renderedX > renderedWidth || renderedY > renderedHeight) return;
+  const x = Math.max(0, Math.min(viewportWidth, renderedX / scale));
+  const y = Math.max(0, Math.min(viewportHeight, renderedY / scale));
+  await computerAction({ type: 'click', x, y });
+}
+
+async function computerAction(action) {
+  if (!state.activeRunId || state.computer?.control !== 'human') return;
+  await computerMutation(
+    `/v1/runs/${encodeURIComponent(state.activeRunId)}/computer/action`,
+    { action },
+    (snapshot) => { state.computer = snapshot; },
+  );
+}
+
+function wheelComputerScreen(event) {
+  if (state.computer?.control !== 'human' || state.computerBusy) return;
+  event.preventDefault();
+  const deltaY = Math.max(-900, Math.min(900, Math.round(event.deltaY)));
+  if (Math.abs(deltaY) < 4) return;
+  void computerAction({ type: 'scroll', deltaY });
+}
+
+function keyComputerScreen(event) {
+  if (state.computer?.control !== 'human' || state.computerBusy) return;
+  if (event.metaKey || event.ctrlKey || event.altKey) return;
+  if (event.key === 'Tab' || event.key === 'Escape') return;
+  event.preventDefault();
+  if (event.key.length === 1) {
+    void computerAction({ type: 'type', text: event.key, clear: false, submit: false });
+  } else if (['Enter', 'Backspace', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(event.key)) {
+    void computerAction({ type: 'press', key: event.key });
+  }
+}
+
+function setComputerZoom(value) {
+  state.computerZoom = Math.max(.5, Math.min(2, Math.round(value * 4) / 4));
+  elements.computerStage.style.setProperty('--computer-zoom', String(state.computerZoom));
+  elements.computerZoomLabel.value = `${Math.round(state.computerZoom * 100)}%`;
+}
+
+async function toggleContextFullscreen() {
+  try {
+    if (document.fullscreenElement === elements.contextPane) await document.exitFullscreen();
+    else await elements.contextPane.requestFullscreen();
+  } catch (error) {
+    notice(`Full screen is unavailable: ${message(error)}`, true);
+  }
+}
+
+async function startTeaching() {
+  if (!state.activeRunId || state.computer?.control !== 'human') return;
+  const name = elements.teachName.value.trim();
+  if (!name) {
+    elements.teachName.focus();
+    return;
+  }
+  await computerMutation(
+    `/v1/runs/${encodeURIComponent(state.activeRunId)}/computer/teach`,
+    { action: 'start', name, ...(elements.teachGoal.value.trim() ? { goal: elements.teachGoal.value.trim() } : {}) },
+    (snapshot) => { state.computer = snapshot; },
+  );
+}
+
+async function stopTeaching(discard) {
+  if (!state.activeRunId || state.computer?.teach?.state !== 'recording') return;
+  await computerMutation(
+    `/v1/runs/${encodeURIComponent(state.activeRunId)}/computer/teach`,
+    { action: 'stop', discard },
+    (result) => {
+      if (state.computer) state.computer = { ...state.computer, teach: { state: 'idle' } };
+      if (result.thing?.thingId) {
+        notice(`Draft Thing “${result.thing.draft?.name ?? elements.teachName.value}” created for review (${result.thing.thingId}).`);
+      } else if (discard) notice('Demonstration discarded. No Thing was created.');
+    },
+  );
+}
+
+async function computerMutation(path, body, consume) {
+  if (state.computerBusy) return;
+  state.computerBusy = true;
+  renderComputer();
+  try {
+    const result = await api(path, { method: 'POST', body });
+    consume(result);
+  } catch (error) {
+    notice(message(error), true);
+  } finally {
+    state.computerBusy = false;
+    renderComputer();
+  }
 }
 
 async function interruptRun() {
@@ -1897,7 +2671,8 @@ function setSidebarOpen(open) {
   elements.sidebar.dataset.open = String(next);
   elements.sidebarToggle.setAttribute('aria-expanded', String(next));
   elements.sidebarScrim.dataset.open = String(next);
-  elements.workspace.inert = next;
+  elements.workspace.inert = next || (compact && state.contextOpen);
+  elements.contextPane.inert = !state.contextOpen || next;
   elements.sidebar.inert = compact && !next;
   if (compact) elements.sidebar.setAttribute('aria-hidden', String(!next));
   else elements.sidebar.removeAttribute('aria-hidden');
@@ -1909,6 +2684,13 @@ function setSidebarOpen(open) {
 }
 
 function handleSidebarKeydown(event) {
+  if (state.contextOpen && event.key === 'Escape' && document.fullscreenElement !== elements.contextPane) {
+    if (state.computer?.teach?.state !== 'recording') {
+      event.preventDefault();
+      void closeComputer();
+    }
+    return;
+  }
   if (!sidebarIsOpen()) return;
   if (event.key === 'Escape') {
     event.preventDefault();
@@ -1935,7 +2717,7 @@ function handleSidebarKeydown(event) {
 }
 
 function compactLayout() {
-  return window.matchMedia('(max-width: 900px)').matches;
+  return window.matchMedia('(max-width: 960px)').matches;
 }
 
 async function api(path, options = {}) {

@@ -77,6 +77,10 @@ export function ratThingsDiscovery(docsUrl?: string): Record<string, unknown> {
       },
       agent: {
         browserComputerUse: true,
+        liveComputerView: true,
+        humanComputerTakeover: true,
+        teachByDemonstration: true,
+        teachCreatesDraftThings: true,
         interactiveEvents: true,
         steering: true,
         interruption: true,

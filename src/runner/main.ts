@@ -174,6 +174,7 @@ export async function runAgentWorker(): Promise<void> {
           artifactRoot: join(workspace, AGENT_ARTIFACT_DIRECTORY),
         }),
       );
+      runnerControl?.setBrowserSession(browserSession);
       dynamicTools.push(...browserSession.tools);
     }
     if (effectiveRequest.integrations) {

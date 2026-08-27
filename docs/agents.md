@@ -106,6 +106,7 @@ Explicit production runs and Scheduler occurrences always pin that active revisi
 | Browser, web search, skills, apps, or MCP | ThingSpec or run `agent.capabilities` | Deployment profile remains the ceiling; requested capabilities can narrow, never widen it |
 | Several external accounts | Integration manifests, connections, grants, and connection sets | Provider authority, Rat grant, profile, and Thing/run selection are intersected |
 | Active progress and ordinary input | Run events, response, steer, and interrupt routes | Available only while the exact run has an active MicroVM; responses cannot widen authority |
+| Live browser and demonstration | Run computer, takeover, action, and teach routes | Browser-enabled active Runs only; takeover is an exclusive interaction lease, and save creates an unpublished draft Thing |
 | Durable multi-turn work | `POST /v1/runs` with `thread.key`, plus conversation status/artifact routes | The same Run receipt is returned immediately; the mailbox is always durable, and S3 Files adds workspace/native-thread restoration on replacement compute |
 | Generated files | Run or conversation artifact routes | Returns owner-checked metadata and short-lived access URLs |
 | Shareable file, site, or video | Run or conversation publication routes | Publishing is explicit and produces a time-bounded bearer URL |

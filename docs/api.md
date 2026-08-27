@@ -357,6 +357,31 @@ missed entries from the bounded ring and must rely on the terminal JSONL event a
 not authorize commands, file changes, browser actions, integrations, or broader account access. Rat
 Things has no approval route; its capability envelope is fixed before launch.
 
+### Live browser viewing, takeover, and teaching
+
+For an active browser-enabled Run, `GET /v1/runs/{runId}/computer` returns a bounded JPEG data URL,
+page title/URL, control state, and demonstration state. The request is owner-checked and then
+proxied with an AWS-issued token to the exact MicroVM lifecycle port; Chromium itself has no public
+listener.
+
+`POST .../computer/takeover` with `{"control":"human"}` grants a renewable fifteen-minute exclusive
+browser lease. Agent browser calls fail while it is held. `{"control":"agent"}` returns the browser.
+The lease changes interaction ownership only—it does not interrupt other reasoning or widen tools,
+IAM, networking, integration grants, provider scopes, or resource limits.
+
+`POST .../computer/action` accepts the OpenAPI `HumanBrowserAction` union (`navigate`, `click`,
+`type`, `press`, `select`, `scroll`, `wait`, or `back`) only while human control is active. There is
+no arbitrary DevTools, JavaScript, shell, VNC, or desktop command surface.
+
+`POST .../computer/teach` starts or stops a bounded action demonstration for up to ten minutes and
+100 actions. It deliberately does not retain video. Navigation query strings/fragments and
+typed/selected values are excluded from the generated instructions; values become `{{input_N}}`
+placeholders. Stopping with
+`discard:false` creates a manual, unpublished Thing draft. It never tests, publishes, schedules, or
+runs that Thing. `discard:true` deletes the unfinished recording and creates nothing. See
+[browser computer use](browser-computer-use.md) for console and CLI use and the remaining security
+boundaries.
+
 This is a live control plane, not the durable event archive. The complete JSONL event artifact is
 written to encrypted S3 after the turn, while the live in-MicroVM ring is bounded and disappears
 when the execution ends. API Gateway authenticates the owner, then trusted control orchestration

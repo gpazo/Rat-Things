@@ -40,6 +40,18 @@
           <span id="connection-label">Local signed proxy</span>
         </footer>
       </aside>
+      <div
+        id="sidebar-resizer"
+        class="pane-resizer sidebar-resizer"
+        role="separator"
+        aria-label="Resize conversations"
+        aria-controls="sidebar"
+        aria-orientation="vertical"
+        aria-valuemin="248"
+        aria-valuemax="440"
+        aria-valuenow="328"
+        tabindex="0"
+      ></div>
       <button id="sidebar-scrim" class="sidebar-scrim" type="button" aria-label="Close conversations" tabindex="-1"></button>
 
       <main id="workspace" class="workspace" tabindex="-1">
@@ -54,9 +66,26 @@
           </div>
           <div class="workspace-actions">
             <span id="status-badge" class="status-badge" data-state="idle">Ready</span>
+            <button id="open-computer" class="secondary-button" type="button" hidden>Open computer</button>
             <button id="interrupt-run" class="secondary-button" type="button" hidden>Interrupt</button>
           </div>
         </header>
+
+        <section id="run-strip" class="run-strip" aria-labelledby="run-strip-title" hidden>
+          <span id="run-strip-indicator" class="run-strip-indicator" aria-hidden="true"></span>
+          <div class="run-strip-copy">
+            <span id="run-strip-phase" class="run-strip-phase">Working</span>
+            <strong id="run-strip-title">Active Run</strong>
+            <span id="run-strip-detail">Preparing the isolated runtime</span>
+          </div>
+          <div class="run-strip-progress" aria-hidden="true"><span id="run-strip-progress-value"></span></div>
+          <time id="run-strip-elapsed" class="run-strip-elapsed">0s</time>
+          <div class="run-strip-actions">
+            <button id="watch-run" class="secondary-button" type="button">Watch</button>
+            <button id="steer-run" class="secondary-button" type="button">Steer</button>
+            <button id="stop-run" class="secondary-button" type="button">Stop</button>
+          </div>
+        </section>
 
         <section id="transcript" class="transcript" aria-live="polite" aria-label="Conversation transcript">
           <div class="empty-state" id="empty-state">
@@ -85,6 +114,10 @@
                     <option value="defer">After current turn</option>
                   </select>
                 </label>
+                <label class="composer-option-toggle">
+                  <input id="browser-use" type="checkbox">
+                  <span>Isolated browser</span>
+                </label>
               </details>
             </div>
             <button id="send" class="send-button" type="submit" aria-label="Send message">Send</button>
@@ -92,6 +125,106 @@
         </form>
         <p id="notice" class="notice" role="status"></p>
       </main>
+
+      <div
+        id="context-resizer"
+        class="pane-resizer context-resizer"
+        role="separator"
+        aria-label="Resize context pane"
+        aria-controls="context-pane"
+        aria-orientation="vertical"
+        aria-valuemin="360"
+        aria-valuemax="760"
+        aria-valuenow="520"
+        tabindex="0"
+        hidden
+      ></div>
+
+      <aside id="context-pane" class="context-pane" aria-labelledby="context-title" hidden>
+        <header class="context-heading">
+          <div>
+            <p class="eyebrow">Active Run</p>
+            <h2 id="context-title">Work context</h2>
+          </div>
+          <div class="context-heading-actions">
+            <button id="context-popout" class="icon-button" type="button" aria-label="Full screen" title="Full screen">⛶</button>
+            <button id="close-computer" class="icon-button" type="button" aria-label="Close context pane">×</button>
+          </div>
+        </header>
+        <nav class="context-tabs" aria-label="Run context">
+          <button id="context-tab-browser" type="button" role="tab" aria-selected="true" aria-controls="context-browser">Browser</button>
+          <button id="context-tab-sources" type="button" role="tab" aria-selected="false" aria-controls="context-sources">Sources <span id="context-source-count">0</span></button>
+          <button id="context-tab-activity" type="button" role="tab" aria-selected="false" aria-controls="context-activity">Activity</button>
+        </nav>
+
+        <section id="context-browser" class="context-panel context-browser" role="tabpanel" aria-labelledby="context-tab-browser">
+          <div class="computer-control-bar">
+            <div class="computer-owner">
+              <span id="computer-owner-dot" aria-hidden="true"></span>
+              <div><strong id="computer-owner-label">Rat has control</strong><span id="computer-lease-label">Live isolated browser</span></div>
+            </div>
+            <button id="computer-control" class="primary-button" type="button">Take control</button>
+          </div>
+          <form id="computer-navigation" class="computer-navigation">
+            <button id="computer-back" type="button" aria-label="Back">←</button>
+            <label>
+              <span class="sr-only">Browser address</span>
+              <input id="computer-url" type="url" placeholder="https://example.com" autocomplete="off">
+            </label>
+            <button type="submit">Go</button>
+          </form>
+          <div id="computer-stage" class="computer-stage" tabindex="0" aria-label="Live browser screen">
+            <div id="computer-loading" class="computer-loading">Starting the live view…</div>
+            <img id="computer-screen" alt="Live browser screen inside the active Rat Things MicroVM" draggable="false" hidden>
+            <span id="computer-recording-badge" class="computer-recording-badge" hidden>● Recording <time id="computer-recording-time">0:00</time></span>
+            <span id="computer-action-state" class="computer-action-state" hidden>Sending action…</span>
+          </div>
+          <div class="computer-quick-controls" aria-label="Browser view controls">
+            <button id="computer-zoom-out" class="secondary-button" type="button" aria-label="Zoom out">−</button>
+            <output id="computer-zoom-label">100%</output>
+            <button id="computer-zoom-in" class="secondary-button" type="button" aria-label="Zoom in">＋</button>
+            <button id="computer-fit" class="secondary-button" type="button">Fit</button>
+            <span>Click, scroll, or type when you have control</span>
+          </div>
+          <details id="computer-inputs" class="computer-inputs">
+            <summary>Keyboard &amp; teaching controls</summary>
+            <div class="computer-controls">
+              <form id="computer-type" class="computer-type">
+                <label>
+                  <span>Type into the focused field</span>
+                  <input id="computer-text" type="text" maxlength="20000" autocomplete="off" placeholder="Text is sent only to this browser">
+                </label>
+                <button type="submit" class="secondary-button">Type</button>
+                <button id="computer-enter" type="button" class="secondary-button">Enter</button>
+              </form>
+              <div class="computer-scroll" aria-label="Browser scrolling">
+                <button id="computer-scroll-up" class="secondary-button" type="button">Scroll up</button>
+                <button id="computer-scroll-down" class="secondary-button" type="button">Scroll down</button>
+              </div>
+              <section class="teach-panel" aria-labelledby="teach-title">
+                <div>
+                  <p class="eyebrow">Teach by demonstration</p>
+                  <h3 id="teach-title">Show Rat the workflow</h3>
+                  <p>Typed and selected values become placeholders. Saving creates an unpublished draft Thing for review.</p>
+                </div>
+                <div id="teach-setup" class="teach-setup">
+                  <input id="teach-name" maxlength="120" placeholder="Workflow name" aria-label="Workflow name">
+                  <input id="teach-goal" maxlength="4000" placeholder="What should this workflow accomplish? (optional)" aria-label="Workflow goal">
+                  <button id="teach-start" class="primary-button" type="button">Start teaching</button>
+                </div>
+                <div id="teach-recording-actions" class="teach-recording-actions" hidden>
+                  <span id="teach-step-count">0 actions demonstrated</span>
+                  <button id="teach-save" class="primary-button" type="button">Stop &amp; save draft</button>
+                  <button id="teach-discard" class="secondary-button" type="button">Discard</button>
+                </div>
+              </section>
+            </div>
+          </details>
+        </section>
+
+        <section id="context-sources" class="context-panel context-sources" role="tabpanel" aria-labelledby="context-tab-sources" hidden></section>
+        <section id="context-activity" class="context-panel context-activity" role="tabpanel" aria-labelledby="context-tab-activity" hidden></section>
+      </aside>
     </div>
 
     <dialog id="new-thread-dialog" class="new-thread-dialog">

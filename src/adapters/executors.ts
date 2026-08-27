@@ -18,6 +18,11 @@ import type {
 import type {
   AgentInteractionTarget,
   AgentRuntimeSnapshot,
+  ComputerSnapshot,
+  ComputerTakeoverReceipt,
+  HumanBrowserAction,
+  TeachRecordingInput,
+  TeachRecordingResult,
 } from '../domain/interaction.js';
 import type { JsonValue } from '../domain/contracts.js';
 import type { AgentInteractionController } from '../core/ports.js';
@@ -494,6 +499,68 @@ export class MicrovmAgentInteractionController implements AgentInteractionContro
     );
   }
 
+  public computer(target: AgentInteractionTarget): Promise<ComputerSnapshot> {
+    return this.request(
+      target,
+      `/agent-runtime/v1/runs/${encodeURIComponent(target.runId)}/computer`,
+      'GET',
+    ) as Promise<ComputerSnapshot>;
+  }
+
+  public takeComputer(target: AgentInteractionTarget): Promise<ComputerTakeoverReceipt> {
+    return this.request(
+      target,
+      `/agent-runtime/v1/runs/${encodeURIComponent(target.runId)}/computer/takeover`,
+      'POST',
+      { control: 'human' },
+    ) as Promise<ComputerTakeoverReceipt>;
+  }
+
+  public returnComputer(target: AgentInteractionTarget): Promise<ComputerTakeoverReceipt> {
+    return this.request(
+      target,
+      `/agent-runtime/v1/runs/${encodeURIComponent(target.runId)}/computer/takeover`,
+      'POST',
+      { control: 'agent' },
+    ) as Promise<ComputerTakeoverReceipt>;
+  }
+
+  public actOnComputer(
+    target: AgentInteractionTarget,
+    action: HumanBrowserAction,
+  ): Promise<ComputerSnapshot> {
+    return this.request(
+      target,
+      `/agent-runtime/v1/runs/${encodeURIComponent(target.runId)}/computer/action`,
+      'POST',
+      { action },
+    ) as Promise<ComputerSnapshot>;
+  }
+
+  public startTeaching(
+    target: AgentInteractionTarget,
+    input: TeachRecordingInput,
+  ): Promise<ComputerSnapshot> {
+    return this.request(
+      target,
+      `/agent-runtime/v1/runs/${encodeURIComponent(target.runId)}/computer/teach`,
+      'POST',
+      { action: 'start', ...input },
+    ) as Promise<ComputerSnapshot>;
+  }
+
+  public stopTeaching(
+    target: AgentInteractionTarget,
+    discard: boolean,
+  ): Promise<TeachRecordingResult> {
+    return this.request(
+      target,
+      `/agent-runtime/v1/runs/${encodeURIComponent(target.runId)}/computer/teach`,
+      'POST',
+      { action: 'stop', discard },
+    ) as Promise<TeachRecordingResult>;
+  }
+
   private async request(
     target: AgentInteractionTarget,
     path: string,
@@ -537,7 +604,7 @@ export class MicrovmAgentInteractionController implements AgentInteractionContro
         'x-aws-proxy-port': '8080',
       },
       ...(encoded ? { body: encoded } : {}),
-      signal: AbortSignal.timeout(20_000),
+      signal: AbortSignal.timeout(28_000),
     });
     const text = await response.text();
     const value = text ? parseJson(text) : {};

@@ -14,7 +14,7 @@ import {
 import { dirname, isAbsolute, resolve, sep } from 'node:path';
 
 const VIEWPORT = { width: 1280, height: 720, deviceScaleFactor: 1 };
-const NAVIGATION_TIMEOUT_MS = 30_000;
+const NAVIGATION_TIMEOUT_MS = 20_000;
 const SNAPSHOT_TEXT_LIMIT = 20_000;
 const SNAPSHOT_ELEMENT_LIMIT = 250;
 const DNS_CACHE_TTL_MS = 30_000;
