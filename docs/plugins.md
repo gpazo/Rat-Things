@@ -347,25 +347,8 @@ attempting to enable another returns a conflict instead of silently changing cre
 trusted notifier may use the bound service Connection to reply in the source thread even though the
 agent itself receives only the read-only tool envelope.
 
-The complete success path was live-validated on 2026-08-28 PDT with a disposable Slack app and
-workspace. The built CLI generated the PKCE authorization, waited for the AWS callback, returned the
-verified public Connection, and the desktop Connections page round-tripped its Rat grant between
-`read-only` and `read-write`. Slack issued all four requested scopes across bot and delegated-user
-tokens. A signed human `app_mention` started a real Codex Run and the notifier replied in its Slack
-thread; a same-thread turn resumed the same MicroVM and native Codex thread and recalled prior
-context. The built CLI separately posted one root plus one thread reply, added a reaction, proved a
-read-only write denial, and used delegated search to recover the exact thread text and permalink.
-The canary then forced both token-family expiries stale; fresh Runs refreshed the bot and user
-credentials independently and completed authenticated post/search operations. Access and refresh
-tokens were checked only for presence and never printed. Consent denial, callback replay, concurrent
-refresh fencing, and provider-side revocation remain explicit follow-up canaries.
-
-The live Connections workspace below shows the operator-visible result after the canary: the active
-OAuth account, its provider-issued scope count, the smaller persistent Rat access ceiling, and the
-single account that owns mention routing. Revoked recovery fixtures remain visible as lifecycle
-evidence but are unavailable to agents.
-
-![Live Rat Things Connections workspace showing an active Slack OAuth account, Rat access, and mention routing](../assets/slack-live-connections.jpg)
+For dated live-provider coverage and the remaining canaries, see
+[Status and roadmap](status-and-roadmap.md).
 
 Never place a token or application secret in a command-line argument, webhook body, Thing, run
 request, DynamoDB record, or URL. Keep provider exchange logs redacted. Already-issued OAuth tokens

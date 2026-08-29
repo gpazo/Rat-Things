@@ -25,8 +25,6 @@ const homepageAssetFiles = [
   'connections-console.png',
   'routines-console.png',
   'cli-live-aws-attachment-reply.jpg',
-  'slack-live-thread.jpg',
-  'slack-live-connections.jpg',
 ];
 const documentationSharedAssetFiles = [
   'conversation-console-live-browser.png',
@@ -35,8 +33,6 @@ const documentationSharedAssetFiles = [
   'routines-console.png',
   'cli-live-aws-attachment-reply.jpg',
   'cli-live-aws-conversation.jpg',
-  'slack-live-thread.jpg',
-  'slack-live-connections.jpg',
 ];
 
 marked.setOptions({ gfm: true });

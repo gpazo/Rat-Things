@@ -114,9 +114,8 @@ without widening the Run's fixed capability envelope.
   <a href="assets/conversation-console-live-browser.png"><img src="assets/conversation-console-live-browser.png" alt="Rat Things three-pane reference console during a live AWS NVIDIA earnings Run, with active progress, durable conversation, and isolated browser takeover" width="900"></a>
 </p>
 
-The screenshot is from a disposable live-AWS real-Codex Run against NVIDIA's official Q2 FY27
-earnings release. The complete client journey passed in 2.8 minutes and the 234-resource stack was
-destroyed afterward.
+The workspace keeps a durable NVIDIA earnings conversation, the active Run, the isolated browser,
+and temporary human takeover in one place.
 
 The CLI exposes the same durable conversation primitives without requiring the console:
 
@@ -132,25 +131,12 @@ rat-things chat --thread earnings --attach report.pdf --reply-to MESSAGE_ID \
 rat-things watch RUN_ID --follow
 ```
 
-The self-hosted OAuth path has also completed a real Slack canary against a disposable live-AWS
-deployment and account. Slack granted the bot only `app_mentions:read`, `chat:write`, and
-`reactions:write`, plus a separately issued user token with `search:read`. The CLI waited through
-consent and PKCE callback, verified the workspace identity, and bound signed mentions to one
-read-only agent profile. A real Slack mention then started a Codex conversation, received its reply
-in the source thread, and resumed the same MicroVM and native Codex thread with remembered context.
-The built CLI independently posted a root and thread reply, added a reaction, proved a narrowed
-grant denied writes, and found the thread through delegated search. Finally, Rat refreshed the bot
-and user token families independently after both stored expiries were forced stale. Provider
-application secrets and issued tokens never entered CLI output, browser storage, Terraform state,
-agent tool arguments, screenshots, or recordings.
-
-<p align="center">
-  <a href="assets/slack-live-thread.jpg"><img src="assets/slack-live-thread.jpg" alt="Real Slack client showing a Rat Things mention, agent reply, and continued thread with remembered context" width="900"></a>
-</p>
-
-This is the real client-side thread from that canary; it contains no credential or consent screen.
-The complete account lifecycle, scope model, CLI commands, and remaining negative canaries are in
-[Integrations, accounts, and permissions](docs/plugins.md#self-hosted-oauth-installation).
+Slack installs through host-owned OAuth. Signed mentions can start durable conversations, replies
+return to the source thread, and later messages continue the same context. The bot can post, reply,
+and react, while delegated search uses the separately authorized installing user's visibility.
+Operators manage account access and mention routing from the console or CLI; credentials remain in
+Secrets Manager. See [Integrations, accounts, and permissions](docs/plugins.md#self-hosted-oauth-installation)
+and [Channels and provider adapters](docs/channels.md#slack-self-hosted-channel-adapter).
 
 List and search return an opaque public conversation ID for transcript, organization, reaction, and
 source commands. `conversation sources` pages the complete indexed transcript, labels transcript

@@ -85,10 +85,6 @@ broad real-agent evaluation, or disaster-recovery proof.
 - The private evidence bundle contains the Slack consent screen, AWS callback, final Connections
   view, and an H.264 consent-to-verified-account demo. It excludes Slack app credentials, OAuth
   tokens, and credential-management screens.
-- The public documentation publishes only the post-consent client evidence: the Slack thread with
-  its human continuation and the Rat Connections view. Those images expose no application secret,
-  issued access/refresh token, callback code, or credential-management screen.
-
 ## Validation completed on 2026-08-27 PDT
 
 - Fresh stack `oauth260827a` added the AWS-hosted OAuth callback/configuration surface and completed

@@ -19,7 +19,7 @@
     <meta name="twitter:description" content="Persistent conversations, private files, verified accounts, and isolated cloud agents in your AWS account.">
     <meta name="twitter:image" content="https://gpazo.github.io/Rat-Things/assets/rat-things-og-v2.jpg">
     <link rel="canonical" href="https://gpazo.github.io/Rat-Things/">
-    <link rel="stylesheet" href="styles.css?v=16">
+    <link rel="stylesheet" href="styles.css?v=17">
   </head>
   <body>
     <a class="skip-link" href="#main">Skip to content</a>
@@ -33,7 +33,7 @@
         <a href="#start">How it works</a>
         <a href="#console">Console</a>
         <a href="#features">Capabilities</a>
-        <a class="nav-optional" href="#proof">Evidence</a>
+        <a class="nav-optional" href="#proof">Reliability</a>
         <a class="nav-optional" href="#economics">Performance</a>
         <a class="nav-docs" href="docs/">Docs</a>
         <a class="nav-cta" href="https://github.com/gpazo/Rat-Things">GitHub</a>
@@ -48,7 +48,7 @@
           <p class="eyebrow">Open source · Self-hosted · Isolated · Durable</p>
           <h1 class="hero-title">The open-source backend<br>for cloud agents.</h1>
           <p class="hero-lede">Run agents in isolated AWS MicroVMs. Keep conversations and generated files durable. Connect only the accounts and network access each job needs. Use the same backend from your product, CLI, or another agent.</p>
-          <p class="hero-status">Engineering preview · live AWS validated · not ready for untrusted multi-tenant production</p>
+          <p class="hero-status">Engineering preview · self-hosted in your AWS account · not ready for untrusted multi-tenant production</p>
           <div class="hero-actions">
             <a class="button button-primary" href="docs/quickstart/">AWS-ready quickstart</a>
             <a class="button button-secondary" href="#console">See the conversation UI</a>
@@ -163,7 +163,7 @@
       <section class="console-section" id="console" aria-labelledby="console-title">
         <div class="console-heading">
           <div>
-            <div class="section-label">Conversation and connection experience · live AWS validated</div>
+            <div class="section-label">One workspace for conversations and connected work</div>
             <h2 id="console-title">See the work.<br>Keep the thread.</h2>
           </div>
           <div class="console-copy">
@@ -227,34 +227,7 @@
           </div>
         </div>
 
-        <div class="slack-proof" aria-labelledby="slack-proof-title">
-          <div class="slack-proof-heading">
-            <div>
-              <div class="section-label">Real Slack account · real AWS stack</div>
-              <h3 id="slack-proof-title">From consent to a continued agent thread.</h3>
-            </div>
-            <p>A human mention started a Codex conversation in Slack. A later human reply continued the same Rat conversation, MicroVM, and native Codex thread, and the response recalled both earlier markers. The same installed account is visible and manageable from the Connections workspace and CLI.</p>
-          </div>
-          <div class="slack-proof-grid">
-            <figure class="console-shot">
-              <a href="../assets/slack-live-thread.jpg">
-                <img src="../assets/slack-live-thread.jpg" width="1470" height="656" loading="lazy" alt="Real Slack client showing a Rat Things app mention conversation continued in the same thread with remembered context">
-              </a>
-              <figcaption><span>Client-side proof</span><strong>A signed mention, source-thread reply, and human continuation all completed in the real Slack client.</strong></figcaption>
-            </figure>
-            <figure class="console-shot">
-              <a href="../assets/slack-live-connections.jpg">
-                <img src="../assets/slack-live-connections.jpg" width="1280" height="720" loading="lazy" alt="Live Rat Things Connections workspace showing the active Slack OAuth account, read and write access, and mention routing">
-              </a>
-              <figcaption><span>Operator-side proof</span><strong>The verified account, Rat access ceiling, and exclusive mention route remain inspectable and changeable without exposing either token family.</strong></figcaption>
-            </figure>
-          </div>
-        </div>
-
-        <div class="console-evidence-note">
-          <p><strong>Conversation and browser evidence:</strong> the Connections, Routines, and compact screenshots above use deterministic E2E data. The browser and Activity screenshots come from disposable <code>ux260826a</code> against NVIDIA's official Q2 FY27 earnings release. The CLI screenshot comes from a separate two-turn real-Codex review on <code>cli260826a</code>. A later clean 234-resource stack passed all 12 enabled live workflow scenarios in 662.74 seconds; only optional custom-domain publication was skipped. S3 Files was enabled, and all three stacks were destroyed afterward.</p>
-          <p><strong>Slack evidence:</strong> on August 28, a separate 236-resource stack installed a real workspace through self-hosted OAuth with three bot scopes and delegated <code>search:read</code>. The signed mention and continuation shown above reused one conversation, MicroVM, and native Codex thread. The built CLI separately proved root/thread posting, reaction, read-only denial, delegated search with permalink, and independent bot/user token refresh. Application secrets and issued tokens remained outside agent arguments, Terraform state, screenshots, and recordings.</p>
-        </div>
+        <p class="console-product-note">The reference console and CLI are two views over the same public conversation, connection, routine, and Run contracts. Operate them directly or embed the same primitives in your own product.</p>
       </section>
 
       <section class="flow-section" id="flow" aria-labelledby="flow-title">
@@ -319,21 +292,20 @@
 
       <section class="section proof-section" id="proof" aria-labelledby="proof-title">
         <div class="proof-copy">
-          <div class="section-label">Evidence, not assumptions</div>
-          <h2 id="proof-title">Tested through the hard parts.</h2>
-          <p>Deterministic tests and disposable live-AWS suites cover the boundaries most likely to fail: permissions, queues, isolated execution, replacement compute, conversations, files, schedules, and delivery.</p>
+          <div class="section-label">Durability by design</div>
+          <h2 id="proof-title">Work that survives<br>the machine.</h2>
+          <p>Conversations, files, schedules, connections, and results live outside ephemeral compute. Every Run starts with explicit authority and leaves a durable receipt that every client can understand.</p>
           <div class="proof-links">
             <a class="text-link" href="docs/status-and-roadmap/">Validation status <span aria-hidden="true">→</span></a>
             <a class="text-link" href="docs/security/">Security model <span aria-hidden="true">→</span></a>
           </div>
         </div>
         <ul class="check-list">
-          <li><span>✓</span><div><strong>Exact account authority</strong><p>A real agent used separate read-only and read/write accounts for their admitted operations without putting credentials in Run state.</p></div></li>
-          <li><span>✓</span><div><strong>Conversation API through the test console</strong><p>A real Codex turn restored an upload, asked for information, generated a private file, retained a reaction, and continued through a targeted reply.</p></div></li>
-          <li><span>✓</span><div><strong>Replacement continuity with S3 Files</strong><p>A real Codex thread and exact workspace bytes resumed on replacement compute; separate CLI processes continued the same named conversation.</p></div></li>
-          <li><span>✓</span><div><strong>See it, take over, teach it</strong><p>A real Codex MicroVM exposed its live 1280×720 browser, transferred temporary control, saved a secret-redacted demonstration as an unpublished Thing, returned control, and completed normally.</p></div></li>
-          <li><span>✓</span><div><strong>Real Slack OAuth and thread continuity</strong><p>A real account completed PKCE consent, dual token-family refresh, signed mention ingress, source-thread delivery, same-thread continuation, delegated search, and read-only denial through both the client and CLI.</p></div></li>
-          <li><span>✓</span><div><strong>Schedules and signed events</strong><p>AWS fired a pinned Thing revision, and GitHub, GitLab, and Teams paths completed through the durable control plane.</p></div></li>
+          <li><span>✓</span><div><strong>Exact account authority</strong><p>Choose provider accounts and grants before launch. Credentials stay brokered and never become part of Run state.</p></div></li>
+          <li><span>✓</span><div><strong>One conversation everywhere</strong><p>The console, CLI, API, and Slack share the same durable transcript, attachments, reactions, sources, and continuation model.</p></div></li>
+          <li><span>✓</span><div><strong>Replacement continuity with S3 Files</strong><p>Restore native Codex state and exact workspace bytes when a conversation moves to replacement compute.</p></div></li>
+          <li><span>✓</span><div><strong>See it, take over, teach it</strong><p>Watch the isolated browser, take temporary control, and save a redacted demonstration without widening the Run's permissions.</p></div></li>
+          <li><span>✓</span><div><strong>Schedules and provider events</strong><p>Manual work, durable schedules, and signed provider events enter the same Run lifecycle and delivery model.</p></div></li>
         </ul>
       </section>
 

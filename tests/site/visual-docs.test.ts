@@ -68,7 +68,7 @@ describe('visual documentation', () => {
     expect(homepage).not.toContain('c4-runtime-containers.png');
   });
 
-  it('publishes accessible conversation console evidence from live AWS and deterministic data', async () => {
+  it('publishes accessible product screenshots and capability-focused copy', async () => {
     const homepage = await readFile('site/index.html', 'utf8');
     const buildScript = await readFile('scripts/build-pages.mjs', 'utf8');
     const screenshots = [
@@ -78,18 +78,23 @@ describe('visual documentation', () => {
       { file: 'connections-console.png', format: 'png' },
       { file: 'routines-console.png', format: 'png' },
       { file: 'cli-live-aws-attachment-reply.jpg', format: 'jpeg' },
-      { file: 'slack-live-thread.jpg', format: 'jpeg' },
-      { file: 'slack-live-connections.jpg', format: 'jpeg' },
     ];
 
     expect(homepage).toContain('id="console"');
-    expect(homepage).toContain('browser and Activity screenshots come from disposable');
-    expect(homepage).toContain('CLI screenshot comes from a separate two-turn real-Codex review');
-    expect(homepage).toContain('the Connections, Routines, and compact screenshots above use deterministic E2E data.');
-    expect(homepage).toContain('passed all 12 enabled live workflow scenarios');
-    expect(homepage).toContain('all three stacks were destroyed afterward.');
-    expect(homepage).toContain('From consent to a continued agent thread.');
-    expect(homepage).toContain('independent bot/user token refresh');
+    expect(homepage).toContain('Install connections');
+    expect(homepage).toContain('Work from Slack');
+    expect(homepage).toContain('Operate routines');
+    expect(homepage).toContain('The reference console and CLI are two views over the same public');
+    expect(homepage).toContain('Durability by design');
+    expect(homepage).not.toContain('slack-proof');
+    expect(homepage).not.toContain('Client-side proof');
+    expect(homepage).not.toContain('Operator-side proof');
+    expect(homepage).not.toContain('236-resource');
+    expect(homepage).not.toContain('662.74');
+    expect(homepage).not.toContain('ux260826a');
+    expect(homepage).not.toContain('cli260826a');
+    expect(buildScript).not.toContain('slack-live-thread.jpg');
+    expect(buildScript).not.toContain('slack-live-connections.jpg');
     for (const screenshot of screenshots) {
       const bytes = await readFile(`assets/${screenshot.file}`);
       if (screenshot.format === 'png') {

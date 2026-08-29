@@ -324,10 +324,5 @@ channel/thread metadata does not establish the run owner and the bot token does 
 inbound sender. Delegated search visibility is exactly the installing Slack user's visibility; it
 is not bot-wide or workspace-administrator search authority.
 
-The screenshot below is the real Slack client from the 2026-08-28 PDT live-AWS canary. A human
-mention started the conversation, the trusted notifier replied in the source thread, and a later
-human message continued the exact same Rat conversation, MicroVM, and native Codex thread while
-recalling both earlier markers. Run and marker labels are disposable test evidence, not public API
-identifiers or credential material.
-
-![Real Slack thread showing Rat Things mention ingress, source-thread delivery, and remembered continuation](../assets/slack-live-thread.jpg)
+For dated live-provider coverage and remaining validation work, see
+[Status and roadmap](status-and-roadmap.md).
