@@ -4,11 +4,16 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { promisify } from 'node:util';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 const execute = promisify(execFile);
 const conversationId = 'a'.repeat(64);
 const now = '2026-08-26T20:00:00.000Z';
+
+// This suite starts a fresh TypeScript CLI process for every command. Shared CI runners can take
+// materially longer than developer machines to initialize those processes, so keep the assertion
+// timeout above the per-process guard without weakening the production command timeout.
+vi.setConfig({ testTimeout: 30_000 });
 
 describe('conversation CLI-to-HTTP workflow', () => {
   const requests: Array<{ method: string; path: string; body: unknown; headers: IncomingMessage['headers'] }> = [];

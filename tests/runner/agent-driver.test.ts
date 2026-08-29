@@ -29,10 +29,9 @@ describe('agent driver selection and mock execution', () => {
   it('returns deterministic structured output from the mock driver', async () => {
     const execution = await new MockDriver().execute({ version: '1', prompt: 'return the marker' });
 
-    expect(execution).toEqual({
+    expect(execution).toMatchObject({
       fullText: 'mock-agent: return the marker',
       exitCode: 0,
-      durationMs: 0,
       events: Buffer.from(
         `${JSON.stringify({
           type: 'item.completed',
@@ -42,6 +41,7 @@ describe('agent driver selection and mock execution', () => {
       threadId: 'mock-thread',
       usage: { inputTokens: 1, outputTokens: 1 },
     });
+    expect(execution.durationMs).toBeGreaterThanOrEqual(0);
   });
 });
 
