@@ -7,6 +7,8 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$script_dir/aws-e2e-common.sh"
 
 requested_id="${1:-${AWS_E2E_DEPLOYMENT_ID:-e2e-$(date -u +%y%m%d%H%M)}}"
+project_root_hint="$(dirname "$script_dir")"
+aws_e2e_source_runtime_defaults "$project_root_hint/.aws-e2e/$requested_id/runtime.env"
 aws_e2e_configure "$requested_id"
 aws_e2e_require aws git jq node npm openssl terraform
 
@@ -18,6 +20,7 @@ github_secret_file="$run_dir/github-webhook-secret"
 gitlab_secret_file="$run_dir/gitlab-webhook-secret"
 teams_secret_file="$run_dir/teams-webhook-secret"
 teams_workflow_file="$run_dir/teams-workflow-url"
+slack_secret_file="${AWS_E2E_SLACK_SIGNING_SECRET_FILE:-}"
 publication_private_key_file="$run_dir/publication-private-key.pem"
 publication_public_key_file="$run_dir/publication-public-key.pem"
 
@@ -93,6 +96,16 @@ aws secretsmanager put-secret-value \
   --region "$aws_region" \
   --secret-id "$(aws_e2e_output teams_workflow_secret_arn)" \
   --secret-string "file://$teams_workflow_file" >/dev/null
+if [[ "$slack_webhook_enabled" == "true" ]]; then
+  if [[ -z "$slack_secret_file" || ! -f "$slack_secret_file" ]]; then
+    echo "AWS_E2E_SLACK_SIGNING_SECRET_FILE must point to the Slack signing secret when the Slack webhook is enabled" >&2
+    exit 1
+  fi
+  aws secretsmanager put-secret-value \
+    --region "$aws_region" \
+    --secret-id "$(aws_e2e_output slack_webhook_secret_arn)" \
+    --secret-string "file://$slack_secret_file" >/dev/null
+fi
 if [[ "$publication_enabled" == "true" ]]; then
   aws secretsmanager put-secret-value \
     --region "$aws_region" \
@@ -120,8 +133,13 @@ aws_e2e_export AWS_E2E_ENABLE_MICROVM "$microvm_enabled"
 aws_e2e_export AWS_E2E_REAL_CODEX "$real_codex_enabled"
 aws_e2e_export AWS_E2E_CODEX_MODEL_ID "$codex_model_id"
 aws_e2e_export AWS_E2E_DEFAULT_AGENT_DRIVER "$default_agent_driver"
+aws_e2e_export AWS_E2E_OAUTH_APP_SECRET_ARNS "$oauth_app_secret_arns"
 aws_e2e_export AWS_E2E_PUBLICATION_DOMAIN "$publication_domain"
 aws_e2e_export AWS_E2E_BROWSER_EVIDENCE_FILE "$run_dir/browser-publication-evidence.json"
+aws_e2e_export AWS_E2E_ENABLE_SLACK_WEBHOOK "$slack_webhook_enabled"
+if [[ "$slack_webhook_enabled" == "true" ]]; then
+  aws_e2e_export AWS_E2E_SLACK_SIGNING_SECRET_FILE "$slack_secret_file"
+fi
 aws_e2e_export AWS_REGION "$aws_region"
 aws_e2e_export AWS_DEFAULT_REGION "$aws_region"
 if [[ -n "$aws_profile" ]]; then
@@ -129,6 +147,8 @@ if [[ -n "$aws_profile" ]]; then
 fi
 aws_e2e_export AGENT_RUNTIME_API_URL "$(aws_e2e_output api_endpoint)"
 aws_e2e_export RAT_THINGS_API_URL "$(aws_e2e_output api_endpoint)"
+aws_e2e_export AWS_E2E_OAUTH_CALLBACK_URL "$(aws_e2e_output oauth_callback_url)"
+aws_e2e_export AWS_E2E_OAUTH_CONFIGURED "$(jq -r 'if length > 0 then "true" else "false" end' <<<"$oauth_app_secret_arns")"
 aws_e2e_export ARTIFACT_BUCKET "$(aws_e2e_output artifact_bucket_name)"
 aws_e2e_export DEFINITION_BUCKET "$(aws_e2e_output definition_bucket_name)"
 aws_e2e_export CONVERSATION_STATE_BUCKET "$(aws_e2e_output conversation_state_bucket_name)"
@@ -159,6 +179,7 @@ aws_e2e_export INTEGRATION_FIXTURE_BETA_KEY "beta-${deployment_id}"
 aws_e2e_export GITHUB_WEBHOOK_URL "$(jq -r '.github' <<<"$webhook_urls")"
 aws_e2e_export GITLAB_WEBHOOK_URL "$(jq -r '.gitlab' <<<"$webhook_urls")"
 aws_e2e_export TEAMS_WEBHOOK_URL "$(jq -r '.teams' <<<"$webhook_urls")"
+aws_e2e_export SLACK_WEBHOOK_URL "$(jq -r '.slack // empty' <<<"$webhook_urls")"
 aws_e2e_export GITHUB_WEBHOOK_SIGNING_SECRET "$github_secret"
 aws_e2e_export GITLAB_WEBHOOK_SIGNING_TOKEN "$gitlab_secret"
 aws_e2e_export TEAMS_WEBHOOK_SIGNING_SECRET "$teams_secret"

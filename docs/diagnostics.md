@@ -51,11 +51,19 @@ chmod 600 /secure/tmp/provider.json
 rat-things connect PLUGIN --credential-file /secure/tmp/provider.json --access read-only
 ```
 
+For an OAuth definition, first inspect `oauthInstallation`. `configured` supports
+`rat-things connect PLUGIN --oauth --wait`; `host-required` means the operator must register the reported
+callback URL and add the provider app secret ARN to `integration_oauth_app_secret_arns`. A callback
+page failure consumes the one-time state, so restart the CLI flow rather than replaying the URL.
+
 Connection creation follows four independently inspectable stages:
 
 | Stage | Failure meaning | Repair |
 | --- | --- | --- |
 | Manifest discovery | Plugin absent or scheme unavailable | Deploy/register the plugin; choose a listed scheme |
+| OAuth application setup | Manifest reports `host-required` | Register the exact callback URL, create the `client_id`/`client_secret` JSON secret, set its Terraform ARN, and apply |
+| OAuth callback/state | Consent declined, callback expired, or state replayed | Start a fresh authorization; do not reuse a callback URL |
+| OAuth refresh | Expired token family lacks its refresh token, the app config was removed, or one provider-family response is being parsed as an initial multi-token exchange | Reconnect the account or restore the same provider app configuration; for Slack inspect bot and `user_*` expiry/refresh metadata independently without printing token values |
 | Local/API field validation | Missing, empty, or extra credential key | Match the manifest field keys exactly |
 | Provider verification rejected | `400` and no connection/secret created | Reissue the credential; check provider account/status and plugin identity endpoint |
 | Provider verification unavailable | `503 integration_unavailable` | Preserve the form and retry with backoff; check egress, DNS/TLS, provider status, and throttling |

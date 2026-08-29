@@ -98,6 +98,70 @@ function validateAuthentication(
       if (typeof field.secret !== 'boolean') {
         throw new Error(`integration plugin ${pluginId} authentication field secrecy is invalid`);
       }
+      if (field.computed !== undefined && typeof field.computed !== 'boolean') {
+        throw new Error(`integration plugin ${pluginId} authentication field computation is invalid`);
+      }
+      if (field.required !== undefined && typeof field.required !== 'boolean') {
+        throw new Error(`integration plugin ${pluginId} authentication field requirement is invalid`);
+      }
+    }
+    if (definition.oauth2) {
+      if (definition.scheme !== 'oauth2') {
+        throw new Error(`integration plugin ${pluginId} OAuth metadata requires the oauth2 scheme`);
+      }
+      const authorizationUrl = trustedOAuthUrl(definition.oauth2.authorizationUrl);
+      const tokenUrl = trustedOAuthUrl(definition.oauth2.tokenUrl);
+      if (authorizationUrl.href === tokenUrl.href) {
+        throw new Error(`integration plugin ${pluginId} OAuth endpoints must be distinct`);
+      }
+      if (
+        definition.oauth2.scopes.length === 0 ||
+        definition.oauth2.scopes.length > 64 ||
+        definition.oauth2.scopes.some((scope) => (
+          !scope || Buffer.byteLength(scope, 'utf8') > 256 || /[\s,]/.test(scope)
+        )) ||
+        new Set(definition.oauth2.scopes).size !== definition.oauth2.scopes.length
+      ) throw new Error(`integration plugin ${pluginId} OAuth scopes are invalid`);
+      if (!['client-secret-basic', 'client-secret-post'].includes(
+        definition.oauth2.tokenEndpointAuthMethod,
+      )) throw new Error(`integration plugin ${pluginId} OAuth token authentication is invalid`);
+      if (definition.oauth2.secondaryToken) {
+        const secondary = definition.oauth2.secondaryToken;
+        if (
+          !/^[A-Za-z][A-Za-z0-9_.-]{0,63}$/.test(secondary.authorizationParameter) ||
+          ['client_id', 'redirect_uri', 'response_type', 'scope', 'state', 'code_challenge', 'code_challenge_method']
+            .includes(secondary.authorizationParameter) ||
+          !/^[A-Za-z][A-Za-z0-9_]{0,63}$/.test(secondary.responseField) ||
+          !/^[A-Za-z][A-Za-z0-9_]{0,31}$/.test(secondary.credentialPrefix) ||
+          secondary.scopes.length === 0 ||
+          secondary.scopes.length > 64 ||
+          secondary.scopes.some((scope) => (
+            !scope || Buffer.byteLength(scope, 'utf8') > 256 || /[\s,]/.test(scope)
+          )) ||
+          new Set(secondary.scopes).size !== secondary.scopes.length
+        ) throw new Error(`integration plugin ${pluginId} OAuth secondary token metadata is invalid`);
+      }
+      for (const [key, value] of Object.entries(definition.oauth2.authorizationParameters ?? {})) {
+        if (
+          !/^[A-Za-z][A-Za-z0-9_.-]{0,63}$/.test(key) ||
+          ['client_id', 'redirect_uri', 'response_type', 'scope', 'state', 'code_challenge', 'code_challenge_method'].includes(key) ||
+          !value ||
+          Buffer.byteLength(value, 'utf8') > 1_024
+        ) throw new Error(`integration plugin ${pluginId} OAuth authorization parameters are invalid`);
+      }
     }
   }
+}
+
+function trustedOAuthUrl(value: string): URL {
+  const url = new URL(value);
+  if (
+    url.protocol !== 'https:' ||
+    url.username ||
+    url.password ||
+    url.search ||
+    url.hash ||
+    !url.hostname
+  ) throw new Error('OAuth endpoint must be credential-free HTTPS without query or fragment');
+  return url;
 }

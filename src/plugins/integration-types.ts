@@ -1,4 +1,3 @@
-import type { CredentialBroker } from '../credentials/broker.js';
 import type {
   IntegrationCredentialBinding,
   IntegrationCredentialValue,
@@ -26,12 +25,37 @@ export interface IntegrationCredentialField {
   key: string;
   label: string;
   secret: boolean;
+  /** Computed fields come from a provider response and are not requested in manual onboarding. */
+  computed?: boolean;
+  /** Every non-computed field is required unless this is explicitly false. */
+  required?: boolean;
+}
+
+export interface OAuth2AuthorizationDefinition {
+  authorizationUrl: string;
+  tokenUrl: string;
+  scopes: string[];
+  /**
+   * Some providers issue a second, user-delegated token beside the primary
+   * app/bot token. The trusted manifest owns the provider response shape;
+   * credentials are stored under the declared prefix in the same owner-bound
+   * vault record.
+   */
+  secondaryToken?: {
+    authorizationParameter: string;
+    responseField: string;
+    credentialPrefix: string;
+    scopes: string[];
+  };
+  tokenEndpointAuthMethod: 'client-secret-basic' | 'client-secret-post';
+  authorizationParameters?: Record<string, string>;
 }
 
 export interface IntegrationAuthenticationDefinition {
   scheme: IntegrationAuthScheme;
   title: string;
   fields: IntegrationCredentialField[];
+  oauth2?: OAuth2AuthorizationDefinition;
 }
 
 export interface IntegrationPluginManifest {
@@ -41,6 +65,11 @@ export interface IntegrationPluginManifest {
   description: string;
   authentication: IntegrationAuthenticationDefinition[];
   operations: OperationDefinition[];
+  /** Deployment projection; not part of the trusted compiled plugin definition. */
+  oauthInstallation?: {
+    status: 'configured' | 'host-required';
+    callbackUrl: string;
+  };
 }
 
 export interface VerifiedIntegrationCredential {
@@ -120,7 +149,13 @@ export interface IntegrationToolSession {
 export interface IntegrationRuntimeOptions {
   registry: IntegrationPluginRegistryLike;
   store: IntegrationStore;
-  credentials: CredentialBroker;
+  credentials: {
+    readRecord(
+      reference: string | undefined,
+      connection?: IntegrationConnection,
+      signal?: AbortSignal,
+    ): Promise<IntegrationCredentialValue>;
+  };
 }
 
 export interface IntegrationPluginRegistryLike {

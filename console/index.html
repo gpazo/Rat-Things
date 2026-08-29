@@ -19,6 +19,11 @@
           </a>
           <button class="icon-button" id="new-thread" type="button" aria-label="New conversation" title="New conversation" disabled>+</button>
         </header>
+        <nav class="product-nav" aria-label="Rat Things">
+          <button id="nav-conversations" type="button" aria-current="page"><span aria-hidden="true">◫</span>Conversations</button>
+          <button id="nav-connections" type="button"><span aria-hidden="true">⌁</span>Connections</button>
+          <button id="nav-routines" type="button"><span aria-hidden="true">↻</span>Routines</button>
+        </nav>
         <div class="sidebar-tools">
           <label class="search-field">
             <span class="sr-only">Search all conversations</span>
@@ -93,6 +98,10 @@
             <h2>What should Rat work on?</h2>
             <p>Messages become durable Runs. The CLI and MicroVM execution path stay exactly the same.</p>
           </div>
+        </section>
+        <section id="management-view" class="management-view" aria-live="polite" hidden>
+          <div class="management-loading" id="management-loading">Loading…</div>
+          <div id="management-content"></div>
         </section>
         <button id="jump-latest" class="jump-latest" type="button" hidden>Jump to latest ↓</button>
 
@@ -261,6 +270,68 @@
         <span id="viewer-detail"></span>
         <a id="viewer-open" class="secondary-button" target="_blank" rel="noopener noreferrer">Open in new tab</a>
       </div>
+    </dialog>
+
+    <dialog id="connect-dialog" class="new-thread-dialog management-dialog" aria-labelledby="connect-dialog-title">
+      <form id="connect-form">
+        <div class="dialog-heading">
+          <div>
+            <p class="eyebrow">Connected account</p>
+            <h2 id="connect-dialog-title">Connect a service</h2>
+          </div>
+          <button id="connect-dialog-close" class="icon-button" type="button" aria-label="Close">×</button>
+        </div>
+        <input id="connect-plugin-id" type="hidden">
+        <input id="connect-auth-scheme" type="hidden">
+        <div id="connect-fields" class="management-form-fields"></div>
+        <label class="dialog-field">
+          <span>Connection name <small>optional</small></span>
+          <input id="connect-alias" maxlength="128" pattern="[A-Za-z0-9][A-Za-z0-9._:@\-]{0,127}" placeholder="Generated from the provider account">
+        </label>
+        <label class="dialog-field">
+          <span>Rat access</span>
+          <select id="connect-access">
+            <option value="read-only">Read only</option>
+            <option value="read-write">Read and write</option>
+            <option value="full">Full installed operations</option>
+          </select>
+          <small>This is a ceiling. Provider scopes and Thing-level narrowing still apply.</small>
+        </label>
+        <div class="dialog-actions">
+          <button id="connect-cancel" class="secondary-button" type="button">Cancel</button>
+          <button id="connect-submit" class="primary-button" type="submit">Verify &amp; connect</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="routine-dialog" class="new-thread-dialog management-dialog" aria-labelledby="routine-dialog-title">
+      <form id="routine-form">
+        <div class="dialog-heading">
+          <div>
+            <p class="eyebrow">Background work</p>
+            <h2 id="routine-dialog-title">Create an interval routine</h2>
+          </div>
+          <button id="routine-dialog-close" class="icon-button" type="button" aria-label="Close">×</button>
+        </div>
+        <label class="dialog-field">
+          <span>Name</span>
+          <input id="routine-name" maxlength="128" required placeholder="Daily account health">
+        </label>
+        <label class="dialog-field">
+          <span>Instructions</span>
+          <textarea id="routine-prompt" maxlength="100000" rows="6" required placeholder="Review current account signals and return a linked watch list."></textarea>
+        </label>
+        <label class="dialog-field">
+          <span>Repeat every</span>
+          <div class="interval-input"><input id="routine-minutes" type="number" min="1" max="525600" value="1440" required><span>minutes</span></div>
+          <small>Runs in AWS with the console closed. Use Things for revisioned cron and event-triggered work.</small>
+        </label>
+        <label class="dialog-toggle"><input id="routine-enabled" type="checkbox" checked><span>Enable after creation</span></label>
+        <div class="dialog-actions">
+          <button id="routine-cancel" class="secondary-button" type="button">Cancel</button>
+          <button id="routine-submit" class="primary-button" type="submit">Create routine</button>
+        </div>
+      </form>
     </dialog>
 
     <script type="module" src="/app.js"></script>

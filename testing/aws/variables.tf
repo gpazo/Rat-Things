@@ -50,6 +50,26 @@ variable "default_agent_driver" {
   }
 }
 
+variable "integration_oauth_app_secret_arns" {
+  description = "Optional operator-owned OAuth application secrets used by an explicit live provider canary."
+  type        = map(string)
+  default     = {}
+
+  validation {
+    condition = alltrue([
+      for id, arn in var.integration_oauth_app_secret_arns :
+      can(regex("^[a-z][a-z0-9-]{0,63}$", id)) && can(regex("^arn:[^:]+:secretsmanager:[^:]+:[0-9]{12}:secret:.+$", arn))
+    ])
+    error_message = "integration_oauth_app_secret_arns must map valid plugin IDs to Secrets Manager ARNs."
+  }
+}
+
+variable "enable_slack_webhook" {
+  description = "Provision the disposable Slack signing-secret container and signed Events API route."
+  type        = bool
+  default     = false
+}
+
 variable "enable_publication_delivery" {
   description = "Provision the disposable CloudFront publication delivery path."
   type        = bool

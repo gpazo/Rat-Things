@@ -478,6 +478,11 @@ resource "aws_dynamodb_table" "integrations" {
     type = "S"
   }
 
+  ttl {
+    attribute_name = "expiresAt"
+    enabled        = true
+  }
+
   attribute {
     name = "sk"
     type = "S"

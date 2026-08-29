@@ -142,11 +142,13 @@ locals {
     "dynamodb:Query",
   ]
   integration_table_read_write_actions = concat(local.integration_table_read_actions, [
+    "dynamodb:DeleteItem",
     "dynamodb:PutItem",
     "dynamodb:TransactWriteItems",
     "dynamodb:UpdateItem",
   ])
   integration_credential_secret_arn = "arn:${data.aws_partition.current.partition}:secretsmanager:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:secret:${local.name}/connections/*"
+  integration_oauth_app_secret_arns = values(var.integration_oauth_app_secret_arns)
 }
 
 data "aws_iam_policy_document" "ingress" {
@@ -282,6 +284,15 @@ data "aws_iam_policy_document" "control" {
       "secretsmanager:TagResource",
     ]
     resources = [local.integration_credential_secret_arn]
+  }
+
+  dynamic "statement" {
+    for_each = length(local.integration_oauth_app_secret_arns) > 0 ? [1] : []
+    content {
+      sid       = "OAuthApplications"
+      actions   = ["secretsmanager:GetSecretValue"]
+      resources = local.integration_oauth_app_secret_arns
+    }
   }
 
   statement {
@@ -563,6 +574,27 @@ data "aws_iam_policy_document" "notifier" {
     resources = [aws_kms_key.data.arn]
   }
 
+  statement {
+    sid       = "OwnerConnections"
+    actions   = local.integration_table_read_actions
+    resources = [aws_dynamodb_table.integrations.arn]
+  }
+
+  statement {
+    sid       = "OwnerConnectionCredentials"
+    actions   = ["secretsmanager:GetSecretValue", "secretsmanager:PutSecretValue"]
+    resources = [local.integration_credential_secret_arn]
+  }
+
+  dynamic "statement" {
+    for_each = length(local.integration_oauth_app_secret_arns) > 0 ? [1] : []
+    content {
+      sid       = "OAuthApplications"
+      actions   = ["secretsmanager:GetSecretValue"]
+      resources = local.integration_oauth_app_secret_arns
+    }
+  }
+
   dynamic "statement" {
     for_each = length(local.notifier_secret_arns) > 0 ? [1] : []
     content {
@@ -787,15 +819,28 @@ data "aws_iam_policy_document" "worker" {
   }
 
   statement {
-    sid       = "Integrations"
-    actions   = local.integration_table_read_actions
+    sid = "Integrations"
+    actions = concat(local.integration_table_read_actions, [
+      "dynamodb:DeleteItem",
+      "dynamodb:PutItem",
+    ])
     resources = [aws_dynamodb_table.integrations.arn]
   }
 
   statement {
     sid       = "IntegrationCredentials"
-    actions   = ["secretsmanager:GetSecretValue"]
+    actions   = ["secretsmanager:GetSecretValue", "secretsmanager:PutSecretValue"]
     resources = [local.integration_credential_secret_arn]
+  }
+
+
+  dynamic "statement" {
+    for_each = length(local.integration_oauth_app_secret_arns) > 0 ? [1] : []
+    content {
+      sid       = "OAuthApplications"
+      actions   = ["secretsmanager:GetSecretValue"]
+      resources = local.integration_oauth_app_secret_arns
+    }
   }
 
   statement {

@@ -45,6 +45,12 @@ interface FakeControlState {
   computerActions: unknown[];
   teachRecording: boolean;
   teachSteps: number;
+  connections: Array<Record<string, any>>;
+  connectionSets: Array<Record<string, any>>;
+  sourceBindings: Array<Record<string, any>>;
+  routines: Array<Record<string, any>>;
+  oauthStarts: number;
+  routineRuns: number;
 }
 
 let controlServer: Server;
@@ -82,6 +88,15 @@ test.beforeAll(async () => {
     computerActions: [],
     teachRecording: false,
     teachSteps: 0,
+    connections: [
+      connectionBundle('connection-slack', 'slack-work', 'Slack Workspace', 'slack', 'read-only'),
+      connectionBundle('connection-slack-legacy', 'slack-legacy', 'Slack Workspace Legacy', 'slack', 'read-only'),
+    ],
+    connectionSets: [],
+    sourceBindings: [],
+    routines: [routineFixture('routine-daily', 'Daily account health', 'enabled')],
+    oauthStarts: 0,
+    routineRuns: 0,
   };
   controlServer = createServer((request, response) => {
     void handleControlRequest(request, response).catch((error: unknown) => {
@@ -475,8 +490,75 @@ test('creates, observes autonomous work, and completes a durable API conversatio
   await page.locator('.conversation-list .conversation-name', { hasText: 'Archived security audit' }).click();
   await page.locator('.conversation-list .conversation-name', { hasText: 'Previous release summary' }).click();
   await expect(composer).toHaveValue('Preserve this local draft while I inspect another thread.');
-  await expect(page.getByText('The previous release completed successfully.', { exact: true })).toBeVisible();
+  await expect(
+    page.getByRole('region', { name: 'Conversation transcript' })
+      .getByText('The previous release completed successfully.', { exact: true }),
+  ).toBeVisible();
   await demoPause(page, 900);
+});
+
+test('manages verified connections and durable routines from the product navigation', async ({ page }) => {
+  await page.goto(consoleUrl);
+  await expect(page.locator('html')).toHaveAttribute('data-console-ready', 'true');
+
+  await page.getByRole('button', { name: 'Connections' }).click();
+  await expect(page.getByRole('heading', { name: 'Connected services' })).toBeVisible();
+  const slack = page.locator('.management-card').filter({ hasText: 'slack-work ·' });
+  await expect(slack).toContainText('Rat access read-only');
+  page.once('dialog', (dialog) => void dialog.accept());
+  await slack.getByRole('button', { name: 'Enable mentions' }).click();
+  await expect(slack).toContainText('mentions on');
+  await expect(slack.getByRole('button', { name: 'Mentions enabled' })).toBeDisabled();
+  const legacySlack = page.locator('.management-card').filter({ hasText: 'slack-legacy ·' });
+  await expect(legacySlack).toContainText('mentions use another connection');
+  await expect(
+    legacySlack.getByRole('button', { name: 'Another connection handles mentions' }),
+  ).toBeDisabled();
+  await slack.getByLabel('Rat access for slack-work').selectOption('read-write');
+  await expect(slack).toContainText('Rat access read-write');
+
+  const stripe = page.locator('.management-card').filter({ hasText: 'Stripe payments and billing' });
+  await stripe.getByRole('button', { name: 'Secret API key' }).click();
+  await page.getByLabel('Secret key').fill('sk_test_console_fixture');
+  await page.getByLabel('Connection name').fill('stripe-shop');
+  await page.getByRole('button', { name: 'Verify & connect' }).click();
+  await expect(page.locator('.management-card').filter({ hasText: 'Fixture Shop' })).toContainText('stripe-shop');
+  if (process.env.RAT_THINGS_CONSOLE_SCREENSHOTS === 'on') {
+    await page.screenshot({ path: 'test-results/rat-things-console-connections.png' });
+  }
+
+  const slackProvider = page.locator('.management-card').filter({ hasText: 'Slack messages and reactions' });
+  const popupPromise = page.waitForEvent('popup');
+  await slackProvider.getByRole('button', { name: 'Connect with Slack' }).click();
+  const popup = await popupPromise;
+  await popup.close();
+  expect(state.oauthStarts).toBe(1);
+
+  await page.getByRole('button', { name: 'Routines' }).click();
+  await expect(page.getByRole('heading', { name: 'Routines', exact: true })).toBeVisible();
+  const daily = page.locator('.management-card').filter({ hasText: 'Daily account health' });
+  await daily.getByRole('button', { name: 'Pause' }).click();
+  await expect(page.locator('.management-card').filter({ hasText: 'Daily account health' })).toContainText('Paused');
+
+  await page.getByRole('button', { name: 'New routine' }).click();
+  await page.getByLabel('Name', { exact: true }).fill('Weekly billing review');
+  await page.getByLabel('Instructions').fill('Review billing anomalies and return a linked summary.');
+  await page.getByLabel('Repeat every').fill('10080');
+  await page.getByRole('button', { name: 'Create routine' }).click();
+  const weekly = page.locator('.management-card').filter({ hasText: 'Weekly billing review' });
+  await expect(weekly).toContainText('Every 1 week');
+  if (process.env.RAT_THINGS_CONSOLE_SCREENSHOTS === 'on') {
+    await page.screenshot({ path: 'test-results/rat-things-console-routines.png' });
+  }
+  await weekly.getByRole('button', { name: 'Run now' }).click();
+  expect(state.routineRuns).toBe(1);
+  page.once('dialog', (dialog) => void dialog.accept());
+  await weekly.getByRole('button', { name: 'Delete' }).click();
+  await expect(page.locator('.management-card').filter({ hasText: 'Weekly billing review' })).toHaveCount(0);
+
+  await page.getByRole('button', { name: 'Conversations' }).click();
+  await expect(page.locator('#transcript')).toBeVisible();
+  await expect(page.locator('#management-view')).toBeHidden();
 });
 
 async function handleControlRequest(
@@ -492,6 +574,128 @@ async function handleControlRequest(
   }
   const owner = request.headers['x-runtime-owner'];
   state.ownerHeaders.push(typeof owner === 'string' ? owner : '');
+
+  if (request.method === 'GET' && url.pathname === '/v1/integrations/plugins') {
+    return sendJson(response, 200, { plugins: integrationPlugins() });
+  }
+  if (request.method === 'GET' && url.pathname === '/v1/integrations/connections') {
+    return sendJson(response, 200, { connections: state.connections });
+  }
+  if (request.method === 'GET' && url.pathname === '/v1/integrations/connection-sets') {
+    return sendJson(response, 200, { connectionSets: state.connectionSets });
+  }
+  if (request.method === 'POST' && url.pathname === '/v1/integrations/connection-sets') {
+    const body = await readJson(request) as Record<string, unknown>;
+    const { connections, ...rest } = body;
+    const set = {
+      ...rest,
+      version: '1',
+      ownerId,
+      connectionSetId: `set-${state.connectionSets.length + 1}`,
+      connectionIds: connections,
+    };
+    state.connectionSets.push(set);
+    return sendJson(response, 201, set);
+  }
+  if (request.method === 'GET' && url.pathname === '/v1/integrations/source-bindings') {
+    return sendJson(response, 200, { sourceBindings: state.sourceBindings });
+  }
+  if (request.method === 'POST' && url.pathname === '/v1/integrations/source-bindings') {
+    const body = await readJson(request) as Record<string, unknown>;
+    const binding = {
+      ...body,
+      version: '1',
+      ownerId,
+      bindingId: `binding-${state.sourceBindings.length + 1}`,
+    };
+    state.sourceBindings.push(binding);
+    return sendJson(response, 201, binding);
+  }
+  if (request.method === 'POST' && url.pathname === '/v1/integrations/oauth/authorizations') {
+    const body = await readJson(request) as { pluginId?: string };
+    if (body.pluginId !== 'slack') throw new Error('unexpected OAuth plugin');
+    state.oauthStarts += 1;
+    return sendJson(response, 201, {
+      version: '1',
+      pluginId: 'slack',
+      authorizationUrl: 'https://provider.example.test/oauth?state=console-fixture-state',
+      callbackUrl: 'https://api.example.test/v1/integrations/oauth/callback',
+      expiresAt: new Date(Date.now() + 600_000).toISOString(),
+    });
+  }
+  if (request.method === 'POST' && url.pathname === '/v1/integrations/connections') {
+    const body = await readJson(request) as {
+      pluginId?: string;
+      alias?: string;
+      credential?: Record<string, unknown>;
+      grant?: { preset?: string };
+    };
+    if (body.pluginId !== 'stripe' || body.credential?.api_key !== 'sk_test_console_fixture') {
+      throw new Error('unexpected manual connection');
+    }
+    const bundle = connectionBundle(
+      'connection-stripe',
+      body.alias ?? 'stripe-fixture-shop',
+      'Fixture Shop',
+      'stripe',
+      body.grant?.preset ?? 'read-only',
+    );
+    state.connections.push(bundle);
+    return sendJson(response, 201, bundle);
+  }
+  const connectionGrantMatch = url.pathname.match(/^\/v1\/integrations\/connections\/([^/]+)\/grant$/);
+  if (request.method === 'POST' && connectionGrantMatch) {
+    const body = await readJson(request) as { version?: string; preset?: string };
+    const bundle = state.connections.find((item) => item.connection.connectionId === connectionGrantMatch[1]);
+    if (!bundle) throw new Error('connection not found');
+    bundle.grant.preset = body.preset;
+    return sendJson(response, 200, bundle.grant);
+  }
+  const connectionRevokeMatch = url.pathname.match(/^\/v1\/integrations\/connections\/([^/]+)\/revoke$/);
+  if (request.method === 'POST' && connectionRevokeMatch) {
+    const bundle = state.connections.find((item) => item.connection.connectionId === connectionRevokeMatch[1]);
+    if (!bundle) throw new Error('connection not found');
+    bundle.connection.status = 'revoked';
+    return sendJson(response, 200, bundle.connection);
+  }
+  if (request.method === 'GET' && url.pathname === '/v1/routines') {
+    return sendJson(response, 200, { items: state.routines.filter((routine) => routine.status !== 'deleted') });
+  }
+  if (request.method === 'POST' && url.pathname === '/v1/routines') {
+    const body = await readJson(request) as {
+      name?: string;
+      enabled?: boolean;
+      schedule?: { everyMinutes?: number };
+    };
+    const routine = routineFixture(
+      `routine-${state.routines.length + 1}`,
+      body.name ?? 'Untitled routine',
+      body.enabled === false ? 'paused' : 'enabled',
+      body.schedule?.everyMinutes ?? 60,
+    );
+    state.routines.push(routine);
+    return sendJson(response, 201, routine);
+  }
+  const routineActionMatch = url.pathname.match(/^\/v1\/routines\/([^/]+)\/(run|pause|resume|delete)$/);
+  if (request.method === 'POST' && routineActionMatch) {
+    const routine = state.routines.find((item) => item.routineId === routineActionMatch[1]);
+    if (!routine) throw new Error('routine not found');
+    const operation = routineActionMatch[2];
+    if (operation === 'run') {
+      state.routineRuns += 1;
+      return sendJson(response, 202, {
+        runId: `run-routine-${state.routineRuns}`,
+        status: 'queued',
+        createdAt,
+        updatedAt: createdAt,
+        expiresAt: 1_800_000_000,
+        sourceKind: 'api',
+      });
+    }
+    routine.status = operation === 'pause' ? 'paused' : operation === 'resume' ? 'enabled' : 'deleted';
+    routine.updatedAt = new Date().toISOString();
+    return sendJson(response, 200, routine);
+  }
 
   if (request.method === 'GET' && url.pathname === '/v1/conversations') {
     const token = url.searchParams.get('nextToken');
@@ -699,6 +903,110 @@ async function handleControlRequest(
     return sendJson(response, 200, body);
   }
   return sendJson(response, 404, { error: { code: 'not_found', message: 'fake route not found' } });
+}
+
+function integrationPlugins(): Array<Record<string, unknown>> {
+  return [
+    {
+      id: 'slack',
+      version: '1',
+      title: 'Slack',
+      description: 'Slack messages and reactions',
+      authentication: [{
+        scheme: 'oauth2',
+        title: 'Install with Slack OAuth',
+        fields: [
+          { key: 'access_token', label: 'Access token', secret: true },
+          { key: 'refresh_token', label: 'Refresh token', secret: true, computed: true, required: false },
+        ],
+        oauth2: {
+          authorizationUrl: 'https://provider.example.test/authorize',
+          tokenUrl: 'https://provider.example.test/token',
+          scopes: ['chat:write'],
+          tokenEndpointAuthMethod: 'client-secret-post',
+        },
+      }],
+      oauthInstallation: {
+        status: 'configured',
+        callbackUrl: 'https://api.example.test/v1/integrations/oauth/callback',
+      },
+      operations: [
+        { id: 'slack.messages.post', title: 'Post message', kind: 'action', access: 'write', risk: 'consequential' },
+        { id: 'slack.reactions.add', title: 'Add reaction', kind: 'action', access: 'write', risk: 'routine' },
+      ],
+    },
+    {
+      id: 'stripe',
+      version: '1',
+      title: 'Stripe',
+      description: 'Stripe payments and billing',
+      authentication: [{
+        scheme: 'api-key',
+        title: 'Secret API key',
+        fields: [{ key: 'api_key', label: 'Secret key', secret: true }],
+      }],
+      operations: [
+        { id: 'stripe.customers.search', title: 'Search customers', kind: 'search', access: 'read', risk: 'routine' },
+        { id: 'stripe.invoices.list', title: 'List invoices', kind: 'search', access: 'read', risk: 'routine' },
+        { id: 'stripe.refunds.create', title: 'Create refund', kind: 'action', access: 'write', risk: 'destructive' },
+      ],
+    },
+  ];
+}
+
+function connectionBundle(
+  connectionId: string,
+  alias: string,
+  label: string,
+  pluginId: string,
+  preset: string,
+): Record<string, any> {
+  return {
+    connection: {
+      version: '1',
+      connectionId,
+      ownerId,
+      pluginId,
+      alias,
+      label,
+      authorization: {
+        scheme: pluginId === 'slack' ? 'oauth2' : 'api-key',
+        access: 'full',
+        scopeModel: pluginId === 'slack' ? 'granular' : 'unknown',
+        scopes: pluginId === 'slack' ? ['chat:write'] : [],
+      },
+      status: 'active',
+      ...(pluginId === 'slack' ? { externalTenantId: 'T0BTAANBY9H', externalSubjectId: 'U0RATBOT' } : {}),
+      createdAt,
+      updatedAt: createdAt,
+    },
+    grant: {
+      version: '1',
+      grantId: `grant-${connectionId}`,
+      ownerId,
+      connectionId,
+      preset,
+    },
+  };
+}
+
+function routineFixture(
+  routineId: string,
+  name: string,
+  status: 'enabled' | 'paused' | 'deleted',
+  everyMinutes = 1_440,
+): Record<string, any> {
+  return {
+    version: '1',
+    routineId,
+    name,
+    status,
+    schedule: { kind: 'interval', everyMinutes },
+    nextRunAt: new Date(Date.now() + everyMinutes * 60_000).toISOString(),
+    requestHash: 'f'.repeat(64),
+    createdAt,
+    updatedAt: createdAt,
+  };
 }
 
 function conversationSummary(): Record<string, unknown> {

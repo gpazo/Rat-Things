@@ -3,6 +3,11 @@ output "api_endpoint" {
   value       = aws_apigatewayv2_api.this.api_endpoint
 }
 
+output "oauth_callback_url" {
+  description = "Register this exact redirect URL with every OAuth application configured for an integration plugin."
+  value       = "${aws_apigatewayv2_api.this.api_endpoint}/v1/integrations/oauth/callback"
+}
+
 output "control_routes" {
   description = "IAM-authenticated control routes exposed by the subsystem."
   value       = sort(tolist(local.control_routes))

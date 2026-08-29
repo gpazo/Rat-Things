@@ -2,6 +2,11 @@ output "api_endpoint" {
   value = module.agent_runner.api_endpoint
 }
 
+output "oauth_callback_url" {
+  description = "OAuth redirect URL for self-hosted integration applications."
+  value       = module.agent_runner.oauth_callback_url
+}
+
 output "control_routes" {
   value = module.agent_runner.control_routes
 }

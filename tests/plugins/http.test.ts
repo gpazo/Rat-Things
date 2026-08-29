@@ -14,13 +14,13 @@ describe('trusted HTTP integration plugins', () => {
 
     await expect(plugin.execute('slack.messages.search', { query: 'invoice' }, {
       connection: connection(),
-      credential: { token: 'xoxb-private-token' },
+      credential: { access_token: 'xoxb-private-token', user_access_token: 'xoxp-private-user-token' },
     })).resolves.toMatchObject({ ok: true });
 
     const [url, init] = fetcher.mock.calls[0] as unknown as [URL, RequestInit];
     expect(url.toString()).toBe('https://slack.com/api/search.messages?query=invoice');
-    expect(url.toString()).not.toContain('xoxb-private-token');
-    expect(init.headers).toMatchObject({ authorization: 'Bearer xoxb-private-token' });
+    expect(url.toString()).not.toContain('xoxp-private-user-token');
+    expect(init.headers).toMatchObject({ authorization: 'Bearer xoxp-private-user-token' });
     expect(init.redirect).toBe('error');
   });
 
@@ -53,7 +53,7 @@ describe('trusted HTTP integration plugins', () => {
 
     await expect(plugin.execute('slack.messages.search', { query: 'invoice' }, {
       connection: connection(),
-      credential: { token: 'xoxb-private-token' },
+      credential: { user_access_token: 'xoxp-private-user-token' },
     })).rejects.toThrow('Slack returned an API error: missing_scope');
   });
 
@@ -67,7 +67,11 @@ describe('trusted HTTP integration plugins', () => {
     }), { status: 200 }));
     const plugin = createSlackIntegrationPlugin({ fetch: fetcher as typeof fetch });
 
-    await expect(plugin.verifyCredential('oauth2', { access_token: 'xoxb-private-token' }))
+    await expect(plugin.verifyCredential('oauth2', {
+      access_token: 'xoxb-private-token',
+      scope: 'app_mentions:read,chat:write',
+      user_scope: 'search:read',
+    }))
       .resolves.toEqual({
         label: 'Acme — Rat',
         externalTenantId: 'T123',
@@ -75,8 +79,8 @@ describe('trusted HTTP integration plugins', () => {
         authorization: {
           scheme: 'oauth2',
           access: 'full',
-          scopeModel: 'unknown',
-          scopes: [],
+          scopeModel: 'granular',
+          scopes: ['app_mentions:read', 'chat:write', 'search:read'],
         },
       });
     const [url, init] = fetcher.mock.calls[0] as unknown as [URL, RequestInit];

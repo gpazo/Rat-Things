@@ -76,7 +76,12 @@ describe('simulated agent capability loop', () => {
       pluginId: 'slack',
       alias: 'slack-personal',
       authScheme: 'oauth2',
-      credential: { access_token: 'xoxp-personal-secret' },
+      credential: {
+        access_token: 'xoxb-personal-bot-secret',
+        scope: 'app_mentions:read',
+        user_access_token: 'xoxp-personal-secret',
+        user_scope: 'search:read',
+      },
       grant: { preset: 'read-only' },
     });
     const business = await connections.create({
@@ -170,7 +175,7 @@ describe('simulated agent capability loop', () => {
       expect(outbound).toEqual([
         expect.objectContaining({
           url: 'https://slack.com/api/auth.test',
-          authorization: 'Bearer xoxp-personal-secret',
+          authorization: 'Bearer xoxb-personal-bot-secret',
         }),
         expect.objectContaining({
           url: 'https://slack.com/api/auth.test',
@@ -188,6 +193,7 @@ describe('simulated agent capability loop', () => {
       ]);
       expect(vault.reads).toHaveLength(2);
       expect(execution.events.toString('utf8')).not.toContain('xoxp-personal-secret');
+      expect(execution.events.toString('utf8')).not.toContain('xoxb-personal-bot-secret');
       expect(execution.events.toString('utf8')).not.toContain('xoxb-business-secret');
     } finally {
       await browser.close();

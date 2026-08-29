@@ -272,6 +272,20 @@ variable "integration_plugin_base_urls" {
   }
 }
 
+variable "integration_oauth_app_secret_arns" {
+  description = "Secrets Manager ARNs for deployment-owned OAuth applications, keyed by installed plugin ID. Each secret is JSON with client_id and client_secret."
+  type        = map(string)
+  default     = {}
+
+  validation {
+    condition = alltrue([
+      for id, arn in var.integration_oauth_app_secret_arns :
+      can(regex("^[a-z][a-z0-9-]{0,63}$", id)) && can(regex("^arn:[A-Za-z0-9-]+:secretsmanager:[A-Za-z0-9-]+:[0-9]{12}:secret:[^[:space:]]+$", arn))
+    ])
+    error_message = "integration_oauth_app_secret_arns must map valid plugin IDs to Secrets Manager ARNs."
+  }
+}
+
 variable "github_webhook_secret_arn" {
   description = "Secrets Manager ARN containing the GitHub webhook secret. Supplying it enables the GitHub route."
   type        = string

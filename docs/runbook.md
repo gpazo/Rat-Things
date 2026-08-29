@@ -254,7 +254,9 @@ Provider checks:
 - Teams bridge: Workflow owner/co-owner state, flow run history, URL rotation, default/named route
   secret mapping, destination, and Power Automate throttling. The Workflow may not be the originating
   thread; unknown named routes are rejected.
-- Slack: app installation, `chat:write` scope, channel membership, bot token, `ok:false` error.
+- Slack: app installation, bot `app_mentions:read`/`chat:write`/`reactions:write`, delegated-user
+  `search:read`, channel membership, one verified-workspace source binding, bot versus `user_*`
+  expiry metadata, and Slack's bounded `ok:false` error code. Never print either token family.
 
 Generated output may contain secrets, private code, or mass mentions. If disclosure is suspected,
 remove/contain the provider message using provider procedures, revoke affected credentials, preserve

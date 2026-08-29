@@ -10,6 +10,7 @@ import {
 } from '../adapters/aws-runtime.js';
 import { DynamoConversationStore } from '../adapters/dynamo-conversation-store.js';
 import { DynamoIntegrationStore } from '../adapters/dynamo-integration-store.js';
+import { DynamoOAuthAuthorizationStore } from '../adapters/dynamo-oauth-store.js';
 import { DynamoRoutineStore } from '../adapters/dynamo-routine-store.js';
 import { DynamoThingStore } from '../adapters/dynamo-thing-store.js';
 import { EventBridgeThingScheduler } from '../adapters/eventbridge-thing-scheduler.js';
@@ -29,7 +30,14 @@ import type { RunDestination, SandboxMode } from '../domain/contracts.js';
 import { WebhookIngressService } from '../ingress/service.js';
 import { RuntimePluginRegistry } from '../plugins/registry.js';
 import { IntegrationPluginRegistry } from '../plugins/integration-registry.js';
+import { IntegrationRuntime } from '../plugins/integration-runtime.js';
 import { ConnectionService } from '../plugins/connection-service.js';
+import {
+  OAuthAuthorizationService,
+  OAuthRefreshingCredentialBroker,
+  parseOAuthApplicationSecretArns,
+  SecretOAuthApplicationRegistry,
+} from '../plugins/oauth.js';
 import { createBuiltinIntegrationPlugins } from '../plugins/integrations/builtins.js';
 import {
   CapabilityProfileRegistry,
@@ -65,7 +73,12 @@ let conversationService: ConversationService | undefined;
 let conversationSubmissionService: ConversationSubmissionService | undefined;
 let agentInteractionController: AgentInteractionController | undefined;
 let integrationPluginRegistry: IntegrationPluginRegistry | undefined;
+let integrationStore: DynamoIntegrationStore | undefined;
+let integrationRuntime: IntegrationRuntime | undefined;
+let oauthApplicationRegistry: SecretOAuthApplicationRegistry | undefined;
+let oauthCredentialBroker: OAuthRefreshingCredentialBroker | undefined;
 let connectionService: ConnectionService | undefined;
+let oauthAuthorizationService: OAuthAuthorizationService | undefined;
 let capabilityProfileRegistry: CapabilityProfileRegistry | undefined;
 let sourcePolicyResolver: StoredSourcePolicyResolver | undefined;
 let routineService: RoutineService | undefined;
@@ -115,16 +128,57 @@ export function getIntegrationPluginRegistry(): IntegrationPluginRegistry {
   return integrationPluginRegistry;
 }
 
+function getIntegrationStore(): DynamoIntegrationStore {
+  integrationStore ??= new DynamoIntegrationStore(
+    getBaseServices().clients.dynamodb,
+    requiredEnv('INTEGRATIONS_TABLE_NAME'),
+  );
+  return integrationStore;
+}
+
+function getOAuthApplicationRegistry(): SecretOAuthApplicationRegistry {
+  oauthApplicationRegistry ??= new SecretOAuthApplicationRegistry(
+    new CachedSecretReader(getBaseServices().clients.secrets),
+    parseOAuthApplicationSecretArns(process.env.INTEGRATION_OAUTH_APP_SECRET_ARNS),
+  );
+  return oauthApplicationRegistry;
+}
+
+function getOAuthCredentialBroker(): OAuthRefreshingCredentialBroker {
+  if (oauthCredentialBroker) return oauthCredentialBroker;
+  const base = getBaseServices();
+  oauthCredentialBroker = new OAuthRefreshingCredentialBroker({
+    credentials: base.credentials,
+    vault: new SecretsManagerCredentialVault(
+      base.clients.secrets,
+      process.env.INTEGRATION_CREDENTIAL_KMS_KEY_ARN,
+    ),
+    registry: getIntegrationPluginRegistry(),
+    applications: getOAuthApplicationRegistry(),
+    store: new DynamoOAuthAuthorizationStore(
+      base.clients.dynamodb,
+      requiredEnv('INTEGRATIONS_TABLE_NAME'),
+    ),
+  });
+  return oauthCredentialBroker;
+}
+
+function getIntegrationRuntime(): IntegrationRuntime {
+  integrationRuntime ??= new IntegrationRuntime({
+    registry: getIntegrationPluginRegistry(),
+    store: getIntegrationStore(),
+    credentials: getOAuthCredentialBroker(),
+  });
+  return integrationRuntime;
+}
+
 export function getCapabilityProfileRegistry(): CapabilityProfileRegistry {
   capabilityProfileRegistry ??= new CapabilityProfileRegistry(createBuiltinCapabilityProfiles());
   return capabilityProfileRegistry;
 }
 
 export function getSourcePolicyResolver(): StoredSourcePolicyResolver {
-  sourcePolicyResolver ??= new StoredSourcePolicyResolver(new DynamoIntegrationStore(
-    getBaseServices().clients.dynamodb,
-    requiredEnv('INTEGRATIONS_TABLE_NAME'),
-  ));
+  sourcePolicyResolver ??= new StoredSourcePolicyResolver(getIntegrationStore());
   return sourcePolicyResolver;
 }
 
@@ -132,10 +186,7 @@ export function getConnectionService(): ConnectionService {
   if (connectionService) return connectionService;
   const base = getBaseServices();
   connectionService = new ConnectionService({
-    store: new DynamoIntegrationStore(
-      base.clients.dynamodb,
-      requiredEnv('INTEGRATIONS_TABLE_NAME'),
-    ),
+    store: getIntegrationStore(),
     vault: new SecretsManagerCredentialVault(
       base.clients.secrets,
       process.env.INTEGRATION_CREDENTIAL_KMS_KEY_ARN,
@@ -144,6 +195,21 @@ export function getConnectionService(): ConnectionService {
     credentialNamePrefix: requiredEnv('INTEGRATION_CREDENTIAL_NAME_PREFIX'),
   });
   return connectionService;
+}
+
+export function getOAuthAuthorizationService(): OAuthAuthorizationService {
+  if (oauthAuthorizationService) return oauthAuthorizationService;
+  const base = getBaseServices();
+  oauthAuthorizationService = new OAuthAuthorizationService({
+    registry: getIntegrationPluginRegistry(),
+    applications: getOAuthApplicationRegistry(),
+    store: new DynamoOAuthAuthorizationStore(
+      base.clients.dynamodb,
+      requiredEnv('INTEGRATIONS_TABLE_NAME'),
+    ),
+    connections: getConnectionService(),
+  });
+  return oauthAuthorizationService;
 }
 
 export function getRoutineService(): RoutineService {
@@ -223,6 +289,22 @@ export function getPluginRegistry(): RuntimePluginRegistry {
     slack: {
       signingSecretArn: process.env.SLACK_SIGNING_SECRET_ARN,
       botTokenSecretArn: process.env.SLACK_BOT_TOKEN_SECRET_ARN,
+      connectionPoster: {
+        post: async ({ ownerId, request, channel, text, threadTs }) => {
+          const session = await getIntegrationRuntime().prepare({ ownerId, request });
+          return session.call({
+            namespace: 'slack',
+            tool: 'messages_post',
+            arguments: {
+              input: {
+                channel,
+                text,
+                ...(threadTs ? { threadTs } : {}),
+              },
+            },
+          });
+        },
+      },
     },
   }));
   return pluginRegistry;

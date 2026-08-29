@@ -43,6 +43,15 @@ resource "aws_secretsmanager_secret" "teams_webhook" {
   tags                    = local.tags
 }
 
+resource "aws_secretsmanager_secret" "slack_webhook" {
+  count = var.enable_slack_webhook ? 1 : 0
+
+  name                    = "${local.name_prefix}-${var.deployment_id}/slack-webhook"
+  description             = "Disposable Slack Events API signing secret for ${var.deployment_id}"
+  recovery_window_in_days = 0
+  tags                    = local.tags
+}
+
 resource "aws_secretsmanager_secret" "teams_workflow" {
   name                    = "${local.name_prefix}-${var.deployment_id}/teams-workflow"
   description             = "Disposable Teams delivery-capture URL for ${var.deployment_id}"
@@ -123,8 +132,9 @@ module "agent_runner" {
   default_agent_driver              = var.default_agent_driver
   allow_agent_aws_credential_chain  = false
   codex_bedrock_model_ids           = [var.codex_model_id]
-  default_delivery_destinations     = "teams"
+  default_delivery_destinations     = "source"
   integration_plugin_base_urls      = { fixture-crm = aws_lambda_function_url.integration_fixture.function_url }
+  integration_oauth_app_secret_arns = var.integration_oauth_app_secret_arns
   lambda_zip_paths                  = local.lambda_zip_paths
   github_webhook_secret_arn         = aws_secretsmanager_secret.github_webhook.arn
   github_webhook_enabled            = true
@@ -133,6 +143,8 @@ module "agent_runner" {
   teams_outgoing_webhook_secret_arn = aws_secretsmanager_secret.teams_webhook.arn
   teams_webhook_enabled             = true
   teams_workflow_url_secret_arn     = aws_secretsmanager_secret.teams_workflow.arn
+  slack_signing_secret_arn          = try(aws_secretsmanager_secret.slack_webhook[0].arn, null)
+  slack_webhook_enabled             = var.enable_slack_webhook
   enable_microvm                    = var.enable_microvm
   enable_s3_files                   = var.enable_microvm
   microvm_source_zip_path           = "${path.root}/../../dist/microvm-source.zip"

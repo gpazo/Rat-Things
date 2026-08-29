@@ -26,6 +26,13 @@ teams_workflow_url_secret_arn     = "arn:aws:secretsmanager:us-west-2:1111222233
 teams_delivery_mode               = "workflow"
 # teams_reply_gateway_url_secret_arn = "arn:aws:secretsmanager:us-west-2:111122223333:secret:agent/teams-reply-gateway-AbCdEf"
 
+# Optional self-hosted OAuth. Apply once, register the `oauth_callback_url`
+# output with the provider, create a Secrets Manager JSON secret containing
+# client_id and client_secret, then add only its ARN here and apply again.
+# integration_oauth_app_secret_arns = {
+#   slack = "arn:aws:secretsmanager:us-west-2:111122223333:secret:agent/oauth-slack-AbCdEf"
+# }
+
 # Self-hosted installations should override the notification APIs and add their
 # repository hostnames to allowed_repository_hosts.
 # github_api_base_url = "https://github.example.com/api/v3"

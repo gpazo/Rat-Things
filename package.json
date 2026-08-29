@@ -29,6 +29,7 @@
     "aws:e2e:status": "./scripts/aws-e2e-status.sh",
     "aws:e2e:test": "./scripts/aws-e2e-test.sh",
     "aws:e2e:console:test": "./scripts/aws-e2e-console-test.sh",
+    "aws:e2e:oauth:test": "./scripts/aws-e2e-oauth-canary.sh",
     "aws:e2e:console:demo": "./scripts/aws-e2e-console-demo.sh",
     "aws:e2e:destroy": "./scripts/aws-e2e-destroy.sh",
     "test:e2e:aws": "./scripts/aws-e2e.sh",

@@ -61,6 +61,16 @@ Terraform accepts Secrets Manager **ARNs**, never secret values. Separate clone 
 ARNs keep repository-read authority independent from comment-posting authority. The older combined
 GitHub/GitLab token inputs are migration aliases only.
 
+Self-hosted OAuth is optional. Apply the stack once, register the `oauth_callback_url` output with
+the provider, and create one Secrets Manager JSON secret per configured plugin containing
+`client_id` and `client_secret`. Set `integration_oauth_app_secret_arns` to those ARNs and apply
+again. The control Lambda receives read access only to the declared app secrets; the worker uses the
+same declared list only when refreshing an expiring connection. Provider tokens stay in separate
+per-owner connection secrets. See [integrations](../docs/plugins.md#self-hosted-oauth-installation).
+Providers may issue more than one independently expiring token family. The built-in Slack flow keeps
+its bot and delegated-user access/refresh/expiry fields in that single owner secret and refreshes
+each family separately; Terraform still receives only the application-secret ARN.
+
 The trusted root process resolves configured secrets. Agent subprocesses do not inherit the
 MicroVM AWS credential chain unless `allow_agent_aws_credential_chain=true` is explicitly set. The
 preferred Codex/Bedrock path mints a short-term token from the execution role and passes only that

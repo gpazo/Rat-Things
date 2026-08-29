@@ -1,5 +1,49 @@
 #!/usr/bin/env bash
 
+aws_e2e_source_runtime_defaults() {
+  local env_file="$1"
+  if [[ ! -f "$env_file" ]]; then
+    return 0
+  fi
+
+  local tracked_names=(
+    AWS_PROFILE
+    AWS_REGION
+    AWS_DEFAULT_REGION
+    AWS_E2E_ENABLE_MICROVM
+    AWS_E2E_MICROVM_BASE_IMAGE_VERSION
+    AWS_E2E_REAL_CODEX
+    AWS_E2E_CODEX_MODEL_ID
+    AWS_E2E_DEFAULT_AGENT_DRIVER
+    AWS_E2E_OAUTH_APP_SECRET_ARNS
+    AWS_E2E_PUBLICATION_DOMAIN
+    AWS_E2E_PUBLICATION_ROUTE53_ZONE_ID
+    AWS_E2E_ENABLE_SLACK_WEBHOOK
+    AWS_E2E_SLACK_SIGNING_SECRET_FILE
+    TF_PLUGIN_CACHE_DIR
+  )
+  local override_names=()
+  local override_values=()
+  local name
+  for name in "${tracked_names[@]}"; do
+    if declare -p "$name" >/dev/null 2>&1; then
+      override_names+=("$name")
+      override_values+=("${!name}")
+    fi
+  done
+
+  set -a
+  # shellcheck disable=SC1090
+  source "$env_file"
+  set +a
+
+  local index
+  for index in "${!override_names[@]}"; do
+    printf -v "${override_names[$index]}" '%s' "${override_values[$index]}"
+    export "${override_names[$index]}"
+  done
+}
+
 aws_e2e_configure() {
   local requested_id="$1"
 
@@ -27,6 +71,22 @@ aws_e2e_configure() {
     echo "AWS_E2E_DEFAULT_AGENT_DRIVER must be mock or codex" >&2
     return 1
   fi
+  oauth_app_secret_arns="${AWS_E2E_OAUTH_APP_SECRET_ARNS:-}"
+  slack_webhook_enabled="${AWS_E2E_ENABLE_SLACK_WEBHOOK:-false}"
+  if [[ "$slack_webhook_enabled" != "true" && "$slack_webhook_enabled" != "false" ]]; then
+    echo "AWS_E2E_ENABLE_SLACK_WEBHOOK must be true or false" >&2
+    return 1
+  fi
+  if [[ -z "$oauth_app_secret_arns" ]]; then
+    oauth_app_secret_arns='{}'
+  fi
+  if ! jq -e '
+    type == "object" and
+    all(to_entries[]; (.key | test("^[a-z][a-z0-9-]{0,63}$")) and (.value | type == "string" and test("^arn:[^:]+:secretsmanager:[^:]+:[0-9]{12}:secret:.+$")))
+  ' >/dev/null <<<"$oauth_app_secret_arns"; then
+    echo "AWS_E2E_OAUTH_APP_SECRET_ARNS must be a JSON object mapping plugin IDs to Secrets Manager ARNs" >&2
+    return 1
+  fi
   publication_domain="${AWS_E2E_PUBLICATION_DOMAIN:-}"
   publication_zone_id="${AWS_E2E_PUBLICATION_ROUTE53_ZONE_ID:-}"
   publication_enabled="false"
@@ -50,6 +110,8 @@ aws_e2e_configure() {
     "-var=enable_microvm=$microvm_enabled"
     "-var=codex_model_id=$codex_model_id"
     "-var=default_agent_driver=$default_agent_driver"
+    "-var=integration_oauth_app_secret_arns=$oauth_app_secret_arns"
+    "-var=enable_slack_webhook=$slack_webhook_enabled"
     "-var=enable_publication_delivery=$publication_enabled"
   )
   if [[ "$publication_enabled" == "true" ]]; then

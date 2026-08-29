@@ -18,8 +18,31 @@ export function createSlackIntegrationPlugin(options: { fetch?: typeof fetch } =
       authentication: [
         {
           scheme: 'oauth2',
-          title: 'OAuth access token',
-          fields: [{ key: 'access_token', label: 'Access token', secret: true }],
+          title: 'Install with Slack OAuth',
+          fields: [
+            { key: 'access_token', label: 'Access token', secret: true },
+            { key: 'refresh_token', label: 'Refresh token', secret: true, computed: true, required: false },
+            { key: 'expires_at', label: 'Access-token expiry', secret: false, computed: true, required: false },
+            { key: 'token_type', label: 'Token type', secret: false, computed: true, required: false },
+            { key: 'scope', label: 'Granted scopes', secret: false, computed: true, required: false },
+            { key: 'user_access_token', label: 'User access token', secret: true, computed: true, required: false },
+            { key: 'user_refresh_token', label: 'User refresh token', secret: true, computed: true, required: false },
+            { key: 'user_expires_at', label: 'User access-token expiry', secret: false, computed: true, required: false },
+            { key: 'user_token_type', label: 'User token type', secret: false, computed: true, required: false },
+            { key: 'user_scope', label: 'Granted user scopes', secret: false, computed: true, required: false },
+          ],
+          oauth2: {
+            authorizationUrl: 'https://slack.com/oauth/v2/authorize',
+            tokenUrl: 'https://slack.com/api/oauth.v2.access',
+            scopes: ['app_mentions:read', 'chat:write', 'reactions:write'],
+            secondaryToken: {
+              authorizationParameter: 'user_scope',
+              responseField: 'authed_user',
+              credentialPrefix: 'user',
+              scopes: ['search:read'],
+            },
+            tokenEndpointAuthMethod: 'client-secret-post',
+          },
         },
         {
           scheme: 'api-key',
@@ -76,7 +99,9 @@ export function createSlackIntegrationPlugin(options: { fetch?: typeof fetch } =
     authorization: (credential, operationId) => operationId === 'slack.api.test'
       ? {}
       : {
-        authorization: `Bearer ${requiredCredential(credential, 'access_token', 'token', 'value')}`,
+        authorization: `Bearer ${operationId === 'slack.messages.search'
+          ? requiredCredential(credential, 'user_access_token')
+          : requiredCredential(credential, 'access_token', 'token', 'value')}`,
       },
     verification: {
       request: (credential) => ({
@@ -86,13 +111,21 @@ export function createSlackIntegrationPlugin(options: { fetch?: typeof fetch } =
           authorization: `Bearer ${requiredCredential(credential, 'access_token', 'token')}`,
         },
       }),
-      result: (value, scheme) => {
+      result: (value, scheme, credential) => {
         const result = requiredRecord(value, 'Slack verification response');
         const team = requiredResultString(result, 'team');
         const user = requiredResultString(result, 'user');
+        const scopes = scheme === 'oauth2'
+          ? [...new Set([credential.scope, credential.user_scope]
+            .flatMap((value) => (value ?? '').split(','))
+            .map((scope) => scope.trim())
+            .filter(Boolean))]
+          : [];
         return {
           label: `${team} — ${user}`,
-          authorization: { scheme, access: 'full', scopeModel: 'unknown', scopes: [] },
+          authorization: scheme === 'oauth2' && scopes.length > 0
+            ? { scheme, access: 'full', scopeModel: 'granular', scopes }
+            : { scheme, access: 'full', scopeModel: 'unknown', scopes: [] },
           externalTenantId: requiredResultString(result, 'team_id'),
           externalSubjectId: requiredResultString(result, 'user_id'),
         };

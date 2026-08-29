@@ -71,7 +71,8 @@ npm run quickstart:aws -- \
 The command performs a no-write preflight, deploys, tests an exact Thing draft, activates that
 revision, runs it again, and retains evidence. The ten-minute measurement starts at
 `quickstart:aws`; installing host tools and obtaining AWS quota/service access happens first. The
-golden path intentionally leaves S3 Files, hosted OAuth, schedules, and external sharing disabled.
+golden path intentionally leaves S3 Files, OAuth provider apps, schedules, and external sharing
+unconfigured.
 
 Use the saved deployment context to inspect or remove the same target:
 
@@ -101,11 +102,13 @@ Read the [AWS-ready quickstart](docs/quickstart.md) before using a privileged ac
 - **One embeddable contract** — installed discovery, OpenAPI, JSON Schemas, integration manifests,
   capability profiles, and stable errors support CLIs, products, and other agents.
 
-The local reference console exercises the public conversation, live-computer, and Thing APIs; it is
-not a hosted product or a second execution path. Its resizable three-pane workspace keeps the
-conversation list, transcript, active Run, isolated browser, collected sources, and human-readable
-activity together. Operators can watch, steer, stop, temporarily take browser control, and return
-control without widening the Run's fixed capability envelope.
+The local reference console exercises the public conversation, live-computer, connection, routine,
+and Thing APIs; it is not a hosted product or a second execution path. Its resizable conversation
+workspace keeps the list, transcript, active Run, isolated browser, collected sources, and
+human-readable activity together. Dedicated Connections and Routines workspaces install verified
+accounts, change Rat-side access, disconnect credentials, create schedules, and operate their
+lifecycle. Operators can watch, steer, stop, temporarily take browser control, and return control
+without widening the Run's fixed capability envelope.
 
 <p align="center">
   <a href="assets/conversation-console-live-browser.png"><img src="assets/conversation-console-live-browser.png" alt="Rat Things three-pane reference console during a live AWS NVIDIA earnings Run, with active progress, durable conversation, and isolated browser takeover" width="900"></a>
@@ -120,11 +123,34 @@ The CLI exposes the same durable conversation primitives without requiring the c
 ```bash
 rat-things conversations list
 rat-things conversations search "NVIDIA earnings"
+rat-things connect slack --oauth --wait --access read-write --alias slack-work
+rat-things slack-events slack-work --profile read-only --json
+rat-things routines list
 rat-things conversation show PUBLIC_CONVERSATION_ID
 rat-things chat --thread earnings --attach report.pdf --reply-to MESSAGE_ID \
   "Compare this with the previous quarter"
 rat-things watch RUN_ID --follow
 ```
+
+The self-hosted OAuth path has also completed a real Slack canary against a disposable live-AWS
+deployment and account. Slack granted the bot only `app_mentions:read`, `chat:write`, and
+`reactions:write`, plus a separately issued user token with `search:read`. The CLI waited through
+consent and PKCE callback, verified the workspace identity, and bound signed mentions to one
+read-only agent profile. A real Slack mention then started a Codex conversation, received its reply
+in the source thread, and resumed the same MicroVM and native Codex thread with remembered context.
+The built CLI independently posted a root and thread reply, added a reaction, proved a narrowed
+grant denied writes, and found the thread through delegated search. Finally, Rat refreshed the bot
+and user token families independently after both stored expiries were forced stale. Provider
+application secrets and issued tokens never entered CLI output, browser storage, Terraform state,
+agent tool arguments, screenshots, or recordings.
+
+<p align="center">
+  <a href="assets/slack-live-thread.jpg"><img src="assets/slack-live-thread.jpg" alt="Real Slack client showing a Rat Things mention, agent reply, and continued thread with remembered context" width="900"></a>
+</p>
+
+This is the real client-side thread from that canary; it contains no credential or consent screen.
+The complete account lifecycle, scope model, CLI commands, and remaining negative canaries are in
+[Integrations, accounts, and permissions](docs/plugins.md#self-hosted-oauth-installation).
 
 List and search return an opaque public conversation ID for transcript, organization, reaction, and
 source commands. `conversation sources` pages the complete indexed transcript, labels transcript

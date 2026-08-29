@@ -25,6 +25,7 @@ module "agent_runner" {
   allow_agent_aws_credential_chain    = var.allow_agent_aws_credential_chain
   default_delivery_destinations       = var.default_delivery_destinations
   lambda_zip_paths                    = var.lambda_zip_paths
+  integration_oauth_app_secret_arns   = var.integration_oauth_app_secret_arns
   github_webhook_secret_arn           = var.github_webhook_secret_arn
   github_webhook_enabled              = var.github_webhook_enabled
   github_token_secret_arn             = var.github_token_secret_arn

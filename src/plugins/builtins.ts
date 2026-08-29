@@ -1,7 +1,7 @@
 import type { CredentialBroker } from '../credentials/broker.js';
 import { GitHubDeliveryAdapter } from '../delivery/providers/github.js';
 import { GitLabDeliveryAdapter } from '../delivery/providers/gitlab.js';
-import { SlackDeliveryAdapter } from '../delivery/providers/slack.js';
+import { SlackDeliveryAdapter, type SlackConnectionPoster } from '../delivery/providers/slack.js';
 import { TeamsDeliveryAdapter } from '../delivery/providers/teams.js';
 import type { TeamsDeliveryMode } from '../delivery/providers/teams.js';
 import { GitHubIngressAdapter } from '../ingress/providers/github.js';
@@ -35,6 +35,7 @@ export interface BuiltinPluginOptions {
   slack: {
     signingSecretArn?: string | undefined;
     botTokenSecretArn?: string | undefined;
+    connectionPoster?: SlackConnectionPoster | undefined;
   };
 }
 
@@ -94,6 +95,7 @@ export function createBuiltinPlugins(
       ingress: new SlackIngressAdapter(credentials, options.slack),
       delivery: new SlackDeliveryAdapter(credentials, {
         botTokenSecretArn: options.slack.botTokenSecretArn,
+        connectionPoster: options.slack.connectionPoster,
       }),
     },
   ];

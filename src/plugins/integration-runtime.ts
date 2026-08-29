@@ -190,7 +190,11 @@ export class IntegrationRuntime {
     if (!binding || binding.ownerId !== input.ownerId) {
       throw new Error(`credential for ${selected.connection.alias} is not configured`);
     }
-    const credential = await this.options.credentials.readRecord(binding.reference);
+    const credential = await this.options.credentials.readRecord(
+      binding.reference,
+      selected.connection,
+      signal,
+    );
     const result = await selected.plugin.execute(resolved.operation.id, operationInput, {
       connection: selected.connection,
       credential,

@@ -44,6 +44,7 @@ export interface TrustedHttpPluginOptions {
     result(
       value: JsonValue,
       scheme: IntegrationAuthScheme,
+      credential: IntegrationCredentialValue,
     ): VerifiedIntegrationCredential;
   };
   validateResponse?(value: JsonValue): void;
@@ -86,7 +87,7 @@ export class TrustedHttpIntegrationPlugin implements IntegrationPlugin {
       '$verify',
       signal,
     );
-    return this.options.verification.result(value, scheme);
+    return this.options.verification.result(value, scheme, credential);
   }
 
   public async execute(

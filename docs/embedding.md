@@ -55,7 +55,8 @@ without a central registry. Important entries are:
       "credentialVerification": "before-persistence",
       "providerIdentity": "derived",
       "bringYourOwnOAuth": true,
-      "hostedOAuthCallbacks": false
+      "hostedOAuthCallbacks": true,
+      "automaticTokenRefresh": true
     }
   }
 }
@@ -79,7 +80,8 @@ limits, deployment allowlists, installed profiles/plugins, owner scope, and curr
 Build a UI that calls the API on behalf of its signed-in principal:
 
 1. show installed profiles and integration manifests;
-2. collect only the manifest-declared credential fields through the host's OAuth or API-key flow;
+2. use the deployment's configured OAuth installation or collect only the manifest-declared
+   credential fields through the host's own OAuth/API-key flow;
 3. submit the credential and let Rat verify and label the provider account;
 4. group accounts into connection sets;
 5. create a draft Thing from a validated ThingSpec form;
@@ -167,12 +169,13 @@ credential subject.
 ## Bring your own OAuth
 
 Rat Things does not register a universal OAuth client. The host owns provider developer accounts,
-redirect URLs, consent copy, PKCE/state verification, token exchange, refresh policy, and provider
-review obligations. After successful consent, the host submits the resulting credential over the
-authenticated connection-create API and immediately discards its plaintext copy where possible.
-Rat calls the plugin's fixed identity endpoint before storing anything and derives the label,
-tenant/subject identifiers, provider access, and reported scopes from that response. The host must
-not ask callers to assert those values.
+redirect URLs, consent copy, installed scopes, and provider-review obligations. It may complete the
+flow in its own backend and submit the resulting credential, or configure the self-hosted Rat
+callback so the deployment performs one-time state/PKCE verification, code exchange, and refresh.
+In both paths Rat calls the plugin's fixed identity endpoint before storing anything and derives the
+label, tenant/subject identifiers, provider access, and reported scopes from that response. The
+host must not ask callers to assert those values. Application secrets and issued credentials remain
+in the host's AWS account; there is no Rat-operated central OAuth client.
 
 Connection metadata records the provider authorization separately from the Rat grant. This permits
 a broad upstream token to be exposed as read-only for one account selection, while accurately

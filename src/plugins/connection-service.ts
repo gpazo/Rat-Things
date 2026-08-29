@@ -343,11 +343,13 @@ function defaultAlias(pluginId: string, label: string): string {
 
 function validateCredentialFields(
   credential: IntegrationCredentialValue,
-  fields: Array<{ key: string }>,
+  fields: Array<{ key: string; computed?: boolean; required?: boolean }>,
 ): void {
   const expected = new Set(fields.map((field) => field.key));
-  for (const field of expected) {
-    if (!credential[field]) throw new ValidationError(`integration credential requires ${field}`);
+  for (const field of fields) {
+    if (field.required !== false && !field.computed && !credential[field.key]) {
+      throw new ValidationError(`integration credential requires ${field.key}`);
+    }
   }
   for (const field of Object.keys(credential)) {
     if (!expected.has(field)) {

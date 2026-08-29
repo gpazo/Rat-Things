@@ -72,8 +72,8 @@ export function ratThingsDiscovery(docsUrl?: string): Record<string, unknown> {
         permissionPresets: ['read-only', 'read-write', 'full', 'custom'],
         providerAndBrokerEnforcement: true,
         bringYourOwnOAuth: true,
-        hostedOAuthCallbacks: false,
-        automaticTokenRefresh: false,
+        hostedOAuthCallbacks: true,
+        automaticTokenRefresh: true,
       },
       agent: {
         browserComputerUse: true,

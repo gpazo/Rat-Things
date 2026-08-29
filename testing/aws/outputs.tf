@@ -2,8 +2,16 @@ output "api_endpoint" {
   value = module.agent_runner.api_endpoint
 }
 
+output "oauth_callback_url" {
+  value = module.agent_runner.oauth_callback_url
+}
+
 output "webhook_urls" {
   value = module.agent_runner.webhook_urls
+}
+
+output "slack_webhook_secret_arn" {
+  value = try(aws_secretsmanager_secret.slack_webhook[0].arn, null)
 }
 
 output "artifact_bucket_name" {

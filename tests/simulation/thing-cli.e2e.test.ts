@@ -16,6 +16,9 @@ describe('Thing CLI-to-HTTP workflow', () => {
     headers: IncomingMessage['headers'];
     body: unknown;
   }> = [];
+  let oauthStarts = 0;
+  const connectionSets: Array<Record<string, unknown>> = [];
+  const sourceBindings: Array<Record<string, unknown>> = [];
   const server = createServer(async (request, response) => {
     const body = await requestBody(request);
     requests.push({
@@ -43,8 +46,39 @@ describe('Thing CLI-to-HTTP workflow', () => {
             fields: [{ key: 'api_key', label: 'API key', secret: true }],
           }],
           operations: [],
+        }, {
+          id: 'slack',
+          version: '1',
+          title: 'Slack',
+          description: 'Slack messages.',
+          authentication: [{
+            scheme: 'oauth2',
+            title: 'Install with Slack OAuth',
+            fields: [{ key: 'access_token', label: 'Access token', secret: true }],
+            oauth2: {
+              authorizationUrl: 'https://slack.example/authorize',
+              tokenUrl: 'https://slack.example/token',
+              scopes: ['chat:write'],
+              tokenEndpointAuthMethod: 'client-secret-post',
+            },
+          }],
+          operations: [],
+          oauthInstallation: {
+            status: 'configured',
+            callbackUrl: 'https://api.example/v1/integrations/oauth/callback',
+          },
         }],
       });
+    }
+    if (request.method === 'POST' && request.url === '/v1/integrations/oauth/authorizations') {
+      oauthStarts += 1;
+      return send(response, {
+        version: '1',
+        pluginId: 'slack',
+        authorizationUrl: 'https://slack.example/authorize?state=opaque',
+        callbackUrl: 'https://api.example/v1/integrations/oauth/callback',
+        expiresAt: '2099-08-27T20:10:00.000Z',
+      }, 201);
     }
     if (request.method === 'POST' && request.url === '/v1/integrations/connections') {
       return send(response, {
@@ -74,8 +108,56 @@ describe('Thing CLI-to-HTTP workflow', () => {
               scopes: ['records:read'],
             },
           },
-        }],
+        }, ...(oauthStarts >= 2 ? [{
+          connection: {
+            version: '1',
+            connectionId: 'connection-slack',
+            pluginId: 'slack',
+            alias: 'slack-acme',
+            label: 'Acme Slack',
+            status: 'active',
+            externalTenantId: 'T123',
+            externalSubjectId: 'U123',
+            authorization: {
+              scheme: 'oauth2',
+              access: 'full',
+              scopeModel: 'granular',
+              scopes: ['chat:write'],
+            },
+          },
+          grant: { version: '1', preset: 'read-write' },
+        }] : [])],
       });
+    }
+    if (request.method === 'POST' && request.url === '/v1/integrations/connections/connection-slack/grant') {
+      return send(response, { version: '1', connectionId: 'connection-slack', preset: 'read-write' });
+    }
+    if (request.method === 'GET' && request.url === '/v1/integrations/connection-sets') {
+      return send(response, { connectionSets });
+    }
+    if (request.method === 'POST' && request.url === '/v1/integrations/connection-sets') {
+      const input = body as Record<string, unknown>;
+      const { connections, ...rest } = input;
+      const value = {
+        ...rest,
+        connectionIds: connections,
+        connectionSetId: 'set-slack-events',
+        ownerId: 'api:owner',
+      };
+      connectionSets.push(value);
+      return send(response, value, 201);
+    }
+    if (request.method === 'GET' && request.url === '/v1/integrations/source-bindings') {
+      return send(response, { sourceBindings });
+    }
+    if (request.method === 'POST' && request.url === '/v1/integrations/source-bindings') {
+      const value = {
+        ...(body as Record<string, unknown>),
+        bindingId: 'binding-slack-events',
+        ownerId: 'api:owner',
+      };
+      sourceBindings.push(value);
+      return send(response, value, 201);
     }
     if (
       request.method === 'POST' &&
@@ -324,6 +406,84 @@ describe('Thing CLI-to-HTTP workflow', () => {
     } finally {
       await rm(directory, { recursive: true, force: true });
     }
+  });
+
+  it('starts configured self-hosted OAuth without putting an app secret or token on the command line', async () => {
+    const result = await cli([
+      'connect',
+      'slack',
+      '--oauth',
+      '--no-browser',
+      '--access',
+      'read-write',
+      '--json',
+    ], apiUrl);
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      pluginId: 'slack',
+      authorizationUrl: 'https://slack.example/authorize?state=opaque',
+    });
+    expect([...requests].reverse().find(
+      (request) => request.path === '/v1/integrations/oauth/authorizations',
+    )).toMatchObject({
+      method: 'POST',
+      body: {
+        version: '1',
+        pluginId: 'slack',
+        grant: { version: '1', preset: 'read-write' },
+      },
+    });
+  });
+
+  it('can wait for the OAuth callback to install a verified connection', async () => {
+    const result = await cli([
+      'connect',
+      'slack',
+      '--oauth',
+      '--wait',
+      '--no-browser',
+      '--access',
+      'read-write',
+      '--json',
+    ], apiUrl);
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      connection: {
+        connectionId: 'connection-slack',
+        pluginId: 'slack',
+        alias: 'slack-acme',
+      },
+      grant: { preset: 'read-write' },
+    });
+  });
+
+  it('enables signed Slack mentions with a source binding and owner connection set', async () => {
+    const result = await cli(['slack-events', 'slack-acme'], apiUrl);
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      enabled: true,
+      connectionSet: { connectionSetId: 'set-slack-events' },
+      sourceBinding: {
+        sourceKind: 'slack',
+        selector: { teamId: 'T123' },
+        capabilityProfile: 'read-only',
+      },
+    });
+    expect(requests.filter((request) => request.path === '/v1/integrations/connection-sets').at(-1))
+      .toMatchObject({
+        method: 'POST',
+        body: {
+          name: 'slack-events-t123',
+          connections: ['connection-slack'],
+          defaults: { slack: 'connection-slack' },
+        },
+      });
+    const repeated = await cli(['slack-events', 'slack-acme', '--json'], apiUrl);
+    expect(JSON.parse(repeated.stdout)).toMatchObject({
+      enabled: true,
+      unchanged: true,
+      sourceBinding: { bindingId: 'binding-slack-events' },
+    });
+    expect(requests.filter((request) => (
+      request.method === 'POST' && request.path === '/v1/integrations/connection-sets'
+    ))).toHaveLength(1);
   });
 });
 

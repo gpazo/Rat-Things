@@ -103,16 +103,18 @@ Rat Things deliberately does not decide the host's product or tenancy model.
 
 - The host authenticates people and services and supplies a trusted principal.
 - Rat derives the owner from that principal; callers cannot choose another owner ID.
-- The host owns OAuth applications, redirect URLs, consent screens, callback handling, and refresh
-  policy.
-- Rat accepts the resulting credential through the manifest-defined connection contract, verifies
-  it, stores it in the deployment's secret vault, and never returns it.
+- The host owns OAuth applications, provider review, and the user-facing consent context. The
+  self-hosted Rat deployment can own the registered callback, PKCE/code exchange, and refresh
+  lifecycle when its Terraform map names the provider application secret ARN.
+- Rat verifies the resulting credential through the manifest-defined connection contract, stores
+  it in the deployment's secret vault, and never returns it.
 - One deployment may serve one owner or many owners. Rat enforces owner isolation; the host decides
   how those owners map to people, organizations, or customers.
 
-This is **bring your own OAuth**, not a hosted OAuth service. An embedded product may complete OAuth
-in its own backend and pass the resulting credential object to Rat over the authenticated control
-API. A personal deployment may use the same API through the CLI and a credential-only file.
+This is **self-hosted, bring your own OAuth**, not a central Rat OAuth service. An embedded product
+may still complete OAuth in its own backend and pass the resulting credential object over the
+authenticated control API. A personal deployment can instead use the built-in AWS callback through
+the desktop Connections page or `rat-things connect PLUGIN --oauth --wait`.
 
 ## Consumers build the experience
 
@@ -133,9 +135,9 @@ second catalog of credential fields or infer account authority from a user-selec
 ## Intentionally outside the narrow journey
 
 The first product path does not require a visual workflow editor, public marketplace, central
-tenant service, Rat-hosted OAuth callbacks, arbitrary runtime package loading, or enterprise
-administration suite. Those features can be considered after the discover-connect-explain-run path
-is consistently simple and reliable.
+tenant service, arbitrary runtime package loading, or enterprise administration suite. Those
+features can be considered after the discover-connect-explain-run path is consistently simple and
+reliable.
 
 Browser computer use, conversations, files, publications, schedules, and channels extend what a
 Thing can do. They remain capabilities behind the same Thing, fixed-envelope, run, and

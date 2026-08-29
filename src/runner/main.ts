@@ -10,6 +10,8 @@ import {
   S3PublicationObjectStore,
 } from '../adapters/aws-runtime.js';
 import { DynamoIntegrationStore } from '../adapters/dynamo-integration-store.js';
+import { DynamoOAuthAuthorizationStore } from '../adapters/dynamo-oauth-store.js';
+import { SecretsManagerCredentialVault } from '../adapters/secrets-credential-vault.js';
 import { PublicationPublisher, publicationTtlSeconds } from '../core/publication-publisher.js';
 import { requiredEnv } from '../adapters/executors.js';
 import { CredentialBroker } from '../credentials/broker.js';
@@ -39,6 +41,11 @@ import { createRunnerControlBridge } from './control.js';
 import { IntegrationPluginRegistry } from '../plugins/integration-registry.js';
 import { IntegrationRuntime } from '../plugins/integration-runtime.js';
 import { createBuiltinIntegrationPlugins } from '../plugins/integrations/builtins.js';
+import {
+  OAuthRefreshingCredentialBroker,
+  parseOAuthApplicationSecretArns,
+  SecretOAuthApplicationRegistry,
+} from '../plugins/oauth.js';
 import {
   CapabilityProfileRegistry,
   createBuiltinCapabilityProfiles,
@@ -179,13 +186,32 @@ export async function runAgentWorker(): Promise<void> {
     }
     if (effectiveRequest.integrations) {
       const capabilityOwnerId = current.capabilityOwnerId ?? current.ownerId;
+      const integrationStore = new DynamoIntegrationStore(
+        clients.dynamodb,
+        requiredEnv('INTEGRATIONS_TABLE_NAME'),
+      );
+      const integrationRegistry = new IntegrationPluginRegistry(createBuiltinIntegrationPlugins());
+      const integrationCredentialBroker = new CredentialBroker(new CachedSecretReader(clients.secrets, 0));
+      const oauthApplications = new SecretOAuthApplicationRegistry(
+        new CachedSecretReader(clients.secrets),
+        parseOAuthApplicationSecretArns(process.env.INTEGRATION_OAUTH_APP_SECRET_ARNS),
+      );
       integrationSession = await new IntegrationRuntime({
-        registry: new IntegrationPluginRegistry(createBuiltinIntegrationPlugins()),
-        store: new DynamoIntegrationStore(
-          clients.dynamodb,
-          requiredEnv('INTEGRATIONS_TABLE_NAME'),
-        ),
-        credentials,
+        registry: integrationRegistry,
+        store: integrationStore,
+        credentials: new OAuthRefreshingCredentialBroker({
+          credentials: integrationCredentialBroker,
+          vault: new SecretsManagerCredentialVault(
+            clients.secrets,
+            process.env.INTEGRATION_CREDENTIAL_KMS_KEY_ARN,
+          ),
+          registry: integrationRegistry,
+          applications: oauthApplications,
+          store: new DynamoOAuthAuthorizationStore(
+            clients.dynamodb,
+            requiredEnv('INTEGRATIONS_TABLE_NAME'),
+          ),
+        }),
       }).prepare({
         ownerId: capabilityOwnerId,
         request: effectiveRequest.integrations,
@@ -359,7 +385,27 @@ async function clearPersistentSessionScratch(workspace: string): Promise<void> {
       throw error;
     }
     for (const entry of entries) {
-      await rm(join(root, entry), { recursive: true, force: true });
+      try {
+        // Codex can finish a turn while a short-lived plugin clone is still
+        // unwinding. Node's recursive rm does not retry ENOTEMPTY unless
+        // maxRetries is set, so give that writer time to release the tree.
+        await rm(join(root, entry), {
+          recursive: true,
+          force: true,
+          maxRetries: 5,
+          retryDelay: 100,
+        });
+      } catch (error) {
+        // Scratch cleanup must not turn an otherwise successful agent turn
+        // into a failed conversation. Every Codex temp directory is uniquely
+        // named and a later turn will make another cleanup attempt.
+        console.warn(JSON.stringify({
+          level: 'warn',
+          message: 'persistent session scratch cleanup was incomplete',
+          scratchRoot: path,
+          error: safeMessage(error),
+        }));
+      }
     }
   }
 }

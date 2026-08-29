@@ -136,6 +136,50 @@ Review the target account/Region, public webhook routes, `iam:PassRole`, the iso
 `lambda:PassNetworkConnector` wildcard action, retention, logging, quotas, and deletion settings.
 Image creation can take several minutes.
 
+### Enable a self-hosted OAuth provider
+
+OAuth is opt-in per installed plugin and does not require a central Rat service:
+
+1. Apply once with `integration_oauth_app_secret_arns = {}`.
+2. Read `terraform -chdir=infra output -raw oauth_callback_url` and register that exact HTTPS
+   redirect with the provider application.
+3. Put `{"client_id":"...","client_secret":"..."}` in a Secrets Manager secret in the stack
+   Region. Do not put either value in Terraform state.
+4. Add `plugin-id = "SECRET_ARN"` to `integration_oauth_app_secret_arns`, apply again, and confirm
+   `GET /v1/integrations/plugins` reports `oauthInstallation.status = configured`.
+5. Use the desktop Connections page or
+   `rat-things connect PLUGIN --oauth --wait --access read-only`. Omit `--wait` when another
+   operator will open the URL and the initiating shell should return immediately.
+
+For Slack, request bot scopes `app_mentions:read`, `chat:write`, and `reactions:write` plus user
+scope `search:read`, reinstall after scope changes, and use `--access read-write` when that
+Connection will service trusted source-thread delivery. Configure the Events request URL from
+`webhook_urls.slack`, subscribe to `app_mention`, then bind the verified workspace without copying a
+team ID:
+
+```bash
+rat-things connect slack --oauth --wait --access read-write --alias slack-work
+rat-things slack-events slack-work --profile read-only --json
+```
+
+The resulting bot and delegated-user token families share one owner credential but expire and
+refresh independently. Search uses only the user token and therefore inherits that user's Slack
+visibility; posts, replies, reactions, and provider identity use the bot token.
+
+Authorization state expires after ten minutes and is one-time. If the provider rejects consent or
+the callback page reports failure, start again. Token refresh is automatic only when the provider
+issues both an expiry and refresh token; otherwise reconnect after expiry. Removing an app secret
+ARN prevents new authorizations and future refresh but does not silently broaden or reassign an
+existing connection. The same Terraform input configures the control plane and the MicroVM refresh
+broker. Only the ARN map enters the image configuration; the execution role has `GetSecretValue`
+only for the declared application secrets, while issued connection credentials remain in their
+owner-scoped Secrets Manager path.
+
+The live-E2E deploy helper reloads saved runtime configuration before updating an existing
+deployment. OAuth app ARNs, webhook toggles/signing-secret paths, the selected driver, and S3 Files
+settings therefore survive a MicroVM-only redeploy unless an explicit environment variable
+overrides them.
+
 MicroVM builds and one-shot runs use AWS-managed internet egress. S3 Files is VPC-mounted, so
 persistent conversation runs use the Terraform-managed network connector, private subnet, S3 and
 DynamoDB endpoints, and NAT gateway for public Git/model access. Set `enable_s3_files=false` only

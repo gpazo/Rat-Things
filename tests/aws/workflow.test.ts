@@ -491,6 +491,121 @@ integration('live AWS agent-runner workflow', () => {
     await expectEmptyFailureQueues(clients.sqs);
   }, timeoutMs);
 
+  it('manages OAuth discovery, a verified connection, and a durable routine through the actual CLI', async () => {
+    delete process.env.AWS_ENDPOINT_URL;
+    const fixture = randomUUID().slice(0, 8);
+    const alias = `cli-management-${fixture}`;
+    const directory = await mkdtemp(join(tmpdir(), 'rat-things-aws-cli-management-'));
+    onTestFinished(() => rm(directory, { recursive: true, force: true }));
+    const credentialFile = join(directory, 'credential.json');
+    const grantFile = join(directory, 'grant.json');
+    const routineFile = join(directory, 'routine.json');
+    await Promise.all([
+      writeFile(
+        credentialFile,
+        JSON.stringify({ api_key: required('INTEGRATION_FIXTURE_ALPHA_KEY') }),
+        { mode: 0o600 },
+      ),
+      writeFile(grantFile, JSON.stringify({ version: '1', preset: 'read-write' }), { mode: 0o600 }),
+      writeFile(routineFile, JSON.stringify({
+        version: '1',
+        name: `CLI management ${fixture}`,
+        enabled: false,
+        schedule: { kind: 'interval', everyMinutes: 525_600 },
+        request: {
+          version: '1',
+          prompt: `Return CLI management marker ${fixture}`,
+          agent: { driver: 'mock', sandbox: 'read-only' },
+          destinations: [{ kind: 'none' }],
+        },
+      }), { mode: 0o600 }),
+    ]);
+
+    const catalog = JSON.parse((await runRatThingsCli(['plugins', '--json'])).stdout) as {
+      plugins: Array<{
+        id: string;
+        oauthInstallation?: { status: string; callbackUrl: string };
+      }>;
+    };
+    const slack = catalog.plugins.find((plugin) => plugin.id === 'slack');
+    expect(slack?.oauthInstallation?.callbackUrl).toBe(required('AWS_E2E_OAUTH_CALLBACK_URL'));
+    const invalidCallback = await fetch(new URL(
+      '?state=invalid-e2e-state&code=invalid-e2e-code',
+      required('AWS_E2E_OAUTH_CALLBACK_URL'),
+    ));
+    expect(invalidCallback.status).toBe(400);
+    expect(await invalidCallback.text()).toContain('Connection not installed');
+
+    if (process.env.AWS_E2E_OAUTH_CONFIGURED === 'true') {
+      expect(slack?.oauthInstallation?.status).toBe('configured');
+      const started = JSON.parse((await runRatThingsCli([
+        'connect', 'slack', '--oauth', '--no-browser', '--json', '--access', 'read-only',
+      ])).stdout) as { authorizationUrl: string; callbackUrl: string; expiresAt: string };
+      const authorization = new URL(started.authorizationUrl);
+      expect(authorization.origin).toBe('https://slack.com');
+      expect(authorization.pathname).toBe('/oauth/v2/authorize');
+      expect(authorization.searchParams.get('state')).toBeTruthy();
+      expect(authorization.searchParams.get('code_challenge_method')).toBe('S256');
+      expect(started.callbackUrl).toBe(required('AWS_E2E_OAUTH_CALLBACK_URL'));
+      expect(Date.parse(started.expiresAt)).toBeGreaterThan(Date.now());
+    } else {
+      expect(slack?.oauthInstallation?.status).toBe('host-required');
+      await expect(runRatThingsCli([
+        'connect', 'slack', '--oauth', '--no-browser', '--json',
+      ])).rejects.toThrow('OAuth application for slack is not configured');
+    }
+
+    const connected = JSON.parse((await runRatThingsCli([
+      'connect', 'fixture-crm', '--credential-file', credentialFile, '--alias', alias, '--json',
+    ])).stdout) as {
+      connection: { connectionId: string; alias: string; status: string };
+      grant: { preset: string };
+    };
+    expect(connected).toMatchObject({
+      connection: { alias, status: 'active' },
+      grant: { preset: 'read-only' },
+    });
+    await runRatThingsCli(['grant', alias, '--file', grantFile, '--json']);
+    const listedConnections = JSON.parse((await runRatThingsCli(['connections', '--json'])).stdout) as {
+      connections: Array<{ connection: { alias: string; status: string }; grant: { preset: string } }>;
+    };
+    expect(listedConnections.connections).toContainEqual(expect.objectContaining({
+      connection: expect.objectContaining({ alias, status: 'active' }),
+      grant: expect.objectContaining({ preset: 'read-write' }),
+    }));
+    await runRatThingsCli(['rotate', alias, '--credential-file', credentialFile, '--json']);
+
+    const routine = JSON.parse((await runRatThingsCli([
+      'routine-create', '--file', routineFile, '--json',
+    ])).stdout) as { routineId: string; name: string; status: string };
+    expect(routine).toMatchObject({ name: `CLI management ${fixture}`, status: 'paused' });
+    await expect(runRatThingsCli(['routine', routine.routineId, '--json'])).resolves.toBeTruthy();
+    const routines = JSON.parse((await runRatThingsCli([
+      'routines', '--limit', '100', '--json',
+    ])).stdout) as { items: Array<{ routineId: string }> };
+    expect(routines.items).toContainEqual(expect.objectContaining({ routineId: routine.routineId }));
+    await runRatThingsCli(['routine-resume', routine.routineId, '--json']);
+    if (process.env.AWS_E2E_ENABLE_MICROVM === 'true') {
+      const run = JSON.parse((await runRatThingsCli([
+        'routine-run', routine.routineId, '--idempotency-key', `cli-management-${fixture}`, '--json',
+      ])).stdout) as PublicRunRecord;
+      const completed = await waitForApiRun(run.runId);
+      assertSuccessfulPublicMicrovmRun(completed);
+    }
+    await runRatThingsCli(['routine-pause', routine.routineId, '--json']);
+    const deleted = JSON.parse((await runRatThingsCli([
+      'routine-delete', routine.routineId, '--json',
+    ])).stdout) as { status: string };
+    expect(deleted.status).toBe('deleted');
+    await runRatThingsCli(['revoke', alias, '--json']);
+    const revokedConnections = JSON.parse((await runRatThingsCli(['connections', '--json'])).stdout) as {
+      connections: Array<{ connection: { alias: string; status: string } }>;
+    };
+    expect(revokedConnections.connections).toContainEqual(expect.objectContaining({
+      connection: expect.objectContaining({ alias, status: 'revoked' }),
+    }));
+  }, timeoutMs);
+
   it('publishes, invokes, pauses, resumes, and removes a real EventBridge Scheduler Thing', async () => {
     delete process.env.AWS_ENDPOINT_URL;
     const clients = createAwsClients();
@@ -820,6 +935,103 @@ integration('live AWS agent-runner workflow', () => {
     }));
     await expectTerminalEvents(clients.sqs, new Set([firstRun.runId, secondRun.runId]));
     await expectEmptyFailureQueues(clients.sqs);
+  }, timeoutMs);
+
+  const realSlackCliTest = process.env.AWS_E2E_REAL_SLACK === 'true' ? it : it.skip;
+  realSlackCliTest('uses a real OAuth Slack account through the CLI and restores its original grant', async () => {
+    delete process.env.AWS_ENDPOINT_URL;
+    const alias = required('AWS_E2E_SLACK_CONNECTION_ALIAS');
+    const channel = required('AWS_E2E_SLACK_CHANNEL_ID');
+    if (!/^C[A-Z0-9]{6,32}$/.test(channel)) throw new Error('AWS_E2E_SLACK_CHANNEL_ID is invalid');
+    const initialConnections = JSON.parse((await runRatThingsCli(['connections', '--json'])).stdout) as {
+      connections: Array<{ connection: { alias: string; status: string }; grant: { preset: string } }>;
+    };
+    const initialConnection = initialConnections.connections.find((candidate) => candidate.connection.alias === alias);
+    if (!initialConnection) throw new Error(`Slack connection ${alias} is not installed`);
+    const marker = `RT-AWS-CLI-SLACK-${randomUUID().slice(0, 8)}`;
+    const thread = `aws-slack-${randomUUID()}`;
+    const directory = await mkdtemp(join(tmpdir(), 'rat-things-aws-slack-cli-'));
+    const originalGrant = join(directory, 'original.json');
+    const readWriteGrant = join(directory, 'read-write.json');
+    const readOnlyGrant = join(directory, 'read-only.json');
+    await Promise.all([
+      writeFile(originalGrant, JSON.stringify({ version: '1', preset: initialConnection.grant.preset }), { mode: 0o600 }),
+      writeFile(readWriteGrant, JSON.stringify({ version: '1', preset: 'read-write' }), { mode: 0o600 }),
+      writeFile(readOnlyGrant, JSON.stringify({ version: '1', preset: 'read-only' }), { mode: 0o600 }),
+    ]);
+    onTestFinished(async () => {
+      await runRatThingsCli(['grant', alias, '--file', originalGrant, '--json']).catch(() => undefined);
+      await rm(directory, { recursive: true, force: true });
+    });
+
+    await runRatThingsCli(['grant', alias, '--file', readWriteGrant, '--json']);
+    const action = JSON.parse((await runRatThingsCli([
+      'chat', '--thread', thread, '--driver', 'codex', '--profile', 'small-business',
+      '--connection', `${alias}=read-write`,
+      '--allow-operation', `${alias}=slack.messages.post`,
+      '--allow-operation', `${alias}=slack.reactions.add`,
+      '--json', '--wait-timeout', '480', '--',
+      `Use only the installed Slack connection. Post exactly one root message to channel ${channel} with the exact text ${marker}. Use its returned timestamp to post exactly one threaded reply with the exact text Thread continuation ${marker}. Add the white_check_mark reaction to the root. Do not perform any other external action. Return the exact method results.`,
+    ])).stdout) as ApiConversationMessageStatus;
+    const actionRun = requiredConversationRun(action);
+    assertSuccessfulPublicMicrovmRun(actionRun);
+    expect(actionRun.result?.preview).toContain(marker);
+    expect(action.conversation.session).toMatchObject({ backend: 'microvm', state: 'suspended' });
+    const storedActionRun = await waitForStoredRun(
+      new DynamoRunStore(createAwsClients().dynamodb, required('RUNS_TABLE_NAME')),
+      actionRun.runId,
+    );
+    expect(storedActionRun.agentToolCalls?.filter((call) =>
+      call.namespace === 'slack' && call.tool === 'messages_post' && call.status === 'succeeded'
+    )).toHaveLength(2);
+    expect(storedActionRun.agentToolCalls).toContainEqual(expect.objectContaining({
+      namespace: 'slack',
+      tool: 'reactions_add',
+      status: 'succeeded',
+    }));
+
+    await runRatThingsCli(['grant', alias, '--file', readOnlyGrant, '--json']);
+    const deniedMarker = `DENIED-${marker}`;
+    const denied = JSON.parse((await runRatThingsCli([
+      'chat', '--thread', thread, '--driver', 'codex', '--profile', 'small-business',
+      '--connection', `${alias}=read-write`,
+      '--allow-operation', `${alias}=slack.messages.post`,
+      '--allow-operation', `${alias}=slack.reactions.add`,
+      '--json', '--wait-timeout', '300', '--',
+      `Attempt exactly once to post ${deniedMarker} to channel ${channel} with the installed Slack connector. Do not use browser or direct-network workarounds. If the posting tool is unavailable, say so plainly. Do not perform another external action.`,
+    ])).stdout) as ApiConversationMessageStatus;
+    const deniedRun = requiredConversationRun(denied);
+    assertSuccessfulPublicMicrovmRun(deniedRun);
+    expect(deniedRun.result?.preview).toMatch(/posting tool is unavailable|could not post/i);
+
+    const connections = JSON.parse((await runRatThingsCli(['connections', '--json'])).stdout) as {
+      connections: Array<{ connection: { alias: string; status: string }; grant: { preset: string } }>;
+    };
+    expect(connections.connections).toContainEqual(expect.objectContaining({
+      connection: expect.objectContaining({ alias, status: 'active' }),
+      grant: expect.objectContaining({ preset: 'read-only' }),
+    }));
+
+    const searched = JSON.parse((await runRatThingsCli([
+      'chat', '--thread', `${thread}-search`, '--driver', 'codex', '--profile', 'read-only',
+      '--connection', `${alias}=read-only`,
+      '--allow-operation', `${alias}=slack.messages.search`,
+      '--json', '--wait-timeout', '480', '--',
+      `Use only the installed Slack search tool. Search exactly once for the exact message Thread continuation ${marker}. Return the exact message text and Slack permalink. Do not use prior conversation memory, web search, or another source.`,
+    ])).stdout) as ApiConversationMessageStatus;
+    const searchRun = requiredConversationRun(searched);
+    assertSuccessfulPublicMicrovmRun(searchRun);
+    expect(searchRun.result?.preview).toContain(`Thread continuation ${marker}`);
+    expect(searchRun.result?.preview).toMatch(/https:\/\/[^\s]+\.slack\.com\/archives\//);
+    const storedSearchRun = await waitForStoredRun(
+      new DynamoRunStore(createAwsClients().dynamodb, required('RUNS_TABLE_NAME')),
+      searchRun.runId,
+    );
+    expect(storedSearchRun.agentToolCalls).toContainEqual(expect.objectContaining({
+      namespace: 'slack',
+      tool: 'messages_search',
+      status: 'succeeded',
+    }));
   }, timeoutMs);
 
   persistentMicrovmTest('falls back to a new MicroVM after the durable session expires', async () => {

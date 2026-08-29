@@ -4,6 +4,11 @@ const elements = {
   sidebarResizer: document.querySelector('#sidebar-resizer'),
   sidebarToggle: document.querySelector('#sidebar-toggle'),
   sidebarScrim: document.querySelector('#sidebar-scrim'),
+  navConversations: document.querySelector('#nav-conversations'),
+  navConnections: document.querySelector('#nav-connections'),
+  navRoutines: document.querySelector('#nav-routines'),
+  sidebarTools: document.querySelector('.sidebar-tools'),
+  sidebarSectionLabel: document.querySelector('.section-label'),
   workspace: document.querySelector('#workspace'),
   list: document.querySelector('#conversation-list'),
   count: document.querySelector('#conversation-count'),
@@ -20,6 +25,9 @@ const elements = {
   subtitle: document.querySelector('#conversation-subtitle'),
   badge: document.querySelector('#status-badge'),
   transcript: document.querySelector('#transcript'),
+  managementView: document.querySelector('#management-view'),
+  managementLoading: document.querySelector('#management-loading'),
+  managementContent: document.querySelector('#management-content'),
   empty: document.querySelector('#empty-state'),
   jumpLatest: document.querySelector('#jump-latest'),
   composer: document.querySelector('#composer'),
@@ -91,6 +99,26 @@ const elements = {
   teachStepCount: document.querySelector('#teach-step-count'),
   teachSave: document.querySelector('#teach-save'),
   teachDiscard: document.querySelector('#teach-discard'),
+  connectDialog: document.querySelector('#connect-dialog'),
+  connectForm: document.querySelector('#connect-form'),
+  connectDialogTitle: document.querySelector('#connect-dialog-title'),
+  connectDialogClose: document.querySelector('#connect-dialog-close'),
+  connectCancel: document.querySelector('#connect-cancel'),
+  connectPluginId: document.querySelector('#connect-plugin-id'),
+  connectAuthScheme: document.querySelector('#connect-auth-scheme'),
+  connectFields: document.querySelector('#connect-fields'),
+  connectAlias: document.querySelector('#connect-alias'),
+  connectAccess: document.querySelector('#connect-access'),
+  connectSubmit: document.querySelector('#connect-submit'),
+  routineDialog: document.querySelector('#routine-dialog'),
+  routineForm: document.querySelector('#routine-form'),
+  routineDialogClose: document.querySelector('#routine-dialog-close'),
+  routineCancel: document.querySelector('#routine-cancel'),
+  routineName: document.querySelector('#routine-name'),
+  routinePrompt: document.querySelector('#routine-prompt'),
+  routineMinutes: document.querySelector('#routine-minutes'),
+  routineEnabled: document.querySelector('#routine-enabled'),
+  routineSubmit: document.querySelector('#routine-submit'),
 };
 
 const LIST_PAGE_SIZE = 25;
@@ -101,6 +129,7 @@ const DRAFT_PREFIX = 'rat-things.draft.';
 const WORK_PREFIX = 'rat-things.work.';
 
 const state = {
+  mode: 'conversations',
   conversations: [],
   listNextToken: null,
   consumedListTokens: new Set(),
@@ -141,9 +170,19 @@ const state = {
   contextOpen: false,
   contextTab: 'browser',
   computerZoom: 1,
+  managementLoading: false,
+  plugins: [],
+  connections: [],
+  connectionSets: [],
+  sourceBindings: [],
+  routines: [],
+  oauthPollTimer: null,
 };
 
 elements.newThread.addEventListener('click', openNewThread);
+elements.navConversations.addEventListener('click', () => void setWorkspaceMode('conversations'));
+elements.navConnections.addEventListener('click', () => void setWorkspaceMode('connections'));
+elements.navRoutines.addEventListener('click', () => void setWorkspaceMode('routines'));
 elements.refresh.addEventListener('click', () => void refreshConversations(true));
 elements.filter.addEventListener('input', scheduleConversationSearch);
 elements.filter.addEventListener('keydown', (event) => {
@@ -196,6 +235,12 @@ elements.teachStart.addEventListener('click', startTeaching);
 elements.teachName.addEventListener('input', renderComputer);
 elements.teachSave.addEventListener('click', () => void stopTeaching(false));
 elements.teachDiscard.addEventListener('click', () => void stopTeaching(true));
+elements.connectForm.addEventListener('submit', submitManualConnection);
+elements.connectDialogClose.addEventListener('click', () => elements.connectDialog.close());
+elements.connectCancel.addEventListener('click', () => elements.connectDialog.close());
+elements.routineForm.addEventListener('submit', submitRoutine);
+elements.routineDialogClose.addEventListener('click', () => elements.routineDialog.close());
+elements.routineCancel.addEventListener('click', () => elements.routineDialog.close());
 elements.transcript.addEventListener('scroll', updateJumpLatest);
 elements.jumpLatest.addEventListener('click', () => scrollTranscriptToBottom('smooth'));
 elements.sidebarToggle.addEventListener('click', () => setSidebarOpen(!sidebarIsOpen()));
@@ -227,6 +272,10 @@ async function initialize() {
     if (selected) await selectConversation(selected);
     else renderWorkspace({ scrollMode: 'bottom' });
     if (requestedRun && state.activeRunId === requestedRun) await openComputer();
+    const requestedView = requested.get('view');
+    if (requestedView === 'connections' || requestedView === 'routines') {
+      await setWorkspaceMode(requestedView);
+    }
     state.refreshTimer = window.setInterval(() => {
       if (!document.hidden && !state.listLoading) void refreshConversations(false);
     }, AUTO_REFRESH_MS);
@@ -235,6 +284,619 @@ async function initialize() {
     elements.refresh.disabled = false;
     document.documentElement.dataset.consoleReady = 'true';
   }
+}
+
+async function setWorkspaceMode(mode) {
+  if (!['conversations', 'connections', 'routines'].includes(mode)) return;
+  state.mode = mode;
+  window.clearInterval(state.oauthPollTimer);
+  state.oauthPollTimer = null;
+  for (const [name, button] of Object.entries({
+    conversations: elements.navConversations,
+    connections: elements.navConnections,
+    routines: elements.navRoutines,
+  })) {
+    if (name === mode) button.setAttribute('aria-current', 'page');
+    else button.removeAttribute('aria-current');
+  }
+
+  const conversations = mode === 'conversations';
+  elements.newThread.hidden = !conversations;
+  elements.sidebarTools.hidden = !conversations;
+  elements.sidebarSectionLabel.hidden = !conversations;
+  elements.list.hidden = !conversations;
+  elements.hiddenToggle.hidden = !conversations;
+  elements.transcript.hidden = !conversations;
+  elements.composer.hidden = !conversations;
+  elements.jumpLatest.hidden = !conversations || transcriptNearBottom();
+  elements.managementView.hidden = conversations;
+  elements.badge.hidden = !conversations;
+  elements.openComputer.hidden = !conversations || !state.activeRunId;
+  elements.interrupt.hidden = true;
+  elements.runStrip.hidden = !conversations || !currentWork(
+    state.activeRun?.status ?? state.detail?.status ?? state.selected?.status ?? 'idle',
+  )?.active;
+  if (state.contextOpen && !conversations) await closeComputer();
+  setSidebarOpen(false);
+
+  const url = new URL(window.location.href);
+  if (conversations) url.searchParams.delete('view');
+  else url.searchParams.set('view', mode);
+  window.history.replaceState({}, '', `${url.pathname}${url.search}${url.hash}`);
+
+  if (conversations) {
+    renderWorkspace({ scrollMode: 'keep' });
+    return;
+  }
+  elements.title.textContent = mode === 'connections' ? 'Connections' : 'Routines';
+  elements.subtitle.textContent = mode === 'connections'
+    ? 'Provider accounts and least-privilege access'
+    : 'Durable work that runs while the console is closed';
+  await loadManagementWorkspace(mode);
+}
+
+async function loadManagementWorkspace(mode = state.mode) {
+  if (state.managementLoading || mode === 'conversations') return;
+  state.managementLoading = true;
+  elements.managementLoading.hidden = false;
+  elements.managementContent.hidden = true;
+  try {
+    if (mode === 'connections') {
+      const [catalog, installed, sets, bindings] = await Promise.all([
+        api('/v1/integrations/plugins'),
+        api('/v1/integrations/connections'),
+        api('/v1/integrations/connection-sets'),
+        api('/v1/integrations/source-bindings'),
+      ]);
+      if (state.mode !== mode) return;
+      state.plugins = Array.isArray(catalog.plugins) ? catalog.plugins : [];
+      state.connections = Array.isArray(installed.connections) ? installed.connections : [];
+      state.connectionSets = Array.isArray(sets.connectionSets) ? sets.connectionSets : [];
+      state.sourceBindings = Array.isArray(bindings.sourceBindings) ? bindings.sourceBindings : [];
+      renderConnectionsWorkspace();
+    } else {
+      const result = await api('/v1/routines?limit=100');
+      if (state.mode !== mode) return;
+      state.routines = Array.isArray(result.items) ? result.items : [];
+      renderRoutinesWorkspace();
+    }
+    elements.managementContent.hidden = false;
+  } catch (error) {
+    elements.managementContent.replaceChildren(managementEmpty('Could not load this workspace', message(error)));
+    elements.managementContent.hidden = false;
+    notice(message(error), true);
+  } finally {
+    state.managementLoading = false;
+    elements.managementLoading.hidden = true;
+  }
+}
+
+function renderConnectionsWorkspace() {
+  const content = document.createDocumentFragment();
+  const active = state.connections.filter((item) => item.connection?.status === 'active');
+  content.append(managementHero(
+    'Connected services',
+    'Install provider accounts, see the authority each provider issued, and set the smaller Rat-side access ceiling used by agents.',
+    'Refresh',
+    () => void reloadManagementWorkspace(),
+  ));
+  content.append(managementSummary([
+    ['Active', active.length],
+    ['Providers', new Set(active.map((item) => item.connection.pluginId)).size],
+    ['Available', state.plugins.length],
+  ]));
+  content.append(managementSectionHeading('Your connections', `${active.length} ready for agent use`));
+  if (state.connections.length === 0) {
+    content.append(managementEmpty('No connections yet', 'Choose an installed provider below. Credentials remain in AWS Secrets Manager.'));
+  } else {
+    const grid = document.createElement('div');
+    grid.className = 'management-grid';
+    for (const item of state.connections) grid.append(connectionCard(item));
+    content.append(grid);
+  }
+  content.append(managementSectionHeading('Installed providers', 'Self-hosted in this AWS deployment'));
+  const plugins = document.createElement('div');
+  plugins.className = 'management-grid';
+  for (const plugin of state.plugins) plugins.append(pluginCard(plugin));
+  if (state.plugins.length === 0) plugins.append(managementEmpty('No providers installed', 'Provider manifests are compiled into the deployment, not downloaded at runtime.'));
+  content.append(plugins);
+  elements.managementContent.replaceChildren(content);
+}
+
+function connectionCard(item) {
+  const connection = item.connection ?? {};
+  const plugin = state.plugins.find((candidate) => candidate.id === connection.pluginId);
+  const card = managementCardShell(plugin?.title ?? connection.pluginId ?? 'Provider', connection.label ?? connection.alias ?? 'Connection');
+  card.dataset.status = connection.status ?? 'unknown';
+  const copy = card.querySelector('.management-card-copy');
+  const details = document.createElement('span');
+  details.textContent = [
+    connection.alias,
+    connection.authorization?.scheme?.toUpperCase(),
+    connection.authorization?.scopeModel === 'granular'
+      ? `${connection.authorization.scopes?.length ?? 0} provider scopes`
+      : 'Provider authority not granular',
+  ].filter(Boolean).join(' · ');
+  const stateLine = document.createElement('span');
+  stateLine.className = 'management-card-state';
+  const eventsBinding = slackEventsBinding(connection);
+  const workspaceEventsBinding = slackWorkspaceEventsBinding(connection);
+  stateLine.textContent = [
+    statusLabel(connection.status ?? 'unknown'),
+    `Rat access ${item.grant?.preset ?? 'not granted'}`,
+    connection.pluginId === 'slack'
+      ? eventsBinding
+        ? 'mentions on'
+        : workspaceEventsBinding
+          ? 'mentions use another connection'
+          : 'mentions off'
+      : null,
+  ].filter(Boolean).join(' · ');
+  copy.append(details, stateLine);
+
+  const actions = document.createElement('div');
+  actions.className = 'management-card-actions';
+  if (connection.status === 'active') {
+    const access = document.createElement('select');
+    access.setAttribute('aria-label', `Rat access for ${connection.alias ?? connection.label}`);
+    for (const [value, label] of [['read-only', 'Read only'], ['read-write', 'Read & write'], ['full', 'Full installed']]) {
+      const option = document.createElement('option');
+      option.value = value;
+      option.textContent = label;
+      option.selected = item.grant?.preset === value;
+      access.append(option);
+    }
+    access.addEventListener('change', () => void replaceConnectionGrant(connection, access));
+    if (connection.pluginId === 'slack') {
+      const events = document.createElement('button');
+      events.type = 'button';
+      events.textContent = eventsBinding
+        ? 'Mentions enabled'
+        : workspaceEventsBinding
+          ? 'Another connection handles mentions'
+          : 'Enable mentions';
+      events.disabled = Boolean(eventsBinding || workspaceEventsBinding);
+      events.addEventListener('click', () => void enableSlackMentions(item, events));
+      actions.append(events);
+    }
+    const revoke = document.createElement('button');
+    revoke.type = 'button';
+    revoke.className = 'danger-action';
+    revoke.textContent = 'Disconnect';
+    revoke.addEventListener('click', () => void revokeConnection(connection, revoke));
+    actions.append(access, revoke);
+  }
+  card.append(actions);
+  return card;
+}
+
+function slackEventsBinding(connection) {
+  const binding = slackWorkspaceEventsBinding(connection);
+  if (!binding) return null;
+  return state.connectionSets.some((set) => (
+    set.connectionSetId === binding.connectionSetId &&
+    Array.isArray(set.connectionIds) &&
+    set.connectionIds.includes(connection.connectionId)
+  )) ? binding : null;
+}
+
+function slackWorkspaceEventsBinding(connection) {
+  if (connection.pluginId !== 'slack' || !connection.externalTenantId) return null;
+  return state.sourceBindings.find((binding) => (
+    binding.sourceKind === 'slack' &&
+    binding.selector?.teamId === connection.externalTenantId &&
+    binding.connectionSetId &&
+    state.connectionSets.some((set) => set.connectionSetId === binding.connectionSetId)
+  )) ?? null;
+}
+
+async function enableSlackMentions(item, button) {
+  const connection = item.connection ?? {};
+  if (!connection.connectionId || !connection.externalTenantId) return;
+  const confirmed = window.confirm(
+    `Enable Slack mentions for ${connection.label}? Rat will accept signed @mentions from this workspace, ` +
+    'search messages the connected user can see, and reply in the originating thread. Agent access stays read-only; ' +
+    'the delivery service receives write access only for replies.',
+  );
+  if (!confirmed) return;
+  button.disabled = true;
+  try {
+    if (!['read-write', 'full'].includes(item.grant?.preset)) {
+      await api(`/v1/integrations/connections/${encodeURIComponent(connection.connectionId)}/grant`, {
+        method: 'POST',
+        body: { version: '1', preset: 'read-write' },
+      });
+    }
+    const set = await api('/v1/integrations/connection-sets', {
+      method: 'POST',
+      body: {
+        version: '1',
+        name: `slack-events-${String(connection.externalTenantId).toLowerCase()}`,
+        connections: [connection.connectionId],
+        defaults: { slack: connection.connectionId },
+      },
+    });
+    await api('/v1/integrations/source-bindings', {
+      method: 'POST',
+      body: {
+        version: '1',
+        sourceKind: 'slack',
+        selector: { teamId: connection.externalTenantId },
+        capabilityProfile: 'read-only',
+        connectionSetId: set.connectionSetId,
+      },
+    });
+    await reloadManagementWorkspace();
+    notice(`Slack mentions are enabled for ${connection.label}.`);
+  } catch (error) {
+    button.disabled = false;
+    notice(message(error), true);
+  }
+}
+
+function pluginCard(plugin) {
+  const card = managementCardShell(plugin.title, plugin.description);
+  card.classList.add('plugin-card');
+  const copy = card.querySelector('.management-card-copy');
+  const operations = document.createElement('span');
+  operations.textContent = `${plugin.operations?.length ?? 0} installed operation${plugin.operations?.length === 1 ? '' : 's'} · reviewed provider adapter`;
+  copy.append(operations);
+  const authActions = document.createElement('div');
+  authActions.className = 'plugin-auth-actions';
+  for (const authentication of plugin.authentication ?? []) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    if (authentication.oauth2) {
+      const configured = plugin.oauthInstallation?.status === 'configured';
+      button.textContent = configured ? `Connect with ${plugin.title}` : 'OAuth app setup required';
+      button.dataset.primary = String(configured);
+      button.disabled = !configured;
+      button.addEventListener('click', () => void beginOAuth(plugin, button));
+      authActions.append(button);
+      if (!configured) {
+        const note = document.createElement('span');
+        note.className = 'oauth-note';
+        note.textContent = `Register ${plugin.oauthInstallation?.callbackUrl ?? 'the deployment callback URL'} in the provider app, then set its secret ARN in Terraform.`;
+        copy.append(note);
+      }
+      continue;
+    }
+    button.textContent = authentication.title;
+    button.addEventListener('click', () => openManualConnection(plugin, authentication));
+    authActions.append(button);
+  }
+  copy.append(authActions);
+  return card;
+}
+
+async function beginOAuth(plugin, button) {
+  button.disabled = true;
+  const before = new Set(state.connections.map((item) => item.connection?.connectionId));
+  try {
+    const result = await api('/v1/integrations/oauth/authorizations', {
+      method: 'POST',
+      body: { version: '1', pluginId: plugin.id, grant: { version: '1', preset: 'read-only' } },
+    });
+    const opened = window.open(result.authorizationUrl, '_blank', 'noopener,noreferrer');
+    notice(opened
+      ? `Finish connecting ${plugin.title} in the provider window. This page will update automatically.`
+      : 'Pop-up blocked. Allow pop-ups for this console and try again.',
+      !opened);
+    if (opened) {
+      window.clearInterval(state.oauthPollTimer);
+      state.oauthPollTimer = window.setInterval(() => void pollOAuthCompletion(plugin, before), 2_000);
+      window.setTimeout(() => {
+        window.clearInterval(state.oauthPollTimer);
+        state.oauthPollTimer = null;
+      }, 10 * 60_000);
+    } else {
+      button.disabled = false;
+    }
+  } catch (error) {
+    notice(message(error), true);
+    button.disabled = false;
+  }
+}
+
+async function pollOAuthCompletion(plugin, before) {
+  if (state.mode !== 'connections' || state.managementLoading) return;
+  try {
+    const result = await api('/v1/integrations/connections');
+    const connections = Array.isArray(result.connections) ? result.connections : [];
+    const added = connections.find((item) => item.connection?.pluginId === plugin.id && !before.has(item.connection?.connectionId));
+    if (!added) return;
+    state.connections = connections;
+    window.clearInterval(state.oauthPollTimer);
+    state.oauthPollTimer = null;
+    renderConnectionsWorkspace();
+    notice(`${plugin.title} connected as ${added.connection.label}.`);
+  } catch {
+    // The console remains usable while the callback window or network is in flight.
+  }
+}
+
+function openManualConnection(plugin, authentication) {
+  elements.connectPluginId.value = plugin.id;
+  elements.connectAuthScheme.value = authentication.scheme;
+  elements.connectDialogTitle.textContent = `Connect ${plugin.title}`;
+  elements.connectAlias.value = '';
+  elements.connectAccess.value = 'read-only';
+  elements.connectFields.replaceChildren();
+  for (const field of (authentication.fields ?? []).filter((candidate) => !candidate.computed)) {
+    const label = document.createElement('label');
+    label.className = 'dialog-field';
+    const title = document.createElement('span');
+    title.textContent = field.label;
+    const input = document.createElement('input');
+    input.type = field.secret ? 'password' : 'text';
+    input.autocomplete = field.secret ? 'off' : 'on';
+    input.dataset.credentialKey = field.key;
+    input.required = field.required !== false;
+    input.maxLength = 32_768;
+    label.append(title, input);
+    elements.connectFields.append(label);
+  }
+  elements.connectDialog.showModal();
+  window.setTimeout(() => elements.connectFields.querySelector('input')?.focus(), 0);
+}
+
+async function submitManualConnection(event) {
+  event.preventDefault();
+  if (!elements.connectForm.reportValidity()) return;
+  const credential = {};
+  for (const input of elements.connectFields.querySelectorAll('[data-credential-key]')) {
+    if (input.value) credential[input.dataset.credentialKey] = input.value;
+  }
+  elements.connectSubmit.disabled = true;
+  try {
+    const result = await api('/v1/integrations/connections', {
+      method: 'POST',
+      body: {
+        version: '1',
+        pluginId: elements.connectPluginId.value,
+        authScheme: elements.connectAuthScheme.value,
+        credential,
+        grant: { version: '1', preset: elements.connectAccess.value },
+        ...(elements.connectAlias.value.trim() ? { alias: elements.connectAlias.value.trim() } : {}),
+      },
+    });
+    elements.connectDialog.close();
+    await reloadManagementWorkspace();
+    notice(`${result.connection?.label ?? 'Provider account'} verified and connected.`);
+  } catch (error) {
+    notice(message(error), true);
+  } finally {
+    elements.connectSubmit.disabled = false;
+  }
+}
+
+async function replaceConnectionGrant(connection, select) {
+  const previous = state.connections.find((item) => item.connection?.connectionId === connection.connectionId)?.grant?.preset;
+  select.disabled = true;
+  try {
+    await api(`/v1/integrations/connections/${encodeURIComponent(connection.connectionId)}/grant`, {
+      method: 'POST',
+      body: { version: '1', preset: select.value },
+    });
+    await reloadManagementWorkspace();
+    notice(`Rat access for ${connection.alias} is now ${select.value}.`);
+  } catch (error) {
+    select.value = previous ?? 'read-only';
+    select.disabled = false;
+    notice(message(error), true);
+  }
+}
+
+async function revokeConnection(connection, button) {
+  if (!window.confirm(`Disconnect ${connection.label}? Agents will no longer be able to use it.`)) return;
+  button.disabled = true;
+  try {
+    await api(`/v1/integrations/connections/${encodeURIComponent(connection.connectionId)}/revoke`, {
+      method: 'POST',
+      body: {},
+    });
+    await reloadManagementWorkspace();
+    notice(`${connection.label} disconnected and its stored credential scheduled for deletion.`);
+  } catch (error) {
+    button.disabled = false;
+    notice(message(error), true);
+  }
+}
+
+function renderRoutinesWorkspace() {
+  const content = document.createDocumentFragment();
+  const enabled = state.routines.filter((routine) => routine.status === 'enabled');
+  content.append(managementHero(
+    'Routines',
+    'Create durable interval work, pause it without losing configuration, or run it immediately. AWS scheduling continues with this console closed.',
+    'New routine',
+    openRoutineDialog,
+  ));
+  content.append(managementSummary([
+    ['Enabled', enabled.length],
+    ['Paused', state.routines.filter((routine) => routine.status === 'paused').length],
+    ['Next run', enabled.length ? relativeTime(enabled.map((routine) => routine.nextRunAt).sort()[0]) : '—'],
+  ]));
+  content.append(managementSectionHeading('Scheduled work', `${state.routines.length} routine${state.routines.length === 1 ? '' : 's'}`));
+  if (state.routines.length === 0) {
+    content.append(managementEmpty('No routines yet', 'Create a routine for recurring work that should continue after you close the console.'));
+  } else {
+    const grid = document.createElement('div');
+    grid.className = 'management-grid';
+    for (const routine of state.routines) grid.append(routineCard(routine));
+    content.append(grid);
+  }
+  elements.managementContent.replaceChildren(content);
+}
+
+function routineCard(routine) {
+  const card = managementCardShell('Routine', routine.name);
+  card.dataset.status = routine.status;
+  const copy = card.querySelector('.management-card-copy');
+  const schedule = document.createElement('span');
+  schedule.textContent = `Every ${formatInterval(routine.schedule?.everyMinutes)} · next ${relativeTime(routine.nextRunAt)}`;
+  const stateLine = document.createElement('span');
+  stateLine.className = 'management-card-state';
+  stateLine.textContent = routine.lastRunAt
+    ? `${statusLabel(routine.status)} · last ran ${relativeTime(routine.lastRunAt)}`
+    : `${statusLabel(routine.status)} · has not run yet`;
+  copy.append(schedule, stateLine);
+  const actions = document.createElement('div');
+  actions.className = 'management-card-actions';
+  const run = document.createElement('button');
+  run.type = 'button';
+  run.textContent = 'Run now';
+  run.addEventListener('click', () => void routineAction(routine, 'run', run));
+  const toggle = document.createElement('button');
+  toggle.type = 'button';
+  toggle.textContent = routine.status === 'enabled' ? 'Pause' : 'Resume';
+  toggle.addEventListener('click', () => void routineAction(routine, routine.status === 'enabled' ? 'pause' : 'resume', toggle));
+  const remove = document.createElement('button');
+  remove.type = 'button';
+  remove.className = 'danger-action';
+  remove.textContent = 'Delete';
+  remove.addEventListener('click', () => void routineAction(routine, 'delete', remove));
+  actions.append(run, toggle, remove);
+  card.append(actions);
+  return card;
+}
+
+function openRoutineDialog() {
+  elements.routineForm.reset();
+  elements.routineMinutes.value = '1440';
+  elements.routineEnabled.checked = true;
+  elements.routineDialog.showModal();
+  window.setTimeout(() => elements.routineName.focus(), 0);
+}
+
+async function submitRoutine(event) {
+  event.preventDefault();
+  if (!elements.routineForm.reportValidity()) return;
+  elements.routineSubmit.disabled = true;
+  try {
+    const routine = await api('/v1/routines', {
+      method: 'POST',
+      body: {
+        version: '1',
+        name: elements.routineName.value.trim(),
+        schedule: { kind: 'interval', everyMinutes: Number(elements.routineMinutes.value) },
+        request: { version: '1', prompt: elements.routinePrompt.value.trim() },
+        enabled: elements.routineEnabled.checked,
+      },
+    });
+    elements.routineDialog.close();
+    await reloadManagementWorkspace();
+    notice(`Routine “${routine.name}” created${routine.status === 'enabled' ? ' and enabled' : ' in a paused state'}.`);
+  } catch (error) {
+    notice(message(error), true);
+  } finally {
+    elements.routineSubmit.disabled = false;
+  }
+}
+
+async function routineAction(routine, operation, button) {
+  if (operation === 'delete' && !window.confirm(`Delete “${routine.name}”? This keeps a short audit tombstone but stops future runs.`)) return;
+  button.disabled = true;
+  try {
+    const result = await api(`/v1/routines/${encodeURIComponent(routine.routineId)}/${operation}`, {
+      method: 'POST',
+      body: {},
+    });
+    if (operation === 'run') notice(`Run ${result.runId} queued from “${routine.name}”.`);
+    else notice(`Routine “${routine.name}” ${operation === 'delete' ? 'deleted' : operation === 'pause' ? 'paused' : 'resumed'}.`);
+    await reloadManagementWorkspace();
+  } catch (error) {
+    button.disabled = false;
+    notice(message(error), true);
+  }
+}
+
+async function reloadManagementWorkspace() {
+  state.managementLoading = false;
+  await loadManagementWorkspace(state.mode);
+}
+
+function managementHero(titleText, descriptionText, actionText, action) {
+  const hero = document.createElement('header');
+  hero.className = 'management-hero';
+  const copy = document.createElement('div');
+  const eyebrow = document.createElement('p');
+  eyebrow.className = 'eyebrow';
+  eyebrow.textContent = 'AWS control plane';
+  const title = document.createElement('h2');
+  title.textContent = titleText;
+  const description = document.createElement('p');
+  description.textContent = descriptionText;
+  copy.append(eyebrow, title, description);
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'primary-button';
+  button.textContent = actionText;
+  button.addEventListener('click', action);
+  hero.append(copy, button);
+  return hero;
+}
+
+function managementSummary(items) {
+  const summary = document.createElement('section');
+  summary.className = 'management-summary';
+  for (const [label, value] of items) {
+    const stat = document.createElement('div');
+    stat.className = 'management-stat';
+    const strong = document.createElement('strong');
+    strong.textContent = String(value);
+    const text = document.createElement('span');
+    text.textContent = label;
+    stat.append(strong, text);
+    summary.append(stat);
+  }
+  return summary;
+}
+
+function managementSectionHeading(titleText, detailText) {
+  const heading = document.createElement('div');
+  heading.className = 'management-section-heading';
+  const title = document.createElement('h3');
+  title.textContent = titleText;
+  const detail = document.createElement('span');
+  detail.textContent = detailText;
+  heading.append(title, detail);
+  return heading;
+}
+
+function managementCardShell(iconText, titleText) {
+  const card = document.createElement('article');
+  card.className = 'management-card';
+  const icon = document.createElement('span');
+  icon.className = 'management-card-icon';
+  icon.textContent = String(iconText ?? 'R').slice(0, 2);
+  icon.setAttribute('aria-hidden', 'true');
+  const copy = document.createElement('div');
+  copy.className = 'management-card-copy';
+  const title = document.createElement('strong');
+  title.textContent = titleText;
+  copy.append(title);
+  card.append(icon, copy);
+  return card;
+}
+
+function managementEmpty(titleText, detailText) {
+  const empty = document.createElement('div');
+  empty.className = 'management-empty';
+  const title = document.createElement('strong');
+  title.textContent = titleText;
+  const detail = document.createElement('span');
+  detail.textContent = detailText;
+  empty.append(title, detail);
+  return empty;
+}
+
+function formatInterval(minutes) {
+  if (!Number.isFinite(minutes)) return 'unknown interval';
+  if (minutes % 10_080 === 0) return `${minutes / 10_080} week${minutes === 10_080 ? '' : 's'}`;
+  if (minutes % 1_440 === 0) return `${minutes / 1_440} day${minutes === 1_440 ? '' : 's'}`;
+  if (minutes % 60 === 0) return `${minutes / 60} hour${minutes === 60 ? '' : 's'}`;
+  return `${minutes} minute${minutes === 1 ? '' : 's'}`;
 }
 
 async function refreshConversations(showNotice) {
@@ -850,6 +1512,7 @@ function renderComposerAttachments() {
 }
 
 function renderWorkspace(options = {}) {
+  if (state.mode !== 'conversations') return;
   const scroll = options.scrollSnapshot ?? captureTranscriptScroll();
   const conversation = state.detail ?? state.selected;
   const threadKey = state.draftThreadKey ?? conversation?.threadKey;
@@ -1431,7 +2094,7 @@ function workNode(work) {
 }
 
 function renderRunStrip(work) {
-  elements.runStrip.hidden = !work?.active;
+  elements.runStrip.hidden = state.mode !== 'conversations' || !work?.active;
   if (!work?.active) return;
   const progress = progressText(work.status, state.detail?.latestProgress?.text ?? state.selected?.latestProgress?.text);
   elements.runStrip.dataset.state = work.status;
@@ -2050,6 +2713,7 @@ function statusLabel(status) {
   return ({
     idle: 'Ready', pending: 'Saving', queued: 'Queued', dispatching: 'Starting', running: 'Working',
     awaiting_resume: 'Resuming', cancelling: 'Stopping', succeeded: 'Complete', failed: 'Failed', cancelled: 'Cancelled',
+    active: 'Active', expired: 'Expired', revoked: 'Revoked', enabled: 'Enabled', paused: 'Paused', deleted: 'Deleted',
   })[status] ?? String(status).replaceAll('_', ' ');
 }
 

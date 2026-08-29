@@ -284,10 +284,10 @@ Teams requires. It enables tenant policy, installation lifecycle, exact conversa
 proactive completion, and future ordinary-input/cancel actions without coupling runs to a Power
 Automate owner. It must not add a mid-Run authority-widening path.
 
-## Slack: optional adapter
+## Slack: self-hosted channel adapter
 
-Slack is supported as an optional compatibility surface, not the primary product direction. The
-ingress validates Slack v0 signatures and rejects timestamps with more than five minutes of skew. It
+Slack is an opt-in provider channel in each self-hosted deployment. The ingress validates Slack v0
+signatures and rejects timestamps with more than five minutes of skew. It
 answers URL-verification challenges and accepts only `app_mention` events. Mentions carrying
 `bot_id`, `bot_profile`, or the `bot_message` subtype are ignored so the adapter does not consume its
 own bot output. Results use `chat.postMessage`, preserving the source thread when one exists.
@@ -302,14 +302,32 @@ ingress queue/worker split as a production requirement and validate cold starts 
 
 To enable it:
 
-1. Create a Slack app with an event request URL from the Terraform output, subscribe to
-   `app_mention`, and install it in the intended workspace.
-2. Store the signing secret and a separate bot token in Secrets Manager.
-3. Grant only the scopes required to receive mentions and post messages, configure the two secret
-   ARNs, and leave the adapter disabled/unrouted when Slack is not used.
-4. Test URL verification, a mention, one threaded result, a replayed event, and a stale signature.
+1. Create a Slack app, register Terraform's `oauth_callback_url`, set the Slack event request URL to
+   the `webhook_urls.slack` output, and subscribe to `app_mention`.
+2. Request bot scopes `app_mentions:read`, `chat:write`, and `reactions:write`, plus user scope
+   `search:read`. Reinstall the app after changing scopes.
+3. Put the OAuth application's `client_id`/`client_secret` and the separate Slack signing secret in
+   Secrets Manager. Configure their ARNs and enable the Slack webhook route; do not store an issued
+   bot or user token in Terraform.
+4. Complete the Connections-page flow or
+   `rat-things connect slack --oauth --wait --access read-write --alias slack-work`.
+5. Run `rat-things slack-events slack-work --profile read-only --json`. It derives the team selector
+   from the verified Connection, creates one owner Connection Set/binding, and rejects a competing
+   Connection for the same workspace. The service Connection remains write-capable for trusted
+   threaded delivery while the source agent receives the named fixed profile.
+6. Test URL verification, a real mention, a same-thread continuation, replayed event, stale
+   signature, read-only write denial, delegated search, and both bot/user token refresh paths.
 
 Slack event IDs are the idempotency source. Accepted mentions require both `team_id` and the event's
 user ID, deriving ownership as `slack:<team>:<user>`; missing identity is ignored. Destination
 channel/thread metadata does not establish the run owner and the bot token does not establish the
-inbound sender.
+inbound sender. Delegated search visibility is exactly the installing Slack user's visibility; it
+is not bot-wide or workspace-administrator search authority.
+
+The screenshot below is the real Slack client from the 2026-08-28 PDT live-AWS canary. A human
+mention started the conversation, the trusted notifier replied in the source thread, and a later
+human message continued the exact same Rat conversation, MicroVM, and native Codex thread while
+recalling both earlier markers. Run and marker labels are disposable test evidence, not public API
+identifiers or credential material.
+
+![Real Slack thread showing Rat Things mention ingress, source-thread delivery, and remembered continuation](../assets/slack-live-thread.jpg)

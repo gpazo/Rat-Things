@@ -156,6 +156,93 @@ live-AWS-only test.
 ./scripts/aws-e2e-destroy.sh
 ```
 
+The ordinary suite proves the CLI, connection vault, grants, rotation, revocation, and routine
+lifecycle against live AWS with a disposable provider fixture. A real OAuth provider is an explicit
+operator-owned opt-in. Supply only an existing Secrets Manager ARN at deployment time:
+
+```bash
+AWS_E2E_OAUTH_APP_SECRET_ARNS='{"slack":"arn:aws:secretsmanager:us-west-2:111122223333:secret:rat/oauth/slack-AbCdEf"}' \
+AWS_E2E_ENABLE_SLACK_WEBHOOK=true \
+AWS_E2E_SLACK_SIGNING_SECRET_FILE=/secure/path/slack-signing-secret \
+AWS_E2E_REAL_CODEX=true \
+AWS_E2E_DEFAULT_AGENT_DRIVER=codex \
+./scripts/aws-e2e-deploy.sh oauth-canary
+
+npm run aws:e2e:oauth:test -- oauth-canary slack
+```
+
+The secret JSON must contain `client_id` and `client_secret`, and the Slack app must register the
+deployment's `oauth_callback_url` and Slack webhook URL. Subscribe to `app_mention`; request bot
+scopes `app_mentions:read`, `chat:write`, and `reactions:write` plus user scope `search:read`, then
+reinstall after changing scopes. The canary opens the reviewed authorization URL, waits for the
+callback, and prints only the verified public Connection bundle. It never copies the app secret,
+signing secret, or issued tokens into the runtime environment, command line, Terraform state, or
+test log. Use a disposable provider app/workspace and destroy the stack afterward.
+
+Re-running `aws-e2e-deploy.sh` for an existing deployment inherits its saved OAuth map, webhook
+toggle/signing-secret path, driver, and S3 Files settings. Explicit environment variables still
+override saved values. This prevents a MicroVM-only update from silently removing the Slack route
+or OAuth application configuration.
+
+After consent creates the verified Connection and the bot joins a disposable channel, opt into the
+external CLI action/denial case with public identifiers only:
+
+```bash
+AWS_E2E_REAL_SLACK=true \
+AWS_E2E_SLACK_CONNECTION_ALIAS=slack-disposable \
+AWS_E2E_SLACK_CHANNEL_ID=C0123456789 \
+./scripts/aws-e2e-test.sh oauth-canary
+```
+
+This paid real-Codex case temporarily raises the Rat grant, posts one uniquely labeled root and one
+thread reply, adds one reaction, narrows access and proves the post tool is unavailable, then uses
+the separately authorized Slack user token to find the exact thread reply and permalink. Cleanup
+restores the Connection's original grant even when an assertion fails. It never changes provider
+scopes or exposes either OAuth token family. Independently confirm the labeled message, reply,
+reaction, and absent denied marker in the Slack client.
+
+On 2026-08-27, deployment `oauth260827a` exercised the provider-agnostic part of this path and the
+complete CLI management surface against 236 live AWS resources. The exact callback was discoverable,
+invalid state failed closed with HTTP 400, and the unconfigured Slack app correctly reported
+`host-required`. The same 21.8-second canary created, granted, rotated, and revoked a verified
+Fixture CRM Connection, then created, listed, read, resumed, ran, paused, and deleted an interval
+Routine; run-now completed in a real managed MicroVM with S3 Files enabled.
+
+On 2026-08-28 PDT, that stack continued through a real Slack provider canary. An operator-owned
+Slack app registered the exact live callback and Events URL, requested bot scopes
+`app_mentions:read`, `chat:write`, and `reactions:write` plus delegated user scope `search:read`, and
+enabled PKCE and token rotation. The built CLI waited through consent, token exchange, provider
+identity verification, and Connection persistence. Slack returned separate rotating bot and user
+token families; only the owner credential secret received those values. The desktop Connections
+page changed Rat-side access and restored it, while the CLI independently observed the same active
+Connection, four provider scopes, grant, one-Connection Set, and verified-workspace source binding.
+Private frames exclude all credential screens and token values.
+
+The same deployment exercised both channel ingress and authenticated agent tools. A human
+`app_mention` passed Slack signature verification, started a real Codex conversation, and received
+its result in the source thread. A follow-up reused the same conversation, MicroVM, and native Codex
+thread and recalled a value from the first turn. Separately, the built CLI posted one uniquely
+labeled root plus one threaded reply, added one check-mark reaction, proved persistent read-only
+denial, and used `search:read` to recover the exact thread text and permalink. The live Connections
+UI also round-tripped a second account's Rat grant while correctly showing that another Connection
+owned mention routing.
+
+Finally, the canary forced both `expires_at` and `user_expires_at` into the past. Fresh Runs
+refreshed the bot and delegated-user token families independently; the stored credential again held
+future expiries and both access/refresh pairs without printing any value. This found and fixed a
+refresh parser that incorrectly required Slack to repeat `authed_user` while refreshing only the bot
+token. MicroVM image `8.0` then passed the same-thread continuation after making ephemeral Codex
+plugin-clone cleanup retrying and non-fatal.
+
+That journey also found two failure-recovery defects before release. A first cold MicroVM timed out
+mounting S3 Files and terminated. The completion worker tried to suspend it again and stranded the
+conversation; terminated-session responses are now treated as already unavailable so failure is
+folded durably and pending work wakes. The refresh canary then proved that the OAuth app ARN map was
+missing from the MicroVM image even though IAM was already scoped correctly; Terraform now passes
+only the ARN map into the image. Image `3.0` completed the refresh proof. One preceding image build
+failed on an AWS Public ECR TLS handshake timeout and the identical non-destructive apply succeeded
+on retry.
+
 Install the browser used by the focused console phase once per machine:
 
 ```bash

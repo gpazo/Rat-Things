@@ -50,6 +50,8 @@ Cross-identity lookup is an administrative capability outside v1.
 | `GET /schemas/thing-version-v1.json` | None | Immutable-version envelope JSON Schema |
 | `GET /v1/capability-profiles` | Required | List installed capability-policy ceilings |
 | `GET /v1/integrations/plugins` | Required | List trusted integration manifests and operation schemas |
+| `POST /v1/integrations/oauth/authorizations` | Required | Create a ten-minute owner-bound OAuth state and PKCE authorization URL from one configured plugin |
+| `GET /v1/integrations/oauth/callback` | None | Provider redirect target; atomically consumes state, exchanges/verifies the code, and stores the credential |
 | `GET /v1/integrations/connections` | Required | List the owner's connections and persistent grants; never returns credentials |
 | `POST /v1/integrations/connections` | Required | Verify one provider credential, derive account metadata, then create its secret and initial grant |
 | `POST /v1/integrations/connections/{connectionId}/grant` | Required | Replace the account's persistent Rat-side grant |
@@ -150,11 +152,21 @@ list owner-visible state and reconcile provider-derived identity or Thing `specH
 retrying; do not blindly create a duplicate. Run invocation and conversation messages have explicit
 idempotency controls.
 
-The CLI implements this contract as
-`rat-things connect PLUGIN --credential-file FILE [--auth-scheme SCHEME] [--access PRESET]`.
+The CLI implements the manual contract as
+`rat-things connect PLUGIN --credential-file FILE [--auth-scheme SCHEME] [--access PRESET]` and
+configured self-hosted OAuth as
+`rat-things connect PLUGIN --oauth [--wait] [--no-browser] [--access PRESET]`. `--wait`
+keeps the CLI attached until the callback installs and verifies the new connection; without it,
+the CLI returns the short-lived authorization URL immediately.
 Credential rotation uses `rat-things rotate ACCOUNT --credential-file FILE`; the server verifies
 that the new credential resolves to the same provider tenant/subject before replacing it. See the
 [complete Integration Contract v1](plugins.md#the-integration-contract-v1).
+
+For the built-in Slack channel bridge,
+`rat-things slack-events ACCOUNT [--profile read-only] [--json]` derives the team selector from the
+verified Connection, creates or reuses the owner Connection Set/source binding, and rejects a second
+Connection that attempts to route mentions for the same workspace. The command's output is JSON;
+`--json` is accepted for consistency with other machine-oriented CLI commands.
 
 ## Discovery and error contract
 

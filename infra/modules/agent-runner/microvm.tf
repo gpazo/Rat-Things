@@ -88,6 +88,14 @@ resource "awscc_lambda_microvm_image" "runner" {
       key   = "INTEGRATION_PLUGIN_BASE_URLS"
       value = jsonencode(var.integration_plugin_base_urls)
     },
+    ] : [], length(var.integration_oauth_app_secret_arns) > 0 ? [
+    {
+      # Only secret ARNs cross the image boundary. The worker role already has
+      # narrowly scoped GetSecretValue access and the runner resolves the
+      # OAuth application immediately before a fenced token refresh.
+      key   = "INTEGRATION_OAUTH_APP_SECRET_ARNS"
+      value = jsonencode(var.integration_oauth_app_secret_arns)
+    },
     ] : [], local.publication_delivery_enabled ? [
     {
       key   = "AGENT_PUBLICATION_ENABLED"

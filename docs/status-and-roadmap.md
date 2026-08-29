@@ -32,22 +32,72 @@ broad real-agent evaluation, or disaster-recovery proof.
 | Codex App Server bridge | Core and structured-input path live validated | Thread start/resume, turn control, events/server requests, ordinary structured input, reasoning/personality, skills, apps, MCP config, experimental dynamic tools, and fixed `approvalPolicy: never` |
 | Context compaction and memory | Native compaction locally live validated; semantic memory missing | Conversation-scoped S3 Files persists `CODEX_HOME`; a fresh App Server process resumed a forced-compacted thread. Codex `memories` is disabled and Rat has no cross-conversation semantic-memory contract |
 | Capability profiles | Implemented/locally tested | Deployment ceiling plus `read-only`, `small-business`, and `microvm-full`; requests can narrow but not widen profiles |
-| Integration Contract v1 | Implemented/local and live AWS validated | Manifest-driven credential-only CLI/API onboarding, pre-persistence verification, provider-derived account identity/access/scopes, stable invalid-credential errors, and verified rotation |
+| Integration Contract v1 | Real-provider OAuth installation, recovery rotation, and independent multi-token refresh live AWS validated; concurrent fencing locally validated | Manifest-driven CLI/API/console onboarding, self-hosted authorization-code/PKCE with one-time state, automatic refresh leases, pre-persistence verification, provider-derived identity/access/scopes, stable errors, and verified rotation |
 | Multi-account integrations | Implemented/local and live AWS validated | Owner-scoped connections, Secrets Manager vault, grants, same-plugin account sets, source bindings, fixed pre-launch permission intersection, resource constraints, and revocation |
-| Reference integration tools | Built-ins locally tested; fixture live AWS validated | Fixed-origin Slack search/post/reaction and Stripe customer/invoice/refund adapters; disposable Fixture CRM proves authenticated read/write behavior without claiming customer-provider coverage |
+| Reference integration tools | Slack identity, delegated search, post, threaded reply, reaction, dual-token refresh, and denial live AWS validated | Fixed-origin Slack search/post/reaction and Stripe customer/invoice/refund adapters; Slack search uses a separately issued user token with `search:read`, while Stripe/customer-provider actions are not claimed live without disposable accounts |
 | Browser computer use | Live view/takeover/teaching implemented and live AWS validated | Real-Codex AWS proofs cover the 12 agent command types, capture, recording, private-target blocking, lifecycle-port isolation, publication, authenticated screenshots, an exclusive renewable browser lease, redacted demonstrations, unpublished draft-Thing creation, return of browser control, and the typed CLI action surface; secure credential brokering, file transfer, and general desktop control remain out of scope |
-| Durable routines | Implemented/local end-to-end and simulated | Owner-scoped interval create/list/get/pause/resume/delete/run-now, encrypted S3 request, due-time GSI, deterministic occurrence submission, duplicate-tick fencing, and request-digest verification |
+| Durable routines | Implemented/local and live AWS CLI validated | Owner-scoped interval create/list/get/pause/resume/delete/run-now, encrypted S3 request, due-time GSI, deterministic occurrence submission, duplicate-tick fencing, request-digest verification, and matching console/CLI lifecycle management |
 | Codex authentication | Live/local validated | Short-term Bedrock in AWS; trusted local runs can reuse the device's ChatGPT subscription without copying it into remote runs |
 | Mock driver | Implemented/tested | Used for deterministic local and live infrastructure validation |
 | GitHub/GitLab | Initial adapters | Signed ingress, loop guards, source-thread egress; credential and policy hardening remain |
 | Teams | Durable chat path locally/live AWS validated | Signed mentions get an immediate acknowledgement, enter the mailbox, and complete through threaded gateway egress; Microsoft authentication and live tenant delivery remain |
-| Slack | Optional initial adapter | App mentions and threaded posts; not the primary deployment target |
+| Slack | Self-hosted OAuth, channel ingress, source-thread delivery/continuation, and agent tools live validated | A real workspace completed consent, bot+user token exchange and refresh, provider identity verification, signed app mentions, same-MicroVM/native-thread continuation, CLI search/root/thread/reaction actions, Connections UI grant management, and read-only write denial; enabling the route remains optional per deployment |
 | Observability/recovery | Generation-fenced liveness live validated; broader drills remain | Low-cardinality queue/processing metrics, structured logs, durable queues/events, worker heartbeats, exact MicroVM health inspection, conditional stale failure/cancellation, conflict quarantine, delivery leases, failure queues, and alarms |
 | Cost model | Live canary baseline measured | The 2026-08-16 two-turn site canary has a dated $0.380 estimate using rates captured then; non-model infrastructure was about $0.046, while current repricing and sustained-load ceilings remain unmeasured |
 | Multi-tenant hardening | Not complete | Run responses now strip storage/authority internals; destination authorization, budgets, rate limits, output policy, and security review remain |
 
+## Validation completed on 2026-08-28 PDT
+
+- The existing 236-resource `oauth260827a` stack completed a real Slack authorization against a
+  host-owned app and workspace. The built CLI started an S256 PKCE authorization with `--wait`;
+  Slack granted bot scopes `app_mentions:read`, `chat:write`, and `reactions:write` plus delegated
+  user scope `search:read`. The public AWS callback consumed the one-time state, and Slack
+  `auth.test` verified the provider tenant and subject before Rat persisted an active owner-scoped
+  Connection containing the two independently rotating token families.
+- `rat-things slack-events` derived the workspace selector from that verified Connection, created
+  one Connection Set and read-only source binding, and was idempotent on repeat. A second account
+  for the same workspace was visibly blocked from claiming mention routing. The live Connections
+  page round-tripped that second account's Rat grant while the CLI independently observed the
+  backend change and restoration.
+- A signed human `app_mention` started a real Codex Run and the trusted notifier delivered its result
+  in the source Slack thread. A follow-up returned a remembered value while reusing the exact public
+  conversation, MicroVM ID, and native Codex thread ID. A cleanup race in Codex's temporary plugin
+  clone initially failed that continuation; image `8.0` made scratch deletion retrying/non-fatal and
+  the fresh two-turn proof passed.
+- The built CLI separately completed a fresh real-account matrix: two successful Slack posts (root
+  plus threaded reply), one check-mark reaction, persistent read-only denial with no denied marker,
+  and one delegated search returning the exact thread text and Slack permalink. Its cleanup restored
+  the original Connection grant even after a deliberately failing first assertion exposed that the
+  agent's final prose is not a reliable substitute for the durable tool-call ledger.
+- The canary forced both stored token expiries into the past. Fresh Runs refreshed the bot and user
+  token families independently and completed authenticated post/search work. Both resulting
+  expiries were in the future and all four access/refresh fields remained present; no credential
+  value was printed or placed in Terraform state, agent arguments, screenshots, or recordings.
+- A cold S3 Files timeout terminated the first canary VM and exposed a recovery defect: completion
+  retried `SuspendMicrovm` on the already-terminated guest and left the conversation active.
+  Terminated-session responses are now treated as unavailable, the durable failure folds, and
+  queued work wakes. A unit regression and the live retry cover the path.
+- The canary exposed two implementation defects before release. A shell fallback appended an extra
+  brace to non-empty OAuth secret maps; the parser and a two-case regression test now preserve both
+  configured and empty JSON maps. The callback stylesheet began with an invalid top-level
+  declaration, leaving its card uncentered and low-contrast; the corrected callback was repackaged,
+  deployed, and visually rechecked against the live endpoint.
+- The private evidence bundle contains the Slack consent screen, AWS callback, final Connections
+  view, and an H.264 consent-to-verified-account demo. It excludes Slack app credentials, OAuth
+  tokens, and credential-management screens.
+- The public documentation publishes only the post-consent client evidence: the Slack thread with
+  its human continuation and the Rat Connections view. Those images expose no application secret,
+  issued access/refresh token, callback code, or credential-management screen.
+
 ## Validation completed on 2026-08-27 PDT
 
+- Fresh stack `oauth260827a` added the AWS-hosted OAuth callback/configuration surface and completed
+  the focused built-CLI management journey in 21.8 seconds. The CLI discovered the exact callback,
+  observed `host-required` without an operator app, verified the public failure page rejects invalid
+  state with HTTP 400, created a provider-verified Fixture CRM Connection, changed its persistent
+  Rat grant, rotated and revoked the credential, and created/listed/read/resumed/ran/paused/deleted
+  an interval Routine. Run-now completed in the live managed MicroVM with S3 Files enabled. The
+  real Slack consent/token-exchange continuation completed on 2026-08-28 PDT as recorded above.
 - Fresh disposable stack `clifix260827b` created 234 AWS resources with S3 Files enabled. Across
   the complete run and focused retries, all 12 enabled live scenarios passed; only the optional
   custom-domain publication scenario was skipped. The expanded CLI scenario completed in 26.6
@@ -518,11 +568,13 @@ teardown.
 ## Known gaps
 
 - Test private repository checkout and rotation of short-lived installation/project credentials.
-- Add hosted OAuth authorization-code/PKCE callbacks and token refresh for hosts that want Rat to
-  own that lifecycle. Current connections accept already-issued credentials, verify them, derive
-  provider tenant/subject and account labels, and keep OAuth application ownership with the host.
-- Tie source-binding creation to a verified provider installation/account. It is currently a trusted
-  operator action and should not be delegated to arbitrary tenants.
+- Extend the real-provider OAuth canary beyond successful Slack installation, recovery rotation,
+  and independent bot/user refresh. Consent denial, callback replay, concurrent refresh fencing,
+  and provider-side revocation still need live provider coverage; writes, search, signed ingress,
+  threaded continuation, reaction, and persistent read-only denial are now live validated.
+- Keep generic source-binding creation restricted to a trusted operator. The Slack-specific CLI now
+  derives its team selector from a provider-verified Connection and prevents another Connection
+  from claiming the same workspace, but arbitrary `bind-source` selectors are not provider-proven.
 - ChatGPT subscription reuse remains a trusted-device local path. Remote AWS MicroVMs use short-term
   Bedrock authentication; securely delegating a personal Codex session without exposing reusable
   account credentials to model-driven code is unsolved here.
@@ -572,12 +624,12 @@ The immediate priority is to make the new small-business/self-hosted surface bor
    supply disposable accounts. Permitted read, statically admitted write, account selection, rotation,
    revocation, exactly-one mutation, and no secret leakage are already proven.
 3. Prove the EventBridge reconciler submits one and only one scheduled routine occurrence, and
-   extend the scheduled-Thing proof across injected retry/crash windows. Then exercise the routine
-   lifecycle through the built CLI. A normal scheduled Thing occurrence and its lifecycle/provenance
-   path are now live validated.
-4. Add an optional BYO-OAuth helper for hosts that want authorization-code/PKCE and refresh support.
-   Manifest-driven credential onboarding, provider verification, derived account labels, and stable
-   invalid-credential errors are complete; hosted consent remains deliberately deferred.
+   extend the scheduled-Thing proof across injected retry/crash windows. The complete manual Routine
+   lifecycle, including one live MicroVM run, now passes through the built CLI; a normal scheduled
+   Thing occurrence and its lifecycle/provenance path are also live validated.
+4. Expand the completed live Slack OAuth/install/ingress/action/search/refresh canary with consent
+   denial, callback replay, concurrent refresh fencing, and provider-side revocation. Keep
+   application ownership in the host AWS account and defer a public connector marketplace.
 5. Extract the fixed-origin adapter pattern into a contributor-facing SDK, schema validator, and
    conformance suite before expanding the app catalog.
 6. Add browser and integration audit events, output redaction, destination authorization, budgets,

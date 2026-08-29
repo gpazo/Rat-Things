@@ -156,6 +156,7 @@ const commands = new Set([
   'connection-set',
   'source-bindings',
   'bind-source',
+  'slack-events',
   'things',
   'thing',
   'thing-create',
@@ -199,6 +200,7 @@ const booleanOptions = new Set([
   'no-browser',
   'no-network',
   'no-wait',
+  'oauth',
   'output',
   'patch',
   'raw',
@@ -396,6 +398,9 @@ async function main(): Promise<void> {
       return;
     case 'bind-source':
       print(await api('/v1/integrations/source-bindings', 'POST', await requiredJsonFile(args)));
+      return;
+    case 'slack-events':
+      await enableSlackEvents(args);
       return;
     case 'things': {
       const query = new URLSearchParams();
@@ -1906,9 +1911,16 @@ async function requiredJsonFile(args: Arguments): Promise<unknown> {
 }
 
 async function connect(args: Arguments): Promise<void> {
+  validateCommandOptions(args, {
+    flags: ['json', 'no-browser', 'oauth', 'wait'],
+    values: ['access', 'alias', 'auth-scheme', 'credential-file'],
+  });
   const pluginId = requiredPositional(args, 0, 'plugin ID');
   const plugin = await installedIntegrationPlugin(pluginId);
-  const requestedScheme = args.values.get('auth-scheme');
+  if (args.flags.has('oauth') && args.values.has('credential-file')) {
+    throw new Error('--oauth cannot be combined with --credential-file');
+  }
+  const requestedScheme = args.flags.has('oauth') ? 'oauth2' : args.values.get('auth-scheme');
   const authentication = requestedScheme
     ? plugin.authentication.find((candidate) => candidate.scheme === requestedScheme)
     : plugin.authentication.length === 1
@@ -1920,19 +1932,170 @@ async function connect(args: Arguments): Promise<void> {
       ? `integration plugin ${pluginId} does not support ${requestedScheme}; choose ${choices}`
       : `--auth-scheme is required; choose ${choices}`);
   }
-  const credential = await credentialFile(args, authentication.fields);
   const access = args.values.get('access') ?? 'read-only';
   if (!['read-only', 'read-write', 'full'].includes(access)) {
     throw new Error('--access must be read-only, read-write, or full');
   }
-  print(await api('/v1/integrations/connections', 'POST', {
+  const request = {
     version: '1',
     pluginId,
     ...(args.values.get('alias') ? { alias: args.values.get('alias') } : {}),
+    grant: { version: '1', preset: access },
+  };
+  if (args.flags.has('oauth')) {
+    if (!authentication.oauth2) throw new Error(`integration plugin ${pluginId} does not support hosted OAuth`);
+    if (plugin.oauthInstallation?.status !== 'configured') {
+      const callback = plugin.oauthInstallation?.callbackUrl;
+      throw new Error(
+        `OAuth application for ${pluginId} is not configured in this deployment`
+          + (callback ? `; register ${callback} and set integration_oauth_app_secret_arns` : ''),
+      );
+    }
+    const existingConnectionIds = args.flags.has('wait')
+      ? await installedConnectionIds(pluginId)
+      : new Set<string>();
+    const started = await api('/v1/integrations/oauth/authorizations', 'POST', request) as {
+      authorizationUrl?: unknown;
+      expiresAt?: unknown;
+    };
+    if (typeof started.authorizationUrl !== 'string') {
+      throw new Error('runtime returned no OAuth authorization URL');
+    }
+    if (!args.flags.has('json')) {
+      process.stdout.write(`Open this URL to connect ${terminalText(plugin.title)}:\n${terminalText(started.authorizationUrl)}\n`);
+      if (!args.flags.has('no-browser')) launchBrowser(started.authorizationUrl);
+    }
+    if (args.flags.has('wait')) {
+      print(await waitForOAuthConnection(pluginId, existingConnectionIds, started.expiresAt));
+    } else if (args.flags.has('json')) print(started);
+    return;
+  }
+  const credential = await credentialFile(args, authentication.fields);
+  print(await api('/v1/integrations/connections', 'POST', {
+    ...request,
     authScheme: authentication.scheme as IntegrationAuthScheme,
     credential,
-    grant: { version: '1', preset: access },
   }));
+}
+
+async function installedConnectionIds(pluginId: string): Promise<Set<string>> {
+  const listed = await api('/v1/integrations/connections', 'GET') as { connections?: unknown };
+  if (!Array.isArray(listed.connections)) throw new Error('runtime returned an invalid connection list');
+  return new Set(listed.connections.flatMap((candidate) => {
+    if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) return [];
+    const connection = (candidate as Record<string, unknown>).connection;
+    if (!connection || typeof connection !== 'object' || Array.isArray(connection)) return [];
+    const value = connection as Record<string, unknown>;
+    return value.pluginId === pluginId && typeof value.connectionId === 'string'
+      ? [value.connectionId]
+      : [];
+  }));
+}
+
+async function waitForOAuthConnection(
+  pluginId: string,
+  existingConnectionIds: Set<string>,
+  expiresAt: unknown,
+): Promise<unknown> {
+  const advertisedDeadline = typeof expiresAt === 'string' ? Date.parse(expiresAt) : Number.NaN;
+  const deadline = Number.isFinite(advertisedDeadline)
+    ? advertisedDeadline
+    : Date.now() + 10 * 60 * 1_000;
+  while (Date.now() < deadline) {
+    const listed = await api('/v1/integrations/connections', 'GET') as { connections?: unknown };
+    if (!Array.isArray(listed.connections)) throw new Error('runtime returned an invalid connection list');
+    const installed = listed.connections.find((candidate) => {
+      if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) return false;
+      const connection = (candidate as Record<string, unknown>).connection;
+      if (!connection || typeof connection !== 'object' || Array.isArray(connection)) return false;
+      const value = connection as Record<string, unknown>;
+      return value.pluginId === pluginId &&
+        typeof value.connectionId === 'string' &&
+        !existingConnectionIds.has(value.connectionId);
+    });
+    if (installed) return installed;
+    await new Promise((resolvePromise) => setTimeout(resolvePromise, 2_000));
+  }
+  throw new Error(`OAuth authorization for ${pluginId} expired before a connection was installed`);
+}
+
+async function enableSlackEvents(args: Arguments): Promise<void> {
+  validateCommandOptions(args, { flags: ['json'], values: ['profile'] });
+  const selector = requiredPositional(args, 0, 'Slack connection ID or alias');
+  const installed = await api('/v1/integrations/connections', 'GET') as { connections?: unknown };
+  if (!Array.isArray(installed.connections)) throw new Error('runtime returned an invalid connection list');
+  const item = installed.connections.find((candidate) => {
+    if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) return false;
+    const connection = (candidate as Record<string, unknown>).connection;
+    if (!connection || typeof connection !== 'object' || Array.isArray(connection)) return false;
+    const value = connection as Record<string, unknown>;
+    return value.connectionId === selector || value.alias === selector;
+  }) as { connection?: Record<string, unknown>; grant?: Record<string, unknown> } | undefined;
+  const connection = item?.connection;
+  if (!connection || connection.pluginId !== 'slack' || connection.status !== 'active') {
+    throw new Error(`active Slack connection ${selector} was not found`);
+  }
+  const teamId = connection.externalTenantId;
+  const connectionId = connection.connectionId;
+  if (typeof teamId !== 'string' || !teamId || typeof connectionId !== 'string' || !connectionId) {
+    throw new Error('Slack connection is missing its verified workspace identity');
+  }
+  const listedBindings = await api('/v1/integrations/source-bindings', 'GET') as { sourceBindings?: unknown };
+  if (!Array.isArray(listedBindings.sourceBindings)) {
+    throw new Error('runtime returned an invalid source binding list');
+  }
+  const existing = listedBindings.sourceBindings.find((candidate) => {
+    if (!isObject(candidate) || candidate.sourceKind !== 'slack' || !isObject(candidate.selector)) return false;
+    return candidate.selector.teamId === teamId;
+  });
+  if (existing) {
+    const listedSets = await api('/v1/integrations/connection-sets', 'GET') as { connectionSets?: unknown };
+    if (!Array.isArray(listedSets.connectionSets)) {
+      throw new Error('runtime returned an invalid connection set list');
+    }
+    const existingSet = listedSets.connectionSets.find((candidate) => (
+      isObject(candidate) && candidate.connectionSetId === existing.connectionSetId
+    ));
+    if (
+      !isObject(existingSet) ||
+      !Array.isArray(existingSet.connectionIds) ||
+      !existingSet.connectionIds.includes(connectionId)
+    ) {
+      throw new Error(
+        `Slack workspace ${teamId} already routes mentions through another connection`,
+      );
+    }
+    if (!['read-write', 'full'].includes(String(item?.grant?.preset))) {
+      await api(`/v1/integrations/connections/${encodeURIComponent(connectionId)}/grant`, 'POST', {
+        version: '1',
+        preset: 'read-write',
+      });
+    }
+    print({ enabled: true, connection, sourceBinding: existing, unchanged: true });
+    return;
+  }
+  if (!['read-write', 'full'].includes(String(item?.grant?.preset))) {
+    await api(`/v1/integrations/connections/${encodeURIComponent(connectionId)}/grant`, 'POST', {
+      version: '1',
+      preset: 'read-write',
+    });
+  }
+  const set = await api('/v1/integrations/connection-sets', 'POST', {
+    version: '1',
+    name: `slack-events-${teamId.toLowerCase()}`,
+    connections: [connectionId],
+    defaults: { slack: connectionId },
+  }) as Record<string, unknown>;
+  const setId = set.connectionSetId;
+  if (typeof setId !== 'string' || !setId) throw new Error('runtime returned an invalid connection set');
+  const sourceBinding = await api('/v1/integrations/source-bindings', 'POST', {
+    version: '1',
+    sourceKind: 'slack',
+    selector: { teamId },
+    capabilityProfile: args.values.get('profile') ?? 'read-only',
+    connectionSetId: setId,
+  });
+  print({ enabled: true, connection, connectionSet: set, sourceBinding });
 }
 
 async function installedIntegrationPlugin(pluginId: string): Promise<IntegrationPluginManifest> {
@@ -2001,10 +2164,10 @@ async function credentialFile(
   const expected = new Set(fields.map((field) => field.key));
   for (const field of fields) {
     const value = (parsed as Record<string, unknown>)[field.key];
-    if (typeof value !== 'string' || !value) {
+    if ((field.required !== false && !field.computed) && (typeof value !== 'string' || !value)) {
       throw new Error(`credential file requires non-empty string field ${field.key}`);
     }
-    result[field.key] = value;
+    if (typeof value === 'string' && value) result[field.key] = value;
   }
   for (const key of Object.keys(parsed)) {
     if (!expected.has(key)) throw new Error(`credential field ${key} is not used by ${args.positionals[0]}`);
@@ -2551,6 +2714,7 @@ function validateRootPositionals(args: Arguments): void {
     'connection-set': [0, 0, 'connection-set --file SET.json'],
     'source-bindings': [0, 0, 'source-bindings'],
     'bind-source': [0, 0, 'bind-source --file BINDING.json'],
+    'slack-events': [1, 1, 'slack-events ACCOUNT [--profile PROFILE] [--json]'],
     things: [0, 0, 'things'],
     thing: [1, 1, 'thing THING_ID'],
     'thing-create': [0, 0, 'thing-create --file THING.json'],
@@ -2743,6 +2907,7 @@ function help(showAll: boolean): void {
   process.stdout.write(`  rat-things plugins\n`);
   process.stdout.write(`  rat-things profiles\n`);
   process.stdout.write(`  rat-things connections\n`);
+  process.stdout.write(`  rat-things connect PLUGIN --oauth [--wait] [--no-browser]\n`);
   process.stdout.write(`  rat-things connect PLUGIN --credential-file CREDENTIAL.json\n`);
   process.stdout.write(`    [--auth-scheme SCHEME] [--access read-only|read-write|full] [--alias NAME]\n`);
   process.stdout.write(`  rat-things grant ACCOUNT --file GRANT.json\n`);
@@ -2752,6 +2917,7 @@ function help(showAll: boolean): void {
   process.stdout.write(`  rat-things connection-set --file SET.json\n`);
   process.stdout.write(`  rat-things source-bindings\n`);
   process.stdout.write(`  rat-things bind-source --file BINDING.json\n`);
+  process.stdout.write(`  rat-things slack-events ACCOUNT [--profile read-only] [--json]\n`);
   process.stdout.write(`\nThings\n\n`);
   process.stdout.write(`  rat-things things [--limit 25] [--all]\n`);
   process.stdout.write(`  rat-things thing THING_ID\n`);

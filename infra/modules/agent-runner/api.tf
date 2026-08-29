@@ -51,6 +51,7 @@ locals {
     "GET /schemas/thing-version-v1.json",
     "GET /v1/capability-profiles",
     "GET /v1/integrations/plugins",
+    "GET /v1/integrations/oauth/callback",
     "GET /v1/integrations/connections",
     "GET /v1/integrations/connection-sets",
     "GET /v1/integrations/source-bindings",
@@ -77,6 +78,7 @@ locals {
     "GET /v1/shares/{token}",
     "POST /v1/runs",
     "POST /v1/integrations/connections",
+    "POST /v1/integrations/oauth/authorizations",
     "POST /v1/integrations/connections/{connectionId}/credential",
     "POST /v1/integrations/connections/{connectionId}/grant",
     "POST /v1/integrations/connections/{connectionId}/revoke",
@@ -140,6 +142,7 @@ resource "aws_apigatewayv2_route" "control" {
     "GET /schemas/thing-create-v1.json",
     "GET /schemas/thing-v1.json",
     "GET /schemas/thing-version-v1.json",
+    "GET /v1/integrations/oauth/callback",
     "GET /v1/shares/{token}",
   ], each.value) ? "NONE" : "AWS_IAM"
   target = "integrations/${aws_apigatewayv2_integration.lambda["control"].id}"

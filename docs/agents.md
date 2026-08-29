@@ -74,7 +74,9 @@ rather than receiving AWS signing credentials.
    `rate(...)` or `cron(...)` trigger is synchronized to Amazon EventBridge Scheduler automatically.
 8. Only when the Thing needs an external service, reuse an owner-visible account from
    `GET /v1/integrations/connections` or ask the host to complete the manifest-declared
-   credential/OAuth flow. Default new grants to `read-only`.
+   credential/OAuth flow. `oauthInstallation.status=host-required` means the deployment operator
+   must register and configure its provider application; it is not an action an agent can repair
+   from inside a Run. Default new grants to `read-only`.
 
 Profiles are ceilings across several independent dimensions, not a single ordered scale. Compare
 their sandbox, network, search, browser, integration, and allowlist fields. If two profiles
@@ -87,9 +89,19 @@ The CLI performs the same sequence:
 rat-things doctor --json
 rat-things plugins
 rat-things connections
+rat-things connect slack --oauth --wait --access read-only
 rat-things thing-release --file thing.json
 rat-things thing-run THING_ID --idempotency-key customer-review-2026-08-23
 ```
+
+For a host-authorized Slack channel bridge, the operator installs the Connection with
+`--access read-write`, then runs
+`rat-things slack-events ACCOUNT --profile read-only --json`. Do not infer or supply the Slack team
+selector yourself: the command derives it from the provider-verified Connection, creates the
+owner-scoped Connection Set/source binding, and rejects a second mention route for that workspace.
+The trusted notifier retains the fixed ability to reply in the source thread; the agent still sees
+only the selected read-only profile. Slack search, when installed, uses a separate user token with
+`search:read` and can see only messages visible to that installing Slack user.
 
 The release command still uses the public create, explain, test, Run polling, and exact-evidence
 publish routes; it only removes copy/paste from the first-use path. Create and update move only the

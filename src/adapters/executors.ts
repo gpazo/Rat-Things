@@ -693,7 +693,14 @@ function sleep(milliseconds: number): Promise<void> {
 }
 
 function isUnavailableSessionError(error: unknown): boolean {
-  return ['ResourceNotFoundException', 'GoneException'].includes(errorName(error));
+  if (['ResourceNotFoundException', 'GoneException'].includes(errorName(error))) return true;
+  // SuspendMicrovm returns ValidationException after the reconciler has already
+  // observed and fenced a terminated guest. Completion is still required to
+  // release the durable conversation and wake pending mailbox work, so treat
+  // this terminal control-plane response like an unavailable session.
+  return errorName(error) === 'ValidationException'
+    && safeError(error).toLowerCase().includes('microvm')
+    && safeError(error).toLowerCase().includes('terminated');
 }
 
 function errorName(error: unknown): string {

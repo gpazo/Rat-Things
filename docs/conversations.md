@@ -259,7 +259,7 @@ conversation resumed on its suspended MicroVM:
 
 ![Live AWS Rat Things conversation continued through a targeted CLI reply on the same suspended MicroVM](../assets/cli-live-aws-conversation.jpg)
 
-The desktop testing console uses only those public routes plus existing Run events and controls. It
+The desktop testing console uses only public integration, Routine, conversation, and Run routes. It
 keeps AWS credentials in a loopback signer instead of browser storage:
 
 ```bash
@@ -271,7 +271,14 @@ npm run console:serve
 
 Open `http://127.0.0.1:4174`, or launch a selected conversation/Run through
 `rat-things computer open --thread NAME` or `rat-things computer open --run RUN_ID`. The CLI starts
-the same loopback-only signed proxy and does not put AWS credentials in browser storage.
+the same loopback-only signed proxy and does not put AWS credentials in browser storage. Product
+navigation opens dedicated Connections and Routines workspaces. Connections renders installed
+manifests, starts configured self-hosted OAuth, builds manual credential forms from manifest fields,
+shows provider authority and the persistent Rat grant separately, and supports access changes and
+revocation. Routines creates interval work and exposes run-now, pause/resume, and deletion without
+inventing a second scheduler model.
+
+![Routine workspace with enabled and paused schedules plus run, pause, resume, and delete controls](../assets/routines-console.png)
 
 The console can create/continue API threads, attach up to six files
 (4 MiB each and 6 MiB total), page older transcript

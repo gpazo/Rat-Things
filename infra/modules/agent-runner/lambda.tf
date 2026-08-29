@@ -22,6 +22,8 @@ locals {
     RUN_RETENTION_SECONDS               = tostring(var.run_retention_seconds)
     }, length(var.integration_plugin_base_urls) > 0 ? {
     INTEGRATION_PLUGIN_BASE_URLS = jsonencode(var.integration_plugin_base_urls)
+    } : {}, length(var.integration_oauth_app_secret_arns) > 0 ? {
+    INTEGRATION_OAUTH_APP_SECRET_ARNS = jsonencode(var.integration_oauth_app_secret_arns)
   } : {})
 
   executor_environment = merge(local.lambda_common_environment, {

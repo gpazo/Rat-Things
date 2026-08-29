@@ -22,13 +22,21 @@ const homepageAssetFiles = [
   'conversation-console-live-browser.png',
   'conversation-console-live-activity.png',
   'conversation-console-mobile-browser.png',
+  'connections-console.png',
+  'routines-console.png',
   'cli-live-aws-attachment-reply.jpg',
+  'slack-live-thread.jpg',
+  'slack-live-connections.jpg',
 ];
 const documentationSharedAssetFiles = [
   'conversation-console-live-browser.png',
   'conversation-console-live-activity.png',
+  'connections-console.png',
+  'routines-console.png',
   'cli-live-aws-attachment-reply.jpg',
   'cli-live-aws-conversation.jpg',
+  'slack-live-thread.jpg',
+  'slack-live-connections.jpg',
 ];
 
 marked.setOptions({ gfm: true });

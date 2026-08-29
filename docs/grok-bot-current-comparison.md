@@ -68,11 +68,11 @@ Status means parity with the useful product behavior, not similarity of deployme
 | Browser/computer use | Browser, filesystem, terminal, full desktop computer use, human takeover for passwords/2FA/CAPTCHA, and per-Bot screens | Active browser-enabled Runs now have an owner-scoped live 1280×720 viewer, a renewable exclusive human browser lease, console controls, and typed CLI commands for navigate/click/type/press/select/scroll/wait/back plus screenshots and video; no general desktop/native-app control | Close browser parity; narrower intentional desktop scope |
 | Teach by demonstration | Records a browser workflow for up to ten minutes and creates a draft skill | Records up to ten minutes/100 allowlisted browser actions, redacts typed/selected values and URL query/fragment data, and creates an unpublished manual Thing draft for review; the complete path is live AWS validated | Core lifecycle parity; different reusable unit |
 | Skills | Reusable instructions, private/marketplace skills, per-Bot enablement, `/` mentions | Codex skills can be selected and resolved through App Server; Thing definitions provide a separate immutable reusable-work contract | Partial; no hosted catalog or skill-management UI |
-| Routines/automations | Per-Bot schedules and supported event triggers, up to 50 routines and 20 recent records; test/edit/pause/run/delete UI | Durable interval Routines plus revisioned Things with manual, EventBridge rate/cron, and signed event ingress; retry fencing and evidence are stronger than the current UI | Backend parity; operator UI missing |
-| Plugins/connectors | Marketplace, account-owned OAuth connections, MCP, per-tool enablement, team restrictions, in-chat Connect cards | Trusted provider manifests, owner-scoped multi-account connections, brokered secrets, grants/resource constraints, Slack/Stripe/fixture adapters, and Codex MCP/app selection | Security core partial; hosted OAuth/marketplace breadth missing |
+| Routines/automations | Per-Bot schedules and supported event triggers, up to 50 routines and 20 recent records; test/edit/pause/run/delete UI | Durable interval Routines plus revisioned Things with manual, EventBridge rate/cron, and signed event ingress; the console now creates, lists, pauses, resumes, runs, and deletes interval Routines | Close core lifecycle parity; editing/history and richer event UX remain |
+| Plugins/connectors | Marketplace, account-owned OAuth connections, MCP, per-tool enablement, team restrictions, in-chat Connect cards | Trusted provider manifests, self-hosted OAuth-code/PKCE installation and independently rotating token families, owner-scoped multi-account Connections UI, brokered secrets, grants/resource constraints, live-validated Slack search/post/thread/reaction tools, Stripe/fixture adapters, and Codex MCP/app selection | Core install/security UX substantially closed; marketplace breadth intentionally deferred |
 | Credentials | Hosted connector tokens stay in the backend; browser logins live on the shared user computer; secure secret requests exclude values from transcript/model | Secrets Manager plus a host-only credential broker; values never enter Runs, DynamoDB, logs, task overrides, repository URLs, or model-visible tool metadata | Rat advantage for implemented integrations |
 | Multi-agent collaboration | Two to six Bots per group, direct messages, mentions, visible handoffs, shared files, parallel screens | No public durable Bot/group/handoff model. Any model-internal sub-agent behavior is not a Rat product contract | Missing |
-| Provider channels | Synchronized desktop/iOS experience; current docs focus on Bot/group chat and connectors | Signed GitHub, GitLab, Teams, and Slack ingress; source-thread result delivery; IAM API clients | Rat advantage for backend ingress/egress breadth |
+| Provider channels | Synchronized desktop/iOS experience; current docs focus on Bot/group chat and connectors | Signed GitHub, GitLab, Teams, and Slack ingress; real Slack app-mention/source-thread continuation live validated; IAM API clients | Rat advantage for backend ingress/egress breadth |
 | Publications/sharing | Result/file cards can be opened and saved; current docs emphasize reviewable artifacts | Manifest-last file/site/video publications, isolated hosts, short-lived grants, CloudFront OAC, and CLI/API redemption | Rat advantage |
 | Supervision/recovery | 0.18 coordinator has generation/process identity, heartbeat, quarantine, miss thresholds, bounded respawn, blob recovery, and repair paths | Immutable execution generations, conditional heartbeats, exact MicroVM inspection, quarantine, stale failure/cancellation, queues, alarms, and live fault injection | Parity at state-machine level |
 | Interrupted tool settlement | 0.18 reconstructs interrupted pending tool state and avoids malformed continuation | Live requests are ephemeral; consequential dynamic calls have bounded durable evidence, but unmatched interrupted tool calls are not fully settled into replacement context | Partial |
@@ -203,11 +203,12 @@ backfill before they can appear in all-history results.
    evidence; generated versus explicit origins; correction/tombstone semantics; bounded recall;
    model/version provenance; and conditional synthesis commits. Run maintenance outside the
    per-turn App Server lifetime. Continue to let Codex own native context compaction.
-2. **Hosted OAuth/PKCE and refresh.** Add one-time state consumption, provider identity binding,
-   vault-only token values, classified refresh, backoff, rotation, and redacted diagnostics. Do not
-   port the desktop loopback callback server.
-3. **Things, routines, and integrations console pages.** Expose the already-strong backend
-   lifecycle instead of inventing a second automation model.
+2. **Expand reviewed connector breadth without a marketplace.** Use the new self-hosted OAuth and
+   connection-management contract to add high-value adapters one by one with provider fixtures,
+   scope-denial tests, and live disposable accounts.
+3. **Complete Things and routine history/editing UX.** Connection and Routine lifecycle pages now
+   expose the existing backend; Things, immutable revision review, last-run evidence, and safe
+   editing remain.
 4. **Extend the live-validated browser takeover and teaching path.** The Rat-native implementation
    transfers interaction inside the existing envelope and saves an unpublished Thing draft. Add
    secure host-side credential injection, file transfer, richer pointer/tab workflows, and

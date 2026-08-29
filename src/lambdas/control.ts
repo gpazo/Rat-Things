@@ -1,4 +1,8 @@
-import type { APIGatewayProxyEventV2, APIGatewayProxyHandlerV2 } from 'aws-lambda';
+import type {
+  APIGatewayProxyEventV2,
+  APIGatewayProxyHandlerV2,
+  APIGatewayProxyStructuredResultV2,
+} from 'aws-lambda';
 import { createHash, randomBytes } from 'node:crypto';
 import { GetObjectCommand, HeadObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
 import { GetSecretValueCommand } from '@aws-sdk/client-secrets-manager';
@@ -29,6 +33,7 @@ import {
   getConnectionService,
   getIntegrationPluginRegistry,
   getCapabilityProfileRegistry,
+  getOAuthAuthorizationService,
   getRoutineService,
   getRunSubmissionService,
   getThingService,
@@ -67,6 +72,7 @@ import type {
   PublicationSpec,
   ShareGrant,
 } from '../domain/publications.js';
+import { parseOAuthApplicationSecretArns } from '../plugins/oauth.js';
 import {
   parsePublicationSpec,
   validatePublicationId,
@@ -123,6 +129,28 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
         'content-type': 'application/schema+json; charset=utf-8',
       });
     }
+    if (method === 'GET' && path === '/v1/integrations/oauth/callback') {
+      try {
+        await getOAuthAuthorizationService().complete({
+          state: event.queryStringParameters?.state ?? '',
+          ...(event.queryStringParameters?.code
+            ? { code: event.queryStringParameters.code }
+            : {}),
+          ...(event.queryStringParameters?.error
+            ? { providerError: event.queryStringParameters.error }
+            : {}),
+        });
+        return oauthCallbackResponse(true, event.requestContext.requestId);
+      } catch (error) {
+        console.warn(JSON.stringify({
+          level: 'warn',
+          message: 'OAuth callback failed',
+          error: error instanceof Error ? { name: error.name, message: error.message.slice(0, 500) } : {},
+          requestId: event.requestContext.requestId,
+        }));
+        return oauthCallbackResponse(false, event.requestContext.requestId);
+      }
+    }
     const shareToken = sharePathParameter(event);
     if (
       method === 'GET' &&
@@ -142,8 +170,24 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
     // operations do not depend on MicroVM-only environment configuration.
     const service = () => getRunService(true);
     if (method === 'GET' && path === '/v1/integrations/plugins') {
+      const oauthApplicationSecretArns = parseOAuthApplicationSecretArns(
+        process.env.INTEGRATION_OAUTH_APP_SECRET_ARNS,
+      );
+      const callbackUrl = oauthCallbackUrl(event);
       return response(200, {
-        plugins: getIntegrationPluginRegistry().list().map((plugin) => plugin.manifest),
+        plugins: getIntegrationPluginRegistry().list().map((plugin) => ({
+          ...plugin.manifest,
+          ...(plugin.manifest.authentication.some((authentication) => authentication.oauth2)
+            ? {
+              oauthInstallation: {
+                status: oauthApplicationSecretArns[plugin.manifest.id]
+                  ? 'configured'
+                  : 'host-required',
+                callbackUrl,
+              },
+            }
+            : {}),
+        })),
       });
     }
     if (method === 'GET' && path === '/v1/capability-profiles') {
@@ -155,6 +199,17 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
     if (method === 'POST' && path === '/v1/integrations/connections') {
       const input = createConnectionBody(jsonBody(event), ownerId);
       return response(201, await getConnectionService().create(input));
+    }
+    if (method === 'POST' && path === '/v1/integrations/oauth/authorizations') {
+      const body = strictBody(jsonBody(event), ['version', 'pluginId', 'alias', 'grant']);
+      requireVersion(body.version);
+      return response(201, await getOAuthAuthorizationService().start({
+        ownerId,
+        pluginId: boundedText(body.pluginId, 'pluginId', 64),
+        callbackUrl: oauthCallbackUrl(event),
+        grant: grantPolicy(body.grant),
+        ...(body.alias !== undefined ? { alias: boundedText(body.alias, 'alias', 128) } : {}),
+      }));
     }
     const integrationConnectionId = conversationPathParameter(event, 'connectionId', 256);
     if (
@@ -1099,6 +1154,39 @@ function strictBody(value: unknown, allowed: string[]): Record<string, unknown> 
   const unknown = Object.keys(value).find((key) => !allowed.includes(key));
   if (unknown) throw new ValidationError(`request contains unknown field ${unknown}`);
   return value;
+}
+
+function oauthCallbackUrl(event: APIGatewayProxyEventV2): string {
+  const domain = event.requestContext.domainName;
+  if (
+    typeof domain !== 'string' ||
+    !/^[A-Za-z0-9.-]+(?::[0-9]{1,5})?$/.test(domain) ||
+    domain.includes('..')
+  ) throw new ValidationError('OAuth callback host is invalid');
+  return `https://${domain}/v1/integrations/oauth/callback`;
+}
+
+function oauthCallbackResponse(
+  succeeded: boolean,
+  requestId: string,
+): APIGatewayProxyStructuredResultV2 {
+  const title = succeeded ? 'Connection installed' : 'Connection not installed';
+  const detail = succeeded
+    ? 'The provider account is connected to this Rat Things deployment. You can close this window and return to the console.'
+    : 'Rat Things could not complete this authorization. Close this window, verify the OAuth application configuration, and try again.';
+  const body = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title}</title><style>:root{color-scheme:dark}body{margin:0;min-height:100vh;display:grid;place-items:center;background:#0c0f0c;color:#edf2e8;font:16px/1.55 system-ui,sans-serif}.card{width:min(560px,calc(100vw - 40px));padding:32px;border:1px solid #30382f;border-radius:16px;background:#151a15;box-shadow:0 28px 80px #0008}.mark{display:grid;width:44px;height:44px;place-items:center;margin-bottom:24px;border-radius:12px;background:#b9df68;color:#11170d;font-weight:850}h1{margin:0 0 10px;color:#edf2e8;font-size:24px}p{margin:0;color:#aab3a4}.request{margin-top:20px;color:#7f897a;font:12px ui-monospace,monospace}</style></head><body><main class="card"><div class="mark">R</div><h1>${title}</h1><p>${detail}</p><p class="request">Request ${requestId.replace(/[^A-Za-z0-9-]/g, '').slice(0, 128)}</p></main></body></html>`;
+  return {
+    statusCode: succeeded ? 200 : 400,
+    headers: {
+      'cache-control': 'no-store',
+      'content-security-policy': "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'",
+      'content-type': 'text/html; charset=utf-8',
+      'referrer-policy': 'no-referrer',
+      'x-content-type-options': 'nosniff',
+      'x-frame-options': 'DENY',
+    },
+    body,
+  };
 }
 
 function humanBrowserAction(value: unknown): HumanBrowserAction {

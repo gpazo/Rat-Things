@@ -63,6 +63,18 @@ describe('published machine contracts', () => {
     expect(operationIds.size).toBe(documentedRoutes.size);
   });
 
+  it('makes configured OAuth application ARNs available to the refresh broker in MicroVMs', async () => {
+    const [microvm, iam] = await Promise.all([
+      readFile('infra/modules/agent-runner/microvm.tf', 'utf8'),
+      readFile('infra/modules/agent-runner/iam.tf', 'utf8'),
+    ]);
+    expect(microvm).toContain('length(var.integration_oauth_app_secret_arns) > 0');
+    expect(microvm).toContain('key   = "INTEGRATION_OAUTH_APP_SECRET_ARNS"');
+    const workerPolicy = iam.slice(iam.indexOf('data "aws_iam_policy_document" "worker"'));
+    expect(workerPolicy).toContain('sid       = "OAuthApplications"');
+    expect(workerPolicy).toContain('resources = local.integration_oauth_app_secret_arns');
+  });
+
   it('contains no dangling local OpenAPI references', async () => {
     const openapi = await json('spec/openapi.json') as Record<string, unknown>;
     const references: string[] = [];
@@ -139,6 +151,7 @@ describe('published machine contracts', () => {
   it('publishes typed success responses for version history and Thing runs', async () => {
     const openapi = await json('spec/openapi.json') as {
       paths: Record<string, Record<string, {
+        security?: unknown[];
         responses?: Record<string, {
           content?: { 'application/json'?: { schema?: Record<string, unknown> } };
         }>;
@@ -175,6 +188,7 @@ describe('published machine contracts', () => {
   it('types every JSON success response in the authenticated control API', async () => {
     const openapi = await json('spec/openapi.json') as {
       paths: Record<string, Record<string, {
+        security?: unknown[];
         responses?: Record<string, {
           content?: { 'application/json'?: { schema?: unknown } };
         }>;
@@ -186,6 +200,7 @@ describe('published machine contracts', () => {
       for (const method of ['get', 'post']) {
         const operation = pathItem[method];
         if (!operation) continue;
+        if (Array.isArray(operation.security) && operation.security.length === 0) continue;
         for (const [status, response] of Object.entries(operation.responses ?? {})) {
           if (!/^2\d\d$/.test(status)) continue;
           expect(

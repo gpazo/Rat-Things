@@ -70,7 +70,7 @@ concepts in this subsystem are:
 | Runtime/services | `src/core`, `src/conversation`, and `src/execution` | Bounded MicroVM runs plus a separate AWS-backed resumable conversation model |
 | Conversation mailbox | DynamoDB conversation partition plus S3 bodies/checkpoints | Durable AWS state, SQS coordination, bounded run slices, replay, and Teams completion |
 | Plugin host/API | `src/plugins` | Trusted ingress/delivery and dynamic-tool integrations; no arbitrary package discovery |
-| Credential broker | `src/credentials` | Multi-account Secrets Manager vault and grant enforcement; no hosted OAuth lifecycle |
+| Credential broker | `src/credentials` plus `src/plugins/oauth` | Multi-account Secrets Manager vault, grant enforcement, self-hosted OAuth application registry, and refresh fencing |
 | Sandbox/runtime | Lambda MicroVM plus `src/runner` | AWS isolation replaces Vercel Sandbox |
 | Provider egress | `src/delivery/providers` | EventBridge terminal delivery with a DynamoDB fence |
 
@@ -433,9 +433,11 @@ delivery configuration keys, never secret values.
   in a bounded in-MicroVM ring until terminal artifacts are committed. Steering, interruption, and
   ordinary input responses work during an active turn; a queued conversation `interrupt` message still becomes
   input at the next safe slice boundary.
-- Connections currently accept already-issued API keys/tokens. There is no hosted OAuth redirect or
-  refresh lifecycle, credential-test endpoint, visual field mapper, polling trigger engine, dynamic
-  package loader, or broad app catalog. Integration code remains trusted and image-bundled.
+- Connections accept API keys/already-issued tokens and optional self-hosted authorization-code/PKCE
+  installation. OAuth app secrets stay in Secrets Manager; one-time callback state and refresh
+  leases stay in DynamoDB; expiring tokens refresh behind the host broker. There is no public
+  marketplace, visual field mapper, polling trigger engine, or dynamic package loader. Integration
+  code remains reviewed, trusted, and image-bundled.
 - Browser computer use is isolated public-web automation, not arbitrary desktop control. The
   owner-scoped API can stream bounded screenshots, transfer a renewable exclusive browser lease,
   and compile a redacted demonstration into an unpublished Thing draft without exposing Chromium

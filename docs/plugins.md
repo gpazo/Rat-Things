@@ -277,19 +277,99 @@ connection status is checked again when an agent tool session is created.
 
 The raw rotation API request is `{"version":"1","credential":{...}}`.
 
-## Bring your own OAuth
+## Self-hosted OAuth installation
 
-Rat Things does not operate a universal OAuth client. A self-hosted console or embedded product owns
-its provider application, redirect URL, consent screen, state/PKCE validation, code exchange,
-refresh policy, and provider review. After consent, the host sends the issued token as the manifest's
-credential field. Rat immediately verifies it and derives the account identity.
+Rat Things includes an authorization-code/PKCE callback and automatic refresh lifecycle in each AWS
+deployment. It is still **bring your own OAuth application**: the operator registers the provider
+app, accepts any provider review, chooses the installed plugin scopes, and stores the app credential
+in that deployment's AWS Secrets Manager. Rat never operates a central OAuth client or receives the
+credential.
 
-Hosted authorization redirects and automatic token refresh are not part of v1. API keys and
-already-issued OAuth tokens are supported now. This keeps deployments independent and lets a host
-use any account or group model without Rat implementing signup, organizations, or billing.
+The first apply can leave OAuth unconfigured. Read `terraform output -raw oauth_callback_url`,
+register that exact HTTPS URL with the provider, and create a secret containing:
 
-Never place a token in a command-line argument, webhook body, Thing, run request, or URL. Delete the
-temporary credential file after a successful connection and keep OAuth exchange logs redacted.
+```json
+{
+  "client_id": "provider-application-id",
+  "client_secret": "provider-application-secret"
+}
+```
+
+Then pass only its ARN and apply again:
+
+```hcl
+integration_oauth_app_secret_arns = {
+  slack = "arn:aws:secretsmanager:us-west-2:111122223333:secret:rat/oauth/slack-AbCdEf"
+}
+```
+
+`GET /v1/integrations/plugins` reports `oauthInstallation.status` as `configured` or
+`host-required` and returns the exact callback URL. Start a connection from the desktop Connections
+page or the CLI:
+
+![Connections workspace with verified accounts, access ceilings, disconnect controls, and installed provider onboarding](../assets/connections-console.png)
+
+```bash
+rat-things connect slack --oauth --wait --access read-write --alias slack-work
+# Add --no-browser on a headless operator host and open the printed URL elsewhere.
+rat-things slack-events slack-work --profile read-only --json
+```
+
+`--wait` polls only the owner-scoped connection catalog and returns the verified connection bundle
+after the callback succeeds. Omit it when the shell should return the expiring authorization URL
+immediately. The URL and callback never contain the provider application secret or issued token.
+
+The authenticated start call creates a ten-minute, owner-bound state, stores only its SHA-256 hash,
+and generates an S256 PKCE challenge. The public callback atomically consumes that state before code
+exchange, verifies the resulting provider identity through the ordinary connection service, and
+only then persists the credential. Provider endpoints, scopes, and token authentication method come
+from the reviewed compiled plugin; callers cannot substitute them.
+
+When a provider issues `expires_in` and a refresh token, the credential broker refreshes two minutes
+before expiry behind a short per-connection DynamoDB lease. Refresh responses replace the same
+Secrets Manager value. Concurrent workers wait for that replacement. Terraform gives the MicroVM
+only the configured application-secret ARN map; the execution role may resolve only those exact
+secrets, and neither the application secret nor issued tokens enter the agent's prompt or tool
+arguments. A provider that does not issue a refresh token requires reconnection after expiry.
+
+Slack uses two independently rotating OAuth token families in one owner-scoped credential. The bot
+token receives `app_mentions:read`, `chat:write`, and `reactions:write`; the delegated installing-user
+token receives `search:read`. Message search therefore sees only what that Slack user is allowed to
+see. Rat uses the user token only for `slack.messages.search` and the bot token for identity, posts,
+replies, reactions, and source delivery. Each access/refresh/expiry family is refreshed separately;
+a response to one refresh is not required to repeat the other token family.
+
+`slack-events` derives the workspace selector from the verified Connection rather than accepting a
+caller-supplied team ID. It creates one owner Connection Set and a team-wide source binding,
+idempotently repairs the service Connection grant to `read-write`, and leaves the source agent on the
+requested profile (`read-only` by default). Only one Connection may route mentions for a workspace;
+attempting to enable another returns a conflict instead of silently changing credentials. The
+trusted notifier may use the bound service Connection to reply in the source thread even though the
+agent itself receives only the read-only tool envelope.
+
+The complete success path was live-validated on 2026-08-28 PDT with a disposable Slack app and
+workspace. The built CLI generated the PKCE authorization, waited for the AWS callback, returned the
+verified public Connection, and the desktop Connections page round-tripped its Rat grant between
+`read-only` and `read-write`. Slack issued all four requested scopes across bot and delegated-user
+tokens. A signed human `app_mention` started a real Codex Run and the notifier replied in its Slack
+thread; a same-thread turn resumed the same MicroVM and native Codex thread and recalled prior
+context. The built CLI separately posted one root plus one thread reply, added a reaction, proved a
+read-only write denial, and used delegated search to recover the exact thread text and permalink.
+The canary then forced both token-family expiries stale; fresh Runs refreshed the bot and user
+credentials independently and completed authenticated post/search operations. Access and refresh
+tokens were checked only for presence and never printed. Consent denial, callback replay, concurrent
+refresh fencing, and provider-side revocation remain explicit follow-up canaries.
+
+The live Connections workspace below shows the operator-visible result after the canary: the active
+OAuth account, its provider-issued scope count, the smaller persistent Rat access ceiling, and the
+single account that owns mention routing. Revoked recovery fixtures remain visible as lifecycle
+evidence but are unavailable to agents.
+
+![Live Rat Things Connections workspace showing an active Slack OAuth account, Rat access, and mention routing](../assets/slack-live-connections.jpg)
+
+Never place a token or application secret in a command-line argument, webhook body, Thing, run
+request, DynamoDB record, or URL. Keep provider exchange logs redacted. Already-issued OAuth tokens
+and API keys remain supported through the manifest-driven credential-file flow.
 
 ## Source-bound permissions
 
@@ -314,8 +394,9 @@ rat-things bind-source --file /secure/config/client-channel-binding.json
 ```
 
 Selectors match trusted normalized source fields. A binding does not change run ownership or embed
-a credential. Source-binding creation is currently a trusted operator action; do not delegate it to
-arbitrary tenants until the provider installation itself is authenticated.
+a credential. Generic source-binding creation is currently a trusted operator action; do not
+delegate arbitrary selectors to tenants. For Slack, prefer `slack-events`: it derives `teamId` from
+the verified OAuth Connection and atomically refuses a competing exact workspace claim.
 
 ## Built-in and fixture integrations
 
@@ -354,9 +435,10 @@ Ingress signature parsing remains in `src/ingress`/`src/channels`; outbound resu
 remains in `src/delivery`. Agent-callable integration operations belong here. The architecture check
 enforces those boundaries.
 
-Arbitrary package loading, a marketplace, a visual workflow editor, hosted OAuth, and a broad app
-catalog are intentionally deferred. The current contract is the extension point: one manifest,
-one verifier, typed operations, and the same API for CLIs, agents, and product UIs.
+Arbitrary package loading, a public marketplace, a visual workflow editor, and a broad app catalog
+are intentionally deferred. The current contract is the extension point: one reviewed manifest,
+one verifier, typed operations, optional self-hosted OAuth metadata, and the same API for CLIs,
+agents, and product UIs.
 
 For failures, follow [integration diagnostics](diagnostics.md#debug-an-integration-connection).
 For consumer architecture and OAuth ownership, see [embedding and self-hosting](embedding.md).
