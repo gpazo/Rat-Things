@@ -2977,7 +2977,7 @@ function help(showAll: boolean): void {
   process.stdout.write(`  rat-things computer act RUN_ID --file ACTION.json\n`);
   process.stdout.write(`  rat-things computer teach start RUN_ID --name NAME [--goal TEXT]\n`);
   process.stdout.write(`  rat-things computer teach stop|discard RUN_ID\n`);
-  process.stdout.write(`    takeover is a temporary exclusive browser lease; teach-stop creates an unpublished draft Thing\n`);
+  process.stdout.write(`    takeover is a temporary exclusive browser lease; teach stop creates an unpublished draft Thing\n`);
   process.stdout.write(`\nIntegrations\n\n`);
   process.stdout.write(`  rat-things plugins\n`);
   process.stdout.write(`  rat-things profiles\n`);

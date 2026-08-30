@@ -72,6 +72,14 @@ resource "awscc_lambda_microvm_image" "runner" {
       value = "bedrock"
     },
     {
+      key   = "METRIC_DEPLOYMENT"
+      value = local.name
+    },
+    {
+      key   = "METRIC_NAMESPACE"
+      value = "RatThings"
+    },
+    {
       key   = "ALLOW_AGENT_AWS_CREDENTIAL_CHAIN"
       value = tostring(var.allow_agent_aws_credential_chain)
     },

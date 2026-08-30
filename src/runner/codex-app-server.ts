@@ -6,6 +6,22 @@ import type {
   WebSearchMode,
 } from '../domain/capabilities.js';
 import type { SandboxMode } from '../domain/contracts.js';
+import { emitMetric } from '../core/metrics.js';
+
+const CODEX_INVALID_REQUEST = -32600;
+const MISSING_ROLLOUT_MESSAGE = 'no rollout found for thread id ';
+
+export class CodexAppServerRequestError extends Error {
+  readonly code: number | undefined;
+  readonly data: unknown;
+
+  constructor(message: string, code?: number, data?: unknown) {
+    super(message);
+    this.name = 'CodexAppServerRequestError';
+    this.code = code;
+    this.data = data;
+  }
+}
 
 export interface CodexAppServerEvent {
   method: string;
@@ -284,9 +300,10 @@ export async function runCodexAppServer(
           threadId: request.resumeThreadId,
         });
       } catch (error) {
-        // The durable Rat Things replay in the prompt is authoritative. If a
-        // native Codex checkpoint is incompatible or absent, start a successor
-        // thread without losing the normalized conversation history.
+        if (!isMissingCodexThread(error)) throw error;
+        // Durable Rat Things replay remains available when Codex has no native
+        // checkpoint for the requested thread. Other resume failures surface.
+        emitMetric('runner', 'CodexThreadResumeFallback', 1, 'Count');
         threadResult = await call('thread/start', {
           ...startThreadParams,
           ephemeral: !request.persistent,
@@ -465,8 +482,20 @@ function appsConfig(apps: string[]): Record<string, unknown> {
 }
 
 function jsonRpcError(value: unknown): Error {
-  if (isRecord(value) && typeof value.message === 'string') return new Error(value.message);
+  if (isRecord(value) && typeof value.message === 'string') {
+    return new CodexAppServerRequestError(
+      value.message,
+      typeof value.code === 'number' ? value.code : undefined,
+      value.data,
+    );
+  }
   return new Error(`Codex app-server request failed: ${JSON.stringify(value).slice(0, 1_000)}`);
+}
+
+export function isMissingCodexThread(error: unknown): boolean {
+  return error instanceof CodexAppServerRequestError
+    && error.code === CODEX_INVALID_REQUEST
+    && error.message.startsWith(MISSING_ROLLOUT_MESSAGE);
 }
 
 export function terminalNotificationError(params: Record<string, unknown>): Error | undefined {

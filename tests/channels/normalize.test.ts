@@ -12,7 +12,7 @@ const credentialSecretArn =
   'arn:aws:secretsmanager:us-east-1:123456789012:secret:provider/runtime-token-AbCd12';
 
 describe('agent result markers', () => {
-  it('recognizes both Rat Things and legacy markers during migration', () => {
+  it('recognizes result markers emitted before and after the Rat Things rename', () => {
     expect(isAgentResultMessage(AGENT_RESULT_MARKER)).toBe(true);
     expect(isAgentResultMessage('<!-- indubitably-agent-runtime:result -->')).toBe(true);
   });

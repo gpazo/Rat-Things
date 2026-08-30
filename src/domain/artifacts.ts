@@ -2,8 +2,7 @@ import { createHash } from 'node:crypto';
 import type { ArtifactCatalog } from './contracts.js';
 
 export const MAX_ARTIFACT_FILES = 5_000;
-// CopyObject supports source objects up to 5 GiB; larger media needs a future
-// multipart-copy adapter rather than a looser domain promise.
+// Keep the domain limit aligned with the S3 CopyObject backend constraint.
 export const MAX_ARTIFACT_FILE_BYTES = 5 * 1024 * 1024 * 1024;
 export const MAX_ARTIFACT_TOTAL_BYTES = 20 * 1024 * 1024 * 1024;
 export const MAX_ARTIFACT_PATH_BYTES = 512;

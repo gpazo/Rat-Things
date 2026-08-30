@@ -100,7 +100,7 @@ export class TrustedHttpIntegrationPlugin implements IntegrationPlugin {
     },
   ): Promise<JsonValue> {
     const operation = this.operations.get(operationId);
-    if (!operation) throw new Error(`HTTP integration operation ${operationId} is not implemented`);
+    if (!operation) throw new Error(`HTTP integration operation ${operationId} is not registered`);
     return this.send(
       operation.request(input, context.connection),
       context.credential,

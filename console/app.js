@@ -3329,10 +3329,14 @@ async function closeComputer() {
   syncContextLayout();
   state.computer = null;
   if (shouldReturn && runId) {
-    await api(`/v1/runs/${encodeURIComponent(runId)}/computer/takeover`, {
-      method: 'POST',
-      body: { control: 'agent' },
-    }).catch(() => undefined);
+    try {
+      await api(`/v1/runs/${encodeURIComponent(runId)}/computer/takeover`, {
+        method: 'POST',
+        body: { control: 'agent' },
+      });
+    } catch (error) {
+      notice(`Could not return browser control; the lease will expire automatically. ${message(error)}`, true);
+    }
   }
 }
 

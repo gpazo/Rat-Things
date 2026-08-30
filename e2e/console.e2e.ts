@@ -91,7 +91,7 @@ test.beforeAll(async () => {
     teachSteps: 0,
     connections: [
       connectionBundle('connection-slack', 'slack-work', 'Slack Workspace', 'slack', 'read-only'),
-      connectionBundle('connection-slack-legacy', 'slack-legacy', 'Slack Workspace Legacy', 'slack', 'read-only'),
+      connectionBundle('connection-slack-secondary', 'slack-secondary', 'Slack Workspace Secondary', 'slack', 'read-only'),
     ],
     connectionSets: [],
     sourceBindings: [],
@@ -529,10 +529,10 @@ test('manages verified connections and durable routines from the product navigat
   await slack.getByRole('button', { name: 'Enable mentions' }).click();
   await expect(slack).toContainText('mentions on');
   await expect(slack.getByRole('button', { name: 'Mentions enabled' })).toBeDisabled();
-  const legacySlack = page.locator('.management-card').filter({ hasText: 'slack-legacy ·' });
-  await expect(legacySlack).toContainText('mentions use another connection');
+  const secondarySlack = page.locator('.management-card').filter({ hasText: 'slack-secondary ·' });
+  await expect(secondarySlack).toContainText('mentions use another connection');
   await expect(
-    legacySlack.getByRole('button', { name: 'Another connection handles mentions' }),
+    secondarySlack.getByRole('button', { name: 'Another connection handles mentions' }),
   ).toBeDisabled();
   await slack.getByLabel('Rat access for slack-work').selectOption('read-write');
   await expect(slack).toContainText('Rat access read-write');

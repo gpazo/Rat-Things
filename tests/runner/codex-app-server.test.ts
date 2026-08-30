@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -41,6 +41,38 @@ describe('Codex app-server notifications', () => {
     });
     expect(sandboxPolicyFor('danger-full-access', '/workspace', true)).toEqual({
       type: 'dangerFullAccess',
+    });
+  });
+
+  it('starts a successor thread only when Codex has no persisted rollout', async () => {
+    const metricLines: string[] = [];
+    const log = vi.spyOn(console, 'info').mockImplementation((line) => {
+      metricLines.push(String(line));
+    });
+    try {
+      const execution = await runFakeResume('missing');
+
+      expect(execution).toMatchObject({
+        fullText: 'bridge-complete',
+        threadId: 'thread-1',
+      });
+      expect(metricLines.map((line) => JSON.parse(line) as unknown)).toContainEqual(
+        expect.objectContaining({
+          Component: 'runner',
+          CodexThreadResumeFallback: 1,
+        }),
+      );
+    } finally {
+      log.mockRestore();
+    }
+  });
+
+  it('preserves and surfaces non-recoverable resume errors', async () => {
+    await expect(runFakeResume('internal')).rejects.toMatchObject({
+      name: 'CodexAppServerRequestError',
+      code: -32603,
+      message: 'required MCP servers failed to initialize',
+      data: { retryable: false },
     });
   });
 
@@ -145,6 +177,32 @@ describe('Codex app-server notifications', () => {
   });
 });
 
+async function runFakeResume(mode: 'missing' | 'internal') {
+  const directory = await mkdtemp(join(tmpdir(), 'rat-app-server-resume-test-'));
+  const fakeServer = join(directory, 'fake-app-server.mjs');
+  await writeFile(fakeServer, FAKE_APP_SERVER);
+  try {
+    return await runCodexAppServer({
+      binary: process.execPath,
+      binaryArguments: [fakeServer],
+      workspace: directory,
+      environment: { ...process.env, FAKE_RESUME_ERROR: mode },
+      timeoutMs: 5_000,
+      prompt: 'Continue the conversation',
+      sandbox: 'workspace-write',
+      persistent: true,
+      modelProvider: 'openai',
+      resumeThreadId: 'thread-missing-or-broken',
+      networkAccess: false,
+      onTurnStarted: async (controller) => {
+        await controller.steer('Finish the test');
+      },
+    });
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+}
+
 const FAKE_APP_SERVER = String.raw`
 import { createInterface } from 'node:readline';
 
@@ -184,6 +242,23 @@ input.on('line', (line) => {
   if (message.method === 'thread/start') {
     send({ id: message.id, result: { thread: { id: 'thread-1' } } });
     send({ method: 'test/threadParams', params: message.params });
+    return;
+  }
+  if (message.method === 'thread/resume') {
+    if (process.env.FAKE_RESUME_ERROR === 'missing') {
+      send({ id: message.id, error: {
+        code: -32600,
+        message: 'no rollout found for thread id thread-missing-or-broken',
+      } });
+    } else if (process.env.FAKE_RESUME_ERROR === 'internal') {
+      send({ id: message.id, error: {
+        code: -32603,
+        message: 'required MCP servers failed to initialize',
+        data: { retryable: false },
+      } });
+    } else {
+      send({ id: message.id, result: { thread: { id: 'thread-1' } } });
+    }
     return;
   }
   if (message.method === 'turn/start') {

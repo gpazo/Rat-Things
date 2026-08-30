@@ -165,11 +165,11 @@ class MemoryArtifacts implements ArtifactStore {
     return structuredClone(value) as T;
   }
 
-  public async putBytes(): Promise<ArtifactReference> { throw new Error('not implemented'); }
-  public async getBytes(): Promise<Uint8Array> { throw new Error('not implemented'); }
-  public async putStream(): Promise<ArtifactReference> { throw new Error('not implemented'); }
-  public async getStream(): Promise<AsyncIterable<Uint8Array>> { throw new Error('not implemented'); }
-  public async copy(): Promise<ArtifactReference> { throw new Error('not implemented'); }
+  public async putBytes(): Promise<ArtifactReference> { throw new Error('unexpected ArtifactStore.putBytes call'); }
+  public async getBytes(): Promise<Uint8Array> { throw new Error('unexpected ArtifactStore.getBytes call'); }
+  public async putStream(): Promise<ArtifactReference> { throw new Error('unexpected ArtifactStore.putStream call'); }
+  public async getStream(): Promise<AsyncIterable<Uint8Array>> { throw new Error('unexpected ArtifactStore.getStream call'); }
+  public async copy(): Promise<ArtifactReference> { throw new Error('unexpected ArtifactStore.copy call'); }
 }
 
 class MemoryQueue implements RunQueue {
@@ -202,17 +202,17 @@ class MemoryRuns implements RunStore {
   }
 
   public async list(): Promise<ListRunsResult> { return { items: structuredClone(this.records) }; }
-  public async transition(): Promise<RunRecord> { throw new Error('not implemented'); }
-  public async prepareConversation(): Promise<RunRecord> { throw new Error('not implemented'); }
-  public async attachExecution(): Promise<RunRecord> { throw new Error('not implemented'); }
+  public async transition(): Promise<RunRecord> { throw new Error('unexpected RunStore.transition call'); }
+  public async prepareConversation(): Promise<RunRecord> { throw new Error('unexpected RunStore.prepareConversation call'); }
+  public async attachExecution(): Promise<RunRecord> { throw new Error('unexpected RunStore.attachExecution call'); }
   public async complete(_runId: string, _result: RunResult): Promise<RunRecord> {
-    throw new Error('not implemented');
+    throw new Error('unexpected RunStore.complete call');
   }
   public async fail(
     _runId: string,
     _error: RunError,
     _from?: RunStatus[],
-  ): Promise<RunRecord> { throw new Error('not implemented'); }
+  ): Promise<RunRecord> { throw new Error('unexpected RunStore.fail call'); }
 }
 
 class MemoryScheduler implements ThingScheduler {

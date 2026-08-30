@@ -165,10 +165,12 @@ and [AWS KMS pricing](https://aws.amazon.com/kms/pricing/).
 The API stage disables route-level detailed metrics by default because their cardinality grows with
 the number of active routes and can cost more than API requests at low volume. Set
 `enable_detailed_api_metrics=true` only when that breakdown is operationally useful. Queue delay and
-record-processing duration are emitted as four low-cardinality application metric series across the
-conversation coordinator and run dispatcher. The AWS account's first ten custom or detailed
-metrics and first ten standard alarm metrics are covered by the CloudWatch free tier, shared across
-the account.
+record-processing duration are emitted as low-cardinality application metrics across the
+conversation coordinator and run dispatcher. The runner also emits one
+`CodexThreadResumeFallback` count when a missing native rollout requires durable replay into a
+successor thread. These metrics use deployment and component dimensions, never owner, Run, or
+conversation IDs. The AWS account's first ten custom or detailed metrics and first ten standard
+alarm metrics are covered by the CloudWatch free tier, shared across the account.
 
 S3 Files is optional and creates the one material idle infrastructure charge in the supplied
 Terraform: its dedicated NAT gateway and public IPv4 address cost about **$36 per 30-day month**

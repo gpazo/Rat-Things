@@ -315,7 +315,10 @@ serialized slice of the same conversation. Never capture secrets or workload sta
 image snapshot. A running VM's connector cannot be changed. A suspended session may preserve disk
 and memory for up to eight hours. With S3 Files enabled, a replacement VM mounts the conversation's
 Codex home and workspace; DynamoDB fencing prevents simultaneous SQLite access. Normalized artifact
-replay remains authoritative if native app-server resume is incompatible. See the AWS
+replay starts a successor Codex thread only when app-server explicitly reports that the requested
+thread has no persisted rollout. Invalid requests, configuration failures, and internal app-server
+errors fail the Run instead of silently discarding native continuity. The low-cardinality
+`CodexThreadResumeFallback` metric records each successor-thread fallback. See the AWS
 [snapshot guidance](https://docs.aws.amazon.com/lambda/latest/dg/microvms-images-snapshots.html).
 
 AWS launched Lambda MicroVMs with an initial limited Region set. Confirm current availability before
