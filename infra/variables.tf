@@ -173,6 +173,31 @@ variable "integration_oauth_app_secret_arns" {
   }
 }
 
+variable "enable_connection_health_monitor" {
+  type    = bool
+  default = true
+}
+
+variable "connection_health_schedule_expression" {
+  type    = string
+  default = "rate(15 minutes)"
+}
+
+variable "connection_health_stale_minutes" {
+  type    = number
+  default = 60
+}
+
+variable "connection_health_check_limit" {
+  type    = number
+  default = 10
+}
+
+variable "connection_health_check_concurrency" {
+  type    = number
+  default = 3
+}
+
 variable "github_webhook_secret_arn" {
   type     = string
   default  = null

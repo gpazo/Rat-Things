@@ -166,6 +166,11 @@ describe('RoutineService', () => {
     expect(submit.mock.calls[0]?.[1]).not.toMatchObject({
       metadata: { scheduledAt: expect.anything() },
     });
+    await expect(store.get('routine-manual')).resolves.toMatchObject({
+      lastRunAt: '2026-08-20T10:05:00.000Z',
+      lastRunId: 'manual-run',
+      updatedAt: '2026-08-20T10:05:00.000Z',
+    });
   });
 
   it('rejects forged sources and ineffective source destinations', async () => {
@@ -267,6 +272,19 @@ class MemoryRoutineStore implements RoutineStore {
     const updated: RoutineRecord = { ...record, status: 'deleted', updatedAt, expiresAt };
     this.records.set(routineId, updated);
     return structuredClone(updated);
+  }
+
+  public async recordLastRun(
+    ownerId: string,
+    routineId: string,
+    runAt: string,
+    runId: string,
+    updatedAt: string,
+  ): Promise<boolean> {
+    const record = this.required(ownerId, routineId);
+    if (record.status === 'deleted' || (record.lastRunAt && record.lastRunAt > runAt)) return false;
+    this.records.set(routineId, { ...record, lastRunAt: runAt, lastRunId: runId, updatedAt });
+    return true;
   }
 
   public async advance(

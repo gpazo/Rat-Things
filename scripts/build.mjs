@@ -2,6 +2,7 @@ import { cp, rm } from 'node:fs/promises';
 import { build } from 'esbuild';
 
 const lambdaEntries = {
+  'connection-health': 'src/lambdas/connection-health.ts',
   control: 'src/lambdas/control.ts',
   'conversation-completion': 'src/lambdas/conversation-completion.ts',
   'conversation-coordinator': 'src/lambdas/conversation-coordinator.ts',

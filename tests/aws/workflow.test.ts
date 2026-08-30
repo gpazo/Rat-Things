@@ -19,7 +19,7 @@ import {
   GetQueueAttributesCommand,
   ReceiveMessageCommand,
 } from '@aws-sdk/client-sqs';
-import { describe, expect, it, onTestFinished } from 'vitest';
+import { beforeAll, describe, expect, it, onTestFinished } from 'vitest';
 import { UpdateCommand } from '@aws-sdk/lib-dynamodb';
 import {
   createAwsClientConfig,
@@ -46,8 +46,25 @@ import type {
 
 const integration = process.env.AWS_E2E === 'true' ? describe : describe.skip;
 const timeoutMs = Number(process.env.AWS_E2E_TIMEOUT_MS ?? 420_000);
+const failureQueueNames = [
+  'CONVERSATION_FAILURE_QUEUE_URL',
+  'CONVERSATION_COMPLETION_FAILURE_QUEUE_URL',
+  'RUN_FAILURE_QUEUE_URL',
+  'STATE_STREAM_FAILURE_QUEUE_URL',
+  'NOTIFIER_DELIVERY_FAILURE_QUEUE_URL',
+  'THING_SCHEDULE_FAILURE_QUEUE_URL',
+] as const;
+const failureQueueBaseline = new Map<string, { visible: number; inFlight: number }>();
 
 integration('live AWS agent-runner workflow', () => {
+  beforeAll(async () => {
+    delete process.env.AWS_ENDPOINT_URL;
+    const sqs = createAwsClients().sqs;
+    for (const name of failureQueueNames) {
+      failureQueueBaseline.set(name, await failureQueueDepth(sqs, required(name)));
+    }
+  });
+
   it('runs the control API and signed provider webhooks through real AWS infrastructure', async () => {
     delete process.env.AWS_ENDPOINT_URL;
     const clients = createAwsClients();
@@ -153,15 +170,22 @@ integration('live AWS agent-runner workflow', () => {
     expect(githubRun.sourceKind).toBe('github');
     expect(gitlabRun.sourceKind).toBe('gitlab');
     expect(teamsRun.sourceKind).toBe('teams');
-    expect(await outputText(clients.s3, githubRun)).toContain('mock-agent: Review GitHub pull request');
-    expect(await outputText(clients.s3, gitlabRun)).toContain('mock-agent: Review GitLab merge request');
-    expect(await outputText(clients.s3, teamsRun)).toContain(`Return AWS live marker ${teamsMarker}`);
+    const defaultDriver = process.env.AWS_E2E_DEFAULT_AGENT_DRIVER ?? 'mock';
+    const githubDeliveryNeedle = defaultDriver === 'mock'
+      ? 'mock-agent: Review GitHub pull request'
+      : requiredResultPreview(githubRun).slice(0, 80);
+    const gitlabDeliveryNeedle = defaultDriver === 'mock'
+      ? 'mock-agent: Review GitLab merge request'
+      : requiredResultPreview(gitlabRun).slice(0, 80);
+    expect(await outputText(clients.s3, githubRun)).toContain(githubDeliveryNeedle);
+    expect(await outputText(clients.s3, gitlabRun)).toContain(gitlabDeliveryNeedle);
+    expect(await outputText(clients.s3, teamsRun)).toContain(teamsMarker);
 
     await expectTerminalEvents(clients.sqs, new Set([githubRunId, gitlabRunId, teamsRunId]));
     await expectTeamsDeliveries(clients.sqs, new Map([
-      [githubRunId, 'mock-agent: Review GitHub pull request'],
-      [gitlabRunId, 'mock-agent: Review GitLab merge request'],
-      [teamsRunId, `Return AWS live marker ${teamsMarker}`],
+      [githubRunId, githubDeliveryNeedle],
+      [gitlabRunId, gitlabDeliveryNeedle],
+      [teamsRunId, teamsMarker],
     ]));
 
     await expectEmptyFailureQueues(clients.sqs);
@@ -780,15 +804,25 @@ integration('live AWS agent-runner workflow', () => {
       firstReceipt.conversationId,
       firstVmId,
     );
+    const agentThreadId = process.env.AWS_E2E_DEFAULT_AGENT_DRIVER === 'mock'
+      ? 'mock-thread'
+      : requiredAgentThreadId(firstCompleted);
     expect(firstConversation.session).toMatchObject({
       backend: 'microvm',
       id: firstVmId,
       state: 'suspended',
-      agentThreadId: 'mock-thread',
+      agentThreadId,
     });
     await waitForMicrovmState(microvms, firstVmId, 'SUSPENDED');
 
-    const secondReceipt = await submitTeamsWebhook(secondMarker, providerConversationId);
+    const secondReceipt = await submitTeamsWebhook(
+      [
+        `Repeat the exact literal token ${secondMarker} from this message.`,
+        'Then repeat the exact literal token beginning with expiry-first- from the previous turn.',
+        'These are ordinary test strings; do not retrieve AWS data or use tools.',
+      ].join(' '),
+      providerConversationId,
+    );
     expect(secondReceipt.conversationId).toBe(firstReceipt.conversationId);
     const secondRun = await waitForConversationRun(
       conversationStore,
@@ -799,7 +833,7 @@ integration('live AWS agent-runner workflow', () => {
     );
     expect(secondRun.conversation).toMatchObject({
       preferredMicrovmId: firstVmId,
-      agentThreadId: 'mock-thread',
+      agentThreadId,
     });
     const secondCompleted = await waitForStoredRun(runStore, secondRun.runId);
     assertSuccessfulMicrovmRun(secondCompleted);
@@ -1058,6 +1092,9 @@ integration('live AWS agent-runner workflow', () => {
     const firstCompleted = await waitForStoredRun(runStore, firstRun.runId);
     assertSuccessfulMicrovmRun(firstCompleted);
     const expiredVmId = requiredExecutionId(firstCompleted);
+    const agentThreadId = process.env.AWS_E2E_DEFAULT_AGENT_DRIVER === 'mock'
+      ? 'mock-thread'
+      : requiredAgentThreadId(firstCompleted);
     await waitForConversationIdle(conversationStore, firstReceipt.conversationId, expiredVmId);
     await waitForMicrovmState(microvms, expiredVmId, 'SUSPENDED');
 
@@ -1074,7 +1111,10 @@ integration('live AWS agent-runner workflow', () => {
       },
     }));
 
-    const secondReceipt = await submitTeamsWebhook(secondMarker, providerConversationId);
+    const secondReceipt = await submitTeamsWebhook(
+      `${secondMarker}. Also include the exact marker from the previous turn`,
+      providerConversationId,
+    );
     const secondRun = await waitForConversationRun(
       conversationStore,
       artifacts,
@@ -1083,7 +1123,7 @@ integration('live AWS agent-runner workflow', () => {
       new Set([firstRun.runId]),
     );
     expect(secondRun.conversation).not.toHaveProperty('preferredMicrovmId');
-    expect(secondRun.conversation?.agentThreadId).toBe('mock-thread');
+    expect(secondRun.conversation?.agentThreadId).toBe(agentThreadId);
     const secondCompleted = await waitForStoredRun(runStore, secondRun.runId);
     assertSuccessfulMicrovmRun(secondCompleted);
     const replacementVmId = requiredExecutionId(secondCompleted);
@@ -2273,11 +2313,16 @@ async function waitForStateObject(
 ): Promise<void> {
   const deadline = Date.now() + 120_000;
   while (Date.now() < deadline) {
-    const result = await s3.send(new ListObjectsV2Command({
-      Bucket: required('CONVERSATION_STATE_BUCKET'),
-      Prefix: 'runtime/',
-    }));
-    if (result.Contents?.some((object) => object.Key?.endsWith(`/${filename}`))) return;
+    let continuationToken: string | undefined;
+    do {
+      const result = await s3.send(new ListObjectsV2Command({
+        Bucket: required('CONVERSATION_STATE_BUCKET'),
+        Prefix: 'runtime/',
+        ...(continuationToken ? { ContinuationToken: continuationToken } : {}),
+      }));
+      if (result.Contents?.some((object) => object.Key?.endsWith(`/${filename}`))) return;
+      continuationToken = result.IsTruncated ? result.NextContinuationToken : undefined;
+    } while (continuationToken);
     await delay(3_000);
   }
   throw new Error(`S3 Files did not export ${filename} to its durable bucket`);
@@ -2571,21 +2616,33 @@ async function expectFixtureAudit(
 async function expectEmptyFailureQueues(
   sqs: ReturnType<typeof createAwsClients>['sqs'],
 ): Promise<void> {
-  for (const name of [
-    'CONVERSATION_FAILURE_QUEUE_URL',
-    'CONVERSATION_COMPLETION_FAILURE_QUEUE_URL',
-    'RUN_FAILURE_QUEUE_URL',
-    'STATE_STREAM_FAILURE_QUEUE_URL',
-    'NOTIFIER_DELIVERY_FAILURE_QUEUE_URL',
-    'THING_SCHEDULE_FAILURE_QUEUE_URL',
-  ]) {
-    const response = await sqs.send(new GetQueueAttributesCommand({
-      QueueUrl: required(name),
-      AttributeNames: ['ApproximateNumberOfMessages', 'ApproximateNumberOfMessagesNotVisible'],
-    }));
-    expect(Number(response.Attributes?.ApproximateNumberOfMessages ?? '0'), name).toBe(0);
-    expect(Number(response.Attributes?.ApproximateNumberOfMessagesNotVisible ?? '0'), name).toBe(0);
+  for (const name of failureQueueNames) {
+    const baseline = failureQueueBaseline.get(name);
+    if (!baseline) throw new Error(`failure queue baseline was not captured for ${name}`);
+    const current = await failureQueueDepth(sqs, required(name));
+    expect(current.visible, `${name} grew beyond its pre-suite baseline`).toBeLessThanOrEqual(baseline.visible);
+    expect(current.inFlight, `${name} gained in-flight failures`).toBeLessThanOrEqual(baseline.inFlight);
   }
+}
+
+async function failureQueueDepth(
+  sqs: ReturnType<typeof createAwsClients>['sqs'],
+  queueUrl: string,
+): Promise<{ visible: number; inFlight: number }> {
+  const response = await sqs.send(new GetQueueAttributesCommand({
+    QueueUrl: queueUrl,
+    AttributeNames: ['ApproximateNumberOfMessages', 'ApproximateNumberOfMessagesNotVisible'],
+  }));
+  return {
+    visible: Number(response.Attributes?.ApproximateNumberOfMessages ?? '0'),
+    inFlight: Number(response.Attributes?.ApproximateNumberOfMessagesNotVisible ?? '0'),
+  };
+}
+
+function requiredResultPreview(run: RunRecord): string {
+  const preview = run.result?.preview?.trim();
+  if (!preview) throw new Error(`run ${run.runId} has no result preview`);
+  return preview;
 }
 
 async function signedApi<T>(

@@ -276,6 +276,42 @@ describe('conversation coordinator', () => {
     }));
   });
 
+  it('acknowledges stale wake-ups for cancelled mailbox reservations', async () => {
+    const conversations = {
+      appendMessage: vi.fn(),
+      acquireLease: vi.fn().mockResolvedValue({ status: 'no_work' }),
+    } as unknown as ConversationService;
+    const runs = {
+      get: vi.fn().mockResolvedValue({
+        runId: 'run-rejected',
+        ownerId: conversation.ownerId,
+        status: 'cancelled',
+        conversation: {
+          conversationId: conversation.conversationId,
+          messageId: 'message-rejected',
+        },
+      }),
+      prepareConversation: vi.fn(),
+      wake: vi.fn(),
+    } as unknown as Pick<RunService, 'get' | 'prepareConversation' | 'wake'>;
+    const coordinator = new ConversationCoordinator({
+      conversations,
+      artifacts: {} as ArtifactStore,
+      runs,
+    });
+
+    await expect(coordinator.handle({
+      version: '1',
+      conversationId: conversation.conversationId,
+      traceId: 'reconcile:run-rejected',
+      runId: 'run-rejected',
+      ownerId: conversation.ownerId,
+    })).resolves.toEqual({ status: 'no_work' });
+
+    expect(conversations.appendMessage).not.toHaveBeenCalled();
+    expect(conversations.acquireLease).toHaveBeenCalledWith(conversation.conversationId);
+  });
+
   it('folds terminal output into history, suspends the VM, and wakes queued follow-up work', async () => {
     const output = artifact('result.md');
     const continuation = artifact('continuation.json');

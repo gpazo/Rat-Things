@@ -1,17 +1,21 @@
 import { createHash } from 'node:crypto';
 import type { DynamoDBDocumentClient } from '@aws-sdk/lib-dynamodb';
 import {
+  DeleteCommand,
   GetCommand,
   PutCommand,
   QueryCommand,
+  ScanCommand,
   TransactWriteCommand,
 } from '@aws-sdk/lib-dynamodb';
 import type { IntegrationCredentialBinding } from '../credentials/types.js';
 import {
+  validateConnectionHealth,
   validateConnectionGrant,
   validateConnectionSet,
   validateIntegrationConnection,
   validateSourceCapabilityBinding,
+  type ConnectionHealth,
   type ConnectionGrant,
   type ConnectionSet,
   type IntegrationConnection,
@@ -28,6 +32,59 @@ export class DynamoIntegrationStore implements IntegrationStore {
   public async listConnections(ownerId: string): Promise<IntegrationConnection[]> {
     return (await this.query<IntegrationConnection>(ownerId, 'CONNECTION#'))
       .map((value) => validateIntegrationConnection(value));
+  }
+
+  /**
+   * Returns a rotating, deployment-wide slice for the dedicated health Lambda.
+   * The opaque cursor is adapter-owned and never exposed through the API or to
+   * an agent. A bounded scan is necessary because owner IDs are deliberately
+   * hashed partition keys and no global connection index is maintained.
+   */
+  public async nextHealthCheckCandidates(limit: number): Promise<IntegrationConnection[]> {
+    if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
+      throw new Error('connection health candidate limit must be 1-100');
+    }
+    const cursorKey = { pk: 'SYSTEM#CONNECTION_HEALTH', sk: 'CURSOR' };
+    const cursor = await this.client.send(new GetCommand({
+      TableName: this.tableName,
+      Key: cursorKey,
+      ConsistentRead: true,
+    }));
+    let startKey = healthCursor(cursor.Item?.value);
+    let nextKey: Record<string, unknown> | undefined = startKey;
+    const connections: IntegrationConnection[] = [];
+    let scans = 0;
+    do {
+      const remaining = limit - connections.length;
+      const result = await this.client.send(new ScanCommand({
+        TableName: this.tableName,
+        FilterExpression: 'begins_with(sk, :prefix)',
+        ExpressionAttributeValues: { ':prefix': 'CONNECTION#' },
+        ProjectionExpression: '#value',
+        ExpressionAttributeNames: { '#value': 'value' },
+        Limit: remaining,
+        ...(startKey ? { ExclusiveStartKey: startKey } : {}),
+      }));
+      connections.push(...(result.Items ?? []).map((item) => (
+        validateIntegrationConnection(item.value as IntegrationConnection)
+      )));
+      nextKey = result.LastEvaluatedKey;
+      startKey = nextKey;
+      scans += 1;
+    } while (nextKey && connections.length < limit && scans < 25);
+
+    if (nextKey) {
+      await this.client.send(new PutCommand({
+        TableName: this.tableName,
+        Item: { ...cursorKey, value: { lastEvaluatedKey: nextKey } },
+      }));
+    } else {
+      await this.client.send(new DeleteCommand({
+        TableName: this.tableName,
+        Key: cursorKey,
+      }));
+    }
+    return connections;
   }
 
   public async getConnection(
@@ -137,6 +194,24 @@ export class DynamoIntegrationStore implements IntegrationStore {
   public async getGrant(ownerId: string, connectionId: string): Promise<ConnectionGrant | undefined> {
     const grant = await this.get<ConnectionGrant>(ownerId, `GRANT#${connectionId}`);
     return grant ? validateConnectionGrant(grant) : undefined;
+  }
+
+  public async putConnectionHealth(health: ConnectionHealth): Promise<void> {
+    validateConnectionHealth(health);
+    await this.client.send(new PutCommand(putItemInput(
+      this.tableName,
+      health.ownerId,
+      `HEALTH#${health.connectionId}`,
+      health,
+    )));
+  }
+
+  public async getConnectionHealth(
+    ownerId: string,
+    connectionId: string,
+  ): Promise<ConnectionHealth | undefined> {
+    const health = await this.get<ConnectionHealth>(ownerId, `HEALTH#${connectionId}`);
+    return health ? validateConnectionHealth(health) : undefined;
   }
 
   public async putConnectionSet(connectionSet: ConnectionSet): Promise<void> {
@@ -267,6 +342,14 @@ export class DynamoIntegrationStore implements IntegrationStore {
     }));
     return (result.Items ?? []).map((item) => item.value as T);
   }
+}
+
+function healthCursor(value: unknown): Record<string, unknown> | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const key = (value as { lastEvaluatedKey?: unknown }).lastEvaluatedKey;
+  if (!key || typeof key !== 'object' || Array.isArray(key)) return undefined;
+  const { pk, sk } = key as Record<string, unknown>;
+  return typeof pk === 'string' && typeof sk === 'string' ? { pk, sk } : undefined;
 }
 
 function ownerKey(ownerId: string): string {

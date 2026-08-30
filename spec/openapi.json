@@ -149,6 +149,40 @@
         }
       }
     },
+    "/v1/integrations/connections/{connectionId}": {
+      "get": {
+        "tags": ["Integrations"],
+        "operationId": "getConnection",
+        "parameters": [{ "$ref": "#/components/parameters/ConnectionId" }],
+        "responses": { "200": { "description": "Connection identity, grant, and safe health metadata", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/IntegrationConnectionDetail" } } } }, "default": { "$ref": "#/components/responses/Error" } }
+      },
+      "patch": {
+        "tags": ["Integrations"],
+        "operationId": "renameConnection",
+        "parameters": [{ "$ref": "#/components/parameters/ConnectionId" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RenameConnection" } } } },
+        "responses": { "200": { "description": "Presentation name changed without changing the stable alias or provider identity", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/IntegrationConnection" } } } }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/v1/integrations/connections/{connectionId}/test": {
+      "post": {
+        "tags": ["Integrations"],
+        "operationId": "testConnection",
+        "description": "Trusted control-plane verification. This operation is never exposed as an agent dynamic tool.",
+        "parameters": [{ "$ref": "#/components/parameters/ConnectionId" }],
+        "requestBody": { "$ref": "#/components/requestBodies/EmptyObject" },
+        "responses": { "200": { "description": "Current connection lifecycle and bounded health result", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConnectionTestResult" } } } }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/v1/integrations/connections/{connectionId}/consumers": {
+      "get": {
+        "tags": ["Integrations"],
+        "operationId": "listConnectionConsumers",
+        "description": "Derives owner-scoped Things, routines, connection sets, and source bindings that select this account. It never reads credentials.",
+        "parameters": [{ "$ref": "#/components/parameters/ConnectionId" }],
+        "responses": { "200": { "description": "Safe dependency read model", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConnectionConsumerList" } } } }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
     "/v1/integrations/connections/{connectionId}/grant": {
       "post": {
         "tags": ["Integrations"],
@@ -170,7 +204,20 @@
         "operationId": "rotateConnectionCredential",
         "parameters": [{ "$ref": "#/components/parameters/ConnectionId" }],
         "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CredentialRotation" } } } },
-        "responses": { "200": { "description": "Credential replaced in the host vault", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConnectionCredentialReceipt" } } } }, "default": { "$ref": "#/components/responses/Error" } }
+        "responses": { "200": { "description": "Same-account credential verified and replaced; connection returned to active health", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConnectionTestResult" } } } }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/v1/integrations/connections/{connectionId}/oauth/reconnect": {
+      "post": {
+        "tags": ["Integrations"],
+        "operationId": "reconnectOAuthConnection",
+        "description": "Operator-only reconnect for an existing OAuth account. The server preserves the connection ID and Rat grant, and rejects a callback that verifies as a different provider tenant or subject. This route is never exposed to the agent runtime.",
+        "parameters": [{ "$ref": "#/components/parameters/ConnectionId" }],
+        "requestBody": { "$ref": "#/components/requestBodies/VersionOne" },
+        "responses": {
+          "201": { "description": "Identity-bound OAuth authorization URL ready for a browser", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OAuthReconnectAuthorizationStart" } } } },
+          "default": { "$ref": "#/components/responses/Error" }
+        }
       }
     },
     "/v1/integrations/connections/{connectionId}/revoke": {
@@ -770,7 +817,8 @@
       "IdempotencyKey": { "name": "Idempotency-Key", "in": "header", "required": false, "description": "Recommended for every submission and required when thread is present; reuse it to receive the same Run.", "schema": { "type": "string", "pattern": "^[A-Za-z0-9._:-]{1,200}$" } }
     },
     "requestBodies": {
-      "EmptyObject": { "required": true, "content": { "application/json": { "schema": { "type": "object", "maxProperties": 0 } } } }
+      "EmptyObject": { "required": true, "content": { "application/json": { "schema": { "type": "object", "maxProperties": 0 } } } },
+      "VersionOne": { "required": true, "content": { "application/json": { "schema": { "type": "object", "additionalProperties": false, "required": ["version"], "properties": { "version": { "const": "1" } } } } } }
     },
     "responses": {
       "Error": {
@@ -925,6 +973,19 @@
           "expiresAt": { "type": "string", "format": "date-time" }
         }
       },
+      "OAuthReconnectAuthorizationStart": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["version", "pluginId", "connectionId", "authorizationUrl", "callbackUrl", "expiresAt"],
+        "properties": {
+          "version": { "const": "1" },
+          "pluginId": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$" },
+          "connectionId": { "type": "string", "minLength": 1, "maxLength": 256 },
+          "authorizationUrl": { "type": "string", "format": "uri", "pattern": "^https://" },
+          "callbackUrl": { "type": "string", "format": "uri", "pattern": "^https://" },
+          "expiresAt": { "type": "string", "format": "date-time" }
+        }
+      },
       "ProviderAuthorization": {
         "type": "object",
         "additionalProperties": false,
@@ -946,6 +1007,7 @@
           "ownerId": { "type": "string", "minLength": 1, "maxLength": 1024 },
           "pluginId": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$" },
           "alias": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@-]{0,127}$" },
+          "displayName": { "type": "string", "minLength": 1, "maxLength": 256 },
           "label": { "type": "string", "minLength": 1, "maxLength": 256 },
           "externalTenantId": { "type": "string", "minLength": 1, "maxLength": 512 },
           "externalSubjectId": { "type": "string", "minLength": 1, "maxLength": 512 },
@@ -953,6 +1015,21 @@
           "status": { "enum": ["active", "expired", "revoked"] },
           "createdAt": { "type": "string", "format": "date-time" },
           "updatedAt": { "type": "string", "format": "date-time" }
+        }
+      },
+      "ConnectionHealth": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["version", "ownerId", "connectionId", "status", "code"],
+        "properties": {
+          "version": { "const": "1" },
+          "ownerId": { "type": "string", "minLength": 1, "maxLength": 1024 },
+          "connectionId": { "type": "string", "minLength": 1, "maxLength": 256 },
+          "status": { "enum": ["unknown", "healthy", "degraded", "reauth-required"] },
+          "code": { "enum": ["not-tested", "verified", "provider-unavailable", "credential-rejected", "identity-mismatch", "credential-missing"] },
+          "checkedAt": { "type": "string", "format": "date-time" },
+          "lastHealthyAt": { "type": "string", "format": "date-time" },
+          "lastFailureAt": { "type": "string", "format": "date-time" }
         }
       },
       "ConnectionGrant": {
@@ -988,6 +1065,60 @@
           "grant": { "$ref": "#/components/schemas/ConnectionGrant" }
         }
       },
+      "IntegrationConnectionDetail": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["connection", "health"],
+        "properties": {
+          "connection": { "$ref": "#/components/schemas/IntegrationConnection" },
+          "grant": { "$ref": "#/components/schemas/ConnectionGrant" },
+          "health": { "$ref": "#/components/schemas/ConnectionHealth" }
+        }
+      },
+      "RenameConnection": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["version", "displayName"],
+        "properties": {
+          "version": { "const": "1" },
+          "displayName": { "type": "string", "minLength": 1, "maxLength": 256 }
+        }
+      },
+      "ConnectionTestResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["connection", "health"],
+        "properties": {
+          "connection": { "$ref": "#/components/schemas/IntegrationConnection" },
+          "health": { "$ref": "#/components/schemas/ConnectionHealth" }
+        }
+      },
+      "ConnectionConsumerList": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["version", "connectionId", "consumers", "complete"],
+        "properties": {
+          "version": { "const": "1" },
+          "connectionId": { "type": "string", "minLength": 1, "maxLength": 256 },
+          "complete": { "type": "boolean" },
+          "consumers": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["kind", "id", "name"],
+              "properties": {
+                "kind": { "enum": ["thing", "routine", "connection-set", "source-binding"] },
+                "id": { "type": "string", "minLength": 1, "maxLength": 256 },
+                "name": { "type": "string", "minLength": 1, "maxLength": 256 },
+                "status": { "type": "string", "minLength": 1, "maxLength": 64 },
+                "stage": { "enum": ["draft", "active"] },
+                "via": { "type": "string", "minLength": 1, "maxLength": 256 }
+              }
+            }
+          }
+        }
+      },
       "IntegrationConnectionList": {
         "type": "object",
         "additionalProperties": false,
@@ -998,10 +1129,11 @@
             "items": {
               "type": "object",
               "additionalProperties": false,
-              "required": ["connection"],
+              "required": ["connection", "health"],
               "properties": {
                 "connection": { "$ref": "#/components/schemas/IntegrationConnection" },
-                "grant": { "$ref": "#/components/schemas/ConnectionGrant" }
+                "grant": { "$ref": "#/components/schemas/ConnectionGrant" },
+                "health": { "$ref": "#/components/schemas/ConnectionHealth" }
               }
             }
           }
@@ -2175,7 +2307,7 @@
               "integrations": {
                 "type": "object",
                 "additionalProperties": false,
-                "required": ["multipleAccounts", "connectionSets", "credentialOnboarding", "credentialVerification", "providerIdentity", "permissionPresets", "providerAndBrokerEnforcement", "bringYourOwnOAuth", "hostedOAuthCallbacks", "automaticTokenRefresh"],
+                "required": ["multipleAccounts", "connectionSets", "credentialOnboarding", "credentialVerification", "providerIdentity", "permissionPresets", "providerAndBrokerEnforcement", "bringYourOwnOAuth", "hostedOAuthCallbacks", "automaticTokenRefresh", "identityPreservingReconnect", "scheduledHealthChecks"],
                 "properties": {
                   "multipleAccounts": { "const": true },
                   "connectionSets": { "const": true },
@@ -2186,7 +2318,9 @@
                   "providerAndBrokerEnforcement": { "const": true },
                   "bringYourOwnOAuth": { "const": true },
                   "hostedOAuthCallbacks": { "const": true },
-                  "automaticTokenRefresh": { "const": true }
+                  "automaticTokenRefresh": { "const": true },
+                  "identityPreservingReconnect": { "const": true },
+                  "scheduledHealthChecks": { "const": true }
                 }
               },
               "agent": {

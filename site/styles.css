@@ -229,7 +229,7 @@ h3 { margin-bottom: 0.7rem; font-size: 1.35rem; line-height: 1.2; }
   padding: clamp(5rem, 9vw, 8rem) 0;
 }
 
-.section-heading, .route-heading, .flow-heading, .continuity-heading, .economics-heading {
+.section-heading, .route-heading, .flow-heading, .continuity-heading, .economics-heading, .slack-heading, .extend-heading {
   display: grid;
   grid-template-columns: minmax(0, 1.1fr) minmax(300px, 0.9fr);
   gap: clamp(2rem, 7vw, 7rem);
@@ -237,7 +237,7 @@ h3 { margin-bottom: 0.7rem; font-size: 1.35rem; line-height: 1.2; }
   margin-bottom: 3.5rem;
 }
 
-.section-heading h2, .route-heading h2, .flow-heading h2, .continuity-heading h2, .economics-heading h2 { margin-bottom: 0; }
+.section-heading h2, .route-heading h2, .flow-heading h2, .continuity-heading h2, .economics-heading h2, .slack-heading h2, .extend-heading h2 { margin-bottom: 0; }
 .section-heading > p, .route-heading > p, .flow-heading > p, .continuity-heading > p, .economics-copy > p, .heading-copy > p {
   margin-bottom: 0.5rem;
   color: var(--muted);
@@ -302,7 +302,7 @@ pre span { color: var(--cyan); }
 .setup-details summary { padding: 1rem 1.1rem; color: var(--cyan); cursor: pointer; font-size: 0.84rem; font-weight: 720; }
 .setup-details > div { display: grid; gap: 0.8rem; padding: 0 1.1rem 1.1rem; }
 
-.route-section, .flow-section, .boundary-section, .continuity-section, .economics-section, .caution-section {
+.route-section, .flow-section, .boundary-section, .continuity-section, .economics-section, .caution-section, .slack-section, .extend-section {
   width: 100%;
   padding: clamp(5rem, 9vw, 8rem) max(1.5rem, calc((100vw - var(--max)) / 2));
 }
@@ -320,6 +320,49 @@ pre span { color: var(--cyan); }
 }
 .route-primary { background: linear-gradient(145deg, rgba(16, 61, 73, 0.76), rgba(7, 27, 34, 0.82)); }
 .route-note { max-width: 980px; margin: 1.4rem 0 0; color: var(--muted); font-size: 0.8rem; }
+
+.slack-section {
+  border-top: 1px solid rgba(176, 232, 101, 0.14);
+  border-bottom: 1px solid rgba(176, 232, 101, 0.14);
+  background:
+    radial-gradient(circle at 16% 18%, rgba(176, 232, 101, 0.08), transparent 28rem),
+    #050c0e;
+}
+.slack-copy p, .extend-copy p { margin-bottom: 1rem; color: var(--muted); font-size: 1.04rem; }
+.slack-experience { display: grid; grid-template-columns: minmax(320px, 0.9fr) minmax(0, 1.1fr); gap: 1rem; align-items: stretch; }
+.slack-thread { overflow: hidden; border: 1px solid rgba(176, 232, 101, 0.25); border-radius: var(--radius); background: #f7f7f8; color: #1d1c1d; box-shadow: 0 28px 90px rgba(0, 0, 0, 0.28); }
+.slack-thread-header { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 0.9rem 1.1rem; border-bottom: 1px solid #dddde1; background: #fff; }
+.slack-thread-header span { font-weight: 760; }
+.slack-thread-header small { color: #69686c; font: 680 0.64rem ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: 0.08em; text-transform: uppercase; }
+.slack-message { display: grid; grid-template-columns: auto 1fr; gap: 0.8rem; padding: 1.1rem; }
+.slack-message + .slack-message { border-top: 1px solid #e5e5e8; }
+.slack-avatar { display: grid; place-items: center; width: 38px; height: 38px; border-radius: 9px; background: #d7e1e4; color: #17313a; font: 800 0.72rem ui-monospace, SFMono-Regular, Menlo, monospace; }
+.slack-avatar-rat { background: #173f49; color: #b8f2ff; }
+.slack-message strong { display: block; margin-bottom: 0.15rem; font-size: 0.86rem; }
+.slack-message p { margin: 0; color: #363438; font-size: 0.84rem; line-height: 1.55; }
+.slack-message p b { color: #1264a3; }
+.slack-message small { display: block; margin-top: 0.55rem; color: #6f6d72; font-size: 0.66rem; }
+.slack-message-rat { background: #fbfdf9; }
+.slack-message-followup { margin-left: 2.1rem; }
+.slack-thread-state { display: flex; align-items: center; gap: 0.55rem; padding: 0.75rem 1.1rem; border-top: 1px solid #dddde1; background: #eef7e7; color: #385125; font-size: 0.7rem; font-weight: 720; }
+.slack-thread-state span { color: #1f7a38; }
+.slack-use-grid { display: grid; grid-template-columns: 1fr 1fr; border-top: 1px solid var(--line); border-left: 1px solid var(--line); }
+.slack-use-grid article { min-height: 220px; padding: 1.35rem; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); background: rgba(11, 23, 29, 0.4); }
+.slack-use-grid article > span { display: block; margin-bottom: 2.2rem; color: #b0e865; font: 700 0.7rem ui-monospace, SFMono-Regular, Menlo, monospace; }
+.slack-use-grid h3 { font-size: 1.12rem; }
+.slack-use-grid p { color: var(--muted); font-size: 0.82rem; }
+.slack-beyond { display: grid; grid-template-columns: minmax(220px, 0.4fr) minmax(0, 1fr); gap: 2rem; margin-top: 1rem; padding: 1.2rem 1.35rem; border: 1px solid rgba(176, 232, 101, 0.2); border-radius: 14px; background: rgba(176, 232, 101, 0.045); }
+.slack-beyond strong { color: #dff5be; }
+.slack-beyond p { margin: 0; color: var(--muted); font-size: 0.84rem; }
+
+.extend-section { background: #07151b; }
+.extend-flow { display: grid; grid-template-columns: repeat(5, 1fr); margin: 0; padding: 0; border-top: 1px solid var(--line); border-left: 1px solid var(--line); list-style: none; }
+.extend-flow li { min-height: 235px; padding: 1.35rem; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.extend-flow li > span { display: block; margin-bottom: 2.8rem; color: var(--amber); font: 700 0.7rem ui-monospace, SFMono-Regular, Menlo, monospace; }
+.extend-flow strong { display: block; margin-bottom: 0.55rem; }
+.extend-flow p { color: var(--muted); font-size: 0.8rem; }
+.extend-note { max-width: 980px; margin: 1.2rem 0 0; color: var(--muted); font-size: 0.82rem; }
+.extend-note strong { color: var(--cyan); }
 
 .console-section {
   width: 100%;
@@ -493,12 +536,15 @@ footer p { max-width: 600px; margin: 1rem 0 0; color: var(--muted); font-size: 0
   .hero-stats div { min-width: 0; }
   .hero-stats div:nth-child(3) { border-left: 0; border-top: 1px solid rgba(255,255,255,0.12); }
   .hero-stats div:nth-child(4) { border-top: 1px solid rgba(255,255,255,0.12); }
-  .section-heading, .route-heading, .flow-heading, .boundary-heading, .economics-heading, .console-heading, .proof-section { grid-template-columns: 1fr; gap: 1.5rem; }
+  .section-heading, .route-heading, .flow-heading, .boundary-heading, .economics-heading, .console-heading, .proof-section, .slack-heading, .extend-heading { grid-template-columns: 1fr; gap: 1.5rem; }
   .setup-footer { grid-template-columns: 1fr; }
   .console-capabilities { grid-template-columns: 1fr 1fr; }
   .console-showcase { grid-template-columns: 1fr; }
   .console-shot-grid { grid-template-columns: 1fr 1fr; }
   .console-shot-mobile a { height: 420px; }
+  .slack-experience { grid-template-columns: 1fr; }
+  .slack-beyond { grid-template-columns: 1fr; gap: 0.5rem; }
+  .extend-flow { grid-template-columns: 1fr 1fr; }
   .flow { grid-template-columns: 1fr 1fr; }
   .flow li { min-height: 205px; border: 1px solid var(--line); border-radius: 0 !important; }
   .flow span { margin-bottom: 2rem; }
@@ -511,7 +557,7 @@ footer p { max-width: 600px; margin: 1rem 0 0; color: var(--muted); font-size: 0
 
 @media (max-width: 560px) {
   .site-header, .hero-copy, .section, footer { width: min(calc(100% - 2rem), var(--max)); }
-  .route-section, .flow-section, .boundary-section, .continuity-section, .economics-section, .console-section, .caution-section { padding-left: 1rem; padding-right: 1rem; }
+  .route-section, .flow-section, .boundary-section, .continuity-section, .economics-section, .console-section, .caution-section, .slack-section, .extend-section { padding-left: 1rem; padding-right: 1rem; }
   .hero { min-height: 0; }
   h1 { font-size: clamp(3.4rem, 16vw, 4.2rem); line-height: 0.88; letter-spacing: -0.06em; }
   .hero-title { max-width: 100%; font-size: clamp(2.85rem, 12vw, 3.7rem); line-height: 0.92; }
@@ -521,10 +567,12 @@ footer p { max-width: 600px; margin: 1rem 0 0; color: var(--muted); font-size: 0
   .hero-stats { width: calc(100% - 2rem); margin-bottom: 1.5rem; }
   .hero-stats div { padding: 0.85rem 0.9rem; }
   .hero-stats dd { font-size: 0.66rem; line-height: 1.35; }
-  .route-grid, .feature-grid, .flow, .performance-ledger, .cost-ledger, .console-capabilities { grid-template-columns: 1fr; }
+  .route-grid, .feature-grid, .flow, .performance-ledger, .cost-ledger, .console-capabilities, .slack-use-grid, .extend-flow { grid-template-columns: 1fr; }
   .console-shot-grid { grid-template-columns: 1fr; }
   .console-shot-mobile a { height: min(150vw, 520px); padding: 0.7rem; }
   .route-card, .feature-grid article, .flow li { min-height: auto; }
+  .slack-use-grid article, .extend-flow li { min-height: auto; }
+  .slack-message-followup { margin-left: 0; }
   .route-card code { margin-top: 1.4rem; }
   .feature-grid span { margin-bottom: 2rem; }
   pre { white-space: pre-wrap; overflow-wrap: anywhere; }

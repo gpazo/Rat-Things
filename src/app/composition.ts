@@ -23,6 +23,7 @@ import {
 } from '../adapters/executors.js';
 import { ConversationService } from '../conversation/service.js';
 import { ConversationSubmissionService } from './conversation-submission.js';
+import { ConnectionConsumerService } from './connection-consumers.js';
 import { CredentialBroker } from '../credentials/broker.js';
 import { DeliveryService } from '../delivery/service.js';
 import type { TeamsDeliveryMode } from '../delivery/providers/teams.js';
@@ -78,6 +79,7 @@ let integrationRuntime: IntegrationRuntime | undefined;
 let oauthApplicationRegistry: SecretOAuthApplicationRegistry | undefined;
 let oauthCredentialBroker: OAuthRefreshingCredentialBroker | undefined;
 let connectionService: ConnectionService | undefined;
+let connectionConsumerService: ConnectionConsumerService | undefined;
 let oauthAuthorizationService: OAuthAuthorizationService | undefined;
 let capabilityProfileRegistry: CapabilityProfileRegistry | undefined;
 let sourcePolicyResolver: StoredSourcePolicyResolver | undefined;
@@ -192,9 +194,19 @@ export function getConnectionService(): ConnectionService {
       process.env.INTEGRATION_CREDENTIAL_KMS_KEY_ARN,
     ),
     registry: getIntegrationPluginRegistry(),
+    credentials: getOAuthCredentialBroker(),
     credentialNamePrefix: requiredEnv('INTEGRATION_CREDENTIAL_NAME_PREFIX'),
   });
   return connectionService;
+}
+
+export function getConnectionConsumerService(): ConnectionConsumerService {
+  connectionConsumerService ??= new ConnectionConsumerService({
+    connections: getConnectionService(),
+    things: getThingService(),
+    routines: getRoutineService(),
+  });
+  return connectionConsumerService;
 }
 
 export function getOAuthAuthorizationService(): OAuthAuthorizationService {

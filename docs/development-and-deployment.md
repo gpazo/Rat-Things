@@ -175,6 +175,13 @@ broker. Only the ARN map enters the image configuration; the execution role has 
 only for the declared application secrets, while issued connection credentials remain in their
 owner-scoped Secrets Manager path.
 
+By default a dedicated operator-plane Lambda scans a rotating bounded slice every 15 minutes and
+re-verifies health older than 60 minutes. It has no API route, agent tool, run submission authority,
+or MicroVM access. Configure `enable_connection_health_monitor`,
+`connection_health_schedule_expression`, `connection_health_stale_minutes`,
+`connection_health_check_limit`, and `connection_health_check_concurrency` when provider limits or
+deployment size require a different cadence.
+
 The live-E2E deploy helper reloads saved runtime configuration before updating an existing
 deployment. OAuth app ARNs, webhook toggles/signing-secret paths, the selected driver, and S3 Files
 settings therefore survive a MicroVM-only redeploy unless an explicit environment variable

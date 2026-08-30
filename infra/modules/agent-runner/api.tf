@@ -53,6 +53,8 @@ locals {
     "GET /v1/integrations/plugins",
     "GET /v1/integrations/oauth/callback",
     "GET /v1/integrations/connections",
+    "GET /v1/integrations/connections/{connectionId}",
+    "GET /v1/integrations/connections/{connectionId}/consumers",
     "GET /v1/integrations/connection-sets",
     "GET /v1/integrations/source-bindings",
     "GET /v1/conversations",
@@ -80,8 +82,10 @@ locals {
     "POST /v1/integrations/connections",
     "POST /v1/integrations/oauth/authorizations",
     "POST /v1/integrations/connections/{connectionId}/credential",
+    "POST /v1/integrations/connections/{connectionId}/oauth/reconnect",
     "POST /v1/integrations/connections/{connectionId}/grant",
     "POST /v1/integrations/connections/{connectionId}/revoke",
+    "POST /v1/integrations/connections/{connectionId}/test",
     "POST /v1/integrations/connection-sets",
     "POST /v1/integrations/source-bindings",
     "POST /v1/runs/{runId}/cancel",
@@ -108,6 +112,7 @@ locals {
     "POST /v1/conversations/{conversationId}/organization",
     "POST /v1/conversations/{conversationId}/messages/{messageId}/reactions",
     "POST /v1/runs/{runId}/publications",
+    "PATCH /v1/integrations/connections/{connectionId}",
   ])
 
   webhook_routes = merge(

@@ -60,6 +60,18 @@ locals {
   }
 
   lambda_definitions = {
+    connection-health = {
+      enabled  = var.enable_connection_health_monitor
+      zip_path = local.lambda_zip_paths["connection-health"]
+      role_arn = aws_iam_role.connection_health.arn
+      timeout  = 60
+      memory   = 256
+      environment = merge(local.lambda_common_environment, {
+        CONNECTION_HEALTH_CHECK_CONCURRENCY = tostring(var.connection_health_check_concurrency)
+        CONNECTION_HEALTH_CHECK_LIMIT       = tostring(var.connection_health_check_limit)
+        CONNECTION_HEALTH_STALE_MINUTES     = tostring(var.connection_health_stale_minutes)
+      })
+    }
     control = {
       enabled  = true
       zip_path = local.lambda_zip_paths.control

@@ -21,7 +21,13 @@ import type { IntegrationPluginRegistry } from '../plugins/integration-registry.
 
 export interface ThingExplanationEnvironment {
   profiles: CapabilityProfileRegistry;
-  connections: Pick<ConnectionService, 'list' | 'listSets'>;
+  connections: {
+    list(ownerId: string): Promise<Array<{
+      connection: IntegrationConnection;
+      grant?: ConnectionGrant;
+    }>>;
+    listSets: ConnectionService['listSets'];
+  };
   plugins: IntegrationPluginRegistry;
 }
 
@@ -160,7 +166,10 @@ export async function explainThingEnvironment(
 
 function resolveConnection(
   selected: {
-    bundle: Awaited<ReturnType<ConnectionService['list']>>[number];
+    bundle: {
+      connection: IntegrationConnection;
+      grant?: ConnectionGrant;
+    };
     selectedBy: Set<'connection-set' | 'account'>;
     requested?: ConnectionAccessRequest;
     defaultFor: Set<string>;

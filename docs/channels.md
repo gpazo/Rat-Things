@@ -291,6 +291,9 @@ signatures and rejects timestamps with more than five minutes of skew. It
 answers URL-verification challenges and accepts only `app_mention` events. Mentions carrying
 `bot_id`, `bot_profile`, or the `bot_message` subtype are ignored so the adapter does not consume its
 own bot output. Results use `chat.postMessage`, preserving the source thread when one exists.
+For the user-facing workflows this enables—workspace research, durable follow-ups, controlled
+posting/reactions, scheduled briefings, and broader MicroVM work launched from a mention—start with
+[Use Rat Things from Slack](slack.md).
 
 Like the Teams bridge, Slack currently performs secret resolution plus durable S3/DynamoDB/SQS
 submission before acknowledging the event, inside a five-second Lambda timeout. Slack requires an

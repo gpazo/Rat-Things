@@ -108,8 +108,24 @@ const elements = {
   connectAuthScheme: document.querySelector('#connect-auth-scheme'),
   connectFields: document.querySelector('#connect-fields'),
   connectAlias: document.querySelector('#connect-alias'),
+  connectAliasField: document.querySelector('#connect-alias-field'),
   connectAccess: document.querySelector('#connect-access'),
+  connectAccessField: document.querySelector('#connect-access-field'),
   connectSubmit: document.querySelector('#connect-submit'),
+  connectionDetailDialog: document.querySelector('#connection-detail-dialog'),
+  connectionDetailForm: document.querySelector('#connection-detail-form'),
+  connectionDetailTitle: document.querySelector('#connection-detail-title'),
+  connectionDetailClose: document.querySelector('#connection-detail-close'),
+  connectionDetailCancel: document.querySelector('#connection-detail-cancel'),
+  connectionDetailSummary: document.querySelector('#connection-detail-summary'),
+  connectionDisplayName: document.querySelector('#connection-display-name'),
+  connectionHealth: document.querySelector('#connection-health'),
+  connectionScopes: document.querySelector('#connection-scopes'),
+  connectionOperations: document.querySelector('#connection-operations'),
+  connectionConsumers: document.querySelector('#connection-consumers'),
+  connectionTest: document.querySelector('#connection-test'),
+  connectionReconnect: document.querySelector('#connection-reconnect'),
+  connectionRename: document.querySelector('#connection-rename'),
   routineDialog: document.querySelector('#routine-dialog'),
   routineForm: document.querySelector('#routine-form'),
   routineDialogClose: document.querySelector('#routine-dialog-close'),
@@ -177,6 +193,9 @@ const state = {
   sourceBindings: [],
   routines: [],
   oauthPollTimer: null,
+  selectedConnection: null,
+  reconnectTarget: null,
+  connectionFilter: '',
 };
 
 elements.newThread.addEventListener('click', openNewThread);
@@ -238,6 +257,17 @@ elements.teachDiscard.addEventListener('click', () => void stopTeaching(true));
 elements.connectForm.addEventListener('submit', submitManualConnection);
 elements.connectDialogClose.addEventListener('click', () => elements.connectDialog.close());
 elements.connectCancel.addEventListener('click', () => elements.connectDialog.close());
+elements.connectionDetailForm.addEventListener('submit', renameSelectedConnection);
+elements.connectionDetailClose.addEventListener('click', () => elements.connectionDetailDialog.close());
+elements.connectionDetailCancel.addEventListener('click', () => elements.connectionDetailDialog.close());
+elements.connectionTest.addEventListener('click', () => void testSelectedConnection());
+elements.connectionReconnect.addEventListener('click', () => void reconnectSelectedConnection());
+elements.connectionDetailDialog.addEventListener('close', () => { state.selectedConnection = null; });
+elements.connectDialog.addEventListener('close', () => {
+  state.reconnectTarget = null;
+  elements.connectForm.reset();
+  elements.connectFields.replaceChildren();
+});
 elements.routineForm.addEventListener('submit', submitRoutine);
 elements.routineDialogClose.addEventListener('click', () => elements.routineDialog.close());
 elements.routineCancel.addEventListener('click', () => elements.routineDialog.close());
@@ -374,17 +404,19 @@ async function loadManagementWorkspace(mode = state.mode) {
 function renderConnectionsWorkspace() {
   const content = document.createDocumentFragment();
   const active = state.connections.filter((item) => item.connection?.status === 'active');
+  const healthy = state.connections.filter((item) => item.health?.status === 'healthy');
   content.append(managementHero(
     'Connected services',
-    'Install provider accounts, see the authority each provider issued, and set the smaller Rat-side access ceiling used by agents.',
+    'Install provider accounts, inspect their health and consumers, and set the smaller Rat-side access ceiling used by agents.',
     'Refresh',
     () => void reloadManagementWorkspace(),
   ));
   content.append(managementSummary([
     ['Active', active.length],
-    ['Providers', new Set(active.map((item) => item.connection.pluginId)).size],
+    ['Healthy', healthy.length],
     ['Available', state.plugins.length],
   ]));
+  content.append(connectionFilter());
   content.append(managementSectionHeading('Your connections', `${active.length} ready for agent use`));
   if (state.connections.length === 0) {
     content.append(managementEmpty('No connections yet', 'Choose an installed provider below. Credentials remain in AWS Secrets Manager.'));
@@ -401,13 +433,43 @@ function renderConnectionsWorkspace() {
   if (state.plugins.length === 0) plugins.append(managementEmpty('No providers installed', 'Provider manifests are compiled into the deployment, not downloaded at runtime.'));
   content.append(plugins);
   elements.managementContent.replaceChildren(content);
+  applyConnectionFilter();
+}
+
+function connectionFilter() {
+  const label = document.createElement('label');
+  label.className = 'management-filter';
+  const input = document.createElement('input');
+  input.type = 'search';
+  input.placeholder = 'Search services, accounts, or operations';
+  input.setAttribute('aria-label', 'Search connections');
+  input.value = state.connectionFilter;
+  const count = document.createElement('span');
+  count.textContent = `${state.connections.length} account${state.connections.length === 1 ? '' : 's'} · ${state.plugins.length} app${state.plugins.length === 1 ? '' : 's'}`;
+  input.addEventListener('input', () => {
+    state.connectionFilter = input.value;
+    applyConnectionFilter();
+  });
+  label.append(input, count);
+  return label;
+}
+
+function applyConnectionFilter() {
+  const query = state.connectionFilter.trim().toLocaleLowerCase('en-US');
+  for (const card of elements.managementContent.querySelectorAll('[data-filter-text]')) {
+    card.hidden = Boolean(query) && !card.dataset.filterText.includes(query);
+  }
 }
 
 function connectionCard(item) {
   const connection = item.connection ?? {};
   const plugin = state.plugins.find((candidate) => candidate.id === connection.pluginId);
-  const card = managementCardShell(plugin?.title ?? connection.pluginId ?? 'Provider', connection.label ?? connection.alias ?? 'Connection');
+  const card = managementCardShell(
+    plugin?.title ?? connection.pluginId ?? 'Provider',
+    connection.displayName ?? connection.label ?? connection.alias ?? 'Connection',
+  );
   card.dataset.status = connection.status ?? 'unknown';
+  card.dataset.filterText = connectionSearchText(item, plugin);
   const copy = card.querySelector('.management-card-copy');
   const details = document.createElement('span');
   details.textContent = [
@@ -432,10 +494,34 @@ function connectionCard(item) {
           : 'mentions off'
       : null,
   ].filter(Boolean).join(' · ');
-  copy.append(details, stateLine);
+  const healthLine = document.createElement('span');
+  healthLine.className = 'management-card-state connection-health-line';
+  healthLine.dataset.health = item.health?.status ?? 'unknown';
+  healthLine.textContent = connectionHealthLabel(item.health);
+  copy.append(details, stateLine, healthLine);
 
   const actions = document.createElement('div');
   actions.className = 'management-card-actions';
+  const inspect = document.createElement('button');
+  inspect.type = 'button';
+  inspect.textContent = 'Details';
+  inspect.addEventListener('click', () => void openConnectionDetails(item));
+  actions.append(inspect);
+  if (connection.status !== 'revoked') {
+    const test = document.createElement('button');
+    test.type = 'button';
+    test.textContent = 'Test';
+    test.addEventListener('click', () => void testConnection(item, test));
+    actions.append(test);
+    if (connection.status === 'expired') {
+      const reconnect = document.createElement('button');
+      reconnect.type = 'button';
+      reconnect.textContent = 'Reconnect';
+      reconnect.dataset.primary = 'true';
+      reconnect.addEventListener('click', () => void reconnectConnection(item, reconnect));
+      actions.append(reconnect);
+    }
+  }
   if (connection.status === 'active') {
     const access = document.createElement('select');
     access.setAttribute('aria-label', `Rat access for ${connection.alias ?? connection.label}`);
@@ -468,6 +554,281 @@ function connectionCard(item) {
   }
   card.append(actions);
   return card;
+}
+
+function connectionSearchText(item, plugin) {
+  const connection = item.connection ?? {};
+  return [
+    connection.displayName,
+    connection.label,
+    connection.alias,
+    connection.pluginId,
+    plugin?.title,
+    plugin?.description,
+    ...(plugin?.operations ?? []).flatMap((operation) => [operation.id, operation.title, operation.kind]),
+  ].filter(Boolean).join(' ').toLocaleLowerCase('en-US');
+}
+
+function connectionHealthLabel(health) {
+  if (!health || health.status === 'unknown') return 'Health not tested';
+  if (health.status === 'healthy') return `Healthy${health.checkedAt ? ` · verified ${relativeTime(health.checkedAt)}` : ''}`;
+  if (health.code === 'provider-unavailable') return 'Provider unavailable when last tested';
+  if (health.code === 'credential-missing') return 'Needs reconnect · stored credential is missing';
+  if (health.code === 'identity-mismatch') return 'Needs reconnect · provider identity changed';
+  if (health.status === 'reauth-required') return 'Needs reconnect · stored authorization was rejected';
+  return 'Connection is degraded';
+}
+
+async function openConnectionDetails(item) {
+  const connection = item.connection ?? {};
+  if (!connection.connectionId) return;
+  const plugin = state.plugins.find((candidate) => candidate.id === connection.pluginId);
+  state.selectedConnection = { detail: item, consumers: null, plugin };
+  elements.connectionDetailTitle.textContent = connection.displayName ?? connection.label ?? connection.alias ?? 'Connected account';
+  elements.connectionDetailSummary.textContent = `${plugin?.title ?? connection.pluginId} · ${connection.alias} · loading current details…`;
+  elements.connectionDisplayName.value = connection.displayName ?? connection.label ?? connection.alias ?? '';
+  elements.connectionHealth.replaceChildren(detailLoadingRow('Checking saved health…'));
+  elements.connectionScopes.replaceChildren(detailLoadingRow('Loading provider authority…'));
+  elements.connectionOperations.replaceChildren(detailLoadingRow('Loading installed operations…'));
+  elements.connectionConsumers.replaceChildren(detailLoadingRow('Finding Things and routines…'));
+  elements.connectionTest.disabled = connection.status === 'revoked';
+  elements.connectionReconnect.disabled = connection.status === 'revoked';
+  elements.connectionRename.disabled = true;
+  elements.connectionDetailDialog.showModal();
+  try {
+    const path = `/v1/integrations/connections/${encodeURIComponent(connection.connectionId)}`;
+    const [detail, consumers] = await Promise.all([
+      api(path),
+      api(`${path}/consumers`),
+    ]);
+    if (!state.selectedConnection || state.selectedConnection.detail.connection?.connectionId !== connection.connectionId) return;
+    state.selectedConnection = { detail, consumers, plugin };
+    renderConnectionDetails(detail, consumers, plugin);
+  } catch (error) {
+    elements.connectionConsumers.replaceChildren(detailLoadingRow(message(error)));
+    notice(message(error), true);
+  } finally {
+    elements.connectionRename.disabled = false;
+  }
+}
+
+function renderConnectionDetails(detail, consumers, plugin) {
+  const connection = detail.connection ?? {};
+  const health = detail.health ?? {};
+  elements.connectionDetailTitle.textContent = connection.displayName ?? connection.label ?? connection.alias ?? 'Connected account';
+  elements.connectionDetailSummary.textContent = [
+    plugin?.title ?? connection.pluginId,
+    `stable alias ${connection.alias}`,
+    connection.label ? `provider identity ${connection.label}` : null,
+    `Rat access ${detail.grant?.preset ?? 'not granted'}`,
+  ].filter(Boolean).join(' · ');
+  elements.connectionDisplayName.value = connection.displayName ?? connection.label ?? connection.alias ?? '';
+  elements.connectionTest.disabled = connection.status === 'revoked';
+  elements.connectionReconnect.disabled = connection.status === 'revoked';
+  elements.connectionHealth.replaceChildren(
+    healthStat('State', connectionHealthLabel(health)),
+    healthStat('Lifecycle', statusLabel(connection.status ?? 'unknown')),
+    healthStat('Last checked', health.checkedAt ? relativeTime(health.checkedAt) : 'Never'),
+  );
+
+  const scopes = connection.authorization?.scopes ?? [];
+  elements.connectionScopes.replaceChildren();
+  for (const scope of scopes) elements.connectionScopes.append(detailChip(scope));
+  if (scopes.length === 0) {
+    elements.connectionScopes.append(detailChip(
+      connection.authorization?.scopeModel === 'coarse' ? 'Provider uses coarse authority' : 'No granular scopes reported',
+    ));
+  }
+
+  elements.connectionOperations.replaceChildren();
+  for (const operation of plugin?.operations ?? []) {
+    elements.connectionOperations.append(detailRow(
+      operation.title ?? operation.id,
+      `${operation.access} · ${operation.risk}`,
+    ));
+  }
+  if (!plugin?.operations?.length) {
+    elements.connectionOperations.append(detailLoadingRow('No operations are installed for this provider.'));
+  }
+
+  elements.connectionConsumers.replaceChildren();
+  for (const consumer of consumers?.consumers ?? []) {
+    elements.connectionConsumers.append(detailRow(
+      consumer.name,
+      [consumer.kind, consumer.stage, consumer.status, consumer.via ? `via ${consumer.via}` : null]
+        .filter(Boolean).join(' · '),
+    ));
+  }
+  if (!consumers?.consumers?.length) {
+    elements.connectionConsumers.append(detailLoadingRow('No Things, routines, sets, or source bindings currently select this account.'));
+  }
+  if (consumers?.complete === false) {
+    elements.connectionConsumers.append(detailLoadingRow('Showing a bounded dependency scan. Narrow the deployment before disconnecting.'));
+  }
+}
+
+function healthStat(labelText, valueText) {
+  const stat = document.createElement('div');
+  stat.className = 'connection-health-stat';
+  const label = document.createElement('span');
+  label.textContent = labelText;
+  const value = document.createElement('strong');
+  value.textContent = valueText;
+  value.title = valueText;
+  stat.append(label, value);
+  return stat;
+}
+
+function detailChip(text) {
+  const chip = document.createElement('span');
+  chip.className = 'connection-chip';
+  chip.textContent = text;
+  return chip;
+}
+
+function detailRow(titleText, detailText) {
+  const row = document.createElement('div');
+  row.className = 'connection-detail-row';
+  const title = document.createElement('strong');
+  title.textContent = titleText;
+  const detail = document.createElement('span');
+  detail.textContent = detailText;
+  row.append(title, detail);
+  return row;
+}
+
+function detailLoadingRow(text) {
+  const row = document.createElement('span');
+  row.className = 'connection-detail-row';
+  row.textContent = text;
+  return row;
+}
+
+async function testConnection(item, button) {
+  const connection = item.connection ?? {};
+  if (!connection.connectionId) return;
+  button.disabled = true;
+  try {
+    const result = await api(`/v1/integrations/connections/${encodeURIComponent(connection.connectionId)}/test`, {
+      method: 'POST',
+      body: {},
+    });
+    const current = state.connections.find((candidate) => candidate.connection?.connectionId === connection.connectionId);
+    if (current) {
+      current.connection = result.connection;
+      current.health = result.health;
+    }
+    renderConnectionsWorkspace();
+    notice(connectionHealthLabel(result.health));
+    return result;
+  } catch (error) {
+    button.disabled = false;
+    notice(message(error), true);
+    return null;
+  }
+}
+
+async function testSelectedConnection() {
+  const selected = state.selectedConnection;
+  if (!selected) return;
+  elements.connectionTest.disabled = true;
+  const result = await testConnection(selected.detail, elements.connectionTest);
+  if (!result || !state.selectedConnection) return;
+  const detail = { ...state.selectedConnection.detail, ...result };
+  state.selectedConnection = { ...state.selectedConnection, detail };
+  renderConnectionDetails(detail, state.selectedConnection.consumers, state.selectedConnection.plugin);
+}
+
+async function reconnectSelectedConnection() {
+  const selected = state.selectedConnection;
+  if (!selected) return;
+  await reconnectConnection(selected.detail, elements.connectionReconnect);
+}
+
+async function reconnectConnection(item, button) {
+  const connection = item.connection ?? {};
+  const plugin = state.plugins.find((candidate) => candidate.id === connection.pluginId);
+  const authentication = plugin?.authentication?.find(
+    (candidate) => candidate.scheme === connection.authorization?.scheme,
+  );
+  if (!connection.connectionId || !plugin || !authentication) {
+    notice('The installed authentication method for this connection is unavailable.', true);
+    return;
+  }
+  if (authentication.oauth2) {
+    button.disabled = true;
+    try {
+      const started = await api(`/v1/integrations/connections/${encodeURIComponent(connection.connectionId)}/oauth/reconnect`, {
+        method: 'POST',
+        body: { version: '1' },
+      });
+      window.open(started.authorizationUrl, '_blank', 'noopener,noreferrer');
+      notice(`Finish reconnecting ${connection.displayName ?? connection.label} in the provider window. If no tab opened, allow pop-ups and try again. Existing access stays unchanged until the same provider account is verified.`);
+      window.clearInterval(state.oauthPollTimer);
+      state.oauthPollTimer = window.setInterval(() => void pollOAuthReconnect(
+        connection,
+        item.health,
+      ), 2_000);
+      window.setTimeout(() => {
+        window.clearInterval(state.oauthPollTimer);
+        state.oauthPollTimer = null;
+        button.disabled = false;
+      }, 10 * 60_000);
+    } catch (error) {
+      button.disabled = false;
+      notice(message(error), true);
+    }
+    return;
+  }
+  if (elements.connectionDetailDialog.open) elements.connectionDetailDialog.close();
+  openManualConnection(plugin, authentication, item);
+}
+
+async function pollOAuthReconnect(before, previousHealth) {
+  if (state.mode !== 'connections' || state.managementLoading) return;
+  try {
+    const result = await api('/v1/integrations/connections');
+    const connections = Array.isArray(result.connections) ? result.connections : [];
+    const current = connections.find((item) => item.connection?.connectionId === before.connectionId);
+    const changed = current && (
+      current.connection?.updatedAt !== before.updatedAt ||
+      current.health?.checkedAt !== previousHealth?.checkedAt
+    );
+    if (!changed || current.connection?.status !== 'active' || current.health?.status !== 'healthy') return;
+    state.connections = connections;
+    window.clearInterval(state.oauthPollTimer);
+    state.oauthPollTimer = null;
+    if (elements.connectionDetailDialog.open) elements.connectionDetailDialog.close();
+    renderConnectionsWorkspace();
+    notice(`${current.connection.displayName ?? current.connection.label} reconnected. Its stable alias, Rat access, and consumers did not change.`);
+  } catch {
+    // The console remains usable while the callback window or network is in flight.
+  }
+}
+
+async function renameSelectedConnection(event) {
+  event.preventDefault();
+  const selected = state.selectedConnection;
+  if (!selected || !elements.connectionDetailForm.reportValidity()) return;
+  const connection = selected.detail.connection ?? {};
+  elements.connectionRename.disabled = true;
+  try {
+    const updated = await api(`/v1/integrations/connections/${encodeURIComponent(connection.connectionId)}`, {
+      method: 'PATCH',
+      body: { version: '1', displayName: elements.connectionDisplayName.value.trim() },
+    });
+    const current = state.connections.find((candidate) => candidate.connection?.connectionId === connection.connectionId);
+    if (current) current.connection = updated;
+    const detail = { ...selected.detail, connection: updated };
+    state.selectedConnection = { ...selected, detail };
+    renderConnectionDetails(detail, selected.consumers, selected.plugin);
+    renderConnectionsWorkspace();
+    notice(`Display name saved. Stable alias ${updated.alias} did not change.`);
+  } catch (error) {
+    notice(message(error), true);
+  } finally {
+    elements.connectionRename.disabled = false;
+  }
 }
 
 function slackEventsBinding(connection) {
@@ -537,6 +898,12 @@ async function enableSlackMentions(item, button) {
 function pluginCard(plugin) {
   const card = managementCardShell(plugin.title, plugin.description);
   card.classList.add('plugin-card');
+  card.dataset.filterText = [
+    plugin.id,
+    plugin.title,
+    plugin.description,
+    ...(plugin.operations ?? []).flatMap((operation) => [operation.id, operation.title, operation.kind]),
+  ].filter(Boolean).join(' ').toLocaleLowerCase('en-US');
   const copy = card.querySelector('.management-card-copy');
   const operations = document.createElement('span');
   operations.textContent = `${plugin.operations?.length ?? 0} installed operation${plugin.operations?.length === 1 ? '' : 's'} · reviewed provider adapter`;
@@ -577,21 +944,14 @@ async function beginOAuth(plugin, button) {
       method: 'POST',
       body: { version: '1', pluginId: plugin.id, grant: { version: '1', preset: 'read-only' } },
     });
-    const opened = window.open(result.authorizationUrl, '_blank', 'noopener,noreferrer');
-    notice(opened
-      ? `Finish connecting ${plugin.title} in the provider window. This page will update automatically.`
-      : 'Pop-up blocked. Allow pop-ups for this console and try again.',
-      !opened);
-    if (opened) {
+    window.open(result.authorizationUrl, '_blank', 'noopener,noreferrer');
+    notice(`Finish connecting ${plugin.title} in the provider window. If no tab opened, allow pop-ups and try again. This page will update automatically.`);
+    window.clearInterval(state.oauthPollTimer);
+    state.oauthPollTimer = window.setInterval(() => void pollOAuthCompletion(plugin, before), 2_000);
+    window.setTimeout(() => {
       window.clearInterval(state.oauthPollTimer);
-      state.oauthPollTimer = window.setInterval(() => void pollOAuthCompletion(plugin, before), 2_000);
-      window.setTimeout(() => {
-        window.clearInterval(state.oauthPollTimer);
-        state.oauthPollTimer = null;
-      }, 10 * 60_000);
-    } else {
-      button.disabled = false;
-    }
+      state.oauthPollTimer = null;
+    }, 10 * 60_000);
   } catch (error) {
     notice(message(error), true);
     button.disabled = false;
@@ -615,12 +975,18 @@ async function pollOAuthCompletion(plugin, before) {
   }
 }
 
-function openManualConnection(plugin, authentication) {
+function openManualConnection(plugin, authentication, reconnectItem = null) {
+  state.reconnectTarget = reconnectItem;
   elements.connectPluginId.value = plugin.id;
   elements.connectAuthScheme.value = authentication.scheme;
-  elements.connectDialogTitle.textContent = `Connect ${plugin.title}`;
+  elements.connectDialogTitle.textContent = reconnectItem
+    ? `Reconnect ${reconnectItem.connection?.displayName ?? reconnectItem.connection?.label ?? plugin.title}`
+    : `Connect ${plugin.title}`;
   elements.connectAlias.value = '';
   elements.connectAccess.value = 'read-only';
+  elements.connectAliasField.hidden = Boolean(reconnectItem);
+  elements.connectAccessField.hidden = Boolean(reconnectItem);
+  elements.connectSubmit.textContent = reconnectItem ? 'Verify & reconnect' : 'Verify & connect';
   elements.connectFields.replaceChildren();
   for (const field of (authentication.fields ?? []).filter((candidate) => !candidate.computed)) {
     const label = document.createElement('label');
@@ -649,9 +1015,12 @@ async function submitManualConnection(event) {
   }
   elements.connectSubmit.disabled = true;
   try {
-    const result = await api('/v1/integrations/connections', {
+    const reconnectTarget = state.reconnectTarget?.connection;
+    const result = await api(reconnectTarget
+      ? `/v1/integrations/connections/${encodeURIComponent(reconnectTarget.connectionId)}/credential`
+      : '/v1/integrations/connections', {
       method: 'POST',
-      body: {
+      body: reconnectTarget ? { version: '1', credential } : {
         version: '1',
         pluginId: elements.connectPluginId.value,
         authScheme: elements.connectAuthScheme.value,
@@ -662,7 +1031,9 @@ async function submitManualConnection(event) {
     });
     elements.connectDialog.close();
     await reloadManagementWorkspace();
-    notice(`${result.connection?.label ?? 'Provider account'} verified and connected.`);
+    notice(reconnectTarget
+      ? `${result.connection?.label ?? 'Provider account'} verified and reconnected without changing its access or consumers.`
+      : `${result.connection?.label ?? 'Provider account'} verified and connected.`);
   } catch (error) {
     notice(message(error), true);
   } finally {

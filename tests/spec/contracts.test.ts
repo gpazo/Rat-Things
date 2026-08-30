@@ -45,7 +45,7 @@ describe('published machine contracts', () => {
     const documentedRoutes = new Set<string>();
     const operationIds = new Set<string>();
     for (const [path, pathItem] of Object.entries(openapi.paths)) {
-      for (const method of ['get', 'post']) {
+      for (const method of ['get', 'post', 'patch']) {
         const operation = pathItem[method] as { operationId?: string } | undefined;
         if (!operation) continue;
         documentedRoutes.add(`${method.toUpperCase()} ${path}`);
@@ -56,7 +56,7 @@ describe('published machine contracts', () => {
       }
     }
     const installedRoutes = new Set(
-      [...terraform.matchAll(/"(GET|POST) ([^"$]+)"/g)]
+      [...terraform.matchAll(/"(GET|POST|PATCH) ([^"$]+)"/g)]
         .map((match) => `${match[1]} ${match[2]}`),
     );
     expect([...documentedRoutes].sort()).toEqual([...installedRoutes].sort());

@@ -1,6 +1,7 @@
 locals {
   lambda_names = merge(
     {
+      connection-health        = true
       control                  = true
       conversation-completion  = true
       conversation-coordinator = true

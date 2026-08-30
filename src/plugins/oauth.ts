@@ -27,6 +27,7 @@ export interface OAuthAuthorizationRecord {
   codeVerifier: string;
   grant: Omit<ConnectionGrant, 'version' | 'grantId' | 'ownerId' | 'connectionId'>;
   alias?: string;
+  reconnectConnectionId?: string;
   createdAt: string;
   expiresAt: number;
 }
@@ -52,7 +53,7 @@ export interface OAuthAuthorizationServiceOptions {
   registry: IntegrationPluginRegistryLike;
   applications: OAuthApplicationRegistryLike;
   store: OAuthAuthorizationStore;
-  connections: Pick<ConnectionService, 'create'>;
+  connections: Pick<ConnectionService, 'create' | 'get' | 'rotate'>;
   fetch?: typeof fetch;
   clock?: { now(): Date };
   randomBytes?: (size: number) => Buffer;
@@ -64,6 +65,12 @@ export interface StartOAuthAuthorizationInput {
   callbackUrl: string;
   grant: Omit<ConnectionGrant, 'version' | 'grantId' | 'ownerId' | 'connectionId'>;
   alias?: string;
+}
+
+export interface ReconnectOAuthAuthorizationInput {
+  ownerId: string;
+  connectionIdOrAlias: string;
+  callbackUrl: string;
 }
 
 export class OAuthAuthorizationService {
@@ -82,6 +89,55 @@ export class OAuthAuthorizationService {
   }
 
   public async start(input: StartOAuthAuthorizationInput): Promise<{
+    version: '1';
+    pluginId: string;
+    authorizationUrl: string;
+    callbackUrl: string;
+    expiresAt: string;
+  }> {
+    return this.startAuthorization(input);
+  }
+
+  /**
+   * Starts an operator-only OAuth reconnect. The target connection and its
+   * existing grant are bound into server-side state; the browser cannot select
+   * a different account, grant, or plugin during the callback.
+   */
+  public async startReconnect(input: ReconnectOAuthAuthorizationInput): Promise<{
+    version: '1';
+    pluginId: string;
+    connectionId: string;
+    authorizationUrl: string;
+    callbackUrl: string;
+    expiresAt: string;
+  }> {
+    const current = await this.options.connections.get(input.ownerId, input.connectionIdOrAlias);
+    if (current.connection.status === 'revoked') {
+      throw new ValidationError('revoked connections cannot be reconnected');
+    }
+    if (current.connection.authorization.scheme !== 'oauth2') {
+      throw new ValidationError('connection does not use hosted OAuth');
+    }
+    if (!current.grant) throw new Error('connection grant is missing');
+    const started = await this.startAuthorization({
+      ownerId: input.ownerId,
+      pluginId: current.connection.pluginId,
+      callbackUrl: input.callbackUrl,
+      grant: {
+        preset: current.grant.preset,
+        ...(current.grant.allowOperations ? { allowOperations: current.grant.allowOperations } : {}),
+        ...(current.grant.denyOperations ? { denyOperations: current.grant.denyOperations } : {}),
+        ...(current.grant.resourceConstraints ? { resourceConstraints: current.grant.resourceConstraints } : {}),
+        ...(current.grant.expiresAt ? { expiresAt: current.grant.expiresAt } : {}),
+      },
+      reconnectConnectionId: current.connection.connectionId,
+    });
+    return { ...started, connectionId: current.connection.connectionId };
+  }
+
+  private async startAuthorization(input: StartOAuthAuthorizationInput & {
+    reconnectConnectionId?: string;
+  }): Promise<{
     version: '1';
     pluginId: string;
     authorizationUrl: string;
@@ -107,6 +163,7 @@ export class OAuthAuthorizationService {
       codeVerifier,
       grant: input.grant,
       ...(input.alias ? { alias: input.alias } : {}),
+      ...(input.reconnectConnectionId ? { reconnectConnectionId: input.reconnectConnectionId } : {}),
       createdAt: now.toISOString(),
       expiresAt,
     });
@@ -168,14 +225,20 @@ export class OAuthAuthorizationService {
       },
       now: this.clock.now(),
     });
-    const result = await this.options.connections.create({
-      ownerId: pending.ownerId,
-      pluginId: pending.pluginId,
-      ...(pending.alias ? { alias: pending.alias } : {}),
-      authScheme: 'oauth2',
-      credential,
-      grant: pending.grant,
-    });
+    const result = pending.reconnectConnectionId
+      ? await this.options.connections.rotate(
+        pending.ownerId,
+        pending.reconnectConnectionId,
+        credential,
+      )
+      : await this.options.connections.create({
+        ownerId: pending.ownerId,
+        pluginId: pending.pluginId,
+        ...(pending.alias ? { alias: pending.alias } : {}),
+        authScheme: 'oauth2',
+        credential,
+        grant: pending.grant,
+      });
     return { connection: result.connection };
   }
 }

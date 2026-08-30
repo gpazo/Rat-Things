@@ -31,6 +31,7 @@
     {
       "title": "Connect channels and events",
       "documents": [
+        "slack.md",
         "github-webhook-onboarding.md",
         "microsoft-teams.md",
         "channels.md"
@@ -71,6 +72,7 @@
     "things.md": "Create, test, activate, schedule, and inspect reusable revisioned agent workflows.",
     "plugins.md": "Connect and verify accounts, choose grants, and understand the effective permission intersection.",
     "capability-envelope.md": "Learn what an agent can use autonomously and what remains unavailable for the entire Run.",
-    "conversations.md": "Start, continue, search, organize, attach, reply, react, answer questions, and inspect durable work."
+    "conversations.md": "Start, continue, search, organize, attach, reply, react, answer questions, and inspect durable work.",
+    "slack.md": "Start durable work from a Slack mention, continue in its thread, search or act through approved accounts, and understand current boundaries."
   }
 }

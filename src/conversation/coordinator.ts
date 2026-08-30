@@ -209,6 +209,11 @@ export class ConversationCoordinator {
   private async repairMailbox(message: ConversationWakeMessage): Promise<void> {
     if (!message.runId || !message.ownerId) return;
     const run = await this.options.runs.get(message.ownerId, message.runId);
+    // Only accepted, still-queued reservations are eligible for crash-window
+    // repair. A cancelled reservation may have an older wake-up in SQS; treating
+    // it as acknowledged prevents deterministic validation failures from being
+    // retried or dead-lettered.
+    if (run.status !== 'queued') return;
     const binding = run.conversation;
     if (
       !binding?.messageId ||

@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import type { ConversationQueue } from '../conversation/types.js';
+import { ConversationConflictError } from '../conversation/types.js';
 import { ConversationService } from '../conversation/service.js';
 import type { RunDestination, RunRecord, RunRequest } from '../domain/contracts.js';
 import { ValidationError } from '../domain/validation.js';
@@ -11,7 +12,7 @@ export class ConversationSubmissionService {
   public constructor(
     private readonly conversations: ConversationService,
     private readonly queue: ConversationQueue,
-    private readonly runs: Pick<RunService, 'idFor' | 'submit'>,
+    private readonly runs: Pick<RunService, 'idFor' | 'submit' | 'cancel'>,
   ) {}
 
   /** Reserves one public Run, then queues only its optional thread preparation. */
@@ -103,29 +104,40 @@ export class ConversationSubmissionService {
       run.conversation.attachmentManifest.sha256 !== input.attachmentManifest.sha256
       ? (await this.conversations.readAttachmentManifest(run.conversation.attachmentManifest)).files
       : input.attachments;
-    const receipt = await this.conversations.appendMessage({
-      conversationId: input.conversationId,
-      ownerId: input.ownerId,
-      ...(input.capabilityOwnerId ? { capabilityOwnerId: input.capabilityOwnerId } : {}),
-      messageId: input.messageId,
-      runId: run.runId,
-      delivery: input.delivery,
-      content: {
-        text: input.request.prompt,
-        request: input.request,
-        ...(attachments?.length ? { attachments } : {}),
-        ...(input.replyToMessageId ? { replyToMessageId: input.replyToMessageId } : {}),
-        metadata: {
-          traceId: input.submit.traceId ?? run.runId,
+    let receipt;
+    try {
+      receipt = await this.conversations.appendMessage({
+        conversationId: input.conversationId,
+        ownerId: input.ownerId,
+        ...(input.capabilityOwnerId ? { capabilityOwnerId: input.capabilityOwnerId } : {}),
+        messageId: input.messageId,
+        runId: run.runId,
+        delivery: input.delivery,
+        content: {
+          text: input.request.prompt,
+          request: input.request,
+          ...(attachments?.length ? { attachments } : {}),
+          ...(input.replyToMessageId ? { replyToMessageId: input.replyToMessageId } : {}),
+          metadata: {
+            traceId: input.submit.traceId ?? run.runId,
+          },
         },
-      },
-      source: input.context.source,
-      destination: input.destination,
-      actor: input.context.actor,
-      credentialSubject: input.context.credentialSubject,
-      ...(input.request.agent ? { executionPolicy: input.request.agent } : {}),
-      ...(input.request.integrations ? { integrationPolicy: input.request.integrations } : {}),
-    });
+        source: input.context.source,
+        destination: input.destination,
+        actor: input.context.actor,
+        credentialSubject: input.context.credentialSubject,
+        ...(input.request.agent ? { executionPolicy: input.request.agent } : {}),
+        ...(input.request.integrations ? { integrationPolicy: input.request.integrations } : {}),
+      });
+    } catch (error) {
+      if (error instanceof ConversationConflictError) {
+        // A fixed thread envelope rejected this occurrence after its durable Run
+        // reservation. Tombstone the queued reservation so the scheduled crash-
+        // window reconciler cannot turn a deterministic 409 into poison retries.
+        await this.runs.cancel(input.ownerId, run.runId);
+      }
+      throw error;
+    }
     await this.queue.enqueue({
       version: '1',
       conversationId: input.conversationId,

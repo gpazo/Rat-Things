@@ -81,6 +81,11 @@ export class RoutineService {
     return record;
   }
 
+  /** Internal read model for trusted control-plane dependency inspection. */
+  public async getRequest(ownerId: string, routineId: string): Promise<RunRequest> {
+    return this.loadRequest(await this.get(ownerId, routineId));
+  }
+
   public async list(ownerId: string, limit = 25, nextToken?: string) {
     validateOwner(ownerId);
     const bounded = Math.max(1, Math.min(100, Math.floor(limit)));
@@ -136,7 +141,15 @@ export class RoutineService {
     idempotencyKey = `manual:${routineId}:${this.randomId()}`,
   ): Promise<RunRecord> {
     const routine = await this.get(ownerId, routineId);
-    return this.submitOccurrence(routine, undefined, idempotencyKey);
+    const run = await this.submitOccurrence(routine, undefined, idempotencyKey);
+    await this.options.store.recordLastRun(
+      ownerId,
+      routineId,
+      run.createdAt,
+      run.runId,
+      this.clock.now().toISOString(),
+    );
+    return run;
   }
 
   public async tick(limit = 100): Promise<RoutineTickResult> {
@@ -176,16 +189,7 @@ export class RoutineService {
     scheduledAt: string | undefined,
     idempotencyKey: string,
   ): Promise<RunRecord> {
-    const ownerHash = sha256(routine.ownerId).slice(0, 32);
-    const expectedKey = `owners/${ownerHash}/routines/${routine.routineId}/request-${routine.requestHash}.json`;
-    if (routine.request.key !== expectedKey) {
-      throw new Error('routine request reference is outside its owner scope');
-    }
-    const stored = await this.options.artifacts.getJson<unknown>(routine.request);
-    const request = parseRunRequest(stored, this.validationOptions());
-    if (sha256(stableJson(request)) !== routine.requestHash) {
-      throw new Error('routine request does not match its stored digest');
-    }
+    const request = await this.loadRequest(routine);
     const metadata = {
       ...request.metadata,
       routineId: routine.routineId,
@@ -205,6 +209,20 @@ export class RoutineService {
         credentialSubject: { kind: 'runtime', id: routine.ownerId },
       },
     });
+  }
+
+  private async loadRequest(routine: RoutineRecord): Promise<RunRequest> {
+    const ownerHash = sha256(routine.ownerId).slice(0, 32);
+    const expectedKey = `owners/${ownerHash}/routines/${routine.routineId}/request-${routine.requestHash}.json`;
+    if (routine.request.key !== expectedKey) {
+      throw new Error('routine request reference is outside its owner scope');
+    }
+    const stored = await this.options.artifacts.getJson<unknown>(routine.request);
+    const request = parseRunRequest(stored, this.validationOptions());
+    if (sha256(stableJson(request)) !== routine.requestHash) {
+      throw new Error('routine request does not match its stored digest');
+    }
+    return request;
   }
 
   private parseInput(raw: unknown): ParsedRoutineInput {

@@ -5,6 +5,7 @@ import {
 } from '../../src/app/conversation-submission.js';
 import type { ConversationService } from '../../src/conversation/service.js';
 import type { ConversationQueue } from '../../src/conversation/types.js';
+import { ConversationConflictError } from '../../src/conversation/types.js';
 import type { RunService } from '../../src/core/run-service.js';
 import { apiIngressContext } from '../../src/identity/context.js';
 import { artifactIdForPath } from '../../src/domain/artifacts.js';
@@ -244,6 +245,35 @@ describe('threaded Run submission', () => {
     );
   });
 
+  it('cancels a reserved Run when the fixed conversation envelope rejects it', async () => {
+    const conversations = {
+      get: vi.fn().mockResolvedValue(undefined),
+      appendMessage: vi.fn().mockRejectedValue(
+        new ConversationConflictError('conversation execution policy cannot change'),
+      ),
+    } as unknown as ConversationService;
+    const queue = { enqueue: vi.fn().mockResolvedValue(undefined) } as ConversationQueue;
+    const runs = runServices();
+    const service = new ConversationSubmissionService(conversations, queue, runs);
+    const context = apiIngressContext('api:operator');
+
+    await expect(service.submitThread(
+      context.owner.id,
+      { version: '1', prompt: 'Widen this thread.', source: context.source },
+      {
+        idempotencyKey: 'message-rejected',
+        provenance: { actor: context.actor, credentialSubject: context.credentialSubject },
+      },
+      {
+        conversationId: apiConversationId(context.owner.id, 'fixed-envelope'),
+        messageId: 'message-rejected',
+      },
+    )).rejects.toThrow('conversation execution policy cannot change');
+
+    expect(runs.cancel).toHaveBeenCalledWith(context.owner.id, 'run-message-rejected');
+    expect(queue.enqueue).not.toHaveBeenCalled();
+  });
+
   it('uses different runtime IDs for the same key owned by different callers', () => {
     expect(apiConversationId('api:owner-a', 'shared')).not.toBe(
       apiConversationId('api:owner-b', 'shared'),
@@ -259,8 +289,10 @@ function runServices() {
       ownerId,
       request,
     })),
-  } as unknown as Pick<RunService, 'idFor' | 'submit'> & {
+    cancel: vi.fn(),
+  } as unknown as Pick<RunService, 'idFor' | 'submit' | 'cancel'> & {
     idFor: ReturnType<typeof vi.fn>;
     submit: ReturnType<typeof vi.fn>;
+    cancel: ReturnType<typeof vi.fn>;
   };
 }

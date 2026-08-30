@@ -63,6 +63,24 @@ export type OperationRisk = (typeof OPERATION_RISKS)[number];
 export const CONNECTION_STATUSES = ['active', 'expired', 'revoked'] as const;
 export type ConnectionStatus = (typeof CONNECTION_STATUSES)[number];
 
+export const CONNECTION_HEALTH_STATUSES = [
+  'unknown',
+  'healthy',
+  'degraded',
+  'reauth-required',
+] as const;
+export type ConnectionHealthStatus = (typeof CONNECTION_HEALTH_STATUSES)[number];
+
+export const CONNECTION_HEALTH_CODES = [
+  'not-tested',
+  'verified',
+  'provider-unavailable',
+  'credential-rejected',
+  'identity-mismatch',
+  'credential-missing',
+] as const;
+export type ConnectionHealthCode = (typeof CONNECTION_HEALTH_CODES)[number];
+
 export const AUTH_SCHEMES = ['oauth2', 'api-key', 'session', 'basic'] as const;
 export type IntegrationAuthScheme = (typeof AUTH_SCHEMES)[number];
 
@@ -83,6 +101,8 @@ export interface IntegrationConnection {
   ownerId: string;
   pluginId: string;
   alias: string;
+  /** Mutable presentation label. Stable API/Thing references continue to use the alias or ID. */
+  displayName?: string;
   label: string;
   externalTenantId?: string;
   externalSubjectId?: string;
@@ -90,6 +110,18 @@ export interface IntegrationConnection {
   status: ConnectionStatus;
   createdAt: string;
   updatedAt: string;
+}
+
+/** Safe operational metadata only. Provider response bodies and credentials never enter this record. */
+export interface ConnectionHealth {
+  version: '1';
+  ownerId: string;
+  connectionId: string;
+  status: ConnectionHealthStatus;
+  code: ConnectionHealthCode;
+  checkedAt?: string;
+  lastHealthyAt?: string;
+  lastFailureAt?: string;
 }
 
 export interface OperationDefinition {
@@ -226,6 +258,7 @@ export function validateIntegrationConnection(value: IntegrationConnection): Int
   if (!/^[A-Za-z0-9][A-Za-z0-9._:@-]{0,127}$/.test(value.alias)) {
     throw new Error('connection alias is invalid');
   }
+  if (value.displayName !== undefined) requireLabel(value.displayName, 'connection display name', 256);
   requireLabel(value.label, 'connection label', 256);
   if (value.externalTenantId !== undefined) requireLabel(value.externalTenantId, 'external tenant ID', 512);
   if (value.externalSubjectId !== undefined) requireLabel(value.externalSubjectId, 'external subject ID', 512);
@@ -236,6 +269,19 @@ export function validateIntegrationConnection(value: IntegrationConnection): Int
   if (!CONNECTION_STATUSES.includes(value.status)) throw new Error('connection status is invalid');
   requireTimestamp(value.createdAt, 'connection createdAt');
   requireTimestamp(value.updatedAt, 'connection updatedAt');
+  return structuredClone(value);
+}
+
+export function validateConnectionHealth(value: ConnectionHealth): ConnectionHealth {
+  requireVersion(value.version);
+  requireIdentity(value.ownerId, 'connection health owner');
+  requireId(value.connectionId, 'connection health connection ID');
+  if (!CONNECTION_HEALTH_STATUSES.includes(value.status)) throw new Error('connection health status is invalid');
+  if (!CONNECTION_HEALTH_CODES.includes(value.code)) throw new Error('connection health code is invalid');
+  if (value.checkedAt) requireTimestamp(value.checkedAt, 'connection health checkedAt');
+  if (value.lastHealthyAt) requireTimestamp(value.lastHealthyAt, 'connection health lastHealthyAt');
+  if (value.lastFailureAt) requireTimestamp(value.lastFailureAt, 'connection health lastFailureAt');
+  if (value.status === 'healthy' && !value.checkedAt) throw new Error('healthy connection requires checkedAt');
   return structuredClone(value);
 }
 

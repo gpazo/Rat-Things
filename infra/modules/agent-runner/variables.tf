@@ -286,6 +286,56 @@ variable "integration_oauth_app_secret_arns" {
   }
 }
 
+variable "enable_connection_health_monitor" {
+  description = "Run bounded operator-plane connection verification on a schedule."
+  type        = bool
+  default     = true
+}
+
+variable "connection_health_schedule_expression" {
+  description = "EventBridge rate or cron expression for scheduled connection health slices."
+  type        = string
+  default     = "rate(15 minutes)"
+
+  validation {
+    condition     = can(regex("^(rate|cron)\\(.+\\)$", var.connection_health_schedule_expression))
+    error_message = "connection_health_schedule_expression must be an EventBridge rate(...) or cron(...) expression."
+  }
+}
+
+variable "connection_health_stale_minutes" {
+  description = "Minimum age of a recorded connection check before it is verified again."
+  type        = number
+  default     = 60
+
+  validation {
+    condition     = floor(var.connection_health_stale_minutes) == var.connection_health_stale_minutes && var.connection_health_stale_minutes >= 1 && var.connection_health_stale_minutes <= 1440
+    error_message = "connection_health_stale_minutes must be a whole number from 1 through 1440."
+  }
+}
+
+variable "connection_health_check_limit" {
+  description = "Maximum connections selected by one scheduled health invocation."
+  type        = number
+  default     = 10
+
+  validation {
+    condition     = floor(var.connection_health_check_limit) == var.connection_health_check_limit && var.connection_health_check_limit >= 1 && var.connection_health_check_limit <= 100
+    error_message = "connection_health_check_limit must be a whole number from 1 through 100."
+  }
+}
+
+variable "connection_health_check_concurrency" {
+  description = "Maximum provider verifications performed concurrently by the health Lambda."
+  type        = number
+  default     = 3
+
+  validation {
+    condition     = floor(var.connection_health_check_concurrency) == var.connection_health_check_concurrency && var.connection_health_check_concurrency >= 1 && var.connection_health_check_concurrency <= 10
+    error_message = "connection_health_check_concurrency must be a whole number from 1 through 10."
+  }
+}
+
 variable "github_webhook_secret_arn" {
   description = "Secrets Manager ARN containing the GitHub webhook secret. Supplying it enables the GitHub route."
   type        = string

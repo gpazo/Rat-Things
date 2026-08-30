@@ -30,6 +30,7 @@ import { explainThingEnvironment } from '../app/thing-explanation.js';
 import {
   getConversationService,
   getAgentInteractionController,
+  getConnectionConsumerService,
   getConnectionService,
   getIntegrationPluginRegistry,
   getCapabilityProfileRegistry,
@@ -213,6 +214,57 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
     }
     const integrationConnectionId = conversationPathParameter(event, 'connectionId', 256);
     if (
+      method === 'GET' &&
+      integrationConnectionId &&
+      routeMatches(
+        event,
+        'GET /v1/integrations/connections/{connectionId}',
+        `/v1/integrations/connections/${integrationConnectionId}`,
+      )
+    ) {
+      return response(200, await getConnectionService().get(ownerId, integrationConnectionId));
+    }
+    if (
+      method === 'PATCH' &&
+      integrationConnectionId &&
+      routeMatches(
+        event,
+        'PATCH /v1/integrations/connections/{connectionId}',
+        `/v1/integrations/connections/${integrationConnectionId}`,
+      )
+    ) {
+      const body = strictBody(jsonBody(event), ['version', 'displayName']);
+      requireVersion(body.version);
+      return response(200, await getConnectionService().rename(
+        ownerId,
+        integrationConnectionId,
+        boundedText(body.displayName, 'displayName', 256),
+      ));
+    }
+    if (
+      method === 'POST' &&
+      integrationConnectionId &&
+      routeMatches(
+        event,
+        'POST /v1/integrations/connections/{connectionId}/test',
+        `/v1/integrations/connections/${integrationConnectionId}/test`,
+      )
+    ) {
+      strictBody(jsonBody(event), []);
+      return response(200, await getConnectionService().test(ownerId, integrationConnectionId));
+    }
+    if (
+      method === 'GET' &&
+      integrationConnectionId &&
+      routeMatches(
+        event,
+        'GET /v1/integrations/connections/{connectionId}/consumers',
+        `/v1/integrations/connections/${integrationConnectionId}/consumers`,
+      )
+    ) {
+      return response(200, await getConnectionConsumerService().list(ownerId, integrationConnectionId));
+    }
+    if (
       method === 'POST' &&
       integrationConnectionId &&
       routeMatches(
@@ -232,18 +284,34 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
       integrationConnectionId &&
       routeMatches(
         event,
+        'POST /v1/integrations/connections/{connectionId}/oauth/reconnect',
+        `/v1/integrations/connections/${integrationConnectionId}/oauth/reconnect`,
+      )
+    ) {
+      const body = strictBody(jsonBody(event), ['version']);
+      requireVersion(body.version);
+      return response(201, await getOAuthAuthorizationService().startReconnect({
+        ownerId,
+        connectionIdOrAlias: integrationConnectionId,
+        callbackUrl: oauthCallbackUrl(event),
+      }));
+    }
+    if (
+      method === 'POST' &&
+      integrationConnectionId &&
+      routeMatches(
+        event,
         'POST /v1/integrations/connections/{connectionId}/credential',
         `/v1/integrations/connections/${integrationConnectionId}/credential`,
       )
     ) {
       const body = strictBody(jsonBody(event), ['version', 'credential']);
       requireVersion(body.version);
-      await getConnectionService().rotate(
+      return response(200, await getConnectionService().rotate(
         ownerId,
         integrationConnectionId,
         credentialValue(body.credential),
-      );
-      return response(200, { ok: true, connectionId: integrationConnectionId });
+      ));
     }
     if (
       method === 'POST' &&

@@ -70,7 +70,8 @@ concepts in this subsystem are:
 | Runtime/services | `src/core`, `src/conversation`, and `src/execution` | Bounded MicroVM runs plus a separate AWS-backed resumable conversation model |
 | Conversation mailbox | DynamoDB conversation partition plus S3 bodies/checkpoints | Durable AWS state, SQS coordination, bounded run slices, replay, and Teams completion |
 | Plugin host/API | `src/plugins` | Trusted ingress/delivery and dynamic-tool integrations; no arbitrary package discovery |
-| Credential broker | `src/credentials` plus `src/plugins/oauth` | Multi-account Secrets Manager vault, grant enforcement, self-hosted OAuth application registry, and refresh fencing |
+| Credential broker | `src/credentials` plus `src/plugins/oauth` | Multi-account Secrets Manager vault, grant enforcement, identity-preserving reconnect, self-hosted OAuth application registry, and refresh fencing |
+| Connection health job | `src/plugins/connection-health-monitor.ts` plus its dedicated Lambda | Rotating bounded verification outside the agent runtime with a least-privilege IAM role |
 | Sandbox/runtime | Lambda MicroVM plus `src/runner` | AWS isolation replaces Vercel Sandbox |
 | Provider egress | `src/delivery/providers` | EventBridge terminal delivery with a DynamoDB fence |
 

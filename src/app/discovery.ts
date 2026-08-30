@@ -74,6 +74,8 @@ export function ratThingsDiscovery(docsUrl?: string): Record<string, unknown> {
         bringYourOwnOAuth: true,
         hostedOAuthCallbacks: true,
         automaticTokenRefresh: true,
+        identityPreservingReconnect: true,
+        scheduledHealthChecks: true,
       },
       agent: {
         browserComputerUse: true,

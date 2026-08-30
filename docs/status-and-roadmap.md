@@ -20,7 +20,7 @@ broad real-agent evaluation, or disaster-recovery proof.
 | --- | --- | --- |
 | Run contract and state machine | Implemented/local and live AWS validated | One receipt and lifecycle across raw, Thing, schedule, provider, and threaded ingress; strict validation, conditional transitions, owner-scoped idempotency, and crash-window recovery |
 | Provider plugin boundary | Implemented/tested | Trusted manifests bind ingress/delivery; dependency checks prevent authority inversion |
-| Control API | Core live validated; fixed-envelope revision locally validated | Submit/list/get/cancel, artifacts, live events/steer/interrupt/ordinary-response, integrations, profiles, and routines; no approval route |
+| Control API | Core and fixed-envelope rejection live validated | Submit/list/get/cancel, artifacts, live events/steer/interrupt/ordinary-response, integrations, profiles, and routines; no approval route |
 | Thing facade | Implemented/local and live AWS validated | Credential-free immutable definitions, explicit draft/active pointers, revision-evidenced test/run receipts, test/publish/run/pause/resume/archive lifecycle, manual and EventBridge Scheduler rate/cron triggers, explain diagnostics, and idempotent invocation |
 | Durable agent files | Implemented/live validated | `.rat-things/artifacts/` outbox, immutable S3 bytes, conversation catalog restoration, and CLI list/24-hour URL/download commands passed in a real Codex MicroVM |
 | File/site/video publications | Implemented/live validated | Agent-declared publishing, content-derived reuse, manifest-last commit, isolated wildcard hosts, CloudFront OAC, signed redemption, and API/CLI commands passed recipient-open validation |
@@ -36,7 +36,7 @@ broad real-agent evaluation, or disaster-recovery proof.
 | Multi-account integrations | Implemented/local and live AWS validated | Owner-scoped connections, Secrets Manager vault, grants, same-plugin account sets, source bindings, fixed pre-launch permission intersection, resource constraints, and revocation |
 | Reference integration tools | Slack identity, delegated search, post, threaded reply, reaction, dual-token refresh, and denial live AWS validated | Fixed-origin Slack search/post/reaction and Stripe customer/invoice/refund adapters; Slack search uses a separately issued user token with `search:read`, while Stripe/customer-provider actions are not claimed live without disposable accounts |
 | Browser computer use | Live view/takeover/teaching implemented and live AWS validated | Real-Codex AWS proofs cover the 12 agent command types, capture, recording, private-target blocking, lifecycle-port isolation, publication, authenticated screenshots, an exclusive renewable browser lease, redacted demonstrations, unpublished draft-Thing creation, return of browser control, and the typed CLI action surface; secure credential brokering, file transfer, and general desktop control remain out of scope |
-| Durable routines | Implemented/local and live AWS CLI validated | Owner-scoped interval create/list/get/pause/resume/delete/run-now, encrypted S3 request, due-time GSI, deterministic occurrence submission, duplicate-tick fencing, request-digest verification, and matching console/CLI lifecycle management |
+| Durable routines | Implemented/local and live AWS CLI validated | Owner-scoped interval create/list/get/pause/resume/delete/run-now, encrypted S3 request, due-time GSI, deterministic occurrence submission, duplicate-tick fencing, request-digest verification, latest-run visibility for scheduled and manual work, and matching console/CLI lifecycle management |
 | Codex authentication | Live/local validated | Short-term Bedrock in AWS; trusted local runs can reuse the device's ChatGPT subscription without copying it into remote runs |
 | Mock driver | Implemented/tested | Used for deterministic local and live infrastructure validation |
 | GitHub/GitLab | Initial adapters | Signed ingress, loop guards, source-thread egress; credential and policy hardening remain |
@@ -45,6 +45,52 @@ broad real-agent evaluation, or disaster-recovery proof.
 | Observability/recovery | Generation-fenced liveness live validated; broader drills remain | Low-cardinality queue/processing metrics, structured logs, durable queues/events, worker heartbeats, exact MicroVM health inspection, conditional stale failure/cancellation, conflict quarantine, delivery leases, failure queues, and alarms |
 | Cost model | Live canary baseline measured | The 2026-08-16 two-turn site canary has a dated $0.380 estimate using rates captured then; non-model infrastructure was about $0.046, while current repricing and sustained-load ceilings remain unmeasured |
 | Multi-tenant hardening | Not complete | Run responses now strip storage/authority internals; destination authorization, budgets, rate limits, output policy, and security review remain |
+
+## Validation completed on 2026-08-29 PDT
+
+- Three operator workflows used the retained stack as a product rather than a feature canary: a
+  read-only Slack research Run, a read/write Slack delivery continued in the same durable
+  conversation, and a paused Routine run manually against the authenticated Slack account. The
+  Runs returned the exact test-channel messages and permalinks; the durable ledger recorded only
+  the requested searches, posts, and reaction. The exercise found and fixed manual Routine runs
+  missing from `lastRunId`/`lastRunAt`, intuitive comma-separated CLI operation lists being rejected,
+  and `watch --follow` surfacing a terminal-transition `409`. Focused local regressions and fresh
+  live runs passed after the fixes, with the Routine left paused and the AWS stack retained.
+- Retained stack `oauth260827a` upgraded in place to MicroVM image `9.0` with S3 Files still
+  enabled. The reviewed Terraform plan preserved the integration table, OAuth application secret,
+  issued Connections, buckets, and API identity while adding the five Connection-management routes
+  and the isolated EventBridge connection-health worker. The worker invoked successfully under its
+  dedicated role, and both CLI and desktop health checks verified a real Slack account.
+- A fresh Slack authorization reconnected expired account `slack-indubitably-rat-things` through
+  the public AWS PKCE callback. Rat rejected one deliberately expired one-time state, then completed
+  the fresh exchange while preserving the exact Connection ID, alias, creation time, workspace,
+  provider subject, read-only grant, and consumers. The new delegated `search:read` authority became
+  visible only as provider metadata; the Rat grant did not widen.
+- Real Codex Runs in Lambda MicroVMs searched Slack, posted one root and one threaded reply, and
+  added one reaction. The durable tool-call ledger recorded exactly two `messages_post` calls, one
+  `reactions_add`, and one reconnected-account `messages_search`. A write request against the
+  read-only reconnected account received no posting tool, recorded zero tool calls, and a separate
+  Slack search confirmed the denied marker was never sent.
+- The live desktop client rendered the real accounts, scopes, health, stable identity, consumers,
+  and host-vault boundary; its Test action refreshed Slack health in place. The automated desktop
+  journey passed in 44 seconds with attachment durability, structured input, artifacts,
+  organization, reply threading, and same-MicroVM continuation. The retained-stack run also exposed
+  and fixed three canary defects: an ambiguous conversation-name locator, mock-only provider-output
+  assumptions, and an S3 Files waiter that did not paginate beyond the first 1,000 durable keys.
+- A deliberate attempt to widen an existing conversation's fixed execution policy returned the
+  expected non-retryable `409`, but exposed an orphaned queued Run that the reconciler repeatedly
+  woke until SQS dead-lettered it. Rejected reservations are now cancelled before the API returns,
+  and the coordinator acknowledges stale wakes for non-queued Runs. The same live CLI attempt then
+  cancelled its reservation within 93 milliseconds, produced no coordinator error or queue entry,
+  and left all five clean failure queues at zero. The retained conversation DLQ still contains 83
+  historical canary messages and was intentionally not mutated; its count remained unchanged across
+  the focused continuation, replacement-VM, real Slack, and denial reruns.
+- The final live gates passed the real Slack CLI root/thread/reaction/search/denial journey in 57
+  seconds with the original read-write grant restored, the four focused conversation scenarios
+  (same-VM Teams, same-VM CLI, expired-session replacement, and replacement-VM Codex/S3 Files), and
+  the 44-second desktop journey. The repository gate then passed 372 local tests with 23 explicit
+  opt-in skips, all 14 Lambda bundle smoke tests, 24 documentation pages, architecture checks, and
+  all three Terraform validations.
 
 ## Validation completed on 2026-08-28 PDT
 

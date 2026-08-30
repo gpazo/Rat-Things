@@ -7,6 +7,7 @@ locals {
   }
 
   lambda_zip_paths = {
+    connection-health        = "${path.root}/../../dist/connection-health.zip"
     control                  = "${path.root}/../../dist/control.zip"
     conversation-completion  = "${path.root}/../../dist/conversation-completion.zip"
     conversation-coordinator = "${path.root}/../../dist/conversation-coordinator.zip"

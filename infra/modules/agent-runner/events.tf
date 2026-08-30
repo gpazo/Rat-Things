@@ -142,3 +142,27 @@ resource "aws_lambda_permission" "eventbridge_reconciler" {
   principal     = "events.amazonaws.com"
   source_arn    = aws_cloudwatch_event_rule.reconciler.arn
 }
+
+resource "aws_cloudwatch_event_rule" "connection_health" {
+  count               = var.enable_connection_health_monitor ? 1 : 0
+  name                = "${local.name}-connection-health"
+  description         = "Verify a rotating bounded slice of installed provider connections"
+  schedule_expression = var.connection_health_schedule_expression
+  tags                = local.tags
+}
+
+resource "aws_cloudwatch_event_target" "connection_health" {
+  count     = var.enable_connection_health_monitor ? 1 : 0
+  rule      = aws_cloudwatch_event_rule.connection_health[0].name
+  target_id = "connection-health"
+  arn       = aws_lambda_function.this["connection-health"].arn
+}
+
+resource "aws_lambda_permission" "eventbridge_connection_health" {
+  count         = var.enable_connection_health_monitor ? 1 : 0
+  statement_id  = "AllowEventBridgeConnectionHealth"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.this["connection-health"].function_name
+  principal     = "events.amazonaws.com"
+  source_arn    = aws_cloudwatch_event_rule.connection_health[0].arn
+}

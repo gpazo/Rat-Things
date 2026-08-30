@@ -115,6 +115,10 @@ This is **self-hosted, bring your own OAuth**, not a central Rat OAuth service. 
 may still complete OAuth in its own backend and pass the resulting credential object over the
 authenticated control API. A personal deployment can instead use the built-in AWS callback through
 the desktop Connections page or `rat-things connect PLUGIN --oauth --wait`.
+Existing accounts reconnect through the same operator surfaces. OAuth reconnect state is pinned to
+the current Connection and grant, and the replacement is accepted only for the same verified
+provider tenant/subject. The scheduled health job is a separate no-ingress control-plane Lambda;
+it is not a Run and cannot be invoked by prompt content.
 
 ## Consumers build the experience
 
@@ -124,6 +128,8 @@ provider-specific logic:
 - `/.well-known/rat-things` describes the deployment and links its contracts;
 - `/openapi.json` describes installed HTTP operations;
 - `/v1/integrations/plugins` declares authentication fields and typed provider operations;
+- connection detail, bounded manual/scheduled health testing, identity-preserving reconnect, and
+  owner-scoped “used by” routes support a trustworthy Connection Center without reading credential values;
 - Thing JSON Schemas support forms, editor completion, validation, and agent tool definitions;
 - `thing-explain` resolves accounts and permissions before execution; and
 - stable errors, run states, events, files, and publications support progress and recovery UX.

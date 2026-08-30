@@ -284,11 +284,11 @@
         <input id="connect-plugin-id" type="hidden">
         <input id="connect-auth-scheme" type="hidden">
         <div id="connect-fields" class="management-form-fields"></div>
-        <label class="dialog-field">
+        <label id="connect-alias-field" class="dialog-field">
           <span>Connection name <small>optional</small></span>
           <input id="connect-alias" maxlength="128" pattern="[A-Za-z0-9][A-Za-z0-9._:@\-]{0,127}" placeholder="Generated from the provider account">
         </label>
-        <label class="dialog-field">
+        <label id="connect-access-field" class="dialog-field">
           <span>Rat access</span>
           <select id="connect-access">
             <option value="read-only">Read only</option>
@@ -300,6 +300,49 @@
         <div class="dialog-actions">
           <button id="connect-cancel" class="secondary-button" type="button">Cancel</button>
           <button id="connect-submit" class="primary-button" type="submit">Verify &amp; connect</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="connection-detail-dialog" class="new-thread-dialog connection-detail-dialog" aria-labelledby="connection-detail-title">
+      <form id="connection-detail-form">
+        <div class="dialog-heading">
+          <div>
+            <p class="eyebrow">Connection details</p>
+            <h2 id="connection-detail-title">Connected account</h2>
+          </div>
+          <button id="connection-detail-close" class="icon-button" type="button" aria-label="Close">×</button>
+        </div>
+        <p id="connection-detail-summary" class="connection-detail-summary"></p>
+        <section class="connection-detail-section" aria-labelledby="connection-health-title">
+          <div class="connection-detail-section-heading">
+            <h3 id="connection-health-title">Health</h3>
+            <button id="connection-test" class="secondary-button" type="button">Test connection</button>
+          </div>
+          <div id="connection-health" class="connection-detail-health"></div>
+        </section>
+        <label class="dialog-field">
+          <span>Display name</span>
+          <input id="connection-display-name" maxlength="256" required>
+          <small>The stable alias used by Things, routines, and the CLI does not change.</small>
+        </label>
+        <section class="connection-detail-section" aria-labelledby="connection-scopes-title">
+          <h3 id="connection-scopes-title">Provider authority</h3>
+          <div id="connection-scopes" class="connection-chip-list"></div>
+        </section>
+        <section class="connection-detail-section" aria-labelledby="connection-operations-title">
+          <h3 id="connection-operations-title">Installed operations</h3>
+          <div id="connection-operations" class="connection-detail-list"></div>
+        </section>
+        <section class="connection-detail-section" aria-labelledby="connection-consumers-title">
+          <h3 id="connection-consumers-title">Used by</h3>
+          <div id="connection-consumers" class="connection-detail-list"></div>
+        </section>
+        <p class="connection-security-note">Credentials stay in the host-side vault. Agents cannot open this screen, read credentials, start OAuth, reconnect accounts, or widen grants.</p>
+        <div class="dialog-actions">
+          <button id="connection-detail-cancel" class="secondary-button" type="button">Close</button>
+          <button id="connection-reconnect" class="secondary-button" type="button">Reconnect</button>
+          <button id="connection-rename" class="primary-button" type="submit">Save name</button>
         </div>
       </form>
     </dialog>

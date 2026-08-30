@@ -3,6 +3,7 @@ import type {
   IntegrationCredentialValue,
 } from '../credentials/types.js';
 import type {
+  ConnectionHealth,
   ConnectionGrant,
   ConnectionSet,
   IntegrationAccessRequest,
@@ -115,6 +116,8 @@ export interface IntegrationStore {
   ): Promise<IntegrationCredentialBinding | undefined>;
   putGrant(grant: ConnectionGrant): Promise<void>;
   getGrant(ownerId: string, connectionId: string): Promise<ConnectionGrant | undefined>;
+  putConnectionHealth?(health: ConnectionHealth): Promise<void>;
+  getConnectionHealth?(ownerId: string, connectionId: string): Promise<ConnectionHealth | undefined>;
   putConnectionSet(connectionSet: ConnectionSet): Promise<void>;
   getConnectionSet(ownerId: string, idOrName: string): Promise<ConnectionSet | undefined>;
   listConnectionSets(ownerId: string): Promise<ConnectionSet[]>;

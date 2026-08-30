@@ -50,6 +50,12 @@ resource "aws_iam_role" "control" {
   tags               = local.tags
 }
 
+resource "aws_iam_role" "connection_health" {
+  name               = "${local.name}-lambda-connection-health"
+  assume_role_policy = data.aws_iam_policy_document.lambda_assume.json
+  tags               = local.tags
+}
+
 resource "aws_iam_role" "conversation_coordinator" {
   name               = "${local.name}-lambda-conversation-coordinator"
   assume_role_policy = data.aws_iam_policy_document.lambda_assume.json
@@ -280,6 +286,7 @@ data "aws_iam_policy_document" "control" {
     actions = [
       "secretsmanager:CreateSecret",
       "secretsmanager:DeleteSecret",
+      "secretsmanager:GetSecretValue",
       "secretsmanager:PutSecretValue",
       "secretsmanager:TagResource",
     ]
@@ -355,6 +362,53 @@ resource "aws_iam_role_policy" "control" {
   name   = "control"
   role   = aws_iam_role.control.id
   policy = data.aws_iam_policy_document.control.json
+}
+
+data "aws_iam_policy_document" "connection_health" {
+  statement {
+    sid       = "Logs"
+    actions   = ["logs:CreateLogStream", "logs:PutLogEvents"]
+    resources = ["${aws_cloudwatch_log_group.lambda["connection-health"].arn}:*"]
+  }
+
+  statement {
+    sid = "ConnectionHealthState"
+    actions = [
+      "dynamodb:DeleteItem",
+      "dynamodb:GetItem",
+      "dynamodb:PutItem",
+      "dynamodb:Scan",
+      "dynamodb:TransactWriteItems",
+    ]
+    resources = [aws_dynamodb_table.integrations.arn]
+  }
+
+  statement {
+    sid       = "ConnectionCredentials"
+    actions   = ["secretsmanager:GetSecretValue", "secretsmanager:PutSecretValue"]
+    resources = [local.integration_credential_secret_arn]
+  }
+
+  statement {
+    sid       = "ConnectionCredentialDataKey"
+    actions   = ["kms:Decrypt", "kms:DescribeKey", "kms:GenerateDataKey"]
+    resources = [aws_kms_key.data.arn]
+  }
+
+  dynamic "statement" {
+    for_each = length(local.integration_oauth_app_secret_arns) > 0 ? [1] : []
+    content {
+      sid       = "OAuthApplications"
+      actions   = ["secretsmanager:GetSecretValue"]
+      resources = local.integration_oauth_app_secret_arns
+    }
+  }
+}
+
+resource "aws_iam_role_policy" "connection_health" {
+  name   = "connection-health"
+  role   = aws_iam_role.connection_health.id
+  policy = data.aws_iam_policy_document.connection_health.json
 }
 
 data "aws_iam_policy_document" "dispatcher" {

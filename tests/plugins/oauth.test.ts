@@ -20,7 +20,7 @@ describe('OAuth connector installation', () => {
       registry: registry(),
       applications: applications(),
       store,
-      connections: { create: vi.fn() },
+      connections: oauthConnections(vi.fn()),
       clock: fixedClock,
       randomBytes: (size) => Buffer.alloc(size, ++randomCall),
     });
@@ -68,7 +68,7 @@ describe('OAuth connector installation', () => {
     }), { status: 200, headers: { 'content-type': 'application/json' } }));
     let randomCall = 0;
     const service = new OAuthAuthorizationService({
-      registry: registry(), applications: applications(), store, connections: { create },
+      registry: registry(), applications: applications(), store, connections: oauthConnections(create),
       fetch: fetcher, clock: fixedClock, randomBytes: (size) => Buffer.alloc(size, ++randomCall),
     });
     const started = await service.start({
@@ -103,6 +103,63 @@ describe('OAuth connector installation', () => {
       },
     }));
     await expect(service.complete({ state, code: 'replay' })).rejects.toThrow('invalid or expired');
+  });
+
+  it('binds reconnect state to one existing account and replaces it without changing grants', async () => {
+    const store = new MemoryOAuthStore();
+    const current = connection('original-subject');
+    const create = vi.fn();
+    const rotate = vi.fn().mockResolvedValue({
+      connection: { ...current, status: 'active' },
+      health: {
+        version: '1', ownerId: current.ownerId, connectionId: current.connectionId,
+        status: 'healthy', code: 'verified', checkedAt: fixedClock.now().toISOString(),
+      },
+    });
+    const get = vi.fn().mockResolvedValue({
+      connection: current,
+      grant: {
+        version: '1', grantId: 'grant-1', ownerId: current.ownerId,
+        connectionId: current.connectionId, preset: 'custom',
+        allowOperations: ['slack.messages.search'],
+        resourceConstraints: { channel: ['C123'] },
+      },
+      health: { version: '1', ownerId: current.ownerId, connectionId: current.connectionId, status: 'unknown', code: 'not-tested' },
+    });
+    const fetcher = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      access_token: 'replacement-token',
+      scope: 'messages:read,messages:write',
+    }), { status: 200 }));
+    let randomCall = 0;
+    const service = new OAuthAuthorizationService({
+      registry: registry(), applications: applications(), store,
+      connections: { create, get, rotate }, fetch: fetcher, clock: fixedClock,
+      randomBytes: (size) => Buffer.alloc(size, ++randomCall),
+    });
+
+    const started = await service.startReconnect({
+      ownerId: current.ownerId,
+      connectionIdOrAlias: current.alias,
+      callbackUrl: 'https://api.example.test/v1/integrations/oauth/callback',
+    });
+    const stateValue = new URL(started.authorizationUrl).searchParams.get('state')!;
+    expect(started.connectionId).toBe(current.connectionId);
+    expect(store.pending.values().next().value).toMatchObject({
+      ownerId: current.ownerId,
+      pluginId: 'slack',
+      reconnectConnectionId: current.connectionId,
+      grant: {
+        preset: 'custom',
+        allowOperations: ['slack.messages.search'],
+        resourceConstraints: { channel: ['C123'] },
+      },
+    });
+
+    await service.complete({ state: stateValue, code: 'provider-code' });
+    expect(rotate).toHaveBeenCalledWith(current.ownerId, current.connectionId, expect.objectContaining({
+      access_token: 'replacement-token',
+    }));
+    expect(create).not.toHaveBeenCalled();
   });
 
   it('stores a provider-issued secondary user token and refreshes it independently', async () => {
@@ -142,7 +199,7 @@ describe('OAuth connector installation', () => {
       }), { status: 200 }));
     let randomCall = 0;
     const service = new OAuthAuthorizationService({
-      registry: secondaryRegistry(), applications: applications(), store, connections: { create },
+      registry: secondaryRegistry(), applications: applications(), store, connections: oauthConnections(create),
       fetch: fetcher, clock: fixedClock, randomBytes: (size) => Buffer.alloc(size, ++randomCall),
     });
     const started = await service.start({
@@ -341,6 +398,14 @@ function applications() {
   return {
     configured: (pluginId: string) => pluginId === 'slack',
     application: vi.fn().mockResolvedValue({ clientId: 'client-public-id', clientSecret: 'client-super-secret' }),
+  };
+}
+
+function oauthConnections(create: ReturnType<typeof vi.fn>) {
+  return {
+    create,
+    get: vi.fn(),
+    rotate: vi.fn(),
   };
 }
 

@@ -296,6 +296,19 @@ class MemoryRoutines implements RoutineStore {
     return structuredClone(updated);
   }
 
+  public async recordLastRun(
+    ownerId: string,
+    routineId: string,
+    runAt: string,
+    runId: string,
+    updatedAt: string,
+  ): Promise<boolean> {
+    const record = this.required(ownerId, routineId);
+    if (record.status === 'deleted' || (record.lastRunAt && record.lastRunAt > runAt)) return false;
+    this.records.set(routineId, { ...record, lastRunAt: runAt, lastRunId: runId, updatedAt });
+    return true;
+  }
+
   public async advance(
     routineId: string,
     expectedRunAt: string,

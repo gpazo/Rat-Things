@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { IntegrationCredentialBinding } from '../../src/credentials/types.js';
 import type {
+  ConnectionHealth,
   ConnectionGrant,
   ConnectionSet,
   IntegrationConnection,
@@ -8,7 +9,11 @@ import type {
 } from '../../src/domain/capabilities.js';
 import { ConnectionService } from '../../src/plugins/connection-service.js';
 import { IntegrationPluginRegistry } from '../../src/plugins/integration-registry.js';
-import type { IntegrationPlugin, IntegrationStore } from '../../src/plugins/integration-types.js';
+import {
+  IntegrationProviderUnavailableError,
+  type IntegrationPlugin,
+  type IntegrationStore,
+} from '../../src/plugins/integration-types.js';
 
 describe('connection service', () => {
   it('stores credentials separately and returns only connection metadata plus its grant', async () => {
@@ -188,7 +193,108 @@ describe('connection service', () => {
       .rejects.toThrow('different provider account');
     expect(replace).not.toHaveBeenCalled();
   });
+
+  it('reactivates the same provider account after a verified credential reconnect', async () => {
+    const state = memoryStore();
+    state.connections.push({ ...connection('slack-1', 'slack-shop', 'slack'), status: 'expired' });
+    state.bindings.push(binding('slack-1'));
+    const replace = vi.fn().mockResolvedValue(undefined);
+    const service = connectionService(state.store, {
+      create: vi.fn(),
+      replace,
+      revoke: vi.fn(),
+    });
+
+    await expect(service.rotate('api:owner-1', 'slack-shop', { token: 'valid' })).resolves.toMatchObject({
+      connection: { connectionId: 'slack-1', alias: 'slack-shop', status: 'active' },
+      health: { status: 'healthy', code: 'verified' },
+    });
+    expect(replace).toHaveBeenCalledWith('secret-ref', { token: 'valid' });
+    expect(state.connections).toHaveLength(1);
+    expect(state.health).toEqual([expect.objectContaining({ connectionId: 'slack-1', status: 'healthy' })]);
+  });
+
+  it('keeps the stable alias when an operator changes the display name', async () => {
+    const state = memoryStore();
+    state.connections.push(connection('slack-1', 'slack-shop', 'slack'));
+    const service = connectionService(state.store, vault());
+
+    await expect(service.list('api:owner-1')).resolves.toEqual([
+      expect.objectContaining({
+        connection: expect.objectContaining({ alias: 'slack-shop' }),
+        health: expect.objectContaining({ status: 'unknown', code: 'not-tested' }),
+      }),
+    ]);
+    await expect(service.rename('api:owner-1', 'slack-shop', 'Support workspace'))
+      .resolves.toMatchObject({ alias: 'slack-shop', displayName: 'Support workspace' });
+    expect(state.connections[0]).toMatchObject({
+      connectionId: 'slack-1',
+      alias: 'slack-shop',
+      displayName: 'Support workspace',
+    });
+  });
+
+  it('tests a connection through the trusted credential reader and stores only bounded health', async () => {
+    const state = memoryStore();
+    state.connections.push(connection('slack-1', 'slack-shop', 'slack'));
+    state.bindings.push(binding('slack-1'));
+    const readRecord = vi.fn().mockResolvedValue({ token: 'valid' });
+    const service = connectionService(state.store, vault(), { readRecord });
+
+    const result = await service.test('api:owner-1', 'slack-shop');
+
+    expect(readRecord).toHaveBeenCalledWith('secret-ref', expect.objectContaining({ alias: 'slack-shop' }));
+    expect(result).toMatchObject({
+      connection: { status: 'active', alias: 'slack-shop' },
+      health: { status: 'healthy', code: 'verified', checkedAt: '2026-08-20T00:00:00.000Z' },
+    });
+    expect(JSON.stringify(result)).not.toContain('valid');
+    expect(JSON.stringify(state.health)).not.toContain('secret-ref');
+  });
+
+  it('requires reauthentication when the stored credential resolves to another provider identity', async () => {
+    const state = memoryStore();
+    state.connections.push(connection('slack-1', 'slack-shop', 'slack'));
+    state.bindings.push(binding('slack-1'));
+    const service = connectionService(state.store, vault(), {
+      readRecord: vi.fn().mockResolvedValue({ token: 'other-account' }),
+    });
+
+    await expect(service.test('api:owner-1', 'slack-shop')).resolves.toMatchObject({
+      connection: { status: 'expired' },
+      health: { status: 'reauth-required', code: 'identity-mismatch' },
+    });
+  });
+
+  it('reports provider downtime without expiring an otherwise active connection', async () => {
+    const state = memoryStore();
+    state.connections.push(connection('slack-1', 'slack-shop', 'slack'));
+    state.bindings.push(binding('slack-1'));
+    const service = connectionService(state.store, vault(), {
+      readRecord: vi.fn().mockResolvedValue({ token: 'unavailable' }),
+    });
+
+    await expect(service.test('api:owner-1', 'slack-shop')).resolves.toMatchObject({
+      connection: { status: 'active' },
+      health: { status: 'degraded', code: 'provider-unavailable' },
+    });
+  });
 });
+
+function vault() {
+  return { create: vi.fn(), replace: vi.fn(), revoke: vi.fn() };
+}
+
+function binding(connectionId: string): IntegrationCredentialBinding {
+  return {
+    version: '1',
+    ownerId: 'api:owner-1',
+    connectionId,
+    reference: 'secret-ref',
+    createdAt: '2026-08-20T00:00:00.000Z',
+    updatedAt: '2026-08-20T00:00:00.000Z',
+  };
+}
 
 function connection(connectionId: string, alias: string, pluginId: string): IntegrationConnection {
   return {
@@ -211,6 +317,8 @@ function connectionService(store: IntegrationStore, vault: {
   create: ReturnType<typeof vi.fn>;
   replace: ReturnType<typeof vi.fn>;
   revoke: ReturnType<typeof vi.fn>;
+}, credentials?: {
+  readRecord: ReturnType<typeof vi.fn>;
 }) {
   let id = 0;
   return new ConnectionService({
@@ -223,6 +331,7 @@ function connectionService(store: IntegrationStore, vault: {
     credentialNamePrefix: 'rat-things/connections',
     ids: { random: () => `id-${++id}` },
     clock: { now: () => new Date('2026-08-20T00:00:00.000Z') },
+    ...(credentials ? { credentials } : {}),
   });
 }
 
@@ -248,6 +357,7 @@ function testPlugin(id: 'slack' | 'stripe', credentialField: string): Integratio
     },
     verifyCredential: async (scheme, credential) => {
       const value = credential[credentialField];
+      if (value === 'unavailable') throw new IntegrationProviderUnavailableError(id);
       if (value === 'invalid') throw new Error('credential was rejected');
       const other = value === 'other-account';
       return id === 'slack'
@@ -273,6 +383,7 @@ function memoryStore() {
   const bindings: IntegrationCredentialBinding[] = [];
   const sets: ConnectionSet[] = [];
   const sourceBindings: SourceCapabilityBinding[] = [];
+  const health: ConnectionHealth[] = [];
   const store: IntegrationStore = {
     listConnections: async (ownerId) => connections.filter((item) => item.ownerId === ownerId),
     getConnection: async (ownerId, selector) => connections.find((item) => (
@@ -300,6 +411,14 @@ function memoryStore() {
     getGrant: async (ownerId, connectionId) => grants.find((item) => (
       item.ownerId === ownerId && item.connectionId === connectionId
     )),
+    putConnectionHealth: async (value) => {
+      const index = health.findIndex((item) => item.connectionId === value.connectionId);
+      if (index === -1) health.push(value);
+      else health[index] = value;
+    },
+    getConnectionHealth: async (ownerId, connectionId) => health.find((item) => (
+      item.ownerId === ownerId && item.connectionId === connectionId
+    )),
     putConnectionSet: async (value) => {
       sets.push(value);
     },
@@ -315,5 +434,5 @@ function memoryStore() {
       (item) => item.sourceKind === sourceKind,
     ),
   };
-  return { store, connections, grants, bindings, sets, sourceBindings };
+  return { store, connections, grants, bindings, sets, sourceBindings, health };
 }

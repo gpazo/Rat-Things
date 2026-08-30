@@ -52,10 +52,15 @@ Cross-identity lookup is an administrative capability outside v1.
 | `GET /v1/integrations/plugins` | Required | List trusted integration manifests and operation schemas |
 | `POST /v1/integrations/oauth/authorizations` | Required | Create a ten-minute owner-bound OAuth state and PKCE authorization URL from one configured plugin |
 | `GET /v1/integrations/oauth/callback` | None | Provider redirect target; atomically consumes state, exchanges/verifies the code, and stores the credential |
-| `GET /v1/integrations/connections` | Required | List the owner's connections and persistent grants; never returns credentials |
+| `GET /v1/integrations/connections` | Required | List the owner's connections, persistent grants, and bounded health; never returns credentials |
 | `POST /v1/integrations/connections` | Required | Verify one provider credential, derive account metadata, then create its secret and initial grant |
+| `GET /v1/integrations/connections/{connectionId}` | Required | Get one connection, grant, and bounded health by ID or stable alias |
+| `PATCH /v1/integrations/connections/{connectionId}` | Required | Change the display name without changing the stable alias or provider identity |
+| `POST /v1/integrations/connections/{connectionId}/test` | Required | Host-side credential verification that returns bounded health and never exposes the credential |
+| `GET /v1/integrations/connections/{connectionId}/consumers` | Required | Derive owner-scoped Things, routines, sets, and source bindings that select this account |
 | `POST /v1/integrations/connections/{connectionId}/grant` | Required | Replace the account's persistent Rat-side grant |
 | `POST /v1/integrations/connections/{connectionId}/credential` | Required | Verify and rotate a credential without changing provider account identity |
+| `POST /v1/integrations/connections/{connectionId}/oauth/reconnect` | Required | Start a short-lived OAuth reconnect bound to the existing connection, grant, and verified provider identity |
 | `POST /v1/integrations/connections/{connectionId}/revoke` | Required | Revoke the connection and its credential |
 | `GET /v1/integrations/connection-sets` | Required | List reusable multi-account connection sets |
 | `POST /v1/integrations/connection-sets` | Required | Create a reusable multi-account connection set |
@@ -158,9 +163,22 @@ configured self-hosted OAuth as
 `rat-things connect PLUGIN --oauth [--wait] [--no-browser] [--access PRESET]`. `--wait`
 keeps the CLI attached until the callback installs and verifies the new connection; without it,
 the CLI returns the short-lived authorization URL immediately.
-Credential rotation uses `rat-things rotate ACCOUNT --credential-file FILE`; the server verifies
-that the new credential resolves to the same provider tenant/subject before replacing it. See the
+Credential rotation uses `rat-things rotate ACCOUNT --credential-file FILE`. The unified management
+form is `rat-things connection reconnect ACCOUNT --credential-file FILE` for manual credentials or
+`rat-things connection reconnect ACCOUNT --oauth [--wait] [--no-browser]` for OAuth. The server
+preserves the connection ID, alias, grant, and consumers, and verifies that the replacement resolves
+to the same provider tenant/subject before replacing it. See the
 [complete Integration Contract v1](plugins.md#the-integration-contract-v1).
+
+Connection operations have direct CLI parity:
+`rat-things connection show ACCOUNT`, `connection test ACCOUNT`,
+`connection consumers ACCOUNT`, `connection rename ACCOUNT --name NAME`, and
+`connection reconnect ACCOUNT`. `test` runs only in
+the authenticated host control plane, may refresh an expiring OAuth record through the trusted
+broker, and persists only status/code/timestamps. It is not available to an agent as a dynamic
+tool. `consumers` reads owner-scoped definitions without opening the credential vault.
+The AWS reference deployment also checks a rotating, bounded slice of stale connections on a
+schedule. That job has its own narrow IAM role and stores only the same bounded health projection.
 
 For the built-in Slack channel bridge,
 `rat-things slack-events ACCOUNT [--profile read-only] [--json]` derives the team selector from the
@@ -483,7 +501,9 @@ Scheduled submissions use `routine:<routineId>:<scheduledAt>` idempotency, so a 
 cannot create a second semantic occurrence. The schedule advances only after submission succeeds.
 `POST .../run` performs a separate immediate submission and accepts an optional `Idempotency-Key`.
 Retries with the same manual key derive the same occurrence ID; the resulting run's `createdAt`
-records when that manual execution was first accepted.
+records when that manual execution was first accepted. Routine list/get responses expose that
+accepted Run as `lastRunId` and `lastRunAt`, including when the Routine is paused; an older retry
+cannot replace newer run history.
 
 Routine requests cannot set `source`, `parentRunId`, a `source` delivery destination, or reserved
 routine metadata. At execution, trusted orchestration rechecks the owner-scoped S3 key and canonical

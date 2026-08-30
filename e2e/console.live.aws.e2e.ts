@@ -136,7 +136,7 @@ test.describe('live AWS console journey', () => {
       await demoPause(page, 1_200);
     }
     await page.getByRole('button', { name: 'New conversation' }).click();
-    await page.getByLabel('Name').fill(threadKey);
+    await page.locator('#thread-key').fill(threadKey);
     await demoPause(page, 650);
     await page.getByRole('button', { name: 'Create', exact: true }).click();
     await expect(page.getByRole('heading', { name: threadKey })).toBeVisible();

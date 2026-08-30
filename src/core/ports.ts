@@ -139,6 +139,13 @@ export interface RoutineStore {
     updatedAt: string,
     expiresAt: number,
   ): Promise<RoutineRecord>;
+  recordLastRun(
+    ownerId: string,
+    routineId: string,
+    runAt: string,
+    runId: string,
+    updatedAt: string,
+  ): Promise<boolean>;
   advance(
     routineId: string,
     expectedRunAt: string,

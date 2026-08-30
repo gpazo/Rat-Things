@@ -144,11 +144,24 @@ describe('conversation CLI-to-HTTP workflow', () => {
         pendingRequests: [],
       });
     }
+    if (request.method === 'GET' && request.url?.startsWith('/v1/runs/run-terminal-race/events?')) {
+      return send(response, {
+        error: { code: 'conflict', message: 'run does not have an active interactive execution' },
+      }, 409);
+    }
     if (request.method === 'GET' && request.url === '/v1/runs/run-follow') {
       followRuns += 1;
       return send(response, {
         runId: 'run-follow',
         status: followRuns < 2 ? 'running' : 'succeeded',
+        createdAt: now,
+        updatedAt: now,
+      });
+    }
+    if (request.method === 'GET' && request.url === '/v1/runs/run-terminal-race') {
+      return send(response, {
+        runId: 'run-terminal-race',
+        status: 'succeeded',
         createdAt: now,
         updatedAt: now,
       });
@@ -224,6 +237,9 @@ describe('conversation CLI-to-HTTP workflow', () => {
     try {
       await cli([
         'chat', '--thread', 'earnings', '--driver', 'mock', '--no-wait',
+        '--connection', 'slack=read-write',
+        '--allow-operation', 'slack=slack.messages.search,slack.messages.post',
+        '--deny-operation', 'slack=slack.files.write,slack.canvases.write',
         '--attach', attachment, '--reply-to', 'message-1', '--delivery', 'interrupt',
         'Compare the attached evidence.',
       ], apiUrl);
@@ -238,6 +254,14 @@ describe('conversation CLI-to-HTTP workflow', () => {
             delivery: 'interrupt',
             replyToMessageId: 'message-1',
             attachments: [{ name: 'earnings.txt', mediaType: 'text/plain' }],
+          },
+          integrations: {
+            connections: [{
+              connection: 'slack',
+              preset: 'read-write',
+              allowOperations: ['slack.messages.search', 'slack.messages.post'],
+              denyOperations: ['slack.files.write', 'slack.canvases.write'],
+            }],
           },
         },
       });
@@ -319,6 +343,11 @@ describe('conversation CLI-to-HTTP workflow', () => {
     const snapshots = followed.stdout.trim().split('\n').map((line) => JSON.parse(line) as { runId: string });
     expect(snapshots).toHaveLength(2);
     expect(snapshots.every((snapshot) => snapshot.runId === 'run-follow')).toBe(true);
+
+    const terminalRace = await cli([
+      'watch', 'run-terminal-race', '--follow', '--poll-seconds', '1',
+    ], apiUrl);
+    expect(terminalRace.stderr).toContain('Run run-terminal-race: succeeded');
 
     const gap = await cli(['watch', 'run-gap'], apiUrl);
     expect(gap.stdout).toContain('Newest retained activity');

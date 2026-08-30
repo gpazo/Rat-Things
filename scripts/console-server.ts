@@ -57,13 +57,15 @@ async function proxy(
   response: ServerResponse,
   requestUrl: URL,
 ): Promise<void> {
-  if (request.method !== 'GET' && request.method !== 'POST') {
-    return json(response, 405, error('method_not_allowed', 'the console proxy allows GET and POST only'));
+  const method = request.method;
+  if (!method || !['GET', 'POST', 'PATCH'].includes(method)) {
+    return json(response, 405, error('method_not_allowed', 'the console proxy allows GET, POST, and PATCH only'));
   }
   if (!validOrigin(request.headers.origin)) {
     return json(response, 403, error('forbidden', 'cross-origin console request rejected'));
   }
-  if (request.method === 'POST' && request.headers['x-rat-console-request'] !== '1') {
+  const mutation = method === 'POST' || method === 'PATCH';
+  if (mutation && request.headers['x-rat-console-request'] !== '1') {
     return json(response, 403, error('forbidden', 'missing console request marker'));
   }
   const upstreamPath = requestUrl.pathname.slice('/api'.length);
@@ -71,7 +73,7 @@ async function proxy(
     return json(response, 403, error('forbidden', 'the console proxy exposes only /v1 control routes'));
   }
   const url = new URL(`${upstreamPath}${requestUrl.search}`, `${upstreamBase.replace(/\/$/, '')}/`);
-  const body = request.method === 'POST' ? await requestBody(request) : undefined;
+  const body = mutation ? await requestBody(request) : undefined;
   const unsignedHeaders: Record<string, string> = {
     host: url.host,
     accept: 'application/json',
@@ -97,7 +99,7 @@ async function proxy(
       protocol: url.protocol,
       hostname: url.hostname,
       ...(url.port ? { port: Number(url.port) } : {}),
-      method: request.method,
+      method,
       path: url.pathname,
       query: Object.fromEntries(url.searchParams.entries()),
       headers: unsignedHeaders,
@@ -107,7 +109,7 @@ async function proxy(
   }
   const contentRequest = upstreamPath.endsWith('/content');
   let upstream = await fetch(url, {
-    method: request.method,
+    method,
     headers,
     ...(body ? { body } : {}),
     redirect: contentRequest ? 'manual' : 'follow',

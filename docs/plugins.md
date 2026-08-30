@@ -8,7 +8,20 @@ person, a team, or an embedded product; every connection remains scoped to the a
 An owner can connect several accounts for the same service and grant each account different access.
 This is the account-connection step in the [Rat Things operating model](operating-model.md).
 
-> Once this narrow journey is delightful and stable, expand it.
+Slack is one built-in, end-to-end example of this system, not the product boundary. A deployment
+can add the OAuth or API services its work requires by implementing Rat's reviewed Integration
+Contract in trusted host code. Once installed, the same connection discovery, account verification,
+health, grants, agent tools, CLI, desktop controls, Things, and Routines apply to that service.
+
+That makes four broad workflows possible without giving credentials to the agent:
+
+- research across the connected sources admitted to one Run;
+- take precise provider actions through explicit operation schemas;
+- continue the same durable work from a product, CLI, team interface, schedule, or another agent;
+  and
+- reuse and operate verified accounts across conversations, Things, and Routines.
+
+> Start with the services and operations your users need. Expand the catalog deliberately.
 
 The narrow journey is:
 
@@ -32,6 +45,7 @@ Rat Things applies that model to a headless, self-hosted agent backend with expl
 | --- | --- | --- |
 | Integration manifest | Describes authentication fields and typed operations; implemented by a trusted plugin | No |
 | Connection | One verified provider account for one Rat owner | No |
+| Connection health | Bounded verification state and timestamps; never provider bodies | No |
 | Credential binding | Host-only pointer to the encrypted credential | Reference only |
 | Grant | Persistent Rat-side permission ceiling for one connection | No |
 | Connection set | Reusable selection of accounts, including multiple accounts for one plugin | No |
@@ -161,7 +175,54 @@ resubmit. Provider identity is established before persistence, so callers cannot
 token as another tenant or fabricate its scopes. Provider throttling, 5xx responses, and network
 failure return retryable `503 integration_unavailable` rather than blaming the credential.
 
-## 3. Connect multiple accounts
+## 3. Inspect and maintain a connection
+
+The desktop Connections workspace and CLI expose the same safe management view:
+
+```bash
+rat-things connection show stripe-acme-shop
+rat-things connection test stripe-acme-shop
+rat-things connection consumers stripe-acme-shop
+rat-things connection rename stripe-acme-shop --name "Acme billing"
+rat-things connection reconnect stripe-acme-shop --credential-file /secure/tmp/stripe.json
+# OAuth account:
+rat-things connection reconnect slack-work --oauth --wait
+```
+
+`show` returns the verified Connection, its Rat-side grant, and bounded health metadata. A new or
+untested account reports `unknown/not-tested`. `test` asks the trusted host-side credential broker
+to verify the stored credential against the fixed plugin and returns one of:
+
+- `healthy/verified` when the same provider tenant and subject verify;
+- `degraded/provider-unavailable` without expiring the account when the provider is temporarily
+  unavailable; or
+- `reauth-required` when the credential is missing, rejected, or resolves to another provider
+  identity.
+
+The test response never includes the credential, vault reference, raw provider response, or error
+body. Health is operational metadata stored separately from the secret. `consumers` derives the
+owner's Things, routines, connection sets, and source bindings that select the account from their
+authoritative definitions; it does not read the credential.
+
+The optional display name is presentation only. Renaming does not change the stable alias or ID
+used by Things, routines, Run requests, and the CLI. The desktop details view also shows provider
+scopes, installed operation access/risk, health, and the “used by” projection before an operator
+changes or disconnects an account.
+
+The AWS reference deployment checks a rotating bounded slice of connections every 15 minutes and
+re-verifies only health older than 60 minutes by default. It uses a dedicated Lambda and IAM role,
+never an agent Run, and stores only lifecycle, status/code, and timestamps. Tune or disable it with
+`connection_health_schedule_expression`, `connection_health_stale_minutes`,
+`connection_health_check_limit`, `connection_health_check_concurrency`, and
+`enable_connection_health_monitor`.
+
+These are authenticated control-plane operations. They are not dynamic integration tools and are
+never registered with Codex. A prompt, webpage, repository, or provider message therefore cannot
+start OAuth, test or read a credential, rename/reconnect an account, change a grant, or install a
+new capability. Those changes apply only through trusted UI/CLI/API management and affect later
+Runs after a fresh envelope is resolved.
+
+## 4. Connect multiple accounts
 
 Run `connect` again for every account. Aliases are unique only within the Rat owner:
 
@@ -204,10 +265,22 @@ rat-things --thread customer-ops \
   "Review support and billing exceptions"
 ```
 
+Narrow one account to exact operations with repeatable flags or a comma-separated list:
+
+```bash
+rat-things --thread customer-ops \
+  --connection slack-client-a=read-write \
+  --allow-operation slack-client-a=slack.messages.search,slack.messages.post \
+  "Find the agreed update and post it to the customer channel"
+```
+
+Each operation remains a separate entry in the fixed Run envelope. Comma separation is CLI input
+shorthand; it does not create a broader wildcard permission.
+
 Or place the same aliases/set in a versioned Thing. `rat-things thing-explain THING_ID` resolves the
 accounts and shows why every operation is allowed or denied before the Thing is published.
 
-## 4. Understand effective permission
+## 5. Understand effective permission
 
 <figure class="doc-visual doc-visual-tall">
   <a href="permission-intersection.svg"><img src="permission-intersection.svg" alt="Effective integration operations are the intersection of provider authorization, the persistent account grant, the capability profile, and Thing or run narrowing. A deny at any layer wins."></a>
@@ -261,7 +334,7 @@ operation is available for autonomous use during the Run. There is no approval s
 deny an operation unless the full admitted input range is safe. See [the capability
 envelope](capability-envelope.md).
 
-## 5. Rotate or revoke safely
+## 6. Rotate or revoke safely
 
 Rotation uses the same credential-only file journey as connection setup:
 
@@ -318,6 +391,18 @@ rat-things slack-events slack-work --profile read-only --json
 `--wait` polls only the owner-scoped connection catalog and returns the verified connection bundle
 after the callback succeeds. Omit it when the shell should return the expiring authorization URL
 immediately. The URL and callback never contain the provider application secret or issued token.
+
+Reconnect an installed OAuth account with:
+
+```bash
+rat-things connection reconnect slack-work --oauth --wait
+```
+
+Reconnect state is bound server-side to the authenticated owner and existing connection ID. The
+callback preserves that connection's stable alias, Rat grant, Things/routines/source bindings, and
+provider scopes selected by the trusted plugin. Rat verifies the exchanged credential resolves to
+the exact same provider tenant and subject before replacing the old secret. Choosing a different
+provider account fails closed and leaves the stored credential unchanged.
 
 The authenticated start call creates a ten-minute, owner-bound state, stores only its SHA-256 hash,
 and generates an S256 PKCE challenge. The public callback atomically consumes that state before code

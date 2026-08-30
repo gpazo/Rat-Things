@@ -148,6 +148,7 @@ const commands = new Set([
   'plugins',
   'profiles',
   'connections',
+  'connection',
   'connect',
   'grant',
   'rotate',
@@ -366,6 +367,9 @@ async function main(): Promise<void> {
       return;
     case 'connections':
       print(await api('/v1/integrations/connections', 'GET'));
+      return;
+    case 'connection':
+      await connectionCommand(args);
       return;
     case 'connect':
       await connect(args);
@@ -1274,10 +1278,24 @@ async function watch(args: Arguments): Promise<void> {
   while (true) {
     const requestedAfter = after;
     const query = new URLSearchParams({ after: String(after), limit: '100' });
-    const snapshot = await api(
-      `/v1/runs/${encodeURIComponent(runId)}/events?${query}`,
-      'GET',
-    ) as PublicAgentRuntimeSnapshot;
+    let snapshot: PublicAgentRuntimeSnapshot;
+    try {
+      snapshot = await api(
+        `/v1/runs/${encodeURIComponent(runId)}/events?${query}`,
+        'GET',
+      ) as PublicAgentRuntimeSnapshot;
+    } catch (error) {
+      if (!(error instanceof RuntimeApiError) || error.status !== 409 || !args.flags.has('follow')) {
+        throw error;
+      }
+      const run = await api(`/v1/runs/${encodeURIComponent(runId)}`, 'GET') as RunRecord;
+      if (!args.flags.has('json') && run.status !== previousRunStatus) {
+        process.stderr.write(`Run ${run.runId}: ${run.status}\n`);
+        previousRunStatus = run.status;
+      }
+      if (isTerminal(run.status)) return;
+      throw error;
+    }
     if (requestedAfter < snapshot.oldestSequence - 1) {
       const gap = `${requestedAfter + 1}-${snapshot.oldestSequence - 1}`;
       if (gap !== warnedGap) {
@@ -1910,6 +1928,111 @@ async function requiredJsonFile(args: Arguments): Promise<unknown> {
   }
 }
 
+async function connectionCommand(args: Arguments): Promise<void> {
+  validateCommandOptions(args, {
+    flags: ['json', 'no-browser', 'oauth', 'wait'],
+    values: ['credential-file', 'name'],
+  });
+  const operation = requiredPositional(args, 0, 'connection operation');
+  const selector = requiredPositional(args, 1, 'connection ID or alias');
+  const path = `/v1/integrations/connections/${encodeURIComponent(selector)}`;
+  switch (operation) {
+    case 'show':
+      validatePositionals(args, 2, 2, 'connection show ACCOUNT');
+      print(await api(path, 'GET'));
+      return;
+    case 'test':
+      validatePositionals(args, 2, 2, 'connection test ACCOUNT');
+      print(await api(`${path}/test`, 'POST', {}));
+      return;
+    case 'consumers':
+      validatePositionals(args, 2, 2, 'connection consumers ACCOUNT');
+      print(await api(`${path}/consumers`, 'GET'));
+      return;
+    case 'rename': {
+      validatePositionals(args, 2, 3, 'connection rename ACCOUNT --name NAME');
+      const displayName = args.values.get('name') ?? args.positionals[2];
+      if (!displayName?.trim()) throw new Error('connection rename requires --name NAME');
+      print(await api(path, 'PATCH', { version: '1', displayName }));
+      return;
+    }
+    case 'reconnect':
+      validatePositionals(args, 2, 2, 'connection reconnect ACCOUNT [--oauth] [--wait]');
+      await reconnectConnection(args, selector, path);
+      return;
+    default:
+      throw new Error('connection operation must be show, test, consumers, rename, or reconnect');
+  }
+}
+
+async function reconnectConnection(args: Arguments, selector: string, path: string): Promise<void> {
+  const detail = await api(path, 'GET') as Record<string, unknown>;
+  const connection = isObject(detail.connection) ? detail.connection : undefined;
+  if (!connection || typeof connection.pluginId !== 'string' || !isObject(connection.authorization)) {
+    throw new Error('runtime returned an invalid connection');
+  }
+  const scheme = connection.authorization.scheme;
+  if (scheme === 'oauth2' || args.flags.has('oauth')) {
+    if (scheme !== 'oauth2') throw new Error('--oauth requires an existing OAuth connection');
+    if (args.values.has('credential-file')) {
+      throw new Error('--oauth cannot be combined with --credential-file');
+    }
+    const plugin = await installedIntegrationPlugin(connection.pluginId);
+    if (plugin.oauthInstallation?.status !== 'configured') {
+      throw new Error(`OAuth application for ${connection.pluginId} is not configured in this deployment`);
+    }
+    const started = await api(`${path}/oauth/reconnect`, 'POST', { version: '1' }) as {
+      authorizationUrl?: unknown;
+      expiresAt?: unknown;
+    };
+    if (typeof started.authorizationUrl !== 'string') {
+      throw new Error('runtime returned no OAuth authorization URL');
+    }
+    if (!args.flags.has('json')) {
+      process.stdout.write(`Open this URL to reconnect ${terminalText(String(connection.displayName ?? connection.label ?? selector))}:\n${terminalText(started.authorizationUrl)}\n`);
+      if (!args.flags.has('no-browser')) launchBrowser(started.authorizationUrl);
+    }
+    if (args.flags.has('wait')) {
+      print(await waitForOAuthReconnect(
+        path,
+        typeof connection.updatedAt === 'string' ? connection.updatedAt : undefined,
+        isObject(detail.health) && typeof detail.health.checkedAt === 'string'
+          ? detail.health.checkedAt
+          : undefined,
+        started.expiresAt,
+      ));
+    } else if (args.flags.has('json')) print(started);
+    return;
+  }
+  if (args.flags.has('wait')) throw new Error('--wait is only used with OAuth reconnect');
+  const plugin = await installedIntegrationPlugin(connection.pluginId);
+  const authentication = plugin.authentication.find((candidate) => candidate.scheme === scheme);
+  if (!authentication) throw new Error('connection authentication method is no longer installed');
+  const credential = await credentialFile(args, authentication.fields);
+  print(await api(`${path}/credential`, 'POST', { version: '1', credential }));
+}
+
+async function waitForOAuthReconnect(
+  path: string,
+  previousUpdatedAt: string | undefined,
+  previousCheckedAt: string | undefined,
+  expiresAt: unknown,
+): Promise<unknown> {
+  const advertisedDeadline = typeof expiresAt === 'string' ? Date.parse(expiresAt) : Number.NaN;
+  const deadline = Number.isFinite(advertisedDeadline)
+    ? advertisedDeadline
+    : Date.now() + 10 * 60 * 1_000;
+  while (Date.now() < deadline) {
+    const detail = await api(path, 'GET') as Record<string, unknown>;
+    const connection = isObject(detail.connection) ? detail.connection : undefined;
+    const health = isObject(detail.health) ? detail.health : undefined;
+    const changed = connection?.updatedAt !== previousUpdatedAt || health?.checkedAt !== previousCheckedAt;
+    if (changed && connection?.status === 'active' && health?.status === 'healthy') return detail;
+    await new Promise((resolvePromise) => setTimeout(resolvePromise, 2_000));
+  }
+  throw new Error('OAuth reconnect expired before the account was verified');
+}
+
 async function connect(args: Arguments): Promise<void> {
   validateCommandOptions(args, {
     flags: ['json', 'no-browser', 'oauth', 'wait'],
@@ -2449,11 +2572,14 @@ function connectionOperations(
   for (const value of repeated(args, option) ?? []) {
     const separator = value.indexOf('=');
     if (separator < 1 || separator === value.length - 1) {
-      throw new Error(`--${option} must use CONNECTION=PLUGIN.OPERATION`);
+      throw new Error(`--${option} must use CONNECTION=PLUGIN.OPERATION[,PLUGIN.OPERATION...]`);
     }
     const connection = value.slice(0, separator);
-    const operation = value.slice(separator + 1);
-    result.set(connection, [...(result.get(connection) ?? []), operation]);
+    const operations = value.slice(separator + 1).split(',').map((operation) => operation.trim());
+    if (operations.some((operation) => operation.length === 0)) {
+      throw new Error(`--${option} contains an empty operation`);
+    }
+    result.set(connection, [...(result.get(connection) ?? []), ...operations]);
   }
   return result;
 }
@@ -2465,7 +2591,7 @@ function repeated(args: Arguments, name: string): string[] | undefined {
 
 async function api(
   path: string,
-  method: 'GET' | 'POST',
+  method: 'GET' | 'POST' | 'PATCH',
   body?: unknown,
   extraHeaders: Record<string, string> = {},
 ): Promise<unknown> {
@@ -2511,9 +2637,16 @@ async function api(
   const text = await response.text();
   const value = text ? parseResponse(text) : {};
   if (!response.ok) {
-    throw new Error(`runtime API returned HTTP ${response.status}: ${text.slice(0, 1_000)}`);
+    throw new RuntimeApiError(response.status, text);
   }
   return value;
+}
+
+class RuntimeApiError extends Error {
+  public constructor(public readonly status: number, responseBody: string) {
+    super(`runtime API returned HTTP ${status}: ${responseBody.slice(0, 1_000)}`);
+    this.name = 'RuntimeApiError';
+  }
 }
 
 interface DoctorCheck {
@@ -2706,6 +2839,7 @@ function validateRootPositionals(args: Arguments): void {
     plugins: [0, 0, 'plugins'],
     profiles: [0, 0, 'profiles'],
     connections: [0, 0, 'connections'],
+    connection: [2, 3, 'connection show|test|consumers|rename|reconnect ACCOUNT'],
     connect: [1, 1, 'connect PLUGIN'],
     grant: [1, 1, 'grant ACCOUNT --file GRANT.json'],
     rotate: [1, 1, 'rotate ACCOUNT --credential-file CREDENTIAL.json'],
@@ -2860,7 +2994,7 @@ function help(showAll: boolean): void {
   process.stdout.write(`    [--network|--no-network] [--web-search MODE] [--browser|--no-browser]\n`);
   process.stdout.write(`    [--skill NAME]... [--app NAME]... [--mcp NAME]...\n`);
   process.stdout.write(`    [--connection-set NAME] [--connection ACCOUNT[=PRESET]]...\n`);
-  process.stdout.write(`    [--allow-operation ACCOUNT=PLUGIN.OP]... [--deny-operation ACCOUNT=PLUGIN.OP]...\n`);
+  process.stdout.write(`    [--allow-operation ACCOUNT=PLUGIN.OP[,PLUGIN.OP...]]... [--deny-operation ACCOUNT=PLUGIN.OP[,PLUGIN.OP...]]...\n`);
   process.stdout.write(`    [--attach PATH]... [--reply-to MESSAGE_ID] [--delivery interrupt|defer]\n`);
   process.stdout.write(`    [--json] [--no-wait]\n`);
   process.stdout.write(`    [--idempotency-key KEY] [--poll-seconds N] [--wait-timeout N] \"...\"\n`);
@@ -2907,6 +3041,11 @@ function help(showAll: boolean): void {
   process.stdout.write(`  rat-things plugins\n`);
   process.stdout.write(`  rat-things profiles\n`);
   process.stdout.write(`  rat-things connections\n`);
+  process.stdout.write(`  rat-things connection show ACCOUNT\n`);
+  process.stdout.write(`  rat-things connection reconnect ACCOUNT --oauth --wait\n`);
+  process.stdout.write(`  rat-things connection test ACCOUNT\n`);
+  process.stdout.write(`  rat-things connection consumers ACCOUNT\n`);
+  process.stdout.write(`  rat-things connection rename ACCOUNT --name NAME\n`);
   process.stdout.write(`  rat-things connect PLUGIN --oauth [--wait] [--no-browser]\n`);
   process.stdout.write(`  rat-things connect PLUGIN --credential-file CREDENTIAL.json\n`);
   process.stdout.write(`    [--auth-scheme SCHEME] [--access read-only|read-write|full] [--alias NAME]\n`);

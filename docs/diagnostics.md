@@ -64,6 +64,8 @@ Connection creation follows four independently inspectable stages:
 | OAuth application setup | Manifest reports `host-required` | Register the exact callback URL, create the `client_id`/`client_secret` JSON secret, set its Terraform ARN, and apply |
 | OAuth callback/state | Consent declined, callback expired, or state replayed | Start a fresh authorization; do not reuse a callback URL |
 | OAuth refresh | Expired token family lacks its refresh token, the app config was removed, or one provider-family response is being parsed as an initial multi-token exchange | Reconnect the account or restore the same provider app configuration; for Slack inspect bot and `user_*` expiry/refresh metadata independently without printing token values |
+| OAuth reconnect | Consent completed with a different workspace/user, or the connection was revoked | Repeat while selecting the same provider account; create a separate Connection for a different identity; revoked connections cannot be reactivated |
+| Scheduled health | Health remains old or unknown | Confirm `enable_connection_health_monitor`, the EventBridge rule, connection-health Lambda metrics, integration-table scan permission, and exact connection/app-secret IAM paths; never log provider bodies or credential values |
 | Local/API field validation | Missing, empty, or extra credential key | Match the manifest field keys exactly |
 | Provider verification rejected | `400` and no connection/secret created | Reissue the credential; check provider account/status and plugin identity endpoint |
 | Provider verification unavailable | `503 integration_unavailable` | Preserve the form and retry with backoff; check egress, DNS/TLS, provider status, and throttling |

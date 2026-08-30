@@ -15,6 +15,7 @@ locals {
   thing_schedule_target_arn = "arn:${data.aws_partition.current.partition}:lambda:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:function:${local.name}-thing-schedule"
 
   lambda_zip_paths = merge({
+    connection-health        = "${path.root}/../dist/connection-health.zip"
     control                  = "${path.root}/../dist/control.zip"
     conversation-completion  = "${path.root}/../dist/conversation-completion.zip"
     conversation-coordinator = "${path.root}/../dist/conversation-coordinator.zip"

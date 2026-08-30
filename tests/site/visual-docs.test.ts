@@ -82,7 +82,16 @@ describe('visual documentation', () => {
 
     expect(homepage).toContain('id="console"');
     expect(homepage).toContain('Install connections');
-    expect(homepage).toContain('Work from Slack');
+    expect(homepage).toContain('Use connected services');
+    expect(homepage).toContain('Connected services, one durable agent');
+    expect(homepage).toContain('Install verified accounts');
+    expect(homepage).toContain('Find and synthesize context');
+    expect(homepage).toContain('The interface is the front door, not the limit.');
+    expect(homepage).toContain('As many trusted integrations as you choose.');
+    expect(homepage).toContain('One built-in example · Slack');
+    expect(homepage).not.toContain('Available today in Slack');
+    expect(homepage).toContain('Extensions are trusted host code.');
+    expect(homepage).not.toContain('Slack live proof');
     expect(homepage).toContain('Operate routines');
     expect(homepage).toContain('The reference console and CLI are two views over the same public');
     expect(homepage).toContain('Durability by design');

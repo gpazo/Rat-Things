@@ -175,6 +175,10 @@ button:disabled { cursor: default; opacity: .55; }
 .management-section-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin: 22px 0 10px; }
 .management-section-heading h3 { margin: 0; font-size: 13px; }
 .management-section-heading span { color: var(--faint); font-size: 10px; }
+.management-filter { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 9px; margin: 0 0 18px; }
+.management-filter input { min-height: 39px; padding: 8px 11px; color: var(--text); background: #131813; border: 1px solid var(--line); border-radius: 10px; outline: none; font-size: 12px; }
+.management-filter input:focus { border-color: #667b42; box-shadow: 0 0 0 3px #b9df6810; }
+.management-filter span { display: flex; align-items: center; color: var(--faint); font-size: 10px; }
 .management-grid { display: grid; gap: 10px; }
 .management-card { display: grid; grid-template-columns: 45px minmax(0, 1fr) auto; gap: 13px; align-items: center; min-height: 78px; padding: 12px 13px; background: #141914; border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 12px 32px #0002; }
 .management-card[data-status="revoked"], .management-card[data-status="deleted"] { opacity: .66; }
@@ -183,6 +187,8 @@ button:disabled { cursor: default; opacity: .55; }
 .management-card-copy strong { overflow: hidden; color: var(--text); font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
 .management-card-copy span { overflow: hidden; color: var(--faint); font-size: 10px; line-height: 1.45; text-overflow: ellipsis; white-space: nowrap; }
 .management-card-copy .management-card-state { color: var(--muted); font-size: 10px; }
+.management-card-copy .connection-health-line[data-health="healthy"] { color: var(--success); }
+.management-card-copy .connection-health-line[data-health="degraded"], .management-card-copy .connection-health-line[data-health="reauth-required"] { color: var(--warning); }
 .management-card-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
 .management-card-actions button, .management-card-actions select { min-height: 31px; padding: 5px 8px; color: var(--muted); background: var(--panel); border: 1px solid var(--line); border-radius: 7px; font-size: 10px; }
 .management-card-actions button:hover, .management-card-actions select:hover { color: var(--text); background: var(--panel-hover); }
@@ -353,6 +359,25 @@ button:disabled { cursor: default; opacity: .55; }
 .management-dialog form { display: grid; gap: 15px; }
 .management-dialog .dialog-heading { margin-bottom: 3px; }
 .management-form-fields { display: grid; gap: 13px; }
+.connection-detail-dialog { width: min(700px, calc(100vw - 32px)); max-height: min(850px, calc(100vh - 32px)); }
+.connection-detail-dialog[open] { overflow: auto; }
+.connection-detail-dialog form { display: grid; gap: 16px; padding: 19px; }
+.connection-detail-dialog .dialog-heading { margin-bottom: 0; }
+.connection-detail-summary { margin: -8px 0 0; color: var(--muted); font-size: 11px; line-height: 1.55; }
+.connection-detail-section { display: grid; gap: 9px; padding: 13px; background: #131813; border: 1px solid var(--line-soft); border-radius: 11px; }
+.connection-detail-section h3 { margin: 0; font-size: 12px; }
+.connection-detail-section-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.connection-detail-health { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; }
+.connection-health-stat { display: grid; gap: 3px; padding: 8px; background: #0e120e; border-radius: 8px; }
+.connection-health-stat span { color: var(--faint); font-size: 9px; text-transform: uppercase; letter-spacing: .05em; }
+.connection-health-stat strong { overflow: hidden; color: var(--muted); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.connection-chip-list { display: flex; flex-wrap: wrap; gap: 6px; }
+.connection-chip { padding: 5px 7px; color: var(--muted); background: #222a20; border: 1px solid var(--line); border-radius: 999px; font: 9px/1.2 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.connection-detail-list { display: grid; gap: 5px; }
+.connection-detail-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: center; min-height: 31px; padding: 6px 7px; color: var(--muted); background: #0e120e; border-radius: 7px; font-size: 10px; }
+.connection-detail-row strong { overflow: hidden; color: var(--text); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.connection-detail-row span { color: var(--faint); white-space: nowrap; }
+.connection-security-note { margin: 0; padding: 10px 11px; color: var(--faint); background: #111611; border-left: 2px solid var(--accent); border-radius: 7px; font-size: 10px; line-height: 1.55; }
 .dialog-toggle { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 11px; }
 .dialog-toggle input { accent-color: var(--accent); }
 .interval-input { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center; }

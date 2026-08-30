@@ -17,6 +17,7 @@ describe('Thing CLI-to-HTTP workflow', () => {
     body: unknown;
   }> = [];
   let oauthStarts = 0;
+  let oauthReconnectStarts = 0;
   const connectionSets: Array<Record<string, unknown>> = [];
   const sourceBindings: Array<Record<string, unknown>> = [];
   const server = createServer(async (request, response) => {
@@ -80,6 +81,20 @@ describe('Thing CLI-to-HTTP workflow', () => {
         expiresAt: '2099-08-27T20:10:00.000Z',
       }, 201);
     }
+    if (
+      request.method === 'POST' &&
+      request.url === '/v1/integrations/connections/slack-acme/oauth/reconnect'
+    ) {
+      oauthReconnectStarts += 1;
+      return send(response, {
+        version: '1',
+        pluginId: 'slack',
+        connectionId: 'connection-slack',
+        authorizationUrl: 'https://slack.example/authorize?state=reconnect',
+        callbackUrl: 'https://api.example/v1/integrations/oauth/callback',
+        expiresAt: '2099-08-27T20:10:00.000Z',
+      }, 201);
+    }
     if (request.method === 'POST' && request.url === '/v1/integrations/connections') {
       return send(response, {
         connection: {
@@ -129,6 +144,39 @@ describe('Thing CLI-to-HTTP workflow', () => {
         }] : [])],
       });
     }
+    if (request.method === 'GET' && request.url === '/v1/integrations/connections/fixture-alpha') {
+      return send(response, connectionDetail());
+    }
+    if (request.method === 'GET' && request.url === '/v1/integrations/connections/slack-acme') {
+      return send(response, slackConnectionDetail(oauthReconnectStarts > 0));
+    }
+    if (request.method === 'PATCH' && request.url === '/v1/integrations/connections/fixture-alpha') {
+      return send(response, {
+        ...connectionDetail().connection,
+        displayName: (body as { displayName?: string }).displayName,
+      });
+    }
+    if (request.method === 'POST' && request.url === '/v1/integrations/connections/fixture-alpha/test') {
+      return send(response, {
+        connection: connectionDetail().connection,
+        health: {
+          version: '1',
+          ownerId: 'api:owner',
+          connectionId: 'connection-cli',
+          status: 'healthy',
+          code: 'verified',
+          checkedAt: '2026-08-29T18:00:00.000Z',
+        },
+      });
+    }
+    if (request.method === 'GET' && request.url === '/v1/integrations/connections/fixture-alpha/consumers') {
+      return send(response, {
+        version: '1',
+        connectionId: 'connection-cli',
+        complete: true,
+        consumers: [{ kind: 'routine', id: 'routine-daily', name: 'Daily account health', status: 'enabled' }],
+      });
+    }
     if (request.method === 'POST' && request.url === '/v1/integrations/connections/connection-slack/grant') {
       return send(response, { version: '1', connectionId: 'connection-slack', preset: 'read-write' });
     }
@@ -163,7 +211,13 @@ describe('Thing CLI-to-HTTP workflow', () => {
       request.method === 'POST' &&
       request.url === '/v1/integrations/connections/fixture-alpha/credential'
     ) {
-      return send(response, { ok: true, connectionId: 'connection-cli' });
+      return send(response, {
+        connection: connectionDetail().connection,
+        health: {
+          version: '1', ownerId: 'api:owner', connectionId: 'connection-cli',
+          status: 'healthy', code: 'verified', checkedAt: '2026-08-29T18:00:00.000Z',
+        },
+      });
     }
     if (request.method === 'POST' && request.url === '/v1/things') {
       return send(response, {
@@ -485,7 +539,124 @@ describe('Thing CLI-to-HTTP workflow', () => {
       request.method === 'POST' && request.path === '/v1/integrations/connection-sets'
     ))).toHaveLength(1);
   });
+
+  it('inspects, tests, renames, and traces connection consumers through the control plane', async () => {
+    const shown = await cli(['connection', 'show', 'fixture-alpha'], apiUrl);
+    expect(JSON.parse(shown.stdout)).toMatchObject({
+      connection: { connectionId: 'connection-cli', alias: 'fixture-alpha' },
+      health: { status: 'unknown', code: 'not-tested' },
+    });
+
+    const tested = await cli(['connection', 'test', 'fixture-alpha'], apiUrl);
+    expect(JSON.parse(tested.stdout)).toMatchObject({
+      connection: { status: 'active' },
+      health: { status: 'healthy', code: 'verified' },
+    });
+
+    const consumers = await cli(['connection', 'consumers', 'fixture-alpha'], apiUrl);
+    expect(JSON.parse(consumers.stdout)).toMatchObject({
+      complete: true,
+      consumers: [{ kind: 'routine', name: 'Daily account health' }],
+    });
+
+    const renamed = await cli([
+      'connection',
+      'rename',
+      'fixture-alpha',
+      '--name',
+      'Support CRM',
+    ], apiUrl);
+    expect(JSON.parse(renamed.stdout)).toMatchObject({
+      alias: 'fixture-alpha',
+      displayName: 'Support CRM',
+    });
+    expect([...requests].reverse().find((request) => (
+      request.method === 'PATCH' && request.path === '/v1/integrations/connections/fixture-alpha'
+    ))).toMatchObject({ body: { version: '1', displayName: 'Support CRM' } });
+  }, 20_000);
+
+  it('reconnects manual and OAuth accounts without requesting a new grant', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'rat-things-cli-reconnect-'));
+    const credentialPath = join(directory, 'fixture-credential.json');
+    try {
+      await writeFile(credentialPath, JSON.stringify({ api_key: 'fixture-secret' }), { mode: 0o600 });
+      const manual = await cli([
+        'connection', 'reconnect', 'fixture-alpha', '--credential-file', credentialPath,
+      ], apiUrl);
+      expect(JSON.parse(manual.stdout)).toMatchObject({
+        connection: { connectionId: 'connection-cli', alias: 'fixture-alpha' },
+        health: { status: 'healthy' },
+      });
+      const oauth = await cli([
+        'connection', 'reconnect', 'slack-acme', '--oauth', '--no-browser', '--json',
+      ], apiUrl);
+      expect(JSON.parse(oauth.stdout)).toMatchObject({
+        connectionId: 'connection-slack',
+        authorizationUrl: 'https://slack.example/authorize?state=reconnect',
+      });
+      expect([...requests].reverse().find((request) => (
+        request.path === '/v1/integrations/connections/slack-acme/oauth/reconnect'
+      ))).toMatchObject({ method: 'POST', body: { version: '1' } });
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
 });
+
+function connectionDetail() {
+  return {
+    connection: {
+      version: '1',
+      connectionId: 'connection-cli',
+      ownerId: 'api:owner',
+      pluginId: 'fixture-crm',
+      alias: 'fixture-alpha',
+      label: 'Alpha Support',
+      authorization: {
+        scheme: 'api-key',
+        access: 'read',
+        scopeModel: 'granular',
+        scopes: ['records:read'],
+      },
+      status: 'active',
+      createdAt: '2026-08-29T18:00:00.000Z',
+      updatedAt: '2026-08-29T18:00:00.000Z',
+    },
+    grant: {
+      version: '1',
+      grantId: 'grant-cli',
+      ownerId: 'api:owner',
+      connectionId: 'connection-cli',
+      preset: 'read-only',
+    },
+    health: {
+      version: '1',
+      ownerId: 'api:owner',
+      connectionId: 'connection-cli',
+      status: 'unknown',
+      code: 'not-tested',
+    },
+  };
+}
+
+function slackConnectionDetail(reconnected: boolean) {
+  return {
+    connection: {
+      version: '1', connectionId: 'connection-slack', ownerId: 'api:owner', pluginId: 'slack',
+      alias: 'slack-acme', label: 'Acme Slack', status: 'active',
+      externalTenantId: 'T123', externalSubjectId: 'U123',
+      authorization: { scheme: 'oauth2', access: 'full', scopeModel: 'granular', scopes: ['chat:write'] },
+      createdAt: '2026-08-27T18:00:00.000Z',
+      updatedAt: reconnected ? '2026-08-29T19:00:00.000Z' : '2026-08-27T18:00:00.000Z',
+    },
+    grant: { version: '1', grantId: 'grant-slack', ownerId: 'api:owner', connectionId: 'connection-slack', preset: 'read-write' },
+    health: {
+      version: '1', ownerId: 'api:owner', connectionId: 'connection-slack',
+      status: reconnected ? 'healthy' : 'unknown', code: reconnected ? 'verified' : 'not-tested',
+      ...(reconnected ? { checkedAt: '2026-08-29T19:00:00.000Z' } : {}),
+    },
+  };
+}
 
 async function cli(argumentsValue: string[], apiUrl: string): Promise<{ stdout: string; stderr: string }> {
   return execute(process.execPath, [

@@ -50,6 +50,7 @@ interface FakeControlState {
   sourceBindings: Array<Record<string, any>>;
   routines: Array<Record<string, any>>;
   oauthStarts: number;
+  oauthReconnects: number;
   routineRuns: number;
 }
 
@@ -96,6 +97,7 @@ test.beforeAll(async () => {
     sourceBindings: [],
     routines: [routineFixture('routine-daily', 'Daily account health', 'enabled')],
     oauthStarts: 0,
+    oauthReconnects: 0,
     routineRuns: 0,
   };
   controlServer = createServer((request, response) => {
@@ -505,6 +507,24 @@ test('manages verified connections and durable routines from the product navigat
   await expect(page.getByRole('heading', { name: 'Connected services' })).toBeVisible();
   const slack = page.locator('.management-card').filter({ hasText: 'slack-work ·' });
   await expect(slack).toContainText('Rat access read-only');
+  await expect(slack).toContainText('Health not tested');
+  await slack.getByRole('button', { name: 'Test', exact: true }).click();
+  await expect(slack).toContainText('Healthy');
+  await slack.getByRole('button', { name: 'Details' }).click();
+  await expect(page.getByRole('dialog', { name: 'Slack Workspace' })).toContainText('Credentials stay in the host-side vault');
+  await expect(page.getByRole('dialog', { name: 'Slack Workspace' })).toContainText('Support triage');
+  await expect(page.getByRole('dialog', { name: 'Slack Workspace' })).toContainText('Post message');
+  await page.getByLabel('Display name').fill('Acme support Slack');
+  await page.getByRole('button', { name: 'Save name' }).click();
+  await expect(page.getByRole('heading', { name: 'Acme support Slack' })).toBeVisible();
+  const reconnectPopupPromise = page.waitForEvent('popup');
+  await page.getByRole('button', { name: 'Reconnect', exact: true }).click();
+  const reconnectPopup = await reconnectPopupPromise;
+  await reconnectPopup.close();
+  await expect(page.getByRole('dialog', { name: 'Acme support Slack' })).toBeHidden();
+  expect(state.oauthReconnects).toBe(1);
+  expect(state.connections[0]?.grant.preset).toBe('read-only');
+  await expect(slack).toContainText('Acme support Slack');
   page.once('dialog', (dialog) => void dialog.accept());
   await slack.getByRole('button', { name: 'Enable mentions' }).click();
   await expect(slack).toContainText('mentions on');
@@ -522,7 +542,17 @@ test('manages verified connections and durable routines from the product navigat
   await page.getByLabel('Secret key').fill('sk_test_console_fixture');
   await page.getByLabel('Connection name').fill('stripe-shop');
   await page.getByRole('button', { name: 'Verify & connect' }).click();
-  await expect(page.locator('.management-card').filter({ hasText: 'Fixture Shop' })).toContainText('stripe-shop');
+  const stripeAccount = page.locator('.management-card').filter({ hasText: 'Fixture Shop' });
+  await expect(stripeAccount).toContainText('stripe-shop');
+  await stripeAccount.getByRole('button', { name: 'Details' }).click();
+  await page.getByRole('button', { name: 'Reconnect', exact: true }).click();
+  const reconnectDialog = page.getByRole('dialog', { name: 'Reconnect Fixture Shop' });
+  await expect(reconnectDialog).toBeVisible();
+  await expect(reconnectDialog.getByLabel('Connection name')).toBeHidden();
+  await expect(reconnectDialog.getByLabel('Rat access')).toBeHidden();
+  await reconnectDialog.getByLabel('Secret key').fill('sk_test_console_reconnected');
+  await page.getByRole('button', { name: 'Verify & reconnect' }).click();
+  await expect(stripeAccount).toContainText('Healthy');
   if (process.env.RAT_THINGS_CONSOLE_SCREENSHOTS === 'on') {
     await page.screenshot({ path: 'test-results/rat-things-console-connections.png' });
   }
@@ -533,6 +563,12 @@ test('manages verified connections and durable routines from the product navigat
   const popup = await popupPromise;
   await popup.close();
   expect(state.oauthStarts).toBe(1);
+
+  const connectionSearch = page.getByLabel('Search connections');
+  await connectionSearch.fill('refund');
+  await expect(stripe).toBeVisible();
+  await expect(slack).toBeHidden();
+  await connectionSearch.fill('');
 
   await page.getByRole('button', { name: 'Routines' }).click();
   await expect(page.getByRole('heading', { name: 'Routines', exact: true })).toBeVisible();
@@ -642,6 +678,98 @@ async function handleControlRequest(
     );
     state.connections.push(bundle);
     return sendJson(response, 201, bundle);
+  }
+  const connectionReconnectMatch = url.pathname.match(
+    /^\/v1\/integrations\/connections\/([^/]+)\/oauth\/reconnect$/,
+  );
+  if (request.method === 'POST' && connectionReconnectMatch) {
+    const bundle = state.connections.find(
+      (item) => item.connection.connectionId === connectionReconnectMatch[1],
+    );
+    if (!bundle) throw new Error('connection not found');
+    state.oauthReconnects += 1;
+    bundle.connection.updatedAt = new Date(Date.now() + state.oauthReconnects * 1_000).toISOString();
+    bundle.connection.status = 'active';
+    bundle.health = {
+      version: '1',
+      ownerId,
+      connectionId: bundle.connection.connectionId,
+      status: 'healthy',
+      code: 'verified',
+      checkedAt: bundle.connection.updatedAt,
+    };
+    return sendJson(response, 201, {
+      version: '1',
+      pluginId: bundle.connection.pluginId,
+      connectionId: bundle.connection.connectionId,
+      authorizationUrl: 'https://slack.example/authorize?state=reconnect',
+      callbackUrl: `${controlUrl}/v1/integrations/oauth/callback`,
+      expiresAt: new Date(Date.now() + 10 * 60_000).toISOString(),
+    });
+  }
+  const connectionDetailMatch = url.pathname.match(/^\/v1\/integrations\/connections\/([^/]+)$/);
+  if (connectionDetailMatch && (request.method === 'GET' || request.method === 'PATCH')) {
+    const selector = decodeURIComponent(connectionDetailMatch[1] ?? '');
+    const bundle = state.connections.find((item) => (
+      item.connection.connectionId === selector || item.connection.alias === selector
+    ));
+    if (!bundle) throw new Error('connection not found');
+    if (request.method === 'PATCH') {
+      const body = await readJson(request) as { displayName?: string };
+      bundle.connection.displayName = body.displayName;
+      bundle.connection.updatedAt = new Date().toISOString();
+      return sendJson(response, 200, bundle.connection);
+    }
+    return sendJson(response, 200, bundle);
+  }
+  const connectionTestMatch = url.pathname.match(/^\/v1\/integrations\/connections\/([^/]+)\/test$/);
+  if (request.method === 'POST' && connectionTestMatch) {
+    const bundle = state.connections.find((item) => item.connection.connectionId === connectionTestMatch[1]);
+    if (!bundle) throw new Error('connection not found');
+    bundle.health = {
+      version: '1',
+      ownerId,
+      connectionId: bundle.connection.connectionId,
+      status: 'healthy',
+      code: 'verified',
+      checkedAt: new Date().toISOString(),
+    };
+    return sendJson(response, 200, { connection: bundle.connection, health: bundle.health });
+  }
+  const connectionCredentialMatch = url.pathname.match(
+    /^\/v1\/integrations\/connections\/([^/]+)\/credential$/,
+  );
+  if (request.method === 'POST' && connectionCredentialMatch) {
+    const body = await readJson(request) as { credential?: { api_key?: string } };
+    if (body.credential?.api_key !== 'sk_test_console_reconnected') {
+      throw new Error('unexpected replacement credential');
+    }
+    const bundle = state.connections.find(
+      (item) => item.connection.connectionId === connectionCredentialMatch[1],
+    );
+    if (!bundle) throw new Error('connection not found');
+    bundle.connection.status = 'active';
+    bundle.connection.updatedAt = new Date().toISOString();
+    bundle.health = {
+      version: '1', ownerId, connectionId: bundle.connection.connectionId,
+      status: 'healthy', code: 'verified', checkedAt: bundle.connection.updatedAt,
+    };
+    return sendJson(response, 200, { connection: bundle.connection, health: bundle.health });
+  }
+  const connectionConsumersMatch = url.pathname.match(/^\/v1\/integrations\/connections\/([^/]+)\/consumers$/);
+  if (request.method === 'GET' && connectionConsumersMatch) {
+    return sendJson(response, 200, {
+      version: '1',
+      connectionId: connectionConsumersMatch[1],
+      complete: true,
+      consumers: [{
+        kind: 'thing',
+        id: 'thing-support',
+        name: 'Support triage',
+        status: 'active',
+        stage: 'active',
+      }],
+    });
   }
   const connectionGrantMatch = url.pathname.match(/^\/v1\/integrations\/connections\/([^/]+)\/grant$/);
   if (request.method === 'POST' && connectionGrantMatch) {
@@ -986,6 +1114,13 @@ function connectionBundle(
       ownerId,
       connectionId,
       preset,
+    },
+    health: {
+      version: '1',
+      ownerId,
+      connectionId,
+      status: 'unknown',
+      code: 'not-tested',
     },
   };
 }

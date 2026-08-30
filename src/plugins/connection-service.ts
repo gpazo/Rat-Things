@@ -4,10 +4,12 @@ import type {
   IntegrationCredentialValue,
 } from '../credentials/types.js';
 import {
+  validateConnectionHealth,
   validateConnectionGrant,
   validateConnectionSet,
   validateIntegrationConnection,
   validateSourceCapabilityBinding,
+  type ConnectionHealth,
   type ConnectionGrant,
   type ConnectionSet,
   type IntegrationAuthScheme,
@@ -27,6 +29,14 @@ export interface ConnectionServiceOptions {
   vault: CredentialVault;
   registry: IntegrationPluginRegistryLike;
   credentialNamePrefix: string;
+  /** Trusted control-plane reader. This is never registered as an agent dynamic tool. */
+  credentials?: {
+    readRecord(
+      reference: string | undefined,
+      connection?: IntegrationConnection,
+      signal?: AbortSignal,
+    ): Promise<IntegrationCredentialValue>;
+  };
   ids?: { random(): string };
   clock?: { now(): Date };
 }
@@ -148,13 +158,100 @@ export class ConnectionService {
   public async list(ownerId: string): Promise<Array<{
     connection: IntegrationConnection;
     grant?: ConnectionGrant;
+    health: ConnectionHealth;
   }>> {
     requiredOwner(ownerId);
     const connections = await this.options.store.listConnections(ownerId);
     return Promise.all(connections.map(async (connection) => {
-      const grant = await this.options.store.getGrant(ownerId, connection.connectionId);
-      return { connection, ...(grant ? { grant } : {}) };
+      const [grant, health] = await Promise.all([
+        this.options.store.getGrant(ownerId, connection.connectionId),
+        this.connectionHealth(ownerId, connection.connectionId),
+      ]);
+      return { connection, ...(grant ? { grant } : {}), health };
     }));
+  }
+
+  public async get(ownerId: string, connectionIdOrAlias: string): Promise<{
+    connection: IntegrationConnection;
+    grant?: ConnectionGrant;
+    health: ConnectionHealth;
+  }> {
+    const connection = await this.requiredConnection(ownerId, connectionIdOrAlias);
+    const [grant, health] = await Promise.all([
+      this.options.store.getGrant(ownerId, connection.connectionId),
+      this.connectionHealth(ownerId, connection.connectionId),
+    ]);
+    return { connection, ...(grant ? { grant } : {}), health };
+  }
+
+  public async rename(
+    ownerId: string,
+    connectionIdOrAlias: string,
+    displayName: string,
+  ): Promise<IntegrationConnection> {
+    const connection = await this.requiredConnection(ownerId, connectionIdOrAlias);
+    const name = displayName.trim();
+    if (!name || Buffer.byteLength(name, 'utf8') > 256) {
+      throw new ValidationError('connection display name must be 1-256 UTF-8 bytes');
+    }
+    const updated = validateIntegrationConnection({
+      ...connection,
+      displayName: name,
+      updatedAt: this.clock.now().toISOString(),
+    });
+    await this.options.store.putConnection(updated);
+    return updated;
+  }
+
+  public async test(
+    ownerId: string,
+    connectionIdOrAlias: string,
+  ): Promise<{ connection: IntegrationConnection; health: ConnectionHealth }> {
+    const connection = await this.requiredConnection(ownerId, connectionIdOrAlias);
+    if (connection.status === 'revoked') {
+      throw new ValidationError('revoked connections cannot be tested');
+    }
+    const binding = await this.options.store.getCredentialBinding(ownerId, connection.connectionId);
+    if (!binding || binding.ownerId !== ownerId) {
+      const expired = await this.updateStatus(connection, 'expired');
+      const health = await this.recordHealth(expired, 'reauth-required', 'credential-missing');
+      return { connection: expired, health };
+    }
+    if (!this.options.credentials) throw new Error('connection testing is not configured');
+    const plugin = this.options.registry.plugin(connection.pluginId);
+    try {
+      const credential = await this.options.credentials.readRecord(binding.reference, connection);
+      const verified = await verifyCredential(plugin, connection.authorization.scheme, credential);
+      const sameIdentity = verified.authorization.scheme === connection.authorization.scheme &&
+        (verified.externalTenantId ?? '') === (connection.externalTenantId ?? '') &&
+        (verified.externalSubjectId ?? '') === (connection.externalSubjectId ?? '');
+      if (!sameIdentity) {
+        const expired = await this.updateStatus(connection, 'expired');
+        const health = await this.recordHealth(expired, 'reauth-required', 'identity-mismatch');
+        return { connection: expired, health };
+      }
+      const active = validateIntegrationConnection({
+        ...connection,
+        label: verified.label,
+        authorization: verified.authorization,
+        status: 'active',
+        updatedAt: this.clock.now().toISOString(),
+      });
+      await this.options.store.putConnection(active);
+      const health = await this.recordHealth(active, 'healthy', 'verified');
+      return { connection: active, health };
+    } catch (error) {
+      if (error instanceof IntegrationProviderUnavailableError) {
+        const health = await this.recordHealth(connection, 'degraded', 'provider-unavailable');
+        return { connection, health };
+      }
+      if (error instanceof CredentialVerificationError || error instanceof ValidationError) {
+        const expired = await this.updateStatus(connection, 'expired');
+        const health = await this.recordHealth(expired, 'reauth-required', 'credential-rejected');
+        return { connection: expired, health };
+      }
+      throw error;
+    }
   }
 
   public async replaceGrant(
@@ -180,7 +277,7 @@ export class ConnectionService {
     ownerId: string,
     connectionIdOrAlias: string,
     credential: IntegrationCredentialValue,
-  ): Promise<void> {
+  ): Promise<{ connection: IntegrationConnection; health: ConnectionHealth }> {
     const connection = await this.requiredConnection(ownerId, connectionIdOrAlias);
     if (connection.status === 'revoked') {
       throw new ValidationError('revoked connections cannot be rotated');
@@ -207,12 +304,16 @@ export class ConnectionService {
       ...binding,
       updatedAt: timestamp,
     });
-    await this.options.store.putConnection(validateIntegrationConnection({
+    const active = validateIntegrationConnection({
       ...connection,
       label: verified.label,
       authorization: verified.authorization,
+      status: 'active',
       updatedAt: timestamp,
-    }));
+    });
+    await this.options.store.putConnection(active);
+    const health = await this.recordHealth(active, 'healthy', 'verified');
+    return { connection: active, health };
   }
 
   public async revoke(ownerId: string, connectionIdOrAlias: string): Promise<IntegrationConnection> {
@@ -289,6 +390,52 @@ export class ConnectionService {
     const connection = await this.options.store.getConnection(ownerId, connectionIdOrAlias);
     if (!connection || connection.ownerId !== ownerId) throw new Error('integration connection not found');
     return connection;
+  }
+
+  private async connectionHealth(ownerId: string, connectionId: string): Promise<ConnectionHealth> {
+    return await this.options.store.getConnectionHealth?.(ownerId, connectionId) ?? validateConnectionHealth({
+      version: '1',
+      ownerId,
+      connectionId,
+      status: 'unknown',
+      code: 'not-tested',
+    });
+  }
+
+  private async recordHealth(
+    connection: IntegrationConnection,
+    status: ConnectionHealth['status'],
+    code: ConnectionHealth['code'],
+  ): Promise<ConnectionHealth> {
+    const previous = await this.connectionHealth(connection.ownerId, connection.connectionId);
+    const now = this.clock.now().toISOString();
+    const health = validateConnectionHealth({
+      version: '1',
+      ownerId: connection.ownerId,
+      connectionId: connection.connectionId,
+      status,
+      code,
+      checkedAt: now,
+      ...(status === 'healthy'
+        ? { lastHealthyAt: now, ...(previous.lastFailureAt ? { lastFailureAt: previous.lastFailureAt } : {}) }
+        : { lastFailureAt: now, ...(previous.lastHealthyAt ? { lastHealthyAt: previous.lastHealthyAt } : {}) }),
+    });
+    await this.options.store.putConnectionHealth?.(health);
+    return health;
+  }
+
+  private async updateStatus(
+    connection: IntegrationConnection,
+    status: IntegrationConnection['status'],
+  ): Promise<IntegrationConnection> {
+    if (connection.status === status) return connection;
+    const updated = validateIntegrationConnection({
+      ...connection,
+      status,
+      updatedAt: this.clock.now().toISOString(),
+    });
+    await this.options.store.putConnection(updated);
+    return updated;
   }
 
   private async requestedAlias(ownerId: string, alias: string): Promise<string> {

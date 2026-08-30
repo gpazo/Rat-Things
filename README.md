@@ -88,7 +88,8 @@ Read the [AWS-ready quickstart](docs/quickstart.md) before using a privileged ac
 - **Reusable Things** — test an immutable draft, then activate one exact revision for manual, rate,
   or cron execution.
 - **Verified accounts** — connect several accounts per integration, derive their provider identity
-  and authority, and narrow each grant before use.
+  and authority, monitor health, reconnect the same identity without rebinding consumers, inspect
+  “used by” dependencies, and narrow each grant before use.
 - **Fixed permissions** — the deployment profile, provider authorization, account grant, Thing/Run
   selection, IAM, networking, operations, and resources intersect before launch. Inside the result
   the agent is autonomous; outside it, a tool is absent or denied. There is no mid-Run approval
@@ -106,8 +107,9 @@ The local reference console exercises the public conversation, live-computer, co
 and Thing APIs; it is not a hosted product or a second execution path. Its resizable conversation
 workspace keeps the list, transcript, active Run, isolated browser, collected sources, and
 human-readable activity together. Dedicated Connections and Routines workspaces install verified
-accounts, change Rat-side access, disconnect credentials, create schedules, and operate their
-lifecycle. Operators can watch, steer, stop, temporarily take browser control, and return control
+accounts, reconnect expiring credentials, change Rat-side access, disconnect credentials, create
+schedules, and operate their lifecycle. Connection details show health, provider scopes, installed operations, stable aliases,
+and dependent Things/routines without exposing credentials. Operators can watch, steer, stop, temporarily take browser control, and return control
 without widening the Run's fixed capability envelope.
 
 <p align="center">
@@ -117,12 +119,35 @@ without widening the Run's fixed capability envelope.
 The workspace keeps a durable NVIDIA earnings conversation, the active Run, the isolated browser,
 and temporary human takeover in one place.
 
+### Connected services in the agent workspace
+
+Rat Things turns a reviewed OAuth or API adapter into verified accounts and exact agent operations.
+Those connections are not tied to one frontend: a product, CLI, Thing, Routine, another agent, or
+team interface can use the same durable Run model. Today an operator can:
+
+- install several accounts for one service and verify each provider identity before use;
+- search and read admitted sources, then synthesize the results with browser, code, or file work;
+- post, update, create, or trigger work through exact allowed provider operations;
+- reuse a selected account across conversations, Things, Routines, the desktop, CLI, and API; and
+- monitor health, reconnect the same identity, narrow access, and inspect every dependent consumer
+  without exposing credentials to the agent.
+
+Slack is one built-in end-to-end example: a mention can start an isolated Codex Run, delegated
+search uses the installing user's visibility, and the answer returns to the same durable thread.
+The source binding fixes the agent profile and connected accounts before launch. Provider scopes,
+the persistent Rat grant, per-Run operation/resource narrowing, IAM, and egress still intersect; a
+prompt cannot install an account or widen authority. See [Integrations, accounts, and
+permissions](docs/plugins.md) for the reusable contract and [Use Rat Things from Slack](docs/slack.md)
+for that provider's workflows and setup.
+
 The CLI exposes the same durable conversation primitives without requiring the console:
 
 ```bash
 rat-things conversations list
 rat-things conversations search "NVIDIA earnings"
 rat-things connect slack --oauth --wait --access read-write --alias slack-work
+rat-things connection test slack-work
+rat-things connection consumers slack-work
 rat-things slack-events slack-work --profile read-only --json
 rat-things routines list
 rat-things conversation show PUBLIC_CONVERSATION_ID
@@ -144,8 +169,10 @@ links as claims rather than verified visits, and reads durable files through the
 API-created conversations also return their caller-chosen thread key; use that key with
 `chat --thread` to continue work. `watch` presents human-readable activity by default. A single
 `--json` poll is one JSON document; `--follow --json` is JSONL snapshots; `--raw` is JSONL activity
-cards. The CLI rejects unknown options, extra fixed operands, and conflicting output modes before
-making a request.
+cards. Follow mode treats the handoff from a finished MicroVM to durable Run history as normal
+completion. Integration operation allow/deny flags accept either repeated values or comma-separated
+operation IDs. The CLI rejects unknown options, extra fixed operands, and conflicting output modes
+before making a request.
 
 Run `npm run smoke:conversation-cli` for a safe automated verification of the advertised
 conversation surface. It starts a disposable loopback fixture, exercises six black-box workflows,

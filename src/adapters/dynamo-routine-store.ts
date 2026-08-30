@@ -130,6 +130,35 @@ export class DynamoRoutineStore implements RoutineStore {
     }
   }
 
+  public async recordLastRun(
+    ownerId: string,
+    routineId: string,
+    runAt: string,
+    runId: string,
+    updatedAt: string,
+  ): Promise<boolean> {
+    try {
+      await this.client.send(new UpdateCommand({
+        TableName: this.tableName,
+        Key: { routineId },
+        UpdateExpression: 'SET lastRunAt = :runAt, lastRunId = :runId, updatedAt = :updatedAt',
+        ConditionExpression: 'ownerId = :ownerId AND #status <> :deleted AND (attribute_not_exists(lastRunAt) OR lastRunAt <= :runAt)',
+        ExpressionAttributeNames: { '#status': 'status' },
+        ExpressionAttributeValues: {
+          ':ownerId': ownerId,
+          ':deleted': 'deleted',
+          ':runAt': runAt,
+          ':runId': runId,
+          ':updatedAt': updatedAt,
+        },
+      }));
+      return true;
+    } catch (error) {
+      if (error instanceof ConditionalCheckFailedException) return false;
+      throw error;
+    }
+  }
+
   public async advance(
     routineId: string,
     expectedRunAt: string,
