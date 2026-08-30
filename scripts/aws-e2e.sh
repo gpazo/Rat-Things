@@ -50,9 +50,11 @@ trap 'exit 143' TERM
 set +e
 "$script_dir/aws-e2e-test.sh" "$deployment_id"
 test_status=$?
-if [[ "$test_status" -eq 0 ]]; then
+if [[ "$test_status" -eq 0 && "${AWS_E2E_DEFAULT_AGENT_DRIVER:-mock}" == "codex" ]]; then
   "$script_dir/aws-e2e-console-test.sh" "$deployment_id"
   test_status=$?
+elif [[ "$test_status" -eq 0 ]]; then
+  echo "Skipping the live console journey; set AWS_E2E_DEFAULT_AGENT_DRIVER=codex to run it."
 fi
 set -e
 if [[ "$test_status" -ne 0 ]]; then

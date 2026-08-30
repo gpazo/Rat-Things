@@ -18,9 +18,10 @@ The wrapper:
 2. Applies the complete ephemeral Terraform stack and waits for the managed image.
 3. Populates disposable GitHub, GitLab, Teams, and egress-capture secrets.
 4. Reads public discovery, OpenAPI, and Thing schemas, then sends IAM-authenticated Thing, one-shot,
-   and headless conversation requests plus real signed provider webhook requests. It also launches
-   the local browser console through its real SigV4 loopback proxy and completes two continuous
-   turns in one durable API conversation in Chromium against the deployed Lambda MicroVM backend.
+   and headless conversation requests plus real signed provider webhook requests. With
+   `AWS_E2E_DEFAULT_AGENT_DRIVER=codex`, it also launches the local browser console through its real
+   SigV4 loopback proxy and completes two continuous turns in one durable API conversation in
+   Chromium against the deployed Lambda MicroVM backend.
 5. Uses a disposable provider fixture to reject an invalid credential, derives two distinct account
    identities/authorizations, and verifies connection sets, provider/grant/Thing/profile permission
    intersection, immutable KMS-encrypted definitions, idempotent Thing execution, CLI rotation,
@@ -28,28 +29,38 @@ The wrapper:
 6. Enables an interval Thing and waits for EventBridge to submit the occurrence without an explicit
    run request, then verifies exactly one durable run with trusted schedule and Thing provenance.
 7. Verifies MicroVM execution, pinned public-repository checkout, S3 output/events, DynamoDB state,
-   EventBridge terminal events, Teams Adaptive Card egress, empty failure queues, and self-termination.
+   EventBridge terminal events, source-routed Teams Adaptive Card egress, empty failure queues, and
+   self-termination. GitHub and GitLab ingress runs do not attempt provider delivery because the
+   disposable stack intentionally has no notification credentials for those providers.
 8. Sends two signed Teams activities and runs two messages through the actual Rat Things CLI,
    proves actual AWS suspension, authenticated continuation and resume on the same MicroVM ID,
    replay, provider egress where applicable, and re-suspension.
 9. Backdates a suspended session to prove replacement, replay, and expired-VM termination, then
    injects the coordinator launch/attach crash window and proves idempotent repair.
-10. Proves active-Run liveness fencing by observing a heartbeat without a semantic update, rejecting
-   a stale generation, terminating the exact attached MicroVM, invoking the reconciler, and
-   verifying a retryable `execution_lost` result.
+10. Proves active-Run liveness fencing by observing a heartbeat without a semantic update, safely
+   deferring one uncertain control-plane observation, rejecting a stale generation, terminating the
+   exact attached MicroVM, invoking the reconciler, and verifying a retryable `execution_lost`
+   result.
 11. Terminates any remaining MicroVMs, force-deletes runtime-created connection secrets, runs
    `terraform destroy` from an exit trap, and audits tagged residual resources.
 
 The default stack uses the mock driver. It does not invoke Codex or Bedrock, so it spends no model
-tokens. It creates no ECS/ECR resources. The S3 Files persistence leg does create a disposable VPC,
-NAT gateway, VPC endpoints, and customer network connector; MicroVMs also retain AWS-managed public
+tokens, and the wrapper skips the agent-semantic browser journey. The local console suite covers the
+deterministic UI path; the live console journey requires `AWS_E2E_DEFAULT_AGENT_DRIVER=codex`
+because it validates that an agent reads an uploaded file and creates a new artifact. The stack
+creates no ECS/ECR resources. The S3 Files persistence leg does create a disposable VPC, NAT
+gateway, VPC endpoints, and customer network connector; MicroVMs also retain AWS-managed public
 egress. Every one of those resources is tagged and included in teardown auditing.
+
+The live harness uses the AWS SDK's standard retry mode with five total attempts. This leaves
+transient service and network recovery to the SDK instead of duplicating retry policy in test or
+application code.
 
 Set `AWS_E2E_REAL_CODEX=true` to add two bounded `openai.gpt-5.6-terra` probes through Bedrock. The
 worker execution role mints a short-term token and the unprivileged Codex process receives only that
 token. Set `AWS_E2E_DEFAULT_AGENT_DRIVER=codex` when a focused browser or API journey itself should
 use Codex instead of the stack's default mock driver.
-token. The persistence probe writes unique bytes through a command tool call, resumes the same
+The persistence probe writes unique bytes through a command tool call, resumes the same
 MicroVM and Codex thread, and reads those bytes from the same workspace path. The integration probe
 connects two separately credentialed Fixture CRM accounts through the built CLI, gives one verified
 read scope and the other verified read/write scopes, and asks the real agent to search the first and
@@ -136,6 +147,18 @@ forced termination, and repository checkout. The focused Chromium console journe
 19.6 seconds with two IAM-authenticated turns on one durable MicroVM conversation. Teardown
 terminated all seven test MicroVMs, destroyed all 227 Terraform resources, and passed the direct
 tagged-resource audit; only the expected disabled KMS key pending deletion remained.
+
+On 2026-08-30, the refactoring regression pass used three fresh 247-resource deployments. The broad
+real-Codex run on `reg260830b` passed 12 workflows, including signed provider ingress, source-routed
+delivery, Scheduler, CLI and Teams continuation, OAuth and credential handling, repository
+checkout, crash repair, and real Codex workspace restoration; two unconfigured opt-ins were
+skipped. Its only incomplete case was the test harness receiving an AWS control-plane HTML response
+while directly terminating a MicroVM. Fresh deployment `reg260830d` reran that generation-fenced
+liveness case successfully in 49.741 seconds. Fresh deployment `reg260830e` then passed the
+3.4-minute Chromium journey with structured input, uploaded-source verification, a generated
+artifact, and two IAM-authenticated turns in one durable MicroVM conversation. Each deployment
+destroyed all 247 Terraform resources and passed the direct residual audit; only disabled KMS keys
+scheduled for AWS's required delayed deletion remained.
 
 AWS does not allow immediate deletion of a customer-managed KMS key. Teardown disables the key and
 schedules it for deletion after AWS's minimum waiting period; only that `PendingDeletion` key is an

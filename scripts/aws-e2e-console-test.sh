@@ -30,6 +30,11 @@ set -a
 source "$runtime_env"
 set +a
 
+if [[ "${AWS_E2E_DEFAULT_AGENT_DRIVER:-mock}" != "codex" ]]; then
+  echo "the live console journey requires AWS_E2E_DEFAULT_AGENT_DRIVER=codex because it validates agent file operations" >&2
+  exit 2
+fi
+
 current_account="$(aws sts get-caller-identity --query Account --output text)"
 current_arn="$(aws sts get-caller-identity --query Arn --output text)"
 if [[ -z "${AWS_E2E_CALLER_ACCOUNT:-}" || -z "${AWS_E2E_CALLER_ARN:-}" ]]; then

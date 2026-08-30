@@ -183,8 +183,6 @@ integration('live AWS agent-runner workflow', () => {
 
     await expectTerminalEvents(clients.sqs, new Set([githubRunId, gitlabRunId, teamsRunId]));
     await expectTeamsDeliveries(clients.sqs, new Map([
-      [githubRunId, githubDeliveryNeedle],
-      [gitlabRunId, gitlabDeliveryNeedle],
       [teamsRunId, teamsMarker],
     ]));
 
@@ -1277,8 +1275,16 @@ integration('live AWS agent-runner workflow', () => {
     expect(verifiedActive).toMatchObject({
       status: 'running',
       execution: { id: microvmId, generation },
-      liveness: { outcome: 'active', consecutiveUncertain: 0 },
     });
+    if (verifiedActive?.liveness?.outcome === 'active') {
+      expect(verifiedActive.liveness.consecutiveUncertain).toBe(0);
+    } else {
+      expect(verifiedActive?.liveness).toMatchObject({
+        outcome: 'unknown',
+        consecutiveUncertain: 1,
+      });
+      expect(verifiedActive?.liveness?.quarantinedAt).toBeUndefined();
+    }
 
     await microvms.send(new TerminateMicrovmCommand({ microvmIdentifier: microvmId }));
     await waitForMicrovmTerminated(microvms, microvmId);

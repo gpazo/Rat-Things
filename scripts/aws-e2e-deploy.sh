@@ -190,6 +190,8 @@ aws_e2e_export AWS_E2E_GITLAB_REPOSITORY_URL "$gitlab_repository_url"
 aws_e2e_export AWS_E2E_GITLAB_REPOSITORY "gitlab-org/gitlab-test"
 aws_e2e_export AWS_E2E_GITLAB_SHA "$gitlab_sha"
 aws_e2e_export AWS_E2E_TIMEOUT_MS "420000"
+aws_e2e_export AWS_RETRY_MODE "standard"
+aws_e2e_export AWS_MAX_ATTEMPTS "5"
 
 cleanup_secret_files
 trap - EXIT

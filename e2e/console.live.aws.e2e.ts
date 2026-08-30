@@ -108,8 +108,8 @@ test.describe('live AWS console journey', () => {
     const structuredQuestion = process.env.AWS_E2E_DEFAULT_AGENT_DRIVER === 'codex'
       ? ' First use request_user_input exactly once to ask "Choose the validation channel" with options Staging and Production. After I answer, include the selected answer in your response.'
       : '';
-    const firstPrompt = 'Find release-context.txt below .rat-things/artifacts/uploads, read it, and quote its exact upload marker. ' +
-      'Create .rat-things/artifacts/live-conversation-parity.md with a concise live AWS validation report that includes that marker. ' +
+    const firstPrompt = 'Find release-context.txt below .rat-things/artifacts/uploads and read it. ' +
+      'Create .rat-things/artifacts/live-conversation-parity.md with a concise live AWS validation report that includes its exact upload marker. ' +
       `Remember continuity marker ${continuityMarker}. Reply with ACKNOWLEDGED, then include the exact filename.` +
       structuredQuestion + (recordingDemo
         ? ' Also include a Markdown heading named Live AWS demo, a short bullet list, and a fenced shell command containing npm test.'
@@ -169,7 +169,6 @@ test.describe('live AWS console journey', () => {
     await expect(page.locator('.message-row[data-role="assistant"]').last()).toContainText('ACKNOWLEDGED', {
       timeout: timeoutMs - 30_000,
     });
-    await expect(page.locator('.message-row[data-role="assistant"]').last()).toContainText(uploadMarker);
     if (process.env.AWS_E2E_DEFAULT_AGENT_DRIVER === 'codex') {
       await expect(page.locator('.message-row[data-role="assistant"]').last()).toContainText('Staging');
     }
@@ -177,7 +176,12 @@ test.describe('live AWS console journey', () => {
     await expect(page.locator('.conversation-list [aria-current="page"] .conversation-name')).toContainText(
       firstPrompt.slice(0, 32),
     );
-    await expect(page.locator('.artifact-card', { hasText: 'live-conversation-parity.md' })).toBeVisible();
+    const generatedArtifact = page.locator('.artifact-card', { hasText: 'live-conversation-parity.md' });
+    await expect(generatedArtifact).toBeVisible();
+    await generatedArtifact.click();
+    await expect(page.locator('#artifact-viewer')).toBeVisible();
+    await expect(page.locator('.viewer-text')).toContainText(uploadMarker, { timeout: 30_000 });
+    await page.getByRole('button', { name: 'Close viewer' }).click();
     const uploadedArtifact = page.locator('.artifact-card', { hasText: 'release-context.txt' });
     await expect(uploadedArtifact).toBeVisible();
     await uploadedArtifact.click();
