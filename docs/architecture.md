@@ -365,9 +365,9 @@ files, static sites, and video without importing AWS concerns. An authenticated 
 unguessable, time-bounded share grant. When publication delivery is enabled, redemption signs the
 first page and installs equivalent host-only CloudFront cookies for one publication-specific
 subdomain. One distribution and small edge functions route publications, refresh authorization,
-and serve private S3 through Origin Access Control. The legacy
-one-minute S3 redirect remains the compatibility path for deployments that have not enabled the
-custom domain. See [publications](publications.md).
+and serve private S3 through Origin Access Control. Deployments without publication delivery use
+one-minute direct download URLs minted by the authenticated control API. See
+[publications](publications.md).
 
 When `enable_s3_files=true`, a separate versioned bucket backs an S3 Files filesystem. Its access
 point exposes only `/conversations` to the MicroVM execution role. Each hashed conversation owns a

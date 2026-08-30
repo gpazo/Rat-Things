@@ -522,15 +522,6 @@
         "responses": { "201": { "description": "Publication and share created", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PublicationDescriptor" } } } }, "default": { "$ref": "#/components/responses/Error" } }
       }
     },
-    "/v1/shares/{token}": {
-      "get": {
-        "tags": ["Publications"],
-        "operationId": "redeemLegacyShare",
-        "security": [],
-        "parameters": [{ "$ref": "#/components/parameters/ShareToken" }],
-        "responses": { "302": { "description": "Time-bounded redirect to private object" }, "default": { "$ref": "#/components/responses/Error" } }
-      }
-    },
     "/__share/{token}": {
       "get": {
         "tags": ["Publications"],

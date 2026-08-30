@@ -37,10 +37,9 @@ Secrets Manager values may be raw strings or the following JSON shapes:
 | Slack signing secret | `secret`, `signing_secret` |
 | Slack bot token | `token`, `bot_token` |
 
-Keep ingress, clone, and outbound API credentials in different secrets. The module exposes split
-clone/notification ARNs. Its deprecated `github_token_secret_arn` and `gitlab_token_secret_arn`
-fallbacks reuse one token only for migration compatibility; do not use them in a new deployment. Pin
-IAM policies to exact secret ARNs.
+Keep ingress, clone, and outbound API credentials in different secrets. The module exposes separate
+clone and notification ARNs so the worker never receives a provider-write credential. Pin IAM
+policies to exact secret ARNs.
 
 ## GitHub
 
@@ -91,7 +90,7 @@ For production or manual setup:
    metadata but the runtime does not yet mint short-lived GitHub App installation tokens.
 2. Set `github_webhook_secret_arn`, `github_clone_token_secret_arn`, and
    `github_notify_token_secret_arn`. Limit each token independently to the intended repositories and
-   its one operation; leave the deprecated combined `github_token_secret_arn` null.
+   its one operation.
 3. In the GitHub App or repository webhook, set the payload URL to the stack's GitHub webhook output,
    content type to `application/json`, and secret to the same ingress secret value.
 4. Set a distinct command-like `github_comment_trigger`, and subscribe only to pull-request and
@@ -158,7 +157,7 @@ and rate policy separate.
    a least-privileged project/group access token in Secrets Manager. Use a legacy secret token only
    for an older installation that cannot emit Standard Webhooks headers.
 2. Set `gitlab_webhook_secret_arn`, `gitlab_clone_token_secret_arn`, and
-   `gitlab_notify_token_secret_arn`; leave the deprecated combined `gitlab_token_secret_arn` null.
+   `gitlab_notify_token_secret_arn`.
 3. Set a distinct command-like `gitlab_comment_trigger`. Add a project or group webhook using the
    Terraform-reported GitLab webhook URL and the matching secret token. Enable merge-request events
    and comments/notes only.

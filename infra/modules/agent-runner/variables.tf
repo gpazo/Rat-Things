@@ -32,7 +32,7 @@ variable "artifact_retention_days" {
 }
 
 variable "artifact_url_ttl_seconds" {
-  description = "Lifetime of owner-authorized artifact share URLs, from one minute to one day."
+  description = "Lifetime of publication grants, from one minute to one day."
   type        = number
   default     = 86400
 
@@ -350,13 +350,6 @@ variable "github_webhook_enabled" {
   nullable    = true
 }
 
-variable "github_token_secret_arn" {
-  description = "Deprecated compatibility ARN used for both GitHub clone and notification when the split variables are null."
-  type        = string
-  default     = null
-  nullable    = true
-}
-
 variable "github_clone_token_secret_arn" {
   description = "Secrets Manager ARN containing the least-privilege GitHub token used only by repository workers."
   type        = string
@@ -403,13 +396,6 @@ variable "gitlab_webhook_secret_arn" {
 variable "gitlab_webhook_enabled" {
   description = "Explicitly enable or disable the GitLab route. Leave null to infer enablement from gitlab_webhook_secret_arn."
   type        = bool
-  default     = null
-  nullable    = true
-}
-
-variable "gitlab_token_secret_arn" {
-  description = "Deprecated compatibility ARN used for both GitLab clone and notification when the split variables are null."
-  type        = string
   default     = null
   nullable    = true
 }

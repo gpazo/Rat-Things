@@ -174,7 +174,7 @@ the evidence that a recipient can open it.
 | Symptom | Likely cause | Recovery |
 | --- | --- | --- |
 | `Missing Key-Pair-Id` | A bare publication hostname or an incomplete older link was shared | Use the original complete `/__share/<token>` URL or mint a fresh link |
-| `AccessDenied` / `Request has expired` | The bearer grant or a legacy S3 redirect expired | Ask the owner to mint a new link |
+| `AccessDenied` / `Request has expired` | The bearer grant or an authenticated download URL expired | Ask the owner to mint a new link |
 | Site HTML loads but assets fail | Absolute paths, missing retained files, or blocked external dependencies | Use relative paths, republish the complete root, and remove undeclared network dependencies |
 | Video downloads instead of playing | Unsupported media type or encoding | Produce a browser-compatible MP4 and republish as `video` |
 | Publication returns not found | The token was revoked, expired, malformed, or its share record is gone | Create a new publication grant from the retained source |

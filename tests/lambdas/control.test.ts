@@ -2,7 +2,6 @@ import type { APIGatewayProxyEventV2, APIGatewayProxyStructuredResultV2 } from '
 import { createHash, randomUUID } from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
 import {
-  artifactUrlTtlSeconds,
   apiRunSubmissionBody,
   apiRequestBody,
   handler,
@@ -10,16 +9,6 @@ import {
 import { ValidationError } from '../../src/domain/validation.js';
 import { errorResponse } from '../../src/lambdas/runtime.js';
 import { IntegrationProviderUnavailableError } from '../../src/plugins/integration-types.js';
-
-describe('artifact URL lifetime', () => {
-  it('defaults to one day and bounds deployment configuration', () => {
-    expect(artifactUrlTtlSeconds(undefined)).toBe(86_400);
-    expect(artifactUrlTtlSeconds('60')).toBe(60);
-    expect(artifactUrlTtlSeconds('7200')).toBe(7_200);
-    expect(artifactUrlTtlSeconds('86401')).toBe(86_400);
-    expect(artifactUrlTtlSeconds('invalid')).toBe(86_400);
-  });
-});
 
 describe('control API request normalization', () => {
   it('uses stable trusted source metadata across idempotent API attempts', () => {

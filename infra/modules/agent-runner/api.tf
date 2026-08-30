@@ -77,7 +77,6 @@ locals {
     "GET /v1/things/{thingId}/explain",
     "GET /v1/things/{thingId}/versions",
     "GET /v1/things/{thingId}/versions/{revision}",
-    "GET /v1/shares/{token}",
     "POST /v1/runs",
     "POST /v1/integrations/connections",
     "POST /v1/integrations/oauth/authorizations",
@@ -148,7 +147,6 @@ resource "aws_apigatewayv2_route" "control" {
     "GET /schemas/thing-v1.json",
     "GET /schemas/thing-version-v1.json",
     "GET /v1/integrations/oauth/callback",
-    "GET /v1/shares/{token}",
   ], each.value) ? "NONE" : "AWS_IAM"
   target = "integrations/${aws_apigatewayv2_integration.lambda["control"].id}"
 }

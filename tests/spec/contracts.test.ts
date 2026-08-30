@@ -196,7 +196,7 @@ describe('published machine contracts', () => {
     };
 
     for (const [path, pathItem] of Object.entries(openapi.paths)) {
-      if (!path.startsWith('/v1/') || path.startsWith('/v1/shares/')) continue;
+      if (!path.startsWith('/v1/')) continue;
       for (const method of ['get', 'post']) {
         const operation = pathItem[method];
         if (!operation) continue;

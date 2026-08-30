@@ -8,7 +8,7 @@ import {
   type ThreadTarget,
 } from '../../src/core/run-submission-service.js';
 import type { ArtifactReference, ListRunsResult, RunRecord, RunRequest } from '../../src/domain/contracts.js';
-import { providerIngressContext, type ProviderKind } from '../../src/identity/context.js';
+import type { ProviderKind } from '../../src/identity/context.js';
 import { normalizedWork } from '../../src/ingress/providers/shared.js';
 import { WebhookIngressService } from '../../src/ingress/service.js';
 import type { IngressWork } from '../../src/ingress/types.js';

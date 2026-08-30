@@ -129,10 +129,10 @@ locals {
         GITHUB_API_BASE_URL           = var.github_api_base_url
         GITLAB_API_BASE_URL           = var.gitlab_api_base_url
         TEAMS_DELIVERY_MODE           = var.teams_delivery_mode
-        }, local.github_notify_token_secret_arn == null ? {} : {
-        GITHUB_NOTIFY_TOKEN_SECRET_ARN = local.github_notify_token_secret_arn
-        }, local.gitlab_notify_token_secret_arn == null ? {} : {
-        GITLAB_NOTIFY_TOKEN_SECRET_ARN = local.gitlab_notify_token_secret_arn
+        }, var.github_notify_token_secret_arn == null ? {} : {
+        GITHUB_NOTIFY_TOKEN_SECRET_ARN = var.github_notify_token_secret_arn
+        }, var.gitlab_notify_token_secret_arn == null ? {} : {
+        GITLAB_NOTIFY_TOKEN_SECRET_ARN = var.gitlab_notify_token_secret_arn
         }, var.teams_workflow_url_secret_arn == null ? {} : {
         TEAMS_WORKFLOW_URL_SECRET_ARN = var.teams_workflow_url_secret_arn
         }, var.teams_reply_gateway_url_secret_arn == null ? {} : {
@@ -186,8 +186,8 @@ locals {
       environment = merge(local.lambda_common_environment, {
         GITHUB_COMMENT_TRIGGER    = var.github_comment_trigger
         GITHUB_WEBHOOK_SECRET_ARN = coalesce(var.github_webhook_secret_arn, "DISABLED")
-        }, local.github_clone_token_secret_arn == null ? {} : {
-        GITHUB_CLONE_TOKEN_SECRET_ARN = local.github_clone_token_secret_arn
+        }, var.github_clone_token_secret_arn == null ? {} : {
+        GITHUB_CLONE_TOKEN_SECRET_ARN = var.github_clone_token_secret_arn
       })
     }
     webhook-gitlab = {
@@ -199,8 +199,8 @@ locals {
       environment = merge(local.lambda_common_environment, {
         GITLAB_COMMENT_TRIGGER    = var.gitlab_comment_trigger
         GITLAB_WEBHOOK_SECRET_ARN = coalesce(var.gitlab_webhook_secret_arn, "DISABLED")
-        }, local.gitlab_clone_token_secret_arn == null ? {} : {
-        GITLAB_CLONE_TOKEN_SECRET_ARN = local.gitlab_clone_token_secret_arn
+        }, var.gitlab_clone_token_secret_arn == null ? {} : {
+        GITLAB_CLONE_TOKEN_SECRET_ARN = var.gitlab_clone_token_secret_arn
       })
     }
     webhook-teams = {

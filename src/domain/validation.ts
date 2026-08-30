@@ -455,6 +455,24 @@ export function requiredString(value: unknown, label: string, maxBytes: number):
   return value;
 }
 
+export function requiredTrimmedString(value: unknown, label: string, maxBytes: number): string {
+  if (typeof value !== 'string' || !value.trim() || Buffer.byteLength(value, 'utf8') > maxBytes) {
+    throw new ValidationError(`${label} is invalid`);
+  }
+  return value.trim();
+}
+
+export function isoDateTime(value: unknown, label: string): string {
+  if (
+    typeof value !== 'string' ||
+    !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/.test(value) ||
+    !Number.isFinite(Date.parse(value))
+  ) {
+    throw new ValidationError(`${label} must be an ISO date-time`);
+  }
+  return new Date(value).toISOString();
+}
+
 function positiveInteger(value: unknown, label: string): number {
   if (typeof value !== 'number' || !Number.isInteger(value) || value < 1) {
     throw new ValidationError(`${label} must be a positive integer`);
@@ -496,9 +514,17 @@ function operationList(value: unknown, label: string): string[] {
   return result;
 }
 
-function rejectUnknown(input: Record<string, unknown>, allowed: string[]): void {
+export function rejectUnknown(
+  input: Record<string, unknown>,
+  allowed: string[],
+  label?: string,
+): void {
   const unknown = Object.keys(input).filter((key) => !allowed.includes(key));
-  if (unknown.length > 0) throw new ValidationError(`unknown field: ${unknown[0]}`);
+  if (unknown.length > 0) {
+    throw new ValidationError(label
+      ? `${label} contains unknown field ${unknown[0]}`
+      : `unknown field: ${unknown[0]}`);
+  }
 }
 
 function assertJsonSize(value: unknown, label: string, maxBytes: number): void {

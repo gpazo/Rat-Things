@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import type { ArtifactStore, Clock } from '../core/ports.js';
 import { artifactIdForPath, validateArtifactCatalog, validateArtifactPath } from '../domain/artifacts.js';
 import type {
@@ -31,6 +31,7 @@ import type {
   ConversationTranscriptRecord,
   ConversationTurnRecord,
 } from '../domain/conversations.js';
+import { canonicalJson, sha256Hex as digest } from '../domain/json.js';
 import { CONVERSATION_REACTION_EMOJIS } from '../domain/conversations.js';
 import { parseRunRequest } from '../domain/validation.js';
 import {
@@ -273,7 +274,7 @@ export class ConversationService {
       }
       if (
         !/^[a-f0-9]{64}$/.test(upload.sha256) ||
-        createHash('sha256').update(upload.bytes).digest('hex') !== upload.sha256
+        digest(upload.bytes) !== upload.sha256
       ) {
         throw new ConversationStateError(`attachment ${name} checksum is invalid`);
       }
@@ -661,10 +662,7 @@ export class ConversationService {
   }): Promise<ConversationTurnRecord> {
     const conversation = await this.requireLease(input.conversationId, input.leaseToken);
     requiredId(input.runId, 'runId', 128);
-    const messageIds = [...new Set(input.messageIds.map((id) => requiredId(id, 'messageId', 512)))];
-    if (messageIds.length === 0 || messageIds.length > MAX_CONSUME_BATCH) {
-      throw new ConversationStateError(`messageIds must contain 1-${MAX_CONSUME_BATCH} unique values`);
-    }
+    const messageIds = uniqueMessageIds(input.messageIds);
     const occurredAt = this.clock.now().toISOString();
     const [runEvent, consumeEvent] = await Promise.all([
       this.event({
@@ -798,10 +796,7 @@ export class ConversationService {
     leaseToken: string;
   }): Promise<ConversationRecord> {
     const conversation = await this.requireLease(input.conversationId, input.leaseToken);
-    const messageIds = [...new Set(input.messageIds.map((id) => requiredId(id, 'messageId', 512)))];
-    if (messageIds.length === 0 || messageIds.length > MAX_CONSUME_BATCH) {
-      throw new ConversationStateError(`messageIds must contain 1-${MAX_CONSUME_BATCH} unique values`);
-    }
+    const messageIds = uniqueMessageIds(input.messageIds);
     const occurredAt = this.clock.now().toISOString();
     const event = await this.event({
       conversation,
@@ -1167,6 +1162,14 @@ function requiredText(value: string, label: string, maxBytes: number): string {
   return value;
 }
 
+function uniqueMessageIds(values: string[]): string[] {
+  const result = [...new Set(values.map((id) => requiredId(id, 'messageId', 512)))];
+  if (result.length === 0 || result.length > MAX_CONSUME_BATCH) {
+    throw new ConversationStateError(`messageIds must contain 1-${MAX_CONSUME_BATCH} unique values`);
+  }
+  return result;
+}
+
 function validateMessageContent(content: ConversationMessageContent): void {
   const hasText = typeof content.text === 'string' && content.text.trim().length > 0;
   const hasAttachments = Array.isArray(content.attachments) && content.attachments.length > 0;
@@ -1234,22 +1237,6 @@ function validateCheckpoint(checkpoint: ConversationCheckpoint): void {
 
 function assertIsoDate(value: string, label: string): void {
   if (!Number.isFinite(Date.parse(value))) throw new ConversationStateError(`${label} must be an ISO date`);
-}
-
-function canonicalJson(value: unknown): string {
-  if (value === undefined) return 'null';
-  if (value === null || typeof value !== 'object') return JSON.stringify(value);
-  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
-  const record = value as Record<string, unknown>;
-  return `{${Object.keys(record)
-    .filter((key) => record[key] !== undefined)
-    .sort()
-    .map((key) => `${JSON.stringify(key)}:${canonicalJson(record[key])}`)
-    .join(',')}}`;
-}
-
-function digest(value: string): string {
-  return createHash('sha256').update(value).digest('hex');
 }
 
 function preview(value: string): string {

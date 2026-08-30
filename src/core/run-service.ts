@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import type {
   ConversationRunBinding,
   RunProvenance,
@@ -6,6 +6,7 @@ import type {
   RunRequest,
   ThingRunBinding,
 } from '../domain/contracts.js';
+import { canonicalJson as stableJson, sha256Hex as sha256 } from '../domain/json.js';
 import type { SandboxMode } from '../domain/contracts.js';
 import { isTerminal } from '../domain/state.js';
 import { parseRunRequest, ValidationError } from '../domain/validation.js';
@@ -80,8 +81,7 @@ export class RunService {
 
   /** Resolves the stable public Run ID before thread coordination begins. */
   public idFor(ownerId: string, idempotencyKey: string): string {
-    if (!ownerId.trim()) throw new ForbiddenError('an authenticated owner is required');
-    if (Buffer.byteLength(ownerId, 'utf8') > 1_024) throw new ForbiddenError('owner identity is too large');
+    validateOwner(ownerId);
     return this.ids.deterministic(ownerId, validateIdempotencyKey(idempotencyKey));
   }
 
@@ -91,8 +91,7 @@ export class RunService {
   }
 
   public async submit(ownerId: string, rawRequest: unknown, submit: SubmitOptions = {}): Promise<RunRecord> {
-    if (!ownerId.trim()) throw new ForbiddenError('an authenticated owner is required');
-    if (Buffer.byteLength(ownerId, 'utf8') > 1_024) throw new ForbiddenError('owner identity is too large');
+    validateOwner(ownerId);
     const request = this.parse(rawRequest);
     const canonical = stableJson(request);
     const requestHash = sha256(canonical);
@@ -386,10 +385,6 @@ function assertSameConversationBinding(
   }
 }
 
-export function requestForRun(request: RunRequest): RunRequest {
-  return request;
-}
-
 const defaultIds: IdGenerator = {
   random: () => randomUUID(),
   deterministic: (ownerId, key) => {
@@ -420,16 +415,9 @@ function assertOwner(record: RunRecord, ownerId: string): void {
   if (record.ownerId !== ownerId) throw new ForbiddenError('run belongs to another owner');
 }
 
-function sha256(value: string): string {
-  return createHash('sha256').update(value).digest('hex');
-}
-
-function stableJson(value: unknown): string {
-  if (value === null || typeof value !== 'object') return JSON.stringify(value);
-  if (Array.isArray(value)) return `[${value.map(stableJson).join(',')}]`;
-  const record = value as Record<string, unknown>;
-  return `{${Object.keys(record)
-    .sort()
-    .map((key) => `${JSON.stringify(key)}:${stableJson(record[key])}`)
-    .join(',')}}`;
+export function validateOwner(ownerId: string): void {
+  if (!ownerId.trim()) throw new ForbiddenError('an authenticated owner is required');
+  if (Buffer.byteLength(ownerId, 'utf8') > 1_024) {
+    throw new ForbiddenError('owner identity is too large');
+  }
 }

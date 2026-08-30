@@ -33,14 +33,12 @@ module "agent_runner" {
   connection_health_check_concurrency   = var.connection_health_check_concurrency
   github_webhook_secret_arn             = var.github_webhook_secret_arn
   github_webhook_enabled                = var.github_webhook_enabled
-  github_token_secret_arn               = var.github_token_secret_arn
   github_clone_token_secret_arn         = var.github_clone_token_secret_arn
   github_notify_token_secret_arn        = var.github_notify_token_secret_arn
   github_api_base_url                   = var.github_api_base_url
   github_comment_trigger                = var.github_comment_trigger
   gitlab_webhook_secret_arn             = var.gitlab_webhook_secret_arn
   gitlab_webhook_enabled                = var.gitlab_webhook_enabled
-  gitlab_token_secret_arn               = var.gitlab_token_secret_arn
   gitlab_clone_token_secret_arn         = var.gitlab_clone_token_secret_arn
   gitlab_notify_token_secret_arn        = var.gitlab_notify_token_secret_arn
   gitlab_api_base_url                   = var.gitlab_api_base_url

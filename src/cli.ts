@@ -139,12 +139,6 @@ const commands = new Set([
   'conversations',
   'conversation',
   'console',
-  'takeover',
-  'handback',
-  'computer-act',
-  'teach-start',
-  'teach-stop',
-  'teach-discard',
   'plugins',
   'profiles',
   'connections',
@@ -282,6 +276,70 @@ const valueOptions = new Set([
   'y',
 ]);
 
+interface SimpleApiCommand {
+  method: 'GET' | 'POST';
+  path(args: Arguments): string;
+  body?(args: Arguments): unknown | Promise<unknown>;
+}
+
+const simpleApiCommands: Record<string, SimpleApiCommand> = {
+  get: { method: 'GET', path: (args) => `/v1/runs/${positionalPath(args, 0, 'run ID')}` },
+  cancel: { method: 'POST', path: (args) => `/v1/runs/${positionalPath(args, 0, 'run ID')}/cancel` },
+  interrupt: {
+    method: 'POST',
+    path: (args) => `/v1/runs/${positionalPath(args, 0, 'run ID')}/interrupt`,
+    body: () => ({}),
+  },
+  plugins: { method: 'GET', path: () => '/v1/integrations/plugins' },
+  profiles: { method: 'GET', path: () => '/v1/capability-profiles' },
+  connections: { method: 'GET', path: () => '/v1/integrations/connections' },
+  grant: {
+    method: 'POST',
+    path: (args) => `/v1/integrations/connections/${positionalPath(args, 0, 'connection ID or alias')}/grant`,
+    body: requiredJsonFile,
+  },
+  revoke: {
+    method: 'POST',
+    path: (args) => `/v1/integrations/connections/${positionalPath(args, 0, 'connection ID or alias')}/revoke`,
+    body: () => ({}),
+  },
+  'connection-sets': { method: 'GET', path: () => '/v1/integrations/connection-sets' },
+  'connection-set': {
+    method: 'POST', path: () => '/v1/integrations/connection-sets', body: requiredJsonFile,
+  },
+  'source-bindings': { method: 'GET', path: () => '/v1/integrations/source-bindings' },
+  'bind-source': {
+    method: 'POST', path: () => '/v1/integrations/source-bindings', body: requiredJsonFile,
+  },
+  thing: { method: 'GET', path: (args) => `/v1/things/${positionalPath(args, 0, 'Thing ID')}` },
+  'thing-create': { method: 'POST', path: () => '/v1/things', body: requiredJsonFile },
+  'thing-version': {
+    method: 'GET',
+    path: (args) => `/v1/things/${positionalPath(args, 0, 'Thing ID')}/versions/${positionalPath(args, 1, 'revision')}`,
+  },
+  'thing-versions': {
+    method: 'GET', path: (args) => `/v1/things/${positionalPath(args, 0, 'Thing ID')}/versions`,
+  },
+  'routine': { method: 'GET', path: (args) => `/v1/routines/${positionalPath(args, 0, 'routine ID')}` },
+  'routine-create': { method: 'POST', path: () => '/v1/routines', body: requiredJsonFile },
+};
+
+for (const operation of ['pause', 'resume', 'archive']) {
+  simpleApiCommands[`thing-${operation}`] = {
+    method: 'POST',
+    path: (args) => `/v1/things/${positionalPath(args, 0, 'Thing ID')}/${operation}`,
+    body: () => ({}),
+  };
+}
+
+for (const operation of ['pause', 'resume', 'delete']) {
+  simpleApiCommands[`routine-${operation}`] = {
+    method: 'POST',
+    path: (args) => `/v1/routines/${positionalPath(args, 0, 'routine ID')}/${operation}`,
+    body: () => ({}),
+  };
+}
+
 async function main(): Promise<void> {
   const args = parseArguments(normalizeArguments(process.argv.slice(2)));
   if (args.values.has('api-url')) {
@@ -297,6 +355,11 @@ async function main(): Promise<void> {
     return;
   }
   validateRootPositionals(args);
+  const simple = simpleApiCommands[args.command];
+  if (simple) {
+    print(await api(simple.path(args), simple.method, simple.body ? await simple.body(args) : undefined));
+    return;
+  }
   switch (args.command) {
     case 'local':
       await local(args);
@@ -307,24 +370,11 @@ async function main(): Promise<void> {
     case 'submit':
       await submit(args);
       return;
-    case 'get':
-      print(await api(`/v1/runs/${requiredPositional(args, 0, 'run ID')}`, 'GET'));
-      return;
-    case 'cancel':
-      print(await api(`/v1/runs/${requiredPositional(args, 0, 'run ID')}/cancel`, 'POST'));
-      return;
     case 'watch':
       await watch(args);
       return;
     case 'steer':
       await steer(args);
-      return;
-    case 'interrupt':
-      print(await api(
-        `/v1/runs/${encodeURIComponent(requiredPositional(args, 0, 'run ID'))}/interrupt`,
-        'POST',
-        {},
-      ));
       return;
     case 'respond':
       await respond(args);
@@ -341,88 +391,24 @@ async function main(): Promise<void> {
     case 'console':
       await openConsole(args);
       return;
-    case 'takeover':
-      await setComputerControl(args, 'human');
-      return;
-    case 'handback':
-      await setComputerControl(args, 'agent');
-      return;
-    case 'computer-act':
-      await computerAct(args);
-      return;
-    case 'teach-start':
-      await teachStart(args);
-      return;
-    case 'teach-stop':
-      await teachStop(args, false);
-      return;
-    case 'teach-discard':
-      await teachStop(args, true);
-      return;
-    case 'plugins':
-      print(await api('/v1/integrations/plugins', 'GET'));
-      return;
-    case 'profiles':
-      print(await api('/v1/capability-profiles', 'GET'));
-      return;
-    case 'connections':
-      print(await api('/v1/integrations/connections', 'GET'));
-      return;
     case 'connection':
       await connectionCommand(args);
       return;
     case 'connect':
       await connect(args);
       return;
-    case 'grant':
-      print(await api(
-        `/v1/integrations/connections/${encodeURIComponent(requiredPositional(args, 0, 'connection ID or alias'))}/grant`,
-        'POST',
-        await requiredJsonFile(args),
-      ));
-      return;
     case 'rotate':
       await rotateCredential(args);
-      return;
-    case 'revoke':
-      print(await api(
-        `/v1/integrations/connections/${encodeURIComponent(requiredPositional(args, 0, 'connection ID or alias'))}/revoke`,
-        'POST',
-        {},
-      ));
-      return;
-    case 'connection-sets':
-      print(await api('/v1/integrations/connection-sets', 'GET'));
-      return;
-    case 'connection-set':
-      print(await api('/v1/integrations/connection-sets', 'POST', await requiredJsonFile(args)));
-      return;
-    case 'source-bindings':
-      print(await api('/v1/integrations/source-bindings', 'GET'));
-      return;
-    case 'bind-source':
-      print(await api('/v1/integrations/source-bindings', 'POST', await requiredJsonFile(args)));
       return;
     case 'slack-events':
       await enableSlackEvents(args);
       return;
     case 'things': {
-      const query = new URLSearchParams();
-      if (args.values.get('limit')) query.set('limit', args.values.get('limit') as string);
-      if (args.values.get('next-token')) query.set('nextToken', args.values.get('next-token') as string);
+      const query = paginationQuery(args);
       if (args.flags.has('all')) query.set('includeArchived', 'true');
-      print(await api(`/v1/things${query.size > 0 ? `?${query.toString()}` : ''}`, 'GET'));
+      print(await api(collectionPath('/v1/things', query), 'GET'));
       return;
     }
-    case 'thing':
-      print(await api(
-        `/v1/things/${encodeURIComponent(requiredPositional(args, 0, 'Thing ID'))}`,
-        'GET',
-      ));
-      return;
-    case 'thing-create':
-      print(await api('/v1/things', 'POST', await requiredJsonFile(args)));
-      return;
     case 'thing-update': {
       const thingId = encodeURIComponent(requiredPositional(args, 0, 'Thing ID'));
       const current = await api(`/v1/things/${thingId}`, 'GET');
@@ -437,18 +423,6 @@ async function main(): Promise<void> {
       ));
       return;
     }
-    case 'thing-version':
-      print(await api(
-        `/v1/things/${encodeURIComponent(requiredPositional(args, 0, 'Thing ID'))}/versions/${encodeURIComponent(requiredPositional(args, 1, 'revision'))}`,
-        'GET',
-      ));
-      return;
-    case 'thing-versions':
-      print(await api(
-        `/v1/things/${encodeURIComponent(requiredPositional(args, 0, 'Thing ID'))}/versions`,
-        'GET',
-      ));
-      return;
     case 'thing-explain':
       {
         const target = args.values.get('target');
@@ -500,32 +474,8 @@ async function main(): Promise<void> {
     case 'thing-release':
       await releaseThing(args);
       return;
-    case 'thing-pause':
-    case 'thing-resume':
-    case 'thing-archive': {
-      const operation = args.command.slice('thing-'.length);
-      print(await api(
-        `/v1/things/${encodeURIComponent(requiredPositional(args, 0, 'Thing ID'))}/${operation}`,
-        'POST',
-        {},
-      ));
-      return;
-    }
-    case 'routines': {
-      const query = new URLSearchParams();
-      if (args.values.get('limit')) query.set('limit', args.values.get('limit') as string);
-      if (args.values.get('next-token')) query.set('nextToken', args.values.get('next-token') as string);
-      print(await api(`/v1/routines${query.size > 0 ? `?${query.toString()}` : ''}`, 'GET'));
-      return;
-    }
-    case 'routine':
-      print(await api(
-        `/v1/routines/${encodeURIComponent(requiredPositional(args, 0, 'routine ID'))}`,
-        'GET',
-      ));
-      return;
-    case 'routine-create':
-      print(await api('/v1/routines', 'POST', await requiredJsonFile(args)));
+    case 'routines':
+      print(await api(collectionPath('/v1/routines', paginationQuery(args)), 'GET'));
       return;
     case 'routine-run': {
       const headers: Record<string, string> = {};
@@ -536,17 +486,6 @@ async function main(): Promise<void> {
         'POST',
         {},
         headers,
-      ));
-      return;
-    }
-    case 'routine-pause':
-    case 'routine-resume':
-    case 'routine-delete': {
-      const operation = args.command.slice('routine-'.length);
-      print(await api(
-        `/v1/routines/${encodeURIComponent(requiredPositional(args, 0, 'routine ID'))}/${operation}`,
-        'POST',
-        {},
       ));
       return;
     }
@@ -568,13 +507,9 @@ async function main(): Promise<void> {
     case 'publish':
       await publish(args);
       return;
-    case 'list': {
-      const query = new URLSearchParams();
-      if (args.values.get('limit')) query.set('limit', args.values.get('limit') as string);
-      if (args.values.get('next-token')) query.set('nextToken', args.values.get('next-token') as string);
-      print(await api(`/v1/runs${query.size > 0 ? `?${query.toString()}` : ''}`, 'GET'));
+    case 'list':
+      print(await api(collectionPath('/v1/runs', paginationQuery(args)), 'GET'));
       return;
-    }
     case 'doctor':
       await doctor(args);
       return;
@@ -687,7 +622,7 @@ async function chat(args: Arguments): Promise<void> {
         return;
       }
     }
-    await new Promise((resolvePromise) => setTimeout(resolvePromise, interval * 1_000));
+    await delay(interval * 1_000);
   }
   throw new Error(
     `conversation message ${messageId} did not complete within ${waitSeconds} seconds`,
@@ -1253,7 +1188,7 @@ async function waitForRun(record: RunRecord, args: Arguments): Promise<RunRecord
       process.stderr.write(`run ${current.runId}: ${current.status}\n`);
       previousStatus = current.status;
     }
-    await new Promise((resolvePromise) => setTimeout(resolvePromise, interval * 1_000));
+    await delay(interval * 1_000);
     current = await api(`/v1/runs/${record.runId}`, 'GET') as RunRecord;
   }
   if (current.status !== previousStatus) process.stderr.write(`run ${current.runId}: ${current.status}\n`);
@@ -1333,7 +1268,7 @@ async function watch(args: Arguments): Promise<void> {
       previousRunStatus = run.status;
     }
     if (isTerminal(run.status)) return;
-    await new Promise((resolvePromise) => setTimeout(resolvePromise, interval * 1_000));
+    await delay(interval * 1_000);
   }
 }
 
@@ -1517,7 +1452,7 @@ async function readHiddenTtyAnswer(questionId: string): Promise<string> {
 async function computerCommand(args: Arguments): Promise<void> {
   const subcommand = args.positionals[0];
   const subcommands = [
-    'open', 'watch', 'screenshot', 'status', 'takeover', 'release', 'handback', 'act', 'teach',
+    'open', 'watch', 'screenshot', 'status', 'takeover', 'release', 'act', 'teach',
     'navigate', 'click', 'type', 'press', 'select', 'scroll', 'wait', 'back', 'help',
   ];
   if (!subcommand) {
@@ -1525,13 +1460,7 @@ async function computerCommand(args: Arguments): Promise<void> {
     return;
   }
   if (!subcommands.includes(subcommand)) {
-    if (args.positionals.length > 1) {
-      throw new Error(`unknown computer subcommand ${JSON.stringify(subcommand)}; run rat-things computer --help`);
-    }
-    validateCommandOptions(args, { values: ['screenshot'] });
-    validatePositionals(args, 1, 1, 'computer RUN_ID');
-    await computer(args);
-    return;
+    throw new Error(`unknown computer subcommand ${JSON.stringify(subcommand)}; run rat-things computer --help`);
   }
   const nested = withPositionals(args, args.positionals.slice(1));
   switch (subcommand) {
@@ -1545,7 +1474,7 @@ async function computerCommand(args: Arguments): Promise<void> {
     case 'status':
       validateCommandOptions(nested, { values: ['screenshot'] });
       validatePositionals(nested, 1, 1, `computer ${subcommand} RUN_ID`);
-      await computer(nested);
+      await computerSnapshot(nested);
       return;
     case 'takeover':
       validateCommandOptions(nested, {});
@@ -1553,9 +1482,8 @@ async function computerCommand(args: Arguments): Promise<void> {
       await setComputerControl(nested, 'human');
       return;
     case 'release':
-    case 'handback':
       validateCommandOptions(nested, {});
-      validatePositionals(nested, 1, 1, `computer ${subcommand} RUN_ID`);
+      validatePositionals(nested, 1, 1, 'computer release RUN_ID');
       await setComputerControl(nested, 'agent');
       return;
     case 'act':
@@ -1661,7 +1589,7 @@ async function waitForLocalConsole(url: string, child: ReturnType<typeof spawn>)
     } catch {
       // Loopback server is still starting.
     }
-    await new Promise((resolvePromise) => setTimeout(resolvePromise, 100));
+    await delay(100);
   }
   throw new Error('console server did not become ready within 6 seconds');
 }
@@ -1728,7 +1656,7 @@ function conversationHelp(): void {
   process.stdout.write(`Use the displayed thread key with rat-things chat --thread NAME to continue an API conversation.\n`);
 }
 
-async function computer(args: Arguments): Promise<void> {
+async function computerSnapshot(args: Arguments): Promise<void> {
   const runId = requiredPositional(args, 0, 'run ID');
   const snapshot = await api(
     `/v1/runs/${encodeURIComponent(runId)}/computer`,
@@ -2018,19 +1946,14 @@ async function waitForOAuthReconnect(
   previousCheckedAt: string | undefined,
   expiresAt: unknown,
 ): Promise<unknown> {
-  const advertisedDeadline = typeof expiresAt === 'string' ? Date.parse(expiresAt) : Number.NaN;
-  const deadline = Number.isFinite(advertisedDeadline)
-    ? advertisedDeadline
-    : Date.now() + 10 * 60 * 1_000;
-  while (Date.now() < deadline) {
+  return waitForOAuth(expiresAt, async () => {
     const detail = await api(path, 'GET') as Record<string, unknown>;
     const connection = isObject(detail.connection) ? detail.connection : undefined;
     const health = isObject(detail.health) ? detail.health : undefined;
     const changed = connection?.updatedAt !== previousUpdatedAt || health?.checkedAt !== previousCheckedAt;
     if (changed && connection?.status === 'active' && health?.status === 'healthy') return detail;
-    await new Promise((resolvePromise) => setTimeout(resolvePromise, 2_000));
-  }
-  throw new Error('OAuth reconnect expired before the account was verified');
+    return undefined;
+  }, 'OAuth reconnect expired before the account was verified');
 }
 
 async function connect(args: Arguments): Promise<void> {
@@ -2102,17 +2025,11 @@ async function connect(args: Arguments): Promise<void> {
 }
 
 async function installedConnectionIds(pluginId: string): Promise<Set<string>> {
-  const listed = await api('/v1/integrations/connections', 'GET') as { connections?: unknown };
-  if (!Array.isArray(listed.connections)) throw new Error('runtime returned an invalid connection list');
-  return new Set(listed.connections.flatMap((candidate) => {
-    if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) return [];
-    const connection = (candidate as Record<string, unknown>).connection;
-    if (!connection || typeof connection !== 'object' || Array.isArray(connection)) return [];
-    const value = connection as Record<string, unknown>;
-    return value.pluginId === pluginId && typeof value.connectionId === 'string'
-      ? [value.connectionId]
-      : [];
-  }));
+  return new Set((await installedConnections()).flatMap(({ connection }) => (
+    connection.pluginId === pluginId && typeof connection.connectionId === 'string'
+      ? [connection.connectionId]
+      : []
+  )));
 }
 
 async function waitForOAuthConnection(
@@ -2120,40 +2037,21 @@ async function waitForOAuthConnection(
   existingConnectionIds: Set<string>,
   expiresAt: unknown,
 ): Promise<unknown> {
-  const advertisedDeadline = typeof expiresAt === 'string' ? Date.parse(expiresAt) : Number.NaN;
-  const deadline = Number.isFinite(advertisedDeadline)
-    ? advertisedDeadline
-    : Date.now() + 10 * 60 * 1_000;
-  while (Date.now() < deadline) {
-    const listed = await api('/v1/integrations/connections', 'GET') as { connections?: unknown };
-    if (!Array.isArray(listed.connections)) throw new Error('runtime returned an invalid connection list');
-    const installed = listed.connections.find((candidate) => {
-      if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) return false;
-      const connection = (candidate as Record<string, unknown>).connection;
-      if (!connection || typeof connection !== 'object' || Array.isArray(connection)) return false;
-      const value = connection as Record<string, unknown>;
-      return value.pluginId === pluginId &&
-        typeof value.connectionId === 'string' &&
-        !existingConnectionIds.has(value.connectionId);
-    });
-    if (installed) return installed;
-    await new Promise((resolvePromise) => setTimeout(resolvePromise, 2_000));
-  }
-  throw new Error(`OAuth authorization for ${pluginId} expired before a connection was installed`);
+  return waitForOAuth(expiresAt, async () => (
+    (await installedConnections()).find(({ connection }) => (
+      connection.pluginId === pluginId &&
+      typeof connection.connectionId === 'string' &&
+      !existingConnectionIds.has(connection.connectionId)
+    ))
+  ), `OAuth authorization for ${pluginId} expired before a connection was installed`);
 }
 
 async function enableSlackEvents(args: Arguments): Promise<void> {
   validateCommandOptions(args, { flags: ['json'], values: ['profile'] });
   const selector = requiredPositional(args, 0, 'Slack connection ID or alias');
-  const installed = await api('/v1/integrations/connections', 'GET') as { connections?: unknown };
-  if (!Array.isArray(installed.connections)) throw new Error('runtime returned an invalid connection list');
-  const item = installed.connections.find((candidate) => {
-    if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) return false;
-    const connection = (candidate as Record<string, unknown>).connection;
-    if (!connection || typeof connection !== 'object' || Array.isArray(connection)) return false;
-    const value = connection as Record<string, unknown>;
-    return value.connectionId === selector || value.alias === selector;
-  }) as { connection?: Record<string, unknown>; grant?: Record<string, unknown> } | undefined;
+  const item = (await installedConnections()).find(({ connection }) => (
+    connection.connectionId === selector || connection.alias === selector
+  ));
   const connection = item?.connection;
   if (!connection || connection.pluginId !== 'slack' || connection.status !== 'active') {
     throw new Error(`active Slack connection ${selector} was not found`);
@@ -2236,18 +2134,13 @@ async function installedIntegrationPlugin(pluginId: string): Promise<Integration
 
 async function rotateCredential(args: Arguments): Promise<void> {
   const selector = requiredPositional(args, 0, 'connection ID or alias');
-  const listed = await api('/v1/integrations/connections', 'GET') as { connections?: unknown };
-  if (!Array.isArray(listed.connections)) throw new Error('runtime returned an invalid connection list');
-  const record = (listed.connections as Array<{ connection?: unknown }>).find((candidate) => {
-    const connection = candidate.connection;
-    if (!connection || typeof connection !== 'object' || Array.isArray(connection)) return false;
-    const value = connection as Record<string, unknown>;
-    return value.connectionId === selector || value.alias === selector;
-  });
-  if (!record?.connection || typeof record.connection !== 'object' || Array.isArray(record.connection)) {
+  const record = (await installedConnections()).find(({ connection }) => (
+    connection.connectionId === selector || connection.alias === selector
+  ));
+  if (!record) {
     throw new Error(`integration connection ${selector} was not found`);
   }
-  const connection = record.connection as Record<string, unknown>;
+  const connection = record.connection;
   if (typeof connection.pluginId !== 'string') throw new Error('runtime returned an invalid connection plugin');
   const authorization = connection.authorization;
   if (!authorization || typeof authorization !== 'object' || Array.isArray(authorization)) {
@@ -2589,6 +2482,44 @@ function repeated(args: Arguments, name: string): string[] | undefined {
   return values && values.length > 0 ? values : undefined;
 }
 
+interface InstalledConnection {
+  connection: Record<string, unknown>;
+  grant?: Record<string, unknown>;
+}
+
+async function installedConnections(): Promise<InstalledConnection[]> {
+  const listed = await api('/v1/integrations/connections', 'GET') as { connections?: unknown };
+  if (!Array.isArray(listed.connections)) throw new Error('runtime returned an invalid connection list');
+  return listed.connections.flatMap((candidate) => {
+    if (!isObject(candidate) || !isObject(candidate.connection)) return [];
+    return [{
+      connection: candidate.connection,
+      ...(isObject(candidate.grant) ? { grant: candidate.grant } : {}),
+    }];
+  });
+}
+
+async function waitForOAuth<T>(
+  expiresAt: unknown,
+  poll: () => Promise<T | undefined>,
+  expiredMessage: string,
+): Promise<T> {
+  const advertisedDeadline = typeof expiresAt === 'string' ? Date.parse(expiresAt) : Number.NaN;
+  const deadline = Number.isFinite(advertisedDeadline)
+    ? advertisedDeadline
+    : Date.now() + 10 * 60 * 1_000;
+  while (Date.now() < deadline) {
+    const result = await poll();
+    if (result !== undefined) return result;
+    await delay(2_000);
+  }
+  throw new Error(expiredMessage);
+}
+
+function delay(milliseconds: number): Promise<void> {
+  return new Promise((resolvePromise) => setTimeout(resolvePromise, milliseconds));
+}
+
 async function api(
   path: string,
   method: 'GET' | 'POST' | 'PATCH',
@@ -2830,12 +2761,6 @@ function validateRootPositionals(args: Arguments): void {
     cancel: [1, 1, 'cancel RUN_ID'],
     interrupt: [1, 1, 'interrupt RUN_ID'],
     console: [0, 1, 'console [RUN_ID]'],
-    takeover: [1, 1, 'takeover RUN_ID'],
-    handback: [1, 1, 'handback RUN_ID'],
-    'computer-act': [1, 1, 'computer-act RUN_ID --file ACTION.json'],
-    'teach-start': [1, 1, 'teach-start RUN_ID --name NAME'],
-    'teach-stop': [1, 1, 'teach-stop RUN_ID'],
-    'teach-discard': [1, 1, 'teach-discard RUN_ID'],
     plugins: [0, 0, 'plugins'],
     profiles: [0, 0, 'profiles'],
     connections: [0, 0, 'connections'],
@@ -2929,6 +2854,23 @@ function requiredPositional(args: Arguments, index: number, label: string): stri
   const value = args.positionals[index];
   if (!value) throw new Error(`${label} is required`);
   return value;
+}
+
+function positionalPath(args: Arguments, index: number, label: string): string {
+  return encodeURIComponent(requiredPositional(args, index, label));
+}
+
+function paginationQuery(args: Arguments): URLSearchParams {
+  const query = new URLSearchParams();
+  const limit = args.values.get('limit');
+  const nextToken = args.values.get('next-token');
+  if (limit) query.set('limit', limit);
+  if (nextToken) query.set('nextToken', nextToken);
+  return query;
+}
+
+function collectionPath(path: string, query: URLSearchParams): string {
+  return `${path}${query.size > 0 ? `?${query}` : ''}`;
 }
 
 function thingDraftRevision(value: unknown): number {
@@ -3036,7 +2978,6 @@ function help(showAll: boolean): void {
   process.stdout.write(`  rat-things computer teach start RUN_ID --name NAME [--goal TEXT]\n`);
   process.stdout.write(`  rat-things computer teach stop|discard RUN_ID\n`);
   process.stdout.write(`    takeover is a temporary exclusive browser lease; teach-stop creates an unpublished draft Thing\n`);
-  process.stdout.write(`    legacy computer/takeover/handback/computer-act/teach-* aliases remain supported\n`);
   process.stdout.write(`\nIntegrations\n\n`);
   process.stdout.write(`  rat-things plugins\n`);
   process.stdout.write(`  rat-things profiles\n`);

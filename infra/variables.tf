@@ -27,7 +27,7 @@ variable "artifact_retention_days" {
 }
 
 variable "artifact_url_ttl_seconds" {
-  description = "Lifetime of owner-authorized artifact share URLs, from one minute to one day."
+  description = "Lifetime of publication grants, from one minute to one day."
   type        = number
   default     = 86400
 
@@ -210,12 +210,6 @@ variable "github_webhook_enabled" {
   nullable = true
 }
 
-variable "github_token_secret_arn" {
-  type     = string
-  default  = null
-  nullable = true
-}
-
 variable "github_clone_token_secret_arn" {
   type     = string
   default  = null
@@ -257,12 +251,6 @@ variable "gitlab_webhook_secret_arn" {
 
 variable "gitlab_webhook_enabled" {
   type     = bool
-  default  = null
-  nullable = true
-}
-
-variable "gitlab_token_secret_arn" {
-  type     = string
   default  = null
   nullable = true
 }

@@ -14,7 +14,6 @@ import type {
   IntegrationConnection,
   SourceCapabilityBinding,
 } from '../../src/domain/capabilities.js';
-import type { JsonValue } from '../../src/domain/contracts.js';
 import { ConnectionService } from '../../src/plugins/connection-service.js';
 import { IntegrationPluginRegistry } from '../../src/plugins/integration-registry.js';
 import { IntegrationRuntime } from '../../src/plugins/integration-runtime.js';

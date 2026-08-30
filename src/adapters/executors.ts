@@ -10,7 +10,6 @@ import {
 import { SSMClient, GetParameterCommand } from '@aws-sdk/client-ssm';
 import { createHash } from 'node:crypto';
 import type {
-  ExecutionBackend,
   ExecutionReference,
   RunRecord,
   RunRequest,
@@ -32,7 +31,7 @@ import type { RunExecutor } from '../execution/types.js';
 import type { ExecutionInspection, ExecutionInspector } from '../execution/reconciler.js';
 
 export type { RunExecutor } from '../execution/types.js';
-export { ExecutionRegistry, ExecutionRegistry as ExecutorRegistry } from '../execution/registry.js';
+export { ExecutionRegistry } from '../execution/registry.js';
 
 export interface MicrovmExecutorOptions {
   imageParameterName: string;
@@ -90,7 +89,7 @@ export class MicrovmRunExecutor implements RunExecutor {
     private readonly options: MicrovmExecutorOptions,
   ) {}
 
-  public async start(record: RunRecord, request: RunRequest, traceId: string): Promise<ExecutionReference> {
+  public async start(record: RunRecord, request: RunRequest, _traceId: string): Promise<ExecutionReference> {
     if (record.conversation?.preferredMicrovmId) {
       const startedAt = Date.now();
       try {

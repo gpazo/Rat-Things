@@ -1,6 +1,6 @@
-import { createHash } from 'node:crypto';
 import type { AgentToolCallStore } from '../core/ports.js';
 import type { JsonValue } from '../domain/contracts.js';
+import { canonicalJson, sha256Hex } from '../domain/json.js';
 import type { ExecutionReference } from '../domain/contracts.js';
 import type { IntegrationToolSession } from '../plugins/integration-types.js';
 import type {
@@ -153,14 +153,5 @@ function failedToolMessage(value: unknown): string {
 }
 
 function digestJson(value: unknown): string {
-  return createHash('sha256').update(stableJson(value)).digest('hex');
-}
-
-function stableJson(value: unknown): string {
-  if (value === null || typeof value !== 'object') return JSON.stringify(value);
-  if (Array.isArray(value)) return `[${value.map(stableJson).join(',')}]`;
-  const record = value as Record<string, unknown>;
-  return `{${Object.keys(record).sort().map(
-    (key) => `${JSON.stringify(key)}:${stableJson(record[key])}`,
-  ).join(',')}}`;
+  return sha256Hex(canonicalJson(value));
 }

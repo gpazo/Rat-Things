@@ -7,7 +7,6 @@ import type {
   RunDestination,
   RunRecord,
   RunRequest,
-  ThingInvocationKind,
   ThingRunBinding,
 } from './contracts.js';
 import type {

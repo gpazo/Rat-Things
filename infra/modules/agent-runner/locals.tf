@@ -43,11 +43,6 @@ locals {
   # Secrets Manager ARN (never its value) is intentionally declassified here.
   bedrock_api_key_secret_arn = nonsensitive(var.bedrock_api_key_secret_arn)
 
-  github_clone_token_secret_arn  = var.github_clone_token_secret_arn != null ? var.github_clone_token_secret_arn : var.github_token_secret_arn
-  github_notify_token_secret_arn = var.github_notify_token_secret_arn != null ? var.github_notify_token_secret_arn : var.github_token_secret_arn
-  gitlab_clone_token_secret_arn  = var.gitlab_clone_token_secret_arn != null ? var.gitlab_clone_token_secret_arn : var.gitlab_token_secret_arn
-  gitlab_notify_token_secret_arn = var.gitlab_notify_token_secret_arn != null ? var.gitlab_notify_token_secret_arn : var.gitlab_token_secret_arn
-
   ingress_secret_arns = compact([
     var.github_webhook_secret_arn,
     var.gitlab_webhook_secret_arn,
@@ -55,8 +50,8 @@ locals {
     var.slack_signing_secret_arn,
   ])
   notifier_secret_arns = distinct(compact(concat([
-    local.github_notify_token_secret_arn,
-    local.gitlab_notify_token_secret_arn,
+    var.github_notify_token_secret_arn,
+    var.gitlab_notify_token_secret_arn,
     var.teams_reply_gateway_url_secret_arn,
     var.teams_workflow_url_secret_arn,
     var.slack_bot_token_secret_arn,
@@ -64,8 +59,8 @@ locals {
   worker_secret_arns = distinct(concat(
     var.worker_secret_arns,
     compact([
-      local.github_clone_token_secret_arn,
-      local.gitlab_clone_token_secret_arn,
+      var.github_clone_token_secret_arn,
+      var.gitlab_clone_token_secret_arn,
       local.bedrock_api_key_secret_arn,
     ]),
   ))

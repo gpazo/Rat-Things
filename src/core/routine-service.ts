@@ -1,14 +1,22 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import type { RunRequest, RunRecord, SandboxMode } from '../domain/contracts.js';
+import { canonicalJson as stableJson, sha256Hex as sha256 } from '../domain/json.js';
 import type {
   PublicRoutine,
   RoutineRecord,
   RoutineSchedule,
   RoutineTickResult,
 } from '../domain/routines.js';
-import { isRecord, parseRunRequest, ValidationError } from '../domain/validation.js';
+import {
+  isRecord,
+  isoDateTime,
+  parseRunRequest,
+  rejectUnknown,
+  requiredTrimmedString,
+  ValidationError,
+} from '../domain/validation.js';
 import type { ArtifactStore, Clock, RoutineStore } from './ports.js';
-import { ForbiddenError, NotFoundError, type RunService } from './run-service.js';
+import { ForbiddenError, NotFoundError, validateOwner, type RunService } from './run-service.js';
 
 const DELETED_ROUTINE_RETENTION_SECONDS = 30 * 24 * 60 * 60;
 
@@ -227,9 +235,9 @@ export class RoutineService {
 
   private parseInput(raw: unknown): ParsedRoutineInput {
     if (!isRecord(raw)) throw new ValidationError('routine must be an object');
-    rejectUnknown(raw, ['version', 'name', 'schedule', 'request', 'enabled']);
+    rejectUnknown(raw, ['version', 'name', 'schedule', 'request', 'enabled'], 'routine');
     if (raw.version !== '1') throw new ValidationError('routine.version must be "1"');
-    const name = boundedText(raw.name, 'routine.name', 128);
+    const name = requiredTrimmedString(raw.name, 'routine.name', 128);
     const { schedule, startAt } = parseSchedule(raw.schedule);
     const request = parseRunRequest(raw.request, this.validationOptions());
     if (request.source) throw new ValidationError('routine request cannot set source');
@@ -271,7 +279,7 @@ export function publicRoutine(record: RoutineRecord): PublicRoutine {
 
 function parseSchedule(value: unknown): { schedule: RoutineSchedule; startAt?: string } {
   if (!isRecord(value)) throw new ValidationError('routine.schedule must be an object');
-  rejectUnknown(value, ['kind', 'everyMinutes', 'startAt']);
+  rejectUnknown(value, ['kind', 'everyMinutes', 'startAt'], 'routine');
   if (value.kind !== 'interval') throw new ValidationError('routine.schedule.kind must be interval');
   if (
     typeof value.everyMinutes !== 'number' ||
@@ -281,7 +289,7 @@ function parseSchedule(value: unknown): { schedule: RoutineSchedule; startAt?: s
   ) throw new ValidationError('routine.schedule.everyMinutes must be an integer from 1 through 525600');
   const schedule: RoutineSchedule = { kind: 'interval', everyMinutes: value.everyMinutes };
   if (value.startAt === undefined) return { schedule };
-  const startAt = isoDate(value.startAt, 'routine.schedule.startAt');
+  const startAt = isoDateTime(value.startAt, 'routine.schedule.startAt');
   return { schedule, startAt };
 }
 
@@ -312,47 +320,6 @@ function intervalMilliseconds(schedule: RoutineSchedule): number {
   return schedule.everyMinutes * 60_000;
 }
 
-function validateOwner(ownerId: string): void {
-  if (!ownerId.trim() || Buffer.byteLength(ownerId, 'utf8') > 1_024) {
-    throw new ForbiddenError('an authenticated owner is required');
-  }
-}
-
 function validateRoutineId(routineId: string): void {
   if (!/^[A-Za-z0-9-]{1,128}$/.test(routineId)) throw new ValidationError('routine ID is invalid');
-}
-
-function boundedText(value: unknown, label: string, maximumBytes: number): string {
-  if (typeof value !== 'string' || !value.trim() || Buffer.byteLength(value, 'utf8') > maximumBytes) {
-    throw new ValidationError(`${label} is invalid`);
-  }
-  return value.trim();
-}
-
-function isoDate(value: unknown, label: string): string {
-  if (
-    typeof value !== 'string' ||
-    !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/.test(value) ||
-    !Number.isFinite(Date.parse(value))
-  ) {
-    throw new ValidationError(`${label} must be an ISO date-time`);
-  }
-  return new Date(value).toISOString();
-}
-
-function rejectUnknown(value: Record<string, unknown>, allowed: string[]): void {
-  const unknown = Object.keys(value).find((key) => !allowed.includes(key));
-  if (unknown) throw new ValidationError(`routine contains unknown field ${unknown}`);
-}
-
-function stableJson(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map(stableJson).join(',')}]`;
-  if (isRecord(value)) {
-    return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stableJson(value[key])}`).join(',')}}`;
-  }
-  return JSON.stringify(value);
-}
-
-function sha256(value: string): string {
-  return createHash('sha256').update(value).digest('hex');
 }

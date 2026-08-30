@@ -85,7 +85,7 @@ grant ownership. The general control API overwrites caller-supplied source metad
 | Self-triggering provider loop | GitHub/GitLab comments require a non-empty trigger; outbound source replies carry a hidden runtime marker; normalization ignores marked replies and provider-declared bot authors | Marker/bot checks prevent ordinary runtime reply loops, not malicious-author abuse. Test provider payload variations and cap per-owner/thread runs and model cost before production |
 | Lost terminal notification event | DynamoDB Streams separates the state commit from EventBridge publication; the mapping retries ten times over a maximum 24-hour record age, then sends invocation metadata to an encrypted SQS failure queue with an alarm | Replay is manual, the failure item does not contain the full stream record, and DynamoDB Streams data expires. Drill sequence-range replay and current-run event reconstruction; consider a durable outbox if this recovery objective is insufficient |
 | Dead or superseded execution mutates active state | Immutable execution generation plus MicroVM ID; worker start, heartbeat, stale failure, and cancellation settlement use conditional exact-identity writes; a root-owned endpoint proves the supervised Run/generation before repair | Heartbeat is a liveness control, not a defense against full MicroVM compromise. Ambiguous observations are quarantined for operator review, and lost Runs are never semantically replayed automatically |
-| Artifact/publication disclosure | Private S3, checksums, owner-hashed prefixes, authenticated owner check, a public Run projection with no S3 coordinates or internal execution handles, bounded catalogs, strict agent publication declarations, unguessable grants, publication-specific hosts, host-only signed cookies, CloudFront OAC, and a legacy one-minute S3 redirect | Time-bounded artifact/share URLs remain bearer credentials. Add revocation, audit/rate limits, content scanning, and policy profiles before broader sharing |
+| Artifact/publication disclosure | Private S3, checksums, owner-hashed prefixes, authenticated owner check, a public Run projection with no S3 coordinates or internal execution handles, bounded catalogs, one-minute authenticated download URLs, strict agent publication declarations, unguessable grants, publication-specific hosts, host-only signed cookies, and CloudFront OAC | Time-bounded artifact/share URLs remain bearer credentials. Add revocation, audit/rate limits, content scanning, and policy profiles before broader sharing |
 | Supply-chain compromise | Locked npm dependencies and immutable reference-project pins | Pin container bases by digest, scan/sign images and bundles, generate SBOMs, protect CI provenance, and review MicroVM snapshots |
 | Snapshot contamination | Run-specific data is supplied at `/run`, not intended for image build | Verify hooks never bake secrets, unique IDs, live sockets, or checkout state; follow AWS snapshot guidance on every image revision |
 
@@ -162,9 +162,9 @@ artifact prefixes, EventBridge buses, and secret ARNs. Keep the forced wildcard
 ## Secret handling
 
 - Store only ARNs and opaque route names in configuration; store values in Secrets Manager.
-- Keep webhook verification, clone, model, and notification identities separate. Use the split
-  GitHub/GitLab clone and notification ARN inputs; leave the deprecated combined-token compatibility
-  inputs null so the agent worker never receives a provider-write credential.
+- Keep webhook verification, clone, model, and notification identities separate. Use the distinct
+  GitHub/GitLab clone and notification ARN inputs so the agent worker never receives a provider-write
+  credential.
 - Prefer short-lived GitHub App/GitLab job or project tokens over static PATs.
 - Never log raw webhook bodies, authorization headers, clone command environments, model credentials,
   Workflow URLs, or Slack tokens.

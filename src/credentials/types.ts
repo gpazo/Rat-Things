@@ -2,11 +2,6 @@ export interface SecretReader {
   get(reference: string): Promise<string>;
 }
 
-export interface CredentialValue {
-  reference: string;
-  value: string;
-}
-
 /** Stored separately from integration metadata and never serialized into run requests. */
 export interface IntegrationCredentialBinding {
   version: '1';

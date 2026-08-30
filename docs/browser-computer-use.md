@@ -108,9 +108,7 @@ rat-things computer teach stop RUN_ID
 The typed namespace covers `navigate`, `click`, `type`, `press`, `select`, `scroll`, `wait`, and
 `back`. For generated actions, `rat-things computer act RUN_ID --file browser-action.json` still
 accepts the installed OpenAPI `HumanBrowserAction` schema. The console is the ergonomic surface for
-point-and-click use; the CLI is intentionally scriptable. The
-older top-level `computer`, `takeover`, `handback`, `computer-act`, and `teach-*` commands remain
-compatible aliases.
+point-and-click use; the CLI is intentionally scriptable.
 
 ## Enable it through the API or a webhook policy
 

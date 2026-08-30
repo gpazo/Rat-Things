@@ -40,7 +40,7 @@ import { DynamoConversationStore } from '../../src/adapters/dynamo-conversation-
 import { DynamoIntegrationStore } from '../../src/adapters/dynamo-integration-store.js';
 import { DynamoThingStore } from '../../src/adapters/dynamo-thing-store.js';
 import {
-  ExecutorRegistry,
+  ExecutionRegistry,
   type RunExecutor,
 } from '../../src/adapters/executors.js';
 import { ConversationService } from '../../src/conversation/service.js';
@@ -493,7 +493,7 @@ integration('LocalStack webhook-to-egress workflow', () => {
     const draftDispatcher = createDispatcher({
       store: draftRunStore,
       artifacts: draftArtifacts,
-      executors: new ExecutorRegistry([{
+      executors: new ExecutionRegistry([{
         backend: 'microvm',
         start: async (record) => ({
           backend: 'microvm',
@@ -637,7 +637,7 @@ integration('LocalStack webhook-to-egress workflow', () => {
     const thingDispatch = createDispatcher({
       store: thingRunStore,
       artifacts: thingArtifacts,
-      executors: new ExecutorRegistry([{
+      executors: new ExecutionRegistry([{
         backend: 'microvm',
         start: async (record) => ({
           backend: 'microvm',
@@ -793,7 +793,7 @@ integration('LocalStack webhook-to-egress workflow', () => {
     const dispatch = createDispatcher({
       store: runStore,
       artifacts,
-      executors: new ExecutorRegistry([localExecutor]),
+      executors: new ExecutionRegistry([localExecutor]),
     });
     const dispatchResponse = await invoke<{ batchItemFailures: { itemIdentifier: string }[] }>(
       dispatch,
@@ -1315,7 +1315,7 @@ integration('LocalStack webhook-to-egress workflow', () => {
     const dispatch = createDispatcher({
       store,
       artifacts,
-      executors: new ExecutorRegistry([localExecutor]),
+      executors: new ExecutionRegistry([localExecutor]),
     });
     const dispatchResponse = await invoke<{ batchItemFailures: { itemIdentifier: string }[] }>(
       dispatch,
@@ -1739,7 +1739,7 @@ async function completeThingDraftTest(
   const dispatcher = createDispatcher({
     store,
     artifacts,
-    executors: new ExecutorRegistry([{
+    executors: new ExecutionRegistry([{
       backend: 'microvm',
       start: async (record) => ({
         backend: 'microvm',

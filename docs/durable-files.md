@@ -132,13 +132,12 @@ holds a bounded path catalog, and a later turn restores those exact bytes into f
 before Codex starts. The default object retention is 30 days and is configured independently from
 the MicroVM lifetime.
 
-`rat-things file` creates an opaque bearer URL valid for 24 hours by default. With publication
-delivery enabled, the public endpoint validates its encrypted grant, opens a signed browser-ready
-first page, and installs host-only CloudFront cookies for its subresources. Generated file and video
-viewers also carry the signed authorization into their asset requests.
-Deployments without that optional custom
-domain use the legacy fresh one-minute S3 redirect. In both cases rotating Lambda credentials do
-not shorten the promised lifetime. Deployments can set `artifact_url_ttl_seconds` from 60 through
+With publication delivery enabled, `rat-things file` creates an opaque bearer URL valid for 24 hours
+by default. The public endpoint validates its encrypted grant, opens a signed browser-ready first
+page, and installs host-only CloudFront cookies for its subresources. Generated file and video
+viewers also carry the signed authorization into their asset requests. Deployments without that
+optional custom domain return a direct one-minute S3 download URL from the authenticated control
+API. Publication grant lifetime is configured through `artifact_url_ttl_seconds` from 60 through
 86,400 seconds. A new link can be minted while the owner and retained artifact still exist.
 
 The initial catalog limits are:

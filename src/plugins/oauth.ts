@@ -2,7 +2,6 @@ import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import type { CredentialBroker } from '../credentials/broker.js';
 import type {
   CredentialVault,
-  IntegrationCredentialBinding,
   IntegrationCredentialValue,
   SecretReader,
 } from '../credentials/types.js';

@@ -6,7 +6,6 @@ import {
   TransactWriteCommand,
   UpdateCommand,
 } from '@aws-sdk/lib-dynamodb';
-import { createHash } from 'node:crypto';
 import type {
   ConversationEventRecord,
   ConversationLease,
@@ -19,6 +18,7 @@ import type {
   ConversationTranscriptRecord,
   ConversationTurnRecord,
 } from '../domain/conversations.js';
+import { canonicalJson, sha256Hex as hash } from '../domain/json.js';
 import {
   ConversationConflictError,
   ConversationLeaseError,
@@ -1182,24 +1182,6 @@ function sameJson(left: unknown, right: unknown): boolean {
   return canonicalJson(left) === canonicalJson(right);
 }
 
-/**
- * DynamoDB does not preserve JavaScript object insertion order for maps.
- * Conversation policy equality is semantic, so canonicalize object keys while
- * retaining array order before comparing a newly normalized policy with the
- * stored projection.
- */
-function canonicalJson(value: unknown): string {
-  if (value === undefined) return 'null';
-  if (value === null || typeof value !== 'object') return JSON.stringify(value);
-  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
-  const record = value as Record<string, unknown>;
-  return `{${Object.keys(record)
-    .filter((key) => record[key] !== undefined)
-    .sort()
-    .map((key) => `${JSON.stringify(key)}:${canonicalJson(record[key])}`)
-    .join(',')}}`;
-}
-
 function partitionKey(conversationId: string): string {
   return `CONVERSATION#${hash(conversationId)}`;
 }
@@ -1296,10 +1278,6 @@ function workOrder(message: ConversationMessageRecord): string {
 
 function priority(delivery: ConversationMessageRecord['delivery']): '0' | '1' {
   return delivery === 'interrupt' ? '0' : '1';
-}
-
-function hash(value: string): string {
-  return createHash('sha256').update(value).digest('hex');
 }
 
 function storedRecord<T>(item: Record<string, unknown> | undefined): T | undefined {

@@ -1,5 +1,6 @@
-import { createHash, randomUUID } from 'node:crypto';
-import type { RunRecord, RunRequest, SandboxMode, ThingRunBinding } from '../domain/contracts.js';
+import { randomUUID } from 'node:crypto';
+import type { RunRequest, SandboxMode, ThingRunBinding } from '../domain/contracts.js';
+import { canonicalJson as stableJson, sha256Hex as sha256 } from '../domain/json.js';
 import type {
   PublicThing,
   PublicThingSummary,
@@ -17,9 +18,22 @@ import type {
   ThingTriggerState,
   ThingVersionRecord,
 } from '../domain/things.js';
-import { isRecord, parseRunRequest, ValidationError } from '../domain/validation.js';
+import {
+  isRecord,
+  isoDateTime,
+  parseRunRequest,
+  rejectUnknown,
+  requiredTrimmedString,
+  ValidationError,
+} from '../domain/validation.js';
 import type { ArtifactStore, Clock, ThingScheduler, ThingStore } from './ports.js';
-import { ConflictError, ForbiddenError, NotFoundError, type RunService } from './run-service.js';
+import {
+  ConflictError,
+  ForbiddenError,
+  NotFoundError,
+  validateOwner,
+  type RunService,
+} from './run-service.js';
 
 export interface ThingServiceOptions {
   store: ThingStore;
@@ -530,7 +544,7 @@ export function parseThingSpec(
     'Thing spec',
   );
   if (raw.version !== '1') throw new ValidationError('Thing spec version must be "1"');
-  const name = boundedText(raw.name, 'Thing spec name', 128);
+  const name = requiredTrimmedString(raw.name, 'Thing spec name', 128);
   const trigger = parseTrigger(raw.trigger);
   if (isRecord(raw.repository) && raw.repository.credentialSecretArn !== undefined) {
     throw new ValidationError(
@@ -747,7 +761,7 @@ function parseScheduledInvocation(raw: unknown): ScheduledThingInvocation {
     version: '1',
     thingId: raw.thingId,
     revision: raw.revision,
-    scheduledAt: isoDate(raw.scheduledAt, 'Scheduled Thing invocation scheduledAt'),
+    scheduledAt: isoDateTime(raw.scheduledAt, 'Scheduled Thing invocation scheduledAt'),
   };
 }
 
@@ -841,12 +855,6 @@ function connectionDiagnostic(spec: ThingSpec): ThingDiagnostic {
   };
 }
 
-function validateOwner(ownerId: string): void {
-  if (!ownerId.trim() || Buffer.byteLength(ownerId, 'utf8') > 1_024) {
-    throw new ForbiddenError('an authenticated owner is required');
-  }
-}
-
 function validateThingId(thingId: string): void {
   if (!/^[A-Za-z0-9-]{1,128}$/.test(thingId)) throw new ValidationError('Thing ID is invalid');
 }
@@ -857,40 +865,7 @@ function validateRevision(value: unknown): asserts value is number {
   }
 }
 
-function boundedText(value: unknown, label: string, maximumBytes: number): string {
-  if (typeof value !== 'string' || !value.trim() || Buffer.byteLength(value, 'utf8') > maximumBytes) {
-    throw new ValidationError(`${label} is invalid`);
-  }
-  return value.trim();
-}
 
-function isoDate(value: unknown, label: string): string {
-  if (
-    typeof value !== 'string' ||
-    !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/.test(value) ||
-    !Number.isFinite(Date.parse(value))
-  ) {
-    throw new ValidationError(`${label} must be an ISO date-time`);
-  }
-  return new Date(value).toISOString();
-}
-
-function rejectUnknown(value: Record<string, unknown>, allowed: string[], label: string): void {
-  const unknown = Object.keys(value).find((key) => !allowed.includes(key));
-  if (unknown) throw new ValidationError(`${label} contains unknown field ${unknown}`);
-}
-
-function stableJson(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map(stableJson).join(',')}]`;
-  if (isRecord(value)) {
-    return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stableJson(value[key])}`).join(',')}}`;
-  }
-  return JSON.stringify(value);
-}
-
-function sha256(value: string): string {
-  return createHash('sha256').update(value).digest('hex');
-}
 
 function boundedError(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error);

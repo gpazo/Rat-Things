@@ -231,7 +231,7 @@ describe('conversation service', () => {
   });
 
   it('materializes uploads and lease-fences their merge into the durable artifact catalog', async () => {
-    const { service, store, artifacts, writes } = harness();
+    const { service, store, writes } = harness();
     const bytes = Buffer.from('durable upload marker');
     const sha256 = createHash('sha256').update(bytes).digest('hex');
     vi.mocked(store.getConversation).mockResolvedValueOnce(undefined);

@@ -15,7 +15,6 @@ import type {
   RunError,
   RunRecord,
   RunResult,
-  RunStateEvent,
   RunStatus,
 } from '../../src/domain/contracts.js';
 import type { ListRoutinesResult, RoutineRecord } from '../../src/domain/routines.js';

@@ -1,6 +1,6 @@
 /**
- * Follows both legacy S3 share redirects and browser publication redemption.
- * When a publication asset path is supplied, the first signed-cookie response
+ * Redeems a browser publication and follows its redirects. When a publication
+ * asset path is supplied, the first signed-cookie response
  * authorizes the host and the client then requests the original asset bytes.
  */
 export async function fetchSharedResource(
@@ -26,7 +26,7 @@ export async function fetchSharedResource(
       }
     }
     const isRedirect = [301, 302, 303, 307, 308].includes(response.status);
-    if (publicationPath && receivedPublicationCookie) {
+    if (publicationPath && receivedPublicationCookie && isRedirect) {
       const location = response.headers.get('location');
       const publicationOrigin = location ? new URL(location, current).origin : current.origin;
       current = new URL(encodePublicationPath(publicationPath), `${publicationOrigin}/`);

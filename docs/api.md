@@ -107,7 +107,6 @@ Cross-identity lookup is an administrative capability outside v1.
 | `GET /v1/runs/{runId}/artifacts/{name}` | Required | Owner-checked URL for a generated-file ID or `input`, `output`, `events`, or `patch` |
 | `POST /v1/runs/{runId}/publications` | Required | Build and share a file, site, or video from a successful run's catalog |
 | `GET /__share/{token}` | Bearer token | Redeem a publication grant for host-only CloudFront signed cookies |
-| `GET /v1/shares/{token}` | Bearer token | Validate a time-bounded file share and redirect to private S3 |
 | `POST /v1/runs/{runId}/cancel` | Required | Request cancellation and return `202`; terminal runs are unchanged |
 | `POST /webhooks/github` | Provider signature | Optional GitHub event ingress; verifies the raw body before normalization |
 | `POST /webhooks/gitlab` | Provider signature | Optional GitLab event ingress with signed-standard and legacy verification |
@@ -781,14 +780,14 @@ Failure adds:
 }
 ```
 
-An artifact URL route first verifies run or conversation ownership, verifies the object belongs to
-the runtime bucket, and creates an opaque bearer URL with a deployment-configured 60–86,400 second
-lifetime (86,400 seconds by default). With publication delivery enabled, the URL is on an isolated
-publication subdomain; redemption redirects to a signed browser-ready `index.html` and installs
-equivalent CloudFront cookies for its subresources. The signed first page does not depend on a
-browser preserving cookies through the redirect. Grant expiry is independent of the control Lambda's rotating role credentials, and
-CloudFront reads bytes from private S3 through Origin Access Control. Deployments without the
-publication domain retain the compatibility path, which redirects each access to a fresh one-minute
+An artifact URL route first verifies run or conversation ownership and verifies that the object
+belongs to the runtime bucket. With publication delivery enabled, it creates a bearer grant with a
+deployment-configured 60–86,400 second lifetime (86,400 seconds by default). The grant URL is on an
+isolated publication subdomain; redemption redirects to a signed browser-ready `index.html` and
+installs equivalent CloudFront cookies for its subresources. The signed first page does not depend
+on a browser preserving cookies through the redirect. Grant expiry is independent of the control
+Lambda's rotating role credentials, and CloudFront reads bytes from private S3 through Origin
+Access Control. Without publication delivery, the authenticated route returns a direct one-minute
 S3 `GET` URL. Treat either URL as a bearer credential until it expires:
 
 ```json
