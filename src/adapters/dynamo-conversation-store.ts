@@ -579,7 +579,11 @@ export class DynamoConversationStore implements ConversationStore {
       }));
       return requiredStoredRecord<ConversationRecord>(result.Attributes);
     } catch (error) {
-      if (isConditionalFailure(error)) throw new ConversationLeaseError('conversation lease was lost');
+      if (isConditionalFailure(error)) {
+        const current = await this.getConversation(input.conversationId);
+        if (current && current.lease?.token !== input.expectedToken) return current;
+        throw new ConversationLeaseError('conversation lease was lost');
+      }
       throw error;
     }
   }

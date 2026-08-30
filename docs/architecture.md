@@ -321,6 +321,13 @@ errors fail the Run instead of silently discarding native continuity. The low-ca
 `CodexThreadResumeFallback` metric records each successor-thread fallback. See the AWS
 [snapshot guidance](https://docs.aws.amazon.com/lambda/latest/dg/microvms-images-snapshots.html).
 
+AWS SDK clients own transient-error classification, throttling backoff, and request retries. Rat
+Things does not wrap them in a second retry policy. Adapters instead normalize successful cleanup
+postconditions: a released conditional lease, absent multipart upload, or secret already scheduled
+for deletion is complete. If compensating cleanup still fails after the SDK returns, the primary
+operation result is preserved and a sanitized `CleanupFailure` metric is emitted. Expiring leases
+and bucket lifecycle rules remain bounded recovery mechanisms rather than application retry loops.
+
 AWS launched Lambda MicroVMs with an initial limited Region set. Confirm current availability before
 selecting a deployment Region. Terraform requires MicroVM provisioning because there is no fallback
 execution backend.

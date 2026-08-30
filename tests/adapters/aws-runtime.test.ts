@@ -1,4 +1,5 @@
 import {
+  AbortMultipartUploadCommand,
   CompleteMultipartUploadCommand,
   CopyObjectCommand,
   CreateMultipartUploadCommand,
@@ -263,6 +264,77 @@ describe('AWS runtime client configuration', () => {
       key: 'owners/abc/runs/run-2/video.mp4',
       sha256: uploaded.sha256,
     });
+  });
+
+  it('preserves the upload error when S3 reports that its cleanup already completed', async () => {
+    const uploadError = new Error('part upload failed');
+    const client = {
+      send: vi.fn(async (command: unknown) => {
+        if (command instanceof CreateMultipartUploadCommand) return { UploadId: 'upload-1' };
+        if (command instanceof UploadPartCommand) throw uploadError;
+        if (command instanceof AbortMultipartUploadCommand) {
+          throw Object.assign(new Error('upload is absent'), { name: 'NoSuchUpload' });
+        }
+        return {};
+      }),
+    } as unknown as S3Client;
+    const store = new S3ArtifactStore(client, 'artifact-bucket');
+
+    await expect(store.putStream(
+      'owners/abc/runs/run-1/video.mp4',
+      (async function* () { yield Buffer.alloc(8 * 1024 * 1024); })(),
+      'video/mp4',
+    )).rejects.toBe(uploadError);
+  });
+
+  it('does not add an application retry when empty-stream cleanup fails', async () => {
+    const cleanupError = new Error('S3 unavailable');
+    const send = vi.fn(async (command: unknown) => {
+      if (command instanceof CreateMultipartUploadCommand) return { UploadId: 'upload-1' };
+      if (command instanceof AbortMultipartUploadCommand) throw cleanupError;
+      return {};
+    });
+    const store = new S3ArtifactStore(
+      { send } as unknown as S3Client,
+      'artifact-bucket',
+    );
+
+    await expect(store.putStream(
+      'owners/abc/runs/run-1/empty.bin',
+      (async function* () { yield new Uint8Array(); })(),
+      'application/octet-stream',
+    )).rejects.toBe(cleanupError);
+    expect(send.mock.calls.filter(([command]) => command instanceof AbortMultipartUploadCommand))
+      .toHaveLength(1);
+  });
+
+  it('reports an exhausted multipart cleanup without masking the upload error', async () => {
+    const uploadError = new Error('part upload failed');
+    const metricLines: string[] = [];
+    const log = vi.spyOn(console, 'info').mockImplementation((line) => {
+      metricLines.push(String(line));
+    });
+    const client = {
+      send: vi.fn(async (command: unknown) => {
+        if (command instanceof CreateMultipartUploadCommand) return { UploadId: 'upload-1' };
+        if (command instanceof UploadPartCommand) throw uploadError;
+        if (command instanceof AbortMultipartUploadCommand) throw new Error('S3 unavailable');
+        return {};
+      }),
+    } as unknown as S3Client;
+    const store = new S3ArtifactStore(client, 'artifact-bucket');
+    try {
+      await expect(store.putStream(
+        'owners/abc/runs/run-1/video.mp4',
+        (async function* () { yield Buffer.alloc(8 * 1024 * 1024); })(),
+        'video/mp4',
+      )).rejects.toBe(uploadError);
+      expect(metricLines.map((line) => JSON.parse(line) as unknown)).toContainEqual(
+        expect.objectContaining({ Component: 'artifact-store', CleanupFailure: 1 }),
+      );
+    } finally {
+      log.mockRestore();
+    }
   });
 
   it('uses the configured KMS key for immutable definition objects', async () => {

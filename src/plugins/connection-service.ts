@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
+import { emitMetric } from '../core/metrics.js';
 import type {
   CredentialVault,
   IntegrationCredentialValue,
@@ -149,7 +150,11 @@ export class ConnectionService {
         grant,
       );
     } catch (error) {
-      await this.options.vault.revoke(reference).catch(() => undefined);
+      try {
+        await this.options.vault.revoke(reference);
+      } catch {
+        emitMetric('connection-service', 'CleanupFailure', 1, 'Count');
+      }
       throw error;
     }
     return { connection, grant };

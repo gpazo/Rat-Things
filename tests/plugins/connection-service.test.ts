@@ -104,6 +104,36 @@ describe('connection service', () => {
     expect(revoke).toHaveBeenCalledWith('secret-ref');
   });
 
+  it('reports failed secret cleanup without replacing the persistence error', async () => {
+    const state = memoryStore();
+    const persistenceError = new Error('Dynamo unavailable');
+    state.store.putConnectionBundle = vi.fn().mockRejectedValue(persistenceError);
+    const metricLines: string[] = [];
+    const log = vi.spyOn(console, 'info').mockImplementation((line) => {
+      metricLines.push(String(line));
+    });
+    const service = connectionService(state.store, {
+      create: vi.fn().mockResolvedValue('secret-ref'),
+      replace: vi.fn(),
+      revoke: vi.fn().mockRejectedValue(new Error('Secrets Manager unavailable')),
+    });
+    try {
+      await expect(service.create({
+        ownerId: 'api:owner-1',
+        pluginId: 'stripe',
+        alias: 'stripe-shop',
+        authScheme: 'api-key',
+        credential: { api_key: 'sk_test_secret' },
+        grant: { preset: 'read-only' },
+      })).rejects.toBe(persistenceError);
+      expect(metricLines.map((line) => JSON.parse(line) as unknown)).toContainEqual(
+        expect.objectContaining({ Component: 'connection-service', CleanupFailure: 1 }),
+      );
+    } finally {
+      log.mockRestore();
+    }
+  });
+
   it('rejects grant operation IDs that are not installed by the connection plugin', async () => {
     const state = memoryStore();
     state.connections.push(connection('slack-1', 'slack-shop', 'slack'));

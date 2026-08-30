@@ -1,4 +1,6 @@
+import { ConditionalCheckFailedException } from '@aws-sdk/client-dynamodb';
 import type { DynamoDBDocumentClient } from '@aws-sdk/lib-dynamodb';
+import { GetCommand } from '@aws-sdk/lib-dynamodb';
 import { describe, expect, it, vi } from 'vitest';
 import { DynamoConversationStore } from '../../src/adapters/dynamo-conversation-store.js';
 import { ConversationConflictError } from '../../src/conversation/types.js';
@@ -65,6 +67,28 @@ describe('Dynamo conversation policy stability', () => {
         ReturnValues: 'ALL_NEW',
       }),
     }));
+  });
+
+  it('treats an already-released lease as a completed conditional cleanup', async () => {
+    const current = conversation();
+    const send = vi.fn()
+      .mockRejectedValueOnce(new ConditionalCheckFailedException({
+        message: 'the first response was lost after releasing the lease',
+        $metadata: {},
+      }))
+      .mockResolvedValueOnce({ Item: stored(current) });
+    const store = new DynamoConversationStore(
+      { send } as unknown as DynamoDBDocumentClient,
+      'conversations',
+    );
+
+    await expect(store.releaseLease({
+      conversationId: current.conversationId,
+      expectedToken: 'lease-already-released',
+      updatedAt: occurredAt,
+    })).resolves.toEqual(current);
+    expect(send).toHaveBeenCalledTimes(2);
+    expect(send.mock.calls[1]?.[0]).toBeInstanceOf(GetCommand);
   });
 
   it('intersects encrypted token postings and returns only owner conversations', async () => {

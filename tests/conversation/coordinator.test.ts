@@ -209,6 +209,44 @@ describe('conversation coordinator', () => {
     expect(prepareConversation.mock.calls.at(-1)?.[3]).not.toHaveProperty('preferredMicrovmId');
   });
 
+  it('reports failed lease cleanup without replacing the coordination error', async () => {
+    const coordinationError = new Error('run wake failed');
+    const metricLines: string[] = [];
+    const log = vi.spyOn(console, 'info').mockImplementation((line) => {
+      metricLines.push(String(line));
+    });
+    const conversations = {
+      acquireLease: vi.fn().mockResolvedValue({
+        status: 'acquired',
+        conversation: { ...conversation, activeTurnId: turn.turnId },
+        lease,
+      }),
+      getTurn: vi.fn().mockResolvedValue({ ...turn, runId: 'run-1' }),
+      releaseLease: vi.fn().mockRejectedValue(new Error('Dynamo unavailable')),
+    } as unknown as ConversationService;
+    const coordinator = new ConversationCoordinator({
+      conversations,
+      artifacts: {} as ArtifactStore,
+      runs: {
+        get: vi.fn(),
+        prepareConversation: vi.fn(),
+        wake: vi.fn().mockRejectedValue(coordinationError),
+      } as unknown as Pick<RunService, 'get' | 'prepareConversation' | 'wake'>,
+    });
+    try {
+      await expect(coordinator.handle({
+        version: '1',
+        conversationId: conversation.conversationId,
+        traceId: 'trace-cleanup',
+      })).rejects.toBe(coordinationError);
+      expect(metricLines.map((line) => JSON.parse(line) as unknown)).toContainEqual(
+        expect.objectContaining({ Component: 'conversation-coordinator', CleanupFailure: 1 }),
+      );
+    } finally {
+      log.mockRestore();
+    }
+  });
+
   it('reconstructs a missing mailbox write from the already accepted Run', async () => {
     const reserved: RunRecord = {
       runId: 'run-recovery',

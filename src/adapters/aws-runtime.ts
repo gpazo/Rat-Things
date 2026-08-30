@@ -11,6 +11,7 @@ import {
   CopyObjectCommand,
   CreateMultipartUploadCommand,
   GetObjectCommand,
+  NoSuchUpload,
   PutObjectCommand,
   S3Client,
   UploadPartCommand,
@@ -57,6 +58,7 @@ import type {
 } from '../domain/publications.js';
 import { validatePublicationManifest, validateShareGrant } from '../domain/publications.js';
 import type { ConversationQueue } from '../conversation/types.js';
+import { emitMetric } from '../core/metrics.js';
 import type { SecretReader } from '../credentials/types.js';
 import type { ResultReader } from '../delivery/types.js';
 
@@ -722,6 +724,7 @@ export class S3ArtifactStore implements ArtifactStore {
     const pending: Buffer[] = [];
     let pendingBytes = 0;
     let received = false;
+    let cleanupAttempted = false;
     try {
       for await (const rawChunk of value) {
         const chunk = Buffer.from(rawChunk);
@@ -737,11 +740,8 @@ export class S3ArtifactStore implements ArtifactStore {
         }
       }
       if (!received) {
-        await this.client.send(new AbortMultipartUploadCommand({
-          Bucket: this.bucket,
-          Key: key,
-          UploadId: uploadId,
-        }));
+        cleanupAttempted = true;
+        await abortMultipartUpload(this.client, this.bucket, key, uploadId);
         return this.putBytes(key, new Uint8Array(), contentType);
       }
       if (pendingBytes > 0) {
@@ -756,11 +756,13 @@ export class S3ArtifactStore implements ArtifactStore {
       }));
       return { bucket: this.bucket, key, sha256: digest.digest('hex') };
     } catch (error) {
-      await this.client.send(new AbortMultipartUploadCommand({
-        Bucket: this.bucket,
-        Key: key,
-        UploadId: uploadId,
-      })).catch(() => undefined);
+      if (!cleanupAttempted) {
+        try {
+          await abortMultipartUpload(this.client, this.bucket, key, uploadId);
+        } catch {
+          emitMetric('artifact-store', 'CleanupFailure', 1, 'Count');
+        }
+      }
       throw error;
     }
   }
@@ -830,6 +832,24 @@ async function uploadPart(
   }));
   if (!uploaded.ETag) throw new Error(`S3 returned no ETag for ${key} part ${partNumber}`);
   return { ETag: uploaded.ETag, PartNumber: partNumber };
+}
+
+async function abortMultipartUpload(
+  client: S3Client,
+  bucket: string,
+  key: string,
+  uploadId: string,
+): Promise<void> {
+  try {
+    await client.send(new AbortMultipartUploadCommand({
+      Bucket: bucket,
+      Key: key,
+      UploadId: uploadId,
+    }));
+  } catch (error) {
+    if (error instanceof NoSuchUpload || awsErrorNamed(error, 'NoSuchUpload')) return;
+    throw error;
+  }
 }
 
 export class S3PublicationObjectStore implements PublicationObjectStore {
@@ -953,6 +973,12 @@ function isMissingS3Object(error: unknown): boolean {
   return ['NoSuchKey', 'NotFound', '404', 'AccessDenied'].includes(String(value.name)) ||
     ['NoSuchKey', 'NotFound', '404', 'AccessDenied'].includes(String(value.Code)) ||
     [403, 404].includes(Number(value.$metadata?.httpStatusCode));
+}
+
+function awsErrorNamed(error: unknown, name: string): boolean {
+  if (typeof error !== 'object' || error === null) return false;
+  const value = error as { name?: unknown; Code?: unknown };
+  return value.name === name || value.Code === name;
 }
 
 export class S3PublicationGrantStore implements PublicationGrantStore {

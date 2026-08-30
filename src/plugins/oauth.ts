@@ -1,4 +1,5 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
+import { emitMetric } from '../core/metrics.js';
 import type { CredentialBroker } from '../credentials/broker.js';
 import type {
   CredentialVault,
@@ -367,11 +368,15 @@ export class OAuthRefreshingCredentialBroker {
       await this.options.vault.replace(reference!, replacement);
       return replacement;
     } finally {
-      await this.options.store.releaseRefreshLock(
-        connection.ownerId,
-        connection.connectionId,
-        lockToken,
-      ).catch(() => undefined);
+      try {
+        await this.options.store.releaseRefreshLock(
+          connection.ownerId,
+          connection.connectionId,
+          lockToken,
+        );
+      } catch {
+        emitMetric('oauth-refresh', 'CleanupFailure', 1, 'Count');
+      }
     }
   }
 }

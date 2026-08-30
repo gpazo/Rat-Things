@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { emitMetric } from '../core/metrics.js';
 import type { ArtifactStore, RunStore } from '../core/ports.js';
 import type { RunService } from '../core/run-service.js';
 import type {
@@ -199,8 +200,11 @@ export class ConversationCoordinator {
       await this.options.conversations.releaseLease(conversation.conversationId, lease.token);
       return { status: 'scheduled', runId: run.runId };
     } catch (error) {
-      await this.options.conversations.releaseLease(conversation.conversationId, lease.token)
-        .catch(() => undefined);
+      try {
+        await this.options.conversations.releaseLease(conversation.conversationId, lease.token);
+      } catch {
+        emitMetric('conversation-coordinator', 'CleanupFailure', 1, 'Count');
+      }
       throw error;
     }
   }
@@ -353,8 +357,11 @@ export class ConversationCompletionCoordinator {
       }
       return { status: 'completed' };
     } catch (error) {
-      await this.options.conversations.releaseLease(binding.conversationId, lease.token)
-        .catch(() => undefined);
+      try {
+        await this.options.conversations.releaseLease(binding.conversationId, lease.token);
+      } catch {
+        emitMetric('conversation-completion', 'CleanupFailure', 1, 'Count');
+      }
       throw error;
     }
   }

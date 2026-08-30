@@ -295,6 +295,46 @@ describe('OAuth connector installation', () => {
     expect(store.released).toEqual([['api:owner-1', 'connection-1', 'lock-1']]);
   });
 
+  it('reports a failed lock cleanup without replacing a successful refresh', async () => {
+    const metricLines: string[] = [];
+    const log = vi.spyOn(console, 'info').mockImplementation((line) => {
+      metricLines.push(String(line));
+    });
+    const store: OAuthAuthorizationStore = {
+      create: vi.fn(),
+      consume: vi.fn(),
+      acquireRefreshLock: vi.fn().mockResolvedValue(true),
+      releaseRefreshLock: vi.fn().mockRejectedValue(new Error('Dynamo unavailable')),
+    };
+    const broker = new OAuthRefreshingCredentialBroker({
+      credentials: { readRecord: vi.fn().mockResolvedValue({
+        access_token: 'old-access',
+        refresh_token: 'old-refresh',
+        expires_at: '2026-08-27T19:59:00.000Z',
+      }) },
+      vault: { replace: vi.fn().mockResolvedValue(undefined) },
+      registry: registry(),
+      applications: applications(),
+      store,
+      fetch: vi.fn().mockResolvedValue(new Response(JSON.stringify({
+        access_token: 'new-access',
+        expires_in: 7200,
+      }), { status: 200 })),
+      clock: fixedClock,
+      randomId: () => 'lock-1',
+    });
+    try {
+      await expect(broker.readRecord('secret-ref', connection('old-access'))).resolves.toMatchObject({
+        access_token: 'new-access',
+      });
+      expect(metricLines.map((line) => JSON.parse(line) as unknown)).toContainEqual(
+        expect.objectContaining({ Component: 'oauth-refresh', CleanupFailure: 1 }),
+      );
+    } finally {
+      log.mockRestore();
+    }
+  });
+
   it('waits with bounded backoff for the worker that owns a contested refresh lease', async () => {
     const expired = {
       access_token: 'old-access',

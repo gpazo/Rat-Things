@@ -168,8 +168,9 @@ the number of active routes and can cost more than API requests at low volume. S
 record-processing duration are emitted as low-cardinality application metrics across the
 conversation coordinator and run dispatcher. The runner also emits one
 `CodexThreadResumeFallback` count when a missing native rollout requires durable replay into a
-successor thread. These metrics use deployment and component dimensions, never owner, Run, or
-conversation IDs. The AWS account's first ten custom or detailed metrics and first ten standard
+successor thread. Compensating cleanup emits `CleanupFailure` only after the responsible AWS SDK
+exhausts its own policy. These metrics use deployment and component dimensions, never owner, Run,
+or conversation IDs. The AWS account's first ten custom or detailed metrics and first ten standard
 alarm metrics are covered by the CloudWatch free tier, shared across the account.
 
 S3 Files is optional and creates the one material idle infrastructure charge in the supplied

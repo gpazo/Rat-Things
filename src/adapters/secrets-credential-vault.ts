@@ -1,7 +1,10 @@
 import {
   CreateSecretCommand,
   DeleteSecretCommand,
+  DescribeSecretCommand,
+  InvalidRequestException,
   PutSecretValueCommand,
+  ResourceNotFoundException,
   type SecretsManagerClient,
 } from '@aws-sdk/client-secrets-manager';
 import type {
@@ -34,11 +37,37 @@ export class SecretsManagerCredentialVault implements CredentialVault {
   }
 
   public async revoke(reference: string): Promise<void> {
-    await this.client.send(new DeleteSecretCommand({
-      SecretId: reference,
-      RecoveryWindowInDays: 7,
-    }));
+    try {
+      await this.client.send(new DeleteSecretCommand({
+        SecretId: reference,
+        RecoveryWindowInDays: 7,
+      }));
+    } catch (error) {
+      if (isResourceNotFound(error)) return;
+      if (!(error instanceof InvalidRequestException) && !awsErrorNamed(error, 'InvalidRequestException')) {
+        throw error;
+      }
+      let description;
+      try {
+        description = await this.client.send(new DescribeSecretCommand({ SecretId: reference }));
+      } catch (describeError) {
+        if (isResourceNotFound(describeError)) return;
+        throw describeError;
+      }
+      if (description.DeletedDate) return;
+      throw error;
+    }
   }
+}
+
+function isResourceNotFound(error: unknown): boolean {
+  return error instanceof ResourceNotFoundException || awsErrorNamed(error, 'ResourceNotFoundException');
+}
+
+function awsErrorNamed(error: unknown, name: string): boolean {
+  if (typeof error !== 'object' || error === null) return false;
+  const value = error as { name?: unknown; Code?: unknown };
+  return value.name === name || value.Code === name;
 }
 
 function encodedCredential(value: IntegrationCredentialValue): string {
