@@ -19,7 +19,7 @@
     <meta name="twitter:description" content="Verified connected accounts, approved actions, durable conversations, private files, and isolated cloud agents in your AWS account.">
     <meta name="twitter:image" content="https://gpazo.github.io/Rat-Things/assets/rat-things-og-v2.jpg">
     <link rel="canonical" href="https://gpazo.github.io/Rat-Things/">
-    <link rel="stylesheet" href="styles.css?v=18">
+    <link rel="stylesheet" href="styles.css?v=19">
   </head>
   <body>
     <a class="skip-link" href="#main">Skip to content</a>
@@ -161,52 +161,105 @@
         <p class="route-note">The host decides whether one deployment serves one person or many authenticated users. Rat derives an owner from each trusted principal and keeps accounts, Things, Runs, conversations, and files within that boundary.</p>
       </section>
 
-      <section class="slack-section" id="integrations" aria-labelledby="integrations-title">
+      <section class="slack-section integration-section" id="integrations" aria-labelledby="integrations-title">
         <div class="slack-heading">
           <div>
-            <div class="section-label">Connected services, one durable agent</div>
-            <h2 id="integrations-title">Bring the services<br>your work already uses.</h2>
+            <div class="section-label">Slack → Rat Things → Linear</div>
+            <h2 id="integrations-title">Turn conversation<br>into tracked work.</h2>
           </div>
           <div class="slack-copy">
-            <p>Rat turns a reviewed OAuth or API integration into verified accounts and exact agent operations. Use those connections from your product, the CLI, a Routine, another agent, or a team interface such as Slack.</p>
-            <p>The interface can change without losing the durable conversation, native Codex context, generated files, or the fixed access envelope resolved before each Run.</p>
+            <p>Start with an approved request in Slack. Let one isolated Run find the source context, check Linear for existing work, and create or update the issue through exact OAuth-backed operations.</p>
+            <p>Slack and Linear are separate verified Connections. The agent receives only the accounts and operations admitted before launch; neither credential enters its prompt or workspace.</p>
             <a class="text-link" href="docs/plugins/">Explore integrations, accounts, and permissions <span aria-hidden="true">→</span></a>
           </div>
         </div>
 
         <div class="slack-experience">
-          <div class="slack-thread" aria-label="Example Rat Things conversation in a Slack thread">
+          <div class="slack-thread" aria-label="Example Rat Things Slack request that creates tracked Linear work">
             <div class="slack-thread-header">
               <span># customer-ops</span>
-              <small>One built-in example · Slack</small>
+              <small>01 · Request in Slack</small>
             </div>
             <div class="slack-message slack-message-human">
               <span class="slack-avatar" aria-hidden="true">YOU</span>
-              <div><strong>You</strong><p><b>@Rat Things</b> Find what we decided about the renewal, compare it with the latest account notes, and summarize the open questions.</p></div>
+              <div><strong>You</strong><p><b>@Rat Things</b> Find the approved renewal decision. Check Linear, then track any open security work with the source context.</p></div>
             </div>
             <div class="slack-message slack-message-rat">
               <span class="slack-avatar slack-avatar-rat" aria-hidden="true">RT</span>
-              <div><strong>Rat Things</strong><p>I found the decision and the two unresolved items. The renewal stays annual; security review and the rollout owner are still open.</p><small>Workspace search · isolated agent · durable Run</small></div>
+              <div><strong>Rat Things</strong><p>I found the approved annual renewal and no matching issue. I created <b>ENG-482</b> with the two security gaps, owner, and source summary.</p><small>Slack search · Linear search + create · durable Run</small></div>
             </div>
             <div class="slack-message slack-message-human slack-message-followup">
               <span class="slack-avatar" aria-hidden="true">YOU</span>
-              <div><strong>You</strong><p>Post that summary in the project channel and add a check mark here.</p></div>
+              <div><strong>You</strong><p>Move it to In Progress and add the rollout note.</p></div>
             </div>
-            <div class="slack-thread-state"><span>✓</span> Same thread · same durable conversation · approved operations only</div>
+            <div class="slack-thread-state"><span>✓</span> Same thread · same durable conversation · bounded Linear writes</div>
           </div>
 
-          <div class="slack-use-grid">
-            <article><span>01</span><h3>Install verified accounts</h3><p>Connect several accounts through OAuth or API credentials. Rat derives the real provider identity and keeps every credential in the host vault.</p></article>
-            <article><span>02</span><h3>Find and synthesize context</h3><p>Search and read the admitted sources each job needs, limited to the selected account, provider scopes, grant, operations, and resources.</p></article>
-            <article><span>03</span><h3>Take precise action</h3><p>Post, update, create, or trigger work only through the exact operations exposed by the reviewed provider adapter and fixed Run envelope.</p></article>
-            <article><span>04</span><h3>Reuse the connection everywhere</h3><p>Bring the same verified account to conversations, Things, Routines, your desktop, CLI, API, team interface, or another agent.</p></article>
+          <div class="linear-issue" aria-label="Example Linear issue created by the Rat Things workflow">
+            <div class="linear-header">
+              <span class="linear-mark" aria-hidden="true">L</span>
+              <strong>Linear</strong>
+              <small>02 · Tracked outcome</small>
+            </div>
+            <div class="linear-body">
+              <div class="linear-issue-line"><span>ENG-482</span><span class="linear-status">In Progress</span></div>
+              <h3>Close renewal security gaps</h3>
+              <p>Resolve the security review and confirm the rollout owner before the annual renewal is finalized.</p>
+              <dl class="linear-meta">
+                <div><dt>Project</dt><dd>Customer renewals</dd></div>
+                <div><dt>Assignee</dt><dd>Maya Chen</dd></div>
+                <div><dt>Priority</dt><dd><span class="priority-high">●</span> High</dd></div>
+              </dl>
+              <div class="linear-activity">
+                <span class="linear-activity-icon" aria-hidden="true">RT</span>
+                <div><strong>Rat Things</strong><p>Created from the approved #customer-ops decision. Added the two open items and rollout note.</p><small>Just now · app actor</small></div>
+              </div>
+            </div>
+            <div class="linear-footer"><span>✓</span> Verified workspace · issue + comment operations only</div>
           </div>
         </div>
 
+        <div class="slack-use-grid integration-use-grid">
+          <article><span>01</span><h3>Install both accounts</h3><p>Connect Slack and Linear through deployment-owned OAuth. Rat verifies each provider identity and stores issued credentials in the host vault.</p></article>
+          <article><span>02</span><h3>Resolve a fixed envelope</h3><p>Select the Slack read and Linear read/write operations this Run needs. Provider scopes, grants, profiles, and resource limits all intersect.</p></article>
+          <article><span>03</span><h3>Research before writing</h3><p>Search the source thread and existing issues first. The agent can create, update, or comment only through reviewed GraphQL documents.</p></article>
+          <article><span>04</span><h3>Keep the work durable</h3><p>The Slack thread, Linear result, Run ledger, generated files, and native Codex context remain traceable across clients and compute.</p></article>
+        </div>
+
         <div class="slack-beyond">
-          <strong>The interface is the front door, not the limit.</strong>
-          <p>A message from Slack, a request from your product, a schedule, an event, the CLI, or another agent can launch the same isolated work. One Run can combine web research, browser use, code and file generation, and the connected services its fixed capability envelope admits.</p>
-          <a class="text-link" href="docs/slack/">See the built-in Slack example <span aria-hidden="true">→</span></a>
+          <strong>Bring Slack and Linear into one workflow.</strong>
+          <p>Connect both accounts, choose what Rat Things can do, and keep every handoff tied to the conversation that started it.</p>
+          <div class="integration-links">
+            <a class="text-link" href="docs/linear/">Set up Linear <span aria-hidden="true">→</span></a>
+            <a class="text-link" href="docs/slack/">Set up Slack <span aria-hidden="true">→</span></a>
+          </div>
+        </div>
+
+        <div class="linear-showcase" aria-labelledby="linear-showcase-title">
+          <div class="linear-showcase-copy">
+            <div class="section-label">Rat Things for Linear</div>
+            <h3 id="linear-showcase-title">Keep the backlog moving—<br>without leaving the conversation.</h3>
+            <p>Ask Rat Things to find the right team, check for existing work, create the issue, sharpen the description, and leave the handoff note. It returns the Linear link to the same thread, so the decision and the work stay connected.</p>
+            <p>Use it from Slack, a scheduled Routine, your own product, or the CLI. You choose the Linear workspace and actions each workflow can use.</p>
+            <ol class="linear-showcase-benefits" aria-label="Linear workflow benefits">
+              <li><span>01</span>Find existing work</li>
+              <li><span>02</span>Create the right issue</li>
+              <li><span>03</span>Update the details</li>
+              <li><span>04</span>Leave the handoff</li>
+              <li><span>05</span>Return the link</li>
+            </ol>
+            <div class="linear-showcase-links">
+              <a class="text-link" href="../assets/linear-live-aws-e2e.mp4">Watch Linear in action <span aria-hidden="true">↗</span></a>
+              <a class="text-link" href="docs/linear/">Set up Linear <span aria-hidden="true">→</span></a>
+            </div>
+          </div>
+          <figure class="linear-showcase-media">
+            <video controls playsinline preload="metadata" poster="../assets/linear-marketing-poster.png" aria-label="Rat Things turning a request into tracked work in Linear">
+              <source src="../assets/linear-live-aws-e2e.mp4" type="video/mp4">
+              <a href="../assets/linear-live-aws-e2e.mp4">Watch the Linear workflow demo</a>.
+            </video>
+            <figcaption><span>Workflow demo</span> Connect Linear → hand off the request → get the finished issue back</figcaption>
+          </figure>
         </div>
       </section>
 
@@ -217,7 +270,7 @@
             <h2 id="extend-title">One contract.<br>As many trusted integrations as you choose.</h2>
           </div>
           <div class="extend-copy">
-            <p>Slack and Stripe are built-in examples of Rat's Integration Contract, not the boundary of the system. Add the OAuth or API services your deployment needs by declaring authentication, account identity, operations, schemas, and a fixed provider origin—then compile each reviewed adapter into the trusted host.</p>
+            <p>Linear, Slack, and Stripe are built-in examples of Rat's Integration Contract, not the boundary of the system. Add the OAuth or API services your deployment needs by declaring authentication, account identity, operations, schemas, and a fixed provider origin—then compile each reviewed adapter into the trusted host.</p>
             <p>The connection manager, permission intersection, credential broker, agent tools, CLI, and desktop controls reuse that contract instead of inventing a new integration path.</p>
             <a class="text-link" href="docs/plugins/#add-a-trusted-integration">Build a trusted integration <span aria-hidden="true">→</span></a>
           </div>
@@ -255,7 +308,7 @@
           <li><strong>Understand activity</strong><span>Review human-readable phases; expand technical evidence only when needed.</span></li>
           <li><strong>Continue durably</strong><span>Reply, react, attach files, answer questions, and revisit sources.</span></li>
           <li><strong>Install connections</strong><span>Complete self-hosted OAuth or verified key setup, monitor health, reconnect the same account safely, and see every Thing or routine using it.</span></li>
-          <li><strong>Use connected services</strong><span>Bring verified OAuth or API accounts into a Run through exact admitted operations; Slack is one built-in end-to-end example.</span></li>
+          <li><strong>Use connected services</strong><span>Bring verified OAuth or API accounts into a Run through exact admitted operations; Slack and Linear are built-in workflow examples.</span></li>
           <li><strong>Operate routines</strong><span>Create, pause, resume, run, and delete durable interval work from one clear view.</span></li>
         </ul>
 

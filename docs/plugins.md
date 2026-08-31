@@ -8,10 +8,12 @@ person, a team, or an embedded product; every connection remains scoped to the a
 An owner can connect several accounts for the same service and grant each account different access.
 This is the account-connection step in the [Rat Things operating model](operating-model.md).
 
-Slack is one built-in, end-to-end example of this system, not the product boundary. A deployment
-can add the OAuth or API services its work requires by implementing Rat's reviewed Integration
-Contract in trusted host code. Once installed, the same connection discovery, account verification,
-health, grants, agent tools, CLI, desktop controls, Things, and Routines apply to that service.
+Slack and Linear are built-in examples of this system, not the product boundary. Slack demonstrates
+signed conversational ingress and delivery; Linear demonstrates a verified OAuth app actor with
+bounded issue and comment operations. A deployment can add the services its work requires by
+implementing Rat's reviewed Integration Contract in trusted host code. Once installed, the same
+connection discovery, account verification, health, grants, agent tools, CLI, desktop controls,
+Things, and Routines apply to that service.
 
 That makes four broad workflows possible without giving credentials to the agent:
 
@@ -470,6 +472,7 @@ the verified OAuth Connection and atomically refuses a competing exact workspace
 
 | Plugin | Operations | Availability |
 | --- | --- | --- |
+| Linear | Team/workflow discovery, issue search/get/create/update, comment create | Built in |
 | Slack | API test, message search/post, reaction add | Built in |
 | Stripe | Customer search, invoice list, refund create | Built in |
 | Fixture CRM | Record search/create with two permission-distinct accounts | Tests only |

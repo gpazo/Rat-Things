@@ -174,7 +174,10 @@ export class OAuthAuthorizationService {
     authorizationUrl.searchParams.set('state', state);
     authorizationUrl.searchParams.set('code_challenge', codeChallenge);
     authorizationUrl.searchParams.set('code_challenge_method', 'S256');
-    authorizationUrl.searchParams.set('scope', authentication.oauth2!.scopes.join(' '));
+    authorizationUrl.searchParams.set(
+      'scope',
+      authentication.oauth2!.scopes.join(authentication.oauth2!.scopeSeparator ?? ' '),
+    );
     if (authentication.oauth2!.secondaryToken) {
       authorizationUrl.searchParams.set(
         authentication.oauth2!.secondaryToken.authorizationParameter,

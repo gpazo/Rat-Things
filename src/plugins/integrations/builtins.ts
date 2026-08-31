@@ -1,5 +1,6 @@
 import type { IntegrationPlugin } from '../integration-types.js';
 import { createFixtureCrmIntegrationPlugin } from './fixture-crm.js';
+import { createLinearIntegrationPlugin } from './linear.js';
 import { createSlackIntegrationPlugin } from './slack.js';
 import { createStripeIntegrationPlugin } from './stripe.js';
 
@@ -7,6 +8,7 @@ export function createBuiltinIntegrationPlugins(
   baseUrls: Record<string, string> = integrationPluginBaseUrls(),
 ): IntegrationPlugin[] {
   return [
+    createLinearIntegrationPlugin(),
     createSlackIntegrationPlugin(),
     createStripeIntegrationPlugin(),
     ...(baseUrls['fixture-crm']

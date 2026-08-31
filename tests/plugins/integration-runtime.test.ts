@@ -110,6 +110,33 @@ describe('integration tool runtime', () => {
     expect(session.tools[0]?.tools.map((tool) => tool.name)).toEqual(['messages_search']);
   });
 
+  it('accepts the equivalent flat operation input emitted by an agent', async () => {
+    const execute = vi.fn().mockImplementation((_operationId, input) => Promise.resolve(input));
+    const personal = connection('personal-id', 'mail-personal', 'full', ['mail.read']);
+    const runtime = new IntegrationRuntime({
+      registry: new IntegrationPluginRegistry([mailPlugin(execute)]),
+      store: memoryStore([personal], [grant(personal, 'full')]),
+      credentials: new CredentialBroker({
+        get: vi.fn().mockResolvedValue(JSON.stringify({ token: 'mail-token' })),
+      }),
+    });
+    const session = await runtime.prepare({
+      ownerId: 'owner-1',
+      request: { connections: [{ connection: 'mail-personal', preset: 'read-only' }] },
+    });
+
+    await expect(session.call({
+      namespace: 'mail',
+      tool: 'messages_search',
+      arguments: { query: 'invoice' },
+    })).resolves.toEqual({ query: 'invoice' });
+    expect(execute).toHaveBeenCalledWith(
+      'mail.messages.search',
+      { query: 'invoice' },
+      expect.objectContaining({ connection: expect.objectContaining({ alias: 'mail-personal' }) }),
+    );
+  });
+
   it('enforces resource constraints before credential access', async () => {
     const execute = vi.fn();
     const plugin = mailPlugin(execute);

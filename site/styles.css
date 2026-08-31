@@ -326,6 +326,7 @@ pre span { color: var(--cyan); }
   border-bottom: 1px solid rgba(176, 232, 101, 0.14);
   background:
     radial-gradient(circle at 16% 18%, rgba(176, 232, 101, 0.08), transparent 28rem),
+    radial-gradient(circle at 86% 48%, rgba(94, 106, 210, 0.12), transparent 31rem),
     #050c0e;
 }
 .slack-copy p, .extend-copy p { margin-bottom: 1rem; color: var(--muted); font-size: 1.04rem; }
@@ -346,14 +347,49 @@ pre span { color: var(--cyan); }
 .slack-message-followup { margin-left: 2.1rem; }
 .slack-thread-state { display: flex; align-items: center; gap: 0.55rem; padding: 0.75rem 1.1rem; border-top: 1px solid #dddde1; background: #eef7e7; color: #385125; font-size: 0.7rem; font-weight: 720; }
 .slack-thread-state span { color: #1f7a38; }
-.slack-use-grid { display: grid; grid-template-columns: 1fr 1fr; border-top: 1px solid var(--line); border-left: 1px solid var(--line); }
+.linear-issue { overflow: hidden; border: 1px solid rgba(143, 151, 255, 0.3); border-radius: var(--radius); background: #19191f; color: #f2f2f4; box-shadow: 0 28px 90px rgba(0, 0, 0, 0.32); }
+.linear-header { display: grid; grid-template-columns: auto auto 1fr; align-items: center; gap: 0.65rem; padding: 0.86rem 1rem; border-bottom: 1px solid #303039; background: #202027; }
+.linear-header strong { font-size: 0.86rem; }
+.linear-header small { justify-self: end; color: #93939f; font: 680 0.64rem ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: 0.08em; text-transform: uppercase; }
+.linear-mark { display: grid; place-items: center; width: 24px; height: 24px; border-radius: 7px; background: #5e6ad2; color: #fff; font: 800 0.7rem ui-monospace, SFMono-Regular, Menlo, monospace; }
+.linear-body { padding: 1.2rem; }
+.linear-issue-line { display: flex; align-items: center; justify-content: space-between; gap: 1rem; color: #92929f; font: 690 0.72rem ui-monospace, SFMono-Regular, Menlo, monospace; }
+.linear-status { padding: 0.28rem 0.55rem; border: 1px solid rgba(94, 106, 210, 0.45); border-radius: 999px; background: rgba(94, 106, 210, 0.16); color: #c5caff; font-size: 0.64rem; }
+.linear-body h3 { margin: 0.75rem 0 0.55rem; font-size: 1.42rem; letter-spacing: -0.025em; }
+.linear-body > p { margin-bottom: 1.25rem; color: #b3b3be; font-size: 0.84rem; line-height: 1.55; }
+.linear-meta { display: grid; grid-template-columns: repeat(3, 1fr); margin: 0; padding: 0.85rem 0; border-top: 1px solid #303039; border-bottom: 1px solid #303039; }
+.linear-meta div { min-width: 0; padding: 0 0.75rem; border-left: 1px solid #303039; }
+.linear-meta div:first-child { padding-left: 0; border-left: 0; }
+.linear-meta dt { color: #777783; font-size: 0.63rem; text-transform: uppercase; }
+.linear-meta dd { margin: 0.25rem 0 0; overflow: hidden; color: #d5d5da; font-size: 0.72rem; text-overflow: ellipsis; white-space: nowrap; }
+.priority-high { color: #e5484d; }
+.linear-activity { display: grid; grid-template-columns: auto 1fr; gap: 0.75rem; margin-top: 1.15rem; padding: 0.9rem; border: 1px solid #303039; border-radius: 10px; background: #202027; }
+.linear-activity-icon { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 9px; background: #173f49; color: #b8f2ff; font: 800 0.65rem ui-monospace, SFMono-Regular, Menlo, monospace; }
+.linear-activity strong { font-size: 0.76rem; }
+.linear-activity p { margin: 0.2rem 0; color: #b8b8c2; font-size: 0.74rem; line-height: 1.5; }
+.linear-activity small { color: #777783; font-size: 0.62rem; }
+.linear-footer { display: flex; align-items: center; gap: 0.55rem; padding: 0.75rem 1.1rem; border-top: 1px solid #303039; background: #202027; color: #b9bddf; font-size: 0.7rem; font-weight: 720; }
+.linear-footer span { color: #8992ef; }
+.slack-use-grid { display: grid; grid-template-columns: repeat(4, 1fr); margin-top: 1rem; border-top: 1px solid var(--line); border-left: 1px solid var(--line); }
 .slack-use-grid article { min-height: 220px; padding: 1.35rem; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); background: rgba(11, 23, 29, 0.4); }
 .slack-use-grid article > span { display: block; margin-bottom: 2.2rem; color: #b0e865; font: 700 0.7rem ui-monospace, SFMono-Regular, Menlo, monospace; }
 .slack-use-grid h3 { font-size: 1.12rem; }
 .slack-use-grid p { color: var(--muted); font-size: 0.82rem; }
-.slack-beyond { display: grid; grid-template-columns: minmax(220px, 0.4fr) minmax(0, 1fr); gap: 2rem; margin-top: 1rem; padding: 1.2rem 1.35rem; border: 1px solid rgba(176, 232, 101, 0.2); border-radius: 14px; background: rgba(176, 232, 101, 0.045); }
+.slack-beyond { display: grid; grid-template-columns: minmax(220px, 0.38fr) minmax(0, 1fr) auto; align-items: center; gap: 2rem; margin-top: 1rem; padding: 1.2rem 1.35rem; border: 1px solid rgba(176, 232, 101, 0.2); border-radius: 14px; background: rgba(176, 232, 101, 0.045); }
 .slack-beyond strong { color: #dff5be; }
 .slack-beyond p { margin: 0; color: var(--muted); font-size: 0.84rem; }
+.integration-links { display: grid; gap: 0.35rem; min-width: max-content; }
+.linear-showcase { display: grid; grid-template-columns: minmax(0, 0.92fr) minmax(420px, 1.08fr); gap: clamp(2rem, 5vw, 5rem); align-items: center; margin-top: clamp(3.5rem, 7vw, 6rem); padding-top: clamp(3rem, 6vw, 5rem); border-top: 1px solid rgba(176, 232, 101, 0.2); }
+.linear-showcase-copy h3 { margin: 0.7rem 0 1.15rem; color: var(--fg); font-size: clamp(2rem, 3.5vw, 3.35rem); line-height: 1; letter-spacing: -0.045em; }
+.linear-showcase-copy > p { max-width: 640px; margin-bottom: 0.85rem; color: var(--muted); font-size: 0.95rem; }
+.linear-showcase-benefits { display: flex; flex-wrap: wrap; gap: 0.5rem; margin: 1.35rem 0 0; padding: 0; list-style: none; }
+.linear-showcase-benefits li { display: flex; gap: 0.45rem; align-items: center; padding: 0.48rem 0.65rem; border: 1px solid rgba(176, 232, 101, 0.2); border-radius: 999px; background: rgba(176, 232, 101, 0.055); color: #dbe8d4; font: 650 0.67rem ui-monospace, SFMono-Regular, Menlo, monospace; }
+.linear-showcase-benefits span { color: #b0e865; }
+.linear-showcase-links { display: flex; flex-wrap: wrap; gap: 1.2rem; margin-top: 1.35rem; }
+.linear-showcase-media { overflow: hidden; margin: 0; border: 1px solid rgba(176, 232, 101, 0.23); border-radius: var(--radius); background: #020b06; box-shadow: 0 28px 90px rgba(0, 0, 0, 0.34); }
+.linear-showcase-media video { display: block; width: 100%; aspect-ratio: 16 / 9; background: #020b06; }
+.linear-showcase-media figcaption { display: flex; gap: 0.65rem; align-items: center; padding: 0.8rem 1rem; border-top: 1px solid rgba(176, 232, 101, 0.16); color: var(--muted); font-size: 0.68rem; }
+.linear-showcase-media figcaption span { flex: none; color: #b0e865; font: 700 0.64rem ui-monospace, SFMono-Regular, Menlo, monospace; text-transform: uppercase; }
 
 .extend-section { background: #07151b; }
 .extend-flow { display: grid; grid-template-columns: repeat(5, 1fr); margin: 0; padding: 0; border-top: 1px solid var(--line); border-left: 1px solid var(--line); list-style: none; }
@@ -544,6 +580,8 @@ footer p { max-width: 600px; margin: 1rem 0 0; color: var(--muted); font-size: 0
   .console-shot-mobile a { height: 420px; }
   .slack-experience { grid-template-columns: 1fr; }
   .slack-beyond { grid-template-columns: 1fr; gap: 0.5rem; }
+  .linear-showcase { grid-template-columns: 1fr; }
+  .integration-links { min-width: 0; }
   .extend-flow { grid-template-columns: 1fr 1fr; }
   .flow { grid-template-columns: 1fr 1fr; }
   .flow li { min-height: 205px; border: 1px solid var(--line); border-radius: 0 !important; }
@@ -573,6 +611,10 @@ footer p { max-width: 600px; margin: 1rem 0 0; color: var(--muted); font-size: 0
   .route-card, .feature-grid article, .flow li { min-height: auto; }
   .slack-use-grid article, .extend-flow li { min-height: auto; }
   .slack-message-followup { margin-left: 0; }
+  .linear-showcase { margin-top: 3rem; padding-top: 3rem; }
+  .linear-showcase-media figcaption { align-items: flex-start; flex-direction: column; }
+  .linear-meta { grid-template-columns: 1fr; gap: 0.75rem; }
+  .linear-meta div { padding: 0; border-left: 0; }
   .route-card code { margin-top: 1.4rem; }
   .feature-grid span { margin-bottom: 2rem; }
   pre { white-space: pre-wrap; overflow-wrap: anywhere; }

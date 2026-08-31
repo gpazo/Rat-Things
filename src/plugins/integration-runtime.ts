@@ -179,7 +179,7 @@ export class IntegrationRuntime {
       (candidate) => candidate.connection.alias === account || candidate.connection.connectionId === account,
     );
     if (!selected) throw new Error(`account ${account} is not authorized for this operation`);
-    const operationInput = recordValue(argumentsValue.input ?? {}, 'integration operation input');
+    const operationInput = operationInputValue(argumentsValue, resolved.operation);
     const decision = operationDecision(selected, resolved.operation);
     if (!decision.allowed) throw new Error(decision.reason ?? 'integration operation is not authorized');
     enforceResourceConstraints(selected.grants, operationInput);
@@ -331,6 +331,33 @@ function recordValue(value: JsonValue, label: string): { [key: string]: JsonValu
     throw new Error(`${label} must be an object`);
   }
   return value;
+}
+
+function operationInputValue(
+  argumentsValue: { [key: string]: JsonValue },
+  operation: OperationDefinition,
+): { [key: string]: JsonValue } {
+  if (argumentsValue.input !== undefined) {
+    return recordValue(argumentsValue.input, 'integration operation input');
+  }
+
+  const flatInput = Object.fromEntries(
+    Object.entries(argumentsValue).filter(([key]) => key !== 'account'),
+  );
+  const schema = operation.inputSchema && recordValue(operation.inputSchema, 'integration operation schema');
+  if (!schema || schema.type !== 'object') {
+    throw new Error('integration tool arguments require an input object');
+  }
+  const properties = schema.properties === undefined
+    ? undefined
+    : recordValue(schema.properties, 'integration operation properties');
+  if (
+    schema.additionalProperties === false &&
+    Object.keys(flatInput).some((key) => properties?.[key] === undefined)
+  ) {
+    throw new Error('integration tool arguments require an input object');
+  }
+  return flatInput;
 }
 
 function stringValue(value: JsonValue | undefined, label: string): string {

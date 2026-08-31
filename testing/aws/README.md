@@ -224,6 +224,26 @@ restores the Connection's original grant even when an assertion fails. It never 
 scopes or exposes either OAuth token family. Independently confirm the labeled message, reply,
 reaction, and absent denied marker in the Slack client.
 
+For Linear, install a private OAuth app and Connection first, then run the opt-in real-provider
+case against a disposable team:
+
+```bash
+AWS_E2E_REAL_LINEAR=true \
+AWS_E2E_LINEAR_CONNECTION_ALIAS=linear-work \
+AWS_E2E_LINEAR_TEAM_KEY=IND \
+./scripts/aws-e2e-test.sh oauth-canary
+```
+
+The write Run discovers the team, creates one uniquely labeled issue, updates it, comments, and
+reads it back. The durable ledger must contain exactly those five successful operations. A fresh
+read-only Run then searches and gets the same issue while proving create was not exposed. For a
+shareable console recording of a completed proof, run `npm run aws:e2e:linear:demo -- DEPLOYMENT_ID`.
+
+On 2026-08-30 PDT, deployment `oauth260827a` completed this path against private workspace
+**Indubitably**. It created `IND-6`; all five write/read-back calls succeeded, and the read-only
+follow-up recorded search/get only. The canary found and fixed safe normalization of
+schema-equivalent flat object arguments before the successful rerun.
+
 On 2026-08-27, deployment `oauth260827a` exercised the provider-agnostic part of this path and the
 complete CLI management surface against 236 live AWS resources. The exact callback was discoverable,
 invalid state failed closed with HTTP 400, and the unconfigured Slack app correctly reported

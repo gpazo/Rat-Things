@@ -122,6 +122,10 @@ function validateAuthentication(
         )) ||
         new Set(definition.oauth2.scopes).size !== definition.oauth2.scopes.length
       ) throw new Error(`integration plugin ${pluginId} OAuth scopes are invalid`);
+      if (
+        definition.oauth2.scopeSeparator !== undefined &&
+        ![' ', ','].includes(definition.oauth2.scopeSeparator)
+      ) throw new Error(`integration plugin ${pluginId} OAuth scope separator is invalid`);
       if (!['client-secret-basic', 'client-secret-post'].includes(
         definition.oauth2.tokenEndpointAuthMethod,
       )) throw new Error(`integration plugin ${pluginId} OAuth token authentication is invalid`);

@@ -838,6 +838,7 @@
           "authorizationUrl": { "type": "string", "format": "uri", "pattern": "^https://" },
           "tokenUrl": { "type": "string", "format": "uri", "pattern": "^https://" },
           "scopes": { "type": "array", "minItems": 1, "maxItems": 64, "uniqueItems": true, "items": { "type": "string", "minLength": 1, "maxLength": 256 } },
+          "scopeSeparator": { "enum": [" ", ","], "description": "Provider-specific scope delimiter; defaults to one space." },
           "secondaryToken": {
             "type": "object",
             "additionalProperties": false,

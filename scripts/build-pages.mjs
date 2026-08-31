@@ -25,6 +25,12 @@ const homepageAssetFiles = [
   'connections-console.png',
   'routines-console.png',
   'cli-live-aws-attachment-reply.jpg',
+  'linear-live-title.png',
+  'linear-marketing-poster.png',
+  'linear-live-aws-e2e.mp4',
+  'linear-live-issue.png',
+  'linear-live-write-run.png',
+  'linear-live-homepage.png',
 ];
 const documentationSharedAssetFiles = [
   'conversation-console-live-browser.png',
@@ -33,6 +39,17 @@ const documentationSharedAssetFiles = [
   'routines-console.png',
   'cli-live-aws-attachment-reply.jpg',
   'cli-live-aws-conversation.jpg',
+  'linear-live-title.png',
+  'linear-marketing-poster.png',
+  'linear-live-aws-e2e.mp4',
+  'linear-live-issue.png',
+  'linear-live-write-run.png',
+  'linear-live-read-only.png',
+  'linear-live-connection.png',
+  'linear-live-connection-details.png',
+  'linear-live-oauth-consent.png',
+  'linear-live-oauth-installed.png',
+  'linear-live-homepage.png',
 ];
 
 marked.setOptions({ gfm: true });
@@ -194,7 +211,7 @@ function rewriteHref(href, file) {
     const repositoryPath = posix.normalize(posix.join('docs', path));
     return `${repositoryUrl}/blob/main/${repositoryPath}${fragment ? `#${fragment}` : ''}`;
   }
-  if (['.json', '.png', '.svg', '.mmd'].includes(extname(path))) {
+  if (['.json', '.png', '.svg', '.mmd', '.mp4'].includes(extname(path))) {
     return `../assets/${basename(path)}${fragment ? `#${fragment}` : ''}`;
   }
   throw new Error(`unsupported local documentation link ${href} in ${file}`);

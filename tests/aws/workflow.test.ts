@@ -1066,6 +1066,64 @@ integration('live AWS agent-runner workflow', () => {
     }));
   }, timeoutMs);
 
+  const realLinearCliTest = process.env.AWS_E2E_REAL_LINEAR === 'true' ? it : it.skip;
+  realLinearCliTest('uses a real OAuth Linear account with write/read-back and read-only denial', async () => {
+    const alias = required('AWS_E2E_LINEAR_CONNECTION_ALIAS');
+    const teamKey = required('AWS_E2E_LINEAR_TEAM_KEY');
+    const marker = `RT-AWS-CLI-LINEAR-${randomUUID().slice(0, 8)}`;
+    const thread = `aws-linear-${randomUUID()}`;
+
+    const action = JSON.parse((await runRatThingsCli([
+      'chat', '--thread', thread, '--driver', 'codex', '--profile', 'small-business',
+      '--connection', `${alias}=read-write`,
+      '--allow-operation', `${alias}=linear.teams.list`,
+      '--allow-operation', `${alias}=linear.issues.create`,
+      '--allow-operation', `${alias}=linear.issues.update`,
+      '--allow-operation', `${alias}=linear.comments.create`,
+      '--allow-operation', `${alias}=linear.issues.get`,
+      '--json', '--wait-timeout', '480', '--',
+      `Use only the installed Linear connection. Call teams.list once and select team key ${teamKey}. Create exactly one issue titled ${marker}. Update that issue description to "Live Rat Things AWS credential-broker proof ${marker}". Add exactly one comment "Five bounded Linear calls succeeded for ${marker}". Read the issue back exactly once, then return its identifier, title, description, URL, and comment. Do not perform any other external action.`,
+    ])).stdout) as ApiConversationMessageStatus;
+    const actionRun = requiredConversationRun(action);
+    assertSuccessfulPublicMicrovmRun(actionRun);
+    expect(actionRun.result?.preview).toContain(marker);
+    expect(actionRun.result?.preview).toMatch(/https:\/\/linear\.app\//);
+
+    const runStore = new DynamoRunStore(createAwsClients().dynamodb, required('RUNS_TABLE_NAME'));
+    const storedActionRun = await waitForStoredRun(runStore, actionRun.runId);
+    const linearCalls = storedActionRun.agentToolCalls?.filter((call) => call.namespace === 'linear') ?? [];
+    expect(linearCalls).toHaveLength(5);
+    expect(linearCalls.map((call) => [call.tool, call.status])).toEqual([
+      ['teams_list', 'succeeded'],
+      ['issues_create', 'succeeded'],
+      ['issues_update', 'succeeded'],
+      ['comments_create', 'succeeded'],
+      ['issues_get', 'succeeded'],
+    ]);
+
+    const readOnly = JSON.parse((await runRatThingsCli([
+      'chat', '--thread', `${thread}-read-only`, '--driver', 'codex', '--profile', 'read-only',
+      '--connection', `${alias}=read-only`,
+      '--allow-operation', `${alias}=linear.issues.search`,
+      '--allow-operation', `${alias}=linear.issues.get`,
+      '--allow-operation', `${alias}=linear.issues.create`,
+      '--json', '--wait-timeout', '480', '--',
+      `Use only the installed Linear connection. Explain whether issue creation is available. Search exactly once for ${marker}, get the matching issue exactly once, and return its identifier, title, description, and URL. Do not change Linear and do not use another source.`,
+    ])).stdout) as ApiConversationMessageStatus;
+    const readOnlyRun = requiredConversationRun(readOnly);
+    assertSuccessfulPublicMicrovmRun(readOnlyRun);
+    expect(readOnlyRun.result?.preview).toContain(marker);
+    expect(readOnlyRun.result?.preview).toMatch(/creat(?:e|ion).*(?:not available|unavailable)|(?:not available|unavailable).*creat(?:e|ion)/i);
+
+    const storedReadOnlyRun = await waitForStoredRun(runStore, readOnlyRun.runId);
+    const readOnlyCalls = storedReadOnlyRun.agentToolCalls?.filter((call) => call.namespace === 'linear') ?? [];
+    expect(readOnlyCalls.map((call) => [call.tool, call.status])).toEqual([
+      ['issues_search', 'succeeded'],
+      ['issues_get', 'succeeded'],
+    ]);
+    expect(readOnlyCalls).not.toContainEqual(expect.objectContaining({ tool: 'issues_create' }));
+  }, timeoutMs);
+
   persistentMicrovmTest('falls back to a new MicroVM after the durable session expires', async () => {
     delete process.env.AWS_ENDPOINT_URL;
     const clients = createAwsClients();

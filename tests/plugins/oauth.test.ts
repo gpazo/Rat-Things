@@ -53,6 +53,27 @@ describe('OAuth connector installation', () => {
     });
   });
 
+  it('uses a provider-declared comma separator for OAuth scopes', async () => {
+    const service = new OAuthAuthorizationService({
+      registry: registry(','),
+      applications: applications(),
+      store: new MemoryOAuthStore(),
+      connections: oauthConnections(vi.fn()),
+      clock: fixedClock,
+      randomBytes: (size) => Buffer.alloc(size, 1),
+    });
+
+    const result = await service.start({
+      ownerId: 'api:owner-1',
+      pluginId: 'slack',
+      callbackUrl: 'https://api.example.test/v1/integrations/oauth/callback',
+      grant: { preset: 'read-only' },
+    });
+
+    expect(new URL(result.authorizationUrl).searchParams.get('scope'))
+      .toBe('messages:read,messages:write');
+  });
+
   it('atomically consumes callback state, exchanges the code, and hands verified credentials to connection creation', async () => {
     const store = new MemoryOAuthStore();
     const create = vi.fn().mockImplementation(async (input) => ({
@@ -449,7 +470,7 @@ function oauthConnections(create: ReturnType<typeof vi.fn>) {
   };
 }
 
-function registry(): IntegrationPluginRegistryLike {
+function registry(scopeSeparator?: ' ' | ','): IntegrationPluginRegistryLike {
   const plugin: IntegrationPlugin = {
     manifest: {
       id: 'slack',
@@ -464,6 +485,7 @@ function registry(): IntegrationPluginRegistryLike {
           authorizationUrl: 'https://provider.example.test/authorize',
           tokenUrl: 'https://provider.example.test/token',
           scopes: ['messages:read', 'messages:write'],
+          ...(scopeSeparator ? { scopeSeparator } : {}),
           tokenEndpointAuthMethod: 'client-secret-post',
         },
       }],

@@ -36,6 +36,8 @@ export interface OAuth2AuthorizationDefinition {
   authorizationUrl: string;
   tokenUrl: string;
   scopes: string[];
+  /** OAuth uses spaces by default; a few providers document comma-separated scopes. */
+  scopeSeparator?: ' ' | ',';
   /**
    * Some providers issue a second, user-delegated token beside the primary
    * app/bot token. The trusted manifest owns the provider response shape;

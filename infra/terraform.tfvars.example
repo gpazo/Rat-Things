@@ -30,7 +30,8 @@ teams_delivery_mode               = "workflow"
 # output with the provider, create a Secrets Manager JSON secret containing
 # client_id and client_secret, then add only its ARN here and apply again.
 # integration_oauth_app_secret_arns = {
-#   slack = "arn:aws:secretsmanager:us-west-2:111122223333:secret:agent/oauth-slack-AbCdEf"
+#   slack  = "arn:aws:secretsmanager:us-west-2:111122223333:secret:agent/oauth-slack-AbCdEf"
+#   linear = "arn:aws:secretsmanager:us-west-2:111122223333:secret:agent/oauth-linear-AbCdEf"
 # }
 
 # Self-hosted installations should override the notification APIs and add their

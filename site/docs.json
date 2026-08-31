@@ -32,6 +32,8 @@
       "title": "Connect channels and events",
       "documents": [
         "slack.md",
+        "linear.md",
+        "linear-live-demo-social.md",
         "github-webhook-onboarding.md",
         "microsoft-teams.md",
         "channels.md"
@@ -61,7 +63,8 @@
     "grok-bot-current-comparison.md"
   ],
   "agentCorpusExclude": [
-    "status-and-roadmap.md"
+    "status-and-roadmap.md",
+    "linear-live-demo-social.md"
   ],
   "descriptions": {
     "operating-model.md": "Understand the core objects, ownership boundary, permission model, and paths through Rat Things.",
@@ -73,6 +76,8 @@
     "plugins.md": "Connect and verify accounts, choose grants, and understand the effective permission intersection.",
     "capability-envelope.md": "Learn what an agent can use autonomously and what remains unavailable for the entire Run.",
     "conversations.md": "Start, continue, search, organize, attach, reply, react, answer questions, and inspect durable work.",
-    "slack.md": "Start durable work from a Slack mention, continue in its thread, search or act through approved accounts, and understand current boundaries."
+    "slack.md": "Start durable work from a Slack mention, continue in its thread, search or act through approved accounts, and understand current boundaries.",
+    "linear.md": "Install a verified Linear workspace, expose bounded issue and comment operations, and run a Slack-to-Linear handoff.",
+    "linear-live-demo-social.md": "Reuse the live AWS Linear proof video, screenshots, X copy, website copy, alt text, and asset manifest."
   }
 }

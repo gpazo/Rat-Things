@@ -132,13 +132,13 @@ team interface can use the same durable Run model. Today an operator can:
 - monitor health, reconnect the same identity, narrow access, and inspect every dependent consumer
   without exposing credentials to the agent.
 
-Slack is one built-in end-to-end example: a mention can start an isolated Codex Run, delegated
-search uses the installing user's visibility, and the answer returns to the same durable thread.
-The source binding fixes the agent profile and connected accounts before launch. Provider scopes,
-the persistent Rat grant, per-Run operation/resource narrowing, IAM, and egress still intersect; a
-prompt cannot install an account or widen authority. See [Integrations, accounts, and
-permissions](docs/plugins.md) for the reusable contract and [Use Rat Things from Slack](docs/slack.md)
-for that provider's workflows and setup.
+Slack and Linear are built-in examples. A Slack mention can start an isolated Codex Run, delegated
+search uses the installing user's visibility, and the answer returns to the same durable thread. A
+verified Linear app actor can search and inspect issues, create or update tracked work, and add
+comments through exact operations. Provider scopes, the persistent Rat grant, per-Run
+operation/resource narrowing, IAM, and egress still intersect; a prompt cannot install an account
+or widen authority. See [Use Rat Things from Slack](docs/slack.md), [Connect Rat Things to
+Linear](docs/linear.md), and [Integrations, accounts, and permissions](docs/plugins.md).
 
 The CLI exposes the same durable conversation primitives without requiring the console:
 
@@ -146,6 +146,7 @@ The CLI exposes the same durable conversation primitives without requiring the c
 rat-things conversations list
 rat-things conversations search "NVIDIA earnings"
 rat-things connect slack --oauth --wait --access read-write --alias slack-work
+rat-things connect linear --oauth --wait --access read-write --alias linear-work
 rat-things connection test slack-work
 rat-things connection consumers slack-work
 rat-things slack-events slack-work --profile read-only --json
@@ -162,6 +163,14 @@ and react, while delegated search uses the separately authorized installing user
 Operators manage account access and mention routing from the console or CLI; credentials remain in
 Secrets Manager. See [Integrations, accounts, and permissions](docs/plugins.md#self-hosted-oauth-installation)
 and [Channels and provider adapters](docs/channels.md#slack-self-hosted-channel-adapter).
+
+Linear also installs through host-owned OAuth, using an app actor whose provider-derived workspace
+identity is verified before persistence. Its built-in GraphQL adapter exposes team discovery, issue
+search/get/create/update, and comment creation; it does not yet accept Linear mentions, delegation,
+or Agent Session webhooks. A live AWS canary created, updated, commented on, and read back a real
+Linear issue with five successful durable tool calls, then proved creation disappeared from a
+read-only Run. Follow the complete [Linear setup, live proof, and Slack-to-Linear
+walkthrough](docs/linear.md).
 
 List and search return an opaque public conversation ID for transcript, organization, reaction, and
 source commands. `conversation sources` pages the complete indexed transcript, labels transcript
@@ -218,6 +227,7 @@ Read [How Rat Things operates](docs/operating-model.md), [Architecture](docs/arc
 - [Connect an agent to an existing deployment](docs/agents.md)
 - [Build, test, activate, and schedule a Thing](docs/things.md)
 - [Connect accounts and understand effective permission](docs/plugins.md)
+- [Install Linear and run the Slack-to-Linear handoff](docs/linear.md)
 - [Use durable conversations](docs/conversations.md)
 - [Retain, view, and share files](docs/sharing-work.md)
 - [Embed the API in another product](docs/embedding.md)

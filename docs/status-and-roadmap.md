@@ -34,7 +34,7 @@ broad real-agent evaluation, or disaster-recovery proof.
 | Capability profiles | Implemented/locally tested | Deployment ceiling plus `read-only`, `small-business`, and `microvm-full`; requests can narrow but not widen profiles |
 | Integration Contract v1 | Real-provider OAuth installation, recovery rotation, and independent multi-token refresh live AWS validated; concurrent fencing locally validated | Manifest-driven CLI/API/console onboarding, self-hosted authorization-code/PKCE with one-time state, automatic refresh leases, pre-persistence verification, provider-derived identity/access/scopes, stable errors, and verified rotation |
 | Multi-account integrations | Implemented/local and live AWS validated | Owner-scoped connections, Secrets Manager vault, grants, same-plugin account sets, source bindings, fixed pre-launch permission intersection, resource constraints, and revocation |
-| Reference integration tools | Slack identity, delegated search, post, threaded reply, reaction, dual-token refresh, and denial live AWS validated | Fixed-origin Slack search/post/reaction and Stripe customer/invoice/refund adapters; Slack search uses a separately issued user token with `search:read`, while Stripe/customer-provider actions are not claimed live without disposable accounts |
+| Reference integration tools | Slack and Linear OAuth identity, bounded reads/writes, and persistent denial live AWS validated | Fixed-origin Slack search/post/reaction, Linear team/issue/comment GraphQL, and Stripe customer/invoice/refund adapters; Linear passed a disposable workspace canary with provider read-back and a durable tool ledger |
 | Browser computer use | Live view/takeover/teaching implemented and live AWS validated | Real-Codex AWS proofs cover the 12 agent command types, capture, recording, private-target blocking, lifecycle-port isolation, publication, authenticated screenshots, an exclusive renewable browser lease, redacted demonstrations, unpublished draft-Thing creation, return of browser control, and the typed CLI action surface; secure credential brokering, file transfer, and general desktop control remain out of scope |
 | Durable routines | Implemented/local and live AWS CLI validated | Owner-scoped interval create/list/get/pause/resume/delete/run-now, encrypted S3 request, due-time GSI, deterministic occurrence submission, duplicate-tick fencing, request-digest verification, latest-run visibility for scheduled and manual work, and matching console/CLI lifecycle management |
 | Codex authentication | Live/local validated | Short-term Bedrock in AWS; trusted local runs can reuse the device's ChatGPT subscription without copying it into remote runs |
@@ -42,9 +42,29 @@ broad real-agent evaluation, or disaster-recovery proof.
 | GitHub/GitLab | Initial adapters | Signed ingress, loop guards, source-thread egress; credential and policy hardening remain |
 | Teams | Durable chat path locally/live AWS validated | Signed mentions get an immediate acknowledgement, enter the mailbox, and complete through threaded gateway egress; Microsoft authentication and live tenant delivery remain |
 | Slack | Self-hosted OAuth, channel ingress, source-thread delivery/continuation, and agent tools live validated | A real workspace completed consent, bot+user token exchange and refresh, provider identity verification, signed app mentions, same-MicroVM/native-thread continuation, CLI search/root/thread/reaction actions, Connections UI grant management, and read-only write denial; enabling the route remains optional per deployment |
+| Linear | Built-in OAuth app-actor tools live AWS validated | A private workspace app completed PKCE consent and verified identity; a Lambda MicroVM created, updated, commented on, and read back a real issue with five successful durable calls, followed by a read-only search/get proof. Native mentions, issue delegation, and Agent Session events/activities remain out of scope |
 | Observability/recovery | Generation-fenced liveness live validated; broader drills remain | Low-cardinality queue/processing metrics, structured logs, durable queues/events, worker heartbeats, exact MicroVM health inspection, conditional stale failure/cancellation, conflict quarantine, delivery leases, failure queues, and alarms |
 | Cost model | Live canary baseline measured | The 2026-08-16 two-turn site canary has a dated $0.380 estimate using rates captured then; non-model infrastructure was about $0.046, while current repricing and sustained-load ceilings remain unmeasured |
 | Multi-tenant hardening | Not complete | Run responses now strip storage/authority internals; destination authorization, budgets, rate limits, output policy, and security review remain |
+
+## Validation completed on 2026-08-30 PDT
+
+- Retained stack `oauth260827a` installed a private Linear OAuth application through the public AWS
+  PKCE callback. Rat verified the workspace and app-user identity before activating Connection
+  `linear-work`; the Connections UI independently reported the account healthy and verified.
+- Real Codex Run `b342f17b-a239-517a-aa1a-eae83befe2f9` executed in an ARM64 Lambda MicroVM and
+  created issue `IND-6`, updated its description, added an app-authored comment, and read the result
+  back from Linear. Its durable ledger recorded exactly five successful calls—`teams_list`,
+  `issues_create`, `issues_update`, `comments_create`, and `issues_get`—with no failed calls.
+- A separate read-only Run exposed only `issues_search` and `issues_get`, reported that creation was
+  unavailable, and recorded no mutation. This proved the effective envelope narrowed the same
+  installed OAuth account without changing provider authority.
+- The first canary found a compatibility gap when Codex emitted schema-equivalent flat arguments
+  instead of the documented `{input: ...}` wrapper. The broker now safely normalizes that shape only
+  for object schemas, still rejects unknown fields, and has a focused regression test. The fixed
+  image repeated the full provider write/read-back proof successfully.
+- The shareable 39.4-second proof, OAuth/Connection/provider screenshots, console receipt, and
+  launch copy are retained under `assets/` and `docs/linear-live-demo-social.md`.
 
 ## Validation completed on 2026-08-29 PDT
 
@@ -610,10 +630,10 @@ teardown.
 ## Known gaps
 
 - Test private repository checkout and rotation of short-lived installation/project credentials.
-- Extend the real-provider OAuth canary beyond successful Slack installation, recovery rotation,
-  and independent bot/user refresh. Consent denial, callback replay, concurrent refresh fencing,
-  and provider-side revocation still need live provider coverage; writes, search, signed ingress,
-  threaded continuation, reaction, and persistent read-only denial are now live validated.
+- Extend the real-provider OAuth canaries beyond successful Slack and Linear installation and
+  actions. Consent denial, callback replay, concurrent refresh fencing, and provider-side
+  revocation still need live provider coverage; bounded writes, reads, provider read-back, Slack
+  ingress/continuation, and persistent read-only denial are now live validated.
 - Keep generic source-binding creation restricted to a trusted operator. The Slack-specific CLI now
   derives its team selector from a provider-verified Connection and prevents another Connection
   from claiming the same workspace, but arbitrary `bind-source` selectors are not provider-proven.
@@ -669,9 +689,10 @@ The immediate priority is to make the new small-business/self-hosted surface bor
    extend the scheduled-Thing proof across injected retry/crash windows. The complete manual Routine
    lifecycle, including one live MicroVM run, now passes through the built CLI; a normal scheduled
    Thing occurrence and its lifecycle/provenance path are also live validated.
-4. Expand the completed live Slack OAuth/install/ingress/action/search/refresh canary with consent
-   denial, callback replay, concurrent refresh fencing, and provider-side revocation. Keep
-   application ownership in the host AWS account and defer a public connector marketplace.
+4. Expand the completed live Slack and Linear OAuth/install/action canaries with consent denial,
+   callback replay, concurrent refresh fencing, and provider-side revocation; retain Slack's
+   ingress/search/refresh coverage. Keep application ownership in the host AWS account and defer a
+   public connector marketplace.
 5. Extract the fixed-origin adapter pattern into a contributor-facing SDK, schema validator, and
    conformance suite before expanding the app catalog.
 6. Add browser and integration audit events, output redaction, destination authorization, budgets,
