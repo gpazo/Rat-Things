@@ -27,9 +27,9 @@ describe('AWS-ready golden-path documentation', () => {
     expect(guide).toContain('[centrally published AWS quickstart evidence]');
     expect(guide).toContain('An immutable source tag cannot contain evidence produced after that same commit exists.');
 
-    expect(homepage).toContain('Bring your Codex subscription.<br>Give it a cloud.');
-    expect(homepage).toContain('Sign in once. Take Codex further.');
-    expect(homepage).toContain('Bring the plan you already use. No OpenAI Platform API key or Bedrock setup is required for the default path.');
+    expect(homepage).toContain('The open-source backend<br>for cloud agents.');
+    expect(homepage).toContain('Start in Codex. Hand off when it matters.');
+    expect(homepage).toContain('or start from Slack, Linear, a schedule, your product, or the API.');
     expect(homepage).toContain('rat-things handoff');
     expect(homepage).toContain('ChatGPT/OpenAI is the default. Amazon Bedrock remains available as an explicit deployment option.');
     expect(homepage).toContain('historical Bedrock-backed AWS proof');

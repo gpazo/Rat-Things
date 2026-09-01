@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <strong>Bring your Codex subscription. Give it a durable cloud.</strong>
+  <strong>A durable cloud for your agents, inside your AWS account.</strong>
 </p>
 
 <p align="center">
@@ -25,12 +25,13 @@
   <a href="docs/status-and-roadmap.md">Current status</a>
 </p>
 
-**Bring your Codex subscription to Rat Things.** Use the Codex access included with the ChatGPT plan
-already signed in on your computer—no OpenAI Platform API key or Amazon Bedrock setup is required
-for the default path. Work locally, then hand bounded work to isolated AWS Lambda MicroVM agents
-when it should continue, parallelize, run on a schedule, or use connected services without depending
-on your laptop. The local CLI and cloud backend share owner-scoped **Things**, durable **Runs**,
-conversations, and generated files.
+**Rat Things runs durable, isolated cloud agents in your AWS account.** Start work from local Codex,
+Slack, Linear, a schedule, your product, or the API; then let bounded tasks continue, parallelize,
+use connected services, and produce durable files without depending on your laptop. The local CLI
+and cloud backend share owner-scoped **Things**, durable **Runs**, conversations, and generated files.
+
+Bring the Codex access included with the ChatGPT plan already signed in on your computer for the
+default local-to-cloud path—no OpenAI Platform API key or Amazon Bedrock setup is required.
 
 There is no central Rat Things service. The host owns identity, OAuth applications, credentials,
 data, infrastructure, and the user experience. Rat verifies connected accounts, resolves a fixed
@@ -42,9 +43,9 @@ records, logs, and launch payloads.
 > have passed disposable live-AWS validation, but the project has not completed a penetration test,
 > sustained-load exercise, disaster-recovery proof, or untrusted multi-tenant hardening.
 
-## Bring your Codex subscription
+## Start locally or in the cloud
 
-### Use it locally
+### Bring your Codex subscription
 
 On a trusted device, use the official ChatGPT sign-in. Local work stays on that device:
 
@@ -57,7 +58,7 @@ npm run rat-things -- "Summarize this repository"
 Read [Bring your Codex subscription to Rat Things](docs/codex-subscription.md) for sandbox, authentication, and
 headless-login details.
 
-### Give it a cloud handoff
+### Hand it to cloud agents
 
 For real unattended Codex handoffs, the quickstart can bridge the same file-based ChatGPT login
 into your AWS account:
