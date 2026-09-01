@@ -73,10 +73,14 @@ each family separately; Terraform still receives only the application-secret ARN
 
 The trusted root process resolves configured secrets. Agent subprocesses do not inherit the
 MicroVM AWS credential chain unless `allow_agent_aws_credential_chain=true` is explicitly set. The
-preferred Codex/Bedrock path mints a short-term token from the execution role and passes only that
-token to the UID 10001 child. `codex_bedrock_model_ids` restricts inference to exact model IDs.
-Personal ChatGPT/Codex account authentication is intentionally local-only; do not place a reusable
-device `auth.json` in the MicroVM image or in Secrets Manager for repository-controlled execution.
+default ChatGPT path reads the secret selected by `codex_auth_file_secret_arn`, validates its
+file-based login, writes a mode-`0600` runtime `auth.json`, persists validated refresh rotation, and
+removes the runtime copy after the turn. Never put the value in Terraform, an image, Run, state
+record, or log. Codex and repository code run under the same agent UID and can read that file while
+the turn is active, so this bridge is only for trusted owner-operated agents; theft of its renewable
+refresh token can impersonate the Codex login even though the file has no password or MFA secret.
+Optional Bedrock mode mints a short-term token from the execution role;
+`codex_bedrock_model_ids` restricts inference to exact model IDs.
 
 AWS-managed `INTERNET_EGRESS` gives a MicroVM outbound internet access by default. The dispatcher
 therefore needs `lambda:PassNetworkConnector`; AWS currently documents no resource type or condition

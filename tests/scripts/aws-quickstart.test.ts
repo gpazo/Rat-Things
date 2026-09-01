@@ -19,22 +19,48 @@ describe('AWS quickstart', () => {
     expect(() => assertSupportedNodeVersion('24.1.0')).not.toThrow();
   });
 
-  it('defaults to a real, narrow Codex deployment', () => {
+  it('defaults to a real Codex deployment through a connected ChatGPT workspace', () => {
     const options = parseAwsQuickstartOptions([]);
     expect(options).toMatchObject({
       command: 'setup',
       driver: 'codex',
+      auth: 'chatgpt',
       region: 'us-west-2',
       environment: 'quickstart',
-      model: 'openai.gpt-5.6-terra',
+      codexAuthFile: expect.stringMatching(/\/\.codex\/auth\.json$/),
+      acceptCodexCredentialRisk: false,
     });
     expect(awsQuickstartTerraformConfig(options, '7')).toMatchObject({
       default_agent_driver: 'codex',
+      codex_auth_mode: 'chatgpt',
+      codex_bedrock_model_ids: [],
       default_sandbox_mode: 'read-only',
       default_agent_network_access: false,
       enable_s3_files: false,
       microvm_base_image_version: '7',
       force_destroy_data: true,
+    });
+  });
+
+  it('accepts deliberate file-credential consent and an existing secret ARN', () => {
+    const secretArn = 'arn:aws:secretsmanager:us-west-2:123456789012:secret:rat/codex-auth';
+    const options = parseAwsQuickstartOptions([
+      '--codex-auth-file',
+      './fixtures/auth.json',
+      '--codex-auth-secret-arn',
+      secretArn,
+      '--accept-codex-credential-risk',
+      '--yes',
+    ]);
+
+    expect(options).toMatchObject({
+      codexAuthFile: expect.stringMatching(/\/fixtures\/auth\.json$/),
+      codexAuthSecretArn: secretArn,
+      acceptCodexCredentialRisk: true,
+      yes: true,
+    });
+    expect(awsQuickstartTerraformConfig(options, '7')).toMatchObject({
+      codex_auth_file_secret_arn: secretArn,
     });
   });
 
@@ -58,8 +84,9 @@ describe('AWS quickstart', () => {
 
   it('rejects ambiguous and unsupported setup choices before AWS changes', () => {
     expect(() => parseAwsQuickstartOptions(['--driver', 'auto'])).toThrow('--driver must be codex or mock');
+    expect(() => parseAwsQuickstartOptions(['--auth', 'auto'])).toThrow('--auth must be chatgpt or bedrock');
     for (const region of ['ap-northeast-1', 'eu-west-1']) {
-      expect(() => parseAwsQuickstartOptions(['--region', region])).toThrow(
+      expect(() => parseAwsQuickstartOptions(['--auth', 'bedrock', '--region', region])).toThrow(
         'default Lambda MicroVM + openai.gpt-5.6-terra quickstart is not supported',
       );
     }
@@ -67,15 +94,30 @@ describe('AWS quickstart', () => {
       'Lambda MicroVM quickstart is not supported',
     );
     expect(() => parseAwsQuickstartOptions(['--unknown', 'value'])).toThrow('unknown option');
+    expect(() => parseAwsQuickstartOptions([
+      '--codex-auth-secret-arn',
+      'not-an-arn',
+    ])).toThrow('--codex-auth-secret-arn must be a Secrets Manager ARN');
   });
 
-  it('allows a deliberate model or mock diagnostic in the other MicroVM Regions', () => {
+  it('allows ChatGPT by default or a deliberate Bedrock model in every MicroVM Region', () => {
     expect(parseAwsQuickstartOptions([
       '--region',
       'eu-west-1',
+    ])).toMatchObject({ region: 'eu-west-1', driver: 'codex', auth: 'chatgpt' });
+    expect(parseAwsQuickstartOptions([
+      '--region',
+      'eu-west-1',
+      '--auth',
+      'bedrock',
       '--model',
       'operator.selected-model',
-    ])).toMatchObject({ region: 'eu-west-1', driver: 'codex', model: 'operator.selected-model' });
+    ])).toMatchObject({
+      region: 'eu-west-1',
+      driver: 'codex',
+      auth: 'bedrock',
+      model: 'operator.selected-model',
+    });
     expect(parseAwsQuickstartOptions([
       '--region',
       'ap-northeast-1',
@@ -151,11 +193,13 @@ describe('AWS quickstart', () => {
       true,
       { listedMicrovms: 2, activeMicrovms: 0 },
       { enabled: false, state: 'PendingDeletion', deletionDate: '2026-09-23T00:00:00Z' },
+      true,
     )).toMatchObject({
       teardown: {
         microvmImageResolved: true,
         listedMicrovms: 2,
         activeMicrovms: 0,
+        credentialSecretDeleted: true,
         kmsKey: { enabled: false, state: 'PendingDeletion' },
       },
     });

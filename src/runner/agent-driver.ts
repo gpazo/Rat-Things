@@ -80,6 +80,9 @@ export class CodexDriver implements AgentDriver {
     const identity = agentIdentity();
     const execution = await runCodexAppServer({
       binary: process.env.CODEX_BINARY ?? 'codex',
+      ...(authMode === 'chatgpt'
+        ? { binaryArguments: ['-c', 'cli_auth_credentials_store=file', 'app-server'] }
+        : {}),
       workspace,
       environment: agentEnvironment(workspace),
       ...(identity ? { identity } : {}),

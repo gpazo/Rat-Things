@@ -3,20 +3,20 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Rat Things — The open-source backend for cloud agents</title>
-    <meta name="description" content="Run durable cloud agents with the OAuth and API services your work needs—verified accounts, reusable Things, private files, and isolated execution in your AWS account.">
+    <title>Rat Things — Bring your Codex subscription to your cloud</title>
+    <meta name="description" content="Bring the Codex access included with your ChatGPT plan. Work locally, then hand bounded work to durable agents running with connected services and private files in your AWS account.">
     <meta name="theme-color" content="#071116">
     <meta property="og:type" content="website">
-    <meta property="og:title" content="Rat Things — The open-source backend for cloud agents">
-    <meta property="og:description" content="Connect verified accounts, expose only approved operations, and run durable cloud agents from any interface in your AWS account.">
+    <meta property="og:title" content="Bring your Codex subscription. Give it a cloud.">
+    <meta property="og:description" content="Use your ChatGPT plan with local Codex, then explicitly hand work to isolated agents in your AWS account.">
     <meta property="og:url" content="https://gpazo.github.io/Rat-Things/">
     <meta property="og:image" content="https://gpazo.github.io/Rat-Things/assets/rat-things-og-v2.jpg">
     <meta property="og:image:width" content="1200">
     <meta property="og:image:height" content="630">
     <meta property="og:image:alt" content="Rat Things cybernetic guard dog with the words VM-level isolation at serverless scale.">
     <meta name="twitter:card" content="summary_large_image">
-    <meta name="twitter:title" content="Rat Things — The open-source backend for cloud agents">
-    <meta name="twitter:description" content="Verified connected accounts, approved actions, durable conversations, private files, and isolated cloud agents in your AWS account.">
+    <meta name="twitter:title" content="Bring your Codex subscription. Give it a cloud.">
+    <meta name="twitter:description" content="Your ChatGPT plan powers local Codex. Rat Things adds explicit, durable handoffs to agents in your AWS account.">
     <meta name="twitter:image" content="https://gpazo.github.io/Rat-Things/assets/rat-things-og-v2.jpg">
     <link rel="canonical" href="https://gpazo.github.io/Rat-Things/">
     <link rel="stylesheet" href="styles.css?v=19">
@@ -46,19 +46,19 @@
         <div class="hero-art" role="img" aria-label="An original cybernetic guard dog emerging from a refrigerated hutch"></div>
         <div class="hero-scrim"></div>
         <div class="hero-copy">
-          <p class="eyebrow">Open source · Self-hosted · Isolated · Durable</p>
-          <h1 class="hero-title">The open-source backend<br>for cloud agents.</h1>
-          <p class="hero-lede">Run agents in isolated AWS MicroVMs. Start work from the interface your team already uses. Keep the conversation and generated files durable while connecting only the OAuth and API accounts, operations, and network access each job needs.</p>
+          <p class="eyebrow">Bring your Codex subscription · Self-hosted in your AWS account</p>
+          <h1 class="hero-title">Bring your Codex subscription.<br>Give it a cloud.</h1>
+          <p class="hero-lede">Use the Codex access already included with your ChatGPT plan. Work locally with the agent on your computer, then explicitly hand off work that should keep running, parallelize, or use connected services to isolated agents in your AWS account.</p>
           <p class="hero-status">Engineering preview · self-hosted in your AWS account · not ready for untrusted multi-tenant production</p>
           <div class="hero-actions">
-            <a class="button button-primary" href="docs/quickstart/">AWS-ready quickstart</a>
+            <a class="button button-primary" href="docs/codex-subscription/">Bring your Codex plan</a>
             <a class="button button-secondary" href="#integrations">Explore connected work</a>
           </div>
         </div>
         <dl class="hero-stats">
-          <div><dt>Your AWS</dt><dd>a self-hosted stack with no central Rat service</dd></div>
+          <div><dt>Your Codex plan</dt><dd>the default experience from local work to cloud handoff</dd></div>
           <div><dt>Fixed access</dt><dd>permissions are resolved before each run</dd></div>
-          <div><dt>Durable</dt><dd>conversations and generated files survive compute</dd></div>
+          <div><dt>Explicit handoff</dt><dd>cloud agents run only when you delegate</dd></div>
           <div><dt>OpenAPI</dt><dd>one discoverable API for products, CLIs, and agents</dd></div>
         </dl>
       </section>
@@ -66,56 +66,54 @@
       <section class="section start-section" id="start" aria-labelledby="start-title">
         <div class="section-heading compact-heading">
           <div>
-            <div class="section-label">The AWS-ready golden path</div>
-            <h2 id="start-title">Deploy, test, then decide.</h2>
+            <div class="section-label">Bring your subscription</div>
+            <h2 id="start-title">Sign in once. Take Codex further.</h2>
           </div>
           <div class="heading-copy">
-            <p>One command checks a prepared AWS account, deploys the backend, tests an exact Thing draft, activates that revision, and runs it again.</p>
-            <p class="requirement-line">Start with the smallest proof. Add accounts and capabilities after it is dependable.</p>
+            <p>Rat Things begins with the Codex access included in your ChatGPT plan. The AWS backend becomes its durable execution layer when a task needs time, parallel agents, schedules, or connected accounts.</p>
+            <p class="requirement-line">Bring the plan you already use. No OpenAI Platform API key or Bedrock setup is required for the default path.</p>
           </div>
         </div>
 
         <ol class="setup-grid">
           <li>
             <span class="step-number">01</span>
-            <h3>Clone</h3>
-            <pre><code><span>git clone</span> --depth 1 --branch golden-path-v1.0.0 \
-  https://github.com/gpazo/Rat-Things.git
-<span>cd</span> Rat-Things
-<span>test</span> "$(git rev-parse HEAD)" = \
-  "f1c5487f1eb0c1bbf778a75fea939f4474ee68ff"</code></pre>
+            <h3>Sign in once</h3>
+            <pre><code><span>npm ci</span>
+<span>npm run codex:login</span>
+
+# official ChatGPT browser login</code></pre>
           </li>
           <li>
             <span class="step-number">02</span>
-            <h3>Deploy and prove</h3>
-            <pre><code><span>npm run</span> quickstart:aws -- \
-  --profile rat-things-sandbox \
-  --region us-west-2
+            <h3>Work locally</h3>
+            <pre><code><span>rat-things</span> \
+  "Inspect this repo and fix the test"
 
-<span>install → preflight → deploy</span>
-<span>test → activate exact revision → run</span></code></pre>
+<span>local Codex → local tools → local files</span></code></pre>
           </li>
           <li>
             <span class="step-number">03</span>
-            <h3>Inspect or remove</h3>
-            <pre><code><span>npm run</span> quickstart:aws -- status
+            <h3>Hand it off</h3>
+            <pre><code><span>rat-things handoff</span> --thread release \
+  "Run every release check and keep the evidence"
 
-<span>npm run</span> quickstart:aws -- destroy
-<span># Exact local state. Exact target.</span></code></pre>
+<span>durable thread → isolated cloud agents</span></code></pre>
           </li>
         </ol>
 
         <div class="setup-footer">
           <div class="setup-summary">
-            <p><strong>What ten minutes means:</strong> the timer starts at <code>npm run quickstart:aws</code>. Host tools, AWS quota, Lambda MicroVM access, and Bedrock access must already be ready.</p>
-            <p><strong>Published proof:</strong> immutable tag <code>golden-path-v1.0.0</code> completed the fresh-install path in 402 seconds (6m42s), then teardown found no deployed state or active MicroVMs.</p>
-            <a class="text-link" href="docs/quickstart/">Follow the complete golden path <span aria-hidden="true">→</span></a>
+            <p><strong>Bring your Codex subscription:</strong> start with the ChatGPT plan you already use in local Codex, then explicitly bridge the same file-based login to isolated agents in your AWS account.</p>
+            <p><strong>Provider choice:</strong> ChatGPT/OpenAI is the default. Amazon Bedrock remains available as an explicit deployment option.</p>
+            <p><strong>Credential risk:</strong> the file includes a renewable refresh token. It has no password or MFA secret, but theft can still impersonate Codex, consume subscription usage, and reach Codex-visible data or connectors. Rat warns and asks before copying; use only with AWS accounts and agents you trust.</p>
+            <a class="text-link" href="docs/quickstart/">Deploy the cloud handoff <span aria-hidden="true">→</span></a>
           </div>
           <details class="setup-details">
             <summary>Prerequisites and evidence details</summary>
             <div>
-              <p>The Bash entry point supports macOS and Linux, including WSL 2; the published host proof is macOS ARM64. The default model path uses <code>us-east-1</code>, <code>us-east-2</code>, or <code>us-west-2</code>. The quickstart stores only the non-secret profile and Region names so status and destroy reuse the exact target.</p>
-              <p>The checkout test pins the same commit recorded in the <a href="docs/assets/aws-quickstart-evidence.json">project-published evidence JSON</a>. The default runs paid Codex on Bedrock twice; <code>--driver mock</code> validates infrastructure only. S3 Files, OAuth provider apps, schedules, and external sharing stay unconfigured in this first journey.</p>
+              <p>The local path needs Node.js, npm, Git, and a ChatGPT plan with Codex. The cloud path additionally needs an AWS account, Lambda MicroVM access, and file-backed Codex credentials. Quickstart stores an encrypted Secrets Manager copy, materializes it privately only for a Run, saves refresh rotation, and removes its runtime copy.</p>
+              <p>The earlier <a href="docs/assets/aws-quickstart-evidence.json">project-published evidence JSON</a> remains the historical Bedrock-backed AWS proof. On September 1, 2026, the new file bridge also completed a live working-tree AWS canary: two real Codex Runs in 521 seconds, authenticated status, zero active MicroVMs after teardown, and independent confirmation that the managed credential secret was gone. A clean-source published evidence bundle is still a release step.</p>
             </div>
           </details>
         </div>
@@ -411,7 +409,7 @@
           <article><span>05</span><h3>Retain and share files</h3><p>Keep generated files privately, inspect them through owner-gated viewers, or create expiring external links.</p></article>
           <article><span>06</span><h3>Use one Run model</h3><p>Manual Things, schedules, GitHub, GitLab, Teams, optional Slack, and raw API calls share one lifecycle.</p></article>
           <article><span>07</span><h3>Embed the API</h3><p>Discover OpenAPI, JSON Schemas, integration manifests, stable errors, and capability profiles from each deployment.</p></article>
-          <article><span>08</span><h3>Bring Codex</h3><p>Use ChatGPT subscription authentication on a trusted local device or short-term Bedrock authentication in AWS.</p></article>
+          <article><span>08</span><h3>Bring your Codex plan</h3><p>Use the Codex access included with your ChatGPT plan locally, then delegate explicitly to OpenAI-authenticated cloud agents. Bedrock is optional.</p></article>
         </div>
         <a class="text-link feature-reference-link" href="docs/">Explore the complete guides and agent reference <span aria-hidden="true">→</span></a>
       </section>

@@ -128,6 +128,7 @@ interface ConversationAttachment {
 const commands = new Set([
   'local',
   'chat',
+  'handoff',
   'submit',
   'get',
   'cancel',
@@ -366,6 +367,9 @@ async function main(): Promise<void> {
       return;
     case 'chat':
       await chat(args);
+      return;
+    case 'handoff':
+      await chat({ ...args, command: 'chat' });
       return;
     case 'submit':
       await submit(args);
@@ -2619,7 +2623,7 @@ async function doctor(args: Arguments): Promise<void> {
         : region ?? 'set AWS_REGION for non-API-Gateway endpoints',
     },
     { name: 'codex-binary', status: 'pass', detail: process.env.CODEX_BINARY ?? 'codex' },
-    { name: 'codex-auth', status: 'pass', detail: process.env.CODEX_AUTH_MODE ?? 'bedrock' },
+    { name: 'codex-auth', status: 'pass', detail: process.env.CODEX_AUTH_MODE ?? 'chatgpt' },
   ];
   if (validBase) {
     checks.push(await publicEndpointCheck(validBase, '/health', 'api-health'));
@@ -2718,7 +2722,7 @@ function normalizeArguments(argv: string[]): string[] {
   if (!first) return ['help'];
   if (first === '--help' || first === '-h') return ['help', ...argv.slice(1)];
   if (commands.has(first)) return argv;
-  return ['chat', ...argv];
+  return ['local', ...argv];
 }
 
 function validateCommandOptions(
@@ -2917,19 +2921,20 @@ function print(value: unknown): void {
 
 function help(showAll: boolean): void {
   process.stdout.write(`Rat Things\n\n`);
-  process.stdout.write(`  rat-things \"Ask Rat Things to do something\"\n`);
-  process.stdout.write(`  rat-things --thread NAME \"Continue a named thread\"\n`);
-  process.stdout.write(`  rat-things --new \"Start a fresh thread\"\n`);
+  process.stdout.write(`  rat-things \"Work with your signed-in local Codex\"\n`);
+  process.stdout.write(`  rat-things handoff --thread NAME \"Delegate to the cloud\"\n`);
+  process.stdout.write(`  rat-things chat --thread NAME \"Continue a cloud thread\"\n`);
   process.stdout.write(`  rat-things conversations list\n`);
   process.stdout.write(`  rat-things conversations search \"Find earlier work\"\n`);
   process.stdout.write(`  rat-things local \"Run on this computer\"\n`);
   process.stdout.write(`  rat-things files [--thread NAME]\n`);
   process.stdout.write(`  rat-things file NAME [--thread NAME]\n`);
   process.stdout.write(`  rat-things publish file|site|video PATH [--thread NAME]\n`);
-  process.stdout.write(`\nRepeat a thread name to continue the same Codex thread.\n`);
+  process.stdout.write(`\nLocal is the default. Use handoff or chat for a durable cloud thread.\n`);
   process.stdout.write(`Run rat-things help --all for agent and automation options.\n`);
   if (!showAll) return;
   process.stdout.write(`\nAgent and automation options\n\n`);
+  process.stdout.write(`  rat-things handoff [cloud chat options] \"...\"\n`);
   process.stdout.write(`  rat-things chat [--thread NAME] [--driver codex] [--model ID]\n`);
   process.stdout.write(`    [--sandbox MODE] [--reasoning-effort LEVEL] [--reasoning-summary MODE]\n`);
   process.stdout.write(`    [--profile NAME]\n`);

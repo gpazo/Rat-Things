@@ -367,9 +367,10 @@ the same thread name and exact execution policy for continuation. Agents can use
 `chat` command and add `--json` to retain run/session evidence, `--no-wait` for a receipt-only
 submission, or an explicit
 `--idempotency-key` when a supervising test process needs retry-safe message identity. AWS Codex
-authentication remains deployment-controlled (normally short-term Bedrock auth); the CLI never
-uploads local ChatGPT credentials. A thread's execution and integration policies are fixed by its
-first accepted Run; incompatible later requests fail with `409`.
+authentication remains deployment-controlled: the default ChatGPT path uses the auth-file secret
+accepted during cloud setup, while Bedrock is opt-in. Conversation commands never carry or upload
+that credential. A thread's execution and integration policies are fixed by its first accepted Run;
+incompatible later requests fail with `409`.
 
 ## Live App Server interaction
 
@@ -526,7 +527,7 @@ are renewed with an S3 server-side copy. Common image, audio, video, PDF, text, 
 and WebAssembly formats receive browser-correct media types; unknown formats are downloads.
 
 ```bash
-rat-things --thread release-smoke --sandbox workspace-write \
+rat-things handoff --thread release-smoke --sandbox workspace-write \
   "Save the rendered report as .rat-things/artifacts/report.pdf"
 
 rat-things files --thread release-smoke

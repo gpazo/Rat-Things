@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <strong>The open-source backend for cloud agents.</strong>
+  <strong>Bring your Codex subscription. Give it a durable cloud.</strong>
 </p>
 
 <p align="center">
@@ -25,9 +25,12 @@
   <a href="docs/status-and-roadmap.md">Current status</a>
 </p>
 
-Rat Things is a self-hosted backend for running tool-capable agents in isolated AWS Lambda
-MicroVMs. It gives products, CLIs, other agents, schedules, and signed provider events the same
-owner-scoped API, reusable **Things**, durable **Runs**, conversations, and generated files.
+**Bring your Codex subscription to Rat Things.** Use the Codex access included with the ChatGPT plan
+already signed in on your computer—no OpenAI Platform API key or Amazon Bedrock setup is required
+for the default path. Work locally, then hand bounded work to isolated AWS Lambda MicroVM agents
+when it should continue, parallelize, run on a schedule, or use connected services without depending
+on your laptop. The local CLI and cloud backend share owner-scoped **Things**, durable **Runs**,
+conversations, and generated files.
 
 There is no central Rat Things service. The host owns identity, OAuth applications, credentials,
 data, infrastructure, and the user experience. Rat verifies connected accounts, resolves a fixed
@@ -39,25 +42,25 @@ records, logs, and launch payloads.
 > have passed disposable live-AWS validation, but the project has not completed a penetration test,
 > sustained-load exercise, disaster-recovery proof, or untrusted multi-tenant hardening.
 
-## Start with one path
+## Bring your Codex subscription
 
-### Try Codex locally
+### Use it locally
 
-On a trusted device, use the official ChatGPT sign-in. This path does not copy a reusable account
-credential into AWS:
+On a trusted device, use the official ChatGPT sign-in. Local work stays on that device:
 
 ```bash
 npm ci
 npm run codex:login
-npm run rat-things -- local "Summarize this repository"
+npm run rat-things -- "Summarize this repository"
 ```
 
-Read [Use your Codex subscription](docs/codex-subscription.md) for sandbox, authentication, and
+Read [Bring your Codex subscription to Rat Things](docs/codex-subscription.md) for sandbox, authentication, and
 headless-login details.
 
-### Deploy the bounded AWS proof
+### Give it a cloud handoff
 
-With Node 22.20+, Git, Terraform, AWS credentials, Lambda MicroVM capacity, and Bedrock access ready:
+For real unattended Codex handoffs, the quickstart can bridge the same file-based ChatGPT login
+into your AWS account:
 
 ```bash
 git clone --depth 1 --branch golden-path-v1.0.0 https://github.com/gpazo/Rat-Things.git
@@ -68,16 +71,31 @@ npm run quickstart:aws -- \
   --region us-west-2
 ```
 
-The command performs a no-write preflight, deploys, tests an exact Thing draft, activates that
-revision, runs it again, and retains evidence. The ten-minute measurement starts at
-`quickstart:aws`; installing host tools and obtaining AWS quota/service access happens first. The
-golden path intentionally leaves S3 Files, OAuth provider apps, schedules, and external sharing
-unconfigured.
+Before copying anything, the command shows a separate credential-risk warning and asks for explicit
+consent. It encrypts the validated `auth.json` in AWS Secrets Manager, passes only its ARN through
+orchestration, temporarily materializes a mode-`0600` copy inside the isolated MicroVM, saves token
+refreshes back to the secret, and removes the runtime copy after the turn. It then deploys the
+backend, tests an exact Thing draft, activates that revision, runs it again, and retains evidence.
+
+> [!WARNING]
+> File-based Codex authentication includes bearer access, identity, and renewable refresh tokens.
+> It does not contain your password or MFA secret, but theft can still impersonate your Codex login,
+> consume subscription usage, and reach data or connectors available to that login. Use only AWS
+> accounts and agents you trust. See [the full risk and removal guidance](docs/codex-subscription.md#credential-risk-and-lifecycle).
+
+Once deployed, hand work off explicitly:
+
+```bash
+rat-things handoff --thread release-readiness "Run the release checks and keep the evidence"
+```
+
+Amazon Bedrock is optional. Select it later with `--auth bedrock`; it is no longer the default.
 
 Use the saved deployment context to inspect or remove the same target:
 
 ```bash
 npm run quickstart:aws -- status
+npm run quickstart:aws -- sync-auth # after signing in again locally
 npm run quickstart:aws -- destroy
 ```
 

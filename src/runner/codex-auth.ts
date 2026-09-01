@@ -2,11 +2,12 @@ export type CodexAuthMode = 'bedrock' | 'chatgpt';
 
 /**
  * Authentication is a runtime policy, not a caller-controlled run option.
- * AWS workers default to short-lived Bedrock credentials. Trusted local runs
- * can opt into the ChatGPT session already cached by the Codex CLI.
+ * Rat Things is OpenAI-first: local runs reuse the signed-in ChatGPT session,
+ * and cloud runners use a deployment-owned copy of file-based Codex authentication. Bedrock remains
+ * an explicit deployment alternative.
  */
 export function codexAuthMode(environment: NodeJS.ProcessEnv = process.env): CodexAuthMode {
-  const value = environment.CODEX_AUTH_MODE ?? 'bedrock';
+  const value = environment.CODEX_AUTH_MODE ?? 'chatgpt';
   if (value !== 'bedrock' && value !== 'chatgpt') {
     throw new Error('CODEX_AUTH_MODE must be bedrock or chatgpt');
   }

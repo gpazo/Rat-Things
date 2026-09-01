@@ -68,8 +68,8 @@
   ],
   "descriptions": {
     "operating-model.md": "Understand the core objects, ownership boundary, permission model, and paths through Rat Things.",
-    "quickstart.md": "Deploy and prove the immutable AWS golden path, then inspect or remove the exact stack.",
-    "codex-subscription.md": "Run Codex locally with a trusted ChatGPT sign-in instead of remote Bedrock credentials.",
+    "quickstart.md": "Bring your Codex subscription to a disposable AWS golden path, prove two real Runs, then inspect or remove the exact stack.",
+    "codex-subscription.md": "Bring the Codex access included with your ChatGPT plan to local work and isolated agents in your AWS account.",
     "agents.md": "Give another agent one deployment URL and a progressive, machine-readable operating contract.",
     "embedding.md": "Discover, authenticate, and embed a self-hosted Rat Things deployment in your own product.",
     "things.md": "Create, test, activate, schedule, and inspect reusable revisioned agent workflows.",

@@ -8,7 +8,17 @@ allowed_sandbox_modes            = ["read-only"]
 default_sandbox_mode             = "read-only"
 default_agent_network_access     = false
 allow_agent_aws_credential_chain = false
-codex_bedrock_model_ids          = ["openai.gpt-5.6-terra"]
+
+# ChatGPT/OpenAI is the default model path. The secret must contain raw file-based
+# auth.json or JSON with an auth_json string. It includes a renewable refresh token:
+# use only for trusted agents, never put the value in Terraform, and plan revocation.
+codex_auth_mode                 = "chatgpt"
+codex_auth_file_secret_arn      = "arn:aws:secretsmanager:us-west-2:111122223333:secret:agent/codex-auth-file-AbCdEf"
+# codex_chatgpt_model = "gpt-5.6-terra" # null uses the workspace default
+
+# Optional Bedrock deployment instead of ChatGPT/OpenAI:
+# codex_auth_mode              = "bedrock"
+# codex_bedrock_model_ids      = ["openai.gpt-5.6-terra"]
 
 # Supplying an ingress secret ARN enables that route. Store only ARNs here,
 # never plaintext webhook secrets, tokens, API keys, or workflow URLs.

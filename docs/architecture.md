@@ -161,9 +161,11 @@ be repaired.
 
 Trusted worker orchestration creates an isolated per-run workspace and clones an allowlisted,
 credential-free HTTPS repository when requested. It resolves the clone credential only for the Git
-subprocess and mints a short-term Bedrock bearer token from the execution role (or resolves an
-explicitly configured Bedrock key). The root lifecycle server launches the trusted runner with the
-execution-role environment; the runner hands the workspace to UID 10001 and launches Codex App
+subprocess. In default ChatGPT mode, it resolves the operator-consented auth-file secret, validates
+it, and materializes a private Codex-home copy; in optional Bedrock mode it mints a short-term
+bearer token from the execution role (or resolves an explicitly configured Bedrock key). The root
+lifecycle server launches the trusted runner with the execution-role environment; the runner hands
+the workspace to UID 10001 and launches Codex App
 Server as that identity with a sanitized environment. It speaks App Server's bidirectional JSON-RPC protocol: initialize, thread
 start/resume, turn start, streamed notifications, server requests, steering, interruption, and
 completion. The deterministic mock driver implements the same internal execution interface for
@@ -191,10 +193,13 @@ The runner pins Codex App Server to `approvalPolicy: "never"`. Approval-shaped c
 requests are rejected because they indicate that the fixed pre-launch envelope was not represented
 correctly; they are never forwarded to a user. See [the capability envelope](capability-envelope.md).
 
-The child receives a small environment allowlist and, when configured, only
-`AWS_BEARER_TOKEN_BEDROCK` for model access. `ALLOW_AGENT_AWS_CREDENTIAL_CHAIN=true` is an explicit
-local/exception escape hatch and must remain false in production. This process separation materially
-reduces exposure, but it does not replace the outer MicroVM, IAM, and egress boundaries.
+The child receives a small environment allowlist. In ChatGPT mode it reads the mode-`0600`
+`${CODEX_HOME}/auth.json` that Codex requires; in Bedrock mode it receives only
+`AWS_BEARER_TOKEN_BEDROCK` for model access. Same-UID repository code can read the ChatGPT file, so
+that bridge is only for trusted owner-operated agents. `ALLOW_AGENT_AWS_CREDENTIAL_CHAIN=true` is
+an explicit local/exception escape hatch and must remain false in production. Process separation
+reduces other credential exposure, but it does not replace the outer MicroVM, IAM, and egress
+boundaries.
 
 The worker writes:
 
@@ -414,11 +419,14 @@ safe to retry.
 ### Secrets Manager and SSM
 
 Secrets Manager stores webhook authenticators, repository/provider credentials, integration account
-credentials, the scoped Bedrock API key, and outbound channel URLs/tokens. SSM parameters hold the
+credentials, the file-based ChatGPT login, the scoped Bedrock API key, and outbound channel
+URLs/tokens. SSM parameters hold the
 non-secret provisioned MicroVM image ARN/version. MicroVM launch payloads receive only IDs and
-resource coordinates. Trusted orchestration resolves clone/model material before launching the
-unprivileged agent child. Integration credentials are read one account at a time only after tool
-authorization; notification credentials remain in the notifier.
+resource coordinates, including a Codex credential secret ARN but never its value. Trusted
+orchestration resolves clone/model material before launching the unprivileged agent child. It saves
+validated ChatGPT refresh rotation back to the same secret and removes the runtime file after the
+turn. Integration credentials are read one account at a time only after tool authorization;
+notification credentials remain in the notifier.
 
 ## Identity model
 

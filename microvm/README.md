@@ -25,8 +25,12 @@ backend. The helper receives neither AWS credential variables nor integration cr
 
 The `/run` hook accepts the service wrapper `{ microvmId, runHookPayload }`. The nested payload is
 versioned and contains only run IDs, S3/DynamoDB references, bounded configuration, and (optionally)
-a Secrets Manager ARN. Prompts and provider tokens are never hook payload fields. A run reads its
-input from encrypted S3 after the MicroVM receives fresh run-time credentials.
+a Secrets Manager ARN. Prompts and credential values are never hook payload fields. In default
+ChatGPT mode, trusted orchestration materializes a validated mode-`0600` `auth.json` inside
+`CODEX_HOME`, persists refresh rotation to the secret, and deletes the runtime copy. Codex and
+repository code share UID 10001 and can read the active file, so this is an explicitly accepted risk
+for trusted agents—not an untrusted-tenant boundary. A run reads its input from encrypted S3 after
+the MicroVM receives fresh run-time credentials.
 
 After a one-shot `runner.mjs` exits, the root lifecycle server launches the separately bundled
 `terminate-microvm.mjs`. Conversation runs instead keep the server, workspace, and Codex session

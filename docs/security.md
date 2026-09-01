@@ -71,7 +71,7 @@ grant ownership. The general control API overwrites caller-supplied source metad
 | Prompt injection / malicious repository | Per-run MicroVM with no user-facing workload ingress, restricted Git URL/ref validation, commands use argument arrays, mention-gated comments, webhook review defaults to read-only | Assume injection wins. Restrict the execution role and egress, prevent writes to source providers, and add policy gates for tools and destinations; a trigger mention is not authorization |
 | Repository credential theft | Trusted root orchestration fetches the secret, exposes it only to Git through `GIT_ASKPASS`, then chowns the checkout to UID 10001; the agent child does not receive the token or root environment | Use short-lived installation tokens, restrict selectable secret ARNs, test `/proc`/metadata isolation, and consider a dedicated clone broker for stronger separation |
 | SSRF / arbitrary checkout | Credential-free HTTPS and hostname allowlist; no query/fragment | Validate redirect targets or disable cross-host redirects, restrict DNS/egress, and test alternate encodings. Submodule support must remain off unless separately secured |
-| AWS credential abuse by agent | Agent runs as UID 10001 with a sanitized environment; AWS credential-chain variables are omitted unless `ALLOW_AGENT_AWS_CREDENTIAL_CHAIN=true`; preferred model auth passes only a scoped Bedrock bearer key | Process/environment separation is defense in depth, not a VM boundary. Keep the escape hatch false, test metadata/`/proc` access, scope the root workload role, and use network policy/proxies |
+| AWS or model credential abuse by agent | Agent runs as UID 10001 with a sanitized environment; AWS credential-chain variables are omitted unless `ALLOW_AGENT_AWS_CREDENTIAL_CHAIN=true`; the default cloud path keeps file-based Codex authentication encrypted in Secrets Manager, passes only its ARN through orchestration, materializes a private runtime copy, persists refresh rotation, and deletes the runtime copy after the turn. Optional Bedrock mode passes a scoped bearer key | Codex must read `auth.json`, so repository-controlled code running with the same agent UID can steal its bearer and renewable refresh tokens. The file lacks the password/MFA secret but can still enable account impersonation, subscription use, and access to Codex-visible data or connectors. Use only trusted agents and AWS accounts, prefer a dedicated account/workspace for shared automation, restrict the runner role and egress, and maintain rapid secret deletion plus account-session revocation procedures |
 | Connected-account credential theft or confused deputy | Credential values live in per-connection Secrets Manager secrets; the model sees aliases/schemas only; provider authorization, persistent grants, profile ceilings, per-run narrowing, and resource constraints are intersected before one secret is read. OAuth start, connection test/rename/reconnect, grant changes, and consumer inspection are authenticated host control-plane operations and are never registered as agent tools. Tests persist only bounded health status/code/timestamps | Every exposed operation is autonomous: there is no human approval backstop. Coarse/full provider tokens retain upstream authority if the broker or trusted adapter is compromised, and broad public egress can still carry data read through an admitted operation. Prefer granular/short-lived tokens, constrain secret IAM and egress, audit tool calls, and independently review every built-in adapter |
 | OAuth callback forgery, replay, refresh race, or account swap | Authorization starts require an authenticated owner; provider endpoints/scopes are fixed in reviewed plugins; 256-bit state is stored only by SHA-256 hash with a ten-minute TTL and atomically consumed; S256 PKCE binds the code; reconnect state pins the existing connection/grant and replacement requires the same provider tenant/subject; callback pages are static/no-store; refresh uses a short owner+connection lease and replaces the same Secrets Manager value | A compromised provider app secret, trusted plugin, control Lambda, or deployment DNS remains authoritative. Provider consent screens and app review are outside Rat. Keep callback domains stable, scope the OAuth app narrowly, rotate its secret, and alarm on repeated callback/refresh failures |
 | Agent mutates its own capability envelope over the guest-local listener | Codex and Chromium run as UID 10001; a cgroup eBPF connect policy denies that UID access to guest-local TCP port 8080 while the root-owned Lambda proxy remains allowed, and external control still requires Lambda's JWE-authenticated endpoint. The public API has no authority-widening route | Treat a root/kernel, BPF-policy, or AWS proxy-auth bypass as a MicroVM compromise. Keep the UID split and exercise root acceptance, loopback/interface denial, and unrelated external-port-8080 acceptance in the ARM64 image canary |
@@ -135,7 +135,7 @@ Do not collapse these roles:
    scopes DynamoDB to the whole run table and S3 to `owners/*`, not one run; per-run credentials or a
    broker are a hardening item. The root lifecycle server performs mount/process setup and launches
    the trusted root runner. The runner starts Codex and Chromium as UID 10001 with sanitized
-   environments; Codex should receive only a scoped Bedrock bearer key, and Chromium receives no AWS
+   environments; Codex receives only the selected model credential, and Chromium receives no AWS
    credential variables. Lambda's managed kernel exposes neither nftables nor the legacy
    `xt_owner` match, so startup loads and verifies a cgroup eBPF connect policy instead. It denies
    UID 10001 connections to guest-local TCP port 8080, allows the root-owned Lambda loopback proxy,
@@ -180,22 +180,31 @@ artifact prefixes, EventBridge buses, and secret ARNs. Keep the forced wildcard
   task/VM, UID, IAM, filesystem, broker, and egress controls as the sandbox. Remove it from
   `ALLOWED_SANDBOX_MODES` when a deployment needs inner-sandbox enforcement as well.
 
-For the preferred Codex path, trusted orchestration uses the MicroVM execution role to mint a
-bounded short-term Bedrock token, places only that value in `AWS_BEARER_TOKEN_BEDROCK` for the agent
-child, and deletes the parent environment value at cleanup. An explicitly configured
-`BEDROCK_API_KEY_SECRET_ARN` is a compatibility path. Codex can alternatively use the AWS SDK
-credential chain when explicitly enabled, but that expands agent authority and is a local/exception
-escape hatch. The deployed mode uses `model_provider = "amazon-bedrock"`; see the official
-[Codex on Amazon Bedrock setup](https://learn.chatgpt.com/codex/amazon-bedrock). The Bedrock identity
-is separate from any OpenAI account, source owner, repository credential, and notification identity.
+The preferred Codex path is `CODEX_AUTH_MODE=chatgpt`. A trusted local run selects Codex's built-in
+`openai` provider and reuses the device's cached `codex login` session. With explicit operator
+consent, a cloud handoff stores the validated file-based login in the secret selected by
+`CODEX_AUTH_FILE_SECRET_ARN`. Only that ARN crosses the Run hook. The trusted runner reads the
+secret, writes `${CODEX_HOME}/auth.json` atomically with mode `0600`, starts App Server, persists a
+validated refreshed bundle back to the same secret, and removes the runtime file after the turn.
+The value is never placed in a Run request, DynamoDB record, log, Terraform state, image, or launch
+payload. When persistent S3 Files backs `CODEX_HOME`, the temporary file can transit that encrypted
+storage during the active turn before removal.
 
-Trusted local runs may instead set `CODEX_AUTH_MODE=chatgpt`. The runner selects Codex's built-in
-`openai` provider and reuses this device's cached `codex login` session; it withholds any stale
-Bedrock bearer token. This policy is host configuration and is not accepted from a run request.
-Do not copy `~/.codex/auth.json` into a MicroVM or secret-backed run: it contains reusable access and
-refresh material that repository-controlled agent code could steal. OpenAI documents copied account
-auth only as an advanced trusted-runner workflow and recommends API-key authentication for ordinary
-automation.
+This is an accepted product risk, not a claim that a personal credential is harmless. The bundle
+contains an access token, identity token, account identifier, and renewable refresh token. It does
+not contain the password, MFA secret, or browser cookies, but theft can still impersonate the Codex
+login, consume subscription usage, and reach data or connectors available to it. An access token's
+short expiry does not bound the risk while the refresh token remains valid. The unprivileged Codex
+process necessarily reads the file, so same-UID malicious repository code can read it too. Use the
+bridge only for trusted owner-operated agents; do not claim untrusted multi-tenant hardening.
+Destroy quickstart-managed copies and use ChatGPT account session controls if compromise is
+suspected. Operator-managed secret ARNs require operator-managed removal.
+
+Amazon Bedrock is an explicit alternative. When `CODEX_AUTH_MODE=bedrock`, trusted orchestration
+uses the MicroVM execution role to mint a bounded short-term token, places only that value in
+`AWS_BEARER_TOKEN_BEDROCK`, and deletes it at cleanup. `BEDROCK_API_KEY_SECRET_ARN` remains a
+compatibility path. The AWS credential chain remains a reviewed exception because it expands agent
+authority. See the official [Codex on Amazon Bedrock setup](https://learn.chatgpt.com/codex/amazon-bedrock).
 
 The pinned Codex client sends `store: false` to the non-Azure Responses endpoint. Preserve and
 re-audit that behavior on every Codex upgrade because the Bedrock Responses API otherwise stores

@@ -224,6 +224,13 @@ function parseRunHook(body) {
   optionalEnvironment(environment, 'EVENT_BUS_NAME', payload.eventBusName, 256);
   optionalEnvironment(
     environment,
+    'CODEX_AUTH_FILE_SECRET_ARN',
+    payload.codexAuthFileSecretArn,
+    2048,
+    /^arn:[A-Za-z0-9-]+:secretsmanager:/,
+  );
+  optionalEnvironment(
+    environment,
     'BEDROCK_API_KEY_SECRET_ARN',
     payload.bedrockApiKeySecretArn,
     2048,

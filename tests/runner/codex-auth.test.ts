@@ -6,8 +6,12 @@ afterEach(() => {
 });
 
 describe('Codex authentication policy', () => {
-  it('defaults to Bedrock for unattended workers', () => {
-    expect(codexAuthMode({})).toBe('bedrock');
+  it('defaults local and cloud Codex workers to ChatGPT authentication', () => {
+    expect(codexAuthMode({})).toBe('chatgpt');
+    expect(codexModelProvider()).toBe('openai');
+  });
+
+  it('keeps Bedrock as an explicit alternative', () => {
     expect(codexModelProvider('bedrock')).toBe('amazon-bedrock');
   });
 

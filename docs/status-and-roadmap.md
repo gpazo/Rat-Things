@@ -10,7 +10,7 @@
 Rat Things is an **engineering preview**, not a production-ready service. The focused tests cover
 domain behavior, webhook signatures and normalization, process/workspace safeguards, drivers,
 executor payloads, the LocalStack data/event path, a disposable live-AWS mock-agent path, and a
-two-turn Codex-on-Bedrock persistence run in a live Lambda MicroVM. A signed, headless Rat Things
+historical two-turn Codex-on-Bedrock persistence run in a live Lambda MicroVM. A signed, headless Rat Things
 CLI now exercises the same durable conversation path without a provider webhook, including
 discovery, transcript paging, files, replies, reactions, organization, activity, structured input,
 and typed browser control. These tests do not constitute a penetration test, quota/load exercise,
@@ -37,7 +37,7 @@ broad real-agent evaluation, or disaster-recovery proof.
 | Reference integration tools | Slack and Linear OAuth identity, bounded reads/writes, and persistent denial live AWS validated | Fixed-origin Slack search/post/reaction, Linear team/issue/comment GraphQL, and Stripe customer/invoice/refund adapters; Linear passed a disposable workspace canary with provider read-back and a durable tool ledger |
 | Browser computer use | Live view/takeover/teaching implemented and live AWS validated | Real-Codex AWS proofs cover the 12 agent command types, capture, recording, private-target blocking, lifecycle-port isolation, publication, authenticated screenshots, an exclusive renewable browser lease, redacted demonstrations, unpublished draft-Thing creation, return of browser control, and the typed CLI action surface; secure credential brokering, file transfer, and general desktop control remain out of scope |
 | Durable routines | Implemented/local and live AWS CLI validated | Owner-scoped interval create/list/get/pause/resume/delete/run-now, encrypted S3 request, due-time GSI, deterministic occurrence submission, duplicate-tick fencing, request-digest verification, latest-run visibility for scheduled and manual work, and matching console/CLI lifecycle management |
-| Codex authentication | Live/local validated | Short-term Bedrock in AWS; trusted local runs can reuse the device's ChatGPT subscription without copying it into remote runs |
+| Codex authentication | ChatGPT local and file-based AWS cloud paths live validated; Bedrock cloud path live validated | Local prompts reuse the device's ChatGPT subscription. Explicit cloud handoffs default to an operator-consented encrypted copy of that file-based login, including refresh persistence and teardown removal. A September 1 working-tree canary completed two real Runs in 521 seconds and verified secret removal; a clean-source published rerun remains. Same-UID agents can read the file during a Run, so the bridge is for trusted owner-operated agents. Bedrock remains opt-in with historical live proof |
 | Mock driver | Implemented/tested | Used for deterministic local and live infrastructure validation |
 | GitHub/GitLab | Initial adapters | Signed ingress, loop guards, source-thread egress; credential and policy hardening remain |
 | Teams | Durable chat path locally/live AWS validated | Signed mentions get an immediate acknowledgement, enter the mailbox, and complete through threaded gateway egress; Microsoft authentication and live tenant delivery remain |

@@ -260,7 +260,7 @@ rat-things connection-set --file /secure/config/customer-ops.json
 Use the set from a direct run:
 
 ```bash
-rat-things --thread customer-ops \
+rat-things handoff --thread customer-ops \
   --profile small-business \
   --connection-set customer-ops \
   --connection slack-client-b=read-only \
@@ -270,7 +270,7 @@ rat-things --thread customer-ops \
 Narrow one account to exact operations with repeatable flags or a comma-separated list:
 
 ```bash
-rat-things --thread customer-ops \
+rat-things handoff --thread customer-ops \
   --connection slack-client-a=read-write \
   --allow-operation slack-client-a=slack.messages.search,slack.messages.post \
   "Find the agreed update and post it to the customer channel"

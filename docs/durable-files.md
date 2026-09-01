@@ -21,7 +21,7 @@ This example assumes the configured agent has an image-producing tool. The durab
 does not depend on which browser, renderer, or image model creates the bytes.
 
 ```bash
-rat-things --thread pelican-demo --sandbox workspace-write \
+rat-things handoff --thread pelican-demo --sandbox workspace-write \
   "Create an image of a pelican riding a bicycle. Save the final WebP as \
   .rat-things/artifacts/pelican-bicycle.webp, verify that it is non-empty, and mention the \
   relative filename in your reply."
@@ -50,7 +50,7 @@ Reuse the thread to continue working with the same file. Rat Things restores the
 before the next turn, including on a replacement MicroVM:
 
 ```bash
-rat-things --thread pelican-demo --sandbox workspace-write \
+rat-things handoff --thread pelican-demo --sandbox workspace-write \
   "Open .rat-things/artifacts/pelican-bicycle.webp, make a second 512px variant, and save it as \
   .rat-things/artifacts/pelican-bicycle-512.webp."
 ```

@@ -74,11 +74,14 @@ latest delivery event, HTTP status, and timestamp.
 
 ## Turn on the real Codex driver
 
-AWS webhook workers do not receive the reusable credentials cached by `codex login`. That is
-intentional: repository-controlled code inside an unattended worker must not be able to steal a
-personal ChatGPT session.
+AWS webhook workers use the deployment's configured model authentication. The default ChatGPT path
+materializes the operator-consented file-based login inside the MicroVM while Codex runs. Because
+repository-controlled code shares the agent UID and can steal its renewable credentials, enable a
+real webhook agent only for repositories, agents, and AWS accounts you trust. See the
+[credential risk and lifecycle](codex-subscription.md#credential-risk-and-lifecycle).
 
-For a real agent response, confirm Amazon Bedrock model access in the target Region, then rerun:
+For a real agent response, configure the ChatGPT auth-file secret (or deliberately select and
+configure Bedrock), then rerun:
 
 ```bash
 npm run webhook:github -- \

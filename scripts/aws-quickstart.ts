@@ -3,6 +3,7 @@
 import { spawn, spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { access, appendFile, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -11,8 +12,17 @@ import {
   ListManagedMicrovmImageVersionsCommand,
   ListMicrovmsCommand,
 } from '@aws-sdk/client-lambda-microvms';
+import {
+  CreateSecretCommand,
+  DeleteSecretCommand,
+  GetSecretValueCommand,
+  PutSecretValueCommand,
+  ResourceNotFoundException,
+  SecretsManagerClient,
+} from '@aws-sdk/client-secrets-manager';
 import { getTokenProvider } from '@aws/bedrock-token-generator';
 import { defaultProvider } from '@aws-sdk/credential-provider-node';
+import { validateCodexAuthJson } from '../src/runner/chatgpt-auth.js';
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const quickstartRoot = join(projectRoot, '.runtime', 'aws-quickstart');
@@ -24,7 +34,7 @@ const thingPath = join(quickstartRoot, 'first-thing.json');
 const debugLogPath = join(quickstartRoot, 'quickstart.log');
 const terraformDataDir = join(quickstartRoot, 'terraform-data');
 const terraformPluginCache = join(projectRoot, '.runtime', 'terraform-plugin-cache');
-const defaultCodexModel = 'openai.gpt-5.6-terra';
+const defaultBedrockModel = 'openai.gpt-5.6-terra';
 const microvmRegions = new Set([
   'ap-northeast-1',
   'eu-west-1',
@@ -35,16 +45,26 @@ const microvmRegions = new Set([
 const defaultCodexRegions = new Set(['us-east-1', 'us-east-2', 'us-west-2']);
 
 export interface AwsQuickstartOptions {
-  command: 'setup' | 'preflight' | 'status' | 'destroy' | 'help';
+  command: 'setup' | 'preflight' | 'status' | 'sync-auth' | 'destroy' | 'help';
   region: string;
   environment: string;
   driver: 'codex' | 'mock';
-  model: string;
+  auth: 'chatgpt' | 'bedrock';
+  model?: string;
+  codexAuthFile: string;
+  codexAuthSecretArn?: string;
   profile?: string;
   baseImageVersion?: string;
   yes: boolean;
+  acceptCodexCredentialRisk: boolean;
   dryRun: boolean;
   json: boolean;
+}
+
+interface QuickstartCodexAuthSecret {
+  id: string;
+  arn?: string;
+  managed: boolean;
 }
 
 interface CommandOptions {
@@ -75,7 +95,9 @@ interface QuickstartResult {
   profile?: string;
   environment: string;
   driver: 'codex' | 'mock';
+  auth: 'chatgpt' | 'bedrock';
   model?: string;
+  codexAuthSecret?: QuickstartCodexAuthSecret;
   baseImageVersion: string;
   source: {
     repository: 'https://github.com/gpazo/Rat-Things';
@@ -108,6 +130,7 @@ interface QuickstartResult {
     terraformStateEntries: 0;
     listedMicrovms: number;
     activeMicrovms: 0;
+    credentialSecretDeleted?: true;
     kmsKey: {
       enabled: false;
       state: 'PendingDeletion';
@@ -136,8 +159,11 @@ interface QuickstartPreflight {
   };
   agent: {
     driver: 'codex' | 'mock';
+    auth?: 'chatgpt' | 'bedrock';
     model?: string;
     modelVisible?: true;
+    credentialSource?: 'local-file' | 'existing-secret';
+    credentialValidated?: true;
     modelInvocationProvenOnlyByLiveRun: true;
   };
 }
@@ -149,7 +175,9 @@ interface QuickstartSetupContext {
   profile?: string;
   environment: string;
   driver: 'codex' | 'mock';
+  auth: 'chatgpt' | 'bedrock';
   model?: string;
+  codexAuthSecret?: QuickstartCodexAuthSecret;
   baseImageVersion: string;
   startedAt: string;
 }
@@ -167,6 +195,7 @@ interface QuickstartRecoveredDestroy {
     microvmImageResolved: boolean;
     listedMicrovms: number;
     activeMicrovms: 0;
+    credentialSecretDeleted?: true;
     kmsKey?: {
       enabled: false;
       state: 'PendingDeletion';
@@ -185,7 +214,7 @@ export interface QuickstartAwsContext {
 export function parseAwsQuickstartOptions(argv: string[]): AwsQuickstartOptions {
   const args = [...argv];
   let command: AwsQuickstartOptions['command'] = 'setup';
-  if (['setup', 'preflight', 'status', 'destroy'].includes(args[0] ?? '')) {
+  if (['setup', 'preflight', 'status', 'sync-auth', 'destroy'].includes(args[0] ?? '')) {
     command = args.shift() as AwsQuickstartOptions['command'];
   }
   if (args.includes('--help') || args.includes('-h')) command = 'help';
@@ -196,7 +225,7 @@ export function parseAwsQuickstartOptions(argv: string[]): AwsQuickstartOptions 
     const item = args[index] as string;
     if (!item.startsWith('--')) throw new Error(`unexpected argument ${JSON.stringify(item)}`);
     const name = item.slice(2);
-    if (['yes', 'dry-run', 'json', 'help'].includes(name)) {
+    if (['yes', 'accept-codex-credential-risk', 'dry-run', 'json', 'help'].includes(name)) {
       flags.add(name);
       continue;
     }
@@ -210,7 +239,10 @@ export function parseAwsQuickstartOptions(argv: string[]): AwsQuickstartOptions 
     'profile',
     'environment',
     'driver',
+    'auth',
     'model',
+    'codex-auth-file',
+    'codex-auth-secret-arn',
     'microvm-base-image-version',
   ]);
   for (const name of values.keys()) {
@@ -219,8 +251,17 @@ export function parseAwsQuickstartOptions(argv: string[]): AwsQuickstartOptions 
 
   const driver = values.get('driver') ?? 'codex';
   if (driver !== 'codex' && driver !== 'mock') throw new Error('--driver must be codex or mock');
-  const model = values.get('model') ?? defaultCodexModel;
-  if (!model || /[\r\n]/.test(model)) throw new Error('--model must be a non-empty single-line value');
+  const auth = values.get('auth') ?? 'chatgpt';
+  if (auth !== 'chatgpt' && auth !== 'bedrock') throw new Error('--auth must be chatgpt or bedrock');
+  const model = values.get('model') ?? (auth === 'bedrock' ? defaultBedrockModel : undefined);
+  if (model !== undefined && (!model || /[\r\n]/.test(model))) {
+    throw new Error('--model must be a non-empty single-line value');
+  }
+  const codexAuthSecretArn = values.get('codex-auth-secret-arn');
+  if (
+    codexAuthSecretArn !== undefined &&
+    !/^arn:[A-Za-z0-9-]+:secretsmanager:[^:]+:[0-9]{12}:secret:[^\s]+$/.test(codexAuthSecretArn)
+  ) throw new Error('--codex-auth-secret-arn must be a Secrets Manager ARN');
   const region = values.get('region') ?? process.env.AWS_REGION ??
     process.env.AWS_DEFAULT_REGION ?? 'us-west-2';
   const validatesExecutionRegion = command === 'setup' || command === 'preflight';
@@ -233,11 +274,12 @@ export function parseAwsQuickstartOptions(argv: string[]): AwsQuickstartOptions 
   if (
     validatesExecutionRegion &&
     driver === 'codex' &&
-    model === defaultCodexModel &&
+    auth === 'bedrock' &&
+    model === defaultBedrockModel &&
     !defaultCodexRegions.has(region)
   ) {
     throw new Error(
-      `the default Lambda MicroVM + ${defaultCodexModel} quickstart is not supported in ${region}; ` +
+      `the default Lambda MicroVM + ${defaultBedrockModel} quickstart is not supported in ${region}; ` +
       'use us-east-1, us-east-2, or us-west-2',
     );
   }
@@ -250,8 +292,15 @@ export function parseAwsQuickstartOptions(argv: string[]): AwsQuickstartOptions 
     region,
     environment,
     driver,
-    model,
+    auth,
+    ...(model ? { model } : {}),
+    codexAuthFile: resolve(
+      values.get('codex-auth-file')
+        ?? join(process.env.CODEX_HOME ?? join(homedir(), '.codex'), 'auth.json'),
+    ),
+    ...(codexAuthSecretArn ? { codexAuthSecretArn } : {}),
     yes: flags.has('yes'),
+    acceptCodexCredentialRisk: flags.has('accept-codex-credential-risk'),
     dryRun: flags.has('dry-run'),
     json: flags.has('json'),
     ...(values.get('profile') ? { profile: values.get('profile') as string } : {}),
@@ -278,7 +327,14 @@ export function awsQuickstartTerraformConfig(
     default_sandbox_mode: 'read-only',
     default_agent_network_access: false,
     allow_agent_aws_credential_chain: false,
-    codex_bedrock_model_ids: [options.model],
+    codex_auth_mode: options.auth,
+    ...(options.auth === 'chatgpt' && options.codexAuthSecretArn
+      ? { codex_auth_file_secret_arn: options.codexAuthSecretArn }
+      : {}),
+    ...(options.auth === 'chatgpt' && options.model
+      ? { codex_chatgpt_model: options.model }
+      : {}),
+    codex_bedrock_model_ids: options.auth === 'bedrock' && options.model ? [options.model] : [],
     enable_microvm: true,
     enable_s3_files: false,
     microvm_base_image_version: baseImageVersion,
@@ -318,6 +374,7 @@ async function main(): Promise<void> {
   if (options.command === 'help') return printHelp();
   if (options.command === 'preflight') return printPreflight(options);
   if (options.command === 'status') return status(options);
+  if (options.command === 'sync-auth') return syncAuth(options);
   if (options.command === 'destroy') return destroy(options);
   return setup(options);
 }
@@ -343,7 +400,12 @@ async function preflight(options: AwsQuickstartOptions): Promise<QuickstartPrefl
   const accountId = requiredString(identity.Account, 'AWS returned no account ID');
   const principalArn = requiredString(identity.Arn, 'AWS returned no principal ARN');
   const baseImageVersion = options.baseImageVersion ?? await discoverBaseImageVersion(options);
-  if (options.driver === 'codex') await assertBedrockModelVisible(options);
+  if (options.driver === 'codex' && options.auth === 'bedrock') {
+    await assertBedrockModelVisible(options);
+  }
+  if (options.driver === 'codex' && options.auth === 'chatgpt') {
+    await assertCodexAuthSourceVisible(options);
+  }
   return {
     version: 2,
     status: 'ready',
@@ -359,7 +421,18 @@ async function preflight(options: AwsQuickstartOptions): Promise<QuickstartPrefl
     },
     agent: {
       driver: options.driver,
-      ...(options.driver === 'codex' ? { model: options.model, modelVisible: true as const } : {}),
+      ...(options.driver === 'codex' ? { auth: options.auth } : {}),
+      ...(options.driver === 'codex' && options.model
+        ? { model: options.model, modelVisible: true as const }
+        : {}),
+      ...(options.driver === 'codex' && options.auth === 'chatgpt'
+        ? {
+            credentialSource: options.codexAuthSecretArn
+              ? 'existing-secret' as const
+              : 'local-file' as const,
+            credentialValidated: true as const,
+          }
+        : {}),
       modelInvocationProvenOnlyByLiveRun: true,
     },
   };
@@ -387,7 +460,11 @@ async function setup(options: AwsQuickstartOptions): Promise<void> {
       action: 'setup',
       changesExternalState: false,
       driver: options.driver,
-      modelUsage: options.driver === 'codex' ? 'paid Amazon Bedrock tokens' : 'none (deterministic mock)',
+      modelUsage: options.driver === 'codex'
+        ? options.auth === 'chatgpt'
+          ? 'file-based ChatGPT Codex login'
+          : `paid Amazon Bedrock model ${options.model}`
+        : 'none (deterministic mock)',
       terraform: awsQuickstartTerraformConfig(options, baseImageVersion),
       finish: 'create, explain, test, publish, and invoke one safe manual Thing',
     }, options.json);
@@ -407,7 +484,7 @@ async function setup(options: AwsQuickstartOptions): Promise<void> {
   await writeFile(debugLogPath, `Rat Things AWS quickstart\nStarted ${new Date().toISOString()}\n`, {
     mode: 0o600,
   });
-  progress('[1/6] Verify local tools, AWS identity, MicroVM access, and model visibility');
+  progress('[1/6] Verify local tools, AWS identity, MicroVM access, model, and credentials');
   const readiness = await preflight(options);
   progress('      ready');
   const env = commandEnvironment(options);
@@ -421,32 +498,56 @@ async function setup(options: AwsQuickstartOptions): Promise<void> {
     `Region:      ${options.region}`,
     `Runtime:     Lambda MicroVM al2023-1:${baseImageVersion}`,
     `Agent:       ${options.driver === 'codex'
-      ? `real Codex via paid Bedrock model ${options.model}`
+      ? options.auth === 'chatgpt'
+        ? 'real Codex via this device\'s file-based ChatGPT login'
+        : `real Codex via paid Bedrock model ${options.model}`
       : 'deterministic mock (infrastructure proof only, not a model)'}`,
     'Scope:       one manual Thing; no OAuth accounts, VPC/NAT, schedules, or public sharing',
     'State:       .runtime/aws-quickstart/terraform.tfstate',
     'Debug log:   .runtime/aws-quickstart/quickstart.log',
     '',
   ].join('\n'));
+  await confirmCodexCredentialRisk(options);
   await confirm(options.yes, 'Deploy this disposable quickstart stack?');
 
   await rm(metadataPath, { force: true });
-  const setupContext: QuickstartSetupContext = {
+  const plannedCodexAuthSecret = options.driver === 'codex' && options.auth === 'chatgpt'
+    ? options.codexAuthSecretArn
+      ? { id: options.codexAuthSecretArn, arn: options.codexAuthSecretArn, managed: false }
+      : {
+          id: `rat-things/${options.environment}/codex-auth-${randomUUID()}`,
+          managed: true,
+        }
+    : undefined;
+  let setupContext: QuickstartSetupContext = {
     version: 1,
     status: 'setup-started',
     region: options.region,
     ...(options.profile ? { profile: options.profile } : {}),
     environment: options.environment,
     driver: options.driver,
-    ...(options.driver === 'codex' ? { model: options.model } : {}),
+    auth: options.auth,
+    ...(options.driver === 'codex' && options.model ? { model: options.model } : {}),
+    ...(plannedCodexAuthSecret ? { codexAuthSecret: plannedCodexAuthSecret } : {}),
     baseImageVersion,
     startedAt,
   };
   await writeFile(contextPath, `${JSON.stringify(setupContext, null, 2)}\n`, { mode: 0o600 });
 
+  const codexAuthSecret = plannedCodexAuthSecret
+    ? await provisionCodexAuthSecret(options, plannedCodexAuthSecret)
+    : undefined;
+  if (codexAuthSecret) {
+    setupContext = { ...setupContext, codexAuthSecret };
+    await writeFile(contextPath, `${JSON.stringify(setupContext, null, 2)}\n`, { mode: 0o600 });
+  }
+  const deploymentOptions: AwsQuickstartOptions = codexAuthSecret?.arn
+    ? { ...options, codexAuthSecretArn: codexAuthSecret.arn }
+    : options;
+
   await writeFile(
     configPath,
-    `${JSON.stringify(awsQuickstartTerraformConfig(options, baseImageVersion), null, 2)}\n`,
+    `${JSON.stringify(awsQuickstartTerraformConfig(deploymentOptions, baseImageVersion), null, 2)}\n`,
     { mode: 0o600 },
   );
   progress('[2/6] Package Rat Things');
@@ -567,7 +668,9 @@ async function setup(options: AwsQuickstartOptions): Promise<void> {
     ...(options.profile ? { profile: options.profile } : {}),
     environment: options.environment,
     driver: options.driver,
-    ...(options.driver === 'codex' ? { model: options.model } : {}),
+    auth: options.auth,
+    ...(options.driver === 'codex' && options.model ? { model: options.model } : {}),
+    ...(codexAuthSecret ? { codexAuthSecret } : {}),
     baseImageVersion,
     source: {
       repository: 'https://github.com/gpazo/Rat-Things',
@@ -623,6 +726,47 @@ async function status(options: AwsQuickstartOptions): Promise<void> {
   printValue({ status: 'ready', deployment: result, doctor, thing }, options.json);
 }
 
+async function syncAuth(options: AwsQuickstartOptions): Promise<void> {
+  const metadata = await readMetadataOptional();
+  if (metadata?.status === 'destroyed') {
+    throw new Error('the AWS quickstart has been destroyed; run setup before syncing Codex credentials');
+  }
+  const stored = metadata ?? await readSetupContext();
+  const secret = stored.codexAuthSecret;
+  if (!secret?.arn) {
+    throw new Error('this deployment has no recorded Codex auth-file secret to update');
+  }
+  if (options.dryRun) {
+    printValue({
+      action: 'sync-auth',
+      changesExternalState: false,
+      destination: 'the deployment\'s existing Secrets Manager credential',
+    }, options.json);
+    return;
+  }
+  await confirmCodexCredentialRisk({ ...options, driver: 'codex', auth: 'chatgpt' });
+  const authJson = await readAndValidateCodexAuthFile(options.codexAuthFile);
+  const awsContext = resolveQuickstartAwsContext(options, stored);
+  const client = secretsManagerClient(awsContext);
+  try {
+    await client.send(new PutSecretValueCommand({
+      SecretId: secret.arn,
+      SecretString: JSON.stringify({ auth_json: authJson }),
+    }));
+  } catch (error) {
+    throw new Error(
+      `could not update the Codex auth-file secret: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  } finally {
+    client.destroy();
+  }
+  printValue({
+    status: 'synced',
+    credential: 'file-based ChatGPT login',
+    nextStep: 'future cloud Runs will use this login; destroy removes quickstart-managed copies',
+  }, options.json);
+}
+
 async function destroy(options: AwsQuickstartOptions): Promise<void> {
   const metadata = await readMetadataOptional();
   if (metadata?.status === 'destroyed') {
@@ -642,10 +786,13 @@ async function destroy(options: AwsQuickstartOptions): Promise<void> {
     if (metadata) {
       throw new Error('the completed quickstart result exists but its Terraform state is missing; refusing unverified teardown');
     }
+    const credentialSecretDeleted = await deleteManagedCodexAuthSecret(stored, awsContext);
     const destroyed = recoveredQuickstartDestroyEvidence(
       stored,
       false,
       { listedMicrovms: 0, activeMicrovms: 0 },
+      undefined,
+      credentialSecretDeleted,
     );
     await writeFile(metadataPath, `${JSON.stringify(destroyed, null, 2)}\n`, { mode: 0o600 });
     printValue(destroyed, options.json);
@@ -693,9 +840,16 @@ async function destroy(options: AwsQuickstartOptions): Promise<void> {
   if (kmsKey && (kmsKey.enabled || kmsKey.state !== 'PendingDeletion')) {
     throw new Error(`quickstart KMS key is ${kmsKey.state} after teardown instead of PendingDeletion`);
   }
+  const credentialSecretDeleted = await deleteManagedCodexAuthSecret(stored, awsContext);
   progress('      destroyed and verified');
   if (!metadata) {
-    const destroyed = recoveredQuickstartDestroyEvidence(stored, Boolean(imageArn), microvms, kmsKey);
+    const destroyed = recoveredQuickstartDestroyEvidence(
+      stored,
+      Boolean(imageArn),
+      microvms,
+      kmsKey,
+      credentialSecretDeleted,
+    );
     await writeFile(metadataPath, `${JSON.stringify(destroyed, null, 2)}\n`, { mode: 0o600 });
     printValue(destroyed, options.json);
     return;
@@ -710,6 +864,7 @@ async function destroy(options: AwsQuickstartOptions): Promise<void> {
       terraformStateEntries: 0,
       listedMicrovms: microvms.listedMicrovms,
       activeMicrovms: 0,
+      ...(credentialSecretDeleted ? { credentialSecretDeleted: true as const } : {}),
       kmsKey: {
         enabled: false,
         state: 'PendingDeletion',
@@ -746,6 +901,7 @@ async function discoverBaseImageVersion(options: AwsQuickstartOptions): Promise<
 }
 
 async function assertBedrockModelVisible(options: AwsQuickstartOptions): Promise<void> {
+  const model = requiredString(options.model, '--model is required when --auth bedrock is selected');
   let response: Response;
   try {
     const token = await getTokenProvider({
@@ -769,11 +925,96 @@ async function assertBedrockModelVisible(options: AwsQuickstartOptions): Promise
   const modelIds = Array.isArray(payload.data)
     ? payload.data.flatMap((item) => typeof item.id === 'string' ? [item.id] : [])
     : [];
-  if (!modelIds.includes(options.model)) {
+  if (!modelIds.includes(model)) {
     throw new Error(
-      `Amazon Bedrock model ${options.model} is not visible in ${options.region}; choose an available --model or fix model access`,
+      `Amazon Bedrock model ${model} is not visible in ${options.region}; choose an available --model or fix model access`,
     );
   }
+}
+
+async function assertCodexAuthSourceVisible(options: AwsQuickstartOptions): Promise<void> {
+  if (!options.codexAuthSecretArn) {
+    await readAndValidateCodexAuthFile(options.codexAuthFile);
+    return;
+  }
+  const client = new SecretsManagerClient({
+    region: options.region,
+    ...(options.profile ? { credentials: defaultProvider({ profile: options.profile }) } : {}),
+  });
+  try {
+    const secret = await client.send(new GetSecretValueCommand({ SecretId: options.codexAuthSecretArn }));
+    validateCodexAuthJson(readAuthJsonFromSecret(secret.SecretString));
+  } catch (error) {
+    throw new Error(
+      `could not verify the Codex auth-file secret: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  } finally {
+    client.destroy();
+  }
+}
+
+async function provisionCodexAuthSecret(
+  options: AwsQuickstartOptions,
+  planned: QuickstartCodexAuthSecret,
+): Promise<QuickstartCodexAuthSecret> {
+  if (!planned.managed) return planned;
+  const authJson = await readAndValidateCodexAuthFile(options.codexAuthFile);
+  const client = secretsManagerClient(options);
+  try {
+    const created = await client.send(new CreateSecretCommand({
+      Name: planned.id,
+      Description: 'Rat Things file-based Codex login bridge. Contains renewable personal credentials.',
+      SecretString: JSON.stringify({ auth_json: authJson }),
+      Tags: [
+        { Key: 'ManagedBy', Value: 'rat-things-quickstart' },
+        { Key: 'Purpose', Value: 'codex-auth-file' },
+      ],
+    }));
+    return {
+      ...planned,
+      arn: requiredString(created.ARN, 'AWS returned no ARN for the Codex auth-file secret'),
+    };
+  } catch (error) {
+    throw new Error(
+      `could not create the Codex auth-file secret: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  } finally {
+    client.destroy();
+  }
+}
+
+async function readAndValidateCodexAuthFile(path: string): Promise<string> {
+  try {
+    return validateCodexAuthJson(await readFile(path, 'utf8'));
+  } catch (error) {
+    throw new Error(
+      `could not use the local Codex login at ${path}: ${error instanceof Error ? error.message : String(error)}. ` +
+      'Sign in with Codex on this device first or pass --codex-auth-file PATH.',
+    );
+  }
+}
+
+function readAuthJsonFromSecret(secretString: string | undefined): string {
+  if (!secretString) throw new Error('the secret has no string value');
+  try {
+    const value = JSON.parse(secretString) as unknown;
+    if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+      for (const key of ['auth_json', 'codex_auth_json', 'auth']) {
+        const candidate = (value as Record<string, unknown>)[key];
+        if (typeof candidate === 'string' && candidate) return candidate;
+      }
+    }
+  } catch {
+    // A raw auth.json secret is also accepted for operator-managed deployments.
+  }
+  return secretString;
+}
+
+function secretsManagerClient(options: Pick<AwsQuickstartOptions, 'region' | 'profile'>): SecretsManagerClient {
+  return new SecretsManagerClient({
+    region: options.region,
+    ...(options.profile ? { credentials: defaultProvider({ profile: options.profile }) } : {}),
+  });
 }
 
 async function readMetadataOptional(): Promise<QuickstartMetadata | undefined> {
@@ -821,6 +1062,7 @@ export function recoveredQuickstartDestroyEvidence(
   microvmImageResolved: boolean,
   microvms: { listedMicrovms: number; activeMicrovms: number },
   kmsKey?: { enabled: boolean; state: string; deletionDate: string },
+  credentialSecretDeleted = false,
 ): QuickstartRecoveredDestroy {
   if (microvms.activeMicrovms !== 0) {
     throw new Error(`quickstart teardown left ${microvms.activeMicrovms} active MicroVMs`);
@@ -841,6 +1083,7 @@ export function recoveredQuickstartDestroyEvidence(
       microvmImageResolved,
       listedMicrovms: microvms.listedMicrovms,
       activeMicrovms: 0,
+      ...(credentialSecretDeleted ? { credentialSecretDeleted: true as const } : {}),
       ...(kmsKey ? {
         kmsKey: {
           enabled: false,
@@ -850,6 +1093,33 @@ export function recoveredQuickstartDestroyEvidence(
       } : {}),
     },
   };
+}
+
+async function deleteManagedCodexAuthSecret(
+  stored: Pick<QuickstartSetupContext, 'codexAuthSecret'>,
+  awsContext: QuickstartAwsContext,
+): Promise<boolean> {
+  const secret = stored.codexAuthSecret;
+  if (!secret?.managed) return false;
+  const client = secretsManagerClient(awsContext);
+  try {
+    await client.send(new DeleteSecretCommand({
+      SecretId: secret.arn ?? secret.id,
+      ForceDeleteWithoutRecovery: true,
+    }));
+    progress('      removed the quickstart-managed Codex credential copy');
+    return true;
+  } catch (error) {
+    if (
+      error instanceof ResourceNotFoundException ||
+      (typeof error === 'object' && error !== null && (error as { name?: unknown }).name === 'ResourceNotFoundException')
+    ) return true;
+    throw new Error(
+      `could not remove the quickstart-managed Codex credential: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  } finally {
+    client.destroy();
+  }
 }
 
 function exactSourceTag(): string | undefined {
@@ -1008,6 +1278,30 @@ async function confirm(skip: boolean, question: string): Promise<void> {
   } finally {
     terminal.close();
   }
+}
+
+async function confirmCodexCredentialRisk(options: AwsQuickstartOptions): Promise<void> {
+  if (options.driver !== 'codex' || options.auth !== 'chatgpt') return;
+  progress([
+    '',
+    'Codex credential warning',
+    'Rat Things will copy this device\'s auth.json into AWS Secrets Manager and temporarily',
+    'materialize it inside each agent MicroVM. The file contains bearer credentials, including',
+    'a renewable refresh token. Anyone who obtains the copy may be able to impersonate your Codex',
+    'login, consume subscription usage, and reach data or connectors available to that login.',
+    'The file does not contain your password or MFA secret, but it is sufficient for account abuse.',
+    'If S3 Files is enabled, the temporary runtime copy may also transit its encrypted backing store.',
+    'Use this only with agents and AWS accounts you trust. Destroy the quickstart and sign out of',
+    'Codex everywhere if you suspect exposure.',
+    '',
+  ].join('\n'));
+  if (options.acceptCodexCredentialRisk) return;
+  if (options.yes) {
+    throw new Error(
+      '--yes with file-based ChatGPT authentication also requires --accept-codex-credential-risk',
+    );
+  }
+  await confirm(false, 'Accept this credential risk and continue?');
 }
 
 function progress(message: string): void {
@@ -1213,18 +1507,25 @@ function printHelp(): void {
   process.stdout.write(`  npm run quickstart:aws\n`);
   process.stdout.write(`  npm run quickstart:aws -- preflight\n`);
   process.stdout.write(`  npm run quickstart:aws -- status\n`);
+  process.stdout.write(`  npm run quickstart:aws -- sync-auth\n`);
   process.stdout.write(`  npm run quickstart:aws -- destroy\n\n`);
   process.stdout.write(`A fresh clone installs pinned dependencies automatically. Preflight creates or modifies no AWS resources.\n`);
-  process.stdout.write(`The default model path runs in us-east-1, us-east-2, or us-west-2.\n`);
+  process.stdout.write(`The default cloud path copies this device's file-based ChatGPT login into Secrets Manager.\n`);
+  process.stdout.write(`Setup shows an account-risk warning and requires explicit consent before copying it.\n`);
   process.stdout.write(`Status and destroy automatically reuse the setup Region and named profile.\n`);
-  process.stdout.write(`The default runs a real Codex Thing with paid Amazon Bedrock tokens.\n`);
+  process.stdout.write(`sync-auth copies the current local login after you sign in again; destroy removes quickstart-managed copies.\n`);
+  process.stdout.write(`Amazon Bedrock is available only when selected with --auth bedrock.\n`);
   process.stdout.write(`Use --driver mock for a token-free infrastructure proof that is explicitly not a model.\n\n`);
   process.stdout.write(`Options:\n`);
   process.stdout.write(`  --region REGION                     default: AWS_REGION or us-west-2\n`);
   process.stdout.write(`  --profile PROFILE                   AWS shared-credentials profile\n`);
   process.stdout.write(`  --environment NAME                  default: quickstart\n`);
   process.stdout.write(`  --driver codex|mock                 default: codex\n`);
-  process.stdout.write(`  --model MODEL                       default: openai.gpt-5.6-terra\n`);
+  process.stdout.write(`  --auth chatgpt|bedrock              default: chatgpt\n`);
+  process.stdout.write(`  --codex-auth-file PATH              default: CODEX_HOME/auth.json or ~/.codex/auth.json\n`);
+  process.stdout.write(`  --codex-auth-secret-arn ARN         use an existing operator-managed auth-file secret\n`);
+  process.stdout.write(`  --accept-codex-credential-risk      required with --yes for file-based ChatGPT auth\n`);
+  process.stdout.write(`  --model MODEL                       optional for ChatGPT; Bedrock default: openai.gpt-5.6-terra\n`);
   process.stdout.write(`  --microvm-base-image-version VALUE  override automatic discovery\n`);
   process.stdout.write(`  --dry-run                            make no external changes\n`);
   process.stdout.write(`  --yes                                skip confirmation\n`);

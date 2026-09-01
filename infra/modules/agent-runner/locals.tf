@@ -41,6 +41,7 @@ locals {
   slack_enabled  = var.slack_webhook_enabled != null ? var.slack_webhook_enabled : var.slack_signing_secret_arn != null
   # The input is marked sensitive to prevent accidental CLI display. Only the
   # Secrets Manager ARN (never its value) is intentionally declassified here.
+  codex_auth_file_secret_arn = nonsensitive(var.codex_auth_file_secret_arn)
   bedrock_api_key_secret_arn = nonsensitive(var.bedrock_api_key_secret_arn)
 
   ingress_secret_arns = compact([
@@ -61,7 +62,8 @@ locals {
     compact([
       var.github_clone_token_secret_arn,
       var.gitlab_clone_token_secret_arn,
-      local.bedrock_api_key_secret_arn,
+      var.codex_auth_mode == "chatgpt" ? local.codex_auth_file_secret_arn : null,
+      var.codex_auth_mode == "bedrock" ? local.bedrock_api_key_secret_arn : null,
     ]),
   ))
 
@@ -102,6 +104,17 @@ check "microvm_enabled" {
   assert {
     condition     = var.enable_microvm
     error_message = "enable_microvm must remain true because Lambda MicroVM is the only execution backend."
+  }
+}
+
+check "codex_chatgpt_auth_file" {
+  assert {
+    condition = (
+      var.default_agent_driver != "codex" ||
+      var.codex_auth_mode != "chatgpt" ||
+      local.codex_auth_file_secret_arn != null
+    )
+    error_message = "codex_auth_file_secret_arn is required when the default agent driver is Codex with ChatGPT authentication. The secret contains renewable account credentials; obtain explicit user consent before configuring it."
   }
 }
 

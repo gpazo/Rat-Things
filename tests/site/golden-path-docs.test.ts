@@ -27,13 +27,12 @@ describe('AWS-ready golden-path documentation', () => {
     expect(guide).toContain('[centrally published AWS quickstart evidence]');
     expect(guide).toContain('An immutable source tag cannot contain evidence produced after that same commit exists.');
 
-    expect(homepage).toContain('Deploy, test, then decide.');
-    expect(homepage).toContain('--branch golden-path-v1.0.0');
-    expect(homepage).toContain('Start with the smallest proof. Add accounts and capabilities after it is dependable.');
-    expect(homepage).toContain('Host tools, AWS quota, Lambda MicroVM access, and Bedrock access must already be ready.');
-    expect(homepage).toContain('Published proof:');
-    expect(homepage).toContain('402 seconds (6m42s)');
-    expect(homepage).toContain('S3 Files, OAuth provider apps, schedules, and external sharing stay unconfigured in this first journey.');
+    expect(homepage).toContain('Bring your Codex subscription.<br>Give it a cloud.');
+    expect(homepage).toContain('Sign in once. Take Codex further.');
+    expect(homepage).toContain('Bring the plan you already use. No OpenAI Platform API key or Bedrock setup is required for the default path.');
+    expect(homepage).toContain('rat-things handoff');
+    expect(homepage).toContain('ChatGPT/OpenAI is the default. Amazon Bedrock remains available as an explicit deployment option.');
+    expect(homepage).toContain('historical Bedrock-backed AWS proof');
 
     expect(costs).toContain('$0.380 total is a historical estimate');
     expect(costs).toContain('| Short, up to 272K | $2.20 | $2.75 | $0.22 | $13.20 |');

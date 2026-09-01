@@ -69,7 +69,7 @@ resource "awscc_lambda_microvm_image" "runner" {
     },
     {
       key   = "CODEX_AUTH_MODE"
-      value = "bedrock"
+      value = var.codex_auth_mode
     },
     {
       key   = "METRIC_DEPLOYMENT"
@@ -90,6 +90,11 @@ resource "awscc_lambda_microvm_image" "runner" {
     {
       key   = "RUN_AGENT_UID"
       value = "10001"
+    },
+    ], var.codex_chatgpt_model == null ? [] : [
+    {
+      key   = "CODEX_CHATGPT_MODEL"
+      value = var.codex_chatgpt_model
     },
     ], length(var.integration_plugin_base_urls) > 0 ? [
     {

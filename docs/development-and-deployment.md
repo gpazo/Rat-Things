@@ -69,8 +69,8 @@ OpenAI provider, and reuse the account cached by `codex login` on this device. E
 `--codex-auth bedrock` mints a short-term token from the active AWS identity unless
 `AWS_BEARER_TOKEN_BEDROCK` is already present. The equivalent durable setting is
 `CODEX_AUTH_MODE=chatgpt|bedrock`; it is not part of the run API and cannot be chosen by callers.
-Leave `CODEX_CHATGPT_MODEL` empty to use the signed-in account's default, or set it to an account
-model ID. `DEFAULT_MODEL` remains the Bedrock deployment default.
+Leave `CODEX_CHATGPT_MODEL` empty to use the signed-in workspace's default, or set it to an account
+model ID. `DEFAULT_MODEL` is used only by an explicitly selected Bedrock deployment.
 `--events` prints the complete JSONL protocol stream, including command/tool execution records and
 token usage, so a canary can prove more than final-message delivery.
 For an intentional local command-egress canary, add `--network` and choose the inner sandbox you
@@ -319,20 +319,24 @@ npm run test:e2e:aws
 Only after the mock path passes:
 
 1. Use a dedicated non-sensitive owner and repository with outbound delivery disabled.
-2. Keep `allow_agent_aws_credential_chain=false`. The trusted worker mints a bounded short-term
-   Bedrock token from its execution role and passes only that token to the unprivileged Codex child.
-   A scoped key in Secrets Manager remains an explicit override.
+2. Keep `allow_agent_aws_credential_chain=false`. For the default ChatGPT path, configure a
+   validated file-based login through `codex_auth_file_secret_arn`. Treat its renewable refresh
+   token as account-impersonation authority; use a dedicated account or workspace for shared
+   automation when practical.
 3. Confirm the bundled CLI/configuration and model/provider settings.
 4. Start with no repository, then a pinned public read-only repository, then a private read-only
    repository using a clone-only secret.
 5. Validate output/events, cancellation, timeout, logs, credential absence, latency, quota, and cost.
 6. Enable one result destination only after the execution path is understood.
 
-The deployed MicroVM path intentionally remains `CODEX_AUTH_MODE=bedrock`. Do not copy a personal
-`~/.codex/auth.json` into the image or a run: it contains reusable account tokens and the
-repository-controlled agent process could read or exfiltrate them. ChatGPT account mode is for
-trusted local execution on the signed-in device. A future remote account-auth mode needs a brokered
-credential boundary or a separately approved trusted-runner design.
+The deployed MicroVM path defaults to `CODEX_AUTH_MODE=chatgpt`. It resolves the auth-file secret
+inside the trusted worker, writes a private runtime `auth.json`, runs Codex with the built-in OpenAI
+provider, persists validated refresh rotation, and removes the runtime file. Never bake the file
+into an image or place it in a Run, state record, log, or Terraform value. Same-UID agent code can
+read it during execution, and persistent S3 Files may carry the temporary copy; read the
+[accepted credential risk](security.md#secret-handling) before a canary. Set
+`codex_auth_mode = "bedrock"` and an exact Bedrock model allowlist only when a deployment
+deliberately chooses that provider.
 
 Codex behavior and authentication change over time; verify the pinned CLI against the official
 [non-interactive guide](https://developers.openai.com/codex/noninteractive),

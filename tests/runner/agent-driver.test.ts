@@ -59,11 +59,12 @@ describe('CodexDriver', () => {
 
     expect(runCodexAppServerMock).toHaveBeenCalledWith(expect.objectContaining({
       workspace: '/tmp/persistent-workspace',
+      binaryArguments: ['-c', 'cli_auth_credentials_store=file', 'app-server'],
       prompt: expect.stringContaining('User request:\n\ncontinue the task'),
       sandbox: 'read-only',
       persistent: true,
       resumeThreadId: 'thread-persisted-1',
-      modelProvider: 'amazon-bedrock',
+      modelProvider: 'openai',
     }));
     expect(result).toMatchObject({ fullText: 'continued', threadId: 'thread-persisted-1', exitCode: 0 });
   });
@@ -154,6 +155,25 @@ describe('CodexDriver', () => {
     expect(options.modelProvider).toBe('openai');
     expect(options.environment.AWS_BEARER_TOKEN_BEDROCK).toBeUndefined();
     expect(result.fullText).toBe('account-authenticated');
+  });
+
+  it('uses CODEX_HOME auth.json instead of forwarding a standalone access token', async () => {
+    vi.stubEnv('CODEX_AUTH_MODE', 'chatgpt');
+    vi.stubEnv('CODEX_HOME', '/tmp/cloud-codex-home');
+    vi.stubEnv('CODEX_ACCESS_TOKEN', 'workspace-agent-token');
+    runCodexAppServerMock.mockResolvedValue(execution('cloud-handoff', 'thread-cloud'));
+
+    await new CodexDriver().execute(
+      { version: '1', prompt: 'continue this work in the cloud' },
+      process.cwd(),
+      1_000,
+    );
+
+    const options = runCodexAppServerMock.mock.calls[0]?.[0];
+    expect(options.modelProvider).toBe('openai');
+    expect(options.environment.CODEX_HOME).toBe('/tmp/cloud-codex-home');
+    expect(options.environment.CODEX_ACCESS_TOKEN).toBeUndefined();
+    expect(options.environment.AWS_BEARER_TOKEN_BEDROCK).toBeUndefined();
   });
 
   it('passes network access independently from the inner sandbox mode', async () => {

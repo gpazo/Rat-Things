@@ -28,6 +28,7 @@ locals {
 
   executor_environment = merge(local.lambda_common_environment, {
     ALLOW_AGENT_AWS_CREDENTIAL_CHAIN     = tostring(var.allow_agent_aws_credential_chain)
+    CODEX_AUTH_MODE                      = var.codex_auth_mode
     DEFAULT_AGENT_DRIVER                 = var.default_agent_driver
     DEFAULT_EXECUTION_BACKEND            = "microvm"
     EVENT_BUS_NAME                       = aws_cloudwatch_event_bus.runs.name
@@ -39,13 +40,15 @@ locals {
     MICROVM_SESSION_SUSPENDED_SECONDS    = tostring(var.microvm_session_suspended_seconds)
     RUN_HEARTBEAT_INTERVAL_MS            = tostring(var.run_heartbeat_interval_seconds * 1000)
     S3_FILES_ENABLED                     = tostring(var.enable_s3_files)
-    }, length(var.codex_bedrock_model_ids) > 0 ? {
+    }, var.codex_auth_mode == "bedrock" && length(var.codex_bedrock_model_ids) > 0 ? {
     # Keep the unattended runtime default inside the same exact-model IAM
     # allowlist. Callers may still select another explicitly allowed model.
     DEFAULT_MODEL = var.codex_bedrock_model_ids[0]
-    } : {}, local.bedrock_api_key_secret_arn == null ? {} : {
+    } : {}, var.codex_auth_mode == "chatgpt" && local.codex_auth_file_secret_arn != null ? {
+    CODEX_AUTH_FILE_SECRET_ARN = local.codex_auth_file_secret_arn
+    } : {}, var.codex_auth_mode == "bedrock" && local.bedrock_api_key_secret_arn != null ? {
     BEDROCK_API_KEY_SECRET_ARN = local.bedrock_api_key_secret_arn
-    }, var.enable_s3_files ? {
+    } : {}, var.enable_s3_files ? {
     MICROVM_VPC_NETWORK_CONNECTOR_ARN = awscc_lambda_network_connector.s3_files[0].arn
     S3_FILES_ACCESS_POINT_ID          = aws_s3files_access_point.conversation_state[0].id
     S3_FILES_FILE_SYSTEM_ID           = aws_s3files_file_system.conversation_state[0].id

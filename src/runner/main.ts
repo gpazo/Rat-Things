@@ -21,6 +21,7 @@ import { InvalidStateTransitionError } from '../domain/state.js';
 import { parseRunRequest } from '../domain/validation.js';
 import { driverFor } from './agent-driver.js';
 import { loadCodexBedrockToken } from './bedrock-auth.js';
+import { installCodexAuthFile, type CodexAuthFileSession } from './chatgpt-auth.js';
 import { codexAuthMode } from './codex-auth.js';
 import {
   AGENT_ARTIFACT_DIRECTORY,
@@ -87,6 +88,7 @@ export async function runAgentWorker(): Promise<void> {
     );
   const startedAt = new Date().toISOString();
   let loadedBedrockToken = false;
+  let codexAuthFileSession: CodexAuthFileSession | undefined;
   let browserSession: BrowserToolSession | undefined;
   let heartbeat: ExecutionHeartbeat | undefined;
   const runnerControl = createRunnerControlBridge(runId);
@@ -245,6 +247,12 @@ export async function runAgentWorker(): Promise<void> {
     if (driver.name === 'codex' && codexAuthMode() === 'bedrock') {
       loadedBedrockToken = await loadCodexBedrockToken(credentials);
     }
+    if (driver.name === 'codex' && codexAuthMode() === 'chatgpt') {
+      codexAuthFileSession = await installCodexAuthFile(
+        credentials,
+        new SecretsManagerCredentialVault(clients.secrets),
+      );
+    }
     const execution = await driver.execute(
       effectiveRequest,
       workspace,
@@ -252,6 +260,8 @@ export async function runAgentWorker(): Promise<void> {
       abort.signal,
       driverControl,
     );
+    await codexAuthFileSession?.finalize();
+    codexAuthFileSession = undefined;
     // Finalize any active recording before the artifact catalog takes its
     // immutable snapshot. Explicit record_stop remains preferable because it
     // returns metadata to the agent, but a completed turn must not lose bytes.
@@ -358,6 +368,17 @@ export async function runAgentWorker(): Promise<void> {
   } finally {
     await heartbeat?.stop();
     if (loadedBedrockToken) delete process.env.AWS_BEARER_TOKEN_BEDROCK;
+    if (codexAuthFileSession) {
+      try {
+        await codexAuthFileSession.finalize();
+      } catch (error) {
+        console.warn(JSON.stringify({
+          level: 'warn',
+          message: 'Codex auth.json refresh could not be persisted during cleanup',
+          error: safeMessage(error),
+        }));
+      }
+    }
     if (browserSession) {
       try {
         await browserSession.close();

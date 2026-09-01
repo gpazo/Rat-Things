@@ -49,6 +49,7 @@ export interface MicrovmExecutorOptions {
   defaultSandboxMode?: string;
   defaultAgentNetworkAccess?: boolean;
   defaultModel?: string;
+  codexAuthFileSecretArn?: string;
   bedrockApiKeySecretArn?: string;
   allowAgentAwsCredentialChain: boolean;
   sessionIdleSeconds?: number;
@@ -318,6 +319,9 @@ export class MicrovmRunExecutor implements RunExecutor {
         ? { agentThreadId: record.conversation.agentThreadId }
         : {}),
       ...(this.options.defaultModel ? { defaultModel: this.options.defaultModel } : {}),
+      ...(this.options.codexAuthFileSecretArn
+        ? { codexAuthFileSecretArn: this.options.codexAuthFileSecretArn }
+        : {}),
       ...(this.options.bedrockApiKeySecretArn
         ? { bedrockApiKeySecretArn: this.options.bedrockApiKeySecretArn }
         : {}),
@@ -647,6 +651,9 @@ export function createExecutorRegistryFromEnv(
       defaultSandboxMode: process.env.DEFAULT_SANDBOX_MODE ?? 'danger-full-access',
       defaultAgentNetworkAccess: process.env.DEFAULT_AGENT_NETWORK_ACCESS !== 'false',
       ...(process.env.DEFAULT_MODEL ? { defaultModel: process.env.DEFAULT_MODEL } : {}),
+      ...(process.env.CODEX_AUTH_FILE_SECRET_ARN
+        ? { codexAuthFileSecretArn: process.env.CODEX_AUTH_FILE_SECRET_ARN }
+        : {}),
       ...(process.env.BEDROCK_API_KEY_SECRET_ARN
         ? { bedrockApiKeySecretArn: process.env.BEDROCK_API_KEY_SECRET_ARN }
         : {}),

@@ -21,7 +21,7 @@ matter.
 The normal human workflow is a conversation, not a publishing pipeline:
 
 ```bash
-rat-things --thread launch-demo --sandbox workspace-write \
+rat-things handoff --thread launch-demo --sandbox workspace-write \
   "Create an interactive launch demo as a self-contained website and share it with me."
 ```
 

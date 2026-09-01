@@ -99,6 +99,7 @@ export async function runCodexAppServer(
     ...request.identity,
     stdio: ['pipe', 'pipe', 'pipe'],
   });
+  const childExited = new Promise<void>((resolve) => child.once('exit', () => resolve()));
   const lines: string[] = [];
   const stderr: Buffer[] = [];
   const pending = new Map<number, PendingRequest>();
@@ -385,8 +386,22 @@ export async function runCodexAppServer(
     request.signal?.removeEventListener('abort', abort);
     output.close();
     child.stdin.end();
-    if (child.exitCode === null && child.signalCode === null) child.kill('SIGTERM');
+    if (child.exitCode === null && child.signalCode === null) {
+      child.kill('SIGTERM');
+      await Promise.race([childExited, boundedDelay(1_000)]);
+    }
+    if (child.exitCode === null && child.signalCode === null) {
+      child.kill('SIGKILL');
+      await Promise.race([childExited, boundedDelay(1_000)]);
+    }
   }
+}
+
+function boundedDelay(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => {
+    const timeout = setTimeout(resolve, milliseconds);
+    timeout.unref();
+  });
 }
 
 export function sandboxPolicyFor(

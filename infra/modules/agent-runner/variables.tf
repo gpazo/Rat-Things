@@ -508,6 +508,42 @@ variable "worker_secret_arns" {
   default     = []
 }
 
+variable "codex_auth_mode" {
+  description = "Model authentication used by isolated Codex workers. ChatGPT is the default; Bedrock is an explicit alternative."
+  type        = string
+  default     = "chatgpt"
+
+  validation {
+    condition     = contains(["chatgpt", "bedrock"], var.codex_auth_mode)
+    error_message = "codex_auth_mode must be chatgpt or bedrock."
+  }
+}
+
+variable "codex_auth_file_secret_arn" {
+  description = "Optional Secrets Manager ARN holding a user-consented file-based ChatGPT Codex auth.json credential for cloud handoffs."
+  type        = string
+  default     = null
+  nullable    = true
+  sensitive   = true
+
+  validation {
+    condition     = var.codex_auth_file_secret_arn == null ? true : can(regex("^arn:[A-Za-z0-9-]+:secretsmanager:[^:]+:[0-9]{12}:secret:", var.codex_auth_file_secret_arn))
+    error_message = "codex_auth_file_secret_arn must be a Secrets Manager ARN."
+  }
+}
+
+variable "codex_chatgpt_model" {
+  description = "Optional model ID exposed by the connected ChatGPT workspace. Null lets Codex select the workspace default."
+  type        = string
+  default     = null
+  nullable    = true
+
+  validation {
+    condition     = var.codex_chatgpt_model == null ? true : (trimspace(var.codex_chatgpt_model) != "" && !can(regex("[\\r\\n]", var.codex_chatgpt_model)))
+    error_message = "codex_chatgpt_model must be null or a non-empty single-line model ID."
+  }
+}
+
 variable "codex_bedrock_model_ids" {
   description = "Exact Bedrock Mantle model IDs that isolated Codex workers may invoke. Empty disables Codex inference permissions."
   type        = list(string)

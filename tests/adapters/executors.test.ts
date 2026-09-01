@@ -55,6 +55,7 @@ describe('executor idempotency', () => {
         allowedRepositoryHosts: 'github.com,gitlab.com',
         allowedSandboxModes: 'read-only,workspace-write',
         defaultAgentDriver: 'mock',
+        codexAuthFileSecretArn: 'arn:aws:secretsmanager:us-east-1:123456789012:secret:rat/codex',
         allowAgentAwsCredentialChain: false,
         onStartupObservation: observeStartup,
       },
@@ -82,6 +83,7 @@ describe('executor idempotency', () => {
       executionGeneration: expect.stringMatching(/^[a-f0-9]{64}$/),
       heartbeatIntervalMs: 15_000,
       traceId: record.runId,
+      codexAuthFileSecretArn: 'arn:aws:secretsmanager:us-east-1:123456789012:secret:rat/codex',
     });
     expect(sendMicrovm.mock.calls[0]?.[0].input.ingressNetworkConnectors).toEqual([
       'arn:aws:lambda:us-east-1:aws:network-connector:aws-network-connector:ALL_INGRESS',

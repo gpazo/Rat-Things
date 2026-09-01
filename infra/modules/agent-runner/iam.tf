@@ -963,7 +963,16 @@ data "aws_iam_policy_document" "worker" {
   }
 
   dynamic "statement" {
-    for_each = length(var.codex_bedrock_model_ids) > 0 ? [1] : []
+    for_each = var.codex_auth_mode == "chatgpt" && local.codex_auth_file_secret_arn != null ? [1] : []
+    content {
+      sid       = "PersistCodexAuthRefresh"
+      actions   = ["secretsmanager:PutSecretValue"]
+      resources = [local.codex_auth_file_secret_arn]
+    }
+  }
+
+  dynamic "statement" {
+    for_each = var.codex_auth_mode == "bedrock" && length(var.codex_bedrock_model_ids) > 0 ? [1] : []
     content {
       sid       = "BedrockMantleShortTermToken"
       actions   = ["bedrock-mantle:CallWithBearerToken"]
@@ -977,7 +986,7 @@ data "aws_iam_policy_document" "worker" {
   }
 
   dynamic "statement" {
-    for_each = length(var.codex_bedrock_model_ids) > 0 ? [1] : []
+    for_each = var.codex_auth_mode == "bedrock" && length(var.codex_bedrock_model_ids) > 0 ? [1] : []
     content {
       sid = "CodexInference"
       actions = [
@@ -995,7 +1004,7 @@ data "aws_iam_policy_document" "worker" {
   }
 
   dynamic "statement" {
-    for_each = length(var.codex_bedrock_model_ids) > 0 ? [1] : []
+    for_each = var.codex_auth_mode == "bedrock" && length(var.codex_bedrock_model_ids) > 0 ? [1] : []
     content {
       sid = "CodexModelDiscovery"
       actions = [
@@ -1009,7 +1018,7 @@ data "aws_iam_policy_document" "worker" {
   }
 
   dynamic "statement" {
-    for_each = length(var.codex_bedrock_model_ids) > 0 ? [1] : []
+    for_each = var.codex_auth_mode == "bedrock" && length(var.codex_bedrock_model_ids) > 0 ? [1] : []
     content {
       sid = "CodexMarketplaceAccess"
       actions = [
