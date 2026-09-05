@@ -37,6 +37,7 @@ export interface PublicConversationSearchHit {
 }
 
 export interface PublicConversationMessage {
+  interactions?: Array<{role: 'user' | 'assistant'; content: string; receivedAt?: string}>;
   role: 'user' | 'assistant';
   content: string;
   messageId?: string;
@@ -48,6 +49,7 @@ export interface PublicConversationMessage {
 
 export interface PublicConversationDetail extends PublicConversationSummary {
   activeRunId?: string;
+  executionPolicy?: ConversationRecord['executionPolicy'];
   transcript: {
     messages: PublicConversationMessage[];
     compactedMessages: number;
@@ -111,12 +113,14 @@ export function projectPublicConversationDetail(
 ): PublicConversationDetail {
   return {
     ...projectPublicConversation(conversation),
+    ...(conversation.executionPolicy ? { executionPolicy: conversation.executionPolicy } : {}),
     ...(activeTurn?.runId ? { activeRunId: activeTurn.runId } : {}),
     transcript: {
       messages: transcript.messages.length > 0 || transcript.nextToken
         ? transcript.messages.map((message) => ({
             role: message.role,
             content: message.content,
+            ...(message.interactions?.length ? { interactions: message.interactions.map(entry => ({...entry})) } : {}),
             ...(message.messageId ? { messageId: message.messageId } : {}),
             ...(message.receivedAt ? { receivedAt: message.receivedAt } : {}),
             ...(message.attachmentIds?.length

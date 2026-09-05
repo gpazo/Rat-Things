@@ -277,6 +277,7 @@ export class DynamoRunStore implements RunStore, AgentToolCallStore {
     execution: ExecutionReference,
     expectedHeartbeatAt: string,
     error: RunError,
+    result?: RunResult,
   ): Promise<boolean> {
     return this.terminalizeExactExecution({
       runId,
@@ -285,6 +286,7 @@ export class DynamoRunStore implements RunStore, AgentToolCallStore {
       expectedHeartbeatAt,
       status: 'failed',
       error,
+      ...(result ? { result } : {}),
     });
   }
 
@@ -292,12 +294,14 @@ export class DynamoRunStore implements RunStore, AgentToolCallStore {
   public async cancelExecution(
     runId: string,
     execution: ExecutionReference,
+    result?: RunResult,
   ): Promise<boolean> {
     return this.terminalizeExactExecution({
       runId,
       execution,
-      expectedStatuses: ['cancelling'],
+      expectedStatuses: result ? ['running', 'cancelling'] : ['cancelling'],
       status: 'cancelled',
+      ...(result ? { result } : {}),
     });
   }
 
@@ -381,6 +385,17 @@ export class DynamoRunStore implements RunStore, AgentToolCallStore {
     }));
   }
 
+  /** Atomically publish terminal evidence only for this worker's generation. */
+  public finishExecution(
+    runId: string, execution: ExecutionReference, status: 'succeeded' | 'cancelled' | 'failed',
+    result: RunResult, error?: RunError,
+  ): Promise<boolean> {
+    return this.terminalizeExactExecution({
+      runId, execution, status, result, ...(error ? { error } : {}),
+      expectedStatuses: status === 'succeeded' ? ['running'] : ['running', 'cancelling'],
+    });
+  }
+
   public complete(runId: string, result: RunResult): Promise<RunRecord> {
     return this.update(runId, { status: 'succeeded', result }, ['running']);
   }
@@ -404,8 +419,9 @@ export class DynamoRunStore implements RunStore, AgentToolCallStore {
     execution: ExecutionReference;
     expectedStatuses: RunStatus[];
     expectedHeartbeatAt?: string;
-    status: 'failed' | 'cancelled';
+    status: 'succeeded' | 'failed' | 'cancelled';
     error?: RunError;
+    result?: RunResult;
   }): Promise<boolean> {
     const generation = options.execution.generation;
     if (!generation) return false;
@@ -442,6 +458,7 @@ export class DynamoRunStore implements RunStore, AgentToolCallStore {
         ':nextCalls': nextCalls,
         ...(run.agentToolCalls ? { ':currentCalls': currentCalls } : {}),
         ...(options.error ? { ':error': options.error } : {}),
+        ...(options.result ? { ':result': options.result } : {}),
       };
       const names: Record<string, string> = {
         '#status': 'status',
@@ -452,6 +469,7 @@ export class DynamoRunStore implements RunStore, AgentToolCallStore {
         '#updatedAt': 'updatedAt',
         '#agentToolCalls': 'agentToolCalls',
         ...(options.error ? { '#error': 'error' } : {}),
+        ...(options.result ? { '#result': 'result' } : {}),
       };
       const statusValues = options.expectedStatuses.map((status, index) => {
         values[`:expectedStatus${index}`] = status;
@@ -479,6 +497,7 @@ export class DynamoRunStore implements RunStore, AgentToolCallStore {
           UpdateExpression: [
             'SET #status = :status, #updatedAt = :updatedAt, #agentToolCalls = :nextCalls',
             ...(options.error ? [', #error = :error'] : []),
+            ...(options.result ? [', #result = :result'] : []),
           ].join(''),
           ConditionExpression: conditions.join(' AND '),
           ExpressionAttributeNames: names,

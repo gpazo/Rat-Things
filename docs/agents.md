@@ -155,6 +155,12 @@ routes accept either the API thread key or the opaque public conversation ID, so
 conversations do not need to reveal their internal key. The CLI rejects unknown options and extra
 fixed operands before any request is sent.
 
+Omit agent settings on a continuation to inherit its fixed policy; do not reconstruct defaults that
+could conflict with an existing conversation. The console's display name is separate from
+`threadKey`. Use the returned routing key for API/CLI continuation. Preserve a submission's exact
+body and idempotency key across an uncertain HTTP response; replay recovers the existing Run even
+if execution has already completed.
+
 ### Advanced run configuration
 
 Use the linked OpenAPI `RunRequest` schema rather than reconstructing it from this summary. Its
@@ -190,6 +196,11 @@ After any Thing test/run, conversation message, provider event, or raw run retur
    when the user requested sharing; this is distinct from publishing a tested Thing revision as active.
 
 Live events are bounded and ephemeral. The terminal event artifact is the durable audit source.
+Conversation detail includes the fixed `executionPolicy` and optional ordered `interactions` on
+terminal assistant messages. Render those questions, redacted answers, and acknowledged directions
+before the final text. Graceful interruption can retain partial result/artifacts on a `cancelled`
+Run, and failed agent turns can also retain evidence when runner finalization succeeds. Check the
+result instead of treating every non-success status as empty. Abrupt termination can lose unsaved work.
 There is no human-approval inbox because there is no interactive approval flow. Every admitted
 capability must be safe for autonomous use for the full Run. If a task needs a human checkpoint,
 split it into a read-only preparation Run and a separately submitted execution Run with a reviewed,

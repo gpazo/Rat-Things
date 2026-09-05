@@ -160,6 +160,12 @@ whether the lost execution could already have caused an external side effect.
 
 ### `cancelling` does not finish
 
+For an active Codex turn, the console's Stop and `rat-things interrupt RUN_ID` request graceful
+interruption. They normally finish as `cancelled` after saving partial output and private files,
+including when an ordinary question has no answer. Check the Run's result/artifact references and
+conversation completion before concluding that files were lost. The `/cancel` route below instead
+terminates the backend, so new file retention depends on whether runner cleanup can finish.
+
 Confirm `TerminateMicrovm` reached the execution ID, then check whether the worker
 observed `SIGTERM`/abort and committed `cancelled`. Repeating the API cancellation safely repeats the
 stop call when an execution is attached. The scheduled reconciler finalizes an unattached

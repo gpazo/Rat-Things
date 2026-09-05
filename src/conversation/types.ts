@@ -190,6 +190,9 @@ export interface ConversationStore {
     turnId: string;
     error: NonNullable<ConversationTurnRecord['error']>;
     context?: ConversationRecord['context'];
+    transcript?: ConversationTranscriptRecord;
+    artifacts?: ConversationRecord['artifacts'];
+    session?: ConversationRecord['session'];
     clearSession?: boolean;
     event: ConversationEventRecord;
     leaseToken: string;

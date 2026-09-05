@@ -368,7 +368,12 @@ S3 is the durable definition/body/artifact plane. The separate definition bucket
 versioned Thing revisions without the run-artifact expiry rule. The artifact bucket holds prompts,
 full results, event streams, patches, conversation
 message bodies, history payloads, turn checkpoints, and user-visible files are stored under
-owner-hashed prefixes with checksums. Each completed conversation turn commits a bounded file
+owner-hashed prefixes with checksums. Runner finalization saves partial output, events, and a bounded
+file catalog for succeeded, cancelled, and failed agent turns. The terminal write is fenced by the
+exact execution generation; a stale worker cannot finalize a replacement execution. The completion
+coordinator folds available evidence into conversation history and the file catalog, preserving
+unknown-external-outcome recovery rules. Abrupt VM loss or finalization failure can still leave only
+the prior committed catalog. Each finalized conversation turn commits a bounded file
 catalog. The runner restores those files into `.rat-things/artifacts/` before execution, so a new
 MicroVM does not depend on residual local bytes. Bucket encryption, public-access blocking, and
 lifecycle policy are deployment responsibilities. An S3 reference is sensitive metadata and the
@@ -452,6 +457,9 @@ delivery configuration keys, never secret values.
   in a bounded in-MicroVM ring until terminal artifacts are committed. Steering, interruption, and
   ordinary input responses work during an active turn; a queued conversation `interrupt` message still becomes
   input at the next safe slice boundary.
+  Host-recorded questions, non-secret answers, and acknowledged steering are folded into one
+  S3-backed terminal transcript record, exposed as nested interactions without expanding page size.
+  Guest-supplied events cannot impersonate those host interaction records.
 - Connections accept API keys/already-issued tokens and optional self-hosted authorization-code/PKCE
   installation. OAuth app secrets stay in Secrets Manager; one-time callback state and refresh
   leases stay in DynamoDB; expiring tokens refresh behind the host broker. There is no public

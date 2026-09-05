@@ -178,6 +178,8 @@ export interface ConversationRunBinding {
   conversationId: string;
   /** The exact durable mailbox item represented by this public Run. */
   messageId?: string;
+  /** Optional human display name, independent of the routing key. */
+  title?: string;
   /** Assigned by the thread coordinator before the Run is dispatched. */
   turnId?: string;
   /** Assigned by the thread coordinator before the Run is dispatched. */

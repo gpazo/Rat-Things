@@ -979,6 +979,9 @@ export class DynamoConversationStore implements ConversationStore {
     turnId: string;
     error: NonNullable<ConversationTurnRecord['error']>;
     context?: ConversationRecord['context'];
+    transcript?: ConversationTranscriptRecord;
+    artifacts?: ConversationRecord['artifacts'];
+    session?: ConversationRecord['session'];
     clearSession?: boolean;
     event: ConversationEventRecord;
     leaseToken: string;
@@ -987,6 +990,9 @@ export class DynamoConversationStore implements ConversationStore {
     return this.finishTurn({
       conversationId: input.conversationId,
       turnId: input.turnId,
+      ...(input.transcript ? { transcript: input.transcript } : {}),
+      ...(input.artifacts ? { artifacts: input.artifacts } : {}),
+      ...(input.session ? { session: input.session } : {}),
       error: input.error,
       ...(input.context ? { context: input.context } : {}),
       ...(input.clearSession ? { clearSession: true } : {}),

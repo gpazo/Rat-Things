@@ -125,7 +125,7 @@ export interface ConversationTranscriptRecord {
   entryId: string;
   role: 'user' | 'assistant';
   /** Immutable S3 body. User entries contain ConversationMessageContent; assistant entries are text. */
-  contentKind: 'message' | 'text';
+  contentKind: 'message' | 'text' | 'turn';
   content: ArtifactReference;
   occurredAt: string;
   expiresAt: number;
@@ -133,6 +133,7 @@ export interface ConversationTranscriptRecord {
 }
 
 export interface ConversationTranscriptMessage {
+  interactions?: Array<{role: 'user' | 'assistant'; content: string; receivedAt?: string}>;
   role: 'user' | 'assistant';
   content: string;
   messageId?: string;

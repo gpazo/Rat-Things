@@ -174,7 +174,10 @@ Things still lacks:
 - graphical desktop or native application control. Shell and filesystem tools exist, but there is
   no general remote desktop.
 
-The live viewer and human takeover operate only while a browser-enabled Run is active. They are not
+The live viewer and human takeover operate only while a browser-enabled Run is active. At terminal
+state the console stops browser polling, disables interaction controls, and displays the last
+captured frame if one is available. That frame is a local view, not a durable browser session.
+The viewer and takeover are not
 a persistent desktop between turns, do not expose arbitrary guest windows, and do not yet support
 passkeys, native permission dialogs, or host-side secret injection. Treat takeover as interaction,
 not as a secure credential broker.

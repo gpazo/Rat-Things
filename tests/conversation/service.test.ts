@@ -161,6 +161,34 @@ describe('conversation service', () => {
     await expect(service.getPublicDetail('api:another-owner', 'a'.repeat(64))).resolves.toBeUndefined();
   });
 
+  it('reads turn interactions without changing transcript pagination or losing the final message identity', async () => {
+    const {service, store, artifacts} = harness();
+    const record = conversation({ownerId: 'api:owner-1'});
+    vi.mocked(store.getConversationByPublicId).mockResolvedValue(record);
+    vi.mocked(store.listTranscript).mockResolvedValue({items: [{
+      version: '1', itemType: 'transcript', conversationId: record.conversationId,
+      entryId: 'turn-1', role: 'assistant', contentKind: 'turn',
+      content: {bucket: 'artifacts', key: 'turn.json', sha256: 'a'.repeat(64)},
+      occurredAt: record.updatedAt, expiresAt: record.expiresAt, messageId: 'assistant-stable',
+    }], nextToken: 'earlier'});
+    vi.mocked(artifacts.getJson).mockResolvedValue([
+      {role: 'assistant', content: 'Which audience?'},
+      {role: 'user', content: 'Executives'},
+      {role: 'user', content: 'Direction: make it concise'},
+      {role: 'assistant', content: 'Stopped by you. Files saved.'},
+    ]);
+    const detail = await service.getPublicDetail('api:owner-1', 'a'.repeat(64));
+    expect(detail?.transcript.nextToken).toBe('earlier');
+    expect(detail?.transcript.messages).toEqual([expect.objectContaining({
+      messageId: 'assistant-stable', content: 'Stopped by you. Files saved.',
+      interactions: [
+        {role: 'assistant', content: 'Which audience?'},
+        {role: 'user', content: 'Executives'},
+        {role: 'user', content: 'Direction: make it concise'},
+      ],
+    })]);
+  });
+
   it('stores content-addressed message bodies and a bounded DynamoDB projection', async () => {
     const { service, store, writes } = harness();
     vi.mocked(store.appendMessage).mockImplementation(async (input) => ({

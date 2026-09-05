@@ -16,6 +16,7 @@ import type {
   ConversationMessageContent,
   ConversationRecord,
   ConversationWakeMessage,
+  ConversationTranscriptMessage,
 } from '../domain/conversations.js';
 import type { ConversationQueue } from './types.js';
 import { ConversationService } from './service.js';
@@ -166,6 +167,7 @@ export class ConversationCoordinator {
         {
           conversationId: conversation.conversationId,
           messageId: pending[0]!.messageId,
+          ...(reserved.conversation.title ? { title: reserved.conversation.title } : {}),
           turnId: turn.turnId,
           slice: turn.slice,
           delivery: reserved.conversation.delivery ?? pending[0]!.delivery,
@@ -238,6 +240,7 @@ export class ConversationCoordinator {
       ownerId: run.ownerId,
       ...(run.capabilityOwnerId ? { capabilityOwnerId: run.capabilityOwnerId } : {}),
       messageId: binding.messageId,
+      ...(binding.title ? { title: binding.title } : {}),
       runId: run.runId,
       delivery: binding.delivery ?? 'defer',
       content: {
@@ -245,7 +248,7 @@ export class ConversationCoordinator {
         request,
         ...(attachments?.length ? { attachments } : {}),
         ...(binding.replyToMessageId ? { replyToMessageId: binding.replyToMessageId } : {}),
-        metadata: { traceId: message.traceId },
+        metadata: { traceId: run.runId },
       },
       source: request.source,
       destination: request.destinations?.[0] ?? { kind: 'none' },
@@ -293,22 +296,24 @@ export class ConversationCompletionCoordinator {
       // Suspend first so a failed suspension is retried while this turn is still active. Once the
       // turn is terminal, duplicate completion events are intentionally treated as stale.
       if (run.execution) await this.options.sessions.suspend(run.execution.id);
-      if (run.status === 'succeeded' && run.result) {
-        const [previous, continuation, output] = await Promise.all([
+      const interruptedToolCalls = (run.agentToolCalls ?? []).filter(call => call.status === 'interrupted');
+      const transcriptMessages = await this.terminalTranscript(run);
+      if ((run.status === 'succeeded' || run.status === 'cancelled') && run.result && interruptedToolCalls.length === 0) {
+        const [previous, continuation] = await Promise.all([
           conversation.context
             ? this.options.artifacts.getJson<ConversationCheckpoint>(conversation.context)
             : Promise.resolve({ version: '1' as const, messages: [] }),
           binding.continuation
             ? this.options.artifacts.getJson<ContinuationBatch>(binding.continuation)
             : Promise.resolve({ version: '1' as const, messages: [] }),
-          this.options.results.read(run.result.output),
         ]);
-        const context = appendContext(previous, continuation, output ?? run.result.preview);
+        const context = appendContext(previous, continuation, transcriptMessages.at(-1)!.content, transcriptMessages.slice(0, -1));
         await this.options.conversations.completeTurn({
           conversationId: binding.conversationId,
           turnId: binding.turnId,
           leaseToken: lease.token,
           result: run.result.output,
+          transcriptMessages,
           context,
           ...(run.result.artifacts !== undefined ? {
             artifactCatalog: {
@@ -321,9 +326,6 @@ export class ConversationCompletionCoordinator {
           } : {}),
         });
       } else {
-        const interruptedToolCalls = (run.agentToolCalls ?? []).filter(
-          (call) => call.status === 'interrupted',
-        );
         const interruptedContext = interruptedToolCalls.length > 0
           ? appendInterruptedToolContext(
               conversation.context
@@ -334,17 +336,26 @@ export class ConversationCompletionCoordinator {
                 : { version: '1', messages: [] },
               interruptedToolCalls,
             )
-          : undefined;
+          : run.result ? appendContext(
+            conversation.context ? await this.options.artifacts.getJson<ConversationCheckpoint>(conversation.context) : { version: '1', messages: [] },
+            binding.continuation ? await this.options.artifacts.getJson<ContinuationBatch>(binding.continuation) : { version: '1', messages: [] },
+            transcriptMessages.at(-1)?.content ?? '', transcriptMessages.slice(0, -1),
+          ) : undefined;
         await this.options.conversations.failTurn({
           conversationId: binding.conversationId,
           turnId: binding.turnId,
           leaseToken: lease.token,
+          transcriptMessages,
+          ...(run.result?.artifacts ? { artifactCatalog: {version: '1', files: run.result.artifacts} } : {}),
+          ...(run.execution && run.result?.agentThreadId && !interruptedToolCalls.length ? {
+            session: sessionForRun(run, conversation, this.clock.now(), run.result.agentThreadId),
+          } : {}),
           error: run.error ?? {
             code: run.status === 'cancelled' ? 'agent_cancelled' : 'agent_failed',
             message: `conversation slice ${run.status}`,
             retryable: false,
           },
-          ...(interruptedContext ? { context: interruptedContext, clearSession: true } : {}),
+          ...(interruptedContext ? { context: interruptedContext, ...(interruptedToolCalls.length ? { clearSession: true } : {}) } : {}),
         });
       }
       const latest = await this.options.conversations.get(binding.conversationId);
@@ -364,6 +375,39 @@ export class ConversationCompletionCoordinator {
       }
       throw error;
     }
+  }
+
+  private async terminalTranscript(run: RunRecord): Promise<ConversationTranscriptMessage[]> {
+    const messages: ConversationTranscriptMessage[] = [];
+    let remaining = 64_000;
+    let omitted = false;
+    if (run.result?.events) {
+      const bytes = await this.options.artifacts.getBytes(run.result.events);
+      for (const line of Buffer.from(bytes).toString('utf8').split('\n')) {
+        let event;
+        try { event = JSON.parse(line); } catch { continue; }
+        if (event?.method !== 'rat/interaction') continue;
+        const value = event.params;
+        if (!value || !['user', 'assistant'].includes(value.role) || typeof value.text !== 'string') continue;
+        if (messages.length >= 255 || remaining <= 0) { omitted = true; continue; }
+        const text = value.text.slice(0, Math.min(16_384, remaining));
+        remaining -= text.length;
+        if (text.length < value.text.length) omitted = true;
+        messages.push({
+          role: value.role, content: text,
+          receivedAt: typeof value.occurredAt === 'string' ? value.occurredAt : run.updatedAt,
+        });
+      }
+    }
+    if (omitted) messages.push({role: 'assistant', content: 'Some interaction details were omitted from this bounded transcript. Full terminal events remain in the Run evidence.'});
+    messages.push({
+      role: 'assistant', receivedAt: run.updatedAt,
+      content: run.result
+        ? await this.options.results.read(run.result.output) ?? run.result.preview
+        : run.status === 'cancelled' ? 'Stopped. No final output was saved.'
+        : `Work failed: ${run.error?.message ?? 'No final output was saved.'}`,
+    });
+    return messages;
   }
 }
 
@@ -397,6 +441,7 @@ function requestForSlice(
     ...rawRequest,
     prompt: replayPrompt(context, continuation),
     agent: {
+      ...conversation.executionPolicy,
       ...rawRequest.agent,
       sandbox: rawRequest.agent?.sandbox ?? conversation.executionPolicy?.sandbox ?? 'danger-full-access',
     },
@@ -475,6 +520,7 @@ export function appendContext(
   previous: ConversationCheckpoint,
   continuation: ContinuationBatch,
   output: string,
+  interactions: ConversationTranscriptMessage[] = [],
 ): ConversationCheckpoint {
   const appended: JsonValue[] = [
     ...previous.messages,
@@ -486,6 +532,7 @@ export function appendContext(
       ...(message.attachments?.length ? { attachments: message.attachments } : {}),
       receivedAt: message.receivedAt,
     })),
+    ...interactions.map(message => ({ role: message.role, content: message.content, ...(message.receivedAt ? {receivedAt: message.receivedAt} : {}) })),
     { role: 'assistant', content: output },
   ];
   const messages = appended.slice(-MAX_CONTEXT_MESSAGES);

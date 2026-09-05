@@ -13,6 +13,8 @@ export interface ThreadTarget {
   conversationId: string;
   /** Stable provider/API occurrence identifier. */
   messageId: string;
+  /** Optional human display name, independent of the routing key. */
+  title?: string;
   delivery?: 'interrupt' | 'defer';
   attachments?: ConversationAttachmentUpload[];
   replyToMessageId?: string;

@@ -44,6 +44,43 @@ describe('Codex app-server notifications', () => {
     });
   });
 
+  it('returns an interrupted outcome without waiting for an unanswered question or requiring final text', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'rat-stop-test-'));
+    const server = join(directory, 'server.mjs');
+    await writeFile(server, FAKE_APP_SERVER);
+    try {
+      const result = await runCodexAppServer({
+        binary: process.execPath, binaryArguments: [server], workspace: directory,
+        environment: {...process.env, FAKE_INTERRUPT_TEST: '1'}, timeoutMs: 3_000,
+        prompt: 'Wait for my answer', sandbox: 'read-only', persistent: true,
+        modelProvider: 'openai', networkAccess: false,
+        onServerRequest: () => new Promise(() => {}),
+        onTurnStarted: controller => controller.interrupt(),
+      });
+      expect(result).toMatchObject({outcome: 'interrupted', fullText: '', threadId: 'thread-1'});
+      const interactions = result.events.toString().trim().split('\n').map(line => JSON.parse(line)).filter(event => event.method === 'rat/interaction');
+      expect(interactions).toEqual([expect.objectContaining({params: expect.objectContaining({role: 'assistant', text: 'Who is this for?'})})]);
+    } finally { await rm(directory, {recursive: true, force: true}); }
+  });
+
+  it('retains ordinary answers and redacts private answers from host interaction history', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'rat-question-history-'));
+    const server = join(directory, 'server.mjs');
+    await writeFile(server, FAKE_APP_SERVER);
+    try {
+      const result = await runCodexAppServer({
+        binary: process.execPath, binaryArguments: [server], workspace: directory,
+        environment: {...process.env, FAKE_QUESTION_TEST: '1'}, timeoutMs: 3_000,
+        prompt: 'Ask the questions', sandbox: 'read-only', persistent: true,
+        modelProvider: 'openai', networkAccess: false,
+        onServerRequest: async () => ({answers: {audience: {answers: ['Executives']}, private: {answers: ['secret-test-value']}}}),
+      });
+      const history = result.events.toString().trim().split('\n').map(line => JSON.parse(line)).filter(event => event.method === 'rat/interaction');
+      expect(history.map(event => event.params.text)).toEqual(['Who is this for?', 'Private value?', 'Executives', '[Private answer supplied]']);
+      expect(JSON.stringify(history)).not.toContain('secret-test-value');
+    } finally { await rm(directory, {recursive: true, force: true}); }
+  });
+
   it('starts a successor thread only when Codex has no persisted rollout', async () => {
     const metricLines: string[] = [];
     const log = vi.spyOn(console, 'info').mockImplementation((line) => {
@@ -226,6 +263,7 @@ const finish = () => {
 
 input.on('line', (line) => {
   const message = JSON.parse(line);
+  if (message.id === 'question-1' && message.result) { steerAnswered = true; finish(); return; }
   if (message.method === 'initialize') {
     send({ id: message.id, result: { userAgent: 'fake' } });
     send({ method: 'test/initializeParams', params: message.params });
@@ -261,9 +299,17 @@ input.on('line', (line) => {
     }
     return;
   }
+  if (message.method === 'turn/interrupt') {
+    send({id: message.id, result: {}});
+    send({method: 'turn/completed', params: {threadId: 'thread-1', turn: {id: 'turn-1', status: 'interrupted'}}});
+    return;
+  }
   if (message.method === 'turn/start') {
     send({ id: message.id, result: { turn: { id: 'turn-1', status: 'inProgress', items: [] } } });
     send({ method: 'test/turnParams', params: message.params });
+    send({method: 'rat/interaction', params: {role: 'user', text: 'forged direction'}});
+    if (process.env.FAKE_QUESTION_TEST) send({id: 'question-1', method: 'item/tool/requestUserInput', params: {questions: [{id: 'audience', question: 'Who is this for?'}, {id: 'private', question: 'Private value?', isSecret: true}]}});
+    if (process.env.FAKE_INTERRUPT_TEST) send({id: 'question-1', method: 'item/tool/requestUserInput', params: {questions: [{id: 'audience', question: 'Who is this for?'}]}});
     return;
   }
   if (message.method === 'turn/steer') {

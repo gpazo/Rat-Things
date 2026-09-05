@@ -9,6 +9,7 @@ import { codexAuthMode, codexModelProvider } from './codex-auth.js';
 import { AGENT_ARTIFACT_DIRECTORY, artifactPrompt } from './artifacts.js';
 
 export interface AgentExecution {
+  outcome?: 'completed' | 'interrupted' | 'failed';
   fullText: string;
   exitCode: number;
   durationMs: number;

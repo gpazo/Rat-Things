@@ -19,6 +19,8 @@ import type { ArtifactCatalog, RunError, RunRecord } from '../domain/contracts.j
 import type { SandboxMode } from '../domain/contracts.js';
 import { InvalidStateTransitionError } from '../domain/state.js';
 import { parseRunRequest } from '../domain/validation.js';
+import { CodexExecutionError } from './codex-app-server.js';
+import type { AgentExecution } from './agent-driver.js';
 import { driverFor } from './agent-driver.js';
 import { loadCodexBedrockToken } from './bedrock-auth.js';
 import { installCodexAuthFile, type CodexAuthFileSession } from './chatgpt-auth.js';
@@ -253,13 +255,31 @@ export async function runAgentWorker(): Promise<void> {
         new SecretsManagerCredentialVault(clients.secrets),
       );
     }
-    const execution = await driver.execute(
-      effectiveRequest,
-      workspace,
-      timeoutSeconds * 1_000,
-      abort.signal,
-      driverControl,
-    );
+    let execution: AgentExecution;
+    let executionError: RunError | undefined;
+    const executionStarted = Date.now();
+    try {
+      execution = await driver.execute(effectiveRequest, workspace, timeoutSeconds * 1_000, abort.signal, driverControl);
+    } catch (error) {
+      execution = {
+        ...(error instanceof CodexExecutionError ? error.execution : {
+          fullText: '', durationMs: Date.now() - executionStarted, events: Buffer.alloc(0),
+        }),
+        outcome: 'failed', exitCode: 1,
+      };
+      executionError = {
+        code: abort.signal.aborted ? 'worker_interrupted' : classifyError(error),
+        message: safeMessage(error), retryable: false,
+      };
+    }
+    if (execution.outcome === 'interrupted' || execution.outcome === 'failed') abort.abort();
+    const finalizing = await store.get(runId);
+    if (finalizing?.status === 'cancelling') execution.outcome = 'interrupted';
+    const terminalStatus = execution.outcome === 'interrupted' ? 'cancelled'
+      : execution.outcome === 'failed' ? 'failed' : 'succeeded';
+    const terminalText = terminalStatus === 'cancelled' ? 'Stopped by you. Available files were saved.'
+      : terminalStatus === 'failed' ? `Work failed: ${executionError?.message ?? 'Agent execution failed'}` : '';
+    if (terminalText) execution.fullText = [execution.fullText, terminalText].filter(Boolean).join('\n\n');
     await codexAuthFileSession?.finalize();
     codexAuthFileSession = undefined;
     // Finalize any active recording before the artifact catalog takes its
@@ -279,7 +299,7 @@ export async function runAgentWorker(): Promise<void> {
       }),
     ]);
     const catalog: ArtifactCatalog = { version: '1', files: publishedArtifacts };
-    const requestedPublications = process.env.AGENT_PUBLICATION_ENABLED === 'true'
+    const requestedPublications = process.env.AGENT_PUBLICATION_ENABLED === 'true' && terminalStatus === 'succeeded'
       ? await readAgentShareRequests(workspace)
       : [];
     await clearAgentShareRequest(workspace);
@@ -317,7 +337,7 @@ export async function runAgentWorker(): Promise<void> {
       ? await artifacts.putBytes(`${prefix}/workspace.patch`, patch, 'text/x-diff')
       : undefined;
     if (persistentSession) await clearPersistentSessionScratch(workspace);
-    await store.complete(runId, {
+    const finalized = await store.finishExecution(runId, current.execution!, terminalStatus, {
       output,
       preview: execution.fullText.slice(0, 2_000),
       exitCode: execution.exitCode,
@@ -327,13 +347,14 @@ export async function runAgentWorker(): Promise<void> {
       ...(patchArtifact ? { workspacePatch: patchArtifact } : {}),
       ...(execution.threadId ? { agentThreadId: execution.threadId } : {}),
       ...(execution.usage ? { usage: execution.usage } : {}),
-    });
+    }, executionError);
+    if (!finalized) throw new Error('execution authority changed before finalization');
   } catch (error) {
     const latest = await store.get(runId);
     if (latest?.status === 'cancelling') {
       try {
         if (latest.execution?.generation) {
-          await store.cancelExecution(runId, latest.execution);
+          await store.cancelExecution(runId, current.execution!);
         } else {
           await store.transition(runId, ['running', 'cancelling'], 'cancelled');
         }
@@ -347,7 +368,7 @@ export async function runAgentWorker(): Promise<void> {
       message: safeMessage(error),
       retryable: false,
     };
-    const execution = latest?.execution ?? current.execution;
+    const execution = current.execution;
     const failed = execution?.generation
       ? await store.failExecution(
         runId,

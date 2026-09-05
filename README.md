@@ -131,6 +131,11 @@ schedules, and operate their lifecycle. Connection details show health, provider
 and dependent Things/routines without exposing credentials. Operators can watch, steer, stop, temporarily take browser control, and return control
 without widening the Run's fixed capability envelope.
 
+Start by sending a message, or choose a readable conversation name first. The console preserves
+an uncertain submission for retry after reload, and follow-ups from either client inherit the
+conversation's fixed capabilities. Questions, non-secret answers, and steering remain in history;
+graceful Stop retains partial output and files when runner finalization completes.
+
 <p align="center">
   <a href="assets/conversation-console-live-browser.png"><img src="assets/conversation-console-live-browser.png" alt="Rat Things three-pane reference console during a live AWS NVIDIA earnings Run, with active progress, durable conversation, and isolated browser takeover" width="900"></a>
 </p>

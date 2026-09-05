@@ -990,6 +990,7 @@ export function apiRunSubmissionBody(
   thread?: {
     conversationId: string;
     messageId: string;
+    title?: string;
     delivery?: 'interrupt' | 'defer';
     attachments?: Array<{ name: string; mediaType: string; bytes: Uint8Array; sha256: string }>;
     replyToMessageId?: string;
@@ -999,7 +1000,7 @@ export function apiRunSubmissionBody(
     return { request: apiRequestBody(body, source) };
   }
   const { thread: rawThread, ...request } = body;
-  const thread = strictBody(rawThread, ['key', 'delivery', 'attachments', 'replyToMessageId']);
+  const thread = strictBody(rawThread, ['key', 'title', 'delivery', 'attachments', 'replyToMessageId']);
   const key = boundedText(thread.key, 'thread.key', 128);
   if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(key)) {
     throw new ValidationError('thread.key must be 1-128 safe ASCII characters');
@@ -1020,6 +1021,7 @@ export function apiRunSubmissionBody(
     thread: {
       conversationId: apiConversationId(ownerId, key),
       messageId,
+      ...(thread.title === undefined ? {} : { title: boundedText(thread.title, 'thread.title', 128) }),
       ...(delivery ? { delivery } : {}),
       ...(attachments.length ? { attachments } : {}),
       ...(replyToMessageId ? { replyToMessageId } : {}),

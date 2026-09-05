@@ -141,7 +141,12 @@ export class RunService {
     };
 
     const created = await this.options.store.create(record);
-    if (!created.created) return assertSameRequest(created.record, requestHash);
+    if (!created.created) {
+      const existing = assertSameRequest(created.record, requestHash);
+      assertSameThing(existing.thing, submit.thing);
+      assertSameConversationBinding(existing.conversation, submit.conversation);
+      return existing;
+    }
 
     try {
       if (submit.enqueue !== false) await this.enqueue(runId, submit.traceId);
@@ -327,6 +332,9 @@ function validateConversationBinding(
     binding.replyToMessageId !== undefined &&
     (!binding.replyToMessageId || Buffer.byteLength(binding.replyToMessageId, 'utf8') > 512)
   ) throw new ValidationError('conversation reply target is invalid');
+  if (binding.title !== undefined && (!binding.title.trim() || binding.title.length > 128)) {
+    throw new ValidationError('conversation title must be 1-128 characters');
+  }
   return { ...binding };
 }
 
@@ -376,6 +384,7 @@ function assertSameConversationBinding(
   const same = existing && requested
     ? existing.conversationId === requested.conversationId &&
       existing.messageId === requested.messageId &&
+      existing.title === requested.title &&
       existing.delivery === requested.delivery &&
       existing.attachmentDigest === requested.attachmentDigest &&
       existing.replyToMessageId === requested.replyToMessageId

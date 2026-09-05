@@ -14,6 +14,17 @@ See [Connect an agent to Rat Things](agents.md) for the smallest machine-facing 
 [Control API reference](api.md#headless-durable-conversations) for exact routes. The console is a
 reference client for those routes, not a hosted product or a second backend.
 
+In an empty console, type a message and send it to start work immediately. To choose a display
+name first, use **New conversation**; names can contain spaces and punctuation. The console generates
+the routing key separately. After acceptance, reload reopens the durable conversation and resumes
+tracking its Run, including while the coordinator is still preparing execution.
+
+If a submission response is lost, send the unchanged message again. The console retains the exact
+request and idempotency key, including attachments, in this browser's local IndexedDB until acceptance
+is confirmed. Reload preserves that retry. Changing the message creates a new submission; clearing
+browser storage removes the saved retry envelope. API and CLI clients must likewise reuse their
+original key and request when acceptance is uncertain.
+
 On desktop, draggable separators resize the conversation list, transcript, and context pane. The
 active-Run strip keeps phase, progress, elapsed time, Watch, Steer, and Stop visible. Opening Watch
 places the isolated browser beside the transcript; Sources and grouped Activity share that context
@@ -66,8 +77,10 @@ and opens its Codex SQLite state.
   a new lease and resume the same turn at the next slice.
 - DynamoDB stores only bounded records and previews. Full message bodies, event payloads,
   checkpoints, results, and published files live in S3 behind checksummed references.
-- `.rat-things/artifacts/` is reconciled from the committed conversation catalog before each run;
-  successful changes replace that catalog, while failed runs cannot mutate its durable view.
+- `.rat-things/artifacts/` is reconciled from the committed conversation catalog before each run.
+  Successful runner finalization retains available files on completed, stopped, and failed turns.
+  If the runner cannot finish cleanup or the VM is lost abruptly, only the last committed catalog
+  is guaranteed to survive; a terminal status alone does not prove new files were saved.
 - User attachments are checksummed into the same encrypted artifact store, bound to the accepted
   Run by a private manifest, and merged into the catalog while the coordinator holds the lease.
   They are therefore available at `.rat-things/artifacts/uploads/...` even after crash repair or a
@@ -157,7 +170,9 @@ conversation state, while immutable bodies remain in S3. Attachments cross the p
 opaque 24-hex content IDs, never bucket/key coordinates. Reply edges use stable public transcript
 message IDs. Owner reactions (`👍`, `❤️`, `🎉`, and `👀`) are durable annotations and never create a
 Run or change execution authority. These projections omit owner/capability principals,
-object-store references, MicroVM IDs, Codex thread IDs, and policy bindings. An API-created
+object-store references, MicroVM IDs, Codex thread IDs, and private policy bindings. Conversation
+detail includes `executionPolicy` so clients can show the fixed agent settings inherited by later
+turns. An API-created
 conversation also returns its caller-chosen `threadKey`; provider-created conversations do not
 expose a reply target through the API.
 
@@ -213,6 +228,10 @@ above 6 MiB, detects common media types, base64-encodes each file, and supplies 
 rechecks every limit and checksum before accepting the Run. `--delivery interrupt` interrupts the
 current turn before scheduling the new message; `defer` leaves it queued. Neither choice widens the
 fixed capability envelope.
+
+Omit agent options on follow-up messages to inherit the conversation's fixed execution policy,
+including browser access. The console displays an inherited browser setting as checked and disabled.
+Start a new conversation when different capabilities are needed.
 
 `rat-things watch RUN_ID --follow` renders the stable public activity cards as a readable timeline
 and prints answer commands for structured ordinary input. Use repeatable
@@ -290,7 +309,8 @@ execution: submitted work still follows the normal
 control API, durable Run, coordinator, and Lambda MicroVM path. Public activity cards deliberately omit raw App
 Server methods/parameters, commands, results, reasoning, and native thread/turn IDs. While a turn is
 active, the console reports the durable lifecycle as
-`Queued`, `Starting`, `Working`, or `Stopping` and shows elapsed time. `Starting` deliberately covers
+`Queued`, `Starting`, `Working`, `Needs input`, or `Stopping` and shows elapsed time from server
+timestamps, including after reload. `Starting` deliberately covers
 both allocation or resumption of an owner-bound MicroVM and preparation of its durable workspace;
 it warns that first-use storage can take tens of seconds rather than presenting an indeterminate
 frozen state. On desktop the conversation list, transcript, and Run context are independently
@@ -305,6 +325,19 @@ When an App Server request bridge is present, the runner enables Codex's Default
 input feature for that thread. The resulting question is an ordinary interaction inside the Run's
 precomputed capability envelope: answering it does not approve or widen IAM, integration, network,
 filesystem, or browser authority. Runs without a request bridge do not expose the tool.
+
+Polling preserves a question's selected answer while the page remains open. Reload restores the
+pending question, but unsent answers must be entered again. After a turn finishes, its question
+text, non-secret answers, and acknowledged steering are retained with the final response. Secret
+answers are redacted. Clients render these ordered `interactions` before the containing assistant
+message; they do not add separate pagination entries or reply/reaction targets.
+
+**Stop** requests a graceful interruption of the active Codex turn, including when it is waiting for
+an answer. A normally finalized interruption produces a `cancelled` Run and **Work stopped** in the
+console, retaining partial output and available files. Continue with another message in the same
+conversation. Interrupted external operations with an unknown outcome still require reconciliation
+before repeating them. Stop does not undo completed external effects. When a browser panel is open,
+it freezes the last captured frame and disables live controls at the end of the Run.
 
 The deterministic browser E2E starts a fake owner-scoped control API and the real loopback console
 proxy, then drives conversation creation, upload validation and transport, structured question

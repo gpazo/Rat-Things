@@ -90,6 +90,8 @@ export interface AppendConversationMessageInput {
   ownerId: string;
   capabilityOwnerId?: string;
   messageId: string;
+  /** Optional human display name, independent of the routing key. */
+  title?: string;
   /** Public Run reserved for this exact mailbox item before coordination. */
   runId?: string;
   delivery: ConversationDelivery;
@@ -123,6 +125,7 @@ export class ConversationService {
     requiredId(input.messageId, 'messageId', 512);
     if (input.runId) requiredId(input.runId, 'runId', 128);
     validateMessageContent(input.content);
+    if (input.title !== undefined) requiredText(input.title, 'title', 512);
     if (input.delivery !== 'interrupt' && input.delivery !== 'defer') {
       throw new ConversationStateError('delivery must be interrupt or defer');
     }
@@ -156,7 +159,7 @@ export class ConversationService {
       ...(input.capabilityOwnerId ? { capabilityOwnerId: input.capabilityOwnerId } : {}),
       status: 'pending',
       pendingCount: 1,
-      ...(title(input.content.text) ? { title: title(input.content.text) } : {}),
+      ...(input.title || title(input.content.text) ? { title: input.title?.trim().slice(0, 128) || title(input.content.text) } : {}),
       ...(preview(input.content.text) ? { lastMessagePreview: preview(input.content.text) } : {}),
       createdAt,
       updatedAt: createdAt,
@@ -484,7 +487,7 @@ export class ConversationService {
     ]);
     let transcriptMessages = (
       await Promise.all(transcriptRecords.items.map((record) => this.readTranscriptRecord(record)))
-    ).filter((message): message is ConversationTranscriptMessage => message !== undefined).reverse();
+    ).reverse().flat().filter((message): message is ConversationTranscriptMessage => message !== undefined);
     const reactionMessageIds = transcriptMessages.flatMap((message) => message.messageId ? [message.messageId] : []);
     if (reactionMessageIds.length > 0) {
       const reactions = await this.options.store.listReactions(
@@ -819,6 +822,7 @@ export class ConversationService {
     turnId: string;
     leaseToken: string;
     result?: ArtifactReference;
+    transcriptMessages?: ConversationTranscriptMessage[];
     context?: ConversationCheckpoint;
     artifactCatalog?: ArtifactCatalog;
     session?: ConversationSession;
@@ -846,14 +850,17 @@ export class ConversationService {
     const lastAssistantMessage = input.context
       ? [...input.context.messages].reverse().find(isAssistantTextMessage)
       : undefined;
-    const transcript: ConversationTranscriptRecord | undefined = input.result ? {
+    const transcriptContent = input.transcriptMessages?.length
+      ? await this.writeJson(conversation, `transcripts/${digest(input.turnId)}.json`, input.transcriptMessages)
+      : input.result;
+    const transcript: ConversationTranscriptRecord | undefined = transcriptContent ? {
       version: '1',
       itemType: 'transcript',
       conversationId: input.conversationId,
       entryId: `turn-${digest(input.turnId)}`,
       role: 'assistant',
-      contentKind: 'text',
-      content: input.result,
+      contentKind: input.transcriptMessages?.length ? 'turn' : 'text',
+      content: transcriptContent,
       occurredAt,
       expiresAt: conversation.expiresAt,
       messageId: `assistant-${digest(input.turnId).slice(0, 32)}`,
@@ -904,6 +911,9 @@ export class ConversationService {
     leaseToken: string;
     error: RunError;
     context?: ConversationCheckpoint;
+    transcriptMessages?: ConversationTranscriptMessage[];
+    artifactCatalog?: ArtifactCatalog;
+    session?: ConversationSession;
     clearSession?: boolean;
   }): Promise<ConversationTurnRecord> {
     const conversation = await this.requireLease(input.conversationId, input.leaseToken);
@@ -923,7 +933,18 @@ export class ConversationService {
       turnId: input.turnId,
       data: { turnId: input.turnId, error: input.error },
     });
+    const transcript: ConversationTranscriptRecord | undefined = input.transcriptMessages?.length ? {
+      version: '1', itemType: 'transcript', conversationId: input.conversationId,
+      entryId: `turn-${digest(input.turnId)}`, role: 'assistant', contentKind: 'turn',
+      content: await this.writeJson(conversation, `transcripts/${digest(input.turnId)}.json`, input.transcriptMessages),
+      occurredAt, expiresAt: conversation.expiresAt,
+    } : undefined;
+    const artifacts = input.artifactCatalog
+      ? await this.writeArtifactCatalog(conversation, input.turnId, occurredAt, input.artifactCatalog) : undefined;
     return this.options.store.failTurn({
+      ...(transcript ? { transcript } : {}),
+      ...(artifacts ? { artifacts } : {}),
+      ...(input.session && !input.clearSession ? { session: input.session } : {}),
       conversationId: input.conversationId,
       turnId: input.turnId,
       error: input.error,
@@ -1044,7 +1065,21 @@ export class ConversationService {
 
   private async readTranscriptRecord(
     record: ConversationTranscriptRecord,
-  ): Promise<ConversationTranscriptMessage | undefined> {
+  ): Promise<ConversationTranscriptMessage | ConversationTranscriptMessage[] | undefined> {
+    if (record.contentKind === 'turn') {
+      const entries = await this.options.artifacts.getJson<ConversationTranscriptMessage[]>(record.content);
+      const final = entries.at(-1);
+      if (!final) return undefined;
+      return {
+        role: 'assistant', content: boundedTranscriptText(final.content),
+        receivedAt: final.receivedAt ?? record.occurredAt,
+        ...(record.messageId ? { messageId: record.messageId } : {}),
+        interactions: entries.slice(0, -1).map(entry => ({
+          role: entry.role, content: entry.content,
+          ...(entry.receivedAt ? { receivedAt: entry.receivedAt } : {}),
+        })),
+      };
+    }
     if (record.contentKind === 'message') {
       const message = await this.options.artifacts.getJson<ConversationMessageContent>(record.content);
       if (!message || typeof message.text !== 'string') return undefined;
@@ -1244,7 +1279,9 @@ function preview(value: string): string {
 }
 
 function title(value: string): string {
-  return value.trim().split(/\r?\n/, 1)[0]?.trim().slice(0, MAX_TITLE_CHARACTERS) ?? '';
+  const line = value.trim().split(/\r?\n/, 1)[0]?.trim() ?? '';
+  const limit = Math.min(MAX_TITLE_CHARACTERS, 64);
+  return line.length <= limit ? line : `${line.slice(0, limit - 1).replace(/\s+\S*$/, '')}…`;
 }
 
 function boundedTranscriptText(value: string): string {

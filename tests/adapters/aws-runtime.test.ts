@@ -169,6 +169,26 @@ describe('AWS runtime client configuration', () => {
     ]);
   });
 
+  it('fences terminal artifacts and refuses a stale worker generation', async () => {
+    const execution = {backend: 'microvm' as const, id: 'microvm-1', generation: 'generation-1'};
+    const result = {output: {bucket: 'artifacts', key: 'partial', sha256: 'a'.repeat(64)}, preview: 'Stopped', durationMs: 10, exitCode: 0};
+    let generation = execution.generation;
+    let update: UpdateCommand | undefined;
+    const send = vi.fn(async (command: unknown) => {
+      if (command instanceof GetCommand) return {Item: {runId: 'run-1', status: 'running', execution: {...execution, generation}}};
+      if (command instanceof UpdateCommand) { update = command; return {}; }
+      throw new Error('unexpected command');
+    });
+    const store = new DynamoRunStore({send} as unknown as DynamoDBDocumentClient, 'runs');
+    expect(await store.finishExecution('run-1', execution, 'cancelled', result)).toBe(true);
+    expect(update?.input.ConditionExpression).toContain('#execution.#generation = :generation');
+    expect(update?.input.ExpressionAttributeValues?.[':result']).toEqual(result);
+    generation = 'replacement-generation';
+    update = undefined;
+    expect(await store.finishExecution('run-1', execution, 'cancelled', result)).toBe(false);
+    expect(update).toBeUndefined();
+  });
+
   it('atomically interrupts pending tool calls when an exact execution is failed', async () => {
     const generation = 'e'.repeat(64);
     const pending = {

@@ -43,6 +43,7 @@ export class ConversationSubmissionService {
       ownerId,
       ...(submit.capabilityOwnerId ? { capabilityOwnerId: submit.capabilityOwnerId } : {}),
       messageId: thread.messageId,
+      ...(thread.title ? { title: thread.title } : {}),
       delivery,
       request,
       context: {
@@ -68,6 +69,7 @@ export class ConversationSubmissionService {
     ownerId: string;
     capabilityOwnerId?: string;
     messageId: string;
+    title?: string;
     delivery: 'interrupt' | 'defer';
     request: RunRequest;
     context: IngressContext;
@@ -94,12 +96,24 @@ export class ConversationSubmissionService {
       conversation: {
         conversationId: input.conversationId,
         messageId: input.messageId,
+        ...(input.title ? { title: input.title } : {}),
         delivery: input.delivery,
         ...(input.attachmentManifest ? { attachmentManifest: input.attachmentManifest } : {}),
         ...(input.attachmentDigest ? { attachmentDigest: input.attachmentDigest } : {}),
         ...(input.replyToMessageId ? { replyToMessageId: input.replyToMessageId } : {}),
       },
     });
+    // RunService has already checked the immutable request and thread binding.
+    // Older mailbox records included transport trace IDs in their content hash;
+    // replay their accepted receipt rather than rebuilding transport metadata.
+    const accepted = await this.conversations.getMessage(input.conversationId, input.messageId);
+    if (accepted?.runId === run.runId) {
+      if (run.status === 'queued') await this.queue.enqueue({
+        version: '1', conversationId: input.conversationId, runId: run.runId,
+        ownerId: input.ownerId, traceId: input.submit.traceId ?? run.runId,
+      });
+      return { messageId: accepted.messageId, runId: run.runId, status: 'duplicate', run };
+    }
     const attachments = run.conversation?.attachmentManifest && input.attachmentManifest &&
       run.conversation.attachmentManifest.sha256 !== input.attachmentManifest.sha256
       ? (await this.conversations.readAttachmentManifest(run.conversation.attachmentManifest)).files
@@ -112,6 +126,7 @@ export class ConversationSubmissionService {
         ...(input.capabilityOwnerId ? { capabilityOwnerId: input.capabilityOwnerId } : {}),
         messageId: input.messageId,
         runId: run.runId,
+        ...(input.title ? { title: input.title } : {}),
         delivery: input.delivery,
         content: {
           text: input.request.prompt,
@@ -119,18 +134,19 @@ export class ConversationSubmissionService {
           ...(attachments?.length ? { attachments } : {}),
           ...(input.replyToMessageId ? { replyToMessageId: input.replyToMessageId } : {}),
           metadata: {
-            traceId: input.submit.traceId ?? run.runId,
+            traceId: run.runId,
           },
         },
         source: input.context.source,
         destination: input.destination,
         actor: input.context.actor,
         credentialSubject: input.context.credentialSubject,
-        ...(input.request.agent ? { executionPolicy: input.request.agent } : {}),
+        ...(input.request.agent && Object.keys(input.request.agent).length ? { executionPolicy: input.request.agent } : {}),
         ...(input.request.integrations ? { integrationPolicy: input.request.integrations } : {}),
       });
     } catch (error) {
-      if (error instanceof ConversationConflictError) {
+      if (error instanceof ConversationConflictError &&
+        !await this.conversations.getMessage(input.conversationId, input.messageId)) {
         // A fixed thread envelope rejected this occurrence after its durable Run
         // reservation. Tombstone the queued reservation so the scheduled crash-
         // window reconciler cannot turn a deterministic 409 into poison retries.
@@ -158,10 +174,10 @@ export class ConversationSubmissionService {
     conversationId: string,
     messageId: string,
   ): Promise<'interrupt' | 'defer'> {
-    const current = await this.conversations.get(conversationId);
-    if (!current?.activeTurnId) return 'defer';
     const existing = await this.conversations.getMessage(conversationId, messageId);
-    return existing?.delivery ?? 'interrupt';
+    if (existing) return existing.delivery;
+    const current = await this.conversations.get(conversationId);
+    return current?.activeTurnId ? 'interrupt' : 'defer';
   }
 }
 

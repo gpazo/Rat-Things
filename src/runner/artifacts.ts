@@ -168,7 +168,7 @@ export function artifactPrompt(
     'Rat Things files:',
     `- Files available to this session are under ${AGENT_ARTIFACT_DIRECTORY}/.`,
     `- When write access is enabled, return or preserve a file by writing it under ${AGENT_ARTIFACT_DIRECTORY}/ using a clear relative filename.`,
-    '- Managed runs catalog files after a successful turn; durable conversations restore them when they resume, even in a replacement MicroVM.',
+    '- Managed runs catalog available files during finalization, including after a stopped or failed turn; durable conversations restore committed files when they resume, even in a replacement MicroVM. Abrupt termination can lose uncommitted files.',
     '- Mention the relative filename in your response. Do not create credentials or secrets there.',
   ];
   if (publicationEnabled) {

@@ -1364,6 +1364,7 @@
             "properties": {
               "key": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$" },
               "delivery": { "enum": ["interrupt", "defer"] },
+              "title": { "type": "string", "minLength": 1, "maxLength": 128, "description": "Optional display name for a new conversation; independent of its routing key." },
               "replyToMessageId": { "type": "string", "minLength": 1, "maxLength": 512 },
               "attachments": {
                 "type": "array",
@@ -1666,6 +1667,7 @@
             "required": ["transcript"],
             "properties": {
               "activeRunId": { "type": "string", "pattern": "^[A-Za-z0-9-]{1,128}$" },
+              "executionPolicy": { "$ref": "#/components/schemas/Agent" },
               "transcript": {
                 "type": "object",
                 "additionalProperties": false,
@@ -1683,6 +1685,7 @@
                         "content": { "type": "string" },
                         "messageId": { "type": "string" },
                         "receivedAt": { "type": "string", "format": "date-time" },
+                        "interactions": { "type": "array", "maxItems": 256, "items": { "type": "object", "additionalProperties": false, "required": ["role", "content"], "properties": { "role": { "enum": ["user", "assistant"] }, "content": { "type": "string", "maxLength": 16384 }, "receivedAt": { "type": "string", "format": "date-time" } } } },
                         "replyToMessageId": { "type": "string", "minLength": 1, "maxLength": 512 },
                         "reactions": {
                           "type": "array",

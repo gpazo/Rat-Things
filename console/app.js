@@ -160,11 +160,13 @@ const state = {
   detail: null,
   detailLoading: false,
   draftThreadKey: null,
+  draftTitle: null,
   activeRunId: null,
   activeRun: null,
   activeRunObservedAt: null,
   events: [],
   pendingRequests: [],
+  questionNodes: new Map(),
   eventAfter: 0,
   eventGap: false,
   runtimeReady: false,
@@ -299,8 +301,18 @@ async function initialize() {
       ?? state.conversations.find((item) => requestedRun && item.activeRunId === requestedRun)
       ?? state.conversations.find((item) => item.conversationId === saved)
       ?? state.conversations[0];
-    if (selected) await selectConversation(selected);
-    else renderWorkspace({ scrollMode: 'bottom' });
+    const draft = JSON.parse(localStorage.getItem('rat-things.new-conversation') ?? 'null');
+    const acceptedDraft = state.conversations.find(item => draft?.key && item.threadKey === draft.key);
+    if (acceptedDraft && !requestedThread && !requestedRun) {
+      await selectConversation(acceptedDraft);
+    } else if (draft?.key && !requestedThread && !requestedRun) {
+      state.draftThreadKey = draft.key;
+      state.draftTitle = draft.title;
+      restoreDraft();
+      await restoreSubmission(draft.key);
+      renderWorkspace({ scrollMode: 'bottom' });
+    } else if (selected) await selectConversation(selected);
+    else { restoreDraft(); renderWorkspace({ scrollMode: 'bottom' }); }
     if (requestedRun && state.activeRunId === requestedRun) await openComputer();
     const requestedView = requested.get('view');
     if (requestedView === 'connections' || requestedView === 'routines') {
@@ -1704,6 +1716,8 @@ async function selectConversation(conversation) {
   const revision = ++state.selectionRevision;
   state.selected = conversation;
   state.draftThreadKey = null;
+  state.draftTitle = null;
+  localStorage.removeItem('rat-things.new-conversation');
   state.detail = null;
   state.detailLoading = true;
   resetLiveRunState();
@@ -1727,6 +1741,7 @@ async function selectConversation(conversation) {
       state.selected?.conversationId !== conversation.conversationId
     ) return;
     state.detail = detail;
+    await restoreSubmission(detail.threadKey);
     state.artifacts = artifacts;
     state.detailLoading = false;
     state.activeRunId = detail.activeRunId ?? null;
@@ -1767,7 +1782,9 @@ function createDraftThread(event) {
   state.selected = null;
   state.detail = null;
   state.detailLoading = false;
-  state.draftThreadKey = elements.threadKey.value.trim();
+  state.draftThreadKey = `thread-${crypto.randomUUID()}`;
+  state.draftTitle = elements.threadKey.value.trim();
+  localStorage.setItem('rat-things.new-conversation', JSON.stringify({key: state.draftThreadKey, title: state.draftTitle}));
   resetLiveRunState();
   state.completedWork = null;
   state.artifacts = [];
@@ -1887,7 +1904,7 @@ function renderWorkspace(options = {}) {
   const scroll = options.scrollSnapshot ?? captureTranscriptScroll();
   const conversation = state.detail ?? state.selected;
   const threadKey = state.draftThreadKey ?? conversation?.threadKey;
-  elements.title.textContent = state.draftThreadKey ?? conversation?.title ?? (conversation ? labelFor(conversation) : 'New conversation');
+  elements.title.textContent = state.draftTitle ?? conversation?.title ?? (conversation ? labelFor(conversation) : 'New conversation');
   const sourceKind = conversation?.sourceKind ?? state.selected?.sourceKind;
   const updatedAt = conversation?.updatedAt ?? state.selected?.updatedAt;
   elements.subtitle.textContent = conversation
@@ -1895,13 +1912,14 @@ function renderWorkspace(options = {}) {
     : 'Durable, isolated execution';
   const status = state.activeRun?.status ?? conversation?.status ?? (state.activeRunId ? 'queued' : 'idle');
   elements.badge.dataset.state = status;
-  elements.badge.textContent = state.pendingRequests.length > 0 ? 'Needs input' : statusLabel(status);
+  elements.badge.textContent = state.activeRunId ? workPresentation(currentWork(status)).label : statusLabel(status);
   elements.interrupt.hidden = true;
   elements.openComputer.hidden = !state.activeRunId;
 
   const messages = state.detail?.transcript?.messages ?? [];
   const work = currentWork(status);
   renderRunStrip(work);
+  const focusedAnswer = document.activeElement?.closest('.question-form') ? document.activeElement : null;
   elements.transcript.replaceChildren();
   if (state.detailLoading) {
     elements.transcript.append(transcriptLoadingNode());
@@ -1911,12 +1929,16 @@ function renderWorkspace(options = {}) {
     renderTranscript(messages, work);
   }
 
-  const writable = Boolean(threadKey);
+  if (focusedAnswer?.isConnected) focusedAnswer.focus({ preventScroll: true });
+  const writable = Boolean(threadKey) || !conversation;
   elements.prompt.disabled = !writable || state.busy;
   elements.prompt.placeholder = state.steering ? 'Give Rat additional direction…' : 'Message Rat Things…';
   elements.send.disabled = !writable || state.busy;
   elements.delivery.disabled = !writable || state.busy;
-  elements.browserUse.disabled = !writable || state.busy;
+  const inheritedPolicy = state.detail?.executionPolicy;
+  if (inheritedPolicy) elements.browserUse.checked = inheritedPolicy.capabilities?.computerUse === 'browser';
+  elements.browserUse.disabled = !writable || state.busy || Boolean(inheritedPolicy);
+  elements.browserUse.title = inheritedPolicy ? 'Inherited from this conversation. Start a new conversation to use different capabilities.' : '';
   elements.attachFiles.disabled = !writable || state.busy;
   renderComposerContext(writable, conversation);
   renderComposerAttachments();
@@ -1953,6 +1975,7 @@ function renderTranscript(messages, work) {
     }
   }
   for (const [index, item] of messages.entries()) {
+    for (const interaction of item.interactions ?? []) elements.transcript.append(messageNode(interaction));
     elements.transcript.append(messageNode(item));
     if (index === workIndex) elements.transcript.append(workNode(work));
   }
@@ -2378,7 +2401,7 @@ function currentWork(status) {
 }
 
 function workNode(work) {
-  const progress = progressText(work.status, state.detail?.latestProgress?.text ?? state.selected?.latestProgress?.text);
+  const progress = workPresentation(work);
   const activities = coalesceActivities(work.events ?? []);
   const section = document.createElement('section');
   section.id = 'run-progress';
@@ -2467,15 +2490,15 @@ function workNode(work) {
 function renderRunStrip(work) {
   elements.runStrip.hidden = state.mode !== 'conversations' || !work?.active;
   if (!work?.active) return;
-  const progress = progressText(work.status, state.detail?.latestProgress?.text ?? state.selected?.latestProgress?.text);
+  const progress = workPresentation(work);
   elements.runStrip.dataset.state = work.status;
-  elements.runStripPhase.textContent = phaseLabel(work.status, work.events ?? []);
+  elements.runStripPhase.textContent = progress.phase;
   elements.runStripTitle.textContent = progress.title;
   elements.runStripDetail.textContent = work.pendingRequests?.length
     ? work.pendingRequests[0].detail ?? work.pendingRequests[0].title
     : progress.detail;
   elements.runStripElapsed.textContent = workDuration(work);
-  elements.runStripProgress.style.width = `${phaseProgress(work.status, work.events ?? [])}%`;
+  elements.runStripProgress.parentElement.hidden = true;
   elements.watchRun.hidden = !work.active;
   elements.steerRun.hidden = !work.active;
   elements.stopRun.hidden = !work.active;
@@ -2491,18 +2514,26 @@ function phaseLabel(status, events) {
   return ({ computer: 'Browsing', web_search: 'Researching', command: 'Running', file: 'Writing', message: 'Answering', reasoning: 'Thinking', plan: 'Planning' })[latest?.kind] ?? 'Working';
 }
 
-function phaseProgress(status, events) {
-  if (isTerminal(status)) return 100;
-  if (status === 'queued' || status === 'pending') return 12;
-  if (status === 'dispatching') return 28;
-  const kinds = new Set(events.map((event) => event.kind));
-  if (kinds.has('message')) return 86;
-  if (kinds.has('computer') || kinds.has('web_search') || kinds.has('command')) return 62;
-  if (kinds.has('reasoning') || kinds.has('plan')) return 44;
-  return 36;
+function workPresentation(work) {
+  if (work.pendingRequests?.length) return {
+    title: 'Agent needs input', detail: 'Answer the question below to continue.',
+    phase: 'Needs input', label: 'Needs input',
+  };
+  if (work.status === 'running' && !work.ready) return {
+    title: 'Starting isolated environment', detail: 'Connecting to the agent runtime.',
+    phase: 'Starting', label: 'Starting',
+  };
+  return {
+    ...progressText(work.status, state.detail?.latestProgress?.text ?? state.selected?.latestProgress?.text),
+    phase: phaseLabel(work.status, work.events ?? []), label: statusLabel(work.status),
+  };
 }
 
 function pendingRequestNode(request) {
+  const key = `${state.activeRunId}:${request.requestId}`;
+  const signature = JSON.stringify(request.questions);
+  const cached = state.questionNodes.get(key);
+  if (cached?.signature === signature) return cached.node;
   const node = document.createElement('div');
   node.className = 'pending-request';
   const icon = document.createElement('span');
@@ -2517,6 +2548,7 @@ function pendingRequestNode(request) {
     copy.append(questionResponseForm(request));
   }
   node.append(icon, copy);
+  state.questionNodes.set(key, { signature, node });
   return node;
 }
 
@@ -2612,6 +2644,7 @@ async function respondToQuestions(event, request, form, submit) {
       `/v1/runs/${encodeURIComponent(runId)}/requests/${encodeURIComponent(request.requestId)}/respond`,
       { method: 'POST', body: { result: { answers } } },
     );
+    state.questionNodes.delete(`${runId}:${request.requestId}`);
     state.pendingRequests = state.pendingRequests.filter((pending) => pending.requestId !== request.requestId);
     renderWorkspace({ scrollMode: 'keep' });
     notice('Response delivered to the isolated agent.');
@@ -2744,8 +2777,14 @@ function activityNode(activity) {
 async function submitMessage(event) {
   event.preventDefault();
   const prompt = elements.prompt.value.trim();
-  const threadKey = state.draftThreadKey ?? state.detail?.threadKey ?? state.selected?.threadKey;
-  if (!prompt || !threadKey || state.busy) return;
+  let threadKey = state.draftThreadKey ?? state.detail?.threadKey ?? state.selected?.threadKey;
+  if (!prompt || state.busy) return;
+  if (!threadKey && !state.selected) {
+    threadKey = state.draftThreadKey = `thread-${crypto.randomUUID()}`;
+    localStorage.setItem('rat-things.new-conversation', JSON.stringify({key: threadKey}));
+    persistDraft();
+  }
+  if (!threadKey) return;
   if (state.steering && state.activeRunId) {
     state.busy = true;
     renderWorkspace({ scrollMode: 'keep' });
@@ -2773,13 +2812,10 @@ async function submitMessage(event) {
   renderWorkspace({ scrollMode: 'keep' });
   try {
     const attachments = await Promise.all(files.map(filePayload));
-    const run = await api('/v1/runs', {
-      method: 'POST',
-      headers: { 'idempotency-key': crypto.randomUUID() },
-      body: {
+    const body = {
         version: '1',
         prompt,
-        ...(elements.browserUse.checked ? {
+        ...(elements.browserUse.checked && !state.detail?.executionPolicy ? {
           agent: {
             driver: 'codex',
             capabilities: {
@@ -2791,12 +2827,20 @@ async function submitMessage(event) {
         } : {}),
         thread: {
           key: threadKey,
+          ...(state.draftTitle ? { title: state.draftTitle } : {}),
           delivery: elements.delivery.value,
           ...(attachments.length ? { attachments } : {}),
           ...(replyTarget?.messageId ? { replyToMessageId: replyTarget.messageId } : {}),
         },
-      },
+    };
+    const prior = await submissionStorage('get', threadKey);
+    const envelope = prior && submissionIntent(prior.body) === submissionIntent(body)
+      ? prior : { key: crypto.randomUUID(), body };
+    await submissionStorage('put', threadKey, envelope);
+    const run = await api('/v1/runs', {
+      method: 'POST', headers: { 'idempotency-key': envelope.key }, body: envelope.body,
     });
+    await submissionStorage('delete', threadKey);
     activateRun(run);
     elements.prompt.value = '';
     clearDraft();
@@ -2806,7 +2850,16 @@ async function submitMessage(event) {
     renderWorkspace({ scrollMode: 'bottom' });
     notice(`Run ${run.runId} accepted.`);
     await refreshConversations(false);
-    await pollRun();
+    const created = state.conversations.find(item => item.threadKey === threadKey);
+    if (state.draftThreadKey === threadKey && created) {
+      await selectConversation(created);
+      // The durable conversation can appear before its coordinator projects
+      // activeRunId. Keep tracking the accepted receipt during that interval.
+      if (!state.activeRunId && state.selected?.conversationId === created.conversationId) {
+        activateRun(run);
+        await pollRun();
+      }
+    } else await pollRun();
   } catch (error) {
     notice(message(error), true);
   } finally {
@@ -2831,6 +2884,52 @@ function appendOptimisticMessage(prompt, files = [], replyTarget = null) {
     ...(files.length ? { pendingAttachments: files.map((file) => ({ name: file.name, bytes: file.size })) } : {}),
     ...(replyTarget?.messageId ? { replyToMessageId: replyTarget.messageId } : {}),
   });
+}
+
+function submissionIntent(body) {
+  return JSON.stringify({
+    prompt: body.prompt, thread: body.thread.key, delivery: body.thread.delivery,
+    reply: body.thread.replyToMessageId,
+    files: body.thread.attachments ?? [],
+    browser: (body.agent ?? state.detail?.executionPolicy)?.capabilities?.computerUse === 'browser',
+  });
+}
+
+// Store the exact request, including attachments, before sending. IndexedDB avoids
+// localStorage's small synchronous quota for file-bearing submission envelopes.
+async function submissionStorage(operation, key, value) {
+  const db = await new Promise((resolve, reject) => {
+    const request = indexedDB.open('rat-things-submissions', 1);
+    request.onupgradeneeded = () => request.result.createObjectStore('pending');
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+  try {
+    return await new Promise((resolve, reject) => {
+      const tx = db.transaction('pending', operation === 'get' ? 'readonly' : 'readwrite');
+      const store = tx.objectStore('pending');
+      const request = operation === 'put' ? store.put(value, key) : store[operation](key);
+      tx.oncomplete = () => resolve(request.result);
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error ?? new Error('Could not save submission for retry'));
+    });
+  } finally { db.close(); }
+}
+
+async function restoreSubmission(threadKey) {
+  if (!threadKey) return;
+  const pending = await submissionStorage('get', threadKey);
+  if (!pending) return;
+  if (!elements.prompt.value || elements.prompt.value === pending.body.prompt) {
+    elements.prompt.value = pending.body.prompt;
+    state.uploads = (pending.body.thread.attachments ?? []).map(file => new File(
+      [Uint8Array.from(atob(file.base64), char => char.charCodeAt(0))], file.name, { type: file.mediaType },
+    ));
+    if (pending.body.thread.replyToMessageId) state.replyTarget = {messageId: pending.body.thread.replyToMessageId};
+    elements.delivery.value = pending.body.thread.delivery;
+    elements.browserUse.checked = pending.body.agent?.capabilities?.computerUse === 'browser';
+  }
+  notice('Submission not confirmed. Send the unchanged message again to recover its existing Run.');
 }
 
 async function filePayload(file) {
@@ -2865,13 +2964,14 @@ async function pollRun() {
     const eventPageFull = Boolean(
       snapshot && Array.isArray(snapshot.events) && snapshot.events.length >= EVENT_PAGE_SIZE,
     );
+    if (runId !== state.activeRunId) return;
     if (snapshot) consumeRuntimeSnapshot(snapshot, after);
     if (isTerminal(run.status)) {
       await finishRun(run);
       return;
     }
     state.activeRun = run;
-    state.activeRunObservedAt ??= runStartedAt(run);
+    state.activeRunObservedAt = runStartedAt(run);
     if (state.detail) state.detail.status = run.status;
     renderWorkspace({ scrollMode: 'auto' });
     renderConversationList();
@@ -2895,6 +2995,10 @@ function consumeRuntimeSnapshot(snapshot, requestedAfter) {
   if (Number.isSafeInteger(newest)) state.eventAfter = Math.max(state.eventAfter, newest);
   state.pendingRequests = Array.isArray(snapshot.pendingRequests) ? snapshot.pendingRequests : [];
   state.runtimeReady = snapshot.ready === true;
+  const pendingKeys = new Set(state.pendingRequests.map(request => `${state.activeRunId}:${request.requestId}`));
+  for (const key of state.questionNodes.keys()) {
+    if (key.startsWith(`${state.activeRunId}:`) && !pendingKeys.has(key)) state.questionNodes.delete(key);
+  }
 }
 
 async function finishRun(run) {
@@ -2903,7 +3007,7 @@ async function finishRun(run) {
     runId: run.runId,
     status: run.status,
     active: false,
-    startedAt: state.activeRunObservedAt,
+    startedAt: runStartedAt(run),
     completedAt,
     durationMs: run.result?.durationMs,
     events: [...state.events],
@@ -2926,6 +3030,8 @@ async function finishRun(run) {
     state.detail = detail;
     state.artifacts = artifacts;
     state.draftThreadKey = null;
+    state.draftTitle = null;
+    localStorage.removeItem('rat-things.new-conversation');
     localStorage.setItem('rat-things.selected-conversation', current.conversationId);
   }
   renderConversationList();
@@ -2944,7 +3050,7 @@ async function waitForConversationProjection(conversation, run) {
 }
 
 function conversationProjectionSettled(detail, run) {
-  if (!detail || detail.activeRunId || detail.status !== 'idle') return false;
+  if (!detail || detail.activeRunId === run.runId) return false;
   const detailUpdatedAt = Date.parse(detail.updatedAt);
   const runUpdatedAt = Date.parse(run.updatedAt);
   if (Number.isFinite(runUpdatedAt) && (!Number.isFinite(detailUpdatedAt) || detailUpdatedAt < runUpdatedAt)) {
@@ -2980,6 +3086,7 @@ function clearActiveRun() {
   state.eventAfter = 0;
   state.eventGap = false;
   state.runtimeReady = false;
+  if (state.contextOpen) renderComputer();
   window.clearInterval(state.progressTimer);
   state.progressTimer = null;
 }
@@ -3008,7 +3115,7 @@ function cacheLiveWork() {
 function restoreLiveWork(conversationId, runId) {
   const cached = state.liveWorkByConversation.get(conversationId);
   if (!cached || cached.runId !== runId) {
-    state.activeRunObservedAt = Date.now();
+    state.activeRunObservedAt = null;
     return;
   }
   state.activeRun = cached.run;
@@ -3395,7 +3502,7 @@ function renderComputer() {
   if (computer?.page?.url && document.activeElement !== elements.computerUrl) {
     elements.computerUrl.value = computer.page.url;
   }
-  const interactive = human && !state.computerBusy;
+  const interactive = human && Boolean(state.activeRunId) && !state.computerBusy;
   for (const control of [
     elements.computerUrl,
     elements.computerBack,
@@ -3657,7 +3764,7 @@ function clearDraft() {
 
 function draftStorageKey() {
   const identity = state.selected?.conversationId ?? (state.draftThreadKey ? `new-${state.draftThreadKey}` : undefined);
-  return identity ? `${DRAFT_PREFIX}${identity}` : undefined;
+  return `${DRAFT_PREFIX}${identity ?? 'new'}`;
 }
 
 function persistCompletedWork(work) {

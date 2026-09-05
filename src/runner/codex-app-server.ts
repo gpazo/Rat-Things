@@ -72,6 +72,7 @@ export interface CodexAppServerRequest {
 }
 
 export interface CodexAppServerExecution {
+  outcome?: 'completed' | 'interrupted';
   fullText: string;
   durationMs: number;
   events: Buffer;
@@ -82,6 +83,13 @@ export interface CodexAppServerExecution {
     outputTokens?: number;
     reasoningOutputTokens?: number;
   };
+}
+
+export class CodexExecutionError extends Error {
+  constructor(message: string, public readonly execution: CodexAppServerExecution) {
+    super(message);
+    this.name = 'CodexExecutionError';
+  }
 }
 
 interface PendingRequest {
@@ -106,6 +114,8 @@ export async function runCodexAppServer(
   const callbackTasks = new Set<Promise<void>>();
   let nextRequestId = 0;
   let fullText = '';
+  let interruptRequested = false;
+  let outcome: 'completed' | 'interrupted' = 'completed';
   let usage: CodexAppServerExecution['usage'];
   let expectedThreadId: string | undefined;
   let expectedTurnId: string | undefined;
@@ -146,6 +156,16 @@ export async function runCodexAppServer(
     ));
   });
 
+  const interaction = (role: 'user' | 'assistant', text: string) => {
+    lines.push(JSON.stringify({ method: 'rat/interaction', params: {
+      role, text: text.slice(0, 16_384), occurredAt: new Date().toISOString(),
+    } }));
+  };
+  const snapshot = (): CodexAppServerExecution => ({
+    outcome, fullText, durationMs: Date.now() - started,
+    events: Buffer.from(`${lines.join('\n')}\n`), threadId: expectedThreadId ?? '',
+    ...(usage ? { usage } : {}),
+  });
   const output = createInterface({ input: child.stdout });
   output.on('line', (line) => {
     if (!line) return;
@@ -154,6 +174,12 @@ export async function runCodexAppServer(
     try {
       const parsed = JSON.parse(line) as unknown;
       if (!isRecord(parsed)) return;
+      // This event is emitted only by the trusted host after an interaction.
+      // Never let peer output manufacture human instructions in durable replay.
+      if (parsed.method === 'rat/interaction') {
+        lines[lines.length - 1] = JSON.stringify({method: 'rat/rejectedPeerEvent', params: parsed});
+        return;
+      }
       message = parsed;
     } catch {
       return;
@@ -188,10 +214,26 @@ export async function runCodexAppServer(
         write({ id: message.id, error: { code: -32601, message: `unsupported server request: ${message.method}` } });
         return;
       }
+      if (message.method === 'item/tool/requestUserInput' && Array.isArray(params.questions)) {
+        for (const question of params.questions) {
+          if (isRecord(question) && typeof question.question === 'string') interaction('assistant', question.question);
+        }
+      }
       const initiated: CodexAppServerInitiatedRequest = { ...event, requestId: message.id };
       trackCallback(
         Promise.resolve(request.onServerRequest(initiated)).then(
-          (result) => { write({ id: message.id as string | number, result }); },
+          (result) => {
+            write({ id: message.id as string | number, result });
+            if (message.method === 'item/tool/requestUserInput' && Array.isArray(params.questions)) {
+              const answers = isRecord(result) && isRecord(result.answers) ? result.answers : {};
+              for (const question of params.questions) {
+                if (!isRecord(question) || typeof question.id !== 'string') continue;
+                const answer = answers[question.id];
+                const values = isRecord(answer) && Array.isArray(answer.answers) ? answer.answers : [];
+                interaction('user', question.isSecret === true ? '[Private answer supplied]' : values.filter(value => typeof value === 'string').join('\n'));
+              }
+            }
+          },
           (error: unknown) => {
             write({
               id: message.id as string | number,
@@ -205,6 +247,7 @@ export async function runCodexAppServer(
       );
       return;
     }
+    if (message.method === 'item/agentMessage/delta' && typeof params.delta === 'string') fullText += params.delta;
     if (message.method === 'item/completed') {
       const item = isRecord(params.item) ? params.item : undefined;
       if (item?.type === 'agentMessage' && typeof item.text === 'string') fullText = item.text;
@@ -224,7 +267,10 @@ export async function runCodexAppServer(
     if (message.method === 'turn/completed') {
       const turn = isRecord(params.turn) ? params.turn : undefined;
       if (!turn || params.threadId !== expectedThreadId || turn.id !== expectedTurnId) return;
-      if (turn.status !== 'completed') {
+      if (turn.status === 'interrupted' && interruptRequested) {
+        outcome = 'interrupted';
+        turnCompleteResolve?.();
+      } else if (turn.status !== 'completed') {
         turnCompleteReject?.(new Error(`Codex turn ended with status ${String(turn.status ?? 'unknown')}`));
       } else {
         turnCompleteResolve?.();
@@ -363,23 +409,23 @@ export async function runCodexAppServer(
             expectedTurnId: turn.id,
             input: [{ type: 'text', text }],
           });
+          interaction('user', `Direction: ${text}`);
         },
         interrupt: async () => {
+          interruptRequested = true;
           await call('turn/interrupt', { threadId: thread.id, turnId: turn.id });
         },
       });
     }
     await turnCompleted;
-    if (callbackTasks.size > 0) await Promise.all(callbackTasks);
-    if (!fullText) throw new Error('Codex completed without an agent message');
+    const interrupted = snapshot().outcome === 'interrupted';
+    if (!interrupted && callbackTasks.size > 0) await Promise.all(callbackTasks);
+    if (!fullText && !interrupted) throw new Error('Codex completed without an agent message');
     settled = true;
-    return {
-      fullText,
-      durationMs: Date.now() - started,
-      events: Buffer.from(`${lines.join('\n')}\n`),
-      threadId: thread.id,
-      ...(usage ? { usage } : {}),
-    };
+    return snapshot();
+  } catch (error) {
+    if (!expectedTurnId) throw error;
+    throw new CodexExecutionError(error instanceof Error ? error.message : String(error), snapshot());
   } finally {
     settled = true;
     clearTimeout(timeout);

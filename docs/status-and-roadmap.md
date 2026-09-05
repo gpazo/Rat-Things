@@ -47,6 +47,30 @@ broad real-agent evaluation, or disaster-recovery proof.
 | Cost model | Live canary baseline measured | The 2026-08-16 two-turn site canary has a dated $0.380 estimate using rates captured then; non-model infrastructure was about $0.046, while current repricing and sustained-load ceilings remain unmeasured |
 | Multi-tenant hardening | Not complete | Run responses now strip storage/authority internals; destination authorization, budgets, rate limits, output policy, and security review remain |
 
+## Validation completed on 2026-09-04 PDT
+
+- Repeated hands-on console and CLI journeys on the retained AWS test stack with actual
+  Codex-on-Bedrock and ARM64 MicroVM image 12.0. Seven executions reached their expected outcomes:
+  five succeeded and two were intentionally cancelled. No connected-account writes or public
+  publishing were performed; browser access used public example.com and all prompts were synthetic.
+- Verified first-message submission, readable names independent of routing keys, the public-browser
+  report (15 checks, 80% passed), warm follow-up, and inherited browser capabilities across console
+  and CLI. Selected ordinary answers survived polling; question/answer and acknowledged steering
+  history survived completion and reload.
+- Dropped one HTTP response after AWS accepted the Run. Reload and retry reused the identical
+  body/key and returned the same Run; direct exact replay returned 202 rather than a conflict.
+- Graceful Stop retained partial text and an interrupted file. After terminating the settled test
+  VM, CLI continuation resumed the same native Codex thread on a replacement VM, recalled the
+  conversation marker, and read both files with unchanged SHA-256 hashes. Stopping with an
+  unanswered question also completed without hanging.
+- Fixed two first-send UI races found during use: restoring the accepted conversation instead of a
+  blank draft after reload, and retaining Run tracking before active-run projection catches up.
+  The browser regression suite passed five journeys; the full repository check passed 407 tests
+  with 24 skipped. All five test MicroVMs were confirmed terminated after validation.
+- These are functional observations, not performance SLOs: two slower startup/replacement samples
+  took approximately 22–27 seconds before runner start. Provider writes, production load, and
+  independent security review remain separate validation work.
+
 ## Validation completed on 2026-08-30 PDT
 
 - Retained stack `oauth260827a` installed a private Linear OAuth application through the public AWS
@@ -643,7 +667,7 @@ teardown.
 - Turn the trusted TypeScript integration contract into a documented SDK and add more adapters. There
   is no signed package catalog, arbitrary runtime plugin loading, visual mapper, or Zapier-compatible
   trigger engine yet.
-- Run live AWS canaries for steering, interruption, unexpected Codex approval-protocol failure,
+- Extend the live steering, interruption, and ordinary-input proof with unexpected Codex approval-protocol failure,
   scheduled routine submission, scheduled-Thing retry/crash injection, and authenticated customer
   provider accounts. Fixed-envelope routing, verified multi-account resolution, permission
   intersection, and permitted authenticated fixture reads/writes are live validated without
@@ -678,8 +702,8 @@ teardown.
 
 The immediate priority is to make the new small-business/self-hosted surface boringly reliable:
 
-1. Exercise live steering, interruption, ordinary input response, and unexpected Codex
-   approval-protocol failure against one active run. Event polling, autonomous browser execution,
+1. Exercise unexpected Codex approval-protocol failure and broader interruption fault cases.
+   Steering, graceful interruption, and ordinary input are live validated. Event polling, autonomous browser execution,
    client viewing, temporary human takeover, and return of control are already live validated.
 2. Extend the now-live two-account fixture proof with explicit provider-scope denial and resource
    constraint cases, then repeat the conformance journey for each built-in provider when operators

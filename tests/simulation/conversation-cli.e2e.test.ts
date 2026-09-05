@@ -204,6 +204,13 @@ describe('conversation CLI-to-HTTP workflow', () => {
     await new Promise<void>((resolvePromise, reject) => server.close((error) => error ? reject(error) : resolvePromise()));
   });
 
+  it('inherits a conversation policy when chat has no explicit agent options', async () => {
+    await cli(['chat', '--thread', 'earnings', '--no-wait', 'Continue the review'], apiUrl);
+    const submitted = [...requests].reverse().find(request => request.method === 'POST' && request.path === '/v1/runs');
+    expect(submitted?.body).toMatchObject({prompt: 'Continue the review', thread: {key: 'earnings'}});
+    expect(submitted?.body).not.toHaveProperty('agent');
+  });
+
   it('lists, searches, pages, organizes, reacts, and collects sources', async () => {
     const listed = await cli(['conversations', 'list', '--visibility', 'all', '--limit', '10'], apiUrl);
     expect(listed.stdout).toContain('Nvidia earnings review · idle · api · unread');

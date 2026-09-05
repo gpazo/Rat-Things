@@ -100,6 +100,7 @@ interface PublicConversationSummary {
 }
 
 interface PublicConversationMessage {
+  interactions?: PublicConversationMessage[];
   role: 'user' | 'assistant';
   content: string;
   messageId?: string;
@@ -831,7 +832,7 @@ function renderConversationDetail(detail: PublicConversationDetail): void {
     process.stdout.write(`${detail.transcript.compactedMessages} older messages compacted\n`);
   }
   process.stdout.write('\n');
-  for (const message of detail.transcript.messages) {
+  for (const message of detail.transcript.messages.flatMap(message => [...(message.interactions ?? []), message])) {
     const label = message.role === 'user' ? 'You' : 'Rat';
     const metadata = [
       message.receivedAt,
@@ -2374,10 +2375,11 @@ async function conversationRequestFromArguments(args: Arguments): Promise<unknow
   if (file) return JSON.parse(await readFile(resolve(file), 'utf8')) as unknown;
   const prompt = args.values.get('prompt') ?? args.positionals.join(' ');
   if (!prompt) throw new Error('provide --prompt TEXT, positional prompt text, or --file REQUEST.json');
+  const agent = agentFromArguments(args, false);
   return {
     version: '1',
     prompt,
-    agent: agentFromArguments(args, false),
+    ...(Object.keys(agent).length ? { agent } : {}),
     ...withIntegrations(args),
   };
 }

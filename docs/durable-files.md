@@ -5,7 +5,7 @@ deliverables—not only text. Treat storage, private inspection, and external sh
 separate decisions:
 
 1. **Retain the file.** The agent writes below `.rat-things/artifacts/`; trusted orchestration
-   validates the bytes and commits them to the owner-scoped durable catalog after a successful turn.
+   validates the bytes and commits them to the owner-scoped durable catalog during runner finalization.
 2. **Inspect or download it privately.** An authenticated owner can list the catalog and open file
    content through the conversation console or owner-checked API routes.
 3. **Share it externally.** Explicitly create an expiring bearer publication. `rat-things file` is
@@ -70,18 +70,25 @@ Treat `.rat-things/artifacts/` as a managed, durable working directory:
 3. Verify the deliverable before completing the turn. At minimum, confirm that it exists and is not
    empty. When correctness matters, also check its format, dimensions, duration, or SHA-256 digest.
 4. Keep a file in the directory if the conversation should retain it. Remove it when the user wants
-   it removed from the next committed catalog. A failed or interrupted turn cannot replace the last
-   successfully committed catalog.
+   it removed from the next committed catalog. A stopped or failed turn can also commit its current
+   files when trusted runner finalization completes; retained partial files are not proof that the
+   task succeeded.
 5. Mention each relevant relative filename in the final response. Do not paste binary data or a
    large base64 payload into the response when a file will do.
 6. Never place credentials, tokens, cookies, private keys, or other secrets in this directory. A
    later authorized caller can mint a bearer URL for any cataloged file.
 
-Rat Things injects this contract into managed agent prompts. A successful turn causes trusted runner
-code to inspect the directory, hash each file, upload immutable bytes under an owner-scoped
+Rat Things injects this contract into managed agent prompts. Runner finalization inspects the
+directory after completed, gracefully stopped, and failed agent turns, hashes each file, uploads
+immutable bytes under an owner-scoped
 `blobs/sha256/<digest>` key, and commit the current path catalog. The directory is a VM-local staging
 view restored from that catalog before each turn, so generated output does not create high-churn S3
 Files writes. The agent does not upload to S3 or create share links itself.
+
+Inspect the terminal Run's `result` and artifact list to confirm what was retained. If the VM is
+terminated abruptly or finalization itself fails, uncommitted files can still be lost; the previous
+catalog remains the recovery source. Automatic sharing requests are processed only for successful
+turns, so retaining partial files does not publish them externally.
 
 ## Instructions for a supervising agent or automation
 

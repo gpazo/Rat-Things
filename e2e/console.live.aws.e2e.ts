@@ -103,8 +103,8 @@ test.describe('live AWS console journey', () => {
     const continuityMarker = `continuity-${randomUUID()}`;
     const secondTurnMarker = `second-turn-${randomUUID()}`;
     const uploadMarker = `upload-${randomUUID()}`;
-    const threadKey = `console-${randomUUID()}`;
-    diagnosticThreadKey = threadKey;
+    const conversationTitle = `Live release review ${randomUUID()}`;
+    let threadKey: string;
     const structuredQuestion = process.env.AWS_E2E_DEFAULT_AGENT_DRIVER === 'codex'
       ? ' First use request_user_input exactly once to ask "Choose the validation channel" with options Staging and Production. After I answer, include the selected answer in your response.'
       : '';
@@ -136,10 +136,10 @@ test.describe('live AWS console journey', () => {
       await demoPause(page, 1_200);
     }
     await page.getByRole('button', { name: 'New conversation' }).click();
-    await page.locator('#thread-key').fill(threadKey);
+    await page.locator('#thread-key').fill(conversationTitle);
     await demoPause(page, 650);
     await page.getByRole('button', { name: 'Create', exact: true }).click();
-    await expect(page.getByRole('heading', { name: threadKey })).toBeVisible();
+    await expect(page.getByRole('heading', { name: conversationTitle })).toBeVisible();
 
     const firstRunId = await submitMessage(page, firstPrompt, {
       name: 'release-context.txt',
@@ -174,7 +174,7 @@ test.describe('live AWS console journey', () => {
     }
     await expect(page.locator('#status-badge')).toHaveText('Ready');
     await expect(page.locator('.conversation-list [aria-current="page"] .conversation-name')).toContainText(
-      firstPrompt.slice(0, 32),
+      conversationTitle,
     );
     const generatedArtifact = page.locator('.artifact-card', { hasText: 'live-conversation-parity.md' });
     await expect(generatedArtifact).toBeVisible();
@@ -202,13 +202,16 @@ test.describe('live AWS console journey', () => {
       await page.locator('.conversation-name', { hasText: demoReferenceTitle }).first().click();
       await page.getByRole('button', { name: 'Load earlier messages' }).click();
       await expect(page.getByText('Seeded durable history 01', { exact: true })).toBeVisible();
-      await page.locator('.conversation-name', { hasText: firstPrompt.slice(0, 32) }).first().click();
+      await page.locator('.conversation-name', { hasText: conversationTitle }).first().click();
       await expect(page.getByRole('textbox', { name: 'Message', exact: true })).toHaveValue(draft);
       await demoPause(page, 1_000);
     }
     await demoPause(page, 1_500);
 
-    const firstSummary = await conversationSummary(page, threadKey);
+    const firstSummary = await conversationSummary(page, conversationTitle, true);
+    threadKey = String(firstSummary.threadKey);
+    diagnosticThreadKey = threadKey;
+    expect(threadKey).toMatch(/^thread-[0-9a-f-]{36}$/);
     expect(firstSummary).toMatchObject({
       threadKey,
       status: 'idle',
@@ -230,15 +233,15 @@ test.describe('live AWS console journey', () => {
     await currentRow.getByRole('button', { name: 'Pin', exact: true }).click();
     await expect(page.locator('.conversation-section').filter({
       has: page.getByRole('heading', { name: 'Pinned' }),
-    }).locator('.conversation-item[aria-current="page"]')).toContainText(firstPrompt.slice(0, 32));
+    }).locator('.conversation-item[aria-current="page"]')).toContainText(conversationTitle);
     await expect(page.locator(`[data-message-id="${firstAssistantMessageId}"]`)
       .getByRole('button', { name: 'Remove 👍 reaction' })).toContainText('1');
     await page.reload();
     await expect(page.locator('html')).toHaveAttribute('data-console-ready', 'true');
-    await expect(page.getByRole('heading', { name: firstPrompt.slice(0, 80) })).toBeVisible();
+    await expect(page.getByRole('heading', { name: conversationTitle })).toBeVisible();
     await expect(page.locator('.conversation-section').filter({
       has: page.getByRole('heading', { name: 'Pinned' }),
-    }).locator('.conversation-item[aria-current="page"]')).toContainText(firstPrompt.slice(0, 32));
+    }).locator('.conversation-item[aria-current="page"]')).toContainText(conversationTitle);
 
     currentRow = page.locator('.conversation-row').filter({
       has: page.locator('.conversation-item[aria-current="page"]'),
@@ -250,7 +253,7 @@ test.describe('live AWS console journey', () => {
 
     const search = page.getByPlaceholder('Search conversations');
     await search.fill(continuityMarker);
-    await expect(page.locator('.conversation-search-result').filter({ hasText: firstPrompt.slice(0, 32) }))
+    await expect(page.locator('.conversation-search-result').filter({ hasText: conversationTitle }))
       .toBeVisible();
     await search.fill('live-conversation-parity.md');
     const selectedSearchResult = page.locator('.conversation-search-result').filter({
@@ -286,7 +289,7 @@ test.describe('live AWS console journey', () => {
     await page.getByRole('button', { name: 'Back to conversations' }).click();
     await expect(page.locator('.conversation-section').filter({
       has: page.getByRole('heading', { name: 'Pinned' }),
-    }).locator('.conversation-item[aria-current="page"]')).toContainText(firstPrompt.slice(0, 32));
+    }).locator('.conversation-item[aria-current="page"]')).toContainText(conversationTitle);
 
     await page.locator(`[data-message-id="${firstAssistantMessageId}"]`)
       .getByRole('button', { name: 'Reply' }).click();
@@ -298,9 +301,9 @@ test.describe('live AWS console journey', () => {
     await expect(page.locator('#status-badge')).toHaveText('Ready', { timeout: timeoutMs - 30_000 });
     await expect(continuedReply).toContainText(continuityMarker);
     await expect(continuedReply).toContainText(secondTurnMarker);
-    await expect(page.locator('#conversation-title')).toContainText(firstPrompt.slice(0, 32));
+    await expect(page.locator('#conversation-title')).toContainText(conversationTitle);
     await expect(page.locator('.conversation-list [aria-current="page"] .conversation-name')).toContainText(
-      firstPrompt.slice(0, 32),
+      conversationTitle,
     );
     if (recordingDemo) {
       const artifactButton = page.locator('.artifact-card', { hasText: 'live-conversation-parity.md' });
@@ -316,7 +319,7 @@ test.describe('live AWS console journey', () => {
       await page.getByRole('button', { name: 'Open conversations' }).click();
       await expect(page.locator('#sidebar')).toHaveAttribute('data-open', 'true');
       await demoPause(page, 1_200);
-      await page.getByRole('button', { name: new RegExp(firstPrompt.slice(0, 24)) }).first().click();
+      await page.getByRole('button', { name: new RegExp(conversationTitle) }).first().click();
       await expect(page.locator('#sidebar')).toHaveAttribute('data-open', 'false');
       await page.setViewportSize({ width: 1_280, height: 800 });
       await demoPause(page, 1_200);
@@ -676,13 +679,13 @@ async function runProjection(page: Page, runId: string): Promise<Record<string, 
   }, runId);
 }
 
-async function conversationSummary(page: Page, threadKey: string): Promise<Record<string, unknown>> {
+async function conversationSummary(page: Page, threadKey: string, byTitle = false): Promise<Record<string, unknown>> {
   const conversations = await page.evaluate(async () => {
     const response = await fetch('/api/v1/conversations?limit=100');
     if (!response.ok) throw new Error(`conversation list returned HTTP ${response.status}`);
     return response.json() as Promise<{ items?: Array<Record<string, unknown>> }>;
   });
-  const summary = conversations.items?.find((item) => item.threadKey === threadKey);
+  const summary = conversations.items?.find((item) => byTitle ? item.title === threadKey : item.threadKey === threadKey);
   if (!summary) throw new Error(`conversation ${threadKey} was not present in the public list`);
   return summary;
 }

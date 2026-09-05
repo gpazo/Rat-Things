@@ -15,6 +15,7 @@ describe('threaded Run submission', () => {
   it('appends thread state while returning the public Run immediately', async () => {
     const conversations = {
       get: vi.fn().mockResolvedValue(undefined),
+      getMessage: vi.fn().mockResolvedValue(undefined),
       appendMessage: vi.fn().mockImplementation(async (input) => ({
         status: 'appended',
         conversation: {},
@@ -154,6 +155,7 @@ describe('threaded Run submission', () => {
     const manifest = { bucket: 'private-bucket', key: 'manifest.json', sha256: 'a'.repeat(64) };
     const conversations = {
       get: vi.fn().mockResolvedValue(undefined),
+      getMessage: vi.fn().mockResolvedValue(undefined),
       prepareAttachments: vi.fn().mockResolvedValue({ files: [file], manifest }),
       appendMessage: vi.fn().mockImplementation(async (input) => ({
         status: 'appended',
@@ -248,6 +250,7 @@ describe('threaded Run submission', () => {
   it('cancels a reserved Run when the fixed conversation envelope rejects it', async () => {
     const conversations = {
       get: vi.fn().mockResolvedValue(undefined),
+      getMessage: vi.fn().mockResolvedValue(undefined),
       appendMessage: vi.fn().mockRejectedValue(
         new ConversationConflictError('conversation execution policy cannot change'),
       ),
@@ -272,6 +275,37 @@ describe('threaded Run submission', () => {
 
     expect(runs.cancel).toHaveBeenCalledWith(context.owner.id, 'run-message-rejected');
     expect(queue.enqueue).not.toHaveBeenCalled();
+  });
+
+  it('replays an accepted legacy message across HTTP traces without appending or cancelling it', async () => {
+    const accepted = {messageId: 'message-1', runId: 'run-message-1', delivery: 'interrupt'};
+    const conversations = {
+      get: vi.fn().mockResolvedValue({status: 'idle'}),
+      getMessage: vi.fn().mockResolvedValue(accepted), appendMessage: vi.fn(),
+    } as unknown as ConversationService;
+    const runs = runServices();
+    runs.submit.mockResolvedValue({runId: 'run-message-1', status: 'succeeded'});
+    const queue = {enqueue: vi.fn()} as ConversationQueue;
+    const service = new ConversationSubmissionService(conversations, queue, runs);
+    const context = apiIngressContext('api:operator');
+    for (const traceId of ['first-attempt', 'second-attempt']) {
+      await expect(service.submitThread(context.owner.id,
+        {version: '1', prompt: 'Same input', source: context.source},
+        {idempotencyKey: 'message-1', traceId, provenance: {actor: context.actor, credentialSubject: context.credentialSubject}},
+        {conversationId: 'conversation-1', messageId: 'message-1'},
+      )).resolves.toMatchObject({runId: 'run-message-1'});
+    }
+    expect(runs.submit).toHaveBeenCalledWith(expect.anything(), expect.anything(), expect.objectContaining({conversation: expect.objectContaining({delivery: 'interrupt'})}));
+    expect(conversations.appendMessage).not.toHaveBeenCalled();
+    expect(runs.cancel).not.toHaveBeenCalled();
+    expect(queue.enqueue).not.toHaveBeenCalled();
+    runs.submit.mockRejectedValue(new Error('the idempotency key was already used with a different request'));
+    await expect(service.submitThread(context.owner.id,
+      {version: '1', prompt: 'Changed input', source: context.source},
+      {idempotencyKey: 'message-1', provenance: {actor: context.actor, credentialSubject: context.credentialSubject}},
+      {conversationId: 'conversation-1', messageId: 'message-1'},
+    )).rejects.toThrow('different request');
+    expect(runs.cancel).not.toHaveBeenCalled();
   });
 
   it('uses different runtime IDs for the same key owned by different callers', () => {

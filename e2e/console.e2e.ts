@@ -11,7 +11,8 @@ const conversationId = 'a'.repeat(64);
 const existingConversationId = 'b'.repeat(64);
 const archivedConversationId = 'c'.repeat(64);
 const runId = 'run-console-e2e';
-const threadKey = 'release-review';
+let threadKey = 'release-review';
+const conversationName = 'Release readiness review';
 const prompt = 'Inspect the release candidate and stop before publishing.';
 const finalReply = 'Release review complete. No changes were published.';
 const richFinalReply = `${finalReply}\n\n\`\`\`sh\nnpm test\n\`\`\`\n\n[Open the runbook](https://example.com/runbook)`;
@@ -196,14 +197,14 @@ test('creates, observes autonomous work, and completes a durable API conversatio
 
   await page.getByRole('button', { name: 'New conversation' }).click();
   const threadKeyInput = page.locator('#thread-key');
-  await threadKeyInput.fill('invalid thread key');
-  expect(await threadKeyInput.evaluate((input: HTMLInputElement) => input.validity.valid)).toBe(false);
-  await threadKeyInput.fill(threadKey);
+  await threadKeyInput.fill('Release readiness review');
+  expect(await threadKeyInput.evaluate((input: HTMLInputElement) => input.validity.valid)).toBe(true);
+  await threadKeyInput.fill(conversationName);
   expect(await threadKeyInput.evaluate((input: HTMLInputElement) => input.validity.valid)).toBe(true);
   await demoPause(page, 600);
   await page.getByRole('button', { name: 'Create', exact: true }).click();
 
-  await expect(page.getByRole('heading', { name: threadKey })).toBeVisible();
+  await expect(page.getByRole('heading', { name: conversationName })).toBeVisible();
   await page.getByRole('textbox', { name: 'Message', exact: true }).fill(prompt);
   await page.locator('.composer-options summary').click();
   await page.getByLabel('Isolated browser').check();
@@ -243,6 +244,9 @@ test('creates, observes autonomous work, and completes a durable API conversatio
     await page.screenshot({ path: 'test-results/rat-things-console-mobile-question.png' });
   }
   await page.getByLabel('Staging').check();
+  const pollsBeforeAnswer = state.eventReads;
+  await expect.poll(() => state.eventReads).toBeGreaterThan(pollsBeforeAnswer + 1);
+  await expect(page.getByLabel('Staging')).toBeChecked();
   await page.getByRole('button', { name: 'Send response' }).click();
   await expect(page.getByText('Response delivered to the isolated agent.', { exact: true })).toBeVisible();
   await page.setViewportSize({ width: 1_280, height: 800 });
@@ -369,7 +373,7 @@ test('creates, observes autonomous work, and completes a durable API conversatio
     await page.waitForTimeout(250);
     expect((await page.locator('#sidebar').boundingBox())?.x ?? 0).toBeLessThan(0);
     await page.setViewportSize({ width: 1_280, height: 800 });
-    await page.getByRole('button', { name: new RegExp(threadKey) }).click();
+    await page.getByRole('button', { name: new RegExp(conversationName) }).click();
   }
   await demoPause(page, 1_400);
 
@@ -382,7 +386,7 @@ test('creates, observes autonomous work, and completes a durable API conversatio
   await expect(page.locator('.work-details')).not.toHaveAttribute('open', '');
   await page.locator('.work-details > summary').click();
   await expect(page.locator('.work-details > .work-activity .phase-card').filter({ hasText: 'Using the workspace' })).toBeVisible();
-  await expect(page.locator('.conversation-list .conversation-name', { hasText: threadKey })).toBeVisible();
+  await expect(page.locator('.conversation-list .conversation-name', { hasText: conversationName })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Conversation files' })).toBeVisible();
   const artifactButton = page.getByRole('button', { name: /reports\/release-review\.md/ });
   await expect(artifactButton).toBeVisible();
@@ -420,7 +424,7 @@ test('creates, observes autonomous work, and completes a durable API conversatio
   await expect(page.getByRole('button', { name: /Previous release summary, New/ })).toBeVisible();
   await page.reload();
   await expect(page.locator('html')).toHaveAttribute('data-console-ready', 'true');
-  await expect(page.getByRole('heading', { name: threadKey })).toBeVisible();
+  await expect(page.getByRole('heading', { name: conversationName })).toBeVisible();
   await expect(page.locator('.conversation-section').filter({ has: page.getByRole('heading', { name: 'Pinned' }) })
     .getByRole('button', { name: /Previous release summary, New/ })).toBeVisible();
   existingRow = page.locator('.conversation-row').filter({ hasText: 'Previous release summary' });
@@ -441,7 +445,8 @@ test('creates, observes autonomous work, and completes a durable API conversatio
       },
     },
     thread: {
-      key: threadKey,
+      key: expect.stringMatching(/^thread-[0-9a-f-]{36}$/),
+      title: conversationName,
       delivery: 'interrupt',
       attachments: [{
         name: 'release-notes.txt',
@@ -497,6 +502,129 @@ test('creates, observes autonomous work, and completes a durable API conversatio
       .getByText('The previous release completed successfully.', { exact: true }),
   ).toBeVisible();
   await demoPause(page, 900);
+});
+
+test('submits from an empty workspace and reuses the exact file-bearing request after a lost response and reload', async ({ page }) => {
+  const submissions: Array<{key: string | undefined; body: any}> = [];
+  const id = 'e'.repeat(64);
+  const createdAt = new Date().toISOString();
+  const summary = () => ({conversationId: id, threadKey: submissions[0]?.body.thread.key,
+    title: 'Review this attached fixture', status: 'running', sourceKind: 'api', createdAt, updatedAt: createdAt});
+  await page.route('**/api/v1/conversations?**', route => route.fulfill({json: {items: submissions.length ? [summary()] : []}}));
+  await page.route(`**/api/v1/conversations/${id}`, route => route.fulfill({json: {
+    ...summary(), activeRunId: 'run-retry', transcript: {messages: [{role: 'user', content: 'Review this attached fixture'}], compactedMessages: 0},
+  }}));
+  await page.route('**/api/v1/conversations/*/artifacts', route => route.fulfill({json: {files: []}}));
+  await page.route('**/api/v1/runs', async route => {
+    const request = route.request();
+    submissions.push({key: request.headers()['idempotency-key'], body: request.postDataJSON()});
+    await route.fulfill(submissions.length === 1
+      ? {status: 502, json: {error: {message: 'Response lost after acceptance'}}}
+      : {status: 202, json: {runId: 'run-retry', status: 'queued', createdAt: new Date().toISOString()}});
+  });
+  await page.route('**/api/v1/runs/run-retry**', route => route.fulfill({json: {runId: 'run-retry', status: 'queued', createdAt: new Date().toISOString(), events: [], ready: false}}));
+  await page.goto(consoleUrl);
+  await expect(page.locator('html')).toHaveAttribute('data-console-ready', 'true');
+  await expect(page.getByRole('textbox', {name: 'Message', exact: true})).toBeEnabled();
+  await page.getByRole('textbox', {name: 'Message', exact: true}).fill('Review this attached fixture');
+  await page.locator('#file-input').setInputFiles({name: 'notes.txt', mimeType: 'text/plain', buffer: Buffer.from('retry fixture')});
+  await page.getByRole('button', {name: 'Send message'}).click();
+  await expect(page.locator('#notice')).toContainText('Response lost');
+  await page.reload();
+  await expect(page.locator('html')).toHaveAttribute('data-console-ready', 'true');
+  await expect(page.getByRole('heading', {name: 'Review this attached fixture', exact: true})).toBeVisible();
+  await expect(page.getByRole('textbox', {name: 'Message', exact: true})).toHaveValue('Review this attached fixture');
+  await expect(page.locator('.composer-attachment')).toContainText('notes.txt');
+  await page.getByRole('button', {name: 'Send message'}).click();
+  await expect.poll(() => submissions.length).toBe(2);
+  expect(submissions[1]).toEqual(submissions[0]);
+  expect(submissions[0]?.body.thread.key).toMatch(/^thread-[0-9a-f-]{36}$/);
+  await expect(page.getByRole('textbox', {name: 'Message', exact: true})).toHaveValue('');
+  await page.reload();
+  await expect(page.getByRole('heading', {name: 'Review this attached fixture', exact: true})).toBeVisible();
+  await expect(page.getByRole('textbox', {name: 'Message', exact: true})).toHaveValue('');
+});
+
+test('keeps tracking the first accepted Run before the conversation projects its active Run', async ({page}) => {
+  let body: any;
+  let projected = false;
+  const id = 'f'.repeat(64);
+  const createdAt = new Date().toISOString();
+  const summary = () => ({conversationId: id, threadKey: body?.thread.key, title: 'First accepted task',
+    status: 'running', sourceKind: 'api', createdAt, updatedAt: createdAt});
+  await page.route('**/api/v1/**', async route => {
+    const path = new URL(route.request().url()).pathname;
+    if (path === '/api/v1/conversations') return route.fulfill({json: {items: body ? [summary()] : []}});
+    if (path.endsWith('/artifacts')) return route.fulfill({json: {files: []}});
+    if (path === `/api/v1/conversations/${id}`) return route.fulfill({json: {
+      ...summary(), ...(projected ? {activeRunId: 'run-first'} : {}),
+      transcript: {messages: [{role: 'user', content: 'First accepted task'}], compactedMessages: 0},
+    }});
+    if (path === '/api/v1/runs') {
+      body = route.request().postDataJSON();
+      return route.fulfill({status: 202, json: {runId: 'run-first', status: 'queued', createdAt}});
+    }
+    if (path.endsWith('/events')) return route.fulfill({json: {events: [], pendingRequests: [], ready: true}});
+    if (path === '/api/v1/runs/run-first') return route.fulfill({json: {runId: 'run-first', status: 'running', createdAt}});
+    return route.fulfill({json: {}});
+  });
+  await page.goto(consoleUrl);
+  await page.getByRole('textbox', {name: 'Message', exact: true}).fill('First accepted task');
+  await page.getByRole('button', {name: 'Send message', exact: true}).click();
+  await expect(page.getByRole('heading', {name: 'First accepted task', exact: true})).toBeVisible();
+  await expect(page.locator('#run-strip-title')).toHaveText('Agent is working');
+  await expect(page.locator('#stop-run')).toBeVisible();
+  projected = true;
+  await page.reload();
+  await expect(page.getByRole('heading', {name: 'First accepted task', exact: true})).toBeVisible();
+  await expect(page.locator('#run-strip-title')).toHaveText('Agent is working');
+});
+
+test('uses runtime readiness and server timestamps, and freezes the final browser frame', async ({page}) => {
+  let done = false;
+  let ready = false;
+  let computerReads = 0;
+  const id = 'd'.repeat(64);
+  const start = new Date(Date.now() - 75_000).toISOString();
+  const summary = () => ({conversationId: id, threadKey: 'state-test', title: 'State test', status: done ? 'idle' : 'running', createdAt: start, updatedAt: new Date().toISOString(), sourceKind: 'api'});
+  await page.route('**/api/v1/**', async route => {
+    const path = new URL(route.request().url()).pathname;
+    if (path === '/api/v1/conversations') return route.fulfill({json: {items: [summary()]}});
+    if (path.endsWith('/artifacts')) return route.fulfill({json: {files: []}});
+    if (path === `/api/v1/conversations/${id}`) return route.fulfill({json: {
+      ...summary(), ...(!done ? {activeRunId: 'run-state'} : {}),
+      executionPolicy: {capabilities: {computerUse: 'browser'}},
+      transcript: {messages: [{role: 'user', content: 'Check state'}, ...(done ? [{role: 'assistant', content: 'Done'}] : [])], compactedMessages: 0},
+    }});
+    if (path.endsWith('/events')) return route.fulfill({json: {events: [], pendingRequests: [], ready}});
+    if (path.endsWith('/computer')) {
+      computerReads += 1;
+      return route.fulfill({json: {...computerSnapshot(), runId: 'run-state', control: 'agent'}});
+    }
+    if (path === '/api/v1/runs/run-state') return route.fulfill({json: {
+      runId: 'run-state', status: done ? 'succeeded' : 'running', createdAt: start, updatedAt: new Date().toISOString(),
+    }});
+    return route.fulfill({json: {}});
+  });
+  await page.goto(consoleUrl);
+  await expect(page.locator('#run-strip-title')).toHaveText('Starting isolated environment');
+  await expect(page.locator('#status-badge')).toHaveText('Starting');
+  await expect(page.locator('#run-strip-elapsed')).toHaveText(/^1m /);
+  await expect(page.getByLabel('Isolated browser')).toBeChecked();
+  await expect(page.getByLabel('Isolated browser')).toBeDisabled();
+  await page.reload();
+  await expect(page.locator('#run-strip-elapsed')).toHaveText(/^1m /);
+  ready = true;
+  await expect(page.locator('#status-badge')).toHaveText('Working');
+  await page.getByRole('button', {name: 'Open computer', exact: true}).click();
+  await expect(page.locator('#computer-screen')).toBeVisible();
+  done = true;
+  await expect(page.locator('#computer-owner-label')).toHaveText('Final browser frame');
+  await expect(page.getByRole('button', {name: 'Take control', exact: true})).toBeDisabled();
+  await expect(page.locator('#computer-loading')).toBeHidden();
+  const finalReads = computerReads;
+  await page.waitForTimeout(2_500);
+  expect(computerReads).toBe(finalReads);
 });
 
 test('manages verified connections and durable routines from the product navigation', async ({ page }) => {
@@ -943,6 +1071,7 @@ async function handleControlRequest(
   if (request.method === 'POST' && url.pathname === '/v1/runs') {
     state.created = true;
     state.submission = await readJson(request);
+    threadKey = (state.submission as {thread: {key: string}}).thread.key;
     state.idempotencyKey = stringHeader(request.headers['idempotency-key']);
     return sendJson(response, 202, runProjection('queued'));
   }
@@ -1147,7 +1276,7 @@ function routineFixture(
 function conversationSummary(): Record<string, unknown> {
   return {
     conversationId,
-    title: threadKey,
+    title: conversationName,
     threadKey,
     status: state.completed ? 'idle' : 'running',
     pendingCount: 0,
@@ -1167,7 +1296,7 @@ function conversationSummary(): Record<string, unknown> {
 function conversationDetail(projectionReady = state.completed): Record<string, unknown> {
   const summary = projectionReady ? conversationSummary() : {
     conversationId,
-    title: threadKey,
+    title: conversationName,
     threadKey,
     status: 'running',
     pendingCount: 0,

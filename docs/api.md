@@ -243,7 +243,20 @@ signature verification and normalization.
 starting with a letter or digit. Rat hashes the authenticated owner into the internal conversation
 ID, so two principals using `release-smoke` do not share state. `Idempotency-Key` is required for a
 threaded submission and is also the message identity. Repeating the same key and request returns the
-same Run; reusing it for different content or thread state returns `409 conflict`.
+same Run, even after it finishes; reusing it for different request content or a different thread
+binding returns `409 conflict`. Execution progress and transport trace IDs do not change that identity.
+
+`thread.title` optionally supplies a human display name for a new conversation (up to 128 characters).
+It is independent of `thread.key` and is preserved on later turns. Omit `agent` on a continuation to
+inherit the fixed conversation policy. An empty agent object also leaves that policy unchanged;
+explicit settings must remain compatible with the conversation's existing envelope.
+
+Conversation detail exposes the inherited `executionPolicy`. A terminal assistant transcript message
+may also contain ordered `interactions`, each with `role`, `content`, and optional `receivedAt`.
+Render these question, answer, and acknowledged steering entries before the containing message.
+Secret answers are redacted. Interactions are bounded to 256 entries (including an omission notice),
+16,384 characters per entry, and a 65,536-character budget for captured interaction text; they do
+not consume additional transcript page slots. Full terminal events remain the durable audit source.
 
 `thread.replyToMessageId` creates an immutable reply edge to a public transcript message. Optional
 `thread.attachments` accepts at most six base64 files, 4 MiB per file and 6 MiB decoded total. The
@@ -352,7 +365,6 @@ npm run rat-things -- \
 
 npm run rat-things -- \
   --thread release-smoke \
-  --sandbox workspace-write \
   "Read the existing marker.txt and tell me what the previous turn did."
 
 rat-things conversations search "marker.txt"
@@ -409,6 +421,12 @@ prints that loss explicitly rather than presenting the retained window as comple
 `pendingRequests` includes only ordinary server requests awaiting JSON data. The response route does
 not authorize commands, file changes, browser actions, integrations, or broader account access. Rat
 Things has no approval route; its capability envelope is fixed before launch.
+
+`ready: true` is the runtime readiness signal; a `running` Run can still be preparing its agent.
+`POST .../interrupt` requests graceful turn interruption, as does the console's Stop control. Once
+the runner finishes saving partial output, events, and available private files, the Run becomes
+`cancelled`. It can finish interruption with unanswered ordinary requests still pending. Clients
+should inspect terminal `result` evidence for stopped or failed Runs as well as successful ones.
 
 ### Live browser viewing, takeover, and teaching
 
@@ -613,6 +631,10 @@ but the record remains `queued`; a retry with the **same** idempotency key or th
 repairs it. Retrying a request without a key can create a second run while the first is later
 reconciled, so production callers should always send a key.
 
+After a lost HTTP response, retain the original request, attachments, and key for the retry. A
+transport error does not prove submission failed. A matching retry returns the existing Run's
+current state with HTTP 202; it does not execute a second turn or cancel already accepted work.
+
 ## Request fields
 
 Unknown fields are rejected at every validated object level.
@@ -631,7 +653,7 @@ Unknown fields are rejected at every validated object level.
 | `destinations` | No | At most 8 result destinations; deployment default otherwise |
 | `metadata` | No | JSON object, at most 32,000 serialized bytes |
 | `parentRunId` | No | Opaque lineage value, at most 128 bytes; v1 stores it but does not resume a parent |
-| `thread` | No | `{ "key": "...", "delivery"?: "interrupt"|"defer" }`; requires `Idempotency-Key` and still returns this Run immediately |
+| `thread` | No | `key`, optional display `title`, `delivery`, `replyToMessageId`, and `attachments`; requires `Idempotency-Key` and returns this Run immediately |
 
 ### `repository`
 
@@ -816,9 +838,11 @@ conflict`. Knowing the bucket/key without a grant or separate S3 permission does
 | `running` | Worker accepted the stored request after its backend ID was durably attached |
 | `cancelling` | Stop requested for an active backend |
 | `succeeded` | Result artifacts and record committed |
-| `failed` | Terminal failure with a bounded error object |
-| `cancelled` | Terminal cancellation |
+| `failed` | Terminal failure with a bounded error object; may include saved partial result/artifacts |
+| `cancelled` | Terminal cancellation or graceful turn interruption; may include saved partial result/artifacts |
 
+The `/cancel` route terminates the backend; `/interrupt` asks an active Codex turn to stop and
+finalize its available output first. Abrupt backend termination cannot guarantee new file retention.
 Cancelling `queued` work is immediate. Cancelling `dispatching` or `running` work transitions to
 `cancelling` and calls `TerminateMicrovm` once an execution reference is
 available. Re-cancelling a `cancelling` run safely repeats the stop when an execution is attached;

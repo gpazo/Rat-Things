@@ -350,14 +350,14 @@ describe('conversation coordinator', () => {
     expect(conversations.acquireLease).toHaveBeenCalledWith(conversation.conversationId);
   });
 
-  it('folds terminal output into history, suspends the VM, and wakes queued follow-up work', async () => {
+  it.each(['succeeded', 'cancelled'] as const)('folds %s output, interactions, files, and native thread into durable history', async (status) => {
     const output = artifact('result.md');
     const continuation = artifact('continuation.json');
     const run: RunRecord = {
       runId: 'run-1',
       ownerId: conversation.ownerId,
       ownerCreated: `${conversation.ownerId}#${conversation.createdAt}#run-1`,
-      status: 'succeeded',
+      status,
       createdAt: conversation.createdAt,
       updatedAt: conversation.updatedAt,
       expiresAt: conversation.expiresAt,
@@ -373,6 +373,7 @@ describe('conversation coordinator', () => {
       execution: { backend: 'microvm', id: 'microvm-1', startedAt: conversation.createdAt },
       result: {
         output,
+        events: artifact('events.jsonl'),
         preview: 'Deployment is healthy.',
         exitCode: 0,
         durationMs: 100,
@@ -403,6 +404,7 @@ describe('conversation coordinator', () => {
     const queue = { enqueue: vi.fn().mockResolvedValue(undefined) };
     const sessions = { suspend: vi.fn().mockResolvedValue(undefined) };
     const artifacts = {
+      getBytes: vi.fn().mockResolvedValue(Buffer.from(JSON.stringify({method: 'rat/interaction', params: {role: 'user', text: 'Direction: focus on errors', occurredAt: conversation.createdAt}})+'\n')),
       getJson: vi.fn().mockResolvedValue({
         version: '1',
         messages: [{ messageId: 'message-1', text: 'Is it healthy?', receivedAt: conversation.createdAt }],
@@ -425,12 +427,13 @@ describe('conversation coordinator', () => {
       runId: run.runId,
       ownerId: run.ownerId,
       sourceKind: 'teams',
-      status: 'succeeded',
+      status,
       occurredAt: run.updatedAt,
     })).resolves.toEqual({ status: 'completed' });
 
     expect(conversations.completeTurn).toHaveBeenCalledWith(expect.objectContaining({
       result: output,
+      transcriptMessages: expect.arrayContaining([expect.objectContaining({role: 'user', content: 'Direction: focus on errors'})]),
       context: expect.objectContaining({
         messages: expect.arrayContaining([
           expect.objectContaining({ role: 'user', content: 'Is it healthy?' }),
