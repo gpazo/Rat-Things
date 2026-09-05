@@ -398,6 +398,8 @@ h1 {
 }
 .scene-host {
   position: absolute;
+  /* Depth-sorted labels must stay below the surrounding menus and controls. */
+  isolation: isolate;
   inset: 35px 0 125px;
   overflow: hidden;
   touch-action: none;

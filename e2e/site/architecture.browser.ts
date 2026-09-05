@@ -242,6 +242,22 @@ test("supports a mobile component journey without horizontal overflow", async ({
   await page.emulateMedia({ reducedMotion: "reduce" });
   await ready(page);
   await page.getByRole("button", { name: "Browse systems" }).click();
+  const coveredLabels = await page.evaluate(() => {
+    const panel = document.querySelector(".systems-panel")!;
+    const bounds = panel.getBoundingClientRect();
+    return Array.from(document.querySelectorAll(".scene-label:not([hidden])"))
+      .map((label) => {
+        const rect = label.getBoundingClientRect();
+        return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
+      })
+      .filter(
+        ({ x, y }) =>
+          x > bounds.left && x < bounds.right && y > bounds.top && y < bounds.bottom,
+      )
+      .map(({ x, y }) => panel.contains(document.elementFromPoint(x, y)));
+  });
+  expect(coveredLabels.length).toBeGreaterThan(0);
+  expect(coveredLabels.every(Boolean)).toBe(true);
   await page.locator('.system-row[data-select="execution"]').click();
   await expect(page.locator("#detail-title")).toHaveText("Execution");
   await page.getByRole("button", { name: "Look inside execution" }).click();
