@@ -22,3 +22,10 @@ jobs:
           terraform_version: 1.15.8
       - run: npm ci
       - run: npm run check
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e:site
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: architecture-browser-results
+          path: test-results/site

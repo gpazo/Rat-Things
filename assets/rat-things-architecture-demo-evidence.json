@@ -1,0 +1,147 @@
+{
+  "video": "/Users/gp/src/rat-things/assets/rat-things-architecture-demo.mp4",
+  "poster": "/Users/gp/src/rat-things/assets/rat-things-architecture-demo-poster.jpg",
+  "seconds": 62.2,
+  "bytes": 6929356,
+  "dimensions": [
+    1080,
+    1080
+  ],
+  "fps": 30,
+  "codec": "h264",
+  "audio": "silent AAC",
+  "timeline": [
+    {
+      "id": "overview",
+      "start": 0,
+      "end": 5.4,
+      "title": "Your agent stack. With the cover off.",
+      "sourceStart": 1.36,
+      "sourceEnd": 7.32,
+      "playbackRate": 1.1037037037037036,
+      "clip": "/Users/gp/src/rat-things/test-results/architecture-demo/clips/01-overview.mp4"
+    },
+    {
+      "id": "explode",
+      "start": 5.4,
+      "end": 11.100000000000001,
+      "title": "Pull the architecture apart.",
+      "sourceStart": 8.4,
+      "sourceEnd": 25.08,
+      "playbackRate": 2.926315789473684,
+      "clip": "/Users/gp/src/rat-things/test-results/architecture-demo/clips/02-explode.mp4"
+    },
+    {
+      "id": "ingress",
+      "start": 11.100000000000001,
+      "end": 15.500000000000002,
+      "title": "Every request starts with identity.",
+      "sourceStart": 25.64,
+      "sourceEnd": 30.48,
+      "playbackRate": 1.0999999999999999,
+      "clip": "/Users/gp/src/rat-things/test-results/architecture-demo/clips/03-ingress.mp4"
+    },
+    {
+      "id": "control",
+      "start": 15.500000000000002,
+      "end": 20.3,
+      "title": "Durable work. One Run at a time.",
+      "sourceStart": 31.08,
+      "sourceEnd": 36.36,
+      "playbackRate": 1.1000000000000003,
+      "clip": "/Users/gp/src/rat-things/test-results/architecture-demo/clips/04-control.mp4"
+    },
+    {
+      "id": "execution",
+      "start": 20.3,
+      "end": 27.3,
+      "title": "Inside the isolated runtime.",
+      "sourceStart": 37.04,
+      "sourceEnd": 44.519999999999996,
+      "playbackRate": 1.068571428571428,
+      "clip": "/Users/gp/src/rat-things/test-results/architecture-demo/clips/05-execution.mp4"
+    },
+    {
+      "id": "storage",
+      "start": 27.3,
+      "end": 31.9,
+      "title": "The worker ends. The work stays.",
+      "sourceStart": 45.2,
+      "sourceEnd": 50.24,
+      "playbackRate": 1.0956521739130434,
+      "clip": "/Users/gp/src/rat-things/test-results/architecture-demo/clips/06-storage.mp4"
+    },
+    {
+      "id": "access",
+      "start": 31.9,
+      "end": 36.699999999999996,
+      "title": "Fixed boundaries. Autonomous execution.",
+      "sourceStart": 50.8,
+      "sourceEnd": 56.04,
+      "playbackRate": 1.091666666666667,
+      "clip": "/Users/gp/src/rat-things/test-results/architecture-demo/clips/07-access.mp4"
+    },
+    {
+      "id": "integrations",
+      "start": 36.699999999999996,
+      "end": 40.99999999999999,
+      "title": "Connected accounts. Granted operations.",
+      "sourceStart": 56.64,
+      "sourceEnd": 61.36,
+      "playbackRate": 1.097674418604651,
+      "clip": "/Users/gp/src/rat-things/test-results/architecture-demo/clips/08-integrations.mp4"
+    },
+    {
+      "id": "delivery",
+      "start": 40.99999999999999,
+      "end": 45.79999999999999,
+      "title": "Committed state. Delivered results.",
+      "sourceStart": 61.96,
+      "sourceEnd": 67.24000000000001,
+      "playbackRate": 1.1000000000000019,
+      "clip": "/Users/gp/src/rat-things/test-results/architecture-demo/clips/09-delivery.mp4"
+    },
+    {
+      "id": "recovery",
+      "start": 45.79999999999999,
+      "end": 49.99999999999999,
+      "title": "Recovery is part of the system.",
+      "sourceStart": 67.8,
+      "sourceEnd": 72.52000000000001,
+      "playbackRate": 1.123809523809527,
+      "clip": "/Users/gp/src/rat-things/test-results/architecture-demo/clips/10-recovery.mp4"
+    },
+    {
+      "id": "trace",
+      "start": 49.99999999999999,
+      "end": 57.199999999999996,
+      "title": "Follow a request. All the way through.",
+      "sourceStart": 73.88,
+      "sourceEnd": 85.08000000000001,
+      "playbackRate": 1.5555555555555578,
+      "clip": "/Users/gp/src/rat-things/test-results/architecture-demo/clips/11-trace.mp4"
+    },
+    {
+      "id": "source",
+      "start": 57.199999999999996,
+      "end": 62.199999999999996,
+      "title": "Explore the system. Follow it into the code.",
+      "sourceStart": 86.44,
+      "sourceEnd": 92.96000000000001,
+      "playbackRate": 1.304000000000002,
+      "clip": "/Users/gp/src/rat-things/test-results/architecture-demo/clips/12-source.mp4"
+    }
+  ],
+  "sourceRevision": {
+    "revision": "e46c0b593f2c07274128a985140007584feac094",
+    "fingerprint": "8b130f0da860",
+    "sourceCount": 44,
+    "componentCount": 28
+  },
+  "notes": [
+    "Actual local explorer footage; captions and framing added for the social edit.",
+    "Timing slate is outside the crop or covered in the final wide shot.",
+    "Interaction-heavy sequences are time-compressed. No AWS execution is claimed."
+  ],
+  "uploadReference": "https://help.x.com/en/using-x/x-videos"
+}

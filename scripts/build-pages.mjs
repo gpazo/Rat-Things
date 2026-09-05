@@ -1,6 +1,7 @@
 import { access, cp, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { basename, extname, join, posix, relative } from 'node:path';
 import { marked } from 'marked';
+import { buildArchitecture } from './build-architecture.mjs';
 
 const output = 'dist-pages';
 const docsOutput = join(output, 'docs');
@@ -14,6 +15,8 @@ const visualAssetFiles = [
   'durable-execution.svg',
 ];
 const homepageAssetFiles = [
+  'rat-things-architecture-demo.mp4',
+  'rat-things-architecture-demo-poster.jpg',
   'rat-things-hero.jpg',
   'rat-things-og-v2.jpg',
   'conversation-console-desktop.png',
@@ -56,6 +59,11 @@ marked.setOptions({ gfm: true });
 
 await rm(output, { recursive: true, force: true });
 await cp('site', output, { recursive: true });
+await buildArchitecture(output);
+// Publish the browser bundle and its resolved catalogue, not authoring sources.
+for (const file of ['app.ts', 'scene.ts', 'resources.ts', 'resource-manifest.json', 'types.ts', 'catalogue.json', 'README.md', 'tsconfig.json']) {
+  await rm(join(output, 'architecture', file), { force: true });
+}
 await normalizeCopiedSitePaths();
 await cp('spec/openapi.json', join(output, 'openapi.json'));
 await cp('spec/schemas', join(output, 'schemas'), { recursive: true });
@@ -107,7 +115,7 @@ const agentGroups = groups
 const agentDocs = orderedDocs.filter((doc) => !agentCorpusExclude.has(doc.file));
 await writeFile(join(output, 'llms.txt'), addCapabilityBoundaryInstruction(renderLlmsIndex(agentGroups, docs)));
 await writeFile(join(output, 'llms-full.txt'), renderLlmsFull(agentDocs));
-const generatedHtmlFiles = [join(output, 'index.html'), join(docsOutput, 'index.html')];
+const generatedHtmlFiles = [join(output, 'index.html'), join(output, 'overview.html'), join(docsOutput, 'index.html')];
 for (const [index, doc] of orderedDocs.entries()) {
   const pageDirectory = join(docsOutput, doc.slug);
   await mkdir(pageDirectory, { recursive: true });
@@ -127,11 +135,13 @@ await validateGeneratedLinks(generatedHtmlFiles);
 process.stdout.write(`built ${output} with ${orderedDocs.length} documentation pages\n`);
 
 async function normalizeCopiedSitePaths() {
-  const homepagePath = join(output, 'index.html');
-  const homepage = (await readFile(homepagePath, 'utf8'))
-    .replaceAll('../assets/', 'assets/')
-    .replaceAll('../docs/product-overview.svg', 'assets/visuals/product-overview.svg');
-  await writeFile(homepagePath, homepage);
+  for (const filename of ['index.html', 'overview.html']) {
+    const homepagePath = join(output, filename);
+    const homepage = (await readFile(homepagePath, 'utf8'))
+      .replaceAll('../assets/', 'assets/')
+      .replaceAll('../docs/product-overview.svg', 'assets/visuals/product-overview.svg');
+    await writeFile(homepagePath, homepage);
+  }
 
   const stylesheetPath = join(output, 'styles.css');
   const stylesheet = (await readFile(stylesheetPath, 'utf8'))

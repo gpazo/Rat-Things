@@ -5,7 +5,7 @@ describe('AWS-ready golden-path documentation', () => {
   it('states the measured boundary and proves a published active revision', async () => {
     const [guide, homepage, costs, packageJson, evidenceJson] = await Promise.all([
       readFile('docs/quickstart.md', 'utf8'),
-      readFile('site/index.html', 'utf8'),
+      readFile('site/overview.html', 'utf8'),
       readFile('docs/costs.md', 'utf8'),
       readFile('package.json', 'utf8'),
       readFile('docs/aws-quickstart-evidence.json', 'utf8'),
