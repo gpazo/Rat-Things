@@ -58,8 +58,8 @@ export async function beginRecording(browser, options = {}) {
     else await load(`#node=${chapter.id==='source'?'runner':system}&inside=${system}&explode=100`);
     if(chapter.id==='trace') await page.getByRole('combobox',{name:'Request entry point'}).selectOption('webhook');
     if(chapter.id==='source') {
-      await page.locator('.source-details').evaluate(element => element.open=true);
-      await page.locator('.source-details').scrollIntoViewIfNeeded();
+      await page.locator('#detail-content .source-details').evaluate(element => element.open=true);
+      await page.locator('#detail-content .source-details').scrollIntoViewIfNeeded();
       await page.locator('#inspector').evaluate(element=>element.scrollTop=Math.max(0,element.scrollTop-120));
     }
     const start = performance.now();
@@ -69,7 +69,8 @@ export async function beginRecording(browser, options = {}) {
       await slider.focus();
       for(let i=0;i<100;i++){await slider.press('ArrowRight');await pause(16);}
       if(await slider.inputValue()!=='100') throw new Error('Explosion did not reach 100%.');
-      await rotation(true);
+      // The complete resource inventory is a reading view with pan instead of orbit.
+      await rotation(false);
     } else if(chapter.id==='trace') {
       await page.getByRole('button',{name:'Trace a Run',exact:true}).click();
       for(let step=0;step<8;step++) {
@@ -96,7 +97,8 @@ export async function beginRecording(browser, options = {}) {
     }
     const remaining=chapter.seconds*1000-(performance.now()-start);
     if(remaining>0) await pause(remaining);
-    const crop=chapter.id==='source'?{x:0,y:0,width:1440,height:900}:stage;
+    const crop=chapter.id==='source'?{x:0,y:0,width:1440,height:900}:await page.locator('.stage').boundingBox();
+    if (!crop) throw new Error('The capture stage disappeared.');
     await page.screenshot({path:resolve(directory,`${chapter.id}-source.png`)});
     const actualDuration=(performance.now()-start)/1000;
     await slate('#000000');

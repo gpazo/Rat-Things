@@ -8,6 +8,11 @@ export interface SourceReference {
 }
 
 export interface Component {
+  aliases?: string[];
+  inputs?: string;
+  outputs?: string;
+  mechanics?: string;
+  failure?: string;
   resource?: ResourceKind;
   id: string;
   title: string;
@@ -31,13 +36,52 @@ export interface Connection {
   sources: SourceReference[];
 }
 
+export interface TeachingNote {
+  id: string;
+  title: string;
+  description: string;
+  sources: SourceReference[];
+}
+
+export interface Handoff {
+  from: string;
+  to: string;
+  payload: string;
+  kind: Connection["kind"];
+  sources: SourceReference[];
+}
+
+export const focusedViews = {
+  all: { title: "All systems", systems: [] as string[] },
+  runtime: {
+    title: "Request to result",
+    systems: ["ingress", "control", "execution", "storage", "delivery"],
+  },
+  durability: {
+    title: "What survives",
+    systems: ["control", "storage", "recovery"],
+  },
+  authority: {
+    title: "Where access is enforced",
+    systems: ["access", "integrations", "execution"],
+  },
+} as const;
+
 export interface Journey {
   id: string;
   title: string;
-  steps: { node: string; title: string; description: string; state: string }[];
+  steps: {
+    node: string;
+    title: string;
+    description: string;
+    state: string;
+    handoff: Handoff;
+  }[];
 }
 
 export interface Architecture {
+  concepts: TeachingNote[];
+  externals: TeachingNote[];
   systems: System[];
   connections: Connection[];
   journeys: Journey[];
@@ -50,6 +94,10 @@ export interface Architecture {
 }
 
 export interface ViewState {
+  focused: string | null;
+  lens: keyof typeof focusedViews;
+  reading: "overview" | "mechanics";
+  inspecting: boolean;
   selected: string | null;
   isolated: string | null;
   explosion: number;

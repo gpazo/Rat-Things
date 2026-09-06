@@ -87,17 +87,51 @@ export async function resolveArchitecture(catalogue, root = process.cwd()) {
           `Architecture: missing 3D resource asset for ${node.id}`,
         );
       }
+      if (
+        node !== system &&
+        (!Array.isArray(node.aliases) ||
+          ![node.inputs, node.outputs, node.mechanics, node.failure].every(
+            (value) => typeof value === "string" && value.trim(),
+          ))
+      )
+        throw new Error(`Architecture: incomplete explanation for ${node.id}`);
       await evidence(node.sources, node.id);
     }
   }
-  const systemIds = new Set(data.systems.map((system) => system.id));
+  const endpointIds = new Set(ids);
+  for (const [kind, notes] of [
+    ["external", data.externals],
+    ["concept", data.concepts],
+  ]) {
+    if (!notes?.length)
+      throw new Error(`Architecture: missing ${kind} context`);
+    const noteIds = new Set();
+    for (const note of notes) {
+      if (
+        !/^[a-z][a-z0-9-]*$/.test(note.id) ||
+        noteIds.has(note.id) ||
+        (kind === "external" && endpointIds.has(note.id)) ||
+        !note.title ||
+        !note.description
+      )
+        throw new Error(`Architecture: invalid ${kind} context`);
+      noteIds.add(note.id);
+      if (kind === "external") endpointIds.add(note.id);
+      await evidence(note.sources, note.id);
+    }
+  }
+  function endpoints(connection) {
+    return (
+      endpointIds.has(connection.from) &&
+      endpointIds.has(connection.to) &&
+      ["request", "data", "access", "recovery"].includes(connection.kind)
+    );
+  }
   for (const connection of data.connections) {
-    if (
-      !systemIds.has(connection.from) ||
-      !systemIds.has(connection.to) ||
-      !connection.label
-    ) {
-      throw new Error("Architecture: connection must link known systems");
+    if (!endpoints(connection) || !connection.label) {
+      throw new Error(
+        "Architecture: connection must link known systems, resources or external endpoints",
+      );
     }
     await evidence(connection.sources, `${connection.from} → ${connection.to}`);
   }
@@ -119,10 +153,19 @@ export async function resolveArchitecture(catalogue, root = process.cwd()) {
           "succeeded",
           "failed",
           "cancelled",
+          "cancelling",
         ].includes(step.state)
       ) {
         throw new Error(`Architecture: invalid step in ${journey.id}`);
       }
+      if (
+        !step.handoff ||
+        !endpoints(step.handoff) ||
+        !step.handoff.payload ||
+        ![step.handoff.from, step.handoff.to].includes(step.node)
+      )
+        throw new Error(`Architecture: invalid handoff in ${journey.id}`);
+      await evidence(step.handoff.sources, `${journey.id}: ${step.title}`);
     }
   }
   for (const [file, source] of [...sourceFiles].sort(([a], [b]) =>

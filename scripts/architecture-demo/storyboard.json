@@ -1,6 +1,6 @@
 [
   {"id":"overview","title":"Your agent stack.\nWith the cover off.","caption":"Eight connected systems. Twenty-eight distinct resources.\nExplore the architecture behind Rat Things.","label":"THE WHOLE SYSTEM","seconds":5.4},
-  {"id":"explode","title":"Pull the architecture\napart.","caption":"Separate the layers. See the parts and their connections.\nThen open any subsystem for a closer look.","label":"EXPLODED ARCHITECTURE","seconds":5.7},
+  {"id":"explode","title":"Pull the architecture\napart.","caption":"Separate the layers into a named resource inventory.\nOpen a subsystem to follow its internal connections.","label":"EXPLODED ARCHITECTURE","seconds":5.7},
   {"id":"ingress","title":"Every request starts\nwith identity.","caption":"Authenticated APIs and signed webhooks turn incoming work\ninto an owner-scoped request.","label":"01 / INGRESS","seconds":4.4},
   {"id":"control","title":"Durable work.\nOne Run at a time.","caption":"Run receipts, reusable Things, a conversation mailbox\nand a queue keep work coordinated.","label":"02 / COORDINATION","seconds":4.8},
   {"id":"execution","title":"Inside the\nisolated runtime.","caption":"A dispatcher, Lambda MicroVM, Codex runner, browser\nand model access — each with its own role.","label":"03 / EXECUTION","seconds":7},
@@ -8,7 +8,7 @@
   {"id":"access","title":"Fixed boundaries.\nAutonomous execution.","caption":"Profiles, runtime policy and host-side credentials define\nthe boundary. A Run cannot widen its own authority.","label":"05 / ACCESS BOUNDARY","seconds":4.8},
   {"id":"integrations","title":"Connected accounts.\nGranted operations.","caption":"Trusted plugins, account grants and authorization\ndetermine which connected tools are available.","label":"06 / CONNECTED SERVICES","seconds":4.3},
   {"id":"delivery","title":"Committed state.\nDelivered results.","caption":"State events drive a separate notifier. Delivery fencing\nhandles duplicate events without rerunning the agent.","label":"07 / DELIVERY","seconds":4.8},
-  {"id":"recovery","title":"Recovery is\npart of the system.","caption":"State transitions, reconciliation and heartbeats\nhelp recover interrupted work.","label":"08 / RECOVERY","seconds":4.2},
+  {"id":"recovery","title":"Recovery is\npart of the system.","caption":"State transitions, reconciliation and heartbeats\nrepair missed wake-ups and reconcile worker state.","label":"08 / RECOVERY","seconds":4.2},
   {"id":"trace","title":"Follow a request.\nAll the way through.","caption":"Authenticate → coordinate → execute → persist → deliver.\nAn illustrated request path through the actual explorer.","label":"REQUEST TO RESULT","seconds":7.2},
   {"id":"source","title":"Explore the system.\nFollow it into the code.","caption":"Source-backed explanations. Reusable 3D assets.\nAn architecture explorer built to evolve with the stack.","label":"GITHUB.COM/GPAZO/RAT-THINGS","seconds":5}
 ]

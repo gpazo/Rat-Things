@@ -10,8 +10,23 @@ describe("architecture explorer evidence", () => {
       [system, ...system.components].flatMap((node) => node.sources),
     );
     refs.push(...data.connections.flatMap((connection) => connection.sources));
+    refs.push(
+      ...[...data.concepts, ...data.externals].flatMap((item) => item.sources),
+    );
+    refs.push(
+      ...data.journeys.flatMap((journey) =>
+        journey.steps.flatMap((step) => step.handoff.sources),
+      ),
+    );
+    const files = new Map(
+      await Promise.all(
+        [...new Set(refs.map((ref) => ref.file))].map(
+          async (file) => [file, await readFile(file, "utf8")] as const,
+        ),
+      ),
+    );
     for (const ref of refs) {
-      const source = await readFile(ref.file, "utf8");
+      const source = files.get(ref.file)!;
       expect(
         source
           .split("\n")
@@ -46,6 +61,31 @@ describe("architecture explorer evidence", () => {
     const missing = structuredClone(catalogue);
     missing.journeys[0]!.steps[0]!.node = "removed-api";
     await expect(resolveArchitecture(missing)).rejects.toThrow("invalid step");
+  });
+
+  it("rejects a narrated handoff disconnected from its selected resource", async () => {
+    const changed = structuredClone(catalogue);
+    changed.journeys[0]!.steps[0]!.handoff = {
+      ...changed.journeys[0]!.steps[0]!.handoff,
+      from: "runner",
+      to: "artifacts",
+    };
+    await expect(resolveArchitecture(changed)).rejects.toThrow(
+      "invalid handoff",
+    );
+  });
+
+  it("requires source-backed explanations for resources and external context", async () => {
+    const changed = structuredClone(catalogue);
+    changed.systems[0]!.components[0]!.mechanics = "";
+    await expect(resolveArchitecture(changed)).rejects.toThrow(
+      "incomplete explanation",
+    );
+    const external = structuredClone(catalogue);
+    external.externals[0]!.sources = [];
+    await expect(resolveArchitecture(external)).rejects.toThrow(
+      "needs source evidence",
+    );
   });
 
   it("rejects source traversal and connections to missing systems", async () => {

@@ -60,8 +60,15 @@
           </p>
           <h1 id="page-title">A system you can see through.</h1>
           <p class="intro-copy">
-            Follow the work. Open the layers. Understand what runs underneath.
+            Accept a task. Run it in isolation. Store and deliver the result.
           </p>
+        </div>
+        <div class="intro-actions">
+          <button data-action="start" class="start-task">
+            Follow one task <span>→</span></button
+          ><button data-action="concepts" class="basics-button">
+            The basics <span>?</span>
+          </button>
         </div>
         <div class="intro-meta">
           <span class="edition">INTERACTIVE ARCHITECTURE <span>01</span></span>
@@ -94,8 +101,26 @@
             <span aria-hidden="true">▧</span> Full architecture
             <span aria-hidden="true">↗</span>
           </button>
+          <label class="search-label" for="resource-search"
+            >Find a resource</label
+          >
+          <input
+            id="resource-search"
+            class="resource-search"
+            type="search"
+            placeholder="Search names or services…"
+            autocomplete="off"
+          />
+          <span id="search-status" class="sr-only" role="status"></span>
+          <div id="search-results" hidden></div>
+          <label class="search-label" for="focused-view"
+            >Explore a question</label
+          >
+          <select id="focused-view" aria-label="Focused view"></select>
           <div id="system-list"></div>
           <div class="systems-foot">
+            <span class="small-label">OUTSIDE THIS MODEL</span>
+            <div id="external-context"></div>
             <span class="small-label">THE REQUEST PATH</span>
             <div class="path-key"><i></i> Ingress → execution → delivery</div>
             <p>Storage, access and recovery support the entire lifecycle.</p>
@@ -228,6 +253,11 @@
           <p id="step-description">
             Walk through a request and see each system take its part.
           </p>
+          <div id="step-handoff" class="step-handoff" hidden></div>
+          <div class="step-inspection">
+            <button id="inspect-step" hidden>Inspect step ↗</button
+            ><button id="resume-step" hidden>Return to step ↩</button>
+          </div>
           <div
             class="step-track"
             id="step-track"
@@ -257,6 +287,27 @@
         >
       </footer>
     </main>
+    <dialog id="concepts-dialog" aria-labelledby="concepts-title">
+      <div class="concepts-heading">
+        <div>
+          <span class="small-label">A SHORT FIELD GUIDE</span>
+          <h2 id="concepts-title">The pieces, in plain language.</h2>
+        </div>
+        <button
+          id="close-concepts"
+          class="icon-button"
+          aria-label="Close field guide"
+        >
+          ×
+        </button>
+      </div>
+      <p class="concepts-intro">
+        This is a logical map of the code. Resource shapes help you tell roles
+        apart. Positions and lines are illustrative; they are not a physical
+        network diagram or live telemetry.
+      </p>
+      <div id="concept-list"></div>
+    </dialog>
     <noscript
       ><div class="no-script">
         The 3D explorer needs JavaScript. You can read the complete

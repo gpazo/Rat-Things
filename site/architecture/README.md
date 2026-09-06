@@ -19,7 +19,7 @@ npm run check
 
 Install the test browser once with `npx playwright install chromium`. The browser
 suite starts its own static server when needed. It exercises real WebGL rendering,
-mesh raycasting, drag rejection, exploded component inspection, all four request
+mesh raycasting, drag rejection, exploded component inspection, all seven request and failure
 walkthroughs, keyboard controls, deep links/back navigation, mobile/reduced-motion
 use, missing data, no-WebGL fallback and the `/Rat-Things/` deployment prefix.
 Screenshots and failure traces are written to `test-results/site`. CI runs the
@@ -35,16 +35,20 @@ execution is involved in the website walkthroughs or these browser tests.
   `file` and an `anchor` that appears in its implementation. Prefer a distinctive
   symbol or operation over a generic word. The build resolves anchors to source
   lines and links to the current Git revision. The source content fingerprint changes
-  when any referenced file changes. Anchors are checked, but the explanation's
+  when any referenced file changes. Concepts, external participants and narrated
+  handoffs also require evidence. Anchors are checked, but the explanation's
   meaning still requires human review when behavior changes.
 - To add a component, place it inside its owning system with a title, subtitle,
-  description, facts and evidence. Its geometry, inspector, count and selection are
+  description, facts, aliases, inputs, outputs, mechanics, failure behavior and evidence. Its geometry, inspector, count and selection are
   generated from that entry. Adjust the system's position only when adding a new
   top-level system; positions are schematic, not physical network boundaries.
 - Walkthrough steps reference component IDs and carry an explanatory state label.
-  They illustrate successful paths. Conditional failures, cancellation and retries
-  are explained in the relevant component details; the walkthrough is not a live
-  state-machine simulator or evidence that a deployment has run successfully.
+  Each step also declares the exact handoff endpoints, payload, kind and evidence.
+  The selected resource must be one endpoint; invalid handoffs fail the build.
+  Four entry paths and three recovery/failure stories are included. A walkthrough
+  is an illustration, not a live state-machine simulator or proof of execution.
+  The delivery-failure story intentionally keeps the Run state `succeeded`: the
+  notification outcome is separate from the agent execution outcome.
 - Review `npm run site:build` failures for moved/deleted source anchors, duplicate
   IDs, missing evidence, and dangling connection or walkthrough targets. The browser
   receives only the bundled application and resolved catalogue; it does not import
@@ -69,3 +73,41 @@ The catalogue and walkthrough remain usable if WebGL is unavailable. Rendering
 pauses while the page is hidden and avoids GPU work while the view is unchanged.
 Reduced-motion preferences disable automatic interpolation. Explicit rotation and
 walkthrough controls remain opt-in.
+
+## Exploration flow
+
+The first-time action, **Follow one task**, starts a manually advanced walkthrough.
+The play control opts into automatic advancement. A step names the resource and
+shows exactly what is handed from one participant to another; only that handoff
+animates. **Inspect** pauses within the owning subsystem. **Focus this resource**
+is a third level, framed to the actual geometry. Breadcrumbs return one level;
+**Return to step** restores the same narrated handoff. URLs preserve this context.
+
+Full explosion produces a named resource inventory with pan and zoom. Selecting
+or exploding stops auto-rotation. Search includes familiar service names and
+aliases. Focused views answer three questions: the request path, what survives,
+and where access is enforced. These are curated views of the catalogue, not
+separate architectures. External participants are described in the field guide
+and named explicitly in handoffs; they are not rendered as owned AWS resources.
+
+The interaction draws on `model-x-studio`'s overview/mechanics split and individual
+part inspection, and `human-atlas`'s named exploded inventory, search, focused
+views and paused rotation during reading. All system meaning comes from this
+repository; the reference projects supply interaction patterns only.
+
+## Review and regression checklist
+
+Browser checks cover the first-time trace, active resource and handoff, inspection
+and return to the same step, resource focus and URL reload, overview/mechanics,
+alias search, focused views, complete named inventory, stopped rotation, and the
+three non-happy-path stories. Review desktop and mobile screenshots separately.
+The desktop model and narration must fit together; mobile supports page scrolling
+while retaining the selected resource name and controls. Sidebar lists and long
+inspector content can scroll independently. Missing WebGL must retain search,
+explanations and all narrated flows.
+
+Use these comprehension questions in a human usability session: What did the API
+accept? What is a Run? What survives a stopped worker? Where is access enforced?
+Can execution succeed while notification fails? Automated checks establish that
+the explanations are reachable and source anchors resolve; they cannot establish
+that a first-time visitor understands them.
