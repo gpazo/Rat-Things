@@ -52,6 +52,7 @@ export interface PublicConversationDetail extends PublicConversationSummary {
   executionPolicy?: ConversationRecord['executionPolicy'];
   transcript: {
     messages: PublicConversationMessage[];
+    completions?: ConversationTranscriptPage['completions'];
     compactedMessages: number;
     nextToken?: string;
   };
@@ -116,6 +117,7 @@ export function projectPublicConversationDetail(
     ...(conversation.executionPolicy ? { executionPolicy: conversation.executionPolicy } : {}),
     ...(activeTurn?.runId ? { activeRunId: activeTurn.runId } : {}),
     transcript: {
+      completions: transcript.completions ?? [],
       messages: transcript.messages.length > 0 || transcript.nextToken
         ? transcript.messages.map((message) => ({
             role: message.role,

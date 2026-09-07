@@ -1,3 +1,4 @@
+import { publicConversationId } from './conversation-projection.js';
 import type {
   PublishedArtifact,
   RunRecord,
@@ -23,6 +24,7 @@ export interface PublicRunResult extends Omit<
  * the control API boundary.
  */
 export interface PublicRunRecord {
+  conversationId?: string;
   runId: RunRecord['runId'];
   status: RunRecord['status'];
   createdAt: RunRecord['createdAt'];
@@ -42,6 +44,7 @@ export interface PublicRunRecord {
 export function projectPublicRun(run: RunRecord): PublicRunRecord {
   return {
     runId: run.runId,
+    ...(run.conversation ? {conversationId: publicConversationId(run.conversation.conversationId)} : {}),
     status: run.status,
     createdAt: run.createdAt,
     updatedAt: run.updatedAt,

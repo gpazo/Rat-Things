@@ -75,7 +75,7 @@
     "things.md": "Create, test, activate, schedule, and inspect reusable revisioned agent workflows.",
     "plugins.md": "Connect and verify accounts, choose grants, and understand the effective permission intersection.",
     "capability-envelope.md": "Learn what an agent can use autonomously and what remains unavailable for the entire Run.",
-    "conversations.md": "Continue work across the console and CLI, follow meaningful progress, answer questions, and preview or download generated files.",
+    "conversations.md": "Move between the console and CLI with exact conversation links, durable Run history, option-specific answers, and safe file handoffs.",
     "slack.md": "Start durable work from a Slack mention, continue in its thread, search or act through approved accounts, and understand current boundaries.",
     "linear.md": "Install a verified Linear workspace, expose bounded issue and comment operations, and run a Slack-to-Linear handoff.",
     "linear-live-demo-social.md": "Reuse the live AWS Linear proof video, screenshots, X copy, website copy, alt text, and asset manifest."

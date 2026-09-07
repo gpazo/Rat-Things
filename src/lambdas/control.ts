@@ -1190,16 +1190,17 @@ function conversationVisibility(value: string | undefined): 'visible' | 'hidden'
 
 function conversationOrganizationUpdate(
   value: unknown,
-): { pinned?: boolean; hidden?: boolean; read?: boolean } {
-  const body = strictBody(value, ['pinned', 'hidden', 'read']);
-  const update: { pinned?: boolean; hidden?: boolean; read?: boolean } = {};
+): { title?: string; pinned?: boolean; hidden?: boolean; read?: boolean } {
+  const body = strictBody(value, ['title', 'pinned', 'hidden', 'read']);
+  const update: { title?: string; pinned?: boolean; hidden?: boolean; read?: boolean } = {};
+  if (body.title !== undefined) update.title = boundedText(body.title, 'title', 512);
   for (const key of ['pinned', 'hidden', 'read'] as const) {
     if (!(key in body)) continue;
     if (typeof body[key] !== 'boolean') throw new ValidationError(`${key} must be a boolean`);
     update[key] = body[key];
   }
   if (Object.keys(update).length === 0) {
-    throw new ValidationError('organization update requires pinned, hidden, or read');
+    throw new ValidationError('organization update requires title, pinned, hidden, or read');
   }
   return update;
 }

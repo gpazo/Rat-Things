@@ -84,6 +84,7 @@ describe('public conversation projection', () => {
           { role: 'assistant', content: 'Done.' },
         ],
         compactedMessages: 4,
+        completions: [],
         nextToken: 'older-page',
       },
     });

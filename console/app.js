@@ -1,7 +1,7 @@
 import { coalesceActivities, groupActivities } from './activity.js';
 import { renderMarkdown } from './markdown.js';
 import { resolveArtifactLink, isMarkdownArtifact } from './artifact-links.js';
-import { conversationWorkState, completionReceiptIndex, runPresentation, isTextArtifact, readTextPreview, formatBytes, shellArgument, fileCommands } from './presentation.js';
+import { conversationWorkState, completionReceiptIndex, runPresentation, isTextArtifact, readTextPreview, formatBytes, shellArgument, fileCommands, answerCommands, messagePreview } from './presentation.js';
 
 const elements = {
   shell: document.querySelector('.app-shell'),
@@ -61,6 +61,10 @@ const elements = {
   notice: document.querySelector('#notice'),
   viewer: document.querySelector('#artifact-viewer'),
   viewerTitle: document.querySelector('#viewer-title'),
+  viewerBack: document.querySelector('#viewer-back'),
+  renameDialog: document.querySelector('#rename-dialog'),
+  renameForm: document.querySelector('#rename-form'),
+  renameTitle: document.querySelector('#rename-title'),
   viewerBody: document.querySelector('#viewer-body'),
   viewerDetail: document.querySelector('#viewer-detail'),
   viewerOpen: document.querySelector('#viewer-open'),
@@ -152,11 +156,11 @@ const EVENT_PAGE_SIZE = 100;
 const AUTO_REFRESH_MS = 15_000;
 const MAX_RETAINED_EVENTS = 200;
 const DRAFT_PREFIX = 'rat-things.draft.';
-const WORK_PREFIX = 'rat-things.work.';
 
 const state = {
   mode: 'conversations',
   conversations: [],
+  conversationRows: new Map(),
   listNextToken: null,
   consumedListTokens: new Set(),
   listLoading: false,
@@ -182,6 +186,10 @@ const state = {
   eventGap: false,
   runtimeReady: false,
   completedWork: null,
+  completionByRun: new Map(),
+  activityRunId: null,
+  answeredRequests: [],
+  viewerHistory: [],
   liveWorkByConversation: new Map(),
   artifacts: [],
   uploads: [],
@@ -235,7 +243,20 @@ elements.viewerSource.addEventListener('click', () => {
   elements.viewerBody.replaceChildren(textPreviewNode(viewing));
 });
 elements.closeViewer.addEventListener('click', () => elements.viewer.close());
-elements.viewer.addEventListener('close', () => { state.viewerFile = null; elements.viewerBody.replaceChildren(); });
+elements.viewerBack.addEventListener('click', () => {
+  const previous = state.viewerHistory.pop();
+  if (previous) void openArtifact(previous.artifact, elements.viewerBack, previous, true);
+});
+elements.renameForm.addEventListener('submit', async event => {
+  event.preventDefault();
+  if (!elements.renameForm.reportValidity()) return;
+  const title = elements.renameTitle.value.trim();
+  if (!title) return;
+  const updated = await updateConversationOrganization(state.renaming, {title});
+  if (updated.title === title) elements.renameDialog.close();
+});
+document.querySelector('#rename-cancel').addEventListener('click', () => elements.renameDialog.close());
+elements.viewer.addEventListener('close', () => { state.viewerHistory = []; state.viewerFile = null; elements.viewerBody.replaceChildren(); });
 elements.viewerTerminal.addEventListener('click', () => {
   if (!state.viewerFile) return;
   const { threadKey, artifact } = state.viewerFile;
@@ -318,7 +339,15 @@ async function initialize() {
     const requestedThread = requested.get('thread');
     const requestedRun = requested.get('run');
     const requestedConversation = requested.get('conversation');
+    if ([requestedRun, requestedThread, requestedConversation].filter(Boolean).length > 1) throw new Error('Choose one conversation, thread, or Run destination.');
     let explicitConversation;
+    let explicitRun;
+    if (requestedRun) {
+      explicitRun = await api(`/v1/runs/${encodeURIComponent(requestedRun)}`);
+      if (!explicitRun.conversationId) throw new Error('This Run has no conversation link. Update the control API or open its conversation explicitly.');
+      explicitConversation = await api(`/v1/conversations/${encodeURIComponent(explicitRun.conversationId)}`);
+    }
+    if (requestedThread) explicitConversation = await findThread(requestedThread);
     if (requestedConversation) {
       try {
         explicitConversation = await api(`/v1/conversations/${encodeURIComponent(requestedConversation)}`);
@@ -329,13 +358,13 @@ async function initialize() {
       }
     }
     const saved = localStorage.getItem('rat-things.selected-conversation');
-    const selected = explicitConversation ?? state.conversations.find((item) => requestedThread && item.threadKey === requestedThread)
-      ?? state.conversations.find((item) => requestedRun && item.activeRunId === requestedRun)
-      ?? state.conversations.find((item) => item.conversationId === saved)
-      ?? state.conversations[0];
+    const selected = explicitConversation ?? (!requestedThread && !requestedRun && !requestedConversation
+      ? state.conversations.find(item => item.conversationId === saved) ?? state.conversations[0] : undefined);
     const draft = JSON.parse(localStorage.getItem('rat-things.new-conversation') ?? 'null');
     const acceptedDraft = state.conversations.find(item => draft?.key && item.threadKey === draft.key);
-    if (acceptedDraft && !requestedThread && !requestedRun && !requestedConversation) {
+    if (requestedThread && !selected) {
+      prepareDraftThread(requestedThread, requestedThread);
+    } else if (acceptedDraft && !requestedThread && !requestedRun && !requestedConversation) {
       await selectConversation(acceptedDraft);
     } else if (draft?.key && !requestedThread && !requestedRun && !requestedConversation) {
       state.draftThreadKey = draft.key;
@@ -345,7 +374,21 @@ async function initialize() {
       renderWorkspace({ scrollMode: 'bottom' });
     } else if (selected) await selectConversation(selected);
     else { restoreDraft(); renderWorkspace({ scrollMode: 'bottom' }); }
-    if (requestedRun && state.activeRunId === requestedRun) await openContext('browser');
+    if (explicitRun) {
+      if (isTerminal(explicitRun.status)) {
+        const work = completedRunWork(explicitRun);
+        state.completionByRun.set(work.runId, work);
+        state.completedWork = work;
+        state.activityRunId = work.runId;
+        renderWorkspace({scrollMode: 'bottom'});
+        await openContext('activity');
+        void reconcileCompletedActivity(work);
+      } else {
+        if (!state.activeRunId) { activateRun(explicitRun); void pollRun(); }
+        await openContext('browser');
+      }
+    }
+    window.setInterval(updateRelativeTimes, 15_000);
     const requestedView = requested.get('view');
     if (requestedView === 'connections' || requestedView === 'routines') {
       await setWorkspaceMode(requestedView);
@@ -386,7 +429,7 @@ async function setWorkspaceMode(mode) {
   elements.managementView.hidden = conversations;
   elements.badge.hidden = !conversations;
   elements.openContext.hidden = !conversations || !(state.selected || state.activeRunId);
-  elements.terminalCommands.hidden = !conversations || !state.selected?.conversationId;
+  elements.terminalCommands.hidden = !conversations || (!state.selected?.conversationId && !state.draftThreadKey);
   elements.runStrip.hidden = !conversations || !currentWork(
     state.activeRun?.status ?? state.detail?.status ?? state.selected?.status ?? 'idle',
   )?.active;
@@ -1369,6 +1412,7 @@ async function refreshSelectedDetailIfStale() {
     state.activeRunId
   ) return;
   state.detail = refreshed;
+  adoptCompletions(refreshed);
   state.artifacts = artifacts;
   // A terminal Run can still appear active until its conversation projection catches up.
   if (refreshed.activeRunId && refreshed.activeRunId !== state.completedWork?.runId) {
@@ -1417,7 +1461,13 @@ function syncSelectedSummary() {
   }
   if (!state.selected) return;
   const current = state.conversations.find((item) => item.conversationId === state.selected.conversationId);
-  if (current) state.selected = current;
+  if (current) {
+    state.selected = current;
+    if (state.detail && current.title !== state.detail.title) {
+      state.detail.title = current.title;
+      if (state.mode === 'conversations') elements.title.textContent = current.title;
+    }
+  }
 }
 
 function renderConversationList() {
@@ -1427,7 +1477,11 @@ function renderConversationList() {
     ? 'Back to conversations'
     : 'Show hidden conversations';
   elements.count.textContent = String(query ? state.searchResults.length : state.conversations.length);
-  elements.list.replaceChildren();
+  const searchSignature = query ? JSON.stringify([query, state.searchLoading, state.searchResults, state.selected?.conversationId]) : null;
+  if (query && searchSignature === state.searchListSignature) return;
+  state.searchListSignature = searchSignature;
+  if (query) elements.list.replaceChildren();
+  const focused = elements.list.contains(document.activeElement) ? document.activeElement : null;
   elements.searchState.hidden = !query;
   elements.searchState.textContent = state.searchLoading
     ? `Searching all conversations for “${query}”…`
@@ -1443,22 +1497,24 @@ function renderConversationList() {
     return;
   }
   if (state.conversations.length === 0) {
-    elements.list.append(emptyConversationList(
+    elements.list.replaceChildren(emptyConversationList(
       state.visibility === 'hidden' ? 'No hidden conversations.' : 'No durable conversations yet.',
     ));
   }
   const sections = state.visibility === 'hidden'
     ? [['Hidden', state.conversations]]
     : conversationSections(state.conversations);
+  const desired = [];
   for (const [label, conversations] of sections) {
     if (conversations.length === 0) continue;
-    const section = document.createElement('section');
+    const section = [...elements.list.children].find(node => node.dataset.section === label) ?? document.createElement('section');
+    section.dataset.section = label;
     section.className = 'conversation-section';
-    const heading = document.createElement('h2');
+    const heading = section.querySelector('h2') ?? document.createElement('h2');
     heading.textContent = label;
-    section.append(heading);
-    for (const conversation of conversations) section.append(conversationNode(conversation));
-    elements.list.append(section);
+    if (!section.isConnected) elements.list.append(section);
+    reconcileChildren(section, [heading, ...conversations.map(conversation => conversationNode(conversation))]);
+    desired.push(section);
   }
   if (state.listNextToken) {
     const loadMore = document.createElement('button');
@@ -1466,8 +1522,12 @@ function renderConversationList() {
     loadMore.className = 'load-more-conversations';
     loadMore.textContent = `Load more ${state.visibility === 'hidden' ? 'hidden ' : ''}conversations`;
     loadMore.addEventListener('click', () => void loadMoreConversations(loadMore));
-    elements.list.append(loadMore);
+    desired.push(loadMore);
   }
+  if (state.conversations.length) reconcileChildren(elements.list, desired);
+  const ids = new Set(state.conversations.map(item => item.conversationId));
+  for (const id of state.conversationRows.keys()) if (!ids.has(id)) state.conversationRows.delete(id);
+  if (focused?.isConnected && document.activeElement !== focused) focused.focus({preventScroll: true});
 }
 
 function emptyConversationList(text) {
@@ -1580,6 +1640,7 @@ async function focusSearchMatch(match) {
       ...state.detail.transcript.messages,
     ];
     state.detail.transcript.nextToken = older.transcript?.nextToken;
+    adoptCompletions(older);
     targetIndex = bestTranscriptMatch(state.detail.transcript.messages, tokens);
   }
   renderWorkspace({ scrollMode: 'keep' });
@@ -1610,7 +1671,43 @@ function highlightSearchTarget(node) {
   window.setTimeout(() => node.classList.remove('search-target'), 4_000);
 }
 
-function conversationNode(conversation, onSelect = () => void selectConversation(conversation)) {
+function reconcileChildren(parent, nodes) {
+  for (const [index, node] of nodes.entries()) if (parent.children[index] !== node) parent.insertBefore(node, parent.children[index] ?? null);
+  for (const child of [...parent.children]) if (!nodes.includes(child)) child.remove();
+}
+
+// Keep listeners, focus, and open details while updating a row's visible content.
+function updateNode(target, fresh) {
+  if (target.nodeType === Node.TEXT_NODE) { if (target.textContent !== fresh.textContent) target.textContent = fresh.textContent; return; }
+  for (const attr of [...target.attributes]) if (attr.name !== 'open' && !fresh.hasAttribute(attr.name)) target.removeAttribute(attr.name);
+  for (const attr of fresh.attributes) if (target.getAttribute(attr.name) !== attr.value) target.setAttribute(attr.name, attr.value);
+  const children = [...fresh.childNodes];
+  for (const [index, child] of children.entries()) {
+    const current = target.childNodes[index];
+    if (!current) target.append(child);
+    else if (current.nodeType !== child.nodeType || current.nodeName !== child.nodeName) current.replaceWith(child);
+    else updateNode(current, child);
+  }
+  while (target.childNodes.length > children.length) target.lastChild.remove();
+}
+
+function conversationNode(conversation, onSelect) {
+  if (onSelect) return createConversationNode(conversation, onSelect);
+  let cached = state.conversationRows.get(conversation.conversationId);
+  if (!cached) {
+    const model = {...conversation};
+    cached = {model, node: createConversationNode(model)};
+    state.conversationRows.set(conversation.conversationId, cached);
+  } else {
+    const updated = {...conversation};
+    for (const key of Object.keys(cached.model)) delete cached.model[key];
+    Object.assign(cached.model, updated);
+    updateNode(cached.node, createConversationNode(cached.model));
+  }
+  return cached.node;
+}
+
+function createConversationNode(conversation, onSelect = () => void selectConversation(conversation)) {
   const row = document.createElement('div');
   row.className = 'conversation-row';
   const button = document.createElement('button');
@@ -1647,6 +1744,7 @@ function conversationNode(conversation, onSelect = () => void selectConversation
   const time = document.createElement('time');
   time.className = 'conversation-time';
   time.dateTime = conversation.updatedAt;
+  time.dataset.relative = '';
   time.textContent = relativeTime(conversation.updatedAt);
   meta.append(time);
   if (conversation.unread) {
@@ -1686,10 +1784,21 @@ function conversationActions(conversation) {
     button.textContent = label;
     button.addEventListener('click', () => {
       details.removeAttribute('open');
-      void updateConversationOrganization(conversation, update);
+      const key = Object.keys(update)[0];
+      const value = key === 'read' ? conversation.unread : !conversation[key];
+      void updateConversationOrganization(conversation, {[key]: value});
     });
     menu.append(button);
   }
+  const rename = document.createElement('button');
+  rename.type = 'button'; rename.textContent = 'Rename';
+  rename.addEventListener('click', () => {
+    details.open = false;
+    state.renaming = conversation;
+    elements.renameTitle.value = conversation.title ?? '';
+    elements.renameDialog.showModal(); elements.renameTitle.focus(); elements.renameTitle.select();
+  });
+  menu.append(rename);
   details.append(summary, menu);
   return details;
 }
@@ -1730,6 +1839,7 @@ function replaceConversationSummary(updated) {
 }
 
 function organizationNotice(update, conversation) {
+  if ('title' in update) return 'Conversation renamed.';
   if ('pinned' in update) return update.pinned ? 'Conversation pinned.' : 'Conversation unpinned.';
   if ('hidden' in update) return update.hidden ? 'Conversation hidden.' : 'Conversation restored.';
   return conversation.unread ? 'Conversation marked unread.' : 'Conversation marked read.';
@@ -1766,7 +1876,10 @@ async function selectConversation(conversation) {
   state.detail = null;
   state.detailLoading = true;
   resetLiveRunState();
-  state.completedWork = restoreCompletedWork(conversation.conversationId);
+  state.completedWork = null;
+  state.completionByRun.clear();
+  state.activityRunId = null;
+  state.answeredRequests = [];
   state.artifacts = [];
   clearComposerExtras();
   localStorage.setItem('rat-things.selected-conversation', conversation.conversationId);
@@ -1786,6 +1899,7 @@ async function selectConversation(conversation) {
       state.selected?.conversationId !== conversation.conversationId
     ) return;
     state.detail = detail;
+    adoptCompletions(detail);
     await restoreSubmission(detail.threadKey);
     state.artifacts = artifacts;
     state.detailLoading = false;
@@ -1822,14 +1936,22 @@ function openNewThread() {
 function createDraftThread(event) {
   event.preventDefault();
   if (!elements.dialogForm.reportValidity()) return;
+  prepareDraftThread(`thread-${crypto.randomUUID()}`, elements.threadKey.value.trim());
+  elements.dialog.close();
+}
+
+function prepareDraftThread(key, title) {
   if (state.contextOpen) void closeComputer();
   persistDraft();
   state.selectionRevision += 1;
   state.selected = null;
   state.detail = null;
   state.detailLoading = false;
-  state.draftThreadKey = `thread-${crypto.randomUUID()}`;
-  state.draftTitle = elements.threadKey.value.trim();
+  state.completionByRun.clear();
+  state.activityRunId = null;
+  state.answeredRequests = [];
+  state.draftThreadKey = key;
+  state.draftTitle = title;
   localStorage.setItem('rat-things.new-conversation', JSON.stringify({key: state.draftThreadKey, title: state.draftTitle}));
   resetLiveRunState();
   state.completedWork = null;
@@ -1951,16 +2073,12 @@ function renderWorkspace(options = {}) {
   const conversation = state.detail ?? state.selected;
   const threadKey = state.draftThreadKey ?? conversation?.threadKey;
   elements.title.textContent = state.draftTitle ?? conversation?.title ?? (conversation ? labelFor(conversation) : 'New conversation');
-  const sourceKind = conversation?.sourceKind ?? state.selected?.sourceKind;
-  const updatedAt = conversation?.updatedAt ?? state.selected?.updatedAt;
-  elements.subtitle.textContent = conversation
-    ? `${sourceLabel(sourceKind)}${updatedAt ? ` · updated ${relativeTime(updatedAt)}` : ''}`
-    : 'Durable, isolated execution';
+  renderConversationSubtitle();
   const status = state.activeRun?.status ?? conversation?.status ?? (state.activeRunId ? 'queued' : 'idle');
   elements.badge.dataset.state = status;
   elements.badge.textContent = state.activeRunId ? workPresentation(currentWork(status)).label : statusLabel(status);
   elements.openContext.hidden = !(conversation || workAvailable());
-  elements.terminalCommands.hidden = !conversation?.conversationId;
+  elements.terminalCommands.hidden = !conversation?.conversationId && !state.draftThreadKey;
 
   const messages = state.detail?.transcript?.messages ?? [];
   const work = currentWork(status);
@@ -2011,13 +2129,23 @@ function renderTranscript(messages, work) {
     elements.transcript.append(loadOlder);
   }
 
-  const workIndex = work?.active ? messages.length - 1 : work ? completionReceiptIndex(messages, work.completedAt) : -1;
-  if (work && workIndex < 0) elements.transcript.append(workNode(work));
+  const receipts = [...state.completionByRun.values()];
+  if (work && !work.active && !receipts.some(item => item.runId === work.runId)) receipts.push(work);
+  receipts.sort((a, b) => Date.parse(a.completedAt) - Date.parse(b.completedAt));
+  const appendReceipts = index => {
+    for (const receipt of receipts) if (completionReceiptIndex(messages, receipt.completedAt) === index) elements.transcript.append(workNode(receipt));
+  };
+  appendReceipts(-1);
   for (const [index, item] of messages.entries()) {
     for (const interaction of item.interactions ?? []) elements.transcript.append(messageNode(interaction));
     elements.transcript.append(messageNode(item));
-    if (index === workIndex) elements.transcript.append(workNode(work));
+    appendReceipts(index);
   }
+  for (const answer of state.answeredRequests) {
+    elements.transcript.append(messageNode({role: 'assistant', content: answer.question, receivedAt: answer.at}),
+      messageNode({role: 'user', content: `${answer.value} — Answer sent`, receivedAt: answer.at}));
+  }
+  if (work?.active) elements.transcript.append(workNode(work));
   renderUnattachedArtifacts(messages);
 }
 
@@ -2036,6 +2164,7 @@ async function loadEarlierMessages(button) {
       ...state.detail.transcript.messages,
     ];
     state.detail.transcript.nextToken = older.transcript?.nextToken;
+    adoptCompletions(older);
     renderWorkspace({ scrollMode: 'anchor', scrollSnapshot: scroll });
   } catch (error) {
     button.disabled = false;
@@ -2060,6 +2189,7 @@ function messageNode(item) {
     const time = document.createElement('time');
     time.dateTime = item.receivedAt;
     time.title = new Date(item.receivedAt).toLocaleString();
+    time.dataset.relative = '';
     time.textContent = relativeTime(item.receivedAt);
     meta.append(time);
   }
@@ -2244,7 +2374,16 @@ function codeBlockNode(value, language) {
 
 function openTerminalCommands() {
   const conversation = state.detail ?? state.selected;
-  if (!conversation?.conversationId) return;
+  if (!conversation?.conversationId) {
+    if (state.draftThreadKey) {
+      const thread = shellArgument(state.draftThreadKey);
+      showTerminalCommands([
+        ['Start this conversation', `rat-things chat --thread ${thread} "Your first message"`],
+        ['Open this draft', `rat-things console --thread ${thread}`],
+      ], 'Use this conversation in your terminal');
+    }
+    return;
+  }
   const quote = shellArgument;
   const id = quote(conversation.conversationId);
   const commands = [
@@ -2258,6 +2397,7 @@ function openTerminalCommands() {
   }
   if (state.activeRunId) commands.push(['Follow live activity', `rat-things watch ${quote(state.activeRunId)} --follow`]);
   if (state.completedWork?.runId) commands.push(['Saved Run events', `rat-things artifact ${quote(state.completedWork.runId)} events`]);
+  if (state.activeRunId) commands.unshift(...state.pendingRequests.flatMap(request => answerCommands(state.activeRunId, request)));
   showTerminalCommands(commands, 'Use this conversation in your terminal');
 }
 
@@ -2318,13 +2458,21 @@ function artifactNode(artifact, compact) {
   return button;
 }
 
-async function openArtifact(artifact, button, context = { threadKey: state.detail?.threadKey ?? state.selected?.threadKey, artifacts: state.artifacts }) {
+async function openArtifact(artifact, button, context = { threadKey: state.detail?.threadKey ?? state.selected?.threadKey, artifacts: state.artifacts }, restored = false) {
   const { threadKey } = context;
   if (!threadKey || !artifact.id) return;
   button.disabled = true;
   try {
     const url = artifactContentUrl(threadKey, artifact.id);
-    state.viewerFile = { artifact, threadKey, artifacts: context.artifacts, source: false };
+    if (state.viewerFile && elements.viewer.open && !restored) {
+      state.viewerFile.scrollTop = elements.viewerBody.scrollTop;
+      state.viewerFile.focusHref = button.getAttribute('href');
+      state.viewerHistory.push(state.viewerFile);
+      state.viewerHistory = state.viewerHistory.slice(-20);
+    }
+    state.viewerFile = { artifact, threadKey, artifacts: context.artifacts, source: restored ? context.source : false };
+    const viewing = state.viewerFile;
+    elements.viewerBack.hidden = state.viewerHistory.length === 0;
     elements.viewerSource.hidden = true;
     elements.viewerTitle.textContent = artifact.path ?? artifact.name ?? 'Artifact';
     elements.viewerDetail.textContent = [artifact.mediaType, formatBytes(artifact.bytes)].filter(Boolean).join(' · ');
@@ -2333,7 +2481,12 @@ async function openArtifact(artifact, button, context = { threadKey: state.detai
     elements.viewerDownload.download = (artifact.path ?? artifact.name ?? 'download').split('/').at(-1);
     elements.viewerBody.replaceChildren(viewerLoadingNode());
     if (!elements.viewer.open) elements.viewer.showModal();
-    await renderArtifactContent(artifact, url, state.viewerFile);
+    await renderArtifactContent(artifact, url, viewing);
+    if (state.viewerFile === viewing) {
+      elements.viewerBody.scrollTop = restored ? context.scrollTop ?? 0 : 0;
+      const focus = restored && [...elements.viewerBody.querySelectorAll('a')].find(link => link.getAttribute('href') === context.focusHref);
+      (focus || elements.viewerTitle).focus({preventScroll: true});
+    }
   } catch (error) {
     notice(message(error), true);
   } finally {
@@ -2415,7 +2568,8 @@ function currentWork(status) {
 
 function workNode(work) {
   const section = document.createElement('section');
-  section.id = 'run-progress';
+  if (work.active || work.runId === state.completedWork?.runId) section.id = 'run-progress';
+  section.dataset.runId = work.runId;
   section.className = 'work-card';
   section.dataset.state = work.status;
   if (work.active) {
@@ -2434,7 +2588,7 @@ function workNode(work) {
   const details = document.createElement('button');
   details.type = 'button';
   details.textContent = 'View Activity';
-  details.addEventListener('click', () => void openContext('activity'));
+  details.addEventListener('click', () => { state.activityRunId = work.runId; void openContext('activity'); void reconcileCompletedActivity(work); });
   section.append(title, elapsed, details);
   return section;
 }
@@ -2445,12 +2599,13 @@ function renderRunStrip(work) {
   const progress = workPresentation(work);
   elements.runStrip.dataset.state = work.status;
   elements.runStripPhase.textContent = progress.label;
-  elements.runStripTitle.textContent = progress.title;
+  elements.runStripTitle.textContent = work.pendingRequests?.[0]?.questions?.[0]?.question ?? progress.title;
   elements.runStripDetail.textContent = work.pendingRequests?.length
-    ? work.pendingRequests[0].detail ?? work.pendingRequests[0].title
+    ? 'Answer below to continue.'
     : progress.detail;
   elements.runStripElapsed.textContent = workDuration(work);
   elements.steerRun.hidden = !work.active;
+  elements.steerRun.textContent = work.pendingRequests?.length ? 'Answer question' : 'Steer';
   elements.stopRun.hidden = !work.active;
 }
 
@@ -2558,6 +2713,7 @@ function questionOption(question, option, index, other = false) {
 async function respondToQuestions(event, request, form, submit) {
   event.preventDefault();
   const runId = state.activeRunId;
+  const conversationId = state.detail?.conversationId ?? state.selected?.conversationId;
   if (!runId || !form.reportValidity() || submit.disabled) return;
   const data = new FormData(form);
   const answers = {};
@@ -2577,8 +2733,19 @@ async function respondToQuestions(event, request, form, submit) {
       `/v1/runs/${encodeURIComponent(runId)}/requests/${encodeURIComponent(request.requestId)}/respond`,
       { method: 'POST', body: { result: { answers } } },
     );
+    const acknowledged = request.questions.map(question => ({
+      requestId: request.requestId,
+      question: question.question,
+      value: question.isSecret ? 'Private answer' : answers[question.id].answers.join(', '),
+      at: new Date().toISOString(),
+    }));
     state.questionNodes.delete(`${runId}:${request.requestId}`);
-    state.pendingRequests = state.pendingRequests.filter((pending) => pending.requestId !== request.requestId);
+    const target = state.activeRunId === runId ? state : state.liveWorkByConversation.get(conversationId);
+    if (target) {
+      target.answeredRequests = [...(target.answeredRequests ?? []), ...acknowledged];
+      target.pendingRequests = target.pendingRequests.filter(pending => pending.requestId !== request.requestId);
+    }
+    if (state.activeRunId !== runId) return;
     renderWorkspace({ scrollMode: 'keep' });
     notice('Response delivered to the isolated agent.');
     void pollRun();
@@ -2857,7 +3024,8 @@ function consumeRuntimeSnapshot(snapshot, requestedAfter) {
     .slice(-MAX_RETAINED_EVENTS);
   const newest = state.events.at(-1)?.sequence;
   if (Number.isSafeInteger(newest)) state.eventAfter = Math.max(state.eventAfter, newest);
-  state.pendingRequests = Array.isArray(snapshot.pendingRequests) ? snapshot.pendingRequests : [];
+  state.pendingRequests = (Array.isArray(snapshot.pendingRequests) ? snapshot.pendingRequests : [])
+    .filter(request => !state.answeredRequests.some(answer => answer.requestId === request.requestId));
   state.runtimeReady = snapshot.ready === true;
   const pendingKeys = new Set(state.pendingRequests.map(request => `${state.activeRunId}:${request.requestId}`));
   for (const key of state.questionNodes.keys()) {
@@ -2881,7 +3049,8 @@ async function finishRun(run) {
     ready: state.runtimeReady,
   };
   state.completedWork.evidence = 'loading';
-  persistCompletedWork(state.completedWork);
+  state.completionByRun.set(run.runId, state.completedWork);
+  state.activityRunId = null;
   const conversationId = state.detail?.conversationId ?? state.selected?.conversationId;
   if (conversationId) state.liveWorkByConversation.delete(conversationId);
   clearActiveRun();
@@ -2897,6 +3066,8 @@ async function finishRun(run) {
     const artifacts = await loadConversationArtifacts(current);
     if (revision !== state.selectionRevision || state.activeRunId) return;
     state.detail = detail;
+    if (conversationProjectionSettled(detail, run)) state.answeredRequests = [];
+    adoptCompletions(detail);
     state.artifacts = artifacts;
     state.draftThreadKey = null;
     state.draftTitle = null;
@@ -2921,9 +3092,7 @@ async function reconcileCompletedActivity(work = state.completedWork, start = fa
   } catch {
     work.evidence = 'unavailable';
   }
-  if (state.completedWork !== work) return;
-  persistCompletedWork(work);
-  renderContextActivity();
+  if (state.completionByRun.get(work.runId) === work || state.completedWork === work) renderContextActivity();
 }
 
 async function waitForConversationProjection(conversation, run) {
@@ -2993,6 +3162,7 @@ function cacheLiveWork() {
     observedAt: state.activeRunObservedAt,
     events: [...state.events],
     pendingRequests: [...state.pendingRequests],
+    answeredRequests: state.answeredRequests,
     eventAfter: state.eventAfter,
     eventGap: state.eventGap,
     runtimeReady: state.runtimeReady,
@@ -3009,6 +3179,7 @@ function restoreLiveWork(conversationId, runId) {
   state.activeRunObservedAt = cached.observedAt ?? Date.now();
   state.events = cached.events;
   state.pendingRequests = cached.pendingRequests;
+  state.answeredRequests = cached.answeredRequests ?? [];
   state.eventAfter = cached.eventAfter;
   state.eventGap = cached.eventGap;
   state.runtimeReady = cached.runtimeReady;
@@ -3045,6 +3216,10 @@ function statusLabel(status) {
 }
 
 function focusSteeringComposer() {
+  if (state.pendingRequests.length) {
+    const form = elements.transcript.querySelector('.question-form');
+    form?.scrollIntoView({block: 'center'}); form?.querySelector('input')?.focus(); return;
+  }
   if (!state.activeRunId) return;
   state.steering = true;
   state.replyTarget = null;
@@ -3158,10 +3333,26 @@ function safePublicUrl(value) {
 }
 
 function renderContextActivity() {
-  const work = currentWork(state.activeRun?.status ?? state.detail?.status ?? state.selected?.status ?? 'idle');
+  const work = state.completionByRun.get(state.activityRunId) ?? currentWork(state.activeRun?.status ?? state.detail?.status ?? state.selected?.status ?? 'idle');
   const activities = coalesceActivities(work?.events ?? []);
   const phases = groupActivities(activities);
   elements.contextActivity.replaceChildren();
+  const choices = [...state.completionByRun.values()].sort((a, b) => Date.parse(b.completedAt) - Date.parse(a.completedAt));
+  if (choices.length) {
+    const select = document.createElement('select');
+    select.setAttribute('aria-label', 'Activity for Run');
+    if (state.activeRunId) select.add(new Option('Current work', ''));
+    for (const receipt of choices) select.add(new Option(`${new Date(receipt.completedAt).toLocaleString()} · ${receipt.status}`, receipt.runId));
+    select.value = state.activityRunId ?? (state.activeRunId ? '' : state.completedWork?.runId ?? '');
+    select.addEventListener('change', () => {
+      state.activityRunId = select.value || null;
+      const selected = state.completionByRun.get(select.value);
+      if (selected) void reconcileCompletedActivity(selected);
+      renderContextActivity();
+    });
+    elements.contextActivity.append(select);
+  }
+
   if (work && !work.active) {
     const evidence = document.createElement('p');
     evidence.className = 'activity-evidence';
@@ -3172,7 +3363,7 @@ function renderContextActivity() {
       const retry = document.createElement('button');
       retry.type = 'button';
       retry.textContent = 'Retry saved Activity';
-      retry.addEventListener('click', () => { void reconcileCompletedActivity(); renderContextActivity(); });
+      retry.addEventListener('click', () => { void reconcileCompletedActivity(work); renderContextActivity(); });
       evidence.append(' ', retry);
     }
     elements.contextActivity.append(evidence);
@@ -3287,6 +3478,7 @@ async function openContext(tab = 'activity') {
   syncContextLayout();
   renderComputer();
   if (tab === 'browser' && state.activeRunId) await refreshComputer();
+  if (tab === 'activity') void reconcileCompletedActivity(state.completionByRun.get(state.activityRunId) ?? state.completedWork);
 }
 
 async function closeComputer() {
@@ -3649,25 +3841,51 @@ function draftStorageKey() {
   return `${DRAFT_PREFIX}${identity ?? 'new'}`;
 }
 
-function persistCompletedWork(work) {
-  const conversationId = state.detail?.conversationId ?? state.selected?.conversationId;
-  if (!conversationId) return;
-  try {
-    localStorage.setItem(`${WORK_PREFIX}${conversationId}`, JSON.stringify(work));
-  } catch {
-    // The UI still retains the safe summary for this session when storage is unavailable.
+function completedRunWork(run) {
+  return {runId: run.runId, status: run.status, active: false, startedAt: runStartedAt(run), completedAt: run.updatedAt,
+    durationMs: run.result?.durationMs, events: [], pendingRequests: [], evidence: 'unavailable'};
+}
+
+function adoptCompletions(detail) {
+  for (const receipt of detail?.transcript?.completions ?? []) {
+    const existing = state.completionByRun.get(receipt.runId);
+    if (!existing) state.completionByRun.set(receipt.runId, {...receipt, startedAt: Date.parse(receipt.startedAt), active: false, events: [], pendingRequests: [], evidence: 'unavailable'});
+  }
+  const latest = [...state.completionByRun.values()].sort((a, b) => Date.parse(a.completedAt) - Date.parse(b.completedAt)).at(-1);
+  if (latest && latest !== state.completedWork) {
+    state.completedWork = latest;
+    if (state.contextOpen && !state.activeRunId && !state.activityRunId) void reconcileCompletedActivity(latest);
   }
 }
 
-function restoreCompletedWork(conversationId) {
-  try {
-    const raw = localStorage.getItem(`${WORK_PREFIX}${conversationId}`);
-    if (!raw) return null;
-    const value = JSON.parse(raw);
-    return value && typeof value === 'object' && value.active === false ? {...value, evidence: value.evidence === 'saved' ? 'saved' : 'unavailable'} : null;
-  } catch {
-    return null;
+async function findThread(key) {
+  if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(key)) throw new Error('Invalid thread name.');
+  const cached = state.conversations.find(item => item.threadKey === key);
+  if (cached) return cached;
+  const seen = new Set();
+  let token;
+  for (let page = 0; page < 100; page++) {
+    const result = await api(`/v1/conversations?visibility=all&limit=100${token ? `&nextToken=${encodeURIComponent(token)}` : ''}`);
+    const found = (result.items ?? []).find(item => item.threadKey === key);
+    if (found) return found;
+    if (!result.nextToken) return null;
+    if (seen.has(result.nextToken)) break;
+    seen.add(result.nextToken); token = result.nextToken;
   }
+  throw new Error('Could not finish finding that thread. Open it using its public conversation ID.');
+}
+
+function renderConversationSubtitle() {
+  const conversation = state.detail ?? state.selected;
+  const updatedAt = conversation?.updatedAt;
+  elements.subtitle.textContent = conversation
+    ? `${sourceLabel(conversation.sourceKind)}${updatedAt ? ` · updated ${relativeTime(updatedAt)}` : ''}`
+    : 'Durable, isolated execution';
+}
+
+function updateRelativeTimes() {
+  for (const time of document.querySelectorAll('time[data-relative]')) time.textContent = relativeTime(time.dateTime);
+  if (state.mode === 'conversations') renderConversationSubtitle();
 }
 
 function conversationAttention(conversation) {
@@ -3682,9 +3900,9 @@ function attentionLabel(value) {
 }
 
 function conversationPreview(conversation) {
-  return conversation.latestProgress?.text && ['pending', 'running', 'awaiting_resume'].includes(conversation.status)
+  return messagePreview(conversation.latestProgress?.text && ['pending', 'running', 'awaiting_resume'].includes(conversation.status)
     ? conversation.latestProgress.text
-    : conversation.lastMessagePreview ?? statusText(conversation);
+    : conversation.lastMessagePreview ?? statusText(conversation));
 }
 
 function sidebarIsOpen() {

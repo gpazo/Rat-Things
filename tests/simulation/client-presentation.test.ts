@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { conversationWorkState, completionReceiptIndex, fileCommands, readTextPreview, runPresentation } from '../../console/presentation.js';
+import { conversationWorkState, completionReceiptIndex, answerCommands, messagePreview, fileCommands, readTextPreview, runPresentation } from '../../console/presentation.js';
 
 import { coalesceActivities, groupActivities, createActivityProgress } from '../../console/activity.js';
 import type { PublicAgentActivity } from '../../src/core/agent-activity-projection.js';
@@ -20,8 +20,28 @@ describe('shared client presentation', () => {
   it('quotes opaque file IDs and destination paths, and omits text preview for binary files', () => {
     const commands = fileCommands('my-thread', {id: 'opaque-id', path: "reports/customer's report.json", mediaType: 'application/problem+json; charset=utf-8'});
     expect(commands).toContainEqual(['Preview in terminal', "rat-things file 'opaque-id' --thread 'my-thread' --preview"]);
-    expect(commands.at(-1)?.[1]).toContain("--download './customer'\\''s report.json'");
+    expect(commands.at(-1)?.[1]).toContain("--download './reports/customer'\\''s report.json'");
     expect(fileCommands('my-thread', {id: 'image', path: 'image.png', mediaType: 'image/png'})).toHaveLength(2);
+  });
+
+  it('keeps nested downloads distinct and uses the requested selector', () => {
+    const file = {id: 'a', path: 'reports/brief.md', mediaType: 'text/markdown'};
+    expect(fileCommands('public-id', file, 'conversation').at(-1)?.[1]).toBe("rat-things file 'a' --conversation 'public-id' --download './reports/brief.md'");
+    expect(fileCommands('public-id', {...file, path: 'archive/brief.md'}, 'conversation').at(-1)?.[1]).toContain("--download './archive/brief.md'");
+  });
+
+  it('offers escaped option answers while keeping secrets on stdin', () => {
+    const request = {requestId: 'request', questions: [{id: 'audience', question: 'Who?', options: [{label: "Owner's team"}]}, {id: 'token', question: 'Token?', isSecret: true}]} as any;
+    const commands = answerCommands('run', request);
+    expect(commands[0]?.[0]).toBe("Answer: Owner's team (fill other VALUEs)");
+    expect(commands[0]?.[1]).toContain("--answer-stdin 'token'");
+    expect(commands[0]?.[1]).not.toContain('token=');
+    expect(commands.at(-1)?.[1]).toContain("--answer 'audience=VALUE'");
+  });
+
+  it('uses readable plain text in sidebar previews', () => {
+    expect(messagePreview('**Done**: [Updated report](.rat-things/artifacts/report.md)\n`npm test` <img src=x>')).toBe('Done: Updated report npm test');
+    expect(messagePreview('x'.repeat(500))).toHaveLength(240);
   });
 
   it('preserves UTF-8 across stream chunks and accepts an exact-size file without a truncation warning', async () => {

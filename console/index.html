@@ -255,11 +255,19 @@
       </form>
     </dialog>
 
+    <dialog id="rename-dialog" class="new-thread-dialog" aria-labelledby="rename-heading">
+      <form id="rename-form">
+        <h2 id="rename-heading">Rename conversation</h2>
+        <label class="dialog-field">Title<input id="rename-title" maxlength="128" required autocomplete="off"></label>
+        <div class="dialog-actions"><button id="rename-cancel" type="button" class="secondary-button">Cancel</button><button type="submit" class="primary-button">Save title</button></div>
+      </form>
+    </dialog>
     <dialog id="artifact-viewer" class="artifact-viewer" aria-labelledby="viewer-title">
       <div class="viewer-heading">
         <div>
           <p class="eyebrow">Conversation file</p>
-          <h2 id="viewer-title">Artifact</h2>
+          <button id="viewer-back" aria-label="Back" type="button" class="secondary-button" hidden>← Back</button>
+          <h2 id="viewer-title" tabindex="-1">Artifact</h2>
         </div>
         <button id="close-viewer" class="icon-button" type="button" aria-label="Close viewer">×</button>
       </div>

@@ -303,7 +303,7 @@ describe('conversation CLI-to-HTTP workflow', () => {
     expect(preview.stdout.length).toBeLessThan(65_550);
     expect(preview.stderr).toContain('Preview truncated at 64 KiB');
     const directory = await mkdtemp(join(tmpdir(), 'rat-things-file-'));
-    const target = join(directory, 'report.txt');
+    const target = join(directory, 'reports', 'report.txt');
     try {
       await cli(['file', 'artifact-1', ...scope, '--download', target], apiUrl);
       const original = await readFile(target, 'utf8');
@@ -327,13 +327,22 @@ describe('conversation CLI-to-HTTP workflow', () => {
     expect((await cli(['conversation', 'show', 'earnings', '--limit', '25'], apiUrl)).stdout).toContain('Revenue increased.');
     await cli(['conversation', 'pin', 'earnings'], apiUrl);
     expect(requests.at(-1)?.path).toBe(`/v1/conversations/${conversationId}/organization`);
-    expect((await cli(['files', '--conversation', conversationId], apiUrl)).stdout).toContain(`--thread '${conversationId}' --preview`);
+    expect((await cli(['files', '--conversation', conversationId], apiUrl)).stdout).toContain(`--conversation '${conversationId}' --preview`);
     await cli(['chat', '--conversation', conversationId, '--driver', 'mock', '--no-wait', 'Continue'], apiUrl);
     expect(requests.at(-1)?.body).toMatchObject({thread: {key: 'earnings'}});
     const before = requests.length;
     await expectCliFailure(['conversation', 'show', 'typo'], apiUrl, 'was not found');
     await expectCliFailure(['chat', '--conversation', 'typo', 'Continue'], apiUrl, 'was not found');
     expect(requests.slice(before).every(request => request.method === 'GET')).toBe(true);
+  });
+
+  it('renames by stable selector and documents the same selectors for chat and files', async () => {
+    await cli(['conversation', 'rename', 'earnings', 'Quarterly summary'], apiUrl);
+    expect(requests.at(-1)).toMatchObject({path: `/v1/conversations/${conversationId}/organization`, body: {title: 'Quarterly summary'}});
+    for (const command of ['chat', 'file', 'files']) {
+      expect((await cli([command, '--help'], apiUrl)).stdout).toContain('--conversation ID_OR_THREAD');
+    }
+    await expectCliFailure(['conversation', 'rename', 'earnings', ' '], apiUrl, 'title must be');
   });
 
   it('lists ambiguous file paths with executable commands and offers recovery for missing files', async () => {

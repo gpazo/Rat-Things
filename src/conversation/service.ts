@@ -422,16 +422,18 @@ export class ConversationService {
   public async updateOrganization(
     ownerId: string,
     publicId: string,
-    update: { pinned?: boolean; hidden?: boolean; read?: boolean },
+    update: { title?: string; pinned?: boolean; hidden?: boolean; read?: boolean },
   ): Promise<ConversationRecord | undefined> {
     requiredId(ownerId, 'ownerId', 1_024);
     if (!/^[a-f0-9]{64}$/.test(publicId)) {
       throw new ConversationStateError('conversation ID must be a 64-character lowercase hex value');
     }
     if (
-      !Object.keys(update).some((key) => ['pinned', 'hidden', 'read'].includes(key)) ||
-      Object.values(update).some((value) => typeof value !== 'boolean')
-    ) throw new ConversationStateError('organization update requires boolean pinned, hidden, or read fields');
+      !Object.keys(update).length ||
+      Object.entries(update).some(([key, value]) => key === 'title' ? typeof value !== 'string' : !['pinned', 'hidden', 'read'].includes(key) || typeof value !== 'boolean')
+    ) throw new ConversationStateError('organization update requires a title or boolean pinned, hidden, or read fields');
+    if (update.title !== undefined && update.title.trim().length > 128) throw new ConversationStateError('title exceeds 128 characters');
+    if (update.title !== undefined) update = {...update, title: requiredText(update.title, 'title', 512).trim()};
     const conversation = await this.options.store.getConversationByPublicId(publicId);
     if (!conversation || conversation.ownerId !== ownerId) return undefined;
     return this.options.store.updateOrganization({
@@ -485,6 +487,13 @@ export class ConversationService {
         options.nextToken,
       ),
     ]);
+    const assistantRecords = transcriptRecords.items.filter(record => record.role === 'assistant');
+    const turns = await Promise.all(assistantRecords.map(record => this.options.store.getTranscriptTurn(record)));
+    const completions = turns.flatMap((turn, index) => turn?.runId && turn.completedAt ? [{
+      runId: turn.runId,
+      status: assistantRecords[index]?.runStatus ?? (turn.error?.code === 'agent_cancelled' ? 'cancelled' as const : turn.state === 'failed' ? 'failed' as const : 'succeeded' as const),
+      startedAt: turn.startedAt, completedAt: turn.completedAt,
+    }] : []).reverse();
     let transcriptMessages = (
       await Promise.all(transcriptRecords.items.map((record) => this.readTranscriptRecord(record)))
     ).reverse().flat().filter((message): message is ConversationTranscriptMessage => message !== undefined);
@@ -518,6 +527,7 @@ export class ConversationService {
       checkpoint,
       transcript: {
         messages: transcriptMessages,
+        completions,
         ...(transcriptRecords.nextToken ? { nextToken: transcriptRecords.nextToken } : {}),
       },
       ...(activeTurn ? { activeTurn } : {}),
@@ -822,6 +832,7 @@ export class ConversationService {
     turnId: string;
     leaseToken: string;
     result?: ArtifactReference;
+    runStatus?: 'succeeded' | 'cancelled';
     transcriptMessages?: ConversationTranscriptMessage[];
     context?: ConversationCheckpoint;
     artifactCatalog?: ArtifactCatalog;
@@ -852,19 +863,21 @@ export class ConversationService {
       : undefined;
     const transcriptContent = input.transcriptMessages?.length
       ? await this.writeJson(conversation, `transcripts/${digest(input.turnId)}.json`, input.transcriptMessages)
-      : input.result;
-    const transcript: ConversationTranscriptRecord | undefined = transcriptContent ? {
+      : input.result ?? await this.writeJson(conversation, `transcripts/${digest(input.turnId)}.json`, []);
+    const transcript: ConversationTranscriptRecord = {
       version: '1',
       itemType: 'transcript',
       conversationId: input.conversationId,
       entryId: `turn-${digest(input.turnId)}`,
+      turnId: input.turnId,
       role: 'assistant',
-      contentKind: input.transcriptMessages?.length ? 'turn' : 'text',
+      runStatus: input.runStatus ?? 'succeeded',
+      contentKind: input.transcriptMessages?.length || !input.result ? 'turn' : 'text',
       content: transcriptContent,
       occurredAt,
       expiresAt: conversation.expiresAt,
       messageId: `assistant-${digest(input.turnId).slice(0, 32)}`,
-    } : undefined;
+    };
     const search = [
       ...(lastAssistantMessage ? searchPostings({
         ownerId: conversation.ownerId,
@@ -906,6 +919,7 @@ export class ConversationService {
   }
 
   public async failTurn(input: {
+    runStatus?: 'failed' | 'cancelled';
     conversationId: string;
     turnId: string;
     leaseToken: string;
@@ -933,12 +947,12 @@ export class ConversationService {
       turnId: input.turnId,
       data: { turnId: input.turnId, error: input.error },
     });
-    const transcript: ConversationTranscriptRecord | undefined = input.transcriptMessages?.length ? {
+    const transcript: ConversationTranscriptRecord = {
       version: '1', itemType: 'transcript', conversationId: input.conversationId,
-      entryId: `turn-${digest(input.turnId)}`, role: 'assistant', contentKind: 'turn',
-      content: await this.writeJson(conversation, `transcripts/${digest(input.turnId)}.json`, input.transcriptMessages),
+      entryId: `turn-${digest(input.turnId)}`, turnId: input.turnId, runStatus: input.runStatus ?? 'failed', role: 'assistant', contentKind: 'turn',
+      content: await this.writeJson(conversation, `transcripts/${digest(input.turnId)}.json`, input.transcriptMessages?.length ? input.transcriptMessages : []),
       occurredAt, expiresAt: conversation.expiresAt,
-    } : undefined;
+    };
     const artifacts = input.artifactCatalog
       ? await this.writeArtifactCatalog(conversation, input.turnId, occurredAt, input.artifactCatalog) : undefined;
     return this.options.store.failTurn({

@@ -61,6 +61,7 @@ export interface ConversationStore {
   updateOrganization(input: {
     conversationId: string;
     ownerId: string;
+    title?: string;
     pinned?: boolean;
     hidden?: boolean;
     read?: boolean;
@@ -199,6 +200,7 @@ export interface ConversationStore {
     failedAt: string;
   }): Promise<ConversationTurnRecord>;
   getTurn(conversationId: string, turnId: string): Promise<ConversationTurnRecord | undefined>;
+  getTranscriptTurn(record: ConversationTranscriptRecord): Promise<ConversationTurnRecord | undefined>;
   listTranscript(
     conversationId: string,
     limit: number,

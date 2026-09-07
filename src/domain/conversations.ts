@@ -118,6 +118,13 @@ export interface ConversationSearchRecord {
   artifactId?: string;
 }
 
+export interface ConversationCompletion {
+  runId: string;
+  status: 'succeeded' | 'failed' | 'cancelled';
+  startedAt: string;
+  completedAt: string;
+}
+
 export interface ConversationTranscriptRecord {
   version: '1';
   itemType: 'transcript';
@@ -126,6 +133,8 @@ export interface ConversationTranscriptRecord {
   role: 'user' | 'assistant';
   /** Immutable S3 body. User entries contain ConversationMessageContent; assistant entries are text. */
   contentKind: 'message' | 'text' | 'turn';
+  turnId?: string;
+  runStatus?: ConversationCompletion['status'];
   content: ArtifactReference;
   occurredAt: string;
   expiresAt: number;
@@ -146,6 +155,7 @@ export interface ConversationTranscriptMessage {
 }
 
 export interface ConversationTranscriptPage {
+  completions?: ConversationCompletion[];
   messages: ConversationTranscriptMessage[];
   nextToken?: string;
 }

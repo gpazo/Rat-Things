@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import type { RunRecord } from '../../src/domain/contracts.js';
 import { projectPublicRun } from '../../src/core/run-projection.js';
@@ -65,6 +66,7 @@ describe('public run projection', () => {
     const projected = projectPublicRun(run);
 
     expect(projected).toEqual({
+      conversationId: createHash('sha256').update('conversation-private').digest('hex'),
       runId: 'run-1',
       status: 'succeeded',
       createdAt: '2026-08-24T10:00:00.000Z',
@@ -93,7 +95,7 @@ describe('public run projection', () => {
       },
     });
     expect(JSON.stringify(projected)).not.toMatch(
-      /owner|bucket|key|requestHash|provenance|conversation|microvm-private|thread-private/,
+      /owner|bucket|key|requestHash|provenance|conversation-private|microvm-private|thread-private/,
     );
   });
 

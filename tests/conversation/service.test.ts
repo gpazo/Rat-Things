@@ -93,6 +93,7 @@ function harness(ids = ['id-1', 'id-2', 'id-3']) {
     completeTurn: vi.fn(),
     failTurn: vi.fn(),
     getTurn: vi.fn(),
+    getTranscriptTurn: vi.fn(),
     listTranscript: vi.fn(),
     listEvents: vi.fn(),
   } as unknown as ConversationStore;
@@ -155,7 +156,7 @@ describe('conversation service', () => {
     await expect(service.getPublicDetail('api:owner-1', 'a'.repeat(64))).resolves.toEqual({
       conversation: record,
       checkpoint,
-      transcript: { messages: [] },
+      transcript: { messages: [], completions: [] },
       activeTurn: expect.objectContaining({ runId: 'run-1' }),
     });
     await expect(service.getPublicDetail('api:another-owner', 'a'.repeat(64))).resolves.toBeUndefined();
@@ -187,6 +188,46 @@ describe('conversation service', () => {
         {role: 'user', content: 'Direction: make it concise'},
       ],
     })]);
+  });
+
+  it('restores page-scoped completion receipts only after checking ownership', async () => {
+    const {service, store, artifacts} = harness();
+    const record = conversation({ownerId: 'api:owner-1'});
+    vi.mocked(store.getConversationByPublicId).mockResolvedValue(record);
+    vi.mocked(store.listTranscript).mockResolvedValue({items: [{
+      version: '1', itemType: 'transcript', conversationId: record.conversationId,
+      entryId: 'turn-1', turnId: 'turn-private', runStatus: 'cancelled', role: 'assistant', contentKind: 'turn',
+      content: {bucket: 'private', key: 'turn.json', sha256: 'a'.repeat(64)},
+      occurredAt: record.updatedAt, expiresAt: record.expiresAt,
+    }], nextToken: 'older'});
+    vi.mocked(store.getTranscriptTurn).mockResolvedValue(turn({state: 'completed', runId: 'run-public', completedAt: fixedNow.toISOString()}));
+    vi.mocked(artifacts.getJson).mockResolvedValue([]);
+    expect(await service.getPublicDetail('api:other', 'a'.repeat(64))).toBeUndefined();
+    expect(store.getTranscriptTurn).not.toHaveBeenCalled();
+    const detail = await service.getPublicDetail('api:owner-1', 'a'.repeat(64));
+    expect(detail?.transcript).toEqual({messages: [], nextToken: 'older', completions: [{runId: 'run-public', status: 'cancelled', startedAt: fixedNow.toISOString(), completedAt: fixedNow.toISOString()}]});
+    expect(JSON.stringify(detail?.transcript)).not.toMatch(/private|turnId|bucket/);
+  });
+
+  it('keeps a durable receipt entry even when a terminal turn has no output', async () => {
+    const {service, store, writes} = harness();
+    vi.mocked(store.getConversation).mockResolvedValue(conversation());
+    await service.completeTurn({conversationId: 'conversation-1', turnId: 'turn-empty', leaseToken: lease.token});
+    await service.failTurn({conversationId: 'conversation-1', turnId: 'turn-stopped', leaseToken: lease.token, runStatus: 'cancelled', error: {code: 'agent_cancelled', message: 'Stopped', retryable: false}});
+    expect(store.completeTurn).toHaveBeenCalledWith(expect.objectContaining({transcript: expect.objectContaining({turnId: 'turn-empty', runStatus: 'succeeded', contentKind: 'turn'})}));
+    expect(store.failTurn).toHaveBeenCalledWith(expect.objectContaining({transcript: expect.objectContaining({turnId: 'turn-stopped', runStatus: 'cancelled', contentKind: 'turn'})}));
+    expect(writes.filter(item => item.key.includes('/transcripts/')).map(item => item.value)).toEqual(['[]', '[]']);
+  });
+
+  it('validates renamed titles and keeps ownership checks in the service', async () => {
+    const {service, store} = harness();
+    vi.mocked(store.getConversationByPublicId).mockResolvedValue(conversation({ownerId: 'api:owner-1'}));
+    await service.updateOrganization('api:owner-1', 'a'.repeat(64), {title: '  Résumé  '});
+    expect(store.updateOrganization).toHaveBeenCalledWith(expect.objectContaining({title: 'Résumé'}));
+    for (const title of [' ', 'x'.repeat(129)]) await expect(service.updateOrganization('api:owner-1', 'a'.repeat(64), {title})).rejects.toThrow();
+    vi.mocked(store.updateOrganization).mockClear();
+    expect(await service.updateOrganization('api:other', 'a'.repeat(64), {title: 'Changed'})).toBeUndefined();
+    expect(store.updateOrganization).not.toHaveBeenCalled();
   });
 
   it('stores content-addressed message bodies and a bounded DynamoDB projection', async () => {
@@ -401,6 +442,7 @@ describe('conversation service', () => {
 
     expect(store.listTranscript).toHaveBeenCalledWith(record.conversationId, 2, 'cursor');
     expect(detail?.transcript).toEqual({
+      completions: [],
       messages: [
         {
           role: 'user',

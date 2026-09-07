@@ -100,6 +100,7 @@ export class DynamoConversationStore implements ConversationStore {
   public async updateOrganization(input: {
     conversationId: string;
     ownerId: string;
+    title?: string;
     pinned?: boolean;
     hidden?: boolean;
     read?: boolean;
@@ -115,6 +116,7 @@ export class DynamoConversationStore implements ConversationStore {
       if (enabled === true) assignments.push(`${field} = :now`);
       if (enabled === false) removals.push(field);
     }
+    if (input.title !== undefined) assignments.push('#title = :title');
     const result = await this.client.send(new UpdateCommand({
       TableName: this.tableName,
       Key: metaKey(input.conversationId),
@@ -123,9 +125,11 @@ export class DynamoConversationStore implements ConversationStore {
         ...(removals.length > 0 ? [`REMOVE ${removals.join(', ')}`] : []),
       ].join(' '),
       ConditionExpression: 'ownerId = :ownerId',
+      ...(input.title !== undefined ? {ExpressionAttributeNames: {'#title': 'title'}} : {}),
       ExpressionAttributeValues: {
         ':ownerId': input.ownerId,
-        ...(assignments.length > 0 ? { ':now': input.now } : {}),
+        ...(assignments.some(field => field.endsWith('= :now')) ? { ':now': input.now } : {}),
+        ...(input.title !== undefined ? {':title': input.title} : {}),
       },
       ReturnValues: 'ALL_NEW',
     }));
@@ -1023,6 +1027,13 @@ export class DynamoConversationStore implements ConversationStore {
     }));
     return (result.Items ?? []).map((item) => storedRecord<ConversationEventRecord>(item))
       .filter((item): item is ConversationEventRecord => Boolean(item));
+  }
+
+  public async getTranscriptTurn(record: ConversationTranscriptRecord): Promise<ConversationTurnRecord | undefined> {
+    if (record.turnId) return this.getTurn(record.conversationId, record.turnId);
+    // Legacy assistant entries already use the same SHA-256 turn key.
+    const legacy = /^turn-([a-f0-9]{64})$/.exec(record.entryId);
+    return legacy ? this.getItem<ConversationTurnRecord>({pk: partitionKey(record.conversationId), sk: `TURN#${legacy[1]}`}) : undefined;
   }
 
   public async listTranscript(

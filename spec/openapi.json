@@ -1621,6 +1621,7 @@
         "additionalProperties": false,
         "minProperties": 1,
         "properties": {
+          "title": { "type": "string", "minLength": 1, "maxLength": 128, "description": "Editable display title; the stable thread key is unchanged." },
           "pinned": { "type": "boolean" },
           "hidden": { "type": "boolean" },
           "read": { "type": "boolean" }
@@ -1703,6 +1704,20 @@
                             "properties": { "id": { "type": "string", "pattern": "^[a-f0-9]{24}$" } }
                           }
                         }
+                      }
+                    }
+                  },
+                  "completions": {
+                    "type": "array", "maxItems": 200,
+                    "description": "Completed Runs belonging to this transcript window, oldest first. Older receipts follow transcript pagination.",
+                    "items": {
+                      "type": "object", "additionalProperties": false,
+                      "required": ["runId", "status", "startedAt", "completedAt"],
+                      "properties": {
+                        "runId": { "type": "string" },
+                        "status": { "enum": ["succeeded", "failed", "cancelled"] },
+                        "startedAt": { "type": "string", "format": "date-time" },
+                        "completedAt": { "type": "string", "format": "date-time" }
                       }
                     }
                   },
@@ -1809,6 +1824,7 @@
         "description": "Owner-visible run projection. Internal ownership keys, object-store coordinates, execution handles, conversation bindings, agent thread IDs, and provenance are available only to trusted orchestration.",
         "required": ["runId", "status", "createdAt", "updatedAt", "expiresAt", "sourceKind"],
         "properties": {
+          "conversationId": { "type": "string", "pattern": "^[a-f0-9]{64}$", "description": "Public conversation link when this Run belongs to a conversation." },
           "runId": { "type": "string", "pattern": "^[A-Za-z0-9-]{1,128}$" },
           "status": { "enum": ["queued", "dispatching", "running", "cancelling", "succeeded", "failed", "cancelled"] },
           "createdAt": { "type": "string", "format": "date-time" },

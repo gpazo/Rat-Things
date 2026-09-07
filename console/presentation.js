@@ -40,13 +40,13 @@ export function shellArgument(value) {
   return `'${value.replaceAll("'", "'\\''")}'`;
 }
 
-/** @param {string} thread @param {{id: string, path: string, mediaType: string}} file @param {"thread" | "run"} [scope] */
+/** @param {string} thread @param {{id: string, path: string, mediaType: string}} file @param {"thread" | "conversation" | "run"} [scope] */
 export function fileCommands(thread, file, scope = 'thread') {
   const base = `rat-things file ${shellArgument(file.id)} --${scope} ${shellArgument(thread)}`;
   return [
     ...(isTextArtifact(file.mediaType) ? [['Preview in terminal', `${base} --preview`]] : []),
     ['Open in browser', `${base} --open`],
-    ['Download a copy', `${base} --download ${shellArgument(`./${file.path.split('/').at(-1) || 'download'}`)}`],
+    ['Download a copy', `${base} --download ${shellArgument(`./${file.path || 'download'}`)}`],
   ];
 }
 
@@ -100,4 +100,28 @@ export function completionReceiptIndex(messages, completedAt) {
   const completed = Date.parse(completedAt);
   const nextTurn = messages.findIndex(message => message.role === 'user' && Date.parse(message.receivedAt ?? '') > completed);
   return nextTurn < 0 ? messages.length - 1 : nextTurn - 1;
+}
+
+/** Shared selectors and response commands used by both clients. */
+export const conversationOptions = '--thread NAME|--conversation ID_OR_THREAD';
+export const fileScopeOptions = `${conversationOptions}|--run RUN_ID`;
+
+/** @param {string} runId @param {import('../src/core/agent-activity-projection.js').PublicPendingAgentRequest} request */
+export function answerCommands(runId, request) {
+  const base = `rat-things respond ${shellArgument(runId)} ${shellArgument(request.requestId)}`;
+  const questions = request.questions ?? [];
+  if (!questions.length) return [['Answer using JSON', `${base} --result JSON`]];
+  const command = (/** @type {string | undefined} */ id, /** @type {string} */ value) => `${base} ${questions.map(question => question.isSecret
+    ? `--answer-stdin ${shellArgument(question.id)}`
+    : `--answer ${shellArgument(`${question.id}=${question.id === id ? value : 'VALUE'}`)}`).join(' ')}`;
+  return [
+    ...questions.filter(question => !question.isSecret).flatMap(question => (question.options ?? []).map(option => [`Answer: ${option.label}${questions.length > 1 ? ' (fill other VALUEs)' : ''}`, command(question.id, option.label)])),
+    ['Answer (replace VALUE)', command(undefined, 'VALUE')],
+  ];
+}
+
+/** Plain, bounded sidebar text; never interprets HTML or executes a URL. @param {string} value */
+export function messagePreview(value) {
+  return String(value ?? '').replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .replace(/<[^>]*>/g, '').replace(/[`*_~#]/g, '').replace(/\s+/g, ' ').trim().slice(0, 240);
 }

@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { ConditionalCheckFailedException } from '@aws-sdk/client-dynamodb';
 import type { DynamoDBDocumentClient } from '@aws-sdk/lib-dynamodb';
 import { GetCommand } from '@aws-sdk/lib-dynamodb';
@@ -67,6 +68,28 @@ describe('Dynamo conversation policy stability', () => {
         ReturnValues: 'ALL_NEW',
       }),
     }));
+  });
+
+  it('updates a title without unused values or changing message recency', async () => {
+    const current = conversation();
+    const send = vi.fn().mockResolvedValue({Attributes: stored(current)});
+    const store = new DynamoConversationStore({send} as unknown as DynamoDBDocumentClient, 'conversations');
+    await store.updateOrganization({conversationId: current.conversationId, ownerId: current.ownerId, title: 'New title', now: occurredAt});
+    expect(send.mock.calls[0]?.[0].input).toMatchObject({UpdateExpression: 'SET #title = :title', ExpressionAttributeValues: {':ownerId': current.ownerId, ':title': 'New title'}});
+    expect(send.mock.calls[0]?.[0].input.ExpressionAttributeValues).not.toHaveProperty(':now');
+  });
+
+  it('resolves legacy and explicit transcript turn links to the same durable key', async () => {
+    const send = vi.fn().mockResolvedValue({});
+    const store = new DynamoConversationStore({send} as unknown as DynamoDBDocumentClient, 'conversations');
+    const digest = createHash('sha256').update('turn-private').digest('hex');
+    const record = {conversationId: 'conversation-1', entryId: `turn-${digest}`} as ConversationTranscriptRecord;
+    await store.getTranscriptTurn(record);
+    await store.getTranscriptTurn({...record, turnId: 'turn-private'});
+    expect(send.mock.calls[0]?.[0].input.Key).toEqual(send.mock.calls[1]?.[0].input.Key);
+    expect(send.mock.calls[0]?.[0].input.Key.sk).toBe(`TURN#${digest}`);
+    await store.getTranscriptTurn({...record, entryId: 'message-user'});
+    expect(send).toHaveBeenCalledTimes(2);
   });
 
   it('treats an already-released lease as a completed conditional cleanup', async () => {

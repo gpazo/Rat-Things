@@ -229,12 +229,16 @@ test('creates, observes autonomous work, and completes a durable API conversatio
   await expect(page.locator('#run-strip-title')).toHaveText('Starting isolated environment');
   await expect(page.locator('#run-strip-detail')).toContainText('First-use storage can take tens of seconds');
   await expect(page.locator('#status-badge')).toHaveText('Starting');
-  await expect(page.locator('#run-strip-title')).toHaveText('Agent needs input');
+  await expect(page.locator('#run-strip-title')).toHaveText('Choose the release channel for this review.');
   await expect(page.locator('#status-badge')).toHaveText('Needs input');
   await expect(page.getByRole('heading', {name: 'Needs your input', exact: true})).toBeVisible();
   await expect(page.getByText('Release channel', { exact: true })).toBeVisible();
-  await expect(page.getByText('Choose the release channel for this review.', { exact: true })).toBeVisible();
+  await expect(page.locator('.pending-request').getByText('Choose the release channel for this review.', { exact: true })).toBeVisible();
   await expect(page.getByText('Staging', { exact: true })).toBeVisible();
+  await page.getByRole('button', {name: 'Use in terminal', exact: true}).click();
+  await expect(page.locator('#terminal-command-list')).toContainText('Answer: Staging');
+  await expect(page.locator('#terminal-command-list')).toContainText("--answer 'channel=Staging'");
+  await page.getByRole('button', {name: 'Close terminal commands'}).click();
   await page.setViewportSize({ width: 390, height: 844 });
   await page.waitForTimeout(250);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
@@ -252,6 +256,7 @@ test('creates, observes autonomous work, and completes a durable API conversatio
   await expect(page.getByLabel('Staging')).toBeChecked();
   await page.getByRole('button', { name: 'Send response' }).click();
   await expect(page.getByText('Response delivered to the isolated agent.', { exact: true })).toBeVisible();
+  await expect(page.locator('#transcript')).toContainText('Staging — Answer sent');
   await page.setViewportSize({ width: 1_280, height: 800 });
   await expect(page.locator('#run-strip-title')).toHaveText('Reviewing the release candidate');
   await expect(page.locator('#status-badge')).toHaveText('Working');
@@ -386,7 +391,7 @@ test('creates, observes autonomous work, and completes a durable API conversatio
   await demoPause(page, 1_400);
 
   await expect(page.locator('#transcript').getByText(finalReply, { exact: true })).toBeVisible({ timeout: 15_000 });
-  await expect(page.locator('.code-block code')).toHaveText('npm test');
+  await expect(page.locator('#transcript .code-block code')).toHaveText('npm test');
   await expect(page.getByRole('link', { name: 'Open the runbook' })).toHaveAttribute('href', 'https://example.com/runbook');
   await expect(page.locator('#status-badge')).toHaveText('Ready');
   await expect(progress).toBeHidden();
@@ -430,6 +435,12 @@ test('creates, observes autonomous work, and completes a durable API conversatio
   await page.locator('#viewer-body').getByRole('link', {name: 'Current report'}).click();
   await expect(page.locator('#viewer-title')).toHaveText('reports/release-review.md');
   await expect(page.locator('.viewer-markdown h3')).toHaveText('Release report fixture');
+  await page.getByRole('button', {name: 'Back', exact: true}).click();
+  await expect(page.locator('#viewer-title')).toHaveText('archive/release-review.md');
+  await page.getByRole('button', {name: 'Back', exact: true}).click();
+  await expect(page.locator('#viewer-title')).toHaveText('reports/release-review.md');
+  await expect(page.locator('#viewer-body').getByRole('link', {name: 'Archived report'})).toBeFocused();
+  await expect(page.getByRole('button', {name: 'Back', exact: true})).toBeHidden();
   await page.getByRole('button', {name: 'Close viewer'}).click();
   const reply = page.locator('[data-message-id="assistant-console-e2e"] .message');
   await expect(reply.locator('strong')).toHaveText('Ready to review');
@@ -461,7 +472,7 @@ test('creates, observes autonomous work, and completes a durable API conversatio
   await expect(page.locator('#terminal-command-list')).toContainText(`rat-things file '${outputArtifactId}'`);
   await expect(page.locator('#terminal-command-list')).toContainText('--preview');
   await expect(page.locator('#terminal-command-list')).toContainText('--open');
-  await expect(page.locator('#terminal-command-list')).toContainText("--download './release-review.md'");
+  await expect(page.locator('#terminal-command-list')).toContainText("--download './reports/release-review.md'");
   await page.keyboard.press('Escape');
   await page.setViewportSize({width: 1_280, height: 800});
   await page.getByRole('button', { name: 'Close viewer' }).click();
@@ -847,10 +858,11 @@ test('manages verified connections and durable routines from the product navigat
 
 test('keeps unavailable saved Activity explicit, retries it, and separates unread from working and failed', async ({page}) => {
   let available = false;
-  const work = {runId: 'run-existing', active: false, status: 'succeeded', completedAt: '2026-08-24T16:00:02Z', startedAt: Date.parse('2026-08-24T16:00:00Z'), events: [activity(50, 'tool', 'started', 'Navigate started')], pendingRequests: []};
-  await page.addInitScript(({id, work}) => {
-    localStorage.setItem(`rat-things.work.${id}`, JSON.stringify(work));
-  }, {id: existingConversationId, work});
+  await page.route(`**/api/v1/conversations/${existingConversationId}`, route => route.fulfill({json: {
+    ...existingConversationSummary(), transcript: {messages: [{role: 'assistant', content: 'Done.'}], completions: [
+      {runId: 'run-existing', status: 'succeeded', startedAt: '2026-08-24T16:00:00Z', completedAt: '2026-08-24T16:00:02Z'},
+    ]},
+  }}));
   await page.route('**/api/v1/runs/run-existing/events?source=durable', route => route.fulfill(available ? {
     json: {runId: 'run-existing', source: 'durable', truncated: false, events: [activity(1, 'tool', 'completed', 'Navigate completed')]},
   } : {status: 409, json: {error: {message: 'saved Activity is not available yet'}}}));
@@ -869,13 +881,124 @@ test('keeps unavailable saved Activity explicit, retries it, and separates unrea
   await expect(page.getByRole('heading', {name: 'Needs attention', exact: true})).toHaveCount(0);
   await page.getByRole('button', {name: 'View Activity', exact: true}).click();
   await expect(page.locator('.activity-evidence')).toContainText('unfinished actions are unconfirmed');
-  await expect(page.locator('.phase-card')).toContainText('Navigate started');
+  await expect(page.locator('.phase-card')).toHaveCount(0);
   available = true;
   await page.getByRole('button', {name: 'Retry saved Activity'}).click();
   await expect(page.locator('.activity-evidence')).toContainText('reconciled with saved events');
   await expect(page.locator('.phase-card')).toContainText('Navigate completed');
   await expect(page.locator('.phase-card')).toHaveAttribute('data-status', 'completed');
   await expect(page.locator('.phase-card')).not.toContainText('Navigate started');
+});
+
+test('honors new, hidden, missing, and completed-Run destinations without falling back', async ({page}) => {
+  const hidden = {...archivedConversationSummary(), conversationId: archivedConversationId, hidden: true, threadKey: 'hidden-thread'};
+  await page.route('**/api/v1/**', route => {
+    const url = new URL(route.request().url());
+    const path = url.pathname;
+    if (path === '/api/v1/conversations') return route.fulfill({json: url.searchParams.get('visibility') === 'all'
+      ? url.searchParams.has('nextToken') ? {items: [hidden]} : {items: [], nextToken: 'hidden-page'}
+      : {items: [existingConversationSummary()]}});
+    if (path === `/api/v1/conversations/${hidden.conversationId}`) return route.fulfill({json: {...hidden, transcript: {messages: []}}});
+    if (path === '/api/v1/runs/completed-link') return route.fulfill({json: {runId: 'completed-link', conversationId: hidden.conversationId, status: 'succeeded', createdAt, updatedAt: completedAt}});
+    if (path.endsWith('/events')) return route.fulfill({json: {runId: 'completed-link', source: 'durable', events: [activity(1, 'tool', 'completed', 'Opened correct Run')]}});
+    if (path.endsWith('/artifacts')) return route.fulfill({json: {files: []}});
+    return route.fulfill({status: 404, json: {error: {message: 'conversation not found'}}});
+  });
+  await page.goto(`${consoleUrl}/?thread=new-explicit-thread`);
+  await expect(page.locator('#conversation-title')).toHaveText('new-explicit-thread');
+  await page.getByRole('button', {name: 'Use in terminal', exact: true}).click();
+  await expect(page.locator('#terminal-command-list')).toContainText("--thread 'new-explicit-thread'");
+  await expect(page.locator('#terminal-command-list')).not.toContainText('existing-thread');
+  await page.goto(`${consoleUrl}/?thread=hidden-thread`);
+  await expect(page.locator('#conversation-title')).toHaveText('Archived security audit');
+  await page.goto(`${consoleUrl}/?conversation=${'d'.repeat(64)}`);
+  await expect(page.locator('#notice')).toContainText('conversation not found');
+  await expect(page.locator('#conversation-title')).not.toHaveText('Previous release summary');
+  await page.goto(`${consoleUrl}/?run=completed-link`);
+  await expect(page.locator('#conversation-title')).toHaveText('Archived security audit');
+  await expect(page.locator('[data-run-id="completed-link"]')).toContainText('Work completed');
+  await expect(page.locator('#context-activity')).toContainText('Opened correct Run');
+});
+
+test('restores all completed turns and their Activity after a missed poll and a fresh reload', async ({page}) => {
+  let second = false;
+  const receipt = (runId: string, secondTurn: boolean) => ({runId, status: 'succeeded', startedAt: secondTurn ? '2026-09-07T12:01:00Z' : '2026-09-07T12:00:00Z', completedAt: secondTurn ? '2026-09-07T12:01:05Z' : '2026-09-07T12:00:05Z'});
+  const summary = () => ({...existingConversationSummary(), unread: false, updatedAt: second ? '2026-09-07T12:01:05Z' : '2026-09-07T12:00:05Z'});
+  await page.route('**/api/v1/**', route => {
+    const path = new URL(route.request().url()).pathname;
+    if (path === '/api/v1/conversations') return route.fulfill({json: {items: [summary()]}});
+    if (path === `/api/v1/conversations/${existingConversationId}`) return route.fulfill({json: {...summary(), transcript: {
+      messages: [{role: 'user', content: 'First request', receivedAt: '2026-09-07T12:00:00Z'}, {role: 'assistant', content: 'First answer', receivedAt: '2026-09-07T12:00:05Z'},
+        ...(second ? [{role: 'user', content: 'Fast followup', receivedAt: '2026-09-07T12:01:00Z'}, {role: 'assistant', content: 'Second answer', receivedAt: '2026-09-07T12:01:05Z'}] : [])],
+      completions: [receipt('first', false), ...(second ? [receipt('second', true)] : [])],
+    }}});
+    if (path.endsWith('/events')) {
+      const id = path.split('/').at(-2);
+      return route.fulfill({json: {runId: id, source: 'durable', events: [activity(1, 'tool', 'completed', `Saved ${id} activity`)]}});
+    }
+    if (path.endsWith('/artifacts')) return route.fulfill({json: {files: []}});
+    return route.fulfill({json: {}});
+  });
+  await page.goto(`${consoleUrl}/?conversation=${existingConversationId}`);
+  await expect(page.locator('.completion-receipt')).toHaveCount(1);
+  second = true;
+  await page.getByRole('button', {name: 'Refresh', exact: true}).click();
+  await expect(page.locator('.completion-receipt')).toHaveCount(2);
+  await expect(page.locator('#transcript')).toContainText('Second answer');
+  expect(await page.locator('[data-run-id="first"]').evaluate(node => node.nextElementSibling?.textContent)).toContain('Fast followup');
+  await page.evaluate(() => localStorage.clear());
+  await page.reload();
+  await expect(page.locator('.completion-receipt')).toHaveCount(2);
+  await page.locator('[data-run-id="first"]').getByRole('button', {name: 'View Activity'}).click();
+  await expect(page.locator('#context-activity')).toContainText('Saved first activity');
+  await page.getByLabel('Activity for Run').selectOption('second');
+  await expect(page.locator('#context-activity')).toContainText('Saved second activity');
+  await expect(page.locator('#context-activity')).not.toContainText('Saved first activity');
+});
+
+test('preserves sidebar menus and focus across refresh, renames in place, and updates readable times', async ({page}) => {
+  const now = new Date('2026-09-07T12:00:10Z');
+  await page.clock.install({time: now});
+  let title = 'Original title';
+  let lists = 0;
+  const summary = () => ({...existingConversationSummary(), title, updatedAt: '2026-09-07T12:00:00Z', lastMessagePreview: '**Done**: [Report](.rat-things/artifacts/report.md)'});
+  await page.route('**/api/v1/**', async route => {
+    const path = new URL(route.request().url()).pathname;
+    if (path === '/api/v1/conversations') { lists++; return route.fulfill({json: {items: [summary()]}}); }
+    if (path.endsWith('/organization')) {
+      title = route.request().postDataJSON().title ?? title;
+      return route.fulfill({json: summary()});
+    }
+    if (path === `/api/v1/conversations/${existingConversationId}`) return route.fulfill({json: {...summary(), transcript: {messages: [{role: 'assistant', content: 'Read me', receivedAt: '2026-09-07T12:00:00Z'}]}}});
+    if (path.endsWith('/artifacts')) return route.fulfill({json: {files: []}});
+    return route.fulfill({json: {}});
+  });
+  await page.goto(`${consoleUrl}/?conversation=${existingConversationId}`);
+  const row = page.locator('.conversation-row');
+  await expect(row.locator('.conversation-preview')).toHaveText('Done: Report');
+  await row.locator('summary').click();
+  const rename = row.getByRole('button', {name: 'Rename', exact: true});
+  await rename.focus();
+  const initialLists = lists;
+  const transcriptTime = page.locator('#transcript time');
+  const before = await transcriptTime.textContent();
+  const subtitleBefore = await page.locator('#conversation-subtitle').textContent();
+  const original = await page.locator('#transcript .message').elementHandle();
+  await page.clock.runFor(65_000);
+  await expect.poll(() => lists).toBeGreaterThan(initialLists);
+  await expect(row.locator('details')).toHaveAttribute('open', '');
+  await expect(rename).toBeFocused();
+  await expect(transcriptTime).not.toHaveText(before!);
+  await expect(page.locator('#conversation-subtitle')).not.toHaveText(subtitleBefore!);
+  expect(await original!.evaluate(node => node.isConnected)).toBe(true);
+  await rename.click();
+  await page.locator('#rename-title').fill('Readable title');
+  await page.getByRole('button', {name: 'Save title'}).click();
+  await expect(page.locator('#rename-dialog')).toBeHidden();
+  await expect(page.locator('#conversation-title')).toHaveText('Readable title');
+  await page.reload();
+  await expect(page.locator('#conversation-title')).toHaveText('Readable title');
+  await page.screenshot({path: 'test-results/console-improvements.png'});
 });
 
 async function handleControlRequest(

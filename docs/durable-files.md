@@ -38,7 +38,10 @@ mode, `file` prints only its URL; `--json` returns the descriptor for scripts.
 Use `--conversation PUBLIC_ID` to select an existing conversation by public ID, or supply its thread
 name. An ambiguous basename lists matching paths with commands that select exact file IDs. In the
 console, generated Markdown file links open the catalog-backed viewer; **Use file in terminal**
-always targets the displayed file, including after following a link to another file.
+always targets the displayed file, including after following a link to another file. **Back** restores
+the previous file, its scroll position, and the link you followed. Generated download commands retain
+the catalog path, so `reports/brief.md` and `archive/brief.md` become separate local files. Missing
+parent directories are created automatically.
 
 Download a copy explicitly; existing destination files are never overwritten:
 

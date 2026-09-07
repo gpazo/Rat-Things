@@ -36,7 +36,7 @@ import type {
 } from './core/agent-activity-projection.js';
 import { isTerminal } from './domain/state.js';
 import { createActivityProgress } from '../console/activity.js';
-import { runPresentation, isTextArtifact, readTextPreview, formatBytes, fileCommands, shellArgument as quoteArgument } from '../console/presentation.js';
+import { runPresentation, isTextArtifact, readTextPreview, formatBytes, fileCommands, answerCommands, conversationOptions, fileScopeOptions, shellArgument as quoteArgument } from '../console/presentation.js';
 import { parseRunRequest } from './domain/validation.js';
 import {
   CapabilityProfileRegistry,
@@ -751,6 +751,15 @@ async function conversationCommand(args: Arguments): Promise<void> {
     else renderConversationSources(collected);
     return;
   }
+  if (subcommand === 'rename') {
+    validateCommandOptions(nested, {});
+    validatePositionals(nested, 2, 2, 'conversation rename ID_OR_THREAD TITLE');
+    const title = requiredPositional(nested, 1, 'title').trim();
+    if (!title || title.length > 128) throw new Error('title must be 1-128 characters');
+    const id = await resolvePublicConversationId(requiredPositional(nested, 0, 'conversation'));
+    print(await api(`/v1/conversations/${id}/organization`, 'POST', {title}));
+    return;
+  }
   if (['pin', 'unpin', 'hide', 'unhide', 'read', 'unread'].includes(subcommand)) {
     validateCommandOptions(nested, {});
     validatePositionals(nested, 1, 1, `conversation ${subcommand} ID_OR_THREAD`);
@@ -787,7 +796,7 @@ async function conversationCommand(args: Arguments): Promise<void> {
     ));
     return;
   }
-  throw new Error('conversation requires show, sources, pin, unpin, hide, unhide, read, unread, react, or unreact');
+  throw new Error('conversation requires show, sources, rename, pin, unpin, hide, unhide, read, unread, react, or unreact');
 }
 
 function renderConversationList(result: {
@@ -1377,10 +1386,8 @@ function renderPendingRequest(runId: string, pending: PublicPendingAgentRequest)
     }
   }
   if (pending.questions?.length) {
-    const answers = pending.questions.map((question) => question.isSecret
-      ? `--answer-stdin ${shellArgument(question.id)}`
-      : `--answer ${shellArgument(`${question.id}=VALUE`)}`).join(' ');
-    process.stderr.write(`Respond in another terminal (replace VALUE): rat-things respond ${shellArgument(runId)} ${shellArgument(pending.requestId)} ${answers}\n\n`);
+    for (const [label, command] of answerCommands(runId, pending)) process.stderr.write(`${terminalText(label!)}: ${terminalText(command!)}\n`);
+    process.stderr.write('\n');
   } else {
     process.stderr.write(`Respond: rat-things respond ${terminalText(runId)} ${terminalText(pending.requestId)} --result JSON\n\n`);
   }
@@ -1726,12 +1733,12 @@ function computerHelp(): void {
 
 function chatHelp(): void {
   process.stdout.write(`Rat Things chat\n\n`);
-  process.stdout.write(`  rat-things chat [--thread NAME|--new] [--attach PATH]... [--reply-to MESSAGE_ID]\n`);
+  process.stdout.write(`  rat-things chat [${conversationOptions}|--new] [--attach PATH]... [--reply-to MESSAGE_ID]\n`);
   process.stdout.write(`    [--delivery interrupt|defer] [--driver DRIVER] [--profile NAME]\n`);
   process.stdout.write(`    [--network|--no-network] [--browser|--no-browser] [--json] [--no-wait] [--diagnostics]\n`);
   process.stdout.write(`    [--idempotency-key KEY] [--poll-seconds N] [--wait-timeout N] "PROMPT"\n\n`);
   process.stdout.write(`Repeat --attach up to six times. Use --diagnostics to include underlying Run, conversation, and MicroVM states.\nUse -- before prompt text that starts with a dash.\n`);
-  process.stdout.write(`The public conversation ID is not a thread key; use the thread key displayed by list/show.\n`);
+  process.stdout.write(`Use --conversation with an existing name or public ID. Use --thread to create or continue a named thread.\n`);
   process.stdout.write(`While waiting, questions and copyable response commands appear on stderr.\n`);
 }
 
@@ -1752,7 +1759,7 @@ function conversationHelp(): void {
   process.stdout.write(`  rat-things conversations list [--visibility visible|hidden|all] [--limit N] [--next-token TOKEN] [--json]\n`);
   process.stdout.write(`  rat-things conversations search QUERY [--limit N] [--json]\n`);
   process.stdout.write(`  rat-things conversation show ID_OR_THREAD [--limit N] [--next-token TOKEN] [--json]\n`);
-  process.stdout.write(`  rat-things conversation sources ID_OR_THREAD [--json]\n`);
+  process.stdout.write(`  rat-things conversation sources ID_OR_THREAD [--json]\n  rat-things conversation rename ID_OR_THREAD TITLE\n`);
   process.stdout.write(`  rat-things console --conversation PUBLIC_ID [--port 4174]\n`);
   process.stdout.write(`  rat-things conversation pin|unpin|hide|unhide|read|unread ID_OR_THREAD\n`);
   process.stdout.write(`  rat-things conversation react|unreact ID_OR_THREAD MESSAGE_ID 👍|❤️|🎉|👀\n\n`);
@@ -2330,11 +2337,11 @@ async function listFiles(args: Arguments): Promise<void> {
   for (const file of files) {
     renderFileActions(scope, file, process.stdout);
   }
-  process.stdout.write(`\nUse rat-things file NAME --${scope.kind === 'run' ? 'run' : 'thread'} ${shellArgument(scope.id)} with --preview, --open, or --download PATH.\n`);
+  process.stdout.write(`\nUse rat-things file NAME --${scope.selector ?? (scope.kind === 'run' ? 'run' : 'thread')} ${shellArgument(scope.id)} with --preview, --open, or --download PATH.\n`);
 }
 
 function artifactCommands(scope: ArtifactScope, artifact: ArtifactMetadata): string[][] {
-  return fileCommands(terminalText(scope.id), {...artifact, id: terminalText(artifact.id), path: terminalText(artifact.path)}, scope.kind === 'run' ? 'run' : 'thread');
+  return fileCommands(terminalText(scope.id), {...artifact, id: terminalText(artifact.id), path: terminalText(artifact.path)}, scope.selector ?? (scope.kind === 'run' ? 'run' : 'thread'));
 }
 
 function renderFileActions(scope: ArtifactScope, artifact: ArtifactMetadata, output: NodeJS.WritableStream): void {
@@ -2364,7 +2371,7 @@ async function file(args: Arguments): Promise<void> {
   const files = await artifactList(scope);
   const exact = files.filter(candidate => candidate.id === name || candidate.path === name);
   const matches = exact.length ? exact : files.filter(candidate => candidate.path.split('/').at(-1) === name);
-  if (matches.length === 0) throw new Error(`file ${JSON.stringify(name)} was not found; list files with rat-things files --${scope.kind === 'run' ? 'run' : 'thread'} ${shellArgument(scope.id)}`);
+  if (matches.length === 0) throw new Error(`file ${JSON.stringify(name)} was not found; list files with rat-things files --${scope.selector ?? (scope.kind === 'run' ? 'run' : 'thread')} ${shellArgument(scope.id)}`);
   if (matches.length > 1) {
     throw new Error(`file name ${JSON.stringify(name)} is ambiguous. Choose a matching file:\n${matches.map(candidate => `  ${terminalText(candidate.path)}\n    ${artifactCommands(scope, candidate)[0]![1]}`).join('\n')}`);
   }
@@ -2400,6 +2407,7 @@ async function file(args: Arguments): Promise<void> {
   }
   const target = resolve(destination!);
   try {
+    await mkdir(dirname(target), {recursive: true});
     await writeFile(target, Buffer.from(await response.arrayBuffer()), {flag: 'wx'});
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'EEXIST') throw new Error(`file already exists: ${target}. Choose another --download path.`);
@@ -2409,7 +2417,7 @@ async function file(args: Arguments): Promise<void> {
 }
 
 function fileHelp(): void {
-  process.stdout.write(`Rat Things files\n\n  rat-things files [--thread NAME|--run RUN_ID] [--json]\n  rat-things file NAME [--thread NAME|--run RUN_ID] [--preview|--open|--download PATH|--json]\n\nPreview prints up to 64 KiB of text. Open uses your browser. Download writes a new local file\nand refuses to overwrite an existing path. With no mode, file prints its URL.\n`);
+  process.stdout.write(`Rat Things files\n\n  rat-things files [${fileScopeOptions}] [--json]\n  rat-things file NAME [${fileScopeOptions}] [--preview|--open|--download PATH|--json]\n\nPreview prints up to 64 KiB of text. Open uses your browser. Download writes a new local file\nand refuses to overwrite an existing path. With no mode, file prints its URL.\n`);
 }
 
 async function publish(args: Arguments): Promise<void> {
@@ -2449,7 +2457,7 @@ function publicationAssetPath(descriptor: {
   return descriptor.primaryPath ?? descriptor.paths?.find((path) => path !== 'index.html');
 }
 
-type ArtifactScope = { kind: 'run' | 'conversation'; id: string };
+type ArtifactScope = { kind: 'run' | 'conversation'; id: string; selector?: 'thread' | 'conversation' };
 
 async function artifactScope(args: Arguments): Promise<ArtifactScope> {
   const runId = args.values.get('run');
@@ -2457,7 +2465,7 @@ async function artifactScope(args: Arguments): Promise<ArtifactScope> {
   if (runId) return { kind: 'run', id: runId };
   if (args.values.has('thread') && args.values.has('conversation')) throw new Error('choose only one of --thread or --conversation');
   const selector = args.values.get('conversation');
-  return { kind: 'conversation', id: selector ? await resolvePublicConversationId(selector) : validateThreadKey(args.values.get('thread') ?? 'main') };
+  return { kind: 'conversation', id: selector ? await resolvePublicConversationId(selector) : validateThreadKey(args.values.get('thread') ?? 'main'), selector: selector ? 'conversation' : 'thread' };
 }
 
 async function artifactList(scope: ArtifactScope): Promise<ArtifactMetadata[]> {
@@ -3074,10 +3082,10 @@ function help(showAll: boolean): void {
   process.stdout.write(`  rat-things chat --thread NAME \"Continue a cloud thread\"\n`);
   process.stdout.write(`  rat-things conversations list\n`);
   process.stdout.write(`  rat-things conversations search \"Find earlier work\"\n`);
-  process.stdout.write(`  rat-things console [--thread NAME|--conversation PUBLIC_ID]\n`);
+  process.stdout.write(`  rat-things console [${conversationOptions}]\n`);
   process.stdout.write(`  rat-things local \"Run on this computer\"\n`);
-  process.stdout.write(`  rat-things files [--thread NAME]\n`);
-  process.stdout.write(`  rat-things file NAME [--thread NAME] [--preview|--open|--download PATH]\n`);
+  process.stdout.write(`  rat-things files [${fileScopeOptions}]\n`);
+  process.stdout.write(`  rat-things file NAME [${fileScopeOptions}] [--preview|--open|--download PATH]\n`);
   process.stdout.write(`  rat-things publish file|site|video PATH [--thread NAME]\n`);
   process.stdout.write(`\nLocal is the default. Use handoff or chat for a durable cloud thread.\n`);
   process.stdout.write(`Run rat-things help --all for agent and automation options.\n`);
@@ -3112,7 +3120,7 @@ function help(showAll: boolean): void {
   process.stdout.write(`  rat-things conversations list [--visibility visible|hidden|all] [--limit N] [--next-token TOKEN]\n`);
   process.stdout.write(`  rat-things conversations search QUERY [--limit N]\n`);
   process.stdout.write(`  rat-things conversation show ID_OR_THREAD [--limit N] [--next-token TOKEN]\n`);
-  process.stdout.write(`  rat-things conversation sources ID_OR_THREAD [--json]\n`);
+  process.stdout.write(`  rat-things conversation sources ID_OR_THREAD [--json]\n  rat-things conversation rename ID_OR_THREAD TITLE\n`);
   process.stdout.write(`  rat-things conversation pin|unpin|hide|unhide|read|unread ID_OR_THREAD\n`);
   process.stdout.write(`  rat-things conversation react|unreact ID_OR_THREAD MESSAGE_ID 👍|❤️|🎉|👀\n`);
   process.stdout.write(`\nLive computer and demonstrations\n\n`);

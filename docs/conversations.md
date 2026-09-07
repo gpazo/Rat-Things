@@ -16,8 +16,9 @@ reference client for those routes, not a hosted product or a second backend.
 
 In an empty console, type a message and send it to start work immediately. To choose a display
 name first, use **New conversation**; names can contain spaces and punctuation. The console generates
-the routing key separately. After acceptance, reload reopens the durable conversation and resumes
-tracking its Run, including while the coordinator is still preparing execution.
+the routing key separately. Use **Rename** in the conversation menu to edit the display title later;
+the stable thread key and CLI commands stay the same. After acceptance, reload reopens the durable
+conversation and resumes tracking its Run, including while the coordinator is still preparing execution.
 
 If a submission response is lost, send the unchanged message again. The console retains the exact
 request and idempotency key, including attachments, in this browser's local IndexedDB until acceptance
@@ -29,12 +30,16 @@ On desktop, draggable separators resize the conversation list, transcript, and c
 active-Run strip keeps phase, progress, elapsed time, Steer, and a single Stop control visible.
 The sidebar separates **Working**, **Needs your input**, **Failed**, and **Recent**.
 **Unread** is an independent badge, including on pinned or working conversations; it does not
-imply that the agent is blocked. Input status requires an observed pending question.
+imply that the agent is blocked. Input status requires an observed pending question. Sidebar previews
+use plain text, and background refresh preserves open menus and keyboard focus. Relative message
+times advance without rebuilding the transcript.
 
 **Work details** opens grouped Activity, with Sources and Browser tabs in the same context pane.
-The pane remains accessible after completion. A compact receipt follows the completed question,
-answer, and final response. Activity replaces its live preview with the owner-checked, checksummed
-saved event projection, so a final navigation completion can be shown even after the VM stops.
+The pane remains accessible after completion. Each completed turn has a compact receipt after its
+question, answer, and final response. Receipts come from the durable transcript, including turns that
+finish between refreshes. **View Activity** opens that receipt’s Run; the Activity selector switches
+between saved Runs. Loading older messages also loads their receipts. Activity replaces its live
+preview with the owner-checked, checksummed saved event projection, so a final navigation completion can be shown even after the VM stops.
 If saved evidence is unavailable, the pane labels its live updates as unconfirmed and offers a retry. At compact widths, the same context becomes a full-screen sheet and the hidden workspace is
 removed from keyboard and assistive-technology navigation.
 
@@ -55,10 +60,11 @@ in the background. This behavior also applies to `computer open`.
 
 **Use in terminal** in the conversation header provides copyable commands to continue, read,
 open, and list files for the selected conversation. Use the same API URL and AWS identity in your
-terminal. The public-ID console link loads that exact conversation even when it is hidden or
-outside the first list page. An unavailable public-ID link reports an error instead of opening
-another conversation. If the CLI starts a turn while its conversation is open, the console's
-next refresh attaches the live progress, questions, and Stop controls without losing an unsent draft.
+terminal. Explicit thread and public-ID links load that exact conversation even when it is hidden
+or outside the first list page. A new `--thread NAME` opens a draft bound to that name. An
+unavailable public-ID link reports an error instead of opening another conversation. `--run RUN_ID`
+opens the linked conversation; completed Runs open their saved Activity. If the CLI starts a turn
+while its conversation is open, the console's next refresh attaches the live progress, questions, and Stop controls without losing an unsent draft.
 
 Message actions show **Reply** and **React**; the reaction picker contains the four supported emoji.
 Existing reactions and their counts remain visible beside the message.
@@ -66,7 +72,8 @@ Existing reactions and their counts remain visible beside the message.
 Generated Markdown links such as `[Updated report](.rat-things/artifacts/reports/report.md)`
 open the matching file in the conversation viewer. Links resolve against the current conversation’s
 file catalog by full path, so duplicate filenames stay unambiguous. Markdown files use the same safe
-formatting as messages, with **Show source** to inspect the original text. Links inside a Markdown
+formatting as messages, with **Show source** to inspect the original text. **Back** in the viewer
+returns to the previous file, restoring its scroll position and focused link. Links inside a Markdown
 file can refer to sibling files or parent directories within the catalog. Missing files and unsafe
 links stay inactive; embedded HTML is shown as text and Markdown images do not load automatically.
 
@@ -87,8 +94,9 @@ ambiguous basename lists matching paths with commands that select their exact ID
 or ID takes precedence over basename matching. Missing-file errors include a command to list files.
 
 CLI previews read at most 64 KiB of text, neutralize terminal controls, and report truncation.
-Binary files can be opened or downloaded; downloads refuse to overwrite existing paths. With no
-mode, `file` still prints its URL, and `--json` returns the descriptor. These modes are mutually
+Binary files can be opened or downloaded. Suggested downloads preserve catalog directories, such
+as `./reports/brief.md` and `./archive/brief.md`; the CLI creates missing parent directories and
+refuses to overwrite existing files. With no mode, `file` still prints its URL, and `--json` returns the descriptor. These modes are mutually
 exclusive. The console's text preview is also bounded (2 MB); download to inspect the whole file.
 
 Readable `watch` output and console Activity share one presentation layer. Completed assistant
@@ -104,8 +112,11 @@ the console. `chat --diagnostics` includes underlying message, conversation, Run
 `watch --diagnostics` includes the raw Run status. These display options do not alter JSON output. **Saving** means
 the Run succeeded but the conversation has not settled yet. Completion is **Done**; stopping is
 **Stopped**. Saved Run events are also available from **Use in terminal** when the Run ID is retained.
-The last Run ID is retained in this browser; reopening it can load saved Activity without a live VM.
-Opening the conversation on another device does not restore that local Run selection. The final browser frame remains visible while its pane stays open. The durable transcript and files remain available.
+Completed Run links and receipt history are owner-scoped API data, so a fresh browser or local
+console port can restore them without local storage or a live VM. Deploy the control API and
+coordinator updates with the console to enable this behavior; older transcript entries with stored
+turn records are readable without migration. The final browser frame remains visible while its pane
+stays open. The durable transcript and files remain available.
 
 ## How durability works
 
@@ -261,6 +272,7 @@ rat-things conversations list --visibility visible --limit 25
 rat-things conversations search "NVIDIA earnings"
 rat-things conversation show earnings-review --limit 50
 rat-things conversation sources PUBLIC_CONVERSATION_ID
+rat-things conversation rename earnings-review "Quarterly earnings review"
 rat-things conversation pin PUBLIC_CONVERSATION_ID
 rat-things conversation read PUBLIC_CONVERSATION_ID
 rat-things conversation react PUBLIC_CONVERSATION_ID MESSAGE_ID 👍
@@ -275,7 +287,8 @@ conversations without an API thread remain readable by public ID but cannot be c
 
 Use `--next-token` with `conversations list` or `conversation show` to page without interpreting the
 opaque cursor. Add `--json` for the installed OpenAPI response instead of the human-readable view.
-`pin|unpin`, `hide|unhide`, and `read|unread` change only owner organization state. Reactions are
+`rename`, `pin|unpin`, `hide|unhide`, and `read|unread` change only owner organization state.
+Renamed titles must contain 1–128 characters; renaming does not change message recency. Reactions are
 limited to `👍`, `❤️`, `🎉`, and `👀` and never start a Run.
 
 `conversation sources` is intentionally different from one transcript page: it follows every
@@ -408,8 +421,11 @@ precomputed capability envelope: answering it does not approve or widen IAM, int
 filesystem, or browser authority. Runs without a request bridge do not expose the tool.
 
 Polling preserves a question's selected answer while the page remains open. Reload restores the
-pending question, but unsent answers must be entered again. After a turn finishes, its question
-text, non-secret answers, and acknowledged steering are retained with the final response. Secret
+pending question, but unsent answers must be entered again. The Run strip shows the actual question
+and **Answer question** focuses its form. **Use in terminal** and the CLI offer commands for each
+non-secret option; multi-question commands mark remaining values to fill. A successful response
+stays visible as **Answer sent** until the durable transcript replaces it. After a turn finishes, its
+question text, non-secret answers, and acknowledged steering are retained with the final response. Secret
 answers are redacted. Clients render these ordered `interactions` before the containing assistant
 message; they do not add separate pagination entries or reply/reaction targets.
 

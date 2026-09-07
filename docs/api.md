@@ -89,7 +89,7 @@ Cross-identity lookup is an administrative capability outside v1.
 | `GET /v1/conversations?limit=25&nextToken=...&visibility=visible` | Required | List owner-scoped durable conversation summaries with opaque IDs and durable pin/hide/read state |
 | `GET /v1/conversations/search?q=...&limit=20` | Required | Search indexed user/assistant messages and artifact paths across the owner's visible and hidden conversations |
 | `GET /v1/conversations/{opaqueConversationId}?limit=50&nextToken=...` | Required | Read safe conversation state and one cursor-paged durable transcript window |
-| `POST /v1/conversations/{opaqueConversationId}/organization` | Required | Set owner-scoped `pinned`, `hidden`, or `read` booleans without changing execution authority or lifecycle |
+| `POST /v1/conversations/{opaqueConversationId}/organization` | Required | Set an owner-scoped display `title` or `pinned`, `hidden`, or `read` booleans without changing execution authority or lifecycle |
 | `POST /v1/conversations/{opaqueConversationId}/messages/{messageId}/reactions` | Required | Add or remove one supported durable owner reaction without starting a Run |
 | `GET /v1/conversations/{conversationId}/messages/{messageId}` | Required | Poll the exact message, bound run, conversation, and suspended-session state |
 | `GET /v1/conversations/{conversationId}/artifacts` | Required | List durable files using an API thread key or the opaque public conversation ID |
@@ -309,6 +309,13 @@ a second public Run for the accepted input:
   "expiresAt": 1798231200
 }
 ```
+
+Run responses include a public `conversationId` when the Run belongs to a conversation. Conversation
+transcript windows include `completions` with each completed Run’s public ID, final status, start,
+and completion time. These receipts follow the same older-page cursor as the transcript and expose
+no native agent session IDs or storage coordinates. Use the Run’s durable events endpoint for saved
+Activity. Organization updates also accept a trimmed display `title` of 1–128 characters; this does
+not change the stable thread key or message recency.
 
 Poll the Run location for execution state. When a consumer also needs proof that completion has been
 folded into durable thread context and the MicroVM is suspended, poll

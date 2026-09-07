@@ -309,6 +309,7 @@ export class ConversationCompletionCoordinator {
         ]);
         const context = appendContext(previous, continuation, transcriptMessages.at(-1)!.content, transcriptMessages.slice(0, -1));
         await this.options.conversations.completeTurn({
+          runStatus: run.status,
           conversationId: binding.conversationId,
           turnId: binding.turnId,
           leaseToken: lease.token,
@@ -342,6 +343,7 @@ export class ConversationCompletionCoordinator {
             transcriptMessages.at(-1)?.content ?? '', transcriptMessages.slice(0, -1),
           ) : undefined;
         await this.options.conversations.failTurn({
+          runStatus: run.status === 'cancelled' ? 'cancelled' : 'failed',
           conversationId: binding.conversationId,
           turnId: binding.turnId,
           leaseToken: lease.token,
