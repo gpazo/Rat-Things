@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import type {
   ArtifactReference,
@@ -488,3 +488,51 @@ function reference(key: string, value: string | Uint8Array): ArtifactReference {
     sha256: createHash('sha256').update(value).digest('hex'),
   };
 }
+
+
+describe('RunService saved Activity', () => {
+  it('checks ownership before reading evidence and projects terminal events without raw payloads', async () => {
+    const {service, store, artifacts} = harness();
+    const run = await service.submit('owner-1', baseRequest);
+    const bytes = Buffer.from([
+      JSON.stringify({id: 1, result: {secret: 'private-response'}}),
+      JSON.stringify({method: 'item/started', params: {item: {type: 'commandExecution', command: 'private-command'}}}),
+      JSON.stringify({method: 'item/completed', params: {item: {type: 'commandExecution', command: 'private-command', status: 'completed', exitCode: 0}}}),
+    ].join('\n'));
+    const events = await artifacts.putBytes('events.jsonl', bytes, 'application/x-ndjson');
+    store.records.set(run.runId, {...run, status: 'succeeded', result: {output: events, events, preview: '', exitCode: 0, durationMs: 1}});
+    const read = vi.spyOn(artifacts, 'getStream');
+    await expect(service.savedActivity('owner-2', run.runId)).rejects.toBeInstanceOf(ForbiddenError);
+    expect(read).not.toHaveBeenCalled();
+    const result = await service.savedActivity('owner-1', run.runId);
+    expect(result).toMatchObject({source: 'durable', active: false, truncated: false});
+    expect(result.events.map(event => event.status)).toEqual(['started', 'completed']);
+    expect(JSON.stringify(result)).not.toContain('private-');
+  });
+  it('rejects active work and missing or corrupt evidence without claiming completion', async () => {
+    const {service, store, artifacts} = harness();
+    const run = await service.submit('owner-1', baseRequest);
+    await expect(service.savedActivity('owner-1', run.runId)).rejects.toBeInstanceOf(ConflictError);
+    const events = await artifacts.putBytes('events.jsonl', Buffer.from('{}'), 'application/x-ndjson');
+    store.records.set(run.runId, {...run, status: 'failed', result: {output: events, events: {...events, sha256: '0'.repeat(64)}, preview: '', exitCode: 1, durationMs: 1}});
+    await expect(service.savedActivity('owner-1', run.runId)).rejects.toThrow('checksum');
+  });
+});
+
+
+it('bounds saved Activity, preserves split UTF-8 records, and marks incomplete evidence', async () => {
+  const {service, store, artifacts} = harness();
+  const run = await service.submit('owner-1', baseRequest);
+  const lines = Array.from({length: 205}, () => JSON.stringify({method: 'item/agentMessage/delta', params: {delta: '🌍 private-text'}}));
+  const bytes = Buffer.from([...lines, '{broken'].join('\n'));
+  const events = await artifacts.putBytes('events.jsonl', bytes, 'application/x-ndjson');
+  store.records.set(run.runId, {...run, status: 'succeeded', result: {output: events, events, preview: '', exitCode: 0, durationMs: 1}});
+  vi.spyOn(artifacts, 'getStream').mockResolvedValue((async function* () {
+    for (let offset = 0; offset < bytes.length; offset += 3) yield bytes.subarray(offset, offset + 3);
+  })());
+  const saved = await service.savedActivity('owner-1', run.runId);
+  expect(saved).toMatchObject({truncated: true, oldestSequence: 6, nextSequence: 206});
+  expect(saved.events).toHaveLength(200);
+  expect(saved.events.at(-1)?.sequence).toBe(205);
+  expect(JSON.stringify(saved)).not.toContain('private-text');
+});

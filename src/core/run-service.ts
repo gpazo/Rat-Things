@@ -1,3 +1,4 @@
+import { savedAgentActivity } from './saved-agent-activity.js';
 import { randomUUID } from 'node:crypto';
 import type {
   ConversationRunBinding,
@@ -216,6 +217,12 @@ export class RunService {
       }
       throw error;
     }
+  }
+
+  public async savedActivity(ownerId: string, runId: string) {
+    const run = await this.get(ownerId, runId);
+    if (!isTerminal(run.status) || !run.result?.events) throw new ConflictError('saved Activity is not available yet');
+    return savedAgentActivity(run, run.result.events, await this.options.artifacts.getStream(run.result.events));
   }
 
   public async cancel(ownerId: string, runId: string): Promise<RunRecord> {

@@ -31,6 +31,8 @@ await Promise.all([
   cp('console', 'dist/console', { recursive: true }),
 ]);
 
+await cp(new URL(import.meta.resolve('marked')), 'dist/console/marked.js');
+
 async function bundle(entry, outfile, options = {}) {
   await build({
     entryPoints: [entry],

@@ -35,7 +35,8 @@ import type {
   PublicPendingAgentRequest,
 } from './core/agent-activity-projection.js';
 import { isTerminal } from './domain/state.js';
-import { runPresentation, isTextArtifact, readTextPreview, formatBytes, shellArgument as quoteArgument } from '../console/presentation.js';
+import { createActivityProgress } from '../console/activity.js';
+import { runPresentation, isTextArtifact, readTextPreview, formatBytes, fileCommands, shellArgument as quoteArgument } from '../console/presentation.js';
 import { parseRunRequest } from './domain/validation.js';
 import {
   CapabilityProfileRegistry,
@@ -558,10 +559,7 @@ async function chat(args: Arguments): Promise<void> {
   }
   const conversationId = args.flags.has('new')
     ? `thread-${new Date().toISOString().replace(/\D/g, '').slice(0, 14)}-${randomUUID().slice(0, 8)}`
-    : args.values.get('thread') ?? args.values.get('conversation') ?? 'main';
-  if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(conversationId)) {
-    throw new Error('thread must be 1-128 safe ASCII characters');
-  }
+    : await selectedThread(args);
   if (args.flags.has('new')) process.stderr.write(`thread=${conversationId}\n`);
   const messageId = args.values.get('idempotency-key') ?? randomUUID();
   const encodedConversation = encodeURIComponent(conversationId);
@@ -641,6 +639,7 @@ async function chat(args: Arguments): Promise<void> {
         if (args.flags.has('json')) print(current);
         else {
           await writeArtifact(current.run.runId, 'output');
+          await completedFileActions(current.run.runId);
         }
         return;
       }
@@ -726,8 +725,8 @@ async function conversationCommand(args: Arguments): Promise<void> {
   const nested = withPositionals(args, args.positionals.slice(1));
   if (subcommand === 'show') {
     validateCommandOptions(nested, { flags: ['json'], values: ['limit', 'next-token'] });
-    validatePositionals(nested, 1, 1, 'conversation show PUBLIC_ID');
-    const conversationId = publicConversationId(nested, 0);
+    validatePositionals(nested, 1, 1, 'conversation show ID_OR_THREAD');
+    const conversationId = await resolvePublicConversationId(requiredPositional(nested, 0, 'conversation ID or thread name'));
     const query = new URLSearchParams();
     if (nested.values.has('limit')) {
       query.set('limit', String(positiveNumber(nested.values.get('limit') as string, 'limit')));
@@ -745,8 +744,8 @@ async function conversationCommand(args: Arguments): Promise<void> {
   }
   if (subcommand === 'sources') {
     validateCommandOptions(nested, { flags: ['json'] });
-    validatePositionals(nested, 1, 1, 'conversation sources PUBLIC_ID');
-    const conversationId = publicConversationId(nested, 0);
+    validatePositionals(nested, 1, 1, 'conversation sources ID_OR_THREAD');
+    const conversationId = await resolvePublicConversationId(requiredPositional(nested, 0, 'conversation ID or thread name'));
     const collected = await conversationSources(conversationId);
     if (nested.flags.has('json')) print({ conversationId, ...collected });
     else renderConversationSources(collected);
@@ -754,8 +753,8 @@ async function conversationCommand(args: Arguments): Promise<void> {
   }
   if (['pin', 'unpin', 'hide', 'unhide', 'read', 'unread'].includes(subcommand)) {
     validateCommandOptions(nested, {});
-    validatePositionals(nested, 1, 1, `conversation ${subcommand} PUBLIC_ID`);
-    const conversationId = publicConversationId(nested, 0);
+    validatePositionals(nested, 1, 1, `conversation ${subcommand} ID_OR_THREAD`);
+    const conversationId = await resolvePublicConversationId(requiredPositional(nested, 0, 'conversation ID or thread name'));
     const organization = subcommand === 'pin'
       ? { pinned: true }
       : subcommand === 'unpin'
@@ -774,8 +773,8 @@ async function conversationCommand(args: Arguments): Promise<void> {
   }
   if (subcommand === 'react' || subcommand === 'unreact') {
     validateCommandOptions(nested, {});
-    validatePositionals(nested, 3, 3, `conversation ${subcommand} PUBLIC_ID MESSAGE_ID EMOJI`);
-    const conversationId = publicConversationId(nested, 0);
+    validatePositionals(nested, 3, 3, `conversation ${subcommand} ID_OR_THREAD MESSAGE_ID EMOJI`);
+    const conversationId = await resolvePublicConversationId(requiredPositional(nested, 0, 'conversation ID or thread name'));
     const messageId = encodeURIComponent(requiredPositional(nested, 1, 'message ID'));
     const emoji = requiredPositional(nested, 2, 'reaction emoji');
     if (!['👍', '❤️', '🎉', '👀'].includes(emoji)) {
@@ -981,12 +980,41 @@ function renderConversationSources(collection: ConversationSourceCollection): vo
   }
 }
 
-function publicConversationId(args: Arguments, index: number): string {
-  const value = requiredPositional(args, index, 'public conversation ID');
-  if (!/^[a-f0-9]{64}$/.test(value)) {
-    throw new Error('public conversation ID must be the 64-character ID returned by conversations list or search');
+function validateThreadKey(value: string): string {
+  if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(value)) {
+    throw new Error('thread must be 1-128 safe ASCII characters');
   }
   return value;
+}
+
+/** Existing conversations only: resolving a read/organization selector never submits work. */
+async function resolvePublicConversationId(selector: string): Promise<string> {
+  validateThreadKey(selector);
+  if (/^[a-f0-9]{64}$/.test(selector)) return selector;
+  const seen = new Set<string>();
+  let nextToken: string | undefined;
+  for (let page = 0; page < 100; page++) {
+    const query = new URLSearchParams({visibility: 'all', limit: '100'});
+    if (nextToken) query.set('nextToken', nextToken);
+    const result = await api(`/v1/conversations?${query}`, 'GET') as {items: PublicConversationSummary[]; nextToken?: string};
+    const match = result.items.find(item => item.threadKey === selector);
+    if (match) return match.conversationId;
+    if (!result.nextToken) throw new Error(`conversation ${JSON.stringify(selector)} was not found; use rat-things conversations list --all`);
+    if (seen.has(result.nextToken)) break;
+    seen.add(result.nextToken);
+    nextToken = result.nextToken;
+  }
+  throw new Error('conversation lookup could not finish; use the public ID from rat-things conversations list --all');
+}
+
+async function selectedThread(args: Arguments, fallback = 'main'): Promise<string> {
+  if (args.values.has('thread') && args.values.has('conversation')) throw new Error('choose only one of --thread or --conversation');
+  const selector = args.values.get('conversation');
+  if (!selector) return validateThreadKey(args.values.get('thread') ?? fallback);
+  const id = await resolvePublicConversationId(selector);
+  const detail = await api(`/v1/conversations/${id}`, 'GET') as PublicConversationDetail;
+  if (!detail.threadKey) throw new Error('this conversation has no CLI thread; open it with rat-things console --conversation ' + shellArgument(id));
+  return validateThreadKey(detail.threadKey);
 }
 
 function singleLine(value: string, maximum: number): string {
@@ -1139,6 +1167,7 @@ async function submit(args: Arguments): Promise<void> {
   print(current);
   if (current.status === 'succeeded' && args.flags.has('output')) {
     await writeArtifact(current.runId, 'output');
+    await completedFileActions(current.runId);
   }
   if (current.status !== 'succeeded') process.exitCode = 1;
 }
@@ -1242,6 +1271,7 @@ async function watch(args: Arguments): Promise<void> {
   const seenPending = new Set<string>();
   let previousRunStatus: string | undefined;
   let warnedGap: string | undefined;
+  const progressActivities = createActivityProgress(after);
   while (true) {
     const requestedAfter = after;
     const query = new URLSearchParams({ after: String(after), limit: '100' });
@@ -1294,7 +1324,7 @@ async function watch(args: Arguments): Promise<void> {
         process.stderr.write(`agent request pending: ${JSON.stringify(pending)}\n`);
       }
     } else {
-      for (const event of snapshot.events) renderActivity(event);
+      for (const event of progressActivities(snapshot.events)) renderActivity(event);
       renderNewPendingRequests(runId, snapshot.pendingRequests, seenPending);
     }
     const last = snapshot.events.at(-1);
@@ -1587,10 +1617,10 @@ async function openConsole(args: Arguments): Promise<void> {
   if ([runId, thread, conversation].filter(Boolean).length > 1 || (args.values.has('run') && args.positionals.length)) {
     throw new Error('choose only one Run, --thread, or --conversation when opening the console');
   }
-  if (conversation && !/^[a-f0-9]{64}$/.test(conversation)) throw new Error('--conversation requires the public ID from conversations list or search');
+
   if (runId) selector.set('run', runId);
   if (thread) selector.set('thread', thread);
-  if (conversation) selector.set('conversation', conversation);
+  if (conversation) selector.set('conversation', await resolvePublicConversationId(conversation));
 
   const cliDirectory = dirname(fileURLToPath(import.meta.url));
   const bundledServer = join(cliDirectory, 'console-server.mjs');
@@ -1607,17 +1637,19 @@ async function openConsole(args: Arguments): Promise<void> {
       ...process.env,
       RAT_THINGS_API_URL: base,
       RAT_THINGS_CONSOLE_PORT: String(port),
+      RAT_THINGS_CONSOLE_LAUNCHER: '1',
       RAT_THINGS_CONSOLE_ROOT: consoleRoot,
     },
-    stdio: args.flags.has('no-wait') ? 'ignore' : 'inherit',
+    stdio: ['ignore', 'pipe', args.flags.has('no-wait') ? 'ignore' : 'inherit'],
     detached: args.flags.has('no-wait'),
   });
-  const url = `http://127.0.0.1:${port}/${selector.size ? `?${selector.toString()}` : ''}`;
   try {
-    await waitForLocalConsole(url, child);
+    const boundPort = await waitForLocalConsole(child);
+    const url = `http://127.0.0.1:${boundPort}/${selector.size ? `?${selector.toString()}` : ''}`;
     launchBrowser(url);
     process.stdout.write(`Rat Things console: ${url}\n`);
     if (args.flags.has('no-wait')) {
+      child.stdout?.destroy();
       child.unref();
       return;
     }
@@ -1633,18 +1665,34 @@ async function openConsole(args: Arguments): Promise<void> {
   }
 }
 
-async function waitForLocalConsole(url: string, child: ReturnType<typeof spawn>): Promise<void> {
-  for (let attempt = 0; attempt < 60; attempt += 1) {
-    if (child.exitCode !== null) throw new Error(`console server exited with code ${child.exitCode}`);
-    try {
-      const response = await fetch(url, { signal: AbortSignal.timeout(500) });
-      if (response.ok) return;
-    } catch {
-      // Loopback server is still starting.
-    }
-    await delay(100);
-  }
-  throw new Error('console server did not become ready within 6 seconds');
+async function waitForLocalConsole(child: ReturnType<typeof spawn>): Promise<number> {
+  return new Promise((resolvePromise, reject) => {
+    let output = '';
+    const finish = (error?: Error, port?: number) => {
+      clearTimeout(timer);
+      child.stdout?.off('data', onData);
+      child.off('error', onError);
+      child.off('exit', onExit);
+      if (error) reject(error);
+      else resolvePromise(port!);
+    };
+    const onError = (error: Error) => finish(error);
+    const onExit = () => finish(new Error('console server exited before becoming ready'));
+    const onData = (chunk: Buffer) => {
+      output += chunk.toString();
+      if (output.length > 1_024) return finish(new Error('invalid console readiness response'));
+      if (!output.includes('\n')) return;
+      try {
+        const { port } = JSON.parse(output.split('\n')[0]!) as { port: number };
+        if (!Number.isInteger(port) || port < 1_024 || port > 65_535) throw new Error('invalid console port');
+        finish(undefined, port);
+      } catch { finish(new Error('invalid console readiness response')); }
+    };
+    const timer = setTimeout(() => finish(new Error('console server did not become ready within 6 seconds')), 6_000);
+    child.stdout?.on('data', onData);
+    child.once('error', onError);
+    child.once('exit', onExit);
+  });
 }
 
 function launchBrowser(url: string): void {
@@ -1694,7 +1742,7 @@ function runInteractionHelp(): void {
   process.stdout.write(`  rat-things respond RUN_ID REQUEST_ID --result JSON\n`);
   process.stdout.write(`  rat-things respond RUN_ID REQUEST_ID --answer QUESTION=VALUE ...\n`);
   process.stdout.write(`  rat-things respond RUN_ID REQUEST_ID --answer-stdin SECRET_QUESTION ...\n\n`);
-  process.stdout.write(`Readable watch output is the default. One --json poll is a JSON document;\n`);
+  process.stdout.write(`Readable watch output groups repeated activity into phases shared with the console.\nOne --json poll is a JSON document;\n`);
   process.stdout.write(`--follow --json and --raw are JSONL. Secret stdin is hidden on a terminal.\n`);
   process.stdout.write(`After live activity ends, --json returns {runId, status, active:false}; readable output points to the saved result.\n`);
 }
@@ -1703,12 +1751,12 @@ function conversationHelp(): void {
   process.stdout.write(`Rat Things conversations\n\n`);
   process.stdout.write(`  rat-things conversations list [--visibility visible|hidden|all] [--limit N] [--next-token TOKEN] [--json]\n`);
   process.stdout.write(`  rat-things conversations search QUERY [--limit N] [--json]\n`);
-  process.stdout.write(`  rat-things conversation show PUBLIC_ID [--limit N] [--next-token TOKEN] [--json]\n`);
-  process.stdout.write(`  rat-things conversation sources PUBLIC_ID [--json]\n`);
+  process.stdout.write(`  rat-things conversation show ID_OR_THREAD [--limit N] [--next-token TOKEN] [--json]\n`);
+  process.stdout.write(`  rat-things conversation sources ID_OR_THREAD [--json]\n`);
   process.stdout.write(`  rat-things console --conversation PUBLIC_ID [--port 4174]\n`);
-  process.stdout.write(`  rat-things conversation pin|unpin|hide|unhide|read|unread PUBLIC_ID\n`);
-  process.stdout.write(`  rat-things conversation react|unreact PUBLIC_ID MESSAGE_ID 👍|❤️|🎉|👀\n\n`);
-  process.stdout.write(`PUBLIC_ID is the opaque 64-character ID returned by list or search.\n`);
+  process.stdout.write(`  rat-things conversation pin|unpin|hide|unhide|read|unread ID_OR_THREAD\n`);
+  process.stdout.write(`  rat-things conversation react|unreact ID_OR_THREAD MESSAGE_ID 👍|❤️|🎉|👀\n\n`);
+  process.stdout.write(`ID_OR_THREAD accepts an existing thread name or the public ID returned by list or search. --thread names a thread; --conversation resolves an existing name or public ID.\n`);
   process.stdout.write(`Use the displayed thread key with rat-things chat --thread NAME to continue an API conversation.\n`);
 }
 
@@ -2269,7 +2317,7 @@ async function writeArtifact(runId: string, name: string): Promise<void> {
 
 async function listFiles(args: Arguments): Promise<void> {
   validateCommandOptions(args, { flags: ['json'], values: ['thread', 'conversation', 'run'] });
-  const scope = artifactScope(args);
+  const scope = await artifactScope(args);
   const files = await artifactList(scope);
   if (args.flags.has('json')) {
     print({ scope, files });
@@ -2280,9 +2328,29 @@ async function listFiles(args: Arguments): Promise<void> {
     return;
   }
   for (const file of files) {
-    process.stdout.write(`${terminalText(file.path)} · ${formatBytes(file.bytes)} · ${terminalText(file.mediaType)}\n`);
+    renderFileActions(scope, file, process.stdout);
   }
   process.stdout.write(`\nUse rat-things file NAME --${scope.kind === 'run' ? 'run' : 'thread'} ${shellArgument(scope.id)} with --preview, --open, or --download PATH.\n`);
+}
+
+function artifactCommands(scope: ArtifactScope, artifact: ArtifactMetadata): string[][] {
+  return fileCommands(terminalText(scope.id), {...artifact, id: terminalText(artifact.id), path: terminalText(artifact.path)}, scope.kind === 'run' ? 'run' : 'thread');
+}
+
+function renderFileActions(scope: ArtifactScope, artifact: ArtifactMetadata, output: NodeJS.WritableStream): void {
+  output.write(`${terminalText(artifact.path)} · ${formatBytes(artifact.bytes)} · ${terminalText(artifact.mediaType)}\n`);
+  for (const [label, command] of artifactCommands(scope, artifact)) output.write(`  ${label}: ${command}\n`);
+}
+
+async function completedFileActions(runId: string): Promise<void> {
+  const scope: ArtifactScope = {kind: 'run', id: runId};
+  try {
+    const files = await artifactList(scope);
+    if (files.length) process.stderr.write('\nFiles from this Run:\n');
+    for (const artifact of files) renderFileActions(scope, artifact, process.stderr);
+  } catch {
+    process.stderr.write(`Files could not be listed. Retry: rat-things files --run ${shellArgument(runId)}\n`);
+  }
 }
 
 async function file(args: Arguments): Promise<void> {
@@ -2292,16 +2360,13 @@ async function file(args: Arguments): Promise<void> {
     throw new Error('choose only one of --preview, --open, --download PATH, or --json');
   }
   const name = requiredPositional(args, 0, 'file name or ID');
-  const scope = artifactScope(args);
+  const scope = await artifactScope(args);
   const files = await artifactList(scope);
-  const matches = files.filter((candidate) => (
-    candidate.id === name ||
-    candidate.path === name ||
-    candidate.path.split('/').at(-1) === name
-  ));
-  if (matches.length === 0) throw new Error(`file ${JSON.stringify(name)} was not found`);
+  const exact = files.filter(candidate => candidate.id === name || candidate.path === name);
+  const matches = exact.length ? exact : files.filter(candidate => candidate.path.split('/').at(-1) === name);
+  if (matches.length === 0) throw new Error(`file ${JSON.stringify(name)} was not found; list files with rat-things files --${scope.kind === 'run' ? 'run' : 'thread'} ${shellArgument(scope.id)}`);
   if (matches.length > 1) {
-    throw new Error(`file name ${JSON.stringify(name)} is ambiguous; use its path or ID`);
+    throw new Error(`file name ${JSON.stringify(name)} is ambiguous. Choose a matching file:\n${matches.map(candidate => `  ${terminalText(candidate.path)}\n    ${artifactCommands(scope, candidate)[0]![1]}`).join('\n')}`);
   }
   const selected = matches[0]!;
   if (args.flags.has('preview') && !isTextArtifact(selected.mediaType)) {
@@ -2371,7 +2436,7 @@ async function publish(args: Arguments): Promise<void> {
           ...(title ? { title } : {}),
         }
       : { version: '1', kind, path: source, ...(title ? { title } : {}) };
-  const scope = artifactScope(args);
+  const scope = await artifactScope(args);
   const descriptor = await api(`${artifactBasePath(scope)}/publications`, 'POST', spec);
   if (args.flags.has('json')) print(descriptor);
   else process.stdout.write(`${terminalText((descriptor as { url: string }).url)}\n`);
@@ -2386,16 +2451,13 @@ function publicationAssetPath(descriptor: {
 
 type ArtifactScope = { kind: 'run' | 'conversation'; id: string };
 
-function artifactScope(args: Arguments): ArtifactScope {
+async function artifactScope(args: Arguments): Promise<ArtifactScope> {
   const runId = args.values.get('run');
-  const thread = args.values.get('thread') ?? args.values.get('conversation');
-  if (runId && thread) throw new Error('--run cannot be combined with --thread or --conversation');
+  if (runId && (args.values.has('thread') || args.values.has('conversation'))) throw new Error('--run cannot be combined with --thread or --conversation');
   if (runId) return { kind: 'run', id: runId };
-  const conversationId = thread ?? 'main';
-  if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(conversationId)) {
-    throw new Error('thread must be 1-128 safe ASCII characters');
-  }
-  return { kind: 'conversation', id: conversationId };
+  if (args.values.has('thread') && args.values.has('conversation')) throw new Error('choose only one of --thread or --conversation');
+  const selector = args.values.get('conversation');
+  return { kind: 'conversation', id: selector ? await resolvePublicConversationId(selector) : validateThreadKey(args.values.get('thread') ?? 'main') };
 }
 
 async function artifactList(scope: ArtifactScope): Promise<ArtifactMetadata[]> {
@@ -3049,10 +3111,10 @@ function help(showAll: boolean): void {
   process.stdout.write(`\nConversations\n\n`);
   process.stdout.write(`  rat-things conversations list [--visibility visible|hidden|all] [--limit N] [--next-token TOKEN]\n`);
   process.stdout.write(`  rat-things conversations search QUERY [--limit N]\n`);
-  process.stdout.write(`  rat-things conversation show PUBLIC_ID [--limit N] [--next-token TOKEN]\n`);
-  process.stdout.write(`  rat-things conversation sources PUBLIC_ID [--json]\n`);
-  process.stdout.write(`  rat-things conversation pin|unpin|hide|unhide|read|unread PUBLIC_ID\n`);
-  process.stdout.write(`  rat-things conversation react|unreact PUBLIC_ID MESSAGE_ID 👍|❤️|🎉|👀\n`);
+  process.stdout.write(`  rat-things conversation show ID_OR_THREAD [--limit N] [--next-token TOKEN]\n`);
+  process.stdout.write(`  rat-things conversation sources ID_OR_THREAD [--json]\n`);
+  process.stdout.write(`  rat-things conversation pin|unpin|hide|unhide|read|unread ID_OR_THREAD\n`);
+  process.stdout.write(`  rat-things conversation react|unreact ID_OR_THREAD MESSAGE_ID 👍|❤️|🎉|👀\n`);
   process.stdout.write(`\nLive computer and demonstrations\n\n`);
   process.stdout.write(`  rat-things computer open [RUN_ID|--run RUN_ID|--thread NAME] [--port 4174]\n`);
   process.stdout.write(`  rat-things computer watch RUN_ID [--screenshot screen.jpg]\n`);

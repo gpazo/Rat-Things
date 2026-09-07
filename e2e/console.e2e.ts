@@ -15,7 +15,7 @@ let threadKey = 'release-review';
 const conversationName = 'Release readiness review';
 const prompt = 'Inspect the release candidate and stop before publishing.';
 const finalReply = 'Release review complete. No changes were published.';
-const richFinalReply = `${finalReply}\n\n\`\`\`sh\nnpm test\n\`\`\`\n\n[Open the runbook](https://example.com/runbook)`;
+const richFinalReply = `${finalReply}\n\n\`\`\`sh\nnpm test\n\`\`\`\n\n[Open the runbook](https://example.com/runbook)\n\n[Updated report](.rat-things/artifacts/reports/release-review.md)\n\n**Ready to review** &amp; safe. [Missing](.rat-things/artifacts/missing.md) [Unsafe](javascript:alert%281%29) <img src="https://invalid.test/tracker" onerror="alert(1)">`;
 const inputArtifactId = 'input-specification';
 const outputArtifactId = 'release-report';
 const createdAt = new Date().toISOString();
@@ -231,6 +231,7 @@ test('creates, observes autonomous work, and completes a durable API conversatio
   await expect(page.locator('#status-badge')).toHaveText('Starting');
   await expect(page.locator('#run-strip-title')).toHaveText('Agent needs input');
   await expect(page.locator('#status-badge')).toHaveText('Needs input');
+  await expect(page.getByRole('heading', {name: 'Needs your input', exact: true})).toBeVisible();
   await expect(page.getByText('Release channel', { exact: true })).toBeVisible();
   await expect(page.getByText('Choose the release channel for this review.', { exact: true })).toBeVisible();
   await expect(page.getByText('Staging', { exact: true })).toBeVisible();
@@ -254,13 +255,16 @@ test('creates, observes autonomous work, and completes a durable API conversatio
   await page.setViewportSize({ width: 1_280, height: 800 });
   await expect(page.locator('#run-strip-title')).toHaveText('Reviewing the release candidate');
   await expect(page.locator('#status-badge')).toHaveText('Working');
+  await expect(page.getByRole('heading', {name: 'Working', exact: true})).toBeVisible();
+  await expect(page.getByRole('heading', {name: 'Needs attention', exact: true})).toHaveCount(0);
   await expect(page.locator('#run-strip')).toBeVisible();
   await expect(page.locator('#run-strip-phase')).toHaveText(/Working|Answering/);
   await expect(page.getByRole('button', {name: 'Stop', exact: true})).toHaveCount(1);
   await page.getByRole('button', {name: 'Work details', exact: true}).click();
   const transcriptPhases = page.locator('#context-activity .phase-card');
   await expect(transcriptPhases.filter({ hasText: 'Rat started working' })).toBeVisible();
-  await expect(transcriptPhases.filter({ hasText: 'Preparing the answer' })).toContainText('2 related updates');
+  await expect(transcriptPhases.filter({ hasText: 'Preparing the answer' })).toHaveCount(0);
+  await expect(transcriptPhases.filter({ hasText: 'Progress update' })).toContainText('Checking the release evidence.');
   await expect(transcriptPhases.filter({ hasText: 'Using the workspace' })).toBeVisible();
   await expect(transcriptPhases.filter({ hasText: 'Keeping context focused' })).toBeVisible();
   await expect(page.getByText(/Early live events rolled out/)).toBeVisible();
@@ -387,8 +391,14 @@ test('creates, observes autonomous work, and completes a durable API conversatio
   await expect(page.locator('#status-badge')).toHaveText('Ready');
   await expect(progress).toBeHidden();
   await expect(page.locator('#run-progress strong')).toHaveText('Work completed');
+  await expect(page.getByText('Saved question: which channel?', {exact: true})).toBeVisible();
+  await expect(page.getByText('Saved answer: staging.', {exact: true})).toBeVisible();
+  expect(await page.locator('#run-progress').evaluate(receipt => Boolean((document.querySelector('[data-message-id="assistant-console-e2e"]')?.compareDocumentPosition(receipt) ?? 0) & Node.DOCUMENT_POSITION_FOLLOWING))).toBe(true);
+
   await page.getByRole('button', {name: 'Work details', exact: true}).click();
   await expect(page.locator('#context-activity .phase-card').filter({ hasText: 'Using the workspace' })).toBeVisible();
+  await expect(page.locator('.activity-evidence')).toContainText('reconciled with saved events');
+  await expect(page.locator('#context-activity .phase-card').filter({hasText: 'Navigate completed'})).toHaveAttribute('data-status', 'completed');
   await page.getByRole('button', {name: 'Close context pane'}).click();
   await expect(page.locator('.conversation-list .conversation-name', { hasText: conversationName })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Conversation files' })).toBeVisible();
@@ -400,7 +410,36 @@ test('creates, observes autonomous work, and completes a durable API conversatio
   await artifactButton.click();
   await expect(page.locator('#artifact-viewer')).toBeVisible();
   expect((await contentResponse).status()).toBe(200);
-  await expect(page.locator('.viewer-text')).toContainText('Release report fixture');
+  await expect(page.locator('.viewer-markdown h3')).toHaveText('Release report fixture');
+  await expect(page.locator('.viewer-markdown strong')).toHaveText('No changes were published.');
+  await page.getByRole('button', {name: 'Show source', exact: true}).click();
+  await expect(page.locator('.viewer-text')).toContainText('# Release report fixture');
+  await page.getByRole('button', {name: 'Show preview', exact: true}).click();
+  await page.locator('#viewer-body').getByRole('link', {name: 'Archived report'}).click();
+  await expect(page.locator('#viewer-title')).toHaveText('archive/release-review.md');
+  await expect(page.locator('#viewer-body')).toContainText('Archived fixture');
+  await expect(page.getByRole('link', { name: 'Open in new tab' })).toHaveAttribute('href', /artifacts\/archive-report\/content$/);
+  await expect(page.getByRole('link', { name: 'Download', exact: true })).toHaveAttribute('href', /artifacts\/archive-report\/content$/);
+  await page.getByRole('button', {name: 'Use file in terminal'}).click();
+  await expect(page.locator('#terminal-command-list')).toContainText("rat-things file 'archive-report'");
+  await expect(page.locator('#terminal-command-list')).not.toContainText(outputArtifactId);
+  await page.keyboard.press('Escape');
+  await page.getByRole('button', {name: 'Show source', exact: true}).click();
+  await expect(page.locator('.viewer-text')).toContainText('# Archived fixture');
+  await page.getByRole('button', {name: 'Show preview', exact: true}).click();
+  await page.locator('#viewer-body').getByRole('link', {name: 'Current report'}).click();
+  await expect(page.locator('#viewer-title')).toHaveText('reports/release-review.md');
+  await expect(page.locator('.viewer-markdown h3')).toHaveText('Release report fixture');
+  await page.getByRole('button', {name: 'Close viewer'}).click();
+  const reply = page.locator('[data-message-id="assistant-console-e2e"] .message');
+  await expect(reply.locator('strong')).toHaveText('Ready to review');
+  await expect(reply).toContainText('& safe.');
+  await expect(reply.getByRole('link', {name: 'Missing', exact: true})).toHaveCount(0);
+  await expect(reply.getByRole('link', {name: 'Unsafe', exact: true})).toHaveCount(0);
+  await expect(reply.locator('img, script')).toHaveCount(0);
+  await reply.getByRole('link', {name: 'Updated report', exact: true}).click();
+  await expect(page.locator('#viewer-title')).toHaveText('reports/release-review.md');
+  await expect(page.locator('.viewer-markdown h3')).toHaveText('Release report fixture');
   if (process.env.RAT_THINGS_CONSOLE_SCREENSHOTS === 'on') {
     await page.screenshot({ path: 'test-results/rat-things-console-desktop-viewer.png' });
   }
@@ -447,12 +486,12 @@ test('creates, observes autonomous work, and completes a durable API conversatio
   existingRow = page.locator('.conversation-row').filter({ hasText: 'Previous release summary' });
   await existingRow.locator('summary').click();
   await existingRow.getByRole('button', { name: 'Mark as unread', exact: true }).click();
-  await expect(page.getByRole('button', { name: /Previous release summary, New/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: /Previous release summary, Ready, Unread/ })).toBeVisible();
   await page.reload();
   await expect(page.locator('html')).toHaveAttribute('data-console-ready', 'true');
   await expect(page.getByRole('heading', { name: conversationName })).toBeVisible();
   await expect(page.locator('.conversation-section').filter({ has: page.getByRole('heading', { name: 'Pinned' }) })
-    .getByRole('button', { name: /Previous release summary, New/ })).toBeVisible();
+    .getByRole('button', { name: /Previous release summary, Ready, Unread/ })).toBeVisible();
   existingRow = page.locator('.conversation-row').filter({ hasText: 'Previous release summary' });
   await existingRow.locator('summary').click();
   await existingRow.getByRole('button', { name: 'Mark as read', exact: true }).click();
@@ -806,6 +845,39 @@ test('manages verified connections and durable routines from the product navigat
   await expect(page.locator('#management-view')).toBeHidden();
 });
 
+test('keeps unavailable saved Activity explicit, retries it, and separates unread from working and failed', async ({page}) => {
+  let available = false;
+  const work = {runId: 'run-existing', active: false, status: 'succeeded', completedAt: '2026-08-24T16:00:02Z', startedAt: Date.parse('2026-08-24T16:00:00Z'), events: [activity(50, 'tool', 'started', 'Navigate started')], pendingRequests: []};
+  await page.addInitScript(({id, work}) => {
+    localStorage.setItem(`rat-things.work.${id}`, JSON.stringify(work));
+  }, {id: existingConversationId, work});
+  await page.route('**/api/v1/runs/run-existing/events?source=durable', route => route.fulfill(available ? {
+    json: {runId: 'run-existing', source: 'durable', truncated: false, events: [activity(1, 'tool', 'completed', 'Navigate completed')]},
+  } : {status: 409, json: {error: {message: 'saved Activity is not available yet'}}}));
+  await page.route('**/api/v1/conversations?*', route => route.fulfill({json: {items: [
+    {...existingConversationSummary(), pinned: true, unread: true},
+    {...conversationSummary(), status: 'running', pinned: false, unread: true},
+    {...archivedConversationSummary(), status: 'failed', pinned: false, unread: true},
+  ]}}));
+  await page.goto(`${consoleUrl}/?conversation=${existingConversationId}`);
+  await expect(page.getByRole('heading', {name: 'Previous release summary', exact: true})).toBeVisible();
+  const working = page.locator('.conversation-section').filter({has: page.getByRole('heading', {name: 'Working', exact: true})});
+  await expect(working).toContainText(conversationName);
+  await expect(working.locator('.conversation-unread')).toHaveText('Unread');
+  const failed = page.locator('.conversation-section').filter({has: page.getByRole('heading', {name: 'Failed', exact: true})});
+  await expect(failed).toContainText('Archived security audit');
+  await expect(page.getByRole('heading', {name: 'Needs attention', exact: true})).toHaveCount(0);
+  await page.getByRole('button', {name: 'View Activity', exact: true}).click();
+  await expect(page.locator('.activity-evidence')).toContainText('unfinished actions are unconfirmed');
+  await expect(page.locator('.phase-card')).toContainText('Navigate started');
+  available = true;
+  await page.getByRole('button', {name: 'Retry saved Activity'}).click();
+  await expect(page.locator('.activity-evidence')).toContainText('reconciled with saved events');
+  await expect(page.locator('.phase-card')).toContainText('Navigate completed');
+  await expect(page.locator('.phase-card')).toHaveAttribute('data-status', 'completed');
+  await expect(page.locator('.phase-card')).not.toContainText('Navigate started');
+});
+
 async function handleControlRequest(
   request: IncomingMessage,
   response: ServerResponse,
@@ -815,7 +887,7 @@ async function handleControlRequest(
     if (request.headers['x-runtime-owner']) {
       return sendJson(response, 403, { error: { code: 'leaked_header', message: 'owner header reached artifact storage' } });
     }
-    return sendText(response, 200, '# Release report fixture\n\nNo changes were published.\n', 'text/markdown; charset=utf-8');
+    return sendText(response, 200, '# Release report fixture\n\n**No changes were published.**\n\n[Archived report](../archive/release-review.md)\n', 'text/markdown; charset=utf-8');
   }
   const owner = request.headers['x-runtime-owner'];
   state.ownerHeaders.push(typeof owner === 'string' ? owner : '');
@@ -1132,11 +1204,14 @@ async function handleControlRequest(
   }
   if (request.method === 'GET' && url.pathname === `/v1/conversations/${threadKey}/artifacts`) {
     state.artifactReads += 1;
-    return sendJson(response, 200, { files: state.completed ? [outputArtifact()] : [] });
+    return sendJson(response, 200, { files: state.completed ? [outputArtifact(), {...outputArtifact(), id: 'archive-report', path: 'archive/release-review.md'}] : [] });
   }
   if (request.method === 'GET' && url.pathname === `/v1/conversations/${threadKey}/artifacts/${outputArtifactId}`) {
     state.artifactReads += 1;
     return sendJson(response, 200, { ...outputArtifact(), url: 'about:blank#release-report' });
+  }
+  if (request.method === 'GET' && url.pathname === `/v1/conversations/${threadKey}/artifacts/archive-report/content`) {
+    return sendText(response, 200, '# Archived fixture\n\n[Current report](../reports/release-review.md)', 'text/markdown');
   }
   if (request.method === 'GET' && url.pathname === `/v1/conversations/${threadKey}/artifacts/${outputArtifactId}/content`) {
     state.artifactReads += 1;
@@ -1165,6 +1240,10 @@ async function handleControlRequest(
     return sendJson(response, 200, runProjection(status));
   }
   if (request.method === 'GET' && url.pathname === `/v1/runs/${runId}/events`) {
+    if (url.searchParams.get('source') === 'durable') return sendJson(response, 200, {
+      runId, source: 'durable', active: false, ready: false, truncated: false,
+      events: [activity(1, 'command', 'completed', 'Command completed'), activity(2, 'tool', 'started', 'Navigate started'), activity(3, 'tool', 'completed', 'Navigate completed')], pendingRequests: [],
+    });
     const after = Number(url.searchParams.get('after') ?? '0');
     state.eventAfterValues.push(after);
     if (state.eventReads++ === 0) return sendJson(response, 503, {
@@ -1385,6 +1464,7 @@ function conversationDetail(projectionReady = state.completed): Record<string, u
           role: 'assistant',
           content: richFinalReply,
           messageId: 'assistant-console-e2e',
+          interactions: [{role: 'assistant', content: 'Saved question: which channel?'}, {role: 'user', content: 'Saved answer: staging.'}],
           receivedAt: completedAt,
           ...(state.reactions['assistant-console-e2e:👍']
             ? { reactions: [{ emoji: '👍', count: 1, reacted: true }] }
@@ -1590,7 +1670,7 @@ function runtimeSnapshot(after: number): Record<string, unknown> {
       events: [
         activity(1, 'agent', 'started', 'Agent turn started'),
         activity(2, 'message', 'updated', 'Writing response'),
-        activity(3, 'message', 'updated', 'Writing response'),
+        activity(3, 'commentary', 'completed', 'Progress update', 'Checking the release evidence.'),
       ],
       pendingRequests: [],
     },

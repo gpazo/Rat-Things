@@ -27,8 +27,15 @@ original key and request when acceptance is uncertain.
 
 On desktop, draggable separators resize the conversation list, transcript, and context pane. The
 active-Run strip keeps phase, progress, elapsed time, Steer, and a single Stop control visible.
+The sidebar separates **Working**, **Needs your input**, **Failed**, and **Recent**.
+**Unread** is an independent badge, including on pinned or working conversations; it does not
+imply that the agent is blocked. Input status requires an observed pending question.
+
 **Work details** opens grouped Activity, with Sources and Browser tabs in the same context pane.
-The pane remains accessible after completion; retained Activity can be reviewed without a live VM. At compact widths, the same context becomes a full-screen sheet and the hidden workspace is
+The pane remains accessible after completion. A compact receipt follows the completed question,
+answer, and final response. Activity replaces its live preview with the owner-checked, checksummed
+saved event projection, so a final navigation completion can be shown even after the VM stops.
+If saved evidence is unavailable, the pane labels its live updates as unconfirmed and offers a retry. At compact widths, the same context becomes a full-screen sheet and the hidden workspace is
 removed from keyboard and assistive-technology navigation.
 
 ![Rat Things desktop console showing grouped Activity beside a live AWS NVIDIA earnings conversation](../assets/conversation-console-live-activity.png)
@@ -41,6 +48,11 @@ rat-things computer open --run RUN_ID
 rat-things console --conversation PUBLIC_CONVERSATION_ID
 ```
 
+When the requested local port is occupied, the CLI starts its console on an available port and
+prints one URL for the selected conversation or Run. Each launch uses the current terminal’s API
+URL and credentials. The default command keeps serving until stopped; `--no-wait` leaves it running
+in the background. This behavior also applies to `computer open`.
+
 **Use in terminal** in the conversation header provides copyable commands to continue, read,
 open, and list files for the selected conversation. Use the same API URL and AWS identity in your
 terminal. The public-ID console link loads that exact conversation even when it is hidden or
@@ -51,8 +63,16 @@ next refresh attaches the live progress, questions, and Stop controls without lo
 Message actions show **Reply** and **React**; the reaction picker contains the four supported emoji.
 Existing reactions and their counts remain visible beside the message.
 
+Generated Markdown links such as `[Updated report](.rat-things/artifacts/reports/report.md)`
+open the matching file in the conversation viewer. Links resolve against the current conversation’s
+file catalog by full path, so duplicate filenames stay unambiguous. Markdown files use the same safe
+formatting as messages, with **Show source** to inspect the original text. Links inside a Markdown
+file can refer to sibling files or parent directories within the catalog. Missing files and unsafe
+links stay inactive; embedded HTML is shown as text and Markdown images do not load automatically.
+
 File viewers provide **Open in new tab**, **Download**, and **Use file in terminal**. The terminal
-commands select the opaque file ID and the current thread so duplicate filenames remain unambiguous:
+commands select the displayed file’s opaque ID and conversation, including after following links
+between files. Duplicate filenames remain unambiguous:
 
 ```bash
 rat-things files --thread release-review
@@ -61,18 +81,31 @@ rat-things file report.md --thread release-review --open
 rat-things file report.md --thread release-review --download ./report.md
 ```
 
+`files` lists copyable preview, open, and download commands for each file. Completed human-readable
+`chat` results and `submit --wait --output` also print actions for the Run’s files on stderr. An
+ambiguous basename lists matching paths with commands that select their exact IDs; an exact path
+or ID takes precedence over basename matching. Missing-file errors include a command to list files.
+
 CLI previews read at most 64 KiB of text, neutralize terminal controls, and report truncation.
 Binary files can be opened or downloaded; downloads refuse to overwrite existing paths. With no
 mode, `file` still prints its URL, and `--json` returns the descriptor. These modes are mutually
 exclusive. The console's text preview is also bounded (2 MB); download to inspect the whole file.
 
+Readable `watch` output and console Activity share one presentation layer. Completed assistant
+commentary appears as **Progress update**, bounded to 500 characters. Generic message drafting,
+reasoning lifecycle events, usage ticks, and generic activity stay in **Technical evidence**,
+`--raw`, or `--json`. Useful tool phases, distinct details, file updates, completion, and errors
+remain visible. The public event schema adds the `commentary` kind; native reasoning, unfinished
+message text, tool arguments, and tool results remain private. Deploy the control API update to
+receive commentary; older APIs still benefit from client-side noise filtering.
+
 `chat` and `watch --follow` use the same **Starting**, **Working**, and **Needs input** language as
 the console. `chat --diagnostics` includes underlying message, conversation, Run, and MicroVM states;
-`watch --diagnostics` includes the raw Run status. JSON schemas remain unchanged. **Saving** means
+`watch --diagnostics` includes the raw Run status. These display options do not alter JSON output. **Saving** means
 the Run succeeded but the conversation has not settled yet. Completion is **Done**; stopping is
 **Stopped**. Saved Run events are also available from **Use in terminal** when the Run ID is retained.
-Activity is retained in this browser session; opening a conversation on another device does not
-restore live Activity. The final browser frame remains visible while its pane stays open. The durable transcript and files remain available.
+The last Run ID is retained in this browser; reopening it can load saved Activity without a live VM.
+Opening the conversation on another device does not restore that local Run selection. The final browser frame remains visible while its pane stays open. The durable transcript and files remain available.
 
 ## How durability works
 
@@ -221,17 +254,24 @@ message or filename.
 ### Conversation workflows from the CLI
 
 The CLI exposes the owner read model directly. The plural namespace discovers work; the singular
-namespace acts on one opaque public conversation ID:
+namespace accepts an existing thread name or opaque public conversation ID:
 
 ```bash
 rat-things conversations list --visibility visible --limit 25
 rat-things conversations search "NVIDIA earnings"
-rat-things conversation show PUBLIC_CONVERSATION_ID --limit 50
+rat-things conversation show earnings-review --limit 50
 rat-things conversation sources PUBLIC_CONVERSATION_ID
 rat-things conversation pin PUBLIC_CONVERSATION_ID
 rat-things conversation read PUBLIC_CONVERSATION_ID
 rat-things conversation react PUBLIC_CONVERSATION_ID MESSAGE_ID 👍
 ```
+
+`--conversation` accepts an existing thread name or public ID with `chat`, `files`, `file`, and
+`console`. `chat --conversation PUBLIC_ID` resolves the original API thread before submitting;
+it never uses that ID as a new thread name. Use `chat --thread NAME` to create or continue a named
+thread. Read and organization commands never create conversations. Name lookups include hidden
+conversations and follow list cursors; an incomplete lookup asks for the public ID. Provider
+conversations without an API thread remain readable by public ID but cannot be continued by `chat`.
 
 Use `--next-token` with `conversations list` or `conversation show` to page without interpreting the
 opaque cursor. Add `--json` for the installed OpenAPI response instead of the human-readable view.
@@ -267,7 +307,7 @@ Omit agent options on follow-up messages to inherit the conversation's fixed exe
 including browser access. The console displays an inherited browser setting as checked and disabled.
 Start a new conversation when different capabilities are needed.
 
-`rat-things watch RUN_ID --follow` renders the stable public activity cards as a readable timeline
+`rat-things watch RUN_ID --follow` groups the stable public activity cards into the same readable phases as console Activity
 and prints answer commands for structured ordinary input. Use repeatable
 `--answer QUESTION_ID=VALUE` for ordinary values. Secret questions print
 `--answer-stdin QUESTION_ID`; TTY input is hidden and piped input consumes exactly one line per
@@ -522,3 +562,15 @@ execution models.
 The conversation's execution and integration policy is fixed by its first accepted Run. Later turns
 must match it; they cannot widen authority through a message or response. See [the capability
 envelope](capability-envelope.md).
+
+
+### Saved Activity API
+
+`GET /v1/runs/{runId}/events?source=durable` returns a terminal Run's final 200 safe activity
+notifications, with `source: "durable"`, no pending requests, and `truncated` when the preview is
+bounded or incomplete. The service checks Run ownership before reading storage and validates the
+saved file's checksum. Preview reads are capped at 64 MiB, with a 2 MiB line limit. Oversized or
+corrupt evidence stays unavailable rather than being presented as verified. Raw App Server data,
+commands, and tool results remain private. Durable and live sequence numbers are independent;
+clients replace their live preview instead of merging the two timelines. `after` and `limit` only
+apply to the default live source. The complete event file remains available through the terminal.

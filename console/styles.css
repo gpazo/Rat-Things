@@ -517,3 +517,14 @@ button:disabled { cursor: default; opacity: .55; }
   .run-strip-indicator, .transcript-loading span { animation: none; }
   .sidebar, .sidebar-scrim { transition: none; }
 }
+
+.viewer-markdown { align-self: start; justify-self: stretch; min-width: 0; padding: 18px; white-space: normal; }
+.markdown-table { max-width: 100%; overflow: auto; }
+.markdown-table table { border-collapse: collapse; }
+.markdown-table th, .markdown-table td { border: 1px solid var(--line); padding: 6px 10px; text-align: left; }
+
+.completion-receipt { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin: 0 0 24px; padding: 10px 0; color: var(--muted); font-size: 12px; border-top: 1px solid var(--line); }
+.completion-receipt strong { color: var(--text); }
+.completion-receipt button, .activity-evidence button { color: var(--accent); background: transparent; border: 0; text-decoration: underline; cursor: pointer; }
+.conversation-unread { color: #87bff4; font-size: 10px; }
+.activity-evidence { color: var(--muted); font-size: 12px; line-height: 1.5; }

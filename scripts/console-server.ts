@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
+import { existsSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { readFile, stat } from 'node:fs/promises';
 import { extname, resolve } from 'node:path';
 import process from 'node:process';
@@ -10,7 +12,7 @@ import { HttpRequest } from '@smithy/protocol-http';
 import { SignatureV4 } from '@smithy/signature-v4';
 
 const host = '127.0.0.1';
-const port = boundedPort(process.env.RAT_THINGS_CONSOLE_PORT ?? '4174');
+let port = boundedPort(process.env.RAT_THINGS_CONSOLE_PORT ?? '4174');
 const consoleRoot = resolve(process.env.RAT_THINGS_CONSOLE_ROOT ?? 'console');
 const upstreamBase = requiredApiUrl();
 
@@ -21,10 +23,28 @@ const server = createServer((request, response) => {
   });
 });
 
-server.listen(port, host, () => {
-  process.stdout.write(`Rat Things console: http://${host}:${port}\n`);
-  process.stdout.write(`Control API: ${new URL(upstreamBase).origin}\n`);
+// The launcher waits for this process's bound port, never an unrelated HTTP listener.
+server.on('error', (error: NodeJS.ErrnoException) => {
+  if (error.code === 'EADDRINUSE' && process.env.RAT_THINGS_CONSOLE_LAUNCHER === '1' && port !== 0) {
+    port = 0;
+    server.listen(port, host);
+    return;
+  }
+  process.stderr.write(`Could not start console: ${error.code === 'EADDRINUSE' ? 'port is occupied; choose another port' : error.message}\n`);
+  process.exitCode = 1;
 });
+server.on('listening', () => {
+  const address = server.address();
+  if (!address || typeof address === 'string') throw new Error('console has no TCP address');
+  port = address.port;
+  if (process.env.RAT_THINGS_CONSOLE_LAUNCHER === '1') {
+    process.stdout.write(`${JSON.stringify({ port })}\n`);
+  } else {
+    process.stdout.write(`Rat Things console: http://${host}:${port}\n`);
+    process.stdout.write(`Control API: ${new URL(upstreamBase).origin}\n`);
+  }
+});
+server.listen(port, host);
 
 async function handle(request: IncomingMessage, response: ServerResponse): Promise<void> {
   if (!validHost(request.headers.host)) return json(response, 403, error('forbidden', 'invalid host'));
@@ -37,10 +57,11 @@ async function handle(request: IncomingMessage, response: ServerResponse): Promi
     return json(response, 405, error('method_not_allowed', 'only GET and HEAD are allowed for console files'));
   }
   const file = requestUrl.pathname === '/' ? 'index.html' : requestUrl.pathname.slice(1);
-  if (!['index.html', 'app.js', 'presentation.js', 'styles.css'].includes(file)) {
+  if (!['index.html', 'app.js', 'presentation.js', 'artifact-links.js', 'activity.js', 'markdown.js', 'marked.js', 'styles.css'].includes(file)) {
     return json(response, 404, error('not_found', 'console file not found'));
   }
-  const path = resolve(consoleRoot, file);
+  const localPath = resolve(consoleRoot, file);
+  const path = file === 'marked.js' && !existsSync(localPath) ? fileURLToPath(import.meta.resolve('marked')) : localPath;
   const metadata = await stat(path);
   if (!metadata.isFile()) return json(response, 404, error('not_found', 'console file not found'));
   const body = await readFile(path);

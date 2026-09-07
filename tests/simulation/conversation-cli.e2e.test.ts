@@ -18,6 +18,7 @@ vi.setConfig({ testTimeout: 30_000 });
 describe('conversation CLI-to-HTTP workflow', () => {
   const requests: Array<{ method: string; path: string; body: unknown; headers: IncomingMessage['headers'] }> = [];
   let followSnapshots = 0;
+  let progressSnapshots = 0;
   let followRuns = 0;
   let chatPolls = 0;
   const server = createServer(async (request, response) => {
@@ -53,7 +54,7 @@ describe('conversation CLI-to-HTTP workflow', () => {
           }],
         });
       }
-      return send(response, { items: [summary], nextToken: 'older-page' });
+      return send(response, { items: [summary], ...(request.url.includes('nextToken=older-page') ? {} : {nextToken: 'older-page'}) });
     }
     if (request.method === 'GET' && request.url?.startsWith('/v1/conversations/search?')) {
       return send(response, {
@@ -61,7 +62,7 @@ describe('conversation CLI-to-HTTP workflow', () => {
         items: [{ conversation: summary, matches: [{ kind: 'message', role: 'assistant', snippet: 'Revenue increased.' , occurredAt: now }] }],
       });
     }
-    if (request.method === 'GET' && request.url?.startsWith(`/v1/conversations/${conversationId}?`)) {
+    if (request.method === 'GET' && (request.url === `/v1/conversations/${conversationId}` || request.url?.startsWith(`/v1/conversations/${conversationId}?`))) {
       const url = new URL(request.url, 'http://127.0.0.1');
       if (url.searchParams.has('nextToken')) {
         return send(response, {
@@ -86,7 +87,7 @@ describe('conversation CLI-to-HTTP workflow', () => {
         },
       });
     }
-    if (request.method === 'GET' && request.url === `/v1/conversations/${conversationId}/artifacts`) {
+    if (request.method === 'GET' && [`/v1/conversations/${conversationId}/artifacts`, '/v1/conversations/earnings/artifacts', '/v1/runs/run-1/artifacts'].includes(request.url ?? '')) {
       return send(response, {
         files: [{
           id: 'artifact-1',
@@ -102,11 +103,19 @@ describe('conversation CLI-to-HTTP workflow', () => {
     if (request.method === 'GET' && request.url === `/v1/conversations/${conversationId}/artifacts/artifact-1`) {
       return send(response, {id: 'artifact-1', url: `${apiUrl}/file-content`, mediaType: 'text/plain'});
     }
+    if (request.method === 'GET' && request.url === '/v1/conversations/duplicates/artifacts') {
+      return send(response, {files: [
+        {id: 'current', path: "reports/customer's report.md", mediaType: 'text/markdown', bytes: 12},
+        {id: 'archive', path: "archive/customer's report.md", mediaType: 'text/markdown', bytes: 12},
+      ]});
+    }
     if (request.method === 'GET' && request.url === '/file-content') {
       response.setHeader('content-type', 'text/plain');
       response.end('Report\u001b[31m\n' + 'x'.repeat(70_000));
       return;
     }
+    if (request.method === 'GET' && request.url === '/v1/runs/run-1/artifacts/output') return send(response, {url: `${apiUrl}/final-output`});
+    if (request.method === 'GET' && request.url === '/final-output') { response.end('Report ready.'); return; }
     if (request.method === 'POST' && request.url === '/v1/runs') {
       return send(response, { runId: 'run-1', status: 'queued', createdAt: now, updatedAt: now }, 202);
     }
@@ -148,6 +157,23 @@ describe('conversation CLI-to-HTTP workflow', () => {
         events: [{ sequence: 4, occurredAt: now, kind: 'agent', status: 'completed', title: 'Newest retained activity' }],
         pendingRequests: [],
       });
+    }
+    if (request.method === 'GET' && request.url?.startsWith('/v1/runs/run-progress/events?')) {
+      progressSnapshots++;
+      const after = Number(new URL(request.url, 'http://localhost').searchParams.get('after'));
+      const events = Array.from({length: 15}, (_, index) => ({
+        sequence: (after ? 16 : 1) + index, occurredAt: now, kind: 'message', status: 'updated', title: 'Writing response',
+      }));
+      events[1] = {...events[1]!, kind: 'commentary', status: 'completed', title: after ? 'Appending the page title to the report.' : 'Opening the page to capture its title.'};
+      events.push({sequence: after ? 31 : 16, occurredAt: now, kind: 'usage', status: 'updated', title: 'Context usage updated'});
+      if (after) events.push(
+        {sequence: 32, occurredAt: now, kind: 'file', status: 'completed', title: 'File changes applied'},
+        {sequence: 33, occurredAt: now, kind: 'error', status: 'failed', title: 'Tool failed'},
+      );
+      return send(response, {runId: 'run-progress', active: !after, ready: true, oldestSequence: 1, nextSequence: after ? 34 : 17, events, pendingRequests: []});
+    }
+    if (request.method === 'GET' && request.url === '/v1/runs/run-progress') {
+      return send(response, {runId: 'run-progress', status: progressSnapshots < 2 ? 'running' : 'succeeded', createdAt: now, updatedAt: now});
     }
     if (request.method === 'GET' && request.url?.startsWith('/v1/runs/run-follow/events?')) {
       followSnapshots += 1;
@@ -245,6 +271,15 @@ describe('conversation CLI-to-HTTP workflow', () => {
     expect(result.stderr).toContain("--answer-stdin 'token'");
   });
 
+  it('prints concrete file actions after a successful human chat result', async () => {
+    chatPolls = 0;
+    const result = await cli(['chat', '--thread', 'questions', '--poll-seconds', '1', 'Make a report'], apiUrl);
+    expect(result.stdout).toContain('Report ready.');
+    expect(result.stderr).toContain("rat-things file 'artifact-1' --run 'run-1' --preview");
+    expect(result.stderr).toContain("--run 'run-1' --open");
+    expect(result.stderr).toContain("--download './earnings.txt'");
+  });
+
   it('keeps infrastructure state available explicitly for diagnosis', async () => {
     chatPolls = 0;
     const result = await cli(['chat', '--thread', 'questions', '--json', '--diagnostics', '--poll-seconds', '1', 'Ask me'], apiUrl);
@@ -286,6 +321,33 @@ describe('conversation CLI-to-HTTP workflow', () => {
     } finally {
       await rm(directory, {recursive: true, force: true});
     }
+  });
+
+  it('resolves existing thread names and public IDs consistently without creating on lookup', async () => {
+    expect((await cli(['conversation', 'show', 'earnings', '--limit', '25'], apiUrl)).stdout).toContain('Revenue increased.');
+    await cli(['conversation', 'pin', 'earnings'], apiUrl);
+    expect(requests.at(-1)?.path).toBe(`/v1/conversations/${conversationId}/organization`);
+    expect((await cli(['files', '--conversation', conversationId], apiUrl)).stdout).toContain(`--thread '${conversationId}' --preview`);
+    await cli(['chat', '--conversation', conversationId, '--driver', 'mock', '--no-wait', 'Continue'], apiUrl);
+    expect(requests.at(-1)?.body).toMatchObject({thread: {key: 'earnings'}});
+    const before = requests.length;
+    await expectCliFailure(['conversation', 'show', 'typo'], apiUrl, 'was not found');
+    await expectCliFailure(['chat', '--conversation', 'typo', 'Continue'], apiUrl, 'was not found');
+    expect(requests.slice(before).every(request => request.method === 'GET')).toBe(true);
+  });
+
+  it('lists ambiguous file paths with executable commands and offers recovery for missing files', async () => {
+    try {
+      await cli(['file', "customer's report.md", '--thread', 'duplicates', '--preview'], apiUrl);
+      throw new Error('expected ambiguity');
+    } catch (error) {
+      const stderr = (error as {stderr: string}).stderr;
+      expect(stderr).toContain("reports/customer's report.md");
+      expect(stderr).toContain("archive/customer's report.md");
+      expect(stderr).toContain("rat-things file 'current' --thread 'duplicates' --preview");
+      expect(stderr).toContain("rat-things file 'archive' --thread 'duplicates' --preview");
+    }
+    await expectCliFailure(['file', 'missing', '--thread', 'duplicates'], apiUrl, "rat-things files --thread 'duplicates'");
   });
 
   it('lists, searches, pages, organizes, reacts, and collects sources', async () => {
@@ -361,7 +423,7 @@ describe('conversation CLI-to-HTTP workflow', () => {
 
   it('renders readable activity, structured response commands, and typed computer actions', async () => {
     const watched = await cli(['watch', 'run-1'], apiUrl);
-    expect(watched.stdout).toContain('✓ Web search completed');
+    expect(watched.stdout).toContain('✓ Researching the web — Web search completed');
     expect(watched.stderr).toContain('scope: Which quarter?');
     expect(watched.stderr).toContain("--answer 'scope=VALUE'");
     expect(watched.stderr).toContain("--answer-stdin 'token'");
@@ -425,6 +487,22 @@ describe('conversation CLI-to-HTTP workflow', () => {
     expect(requests.length).toBe(before);
   });
 
+  it('groups readable progress across polling boundaries while retaining machine-readable events', async () => {
+    progressSnapshots = 0;
+    const followed = await cli(['watch', 'run-progress', '--follow', '--poll-seconds', '1'], apiUrl);
+    expect(followed.stdout).not.toContain('Preparing the answer');
+    expect(followed.stdout).toContain('Opening the page to capture its title.');
+    expect(followed.stdout).toContain('Appending the page title to the report.');
+    expect(followed.stdout).toContain('Updating files — File changes applied');
+    expect(followed.stdout).toContain('Something needs attention — Tool failed');
+    expect(followed.stdout).not.toContain('Context usage');
+    expect(followed.stderr).toContain('Done · Run run-progress');
+    const raw = await cli(['watch', 'run-progress', '--raw'], apiUrl);
+    expect(raw.stdout.trim().split('\n').map(line => JSON.parse(line))).toHaveLength(16);
+    const json = await cli(['watch', 'run-progress', '--json'], apiUrl);
+    expect(JSON.parse(json.stdout).events).toHaveLength(16);
+  });
+
   it('emits parseable follow JSONL, warns about activity loss, and provides contextual help', async () => {
     followSnapshots = 0;
     followRuns = 0;
@@ -453,7 +531,7 @@ describe('conversation CLI-to-HTTP workflow', () => {
 
     const conversationHelp = await cli(['conversation', '--help'], apiUrl);
     expect(conversationHelp.stdout).toContain('Rat Things conversations');
-    expect(conversationHelp.stdout).toContain('conversation sources PUBLIC_ID');
+    expect(conversationHelp.stdout).toContain('conversation sources ID_OR_THREAD');
     const chatHelp = await cli(['chat', '--help'], apiUrl);
     expect(chatHelp.stdout).toContain('Rat Things chat');
     expect(chatHelp.stdout).toContain('Use -- before prompt text that starts with a dash.');

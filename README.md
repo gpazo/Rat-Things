@@ -135,9 +135,12 @@ Start by sending a message, or choose a readable conversation name first. The co
 an uncertain submission for retry after reload, and follow-ups from either client inherit the
 conversation's fixed capabilities. Questions, non-secret answers, and steering remain in history;
 graceful Stop retains partial output and files when runner finalization completes. **Work details**
-opens Activity, Sources, and Browser; the active Run strip provides one Stop control. The CLI uses
+opens Activity, Sources, and Browser; the active Run strip provides one Stop control. Completed
+turns end with a compact receipt, and Activity reconciles with saved evidence. The sidebar separates
+Working, Needs your input, and Failed, while unread remains an independent badge. The CLI uses
 the same Starting, Working, and Needs input labels, with infrastructure states under `--diagnostics`.
-File viewers offer download and file-specific terminal commands; `rat-things file` supports
+Generated file links open the matching conversation file. Messages and Markdown previews share safe
+formatting, with a source toggle in the viewer. File viewers offer download and file-specific terminal commands; `rat-things file` supports
 `--preview`, `--open`, and `--download PATH`.
 
 <p align="center">
@@ -203,8 +206,13 @@ walkthrough](docs/linear.md).
 List and search return an opaque public conversation ID for transcript, organization, reaction, and
 source commands. `conversation sources` pages the complete indexed transcript, labels transcript
 links as claims rather than verified visits, and reads durable files through the same opaque ID.
-API-created conversations also return their caller-chosen thread key; use that key with
-`chat --thread` to continue work. `watch` presents human-readable activity by default. A single
+Conversation commands accept an existing thread name or public ID. Use `chat --conversation ID`
+to continue its original API thread, or `chat --thread NAME` to create or continue a named thread.
+`files` and completed chat results offer file-specific preview, open, and download commands.
+`watch` and console Activity show bounded assistant commentary and useful tool/file phases,
+filtering generic drafting and reasoning updates while preserving errors and questions.
+Reopening `console` or `computer open` selects an available port when the requested port is occupied
+and prints one URL using the current terminal’s API and credentials. A single
 `--json` poll is one JSON document; `--follow --json` is JSONL snapshots; `--raw` is JSONL activity
 cards. Follow mode treats the handoff from a finished MicroVM to durable Run history as normal
 completion. Integration operation allow/deny flags accept either repeated values or comma-separated

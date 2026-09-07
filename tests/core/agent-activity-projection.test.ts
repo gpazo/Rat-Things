@@ -4,6 +4,27 @@ import type { AgentRuntimeSnapshot } from '../../src/domain/interaction.js';
 import type { JsonValue } from '../../src/domain/contracts.js';
 
 describe('public agent activity projection', () => {
+  it('copies only completed assistant commentary as bounded progress, never drafts or reasoning', () => {
+    const items = [
+      {type: 'agentMessage', phase: 'commentary', text: 'Opening the page.\nCapturing its title.\u001b'},
+      {type: 'agentMessage', phase: 'commentary', text: 'x'.repeat(2_000)},
+      {type: 'agentMessage', phase: 'final_answer', text: 'private final draft'},
+      {type: 'agentMessage', text: 'private unspecified message'},
+      {type: 'reasoning', text: 'private reasoning'},
+      {type: 'userMessage', phase: 'commentary', text: 'private prompt'},
+    ];
+    const projected = projectPublicAgentRuntime({
+      runId: 'commentary', active: true, ready: true, oldestSequence: 0, nextSequence: 7,
+      pendingRequests: [],
+      events: [event(0, 'item/started', {item: items[0]!}), ...items.map((item, index) => event(index + 1, 'item/completed', {item}))],
+    });
+    expect(projected.events.filter(item => item.kind === 'commentary')).toEqual([
+      expect.objectContaining({detail: 'Opening the page. Capturing its title.', status: 'completed'}),
+      expect.objectContaining({detail: 'x'.repeat(500)}),
+    ]);
+    expect(JSON.stringify(projected)).not.toContain('private');
+  });
+
   it('projects bounded structured questions without exposing native turn coordinates', () => {
     const snapshot: AgentRuntimeSnapshot = {
       runId: 'run-question',

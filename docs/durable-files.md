@@ -27,18 +27,20 @@ rat-things handoff --thread pelican-demo --sandbox workspace-write \
   relative filename in your reply."
 
 rat-things files --thread pelican-demo
-rat-things file pelican-bicycle.webp --thread pelican-demo
+rat-things file pelican-bicycle.webp --thread pelican-demo --open
 ```
 
-The successful chat command also prints links for files created or changed by that turn. The final
-`file` command is useful when a person needs a fresh link later. Output looks like this; the values
-are placeholders, not a live artifact:
+The successful chat command prints file-specific open and download commands on stderr, alongside
+its final answer on stdout. Text files also offer a bounded `--preview`. `files` lists the same
+actions, and the final `file --open` command opens the selected image in your browser. With no
+mode, `file` prints only its URL; `--json` returns the descriptor for scripts.
 
-```text
-pelican-bicycle.webp  https://<publication>.<share-domain>/__share/<token>
-```
+Use `--conversation PUBLIC_ID` to select an existing conversation by public ID, or supply its thread
+name. An ambiguous basename lists matching paths with commands that select exact file IDs. In the
+console, generated Markdown file links open the catalog-backed viewer; **Use file in terminal**
+always targets the displayed file, including after following a link to another file.
 
-Open that URL in a browser or download the bytes explicitly:
+Download a copy explicitly; existing destination files are never overwritten:
 
 ```bash
 rat-things file pelican-bicycle.webp \

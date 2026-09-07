@@ -427,7 +427,8 @@
       "get": {
         "tags": ["Runs"],
         "operationId": "getRunEvents",
-        "parameters": [{ "$ref": "#/components/parameters/RunId" }, { "name": "after", "in": "query", "schema": { "type": "integer", "minimum": 0, "default": 0 } }, { "name": "limit", "in": "query", "schema": { "type": "integer", "minimum": 1, "maximum": 100, "default": 100 } }],
+        "description": "Live activity by default. source=durable reads the final 200 projected notifications from a terminal Run's checksummed saved event file; raw protocol remains private. Durable sequences are independent of live cursors, so clients replace their live preview. after and limit apply only to live activity. Missing evidence returns a conflict; truncated marks a bounded or incomplete preview.",
+        "parameters": [{ "name": "source", "in": "query", "schema": { "type": "string", "enum": ["live", "durable"], "default": "live" } }, { "$ref": "#/components/parameters/RunId" }, { "name": "after", "in": "query", "schema": { "type": "integer", "minimum": 0, "default": 0 } }, { "name": "limit", "in": "query", "schema": { "type": "integer", "minimum": 1, "maximum": 100, "default": 100 } }],
         "responses": { "200": { "description": "Ordered typed live activity and pending input requests; raw App Server protocol data remains private", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RunEventSnapshot" } } } }, "default": { "$ref": "#/components/responses/Error" } }
       }
     },
@@ -1864,6 +1865,8 @@
         "additionalProperties": false,
         "required": ["runId", "active", "ready", "oldestSequence", "nextSequence", "events", "pendingRequests"],
         "properties": {
+          "source": { "type": "string", "enum": ["durable"], "description": "Present only for the saved evidence preview; its sequence numbers are independent of live activity." },
+          "truncated": { "type": "boolean", "description": "Saved preview excludes early events or contains malformed lines." },
           "runId": { "type": "string" },
           "active": { "type": "boolean" },
           "ready": { "type": "boolean" },
@@ -1878,7 +1881,7 @@
               "properties": {
                 "sequence": { "type": "integer", "minimum": 0 },
                 "occurredAt": { "type": "string", "format": "date-time" },
-                "kind": { "enum": ["agent", "message", "reasoning", "command", "file", "tool", "web_search", "computer", "plan", "compaction", "usage", "error", "activity"] },
+                "kind": { "enum": ["agent", "message", "commentary", "reasoning", "command", "file", "tool", "web_search", "computer", "plan", "compaction", "usage", "error", "activity"] },
                 "status": { "enum": ["started", "updated", "completed", "failed", "info"] },
                 "title": { "type": "string", "minLength": 1, "maxLength": 160 },
                 "detail": { "type": "string", "maxLength": 500 }

@@ -1,4 +1,7 @@
-import { runPresentation, isTextArtifact, readTextPreview, formatBytes, shellArgument, fileCommands } from './presentation.js';
+import { coalesceActivities, groupActivities } from './activity.js';
+import { renderMarkdown } from './markdown.js';
+import { resolveArtifactLink, isMarkdownArtifact } from './artifact-links.js';
+import { conversationWorkState, completionReceiptIndex, runPresentation, isTextArtifact, readTextPreview, formatBytes, shellArgument, fileCommands } from './presentation.js';
 
 const elements = {
   shell: document.querySelector('.app-shell'),
@@ -63,6 +66,7 @@ const elements = {
   viewerOpen: document.querySelector('#viewer-open'),
   viewerDownload: document.querySelector('#viewer-download'),
   viewerTerminal: document.querySelector('#viewer-terminal'),
+  viewerSource: document.querySelector('#viewer-source'),
   closeViewer: document.querySelector('#close-viewer'),
   contextResizer: document.querySelector('#context-resizer'),
   contextPane: document.querySelector('#context-pane'),
@@ -224,6 +228,12 @@ elements.dialogForm.addEventListener('submit', createDraftThread);
 elements.composer.addEventListener('submit', submitMessage);
 elements.attachFiles.addEventListener('click', () => elements.fileInput.click());
 elements.fileInput.addEventListener('change', selectAttachments);
+elements.viewerSource.addEventListener('click', () => {
+  const viewing = state.viewerFile;
+  if (!viewing?.preview) return;
+  viewing.source = !viewing.source;
+  elements.viewerBody.replaceChildren(textPreviewNode(viewing));
+});
 elements.closeViewer.addEventListener('click', () => elements.viewer.close());
 elements.viewer.addEventListener('close', () => { state.viewerFile = null; elements.viewerBody.replaceChildren(); });
 elements.viewerTerminal.addEventListener('click', () => {
@@ -1470,12 +1480,12 @@ function emptyConversationList(text) {
 function conversationSections(conversations) {
   const pinned = conversations.filter((conversation) => conversation.pinned);
   const remaining = conversations.filter((conversation) => !conversation.pinned);
-  const attention = remaining.filter((conversation) => conversationAttention(conversation) !== 'ready');
-  const attentionIds = new Set(attention.map((conversation) => conversation.conversationId));
   return [
     ['Pinned', pinned],
-    ['Needs attention', attention],
-    ['Recent', remaining.filter((conversation) => !attentionIds.has(conversation.conversationId))],
+    ['Needs your input', remaining.filter(item => conversationAttention(item) === 'needs-input')],
+    ['Failed', remaining.filter(item => conversationAttention(item) === 'failed')],
+    ['Working', remaining.filter(item => conversationAttention(item) === 'working')],
+    ['Recent', remaining.filter(item => conversationAttention(item) === 'ready')],
   ];
 }
 
@@ -1609,7 +1619,7 @@ function conversationNode(conversation, onSelect = () => void selectConversation
   button.setAttribute('aria-current', state.selected?.conversationId === conversation.conversationId ? 'page' : 'false');
   const attention = conversationAttention(conversation);
   button.dataset.state = attention;
-  button.setAttribute('aria-label', `${labelFor(conversation)}, ${attentionLabel(attention)}`);
+  button.setAttribute('aria-label', `${labelFor(conversation)}, ${attentionLabel(attention)}${conversation.unread ? ', Unread' : ''}`);
   button.addEventListener('click', onSelect);
 
   const avatar = document.createElement('span');
@@ -1639,6 +1649,12 @@ function conversationNode(conversation, onSelect = () => void selectConversation
   time.dateTime = conversation.updatedAt;
   time.textContent = relativeTime(conversation.updatedAt);
   meta.append(time);
+  if (conversation.unread) {
+    const unread = document.createElement('span');
+    unread.className = 'conversation-unread';
+    unread.textContent = 'Unread';
+    meta.append(unread);
+  }
   if (attention !== 'ready') {
     const status = document.createElement('span');
     status.className = 'conversation-state-label';
@@ -1777,6 +1793,7 @@ async function selectConversation(conversation) {
     if (state.activeRunId) restoreLiveWork(conversation.conversationId, state.activeRunId);
     renderWorkspace({ scrollMode: 'bottom' });
     if (state.activeRunId) await pollRun();
+    else void reconcileCompletedActivity();
   } catch (error) {
     if (revision === state.selectionRevision) {
       state.detailLoading = false;
@@ -1994,21 +2011,13 @@ function renderTranscript(messages, work) {
     elements.transcript.append(loadOlder);
   }
 
-  let workIndex = -1;
-  if (work) {
-    for (let index = messages.length - 1; index >= 0; index -= 1) {
-      if (messages[index].role === 'user') {
-        workIndex = index;
-        break;
-      }
-    }
-  }
+  const workIndex = work?.active ? messages.length - 1 : work ? completionReceiptIndex(messages, work.completedAt) : -1;
+  if (work && workIndex < 0) elements.transcript.append(workNode(work));
   for (const [index, item] of messages.entries()) {
     for (const interaction of item.interactions ?? []) elements.transcript.append(messageNode(interaction));
     elements.transcript.append(messageNode(item));
     if (index === workIndex) elements.transcript.append(workNode(work));
   }
-  if (work && workIndex < 0) elements.transcript.append(workNode(work));
   renderUnattachedArtifacts(messages);
 }
 
@@ -2129,7 +2138,7 @@ function reactionButton(item, emoji, closeDialog = false) {
   button.addEventListener('click', async () => {
     if (await toggleReaction(item, emoji, button) && closeDialog) {
       elements.reactionDialog.close();
-      elements.transcript.querySelector(`[data-message-id="${CSS.escape(item.messageId)}"] [aria-haspopup="dialog"]`)?.focus();
+      elements.transcript.querySelector(`[data-message-id="${CSS.escape(item.messageId)}"] .message-actions [aria-haspopup="dialog"]`)?.focus();
     }
   });
   return button;
@@ -2173,122 +2182,36 @@ function focusTranscriptMessage(messageId) {
   window.setTimeout(() => target.classList.remove('search-target'), 2_400);
 }
 
-function markdownFragment(value) {
-  const fragment = document.createDocumentFragment();
-  const lines = String(value ?? '').replace(/\r\n?/g, '\n').split('\n');
-  for (let index = 0; index < lines.length;) {
-    const line = lines[index];
-    if (!line.trim()) {
-      index += 1;
-      continue;
-    }
-    const fence = line.match(/^\s*```([^`]*)$/);
-    if (fence) {
-      const code = [];
-      index += 1;
-      while (index < lines.length && !/^\s*```\s*$/.test(lines[index])) code.push(lines[index++]);
-      if (index < lines.length) index += 1;
-      fragment.append(codeBlockNode(code.join('\n'), fence[1].trim()));
-      continue;
-    }
-    const heading = line.match(/^\s*(#{1,3})\s+(.+)$/);
-    if (heading) {
-      const node = document.createElement(`h${Math.min(heading[1].length + 2, 5)}`);
-      appendInlineMarkdown(node, heading[2]);
-      fragment.append(node);
-      index += 1;
-      continue;
-    }
-    if (/^\s*[-*]\s+/.test(line)) {
-      const list = document.createElement('ul');
-      while (index < lines.length) {
-        const item = lines[index].match(/^\s*[-*]\s+(.+)$/);
-        if (!item) break;
-        const listItem = document.createElement('li');
-        appendInlineMarkdown(listItem, item[1]);
-        list.append(listItem);
-        index += 1;
-      }
-      fragment.append(list);
-      continue;
-    }
-    if (/^\s*\d+\.\s+/.test(line)) {
-      const list = document.createElement('ol');
-      while (index < lines.length) {
-        const item = lines[index].match(/^\s*\d+\.\s+(.+)$/);
-        if (!item) break;
-        const listItem = document.createElement('li');
-        appendInlineMarkdown(listItem, item[1]);
-        list.append(listItem);
-        index += 1;
-      }
-      fragment.append(list);
-      continue;
-    }
-    if (/^\s*>\s?/.test(line)) {
-      const quote = document.createElement('blockquote');
-      const quoted = [];
-      while (index < lines.length && /^\s*>\s?/.test(lines[index])) {
-        quoted.push(lines[index].replace(/^\s*>\s?/, ''));
-        index += 1;
-      }
-      appendInlineMarkdown(quote, quoted.join('\n'));
-      fragment.append(quote);
-      continue;
-    }
-    const paragraph = [];
-    while (index < lines.length && lines[index].trim() && !markdownBlockStart(lines[index], paragraph.length > 0)) {
-      paragraph.push(lines[index++]);
-    }
-    if (paragraph.length === 0) paragraph.push(lines[index++]);
-    const node = document.createElement('p');
-    appendInlineMarkdown(node, paragraph.join('\n'));
-    fragment.append(node);
-  }
-  return fragment;
-}
-
-function markdownBlockStart(line, paragraphStarted) {
-  if (!paragraphStarted) return false;
-  return /^\s*```|^\s*#{1,3}\s+|^\s*[-*]\s+|^\s*\d+\.\s+|^\s*>\s?/.test(line);
-}
-
-function appendInlineMarkdown(parent, value) {
-  const pattern = /(`[^`\n]+`|\[[^\]\n]+\]\(https?:\/\/[^)\s]+\)|https?:\/\/[^\s<]+)/g;
-  let cursor = 0;
-  for (const match of value.matchAll(pattern)) {
-    if (match.index > cursor) appendTextWithBreaks(parent, value.slice(cursor, match.index));
-    const token = match[0];
-    if (token.startsWith('`')) {
-      const code = document.createElement('code');
-      code.textContent = token.slice(1, -1);
-      parent.append(code);
-    } else {
-      const markdownLink = token.match(/^\[([^\]]+)\]\((https?:\/\/[^)]+)\)$/);
+function markdownFragment(value, context = { threadKey: state.detail?.threadKey ?? state.selected?.threadKey, artifacts: state.artifacts }, fromPath = '') {
+  return renderMarkdown(value, {
+    codeBlock: codeBlockNode,
+    link(href) {
+      const artifact = resolveArtifactLink(href, context.artifacts, fromPath);
       const link = document.createElement('a');
-      link.href = markdownLink?.[2] ?? trimLinkPunctuation(token);
-      link.textContent = markdownLink?.[1] ?? trimLinkPunctuation(token);
-      link.target = '_blank';
-      link.rel = 'noopener noreferrer';
-      parent.append(link);
-      const trailing = markdownLink ? '' : token.slice(trimLinkPunctuation(token).length);
-      if (trailing) parent.append(document.createTextNode(trailing));
-    }
-    cursor = match.index + token.length;
-  }
-  if (cursor < value.length) appendTextWithBreaks(parent, value.slice(cursor));
+      if (artifact && context.threadKey) {
+        link.href = artifactContentUrl(context.threadKey, artifact.id);
+        link.setAttribute('aria-haspopup', 'dialog');
+        link.addEventListener('click', (event) => {
+          if (event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+          event.preventDefault();
+          void openArtifact(artifact, link, context);
+        });
+      } else if (safePublicUrl(href)) {
+        link.href = href;
+        link.target = '_blank';
+        link.rel = 'noopener noreferrer';
+      } else {
+        const unavailable = document.createElement('span');
+        unavailable.title = 'Link unavailable in this conversation';
+        return unavailable;
+      }
+      return link;
+    },
+  });
 }
 
-function appendTextWithBreaks(parent, value) {
-  const parts = value.split('\n');
-  for (const [index, part] of parts.entries()) {
-    if (index > 0) parent.append(document.createElement('br'));
-    parent.append(document.createTextNode(part));
-  }
-}
-
-function trimLinkPunctuation(value) {
-  return value.replace(/[),.;!?]+$/, '');
+function artifactContentUrl(threadKey, artifactId) {
+  return `/api/v1/conversations/${encodeURIComponent(threadKey)}/artifacts/${encodeURIComponent(artifactId)}/content`;
 }
 
 function codeBlockNode(value, language) {
@@ -2395,20 +2318,21 @@ function artifactNode(artifact, compact) {
   return button;
 }
 
-async function openArtifact(artifact, button) {
-  const threadKey = state.detail?.threadKey ?? state.selected?.threadKey;
+async function openArtifact(artifact, button, context = { threadKey: state.detail?.threadKey ?? state.selected?.threadKey, artifacts: state.artifacts }) {
+  const { threadKey } = context;
   if (!threadKey || !artifact.id) return;
   button.disabled = true;
   try {
-    const url = `/api/v1/conversations/${encodeURIComponent(threadKey)}/artifacts/${encodeURIComponent(artifact.id)}/content`;
-    state.viewerFile = { artifact, threadKey };
+    const url = artifactContentUrl(threadKey, artifact.id);
+    state.viewerFile = { artifact, threadKey, artifacts: context.artifacts, source: false };
+    elements.viewerSource.hidden = true;
     elements.viewerTitle.textContent = artifact.path ?? artifact.name ?? 'Artifact';
     elements.viewerDetail.textContent = [artifact.mediaType, formatBytes(artifact.bytes)].filter(Boolean).join(' · ');
     elements.viewerOpen.href = url;
     elements.viewerDownload.href = url;
     elements.viewerDownload.download = (artifact.path ?? artifact.name ?? 'download').split('/').at(-1);
     elements.viewerBody.replaceChildren(viewerLoadingNode());
-    elements.viewer.showModal();
+    if (!elements.viewer.open) elements.viewer.showModal();
     await renderArtifactContent(artifact, url, state.viewerFile);
   } catch (error) {
     notice(message(error), true);
@@ -2444,20 +2368,33 @@ async function renderArtifactContent(artifact, url, viewing) {
     node.title = artifact.path ?? 'PDF artifact';
     node.src = url;
   } else if (
-    isTextArtifact(mediaType)
+    isTextArtifact(mediaType) || isMarkdownArtifact(artifact)
   ) {
     const response = await fetch(url);
     if (!response.ok) throw new Error(`Artifact viewer returned ${response.status}`);
     const preview = await readTextPreview(response, 2_000_000);
-    node = document.createElement('pre');
-    node.className = 'viewer-text';
-    node.textContent = preview.truncated ? `${preview.text}\n\n[Preview truncated. Download for the full file.]` : preview.text;
+    if (state.viewerFile !== viewing || !elements.viewer.open) return;
+    viewing.preview = preview;
+    node = textPreviewNode(viewing);
   } else {
     node = document.createElement('div');
     node.className = 'viewer-unknown';
     node.textContent = 'This file type does not have an inline preview. Download it or open it in a new tab.';
   }
   if (elements.viewer.open && state.viewerFile === viewing) elements.viewerBody.replaceChildren(node);
+}
+
+function textPreviewNode(viewing) {
+  const markdown = isMarkdownArtifact(viewing.artifact);
+  elements.viewerSource.hidden = !markdown;
+  elements.viewerSource.textContent = viewing.source ? 'Show preview' : 'Show source';
+  const node = document.createElement(markdown && !viewing.source ? 'div' : 'pre');
+  node.className = markdown && !viewing.source ? 'message viewer-markdown' : 'viewer-text';
+  const { text, truncated } = viewing.preview;
+  if (markdown && !viewing.source) node.append(markdownFragment(text, viewing, viewing.artifact.path));
+  else node.textContent = text;
+  if (truncated) node.append(document.createTextNode('\n\n[Preview truncated. Download for the full file.]'));
+  return node;
 }
 
 function currentWork(status) {
@@ -2487,15 +2424,18 @@ function workNode(work) {
     for (const pending of work.pendingRequests ?? []) section.append(pendingRequestNode(pending));
     return section;
   }
-  const progress = workPresentation(work);
+  section.className = 'completion-receipt';
   const title = document.createElement('strong');
-  title.textContent = progress.title;
-  const detail = document.createElement('p');
-  detail.textContent = progress.detail;
+  title.textContent = work.status === 'failed' ? 'Work failed' : work.status === 'cancelled' ? 'Work stopped' : 'Work completed';
   const elapsed = document.createElement('time');
-  elapsed.className = 'work-elapsed';
+  elapsed.dateTime = work.completedAt;
+  elapsed.title = new Date(work.completedAt).toLocaleString();
   elapsed.textContent = workDuration(work);
-  section.append(title, detail, elapsed);
+  const details = document.createElement('button');
+  details.type = 'button';
+  details.textContent = 'View Activity';
+  details.addEventListener('click', () => void openContext('activity'));
+  section.append(title, elapsed, details);
   return section;
 }
 
@@ -2647,75 +2587,6 @@ async function respondToQuestions(event, request, form, submit) {
     submit.textContent = 'Send response';
     notice(message(error), true);
   }
-}
-
-function coalesceActivities(events) {
-  const result = [];
-  for (const event of [...events].sort((left, right) => left.sequence - right.sequence)) {
-    if (event.status === 'updated') {
-      const existing = [...result].reverse().find((item) =>
-        item.kind === event.kind && item.status === 'updated' && item.title === event.title,
-      );
-      if (existing) {
-        existing.count = (existing.count ?? 1) + 1;
-        existing.occurredAt = event.occurredAt;
-        if (event.detail) existing.detail = event.detail;
-        existing.sequence = event.sequence;
-        continue;
-      }
-    }
-    if (event.status === 'completed' || event.status === 'failed') {
-      const started = [...result].reverse().find((item) => item.kind === event.kind && item.status === 'started');
-      if (started) {
-        Object.assign(started, event, { startedAt: started.occurredAt });
-        continue;
-      }
-    }
-    result.push({ ...event });
-  }
-  return result;
-}
-
-function groupActivities(activities) {
-  const groups = [];
-  for (const activity of activities) {
-    const phase = activityPhase(activity);
-    const previous = groups.at(-1);
-    if (previous?.key === phase.key && activity.status !== 'failed') {
-      previous.count += activity.count ?? 1;
-      previous.occurredAt = activity.occurredAt;
-      previous.detail = phase.detail;
-      previous.status = activity.status;
-      continue;
-    }
-    groups.push({
-      ...phase,
-      count: activity.count ?? 1,
-      occurredAt: activity.occurredAt,
-      status: activity.status,
-    });
-  }
-  return groups;
-}
-
-function activityPhase(activity) {
-  const fallback = activity.detail || activity.title;
-  if (activity.status === 'failed' || activity.kind === 'error') {
-    return { key: 'attention', icon: '!', title: 'Something needs attention', detail: fallback };
-  }
-  return ({
-    plan: { key: 'plan', icon: '☷', title: 'Planning the work', detail: fallback },
-    reasoning: { key: 'reasoning', icon: '◇', title: 'Thinking through the task', detail: fallback },
-    web_search: { key: 'research', icon: '⌕', title: 'Researching the web', detail: fallback },
-    computer: { key: 'browser', icon: '▣', title: 'Working in the browser', detail: fallback },
-    command: { key: 'tools', icon: '›_', title: 'Using the workspace', detail: fallback },
-    tool: { key: 'tools', icon: '◆', title: 'Using a tool', detail: fallback },
-    file: { key: 'files', icon: '±', title: 'Updating files', detail: fallback },
-    message: { key: 'answer', icon: '↗', title: 'Preparing the answer', detail: fallback },
-    agent: { key: 'agent', icon: '●', title: 'Rat started working', detail: fallback },
-    compaction: { key: 'context', icon: '↻', title: 'Keeping context focused', detail: 'Older context was compacted without losing durable conversation state.' },
-    usage: { key: 'usage', icon: '#', title: 'Tracking Run usage', detail: fallback },
-  })[activity.kind] ?? { key: 'activity', icon: '·', title: activity.title || 'Working', detail: fallback };
 }
 
 function phaseNode(phase) {
@@ -2995,6 +2866,7 @@ function consumeRuntimeSnapshot(snapshot, requestedAfter) {
 }
 
 async function finishRun(run) {
+  const revision = state.selectionRevision;
   const completedAt = run.updatedAt ?? new Date().toISOString();
   state.completedWork = {
     runId: run.runId,
@@ -3008,11 +2880,14 @@ async function finishRun(run) {
     eventGap: state.eventGap,
     ready: state.runtimeReady,
   };
+  state.completedWork.evidence = 'loading';
   persistCompletedWork(state.completedWork);
   const conversationId = state.detail?.conversationId ?? state.selected?.conversationId;
   if (conversationId) state.liveWorkByConversation.delete(conversationId);
   clearActiveRun();
+  void reconcileCompletedActivity(state.completedWork, true);
   await refreshConversations(false);
+  if (revision !== state.selectionRevision) return;
   const threadKey = state.draftThreadKey ?? state.detail?.threadKey;
   const current = state.conversations.find((item) => item.threadKey && item.threadKey === threadKey);
   if (current) {
@@ -3020,6 +2895,7 @@ async function finishRun(run) {
     markConversationRead(current);
     const detail = await waitForConversationProjection(current, run);
     const artifacts = await loadConversationArtifacts(current);
+    if (revision !== state.selectionRevision || state.activeRunId) return;
     state.detail = detail;
     state.artifacts = artifacts;
     state.draftThreadKey = null;
@@ -3030,6 +2906,24 @@ async function finishRun(run) {
   renderConversationList();
   renderWorkspace({ scrollMode: 'bottom' });
   notice(run.status === 'succeeded' ? 'Run completed.' : `Run ${run.status}.`, run.status === 'failed');
+}
+
+async function reconcileCompletedActivity(work = state.completedWork, start = false) {
+  if (!work || work.evidence === 'saved' || (!start && work.evidence === 'loading')) return;
+  work.evidence = 'loading';
+  try {
+    const saved = await api(`/v1/runs/${encodeURIComponent(work.runId)}/events?source=durable`);
+    if (saved.source !== 'durable' || saved.runId !== work.runId || !Array.isArray(saved.events)) throw new Error('Saved Activity unavailable');
+    // Durable sequences have a different origin. Replace, never merge, the live tail.
+    work.events = saved.events.slice(-MAX_RETAINED_EVENTS);
+    work.eventGap = saved.truncated === true || saved.events.length > MAX_RETAINED_EVENTS;
+    work.evidence = 'saved';
+  } catch {
+    work.evidence = 'unavailable';
+  }
+  if (state.completedWork !== work) return;
+  persistCompletedWork(work);
+  renderContextActivity();
 }
 
 async function waitForConversationProjection(conversation, run) {
@@ -3268,10 +3162,25 @@ function renderContextActivity() {
   const activities = coalesceActivities(work?.events ?? []);
   const phases = groupActivities(activities);
   elements.contextActivity.replaceChildren();
+  if (work && !work.active) {
+    const evidence = document.createElement('p');
+    evidence.className = 'activity-evidence';
+    evidence.textContent = work.evidence === 'saved' ? 'Activity reconciled with saved events.'
+      : work.evidence === 'loading' ? 'Checking saved Activity…'
+      : 'Saved Activity unavailable. Last live updates are shown; unfinished actions are unconfirmed.';
+    if (work.evidence !== 'saved' && work.evidence !== 'loading') {
+      const retry = document.createElement('button');
+      retry.type = 'button';
+      retry.textContent = 'Retry saved Activity';
+      retry.addEventListener('click', () => { void reconcileCompletedActivity(); renderContextActivity(); });
+      evidence.append(' ', retry);
+    }
+    elements.contextActivity.append(evidence);
+  }
   if (work?.eventGap) {
     const gap = document.createElement('p');
     gap.className = 'activity-gap';
-    gap.textContent = 'Early live events rolled out of the bounded window. Durable terminal evidence remains available.';
+    gap.textContent = work.evidence === 'saved' ? 'Showing a bounded or incomplete preview of saved Activity. The complete event file remains available from the terminal.' : 'Early live events rolled out of the bounded window. Durable terminal evidence remains available.';
     elements.contextActivity.append(gap);
   }
   if (phases.length === 0) {
@@ -3755,22 +3664,21 @@ function restoreCompletedWork(conversationId) {
     const raw = localStorage.getItem(`${WORK_PREFIX}${conversationId}`);
     if (!raw) return null;
     const value = JSON.parse(raw);
-    return value && typeof value === 'object' && value.active === false ? value : null;
+    return value && typeof value === 'object' && value.active === false ? {...value, evidence: value.evidence === 'saved' ? 'saved' : 'unavailable'} : null;
   } catch {
     return null;
   }
 }
 
 function conversationAttention(conversation) {
-  if (state.selected?.conversationId === conversation.conversationId && state.pendingRequests.length > 0) return 'needs-input';
-  if (conversation.status === 'failed') return 'failed';
-  if (['pending', 'running', 'awaiting_resume'].includes(conversation.status) || conversation.pendingCount > 0) return 'working';
-  if (conversation.unread) return 'unread';
-  return 'ready';
+  const selected = state.selected?.conversationId === conversation.conversationId;
+  const pending = selected ? state.pendingRequests : state.liveWorkByConversation.get(conversation.conversationId)?.pendingRequests;
+  const status = selected && state.activeRunId ? state.activeRun?.status ?? 'running' : conversation.status;
+  return conversationWorkState({...conversation, status}, pending);
 }
 
 function attentionLabel(value) {
-  return ({ 'needs-input': 'Needs input', failed: 'Failed', working: 'Working', unread: 'New', ready: 'Ready' })[value];
+  return ({ 'needs-input': 'Needs your input', failed: 'Failed', working: 'Working', ready: 'Ready' })[value];
 }
 
 function conversationPreview(conversation) {

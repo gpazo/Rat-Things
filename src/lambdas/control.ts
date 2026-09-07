@@ -790,6 +790,12 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
         `/v1/runs/${runId}/events`,
       )
     ) {
+      if (event.queryStringParameters?.source === 'durable') {
+        return response(200, await service().savedActivity(ownerId, runId));
+      }
+      if (event.queryStringParameters?.source && event.queryStringParameters.source !== 'live') {
+        throw new ValidationError('source must be live or durable');
+      }
       const target = await agentInteractionTarget(service(), ownerId, runId);
       return response(200, projectPublicAgentRuntime(
         await getAgentInteractionController().events(

@@ -7,6 +7,7 @@ import type {
 export type PublicAgentActivityKind =
   | 'agent'
   | 'message'
+  | 'commentary'
   | 'reasoning'
   | 'command'
   | 'file'
@@ -65,6 +66,7 @@ export interface PublicAgentRuntimeSnapshot {
 
 /**
  * Converts provider/App Server protocol traffic into a stable product contract.
+ * Only completed, bounded assistant commentary is copied as owner-visible progress.
  * Raw methods, parameters, prompts, commands, results, and native thread IDs stay private.
  */
 export function projectPublicAgentRuntime(
@@ -169,13 +171,18 @@ function projectItem(
   switch (type) {
     case 'userMessage':
       return { ...base, kind: 'message', status, title: 'Message received' };
-    case 'agentMessage':
+    case 'agentMessage': {
+      const commentary = lifecycle === 'completed' && item?.phase === 'commentary'
+        ? boundedCopy(item.text, 500)?.replace(/[\u0000-\u001F\u007F-\u009F]/g, ' ').replace(/\s+/g, ' ').trim()
+        : undefined;
+      if (commentary) return { ...base, kind: 'commentary', status, title: 'Progress update', detail: commentary };
       return {
         ...base,
         kind: 'message',
         status,
         title: lifecycle === 'started' ? 'Drafting response' : 'Response completed',
       };
+    }
     case 'reasoning':
       return {
         ...base,

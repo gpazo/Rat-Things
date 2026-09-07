@@ -40,9 +40,9 @@ export function shellArgument(value) {
   return `'${value.replaceAll("'", "'\\''")}'`;
 }
 
-/** @param {string} thread @param {{id: string, path: string, mediaType: string}} file */
-export function fileCommands(thread, file) {
-  const base = `rat-things file ${shellArgument(file.id)} --thread ${shellArgument(thread)}`;
+/** @param {string} thread @param {{id: string, path: string, mediaType: string}} file @param {"thread" | "run"} [scope] */
+export function fileCommands(thread, file, scope = 'thread') {
+  const base = `rat-things file ${shellArgument(file.id)} --${scope} ${shellArgument(thread)}`;
   return [
     ...(isTextArtifact(file.mediaType) ? [['Preview in terminal', `${base} --preview`]] : []),
     ['Open in browser', `${base} --open`],
@@ -78,4 +78,26 @@ export async function readTextPreview(response, maximum) {
     await reader.cancel();
     reader.releaseLock();
   }
+}
+
+
+/** Work state and unread are independent; unread never implies a blocked Run.
+ * @param {{status?: string, pendingCount?: number}} conversation
+ * @param {readonly unknown[]} [pendingRequests]
+ */
+export function conversationWorkState(conversation, pendingRequests = []) {
+  if (conversation.status === 'failed') return 'failed';
+  if (['pending', 'running', 'awaiting_resume', 'dispatching', 'cancelling'].includes(conversation.status ?? '') || (conversation.pendingCount ?? 0) > 0) {
+    return pendingRequests.length ? 'needs-input' : 'working';
+  }
+  return 'ready';
+}
+
+/** Place a receipt after the finished exchange, before a later user turn.
+ * @param {readonly {role: string, receivedAt?: string}[]} messages @param {string} completedAt
+ */
+export function completionReceiptIndex(messages, completedAt) {
+  const completed = Date.parse(completedAt);
+  const nextTurn = messages.findIndex(message => message.role === 'user' && Date.parse(message.receivedAt ?? '') > completed);
+  return nextTurn < 0 ? messages.length - 1 : nextTurn - 1;
 }

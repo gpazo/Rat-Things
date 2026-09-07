@@ -180,13 +180,13 @@ test.describe('live AWS console journey', () => {
     await expect(generatedArtifact).toBeVisible();
     await generatedArtifact.click();
     await expect(page.locator('#artifact-viewer')).toBeVisible();
-    await expect(page.locator('.viewer-text')).toContainText(uploadMarker, { timeout: 30_000 });
+    await expect(page.locator('#viewer-body')).toContainText(uploadMarker, { timeout: 30_000 });
     await page.getByRole('button', { name: 'Close viewer' }).click();
     const uploadedArtifact = page.locator('.artifact-card', { hasText: 'release-context.txt' });
     await expect(uploadedArtifact).toBeVisible();
     await uploadedArtifact.click();
     await expect(page.locator('#artifact-viewer')).toBeVisible();
-    await expect(page.locator('.viewer-text')).toContainText(uploadMarker, { timeout: 30_000 });
+    await expect(page.locator('#viewer-body')).toContainText(uploadMarker, { timeout: 30_000 });
     await page.getByRole('button', { name: 'Close viewer' }).click();
     if (recordingDemo) {
       await expect(page.locator('.code-block code')).toContainText('npm test');
@@ -308,7 +308,7 @@ test.describe('live AWS console journey', () => {
       const artifactButton = page.locator('.artifact-card', { hasText: 'live-conversation-parity.md' });
       await artifactButton.click();
       await expect(page.locator('#artifact-viewer')).toBeVisible();
-      await expect(page.locator('.viewer-text')).toContainText(uploadMarker);
+      await expect(page.locator('#viewer-body')).toContainText(uploadMarker);
       await demoPause(page, 900);
       await page.getByRole('button', { name: 'Close viewer' }).click();
 
