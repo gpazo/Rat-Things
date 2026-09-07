@@ -148,8 +148,8 @@ test.describe('live AWS console journey', () => {
     });
     diagnosticRunIds.push(firstRunId);
     await expect(page.locator('#transcript').getByText(firstPrompt, { exact: true })).toBeVisible();
-    await expect(page.locator('#run-progress')).toBeVisible();
-    await expect(page.locator('#run-progress-title')).toContainText(/Queued|Starting|Agent/);
+    await expect(page.locator('#run-strip')).toBeVisible();
+    await expect(page.locator('#run-strip-title')).toContainText(/Queued|Starting|Agent/);
     if (process.env.AWS_E2E_DEFAULT_AGENT_DRIVER === 'codex') {
       await expect(page.locator('#status-badge')).toHaveText('Needs input', { timeout: timeoutMs - 60_000 });
       await expect(page.locator('.pending-request')).toContainText(/validation channel/i);
@@ -190,12 +190,10 @@ test.describe('live AWS console journey', () => {
     await page.getByRole('button', { name: 'Close viewer' }).click();
     if (recordingDemo) {
       await expect(page.locator('.code-block code')).toContainText('npm test');
-      const workDetails = page.locator('.work-details');
-      if (!await workDetails.evaluate((node: HTMLDetailsElement) => node.open)) {
-        await workDetails.locator('summary').click();
-      }
-      await expect(page.locator('.activity-item').first()).toBeVisible();
+      await page.getByRole('button', {name: 'Work details', exact: true}).click();
+      await expect(page.locator('#context-activity .phase-card').first()).toBeVisible();
       await demoPause(page, 1_400);
+      await page.getByRole('button', {name: 'Close context pane'}).click();
 
       const draft = 'Draft preserved while reviewing another durable conversation.';
       await page.getByRole('textbox', { name: 'Message', exact: true }).fill(draft);
@@ -223,7 +221,8 @@ test.describe('live AWS console journey', () => {
     const firstAssistant = page.locator('.message-row[data-role="assistant"]').last();
     const firstAssistantMessageId = await firstAssistant.getAttribute('data-message-id');
     expect(firstAssistantMessageId).toMatch(/^assistant-[a-f0-9]{32}$/);
-    await firstAssistant.getByRole('button', { name: 'Add 👍 reaction' }).click();
+    await firstAssistant.getByRole('button', {name: 'React', exact: true}).click();
+    await page.locator('#reaction-dialog').getByRole('button', {name: 'Add 👍 reaction'}).click();
     await expect(firstAssistant.getByRole('button', { name: 'Remove 👍 reaction' })).toContainText('1');
 
     let currentRow = page.locator('.conversation-row').filter({

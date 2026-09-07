@@ -37,7 +37,7 @@ async function handle(request: IncomingMessage, response: ServerResponse): Promi
     return json(response, 405, error('method_not_allowed', 'only GET and HEAD are allowed for console files'));
   }
   const file = requestUrl.pathname === '/' ? 'index.html' : requestUrl.pathname.slice(1);
-  if (!['index.html', 'app.js', 'styles.css'].includes(file)) {
+  if (!['index.html', 'app.js', 'presentation.js', 'styles.css'].includes(file)) {
     return json(response, 404, error('not_found', 'console file not found'));
   }
   const path = resolve(consoleRoot, file);

@@ -85,13 +85,11 @@ test.describe('live AWS Linear demo', () => {
     await expect(page.locator('#transcript')).toContainText(/IND-\d+/);
     await search.fill('');
 
-    const work = page.locator('.work-details');
-    if (await work.count() > 0 && !await work.evaluate((node: HTMLDetailsElement) => node.open)) {
-      await work.locator('summary').click();
-    }
+    await page.getByRole('button', {name: 'Work details', exact: true}).click();
     await expect(page.locator('#status-badge')).toHaveText('Ready');
     await screenshot(page, 'linear-live-write-run.png');
     await demoPause(page, 3_200);
+    await page.getByRole('button', {name: 'Close context pane'}).click();
 
     await search.fill(readOnlyPromptSnippet);
     const readOnly = page.locator('.conversation-search-result')

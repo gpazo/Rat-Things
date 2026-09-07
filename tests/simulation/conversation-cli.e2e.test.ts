@@ -1,6 +1,6 @@
 import { execFile, spawn } from 'node:child_process';
 import { createServer, type IncomingMessage } from 'node:http';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { promisify } from 'node:util';
@@ -19,6 +19,7 @@ describe('conversation CLI-to-HTTP workflow', () => {
   const requests: Array<{ method: string; path: string; body: unknown; headers: IncomingMessage['headers'] }> = [];
   let followSnapshots = 0;
   let followRuns = 0;
+  let chatPolls = 0;
   const server = createServer(async (request, response) => {
     const body = await requestBody(request);
     requests.push({
@@ -98,8 +99,24 @@ describe('conversation CLI-to-HTTP workflow', () => {
         }],
       });
     }
+    if (request.method === 'GET' && request.url === `/v1/conversations/${conversationId}/artifacts/artifact-1`) {
+      return send(response, {id: 'artifact-1', url: `${apiUrl}/file-content`, mediaType: 'text/plain'});
+    }
+    if (request.method === 'GET' && request.url === '/file-content') {
+      response.setHeader('content-type', 'text/plain');
+      response.end('Report\u001b[31m\n' + 'x'.repeat(70_000));
+      return;
+    }
     if (request.method === 'POST' && request.url === '/v1/runs') {
       return send(response, { runId: 'run-1', status: 'queued', createdAt: now, updatedAt: now }, 202);
+    }
+    if (request.method === 'GET' && request.url?.startsWith('/v1/conversations/questions/messages/')) {
+      chatPolls += 1;
+      return send(response, {
+        state: 'consumed',
+        conversation: {status: chatPolls < 3 ? 'running' : 'idle', pendingCount: 0, session: {state: 'suspended'}},
+        run: {runId: 'run-1', status: chatPolls < 3 ? 'running' : 'succeeded', createdAt: now, updatedAt: now},
+      });
     }
     if (request.method === 'GET' && request.url?.startsWith('/v1/runs/run-1/events?')) {
       return send(response, {
@@ -148,6 +165,9 @@ describe('conversation CLI-to-HTTP workflow', () => {
       return send(response, {
         error: { code: 'conflict', message: 'run does not have an active interactive execution' },
       }, 409);
+    }
+    if (request.method === 'GET' && request.url === '/v1/runs/run-1') {
+      return send(response, {runId: 'run-1', status: 'running', createdAt: now, updatedAt: now});
     }
     if (request.method === 'GET' && request.url === '/v1/runs/run-follow') {
       followRuns += 1;
@@ -211,6 +231,63 @@ describe('conversation CLI-to-HTTP workflow', () => {
     expect(submitted?.body).not.toHaveProperty('agent');
   });
 
+  it('surfaces a question once while chat waits and keeps JSON output parseable', async () => {
+    chatPolls = 0;
+    const result = await cli(['chat', '--thread', 'questions', '--json', '--poll-seconds', '1', 'Ask me'], apiUrl);
+    expect(JSON.parse(result.stdout).run.status).toBe('succeeded');
+    expect(result.stderr).toContain('Accepted Run run-1');
+    expect(result.stderr).toContain('Which quarter?');
+    expect(result.stderr).toContain('Needs input ·');
+    expect(result.stderr).not.toContain('microvm=');
+    expect(result.stderr).not.toContain('run=running');
+    expect(result.stderr.match(/Input needed/g)).toHaveLength(1);
+    expect(result.stderr).toContain("rat-things respond 'run-1' 'request-1'");
+    expect(result.stderr).toContain("--answer-stdin 'token'");
+  });
+
+  it('keeps infrastructure state available explicitly for diagnosis', async () => {
+    chatPolls = 0;
+    const result = await cli(['chat', '--thread', 'questions', '--json', '--diagnostics', '--poll-seconds', '1', 'Ask me'], apiUrl);
+    expect(JSON.parse(result.stdout).run.status).toBe('succeeded');
+    expect(result.stderr).toContain('Needs input · message=consumed');
+    expect(result.stderr).toContain('run=running · microvm=suspended');
+    const watched = await cli(['watch', 'run-1', '--diagnostics'], apiUrl);
+    expect(watched.stderr).toContain('Needs input · Run run-1 · status=running');
+  });
+
+  it('previews bounded text, preserves URL and JSON modes, and downloads without overwriting', async () => {
+    const scope = ['--thread', conversationId];
+    const listed = await cli(['files', ...scope], apiUrl);
+    expect(listed.stdout).toContain('earnings.txt · 12 B · text/plain');
+    expect(listed.stdout).toContain('--preview, --open, or --download PATH');
+    expect((await cli(['file', 'artifact-1', ...scope], apiUrl)).stdout.trim()).toBe(`${apiUrl}/file-content`);
+    expect(JSON.parse((await cli(['file', 'artifact-1', ...scope, '--json'], apiUrl)).stdout).url).toBe(`${apiUrl}/file-content`);
+    const preview = await cli(['file', 'earnings.txt', ...scope, '--preview'], apiUrl);
+    expect(preview.stdout).toContain('Report�[31m');
+    expect(preview.stdout).not.toContain('\u001b');
+    expect(preview.stdout.length).toBeLessThan(65_550);
+    expect(preview.stderr).toContain('Preview truncated at 64 KiB');
+    const directory = await mkdtemp(join(tmpdir(), 'rat-things-file-'));
+    const target = join(directory, 'report.txt');
+    try {
+      await cli(['file', 'artifact-1', ...scope, '--download', target], apiUrl);
+      const original = await readFile(target, 'utf8');
+      expect(original).toBe('Report\u001b[31m\n' + 'x'.repeat(70_000));
+      await expectCliFailure(['file', 'artifact-1', ...scope, '--download', target], apiUrl, 'already exists');
+      expect(await readFile(target, 'utf8')).toBe(original);
+      if (process.platform !== 'win32') {
+        const launcher = join(directory, process.platform === 'darwin' ? 'open' : 'xdg-open');
+        const captured = join(directory, 'opened-url');
+        await writeFile(launcher, `#!${process.execPath}\nrequire('node:fs').writeFileSync(process.env.TEST_OPENED_URL, process.argv[2]);\n`, {mode: 0o700});
+        const opened = await cli(['file', 'artifact-1', ...scope, '--open'], apiUrl, {PATH: `${directory}:${process.env.PATH}`, TEST_OPENED_URL: captured});
+        expect(opened.stdout).toContain('Opened earnings.txt');
+        await expect.poll(async () => readFile(captured, 'utf8').catch(() => '')).toBe(`${apiUrl}/file-content`);
+      }
+    } finally {
+      await rm(directory, {recursive: true, force: true});
+    }
+  });
+
   it('lists, searches, pages, organizes, reacts, and collects sources', async () => {
     const listed = await cli(['conversations', 'list', '--visibility', 'all', '--limit', '10'], apiUrl);
     expect(listed.stdout).toContain('Nvidia earnings review · idle · api · unread');
@@ -224,6 +301,8 @@ describe('conversation CLI-to-HTTP workflow', () => {
     expect(shown.stdout).toContain('2 older messages compacted');
     expect(shown.stdout).toContain('message message-1');
     expect(shown.stdout).toContain('Next older page: --next-token next-transcript');
+    expect(shown.stdout).toContain(`rat-things console --conversation '${conversationId}'`);
+    expect(shown.stdout).toContain("rat-things chat --thread 'earnings'");
 
     const sources = await cli(['conversation', 'sources', conversationId], apiUrl);
     expect(sources.stdout).toContain('link\tuser\tinvestor.nvidia.com\thttps://investor.nvidia.com/report\tmessage-1');
@@ -284,8 +363,8 @@ describe('conversation CLI-to-HTTP workflow', () => {
     const watched = await cli(['watch', 'run-1'], apiUrl);
     expect(watched.stdout).toContain('✓ Web search completed');
     expect(watched.stderr).toContain('scope: Which quarter?');
-    expect(watched.stderr).toContain('--answer scope=VALUE');
-    expect(watched.stderr).toContain('--answer-stdin token');
+    expect(watched.stderr).toContain("--answer 'scope=VALUE'");
+    expect(watched.stderr).toContain("--answer-stdin 'token'");
     expect(watched.stderr).not.toContain('--answer token=VALUE');
 
     const responded = await cliWithInput([
@@ -312,6 +391,9 @@ describe('conversation CLI-to-HTTP workflow', () => {
 
   it('rejects unknown options, extra operands, ambiguous modes, and duplicate answers before acting', async () => {
     const before = requests.length;
+    await expectCliFailure(['file', 'artifact-1', '--preview', '--json'], apiUrl, 'choose only one');
+    await expectCliFailure(['file', 'artifact-1', '--open', '--download', 'unused'], apiUrl, 'choose only one');
+    await expectCliFailure(['chat', '--poll-seconds', '0', 'Invalid wait'], apiUrl, 'poll-seconds must be a positive integer');
     await expectCliFailure(
       ['chat', '--thread', 'earnings', '--driver', 'mock', '--no-wait', '--attch', 'missing.pdf', 'Use it'],
       apiUrl,
@@ -354,7 +436,15 @@ describe('conversation CLI-to-HTTP workflow', () => {
     const terminalRace = await cli([
       'watch', 'run-terminal-race', '--follow', '--poll-seconds', '1',
     ], apiUrl);
-    expect(terminalRace.stderr).toContain('Run run-terminal-race: succeeded');
+    expect(terminalRace.stderr).toContain('Done · Run run-terminal-race');
+    const ended = await cli(['watch', 'run-terminal-race'], apiUrl);
+    expect(ended.stderr).toContain("rat-things artifact 'run-terminal-race' output");
+    const endedJson = await cli(['watch', 'run-terminal-race', '--json'], apiUrl);
+    expect(JSON.parse(endedJson.stdout)).toEqual({runId: 'run-terminal-race', status: 'succeeded', active: false});
+    const endedJsonl = await cli(['watch', 'run-terminal-race', '--follow', '--json'], apiUrl);
+    expect(endedJsonl.stdout.trim().split('\n').map(line => JSON.parse(line))).toEqual([
+      {runId: 'run-terminal-race', status: 'succeeded', active: false},
+    ]);
 
     const gap = await cli(['watch', 'run-gap'], apiUrl);
     expect(gap.stdout).toContain('Newest retained activity');
@@ -391,7 +481,7 @@ describe('conversation CLI-to-HTTP workflow', () => {
   });
 });
 
-async function cli(argumentsValue: string[], apiUrl: string): Promise<{ stdout: string; stderr: string }> {
+async function cli(argumentsValue: string[], apiUrl: string, environment: NodeJS.ProcessEnv = {}): Promise<{ stdout: string; stderr: string }> {
   return execute(process.execPath, [
     resolve('node_modules/tsx/dist/cli.mjs'),
     'src/cli.ts',
@@ -402,6 +492,7 @@ async function cli(argumentsValue: string[], apiUrl: string): Promise<{ stdout: 
       ...process.env,
       RAT_THINGS_API_URL: apiUrl,
       AGENT_RUNTIME_UNSIGNED: 'true',
+      ...environment,
     },
     timeout: 20_000,
   });

@@ -42,6 +42,7 @@ interface FakeControlState {
   reactions: Record<string, boolean>;
   computerControl: 'agent' | 'human';
   computerJourneyDone: boolean;
+  allowCompletion: boolean;
   computerReads: number;
   computerActions: unknown[];
   teachRecording: boolean;
@@ -86,6 +87,7 @@ test.beforeAll(async () => {
     reactions: {},
     computerControl: 'agent',
     computerJourneyDone: false,
+    allowCompletion: false,
     computerReads: 0,
     computerActions: [],
     teachRecording: false,
@@ -219,15 +221,15 @@ test('creates, observes autonomous work, and completes a durable API conversatio
   await page.getByRole('button', { name: 'Send message' }).click();
 
   await expect(page.locator('#transcript').getByText(prompt, { exact: true })).toBeVisible();
-  const progress = page.locator('#run-progress');
+  const progress = page.locator('#run-strip');
   await expect(progress).toBeVisible();
-  await expect(page.locator('#run-progress-title')).toHaveText('Queued for isolated execution');
-  await expect(page.locator('#run-progress-detail')).toContainText('message is durable');
-  await expect(page.locator('#run-progress-elapsed')).toHaveText(/^\d+s$/);
-  await expect(page.locator('#run-progress-title')).toHaveText('Starting isolated environment');
-  await expect(page.locator('#run-progress-detail')).toContainText('First-use storage can take tens of seconds');
+  await expect(page.locator('#run-strip-title')).toHaveText('Queued for isolated execution');
+  await expect(page.locator('#run-strip-detail')).toContainText('message is durable');
+  await expect(page.locator('#run-strip-elapsed')).toHaveText(/^\d+s$/);
+  await expect(page.locator('#run-strip-title')).toHaveText('Starting isolated environment');
+  await expect(page.locator('#run-strip-detail')).toContainText('First-use storage can take tens of seconds');
   await expect(page.locator('#status-badge')).toHaveText('Starting');
-  await expect(page.locator('#run-progress-title')).toHaveText('Agent needs input');
+  await expect(page.locator('#run-strip-title')).toHaveText('Agent needs input');
   await expect(page.locator('#status-badge')).toHaveText('Needs input');
   await expect(page.getByText('Release channel', { exact: true })).toBeVisible();
   await expect(page.getByText('Choose the release channel for this review.', { exact: true })).toBeVisible();
@@ -250,21 +252,21 @@ test('creates, observes autonomous work, and completes a durable API conversatio
   await page.getByRole('button', { name: 'Send response' }).click();
   await expect(page.getByText('Response delivered to the isolated agent.', { exact: true })).toBeVisible();
   await page.setViewportSize({ width: 1_280, height: 800 });
-  await expect(page.locator('#run-progress-title')).toHaveText('Reviewing the release candidate');
+  await expect(page.locator('#run-strip-title')).toHaveText('Reviewing the release candidate');
   await expect(page.locator('#status-badge')).toHaveText('Working');
   await expect(page.locator('#run-strip')).toBeVisible();
   await expect(page.locator('#run-strip-phase')).toHaveText(/Working|Answering/);
-  if (!await page.locator('.work-details').evaluate((details: HTMLDetailsElement) => details.open)) {
-    await page.locator('.work-details > summary').click();
-  }
-  const transcriptPhases = page.locator('.work-details > .work-activity .phase-card');
+  await expect(page.getByRole('button', {name: 'Stop', exact: true})).toHaveCount(1);
+  await page.getByRole('button', {name: 'Work details', exact: true}).click();
+  const transcriptPhases = page.locator('#context-activity .phase-card');
   await expect(transcriptPhases.filter({ hasText: 'Rat started working' })).toBeVisible();
   await expect(transcriptPhases.filter({ hasText: 'Preparing the answer' })).toContainText('2 related updates');
   await expect(transcriptPhases.filter({ hasText: 'Using the workspace' })).toBeVisible();
   await expect(transcriptPhases.filter({ hasText: 'Keeping context focused' })).toBeVisible();
-  await expect(page.getByText(/Some early live activity expired/)).toBeVisible();
+  await expect(page.getByText(/Early live events rolled out/)).toBeVisible();
   await expect(page.getByText('turn/started', { exact: true })).toHaveCount(0);
 
+  await page.getByRole('button', {name: 'Close context pane'}).click();
   const sidebarWidth = Number(await page.locator('#sidebar-resizer').getAttribute('aria-valuenow'));
   await page.locator('#sidebar-resizer').focus();
   await page.keyboard.press('ArrowRight');
@@ -277,7 +279,8 @@ test('creates, observes autonomous work, and completes a durable API conversatio
   await page.mouse.up();
   expect(Number(await page.locator('#sidebar-resizer').getAttribute('aria-valuenow'))).toBeGreaterThan(sidebarWidth + 30);
 
-  await page.getByRole('button', { name: 'Open computer' }).click();
+  await page.getByRole('button', { name: 'Work details' }).click();
+  await page.getByRole('tab', {name: /^Browser/}).click();
   await expect(page.locator('#context-pane')).toBeVisible();
   await expect(page.getByRole('tab', { name: /^Browser/ })).toHaveAttribute('aria-selected', 'true');
   await expect(page.locator('#computer-loading')).toContainText('Starting the isolated screen');
@@ -375,17 +378,18 @@ test('creates, observes autonomous work, and completes a durable API conversatio
     await page.setViewportSize({ width: 1_280, height: 800 });
     await page.getByRole('button', { name: new RegExp(conversationName) }).click();
   }
+  state.allowCompletion = true;
   await demoPause(page, 1_400);
 
   await expect(page.locator('#transcript').getByText(finalReply, { exact: true })).toBeVisible({ timeout: 15_000 });
   await expect(page.locator('.code-block code')).toHaveText('npm test');
   await expect(page.getByRole('link', { name: 'Open the runbook' })).toHaveAttribute('href', 'https://example.com/runbook');
   await expect(page.locator('#status-badge')).toHaveText('Ready');
-  await expect(progress).toBeVisible();
-  await expect(page.locator('#run-progress-title')).toHaveText('Work completed');
-  await expect(page.locator('.work-details')).not.toHaveAttribute('open', '');
-  await page.locator('.work-details > summary').click();
-  await expect(page.locator('.work-details > .work-activity .phase-card').filter({ hasText: 'Using the workspace' })).toBeVisible();
+  await expect(progress).toBeHidden();
+  await expect(page.locator('#run-progress strong')).toHaveText('Work completed');
+  await page.getByRole('button', {name: 'Work details', exact: true}).click();
+  await expect(page.locator('#context-activity .phase-card').filter({ hasText: 'Using the workspace' })).toBeVisible();
+  await page.getByRole('button', {name: 'Close context pane'}).click();
   await expect(page.locator('.conversation-list .conversation-name', { hasText: conversationName })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Conversation files' })).toBeVisible();
   const artifactButton = page.getByRole('button', { name: /reports\/release-review\.md/ });
@@ -404,10 +408,32 @@ test('creates, observes autonomous work, and completes a durable API conversatio
     'href',
     new RegExp(`/artifacts/${outputArtifactId}/content$`),
   );
+  await page.setViewportSize({width: 390, height: 844});
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+  await expect(page.getByRole('button', {name: 'Use file in terminal'})).toBeInViewport();
+  if (process.env.RAT_THINGS_CONSOLE_SCREENSHOTS === 'on') await page.screenshot({path: 'test-results/rat-things-console-mobile-viewer.png'});
+  await expect(page.getByRole('link', {name: 'Download', exact: true})).toHaveAttribute('download', 'release-review.md');
+  const downloadEvent = page.waitForEvent('download');
+  await page.getByRole('link', {name: 'Download', exact: true}).click();
+  const download = await downloadEvent;
+  expect(await download.failure()).toBeNull();
+  expect(download.suggestedFilename()).toBe('release-review.md');
+  await page.getByRole('button', {name: 'Use file in terminal'}).click();
+  await expect(page.locator('#terminal-command-list')).toContainText(`rat-things file '${outputArtifactId}'`);
+  await expect(page.locator('#terminal-command-list')).toContainText('--preview');
+  await expect(page.locator('#terminal-command-list')).toContainText('--open');
+  await expect(page.locator('#terminal-command-list')).toContainText("--download './release-review.md'");
+  await page.keyboard.press('Escape');
+  await page.setViewportSize({width: 1_280, height: 800});
   await page.getByRole('button', { name: 'Close viewer' }).click();
 
   const assistantMessage = page.locator('[data-message-id="assistant-console-e2e"]');
-  await assistantMessage.getByRole('button', { name: 'Add 👍 reaction' }).click();
+  await expect(assistantMessage.locator('.message-actions').getByRole('button')).toHaveCount(2);
+  await assistantMessage.getByRole('button', {name: 'React', exact: true}).focus();
+  await page.keyboard.press('Enter');
+  await page.locator('#reaction-dialog').getByRole('button', {name: 'Add 👍 reaction'}).click();
+  await expect(page.locator('#reaction-dialog')).toBeHidden();
+  await expect(assistantMessage.getByRole('button', {name: 'React', exact: true})).toBeFocused();
   await expect(assistantMessage.getByRole('button', { name: 'Remove 👍 reaction' })).toContainText('1');
   await assistantMessage.getByRole('button', { name: 'Reply' }).click();
   await expect(page.locator('#composer-context')).toContainText('Replying to Rat Things');
@@ -580,6 +606,60 @@ test('keeps tracking the first accepted Run before the conversation projects its
   await expect(page.locator('#run-strip-title')).toHaveText('Agent is working');
 });
 
+test('opens an unlisted conversation, offers terminal commands, and adopts a CLI-started Run', async ({page}) => {
+  let active = false;
+  let computerReads = 0;
+  const id = 'b'.repeat(64);
+  const before = '2026-09-05T10:00:00.000Z';
+  const after = '2026-09-05T10:01:00.000Z';
+  const summary = () => ({conversationId: id, threadKey: 'cli-handoff', title: 'CLI handoff', sourceKind: 'api',
+    status: active ? 'running' : 'idle', createdAt: before, updatedAt: active ? after : before});
+  await page.route('**/api/v1/**', async route => {
+    const path = new URL(route.request().url()).pathname;
+    if (path === '/api/v1/conversations') return route.fulfill({json: {items: active ? [summary()] : []}});
+    if (path.endsWith('/artifacts')) return route.fulfill({json: {files: []}});
+    if (path === `/api/v1/conversations/${id}`) return route.fulfill({json: {...summary(),
+      ...(active ? {activeRunId: 'run-external'} : {}), transcript: {messages: [{role: 'user', content: 'Prior work'}], compactedMessages: 0}}});
+    if (path.endsWith('/events')) return route.fulfill({json: {events: [], ready: true, pendingRequests: [{requestId: 'question', title: 'Choose audience',
+      questions: [{id: 'audience', question: 'Who is this for?', options: [{label: 'Operators'}]}]}]}});
+    if (path.endsWith('/computer')) {
+      computerReads += 1;
+      return route.fulfill({status: 409, json: {error: {message: 'run does not have browser computer use enabled'}}});
+    }
+    if (path === '/api/v1/runs/run-external') return route.fulfill({json: {runId: 'run-external', status: 'running', createdAt: after}});
+    if (path === `/api/v1/conversations/${'c'.repeat(64)}`) return route.fulfill({status: 404, json: {error: {message: 'conversation not found'}}});
+    return route.fulfill({json: {}});
+  });
+  await page.goto(`${consoleUrl}/?conversation=${id}`);
+  await expect(page.getByRole('heading', {name: 'CLI handoff', exact: true})).toBeVisible();
+  await expect(page.locator('#run-strip')).toBeHidden();
+  await page.getByRole('button', {name: 'Use in terminal', exact: true}).click();
+  const dialog = page.getByRole('dialog', {name: 'Use this conversation in your terminal'});
+  await expect(dialog).toContainText("rat-things chat --thread 'cli-handoff'");
+  await expect(dialog).toContainText(`rat-things console --conversation '${id}'`);
+  await page.setViewportSize({width: 390, height: 844});
+  await expect(dialog).toBeVisible();
+  expect(await dialog.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
+  await page.getByRole('button', {name: 'Close terminal commands'}).click();
+  await page.setViewportSize({width: 1280, height: 800});
+  await page.getByRole('textbox', {name: 'Message', exact: true}).fill('Unsent draft stays here');
+  active = true;
+  await page.getByRole('button', {name: 'Refresh', exact: true}).click();
+  await expect(page.locator('#status-badge')).toHaveText('Needs input');
+  await expect(page.getByRole('radio', {name: 'Operators', exact: true})).toBeVisible();
+  await expect(page.locator('#stop-run')).toBeVisible();
+  await expect(page.getByRole('textbox', {name: 'Message', exact: true})).toHaveValue('Unsent draft stays here');
+  await page.getByRole('button', {name: 'Work details', exact: true}).click();
+  await page.getByRole('tab', {name: /^Browser/}).click();
+  await expect(page.locator('#computer-owner-label')).toHaveText('Browser unavailable');
+  await expect(page.locator('#computer-loading')).toContainText('This Run has no browser');
+  await page.waitForTimeout(2_500);
+  expect(computerReads).toBe(1);
+  await page.goto(`${consoleUrl}/?conversation=${'c'.repeat(64)}`);
+  await expect(page.locator('#notice')).toContainText('Could not open the requested conversation');
+  await expect(page.getByRole('heading', {name: 'New conversation', exact: true})).toBeVisible();
+});
+
 test('uses runtime readiness and server timestamps, and freezes the final browser frame', async ({page}) => {
   let done = false;
   let ready = false;
@@ -616,7 +696,8 @@ test('uses runtime readiness and server timestamps, and freezes the final browse
   await expect(page.locator('#run-strip-elapsed')).toHaveText(/^1m /);
   ready = true;
   await expect(page.locator('#status-badge')).toHaveText('Working');
-  await page.getByRole('button', {name: 'Open computer', exact: true}).click();
+  await page.getByRole('button', {name: 'Work details', exact: true}).click();
+  await page.getByRole('tab', {name: /^Browser/}).click();
   await expect(page.locator('#computer-screen')).toBeVisible();
   done = true;
   await expect(page.locator('#computer-owner-label')).toHaveText('Final browser frame');
@@ -1076,20 +1157,9 @@ async function handleControlRequest(
     return sendJson(response, 202, runProjection('queued'));
   }
   if (request.method === 'GET' && url.pathname === `/v1/runs/${runId}`) {
-    const statuses = [
-      'queued',
-      'dispatching',
-      'running',
-      'running',
-      'running',
-      'running',
-      'running',
-      'running',
-      'succeeded',
-    ] as const;
-    const status = state.runReads >= 2 && !state.computerJourneyDone
-      ? 'running'
-      : statuses[Math.min(state.runReads, statuses.length - 1)]!;
+    const status = state.runReads === 0 ? 'queued'
+      : state.runReads === 1 ? 'dispatching'
+      : state.computerJourneyDone && state.allowCompletion ? 'succeeded' : 'running';
     state.runReads += 1;
     state.completed = status === 'succeeded';
     return sendJson(response, 200, runProjection(status));

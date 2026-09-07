@@ -1,5 +1,10 @@
 # Browser computer use
 
+If a Run has no browser capability, the console explains that browser access is unavailable and
+stops retrying the screen endpoint. Activity and Sources remain available. Start a new conversation
+with **Isolated browser** enabled when browser access is needed. A retained terminal frame labels
+completed, failed, and intentionally stopped work separately.
+
 Rat Things has built-in, agent-controlled browser use in remote Lambda MicroVM runs. It is an
 **engineering preview**: the complete implemented browser surface passed a historical real-Codex
 live-AWS canary under the former approval bridge. A fresh real-Codex canary also passed the current
@@ -63,7 +68,9 @@ rat-things watch RUN_ID --follow
 rat-things interrupt RUN_ID
 ```
 
-The console keeps the browser beside the conversation in a resizable context pane. `Browser`,
+In the console, open **Work details**, then select **Browser** to place the isolated screen beside
+the conversation in a resizable context pane. Work details opens Activity by default and remains
+available after completion; it does not start another VM. `Browser`,
 `Sources`, and `Activity` tabs keep the live screen, collected links/files, and human-readable work
 phases together. `Take control` grants the same renewable exclusive lease as the API; the client
 shows the remaining lease time, enables click/wheel/keyboard/navigation controls only for the human,

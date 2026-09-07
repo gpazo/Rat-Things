@@ -35,6 +35,7 @@ import type {
   PublicPendingAgentRequest,
 } from './core/agent-activity-projection.js';
 import { isTerminal } from './domain/state.js';
+import { runPresentation, isTextArtifact, readTextPreview, formatBytes, shellArgument as quoteArgument } from '../console/presentation.js';
 import { parseRunRequest } from './domain/validation.js';
 import {
   CapabilityProfileRegistry,
@@ -188,6 +189,9 @@ const commands = new Set([
 const booleanOptions = new Set([
   'all',
   'events',
+  'diagnostics',
+  'preview',
+  'open',
   'follow',
   'help',
   'json',
@@ -353,6 +357,7 @@ async function main(): Promise<void> {
     else if (args.command === 'conversation' || args.command === 'conversations') conversationHelp();
     else if (args.command === 'chat') chatHelp();
     else if (args.command === 'watch' || args.command === 'respond') runInteractionHelp();
+    else if (args.command === 'file' || args.command === 'files') fileHelp();
     else help(args.flags.has('all'));
     return;
   }
@@ -530,7 +535,7 @@ async function main(): Promise<void> {
 
 async function chat(args: Arguments): Promise<void> {
   validateCommandOptions(args, {
-    flags: ['browser', 'json', 'network', 'new', 'no-browser', 'no-network', 'no-wait'],
+    flags: ['browser', 'diagnostics', 'json', 'network', 'new', 'no-browser', 'no-network', 'no-wait'],
     values: [
       'connection-set', 'conversation', 'delivery', 'driver', 'file', 'idempotency-key', 'model',
       'personality', 'poll-seconds', 'profile', 'prompt', 'reasoning-effort', 'reasoning-summary',
@@ -540,6 +545,8 @@ async function chat(args: Arguments): Promise<void> {
       'allow-operation', 'app', 'attach', 'connection', 'deny-operation', 'mcp', 'skill',
     ],
   });
+  const interval = positiveNumber(args.values.get('poll-seconds') ?? '2', 'poll-seconds');
+  const waitSeconds = positiveNumber(args.values.get('wait-timeout') ?? '2400', 'wait-timeout');
   if (args.values.has('file') && (args.values.has('prompt') || args.positionals.length > 0)) {
     throw new Error('chat accepts either --file REQUEST.json or prompt text, not both');
   }
@@ -587,39 +594,50 @@ async function chat(args: Arguments): Promise<void> {
     return;
   }
 
-  const interval = positiveNumber(args.values.get('poll-seconds') ?? '2', 'poll-seconds');
-  const waitSeconds = positiveNumber(
-    args.values.get('wait-timeout') ?? '2400',
-    'wait-timeout',
-  );
+  process.stderr.write(`Accepted Run ${terminalText(run.runId)}\n`);
+  process.stderr.write(`Follow: rat-things watch ${shellArgument(run.runId)} --follow\n`);
+  process.stderr.write(`Open: rat-things console --thread ${shellArgument(conversationId)}\n`);
+
   const deadline = Date.now() + waitSeconds * 1_000;
   const statusPath = `/v1/conversations/${encodedConversation}/messages/${encodeURIComponent(messageId)}`;
   let lastProgress = '';
+  const seenPending = new Set<string>();
+  let inputCheckFailed = false;
   while (Date.now() < deadline) {
     const current = await api(statusPath, 'GET') as ConversationMessageStatus;
-    const progress = [
-      `message=${current.state}`,
-      `conversation=${current.conversation.status}`,
-      current.run ? `run=${current.run.status}` : 'run=unscheduled',
-      current.conversation.session ? `microvm=${current.conversation.session.state}` : undefined,
-    ].filter(Boolean).join(' ');
+    let live: PublicAgentRuntimeSnapshot | undefined;
+    if (current.state === 'dead_letter') {
+      throw new Error(`conversation message ${messageId} was dead-lettered`);
+    }
+    if (current.run?.status === 'running') {
+      try {
+        live = await api(`/v1/runs/${encodeURIComponent(current.run.runId)}/events?after=0&limit=1`, 'GET') as PublicAgentRuntimeSnapshot;
+      } catch (error) {
+        // A finishing or not-yet-ready runtime has no live interaction endpoint.
+        if (!(error instanceof RuntimeApiError && error.status === 409) && !inputCheckFailed) {
+          inputCheckFailed = true;
+          process.stderr.write(`Live input could not be checked. Use rat-things watch ${shellArgument(current.run.runId)} --follow to reconnect.\n`);
+        }
+      }
+    }
+    const settled = current.conversation.status === 'idle' && current.conversation.pendingCount === 0 && current.conversation.session?.state === 'suspended';
+    const presentation = runPresentation({ status: current.run?.status ?? 'queued', ready: live?.ready ?? false, ...(live ? {pendingRequests: live.pendingRequests} : {}), settling: !settled });
+    const progress = args.flags.has('diagnostics')
+      ? [presentation.label, `message=${current.state}`, `conversation=${current.conversation.status}`, `run=${current.run?.status ?? 'unscheduled'}`, `microvm=${current.conversation.session?.state ?? 'unknown'}`].join(' · ')
+      : `${presentation.label} · ${presentation.detail}`;
     if (progress !== lastProgress) {
       process.stderr.write(`${terminalText(progress)}\n`);
       lastProgress = progress;
     }
-    if (current.state === 'dead_letter') {
-      throw new Error(`conversation message ${messageId} was dead-lettered`);
-    }
+    if (live && current.run) renderNewPendingRequests(current.run.runId, live.pendingRequests, seenPending);
     if (current.run && isTerminal(current.run.status)) {
       if (current.run.status !== 'succeeded') {
-        print(current.run);
+        if (args.flags.has('json') || args.flags.has('diagnostics')) print(current.run);
+        else process.stderr.write(`Inspect saved output: rat-things artifact ${shellArgument(current.run.runId)} output\n`);
         process.exitCode = 1;
         return;
       }
-      const completed = current.conversation.status === 'idle' &&
-        current.conversation.pendingCount === 0 &&
-        current.conversation.session?.state === 'suspended';
-      if (completed) {
+      if (settled) {
         if (args.flags.has('json')) print(current);
         else {
           await writeArtifact(current.run.runId, 'output');
@@ -851,6 +869,11 @@ function renderConversationDetail(detail: PublicConversationDetail): void {
   if (detail.transcript.nextToken) {
     process.stdout.write(`Next older page: --next-token ${terminalText(detail.transcript.nextToken)}\n`);
   }
+  process.stdout.write(`Open: rat-things console --conversation ${shellArgument(detail.conversationId)}\n`);
+  if (detail.threadKey) {
+    process.stdout.write(`Continue: rat-things chat --thread ${shellArgument(detail.threadKey)} "Your next message"\n`);
+    process.stdout.write(`Files: rat-things files --thread ${shellArgument(detail.threadKey)}\n`);
+  }
 }
 
 type ConversationSource =
@@ -969,6 +992,10 @@ function publicConversationId(args: Arguments, index: number): string {
 function singleLine(value: string, maximum: number): string {
   const line = terminalText(value).replace(/\s+/g, ' ').trim();
   return line.length <= maximum ? line : `${line.slice(0, maximum - 1)}…`;
+}
+
+function shellArgument(value: string): string {
+  return quoteArgument(terminalText(value));
 }
 
 function indent(value: string, prefix: string): string {
@@ -1190,19 +1217,19 @@ async function waitForRun(record: RunRecord, args: Arguments): Promise<RunRecord
       throw new Error(`timed out after ${waitSeconds}s waiting for Run ${record.runId}`);
     }
     if (current.status !== previousStatus) {
-      process.stderr.write(`run ${current.runId}: ${current.status}\n`);
+      process.stderr.write(`${runPresentation(current).label} · Run ${current.runId}\n`);
       previousStatus = current.status;
     }
     await delay(interval * 1_000);
     current = await api(`/v1/runs/${record.runId}`, 'GET') as RunRecord;
   }
-  if (current.status !== previousStatus) process.stderr.write(`run ${current.runId}: ${current.status}\n`);
+  if (current.status !== previousStatus) process.stderr.write(`${runPresentation(current).label} · Run ${current.runId}\n`);
   return current;
 }
 
 async function watch(args: Arguments): Promise<void> {
   validateCommandOptions(args, {
-    flags: ['follow', 'json', 'raw'],
+    flags: ['follow', 'json', 'raw', 'diagnostics'],
     values: ['after', 'poll-seconds'],
   });
   validatePositionals(args, 1, 1, 'watch RUN_ID');
@@ -1225,15 +1252,25 @@ async function watch(args: Arguments): Promise<void> {
         'GET',
       ) as PublicAgentRuntimeSnapshot;
     } catch (error) {
-      if (!(error instanceof RuntimeApiError) || error.status !== 409 || !args.flags.has('follow')) {
+      if (!(error instanceof RuntimeApiError) || error.status !== 409) {
         throw error;
       }
       const run = await api(`/v1/runs/${encodeURIComponent(runId)}`, 'GET') as RunRecord;
       if (!args.flags.has('json') && run.status !== previousRunStatus) {
-        process.stderr.write(`Run ${run.runId}: ${run.status}\n`);
+        process.stderr.write(`${runPresentation(run).label} · Run ${run.runId}${args.flags.has('diagnostics') ? ` · status=${run.status}` : ''}\n`);
         previousRunStatus = run.status;
       }
-      if (isTerminal(run.status)) return;
+      if (isTerminal(run.status)) {
+        if (args.flags.has('json')) {
+          const terminal = { runId, status: run.status, active: false };
+          if (args.flags.has('follow')) process.stdout.write(`${JSON.stringify(terminal)}\n`);
+          else print(terminal);
+        }
+        else {
+          process.stderr.write(`Live activity has ended. Read the saved result: rat-things artifact ${shellArgument(runId)} output\n`);
+        }
+        return;
+      }
       throw error;
     }
     if (requestedAfter < snapshot.oldestSequence - 1) {
@@ -1258,21 +1295,18 @@ async function watch(args: Arguments): Promise<void> {
       }
     } else {
       for (const event of snapshot.events) renderActivity(event);
-      for (const pending of snapshot.pendingRequests) {
-        if (seenPending.has(pending.requestId)) continue;
-        seenPending.add(pending.requestId);
-        renderPendingRequest(runId, pending);
-      }
+      renderNewPendingRequests(runId, snapshot.pendingRequests, seenPending);
     }
     const last = snapshot.events.at(-1);
     if (last) after = last.sequence;
-    if (!args.flags.has('follow')) return;
+    if (!args.flags.has('follow') && !args.flags.has('diagnostics')) return;
     const run = await api(`/v1/runs/${encodeURIComponent(runId)}`, 'GET') as RunRecord;
-    if (!args.flags.has('json') && run.status !== previousRunStatus) {
-      process.stderr.write(`Run ${run.runId}: ${run.status}\n`);
-      previousRunStatus = run.status;
+    const presentation = runPresentation({...snapshot, status: run.status});
+    if (!args.flags.has('json') && presentation.label !== previousRunStatus) {
+      process.stderr.write(`${presentation.label} · Run ${run.runId}${args.flags.has('diagnostics') ? ` · status=${run.status}` : ''}\n`);
+      previousRunStatus = presentation.label;
     }
-    if (isTerminal(run.status)) return;
+    if (isTerminal(run.status) || !args.flags.has('follow')) return;
     await delay(interval * 1_000);
   }
 }
@@ -1293,6 +1327,14 @@ function renderActivity(event: PublicAgentActivity): void {
   process.stdout.write('\n');
 }
 
+function renderNewPendingRequests(runId: string, requests: PublicPendingAgentRequest[], seen: Set<string>): void {
+  for (const pending of requests) {
+    if (seen.has(pending.requestId)) continue;
+    seen.add(pending.requestId);
+    renderPendingRequest(runId, pending);
+  }
+}
+
 function renderPendingRequest(runId: string, pending: PublicPendingAgentRequest): void {
   process.stderr.write(`\nInput needed · ${terminalText(pending.title)}\n`);
   if (pending.detail) process.stderr.write(`${terminalText(pending.detail)}\n`);
@@ -1306,9 +1348,9 @@ function renderPendingRequest(runId: string, pending: PublicPendingAgentRequest)
   }
   if (pending.questions?.length) {
     const answers = pending.questions.map((question) => question.isSecret
-      ? `--answer-stdin ${question.id}`
-      : `--answer ${question.id}=VALUE`).join(' ');
-    process.stderr.write(`Respond: rat-things respond ${terminalText(runId)} ${terminalText(pending.requestId)} ${terminalText(answers)}\n\n`);
+      ? `--answer-stdin ${shellArgument(question.id)}`
+      : `--answer ${shellArgument(`${question.id}=VALUE`)}`).join(' ');
+    process.stderr.write(`Respond in another terminal (replace VALUE): rat-things respond ${shellArgument(runId)} ${shellArgument(pending.requestId)} ${answers}\n\n`);
   } else {
     process.stderr.write(`Respond: rat-things respond ${terminalText(runId)} ${terminalText(pending.requestId)} --result JSON\n\n`);
   }
@@ -1470,7 +1512,7 @@ async function computerCommand(args: Arguments): Promise<void> {
   const nested = withPositionals(args, args.positionals.slice(1));
   switch (subcommand) {
     case 'open':
-      validateCommandOptions(nested, { flags: ['no-wait'], values: ['port', 'run', 'thread'] });
+      validateCommandOptions(nested, { flags: ['no-wait'], values: ['port', 'run', 'thread', 'conversation'] });
       validatePositionals(nested, 0, 1, 'computer open [RUN_ID]');
       await openConsole(nested);
       return;
@@ -1531,6 +1573,7 @@ function withPositionals(args: Arguments, positionals: string[]): Arguments {
 }
 
 async function openConsole(args: Arguments): Promise<void> {
+  validateCommandOptions(args, { flags: ['no-wait'], values: ['port', 'run', 'thread', 'conversation'] });
   const base = process.env.RAT_THINGS_API_URL ?? process.env.AGENT_RUNTIME_API_URL;
   if (!base) throw new Error('RAT_THINGS_API_URL is required to open the signed console');
   const port = Number(args.values.get('port') ?? '4174');
@@ -1540,9 +1583,14 @@ async function openConsole(args: Arguments): Promise<void> {
   const selector = new URLSearchParams();
   const runId = args.values.get('run') ?? args.positionals[0];
   const thread = args.values.get('thread');
-  if (runId && thread) throw new Error('choose either --run or --thread when opening the console');
+  const conversation = args.values.get('conversation');
+  if ([runId, thread, conversation].filter(Boolean).length > 1 || (args.values.has('run') && args.positionals.length)) {
+    throw new Error('choose only one Run, --thread, or --conversation when opening the console');
+  }
+  if (conversation && !/^[a-f0-9]{64}$/.test(conversation)) throw new Error('--conversation requires the public ID from conversations list or search');
   if (runId) selector.set('run', runId);
   if (thread) selector.set('thread', thread);
+  if (conversation) selector.set('conversation', conversation);
 
   const cliDirectory = dirname(fileURLToPath(import.meta.url));
   const bundledServer = join(cliDirectory, 'console-server.mjs');
@@ -1632,21 +1680,23 @@ function chatHelp(): void {
   process.stdout.write(`Rat Things chat\n\n`);
   process.stdout.write(`  rat-things chat [--thread NAME|--new] [--attach PATH]... [--reply-to MESSAGE_ID]\n`);
   process.stdout.write(`    [--delivery interrupt|defer] [--driver DRIVER] [--profile NAME]\n`);
-  process.stdout.write(`    [--network|--no-network] [--browser|--no-browser] [--json] [--no-wait]\n`);
+  process.stdout.write(`    [--network|--no-network] [--browser|--no-browser] [--json] [--no-wait] [--diagnostics]\n`);
   process.stdout.write(`    [--idempotency-key KEY] [--poll-seconds N] [--wait-timeout N] "PROMPT"\n\n`);
-  process.stdout.write(`Repeat --attach up to six times. Use -- before prompt text that starts with a dash.\n`);
+  process.stdout.write(`Repeat --attach up to six times. Use --diagnostics to include underlying Run, conversation, and MicroVM states.\nUse -- before prompt text that starts with a dash.\n`);
   process.stdout.write(`The public conversation ID is not a thread key; use the thread key displayed by list/show.\n`);
+  process.stdout.write(`While waiting, questions and copyable response commands appear on stderr.\n`);
 }
 
 function runInteractionHelp(): void {
   process.stdout.write(`Rat Things live Run interaction\n\n`);
   process.stdout.write(`  rat-things watch RUN_ID [--follow] [--after SEQUENCE] [--poll-seconds N]\n`);
-  process.stdout.write(`    [--json|--raw]\n`);
+  process.stdout.write(`    [--json|--raw] [--diagnostics]\n`);
   process.stdout.write(`  rat-things respond RUN_ID REQUEST_ID --result JSON\n`);
   process.stdout.write(`  rat-things respond RUN_ID REQUEST_ID --answer QUESTION=VALUE ...\n`);
   process.stdout.write(`  rat-things respond RUN_ID REQUEST_ID --answer-stdin SECRET_QUESTION ...\n\n`);
   process.stdout.write(`Readable watch output is the default. One --json poll is a JSON document;\n`);
   process.stdout.write(`--follow --json and --raw are JSONL. Secret stdin is hidden on a terminal.\n`);
+  process.stdout.write(`After live activity ends, --json returns {runId, status, active:false}; readable output points to the saved result.\n`);
 }
 
 function conversationHelp(): void {
@@ -1655,6 +1705,7 @@ function conversationHelp(): void {
   process.stdout.write(`  rat-things conversations search QUERY [--limit N] [--json]\n`);
   process.stdout.write(`  rat-things conversation show PUBLIC_ID [--limit N] [--next-token TOKEN] [--json]\n`);
   process.stdout.write(`  rat-things conversation sources PUBLIC_ID [--json]\n`);
+  process.stdout.write(`  rat-things console --conversation PUBLIC_ID [--port 4174]\n`);
   process.stdout.write(`  rat-things conversation pin|unpin|hide|unhide|read|unread PUBLIC_ID\n`);
   process.stdout.write(`  rat-things conversation react|unreact PUBLIC_ID MESSAGE_ID 👍|❤️|🎉|👀\n\n`);
   process.stdout.write(`PUBLIC_ID is the opaque 64-character ID returned by list or search.\n`);
@@ -2217,6 +2268,7 @@ async function writeArtifact(runId: string, name: string): Promise<void> {
 }
 
 async function listFiles(args: Arguments): Promise<void> {
+  validateCommandOptions(args, { flags: ['json'], values: ['thread', 'conversation', 'run'] });
   const scope = artifactScope(args);
   const files = await artifactList(scope);
   if (args.flags.has('json')) {
@@ -2228,11 +2280,17 @@ async function listFiles(args: Arguments): Promise<void> {
     return;
   }
   for (const file of files) {
-    process.stdout.write(`${terminalText(file.path)}\t${terminalText(file.mediaType)}\t${file.bytes}\t${terminalText(file.id)}\n`);
+    process.stdout.write(`${terminalText(file.path)} · ${formatBytes(file.bytes)} · ${terminalText(file.mediaType)}\n`);
   }
+  process.stdout.write(`\nUse rat-things file NAME --${scope.kind === 'run' ? 'run' : 'thread'} ${shellArgument(scope.id)} with --preview, --open, or --download PATH.\n`);
 }
 
 async function file(args: Arguments): Promise<void> {
+  validateCommandOptions(args, { flags: ['json', 'preview', 'open'], values: ['thread', 'conversation', 'run', 'download'] });
+  const destination = args.values.get('download');
+  if ([args.flags.has('json'), args.flags.has('preview'), args.flags.has('open'), destination !== undefined].filter(Boolean).length > 1) {
+    throw new Error('choose only one of --preview, --open, --download PATH, or --json');
+  }
   const name = requiredPositional(args, 0, 'file name or ID');
   const scope = artifactScope(args);
   const files = await artifactList(scope);
@@ -2245,9 +2303,19 @@ async function file(args: Arguments): Promise<void> {
   if (matches.length > 1) {
     throw new Error(`file name ${JSON.stringify(name)} is ambiguous; use its path or ID`);
   }
-  const descriptor = await artifactDescriptorFor(scope, matches[0]!.id);
-  const destination = args.values.get('download');
-  if (!destination) {
+  const selected = matches[0]!;
+  if (args.flags.has('preview') && !isTextArtifact(selected.mediaType)) {
+    throw new Error('this file has no text preview; use --open or --download PATH');
+  }
+  const descriptor = await artifactDescriptorFor(scope, selected.id);
+  if (args.flags.has('open')) {
+    const url = new URL(descriptor.url);
+    if (!['https:', 'http:'].includes(url.protocol)) throw new Error('file URL must use HTTP or HTTPS');
+    launchBrowser(url.href);
+    process.stdout.write(`Opened ${terminalText(selected.path)} in your browser.\n`);
+    return;
+  }
+  if (!destination && !args.flags.has('preview')) {
     if (args.flags.has('json')) print(descriptor);
     else process.stdout.write(`${terminalText(descriptor.url)}\n`);
     return;
@@ -2258,9 +2326,25 @@ async function file(args: Arguments): Promise<void> {
     publicationAssetPath(descriptor),
   );
   if (!response.ok) throw new Error(`file download returned HTTP ${response.status}`);
-  const target = resolve(destination);
-  await writeFile(target, Buffer.from(await response.arrayBuffer()));
+  if (args.flags.has('preview')) {
+    const preview = await readTextPreview(response, 65_536);
+    process.stdout.write(terminalText(preview.text));
+    if (!preview.text.endsWith('\n')) process.stdout.write('\n');
+    if (preview.truncated) process.stderr.write('Preview truncated at 64 KiB. Use --download PATH for the full file.\n');
+    return;
+  }
+  const target = resolve(destination!);
+  try {
+    await writeFile(target, Buffer.from(await response.arrayBuffer()), {flag: 'wx'});
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'EEXIST') throw new Error(`file already exists: ${target}. Choose another --download path.`);
+    throw error;
+  }
   process.stdout.write(`${terminalText(target)}\n`);
+}
+
+function fileHelp(): void {
+  process.stdout.write(`Rat Things files\n\n  rat-things files [--thread NAME|--run RUN_ID] [--json]\n  rat-things file NAME [--thread NAME|--run RUN_ID] [--preview|--open|--download PATH|--json]\n\nPreview prints up to 64 KiB of text. Open uses your browser. Download writes a new local file\nand refuses to overwrite an existing path. With no mode, file prints its URL.\n`);
 }
 
 async function publish(args: Arguments): Promise<void> {
@@ -2928,9 +3012,10 @@ function help(showAll: boolean): void {
   process.stdout.write(`  rat-things chat --thread NAME \"Continue a cloud thread\"\n`);
   process.stdout.write(`  rat-things conversations list\n`);
   process.stdout.write(`  rat-things conversations search \"Find earlier work\"\n`);
+  process.stdout.write(`  rat-things console [--thread NAME|--conversation PUBLIC_ID]\n`);
   process.stdout.write(`  rat-things local \"Run on this computer\"\n`);
   process.stdout.write(`  rat-things files [--thread NAME]\n`);
-  process.stdout.write(`  rat-things file NAME [--thread NAME]\n`);
+  process.stdout.write(`  rat-things file NAME [--thread NAME] [--preview|--open|--download PATH]\n`);
   process.stdout.write(`  rat-things publish file|site|video PATH [--thread NAME]\n`);
   process.stdout.write(`\nLocal is the default. Use handoff or chat for a durable cloud thread.\n`);
   process.stdout.write(`Run rat-things help --all for agent and automation options.\n`);
@@ -2945,7 +3030,7 @@ function help(showAll: boolean): void {
   process.stdout.write(`    [--connection-set NAME] [--connection ACCOUNT[=PRESET]]...\n`);
   process.stdout.write(`    [--allow-operation ACCOUNT=PLUGIN.OP[,PLUGIN.OP...]]... [--deny-operation ACCOUNT=PLUGIN.OP[,PLUGIN.OP...]]...\n`);
   process.stdout.write(`    [--attach PATH]... [--reply-to MESSAGE_ID] [--delivery interrupt|defer]\n`);
-  process.stdout.write(`    [--json] [--no-wait]\n`);
+  process.stdout.write(`    [--json] [--no-wait] [--diagnostics]\n`);
   process.stdout.write(`    [--idempotency-key KEY] [--poll-seconds N] [--wait-timeout N] \"...\"\n`);
   process.stdout.write(`  --api-url URL and --region REGION override RAT_THINGS_API_URL and AWS_REGION\n`);
   process.stdout.write(`\nLocal execution\n\n`);
@@ -2955,7 +3040,7 @@ function help(showAll: boolean): void {
   process.stdout.write(`  rat-things submit --file examples/run-request.json [--wait]\n`);
   process.stdout.write(`  rat-things get RUN_ID\n`);
   process.stdout.write(`  rat-things cancel RUN_ID\n`);
-  process.stdout.write(`  rat-things watch RUN_ID [--follow] [--after SEQUENCE] [--json|--raw]\n`);
+  process.stdout.write(`  rat-things watch RUN_ID [--follow] [--after SEQUENCE] [--json|--raw] [--diagnostics]\n`);
   process.stdout.write(`  rat-things steer RUN_ID "Additional direction"\n`);
   process.stdout.write(`  rat-things interrupt RUN_ID\n`);
   process.stdout.write(`  rat-things respond RUN_ID REQUEST_ID --result JSON\n`);
@@ -3031,7 +3116,7 @@ function help(showAll: boolean): void {
   process.stdout.write(`  rat-things output RUN_ID\n`);
   process.stdout.write(`  rat-things artifact RUN_ID input|output|events|patch\n`);
   process.stdout.write(`  rat-things files [--thread NAME | --run RUN_ID] [--json]\n`);
-  process.stdout.write(`  rat-things file NAME [--thread NAME | --run RUN_ID] [--download PATH] [--json]\n`);
+  process.stdout.write(`  rat-things file NAME [--thread NAME | --run RUN_ID] [--preview|--open|--download PATH|--json]\n`);
   process.stdout.write(`  rat-things publish file PATH [--thread NAME | --run RUN_ID] [--title TEXT]\n`);
   process.stdout.write(`  rat-things publish site ROOT [--entrypoint PATH] [--thread NAME | --run RUN_ID]\n`);
   process.stdout.write(`  rat-things publish video PATH [--poster PATH] [--thread NAME | --run RUN_ID]\n`);

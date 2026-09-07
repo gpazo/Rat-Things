@@ -134,7 +134,11 @@ without widening the Run's fixed capability envelope.
 Start by sending a message, or choose a readable conversation name first. The console preserves
 an uncertain submission for retry after reload, and follow-ups from either client inherit the
 conversation's fixed capabilities. Questions, non-secret answers, and steering remain in history;
-graceful Stop retains partial output and files when runner finalization completes.
+graceful Stop retains partial output and files when runner finalization completes. **Work details**
+opens Activity, Sources, and Browser; the active Run strip provides one Stop control. The CLI uses
+the same Starting, Working, and Needs input labels, with infrastructure states under `--diagnostics`.
+File viewers offer download and file-specific terminal commands; `rat-things file` supports
+`--preview`, `--open`, and `--download PATH`.
 
 <p align="center">
   <a href="assets/conversation-console-live-browser.png"><img src="assets/conversation-console-live-browser.png" alt="Rat Things three-pane reference console during a live AWS NVIDIA earnings Run, with active progress, durable conversation, and isolated browser takeover" width="900"></a>

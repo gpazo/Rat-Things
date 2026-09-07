@@ -26,9 +26,9 @@ browser storage removes the saved retry envelope. API and CLI clients must likew
 original key and request when acceptance is uncertain.
 
 On desktop, draggable separators resize the conversation list, transcript, and context pane. The
-active-Run strip keeps phase, progress, elapsed time, Watch, Steer, and Stop visible. Opening Watch
-places the isolated browser beside the transcript; Sources and grouped Activity share that context
-pane. At compact widths, the same context becomes a full-screen sheet and the hidden workspace is
+active-Run strip keeps phase, progress, elapsed time, Steer, and a single Stop control visible.
+**Work details** opens grouped Activity, with Sources and Browser tabs in the same context pane.
+The pane remains accessible after completion; retained Activity can be reviewed without a live VM. At compact widths, the same context becomes a full-screen sheet and the hidden workspace is
 removed from keyboard and assistive-technology navigation.
 
 ![Rat Things desktop console showing grouped Activity beside a live AWS NVIDIA earnings conversation](../assets/conversation-console-live-activity.png)
@@ -38,7 +38,41 @@ The CLI opens the signed loopback client directly on either surface:
 ```bash
 rat-things computer open --thread THREAD_NAME
 rat-things computer open --run RUN_ID
+rat-things console --conversation PUBLIC_CONVERSATION_ID
 ```
+
+**Use in terminal** in the conversation header provides copyable commands to continue, read,
+open, and list files for the selected conversation. Use the same API URL and AWS identity in your
+terminal. The public-ID console link loads that exact conversation even when it is hidden or
+outside the first list page. An unavailable public-ID link reports an error instead of opening
+another conversation. If the CLI starts a turn while its conversation is open, the console's
+next refresh attaches the live progress, questions, and Stop controls without losing an unsent draft.
+
+Message actions show **Reply** and **React**; the reaction picker contains the four supported emoji.
+Existing reactions and their counts remain visible beside the message.
+
+File viewers provide **Open in new tab**, **Download**, and **Use file in terminal**. The terminal
+commands select the opaque file ID and the current thread so duplicate filenames remain unambiguous:
+
+```bash
+rat-things files --thread release-review
+rat-things file report.md --thread release-review --preview
+rat-things file report.md --thread release-review --open
+rat-things file report.md --thread release-review --download ./report.md
+```
+
+CLI previews read at most 64 KiB of text, neutralize terminal controls, and report truncation.
+Binary files can be opened or downloaded; downloads refuse to overwrite existing paths. With no
+mode, `file` still prints its URL, and `--json` returns the descriptor. These modes are mutually
+exclusive. The console's text preview is also bounded (2 MB); download to inspect the whole file.
+
+`chat` and `watch --follow` use the same **Starting**, **Working**, and **Needs input** language as
+the console. `chat --diagnostics` includes underlying message, conversation, Run, and MicroVM states;
+`watch --diagnostics` includes the raw Run status. JSON schemas remain unchanged. **Saving** means
+the Run succeeded but the conversation has not settled yet. Completion is **Done**; stopping is
+**Stopped**. Saved Run events are also available from **Use in terminal** when the Run ID is retained.
+Activity is retained in this browser session; opening a conversation on another device does not
+restore live Activity. The final browser frame remains visible while its pane stays open. The durable transcript and files remain available.
 
 ## How durability works
 
@@ -243,6 +277,13 @@ The modes are mutually exclusive. If the bounded live ring has evicted requested
 warns that the terminal JSONL artifact is the complete record. Raw App Server protocol events remain
 private.
 
+While `chat` waits, it prints the accepted Run ID, follow/open commands, and any ordinary input
+questions on stderr. Answer using the printed `respond` command in another terminal; the waiting
+command then returns the final result. Each pending question is printed once. JSON results stay
+on stdout. When a completed Run no longer has a live endpoint, `watch` reports its terminal status
+and a saved-output command; `--json` returns `{runId, status, active:false}` instead of a live
+snapshot. Follow mode keeps that terminal receipt on one JSONL line.
+
 The parser rejects unknown options, duplicate single-value options, extra operands on fixed-arity
 commands, duplicate answers for one question, and ambiguous mode combinations before making an API
 request. Use the conventional `--` terminator when browser text begins with a dash:
@@ -261,7 +302,7 @@ For a no-AWS first pass, run the focused automated verification:
 npm run smoke:conversation-cli
 ```
 
-It reports six black-box workflow names covering discovery/paging/sources, organization,
+It reports black-box workflows covering discovery/paging/sources, organization,
 attachments/replies, activity and structured/secret input, typed computer control, strict errors,
 JSONL/help, and terminal-control safety. The disposable loopback fixture exits with the test; this
 command verifies the CLI without deploying infrastructure but does not leave an interactive local
@@ -308,16 +349,16 @@ ordinary input requests, and interrupt an active turn. It does not replace the C
 execution: submitted work still follows the normal
 control API, durable Run, coordinator, and Lambda MicroVM path. Public activity cards deliberately omit raw App
 Server methods/parameters, commands, results, reasoning, and native thread/turn IDs. While a turn is
-active, the console reports the durable lifecycle as
-`Queued`, `Starting`, `Working`, `Needs input`, or `Stopping` and shows elapsed time from server
+active, the console and CLI share user-facing lifecycle labels:
+`Queued`, `Starting`, `Working`, `Needs input`, and `Stopping`. The console shows elapsed time from server
 timestamps, including after reload. `Starting` deliberately covers
 both allocation or resumption of an owner-bound MicroVM and preparation of its durable workspace;
 it warns that first-use storage can take tens of seconds rather than presenting an indeterminate
 frozen state. On desktop the conversation list, transcript, and Run context are independently
 resizable; the separators also support arrow-key resizing and reset on double-click. The active Run
-strip keeps goal/phase, elapsed time, progress, Watch, Steer, and Stop visible. Watching opens the
-browser beside the transcript, while Sources and Activity expose collected links/files and grouped
-human-readable phases. Raw bounded events remain available under an explicit technical-evidence
+strip keeps goal/phase, elapsed time, progress, Steer, and Stop visible. **Work details** opens
+Activity beside the transcript; select Browser for the isolated screen or Sources for collected
+links/files. Progress and controls appear once, while questions stay in the transcript. Raw bounded events remain available under an explicit technical-evidence
 disclosure. Narrow layouts turn the same context pane into a full-screen sheet without creating a
 second control implementation.
 

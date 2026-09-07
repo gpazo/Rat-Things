@@ -71,8 +71,8 @@
           </div>
           <div class="workspace-actions">
             <span id="status-badge" class="status-badge" data-state="idle">Ready</span>
-            <button id="open-computer" class="secondary-button" type="button" hidden>Open computer</button>
-            <button id="interrupt-run" class="secondary-button" type="button" hidden>Interrupt</button>
+            <button id="terminal-commands" class="secondary-button" type="button" hidden>Use in terminal</button>
+            <button id="open-context" class="secondary-button" type="button" hidden>Work details</button>
           </div>
         </header>
 
@@ -83,10 +83,8 @@
             <strong id="run-strip-title">Active Run</strong>
             <span id="run-strip-detail">Preparing the isolated runtime</span>
           </div>
-          <div class="run-strip-progress" aria-hidden="true"><span id="run-strip-progress-value"></span></div>
           <time id="run-strip-elapsed" class="run-strip-elapsed">0s</time>
           <div class="run-strip-actions">
-            <button id="watch-run" class="secondary-button" type="button">Watch</button>
             <button id="steer-run" class="secondary-button" type="button">Steer</button>
             <button id="stop-run" class="secondary-button" type="button">Stop</button>
           </div>
@@ -152,7 +150,7 @@
       <aside id="context-pane" class="context-pane" aria-labelledby="context-title" hidden>
         <header class="context-heading">
           <div>
-            <p class="eyebrow">Active Run</p>
+            <p class="eyebrow">Conversation</p>
             <h2 id="context-title">Work context</h2>
           </div>
           <div class="context-heading-actions">
@@ -269,6 +267,8 @@
       <div class="viewer-actions">
         <span id="viewer-detail"></span>
         <a id="viewer-open" class="secondary-button" target="_blank" rel="noopener noreferrer">Open in new tab</a>
+        <a id="viewer-download" class="secondary-button" download>Download</a>
+        <button id="viewer-terminal" class="secondary-button" type="button">Use file in terminal</button>
       </div>
     </dialog>
 
@@ -377,6 +377,25 @@
       </form>
     </dialog>
 
+    <dialog id="terminal-dialog" class="new-thread-dialog terminal-dialog" aria-labelledby="terminal-dialog-title">
+      <form method="dialog">
+        <div class="dialog-heading">
+          <h2 id="terminal-dialog-title">Use this conversation in your terminal</h2>
+          <button class="icon-button" aria-label="Close terminal commands">×</button>
+        </div>
+        <p>Use the same API URL and AWS identity as this console. Copy a command below.</p>
+        <div id="terminal-command-list"></div>
+      </form>
+    </dialog>
+    <dialog id="reaction-dialog" class="new-thread-dialog" aria-labelledby="reaction-title">
+      <form method="dialog">
+        <div class="dialog-heading">
+          <h2 id="reaction-title">React to this message</h2>
+          <button class="icon-button" aria-label="Close reactions">×</button>
+        </div>
+        <div id="reaction-choices" class="reaction-choices"></div>
+      </form>
+    </dialog>
     <script type="module" src="/app.js"></script>
   </body>
 </html>

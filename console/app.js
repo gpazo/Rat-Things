@@ -1,3 +1,5 @@
+import { runPresentation, isTextArtifact, readTextPreview, formatBytes, shellArgument, fileCommands } from './presentation.js';
+
 const elements = {
   shell: document.querySelector('.app-shell'),
   sidebar: document.querySelector('#sidebar'),
@@ -39,16 +41,18 @@ const elements = {
   attachFiles: document.querySelector('#attach-files'),
   fileInput: document.querySelector('#file-input'),
   send: document.querySelector('#send'),
-  interrupt: document.querySelector('#interrupt-run'),
-  openComputer: document.querySelector('#open-computer'),
+  openContext: document.querySelector('#open-context'),
+  terminalCommands: document.querySelector('#terminal-commands'),
+  terminalDialog: document.querySelector('#terminal-dialog'),
+  terminalCommandList: document.querySelector('#terminal-command-list'),
+  terminalTitle: document.querySelector('#terminal-dialog-title'),
+  reactionDialog: document.querySelector('#reaction-dialog'),
+  reactionChoices: document.querySelector('#reaction-choices'),
   runStrip: document.querySelector('#run-strip'),
-  runStripIndicator: document.querySelector('#run-strip-indicator'),
   runStripPhase: document.querySelector('#run-strip-phase'),
   runStripTitle: document.querySelector('#run-strip-title'),
   runStripDetail: document.querySelector('#run-strip-detail'),
-  runStripProgress: document.querySelector('#run-strip-progress-value'),
   runStripElapsed: document.querySelector('#run-strip-elapsed'),
-  watchRun: document.querySelector('#watch-run'),
   steerRun: document.querySelector('#steer-run'),
   stopRun: document.querySelector('#stop-run'),
   notice: document.querySelector('#notice'),
@@ -57,6 +61,8 @@ const elements = {
   viewerBody: document.querySelector('#viewer-body'),
   viewerDetail: document.querySelector('#viewer-detail'),
   viewerOpen: document.querySelector('#viewer-open'),
+  viewerDownload: document.querySelector('#viewer-download'),
+  viewerTerminal: document.querySelector('#viewer-terminal'),
   closeViewer: document.querySelector('#close-viewer'),
   contextResizer: document.querySelector('#context-resizer'),
   contextPane: document.querySelector('#context-pane'),
@@ -162,6 +168,7 @@ const state = {
   draftThreadKey: null,
   draftTitle: null,
   activeRunId: null,
+  computerUnavailableRunId: null,
   activeRun: null,
   activeRunObservedAt: null,
   events: [],
@@ -218,7 +225,12 @@ elements.composer.addEventListener('submit', submitMessage);
 elements.attachFiles.addEventListener('click', () => elements.fileInput.click());
 elements.fileInput.addEventListener('change', selectAttachments);
 elements.closeViewer.addEventListener('click', () => elements.viewer.close());
-elements.viewer.addEventListener('close', () => elements.viewerBody.replaceChildren());
+elements.viewer.addEventListener('close', () => { state.viewerFile = null; elements.viewerBody.replaceChildren(); });
+elements.viewerTerminal.addEventListener('click', () => {
+  if (!state.viewerFile) return;
+  const { threadKey, artifact } = state.viewerFile;
+  showTerminalCommands(fileCommands(threadKey, artifact), 'Use this file in your terminal');
+});
 elements.prompt.addEventListener('input', () => {
   resizeComposer();
   persistDraft();
@@ -229,14 +241,13 @@ elements.prompt.addEventListener('keydown', (event) => {
     elements.composer.requestSubmit();
   }
 });
-elements.interrupt.addEventListener('click', interruptRun);
-elements.openComputer.addEventListener('click', openComputer);
-elements.watchRun.addEventListener('click', openComputer);
+elements.openContext.addEventListener('click', () => openContext());
+elements.terminalCommands.addEventListener('click', openTerminalCommands);
 elements.steerRun.addEventListener('click', focusSteeringComposer);
 elements.stopRun.addEventListener('click', interruptRun);
 elements.closeComputer.addEventListener('click', () => void closeComputer());
 elements.contextPopout.addEventListener('click', toggleContextFullscreen);
-elements.contextTabBrowser.addEventListener('click', () => setContextTab('browser'));
+elements.contextTabBrowser.addEventListener('click', () => openContext('browser'));
 elements.contextTabSources.addEventListener('click', () => setContextTab('sources'));
 elements.contextTabActivity.addEventListener('click', () => setContextTab('activity'));
 elements.computerControl.addEventListener('click', toggleComputerControl);
@@ -296,16 +307,27 @@ async function initialize() {
     const requested = new URLSearchParams(window.location.search);
     const requestedThread = requested.get('thread');
     const requestedRun = requested.get('run');
+    const requestedConversation = requested.get('conversation');
+    let explicitConversation;
+    if (requestedConversation) {
+      try {
+        explicitConversation = await api(`/v1/conversations/${encodeURIComponent(requestedConversation)}`);
+      } catch (error) {
+        renderWorkspace();
+        notice(`Could not open the requested conversation. ${message(error)}`, true);
+        return;
+      }
+    }
     const saved = localStorage.getItem('rat-things.selected-conversation');
-    const selected = state.conversations.find((item) => requestedThread && item.threadKey === requestedThread)
+    const selected = explicitConversation ?? state.conversations.find((item) => requestedThread && item.threadKey === requestedThread)
       ?? state.conversations.find((item) => requestedRun && item.activeRunId === requestedRun)
       ?? state.conversations.find((item) => item.conversationId === saved)
       ?? state.conversations[0];
     const draft = JSON.parse(localStorage.getItem('rat-things.new-conversation') ?? 'null');
     const acceptedDraft = state.conversations.find(item => draft?.key && item.threadKey === draft.key);
-    if (acceptedDraft && !requestedThread && !requestedRun) {
+    if (acceptedDraft && !requestedThread && !requestedRun && !requestedConversation) {
       await selectConversation(acceptedDraft);
-    } else if (draft?.key && !requestedThread && !requestedRun) {
+    } else if (draft?.key && !requestedThread && !requestedRun && !requestedConversation) {
       state.draftThreadKey = draft.key;
       state.draftTitle = draft.title;
       restoreDraft();
@@ -313,7 +335,7 @@ async function initialize() {
       renderWorkspace({ scrollMode: 'bottom' });
     } else if (selected) await selectConversation(selected);
     else { restoreDraft(); renderWorkspace({ scrollMode: 'bottom' }); }
-    if (requestedRun && state.activeRunId === requestedRun) await openComputer();
+    if (requestedRun && state.activeRunId === requestedRun) await openContext('browser');
     const requestedView = requested.get('view');
     if (requestedView === 'connections' || requestedView === 'routines') {
       await setWorkspaceMode(requestedView);
@@ -353,8 +375,8 @@ async function setWorkspaceMode(mode) {
   elements.jumpLatest.hidden = !conversations || transcriptNearBottom();
   elements.managementView.hidden = conversations;
   elements.badge.hidden = !conversations;
-  elements.openComputer.hidden = !conversations || !state.activeRunId;
-  elements.interrupt.hidden = true;
+  elements.openContext.hidden = !conversations || !(state.selected || state.activeRunId);
+  elements.terminalCommands.hidden = !conversations || !state.selected?.conversationId;
   elements.runStrip.hidden = !conversations || !currentWork(
     state.activeRun?.status ?? state.detail?.status ?? state.selected?.status ?? 'idle',
   )?.active;
@@ -1338,7 +1360,14 @@ async function refreshSelectedDetailIfStale() {
   ) return;
   state.detail = refreshed;
   state.artifacts = artifacts;
+  // A terminal Run can still appear active until its conversation projection catches up.
+  if (refreshed.activeRunId && refreshed.activeRunId !== state.completedWork?.runId) {
+    state.completedWork = null;
+    state.activeRunId = refreshed.activeRunId;
+    restoreLiveWork(selected.conversationId, refreshed.activeRunId);
+  }
   renderWorkspace({ scrollMode: 'auto' });
+  if (state.activeRunId) await pollRun();
 }
 
 async function loadMoreConversations(button) {
@@ -1913,8 +1942,8 @@ function renderWorkspace(options = {}) {
   const status = state.activeRun?.status ?? conversation?.status ?? (state.activeRunId ? 'queued' : 'idle');
   elements.badge.dataset.state = status;
   elements.badge.textContent = state.activeRunId ? workPresentation(currentWork(status)).label : statusLabel(status);
-  elements.interrupt.hidden = true;
-  elements.openComputer.hidden = !state.activeRunId;
+  elements.openContext.hidden = !(conversation || workAvailable());
+  elements.terminalCommands.hidden = !conversation?.conversationId;
 
   const messages = state.detail?.transcript?.messages ?? [];
   const work = currentWork(status);
@@ -2074,19 +2103,36 @@ function messageActionsNode(item) {
     elements.prompt.focus();
   });
   actions.append(reply);
-  const reactions = new Map((item.reactions ?? []).map((reaction) => [reaction.emoji, reaction]));
-  for (const emoji of ['👍', '❤️', '🎉', '👀']) {
-    const reaction = reactions.get(emoji);
-    const button = document.createElement('button');
-    button.type = 'button';
-    button.className = 'reaction-button';
-    button.dataset.reacted = String(reaction?.reacted === true);
-    button.setAttribute('aria-label', `${reaction?.reacted ? 'Remove' : 'Add'} ${emoji} reaction`);
-    button.textContent = `${emoji}${reaction?.count ? ` ${reaction.count}` : ''}`;
-    button.addEventListener('click', () => void toggleReaction(item, emoji, button));
-    actions.append(button);
+  const react = document.createElement('button');
+  react.type = 'button';
+  react.textContent = 'React';
+  react.setAttribute('aria-haspopup', 'dialog');
+  react.addEventListener('click', () => {
+    elements.reactionChoices.replaceChildren(...['👍', '❤️', '🎉', '👀'].map(emoji => reactionButton(item, emoji, true)));
+    elements.reactionDialog.showModal();
+  });
+  actions.append(react);
+  for (const reaction of item.reactions ?? []) {
+    if (reaction.count || reaction.reacted) actions.append(reactionButton(item, reaction.emoji));
   }
   return actions;
+}
+
+function reactionButton(item, emoji, closeDialog = false) {
+  const reaction = (item.reactions ?? []).find(candidate => candidate.emoji === emoji);
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'reaction-button';
+  button.dataset.reacted = String(reaction?.reacted === true);
+  button.setAttribute('aria-label', `${reaction?.reacted ? 'Remove' : 'Add'} ${emoji} reaction`);
+  button.textContent = `${emoji}${reaction?.count ? ` ${reaction.count}` : ''}`;
+  button.addEventListener('click', async () => {
+    if (await toggleReaction(item, emoji, button) && closeDialog) {
+      elements.reactionDialog.close();
+      elements.transcript.querySelector(`[data-message-id="${CSS.escape(item.messageId)}"] [aria-haspopup="dialog"]`)?.focus();
+    }
+  });
+  return button;
 }
 
 async function toggleReaction(item, emoji, button) {
@@ -2101,11 +2147,14 @@ async function toggleReaction(item, emoji, button) {
       { method: 'POST', body: { emoji, reacted } },
     );
     const count = Math.max(0, (current?.count ?? 0) + (reacted ? 1 : -1));
-    item.reactions = [
-      ...(item.reactions ?? []).filter((reaction) => reaction.emoji !== emoji),
+    const visibleItem = state.detail?.conversationId === conversationId ? transcriptMessage(item.messageId) : null;
+    const target = visibleItem ?? item;
+    target.reactions = [
+      ...(target.reactions ?? []).filter((reaction) => reaction.emoji !== emoji),
       ...(count ? [{ emoji, count, reacted }] : []),
     ];
     renderWorkspace({ scrollMode: 'keep' });
+    return true;
   } catch (error) {
     button.disabled = false;
     notice(message(error), true);
@@ -2270,6 +2319,31 @@ function codeBlockNode(value, language) {
   return shell;
 }
 
+function openTerminalCommands() {
+  const conversation = state.detail ?? state.selected;
+  if (!conversation?.conversationId) return;
+  const quote = shellArgument;
+  const id = quote(conversation.conversationId);
+  const commands = [
+    ['Read this conversation', `rat-things conversation show ${id}`],
+    ['Open this conversation', `rat-things console --conversation ${id}`],
+  ];
+  if (conversation.threadKey) {
+    const thread = quote(conversation.threadKey);
+    commands.unshift(['Continue this conversation', `rat-things chat --thread ${thread} "Your next message"`]);
+    commands.push(['List files', `rat-things files --thread ${thread}`]);
+  }
+  if (state.activeRunId) commands.push(['Follow live activity', `rat-things watch ${quote(state.activeRunId)} --follow`]);
+  if (state.completedWork?.runId) commands.push(['Saved Run events', `rat-things artifact ${quote(state.completedWork.runId)} events`]);
+  showTerminalCommands(commands, 'Use this conversation in your terminal');
+}
+
+function showTerminalCommands(commands, title) {
+  elements.terminalTitle.textContent = title;
+  elements.terminalCommandList.replaceChildren(...commands.map(([label, command]) => codeBlockNode(command, label)));
+  elements.terminalDialog.showModal();
+}
+
 function attachmentNode(id) {
   const artifact = state.artifacts.find((item) => item.id === id || item.sha256 === id);
   if (artifact) return artifactNode(artifact, true);
@@ -2327,12 +2401,15 @@ async function openArtifact(artifact, button) {
   button.disabled = true;
   try {
     const url = `/api/v1/conversations/${encodeURIComponent(threadKey)}/artifacts/${encodeURIComponent(artifact.id)}/content`;
+    state.viewerFile = { artifact, threadKey };
     elements.viewerTitle.textContent = artifact.path ?? artifact.name ?? 'Artifact';
     elements.viewerDetail.textContent = [artifact.mediaType, formatBytes(artifact.bytes)].filter(Boolean).join(' · ');
     elements.viewerOpen.href = url;
+    elements.viewerDownload.href = url;
+    elements.viewerDownload.download = (artifact.path ?? artifact.name ?? 'download').split('/').at(-1);
     elements.viewerBody.replaceChildren(viewerLoadingNode());
     elements.viewer.showModal();
-    await renderArtifactContent(artifact, url);
+    await renderArtifactContent(artifact, url, state.viewerFile);
   } catch (error) {
     notice(message(error), true);
   } finally {
@@ -2347,7 +2424,7 @@ function viewerLoadingNode() {
   return loading;
 }
 
-async function renderArtifactContent(artifact, url) {
+async function renderArtifactContent(artifact, url, viewing) {
   const mediaType = String(artifact.mediaType ?? 'application/octet-stream').toLowerCase();
   let node;
   if (mediaType.startsWith('image/')) {
@@ -2367,21 +2444,20 @@ async function renderArtifactContent(artifact, url) {
     node.title = artifact.path ?? 'PDF artifact';
     node.src = url;
   } else if (
-    mediaType.startsWith('text/') ||
-    ['application/json', 'application/xml', 'application/yaml', 'application/x-yaml'].includes(mediaType)
+    isTextArtifact(mediaType)
   ) {
     const response = await fetch(url);
     if (!response.ok) throw new Error(`Artifact viewer returned ${response.status}`);
-    const text = await response.text();
+    const preview = await readTextPreview(response, 2_000_000);
     node = document.createElement('pre');
     node.className = 'viewer-text';
-    node.textContent = text.length > 2_000_000 ? `${text.slice(0, 2_000_000)}\n\n[viewer truncated]` : text;
+    node.textContent = preview.truncated ? `${preview.text}\n\n[Preview truncated. Download for the full file.]` : preview.text;
   } else {
     node = document.createElement('div');
     node.className = 'viewer-unknown';
-    node.textContent = 'This file type does not have an inline preview. Open it in a new tab to download it.';
+    node.textContent = 'This file type does not have an inline preview. Download it or open it in a new tab.';
   }
-  if (elements.viewer.open) elements.viewerBody.replaceChildren(node);
+  if (elements.viewer.open && state.viewerFile === viewing) elements.viewerBody.replaceChildren(node);
 }
 
 function currentWork(status) {
@@ -2401,89 +2477,25 @@ function currentWork(status) {
 }
 
 function workNode(work) {
-  const progress = workPresentation(work);
-  const activities = coalesceActivities(work.events ?? []);
   const section = document.createElement('section');
   section.id = 'run-progress';
   section.className = 'work-card';
   section.dataset.state = work.status;
-  section.setAttribute('aria-live', work.active ? 'polite' : 'off');
-
-  const header = document.createElement('div');
-  header.className = 'work-card-header';
-  const indicator = document.createElement('span');
-  indicator.className = 'work-indicator';
-  indicator.dataset.state = work.status;
-  indicator.setAttribute('aria-hidden', 'true');
-  const copy = document.createElement('div');
-  copy.className = 'work-copy';
+  if (work.active) {
+    // Progress and controls live in the Run strip; only input belongs in the transcript.
+    section.hidden = !work.pendingRequests?.length;
+    for (const pending of work.pendingRequests ?? []) section.append(pendingRequestNode(pending));
+    return section;
+  }
+  const progress = workPresentation(work);
   const title = document.createElement('strong');
-  title.id = 'run-progress-title';
-  title.textContent = work.pendingRequests?.length ? 'Agent needs input' : progress.title;
+  title.textContent = progress.title;
   const detail = document.createElement('p');
-  detail.id = 'run-progress-detail';
-  detail.textContent = work.pendingRequests?.length
-    ? work.pendingRequests[0].detail ?? work.pendingRequests[0].title
-    : progress.detail;
-  copy.append(title, detail);
+  detail.textContent = progress.detail;
   const elapsed = document.createElement('time');
-  elapsed.id = 'run-progress-elapsed';
   elapsed.className = 'work-elapsed';
   elapsed.textContent = workDuration(work);
-  header.append(indicator, copy, elapsed);
-  if (work.active) {
-    const watch = document.createElement('button');
-    watch.type = 'button';
-    watch.className = 'work-stop';
-    watch.textContent = 'View browser';
-    watch.addEventListener('click', openComputer);
-    header.append(watch);
-    const stop = document.createElement('button');
-    stop.type = 'button';
-    stop.className = 'work-stop';
-    stop.textContent = 'Stop';
-    stop.addEventListener('click', interruptRun);
-    header.append(stop);
-  }
-  section.append(header);
-
-  const details = document.createElement('details');
-  details.className = 'work-details';
-  details.open = Boolean(work.pendingRequests?.length);
-  const summary = document.createElement('summary');
-  const phases = groupActivities(activities);
-  summary.textContent = phases.length
-    ? `${phases.length} phase${phases.length === 1 ? '' : 's'} · technical details hidden`
-    : 'What Rat is doing';
-  details.append(summary);
-  const body = document.createElement('div');
-  body.className = 'work-activity';
-  if (work.eventGap) {
-    const gap = document.createElement('p');
-    gap.className = 'activity-gap';
-    gap.textContent = 'Some early live activity expired from the bounded runtime window. Durable terminal evidence remains in S3.';
-    body.append(gap);
-  }
-  for (const pending of work.pendingRequests ?? []) body.append(pendingRequestNode(pending));
-  if (phases.length === 0) {
-    const waiting = document.createElement('p');
-    waiting.className = 'activity-empty';
-    waiting.textContent = work.active
-      ? work.ready ? 'Runtime ready; waiting for the next activity update…' : 'Connecting to the isolated runtime…'
-      : 'No live activity was retained in this browser.';
-    body.append(waiting);
-  } else {
-    for (const phase of phases) body.append(phaseNode(phase));
-    const technical = document.createElement('details');
-    technical.className = 'technical-evidence';
-    const technicalSummary = document.createElement('summary');
-    technicalSummary.textContent = `${activities.length} technical event${activities.length === 1 ? '' : 's'}`;
-    technical.append(technicalSummary);
-    for (const activity of activities) technical.append(activityNode(activity));
-    body.append(technical);
-  }
-  details.append(body);
-  section.append(details);
+  section.append(title, detail, elapsed);
   return section;
 }
 
@@ -2492,41 +2504,22 @@ function renderRunStrip(work) {
   if (!work?.active) return;
   const progress = workPresentation(work);
   elements.runStrip.dataset.state = work.status;
-  elements.runStripPhase.textContent = progress.phase;
+  elements.runStripPhase.textContent = progress.label;
   elements.runStripTitle.textContent = progress.title;
   elements.runStripDetail.textContent = work.pendingRequests?.length
     ? work.pendingRequests[0].detail ?? work.pendingRequests[0].title
     : progress.detail;
   elements.runStripElapsed.textContent = workDuration(work);
-  elements.runStripProgress.parentElement.hidden = true;
-  elements.watchRun.hidden = !work.active;
   elements.steerRun.hidden = !work.active;
   elements.stopRun.hidden = !work.active;
 }
 
-function phaseLabel(status, events) {
-  if (status === 'dispatching' || status === 'queued' || status === 'pending') return 'Starting';
-  if (status === 'cancelling') return 'Stopping';
-  if (status === 'succeeded') return 'Completed';
-  if (status === 'failed') return 'Needs attention';
-  if (status === 'cancelled') return 'Stopped';
-  const latest = [...events].reverse().find((event) => event.status !== 'failed');
-  return ({ computer: 'Browsing', web_search: 'Researching', command: 'Running', file: 'Writing', message: 'Answering', reasoning: 'Thinking', plan: 'Planning' })[latest?.kind] ?? 'Working';
+function workPresentation(work) {
+  return runPresentation({ ...work, latestProgress: state.detail?.latestProgress?.text ?? state.selected?.latestProgress?.text });
 }
 
-function workPresentation(work) {
-  if (work.pendingRequests?.length) return {
-    title: 'Agent needs input', detail: 'Answer the question below to continue.',
-    phase: 'Needs input', label: 'Needs input',
-  };
-  if (work.status === 'running' && !work.ready) return {
-    title: 'Starting isolated environment', detail: 'Connecting to the agent runtime.',
-    phase: 'Starting', label: 'Starting',
-  };
-  return {
-    ...progressText(work.status, state.detail?.latestProgress?.text ?? state.selected?.latestProgress?.text),
-    phase: phaseLabel(work.status, work.events ?? []), label: statusLabel(work.status),
-  };
+function workAvailable() {
+  return Boolean(state.activeRunId || state.completedWork);
 }
 
 function pendingRequestNode(request) {
@@ -3138,13 +3131,8 @@ function updateProgressTimer(active) {
 }
 
 function updateProgressElapsed() {
-  const elapsed = document.querySelector('#run-progress-elapsed');
   if (!state.activeRunId || !state.activeRunObservedAt) return;
   const seconds = Math.max(0, Math.floor((Date.now() - state.activeRunObservedAt) / 1_000));
-  if (elapsed) {
-    elapsed.dateTime = `PT${seconds}S`;
-    elapsed.textContent = formatElapsed(seconds);
-  }
   elements.runStripElapsed.dateTime = `PT${seconds}S`;
   elements.runStripElapsed.textContent = formatElapsed(seconds);
 }
@@ -3154,43 +3142,10 @@ function runStartedAt(run) {
   return Number.isFinite(createdAt) ? Math.min(createdAt, Date.now()) : Date.now();
 }
 
-function progressText(status, latestProgress) {
-  switch (status) {
-    case 'dispatching':
-      return {
-        title: 'Starting isolated environment',
-        detail: 'Preparing the owner-bound MicroVM and durable workspace. First-use storage can take tens of seconds.',
-      };
-    case 'running':
-      return {
-        title: latestProgress || 'Agent is working',
-        detail: latestProgress
-          ? 'The isolated runtime is ready and reported this progress.'
-          : 'The isolated runtime is ready and processing this turn.',
-      };
-    case 'cancelling':
-      return {
-        title: 'Stopping safely',
-        detail: 'The runtime is handling the interruption and preserving durable state.',
-      };
-    case 'succeeded':
-      return { title: 'Work completed', detail: 'The response and conversation state are durable.' };
-    case 'failed':
-      return { title: 'Work failed', detail: 'The failure is recorded with the Run for diagnosis.' };
-    case 'cancelled':
-      return { title: 'Work stopped', detail: 'The interruption completed and durable state was preserved.' };
-    default:
-      return {
-        title: 'Queued for isolated execution',
-        detail: 'Your message is durable and waiting for an owner-bound worker.',
-      };
-  }
-}
-
 function statusLabel(status) {
+  if (['queued', 'dispatching', 'running', 'cancelling', 'succeeded', 'failed', 'cancelled'].includes(status)) return runPresentation({status}).label;
   return ({
-    idle: 'Ready', pending: 'Saving', queued: 'Queued', dispatching: 'Starting', running: 'Working',
-    awaiting_resume: 'Resuming', cancelling: 'Stopping', succeeded: 'Complete', failed: 'Failed', cancelled: 'Cancelled',
+    idle: 'Ready', pending: 'Saving', awaiting_resume: 'Resuming',
     active: 'Active', expired: 'Expired', revoked: 'Revoked', enabled: 'Enabled', paused: 'Paused', deleted: 'Deleted',
   })[status] ?? String(status).replaceAll('_', ' ');
 }
@@ -3207,6 +3162,7 @@ function focusSteeringComposer() {
 
 function setContextTab(tab) {
   state.contextTab = tab;
+  if (tab !== 'browser') window.clearTimeout(state.computerTimer);
   const tabs = {
     browser: [elements.contextTabBrowser, elements.contextBrowser],
     sources: [elements.contextTabSources, elements.contextSources],
@@ -3321,7 +3277,7 @@ function renderContextActivity() {
   if (phases.length === 0) {
     elements.contextActivity.append(contextEmptyNode(
       work?.active ? 'Rat is getting ready' : 'No recent activity',
-      work?.active ? 'Human-readable phases will appear as the Run progresses.' : 'Start a Run to see its work unfold.',
+      work?.active ? 'Human-readable phases will appear as the Run progresses.' : 'Live activity is retained in this browser. Use the saved Run events from the terminal for a durable record.',
     ));
     return;
   }
@@ -3415,14 +3371,13 @@ function restorePaneWidths() {
   setComputerZoom(1);
 }
 
-async function openComputer() {
-  if (!state.activeRunId || state.computerBusy) return;
-  if (!state.contextOpen) state.computer = null;
+async function openContext(tab = 'activity') {
+  if (!(state.selected || workAvailable()) || state.computerBusy) return;
   state.contextOpen = true;
-  setContextTab('browser');
+  setContextTab(tab);
   syncContextLayout();
   renderComputer();
-  await refreshComputer();
+  if (tab === 'browser' && state.activeRunId) await refreshComputer();
 }
 
 async function closeComputer() {
@@ -3449,7 +3404,8 @@ async function closeComputer() {
 
 async function refreshComputer() {
   window.clearTimeout(state.computerTimer);
-  if (!state.contextOpen || !state.activeRunId || state.computerBusy) return;
+  if (!state.contextOpen || state.contextTab !== 'browser' || !state.activeRunId || state.computerBusy) return;
+  if (state.computerUnavailableRunId === state.activeRunId) return;
   const runId = state.activeRunId;
   try {
     const snapshot = await api(`/v1/runs/${encodeURIComponent(runId)}/computer`);
@@ -3462,7 +3418,12 @@ async function refreshComputer() {
       return;
     }
     const detail = message(error);
-    const starting = /not active in this MicroVM|does not have browser computer use enabled|control command timed out|control endpoint returned HTTP 502/i
+    if (/does not have browser computer use enabled/i.test(detail)) {
+      state.computerUnavailableRunId = runId;
+      renderComputer();
+      return;
+    }
+    const starting = /not active in this MicroVM|control command timed out|control endpoint returned HTTP 502/i
       .test(detail);
     elements.computerLoading.hidden = false;
     elements.computerLoading.textContent = starting
@@ -3473,7 +3434,7 @@ async function refreshComputer() {
       ? 'The first durable start can take tens of seconds'
       : 'Rat will retry automatically';
   } finally {
-    if (state.contextOpen && state.activeRunId) {
+    if (state.contextOpen && state.contextTab === 'browser' && state.activeRunId && state.computerUnavailableRunId !== state.activeRunId) {
       state.computerTimer = window.setTimeout(
         () => void refreshComputer(),
         state.computer?.control === 'human' ? 650 : 1_200,
@@ -3484,16 +3445,22 @@ async function refreshComputer() {
 
 function renderComputer() {
   const computer = state.computer;
+  const unavailable = Boolean(state.activeRunId && state.computerUnavailableRunId === state.activeRunId);
   const human = computer?.control === 'human';
   const recording = computer?.teach?.state === 'recording';
   elements.computerControl.textContent = human ? 'Return control' : 'Take control';
-  elements.computerControl.className = human ? 'secondary-button' : 'primary-button';
+  elements.computerControl.className = human || !computer || !state.activeRunId ? 'secondary-button' : 'primary-button';
   elements.computerControl.disabled = state.computerBusy || recording || !computer || !state.activeRunId;
   elements.computerOwnerDot.dataset.owner = human ? 'human' : 'agent';
   elements.computerOwnerLabel.textContent = computer
     ? !state.activeRunId ? 'Final browser frame' : human ? 'You have control' : 'Rat has control'
-    : 'Connecting to browser';
+    : unavailable ? 'Browser unavailable' : !state.activeRunId ? 'No retained browser frame' : 'Connecting to browser';
   updateComputerTemporalLabels();
+  if (unavailable) {
+    elements.computerLeaseLabel.textContent = 'Browser access was not enabled for this Run';
+    elements.computerLoading.textContent = 'This Run has no browser. You can still follow Activity and Sources. Start a new conversation with Isolated browser enabled to use a browser.';
+  }
+  if (!state.activeRunId && !computer?.imageDataUrl) elements.computerLoading.textContent = 'No browser frame is retained here. Activity and saved files remain available.';
   elements.computerLoading.hidden = Boolean(computer?.imageDataUrl);
   elements.computerScreen.hidden = !computer?.imageDataUrl;
   if (computer?.imageDataUrl && elements.computerScreen.src !== computer.imageDataUrl) {
@@ -3533,12 +3500,18 @@ function renderComputer() {
 
 function updateComputerTemporalLabels() {
   const computer = state.computer;
+  if (state.activeRunId && state.computerUnavailableRunId === state.activeRunId) {
+    elements.computerLeaseLabel.textContent = 'Browser access was not enabled for this Run';
+    return;
+  }
   if (!computer) {
     elements.computerLeaseLabel.textContent = 'Live isolated browser';
     return;
   }
   if (!state.activeRunId) {
-    elements.computerLeaseLabel.textContent = 'Run completed · last captured view';
+    const outcome = state.completedWork?.status === 'cancelled' ? 'Work stopped'
+      : state.completedWork?.status === 'failed' ? 'Run failed' : 'Run completed';
+    elements.computerLeaseLabel.textContent = `${outcome} · last captured view`;
     return;
   }
   if (computer.control !== 'human') {
@@ -3926,13 +3899,6 @@ function formatElapsed(seconds) {
 
 function formatDuration(milliseconds) {
   return formatElapsed(Math.max(0, Math.round(milliseconds / 1_000)));
-}
-
-function formatBytes(bytes) {
-  if (!Number.isFinite(bytes)) return '';
-  if (bytes < 1_024) return `${bytes} B`;
-  if (bytes < 1_048_576) return `${(bytes / 1_024).toFixed(1)} KB`;
-  return `${(bytes / 1_048_576).toFixed(1)} MB`;
 }
 
 function previewText(value, maximum) {

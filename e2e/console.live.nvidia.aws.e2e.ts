@@ -86,12 +86,12 @@ test.describe('live AWS NVIDIA earnings client demo', () => {
     await page.getByRole('button', { name: 'Send message' }).click();
     expect((await accepted).status()).toBe(202);
     await expect(page.locator('#transcript').getByText(prompt, { exact: true })).toBeVisible();
-    await expect(page.locator('#run-progress')).toBeVisible();
     await expect(page.locator('#run-strip')).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Open computer' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Work details' })).toBeVisible();
     await pause(page, 1_200);
 
-    await page.locator('#watch-run').click();
+    await page.getByRole('button', {name: 'Work details', exact: true}).click();
+    await page.getByRole('tab', {name: /^Browser/}).click();
     await expect(page.getByRole('heading', { name: 'Work context' })).toBeVisible();
     await expect(page.locator('#computer-screen')).toBeVisible({ timeout: timeoutMs - 90_000 });
     await expect(page.locator('#computer-url')).toHaveValue(/nvidianews\.nvidia\.com\/news\//, {
@@ -146,11 +146,8 @@ test.describe('live AWS NVIDIA earnings client demo', () => {
     await expect(page.locator('#status-badge')).toHaveText('Ready');
     await pause(page, 2_500);
 
-    const workDetails = page.locator('.work-details');
-    if (!await workDetails.evaluate((node: HTMLDetailsElement) => node.open)) {
-      await workDetails.locator(':scope > summary').click();
-    }
-    await expect(page.locator('.work-details > .work-activity .phase-card').filter({ hasText: /browser|workspace/i }).first()).toBeVisible();
+    await page.getByRole('button', {name: 'Work details', exact: true}).click();
+    await expect(page.locator('#context-activity .phase-card').filter({hasText: /browser|workspace/i}).first()).toBeVisible();
     await pause(page, 3_800);
   });
 });
