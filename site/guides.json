@@ -1,0 +1,168 @@
+{
+  "groups": [
+    {
+      "title": "Run Codex beyond your laptop",
+      "description": "Keep work running, durable, and repeatable after the local process ends.",
+      "documents": [
+        "keep-codex-running-after-laptop-closes.md",
+        "run-codex-in-aws-with-chatgpt.md",
+        "durable-ai-agent-state.md",
+        "schedule-codex-tasks-aws.md"
+      ]
+    },
+    {
+      "title": "Connect agents to real work",
+      "description": "Let agents use business systems without turning every credential into unrestricted authority.",
+      "documents": [
+        "least-privilege-ai-agent-integrations.md",
+        "slack-to-linear-agent-workflow.md"
+      ]
+    },
+    {
+      "title": "Choose an agent architecture",
+      "description": "Make the cost, control, and operating tradeoffs explicit before committing to a platform.",
+      "documents": [
+        "aws-ai-agent-cost.md",
+        "self-hosted-vs-managed-cloud-agents.md"
+      ]
+    }
+  ],
+  "pages": {
+    "keep-codex-running-after-laptop-closes.md": {
+      "description": "Learn what must move off your laptop, which state must persist, and how a self-hosted AWS handoff keeps Codex work running after disconnect.",
+      "published": "2026-09-07",
+      "reviewed": "2026-09-07",
+      "related": [
+        "durable-ai-agent-state.md",
+        "run-codex-in-aws-with-chatgpt.md"
+      ],
+      "cta": {
+        "label": "Try a durable cloud handoff",
+        "href": "../docs/quickstart.md"
+      },
+      "evidenceCta": {
+        "label": "Inspect the durability evidence",
+        "href": "../docs/status-and-roadmap.md#current-maturity"
+      }
+    },
+    "run-codex-in-aws-with-chatgpt.md": {
+      "description": "Run Codex in isolated AWS compute using a deliberately bridged ChatGPT login, with the credential risks and teardown path made explicit.",
+      "published": "2026-09-07",
+      "reviewed": "2026-09-07",
+      "related": [
+        "keep-codex-running-after-laptop-closes.md",
+        "least-privilege-ai-agent-integrations.md"
+      ],
+      "cta": {
+        "label": "Deploy the ChatGPT bridge",
+        "href": "../docs/quickstart.md"
+      },
+      "evidenceCta": {
+        "label": "Inspect the authentication evidence",
+        "href": "../docs/codex-subscription.md#live-verification-status"
+      }
+    },
+    "durable-ai-agent-state.md": {
+      "description": "Preserve an agent conversation, workspace, files, and execution receipts when a process stops or replacement compute takes over.",
+      "published": "2026-09-07",
+      "reviewed": "2026-09-07",
+      "related": [
+        "keep-codex-running-after-laptop-closes.md",
+        "schedule-codex-tasks-aws.md"
+      ],
+      "cta": {
+        "label": "Build a restorable conversation",
+        "href": "../docs/conversations.md#how-durability-works"
+      },
+      "evidenceCta": {
+        "label": "Inspect the replacement test",
+        "href": "../docs/conversations.md#validation"
+      }
+    },
+    "schedule-codex-tasks-aws.md": {
+      "description": "Turn recurring Codex work into a tested, revisioned AWS schedule with fixed permissions, idempotent occurrences, and durable results.",
+      "published": "2026-09-07",
+      "reviewed": "2026-09-07",
+      "related": [
+        "least-privilege-ai-agent-integrations.md",
+        "aws-ai-agent-cost.md"
+      ],
+      "cta": {
+        "label": "Release a scheduled Thing",
+        "href": "../docs/things.md#lifecycle"
+      },
+      "evidenceCta": {
+        "label": "Inspect the schedule evidence",
+        "href": "../docs/status-and-roadmap.md#validation-completed-on-2026-08-23"
+      }
+    },
+    "least-privilege-ai-agent-integrations.md": {
+      "description": "Give an AI agent bounded Slack or Linear operations by intersecting provider scopes, account grants, run policy, IAM, and network controls.",
+      "published": "2026-09-07",
+      "reviewed": "2026-09-07",
+      "related": [
+        "slack-to-linear-agent-workflow.md",
+        "schedule-codex-tasks-aws.md"
+      ],
+      "cta": {
+        "label": "Configure a bounded Connection",
+        "href": "../docs/plugins.md"
+      },
+      "evidenceCta": {
+        "label": "Inspect the permission proof",
+        "href": "../docs/linear.md#live-aws-proof"
+      }
+    },
+    "slack-to-linear-agent-workflow.md": {
+      "description": "Build a bounded Slack-to-Linear workflow, understand which permissions are enforced, and add host-side protection when duplicate issues are unacceptable.",
+      "published": "2026-09-07",
+      "reviewed": "2026-09-07",
+      "related": [
+        "least-privilege-ai-agent-integrations.md",
+        "durable-ai-agent-state.md"
+      ],
+      "cta": {
+        "label": "Configure the two Connections",
+        "href": "../docs/linear.md#7-run-the-slack-to-linear-demo"
+      },
+      "evidenceCta": {
+        "label": "Inspect the component evidence",
+        "href": "../docs/status-and-roadmap.md#current-maturity"
+      }
+    },
+    "aws-ai-agent-cost.md": {
+      "description": "Understand the model, active compute, snapshot, networking, storage, and idle costs behind a self-hosted AI agent running in AWS.",
+      "published": "2026-09-07",
+      "reviewed": "2026-09-07",
+      "related": [
+        "self-hosted-vs-managed-cloud-agents.md",
+        "schedule-codex-tasks-aws.md"
+      ],
+      "cta": {
+        "label": "Estimate your AWS workload",
+        "href": "../docs/costs.md"
+      },
+      "evidenceCta": {
+        "label": "Inspect the cost methodology",
+        "href": "../docs/costs.md#two-turn-publication-measurement"
+      }
+    },
+    "self-hosted-vs-managed-cloud-agents.md": {
+      "description": "Compare self-hosted and managed cloud agents by control plane, identity, credentials, isolation, durability, operations, and team burden.",
+      "published": "2026-09-07",
+      "reviewed": "2026-09-07",
+      "related": [
+        "aws-ai-agent-cost.md",
+        "keep-codex-running-after-laptop-closes.md"
+      ],
+      "cta": {
+        "label": "Score the decision worksheet",
+        "href": "#a-decision-worksheet"
+      },
+      "evidenceCta": {
+        "label": "Review Rat Things security gates",
+        "href": "../docs/security.md#production-security-gates"
+      }
+    }
+  }
+}

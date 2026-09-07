@@ -85,6 +85,8 @@ if (watchMode) {
   }
   for (const directory of [
     "site",
+    "docs",
+    "guides",
     "src",
     "infra/modules/agent-runner",
     "microvm",

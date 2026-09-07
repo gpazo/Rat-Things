@@ -18,6 +18,7 @@
 
 <p align="center">
   <a href="https://gpazo.github.io/Rat-Things/">Website</a> ·
+  <a href="https://gpazo.github.io/Rat-Things/guides/">Practical guides</a> ·
   <a href="https://gpazo.github.io/Rat-Things/docs/">Documentation</a> ·
   <a href="docs/quickstart.md">AWS quickstart</a> ·
   <a href="docs/agents.md">Agent guide</a> ·
@@ -258,6 +259,9 @@ Read [How Rat Things operates](docs/operating-model.md), [Architecture](docs/arc
 [The capability envelope](docs/capability-envelope.md) for the complete model.
 
 ## Documentation by task
+
+Start with the [practical guides](https://gpazo.github.io/Rat-Things/guides/) for cloud handoffs,
+durable state, scheduling, connected-account permissions, costs, and hosting decisions.
 
 - [Deploy the AWS golden path](docs/quickstart.md)
 - [Connect an agent to an existing deployment](docs/agents.md)

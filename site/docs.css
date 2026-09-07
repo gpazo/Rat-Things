@@ -83,6 +83,7 @@ body { margin: 0; }
 .docs-topbar nav { display: flex; align-items: center; gap: 1.4rem; }
 .docs-topbar nav a { color: var(--docs-muted); font-size: 0.85rem; font-weight: 700; text-decoration: none; }
 .docs-topbar nav a:hover, .docs-topbar nav a:focus-visible { color: var(--docs-cyan); }
+.docs-topbar nav a[aria-current="page"] { color: var(--docs-cyan); }
 
 .docs-shell {
   display: grid;
@@ -230,9 +231,90 @@ body { margin: 0; }
 .docs-footer { display: flex; justify-content: space-between; gap: 2rem; width: min(calc(100% - 3rem), 1440px); margin: 0 auto; padding: 2rem 0 3rem; border-top: 1px solid var(--docs-line); color: var(--docs-muted); font-size: 0.75rem; }
 .docs-footer a { color: var(--docs-cyan); }
 
+.guide-shell {
+  width: min(calc(100% - 3rem), 1180px);
+  margin: 0 auto;
+  padding: clamp(3rem, 7vw, 6rem) 0 7rem;
+}
+
+.guide-home > h1 {
+  max-width: 980px;
+  margin: 0;
+  font-size: clamp(3rem, 7vw, 6.6rem);
+  line-height: 0.92;
+  letter-spacing: -0.065em;
+}
+
+.guide-home-lede {
+  max-width: 790px;
+  margin: 2rem 0 0;
+  color: #b9cbd0;
+  font-size: clamp(1.05rem, 2vw, 1.25rem);
+}
+
+.guide-home-rule {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  margin-top: clamp(3rem, 7vw, 5rem);
+  border-top: 1px solid var(--docs-line);
+  border-left: 1px solid var(--docs-line);
+}
+
+.guide-home-rule span {
+  padding: 1rem;
+  border-right: 1px solid var(--docs-line);
+  border-bottom: 1px solid var(--docs-line);
+  color: var(--docs-cyan);
+  font: 760 0.78rem/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.guide-group { margin-top: clamp(4rem, 9vw, 7rem); }
+.guide-group-heading { display: grid; grid-template-columns: minmax(190px, 0.7fr) minmax(0, 1.3fr); gap: 2rem; margin-bottom: 1.4rem; }
+.guide-group-heading h2 { margin: 0; color: var(--docs-cyan); font: 760 0.78rem/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; text-transform: uppercase; letter-spacing: 0.05em; }
+.guide-group-heading p { max-width: 720px; margin: 0; color: var(--docs-text); font-size: clamp(1.55rem, 3vw, 2.5rem); font-weight: 760; line-height: 1.12; letter-spacing: -0.04em; }
+.guide-card-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.85rem; }
+.guide-card { display: flex; flex-direction: column; min-height: 240px; padding: 1.4rem; border: 1px solid var(--docs-line); border-radius: var(--docs-radius); background: linear-gradient(145deg, rgba(11, 23, 29, 0.8), rgba(7, 17, 22, 0.68)); text-decoration: none; }
+.guide-card:hover, .guide-card:focus-visible { border-color: var(--docs-line-strong); transform: translateY(-1px); }
+.guide-card > span { color: var(--docs-text); font-size: clamp(1.15rem, 2vw, 1.45rem); font-weight: 780; line-height: 1.22; letter-spacing: -0.025em; }
+.guide-card > small { margin-top: 1rem; color: var(--docs-muted); font-size: 0.82rem; line-height: 1.6; }
+.guide-card > b { margin-top: auto; padding-top: 1.8rem; color: var(--docs-cyan); font-size: 0.78rem; }
+
+.guide-page { padding-top: 1.5rem; }
+.guide-layout { display: grid; grid-template-columns: minmax(0, 860px) minmax(160px, 220px); justify-content: center; gap: clamp(2rem, 5vw, 5rem); }
+.guide-content { min-width: 0; }
+.guide-meta { display: flex; flex-wrap: wrap; gap: 0.55rem 1.25rem; margin-top: 2rem; color: var(--docs-muted); font: 700 0.7rem/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; text-transform: uppercase; letter-spacing: 0.05em; }
+.guide-meta span:not(:last-child)::after { content: "·"; margin-left: 1.25rem; color: var(--docs-line-strong); }
+.guide-article { padding-top: 1.7rem; }
+.guide-article > h1 + p { color: #d5e4e8; font-size: clamp(1.05rem, 2vw, 1.22rem); line-height: 1.7; }
+.guide-article > blockquote:first-of-type { margin: 2rem 0 3rem; padding: 1rem 1.2rem; border: 1px solid rgba(255, 177, 59, 0.35); border-left: 3px solid var(--docs-amber); border-radius: 0 10px 10px 0; background: rgba(255, 177, 59, 0.07); }
+.guide-toc { margin-top: 2rem; }
+.guide-mobile-toc { display: none; margin: 1.2rem 0 0; padding: 0.8rem 1rem; border: 1px solid var(--docs-line); border-radius: 10px; background: var(--docs-surface); }
+.guide-mobile-toc summary { color: var(--docs-cyan); font-size: 0.82rem; font-weight: 800; cursor: pointer; }
+.guide-mobile-toc nav { display: grid; gap: 0.15rem; margin-top: 0.7rem; }
+.guide-mobile-toc a { padding: 0.3rem 0; color: var(--docs-muted); font-size: 0.76rem; text-decoration: none; }
+.guide-mobile-toc .toc-level-3 { padding-left: 0.8rem; }
+.guide-inline-action { margin: 3rem 0; padding: 1rem 0; border-block: 1px solid var(--docs-line); }
+.guide-inline-action a { color: var(--docs-cyan); font-size: 0.82rem; font-weight: 800; text-decoration: none; }
+.guide-inline-action a:hover, .guide-inline-action a:focus-visible { text-decoration: underline; text-underline-offset: 0.2em; }
+
+.guide-next-actions { margin: 4rem 0 2rem; padding: clamp(1.2rem, 3vw, 2rem); border: 1px solid var(--docs-line); border-radius: var(--docs-radius); background: linear-gradient(145deg, rgba(11, 23, 29, 0.9), rgba(7, 17, 22, 0.78)); }
+.guide-next-actions > h2 { max-width: 620px; margin: 0.3rem 0 0; font-size: clamp(1.45rem, 3vw, 2.15rem); line-height: 1.12; letter-spacing: -0.035em; }
+.guide-cta-row { display: flex; flex-wrap: wrap; gap: 0.7rem; margin-top: 1.5rem; }
+.guide-cta { display: inline-flex; align-items: center; gap: 0.7rem; padding: 0.75rem 0.9rem; border: 1px solid var(--docs-line-strong); border-radius: 9px; color: var(--docs-cyan); font-size: 0.78rem; font-weight: 800; text-decoration: none; }
+.guide-cta:hover, .guide-cta:focus-visible { border-color: var(--docs-cyan); }
+.guide-cta-primary { border-color: rgba(191, 243, 255, 0.5); background: var(--docs-cyan); color: #071116; }
+.guide-related { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.7rem; margin-top: 2rem; padding-top: 1.2rem; border-top: 1px solid var(--docs-line); }
+.guide-related h3 { grid-column: 1 / -1; margin: 0 0 0.2rem; color: var(--docs-muted); font: 750 0.72rem/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; text-transform: uppercase; letter-spacing: 0.05em; }
+.guide-related > a { display: flex; flex-direction: column; gap: 0.4rem; padding: 0.9rem; border: 1px solid var(--docs-line); border-radius: 9px; text-decoration: none; }
+.guide-related > a:hover, .guide-related > a:focus-visible { border-color: var(--docs-line-strong); }
+.guide-related span { color: var(--docs-text); font-size: 0.83rem; font-weight: 760; }
+.guide-related small { color: var(--docs-muted); font-size: 0.7rem; line-height: 1.45; }
+
 @media (max-width: 1180px) {
   .docs-shell { grid-template-columns: minmax(200px, 230px) minmax(0, 1fr); }
   .docs-toc { display: none; }
+  .guide-layout { display: block; max-width: 860px; margin: 0 auto; }
+  .guide-mobile-toc { display: block; }
 }
 
 @media (max-width: 820px) {
@@ -250,10 +332,13 @@ body { margin: 0; }
   .agent-source { align-items: flex-start; flex-direction: column; gap: 1.3rem; }
   .doc-toolbar { align-items: flex-start; flex-direction: column; }
   .doc-toolbar-actions { justify-content: flex-start; }
+  .guide-shell { width: min(calc(100% - 2rem), 860px); padding-bottom: 5rem; }
+  .guide-group-heading { grid-template-columns: 1fr; gap: 0.4rem; }
+  .guide-card-grid { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 560px) {
-  .docs-topbar nav a:first-child { display: none; }
+  .docs-topbar nav .nav-optional { display: none; }
   .docs-home > h1 { font-size: clamp(2.65rem, 12vw, 3.4rem); }
   .docs-paths { grid-template-columns: 1fr; }
   .docs-proof { grid-template-columns: 1fr; }
@@ -261,6 +346,12 @@ body { margin: 0; }
   .page-steps { grid-template-columns: 1fr; }
   .page-step-next { align-items: flex-start; text-align: left; }
   .docs-footer { flex-direction: column; gap: 0.5rem; }
+  .guide-home > h1 { font-size: clamp(2.65rem, 12vw, 3.7rem); }
+  .guide-home-rule { grid-template-columns: 1fr 1fr; }
+  .guide-card { min-height: 220px; }
+  .guide-meta { display: grid; gap: 0.4rem; }
+  .guide-meta span:not(:last-child)::after { content: none; }
+  .guide-related { grid-template-columns: 1fr; }
 }
 
 @media (prefers-reduced-motion: reduce) {

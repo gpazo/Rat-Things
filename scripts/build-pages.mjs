@@ -5,9 +5,11 @@ import { buildArchitecture } from './build-architecture.mjs';
 
 const output = 'dist-pages';
 const docsOutput = join(output, 'docs');
+const guidesOutput = join(output, 'guides');
 const repositoryUrl = 'https://github.com/gpazo/Rat-Things';
 const pagesUrl = 'https://gpazo.github.io/Rat-Things';
 const docsConfig = JSON.parse(await readFile('site/docs.json', 'utf8'));
+const guidesConfig = JSON.parse(await readFile('site/guides.json', 'utf8'));
 const visualAssetFiles = [
   'product-overview.svg',
   'thing-lifecycle.svg',
@@ -97,12 +99,31 @@ if (unexpectedlyUnconfigured.length > 0) {
 const groups = docsConfig.groups;
 validateDocumentationConfig(groups, archivedFiles, docs);
 
+const guideEntries = await readdir('guides', { withFileTypes: true });
+const guideMarkdownFiles = guideEntries
+  .filter((entry) => entry.isFile() && entry.name.endsWith('.md'))
+  .map((entry) => entry.name)
+  .sort();
+const guides = new Map();
+for (const file of guideMarkdownFiles) {
+  const source = await readFile(join('guides', file), 'utf8');
+  guides.set(file, guideMetadata(file, source));
+}
+const guideGroups = guidesConfig.groups;
+validateGuideConfig(guideGroups, guideMarkdownFiles, guides);
+const orderedGuides = guideGroups.flatMap((group) => group.documents.map((file) => ({
+  ...guides.get(file),
+  groupTitle: group.title,
+})));
+
 await mkdir(docsOutput, { recursive: true });
 await copyDocumentationAssets(docsEntries);
 for (const file of documentationSharedAssetFiles) {
   await cp(join('assets', file), join(docsOutput, 'assets', file));
 }
 await writeFile(join(docsOutput, 'index.html'), renderDocsHome(groups, docs));
+await mkdir(guidesOutput, { recursive: true });
+await writeFile(join(guidesOutput, 'index.html'), renderGuidesHome(guideGroups, guides));
 
 const orderedDocs = groups.flatMap((group) => group.documents.map((file) => docs.get(file)));
 const agentCorpusExclude = new Set(docsConfig.agentCorpusExclude ?? []);
@@ -113,9 +134,17 @@ const agentGroups = groups
   }))
   .filter((group) => group.documents.length > 0);
 const agentDocs = orderedDocs.filter((doc) => !agentCorpusExclude.has(doc.file));
-await writeFile(join(output, 'llms.txt'), addCapabilityBoundaryInstruction(renderLlmsIndex(agentGroups, docs)));
+await writeFile(
+  join(output, 'llms.txt'),
+  addCapabilityBoundaryInstruction(renderLlmsIndex(agentGroups, docs, guideGroups, guides)),
+);
 await writeFile(join(output, 'llms-full.txt'), renderLlmsFull(agentDocs));
-const generatedHtmlFiles = [join(output, 'index.html'), join(output, 'overview.html'), join(docsOutput, 'index.html')];
+const generatedHtmlFiles = [
+  join(output, 'index.html'),
+  join(output, 'overview.html'),
+  join(docsOutput, 'index.html'),
+  join(guidesOutput, 'index.html'),
+];
 for (const [index, doc] of orderedDocs.entries()) {
   const pageDirectory = join(docsOutput, doc.slug);
   await mkdir(pageDirectory, { recursive: true });
@@ -130,9 +159,21 @@ for (const [index, doc] of orderedDocs.entries()) {
   generatedHtmlFiles.push(pageFile);
 }
 
-await writeFile(join(output, 'sitemap.xml'), renderSitemap(orderedDocs));
+for (const [index, guide] of orderedGuides.entries()) {
+  const pageDirectory = join(guidesOutput, guide.slug);
+  await mkdir(pageDirectory, { recursive: true });
+  const pageFile = join(pageDirectory, 'index.html');
+  await writeFile(pageFile, renderGuidePage({
+    guide,
+    previous: orderedGuides[index - 1],
+    next: orderedGuides[index + 1],
+  }));
+  generatedHtmlFiles.push(pageFile);
+}
+
+await writeFile(join(output, 'sitemap.xml'), renderSitemap(orderedDocs, orderedGuides));
 await validateGeneratedLinks(generatedHtmlFiles);
-process.stdout.write(`built ${output} with ${orderedDocs.length} documentation pages\n`);
+process.stdout.write(`built ${output} with ${orderedDocs.length} documentation pages and ${orderedGuides.length} guides\n`);
 
 async function normalizeCopiedSitePaths() {
   for (const filename of ['index.html', 'overview.html']) {
@@ -158,18 +199,45 @@ function documentMetadata(file, source) {
   return { file, slug, title, description, source, rendered, tableOfContents };
 }
 
+function guideMetadata(file, source) {
+  const title = source.match(/^#\s+(.+)$/m)?.[1]?.trim() ?? basename(file, '.md');
+  const slug = basename(file, '.md');
+  const page = guidesConfig.pages?.[file];
+  const description = page?.description ?? extractDescription(source);
+  const rendered = addHeadingIds(wrapTables(rewriteGuideLinks(marked.parse(source), file)));
+  const tableOfContents = extractTableOfContents(rendered);
+  return {
+    file,
+    slug,
+    title,
+    description,
+    source,
+    rendered,
+    tableOfContents,
+    published: page?.published,
+    reviewed: page?.reviewed,
+    related: page?.related ?? [],
+    cta: page?.cta,
+    evidenceCta: page?.evidenceCta,
+  };
+}
+
 function wrapTables(html) {
   return html
     .replaceAll('<table>', '<div class="table-scroll" role="region" aria-label="Scrollable table" tabindex="0"><table>')
     .replaceAll('</table>', '</table></div>');
 }
 
-function renderLlmsIndex(groups, documents) {
+function renderLlmsIndex(groups, documents, guideGroups, guides) {
   const sections = groups.map((group) => `## ${group.title}\n\n${group.documents.map((file) => {
     const document = documents.get(file);
     return `- [${document.title}](${pagesUrl}/docs/${document.slug}/): ${document.description}`;
   }).join('\n')}`).join('\n\n');
-  return `# Rat Things\n\n> The open-source, self-hostable backend for cloud agents, with isolated Codex execution, reusable Things, multi-account integrations, browser use, and durable work. Rat Things is an engineering preview, not a production-ready multi-tenant service.\n\n## Agent quickstart\n\nA host gives you a Rat Things deployment base URL and an authenticated calling method.\n\n1. Fetch \`/.well-known/rat-things\` from that deployment. Resolve its relative links against the deployment URL.\n2. Treat the installed OpenAPI, JSON Schemas, capability profiles, and integration manifests as authoritative.\n3. Prefer Things for reusable work: create a draft, explain it, test it, publish the exact immutable revision, then run or schedule the active revision. Start with explicit read-only/no-network capabilities and widen only for the task.\n4. Every accepted execution returns one Run. Retain its Run ID and follow its \`Location\`, durable state, or live events; optional \`thread\` continuity does not create another public receipt.\n5. Use raw runs, thread continuity, browser use, skills, apps, MCP, publications, and provider-event ingress only when the task needs those deeper surfaces.\n6. Never submit an owner ID or place AWS, provider, S3, or MicroVM credentials in a Thing or run.\n\nRead [Connect an agent to Rat Things](${pagesUrl}/docs/agents/) for authentication options, the smallest complete journey, the deeper capability map, failure rules, and a copyable bootstrap instruction. Do not load the full corpus for a simple Thing run.\n\n${sections}\n\n## Machine-readable contracts\n\nString lengths in JSON Schema are preflight character limits; runtime UTF-8 byte limits remain authoritative.\n\n- [OpenAPI 3.1](${pagesUrl}/openapi.json): Published reference contract; an installed deployment's linked copy is authoritative.\n- [ThingSpec v1 JSON Schema](${pagesUrl}/schemas/thing-v1.json): Portable credential-free automation definition.\n- [Create Thing schema](${pagesUrl}/schemas/thing-create-v1.json): Direct draft-only Thing creation contract.\n- [Create Thing version schema](${pagesUrl}/schemas/thing-version-v1.json): Compare-and-swap draft revision contract.\n- [Operational agent corpus](${pagesUrl}/llms-full.txt): Published agent documentation combined into one document; load only when broad context is necessary.\n\n## Source and examples\n\n- [Repository](${repositoryUrl})\n- [Safe first-run ThingSpec](${pagesUrl}/examples/thing-create.json)\n- [Connected scheduled ThingSpec](${pagesUrl}/examples/thing-connected-schedule.json)\n- [Updated ThingSpec example for the CLI or nested version request](${pagesUrl}/examples/thing-version.json)\n`;
+  const guideSections = guideGroups.map((group) => `### ${group.title}\n\n${group.documents.map((file) => {
+    const guide = guides.get(file);
+    return `- [${guide.title}](${pagesUrl}/guides/${guide.slug}/): ${guide.description}`;
+  }).join('\n')}`).join('\n\n');
+  return `# Rat Things\n\n> The open-source, self-hostable backend for cloud agents, with isolated Codex execution, reusable Things, multi-account integrations, browser use, and durable work. Rat Things is an engineering preview, not a production-ready multi-tenant service.\n\n## Agent quickstart\n\nA host gives you a Rat Things deployment base URL and an authenticated calling method.\n\n1. Fetch \`/.well-known/rat-things\` from that deployment. Resolve its relative links against the deployment URL.\n2. Treat the installed OpenAPI, JSON Schemas, capability profiles, and integration manifests as authoritative.\n3. Prefer Things for reusable work: create a draft, explain it, test it, publish the exact immutable revision, then run or schedule the active revision. Start with explicit read-only/no-network capabilities and widen only for the task.\n4. Every accepted execution returns one Run. Retain its Run ID and follow its \`Location\`, durable state, or live events; optional \`thread\` continuity does not create another public receipt.\n5. Use raw runs, thread continuity, browser use, skills, apps, MCP, publications, and provider-event ingress only when the task needs those deeper surfaces.\n6. Never submit an owner ID or place AWS, provider, S3, or MicroVM credentials in a Thing or run.\n\nRead [Connect an agent to Rat Things](${pagesUrl}/docs/agents/) for authentication options, the smallest complete journey, the deeper capability map, failure rules, and a copyable bootstrap instruction. Do not load the full corpus for a simple Thing run.\n\n## Problem-first guides\n\nUse these concise decision guides when the question starts with a pain, workflow, cost, or architecture choice. Follow their evidence links before repeating a product-specific claim.\n\n${guideSections}\n\n${sections}\n\n## Machine-readable contracts\n\nString lengths in JSON Schema are preflight character limits; runtime UTF-8 byte limits remain authoritative.\n\n- [OpenAPI 3.1](${pagesUrl}/openapi.json): Published reference contract; an installed deployment's linked copy is authoritative.\n- [ThingSpec v1 JSON Schema](${pagesUrl}/schemas/thing-v1.json): Portable credential-free automation definition.\n- [Create Thing schema](${pagesUrl}/schemas/thing-create-v1.json): Direct draft-only Thing creation contract.\n- [Create Thing version schema](${pagesUrl}/schemas/thing-version-v1.json): Compare-and-swap draft revision contract.\n- [Operational agent corpus](${pagesUrl}/llms-full.txt): Published agent documentation combined into one document; load only when broad context is necessary.\n\n## Source and examples\n\n- [Repository](${repositoryUrl})\n- [Safe first-run ThingSpec](${pagesUrl}/examples/thing-create.json)\n- [Connected scheduled ThingSpec](${pagesUrl}/examples/thing-connected-schedule.json)\n- [Updated ThingSpec example for the CLI or nested version request](${pagesUrl}/examples/thing-version.json)\n`;
 }
 
 function renderLlmsFull(documents) {
@@ -211,6 +279,12 @@ function rewriteDocumentLinks(html, file) {
     .replace(/src="([^"]+)"/g, (_, source) => `src="${escapeHtml(rewriteAsset(source))}"`);
 }
 
+function rewriteGuideLinks(html, file) {
+  return html
+    .replace(/href="([^"]+)"/g, (_, href) => `href="${escapeHtml(rewriteGuideHref(href, file))}"`)
+    .replace(/src="([^"]+)"/g, (_, source) => `src="${escapeHtml(rewriteGuideAsset(source, file))}"`);
+}
+
 function rewriteHref(href, file) {
   if (isExternalReference(href) || href.startsWith('#')) return href;
   const [path, fragment] = href.split('#', 2);
@@ -230,6 +304,33 @@ function rewriteHref(href, file) {
 function rewriteAsset(source) {
   if (isExternalReference(source) || source.startsWith('data:')) return source;
   return `../assets/${basename(source)}`;
+}
+
+function rewriteGuideHref(href, file) {
+  if (isExternalReference(href) || href.startsWith('#')) return href;
+  const [path, fragment] = href.split('#', 2);
+  const suffix = fragment ? `#${fragment}` : '';
+  if (path.endsWith('.md') && !path.includes('/')) {
+    return `../${basename(path, '.md')}/${suffix}`;
+  }
+  if (path.startsWith('../docs/') && path.endsWith('.md')) {
+    return `../../docs/${basename(path, '.md')}/${suffix}`;
+  }
+  if (path.startsWith('../assets/')) {
+    return `../../assets/${basename(path)}${suffix}`;
+  }
+  if (path.startsWith('../examples/')) {
+    return `../../examples/${basename(path)}${suffix}`;
+  }
+  const repositoryPath = posix.normalize(posix.join('guides', path));
+  if (path.startsWith('../')) return `${repositoryUrl}/blob/main/${repositoryPath}${suffix}`;
+  throw new Error(`unsupported local guide link ${href} in ${file}`);
+}
+
+function rewriteGuideAsset(source, file) {
+  if (isExternalReference(source) || source.startsWith('data:')) return source;
+  if (source.startsWith('../assets/')) return `../../assets/${basename(source)}`;
+  throw new Error(`unsupported local guide asset ${source} in ${file}`);
 }
 
 function addHeadingIds(html) {
@@ -302,6 +403,225 @@ function validateDocumentationConfig(groups, archivedFiles, documents) {
     if (!documents.has(file)) throw new Error(`archived documentation page ${file} does not exist`);
     if (seen.has(file)) throw new Error(`documentation page ${file} cannot be both published and archived`);
   }
+}
+
+function validateGuideConfig(groups, markdownFiles, documents) {
+  const seen = new Set();
+  for (const group of groups) {
+    if (!group.title || !group.description || group.documents.length === 0) {
+      throw new Error('guide groups need a title, description, and documents');
+    }
+    for (const file of group.documents) {
+      if (!documents.has(file)) throw new Error(`guide ${file} does not exist`);
+      if (seen.has(file)) throw new Error(`guide ${file} appears in more than one group`);
+      const page = guidesConfig.pages?.[file];
+      if (!page?.description) throw new Error(`guide ${file} needs an explicit description`);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(page.published ?? '')) {
+        throw new Error(`guide ${file} needs a published date in YYYY-MM-DD format`);
+      }
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(page.reviewed ?? '')) {
+        throw new Error(`guide ${file} needs a reviewed date in YYYY-MM-DD format`);
+      }
+      if (!Array.isArray(page.related) || page.related.length < 2) {
+        throw new Error(`guide ${file} needs at least two related guides`);
+      }
+      for (const related of page.related) {
+        if (related === file || !documents.has(related)) {
+          throw new Error(`guide ${file} has invalid related guide ${related}`);
+        }
+      }
+      for (const name of ['cta', 'evidenceCta']) {
+        if (!page[name]?.label || !page[name]?.href) {
+          throw new Error(`guide ${file} needs a ${name} label and href`);
+        }
+        rewriteGuideHref(page[name].href, file);
+      }
+      for (const section of ['## Evidence and limitations', '## Sources']) {
+        if (!documents.get(file).source.includes(section)) {
+          throw new Error(`guide ${file} needs a ${section.slice(3)} section`);
+        }
+      }
+      for (const evidenceField of [
+        'Date',
+        'Source revision',
+        'Environment',
+        'Model/provider',
+        'Scenario',
+        'Result',
+        'Reproduce',
+        'Evidence',
+        'Limits',
+      ]) {
+        if (!documents.get(file).source.includes(`| ${evidenceField} |`)) {
+          throw new Error(`guide ${file} needs an evidence row for ${evidenceField}`);
+        }
+      }
+      seen.add(file);
+    }
+  }
+  const unconfigured = markdownFiles.filter((file) => !seen.has(file));
+  if (unconfigured.length > 0) {
+    throw new Error(`guide files must be explicitly published: ${unconfigured.join(', ')}`);
+  }
+}
+
+function renderGuidesHome(groups, documents) {
+  const sections = groups.map((group) => `
+    <section class="guide-group" aria-labelledby="${slugify(group.title)}-title">
+      <div class="guide-group-heading">
+        <h2 id="${slugify(group.title)}-title">${escapeHtml(group.title)}</h2>
+        <p>${escapeHtml(group.description)}</p>
+      </div>
+      <div class="guide-card-grid">
+        ${group.documents.map((file) => {
+          const guide = documents.get(file);
+          return `<a class="guide-card" href="./${guide.slug}/">
+            <span>${escapeHtml(guide.title)}</span>
+            <small>${escapeHtml(guide.description)}</small>
+            <b>Read the guide <span aria-hidden="true">→</span></b>
+          </a>`;
+        }).join('\n')}
+      </div>
+    </section>`).join('\n');
+
+  return guidePageTemplate({
+    title: 'Practical guides for durable cloud agents',
+    description: 'Direct answers for running Codex beyond a laptop, preserving agent state, limiting connected-account access, scheduling work, and choosing an AWS architecture.',
+    canonicalPath: '/guides/',
+    assetPrefix: '../',
+    main: `
+      <main id="guides-main" class="guide-shell guide-home">
+        <p class="docs-eyebrow">Rat Things field guides</p>
+        <h1>Practical guides for<br>durable cloud agents.</h1>
+        <p class="guide-home-lede">Start with the problem and build the agent second. These guides give practical answers for long-running Codex work, durable state, connected accounts, schedules, and self-hosted AWS execution. Each separates the general design problem from one concrete Rat Things implementation.</p>
+        <div class="guide-home-rule">
+          <span>Direct answer</span><span>Tradeoffs</span><span>Working example</span><span>Measured evidence</span>
+        </div>
+        ${sections}
+      </main>`,
+  });
+}
+
+function renderGuidePage({ guide, previous, next }) {
+  const tocLinks = guide.tableOfContents.map((item) => `<a class="toc-level-${item.level}" href="#${item.id}">${escapeHtml(item.title)}</a>`).join('\n');
+  const toc = guide.tableOfContents.length === 0 ? '' : `
+    <aside class="docs-toc guide-toc" aria-label="On this page">
+      <p>On this page</p>
+      ${tocLinks}
+    </aside>`;
+  const mobileToc = guide.tableOfContents.length === 0 ? '' : `
+    <details class="guide-mobile-toc">
+      <summary>On this page</summary>
+      <nav aria-label="On this page">${tocLinks}</nav>
+    </details>`;
+  const related = guide.related.map((file) => {
+    const item = guides.get(file);
+    return `<a href="../${item.slug}/"><span>${escapeHtml(item.title)}</span><small>${escapeHtml(item.description)}</small></a>`;
+  }).join('\n');
+  const ctaHref = rewriteGuideHref(guide.cta.href, guide.file);
+  const evidenceCtaHref = rewriteGuideHref(guide.evidenceCta.href, guide.file);
+  const article = guide.rendered.replace(
+    '<h2 id="evidence-and-limitations">',
+    `<p class="guide-inline-action"><a href="${escapeHtml(ctaHref)}">${escapeHtml(guide.cta.label)} <span aria-hidden="true">→</span></a></p><h2 id="evidence-and-limitations">`,
+  );
+  const previousLink = previous
+    ? `<a class="page-step page-step-previous" href="../${previous.slug}/"><small>Previous guide</small><span>${escapeHtml(previous.title)}</span></a>`
+    : '<span></span>';
+  const nextLink = next
+    ? `<a class="page-step page-step-next" href="../${next.slug}/"><small>Next guide</small><span>${escapeHtml(next.title)}</span></a>`
+    : '<span></span>';
+
+  return guidePageTemplate({
+    title: guide.title,
+    description: guide.description,
+    canonicalPath: `/guides/${guide.slug}/`,
+    assetPrefix: '../../',
+    article: true,
+    published: guide.published,
+    reviewed: guide.reviewed,
+    main: `
+      <main id="guides-main" class="guide-shell guide-page">
+        <div class="doc-toolbar">
+          <div class="doc-breadcrumb"><a href="../">Guides</a><span>/</span><span>${escapeHtml(guide.groupTitle)}</span></div>
+          <div class="doc-toolbar-actions">
+            <a href="https://raw.githubusercontent.com/gpazo/Rat-Things/main/guides/${guide.file}">Raw Markdown</a>
+            <a href="${repositoryUrl}/edit/main/guides/${guide.file}">Edit this guide</a>
+          </div>
+        </div>
+        <div class="guide-layout">
+          <div class="guide-content">
+            <div class="guide-meta"><span>Rat Things project</span><span>Reviewed ${formatDate(guide.reviewed)}</span><span>Engineering preview</span></div>
+            ${mobileToc}
+            <article class="doc-article guide-article">${article}</article>
+            <aside class="guide-next-actions" aria-labelledby="guide-next-actions-title">
+              <p class="docs-card-kicker">Continue from here</p>
+              <h2 id="guide-next-actions-title">Apply the answer or inspect the proof.</h2>
+              <div class="guide-cta-row">
+                <a class="guide-cta guide-cta-primary" href="${escapeHtml(ctaHref)}">${escapeHtml(guide.cta.label)} <span aria-hidden="true">→</span></a>
+                <a class="guide-cta" href="${escapeHtml(evidenceCtaHref)}">${escapeHtml(guide.evidenceCta.label)} <span aria-hidden="true">→</span></a>
+              </div>
+              <div class="guide-related">
+                <h3>Related guides</h3>
+                ${related}
+              </div>
+            </aside>
+            <nav class="page-steps" aria-label="Guide pagination">${previousLink}${nextLink}</nav>
+          </div>
+          ${toc}
+        </div>
+      </main>`,
+  });
+}
+
+function guidePageTemplate({ title, description, canonicalPath, assetPrefix, main, article = false, published, reviewed }) {
+  const pageTitle = `${title} — Rat Things guides`;
+  const structuredData = article ? `
+    <script type="application/ld+json">${JSON.stringify({
+      '@context': 'https://schema.org',
+      '@type': 'TechArticle',
+      headline: title,
+      description,
+      datePublished: published,
+      dateModified: reviewed,
+      author: { '@type': 'Organization', name: 'Rat Things project', url: repositoryUrl },
+      publisher: { '@type': 'Organization', name: 'Rat Things project', url: repositoryUrl },
+      mainEntityOfPage: `${pagesUrl}${canonicalPath}`,
+    }).replaceAll('<', '\\u003c')}</script>` : '';
+  return `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>${escapeHtml(pageTitle)}</title>
+    <meta name="description" content="${escapeHtml(description)}">
+    <meta name="theme-color" content="#071116">
+    <meta property="og:type" content="${article ? 'article' : 'website'}">
+    <meta property="og:title" content="${escapeHtml(pageTitle)}">
+    <meta property="og:description" content="${escapeHtml(description)}">
+    <meta property="og:url" content="${pagesUrl}${canonicalPath}">
+    <meta property="og:image" content="${pagesUrl}/assets/rat-things-og-v2.jpg">
+    ${article ? `<meta property="article:published_time" content="${escapeHtml(published)}">
+    <meta property="article:modified_time" content="${escapeHtml(reviewed)}">` : ''}
+    <meta name="twitter:card" content="summary_large_image">
+    <link rel="canonical" href="${pagesUrl}${canonicalPath}">
+    <link rel="icon" href="${assetPrefix}favicon.svg" type="image/svg+xml">
+    <link rel="stylesheet" href="${assetPrefix}docs.css?v=4">
+    <script defer src="${assetPrefix}docs.js?v=2"></script>${structuredData}
+  </head>
+  <body class="docs-body">
+    <a class="docs-skip-link" href="#guides-main">Skip to guide</a>
+    <header class="docs-topbar">
+      <a class="docs-brand" href="${assetPrefix}" aria-label="Rat Things home"><span aria-hidden="true"></span>Rat Things</a>
+      <nav aria-label="Guide header">
+        <a href="${assetPrefix}guides/" aria-current="page">Guides</a>
+        <a href="${assetPrefix}docs/">Docs</a>
+        <a class="nav-optional" href="${repositoryUrl}">GitHub</a>
+      </nav>
+    </header>
+    ${main}
+    <footer class="docs-footer"><span>Direct answers backed by the Rat Things implementation and live evidence.</span><a href="${repositoryUrl}/issues">Help improve a guide</a></footer>
+  </body>
+</html>`;
 }
 
 function renderDocsHome(groups, documents) {
@@ -402,7 +722,8 @@ function pageTemplate({ title, description, canonicalPath, assetPrefix, nav, mai
     <meta property="og:image" content="${pagesUrl}/assets/rat-things-og-v2.jpg">
     <meta name="twitter:card" content="summary_large_image">
     <link rel="canonical" href="${pagesUrl}${canonicalPath}">
-    <link rel="stylesheet" href="${assetPrefix}docs.css?v=2">
+    <link rel="icon" href="${assetPrefix}favicon.svg" type="image/svg+xml">
+    <link rel="stylesheet" href="${assetPrefix}docs.css?v=4">
     <script defer src="${assetPrefix}docs.js?v=2"></script>
   </head>
   <body class="docs-body">
@@ -410,8 +731,9 @@ function pageTemplate({ title, description, canonicalPath, assetPrefix, nav, mai
     <header class="docs-topbar">
       <a class="docs-brand" href="${assetPrefix}" aria-label="Rat Things home"><span aria-hidden="true"></span>Rat Things</a>
       <nav aria-label="Documentation header">
-        <a href="${assetPrefix}docs/">Docs</a>
-        <a href="${repositoryUrl}">GitHub</a>
+        <a href="${assetPrefix}guides/">Guides</a>
+        <a href="${assetPrefix}docs/" aria-current="page">Docs</a>
+        <a class="nav-optional" href="${repositoryUrl}">GitHub</a>
       </nav>
     </header>
     <div class="docs-shell">
@@ -452,8 +774,14 @@ function renderDocumentationNav(groups, documents, currentFile, prefix) {
   </nav>`;
 }
 
-function renderSitemap(documents) {
-  const urls = ['/', '/docs/', ...documents.map((doc) => `/docs/${doc.slug}/`)];
+function renderSitemap(documents, guides) {
+  const urls = [
+    '/',
+    '/guides/',
+    ...guides.map((guide) => `/guides/${guide.slug}/`),
+    '/docs/',
+    ...documents.map((doc) => `/docs/${doc.slug}/`),
+  ];
   return `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
 ${urls.map((path) => `  <url><loc>${pagesUrl}${path}</loc></url>`).join('\n')}
@@ -508,6 +836,15 @@ function slugify(value) {
 
 function truncate(value, length) {
   return value.length <= length ? value : `${value.slice(0, length - 1).trimEnd()}…`;
+}
+
+function formatDate(value) {
+  return new Intl.DateTimeFormat('en-US', {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+    timeZone: 'UTC',
+  }).format(new Date(`${value}T00:00:00Z`));
 }
 
 function isExternalReference(value) {
