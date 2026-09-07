@@ -893,9 +893,25 @@ select {
   box-shadow: 0 0 8px #7ae1b555;
 }
 .journey-actions {
-  display: flex;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
   gap: 8px;
+}
+.autoplay-button {
+  grid-column: 1 / -1;
+  justify-self: center;
+  padding: 6px 14px;
+  min-height: 32px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  color: var(--muted);
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+.autoplay-button[aria-pressed="true"] {
+  color: var(--accent);
+  border-color: var(--accent);
 }
 .journey-actions .icon-button {
   font-size: 19px;
@@ -1313,16 +1329,17 @@ select {
   }
   .journey-actions {
     grid-column: 1 / -1;
-    justify-content: center;
-    gap: 20px;
+    grid-template-columns: 44px minmax(0, 1fr) 44px;
+    gap: 8px;
   }
   .journey-actions .icon-button {
     width: 44px;
     height: 44px;
   }
   .play-button {
-    flex: 1;
-    max-width: 240px;
+    min-height: 44px;
+  }
+  .autoplay-button {
     min-height: 44px;
   }
   .explorer-footer {

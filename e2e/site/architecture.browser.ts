@@ -110,7 +110,9 @@ for (const [flow, first] of [
       .getByRole("button", { name: "Trace a Run", exact: true })
       .click();
     await expect(page.locator("#step-title")).toHaveText(first);
-    await page.getByRole("button", { name: "Pause walkthrough" }).click();
+    await expect(
+      page.getByRole("button", { name: "Play tour", exact: true }),
+    ).toBeVisible();
     for (let index = 0; index < 7; index++)
       await page
         .getByRole("button", { name: "Next step", exact: true })
@@ -353,6 +355,82 @@ test("finds resources by service aliases and preserves a focused durability view
   );
 });
 
+test("reveals a searched resource in the model and restores its view through history", async ({
+  page,
+}) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await ready(page);
+  const runner = page.locator('.component-label[data-node="runner"]');
+  await expect(runner).toBeHidden();
+  await page.getByRole("checkbox", { name: "Labels", exact: true }).uncheck();
+  await page
+    .getByRole("searchbox", { name: "Find a resource" })
+    .fill("Codex runner");
+  await page.locator('.search-result[data-select="runner"]').click();
+
+  await expect(page.locator("#detail-title")).toHaveText("Codex runner");
+  await expect(page.locator("#scene-host")).toHaveAttribute("data-view", "isolated");
+  await expect(page.getByRole("slider", { name: "Explode layers" })).toHaveValue("100");
+  await expect(page.getByRole("checkbox", { name: "Labels", exact: true })).toBeChecked();
+  await expect(runner).toBeVisible();
+  await expect(runner).toContainText("Codex runner");
+  await expect(page.locator("#search-results")).toBeHidden();
+  await expect(page).toHaveURL(/node=runner/);
+  await expect(page).toHaveURL(/inside=execution/);
+  await expect(page).toHaveURL(/explode=100/);
+  const resourceUrl = page.url();
+
+  await page.goBack();
+  await expect(page.locator("#scene-host")).toHaveAttribute("data-view", "system");
+  await expect(page.locator("#detail-title")).toHaveCount(0);
+  await expect(runner).toBeHidden();
+  await page.goForward();
+  await expect(page).toHaveURL(resourceUrl);
+  await expect(page.locator("#detail-title")).toHaveText("Codex runner");
+  await expect(runner).toBeVisible();
+  await page.reload();
+  await expect(page.locator("#scene-host")).toHaveAttribute("data-view", "isolated");
+  await expect(runner).toBeVisible();
+  await runner.click();
+  await expect(page.locator("#detail-title")).toHaveText("Codex runner");
+});
+
+test("advances Continue immediately and only advances on a timer when Play tour is chosen", async ({
+  page,
+}) => {
+  await page.clock.install({ time: new Date("2026-09-07T12:00:00Z") });
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await ready(page);
+  await page.clock.pauseAt(new Date("2026-09-07T12:01:00Z"));
+  await page.locator('.intro-actions [data-action="start"]').click();
+  await expect(page.locator("#step-position")).toHaveText("01 / 08");
+
+  await page.getByRole("button", { name: "Continue walkthrough" }).click();
+  await expect(page.locator("#step-position")).toHaveText("02 / 08");
+  await expect(page.locator("#step-title")).toHaveText("Accept one durable Run");
+  await expect(page.getByRole("button", { name: "Play tour", exact: true })).toBeVisible();
+  await page.clock.fastForward(7_100);
+  await expect(page.locator("#step-position")).toHaveText("02 / 08");
+
+  await page.getByRole("button", { name: "Play tour", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Pause tour", exact: true })).toBeVisible();
+  await expect(page.locator("#step-position")).toHaveText("02 / 08");
+  await page.clock.fastForward(7_100);
+  await expect(page.locator("#step-position")).toHaveText("03 / 08");
+
+  await page.getByRole("button", { name: "Continue walkthrough" }).click();
+  await expect(page.locator("#step-position")).toHaveText("04 / 08");
+  await expect(page.getByRole("button", { name: "Play tour", exact: true })).toBeVisible();
+  await page.clock.fastForward(7_100);
+  await expect(page.locator("#step-position")).toHaveText("04 / 08");
+
+  await page.getByRole("button", { name: "Play tour", exact: true }).click();
+  await page.getByRole("button", { name: "Pause tour", exact: true }).click();
+  await page.clock.fastForward(7_100);
+  await expect(page.locator("#step-position")).toHaveText("04 / 08");
+  await expect(page.getByRole("button", { name: "Play tour", exact: true })).toBeVisible();
+});
+
 test("full explosion gives every resource a readable and clickable inventory label", async ({
   page,
 }) => {
@@ -498,6 +576,8 @@ test("stops auto rotation when selecting or opening architecture layers", async 
   await page.locator("#explode-all").click();
   await expect(rotate).toHaveAttribute("aria-pressed", "false");
   await page.getByRole("button", { name: "Trace a Run", exact: true }).click();
+  await page.getByRole("button", { name: "Play tour", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Pause tour", exact: true })).toBeVisible();
   const position = await page.locator("#step-position").innerText();
   await rotate.click();
   await page.locator('.intro-actions [data-action="concepts"]').click();
@@ -506,6 +586,8 @@ test("stops auto rotation when selecting or opening architecture layers", async 
     "aria-label",
     "Continue walkthrough",
   );
+  await expect(page.locator("#autoplay")).toHaveText(/Play tour/);
+  await expect(page.locator("#autoplay")).toHaveAttribute("aria-pressed", "false");
   await expect(rotate).toHaveAttribute("aria-pressed", "false");
   await page.getByRole("button", { name: "Close field guide" }).click();
   await expect(page.locator("#step-position")).toHaveText(position);
@@ -586,6 +668,78 @@ test("keeps the active resource name and handoff understandable on mobile", asyn
     path: "test-results/site/architecture-mobile-handoff.png",
     fullPage: true,
   });
+});
+
+test("opens the What survives answer above the mobile model and closes the systems drawer", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await ready(page);
+  await page.getByRole("button", { name: "Browse systems" }).click();
+  await page
+    .getByRole("combobox", { name: "Focused view", exact: true })
+    .selectOption("durability");
+
+  await expect(page.locator("#systems")).toBeHidden();
+  await expect(page.locator("#inspector")).toBeVisible();
+  await expect(page.locator("#detail-title")).toHaveText("What survives");
+  await expect(page.locator("#detail-title")).toBeFocused();
+  await expect(page.locator("#detail-content .detail-description")).toBeVisible();
+  await expect(page.locator("#detail-content .detail-description")).toContainText(
+    "survive worker loss",
+  );
+  await expect(page).toHaveURL(/view=durability/);
+  await page.getByRole("button", { name: "Close details" }).click();
+  await expect(page.locator("#inspector")).toBeHidden();
+  await expect(page.locator(".system-label:visible")).toHaveCount(3);
+  await expect(page).toHaveURL(/view=durability/);
+  await page.getByRole("button", { name: "Read about What survives", exact: true }).click();
+  await expect(page.locator("#inspector")).toBeVisible();
+  await expect(page.locator("#detail-title")).toHaveText("What survives");
+  await page.goBack();
+  await expect(page.locator("#inspector")).toBeHidden();
+  await expect(page.locator(".system-label:visible")).toHaveCount(8);
+  await page.goForward();
+  await expect(page.locator("#inspector")).toBeVisible();
+  await expect(page.locator("#detail-title")).toHaveText("What survives");
+  await page.reload();
+  await expect(page.locator("#inspector")).toBeVisible();
+  await expect(page.locator("#detail-title")).toHaveText("What survives");
+});
+
+test("reopens the same focused resource's details on mobile without leaving its focus", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await ready(page);
+  await page.getByRole("button", { name: "Browse systems" }).click();
+  await page.locator('.system-row[data-select="execution"]').click();
+  await page.getByRole("button", { name: "Look inside execution" }).click();
+  const runner = page.getByRole("button", { name: "Inspect Codex runner in 3D" });
+  await runner.click();
+  await page.getByRole("button", { name: "Focus this resource" }).click();
+  await expect(page.locator("#scene-host")).toHaveAttribute("data-view", "focused");
+  await expect(page.locator("#inspector")).toBeHidden();
+  const focusedUrl = page.url();
+
+  for (let attempt = 0; attempt < 2; attempt++) {
+    await runner.click();
+    await expect(page.locator("#inspector")).toBeVisible();
+    await expect(page.locator("#detail-title")).toHaveText("Codex runner");
+    await expect(page.locator("#detail-title")).toBeFocused();
+    await expect(page.locator("#scene-host")).toHaveAttribute("data-view", "focused");
+    await expect(page.locator(".component-label:visible")).toHaveCount(1);
+    await expect(page).toHaveURL(focusedUrl);
+    await page.getByRole("button", { name: "Close details" }).click();
+    await expect(page.locator("#inspector")).toBeHidden();
+  }
+  await page.locator('#breadcrumb [data-action="parent"]').click();
+  await expect(page.locator("#inspector")).toBeVisible();
+  await expect(page.locator("#detail-title")).toHaveText("Execution");
+  await expect(page.locator('.child-row[data-select="runner"]')).toBeVisible();
+  await expect(page.locator("#scene-host")).toHaveAttribute("data-view", "isolated");
 });
 
 test("handles a failed catalogue load without an endless loading state", async ({

@@ -118,10 +118,27 @@ function stop() {
   state.playing = false;
 }
 
+// Opening a panel is an interaction, independent of its cached content.
+function openDetails() {
+  $("systems").classList.remove("open");
+  $("inspector").classList.add("open");
+  if (compact()) $("detail-title")?.focus({ preventScroll: true });
+}
+
+function restoreDetails() {
+  $("inspector").classList.toggle(
+    "open",
+    (!!state.selected || state.lens !== "all") &&
+      (state.step < 0 || state.inspecting),
+  );
+}
+
 function select(id: string) {
   if (!nodes.has(id)) return;
   stop();
   const parent = parents.get(id)!;
+  const resource = id !== parent.id;
+  const inventory = !state.isolated && state.explosion === 100;
   setState(
     {
       selected: id,
@@ -129,6 +146,8 @@ function select(id: string) {
       reading: "overview",
       inspecting: true,
       rotating: false,
+      labels: resource ? true : state.labels,
+      explosion: resource ? 100 : state.explosion,
       lens:
         state.lens !== "all" &&
         !(focusedViews[state.lens].systems as readonly string[]).includes(
@@ -136,13 +155,18 @@ function select(id: string) {
         )
           ? "all"
           : state.lens,
-      isolated:
-        state.isolated && state.isolated !== parent.id ? null : state.isolated,
+      isolated: resource
+        ? inventory
+          ? null
+          : parent.id
+        : state.isolated && state.isolated !== parent.id
+          ? null
+          : state.isolated,
     },
     true,
   );
-  $("systems").classList.remove("open");
-  if (compact()) $("detail-title")?.focus({ preventScroll: true });
+  openDetails();
+  if (resource) scene?.reset();
 }
 
 function fullSystem() {
@@ -160,6 +184,7 @@ function fullSystem() {
     true,
   );
   $("systems").classList.remove("open");
+  $("inspector").classList.remove("open");
   scene?.reset();
 }
 
@@ -227,6 +252,7 @@ function returnToSystem() {
     },
     true,
   );
+  openDetails();
   scene?.reset();
 }
 
@@ -235,7 +261,6 @@ function renderDetails() {
   if (detailKey === key) return;
   detailKey = key;
   $("inspector").scrollTop = 0;
-  $("inspector").classList.toggle("open", !!state.selected);
   if (!state.selected && state.lens !== "all") {
     const view = focusedViews[state.lens];
     const conceptId = {
@@ -245,7 +270,7 @@ function renderDetails() {
     }[state.lens];
     const concept = data.concepts.find((item) => item.id === conceptId)!;
     $("detail-content").innerHTML =
-      `<div class="detail-head">EXPLORE A QUESTION</div><div class="detail-body"><h2>${escape(view.title)}</h2><p class="detail-description">${escape(concept.description)}</p><div class="inside-heading"><span class="small-label">SYSTEMS IN THIS VIEW</span></div>${view.systems.map((id) => `<button class="child-row" data-select="${id}">${escape(nodes.get(id)!.title)}<span>↗</span></button>`).join("")}${sources(concept)}<button class="inspect-action" data-action="full">Return to full architecture <span>↙</span></button></div>`;
+      `<div class="detail-head"><span>EXPLORE A QUESTION</span><button class="icon-button" data-action="close" aria-label="Close details">×</button></div><div class="detail-body"><h2 id="detail-title" tabindex="-1">${escape(view.title)}</h2><p class="detail-description">${escape(concept.description)}</p><div class="inside-heading"><span class="small-label">SYSTEMS IN THIS VIEW</span></div>${view.systems.map((id) => `<button class="child-row" data-select="${id}">${escape(nodes.get(id)!.title)}<span>↗</span></button>`).join("")}${sources(concept)}<button class="inspect-action" data-action="full">Return to full architecture <span>↙</span></button></div>`;
     return;
   }
   if (!state.selected) {
@@ -359,7 +384,7 @@ function render() {
   $("breadcrumb").innerHTML = state.isolated
     ? `<button data-action="full">Rat Things</button><span>/</span>${state.focused ? `<button data-action="parent">${escape(nodes.get(state.isolated)!.title)}</button><span>/</span>${escape(nodes.get(state.focused)!.title)}` : escape(nodes.get(state.isolated)!.title)}`
     : state.lens !== "all"
-      ? `<button data-action="full">Rat Things</button><span>/</span>${focusedViews[state.lens].title}`
+      ? `<button data-action="full">Rat Things</button><span>/</span><button data-action="details" aria-label="Read about ${focusedViews[state.lens].title}">${focusedViews[state.lens].title}</button>`
       : state.explosion === 100
         ? `<button data-action="full">Rat Things</button><span>/</span>All resources`
         : "Rat Things <span>/</span> Whole system";
@@ -407,17 +432,17 @@ function render() {
   $<HTMLButtonElement>("next-step").disabled =
     state.step >= journey.steps.length - 1;
   $("play").innerHTML =
-    `<span aria-hidden="true">${state.playing ? "Ⅱ" : "▶"}</span><span>${state.playing ? "Pause" : state.step === journey.steps.length - 1 ? "Replay" : state.step >= 0 ? "Continue" : "Trace a Run"}</span>`;
+    `<span aria-hidden="true">${state.step === journey.steps.length - 1 ? "↻" : "→"}</span><span>${state.step === journey.steps.length - 1 ? "Replay" : state.step >= 0 ? "Continue" : "Trace a Run"}</span>`;
   $("play").setAttribute(
     "aria-label",
-    state.playing
-      ? "Pause walkthrough"
-      : state.step === journey.steps.length - 1
-        ? "Replay walkthrough"
-        : state.step >= 0
-          ? "Continue walkthrough"
-          : "Trace a Run",
+    state.step === journey.steps.length - 1
+      ? "Replay walkthrough"
+      : state.step >= 0
+        ? "Continue walkthrough"
+        : "Trace a Run",
   );
+  $("autoplay").innerHTML = `<span aria-hidden="true">${state.playing ? "Ⅱ" : "▶"}</span> ${state.playing ? "Pause tour" : "Play tour"}`;
+  $("autoplay").setAttribute("aria-pressed", String(state.playing));
 }
 
 function goToStep(index: number, play = false) {
@@ -523,6 +548,7 @@ async function boot() {
     "Source revision and content fingerprint. Spatial schematic, not live deployment telemetry.";
   state = readLocation();
   render();
+  restoreDetails();
   startScene();
   $("explorer").dataset.ready = "true";
 
@@ -544,6 +570,16 @@ async function boot() {
     }
     if (target.dataset.action === "focus") focusResource();
     if (target.dataset.action === "parent") returnToSystem();
+    if (target.dataset.action === "details") {
+      stop();
+      setState({
+        selected: null,
+        focused: null,
+        inspecting: true,
+        rotating: false,
+      });
+      openDetails();
+    }
     if (target.dataset.action === "concepts") {
       stop();
       setState({ rotating: false });
@@ -551,8 +587,16 @@ async function boot() {
     }
     if (target.dataset.action === "close") {
       stop();
-      if (compact()) $("inspector").classList.remove("open");
-      else setState({ selected: null, focused: null });
+      if (compact()) {
+        $("inspector").classList.remove("open");
+        render();
+      } else {
+        setState({
+          selected: null,
+          focused: null,
+          lens: state.selected ? state.lens : "all",
+        });
+      }
       $(compact() ? "open-systems" : "all-systems").focus({
         preventScroll: true,
       });
@@ -581,6 +625,11 @@ async function boot() {
       true,
     );
     scene?.reset();
+    if (state.lens !== "all") openDetails();
+    else {
+      $("systems").classList.remove("open");
+      $("inspector").classList.remove("open");
+    }
   });
   $("inspect-step").addEventListener("click", () => {
     stop();
@@ -650,6 +699,11 @@ async function boot() {
   $("zoom-in").addEventListener("click", () => scene?.zoom(1.2));
   $("zoom-out").addEventListener("click", () => scene?.zoom(1 / 1.2));
   $("play").addEventListener("click", () => {
+    stop();
+    const journey = data.journeys.find((item) => item.id === state.journey)!;
+    goToStep(state.step === journey.steps.length - 1 ? 0 : state.step + 1);
+  });
+  $("autoplay").addEventListener("click", () => {
     if (state.playing) {
       stop();
       render();
@@ -671,6 +725,7 @@ async function boot() {
   });
   $("journey").addEventListener("change", (event) => {
     stop();
+    $("inspector").classList.remove("open");
     setState({
       journey: (event.target as HTMLSelectElement).value,
       focused: null,
@@ -716,6 +771,7 @@ async function boot() {
         $("systems").classList.remove("open");
         $("open-systems").focus();
       } else {
+        $("inspector").classList.remove("open");
         setState({
           selected: null,
           focused: null,
@@ -730,6 +786,8 @@ async function boot() {
     stop();
     state = readLocation();
     render();
+    $("systems").classList.remove("open");
+    restoreDetails();
     scene?.reset();
   });
   document.addEventListener("visibilitychange", () => {

@@ -77,17 +77,21 @@ walkthrough controls remain opt-in.
 ## Exploration flow
 
 The first-time action, **Follow one task**, starts a manually advanced walkthrough.
-The play control opts into automatic advancement. A step names the resource and
-shows exactly what is handed from one participant to another; only that handoff
+**Continue** advances immediately and stays manual; **Play tour** opts into an
+automatic step every seven seconds, and **Pause tour** stops it. A step names the
+resource and shows what is handed from one participant to another; only that handoff
 animates. **Inspect** pauses within the owning subsystem. **Focus this resource**
 is a third level, framed to the actual geometry. Breadcrumbs return one level;
 **Return to step** restores the same narrated handoff. URLs preserve this context.
 
 Full explosion produces a named resource inventory with pan and zoom. Selecting
 or exploding stops auto-rotation. Search includes familiar service names and
-aliases. Focused views answer three questions: the request path, what survives,
-and where access is enforced. These are curated views of the catalogue, not
-separate architectures. External participants are described in the field guide
+aliases and reveals the selected resource in its owning subsystem. Re-selecting
+a resource reopens its details, including after focusing it on mobile. Focused
+views open an explanation of the request path, what survives, and where access
+is enforced. These are curated views of the catalogue, not
+separate architectures. On mobile, the question breadcrumb reopens its explanation
+after closing it. External participants are described in the field guide
 and named explicitly in handoffs; they are not rendered as owned AWS resources.
 
 The interaction draws on `model-x-studio`'s overview/mechanics split and individual

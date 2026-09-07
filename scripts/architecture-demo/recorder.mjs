@@ -72,11 +72,11 @@ export async function beginRecording(browser, options = {}) {
       // The complete resource inventory is a reading view with pan instead of orbit.
       await rotation(false);
     } else if(chapter.id==='trace') {
-      await page.getByRole('button',{name:'Trace a Run',exact:true}).click();
+      await page.getByRole('button',{name:'Play tour',exact:true}).click();
       for(let step=0;step<8;step++) {
         if(step) {
           await page.getByRole('button',{name:'Next step',exact:true}).click();
-          if(step<7) await page.getByRole('button',{name:'Continue walkthrough',exact:true}).click();
+          if(step<7) await page.getByRole('button',{name:'Play tour',exact:true}).click();
         }
         await pause(740);
       }
