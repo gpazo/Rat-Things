@@ -18,6 +18,8 @@ if [[ -z "$requested_id" ]]; then
   exit 1
 fi
 
+project_root_hint="$(dirname "$script_dir")"
+aws_e2e_source_runtime_defaults "$project_root_hint/.aws-e2e/$requested_id/runtime.env"
 aws_e2e_configure "$requested_id"
 aws_e2e_require aws jq node terraform
 

@@ -224,46 +224,18 @@ export class ThingService {
     const current = await this.get(ownerId, thingId);
     if (current.status === 'draft') throw new ConflictError('a draft Thing has no published revision to pause');
     if (current.status === 'archived') throw new ConflictError('archived Things cannot be paused');
-    const timestamp = this.clock.now().toISOString();
-    const paused = await concurrentThingMutation(this.options.store.setStatus(
-      ownerId,
-      thingId,
-      [current.status],
-      'paused',
-      syncingState(current.active?.revision, timestamp),
-      timestamp,
-    ));
-    return this.reconcileTrigger(paused);
+    return this.changeStatus(current, 'paused');
   }
 
   public async resume(ownerId: string, thingId: string): Promise<ThingRecord> {
     const current = await this.get(ownerId, thingId);
     if (current.status === 'draft') throw new ConflictError('a draft Thing must be published before it can resume');
     if (current.status === 'archived') throw new ConflictError('archived Things cannot resume');
-    const timestamp = this.clock.now().toISOString();
-    const resumed = await concurrentThingMutation(this.options.store.setStatus(
-      ownerId,
-      thingId,
-      [current.status],
-      'active',
-      syncingState(current.active?.revision, timestamp),
-      timestamp,
-    ));
-    return this.reconcileTrigger(resumed);
+    return this.changeStatus(current, 'active');
   }
 
   public async archive(ownerId: string, thingId: string): Promise<ThingRecord> {
-    const current = await this.get(ownerId, thingId);
-    const timestamp = this.clock.now().toISOString();
-    const archived = await concurrentThingMutation(this.options.store.setStatus(
-      ownerId,
-      thingId,
-      [current.status],
-      'archived',
-      syncingState(current.active?.revision, timestamp),
-      timestamp,
-    ));
-    return this.reconcileTrigger(archived);
+    return this.changeStatus(await this.get(ownerId, thingId), 'archived');
   }
 
   /** Test always runs the latest draft and never changes the published pointer. */
@@ -394,6 +366,22 @@ export class ThingService {
     }
     if (!run.thing) throw new Error('Thing occurrence Run was stored without revision evidence');
     return { ...run, thing: run.thing };
+  }
+
+  private async changeStatus(
+    current: ThingRecord,
+    status: 'paused' | 'active' | 'archived',
+  ): Promise<ThingRecord> {
+    const timestamp = this.clock.now().toISOString();
+    const updated = await concurrentThingMutation(this.options.store.setStatus(
+      current.ownerId,
+      current.thingId,
+      [current.status],
+      status,
+      syncingState(current.active?.revision, timestamp),
+      timestamp,
+    ));
+    return this.reconcileTrigger(updated);
   }
 
   private async reconcileTrigger(record: ThingRecord): Promise<ThingRecord> {

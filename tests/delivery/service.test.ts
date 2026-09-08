@@ -1,4 +1,7 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { CredentialBroker } from '../../src/credentials/broker.js';
+import { GitHubDeliveryAdapter } from '../../src/delivery/providers/github.js';
+import { KnownNotDeliveredError } from '../../src/delivery/errors.js';
 import { DeliveryService, resolveDestinations } from '../../src/delivery/service.js';
 import type { RunRecord, RunRequest, RunStateEvent } from '../../src/domain/contracts.js';
 import { RuntimePluginRegistry } from '../../src/plugins/registry.js';
@@ -44,6 +47,54 @@ const event: RunStateEvent = {
 };
 
 describe('delivery service', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it.each([
+    { status: 403, retryable: false, known: true },
+    { status: 429, retryable: true, known: true },
+    { status: 500, retryable: false, known: false },
+    { status: 503, retryable: false, known: false },
+    { status: undefined, retryable: false, known: false },
+  ])('handles provider failure $status without retrying an uncertain write', async ({ status, retryable, known }) => {
+    const fetchMock = status
+      ? vi.fn().mockResolvedValue(new Response('{}', { status }))
+      : vi.fn().mockRejectedValue(new Error('connection closed after sending'));
+    vi.stubGlobal('fetch', fetchMock);
+    const fence = {
+      claim: vi.fn().mockResolvedValue(true),
+      delivered: vi.fn(),
+      release: vi.fn(),
+      failed: vi.fn(),
+    };
+    const adapter = new GitHubDeliveryAdapter(new CredentialBroker({
+      get: vi.fn().mockResolvedValue('fixture-token'),
+    }), { tokenSecretArn: 'fixture-secret', apiBaseUrl: 'https://api.github.com' });
+    const service = new DeliveryService({
+      store: { get: vi.fn().mockResolvedValue(run) },
+      artifacts: { getJson: vi.fn().mockResolvedValue(request) },
+      results: { read: vi.fn().mockResolvedValue('complete result') },
+      fence,
+      plugins: new RuntimePluginRegistry([{
+        manifest: { name: 'github', version: '1', description: 'test GitHub plugin', provider: 'github' },
+        delivery: adapter,
+      }]),
+      defaultDestinations: [{ kind: 'source' }],
+    });
+
+    if (retryable) {
+      await expect(service.handle(event)).rejects.toBeInstanceOf(KnownNotDeliveredError);
+      expect(fence.release).toHaveBeenCalledWith(run.runId, 'github:default');
+      expect(fence.failed).not.toHaveBeenCalled();
+    } else {
+      await service.handle(event);
+      expect(fence.release).not.toHaveBeenCalled();
+      expect(fence.failed).toHaveBeenCalledWith(run.runId, 'github:default', expect.any(Error));
+      expect(fence.failed.mock.calls[0]?.[2] instanceof KnownNotDeliveredError).toBe(known);
+    }
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fence.delivered).not.toHaveBeenCalled();
+  });
+
   it('resolves source delivery through the provider plugin and durable fence', async () => {
     const deliver = vi.fn().mockResolvedValue('comment-1');
     const fence = {

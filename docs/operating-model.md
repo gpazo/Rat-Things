@@ -6,11 +6,9 @@ decides whether that deployment serves one person, a team, or users of another p
 supplies the common automation contract and isolated execution runtime; it does not require a
 Rat-operated control plane or user interface.
 
-> Once this narrow journey is delightful and stable, expand it.
-
 <figure class="doc-visual doc-visual-wide">
   <a href="product-overview.svg"><img src="product-overview.svg" alt="Your product, agent, or event gives work to Rat Things, which defines, runs, and retains it before returning durable replies, files, and URLs."></a>
-  <figcaption><strong>One backend, one durable result.</strong> Implementation detail stays out of the product overview.</figcaption>
+  <figcaption><strong>One backend, one durable result.</strong></figcaption>
 </figure>
 
 ## The narrow journey
@@ -75,27 +73,14 @@ sharing” for several different security boundaries.
 
 ## Permission is an intersection
 
-An operation is available only when every authority layer permits it:
+An operation must fit the deployment's [capability envelope](capability-envelope.md), including
+provider authority, the persistent account grant, and Thing or Run narrowing. Every layer can
+restrict access; none can widen another layer. The agent acts autonomously within that envelope,
+with no mid-Run approval step.
 
-```text
-deployment/profile ceiling
-       ∩ provider authorization
-       ∩ persistent account grant
-       ∩ Thing or run selection
-       ∩ operation and resource constraints
-       = effective permission
-```
-
-`read-only`, `read-write`, and `full` are useful presets; operation allow/deny lists and resource
-constraints provide narrower control. Together with provider scopes, profile ceilings, IAM, and
-network policy, they form the fixed envelope admitted before launch. The agent can autonomously use
-every exposed operation; there is no later approval step. Outside that envelope, an operation is
-omitted or denied by its enforcing layer. The denial does not suspend the Run or create a request
-that a person can approve.
-
-If a provider cannot report fine-grained scopes, Rat records that uncertainty rather than inventing
-precision. A host may still apply a narrower Rat grant. Use `thing-explain` before activating a Thing
-to see the resolved intersection for every selected account and operation.
+Use `rat-things thing-explain THING_ID` before activation to see which operations each selected
+account permits and why. See [integration permissions](plugins.md#5-understand-effective-permission)
+for presets, operation lists, provider-scope limitations, and resource constraints.
 
 ## The host owns identity and OAuth
 

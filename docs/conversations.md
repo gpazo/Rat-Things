@@ -14,9 +14,8 @@ See [Connect an agent to Rat Things](agents.md) for the smallest machine-facing 
 [Control API reference](api.md#headless-durable-conversations) for exact routes. The console is a
 reference client for those routes, not a hosted product or a second backend.
 
-In an empty console, type a message and send it to start work immediately. To choose a display
-name first, use **New conversation**; names can contain spaces and punctuation. The console generates
-the routing key separately. Use **Rename** in the conversation menu to edit the display title later;
+Type a message and send it to start work. **New conversation** opens a fresh composer, and the first
+message supplies the conversation title. Use **Rename** in the conversation menu to change it later;
 the stable thread key and CLI commands stay the same. After acceptance, reload reopens the durable
 conversation and resumes tracking its Run, including while the coordinator is still preparing execution.
 
@@ -77,8 +76,10 @@ returns to the previous file, restoring its scroll position and focused link. Li
 file can refer to sibling files or parent directories within the catalog. Missing files and unsafe
 links stay inactive; embedded HTML is shown as text and Markdown images do not load automatically.
 
-File viewers provide **Open in new tab**, **Download**, and **Use file in terminal**. The terminal
-commands select the displayed file’s opaque ID and conversation, including after following links
+File viewers provide **Open in new tab**, **Download**, and **Use file in terminal**.
+Private previews use an owner-checked, short-lived file URL without creating a publication. If a
+preview fails, the viewer shows the error and offers **Retry preview**.
+Terminal commands select the displayed file’s opaque ID and conversation, including after following links
 between files. Duplicate filenames remain unambiguous:
 
 ```bash

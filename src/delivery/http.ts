@@ -16,8 +16,9 @@ export async function checkedJson(response: Response, provider: string): Promise
 
 export async function checkedResponse(response: Response, provider: string): Promise<void> {
   if (response.ok) return;
-  const retryable = response.status === 429 || response.status >= 500;
-  throw new KnownNotDeliveredError(`${provider} returned HTTP ${response.status}`, retryable);
+  // A server error can follow an accepted write. Keep that outcome fenced.
+  if (response.status >= 500) throw new Error(`${provider} delivery outcome is unknown after HTTP ${response.status}`);
+  throw new KnownNotDeliveredError(`${provider} returned HTTP ${response.status}`, response.status === 429);
 }
 
 export function formatMessage(

@@ -23,9 +23,6 @@ const elements = {
   hiddenToggle: document.querySelector('#hidden-conversations'),
   refresh: document.querySelector('#refresh-list'),
   newThread: document.querySelector('#new-thread'),
-  dialog: document.querySelector('#new-thread-dialog'),
-  dialogForm: document.querySelector('#new-thread-form'),
-  threadKey: document.querySelector('#thread-key'),
   title: document.querySelector('#conversation-title'),
   subtitle: document.querySelector('#conversation-subtitle'),
   badge: document.querySelector('#status-badge'),
@@ -219,7 +216,7 @@ const state = {
   connectionFilter: '',
 };
 
-elements.newThread.addEventListener('click', openNewThread);
+elements.newThread.addEventListener('click', () => prepareDraftThread(`thread-${crypto.randomUUID()}`));
 elements.navConversations.addEventListener('click', () => void setWorkspaceMode('conversations'));
 elements.navConnections.addEventListener('click', () => void setWorkspaceMode('connections'));
 elements.navRoutines.addEventListener('click', () => void setWorkspaceMode('routines'));
@@ -232,7 +229,6 @@ elements.filter.addEventListener('keydown', (event) => {
   }
 });
 elements.hiddenToggle.addEventListener('click', () => void toggleHiddenConversations());
-elements.dialogForm.addEventListener('submit', createDraftThread);
 elements.composer.addEventListener('submit', submitMessage);
 elements.attachFiles.addEventListener('click', () => elements.fileInput.click());
 elements.fileInput.addEventListener('change', selectAttachments);
@@ -1927,19 +1923,6 @@ async function loadConversationArtifacts(conversation) {
   }
 }
 
-function openNewThread() {
-  elements.threadKey.value = '';
-  elements.dialog.showModal();
-  window.setTimeout(() => elements.threadKey.focus(), 0);
-}
-
-function createDraftThread(event) {
-  event.preventDefault();
-  if (!elements.dialogForm.reportValidity()) return;
-  prepareDraftThread(`thread-${crypto.randomUUID()}`, elements.threadKey.value.trim());
-  elements.dialog.close();
-}
-
 function prepareDraftThread(key, title) {
   if (state.contextOpen) void closeComputer();
   persistDraft();
@@ -1958,7 +1941,6 @@ function prepareDraftThread(key, title) {
   state.artifacts = [];
   clearComposerExtras();
   localStorage.removeItem('rat-things.selected-conversation');
-  elements.dialog.close();
   restoreDraft();
   renderConversationList();
   renderWorkspace({ scrollMode: 'bottom' });
@@ -2461,6 +2443,7 @@ function artifactNode(artifact, compact) {
 async function openArtifact(artifact, button, context = { threadKey: state.detail?.threadKey ?? state.selected?.threadKey, artifacts: state.artifacts }, restored = false) {
   const { threadKey } = context;
   if (!threadKey || !artifact.id) return;
+  const viewing = { artifact, threadKey, artifacts: context.artifacts, source: restored ? context.source : false };
   button.disabled = true;
   try {
     const url = artifactContentUrl(threadKey, artifact.id);
@@ -2470,8 +2453,7 @@ async function openArtifact(artifact, button, context = { threadKey: state.detai
       state.viewerHistory.push(state.viewerFile);
       state.viewerHistory = state.viewerHistory.slice(-20);
     }
-    state.viewerFile = { artifact, threadKey, artifacts: context.artifacts, source: restored ? context.source : false };
-    const viewing = state.viewerFile;
+    state.viewerFile = viewing;
     elements.viewerBack.hidden = state.viewerHistory.length === 0;
     elements.viewerSource.hidden = true;
     elements.viewerTitle.textContent = artifact.path ?? artifact.name ?? 'Artifact';
@@ -2488,7 +2470,16 @@ async function openArtifact(artifact, button, context = { threadKey: state.detai
       (focus || elements.viewerTitle).focus({preventScroll: true});
     }
   } catch (error) {
-    notice(message(error), true);
+    if (state.viewerFile === viewing && elements.viewer.open) {
+      const detail = document.createElement('p');
+      detail.setAttribute('role', 'alert');
+      detail.textContent = `Could not load this file. ${message(error)}`;
+      const retry = document.createElement('button');
+      retry.className = 'secondary-button';
+      retry.textContent = 'Retry preview';
+      retry.addEventListener('click', () => void openArtifact(artifact, retry, viewing, true));
+      elements.viewerBody.replaceChildren(detail, retry);
+    }
   } finally {
     button.disabled = false;
   }
@@ -2523,7 +2514,7 @@ async function renderArtifactContent(artifact, url, viewing) {
   } else if (
     isTextArtifact(mediaType) || isMarkdownArtifact(artifact)
   ) {
-    const response = await fetch(url);
+    const response = await fetch(url, { signal: AbortSignal.timeout(30_000) });
     if (!response.ok) throw new Error(`Artifact viewer returned ${response.status}`);
     const preview = await readTextPreview(response, 2_000_000);
     if (state.viewerFile !== viewing || !elements.viewer.open) return;

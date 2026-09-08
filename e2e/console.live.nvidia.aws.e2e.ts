@@ -10,7 +10,6 @@ const enabled = process.env.AWS_E2E_NVIDIA_DEMO === 'true';
 const timeoutMs = Number(process.env.AWS_E2E_TIMEOUT_MS ?? 420_000);
 const reportUrl = 'https://nvidianews.nvidia.com/news/' +
   'nvidia-announces-financial-results-for-second-quarter-fiscal-2027';
-const threadKey = 'nvidia-q2-live-ux2';
 const prompt = [
   'Read NVIDIA’s official earnings report published today, August 26, 2026, in the isolated browser.',
   `Open the official report at ${reportUrl}.`,
@@ -73,9 +72,8 @@ test.describe('live AWS NVIDIA earnings client demo', () => {
     await pause(page, 1_200);
 
     await page.getByRole('button', { name: 'New conversation' }).click();
-    await page.locator('#thread-key').fill(threadKey);
-    await page.getByRole('button', { name: 'Create', exact: true }).click();
-    await expect(page.getByRole('heading', { name: threadKey })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'New conversation' })).toBeVisible();
+    await expect(page.getByRole('textbox', { name: 'Message', exact: true })).toBeFocused();
     await page.getByRole('textbox', { name: 'Message', exact: true }).fill(prompt);
     await page.locator('.composer-options summary').click();
     await page.getByLabel('Isolated browser').check();

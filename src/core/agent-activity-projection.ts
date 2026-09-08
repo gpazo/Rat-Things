@@ -78,12 +78,12 @@ export function projectPublicAgentRuntime(
     ready: snapshot.ready,
     oldestSequence: snapshot.oldestSequence,
     nextSequence: snapshot.nextSequence,
-    events: snapshot.events.map(projectEvent),
+    events: snapshot.events.map(projectPublicAgentEvent),
     pendingRequests: snapshot.pendingRequests.map(projectPendingRequest),
   };
 }
 
-function projectEvent(event: AgentRuntimeEventRecord): PublicAgentActivity {
+export function projectPublicAgentEvent(event: AgentRuntimeEventRecord): PublicAgentActivity {
   const base = { sequence: event.sequence, occurredAt: event.occurredAt };
   if (event.method === 'turn/started') {
     return { ...base, kind: 'agent', status: 'started', title: 'Agent turn started' };

@@ -1,4 +1,5 @@
 import type { CredentialBroker } from '../../credentials/broker.js';
+import { KnownNotDeliveredError, requiredDeliveryCredential } from '../errors.js';
 import { checkedJson, fetchWithTimeout, formatMessage, validatedBaseUrl } from '../http.js';
 import type { DeliveryAdapter, DeliveryRequest } from '../types.js';
 
@@ -18,9 +19,12 @@ export class GitLabDeliveryAdapter implements DeliveryAdapter {
   public async deliver(input: DeliveryRequest): Promise<string> {
     const source = input.request.source;
     if (source?.kind !== 'gitlab' || !source.mergeRequestIid) {
-      throw new Error('GitLab destination lacks merge request IID');
+      throw new KnownNotDeliveredError('GitLab destination lacks merge request IID', false);
     }
-    const token = await this.credentials.read(this.options.tokenSecretArn, ['token', 'access_token']);
+    const token = await this.credentials.read(
+      requiredDeliveryCredential(this.options.tokenSecretArn, 'GITLAB_NOTIFY_TOKEN_SECRET_ARN'),
+      ['token', 'access_token'],
+    );
     const base = validatedBaseUrl(this.options.apiBaseUrl);
     const response = await fetchWithTimeout(
       `${base}/projects/${encodeURIComponent(source.projectId)}/merge_requests/${source.mergeRequestIid}/notes`,

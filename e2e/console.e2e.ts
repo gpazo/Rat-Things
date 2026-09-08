@@ -12,8 +12,8 @@ const existingConversationId = 'b'.repeat(64);
 const archivedConversationId = 'c'.repeat(64);
 const runId = 'run-console-e2e';
 let threadKey = 'release-review';
-const conversationName = 'Release readiness review';
 const prompt = 'Inspect the release candidate and stop before publishing.';
+const conversationName = prompt;
 const finalReply = 'Release review complete. No changes were published.';
 const richFinalReply = `${finalReply}\n\n\`\`\`sh\nnpm test\n\`\`\`\n\n[Open the runbook](https://example.com/runbook)\n\n[Updated report](.rat-things/artifacts/reports/release-review.md)\n\n**Ready to review** &amp; safe. [Missing](.rat-things/artifacts/missing.md) [Unsafe](javascript:alert%281%29) <img src="https://invalid.test/tracker" onerror="alert(1)">`;
 const inputArtifactId = 'input-specification';
@@ -31,6 +31,7 @@ interface FakeControlState {
   completedDetailReads: number;
   listTokens: Array<string | null>;
   artifactReads: number;
+  failNextArtifactContent: boolean;
   ownerHeaders: string[];
   idempotencyKey: string | undefined;
   organization: Record<string, { pinned: boolean; hidden: boolean; unread: boolean }>;
@@ -74,6 +75,7 @@ test.beforeAll(async () => {
     completedDetailReads: 0,
     listTokens: [],
     artifactReads: 0,
+    failNextArtifactContent: false,
     ownerHeaders: [],
     idempotencyKey: undefined,
     organization: {
@@ -198,15 +200,8 @@ test('creates, observes autonomous work, and completes a durable API conversatio
   await page.getByPlaceholder('Search conversations').fill('');
 
   await page.getByRole('button', { name: 'New conversation' }).click();
-  const threadKeyInput = page.locator('#thread-key');
-  await threadKeyInput.fill('Release readiness review');
-  expect(await threadKeyInput.evaluate((input: HTMLInputElement) => input.validity.valid)).toBe(true);
-  await threadKeyInput.fill(conversationName);
-  expect(await threadKeyInput.evaluate((input: HTMLInputElement) => input.validity.valid)).toBe(true);
-  await demoPause(page, 600);
-  await page.getByRole('button', { name: 'Create', exact: true }).click();
-
-  await expect(page.getByRole('heading', { name: conversationName })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'New conversation' })).toBeVisible();
+  await expect(page.getByRole('textbox', { name: 'Message', exact: true })).toBeFocused();
   await page.getByRole('textbox', { name: 'Message', exact: true }).fill(prompt);
   await page.locator('.composer-options summary').click();
   await page.getByLabel('Isolated browser').check();
@@ -412,9 +407,12 @@ test('creates, observes autonomous work, and completes a durable API conversatio
   const contentResponse = page.waitForResponse((response) =>
     new URL(response.url()).pathname.endsWith(`/artifacts/${outputArtifactId}/content`),
   );
+  state.failNextArtifactContent = true;
   await artifactButton.click();
   await expect(page.locator('#artifact-viewer')).toBeVisible();
-  expect((await contentResponse).status()).toBe(200);
+  expect((await contentResponse).status()).toBe(500);
+  await expect(page.locator('#viewer-body').getByRole('alert')).toContainText('Could not load this file.');
+  await page.getByRole('button', { name: 'Retry preview' }).click();
   await expect(page.locator('.viewer-markdown h3')).toHaveText('Release report fixture');
   await expect(page.locator('.viewer-markdown strong')).toHaveText('No changes were published.');
   await page.getByRole('button', {name: 'Show source', exact: true}).click();
@@ -522,7 +520,6 @@ test('creates, observes autonomous work, and completes a durable API conversatio
     },
     thread: {
       key: expect.stringMatching(/^thread-[0-9a-f-]{36}$/),
-      title: conversationName,
       delivery: 'interrupt',
       attachments: [{
         name: 'release-notes.txt',
@@ -549,7 +546,8 @@ test('creates, observes autonomous work, and completes a durable API conversatio
   });
   expect(foreignOrigin.status).toBe(403);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
-  expect(consoleErrors).toHaveLength(2);
+  expect(consoleErrors).toHaveLength(3);
+  expect(consoleErrors.some((entry) => entry.includes('500 (Internal Server Error)'))).toBe(true);
   expect(consoleErrors.some((entry) => entry.includes('502 (Bad Gateway)'))).toBe(true);
   expect(consoleErrors.some((entry) => entry.includes('503 (Service Unavailable)'))).toBe(true);
 
@@ -1338,6 +1336,10 @@ async function handleControlRequest(
   }
   if (request.method === 'GET' && url.pathname === `/v1/conversations/${threadKey}/artifacts/${outputArtifactId}/content`) {
     state.artifactReads += 1;
+    if (state.failNextArtifactContent) {
+      state.failNextArtifactContent = false;
+      return sendJson(response, 500, { error: { message: 'Preview is temporarily unavailable' } });
+    }
     response.statusCode = 302;
     response.setHeader('location', '/fixture-artifact-content');
     response.end();

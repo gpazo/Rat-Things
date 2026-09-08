@@ -164,6 +164,36 @@ describe('integration tool runtime', () => {
     expect(getSecret).not.toHaveBeenCalled();
     expect(execute).not.toHaveBeenCalled();
   });
+
+  it('rejects a grant that expires after tool preparation before reading credentials', async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date(now));
+      const expiresAt = '2026-08-20T00:01:00.000Z';
+      const account = connection('personal-id', 'mail-personal', 'full', ['mail.read']);
+      const execute = vi.fn();
+      const getSecret = vi.fn();
+      const runtime = new IntegrationRuntime({
+        registry: new IntegrationPluginRegistry([mailPlugin(execute)]),
+        store: memoryStore([account], [{ ...grant(account, 'full'), expiresAt }]),
+        credentials: new CredentialBroker({ get: getSecret }),
+      });
+      const session = await runtime.prepare({
+        ownerId: 'owner-1',
+        request: { connections: [{ connection: account.alias, preset: 'read-only' }] },
+        maximumIntegrationAccess: 'read-only',
+      });
+      expect(session.tools[0]?.tools.map((tool) => tool.name)).toEqual(['messages_search']);
+
+      vi.setSystemTime(new Date(expiresAt));
+      await expect(session.call({ namespace: 'mail', tool: 'messages_search', arguments: { query: 'invoice' } }))
+        .rejects.toThrow('grant has expired');
+      expect(getSecret).not.toHaveBeenCalled();
+      expect(execute).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 function mailPlugin(execute: IntegrationPlugin['execute']): IntegrationPlugin {

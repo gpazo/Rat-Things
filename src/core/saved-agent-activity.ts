@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import type { ArtifactReference, JsonValue, RunRecord } from '../domain/contracts.js';
-import { projectPublicAgentRuntime, type PublicAgentActivity } from './agent-activity-projection.js';
+import { projectPublicAgentEvent, type PublicAgentActivity } from './agent-activity-projection.js';
 
 const MAX_BYTES = 64 * 1024 * 1024;
 const MAX_LINE = 2 * 1024 * 1024;
@@ -30,11 +30,9 @@ export async function savedAgentActivity(
       ? new Date(record.emittedAtMs).toISOString() : run.updatedAt;
     const params = record.params && typeof record.params === 'object' && !Array.isArray(record.params)
       ? record.params as Record<string, JsonValue> : {};
-    const projected = projectPublicAgentRuntime({
-      runId: run.runId, active: false, ready: false, oldestSequence: 1, nextSequence: sequence + 2,
-      events: [{sequence: ++sequence, occurredAt, method: record.method, params}], pendingRequests: [],
-    });
-    events.push(...projected.events);
+    events.push(projectPublicAgentEvent({
+      sequence: ++sequence, occurredAt, method: record.method, params,
+    }));
     if (events.length > MAX_EVENTS) events.shift();
   }
   for await (const chunk of stream) {

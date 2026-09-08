@@ -76,6 +76,68 @@ function fixture(inspection: ExecutionInspection) {
 }
 
 describe('active Run reconciliation', () => {
+  describe.each(['dispatching', 'running', 'cancelling'] as const)('%s Run', (status) => {
+    it.each([
+      { kind: 'active', working: 'active', cancelling: 'stop-requested' },
+      { kind: 'inactive', working: 'failed', cancelling: 'stop-requested' },
+      { kind: 'terminal', working: 'failed', cancelling: 'cancelled' },
+      { kind: 'absent', working: 'failed', cancelling: 'cancelled' },
+      { kind: 'conflict', working: 'deferred', cancelling: 'deferred' },
+      { kind: 'unknown', working: 'deferred', cancelling: 'deferred' },
+    ] as const)('preserves recovery behavior for a $kind inspection', async ({ kind, working, cancelling }) => {
+      const inspection = kind === 'active' ? { kind } : { kind, reason: kind };
+      const test = fixture(inspection);
+      const expected = status === 'cancelling' ? cancelling : working;
+
+      await expect(test.reconciler.reconcile(run(status))).resolves.toBe(expected);
+      expect(test.inspector.inspect).toHaveBeenCalledWith('run-1', execution);
+      expect(test.store.failExecution).toHaveBeenCalledTimes(expected === 'failed' ? 1 : 0);
+      expect(test.store.cancelExecution).toHaveBeenCalledTimes(expected === 'cancelled' ? 1 : 0);
+      expect(test.executions.stop).toHaveBeenCalledTimes(expected === 'stop-requested' ? 1 : 0);
+      expect(test.store.recordLivenessInspection).toHaveBeenCalledTimes(
+        expected === 'active' || expected === 'deferred' ? 1 : 0,
+      );
+      if (expected === 'active' || expected === 'deferred') {
+        expect(test.store.recordLivenessInspection).toHaveBeenCalledWith(
+          'run-1', execution, run(status).heartbeatAt, expect.objectContaining({ outcome: kind }),
+        );
+      }
+    });
+  });
+
+  it.each(['running', 'cancelling'] as const)(
+    'resets uncertainty on a changed inspection and fences quarantine for a %s Run',
+    async (status) => {
+      const current = run(status);
+      current.liveness = {
+        checkedAt: '2026-08-24T20:04:00.000Z', outcome: 'conflict', consecutiveUncertain: 2,
+      };
+      const test = fixture({ kind: 'unknown', reason: 'control plane\nunavailable' });
+      await expect(test.reconciler.reconcile(current)).resolves.toBe('deferred');
+      expect(test.observation()).toEqual({
+        checkedAt: '2026-08-24T20:05:00.000Z',
+        outcome: 'unknown',
+        consecutiveUncertain: 1,
+        reason: 'control plane unavailable',
+      });
+
+      current.liveness = { ...current.liveness, outcome: 'unknown' };
+      test.store.recordLivenessInspection.mockResolvedValueOnce(false);
+      await expect(test.reconciler.reconcile(current)).resolves.toBe('raced');
+      await expect(test.reconciler.reconcile(current)).resolves.toBe('quarantined');
+      expect(test.observation()).toMatchObject({
+        consecutiveUncertain: 3, quarantinedAt: '2026-08-24T20:05:00.000Z',
+      });
+      current.liveness = test.observation()!;
+      test.inspector.inspect.mockClear();
+      await expect(test.reconciler.reconcile(current)).resolves.toBe('quarantined');
+      expect(test.inspector.inspect).not.toHaveBeenCalled();
+      expect(test.store.failExecution).not.toHaveBeenCalled();
+      expect(test.store.cancelExecution).not.toHaveBeenCalled();
+      expect(test.executions.stop).not.toHaveBeenCalled();
+    },
+  );
+
   it('retains a stale heartbeat when the exact root-supervised worker is active', async () => {
     const test = fixture({ kind: 'active' });
     await expect(test.reconciler.reconcile(run())).resolves.toBe('active');

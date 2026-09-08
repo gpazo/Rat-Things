@@ -1,3 +1,4 @@
+import type { ExecutionController } from '../core/ports.js';
 import type {
   ExecutionLivenessObservation,
   ExecutionReference,
@@ -33,10 +34,6 @@ export interface ExecutionReconciliationStore {
   ): Promise<boolean>;
 }
 
-export interface ExecutionStopper {
-  stop(execution: ExecutionReference, reason: string): Promise<void>;
-}
-
 export type ExecutionReconciliationOutcome =
   | 'active'
   | 'failed'
@@ -50,7 +47,7 @@ export type ExecutionReconciliationOutcome =
 export interface ActiveRunReconcilerOptions {
   store: ExecutionReconciliationStore;
   inspector: ExecutionInspector;
-  executions: ExecutionStopper;
+  executions: ExecutionController;
   now?: () => Date;
   quarantineAfter?: number;
 }
@@ -63,39 +60,53 @@ export class ActiveRunReconciler {
   public constructor(private readonly options: ActiveRunReconcilerOptions) {}
 
   public async reconcile(run: RunRecord): Promise<ExecutionReconciliationOutcome> {
-    const execution = run.execution;
-    if (!execution || execution.id === 'pending' || !execution.generation || !run.heartbeatAt) {
+    const { execution, heartbeatAt } = run;
+    if (!execution || execution.id === 'pending' || !execution.generation || !heartbeatAt) {
       return 'legacy';
     }
     if (!['dispatching', 'running', 'cancelling'].includes(run.status)) return 'raced';
     if (run.liveness?.quarantinedAt) return 'quarantined';
 
     const inspection = await this.options.inspector.inspect(run.runId, execution);
-    if (run.status === 'cancelling') return this.reconcileCancellation(run, execution, inspection);
-
-    if (
-      inspection.kind === 'terminal' ||
-      inspection.kind === 'absent' ||
-      inspection.kind === 'inactive'
-    ) {
-      const failed = await this.options.store.failExecution(
+    // Uncertain identity never authorizes failure or termination, including
+    // during cancellation. Both paths retain the same fenced evidence.
+    if (inspection.kind === 'conflict' || inspection.kind === 'unknown') {
+      const prior = run.liveness?.outcome === inspection.kind
+        ? run.liveness.consecutiveUncertain
+        : 0;
+      const consecutiveUncertain = prior + 1;
+      const checkedAt = this.now();
+      const quarantineAfter = Math.max(1, this.options.quarantineAfter ?? 3);
+      const observation: ExecutionLivenessObservation = {
+        checkedAt,
+        outcome: inspection.kind,
+        consecutiveUncertain,
+        reason: boundedReason(inspection.reason),
+        ...(consecutiveUncertain >= quarantineAfter ? { quarantinedAt: checkedAt } : {}),
+      };
+      const retained = await this.options.store.recordLivenessInspection(
         run.runId,
         execution,
-        run.heartbeatAt,
-        {
-          code: 'execution_lost',
-          message: boundedReason(inspection.reason),
-          retryable: true,
-        },
+        heartbeatAt,
+        observation,
       );
-      return failed ? 'failed' : 'raced';
+      if (!retained) return 'raced';
+      return observation.quarantinedAt ? 'quarantined' : 'deferred';
+    }
+
+    if (run.status === 'cancelling') {
+      if (inspection.kind === 'terminal' || inspection.kind === 'absent') {
+        return await this.options.store.cancelExecution(run.runId, execution) ? 'cancelled' : 'raced';
+      }
+      await this.options.executions.stop(execution, 'reconciler finalized a stale cancellation');
+      return 'stop-requested';
     }
 
     if (inspection.kind === 'active') {
       const retained = await this.options.store.recordLivenessInspection(
         run.runId,
         execution,
-        run.heartbeatAt,
+        heartbeatAt,
         {
           checkedAt: this.now(),
           outcome: 'active',
@@ -105,64 +116,17 @@ export class ActiveRunReconciler {
       return retained ? 'active' : 'raced';
     }
 
-    const prior = run.liveness?.outcome === inspection.kind
-      ? run.liveness.consecutiveUncertain
-      : 0;
-    const consecutiveUncertain = prior + 1;
-    const checkedAt = this.now();
-    const quarantineAfter = Math.max(1, this.options.quarantineAfter ?? 3);
-    if (inspection.kind !== 'conflict' && inspection.kind !== 'unknown') return 'raced';
-    const observation: ExecutionLivenessObservation = {
-      checkedAt,
-      outcome: inspection.kind,
-      consecutiveUncertain,
-      reason: boundedReason(inspection.reason),
-      ...(consecutiveUncertain >= quarantineAfter ? { quarantinedAt: checkedAt } : {}),
-    };
-    const retained = await this.options.store.recordLivenessInspection(
+    const failed = await this.options.store.failExecution(
       run.runId,
       execution,
-      run.heartbeatAt,
-      observation,
+      heartbeatAt,
+      {
+        code: 'execution_lost',
+        message: boundedReason(inspection.reason),
+        retryable: true,
+      },
     );
-    if (!retained) return 'raced';
-    return observation.quarantinedAt ? 'quarantined' : 'deferred';
-  }
-
-  private async reconcileCancellation(
-    run: RunRecord,
-    execution: ExecutionReference,
-    inspection: ExecutionInspection,
-  ): Promise<ExecutionReconciliationOutcome> {
-    if (inspection.kind === 'terminal' || inspection.kind === 'absent') {
-      return await this.options.store.cancelExecution(run.runId, execution) ? 'cancelled' : 'raced';
-    }
-    if (inspection.kind === 'active' || inspection.kind === 'inactive') {
-      await this.options.executions.stop(execution, 'reconciler finalized a stale cancellation');
-      return 'stop-requested';
-    }
-
-    const checkedAt = this.now();
-    const prior = run.liveness?.outcome === inspection.kind
-      ? run.liveness.consecutiveUncertain
-      : 0;
-    const consecutiveUncertain = prior + 1;
-    const quarantineAfter = Math.max(1, this.options.quarantineAfter ?? 3);
-    const observation: ExecutionLivenessObservation = {
-      checkedAt,
-      outcome: inspection.kind,
-      consecutiveUncertain,
-      reason: boundedReason(inspection.reason),
-      ...(consecutiveUncertain >= quarantineAfter ? { quarantinedAt: checkedAt } : {}),
-    };
-    const retained = await this.options.store.recordLivenessInspection(
-      run.runId,
-      execution,
-      run.heartbeatAt!,
-      observation,
-    );
-    if (!retained) return 'raced';
-    return observation.quarantinedAt ? 'quarantined' : 'deferred';
+    return failed ? 'failed' : 'raced';
   }
 
   private now(): string {

@@ -223,6 +223,82 @@ describe('ThingService', () => {
     expect(scheduler.removed).toEqual(['thing-scheduled']);
   });
 
+  it.each([
+    ['draft', 'pause'],
+    ['draft', 'resume'],
+    ['archived', 'pause'],
+    ['archived', 'resume'],
+  ] as const)('rejects %s Things before %s can change state or scheduling', async (status, action) => {
+    const store = new MemoryThingStore();
+    const scheduler = new MemoryScheduler();
+    const service = serviceWith({ store, scheduler, randomId: 'thing-guard' });
+    await service.create('owner-1', manualSpec('Guarded lifecycle'));
+    if (status === 'archived') await service.archive('owner-1', 'thing-guard');
+    const before = await service.get('owner-1', 'thing-guard');
+    const setStatus = vi.spyOn(store, 'setStatus');
+    const remove = vi.spyOn(scheduler, 'remove');
+    const upsert = vi.spyOn(scheduler, 'upsert');
+
+    await expect(service[action]('owner-1', 'thing-guard')).rejects.toThrow(status);
+
+    expect(setStatus).not.toHaveBeenCalled();
+    expect(remove).not.toHaveBeenCalled();
+    expect(upsert).not.toHaveBeenCalled();
+    await expect(service.get('owner-1', 'thing-guard')).resolves.toEqual(before);
+  });
+
+  it.each(['pause', 'resume', 'archive'] as const)(
+    'does not overwrite a concurrent lifecycle change during %s or touch its schedule',
+    async (action) => {
+      const store = new MemoryThingStore();
+      const scheduler = new MemoryScheduler();
+      const service = serviceWith({ store, scheduler, randomId: 'thing-status-race' });
+      await service.create('owner-1', scheduleSpec('Lifecycle race', 'rate(1 hour)'));
+      const testRun = await service.test('owner-1', 'thing-status-race');
+      await publishTested(service, 'owner-1', 'thing-status-race', testRun.runId);
+      if (action === 'resume') await service.pause('owner-1', 'thing-status-race');
+      const setStatus = store.setStatus.bind(store);
+      const winner = action === 'archive' ? 'paused' : 'archived';
+      vi.spyOn(store, 'setStatus').mockImplementationOnce(async (...args) => {
+        await setStatus(args[0], args[1], args[2], winner, args[4], args[5]);
+        return setStatus(...args);
+      });
+      const remove = vi.spyOn(scheduler, 'remove');
+      const upsert = vi.spyOn(scheduler, 'upsert');
+
+      await expect(service[action]('owner-1', 'thing-status-race')).rejects.toThrow('Thing changed concurrently');
+
+      await expect(service.get('owner-1', 'thing-status-race')).resolves.toMatchObject({ status: winner });
+      expect(remove).not.toHaveBeenCalled();
+      expect(upsert).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    ['pause', 'paused'],
+    ['resume', 'ready'],
+    ['archive', 'inactive'],
+  ] as const)('repairs scheduling when %s is retried after a failed synchronization', async (action, status) => {
+    const store = new MemoryThingStore();
+    const scheduler = new MemoryScheduler();
+    const service = serviceWith({ store, scheduler, randomId: 'thing-status-retry' });
+    await service.create('owner-1', scheduleSpec('Lifecycle retry', 'rate(1 hour)'));
+    const testRun = await service.test('owner-1', 'thing-status-retry');
+    await publishTested(service, 'owner-1', 'thing-status-retry', testRun.runId);
+    if (action === 'resume') await service.pause('owner-1', 'thing-status-retry');
+    scheduler.failure = new Error('simulated Scheduler outage');
+
+    await expect(service[action]('owner-1', 'thing-status-retry')).rejects.toThrow('simulated Scheduler outage');
+    await expect(service.get('owner-1', 'thing-status-retry')).resolves.toMatchObject({
+      triggerState: { status: 'error' },
+    });
+
+    scheduler.failure = undefined;
+    await expect(service[action]('owner-1', 'thing-status-retry')).resolves.toMatchObject({
+      triggerState: { status },
+    });
+  });
+
   it('records trigger synchronization errors and heals them on an idempotent retry', async () => {
     const store = new MemoryThingStore();
     const scheduler = new MemoryScheduler();

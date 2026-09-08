@@ -58,27 +58,9 @@ The code is divided by responsibility:
 `npm run architecture:check` rejects imports that reverse these dependencies. In particular,
 provider plugins cannot import Lambda handlers, AWS adapters, the composition root, or the worker.
 
-## Junior-inspired abstraction model
-
-Junior was used as an architectural reference, not as a runtime dependency. The corresponding
-concepts in this subsystem are:
-
-| Junior concept | Agent Runtime equivalent | Deliberate difference |
-| --- | --- | --- |
-| App composition root | `src/app/composition.ts` | Composes AWS Lambda/job capabilities rather than a Vercel chat app |
-| Ingress adapters | `src/ingress/providers` | GitHub, GitLab, Teams, and optional Slack enter one run contract |
-| Runtime/services | `src/core`, `src/conversation`, and `src/execution` | Bounded MicroVM runs plus a separate AWS-backed resumable conversation model |
-| Conversation mailbox | DynamoDB conversation partition plus S3 bodies/checkpoints | Durable AWS state, SQS coordination, bounded run slices, replay, and Teams completion |
-| Plugin host/API | `src/plugins` | Trusted ingress/delivery and dynamic-tool integrations; no arbitrary package discovery |
-| Credential broker | `src/credentials` plus `src/plugins/oauth` | Multi-account Secrets Manager vault, grant enforcement, identity-preserving reconnect, self-hosted OAuth application registry, and refresh fencing |
-| Connection health job | `src/plugins/connection-health-monitor.ts` plus its dedicated Lambda | Rotating bounded verification outside the agent runtime with a least-privilege IAM role |
-| Sandbox/runtime | Lambda MicroVM plus `src/runner` | AWS isolation replaces Vercel Sandbox |
-| Provider egress | `src/delivery/providers` | EventBridge terminal delivery with a DynamoDB fence |
-
-The key invariant is the same: provider modules depend on small host-supplied contracts and do not
-own orchestration, durable state, execution, or credentials. Agent-callable integration adapters
-likewise receive only an already-authorized operation input, one connection's credential value, and
-an abort signal. See [integrations and permissions](plugins.md).
+Provider modules depend on host-supplied contracts. Agent-callable integration adapters receive
+only an authorized operation input, one connection's credential value, and an abort signal. See
+[integrations and permissions](plugins.md).
 
 ## One durable run
 
@@ -86,9 +68,6 @@ an abort signal. See [integrations and permissions](plugins.md).
   <a href="durable-execution.svg"><img src="durable-execution.svg" alt="One run is authenticated and stored, queued durably, executed in an isolated Lambda MicroVM, retained outside the compute, and then exposed or delivered as a durable result."></a>
   <figcaption><strong>Compute is disposable; work is durable.</strong> Each stage has one responsibility and a recoverable boundary.</figcaption>
 </figure>
-
-The diagram deliberately stops at the five stages a consumer or operator must understand. The
-sections below describe the internal services and failure behavior behind each stage.
 
 ### Validation topology
 
@@ -177,10 +156,9 @@ the thread; and authorized integration operations plus optional browser computer
 as dynamic tools. App Server's experimental capability flag is enabled only when dynamic tools are
 present.
 
-For integrations, the runner intersects provider authorization, the persistent account grant, the
-profile ceiling, per-run narrowing, and resource constraints before it exposes an operation. It
-retrieves exactly one selected connection secret only after that fixed authorization succeeds. The model
-sees account aliases and JSON schemas, never credential values or Secrets Manager references.
+Integration operations follow the [capability envelope](capability-envelope.md). The broker checks
+each call before reading its selected connection secret. The model sees account aliases and JSON
+schemas, never credential values or Secrets Manager references.
 
 Browser computer use runs in a separate unprivileged Chromium helper process. It preserves a
 conversation-local profile, blocks loopback/private/link-local/metadata destinations and redirects,
@@ -189,9 +167,7 @@ network access are admitted, navigation, observation, click, type, press, and se
 autonomously. This protects infrastructure destinations, but broad public-web
 egress can still disclose information to an attacker-controlled public site.
 
-The runner pins Codex App Server to `approvalPolicy: "never"`. Approval-shaped command or file
-requests are rejected because they indicate that the fixed pre-launch envelope was not represented
-correctly; they are never forwarded to a user. See [the capability envelope](capability-envelope.md).
+The runner pins Codex App Server to `approvalPolicy: "never"` and rejects approval-shaped requests.
 
 The child receives a small environment allowlist. In ChatGPT mode it reads the mode-`0600`
 `${CODEX_HOME}/auth.json` that Codex requires; in Bedrock mode it receives only
@@ -234,7 +210,8 @@ the live ring is intentionally ephemeral.
 The notifier reacts only to terminal EventBridge states. It resolves `source` destinations using the
 trusted stored source metadata, then posts through the appropriate provider adapter. A per-run,
 per-destination DynamoDB fence suppresses ordinary duplicate delivery. A confirmed retryable
-non-delivery releases the fence for EventBridge retry; an ambiguous outcome is retained as
+non-delivery releases the fence for EventBridge retry. Missing configuration and permanent provider
+rejections are recorded as `not_delivered`; an ambiguous outcome is retained as
 `outcome_unknown` to avoid a blind duplicate post. A `sending` claim has a 120-second lease: event
 redelivery while it is live fails for another EventBridge retry, and an expired lease is
 conditionally reclaimed. This closes a permanent-stuck window, but a crash after the provider
@@ -366,28 +343,22 @@ the active pointer, so editing cannot silently change live behavior.
 
 S3 is the durable definition/body/artifact plane. The separate definition bucket holds encrypted,
 versioned Thing revisions without the run-artifact expiry rule. The artifact bucket holds prompts,
-full results, event streams, patches, conversation
-message bodies, history payloads, turn checkpoints, and user-visible files are stored under
-owner-hashed prefixes with checksums. Runner finalization saves partial output, events, and a bounded
-file catalog for succeeded, cancelled, and failed agent turns. The terminal write is fenced by the
+full results, event streams, patches, conversation message bodies, history payloads, turn
+checkpoints, and user-visible files under owner-hashed prefixes with checksums. Runner finalization
+saves partial output, events, and a bounded file catalog for succeeded, cancelled, and failed agent
+turns. The terminal write is fenced by the
 exact execution generation; a stale worker cannot finalize a replacement execution. The completion
 coordinator folds available evidence into conversation history and the file catalog, preserving
 unknown-external-outcome recovery rules. Abrupt VM loss or finalization failure can still leave only
-the prior committed catalog. Each finalized conversation turn commits a bounded file
-catalog. The runner restores those files into `.rat-things/artifacts/` before execution, so a new
-MicroVM does not depend on residual local bytes. Bucket encryption, public-access blocking, and
+the prior committed catalog. The runner restores catalog files into `.rat-things/artifacts/` before
+execution, so a new MicroVM does not depend on residual local bytes. Bucket encryption, public-access blocking, and
 lifecycle policy are deployment responsibilities. An S3 reference is sensitive metadata and the
 control API should remain authenticated.
 
-The publication layer projects immutable blobs into a browser-ready directory with a required
-`index.html`; its manifest is committed last as the ready marker. Versioned, tagged builders cover
-files, static sites, and video without importing AWS concerns. An authenticated owner then mints an
-unguessable, time-bounded share grant. When publication delivery is enabled, redemption signs the
-first page and installs equivalent host-only CloudFront cookies for one publication-specific
-subdomain. One distribution and small edge functions route publications, refresh authorization,
-and serve private S3 through Origin Access Control. Deployments without publication delivery use
-one-minute direct download URLs minted by the authenticated control API. See
-[publications](publications.md).
+The [publication layer](publications.md) turns retained files into immutable file, site, or video
+publications. Owner-authorized, expiring grants provide browser access on isolated origins while S3
+remains private. Without publication delivery, the control API provides
+[one-minute download URLs](durable-files.md).
 
 When `enable_s3_files=true`, a separate versioned bucket backs an S3 Files filesystem. Its access
 point exposes only `/conversations` to the MicroVM execution role. Each hashed conversation owns a

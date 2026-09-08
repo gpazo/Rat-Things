@@ -149,13 +149,9 @@ export class RunService {
       return existing;
     }
 
-    try {
-      if (submit.enqueue !== false) await this.enqueue(runId, submit.traceId);
-    } catch (error) {
-      // Keep the durable run queued. An idempotent client retry or the scheduled reconciler
-      // will send another wake-up without regenerating the request or changing its run ID.
-      throw error;
-    }
+    // An enqueue failure leaves the durable Run queued for an idempotent retry
+    // or the scheduled reconciler to wake without changing its identity.
+    if (submit.enqueue !== false) await this.enqueue(runId, submit.traceId);
     return record;
   }
 
@@ -228,24 +224,19 @@ export class RunService {
   public async cancel(ownerId: string, runId: string): Promise<RunRecord> {
     const current = await this.get(ownerId, runId);
     if (isTerminal(current.status)) return current;
-    if (current.status === 'cancelling') {
-      if (current.execution && current.execution.id !== 'pending') {
-        await this.options.executions.stop(current.execution, `cancelled by ${ownerId}`);
-      }
-      return current;
-    }
-    const now = this.clock.now().toISOString();
     if (current.status === 'queued') {
       return this.options.store.transition(runId, ['queued'], 'cancelled', {
-        cancelRequestedAt: now,
+        cancelRequestedAt: this.clock.now().toISOString(),
       });
     }
-    const cancelling = await this.options.store.transition(
-      runId,
-      ['dispatching', 'running'],
-      'cancelling',
-      { cancelRequestedAt: now },
-    );
+    const cancelling = current.status === 'cancelling'
+      ? current
+      : await this.options.store.transition(
+          runId,
+          ['dispatching', 'running'],
+          'cancelling',
+          { cancelRequestedAt: this.clock.now().toISOString() },
+        );
     if (cancelling.execution && cancelling.execution.id !== 'pending') {
       await this.options.executions.stop(cancelling.execution, `cancelled by ${ownerId}`);
     }

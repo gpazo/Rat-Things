@@ -12,6 +12,10 @@ aws_e2e_source_runtime_defaults "$project_root_hint/.aws-e2e/$requested_id/runti
 aws_e2e_configure "$requested_id"
 aws_e2e_require aws git jq node npm openssl terraform
 
+if [[ "$publication_enabled" == "true" ]]; then
+  node --import tsx "$script_dir/check-publication-dns.ts" "$publication_domain" "$publication_zone_id"
+fi
+
 umask 077
 mkdir -p "$run_dir"
 printf '%s\n' "$deployment_id" >"$run_root/latest"
@@ -130,11 +134,13 @@ aws_e2e_export AWS_E2E_DEPLOYMENT_ID "$deployment_id"
 aws_e2e_export AWS_E2E_CALLER_ACCOUNT "$account_id"
 aws_e2e_export AWS_E2E_CALLER_ARN "$caller_arn"
 aws_e2e_export AWS_E2E_ENABLE_MICROVM "$microvm_enabled"
+aws_e2e_export AWS_E2E_MICROVM_BASE_IMAGE_VERSION "$microvm_base_image_version"
 aws_e2e_export AWS_E2E_REAL_CODEX "$real_codex_enabled"
 aws_e2e_export AWS_E2E_CODEX_MODEL_ID "$codex_model_id"
 aws_e2e_export AWS_E2E_DEFAULT_AGENT_DRIVER "$default_agent_driver"
 aws_e2e_export AWS_E2E_OAUTH_APP_SECRET_ARNS "$oauth_app_secret_arns"
 aws_e2e_export AWS_E2E_PUBLICATION_DOMAIN "$publication_domain"
+aws_e2e_export AWS_E2E_PUBLICATION_ROUTE53_ZONE_ID "$publication_zone_id"
 aws_e2e_export AWS_E2E_BROWSER_EVIDENCE_FILE "$run_dir/browser-publication-evidence.json"
 aws_e2e_export AWS_E2E_ENABLE_SLACK_WEBHOOK "$slack_webhook_enabled"
 if [[ "$slack_webhook_enabled" == "true" ]]; then

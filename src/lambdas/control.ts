@@ -602,7 +602,9 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
       const { catalog } = await conversationArtifactContext(ownerId, conversationKey);
       const published = catalog.files.find((file) => file.id === conversationArtifactId);
       if (!published) throw new ConflictError(`artifact ${conversationArtifactId} is not available`);
-      const descriptor = await artifactDescriptor(ownerId, published.file, published) as { url?: string };
+      const descriptor = await artifactDescriptor(ownerId, published.file, {
+        published, delivery: 'private',
+      });
       if (!descriptor.url) throw new ConflictError('artifact does not have a private viewer URL');
       return {
         statusCode: 302,
@@ -640,7 +642,7 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
       const { catalog } = await conversationArtifactContext(ownerId, conversationKey);
       const published = catalog.files.find((file) => file.id === conversationArtifactId);
       if (!published) throw new ConflictError(`artifact ${conversationArtifactId} is not available`);
-      return response(200, await artifactDescriptor(ownerId, published.file, published));
+      return response(200, await artifactDescriptor(ownerId, published.file, { published }));
     }
     if (
       method === 'POST' &&
@@ -948,9 +950,7 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
       return response(200, await artifactDescriptor(
         ownerId,
         artifact,
-        published,
-        artifactName,
-        run.runId,
+        { published, fallbackName: artifactName, sourceRunId: run.runId },
       ));
     }
     if (method === 'POST' && runId && path === `/v1/runs/${runId}/publications`) {
@@ -1537,9 +1537,12 @@ async function conversationArtifactContext(
 async function artifactDescriptor(
   ownerId: string,
   artifact: ArtifactReference,
-  published?: PublishedArtifact,
-  fallbackName?: string,
-  sourceRunId?: string,
+  options: {
+    published?: PublishedArtifact | undefined;
+    fallbackName?: string;
+    sourceRunId?: string;
+    delivery?: 'private';
+  } = {},
 ) {
   const ownerHash = createHash('sha256').update(ownerId).digest('hex').slice(0, 32);
   if (
@@ -1548,12 +1551,12 @@ async function artifactDescriptor(
   ) {
     throw new Error('run contains an artifact outside the runtime bucket');
   }
-  const metadata = published ?? await publicationMetadataFor(
+  const metadata = options.published ?? await publicationMetadataFor(
     artifact,
-    fallbackName ?? 'artifact',
-    sourceRunId ?? 'unknown-run',
+    options.fallbackName ?? 'artifact',
+    options.sourceRunId ?? 'unknown-run',
   );
-  if (publicationDeliveryConfigured()) {
+  if (options.delivery !== 'private' && publicationDeliveryConfigured()) {
     const publication = await publishAndShare({
       ownerId,
       spec: { version: '1', kind: 'file', path: metadata.path },

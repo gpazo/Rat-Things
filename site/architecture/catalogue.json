@@ -996,7 +996,7 @@
             },
             {
               "file": "src/plugins/integration-runtime.ts",
-              "anchor": "enforceResourceConstraints(selected.grants, operationInput);"
+              "anchor": "enforceResourceConstraints(selected.grant, operationInput);"
             }
           ],
           "resource": "secrets",
@@ -1754,7 +1754,7 @@
       "sources": [
         {
           "file": "src/plugins/integration-runtime.ts",
-          "anchor": "enforceResourceConstraints(selected.grants, operationInput);"
+          "anchor": "enforceResourceConstraints(selected.grant, operationInput);"
         }
       ]
     },
@@ -1826,7 +1826,7 @@
       "sources": [
         {
           "file": "src/execution/reconciler.ts",
-          "anchor": "private async reconcileCancellation("
+          "anchor": "public async reconcile("
         }
       ]
     }
@@ -2637,7 +2637,7 @@
             "sources": [
               {
                 "file": "src/core/run-service.ts",
-                "anchor": "// Keep the durable run queued."
+                "anchor": "const created = await this.options.store.create(record);"
               }
             ]
           }
@@ -2807,7 +2807,7 @@
             "sources": [
               {
                 "file": "src/core/run-service.ts",
-                "anchor": "const cancelling = await this.options.store.transition("
+                "anchor": "const cancelling = current.status === 'cancelling'"
               }
             ]
           }
@@ -2843,7 +2843,7 @@
             "sources": [
               {
                 "file": "src/execution/reconciler.ts",
-                "anchor": "private async reconcileCancellation("
+                "anchor": "public async reconcile("
               }
             ]
           }
@@ -3082,7 +3082,7 @@
         },
         {
           "file": "src/plugins/integration-runtime.ts",
-          "anchor": "enforceResourceConstraints(selected.grants, operationInput);"
+          "anchor": "enforceResourceConstraints(selected.grant, operationInput);"
         },
         {
           "file": "src/runner/control.ts",

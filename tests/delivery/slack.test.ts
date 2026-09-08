@@ -67,15 +67,13 @@ describe('Slack delivery adapter', () => {
     expect(getSecret).not.toHaveBeenCalled();
   });
 
-  it('turns connection failures into a durable not-delivered result', async () => {
+  it('preserves uncertain connection failures without claiming the message was not delivered', async () => {
+    const error = new Error('connection closed after sending');
     const adapter = new SlackDeliveryAdapter(
       new CredentialBroker({ get: vi.fn() }),
-      { connectionPoster: { post: vi.fn().mockRejectedValue(new Error('scope missing')) } },
+      { connectionPoster: { post: vi.fn().mockRejectedValue(error) } },
     );
 
-    await expect(adapter.deliver(delivery)).rejects.toMatchObject({
-      name: 'KnownNotDeliveredError',
-      message: 'Slack connection delivery failed: scope missing',
-    });
+    await expect(adapter.deliver(delivery)).rejects.toBe(error);
   });
 });

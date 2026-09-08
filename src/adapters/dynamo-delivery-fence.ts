@@ -7,6 +7,7 @@ import {
   UpdateCommand,
 } from '@aws-sdk/lib-dynamodb';
 import type { DeliveryFencePort } from '../delivery/types.js';
+import { KnownNotDeliveredError } from '../delivery/errors.js';
 import type { RunRecord } from '../domain/contracts.js';
 
 const DEFAULT_LEASE_SECONDS = 120;
@@ -87,7 +88,7 @@ export class DynamoDeliveryFence implements DeliveryFencePort {
   }
 
   public async failed(runId: string, destination: string, error: unknown): Promise<void> {
-    await this.update(runId, destination, 'outcome_unknown', {
+    await this.update(runId, destination, error instanceof KnownNotDeliveredError ? 'not_delivered' : 'outcome_unknown', {
       failure: error instanceof Error ? error.message.slice(0, 1_000) : String(error).slice(0, 1_000),
     });
   }

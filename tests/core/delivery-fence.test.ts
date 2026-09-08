@@ -6,6 +6,7 @@ import {
   DeliveryInProgressError,
 } from '../../src/adapters/dynamo-delivery-fence.js';
 import type { RunRecord } from '../../src/domain/contracts.js';
+import { KnownNotDeliveredError } from '../../src/delivery/errors.js';
 
 const now = Date.parse('2026-08-02T12:00:00.000Z');
 const run = {
@@ -63,6 +64,21 @@ describe('DynamoDeliveryFence', () => {
     await expect(fence.claim(run, 'source:default')).resolves.toBe(true);
     expect(send.mock.calls[2]?.[0].input.ExpressionAttributeValues).toMatchObject({
       ':leaseUntil': Math.floor(now / 1_000) + 120,
+    });
+  });
+
+  it.each([
+    [new KnownNotDeliveredError('notification credential missing', false), 'not_delivered'],
+    [new Error('connection closed after sending'), 'outcome_unknown'],
+  ])('preserves whether a failed delivery is known not to have arrived', async (error, status) => {
+    const send = vi.fn().mockResolvedValue({});
+    const fence = new DynamoDeliveryFence({ send } as unknown as DynamoDBDocumentClient, 'runs', () => now);
+
+    await fence.failed(run.runId, 'github:default', error);
+
+    expect(send.mock.calls[0]?.[0].input.ExpressionAttributeValues).toMatchObject({
+      ':status': status,
+      ':details': { failure: error.message },
     });
   });
 });

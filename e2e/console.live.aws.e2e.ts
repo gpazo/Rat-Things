@@ -108,7 +108,7 @@ test.describe('live AWS console journey', () => {
     const structuredQuestion = process.env.AWS_E2E_DEFAULT_AGENT_DRIVER === 'codex'
       ? ' First use request_user_input exactly once to ask "Choose the validation channel" with options Staging and Production. After I answer, include the selected answer in your response.'
       : '';
-    const firstPrompt = 'Find release-context.txt below .rat-things/artifacts/uploads and read it. ' +
+    const firstPrompt = `${conversationTitle}\n\nFind release-context.txt below .rat-things/artifacts/uploads and read it. ` +
       'Create .rat-things/artifacts/live-conversation-parity.md with a concise live AWS validation report that includes its exact upload marker. ' +
       `Remember continuity marker ${continuityMarker}. Reply with ACKNOWLEDGED, then include the exact filename.` +
       structuredQuestion + (recordingDemo
@@ -136,10 +136,8 @@ test.describe('live AWS console journey', () => {
       await demoPause(page, 1_200);
     }
     await page.getByRole('button', { name: 'New conversation' }).click();
-    await page.locator('#thread-key').fill(conversationTitle);
-    await demoPause(page, 650);
-    await page.getByRole('button', { name: 'Create', exact: true }).click();
-    await expect(page.getByRole('heading', { name: conversationTitle })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'New conversation' })).toBeVisible();
+    await expect(page.getByRole('textbox', { name: 'Message', exact: true })).toBeFocused();
 
     const firstRunId = await submitMessage(page, firstPrompt, {
       name: 'release-context.txt',
@@ -147,7 +145,9 @@ test.describe('live AWS console journey', () => {
       body: `Live AWS durable attachment. Exact marker: ${uploadMarker}\n`,
     });
     diagnosticRunIds.push(firstRunId);
-    await expect(page.locator('#transcript').getByText(firstPrompt, { exact: true })).toBeVisible();
+    for (const paragraph of firstPrompt.split('\n\n')) {
+      await expect(page.locator('#transcript').getByText(paragraph, { exact: true })).toBeVisible();
+    }
     await expect(page.locator('#run-strip')).toBeVisible();
     await expect(page.locator('#run-strip-title')).toContainText(/Queued|Starting|Agent/);
     if (process.env.AWS_E2E_DEFAULT_AGENT_DRIVER === 'codex') {
@@ -247,7 +247,7 @@ test.describe('live AWS console journey', () => {
     });
     await currentRow.locator('summary').click();
     await currentRow.getByRole('button', { name: 'Mark as unread', exact: true }).click();
-    await expect(currentRow.getByRole('button', { name: /New/ })).toBeVisible();
+    await expect(currentRow.getByRole('button', { name: /Unread/ })).toBeVisible();
     expect(await conversationSummary(page, threadKey)).toMatchObject({ unread: true, pinned: true });
 
     const search = page.getByPlaceholder('Search conversations');

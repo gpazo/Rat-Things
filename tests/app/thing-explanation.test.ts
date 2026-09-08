@@ -1,6 +1,8 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { explainThingEnvironment } from '../../src/app/thing-explanation.js';
+import { compileThingSpec } from '../../src/core/thing-service.js';
 import type {
+  ConnectionAccessRequest,
   ConnectionGrant,
   ConnectionSet,
   IntegrationConnection,
@@ -12,8 +14,76 @@ import {
 } from '../../src/plugins/capability-profiles.js';
 import { IntegrationPluginRegistry } from '../../src/plugins/integration-registry.js';
 import { createBuiltinIntegrationPlugins } from '../../src/plugins/integrations/builtins.js';
+import { IntegrationRuntime } from '../../src/plugins/integration-runtime.js';
+import type { IntegrationStore } from '../../src/plugins/integration-types.js';
 
 describe('Thing environment explanation', () => {
+  it.each<{
+    name: string;
+    policy: Partial<ConnectionGrant>;
+    narrowing: Omit<ConnectionAccessRequest, 'connection'>;
+    maximum: 'read-only' | 'full';
+    allowed: string[];
+  }>([
+    { name: 'full access', policy: {}, narrowing: {}, maximum: 'full', allowed: ['customers.search', 'invoices.list', 'refunds.create'] },
+    { name: 'stored read-only grant', policy: { preset: 'read-only' }, narrowing: { preset: 'full' }, maximum: 'full', allowed: ['customers.search', 'invoices.list'] },
+    { name: 'requested read-only access', policy: {}, narrowing: { preset: 'read-only' }, maximum: 'full', allowed: ['customers.search', 'invoices.list'] },
+    { name: 'profile ceiling', policy: {}, narrowing: { preset: 'full' }, maximum: 'read-only', allowed: ['customers.search', 'invoices.list'] },
+    { name: 'stored deny', policy: { denyOperations: ['stripe.refunds.create'] }, narrowing: { preset: 'full' }, maximum: 'full', allowed: ['customers.search', 'invoices.list'] },
+    { name: 'requested deny', policy: {}, narrowing: { denyOperations: ['stripe.refunds.create'] }, maximum: 'full', allowed: ['customers.search', 'invoices.list'] },
+    { name: 'empty requested allowlist', policy: {}, narrowing: { allowOperations: [] }, maximum: 'full', allowed: [] },
+    { name: 'custom requested allowlist', policy: {}, narrowing: { preset: 'custom', allowOperations: ['stripe.refunds.create'] }, maximum: 'full', allowed: ['refunds.create'] },
+    { name: 'custom request under read-only ceiling', policy: {}, narrowing: { preset: 'custom', allowOperations: ['stripe.refunds.create'] }, maximum: 'read-only', allowed: [] },
+    { name: 'expired stored grant', policy: { expiresAt: '2000-01-01T00:00:00.000Z' }, narrowing: { preset: 'full' }, maximum: 'full', allowed: [] },
+  ])('matches executable operations for $name', async ({ policy, narrowing, maximum, allowed }) => {
+    const env = environment();
+    const bundle = (await env.connections.list())[0]!;
+    bundle.grant = { ...bundle.grant, ...policy };
+    env.connections.list = async () => [bundle];
+    env.profiles = new CapabilityProfileRegistry([{
+      id: 'test', sandbox: 'read-only', networkAccess: false, webSearch: 'disabled',
+      computerUse: 'disabled', maximumIntegrationAccess: maximum,
+    }]);
+    const { preset, ...operationLimits } = narrowing;
+    const spec: ThingSpec = {
+      version: '1', name: 'Permission check', goal: 'Inspect account access',
+      trigger: { kind: 'manual' }, agent: { capabilities: { profile: 'test' } },
+      connections: { accounts: [{
+        account: bundle.connection.alias,
+        ...(preset ? { access: preset } : {}),
+        ...operationLimits,
+      }] },
+    };
+    const result = await explainThingEnvironment('owner-1', explanation(spec), env);
+    expect(result.resolvedConnections?.[0]?.operations.filter((operation) => operation.allowed)
+      .map((operation) => operation.id)).toEqual(allowed.map((id) => `stripe.${id}`));
+    expect(result.runnable).toBe(allowed.length > 0);
+
+    const readRecord = vi.fn();
+    const getCredentialBinding = vi.fn();
+    const runtime = new IntegrationRuntime({
+      registry: env.plugins,
+      store: {
+        getConnection: async () => bundle.connection,
+        getGrant: async () => bundle.grant,
+        getCredentialBinding,
+      } as unknown as IntegrationStore,
+      credentials: { readRecord },
+    });
+    const session = await runtime.prepare({
+      ownerId: 'owner-1', request: compileThingSpec(spec).integrations!,
+      maximumIntegrationAccess: maximum,
+    });
+    expect(session.tools.flatMap((namespace) => namespace.tools.map((tool) => tool.name)))
+      .toEqual(allowed.map((id) => id.replaceAll('.', '_')));
+    for (const id of ['customers.search', 'invoices.list', 'refunds.create'].filter((id) => !allowed.includes(id))) {
+      await expect(session.call({ namespace: 'stripe', tool: id.replaceAll('.', '_'), arguments: {} }))
+        .rejects.toThrow('not available');
+    }
+    expect(getCredentialBinding).not.toHaveBeenCalled();
+    expect(readRecord).not.toHaveBeenCalled();
+  });
+
   it('shows the effective profile and operation-level permission intersection for multiple accounts', async () => {
     const result = await explainThingEnvironment('owner-1', explanation({
       version: '1',

@@ -127,6 +127,9 @@ export async function runCodexAppServer(
     turnCompleteResolve = resolve;
     turnCompleteReject = reject;
   });
+  // The child can exit while initialize/thread/start is still pending. Keep this
+  // rejection handled until the turn waiter is reached; the original still rejects.
+  void turnCompleted.catch(() => {});
   const fail = (error: Error) => {
     if (settled) return;
     for (const waiter of pending.values()) waiter.reject(error);

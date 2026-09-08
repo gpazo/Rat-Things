@@ -9,6 +9,16 @@ import {
 } from '../../src/runner/codex-app-server.js';
 
 describe('Codex app-server notifications', () => {
+  it('surfaces an exit during initialization without an unhandled turn rejection', async () => {
+    await expect(runCodexAppServer({
+      binary: process.execPath,
+      binaryArguments: ['-e', 'process.stderr.write("state initialization failed"); process.exit(1)'],
+      workspace: process.cwd(), environment: process.env, timeoutMs: 3_000,
+      prompt: 'Start work', sandbox: 'read-only', persistent: true,
+      modelProvider: 'openai', networkAccess: false,
+    })).rejects.toThrow('state initialization failed');
+  });
+
   it('lets app-server recover from retryable stream errors', () => {
     expect(terminalNotificationError({
       error: { message: 'Reconnecting... 1/5' },

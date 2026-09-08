@@ -194,6 +194,9 @@ export function authorizeConnectionOperation(input: {
   connection: IntegrationConnection;
   grant: ConnectionGrant;
   operation: OperationDefinition;
+  /** Run/Thing selection and the deployment profile can only narrow the stored grant. */
+  requested?: ConnectionAccessRequest;
+  maximumIntegrationAccess?: CapabilityProfileDefinition['maximumIntegrationAccess'];
   now?: Date;
 }): OperationAuthorizationDecision {
   const { connection, grant, operation } = input;
@@ -210,16 +213,8 @@ export function authorizeConnectionOperation(input: {
   if (grant.expiresAt && Date.parse(grant.expiresAt) <= (input.now ?? new Date()).getTime()) {
     return denied('grant has expired');
   }
-  if (grant.denyOperations?.includes(operation.id)) return denied('operation is explicitly denied');
-  if (grant.allowOperations && !grant.allowOperations.includes(operation.id)) {
-    return denied('operation is outside the grant allowlist');
-  }
-  if (grant.preset === 'custom' && !grant.allowOperations?.includes(operation.id)) {
-    return denied('custom grants require an explicit operation allowlist');
-  }
-  if (grant.preset !== 'custom' && !accessIncludes(presetAccess(grant.preset), operation.access)) {
-    return denied(`operation requires ${operation.access} access`);
-  }
+  const grantDenial = operationPolicyDenial(grant, operation);
+  if (grantDenial) return denied(grantDenial);
   if (!accessIncludes(connection.authorization.access, operation.access)) {
     return denied(`provider authorization does not include ${operation.access} access`);
   }
@@ -229,6 +224,14 @@ export function authorizeConnectionOperation(input: {
       (scope) => !connection.authorization.scopes.includes(scope),
     )
   ) return denied('provider authorization is missing a required scope');
+
+  for (const policy of [
+    ...(input.requested ? [{ ...input.requested, preset: input.requested.preset ?? 'full' }] : []),
+    ...(input.maximumIntegrationAccess ? [{ preset: input.maximumIntegrationAccess }] : []),
+  ]) {
+    const reason = operationPolicyDenial(policy, operation);
+    if (reason) return denied(reason);
+  }
 
   return {
     allowed: true,
@@ -355,6 +358,23 @@ export function validateSourceCapabilityBinding(
   if (value.capabilityProfile) requireId(value.capabilityProfile, 'capability profile');
   if (value.connectionSetId) requireId(value.connectionSetId, 'connection set ID');
   return structuredClone(value);
+}
+
+function operationPolicyDenial(
+  policy: Pick<ConnectionGrant, 'preset' | 'allowOperations' | 'denyOperations'>,
+  operation: OperationDefinition,
+): string | undefined {
+  if (policy.denyOperations?.includes(operation.id)) return 'operation is explicitly denied';
+  if (policy.allowOperations && !policy.allowOperations.includes(operation.id)) {
+    return 'operation is outside the grant allowlist';
+  }
+  if (policy.preset === 'custom' && !policy.allowOperations?.includes(operation.id)) {
+    return 'custom grants require an explicit operation allowlist';
+  }
+  if (policy.preset !== 'custom' && !accessIncludes(presetAccess(policy.preset), operation.access)) {
+    return `operation requires ${operation.access} access`;
+  }
+  return undefined;
 }
 
 function operationEnforcement(

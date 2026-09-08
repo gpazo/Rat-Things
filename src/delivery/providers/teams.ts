@@ -1,4 +1,5 @@
 import type { CredentialBroker } from '../../credentials/broker.js';
+import { KnownNotDeliveredError, requiredDeliveryCredential } from '../errors.js';
 import { checkedResponse, fetchWithTimeout, formatMessage } from '../http.js';
 import type { DeliveryAdapter, DeliveryRequest } from '../types.js';
 
@@ -24,9 +25,9 @@ export class TeamsDeliveryAdapter implements DeliveryAdapter {
 
     const route = input.context.destination.route;
     const routed = route ? this.options.routes[route] : undefined;
-    if (route && !routed) throw new Error(`unknown Teams destination route ${route}`);
+    if (route && !routed) throw new KnownNotDeliveredError(`unknown Teams destination route ${route}`, false);
     const url = await this.credentials.read(
-      routed ?? this.options.workflowUrlSecretArn,
+      requiredDeliveryCredential(routed ?? this.options.workflowUrlSecretArn, 'TEAMS_WORKFLOW_URL_SECRET_ARN'),
       ['url', 'webhook_url'],
     );
     const response = await fetchWithTimeout(url, {
@@ -58,13 +59,13 @@ export class TeamsDeliveryAdapter implements DeliveryAdapter {
   private async deliverThreadedReply(input: DeliveryRequest): Promise<string> {
     const source = input.context.source;
     if (source?.kind !== 'teams') {
-      throw new Error('Teams threaded delivery requires a Teams source conversation');
+      throw new KnownNotDeliveredError('Teams threaded delivery requires a Teams source conversation', false);
     }
     if (input.context.destination.route) {
-      throw new Error('Teams threaded delivery does not accept named Workflow routes');
+      throw new KnownNotDeliveredError('Teams threaded delivery does not accept named Workflow routes', false);
     }
     const url = await this.credentials.read(
-      this.options.replyGatewayUrlSecretArn,
+      requiredDeliveryCredential(this.options.replyGatewayUrlSecretArn, 'TEAMS_REPLY_GATEWAY_URL_SECRET_ARN'),
       ['url', 'webhook_url'],
     );
     const text = formatMessage(input.body, input.run, 20_000);

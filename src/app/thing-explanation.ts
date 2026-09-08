@@ -3,12 +3,10 @@ import {
   type ConnectionAccessRequest,
   type ConnectionGrant,
   type IntegrationConnection,
-  type OperationAuthorizationDecision,
   type OperationDefinition,
 } from '../domain/capabilities.js';
 import type {
   ResolvedThingConnection,
-  ResolvedThingOperation,
   ThingDiagnostic,
   ThingExplanation,
 } from '../domain/things.js';
@@ -217,14 +215,19 @@ function resolveConnection(
       });
     }
   }
-  const resolvedOperations = selected.bundle.grant
-    ? operations.map((operation) => resolveOperation(
-      connection,
-      selected.bundle.grant as ConnectionGrant,
-      selected.requested,
-      maximumAccess,
-      operation,
-    ))
+  const grant = selected.bundle.grant;
+  const resolvedOperations = grant
+    ? operations.map((operation) => ({
+      id: operation.id,
+      access: operation.access,
+      ...authorizeConnectionOperation({
+        connection,
+        grant,
+        operation,
+        ...(selected.requested ? { requested: selected.requested } : {}),
+        ...(maximumAccess ? { maximumIntegrationAccess: maximumAccess } : {}),
+      }),
+    }))
     : [];
   const allowedCount = resolvedOperations.filter((operation) => operation.allowed).length;
   diagnostics.push({
@@ -254,75 +257,4 @@ function resolveConnection(
     ...(selected.requested?.preset ? { requestedAccess: selected.requested.preset } : {}),
     operations: resolvedOperations,
   };
-}
-
-function resolveOperation(
-  connection: IntegrationConnection,
-  grant: ConnectionGrant,
-  requested: ConnectionAccessRequest | undefined,
-  maximumAccess: 'read-only' | 'read-write' | 'full' | undefined,
-  operation: OperationDefinition,
-): ResolvedThingOperation {
-  const grants = [
-    grant,
-    ...(requested && hasPolicy(requested) ? [requestedGrant(connection, requested)] : []),
-    ...(maximumAccess ? [profileGrant(connection, maximumAccess)] : []),
-  ];
-  const decisions = grants.map((candidate) => authorizeConnectionOperation({
-    connection,
-    grant: candidate,
-    operation,
-  }));
-  const denied = decisions.find((decision) => !decision.allowed);
-  const decision = denied ?? combinedDecision(decisions);
-  return {
-    id: operation.id,
-    access: operation.access,
-    allowed: decision.allowed,
-    enforcement: decision.enforcement,
-    ...(decision.reason ? { reason: decision.reason } : {}),
-  };
-}
-
-function combinedDecision(decisions: OperationAuthorizationDecision[]): OperationAuthorizationDecision {
-  return {
-    allowed: true,
-    enforcement: decisions.some((decision) => decision.enforcement === 'provider-and-broker')
-      ? 'provider-and-broker'
-      : 'broker',
-  };
-}
-
-function requestedGrant(
-  connection: IntegrationConnection,
-  requested: ConnectionAccessRequest,
-): ConnectionGrant {
-  return {
-    version: '1',
-    grantId: `Thing:${connection.connectionId}`,
-    ownerId: connection.ownerId,
-    connectionId: connection.connectionId,
-    preset: requested.preset ?? 'full',
-    ...(requested.allowOperations ? { allowOperations: requested.allowOperations } : {}),
-    ...(requested.denyOperations ? { denyOperations: requested.denyOperations } : {}),
-  };
-}
-
-function profileGrant(
-  connection: IntegrationConnection,
-  preset: 'read-only' | 'read-write' | 'full',
-): ConnectionGrant {
-  return {
-    version: '1',
-    grantId: `profile:${connection.connectionId}`,
-    ownerId: connection.ownerId,
-    connectionId: connection.connectionId,
-    preset,
-  };
-}
-
-function hasPolicy(requested: ConnectionAccessRequest): boolean {
-  return requested.preset !== undefined ||
-    requested.allowOperations !== undefined ||
-    requested.denyOperations !== undefined;
 }

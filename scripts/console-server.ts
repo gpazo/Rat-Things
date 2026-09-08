@@ -10,6 +10,7 @@ import { Sha256 } from '@aws-crypto/sha256-js';
 import { defaultProvider } from '@aws-sdk/credential-provider-node';
 import { HttpRequest } from '@smithy/protocol-http';
 import { SignatureV4 } from '@smithy/signature-v4';
+import { isPrivateArtifactUrl } from '../src/adapters/publication-client.js';
 
 const host = '127.0.0.1';
 let port = boundedPort(process.env.RAT_THINGS_CONSOLE_PORT ?? '4174');
@@ -136,24 +137,25 @@ async function proxy(
     redirect: contentRequest ? 'manual' : 'follow',
     signal: AbortSignal.timeout(30_000),
   });
-  let redirectHops = 0;
-  while (contentRequest && isRedirect(upstream.status)) {
-    if (redirectHops >= 2) throw new Error('artifact content redirect chain is too long');
+  if (contentRequest && isRedirect(upstream.status)) {
     const location = upstream.headers.get('location');
     if (!location) throw new Error('artifact content redirect did not include a location');
     const target = new URL(location, url);
-    const kind = artifactRedirectKind(target, url);
-    if (!kind) {
-      throw new Error('artifact content redirect left the configured private artifact bucket');
+    if (!isPrivateArtifactUrl(target, {
+      controlUrl: url,
+      region: process.env.AWS_REGION ?? regionFromHostname(url.hostname),
+      bucket: process.env.ARTIFACT_BUCKET,
+      unsigned: process.env.AGENT_RUNTIME_UNSIGNED === 'true',
+    })) {
+      throw new Error('artifact content redirect is not a signed regional S3 URL');
     }
-    // The control request is SigV4-signed for API Gateway. Never forward those
-    // headers to either the opaque share grant or its presigned S3 request.
+    // Only the owner-authenticated control response supplies this URL. Never
+    // forward its API Gateway SigV4 headers to the presigned S3 request.
     upstream = await fetch(target, {
       method: 'GET',
-      redirect: kind === 'share' ? 'manual' : 'error',
+      redirect: 'error',
       signal: AbortSignal.timeout(30_000),
     });
-    redirectHops += 1;
   }
   const result = new Uint8Array(await upstream.arrayBuffer());
   secureHeaders(response, contentRequest);
@@ -167,28 +169,6 @@ async function proxy(
 
 function isRedirect(status: number): boolean {
   return [301, 302, 303, 307, 308].includes(status);
-}
-
-function artifactRedirectKind(target: URL, controlUrl: URL): 'share' | 'storage' | undefined {
-  if (process.env.AGENT_RUNTIME_UNSIGNED === 'true') {
-    return target.origin === controlUrl.origin ? 'storage' : undefined;
-  }
-  if (
-    target.origin === controlUrl.origin &&
-    /^\/v1\/shares\/[a-f0-9]{32}-[a-f0-9]{64}$/.test(target.pathname) &&
-    !target.search &&
-    !target.hash
-  ) {
-    return 'share';
-  }
-  const region = process.env.AWS_REGION ?? regionFromHostname(controlUrl.hostname);
-  const bucket = process.env.ARTIFACT_BUCKET;
-  if (!region || !bucket || target.protocol !== 'https:') return undefined;
-  if (target.hostname !== `${bucket}.s3.${region}.amazonaws.com`) return undefined;
-  return target.searchParams.get('X-Amz-Algorithm') === 'AWS4-HMAC-SHA256' &&
-    Boolean(target.searchParams.get('X-Amz-Signature'))
-    ? 'storage'
-    : undefined;
 }
 
 async function requestBody(request: IncomingMessage): Promise<string | undefined> {

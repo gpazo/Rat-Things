@@ -7,3 +7,8 @@ export class KnownNotDeliveredError extends Error {
     this.name = 'KnownNotDeliveredError';
   }
 }
+
+export function requiredDeliveryCredential(reference: string | undefined, setting: string): string {
+  if (!reference) throw new KnownNotDeliveredError(`Configure ${setting} before delivering results.`, false);
+  return reference;
+}

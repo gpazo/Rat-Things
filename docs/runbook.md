@@ -238,9 +238,10 @@ canonical request and should be investigated as a provider/configuration or inte
 2. Confirm the stored request resolves to at least one non-`none` destination. Plain API runs with the
    default `source` destination intentionally have no reply target.
 3. Inspect notifier logs and its delivery-fence item before retrying.
-4. A confirmed HTTP 429/5xx non-delivery releases the fence and fails the invocation so EventBridge
-   retries. Other errors, including unclassified Secrets Manager, DNS, or network failures, are
-   recorded as `outcome_unknown` to prevent a blind duplicate.
+4. HTTP 429 releases the fence for EventBridge retry. Missing delivery configuration and permanent
+   provider rejections are `not_delivered`; fix the recorded cause before an audited replay.
+   HTTP 5xx and unclassified failures remain `outcome_unknown`, since the provider may have accepted
+   the write. Do not blindly retry them.
 5. `sending` owns a 120-second lease. Redelivery before expiry throws and remains retryable; after
    expiry it conditionally reclaims the lease and posts again. This repairs a notifier crash/timeout,
    but can duplicate a post that the provider accepted just before the crash. Correlate by run ID.
@@ -282,6 +283,19 @@ Before diagnosing workload code, confirm:
 Pause dispatch during a MicroVM control-plane incident. Submit only non-sensitive explicit canaries
 after the service recovers. Terminate existing VMs only after resolving exact IDs and preserving
 evidence.
+
+### Slow conversation startup or Codex initialization
+
+Separate queueing, AWS launch/resume acceptance, host storage preparation, and Codex initialization.
+The [live harness metrics](../testing/aws/README.md#manual-phases) distinguish the first three;
+`agent runner started` and its `startupDurationMs` do not prove Codex has initialized. Compare fresh
+and resumed conversations, including `storageAlreadyMounted`, before attributing a delay to the model.
+
+For a Codex initialization failure, retain the exact binary version and bounded app-server stderr,
+and distinguish a child-process error from a test or caller deadline. Investigate using isolated
+state directories. Durable Codex home includes SQLite state needed for native-thread restoration;
+do not delete it or move it to temporary storage as a troubleshooting shortcut. Slow initialization
+alone does not establish the cause of an earlier SQLite error.
 
 ## Secret rotation
 

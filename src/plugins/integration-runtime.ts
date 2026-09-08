@@ -3,7 +3,6 @@ import {
   type ConnectionAccessRequest,
   type ConnectionGrant,
   type IntegrationConnection,
-  type OperationAuthorizationDecision,
   type OperationDefinition,
 } from '../domain/capabilities.js';
 import type { JsonValue } from '../domain/contracts.js';
@@ -21,7 +20,9 @@ const MAX_TOOL_RESULT_BYTES = 128 * 1024;
 interface SelectedConnection {
   connection: IntegrationConnection;
   plugin: IntegrationPlugin;
-  grants: ConnectionGrant[];
+  grant: ConnectionGrant;
+  requested?: ConnectionAccessRequest;
+  maximumIntegrationAccess?: NonNullable<PrepareIntegrationToolsInput['maximumIntegrationAccess']>;
 }
 
 interface ResolvedTool {
@@ -56,7 +57,7 @@ export class IntegrationRuntime {
       const names = new Set<string>();
       for (const operation of plugin.manifest.operations) {
         const allowedConnections = connections.filter(
-          (candidate) => operationDecision(candidate, operation).allowed,
+          (candidate) => authorizeConnectionOperation({ ...candidate, operation }).allowed,
         );
         if (allowedConnections.length === 0) continue;
         const defaultConnection = defaultConnectionFor(
@@ -138,19 +139,9 @@ export class IntegrationRuntime {
       selected.push({
         connection,
         plugin,
-        grants: [
-          grant,
-          ...(requested && hasRequestedPolicy(requested)
-            ? [requestedGrant(input.ownerId, connection.connectionId, requested)]
-            : []),
-          ...(input.maximumIntegrationAccess
-            ? [maximumGrant(
-              input.ownerId,
-              connection.connectionId,
-              input.maximumIntegrationAccess,
-            )]
-            : []),
-        ],
+        grant,
+        ...(requested ? { requested: { ...requested } } : {}),
+        ...(input.maximumIntegrationAccess ? { maximumIntegrationAccess: input.maximumIntegrationAccess } : {}),
       });
     }
     const duplicateAlias = selected.find(
@@ -180,9 +171,9 @@ export class IntegrationRuntime {
     );
     if (!selected) throw new Error(`account ${account} is not authorized for this operation`);
     const operationInput = operationInputValue(argumentsValue, resolved.operation);
-    const decision = operationDecision(selected, resolved.operation);
+    const decision = authorizeConnectionOperation({ ...selected, operation: resolved.operation });
     if (!decision.allowed) throw new Error(decision.reason ?? 'integration operation is not authorized');
-    enforceResourceConstraints(selected.grants, operationInput);
+    enforceResourceConstraints(selected.grant, operationInput);
     const binding = await this.options.store.getCredentialBinding(
       input.ownerId,
       selected.connection.connectionId,
@@ -206,77 +197,20 @@ export class IntegrationRuntime {
 }
 
 function enforceResourceConstraints(
-  grants: ConnectionGrant[],
+  grant: ConnectionGrant,
   input: { [key: string]: JsonValue },
 ): void {
-  for (const grant of grants) {
-    for (const [field, allowed] of Object.entries(grant.resourceConstraints ?? {})) {
-      const actual = input[field];
-      const selected = typeof actual === 'string'
-        ? [actual]
-        : Array.isArray(actual) && actual.every((value) => typeof value === 'string')
-          ? actual as string[]
-          : undefined;
-      if (!selected || selected.some((value) => !allowed.includes(value))) {
-        throw new Error(`integration input ${field} is outside the connection resource grant`);
-      }
+  for (const [field, allowed] of Object.entries(grant.resourceConstraints ?? {})) {
+    const actual = input[field];
+    const selected = typeof actual === 'string'
+      ? [actual]
+      : Array.isArray(actual) && actual.every((value) => typeof value === 'string')
+        ? actual as string[]
+        : undefined;
+    if (!selected || selected.some((value) => !allowed.includes(value))) {
+      throw new Error(`integration input ${field} is outside the connection resource grant`);
     }
   }
-}
-
-function operationDecision(
-  selected: SelectedConnection,
-  operation: OperationDefinition,
-): OperationAuthorizationDecision {
-  const decisions = selected.grants.map((grant) => authorizeConnectionOperation({
-    connection: selected.connection,
-    grant,
-    operation,
-  }));
-  const denied = decisions.find((decision) => !decision.allowed);
-  if (denied) return denied;
-  return {
-    allowed: true,
-    enforcement: decisions.some((decision) => decision.enforcement === 'provider-and-broker')
-      ? 'provider-and-broker'
-      : 'broker',
-  };
-}
-
-function maximumGrant(
-  ownerId: string,
-  connectionId: string,
-  preset: 'read-only' | 'read-write' | 'full',
-): ConnectionGrant {
-  return {
-    version: '1',
-    grantId: `profile:${connectionId}`,
-    ownerId,
-    connectionId,
-    preset,
-  };
-}
-
-function requestedGrant(
-  ownerId: string,
-  connectionId: string,
-  requested: ConnectionAccessRequest,
-): ConnectionGrant {
-  return {
-    version: '1',
-    grantId: `request:${connectionId}`,
-    ownerId,
-    connectionId,
-    preset: requested.preset ?? 'full',
-    ...(requested.allowOperations ? { allowOperations: requested.allowOperations } : {}),
-    ...(requested.denyOperations ? { denyOperations: requested.denyOperations } : {}),
-  };
-}
-
-function hasRequestedPolicy(request: ConnectionAccessRequest): boolean {
-  return request.preset !== undefined ||
-    request.allowOperations !== undefined ||
-    request.denyOperations !== undefined;
 }
 
 function toolInputSchema(

@@ -1,45 +1,24 @@
 # Publications: files, sites, and video
 
-Publications turn files retained by a successful Rat Things run into browser-ready, time-bounded
-experiences. The same mechanism supports a single image, a static site with many assets, or a video
-and poster without making the artifact bucket public or depending on a Lambda credential remaining
-valid for the lifetime of the link.
+Publications give retained files, static sites, and videos expiring browser access while S3 stays
+private. This page covers the contract and deployment; use [publish and share agent work](sharing-work.md)
+for CLI commands and recipient checks.
 
 ## The model
-
-The implementation deliberately has three small concepts:
 
 - A **blob** is immutable bytes plus a digest, size, and media type. Storage coordinates stay inside
   the S3 adapter.
 - A **publication** is an immutable directory with a required `index.html`, a manifest, provenance,
   and one of the tagged kinds `file`, `site`, or `video`. Its ready manifest lives under a reserved
   internal prefix that the edge router never serves.
-- A **share grant** authorizes a particular publication until an explicit expiry. Today the grant is
-  an unguessable bearer token; the contract leaves room for owner, team, or public policies later.
-
-The flow is:
-
-```text
-.rat-things/artifacts/ catalog
-              |
-              v
-  file / site / video builder
-              |
-              v
- immutable publication objects -- manifest committed last
-              |
-              v
- random bearer grant -- signed first page -- host-only session cookies
-              |
-              v
- isolated publication subdomain -- private S3 through OAC
-```
+- A **share grant** is an unguessable bearer token authorizing one publication until an explicit
+  expiry.
 
 ## Conversational publishing
 
-When publication delivery is enabled, a user can simply ask the agent to share its work. The agent
-writes the deliverables beneath `.rat-things/artifacts/` and an ephemeral outbox at
-`.rat-things/share.json`:
+When publication delivery is enabled, the agent can request sharing by writing deliverables beneath
+`.rat-things/artifacts/` and an ephemeral outbox at `.rat-things/share.json`. The runner processes
+the outbox after a successful turn:
 
 ```json
 {
@@ -60,46 +39,12 @@ The outbox is cleared before every turn, capped at ten requests and 32 KiB, and 
 symbolic link, hard link, or malformed document. It is a declaration rather than authority: the
 trusted runner resolves every path through the authenticated owner's catalog, performs publication,
 mints the grant, and appends the real link to the stored result. Bearer URLs remain in encrypted S3
-result bodies rather than DynamoDB previews. When S3 Files is enabled, its persistent workspace and
-Codex state still support the next conversational turn; the outbox itself is cleared after it is
-consumed and never replayed.
+result bodies rather than DynamoDB previews. The outbox is cleared after consumption and never
+replayed.
 
-The publication ID is derived from the normalized publication spec plus the selected paths, content
-digests, and media types—not from a particular run or conversation. Before materializing a
-publication, the S3 adapter checks for its committed manifest. Asking to share unchanged work mints
-a fresh grant for the existing immutable publication instead of copying every site or video asset
-again. Changed bytes or presentation options produce a new isolated publication ID.
-
-Publication builders are pure planning components. They return a typed result with diagnostics;
-only the publication service performs storage effects. Builders are selected through a duplicate-
-rejecting registry, and rendering is separate from storage and delivery. These choices borrow the
-cleanest ideas from [Pi](https://github.com/earendil-works/pi): tagged data over implicit modes,
-`Result` values for expected failures, small registries instead of a central switch, diagnostics as
-data, and an “effects at the edge” orchestration layer. Rat Things does not copy Pi's extension API;
-it keeps the surface narrow around the publication capability.
-
-## Explicit CLI publishing
-
-Every source path is relative to `.rat-things/artifacts/` in the selected run or thread.
-
-```bash
-# A browser page for an image, PDF, audio file, or download
-rat-things publish file images/rat-thing.webp --thread snow-crash
-
-# A complete static directory; web/index.html is the entrypoint
-rat-things publish site web --thread snow-crash
-
-# A video player with an optional poster image
-rat-things publish video video/chase.mp4 \
-  --poster video/chase-poster.webp \
-  --title "The Deliverator chase" \
-  --thread snow-crash
-```
-
-Use `--run RUN_ID` for one-shot work and `--json` for the publication ID, kind, expiry, entrypoint,
-primary downloadable path, and published paths. `rat-things files` is a read-only catalog listing;
-`rat-things file PATH` mints a browser link, while `--download LOCAL_PATH` retrieves the original
-bytes rather than the generated viewer page.
+The publication ID derives from the normalized spec, selected paths, content digests, and media
+types. Its manifest is committed last. Sharing unchanged work reuses the committed publication and
+mints a fresh grant; changed bytes or presentation options produce a new publication ID.
 
 ## Control API
 
@@ -117,6 +62,9 @@ Site and video requests use the same versioned tagged shape:
 
 ```json
 {"version":"1","kind":"site","root":"web","entrypoint":"index.html"}
+```
+
+```json
 {"version":"1","kind":"video","path":"video/chase.mp4","poster":"video/poster.webp"}
 ```
 
@@ -152,27 +100,20 @@ certificate must cover the wildcard (for example `*.agent-content.example`) and 
 Supplying the optional Route 53 zone lets the module create wildcard A and AAAA aliases; otherwise
 create equivalent DNS records with the external provider.
 
-The module creates one distribution, not one distribution per publication. A CloudFront Function
-maps the validated publication host to its owner-scoped S3 prefix. Origin Access Control keeps S3
-private, and a trusted key group enforces both the signed entry URL and signed cookies. A small
-viewer-response function refreshes the host-only cookies after the signed first page succeeds.
-Each publication receives a distinct browser origin and cookie jar, preventing one generated site
-from reading another publication's content.
+One CloudFront distribution maps validated publication hosts to owner-scoped S3 prefixes. Origin
+Access Control keeps S3 private, and a trusted key group enforces the signed URLs and cookies.
+Distinct browser origins and cookie jars prevent one generated site from reading another
+publication's content.
 
 The supplied response policy allows local inline scripts and styles needed by static agent output,
 but blocks cross-origin resource and API connections, framing, objects, forms, referrers, and
-sensitive browser capabilities. Deployments that need external APIs should expose an explicit
-policy profile rather than weakening every publication.
+sensitive browser capabilities.
 
 ## Adding another output kind
 
 Add a new member to the versioned `PublicationSpec` tagged union and implement one
-`PublicationBuilder`. A builder receives catalog blobs and returns the publication directory it
-wants; it does not import AWS clients, mint URLs, or write objects. Register it at composition time,
-then add focused planning tests. Blob persistence, manifest-last commit, share grants, CloudFront
-delivery, and CLI authorization handling remain unchanged.
+`PublicationBuilder`. A builder receives catalog blobs and returns a directory plan or diagnostics;
+it does not import AWS clients, mint URLs, or write objects. Register it at composition time and add
+focused planning tests. The publication service owns storage and delivery.
 
-Current retained-artifact limits are 5,000 files, 5 GiB per file, 20 GiB per catalog, and 512 UTF-8
-bytes per relative path. Transfers are streamed with multipart S3 uploads. Unchanged retained files
-are renewed with server-side copies, avoiding a full network re-upload on every conversation turn;
-the underlying owner-scoped blob key is derived from its SHA-256 digest.
+See [durable files](durable-files.md) for artifact limits, retention, and transfer behavior.

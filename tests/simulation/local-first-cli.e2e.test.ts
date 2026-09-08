@@ -1,4 +1,4 @@
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
@@ -22,5 +22,18 @@ describe('local-first CLI', () => {
     expect(output).toContain('rat-things "Work with your signed-in local Codex"');
     expect(output).toContain('rat-things handoff --thread NAME "Delegate to the cloud"');
     expect(output).toContain('Local is the default. Use handoff or chat for a durable cloud thread.');
+  });
+
+  it.each([
+    [['--thread', 'cloud-thread'], 'rat-things chat --thread NAME'],
+    [['--json'], '--json is not valid for local'],
+    [['--attach', 'evidence.txt'], '--attach is not valid for local'],
+  ])('rejects cloud options %j before executing locally', (options, diagnostic) => {
+    const result = spawnSync(process.execPath, [tsx, cli, '--driver', 'mock', ...options, 'Do work'], {
+      encoding: 'utf8',
+    });
+    expect(result.status).toBe(1);
+    expect(result.stdout).toBe('');
+    expect(result.stderr).toContain(diagnostic);
   });
 });

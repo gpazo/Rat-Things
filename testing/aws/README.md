@@ -7,8 +7,6 @@ unique deployment ID.
 ## One command
 
 ```bash
-AWS_E2E_ENABLE_MICROVM=true \
-AWS_E2E_MICROVM_BASE_IMAGE_VERSION="<available pinned version>" \
 npm run test:e2e:aws
 ```
 
@@ -30,8 +28,9 @@ The wrapper:
    run request, then verifies exactly one durable run with trusted schedule and Thing provenance.
 7. Verifies MicroVM execution, pinned public-repository checkout, S3 output/events, DynamoDB state,
    EventBridge terminal events, source-routed Teams Adaptive Card egress, empty failure queues, and
-   self-termination. GitHub and GitLab ingress runs do not attempt provider delivery because the
-   disposable stack intentionally has no notification credentials for those providers.
+   self-termination. GitHub and GitLab ingress is tested without external notification credentials;
+   their delivery fences must record `not_delivered` and identify the missing setting. Teams
+   delivery is verified through the disposable capture endpoint.
 8. Sends two signed Teams activities and runs two messages through the actual Rat Things CLI,
    proves actual AWS suspension, authenticated continuation and resume on the same MicroVM ID,
    replay, provider egress where applicable, and re-suspension.
@@ -56,7 +55,11 @@ The live harness uses the AWS SDK's standard retry mode with five total attempts
 transient service and network recovery to the SDK instead of duplicating retry policy in test or
 application code.
 
-Set `AWS_E2E_REAL_CODEX=true` to add two bounded `openai.gpt-5.6-terra` probes through Bedrock. The
+Each completed workflow prints its name and result. The pinned Terraform AWS provider owns both
+public-invocation permissions for the disposable fixture's unauthenticated Lambda Function URL;
+adding separate permission resources can race its policy updates during deployment.
+
+Set `AWS_E2E_REAL_CODEX=true` to add bounded `openai.gpt-5.6-terra` probes through Bedrock. The
 worker execution role mints a short-term token and the unprivileged Codex process receives only that
 token. Set `AWS_E2E_DEFAULT_AGENT_DRIVER=codex` when a focused browser or API journey itself should
 use Codex instead of the stack's default mock driver.
@@ -77,91 +80,18 @@ AWS_E2E_PUBLICATION_ROUTE53_ZONE_ID="Z1234567890" \
 ./scripts/aws-e2e-deploy.sh demo
 ```
 
-The deploy helper creates and DNS-validates a wildcard certificate in `us-east-1`, generates an
+The deploy helper verifies the zone's public DNS delegation before allocating resources, then
+creates and DNS-validates a wildcard certificate in `us-east-1`, generates an
 ephemeral CloudFront signing-key pair, stores only the private key in Secrets Manager, and removes
 the local key files even if deployment fails. The base domain must be dedicated to untrusted agent
 content and owned by the supplied public Route 53 zone. Terraform teardown removes the certificate,
 validation record, wildcard aliases, distribution, key group, and signing-key secret.
 
-Version `1` of the managed `al2023-1` base image was validated in `us-west-2` on 2026-08-03–04.
-Managed Rat Things image versions `1.0` through `3.0` were created during integration debugging; the
-final persistence run used `3.0`. Discover
-availability again before relying on that value.
-
-A fresh version `1` deployment passed all seven live workflows again on 2026-08-14. A focused
-canary also launched the built `rat-things` executable twice against that stack and proved named
-thread continuation on the same suspended MicroVM.
-
-On 2026-08-21 deployment `th260821c` passed all seven applicable workflows (two opt-in cases were
-skipped), including the revisioned multi-account Thing path. The harness terminated six MicroVMs,
-removed runtime-created secrets, destroyed all 208 Terraform resources, and passed its tagged
-post-destroy audit.
-
-Later that day deployment `ev260821a` closed the remaining scheduled-Thing and real-provider
-transport gaps. Ten applicable workflows passed with the real-Codex option enabled and only the
-unconfigured custom-domain publication case skipped. EventBridge produced exactly one durable
-scheduled Thing run without an API invocation; a real Codex agent then completed Slack `api.test`
-and observed Slack's expected `invalid_auth` denial on the credentialed operation. Teardown
-terminated seven MicroVMs, destroyed all 208 Terraform resources, passed the tagged-resource audit,
-and left Terraform state empty.
-
-On 2026-08-22 deployment `int260822a` passed all ten applicable workflows with the real-Codex option
-enabled; only the unconfigured custom-domain publication case was skipped. The built CLI rejected an
-invalid credential, connected two verified Fixture CRM accounts, and the real agent completed one
-read on the read-only account plus one statically admitted write on the read/write account. The provider
-audit queue contained exactly one mutation and neither credential appeared in durable run state,
-output, or events. The full suite also repeated scheduled Thing, MicroVM continuation/replacement,
-CLI continuity, crash repair, repository checkout, and real Codex workspace restoration. Teardown
-then destroyed the 216-resource stack and audited tagged residuals.
-
-A second fresh deployment, `int260822b`, reran the focused user journey after the final
-credential-error and rotation changes. It passed in 22.78 seconds: the live API returned the exact
-invalid-credential `400`, the built CLI onboarded both provider-derived accounts, permission
-explanation selected the intended account, a real Lambda MicroVM completed the Thing, the CLI
-rotated a credential-only file, and revocation removed access. Teardown destroyed all 216 resources,
-left zero resources in Terraform state, and passed the direct post-destroy audit.
-
-On 2026-08-24 deployment `perf260824a` ran the focused two-turn browser journey with the mock driver
-and cold-start phase instrumentation. The first Run took 52.789 seconds from creation to the
-runner's `startedAt`: 40.242 seconds mounted S3 Files and 4.178 seconds prepared the initial durable
-state directories. The same suspended MicroVM then continued the conversation in 2.015 seconds,
-with a 1 millisecond mount check and 108 milliseconds of state preparation. First-turn dispatcher
-and coordinator queue delays were 585 and 830 milliseconds respectively; AWS accepted the cold
-`RunMicrovm` request in 264 milliseconds, proving that request acceptance is not VM readiness.
-Teardown terminated the one MicroVM, destroyed all 227 Terraform resources, and passed the tagged
-post-destroy audit; only the disabled KMS key scheduled for deletion remains by AWS design.
-
-Later on 2026-08-24 deployment `hb260824a` passed the focused generation-fenced liveness gate. A
-live worker refreshed `heartbeatAt` without changing `updatedAt`; a stale generation was rejected;
-the harness terminated the exact attached MicroVM; and the reconciler conditionally settled the Run
-as retryable `execution_lost`. Teardown destroyed all 227 resources and passed the tagged-resource
-audit. A subsequent full-suite run also exposed and fixed two dispatcher reliability defects: an
-invalid generated DynamoDB attachment condition, and permanent classification of a transient AWS
-control-plane HTML response that the SDK could not deserialize.
-
-Fresh deployment `hb260824c` then passed all nine enabled live workflows with the patched bundle in
-343 seconds; the three real-Codex/custom-domain opt-ins were intentionally skipped. The run repeated
-signed provider concurrency, revisioned and scheduled Things, same-MicroVM Teams and CLI
-continuation, expired-session replacement, coordinator crash repair, live heartbeat fencing and
-forced termination, and repository checkout. The focused Chromium console journey also passed in
-19.6 seconds with two IAM-authenticated turns on one durable MicroVM conversation. Teardown
-terminated all seven test MicroVMs, destroyed all 227 Terraform resources, and passed the direct
-tagged-resource audit; only the expected disabled KMS key pending deletion remained.
-
-On 2026-08-30, the refactoring regression pass used three fresh 247-resource deployments. The broad
-real-Codex run on `reg260830b` passed 12 workflows, including signed provider ingress, source-routed
-delivery, Scheduler, CLI and Teams continuation, OAuth and credential handling, repository
-checkout, crash repair, and real Codex workspace restoration; two unconfigured opt-ins were
-skipped. Its only incomplete case was the test harness receiving an AWS control-plane HTML response
-while directly terminating a MicroVM. Fresh deployment `reg260830d` reran that generation-fenced
-liveness case successfully in 49.741 seconds. Fresh deployment `reg260830e` then passed the
-3.4-minute Chromium journey with structured input, uploaded-source verification, a generated
-artifact, and two IAM-authenticated turns in one durable MicroVM conversation. Each deployment
-destroyed all 247 Terraform resources and passed the direct residual audit; only disabled KMS keys
-scheduled for AWS's required delayed deletion remained.
+The harness pins managed `al2023-1` base image version `1` by default. Set
+`AWS_E2E_MICROVM_BASE_IMAGE_VERSION` to use another available version.
 
 AWS does not allow immediate deletion of a customer-managed KMS key. Teardown disables the key and
-schedules it for deletion after AWS's minimum waiting period; only that `PendingDeletion` key is an
+schedules it for deletion after the configured waiting period; only that `PendingDeletion` key is an
 expected residual resource. All other Terraform-managed resources are destroyed and directly
 audited.
 
@@ -202,10 +132,10 @@ callback, and prints only the verified public Connection bundle. It never copies
 signing secret, or issued tokens into the runtime environment, command line, Terraform state, or
 test log. Use a disposable provider app/workspace and destroy the stack afterward.
 
-Re-running `aws-e2e-deploy.sh` for an existing deployment inherits its saved OAuth map, webhook
-toggle/signing-secret path, driver, and S3 Files settings. Explicit environment variables still
-override saved values. This prevents a MicroVM-only update from silently removing the Slack route
-or OAuth application configuration.
+Deploy and destroy reuse the stack’s saved AWS region, MicroVM, publication, OAuth, and webhook
+settings. Explicit environment variables override saved values, so repeat deployments and teardown
+do not require repeating the original options. Settings are saved after a successful apply; if the
+initial apply fails before `runtime.env` exists, reuse the original options for retry or teardown.
 
 After consent creates the verified Connection and the bot joins a disposable channel, opt into the
 external CLI action/denial case with public identifiers only:
@@ -238,53 +168,6 @@ The write Run discovers the team, creates one uniquely labeled issue, updates it
 reads it back. The durable ledger must contain exactly those five successful operations. A fresh
 read-only Run then searches and gets the same issue while proving create was not exposed. For a
 shareable console recording of a completed proof, run `npm run aws:e2e:linear:demo -- DEPLOYMENT_ID`.
-
-On 2026-08-30 PDT, deployment `oauth260827a` completed this path against private workspace
-**Indubitably**. It created `IND-6`; all five write/read-back calls succeeded, and the read-only
-follow-up recorded search/get only. The canary found and fixed safe normalization of
-schema-equivalent flat object arguments before the successful rerun.
-
-On 2026-08-27, deployment `oauth260827a` exercised the provider-agnostic part of this path and the
-complete CLI management surface against 236 live AWS resources. The exact callback was discoverable,
-invalid state failed closed with HTTP 400, and the unconfigured Slack app correctly reported
-`host-required`. The same 21.8-second canary created, granted, rotated, and revoked a verified
-Fixture CRM Connection, then created, listed, read, resumed, ran, paused, and deleted an interval
-Routine; run-now completed in a real managed MicroVM with S3 Files enabled.
-
-On 2026-08-28 PDT, that stack continued through a real Slack provider canary. An operator-owned
-Slack app registered the exact live callback and Events URL, requested bot scopes
-`app_mentions:read`, `chat:write`, and `reactions:write` plus delegated user scope `search:read`, and
-enabled PKCE and token rotation. The built CLI waited through consent, token exchange, provider
-identity verification, and Connection persistence. Slack returned separate rotating bot and user
-token families; only the owner credential secret received those values. The desktop Connections
-page changed Rat-side access and restored it, while the CLI independently observed the same active
-Connection, four provider scopes, grant, one-Connection Set, and verified-workspace source binding.
-Private frames exclude all credential screens and token values.
-
-The same deployment exercised both channel ingress and authenticated agent tools. A human
-`app_mention` passed Slack signature verification, started a real Codex conversation, and received
-its result in the source thread. A follow-up reused the same conversation, MicroVM, and native Codex
-thread and recalled a value from the first turn. Separately, the built CLI posted one uniquely
-labeled root plus one threaded reply, added one check-mark reaction, proved persistent read-only
-denial, and used `search:read` to recover the exact thread text and permalink. The live Connections
-UI also round-tripped a second account's Rat grant while correctly showing that another Connection
-owned mention routing.
-
-Finally, the canary forced both `expires_at` and `user_expires_at` into the past. Fresh Runs
-refreshed the bot and delegated-user token families independently; the stored credential again held
-future expiries and both access/refresh pairs without printing any value. This found and fixed a
-refresh parser that incorrectly required Slack to repeat `authed_user` while refreshing only the bot
-token. MicroVM image `8.0` then passed the same-thread continuation after making ephemeral Codex
-plugin-clone cleanup retrying and non-fatal.
-
-That journey also found two failure-recovery defects before release. A first cold MicroVM timed out
-mounting S3 Files and terminated. The completion worker tried to suspend it again and stranded the
-conversation; terminated-session responses are now treated as already unavailable so failure is
-folded durably and pending work wakes. The refresh canary then proved that the OAuth app ARN map was
-missing from the MicroVM image even though IAM was already scoped correctly; Terraform now passes
-only the ARN map into the image. Image `3.0` completed the refresh proof. One preceding image build
-failed on an AWS Public ECR TLS handshake timeout and the identical non-destructive apply succeeded
-on retry.
 
 Install the browser used by the focused console phase once per machine:
 
@@ -322,8 +205,9 @@ MicroVM log entry `agent runner started` reports
 `startupDurationMs`, `storageMountDurationMs`, `storagePreparationDurationMs`, and whether storage
 was already mounted. These fields contain durations and infrastructure state only—not prompts,
 transcripts, owner IDs, or credentials. Together they distinguish queueing, AWS launch/resume, and
-the synchronous persistent-storage portion of the run hook before considering prewarming or mount
-deferral.
+the synchronous persistent-storage portion of the run hook. These host measurements exclude Codex
+initialization; diagnose that phase separately using the
+[startup guidance](../../docs/runbook.md#slow-conversation-startup-or-codex-initialization).
 
 Terraform state and generated runtime configuration live under `.aws-e2e/<deployment-id>/` and are
 ignored by Git. The runtime file contains disposable signing secrets and is permissioned while the

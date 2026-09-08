@@ -5,7 +5,7 @@ import {
   requiredEnv,
   type MicrovmStartupObservation,
 } from '../adapters/executors.js';
-import type { ExecutionBackend, RunQueueMessage } from '../domain/contracts.js';
+import type { ExecutionBackend } from '../domain/contracts.js';
 import {
   parseRunQueueMessage,
   RunDispatcher,
@@ -51,18 +51,6 @@ export function createDispatcher(dependencies?: DispatcherDependencies): SQSHand
 }
 
 export const handler: SQSHandler = createDispatcher();
-
-export async function dispatchRun(
-  message: RunQueueMessage,
-  dependencies: DispatcherDependencies = defaultDependencies(),
-): Promise<void> {
-  return new RunDispatcher({
-    store: dependencies.store,
-    artifacts: dependencies.artifacts,
-    executors: dependencies.executors,
-    defaultBackend: dependencies.defaultBackend ?? defaultExecutionBackend(),
-  }).dispatch(message);
-}
 
 function defaultDependencies(): DispatcherDependencies {
   if (defaults) return defaults;

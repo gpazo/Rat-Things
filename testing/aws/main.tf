@@ -242,24 +242,9 @@ resource "aws_lambda_function" "integration_fixture" {
 }
 
 resource "aws_lambda_function_url" "integration_fixture" {
-  function_name      = aws_lambda_function.integration_fixture.function_name
+  function_name = aws_lambda_function.integration_fixture.function_name
+  # The provider creates both public URL permissions with this authorization type.
   authorization_type = "NONE"
-}
-
-resource "aws_lambda_permission" "integration_fixture_url" {
-  statement_id           = "AllowPublicFunctionUrl"
-  action                 = "lambda:InvokeFunctionUrl"
-  function_name          = aws_lambda_function.integration_fixture.function_name
-  principal              = "*"
-  function_url_auth_type = "NONE"
-}
-
-resource "aws_lambda_permission" "integration_fixture_invoke" {
-  statement_id             = "AllowPublicFunctionUrlInvoke"
-  action                   = "lambda:InvokeFunction"
-  function_name            = aws_lambda_function.integration_fixture.function_name
-  principal                = "*"
-  invoked_via_function_url = true
 }
 
 resource "aws_sqs_queue" "terminal_events" {

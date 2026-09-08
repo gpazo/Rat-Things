@@ -8,38 +8,12 @@ person, a team, or an embedded product; every connection remains scoped to the a
 An owner can connect several accounts for the same service and grant each account different access.
 This is the account-connection step in the [Rat Things operating model](operating-model.md).
 
-Slack and Linear are built-in examples of this system, not the product boundary. Slack demonstrates
-signed conversational ingress and delivery; Linear demonstrates a verified OAuth app actor with
-bounded issue and comment operations. A deployment can add the services its work requires by
-implementing Rat's reviewed Integration Contract in trusted host code. Once installed, the same
-connection discovery, account verification, health, grants, agent tools, CLI, desktop controls,
-Things, and Routines apply to that service.
-
-That makes four broad workflows possible without giving credentials to the agent:
-
-- research across the connected sources admitted to one Run;
-- take precise provider actions through explicit operation schemas;
-- continue the same durable work from a product, CLI, team interface, schedule, or another agent;
-  and
-- reuse and operate verified accounts across conversations, Things, and Routines.
-
-> Start with the services and operations your users need. Expand the catalog deliberately.
-
-The narrow journey is:
+Built-in integrations use the same reviewed contract as services added in trusted host code:
 
 ```text
 discover integration -> supply credential -> verify provider account -> choose Rat access
                      -> select and narrow accounts for a Thing/run -> launch autonomously
 ```
-
-This is the useful core of a Zapier-like integration system, not a claim of Zapier parity. Zapier's
-current platform also separates authentication/connections from typed triggers, searches, and
-actions. Its official references are the
-[CLI platform overview](https://docs.zapier.com/integrations/build-cli/overview),
-[authentication overview](https://docs.zapier.com/integrations/build/auth),
-[OAuth v2 flow](https://docs.zapier.com/integrations/build/oauth), and
-[recommended triggers and actions](https://docs.zapier.com/integrations/quickstart/recommended-triggers-and-actions).
-Rat Things applies that model to a headless, self-hosted agent backend with explicit permissions.
 
 ## The Integration Contract v1
 
@@ -289,16 +263,10 @@ accounts and shows why every operation is allowed or denied before the Thing is 
   <figcaption><strong>Permission is always an intersection.</strong> The resulting operation set is fixed before launch and autonomous during the Run.</figcaption>
 </figure>
 
-An operation is available only when every applicable layer permits it:
-
-1. The verified provider authorization permits the access level and required provider scopes.
-2. The persistent connection grant permits the operation.
-3. The selected capability profile does not forbid it.
-4. A Thing or run-level selection may narrow it again.
-5. Deny lists, expiry, resource constraints, IAM, and egress policy are enforced.
-
-The effective permission is the intersection, never the union. A full-access provider key can be
-exposed to Rat as read-only. A read-only provider token cannot be widened by a Rat grant.
+Integration permissions follow the [capability envelope](capability-envelope.md): provider
+authorization, the persistent grant, the profile ceiling, and Thing or Run narrowing must all
+permit the operation. A full-access provider key can be exposed to Rat as read-only; a Rat grant
+cannot widen a read-only provider token.
 
 | Rat preset | Eligible operation access |
 | --- | --- |
@@ -312,17 +280,17 @@ enforce them. When an API key is broad or the provider does not expose scope met
 connection honestly records `coarse` or `unknown`; Rat still enforces its grant, but the provider
 credential itself remains broad.
 
-For tighter control, replace the persistent grant:
+For tighter control on a write-only account alias, replace the persistent grant:
 
 ```bash
-rat-things grant slack-client-a --file /secure/config/slack-client-a-grant.json
+rat-things grant slack-customer-post --file /secure/config/slack-customer-post-grant.json
 ```
 
 ```json
 {
   "version": "1",
   "preset": "custom",
-  "allowOperations": ["slack.messages.search", "slack.messages.post"],
+  "allowOperations": ["slack.messages.post"],
   "denyOperations": [],
   "resourceConstraints": {
     "channel": ["C01234567"]
@@ -331,10 +299,14 @@ rat-things grant slack-client-a --file /secure/config/slack-client-a-grant.json
 }
 ```
 
-`resourceConstraints` match operation input fields before the credential is read. Every exposed
-operation is available for autonomous use during the Run. There is no approval step, so omit or
-deny an operation unless the full admitted input range is safe. See [the capability
-envelope](capability-envelope.md).
+`resourceConstraints` match operation input fields before the credential is read, and every
+constraint applies to every operation admitted by that grant. An operation whose input omits a
+constrained field is rejected. For example, do not combine `slack.messages.search`—whose input is
+only `query`—with the `channel`-constrained grant above. Use a separate read-only alias for search
+and a write-only, channel-constrained alias for posting.
+
+Every exposed operation is autonomous during the Run, so omit or deny it unless its full admitted
+input range is safe.
 
 ## 6. Rotate or revoke safely
 
@@ -505,11 +477,6 @@ Integration plugins are trusted TypeScript adapters compiled into the MicroVM im
 Ingress signature parsing remains in `src/ingress`/`src/channels`; outbound result notification
 remains in `src/delivery`. Agent-callable integration operations belong here. The architecture check
 enforces those boundaries.
-
-Arbitrary package loading, a public marketplace, a visual workflow editor, and a broad app catalog
-are intentionally deferred. The current contract is the extension point: one reviewed manifest,
-one verifier, typed operations, optional self-hosted OAuth metadata, and the same API for CLIs,
-agents, and product UIs.
 
 For failures, follow [integration diagnostics](diagnostics.md#debug-an-integration-connection).
 For consumer architecture and OAuth ownership, see [embedding and self-hosting](embedding.md).

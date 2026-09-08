@@ -25,37 +25,6 @@ export function cloudFrontSignedAccess(
   input: CloudFrontCookieInput,
   target: string,
 ): CloudFrontSignedAccess {
-  const signed = signCloudFrontPolicy(input);
-  const targetUrl = new URL(target);
-  const resource = new URL(input.resource);
-  if (
-    targetUrl.protocol !== 'https:' ||
-    targetUrl.username ||
-    targetUrl.password ||
-    targetUrl.origin !== resource.origin
-  ) throw new Error('CloudFront signed URL target must use the signed HTTPS origin');
-  const delimiter = targetUrl.search ? '&' : '?';
-  const query = [
-    `Policy=${signed.policy}`,
-    `Signature=${signed.signature}`,
-    `Key-Pair-Id=${encodeURIComponent(input.keyPairId)}`,
-  ].join('&');
-  return {
-    cookies: cloudFrontCookies(signed, input.keyPairId),
-    url: `${targetUrl.toString()}${delimiter}${query}`,
-  };
-}
-
-export function cloudFrontSignedCookies(input: CloudFrontCookieInput): string[] {
-  const signed = signCloudFrontPolicy(input);
-  return cloudFrontCookies(signed, input.keyPairId);
-}
-
-function signCloudFrontPolicy(input: CloudFrontCookieInput): {
-  policy: string;
-  signature: string;
-  maxAge: number;
-} {
   validateShareGrant(input.grant);
   if (input.grant.revokedAt) throw new Error('cannot issue cookies for a revoked share grant');
   const now = input.now ?? new Date();
@@ -76,23 +45,30 @@ function signCloudFrontPolicy(input: CloudFrontCookieInput): {
     }],
   });
   const signature = createSign('RSA-SHA1').update(policy).sign(input.privateKey);
+  const encodedPolicy = cloudFrontBase64(Buffer.from(policy));
+  const encodedSignature = cloudFrontBase64(signature);
+  const targetUrl = new URL(target);
+  if (
+    targetUrl.protocol !== 'https:' ||
+    targetUrl.username ||
+    targetUrl.password ||
+    targetUrl.origin !== resource.origin
+  ) throw new Error('CloudFront signed URL target must use the signed HTTPS origin');
+  const delimiter = targetUrl.search ? '&' : '?';
+  const query = [
+    `Policy=${encodedPolicy}`,
+    `Signature=${encodedSignature}`,
+    `Key-Pair-Id=${encodeURIComponent(input.keyPairId)}`,
+  ].join('&');
+  const attributes = `Path=/; Max-Age=${maxAge}; Secure; HttpOnly; SameSite=Lax`;
   return {
-    policy: cloudFrontBase64(Buffer.from(policy)),
-    signature: cloudFrontBase64(signature),
-    maxAge,
+    cookies: [
+      `CloudFront-Policy=${encodedPolicy}; ${attributes}`,
+      `CloudFront-Signature=${encodedSignature}; ${attributes}`,
+      `CloudFront-Key-Pair-Id=${input.keyPairId}; ${attributes}`,
+    ],
+    url: `${targetUrl.toString()}${delimiter}${query}`,
   };
-}
-
-function cloudFrontCookies(
-  signed: { policy: string; signature: string; maxAge: number },
-  keyPairId: string,
-): string[] {
-  const attributes = `Path=/; Max-Age=${signed.maxAge}; Secure; HttpOnly; SameSite=Lax`;
-  return [
-    `CloudFront-Policy=${signed.policy}; ${attributes}`,
-    `CloudFront-Signature=${signed.signature}; ${attributes}`,
-    `CloudFront-Key-Pair-Id=${keyPairId}; ${attributes}`,
-  ];
 }
 
 function cloudFrontBase64(value: Uint8Array): string {

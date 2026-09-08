@@ -2,9 +2,8 @@ import { createHash } from 'node:crypto';
 import type { ConversationQueue } from '../conversation/types.js';
 import { ConversationConflictError } from '../conversation/types.js';
 import { ConversationService } from '../conversation/service.js';
-import type { RunDestination, RunRecord, RunRequest } from '../domain/contracts.js';
+import type { RunRecord, RunRequest } from '../domain/contracts.js';
 import { ValidationError } from '../domain/validation.js';
-import type { IngressContext } from '../identity/context.js';
 import type { RunService, SubmitOptions } from '../core/run-service.js';
 import type { ThreadTarget } from '../core/run-submission-service.js';
 
@@ -28,7 +27,8 @@ export class ConversationSubmissionService {
       thread.conversationId,
       thread.messageId,
     );
-    const runId = this.runs.idFor(ownerId, submit.idempotencyKey ?? thread.messageId);
+    const idempotencyKey = submit.idempotencyKey ?? thread.messageId;
+    const runId = this.runs.idFor(ownerId, idempotencyKey);
     const preparedAttachments = thread.attachments?.length
       ? await this.conversations.prepareAttachments({
           conversationId: thread.conversationId,
@@ -38,130 +38,83 @@ export class ConversationSubmissionService {
           uploads: thread.attachments,
         })
       : undefined;
-    const result = await this.appendRun({
-      conversationId: thread.conversationId,
-      ownerId,
-      ...(submit.capabilityOwnerId ? { capabilityOwnerId: submit.capabilityOwnerId } : {}),
-      messageId: thread.messageId,
-      ...(thread.title ? { title: thread.title } : {}),
-      delivery,
-      request,
-      context: {
-        owner: { id: ownerId },
-        actor: submit.provenance.actor,
-        credentialSubject: submit.provenance.credentialSubject,
-        source: request.source,
-      },
-      destination: request.destinations?.[0] ?? { kind: 'none' },
-      submit,
-      ...(preparedAttachments ? {
-        attachments: preparedAttachments.files,
-        attachmentManifest: preparedAttachments.manifest,
-        attachmentDigest: attachmentDigest(thread.attachments!),
-      } : {}),
-      ...(thread.replyToMessageId ? { replyToMessageId: thread.replyToMessageId } : {}),
-    });
-    return result.run;
-  }
-
-  private async appendRun(input: {
-    conversationId: string;
-    ownerId: string;
-    capabilityOwnerId?: string;
-    messageId: string;
-    title?: string;
-    delivery: 'interrupt' | 'defer';
-    request: RunRequest;
-    context: IngressContext;
-    destination: RunDestination;
-    submit: SubmitOptions;
-    attachments?: Awaited<ReturnType<ConversationService['prepareAttachments']>>['files'];
-    attachmentManifest?: Awaited<ReturnType<ConversationService['prepareAttachments']>>['manifest'];
-    attachmentDigest?: string;
-    replyToMessageId?: string;
-  }): Promise<{
-    messageId: string;
-    runId: string;
-    status: 'appended' | 'duplicate';
-    run: RunRecord;
-  }> {
-    const idempotencyKey = input.submit.idempotencyKey ?? input.messageId;
     // The Run is the durable acceptance record and recovery source. If the
     // process dies before the mailbox write, the queued-run reconciler can
     // reconstruct this thread occurrence from the immutable input artifact.
-    const run = await this.runs.submit(input.ownerId, input.request, {
-      ...input.submit,
+    const run = await this.runs.submit(ownerId, request, {
+      ...submit,
       idempotencyKey,
       enqueue: false,
       conversation: {
-        conversationId: input.conversationId,
-        messageId: input.messageId,
-        ...(input.title ? { title: input.title } : {}),
-        delivery: input.delivery,
-        ...(input.attachmentManifest ? { attachmentManifest: input.attachmentManifest } : {}),
-        ...(input.attachmentDigest ? { attachmentDigest: input.attachmentDigest } : {}),
-        ...(input.replyToMessageId ? { replyToMessageId: input.replyToMessageId } : {}),
+        conversationId: thread.conversationId,
+        messageId: thread.messageId,
+        ...(thread.title ? { title: thread.title } : {}),
+        delivery,
+        ...(preparedAttachments ? {
+          attachmentManifest: preparedAttachments.manifest,
+          attachmentDigest: attachmentDigest(thread.attachments!),
+        } : {}),
+        ...(thread.replyToMessageId ? { replyToMessageId: thread.replyToMessageId } : {}),
       },
     });
     // RunService has already checked the immutable request and thread binding.
     // Older mailbox records included transport trace IDs in their content hash;
     // replay their accepted receipt rather than rebuilding transport metadata.
-    const accepted = await this.conversations.getMessage(input.conversationId, input.messageId);
+    const accepted = await this.conversations.getMessage(thread.conversationId, thread.messageId);
     if (accepted?.runId === run.runId) {
       if (run.status === 'queued') await this.queue.enqueue({
-        version: '1', conversationId: input.conversationId, runId: run.runId,
-        ownerId: input.ownerId, traceId: input.submit.traceId ?? run.runId,
+        version: '1', conversationId: thread.conversationId, runId: run.runId,
+        ownerId, traceId: submit.traceId ?? run.runId,
       });
-      return { messageId: accepted.messageId, runId: run.runId, status: 'duplicate', run };
+      return run;
     }
-    const attachments = run.conversation?.attachmentManifest && input.attachmentManifest &&
-      run.conversation.attachmentManifest.sha256 !== input.attachmentManifest.sha256
+    const attachments = run.conversation?.attachmentManifest && preparedAttachments &&
+      run.conversation.attachmentManifest.sha256 !== preparedAttachments.manifest.sha256
       ? (await this.conversations.readAttachmentManifest(run.conversation.attachmentManifest)).files
-      : input.attachments;
-    let receipt;
+      : preparedAttachments?.files;
     try {
-      receipt = await this.conversations.appendMessage({
-        conversationId: input.conversationId,
-        ownerId: input.ownerId,
-        ...(input.capabilityOwnerId ? { capabilityOwnerId: input.capabilityOwnerId } : {}),
-        messageId: input.messageId,
+      await this.conversations.appendMessage({
+        conversationId: thread.conversationId,
+        ownerId,
+        ...(submit.capabilityOwnerId ? { capabilityOwnerId: submit.capabilityOwnerId } : {}),
+        messageId: thread.messageId,
         runId: run.runId,
-        ...(input.title ? { title: input.title } : {}),
-        delivery: input.delivery,
+        ...(thread.title ? { title: thread.title } : {}),
+        delivery,
         content: {
-          text: input.request.prompt,
-          request: input.request,
+          text: request.prompt,
+          request,
           ...(attachments?.length ? { attachments } : {}),
-          ...(input.replyToMessageId ? { replyToMessageId: input.replyToMessageId } : {}),
+          ...(thread.replyToMessageId ? { replyToMessageId: thread.replyToMessageId } : {}),
           metadata: {
             traceId: run.runId,
           },
         },
-        source: input.context.source,
-        destination: input.destination,
-        actor: input.context.actor,
-        credentialSubject: input.context.credentialSubject,
-        ...(input.request.agent && Object.keys(input.request.agent).length ? { executionPolicy: input.request.agent } : {}),
-        ...(input.request.integrations ? { integrationPolicy: input.request.integrations } : {}),
+        source: request.source,
+        destination: request.destinations?.[0] ?? { kind: 'none' },
+        actor: submit.provenance.actor,
+        credentialSubject: submit.provenance.credentialSubject,
+        ...(request.agent && Object.keys(request.agent).length ? { executionPolicy: request.agent } : {}),
+        ...(request.integrations ? { integrationPolicy: request.integrations } : {}),
       });
     } catch (error) {
       if (error instanceof ConversationConflictError &&
-        !await this.conversations.getMessage(input.conversationId, input.messageId)) {
+        !await this.conversations.getMessage(thread.conversationId, thread.messageId)) {
         // A fixed thread envelope rejected this occurrence after its durable Run
         // reservation. Tombstone the queued reservation so the scheduled crash-
         // window reconciler cannot turn a deterministic 409 into poison retries.
-        await this.runs.cancel(input.ownerId, run.runId);
+        await this.runs.cancel(ownerId, run.runId);
       }
       throw error;
     }
     await this.queue.enqueue({
       version: '1',
-      conversationId: input.conversationId,
-      traceId: input.submit.traceId ?? run.runId,
+      conversationId: thread.conversationId,
+      traceId: submit.traceId ?? run.runId,
       runId: run.runId,
-      ownerId: input.ownerId,
+      ownerId,
     });
-    return { messageId: receipt.message.messageId, runId: run.runId, status: receipt.status, run };
+    return run;
   }
 
   /**

@@ -33,4 +33,4 @@ source "$runtime_env"
 set +a
 
 cd "$project_root"
-npm exec -- vitest run tests/aws/workflow.test.ts --no-file-parallelism "$@"
+npm exec -- vitest run tests/aws/workflow.test.ts --no-file-parallelism --reporter=verbose "$@"

@@ -1094,6 +1094,18 @@ function mediaTypeForPath(path: string): string {
 }
 
 async function local(args: Arguments): Promise<void> {
+  if (args.values.has('thread') || args.values.has('conversation')) {
+    throw new Error('Cloud conversations require an explicit command: rat-things chat --thread NAME "..."');
+  }
+  validateCommandOptions(args, {
+    flags: ['browser', 'events', 'network', 'no-browser', 'no-network', 'patch'],
+    values: [
+      'base-ref', 'codex-auth', 'connection-set', 'credential-secret-arn', 'driver', 'file', 'model',
+      'personality', 'profile', 'prompt', 'provider', 'reasoning-effort', 'reasoning-summary',
+      'ref', 'repo', 'sandbox', 'timeout', 'web-search', 'workspace',
+    ],
+    multiple: ['allow-operation', 'app', 'connection', 'deny-operation', 'mcp', 'skill'],
+  });
   const requestedAuthMode = args.values.get('codex-auth');
   const parsed = await requestFromArguments(args, true);
   const resolvedProfile = resolveAgentProfile(

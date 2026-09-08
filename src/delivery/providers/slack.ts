@@ -1,6 +1,6 @@
 import type { CredentialBroker } from '../../credentials/broker.js';
 import type { JsonValue, RunRequest } from '../../domain/contracts.js';
-import { KnownNotDeliveredError } from '../errors.js';
+import { KnownNotDeliveredError, requiredDeliveryCredential } from '../errors.js';
 import { checkedJson, fetchWithTimeout, formatMessage } from '../http.js';
 import type { DeliveryAdapter, DeliveryRequest } from '../types.js';
 
@@ -30,25 +30,21 @@ export class SlackDeliveryAdapter implements DeliveryAdapter {
   public async deliver(input: DeliveryRequest): Promise<string> {
     const source = input.request.source;
     const channel = input.context.destination.route ?? (source?.kind === 'slack' ? source.channelId : undefined);
-    if (!channel) throw new Error('Slack destination lacks a channel');
+    if (!channel) throw new KnownNotDeliveredError('Slack destination lacks a channel', false);
     const text = formatMessage(input.body, input.run, 38_000);
     if (input.run.capabilityOwnerId && input.request.integrations && this.options.connectionPoster) {
-      try {
-        return slackReceipt(await this.options.connectionPoster.post({
-          ownerId: input.run.capabilityOwnerId,
-          request: input.request.integrations,
-          channel,
-          text,
-          ...(source?.kind === 'slack' && source.threadTs ? { threadTs: source.threadTs } : {}),
-        }));
-      } catch (error) {
-        throw new KnownNotDeliveredError(
-          `Slack connection delivery failed: ${error instanceof Error ? error.message : String(error)}`,
-          false,
-        );
-      }
+      return slackReceipt(await this.options.connectionPoster.post({
+        ownerId: input.run.capabilityOwnerId,
+        request: input.request.integrations,
+        channel,
+        text,
+        ...(source?.kind === 'slack' && source.threadTs ? { threadTs: source.threadTs } : {}),
+      }));
     }
-    const token = await this.credentials.read(this.options.botTokenSecretArn, ['token', 'bot_token']);
+    const token = await this.credentials.read(
+      requiredDeliveryCredential(this.options.botTokenSecretArn, 'SLACK_BOT_TOKEN_SECRET_ARN'),
+      ['token', 'bot_token'],
+    );
     const response = await fetchWithTimeout('https://slack.com/api/chat.postMessage', {
       method: 'POST',
       headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },

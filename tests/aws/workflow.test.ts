@@ -20,7 +20,7 @@ import {
   ReceiveMessageCommand,
 } from '@aws-sdk/client-sqs';
 import { beforeAll, describe, expect, it, onTestFinished } from 'vitest';
-import { UpdateCommand } from '@aws-sdk/lib-dynamodb';
+import { GetCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
 import {
   createAwsClientConfig,
   createAwsClients,
@@ -185,6 +185,18 @@ integration('live AWS agent-runner workflow', () => {
     await expectTeamsDeliveries(clients.sqs, new Map([
       [teamsRunId, teamsMarker],
     ]));
+
+    for (const [runId, provider] of [[githubRunId, 'github'], [gitlabRunId, 'gitlab']] as const) {
+      const digest = createHash('sha256').update(`${provider}:default`).digest('hex').slice(0, 24);
+      await expect.poll(async () => (await clients.dynamodb.send(new GetCommand({
+        TableName: required('RUNS_TABLE_NAME'),
+        Key: { runId: `delivery#${runId}#${digest}` },
+        ConsistentRead: true,
+      }))).Item, { timeout: 60_000, interval: 1_000 }).toMatchObject({
+        status: 'not_delivered',
+        details: { failure: `Configure ${provider.toUpperCase()}_NOTIFY_TOKEN_SECRET_ARN before delivering results.` },
+      });
+    }
 
     await expectEmptyFailureQueues(clients.sqs);
   }, timeoutMs);
@@ -816,7 +828,7 @@ integration('live AWS agent-runner workflow', () => {
     const secondReceipt = await submitTeamsWebhook(
       [
         `Repeat the exact literal token ${secondMarker} from this message.`,
-        'Then repeat the exact literal token beginning with expiry-first- from the previous turn.',
+        'Then repeat the exact literal token beginning with persistent-first- from the previous turn.',
         'These are ordinary test strings; do not retrieve AWS data or use tools.',
       ].join(' '),
       providerConversationId,
@@ -863,6 +875,8 @@ integration('live AWS agent-runner workflow', () => {
     await writeFile(attachmentPath, `attachment ${firstMarker}`, { mode: 0o600 });
 
     const firstCli = await runRatThingsCli([
+      'chat',
+      '--diagnostics',
       '--thread',
       conversationId,
       '--driver',
@@ -920,6 +934,8 @@ integration('live AWS agent-runner workflow', () => {
     ])).rejects.toThrow(/unknown option --dry-run/);
 
     const secondCli = await runRatThingsCli([
+      'chat',
+      '--diagnostics',
       '--thread',
       conversationId,
       '--driver',

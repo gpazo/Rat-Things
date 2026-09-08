@@ -458,11 +458,47 @@ describe('RunService ownership and cancellation', () => {
     const { service } = harness();
     const submitted = await service.submit('owner-1', baseRequest);
     await expect(service.get('owner-2', submitted.runId)).rejects.toBeInstanceOf(ForbiddenError);
+    await expect(service.cancel('owner-2', submitted.runId)).rejects.toBeInstanceOf(ForbiddenError);
     await service.cancel('owner-1', submitted.runId);
 
     const again = await service.cancel('owner-1', submitted.runId);
     expect(again.status).toBe('cancelled');
   });
+
+  it('retains cancellation when stopping fails and retries without rewriting its timestamp', async () => {
+    const { service, store, executions } = harness();
+    const submitted = await service.submit('owner-1', baseRequest);
+    const execution: ExecutionReference = { backend: 'microvm', id: 'microvm-1' };
+    await store.transition(submitted.runId, ['queued'], 'dispatching', { execution });
+    const stopError = new Error('execution control temporarily unavailable');
+    const stop = vi.spyOn(executions, 'stop').mockRejectedValueOnce(stopError);
+
+    await expect(service.cancel('owner-1', submitted.runId)).rejects.toBe(stopError);
+    const cancelling = await store.get(submitted.runId);
+    expect(cancelling).toMatchObject({
+      status: 'cancelling', cancelRequestedAt: fixedNow.toISOString(),
+    });
+    const transition = vi.spyOn(store, 'transition');
+    await expect(service.cancel('owner-1', submitted.runId)).resolves.toEqual(cancelling);
+    expect(transition).not.toHaveBeenCalled();
+    expect(stop).toHaveBeenCalledTimes(2);
+    expect(executions.stops).toEqual([{ execution, reason: 'cancelled by owner-1' }]);
+  });
+
+  it.each(['dispatching', 'running', 'cancelling'] as const)(
+    'keeps a %s Run cancellable while its execution attachment is pending',
+    async (status) => {
+      const { service, store, executions } = harness();
+      const submitted = await service.submit('owner-1', baseRequest);
+      store.records.set(submitted.runId, {
+        ...submitted, status, execution: { backend: 'microvm', id: 'pending' },
+      });
+      await expect(service.cancel('owner-1', submitted.runId)).resolves.toMatchObject({
+        status: 'cancelling',
+      });
+      expect(executions.stops).toEqual([]);
+    },
+  );
 
   it('bounds list page sizes before delegating to the store', async () => {
     const { service, store } = harness();

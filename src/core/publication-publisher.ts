@@ -118,10 +118,10 @@ export function publicationTtlSeconds(configured: string | number | undefined): 
   return Math.max(60, Math.min(86_400, Math.floor(seconds)));
 }
 
-export function relevantPublicationFiles(
+export function relevantPublicationFiles<T extends { path: string }>(
   spec: PublicationSpec,
-  files: readonly PublicationSourceFile[],
-): PublicationSourceFile[] {
+  files: readonly T[],
+): T[] {
   if (spec.kind === 'file') return files.filter((file) => file.path === spec.path);
   if (spec.kind === 'video') {
     return files.filter((file) => file.path === spec.path || file.path === spec.poster);
@@ -134,20 +134,7 @@ export function latestPublicationSourceRunId(
   catalog: ArtifactCatalog,
   spec: PublicationSpec,
 ): string {
-  const relevantPaths = new Set(relevantPublicationFiles(
-    spec,
-    catalog.files.map((file) => ({
-      path: file.path,
-      blob: {
-        id: file.file.key,
-        digest: `sha256:${file.file.sha256}`,
-        size: file.bytes,
-        mediaType: file.mediaType,
-      },
-    })),
-  ).map((file) => file.path));
-  return catalog.files
-    .filter((file) => relevantPaths.has(file.path))
+  return relevantPublicationFiles(spec, catalog.files)
     .sort((left, right) => right.createdAt.localeCompare(left.createdAt))[0]?.sourceRunId ??
       'conversation-publication';
 }

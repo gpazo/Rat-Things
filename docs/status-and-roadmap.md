@@ -47,6 +47,30 @@ broad real-agent evaluation, or disaster-recovery proof.
 | Cost model | Live canary baseline measured | The 2026-08-16 two-turn site canary has a dated $0.380 estimate using rates captured then; non-model infrastructure was about $0.046, while current repricing and sustained-load ceilings remain unmeasured |
 | Multi-tenant hardening | Not complete | Run responses now strip storage/authority internals; destination authorization, budgets, rate limits, output policy, and security review remain |
 
+## Validation completed on 2026-09-07 PDT
+
+- A fresh disposable AWS stack passed 14 workflows in one uninterrupted 15-minute run using real
+  Codex `0.146.0` through Bedrock where enabled. Coverage included signed ingress, Scheduler,
+  same-VM continuation, replacement-VM workspace/native-thread restoration, crash and heartbeat
+  recovery, account-scoped tools, browser takeover, and byte-verified CloudFront delivery. The two
+  real Slack/Linear action opt-ins were skipped.
+- The live console journey passed on its first attempt, including attachments, ordinary questions,
+  private file previews, organization, reload, and two-turn continuity. The repository check passed
+  514 tests with 24 opt-in skips, plus builds, architecture checks, and Terraform validation.
+- Deployment exposed duplicate fixture URL permission updates; removing the two redundant
+  Terraform resources resolved the race. Live GitHub/GitLab fixtures now verify actionable missing
+  notification settings and `not_delivered` fences. Ambiguous transport/HTTP 5xx outcomes remain
+  fenced against blind retries.
+- Fresh durable Codex initialization took roughly 8–9 seconds in small sequential probes, versus
+  0.15–0.18 seconds on local temporary storage. Six concurrent fresh probes exceeded a 20-second
+  observation limit; the earlier hard SQLite error was not reproduced and remains unexplained.
+  Prebuilt empty databases barely improved startup, so no template pipeline or storage policy
+  change was introduced. Host storage mounting separately reached 33.5 seconds; these observations
+  are not performance guarantees. See the [startup runbook](runbook.md#slow-conversation-startup-or-codex-initialization).
+- Teardown destroyed 258 Terraform resources, terminated nine remaining test MicroVMs, and removed
+  runtime-created secrets. Independent AWS checks found no live publication resources; the disabled
+  KMS key awaits scheduled deletion. The retained OAuth stack was untouched.
+
 ## Validation completed on 2026-09-04 PDT
 
 - Repeated hands-on console and CLI journeys on the retained AWS test stack with actual

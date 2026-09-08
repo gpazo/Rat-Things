@@ -1,8 +1,7 @@
 # Publish and share agent work
 
-Turn anything an agent makes into an experience someone else can open: a polished file page, a
-complete static site, or a streamable video. Rat Things keeps the source with the durable project
-and gives each publication its own isolated, time-bounded share link.
+Publish retained agent work as a file page, static site, or streamable video. Each publication has
+an isolated, expiring share link.
 
 ## Choose the experience you want to deliver
 
@@ -12,50 +11,27 @@ and gives each publication its own isolated, time-bounded share link.
 | Site | HTML with local CSS, JavaScript, images, and other relative assets | `rat-things publish site ROOT` |
 | Video | An MP4 or supported browser video with an optional poster | `rat-things publish video PATH` |
 
-A file publication is the fastest route from artifact to audience. Use a site for an interactive or
-multi-asset experience, and use a video publication when fast streaming and a dedicated player
-matter.
-
 ## Ask the agent to create and share
-
-The normal human workflow is a conversation, not a publishing pipeline:
 
 ```bash
 rat-things handoff --thread launch-demo --sandbox workspace-write \
   "Create an interactive launch demo as a self-contained website and share it with me."
 ```
 
-The agent creates the retained files and declares the publication it wants. After the turn, trusted
-orchestration validates those paths, builds the publication, creates an expiring grant, and appends
-the canonical link to the agent's reply. The same mechanism works when the request comes from a
-connected chat or source-control thread, so the link returns to the place where the user is already
-talking with the agent.
+With publication delivery enabled, the runner validates and publishes the agent's declared files
+after a successful turn, then appends the share link to the reply. Connected chat and source-control
+threads receive that link through their normal result delivery.
 
 Use the commands below when you want to inspect retained work, republish an older result, select a
 different root or poster, or drive the flow from structured automation.
 
 ## The retained output contract
 
-An agent must save every deliverable beneath `.rat-things/artifacts/` before its run completes.
-Nested paths are retained, so group related work in a directory:
-
-```text
-.rat-things/artifacts/
-  launch-report.pdf
-  demo-site/
-    index.html
-    styles.css
-    app.js
-    images/
-      overview.webp
-  demo-video/
-    walkthrough.mp4
-    poster.webp
-```
+Save deliverables beneath `.rat-things/artifacts/` before the Run completes. All publication paths
+are relative to that directory; see [durable files](durable-files.md) for limits and retention.
 
 Do not put credentials, private keys, session cookies, provider tokens, or other secrets in that
-directory. Retained output is private by default, but it is deliberately designed to become
-shareable.
+directory.
 
 After the run, inspect the catalog rather than guessing filenames:
 
@@ -63,9 +39,12 @@ After the run, inspect the catalog rather than guessing filenames:
 rat-things files --thread launch-demo
 ```
 
-When asked to share during the turn, the agent also writes a bounded declaration to
-`.rat-things/share.json`. It contains only publication kinds and paths relative to the retained
-catalog. It contains no storage coordinates, credentials, or precomputed URLs.
+For automatic sharing, the agent writes the [publication declaration](publications.md#conversational-publishing)
+to `.rat-things/share.json`.
+
+The examples below select a conversation with `--thread`; use `--run RUN_ID` for one-shot work.
+Add `--json` for the publication ID, kind, expiry, entrypoint, primary downloadable path, and
+published paths.
 
 ## Publish a file
 
@@ -75,16 +54,13 @@ rat-things publish file launch-report.pdf \
   --title "Launch readiness report"
 ```
 
-For the common case where you already know the retained file path, `rat-things file` also creates a
-browser link:
+`rat-things file` also creates a browser link:
 
 ```bash
 rat-things file launch-report.pdf --thread launch-demo
 ```
 
-Use `--download LOCAL_PATH` when another tool needs the original bytes instead of a browser page.
-The client verifies the owner-scoped artifact and follows the publication grant without scraping
-the viewer.
+Add `--download LOCAL_PATH` to `rat-things file` to retrieve the original bytes.
 
 ## Publish a static site
 
@@ -97,18 +73,16 @@ rat-things publish site demo-site \
   --title "Launch demo"
 ```
 
-Static sites run on their own isolated publication hostname. Build them as portable, self-contained
-experiences:
+Build a self-contained site:
 
 - use relative URLs such as `styles.css`, `images/overview.webp`, and `./app.js`;
 - include every required asset beneath the published root;
 - do not depend on a development server, server-side routes, or runtime environment variables;
 - bundle the scripts, fonts, and data required for the core experience;
-- treat server APIs, forms, cameras, microphones, and payments as explicit future policy choices;
 - open the output through its share link before claiming the site is complete.
 
-The default policy favors work that opens consistently without hidden dependencies. Future policy
-profiles can add explicit external services without weakening every generated publication.
+The [publication response policy](publications.md#aws-setup) blocks external resources and API
+connections, forms, framing, and sensitive browser capabilities.
 
 ## Publish a video
 
@@ -130,10 +104,8 @@ The command returns a link ready to paste into a pull request, message, email, o
 https://<publication-host>/__share/<grant-token>
 ```
 
-Share that complete URL. The `/__share/<grant-token>` portion is the credential exchange. The
-browser then keeps a signed first-page URL in its address bar, so using the browser's Share command
-also produces a reusable link for the remainder of the grant lifetime. The visually shortened
-hostname shown by some mobile address bars is not the full link.
+Share the complete URL. The browser's Share command also preserves authorization for the remaining
+grant lifetime; a shortened hostname copied from a mobile address bar does not.
 
 The complete URL is a time-bounded bearer grant:
 
@@ -148,26 +120,17 @@ The default grant lifetime is 24 hours. Expiry closes that route into the public
 immediately delete the retained source file. While the owner and retained artifact still exist, the
 owner can mint a fresh publication link.
 
-This separation avoids links whose advertised lifetime is secretly shortened by rotating Lambda
-credentials. Publication access uses deployment-owned CloudFront signing material, while original
-bytes remain in encrypted private S3.
-
 ## Deliver with proof
 
 An agent that creates shareable work should perform the relevant checks and report them. The runner
 performs publication and URL creation after the agent exits, so browser validation may be completed
 by the caller or by a later agent turn:
 
-1. List the retained catalog and confirm every expected path appears.
-2. Declare the correct kind using the smallest root that contains the work.
-3. Open the complete `/__share/` URL in a fresh browser context.
-4. For sites, load each local asset and exercise the main interaction.
-5. For video, confirm playback starts and the asset supports byte ranges.
-6. For exact files, download the original bytes and compare the recorded SHA-256 when available.
-7. Return the canonical share URL, expiry, publication kind, and primary retained path.
-
-A strong handoff includes the canonical link, expiry, publication kind, primary retained path, and
-the evidence that a recipient can open it.
+1. Confirm the expected catalog paths and select the correct kind and smallest required root.
+2. Open the complete `/__share/` URL in a fresh browser context.
+3. Check site assets and interactions, video playback and byte ranges, or downloaded file bytes
+   against the recorded SHA-256, as applicable.
+4. Return the share URL, expiry, publication kind, primary retained path, and verification results.
 
 ## Recover quickly
 

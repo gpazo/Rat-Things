@@ -142,7 +142,7 @@ describe('OAuth connector installation', () => {
       grant: {
         version: '1', grantId: 'grant-1', ownerId: current.ownerId,
         connectionId: current.connectionId, preset: 'custom',
-        allowOperations: ['slack.messages.search'],
+        allowOperations: ['slack.messages.post'],
         resourceConstraints: { channel: ['C123'] },
       },
       health: { version: '1', ownerId: current.ownerId, connectionId: current.connectionId, status: 'unknown', code: 'not-tested' },
@@ -171,7 +171,7 @@ describe('OAuth connector installation', () => {
       reconnectConnectionId: current.connectionId,
       grant: {
         preset: 'custom',
-        allowOperations: ['slack.messages.search'],
+        allowOperations: ['slack.messages.post'],
         resourceConstraints: { channel: ['C123'] },
       },
     });

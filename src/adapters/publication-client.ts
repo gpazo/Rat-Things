@@ -1,3 +1,21 @@
+/** Accept only private byte URLs supplied by an authenticated control response. */
+export function isPrivateArtifactUrl(target: URL, options: {
+  controlUrl: URL;
+  region?: string | undefined;
+  bucket?: string | undefined;
+  unsigned?: boolean;
+}): boolean {
+  if (options.unsigned) return target.origin === options.controlUrl.origin;
+  if (!options.region || target.protocol !== 'https:' || target.port || target.username || target.password) return false;
+  const suffix = `.s3.${options.region}.amazonaws.com`;
+  if (!target.hostname.endsWith(suffix)) return false;
+  const bucket = target.hostname.slice(0, -suffix.length);
+  if (!/^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/.test(bucket)) return false;
+  if (options.bucket && bucket !== options.bucket) return false;
+  return target.searchParams.get('X-Amz-Algorithm') === 'AWS4-HMAC-SHA256' &&
+    Boolean(target.searchParams.get('X-Amz-Signature'));
+}
+
 /**
  * Redeems a browser publication and follows its redirects. When a publication
  * asset path is supplied, the first signed-cookie response

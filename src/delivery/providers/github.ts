@@ -1,4 +1,5 @@
 import type { CredentialBroker } from '../../credentials/broker.js';
+import { KnownNotDeliveredError, requiredDeliveryCredential } from '../errors.js';
 import { checkedJson, fetchWithTimeout, formatMessage, validatedBaseUrl } from '../http.js';
 import type { DeliveryAdapter, DeliveryRequest } from '../types.js';
 
@@ -18,9 +19,12 @@ export class GitHubDeliveryAdapter implements DeliveryAdapter {
   public async deliver(input: DeliveryRequest): Promise<string> {
     const source = input.request.source;
     if (source?.kind !== 'github' || !source.issueNumber) {
-      throw new Error('GitHub destination lacks issue number');
+      throw new KnownNotDeliveredError('GitHub destination lacks issue number', false);
     }
-    const token = await this.credentials.read(this.options.tokenSecretArn, ['token', 'access_token']);
+    const token = await this.credentials.read(
+      requiredDeliveryCredential(this.options.tokenSecretArn, 'GITHUB_NOTIFY_TOKEN_SECRET_ARN'),
+      ['token', 'access_token'],
+    );
     const base = validatedBaseUrl(this.options.apiBaseUrl);
     const response = await fetchWithTimeout(
       `${base}/repos/${source.repository}/issues/${source.issueNumber}/comments`,
