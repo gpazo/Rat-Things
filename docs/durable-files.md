@@ -166,18 +166,5 @@ audio, video, PDF, text, web-font, manifest, and WebAssembly formats receive bro
 types; unknown formats are downloads. See [publications](publications.md) for multi-file sites, video
 players, AWS setup, and the extension model.
 
-## What the live proof established
-
-On 2026-08-14, a real Codex turn ran headlessly in a freshly deployed Rat Things Lambda MicroVM and
-wrote `pelican-bicycle.webp` below the managed directory. The runner published 31,286 bytes, the
-conversation reached `idle`, and the MicroVM suspended. A separate CLI invocation minted a 24-hour
-share URL; following its redirect downloaded the exact bytes with SHA-256
-`2ee07cbbdc885a7c6f5bfa30b484aa3198356fe9b960683a31b1bf486ea62058`. The public link and S3
-redirect used the replacement Rat Things stack; the legacy test stack was then destroyed.
-
-This proves the headless MicroVM-to-private-storage-to-recipient-browser path and resumable catalog
-contract. Agent computer use is a separate Chromium dynamic-tool path with its own security and
-validation status; see [architecture](architecture.md) and [status](status-and-roadmap.md).
-
 See [the control API](api.md#durable-files), [conversation durability](conversations.md), and the
 [security model](security.md) for lower-level contracts and production caveats.

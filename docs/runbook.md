@@ -286,16 +286,18 @@ evidence.
 
 ### Slow conversation startup or Codex initialization
 
-Separate queueing, AWS launch/resume acceptance, host storage preparation, and Codex initialization.
-The [live harness metrics](../testing/aws/README.md#manual-phases) distinguish the first three;
-`agent runner started` and its `startupDurationMs` do not prove Codex has initialized. Compare fresh
-and resumed conversations, including `storageAlreadyMounted`, before attributing a delay to the model.
+Startup has four phases: queueing, AWS launch/resume acceptance, host storage preparation, and
+Codex initialization. `QueueDelay` and the dispatcher launch/resume request durations cover the
+first two. The MicroVM's `agent runner started` entry reports `startupDurationMs`,
+`storageMountDurationMs`, `storagePreparationDurationMs`, and `storageAlreadyMounted`. These host
+measurements exclude Codex initialization. Compare fresh and resumed conversations before
+attributing a delay to model inference.
 
 For a Codex initialization failure, retain the exact binary version and bounded app-server stderr,
 and distinguish a child-process error from a test or caller deadline. Investigate using isolated
 state directories. Durable Codex home includes SQLite state needed for native-thread restoration;
 do not delete it or move it to temporary storage as a troubleshooting shortcut. Slow initialization
-alone does not establish the cause of an earlier SQLite error.
+alone does not establish database corruption.
 
 ## Secret rotation
 

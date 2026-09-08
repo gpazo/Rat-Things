@@ -12,27 +12,20 @@ default.
 > ChatGPT plan already signed in on this device. It does not require an OpenAI Platform API key or
 > Amazon Bedrock; the quickstart explains and confirms the file-credential bridge before uploading.
 
-## What “ten minutes” means
+## What setup does
 
-The product gate starts when `npm run quickstart:aws` starts in the cloned repository; cloning is
-not timed. On a fresh clone that command installs the pinned Node dependencies, performs readiness
-checks without creating or modifying AWS resources, packages and deploys the backend, tests and
-publishes the exact Thing revision, invokes that active revision, and waits for its second
-successful Run. Time spent obtaining an AWS account, installing the host toolchain, receiving
-Lambda MicroVM capacity, signing in to Codex, or arranging provider access is **not** part of the
-gate and can take longer than ten minutes.
+The command installs pinned dependencies, checks prerequisites, packages and deploys the backend,
+then tests, publishes, and invokes the same Thing revision. It has a ten-minute execution limit;
+account setup, tool installation, service capacity, and provider access must be ready beforehand.
 
-The command writes its source commit and tag, clean/dirty state, host OS and exact tool versions,
-consistent start and finish timestamps, elapsed seconds, Terraform resource count, active revision
-and `specHash`, both Run IDs, and both output previews to
-`.runtime/aws-quickstart/result.json`. It fails above ten minutes. Complete npm, package, and
-Terraform diagnostics go to `.runtime/aws-quickstart/quickstart.log`.
+The local `.runtime/aws-quickstart/result.json` stores the selected deployment context, source
+revision, Thing revision, and Run receipts. Detailed diagnostics are retained in
+`.runtime/aws-quickstart/quickstart.log` for interrupted setup and recovery.
 
 ## Get the workstation and AWS account ready
 
 The entry point requires Bash and is intended for macOS or Linux, including WSL 2. Native Windows
-PowerShell and Command Prompt are not supported by this path. The published host proof is macOS
-ARM64; Linux and WSL are supported-by-design but do not yet have a published live run.
+PowerShell and Command Prompt are not supported by this path.
 
 Install [Bash](https://www.gnu.org/software/bash/),
 [Node.js 22.20+](https://nodejs.org/en/download), npm, [Git](https://git-scm.com/downloads),
@@ -55,17 +48,12 @@ Keep that profile name. Pass it and the Region to setup once. Setup stores only 
 names under `.runtime/aws-quickstart/`; later `status` and `destroy` commands automatically reuse
 them. Pass the same flags to a standalone preflight because no setup context exists yet.
 
-For the first proof, use a disposable AWS sandbox account or an isolated sandbox role. The only
-deployer policy exercised end to end in the published validation is temporary AWS-managed
-`AdministratorAccess`, revoked after teardown. Those credentials stay in the host process: the
-generated agent role is separate and `allow_agent_aws_credential_chain=false`.
+Use a disposable AWS sandbox account or an isolated deployment role. Host credentials provision
+infrastructure; the generated agent role is separate and `allow_agent_aws_credential_chain=false`.
 
-Rat Things does not yet ship or claim a live-tested exact least-privilege deployer policy. If your
-organization requires one, derive it from the checked-in Terraform plan and validate it in a
-sandbox. API Gateway, CloudWatch Logs/alarms, DynamoDB, EventBridge/Scheduler, IAM role and policy
-management including `iam:PassRole`, KMS, Lambda and Lambda MicroVMs, S3, SQS, SSM, STS, tagging,
-and the AWS Cloud Control API used by the Terraform AWSCC provider are design inputs, not a promise
-that a copied service list is sufficient.
+Rat Things does not ship an exact least-privilege deployer policy. Derive one from the Terraform
+plan for the features you enable, including role creation and `iam:PassRole`. The
+[deployment guide](development-and-deployment.md) describes the provisioned services.
 
 The account also needs:
 
@@ -84,11 +72,9 @@ The account also needs:
 - For optional Bedrock mode, `bedrock-mantle:CallWithBearerToken`, model-list access for preflight,
   and inference access for the generated runtime role.
 
-The validated quickstart creates 158 mostly request-scale managed resources and invokes the paid
-model twice. The validation record does not include an AWS bill, so it makes no dollar claim. Use a
-sandbox account and review the dated [cost measurements and residual KMS deletion window](costs.md)
-before confirming; your Region, tokens, account pricing, and later AWS price changes determine the
-actual charge.
+The quickstart creates AWS resources and invokes the selected model twice. Review the
+[cost model and KMS deletion window](costs.md) before confirming; region, runtime, tokens, and
+account pricing determine the actual charge.
 
 ## Run the complete path
 
@@ -108,11 +94,6 @@ before it uploads the local login. With `--yes`, also pass
 > reach Codex-visible data or connectors. Use only an AWS account and agents you trust. Read
 > [the complete credential lifecycle](codex-subscription.md#credential-risk-and-lifecycle) before
 > accepting.
-
-The current ChatGPT-first path is on `main`. The immutable `golden-path-v1.0.0` tag and its
-[centrally published AWS quickstart evidence](https://gpazo.github.io/Rat-Things/docs/assets/aws-quickstart-evidence.json)
-remain the historical Bedrock-backed proof for the older default; they are not evidence that the
-new ChatGPT workspace handoff has been live-tested.
 
 Omit `--profile` only when your shell already supplies the intended AWS credentials. Omit `--region`
 only when `AWS_REGION` or `AWS_DEFAULT_REGION` already selects a supported Lambda MicroVM Region.
@@ -135,21 +116,11 @@ The command then:
 6. invokes the published active revision, waits for success, and verifies the same immutable binding
    and a new Run receipt.
 
-Success is deliberately redundant and machine-readable:
+The result includes the active Thing revision and separate Run receipts:
 
 ```json
 {
-  "version": 3,
   "status": "ready",
-  "region": "us-west-2",
-  "profile": "rat-things-sandbox",
-  "source": { "commit": "...", "tag": "golden-path-v1.0.0", "clean": true },
-  "host": {
-    "platform": "darwin",
-    "architecture": "arm64",
-    "tools": { "node": "v20.19.5", "terraform": "Terraform v1.5.7" }
-  },
-  "terraformManagedResourceCount": 158,
   "thing": {
     "thingId": "...",
     "status": "active",
@@ -159,16 +130,12 @@ Success is deliberately redundant and machine-readable:
   "runs": {
     "draftTest": { "runId": "...", "status": "succeeded", "invocation": "test" },
     "active": { "runId": "...", "status": "succeeded", "invocation": "manual" }
-  },
-  "measurementScope": "quickstart command through successful active-revision Run",
-  "elapsedSeconds": 402,
-  "underTenMinutes": true
+  }
 }
 ```
 
-`ready` is the local result after the active Run succeeds. The later destroy command rewrites that
-local record to `destroyed`; the public evidence wrapper uses `passed` to mean the entire recorded
-setup, Run, status, teardown, and independent postcheck workflow passed.
+`ready` means the active Run succeeded. The destroy command rewrites the local record to
+`destroyed` after removing the deployment.
 
 ## Review first without AWS writes
 
@@ -182,49 +149,11 @@ npm run quickstart:aws -- --dry-run --profile rat-things-sandbox --region us-wes
 `preflight` creates, updates, and deletes no AWS resources. It checks the active AWS identity,
 resolves a managed MicroVM base image, and validates the local `auth.json` structure without
 printing or uploading its value. Preflight cannot prove remaining capacity, account entitlements,
-token validity, or successful inference; the live Run is the end-to-end proof. With
+token validity, or successful inference; those depend on the deployed Run. With
 `--auth bedrock`, preflight instead mints a short-lived Bedrock authentication token and confirms
 that the selected model appears in the model catalog.
 
-## Published validation evidence
-
-The published validation record pins the exact tested commit and contains no credential values. It
-is updated only after a fresh-clone real-Codex run, active-revision invocation, teardown,
-empty-state check, and no-MicroVM check all pass:
-[centrally published AWS quickstart evidence](https://gpazo.github.io/Rat-Things/docs/assets/aws-quickstart-evidence.json).
-
-An immutable source tag cannot contain evidence produced after that same commit exists. Its bundled
-[`aws-quickstart-evidence.json`](aws-quickstart-evidence.json) is therefore the preceding proof
-available when the tag was cut; the central record above is the authority for verifying the release
-commit before deployment. This keeps the tested source immutable instead of rewriting a tag after
-validation.
-
-On August 24, 2026 UTC, a clean clone of immutable tag `golden-path-v1.0.0`, commit
-[`f1c5487`](https://github.com/gpazo/Rat-Things/commit/f1c5487f1eb0c1bbf778a75fea939f4474ee68ff)
-installed its pinned dependencies, passed
-preflight, created 158 managed resources in `us-west-2`, tested and published revision 1, then ran
-that active revision through a second real `openai.gpt-5.6-terra` invocation in **402 seconds
-(6m42s)**. The post-run status check, invoked without repeating the profile or Region, found a
-healthy API, an active Thing with no unpublished
-changes, and the active Run as `lastRunId`. The self-verifying destroy then found zero Terraform
-state entries, zero active MicroVMs, and only the disabled KMS key in `PendingDeletion`.
-
-The same code also recovered a deliberately interrupted fresh setup after the workstation filled
-its disk before Terraform could write AWS resources: `status` reported `incomplete`, and a generic
-`destroy` command reused the stored profile and Region and proved that no resources existed. That is
-recovery validation on the preceding release candidate, not part of the 402-second success
-measurement.
-
-This recorded validation covers the narrow path, not load, quota, multi-tenant, or disaster recovery.
-
-On September 1, 2026, the new file-based ChatGPT bridge completed a separate disposable
-working-tree canary in `us-west-2`. The exact draft test and published active revision both ran real
-Codex successfully with one proof marker and `specHash`; setup through the second Run took 521
-seconds. Authenticated status passed. Teardown found zero Terraform state entries, two listed but
-zero active MicroVMs, and the expected disabled KMS key deletion window. It also removed the
-quickstart-managed Codex secret, and an independent Secrets Manager lookup returned
-`ResourceNotFoundException`. Because the source tree was intentionally dirty with the implementation
-under test, this is live functional evidence, not the clean-source published release record above.
+## Choose the AWS context and driver
 
 Use a named AWS profile or Region without editing Terraform:
 
@@ -238,10 +167,8 @@ For a token-free infrastructure diagnostic, choose the mock explicitly:
 npm run quickstart:aws -- --driver mock
 ```
 
-That mode proves deployment, IAM-authenticated discovery, the complete Thing lifecycle, durable
-state, queueing, MicroVM launch, artifacts, exact tested-revision publication, and active-revision
-invocation. It is not a model or agent-behavior proof, and the command labels it that way before
-making changes.
+Mock mode exercises the same deployment, authentication, Thing lifecycle, queueing, MicroVM, and
+artifact paths with deterministic output. It makes no model calls.
 
 ## Inspect and remove it
 
@@ -256,7 +183,7 @@ npm run quickstart:aws -- sync-auth
 npm run quickstart:aws -- destroy
 ```
 
-Both commands reuse the profile, Region, and environment stored by setup; explicit flags can
+These commands reuse the profile, Region, and environment stored by setup; explicit flags can
 override a stored profile if its credentials were renamed or replaced. `status` reports
 `incomplete` when setup stopped after confirmation but before the final result, otherwise it reruns
 deployment diagnostics and reads the exact Thing. `sync-auth` validates and replaces the encrypted
@@ -288,6 +215,6 @@ durable conversations, integrations, schedules, and publication delivery deliber
   Run `npm run quickstart:aws -- status`, then `npm run quickstart:aws -- destroy`; both reuse the
   saved identity context. Do not delete the state or context file first.
 
-The quickstart intentionally proves one small product path. Continue with [Things](things.md), then
+The quickstart introduces one complete Thing lifecycle. Continue with [Things](things.md), then
 add [accounts and permissions](plugins.md) or the [deeper agent controls](agents.md) only when the
 task needs them.

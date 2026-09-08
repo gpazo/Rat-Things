@@ -33,7 +33,6 @@
       "documents": [
         "slack.md",
         "linear.md",
-        "linear-live-demo-social.md",
         "github-webhook-onboarding.md",
         "microsoft-teams.md",
         "channels.md"
@@ -60,7 +59,8 @@
   ],
   "archive": [
     "grok-bot-0.18-port-audit.md",
-    "grok-bot-current-comparison.md"
+    "grok-bot-current-comparison.md",
+    "linear-live-demo-social.md"
   ],
   "agentCorpusExclude": [
     "status-and-roadmap.md",
@@ -68,7 +68,7 @@
   ],
   "descriptions": {
     "operating-model.md": "Understand the core objects, ownership boundary, permission model, and paths through Rat Things.",
-    "quickstart.md": "Bring your Codex subscription to a disposable AWS golden path, prove two real Runs, then inspect or remove the exact stack.",
+    "quickstart.md": "Deploy Rat Things in AWS, publish and invoke a Thing, and understand its credentials and lifecycle.",
     "codex-subscription.md": "Bring the Codex access included with your ChatGPT plan to local work and isolated agents in your AWS account.",
     "agents.md": "Give another agent one deployment URL and a progressive, machine-readable operating contract.",
     "embedding.md": "Discover, authenticate, and embed a self-hosted Rat Things deployment in your own product.",
@@ -78,6 +78,6 @@
     "conversations.md": "Move between the console and CLI with exact conversation links, durable Run history, option-specific answers, and safe file handoffs.",
     "slack.md": "Start durable work from a Slack mention, continue in its thread, search or act through approved accounts, and understand current boundaries.",
     "linear.md": "Install a verified Linear workspace, expose bounded issue and comment operations, and run a Slack-to-Linear handoff.",
-    "linear-live-demo-social.md": "Reuse the live AWS Linear proof video, screenshots, X copy, website copy, alt text, and asset manifest."
+    "status-and-roadmap.md": "Understand the implemented systems, their current boundaries, and the next areas of development."
   }
 }

@@ -1,125 +1,28 @@
-# Cost model and measured AWS spend
+# Cost model
 
 Rat Things keeps the control plane durable and launches isolated agent compute only for active
 conversations. Operators can see the cost of each layer: model usage, MicroVM execution and
 snapshots, request-scale control-plane services, and optional continuity infrastructure.
-
-> **Current live measurement:** 27.45 seconds from a cold message to the agent runner, 1.99 seconds
-> warm, and about $0.046 of non-model infrastructure for one two-turn site-generation canary. Its
-> $0.380 total is a historical estimate using public rates captured on 2026-08-16, not a current
-> quote. See [Two-turn publication measurement](#two-turn-publication-measurement) for the exact
-> scope, breakdown, and caveats.
 
 Conversation transcripts, retained files, and published files remain durable while execution
 scales with active work. With S3 Files enabled, native agent-thread state and workspaces also
 survive replacement compute. The result is an inspectable per-run cost with no continuously running
 agent worker.
 
-## Measured build and test spend
+## What drives the bill
 
-As of **2026-08-09**, the project's live-AWS development and validation produced:
+| Layer | Cost driver |
+| --- | --- |
+| Model | Input, cached input, output, context size, and the selected provider/model |
+| Active execution | MicroVM memory, vCPU allocation, and active duration |
+| Suspension | Snapshot reads, writes, size, and retained duration |
+| Durable state | S3/S3 Files storage, access, requests, and retention |
+| Network | Optional NAT and public IPv4 hours, processed bytes, and regional/public transfer |
+| Control and delivery | API requests, queues, database operations, logs, metrics, secrets, and publication traffic |
 
-- about **$1.27 of gross attributable AWS usage**;
-- about **$1.07 of AWS credits and free-tier coverage**; and
-- about **$0.20 net account cost**.
-
-The measured work included eight disposable stack lifecycles, seven MicroVM images, thirteen image
-version builds, signed ingress-to-delivery tests, same-VM suspend/resume, replacement-VM workspace
-and Codex-thread restoration, failure-recovery exercises, and bounded GPT-5.6 Terra canaries.
-
-| Component | Gross measured cost |
-| --- | ---: |
-| Lambda MicroVM compute and snapshots | $1.02501 |
-| GPT-5.6 Terra on Amazon Bedrock | $0.19928 |
-| S3 requests and storage | $0.01761 |
-| Secrets Manager | $0.01277 |
-| KMS | $0.00672 |
-| Earlier ECS/Fargate parity test | $0.00316 |
-| EventBridge | $0.00128 |
-| API Gateway | $0.00096 |
-| **Total gross attributable usage** | **$1.26680** |
-| **Net after account credits** | **about $0.19928** |
-
-Standard Lambda, DynamoDB, SQS, CloudWatch, NAT, public IPv4, and S3 Files activity was priced to
-zero by the account's credits or free-tier plan during these tests. Those services are not
-intrinsically free; their normal unit prices are listed below.
-
-AWS applies a one-week minimum retention period to Lambda MicroVM image snapshot storage. All test
-images were deleted, but roughly $0.07–$0.08 of additional gross storage usage may post while the
-minimum ages out. That expected tail is not included in the $1.27 figure.
-
-## Two-turn publication measurement
-
-On **2026-08-16**, one fresh API conversation created and shared a self-contained animated site,
-then resumed the same suspended MicroVM to revise and republish it. This is a canary measurement,
-not a concurrency benchmark. It covers message receipt through terminal orchestration and a
-recipient opening the resulting share link.
-
-| Timing | Current measurement |
-| --- | ---: |
-| Cold message received to agent runner | 27.45 s |
-| Cold message received to successful run | 106.77 s |
-| Warm message received to agent runner | 1.99 s |
-| Warm message received to successful run | 24.10 s |
-
-The cold control plane accepted the message and started the MicroVM in 3.34 seconds. AWS reported
-the MicroVM started at `14:39:55.922Z`; S3 Files was mounted 23.17 seconds later and the agent runner
-started 24.11 seconds after the reported VM start. On the warm turn, the dispatcher began resume at
-`14:42:01.030Z` and the runner started 0.91 seconds later. The two SQS queue-delay measurements were
-695 ms plus 565 ms cold and 133 ms plus 124 ms warm.
-
-The public-list estimate captured for this exact two-turn canary on 2026-08-16 was **about $0.380**
-before credits, taxes, image-build cost, or the stack's idle floor:
-
-| Component | Estimated list cost |
-| --- | ---: |
-| GPT-5.6 Terra model tokens | $0.3341 |
-| Lambda MicroVM active compute, 129.48 seconds | $0.0091 |
-| Two snapshot reads, two writes, and six hours of suspended storage | $0.0281 |
-| S3 Files access | about $0.0051 |
-| NAT processing plus MicroVM-to-VPC regional transfer, 52.64 MB | about $0.0029 |
-| Lambda, API Gateway, ordinary S3, and other request-scale control work | about $0.0005 |
-| **Total** | **about $0.380** |
-
-The model emitted 373,826 cumulative input tokens: 351,634 cache-read, 22,148 cache-write, and 44
-uncached, plus 9,654 output tokens. The estimated non-model infrastructure portion is **$0.046**.
-If the account's observed 20% effective model discount persists, the same canary is about **$0.313**
-before credits.
-
-GPT-5.6 Terra prices have changed since that measurement. The retained evidence has aggregate token
-buckets across both turns, not each request's context-window classification, so recomputing a
-single “current” total would imply precision the evidence does not support. Keep $0.380 as the dated
-estimate and use the current short- or long-context rates below for new runs.
-
-S3 Files access is the only provisional line because its operation-level billing records post
-later. The estimate applies the observed access amplification to the durable working set. The
-directly observed backing set contained **155 objects and 13.39 MB**; the high-performance-storage
-minimum for that set is 14.55 MB, or about $0.0044 for a full 30-day month. The ordinary
-artifact/publication path created 30 objects totaling 356 KB. A
-repeat read of the unchanged output left all committed publication timestamps untouched, proving
-that it minted a fresh grant without restaging the content.
-
-Detailed API metrics contributed nothing because they were disabled. The four queue/processing
-metric series fit within an otherwise unused ten-metric CloudWatch free tier. If all four were paid
-for one active hour, their gross list cost would be about $0.0016; continuously active, they would
-be $1.20 per month. The 14,624-byte site itself adds negligible CloudFront request and transfer cost
-per view. Large videos and heavily viewed sites should model viewer egress separately.
-
-### Attribution method and limitations
-
-The measured legacy resources carried `Project=indubitably-agent`; current stacks use
-`Project=rat-things`. Both include `DeploymentId` and `Ephemeral=true`
-tags, but `Project` was not activated as an AWS billing cost-allocation tag before the tests. The
-total was therefore reconstructed from:
-
-- local Terraform state and teardown timestamps;
-- CloudTrail create/update/delete events;
-- unique `us-west-2` Cost Explorer service, operation, and usage-type records; and
-- public AWS Price List unit rates.
-
-The dominant MicroVM and Bedrock records are unambiguous. Allow a few cents of uncertainty in the
-small shared-account service lines. Production accounts should activate the project, environment,
-owner, and deployment tags before the first deployment and enforce them with account policy.
+Separate costs that grow with each Run from resources billed while the deployment is idle. Enable
+billing allocation tags before deployment, and retain usage dimensions per Run so model changes,
+cache behavior, and longer conversations can be priced independently.
 
 ## Per-unit prices in US West (Oregon)
 
@@ -227,9 +130,8 @@ public in-Region GPT-5.6 Terra pricing in `us-west-2` distinguishes short and lo
 Check [Amazon Bedrock pricing](https://aws.amazon.com/bedrock/pricing/) before budgeting; rates and
 regional availability can change.
 
-The 2026-08-16 canaries received effective Cost Explorer rates about 20% below the public prices
-captured then. Because that may be account-specific, capacity planning should use current public
-prices unless the target account has a documented discount.
+Use current public rates for estimates unless the target account has a documented discount.
+Account credits and free-tier coverage do not remove the underlying resource cost.
 
 ## Where Rat Things fits
 

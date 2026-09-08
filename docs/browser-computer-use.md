@@ -5,12 +5,9 @@ stops retrying the screen endpoint. Activity and Sources remain available. Start
 with **Isolated browser** enabled when browser access is needed. A retained terminal frame labels
 completed, failed, and intentionally stopped work separately.
 
-Rat Things has built-in, agent-controlled browser use in remote Lambda MicroVM runs. It is an
-**engineering preview**: the complete implemented browser surface passed a historical real-Codex
-live-AWS canary under the former approval bridge. A fresh real-Codex canary also passed the current
-autonomous fixed-envelope revision, including live viewing, temporary human takeover, secret-
-redacted teach-by-demonstration, draft-Thing creation, and return of browser control. This is a view
-of the isolated public-web browser, not an unrestricted remote desktop.
+Rat Things provides an isolated public-web browser inside remote Lambda MicroVM Runs. The agent
+can use it autonomously within the Run's fixed capability envelope. The owner can view the screen,
+temporarily take control, or turn a redacted demonstration into an unpublished Thing draft.
 
 ## What works today
 
@@ -169,15 +166,14 @@ Do not describe the current feature as unrestricted or production-hardened full 
 Things still lacks:
 
 - secure credential entry or autofill that keeps reusable secrets out of model context;
-- live-AWS proof that an authenticated browser profile and cookies survive both later turns and a
-  replacement MicroVM;
+- a supported guarantee that authenticated browser profiles and cookies survive replacement
+  MicroVMs;
 - file chooser uploads, managed downloads, clipboard, multiple tabs/windows, and popup workflows;
 - hover, drag/drop, double/right click, iframe and shadow-DOM hardening, permission dialogs, and
   other long-tail browser interactions;
 - an outbound origin policy, DNS-rebinding defense, content DLP, and an independent browser-escape
   and cross-owner security review;
-- browser crash recovery, high-concurrency and long-SPA testing, and live cancellation and
-  interruption canaries; and
+- guaranteed browser crash recovery or sustained high-concurrency operation; and
 - graphical desktop or native application control. Shell and filesystem tools exist, but there is
   no general remote desktop.
 
@@ -189,41 +185,8 @@ a persistent desktop between turns, do not expose arbitrary guest windows, and d
 passkeys, native permission dialogs, or host-side secret injection. Treat takeover as interaction,
 not as a secure credential broker.
 
-Video finalization is also an engineering-preview path: the live 5 fps canary produced a valid
-23.8-second WebM, but finalization took 168 seconds in that MicroVM. Keep evidence segments short
-until the recorder is replaced or optimized.
-
-## Live proof
-
-On 2026-08-26, fresh disposable stack `comp260826a` passed the owner-authenticated live-computer
-journey in 174.4 seconds. A real Codex-on-Bedrock Run remained active in an ARM64 Lambda MicroVM
-while the test loaded a 1280×720 JPEG, acquired the exclusive human lease, recorded two browser
-actions, saved an unpublished Thing draft, returned control, and observed the agent's exact success
-marker. The demonstrated URL contained a secret query value and fragment, and the typed value was
-also secret; the saved Thing contained `{{input_1}}` and neither secret nor query key. All 234 stack
-resources were destroyed afterward; the tagged-resource audit confirmed the remaining AWS
-tombstones gone, terminal, or deleting.
-
-Later that day, fresh disposable stack `ux260826a` passed a 2.8-minute client-view journey against
-NVIDIA's official Q2 FY27 earnings release. The console opened a real Codex browser Run, showed the
-resizable conversation/browser layout and active-Run strip, acquired and returned the exclusive
-human-control lease, sent pointer and scroll actions, exposed the official page in Sources, grouped
-the browser work into human-readable Activity phases, and rendered the sourced final summary in the
-transcript. The recorded H.264 MP4 was visually inspected, and all 234 stack resources were destroyed
-afterward.
-
-On 2026-08-21, a real Codex turn in a disposable ARM64 Lambda MicroVM exercised every implemented
-browser command: `navigate`, `observe`, `record_start`, `type`, `press`, `select`, coordinate and
-reference `click`, `screenshot`, `wait`, `back`, `scroll`, and `record_stop`. That historical canary
-used the former approval bridge. The current contract executes the same statically admitted browser
-surface autonomously; the 2026-08-26 canary validates the new viewing, takeover, and teaching path,
-while a fresh all-command recording/publication rerun remains separate follow-up coverage.
-
-The test verified submitted form values, retained a 59,298-byte PNG and 10,746-byte JPEG, and
-produced a 1,547,168-byte, 1280x720, 5 fps VP8 WebM. It created three isolated publication hosts,
-loaded each generated viewer, fetched byte-identical media, and matched all SHA-256 digests. The
-screenshots and representative video frames were visually inspected. See the complete
-[validation record](status-and-roadmap.md) and [security model](security.md).
+Video encoding can take longer than capture and delays finalization. Keep recordings short when
+a prompt response matters.
 
 See [the capability envelope](capability-envelope.md) before enabling browser use for sensitive
 work. Assume the agent can exercise every admitted browser action against every destination allowed

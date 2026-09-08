@@ -140,26 +140,13 @@ Linear search before any write, and zero or one issue creation. The available-op
 not guarantee that order or count, so fail the acceptance test if the ledger differs. If the write
 response is ambiguous, inspect Linear before repeating it.
 
-## Evidence and limitations
+## Current boundaries
 
-| Evidence field | What is established |
-| --- | --- |
-| Date | Slack components on August 28–29, 2026; Linear components on August 30, 2026 |
-| Source revision | Historical live validations recorded in the repository ledger; this guide was reviewed against `c0156cd` |
-| Environment | Retained `us-west-2` stack; real Slack workspace; private Linear workspace; real Codex in ARM64 Lambda MicroVMs |
-| Model/provider | Codex driver; the retained public component records do not name a model ID |
-| Slack component | Signed `app_mention` ingress, source-thread delivery and continuation, delegated message search returning the expected permalink, root/thread posting and reaction tools, and read-only write denial |
-| Linear component | Team discovery, one issue creation, update, app-authored comment, read-back, five successful ledger calls, and a separate read-only denial Run |
-| Scenario | Compare the separately tested Slack read/ingress path and Linear write/read-back path with the proposed combined workflow |
-| Result | Every required operation has passed against its real provider, but the exact combined sequence has not yet produced one Run receipt |
-| Reproduce | Install the accounts with the [Slack](../docs/slack.md) and [Linear](../docs/linear.md) setup guides, then run the command above and compare its ledger with the expected shape |
-| Evidence | [Slack validation ledger](../docs/status-and-roadmap.md#validation-completed-on-2026-08-29-pdt) and [Linear live proof](../docs/linear.md#live-aws-proof) |
-| Limits | **No published Run has yet executed this exact Slack-search → Linear-search → conditional-create sequence end to end.** The current record proves the components separately. Current grants do not enforce call order or cardinality, Linear OAuth requests broad `read,write`, and Slack search uses a legacy provider endpoint. The proof also does not cover Linear-native mentions, Agent Session events, high-concurrency duplicate prevention, or production Slack cold-start hardening. |
-
-The Linear proof used the app actor, so writes appeared as the installed application rather than
-impersonating the workspace administrator. Until a single end-to-end receipt is published, treat
-the expected ledger above as the acceptance criterion rather than as an already demonstrated
-result.
+This is a workflow you configure from the installed tools, not a built-in transaction across
+Slack and Linear. Grants restrict operations but do not enforce their order or call count. Search
+before creating and inspect the returned issue ID, while accounting for concurrent Runs that can
+still create duplicates. Linear writes use the app actor. Native Linear mentions and Agent Session
+ingress are not implemented; Slack search depends on a legacy provider endpoint.
 
 ## Production checklist
 
@@ -185,4 +172,4 @@ Connection, run the bounded demo, and inspect the current limitations.
 - [Linear OAuth scopes and app actors](https://linear.app/developers/oauth-2-0-authentication)
 - [Linear GraphQL authentication and error handling](https://linear.app/developers/graphql)
 - [Rat Things Slack implementation boundaries](../docs/slack.md)
-- [Rat Things Linear implementation and component proof](../docs/linear.md)
+- [Rat Things Linear integration](../docs/linear.md)

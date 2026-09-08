@@ -41,8 +41,8 @@
         "href": "../docs/quickstart.md"
       },
       "evidenceCta": {
-        "label": "Inspect the durability evidence",
-        "href": "../docs/status-and-roadmap.md#current-maturity"
+        "label": "Understand durable handoffs",
+        "href": "../docs/conversations.md#how-durability-works"
       }
     },
     "run-codex-in-aws-with-chatgpt.md": {
@@ -58,8 +58,8 @@
         "href": "../docs/quickstart.md"
       },
       "evidenceCta": {
-        "label": "Inspect the authentication evidence",
-        "href": "../docs/codex-subscription.md#live-verification-status"
+        "label": "Understand credential custody",
+        "href": "../docs/codex-subscription.md#credential-risk-and-lifecycle"
       }
     },
     "durable-ai-agent-state.md": {
@@ -75,8 +75,8 @@
         "href": "../docs/conversations.md#how-durability-works"
       },
       "evidenceCta": {
-        "label": "Inspect the replacement test",
-        "href": "../docs/conversations.md#validation"
+        "label": "Understand the durability invariants",
+        "href": "../docs/conversations.md#invariants"
       }
     },
     "schedule-codex-tasks-aws.md": {
@@ -92,8 +92,8 @@
         "href": "../docs/things.md#lifecycle"
       },
       "evidenceCta": {
-        "label": "Inspect the schedule evidence",
-        "href": "../docs/status-and-roadmap.md#validation-completed-on-2026-08-23"
+        "label": "Understand schedule delivery",
+        "href": "../docs/things.md#eventbridge-scheduler"
       }
     },
     "least-privilege-ai-agent-integrations.md": {
@@ -109,8 +109,8 @@
         "href": "../docs/plugins.md"
       },
       "evidenceCta": {
-        "label": "Inspect the permission proof",
-        "href": "../docs/linear.md#live-aws-proof"
+        "label": "Understand permission enforcement",
+        "href": "../docs/capability-envelope.md"
       }
     },
     "slack-to-linear-agent-workflow.md": {
@@ -126,8 +126,8 @@
         "href": "../docs/linear.md#7-run-the-slack-to-linear-demo"
       },
       "evidenceCta": {
-        "label": "Inspect the component evidence",
-        "href": "../docs/status-and-roadmap.md#current-maturity"
+        "label": "Understand integration boundaries",
+        "href": "../docs/linear.md#current-boundaries"
       }
     },
     "aws-ai-agent-cost.md": {
@@ -143,8 +143,8 @@
         "href": "../docs/costs.md"
       },
       "evidenceCta": {
-        "label": "Inspect the cost methodology",
-        "href": "../docs/costs.md#two-turn-publication-measurement"
+        "label": "Understand the cost drivers",
+        "href": "../docs/costs.md#what-drives-the-bill"
       }
     },
     "self-hosted-vs-managed-cloud-agents.md": {

@@ -436,24 +436,9 @@ function validateGuideConfig(groups, markdownFiles, documents) {
         }
         rewriteGuideHref(page[name].href, file);
       }
-      for (const section of ['## Evidence and limitations', '## Sources']) {
+      for (const section of ['## Current boundaries', '## Sources']) {
         if (!documents.get(file).source.includes(section)) {
           throw new Error(`guide ${file} needs a ${section.slice(3)} section`);
-        }
-      }
-      for (const evidenceField of [
-        'Date',
-        'Source revision',
-        'Environment',
-        'Model/provider',
-        'Scenario',
-        'Result',
-        'Reproduce',
-        'Evidence',
-        'Limits',
-      ]) {
-        if (!documents.get(file).source.includes(`| ${evidenceField} |`)) {
-          throw new Error(`guide ${file} needs an evidence row for ${evidenceField}`);
         }
       }
       seen.add(file);

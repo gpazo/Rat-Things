@@ -139,19 +139,11 @@ Rat Things publishes a measured two-turn workload and its non-model infrastructu
 explicit caveats. Use [the AWS agent cost guide](aws-ai-agent-cost.md) as a measurement template,
 not as a universal price comparison.
 
-## Evidence and limitations
+## Current boundaries
 
-| Evidence field | What is established |
-| --- | --- |
-| Date | September 7, 2026 |
-| Source revision | Rat Things `c0156cd` plus the first-party product documentation linked below |
-| Environment | Documentation review of Codex cloud, GitHub Copilot cloud agent, AWS Lambda MicroVMs, and the Rat Things implementation |
-| Model/provider | Not applicable; this is a decision framework, not a model-quality benchmark |
-| Scenario | Compare control location, identity, credential custody, networking, isolation, durability, operations, workflow fit, and total cost using one scoring method |
-| Result | A complete weighted worksheet and mandatory-boundary rule; no universal product winner is asserted |
-| Reproduce | Fill the worksheet with first-party evidence for the actual plans and workflow, reject mandatory failures, then run the highest-ranked candidate on one representative task |
-| Evidence | [Rat Things validation ledger](../docs/status-and-roadmap.md) plus the named products' first-party documentation in [Sources](#sources) |
-| Limits | This is **not** a controlled head-to-head benchmark, security attestation, price comparison, or claim that every managed or self-hosted system behaves alike. Validate plan-specific terms and run a representative proof before deciding. |
+A deployment model alone does not determine security, price, or workflow fit. Apply the worksheet
+to the actual product plan, identity model, network controls, retention policy, and operating team.
+Treat required boundaries as constraints before comparing convenience or cost.
 
 ## A decision worksheet
 
@@ -186,4 +178,4 @@ that path without hiding the current limitations.
 - [GitHub Copilot cloud agent](https://docs.github.com/en/copilot/concepts/agents/cloud-agent/about-cloud-agent)
 - [AWS Lambda MicroVM lifecycle and pricing](https://aws.amazon.com/lambda/pricing/)
 - [Rat Things architecture](../docs/architecture.md#lambda-microvm-execution)
-- [Rat Things current maturity and validation ledger](../docs/status-and-roadmap.md)
+- [Rat Things capabilities and boundaries](../docs/status-and-roadmap.md)

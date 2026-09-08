@@ -329,16 +329,5 @@ debugging:
 | `POST .../{id}/resume` | `thing-resume ID` | Re-enable the active schedule |
 | `POST .../{id}/archive` | `thing-archive ID` | Make the Thing terminal and remove its schedule |
 
-## Definition of done
-
-The lifecycle is covered at four levels:
-
-- unit tests validate parsing, immutable pointers, lifecycle retries, and trigger health;
-- simulation tests exercise the complete Thing-to-durable-run path and duplicate/stale delivery;
-- LocalStack tests run the control and trusted Scheduler Lambda handlers against real DynamoDB,
-  encrypted-definition references, S3 run inputs, and SQS wake-ups; and
-- live AWS tests inspect the created Scheduler resource, wait for an actual invocation, verify the
-  pinned run input, then pause, resume, archive, and confirm deletion and empty failure queues.
-
 See [embedding and self-hosting](embedding.md) for frontend boundaries and
 [diagnostics](diagnostics.md) when the narrow journey does not behave as expected.

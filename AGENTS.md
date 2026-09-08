@@ -68,6 +68,14 @@ The Lambda functions and MicroVM image are ARM64. Container builds must use `lin
   path that lets the guest widen its own authority.
 - Results and prompts live in encrypted S3; DynamoDB stores references and bounded summaries.
 
+## Documentation
+
+Documentation teaches the current system: concepts, behavior, boundaries, setup, and operation.
+Keep test counts, deployment IDs, dated validation narratives, and QA procedures out of learner
+pages in `docs/` and `guides/`. Put validation results in commit/PR descriptions or test artifacts;
+keep contributor test instructions with the harness. Turn a finding into an explanation of the
+resulting behavior instead of an account of how the finding was discovered.
+
 ## Verification
 
 Run `npm run check` after code or Terraform changes. Lambda MicroVM provisioning is an explicit

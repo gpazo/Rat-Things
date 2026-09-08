@@ -4,7 +4,7 @@ This is the host/operator path for installing and maintaining an independent Rat
 Consumers of an existing deployment should start with the [operating model](operating-model.md)
 instead; they do not need Terraform, Docker, or access to the runtime account.
 
-For the smallest fresh-clone deployment and a measured real-Codex Thing, start with the
+For the smallest fresh-clone deployment and a runnable Thing, start with the
 [AWS-ready ten-minute quickstart](quickstart.md). It deliberately omits accounts, VPC/NAT, schedules, and
 public sharing. Return here when choosing a longer-lived installation shape.
 
@@ -34,26 +34,9 @@ npm run smoke:local
 `smoke:local` validates a v1 request and runs the deterministic mock driver in the current process.
 It does not create AWS state, launch a MicroVM, send a notification, or call a model.
 
-For the disposable local integration path:
-
-```bash
-npm run test:e2e:localstack
-npm run test:e2e:microvm-image
-```
-
-LocalStack owns S3, DynamoDB/Streams, SQS, EventBridge, Secrets Manager, and related event routing.
-The suite also validates the durable conversation table and S3 bodies through prioritized mailbox,
-lease, progress, checkpoint/resume, and completion operations. Handlers and the mock runner execute
-on the host because LocalStack does not implement the Lambda MicroVM APIs or lifecycle. WireMock's
-Fixture CRM rejects an invalid key, verifies two permission-distinct accounts, and serves the
-same-plugin multi-account Thing path without using a customer provider account. See
-[`testing/README.md`](../testing/README.md).
-
-The image canary packages and builds the real `linux/arm64` MicroVM context, validates lifecycle
-startup through the root/host path, proves the cgroup eBPF policy denies UID 10001 through both
-loopback and the guest interface, proves an unrelated external service on port 8080 remains
-reachable, launches the bundled Chromium against a public page, captures a screenshot, and rejects
-loopback navigation. It does not provision a Lambda MicroVM or replace the disposable-AWS suite.
+Contributor test commands and harness behavior are documented in
+[`testing/README.md`](../testing/README.md) and the
+[live AWS harness](../testing/aws/README.md).
 
 Focused local runs are also available:
 
@@ -72,9 +55,8 @@ OpenAI provider, and reuse the account cached by `codex login` on this device. E
 Leave `CODEX_CHATGPT_MODEL` empty to use the signed-in workspace's default, or set it to an account
 model ID. `DEFAULT_MODEL` is used only by an explicitly selected Bedrock deployment.
 `--events` prints the complete JSONL protocol stream, including command/tool execution records and
-token usage, so a canary can prove more than final-message delivery.
-For an intentional local command-egress canary, add `--network` and choose the inner sandbox you
-want. Local runs default to no network. `workspace-write` maps the flag to Codex's
+token usage. To allow networking in a local Run, add `--network` and choose the inner sandbox.
+Local runs default to no network. `workspace-write` maps the flag to Codex's
 `sandbox_workspace_write.network_access`; `read-only` carries the same explicit network selection in
 its App Server sandbox policy.
 
@@ -192,7 +174,7 @@ persistent conversation runs use the Terraform-managed network connector, privat
 DynamoDB endpoints, and NAT gateway for public Git/model access. Set `enable_s3_files=false` only
 when native workspace/app-server restoration across replacement VMs is not required.
 
-Review the [measured AWS spend and per-unit cost model](costs.md) before choosing that setting. The
+Review the [cost model](costs.md) before choosing that setting. The
 optional NAT gateway and public IPv4 address create an approximately $36/month idle floor in
 `us-west-2`; the default 4-GB/2-vCPU MicroVM itself costs about $0.0042 only for each active minute,
 before snapshots and model tokens. Activate billing allocation tags and a project budget before the
@@ -204,10 +186,9 @@ queue delay and processing duration using only deployment and component dimensio
 Gateway metrics remain available through `enable_detailed_api_metrics=true`, but are off by default
 to avoid paying for idle route cardinality.
 
-The 2026-08-16 live canary measured 27.45 seconds from a cold message to the agent runner, including
-24.11 seconds from AWS's reported MicroVM start to the runner, and 1.99 seconds from a warm message
-to the resumed runner. See the [two-turn publication measurement](costs.md#two-turn-publication-measurement)
-for the full latency, state-footprint, NAT, token, and list-cost breakdown.
+A cold launch must boot the MicroVM and prepare storage before Codex initializes. A resumed
+conversation can reuse mounted storage and native agent state. Diagnose these phases separately
+using the [startup runbook](runbook.md#slow-conversation-startup-or-codex-initialization).
 
 ## Remote mock smoke test
 
@@ -272,69 +253,21 @@ Each command waits for the exact message's Run to succeed and for completion orc
 the result into durable context and suspend the session before printing Codex output. Add `--json`
 to capture the message and Run IDs, public Run state, and suspended session state. Public responses
 intentionally omit private MicroVM and native Codex thread identifiers; trusted operators can
-correlate those only through AWS logs and dedicated test evidence. Reuse the exact agent policy on
+correlate those only through AWS logs. Reuse the exact agent policy on
 later turns; it is immutable for the conversation.
 
-For a one-shot control run, verify exactly one execution ID, successful self-termination,
-output/event checksums, terminal state, empty queues/DLQs, provider delivery state, and correlated
-logs. A conversation validation must instead verify suspend, authenticated resume on the same ID,
-retained workspace/Codex thread, and eventual termination or expiry cleanup.
+## Configure model authentication
 
-## Disposable live-AWS gate
-
-Use the separate state under `testing/aws` when the goal is deploy, validate, and immediately remove
-everything:
-
-```bash
-AWS_E2E_ENABLE_MICROVM=true \
-AWS_E2E_MICROVM_BASE_IMAGE_VERSION="<available pinned version>" \
-npm run test:e2e:aws
-```
-
-The harness exercises real API Gateway/Lambda/IAM/KMS, public discovery and schemas, the Thing and
-headless conversation APIs, a disposable provider API with two verified accounts, signed
-GitHub/GitLab/Teams ingress, a pinned repository checkout inside the MicroVM, durable
-definitions/artifacts/state/events, captured Teams egress, failure queues, one-shot
-self-termination, and a two-turn Teams conversation that suspends and resumes the same MicroVM
-through its AWS-authenticated continuation endpoint. The Thing scenario verifies immutable
-KMS-encrypted definitions, provider/broker/profile/Thing permission intersection, idempotent
-dispatch, lifecycle changes, CLI rotation, revocation, and absence of credential values. The mock
-suite also validates expired-session replacement and coordinator crash-window repair. Its opt-in
-real-Codex probes restore workspace/thread state and perform one read plus one statically admitted write
-against exact Fixture CRM accounts, with exactly-one provider-side mutation. The harness destroys
-the tagged stack from an exit trap. LocalStack cannot replace that isolation/lifecycle test. See
-[`testing/aws/README.md`](../testing/aws/README.md).
-
-Add the bounded two-turn real-Codex persistence probe before teardown with:
-
-```bash
-AWS_E2E_REAL_CODEX=true \
-AWS_E2E_ENABLE_MICROVM=true \
-AWS_E2E_MICROVM_BASE_IMAGE_VERSION="<available pinned version>" \
-npm run test:e2e:aws
-```
-
-## Real Codex canary
-
-Only after the mock path passes:
-
-1. Use a dedicated non-sensitive owner and repository with outbound delivery disabled.
-2. Keep `allow_agent_aws_credential_chain=false`. For the default ChatGPT path, configure a
-   validated file-based login through `codex_auth_file_secret_arn`. Treat its renewable refresh
-   token as account-impersonation authority; use a dedicated account or workspace for shared
-   automation when practical.
-3. Confirm the bundled CLI/configuration and model/provider settings.
-4. Start with no repository, then a pinned public read-only repository, then a private read-only
-   repository using a clone-only secret.
-5. Validate output/events, cancellation, timeout, logs, credential absence, latency, quota, and cost.
-6. Enable one result destination only after the execution path is understood.
+Keep host AWS credentials separate from agent authority with
+`allow_agent_aws_credential_chain=false`. The default ChatGPT path reads a validated file-based
+login from `codex_auth_file_secret_arn`; Bedrock uses the generated runtime role's model access.
 
 The deployed MicroVM path defaults to `CODEX_AUTH_MODE=chatgpt`. It resolves the auth-file secret
 inside the trusted worker, writes a private runtime `auth.json`, runs Codex with the built-in OpenAI
 provider, persists validated refresh rotation, and removes the runtime file. Never bake the file
 into an image or place it in a Run, state record, log, or Terraform value. Same-UID agent code can
 read it during execution, and persistent S3 Files may carry the temporary copy; read the
-[accepted credential risk](security.md#secret-handling) before a canary. Set
+[credential lifecycle](codex-subscription.md#credential-risk-and-lifecycle) before enabling the bridge. Set
 `codex_auth_mode = "bedrock"` and an exact Bedrock model allowlist only when a deployment
 deliberately chooses that provider.
 

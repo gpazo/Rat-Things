@@ -69,15 +69,6 @@ only an authorized operation input, one connection's credential value, and an ab
   <figcaption><strong>Compute is disposable; work is durable.</strong> Each stage has one responsibility and a recoverable boundary.</figcaption>
 </figure>
 
-### Validation topology
-
-The test harnesses are separate from the product path:
-
-- **Live AWS harness:** [SVG](c4-live-aws-test-harness-containers.svg),
-  [Mermaid source](c4-live-aws-test-harness-containers.mmd)
-- **LocalStack harness:** [SVG](c4-localstack-test-harness-containers.svg),
-  [Mermaid source](c4-localstack-test-harness-containers.mmd)
-
 ## Lifecycle
 
 ### 1. Ingress and acceptance

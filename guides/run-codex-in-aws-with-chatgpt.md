@@ -131,19 +131,12 @@ If you supplied `--codex-auth-secret-arn`, that secret remains operator-managed 
 not delete it. If compromise is suspected, delete the AWS copy first, revoke ChatGPT account
 sessions, and sign in again. Deleting only the local file does not invalidate a stolen copy.
 
-## Evidence and limitations
+## Current boundaries
 
-| Evidence field | What is established |
-| --- | --- |
-| Date | September 1, 2026 |
-| Source revision | Working tree based on `818591feeaea5b351364e68808a2566ca55bb025`; not a clean release artifact |
-| Environment | Disposable `us-west-2` stack; ARM64 Lambda MicroVM; ChatGPT file bridge |
-| Model/provider | Codex using OpenAI models through the copied ChatGPT account session; the retained public record does not name a model ID |
-| Scenario | Local file-backed login, authenticated quickstart status check, real Codex draft test, published-revision invocation, and teardown |
-| Result | Both Runs succeeded against the same immutable revision; setup through the second Run took 521 seconds; teardown left zero active MicroVMs and an independent Secrets Manager lookup found the managed credential deleted |
-| Reproduce | `npm run codex:login`, `npm run codex:status`, then the [AWS-ready quickstart](../docs/quickstart.md) |
-| Evidence | [Full authentication validation record](../docs/codex-subscription.md#live-verification-status) |
-| Limits | A clean-source published rerun remains outstanding. This is trusted, owner-operated evidence, not proof for untrusted multi-tenancy or a recommendation to prefer account credentials over API keys for general automation. |
+The file bridge is for trusted, owner-operated agents. The agent UID can read the reusable account
+credential while a Run is active, and copying the credential into encrypted storage does not remove
+that exposure. Keep credential custody, refresh, revocation, and deletion explicit; see the
+[credential lifecycle](../docs/codex-subscription.md#credential-risk-and-lifecycle).
 
 ## Sources
 

@@ -437,75 +437,6 @@ conversation. Interrupted external operations with an unknown outcome still requ
 before repeating them. Stop does not undo completed external effects. When a browser panel is open,
 it freezes the last captured frame and disables live controls at the end of the Run.
 
-The deterministic browser E2E starts a fake owner-scoped control API and the real loopback console
-proxy, then drives conversation creation, upload validation and transport, structured question
-response, unloaded-history search, transcript/file navigation and inline viewing, reply/reaction
-controls, pin/hide/read persistence, pagination, per-conversation drafts, autonomous live activity,
-durable completion, and question/drawer layouts at 390 pixels in Chromium. Failure artifacts include a screenshot,
-trace, and video:
-
-```bash
-npm run test:e2e:console:install # once per machine
-npm run test:e2e:console
-```
-
-Playwright artifacts can contain prompts, transcripts, and activity details. The test configuration
-creates them with private local permissions, `test-results/` is ignored, and test prompts should
-still use disposable data. Remove retained artifacts securely when they are no longer needed.
-
-To retain a successful run as a broadly playable H.264 MP4 (requires `ffmpeg`):
-
-```bash
-npm run demo:console
-# test-results/rat-things-console-demo.mp4
-```
-
-The live AWS browser leg uses the same UI and signed proxy against the disposable deployment. It
-submits two turns to one owner-scoped API conversation, waits for the real Lambda MicroVM after
-each submission, and checks the four-message durable
-transcript through the public read model. It also proves both turns used the same private MicroVM
-identity without exposing that identity through the browser-visible Run projection:
-
-```bash
-./scripts/aws-e2e-deploy.sh browser-demo
-./scripts/aws-e2e-console-test.sh browser-demo
-./scripts/aws-e2e-destroy.sh browser-demo
-```
-
-To record that focused live journey as a broadly playable H.264 MP4 (requires `ffmpeg`), run the
-demo command between deploy and destroy. It adds short human-readable pauses but preserves every
-functional assertion:
-
-```bash
-./scripts/aws-e2e-deploy.sh browser-demo
-npm run aws:e2e:console:demo -- browser-demo
-./scripts/aws-e2e-destroy.sh browser-demo
-# test-results/rat-things-console-live-demo.mp4
-```
-
-To test an already-running stack without taking ownership of its lifecycle, do not run deploy or
-destroy. Resolve the exact current deployment, restore the same AWS profile/credential context used
-to deploy it, and run only the focused test:
-
-```bash
-cat .aws-e2e/latest
-rat_deployment_id="$(<.aws-e2e/latest)"
-AWS_PROFILE=YOUR_PROFILE ./scripts/aws-e2e-console-test.sh "$rat_deployment_id"
-```
-
-The focused test creates a uniquely named durable conversation and two Runs and can leave a suspended
-MicroVM until normal lifecycle cleanup or stack teardown. Its preflight rejects an AWS account or
-principal that differs from the deployment record. Teardown clears `.aws-e2e/latest` when it still
-points at the destroyed deployment; an absent pointer means the operator must choose an explicit
-live deployment ID. `npm run aws:e2e:status` lists local deployment records as `ready-local`,
-`partial-local`, or `destroyed`; this is a read-only local inventory, not proof that every AWS
-resource still exists.
-
-The full `npm run test:e2e:aws` lifecycle runs both the existing AWS workflow suite and this browser
-journey before its exit trap destroys and audits the ephemeral stack. It requires the one-time
-Chromium installation above. Never leave a manually deployed test stack running after the test; if
-the browser leg fails, run the printed destroy command.
-
 For an isolated unsigned local control plane, set `AGENT_RUNTIME_UNSIGNED=true` and
 `RAT_THINGS_LOCAL_OWNER=<test-owner>` on the console process while the backend separately opts into
 `ALLOW_OWNER_HEADER=true`. Never use that owner-header escape hatch in a deployed stack, and do not
@@ -538,27 +469,6 @@ then their references are committed in DynamoDB. A failed DynamoDB transaction c
 an unreachable content-addressed object, which the bucket lifecycle policy eventually removes. A
 DynamoDB record never points at an object that the service has not finished writing.
 
-## Validation
-
-`npm run test:e2e:localstack` provisions the real table, bucket, and queues and validates:
-
-- idempotent append and conflicting message-ID rejection;
-- interrupt-before-defer ordering through the DynamoDB GSI;
-- lease acquisition and stale-token rejection;
-- turn start, progress, message consumption, and event history;
-- S3-backed checkpointing, lease release, reacquisition, and slice resume; and
-- signed Teams ingress through mailbox, coordinator, run, completion, and threaded egress;
-- terminal completion with all pending work consumed; and
-- a second Teams activity selecting the prior MicroVM/Codex session and replaying prior context.
-
-LocalStack validates the AWS control protocol and session-selection behavior but cannot implement
-the Lambda MicroVM or S3 Files APIs. The disposable live-AWS suite validates same-VM suspend/resume,
-session-expiry replacement, crash-window recovery, and a real Codex app-server turn that writes a
-file with a tool call. It then terminates that VM, observes the file in the backing S3 bucket, mounts
-the state in a replacement VM, resumes the exact Codex thread ID, and reads the exact bytes without
-recreating them. It does not yet measure sustained concurrency/cost or validate Microsoft identity
-and delivery into a real Teams tenant.
-
 ## Current boundaries
 
 Mailbox `interrupt` priority applies to queued thread work; the separate active-Run control route
@@ -570,8 +480,8 @@ human-approval inbox. Browser-enabled active Runs do offer owner-scoped live vie
 exclusive human browser lease, and teach-by-demonstration; none changes the capability envelope or
 creates an approval state. Rat does not yet offer Rat-authored long-history fallback summaries,
 cross-conversation semantic memory, or sustained-concurrency guarantees. Native Codex
-thread compaction is preserved under the conversation's S3-backed `CODEX_HOME` and has been verified
-across a fresh App Server process. Bounded replacement-VM replay remains a complementary fallback:
+thread compaction is preserved under the conversation's S3-backed `CODEX_HOME` across App Server
+processes. Bounded replacement-VM replay remains a complementary fallback:
 it carries cumulative omission counts and an explicit handoff notice, but does not claim to summarize
 omitted content. Those are deliberate boundaries of the current engineering preview, not alternate
 execution models.

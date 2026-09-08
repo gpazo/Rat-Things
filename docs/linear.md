@@ -175,53 +175,14 @@ and at most one issue creation plus one comment. If a matching issue exists, thi
 does not include `linear.issues.update`, so the agent must report that boundary rather than changing
 the issue.
 
-For a strictly read-only proof:
+For a read-only investigation:
 
 ```bash
-rat-things chat --thread linear-read-proof \
+rat-things chat --thread linear-read \
   --connection linear-work=read-only \
   --allow-operation linear-work=linear.teams.list,linear.issues.search,linear.issues.get \
   "Find the most relevant renewal issue and summarize its current state and unresolved comments. Do not change Linear."
 ```
-
-## Live AWS proof
-
-On August 30, 2026 PDT, retained deployment `oauth260827a` completed the entire path against a real
-private Linear workspace:
-
-1. A workspace admin authorized the **Rat Things** OAuth app through the deployment's public PKCE
-   callback. Rat verified the workspace and app-user identity, then reported `linear-work` healthy.
-2. A real Codex Run inside an ARM64 Lambda MicroVM called `teams.list`, `issues.create`,
-   `issues.update`, `comments.create`, and `issues.get` exactly once each.
-3. Linear returned issue **IND-6**. The app actor created the issue and its proof comment, and the
-   final read returned the updated provider state.
-4. The durable Run ledger settled all five calls as `succeeded`; no OAuth token entered the prompt,
-   workspace, Run request, or tool result.
-5. A fresh read-only Run exposed search/get only, explicitly reported that creation was unavailable,
-   and recorded no write call.
-
-The first write canary also did useful release work: it exposed a broker compatibility gap when the
-agent emitted an object operation's schema-equivalent fields without the usual `input` wrapper. The
-host now normalizes that safe shape, still rejects unknown keys, and the fixed image passed the full
-provider read-back on the next Run.
-
-[Watch the 39.4-second proof](linear-live-aws-e2e.mp4), inspect the
-[real Linear result](linear-live-issue.png), or open the
-[five-call durable receipt](linear-live-write-run.png). The companion
-[launch-copy sheet](linear-live-demo-social.md) includes X copy, website copy, alt text, and asset
-filenames.
-
-To record the same console journey against an already-installed disposable Connection:
-
-```bash
-AWS_E2E_LINEAR_CONNECTION_ALIAS=linear-work \
-AWS_E2E_LINEAR_MARKER=RT-LINEAR-LIVE-20260831-FINAL \
-./scripts/aws-e2e-linear-demo.sh oauth260827a
-```
-
-The script is evidence capture, not a mock: it reads the live Connection and durable conversations
-from AWS, asserts the five-call write receipt and the read-only denial receipt, then records the
-console to `assets/linear-live-aws-console.mp4`.
 
 ## Optional personal API key path
 

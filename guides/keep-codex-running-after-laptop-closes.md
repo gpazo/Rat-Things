@@ -93,24 +93,12 @@ Start a new workflow read-only and without network access. Add workspace writes,
 destinations, or exact integration operations only when the task requires them. The complete rule
 is documented in [the capability envelope](../docs/capability-envelope.md).
 
-## Evidence and limitations
+## Current boundaries
 
-| Evidence field | What is established |
-| --- | --- |
-| Date | September 1, 2026 |
-| Source revision | Working tree based on `818591feeaea5b351364e68808a2566ca55bb025`; not a clean release artifact |
-| Environment | `us-west-2`; ARM64 Lambda MicroVM; Codex with the ChatGPT file bridge |
-| Model/provider | Codex using OpenAI models through the copied ChatGPT account session; the retained public record does not name a model ID |
-| Scenario | A draft test and a second invocation of its published immutable revision |
-| Result | Both Runs succeeded; setup through the second Run took 521 seconds; teardown left zero active MicroVMs and removed the managed credential |
-| Reproduce | Follow the [AWS quickstart](../docs/quickstart.md), retain the returned Run receipt, then inspect the same thread from a second CLI process |
-| Evidence | [Dated authentication canary record](../docs/codex-subscription.md#live-verification-status) |
-| Limits | The published canary proves remote execution after an accepted handoff. It did **not** deliberately close or sleep the submitting laptop, so client-disconnect survival remains an unrecorded acceptance test. It also does not prove high concurrency, disaster recovery, or untrusted multi-tenant isolation. |
-
-A direct acceptance test should submit with `--no-wait`, save the receipt, terminate the local CLI,
-and retrieve the terminal Run and conversation from another process or device. Until that recorded
-test exists, this page distinguishes the architectural guarantee from the exact scenario already
-captured.
+Remote work depends on the server accepting and retaining the request. Save the Run receipt
+before disconnecting; an unsent local prompt cannot continue in AWS. Use that receipt or the
+conversation ID to reconnect from another client. The deployment remains subject to its runtime,
+retention, service quota, and credential limits.
 
 ## When Rat Things is not the right answer
 
@@ -125,7 +113,7 @@ accounts, retained files, and one API shared by multiple entry points.
 - [Codex cloud: background and parallel cloud tasks](https://learn.chatgpt.com/docs/cloud)
 - [Rat Things conversation durability](../docs/conversations.md#how-durability-works)
 - [Rat Things capability envelope](../docs/capability-envelope.md)
-- [Rat Things authentication canary](../docs/codex-subscription.md#live-verification-status)
+- [Rat Things credential lifecycle](../docs/codex-subscription.md#credential-risk-and-lifecycle)
 
 ## Try the narrow path
 

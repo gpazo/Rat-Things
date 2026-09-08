@@ -142,25 +142,16 @@ Useful narrow schedules include:
 For consequential changes, schedule a read-only preparation Thing and submit a separate, narrowly
 authorized execution Run after review. Rat Things has no mid-Run approval step.
 
-## Evidence and limitations
+## Current boundaries
 
-| Evidence field | What is established |
-| --- | --- |
-| Date | August 23, 2026 |
-| Source revision | Historical clean live-AWS suite recorded in the validation ledger; this guide was reviewed against `c0156cd` |
-| Environment | Fresh 226-resource disposable stack in `us-west-2`; ARM64 Lambda MicroVM; Amazon EventBridge Scheduler |
-| Model/provider | Deterministic mock driver; the proof tests schedule and Run orchestration without spending model tokens |
-| Scenario | Create draft revision 1, test it, publish that exact revision, activate `rate(1 minute)`, observe one scheduled occurrence, pause, resume, reject stale/duplicate delivery, and archive |
-| Result | The Run pinned the expected Thing ID, revision, scheduled time, and occurrence idempotency key; it succeeded and left the schedule failure queue empty |
-| Reproduce | Use `npm run rat-things -- thing-release --file weekday-release.json`; the infrastructure case is the scheduled-Thing scenario in [the AWS workflow suite](../tests/aws/workflow.test.ts) |
-| Evidence | [Dated scheduled-Thing validation](../docs/status-and-roadmap.md#validation-completed-on-2026-08-23) |
-| Limits | This is a focused lifecycle proof, not sustained scheduling load, every injected retry/crash boundary, or an operations drill. Production still needs alarms, budgets, failure-queue exercises, and constrained egress. |
-
-Continue with the [Thing schedule triage runbook](../docs/runbook.md#thing-schedule-triage).
+A schedule delivers occurrences; it does not authorize extra tools or undo external effects from
+an interrupted Run. Configure failure queues, alarms, runtime limits, and account permissions for
+unattended work. Use the [schedule triage runbook](../docs/runbook.md#thing-schedule-triage) when
+an active Thing stops producing Runs.
 
 ## Sources
 
 - [Amazon EventBridge Scheduler schedule types, time zones, and precision](https://docs.aws.amazon.com/scheduler/latest/UserGuide/schedule-types.html)
 - [Amazon EventBridge Scheduler retries and dead-letter queues](https://docs.aws.amazon.com/scheduler/latest/UserGuide/managing-schedule.html)
 - [Rat Things Thing lifecycle and schedule contract](../docs/things.md)
-- [Rat Things scheduled-Thing validation](../docs/status-and-roadmap.md#validation-completed-on-2026-08-23)
+- [Rat Things scheduled-Thing validation](../docs/things.md#eventbridge-scheduler)

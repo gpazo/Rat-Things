@@ -155,22 +155,13 @@ AWS similarly recommends granting only the IAM actions and resources required by
 restricting access to individual Secrets Manager secrets. Those controls protect the trusted
 broker boundary; they do not replace provider scopes or Rat Things operation rules.
 
-## Evidence and limitations
+## Current boundaries
 
-| Evidence field | What is established |
-| --- | --- |
-| Date | August 28–30, 2026 |
-| Source revision | Historical live validations recorded in the repository ledger; this guide was reviewed against `c0156cd` |
-| Environment | Retained `us-west-2` stack; verified Slack OAuth account; private Linear OAuth workspace; real Codex in ARM64 Lambda MicroVMs |
-| Model/provider | Codex driver; the retained public provider proofs do not name a model ID |
-| Scenario | Slack search/post/reaction grants and denial; Linear team discovery, create, update, comment, read-back; separate read-only Linear Run |
-| Result | The admitted calls succeeded and appeared in the durable ledger; denied writes exposed no write tool and recorded no mutation; provider tokens did not enter prompts, workspaces, Run requests, or tool results |
-| Reproduce | Run the provider-specific canaries documented in [Slack](../docs/slack.md) and [Linear](../docs/linear.md); local constraint enforcement is covered in [the integration-runtime test](../tests/plugins/integration-runtime.test.ts) |
-| Evidence | [Linear live proof](../docs/linear.md#live-aws-proof) and [dated Slack validation](../docs/status-and-roadmap.md#validation-completed-on-2026-08-28-pdt) |
-| Limits | Slack search currently depends on Slack's legacy `search.messages` method; Linear OAuth currently requests broad `read,write`; public egress remains broad by default; output DLP and tenant budgets are incomplete; and every built-in adapter is trusted code requiring review. The proof is not a penetration test or production multi-tenant attestation. |
-
-See the [security threat matrix](../docs/security.md#threats-and-controls) before connecting
-sensitive accounts.
+Slack search uses the provider's legacy `search.messages` method, and Linear OAuth requests broad
+`read,write` scopes. Rat grants and per-Run operation lists narrow those provider credentials.
+Public egress is broad by default; output DLP and tenant budgets remain incomplete. Built-in
+adapters are trusted code. See the [security threat matrix](../docs/security.md#threats-and-controls)
+before connecting sensitive accounts.
 
 ## A least-privilege checklist
 

@@ -141,19 +141,11 @@ Rat Things' delivery fence similarly treats an ambiguous provider response as
 `outcome_unknown`; no local database pattern can manufacture exactly-once behavior from an API
 that supplies no idempotency mechanism.
 
-## Evidence and limitations
+## Current boundaries
 
-| Evidence field | What is established |
-| --- | --- |
-| Date | August 20 and August 27, 2026, with later focused reruns |
-| Source revision | Historical live validations recorded in the repository ledger; this page was reviewed against `c0156cd` |
-| Environment | Disposable `us-west-2` stacks; ARM64 Lambda MicroVMs; S3 Files; real Codex App Server turns |
-| Model/provider | Codex on Amazon Bedrock using `openai.gpt-5.6-terra` for the exact replacement-worker test |
-| Scenario | Same-VM continuation, forced expiry and replacement, native Codex thread restoration, exact workspace-byte recovery, lease conflict, and queue crash-window repair |
-| Result | A replacement MicroVM resumed the same Codex thread and read bytes created by the terminated worker without recreating them; stale generation writes and duplicate wakes were rejected or converged on the same Run |
-| Reproduce | Run `npm run test:e2e:localstack`; the paid replacement probe is the opt-in `restores a headless API Codex thread and workspace in a replacement MicroVM` case in [the AWS workflow suite](../tests/aws/workflow.test.ts) |
-| Evidence | [Conversation validation method](../docs/conversations.md#validation) and [dated validation ledger](../docs/status-and-roadmap.md) |
-| Limits | No cross-Region disaster-recovery proof, sustained-concurrency benchmark, or production-grade untrusted tenant isolation. Retention is finite and does not make the mailbox an archival backup. |
+Retention is finite, and a durable mailbox is not an archival backup. Rat Things does not provide
+cross-Region disaster recovery, sustained-concurrency guarantees, or production-grade untrusted
+tenant isolation. Choose retention and backup policy separately from worker continuity.
 
 ## A practical durability checklist
 

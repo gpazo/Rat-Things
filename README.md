@@ -199,10 +199,8 @@ and [Channels and provider adapters](docs/channels.md#slack-self-hosted-channel-
 Linear also installs through host-owned OAuth, using an app actor whose provider-derived workspace
 identity is verified before persistence. Its built-in GraphQL adapter exposes team discovery, issue
 search/get/create/update, and comment creation; it does not yet accept Linear mentions, delegation,
-or Agent Session webhooks. A live AWS canary created, updated, commented on, and read back a real
-Linear issue with five successful durable tool calls, then proved creation disappeared from a
-read-only Run. Follow the complete [Linear setup, live proof, and Slack-to-Linear
-walkthrough](docs/linear.md).
+or Agent Session webhooks. Grants and the Run's selected operations determine which read/write
+tools are available. Follow the [Linear setup and Slack-to-Linear walkthrough](docs/linear.md).
 
 List and search return an opaque public conversation ID for transcript, organization, reaction, and
 source commands. `conversation sources` pages the complete indexed transcript, labels transcript
@@ -274,7 +272,7 @@ durable state, scheduling, connected-account permissions, costs, and hosting dec
 - [Operate and diagnose a deployment](docs/diagnostics.md)
 - [Review the control API](docs/api.md)
 - [Review security boundaries and production gates](docs/security.md)
-- [Inspect current validation and known gaps](docs/status-and-roadmap.md)
+- [Understand current capabilities and boundaries](docs/status-and-roadmap.md)
 
 Agents should begin with installed `/.well-known/rat-things`, then follow
 [docs/agents.md](docs/agents.md). The generated [llms.txt](https://gpazo.github.io/Rat-Things/llms.txt)

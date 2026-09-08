@@ -163,17 +163,6 @@ model access and billing:
 npm run quickstart:aws -- --auth bedrock --region us-west-2
 ```
 
-## Live verification status
-
-On September 1, 2026, the file bridge completed a disposable live AWS working-tree canary in
-`us-west-2`. A real Codex draft test and a second invocation of the published active revision both
-succeeded with the same immutable revision and proof marker. The measured setup-through-second-Run
-path took 521 seconds. The authenticated status check passed; teardown left zero Terraform state
-entries and zero active MicroVMs; the quickstart reported its managed credential deleted, and an
-independent Secrets Manager lookup returned `ResourceNotFoundException`. The source tree contained
-the implementation changes under review, so this is live functional evidence rather than a
-clean-commit release artifact.
-
 ## Troubleshooting
 
 1. Run `npm run codex:status` and repeat `npm run codex:login` if no ChatGPT session is active.
