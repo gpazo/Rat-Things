@@ -1,4 +1,4 @@
-# AWS-ready ten-minute quickstart
+# AWS quickstart
 
 This is the shortest path from local Codex to an independently operated Rat Things deployment and
 one **published, invoked, active Thing**. Local work uses the ChatGPT subscription already signed in
@@ -15,12 +15,13 @@ default.
 ## What setup does
 
 The command installs pinned dependencies, checks prerequisites, packages and deploys the backend,
-then tests, publishes, and invokes the same Thing revision. It has a ten-minute execution limit;
-account setup, tool installation, service capacity, and provider access must be ready beforehand.
+then tests, publishes, and invokes the same Thing revision. Account setup, tool installation,
+service capacity, and provider access must be ready beforehand.
 
 The local `.runtime/aws-quickstart/result.json` stores the selected deployment context, source
-revision, Thing revision, and Run receipts. Detailed diagnostics are retained in
-`.runtime/aws-quickstart/quickstart.log` for interrupted setup and recovery.
+revision, Thing revision, Run receipts, and elapsed time. Setup succeeds when the deployment and
+both Runs complete successfully; elapsed time is diagnostic information. Detailed diagnostics are
+retained in `.runtime/aws-quickstart/quickstart.log` for interrupted setup and recovery.
 
 ## Get the workstation and AWS account ready
 

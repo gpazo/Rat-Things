@@ -21,7 +21,7 @@ install -> discover -> draft -> explain/test -> activate -> run -> observe
 ```
 
 1. **Install** one deployment in the host's AWS account and choose its authentication boundary. The
-   [AWS-ready ten-minute quickstart](quickstart.md) proves the smallest honest version before optional systems
+   [AWS quickstart](quickstart.md) walks through this setup before optional systems
    are added.
 2. **Discover** its OpenAPI contract, schemas, capability profiles, and installed integration
    manifests instead of assuming what it supports.

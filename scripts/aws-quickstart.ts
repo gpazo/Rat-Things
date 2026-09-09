@@ -138,7 +138,6 @@ interface QuickstartResult {
     };
   };
   elapsedSeconds: number;
-  underTenMinutes: boolean;
 }
 
 interface QuickstartPreflight {
@@ -493,7 +492,7 @@ async function setup(options: AwsQuickstartOptions): Promise<void> {
   const startedAt = new Date(started).toISOString();
 
   progress([
-    'Rat Things ten-minute AWS quickstart',
+    'Rat Things AWS quickstart',
     `AWS account: ${readiness.aws.accountId} (${readiness.aws.principalArn})`,
     `Region:      ${options.region}`,
     `Runtime:     Lambda MicroVM al2023-1:${baseImageVersion}`,
@@ -691,13 +690,9 @@ async function setup(options: AwsQuickstartOptions): Promise<void> {
     startedAt,
     completedAt: new Date(completed).toISOString(),
     elapsedSeconds: Math.ceil((completed - started) / 1_000),
-    underTenMinutes: completed - started <= 600_000,
   };
   await writeFile(metadataPath, `${JSON.stringify(result, null, 2)}\n`, { mode: 0o600 });
   printValue(result, options.json);
-  if (!result.underTenMinutes) {
-    throw new Error(`the golden path completed, but exceeded ten minutes (${result.elapsedSeconds}s)`);
-  }
 }
 
 async function status(options: AwsQuickstartOptions): Promise<void> {
@@ -1503,7 +1498,7 @@ function printValue(value: unknown, json: boolean): void {
 }
 
 function printHelp(): void {
-  process.stdout.write(`Rat Things ten-minute AWS quickstart\n\n`);
+  process.stdout.write(`Rat Things AWS quickstart\n\n`);
   process.stdout.write(`  npm run quickstart:aws\n`);
   process.stdout.write(`  npm run quickstart:aws -- preflight\n`);
   process.stdout.write(`  npm run quickstart:aws -- status\n`);
