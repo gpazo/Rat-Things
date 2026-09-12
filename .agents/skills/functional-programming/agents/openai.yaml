@@ -1,0 +1,4 @@
+interface:
+  display_name: "Functional Programming"
+  short_description: "Apply practical functional programming to real code"
+  default_prompt: "Use $functional-programming to refactor this code into a pure core with explicit effects while preserving its behavior."

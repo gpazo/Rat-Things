@@ -7,6 +7,7 @@ import type {
 } from '../../src/domain/contracts.js';
 import {
   ActiveRunReconciler,
+  type ActiveRunReconcilerOptions,
   type ExecutionInspection,
 } from '../../src/execution/reconciler.js';
 
@@ -33,7 +34,7 @@ function run(status: RunRecord['status'] = 'running'): RunRecord {
   };
 }
 
-function fixture(inspection: ExecutionInspection) {
+function fixture(inspection: ExecutionInspection, overrides: Partial<ActiveRunReconcilerOptions> = {}) {
   let observation: ExecutionLivenessObservation | undefined;
   let failed: RunError | undefined;
   const store = {
@@ -66,6 +67,7 @@ function fixture(inspection: ExecutionInspection) {
       executions,
       now: () => new Date('2026-08-24T20:05:00.000Z'),
       quarantineAfter: 3,
+      ...overrides,
     }),
     store,
     inspector,
@@ -204,5 +206,53 @@ describe('active Run reconciliation', () => {
     const test = fixture({ kind: 'terminal', reason: 'terminated' });
     await expect(test.reconciler.reconcile(legacy)).resolves.toBe('legacy');
     expect(test.inspector.inspect).not.toHaveBeenCalled();
+  });
+
+  it('inspects before reading time, then persists the exact execution and heartbeat evidence', async () => {
+    const events: string[] = [];
+    const current = run();
+    const test = fixture({ kind: 'unknown', reason: 'uncertain' }, {
+      now: () => { events.push('clock'); return new Date('2026-08-24T20:05:00.000Z'); },
+    });
+    test.inspector.inspect.mockImplementation(async () => { events.push('inspect'); return { kind: 'unknown', reason: 'uncertain' }; });
+    test.store.recordLivenessInspection.mockImplementation(async () => { events.push('record'); return true; });
+    await expect(test.reconciler.reconcile(current)).resolves.toBe('deferred');
+    expect(events).toEqual(['inspect', 'clock', 'record']);
+    expect(test.store.recordLivenessInspection).toHaveBeenCalledWith(current.runId, execution, current.heartbeatAt, expect.any(Object));
+  });
+
+  it.each([
+    { status: 'running', inspection: { kind: 'terminal', reason: 'gone' } },
+    { status: 'cancelling', inspection: { kind: 'active' } },
+    { status: 'cancelling', inspection: { kind: 'absent', reason: 'gone' } },
+  ] as const)('does not read time for $status with a $inspection.kind inspection', async ({ status, inspection }) => {
+    const now = vi.fn(() => { throw new Error('clock must not be read'); });
+    const test = fixture(inspection, { now });
+    await test.reconciler.reconcile(run(status));
+    expect(now).not.toHaveBeenCalled();
+  });
+
+  it('propagates inspection and observation failures without attempting worker termination', async () => {
+    const now = vi.fn(() => new Date('2026-08-24T20:05:00.000Z'));
+    const test = fixture({ kind: 'conflict', reason: 'identity mismatch' }, { now });
+    const failure = new Error('inspection unavailable');
+    test.inspector.inspect.mockRejectedValueOnce(failure);
+    await expect(test.reconciler.reconcile(run('cancelling'))).rejects.toBe(failure);
+    expect(now).not.toHaveBeenCalled();
+    const writeFailure = new Error('observation unavailable');
+    test.store.recordLivenessInspection.mockRejectedValueOnce(writeFailure);
+    await expect(test.reconciler.reconcile(run('cancelling'))).rejects.toBe(writeFailure);
+    expect(test.executions.stop).not.toHaveBeenCalled();
+    expect(test.store.cancelExecution).not.toHaveBeenCalled();
+    expect(test.store.failExecution).not.toHaveBeenCalled();
+  });
+
+  it('propagates stop failure without prematurely finalizing cancellation', async () => {
+    const test = fixture({ kind: 'active' });
+    const failure = new Error('stop unavailable');
+    test.executions.stop.mockRejectedValueOnce(failure);
+    await expect(test.reconciler.reconcile(run('cancelling'))).rejects.toBe(failure);
+    expect(test.store.cancelExecution).not.toHaveBeenCalled();
+    expect(test.store.failExecution).not.toHaveBeenCalled();
   });
 });

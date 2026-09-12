@@ -2,11 +2,11 @@ import type { ArtifactStore, RunStore } from '../core/ports.js';
 import type {
   ExecutionBackend,
   RunQueueMessage,
-  RunRecord,
   RunRequest,
 } from '../domain/contracts.js';
 import { InvalidStateTransitionError } from '../domain/state.js';
 import { executionGeneration } from './generation.js';
+import { dispatchAdmission, executorStartFailure } from './dispatch-planning.js';
 import type { ExecutionBackendRegistry } from './types.js';
 
 export interface RunDispatcherOptions {
@@ -21,13 +21,10 @@ export class RunDispatcher {
 
   public async dispatch(message: RunQueueMessage): Promise<void> {
     const { store, artifacts, executors } = this.options;
-    const current = await store.get(message.runId);
-    if (!current || !isDispatchable(current)) return;
-    // A threaded Run exists before its predecessor state is known. Conversation
-    // wake-ups prepare its trusted execution input and only then enqueue it.
-    // Ignore an accidental/reconciler wake-up while that preparation is pending.
-    if (current.conversation && !current.executionInput) return;
-    const request = await artifacts.getJson<RunRequest>(current.executionInput ?? current.input);
+    const admission = dispatchAdmission(await store.get(message.runId));
+    if (admission.kind === 'ignore') return;
+    const { run: current, input } = admission;
+    const request = await artifacts.getJson<RunRequest>(input);
     const backend = request.execution?.backend ?? this.options.defaultBackend;
     const executor = executors.get(backend);
     let dispatching = current;
@@ -51,12 +48,9 @@ export class RunDispatcher {
     try {
       execution = await executor.start(dispatching, request, message.traceId);
     } catch (error) {
-      if (retryableStartError(error)) throw error;
-      await store.fail(current.runId, {
-        code: 'executor_start_failed',
-        message: safeMessage(error),
-        retryable: false,
-      }, ['dispatching']);
+      const failure = executorStartFailure(error);
+      if (failure.kind === 'retry') throw error;
+      await store.fail(current.runId, failure.error, ['dispatching']);
       return;
     }
 
@@ -92,46 +86,4 @@ export function parseRunQueueMessage(body: string): RunQueueMessage {
     throw new Error('invalid run queue message');
   }
   return parsed as RunQueueMessage;
-}
-
-function isDispatchable(run: RunRecord): boolean {
-  return run.status === 'queued' ||
-    (run.status === 'dispatching' && (!run.execution || run.execution.id === 'pending')) ||
-    (run.status === 'running' && (!run.execution || run.execution.id === 'pending'));
-}
-
-function retryableStartError(error: unknown): boolean {
-  const name = error instanceof Error ? error.name : '';
-  if (['ThrottlingException', 'ServiceUnavailableException', 'TooManyRequestsException'].includes(name)) {
-    return true;
-  }
-  const message = safeMessage(error).toLowerCase();
-  // Lambda MicroVM control-plane gateway failures have occasionally returned
-  // HTML. The AWS SDK surfaces those as a JSON deserialization SyntaxError
-  // rather than a ServiceUnavailableException, but retrying the idempotent
-  // RunMicrovm request is still the correct response.
-  if (message.includes('deserialization error') && message.includes('is not valid json')) {
-    return true;
-  }
-  const status = awsHttpStatus(error);
-  if (status === 429 || (status !== undefined && status >= 500)) return true;
-  return name === 'ConflictException' &&
-    message.includes('creation in progress') &&
-    message.includes('clienttoken');
-}
-
-function awsHttpStatus(error: unknown): number | undefined {
-  if (!error || typeof error !== 'object') return undefined;
-  const candidate = error as {
-    $metadata?: { httpStatusCode?: unknown };
-    $response?: { statusCode?: unknown; status?: unknown };
-  };
-  const status = candidate.$metadata?.httpStatusCode ??
-    candidate.$response?.statusCode ??
-    candidate.$response?.status;
-  return typeof status === 'number' ? status : undefined;
-}
-
-function safeMessage(error: unknown): string {
-  return (error instanceof Error ? error.message : String(error)).slice(0, 1_000);
 }

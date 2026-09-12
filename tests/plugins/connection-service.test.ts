@@ -7,7 +7,8 @@ import type {
   IntegrationConnection,
   SourceCapabilityBinding,
 } from '../../src/domain/capabilities.js';
-import { ConnectionService } from '../../src/plugins/connection-service.js';
+import { ValidationError } from '../../src/domain/validation.js';
+import { ConnectionService, CredentialVerificationError, type ConnectionServiceOptions } from '../../src/plugins/connection-service.js';
 import { IntegrationPluginRegistry } from '../../src/plugins/integration-registry.js';
 import {
   IntegrationProviderUnavailableError,
@@ -311,6 +312,177 @@ describe('connection service', () => {
   });
 });
 
+describe('connection lifecycle effect boundaries', () => {
+  it('verifies and resolves aliases before consuming IDs, then validates before creating a secret', async () => {
+    const state = memoryStore();
+    const events: string[] = [];
+    const plugin = testPlugin('slack', 'token');
+    const verify = plugin.verifyCredential;
+    plugin.verifyCredential = vi.fn(async (...args: Parameters<IntegrationPlugin['verifyCredential']>) => {
+      events.push('verify'); return verify(...args);
+    });
+    state.store.getConnection = vi.fn(async (_owner, alias) => {
+      events.push(`alias:${alias}`);
+      return alias === 'slack-acme-rat' ? connection('existing', alias, 'slack') : undefined;
+    });
+    state.store.putConnectionBundle = vi.fn(async () => { events.push('bundle'); });
+    const secrets = vault();
+    secrets.create.mockImplementation(async () => { events.push('secret'); return 'secret-ref'; });
+    let id = 0;
+    const service = connectionService(state.store, secrets, undefined, {
+      registry: new IntegrationPluginRegistry([plugin]),
+      ids: { random: () => { events.push(`id:${++id}`); return `id-${id}`; } },
+      clock: { now: () => { events.push('clock'); return new Date('2026-08-20T00:00:00.000Z'); } },
+    });
+    const input = createInput();
+    await service.create(input);
+    expect(events).toEqual(['verify', 'alias:slack-acme-rat', 'alias:slack-acme-rat-2', 'id:1', 'clock', 'id:2', 'secret', 'bundle']);
+    events.length = 0;
+    await expect(service.create({ ...input, grant: { preset: 'custom', allowOperations: ['slack.records.delete'] } }))
+      .rejects.toThrow('is not installed');
+    expect(events).toEqual(['verify', 'alias:slack-acme-rat', 'alias:slack-acme-rat-2', 'id:3', 'clock', 'id:4']);
+  });
+
+  it('rejects malformed verified metadata before generating a grant ID or storing credentials', async () => {
+    const state = memoryStore();
+    const plugin = testPlugin('slack', 'token');
+    const verified = await plugin.verifyCredential('api-key', { token: 'valid' });
+    plugin.verifyCredential = vi.fn().mockResolvedValue({ ...verified, label: '' });
+    const ids = { random: vi.fn().mockReturnValue('id-1') };
+    const secrets = vault();
+    const service = connectionService(state.store, secrets, undefined, {
+      registry: new IntegrationPluginRegistry([plugin]), ids,
+    });
+    await expect(service.create(createInput())).rejects.toThrow('connection label');
+    expect(ids.random).toHaveBeenCalledTimes(1);
+    expect(secrets.create).not.toHaveBeenCalled();
+  });
+
+  it('validates credential fields before verification and sanitizes provider rejection', async () => {
+    const state = memoryStore();
+    const plugin = testPlugin('slack', 'token');
+    const verify = vi.spyOn(plugin, 'verifyCredential');
+    const lookup = vi.spyOn(state.store, 'getConnection');
+    const service = connectionService(state.store, vault(), undefined, { registry: new IntegrationPluginRegistry([plugin]) });
+    await expect(service.create({ ...createInput(), credential: { unexpected: 'private-value' } }))
+      .rejects.toThrow('integration credential requires token');
+    expect(verify).not.toHaveBeenCalled();
+    await expect(service.create({ ...createInput(), credential: { token: 'invalid' } }))
+      .rejects.toBeInstanceOf(CredentialVerificationError);
+    const unavailable = new IntegrationProviderUnavailableError('slack');
+    verify.mockRejectedValueOnce(unavailable);
+    await expect(service.create(createInput())).rejects.toBe(unavailable);
+    expect(lookup).not.toHaveBeenCalled();
+  });
+
+  it('stops alias allocation at the existing bound without generating an ID', async () => {
+    const state = memoryStore();
+    const lookup = vi.spyOn(state.store, 'getConnection').mockResolvedValue(connection('existing', 'slack-acme-rat', 'slack'));
+    const ids = { random: vi.fn() };
+    const service = connectionService(state.store, vault(), undefined, { ids });
+    await expect(service.create(createInput())).rejects.toThrow('could not allocate a connection alias');
+    expect(lookup).toHaveBeenCalledTimes(1_000);
+    expect(lookup).toHaveBeenLastCalledWith('api:owner-1', 'slack-acme-rat-1000');
+    expect(ids.random).not.toHaveBeenCalled();
+  });
+
+  it('replaces a secret before updating binding, connection, and health with separate clock reads', async () => {
+    const state = memoryStore();
+    state.connections.push(connection('slack-1', 'slack-shop', 'slack'));
+    state.bindings.push(binding('slack-1'));
+    const events: string[] = [];
+    const secrets = vault();
+    secrets.replace.mockImplementation(async () => { events.push('replace'); });
+    vi.spyOn(state.store, 'putCredentialBinding').mockImplementation(async () => { events.push('binding'); });
+    vi.spyOn(state.store, 'putConnection').mockImplementation(async () => { events.push('connection'); });
+    state.store.getConnectionHealth = vi.fn(async () => { events.push('read-health'); return undefined; });
+    state.store.putConnectionHealth = vi.fn(async () => { events.push('health'); });
+    let tick = 0;
+    const service = connectionService(state.store, secrets, undefined, {
+      clock: { now: () => { events.push('clock'); return new Date(Date.parse('2026-08-20T00:00:00.000Z') + tick++ * 1_000); } },
+    });
+    const result = await service.rotate('api:owner-1', 'slack-shop', { token: 'valid' });
+    expect(events).toEqual(['replace', 'clock', 'binding', 'connection', 'read-health', 'clock', 'health']);
+    expect(result.connection.updatedAt).toBe('2026-08-20T00:00:00.000Z');
+    expect(result.health.checkedAt).toBe('2026-08-20T00:00:01.000Z');
+  });
+
+  it('retains secret replacement when the binding write fails and stops before updating the connection', async () => {
+    const state = memoryStore();
+    state.connections.push(connection('slack-1', 'slack-shop', 'slack'));
+    state.bindings.push(binding('slack-1'));
+    const failure = new Error('binding unavailable');
+    vi.spyOn(state.store, 'putCredentialBinding').mockRejectedValue(failure);
+    const write = vi.spyOn(state.store, 'putConnection');
+    const health = vi.spyOn(state.store, 'getConnectionHealth');
+    const secrets = vault();
+    const service = connectionService(state.store, secrets);
+    await expect(service.rotate('api:owner-1', 'slack-shop', { token: 'valid' })).rejects.toBe(failure);
+    expect(secrets.replace).toHaveBeenCalledWith('secret-ref', { token: 'valid' });
+    expect(write).not.toHaveBeenCalled();
+    expect(health).not.toHaveBeenCalled();
+    expect(secrets.revoke).not.toHaveBeenCalled();
+  });
+
+  it('keeps an already expired connection unchanged when credentials are missing but records health', async () => {
+    const state = memoryStore();
+    const current = { ...connection('slack-1', 'slack-shop', 'slack'), status: 'expired' as const };
+    state.connections.push(current);
+    const write = vi.spyOn(state.store, 'putConnection');
+    const now = vi.fn(() => new Date('2026-08-20T00:00:01.000Z'));
+    const result = await connectionService(state.store, vault(), undefined, { clock: { now } }).test('api:owner-1', 'slack-shop');
+    expect(result.connection).toBe(current);
+    expect(result.health).toMatchObject({ status: 'reauth-required', code: 'credential-missing' });
+    expect(write).not.toHaveBeenCalled();
+    expect(now).toHaveBeenCalledTimes(1);
+  });
+
+  it('retains the verification catch boundary around persistence validation errors', async () => {
+    const state = memoryStore();
+    state.connections.push(connection('slack-1', 'slack-shop', 'slack'));
+    state.bindings.push(binding('slack-1'));
+    const write = vi.spyOn(state.store, 'putConnection').mockRejectedValueOnce(new ValidationError('persistence rejected active metadata'));
+    const service = connectionService(state.store, vault(), { readRecord: vi.fn().mockResolvedValue({ token: 'valid' }) });
+    await expect(service.test('api:owner-1', 'slack-shop')).resolves.toMatchObject({
+      connection: { status: 'expired' }, health: { status: 'reauth-required', code: 'credential-rejected' },
+    });
+    expect(write.mock.calls.map(([value]) => value.status)).toEqual(['active', 'expired']);
+  });
+
+  it('validates display names after ownership lookup and before reading the clock', async () => {
+    const state = memoryStore();
+    const now = vi.fn();
+    const service = connectionService(state.store, vault(), undefined, { clock: { now } });
+    await expect(service.rename('api:owner-1', 'missing', '')).rejects.toThrow('integration connection not found');
+    state.connections.push(connection('slack-1', 'slack-shop', 'slack'));
+    await expect(service.rename('api:owner-1', 'slack-shop', '  ')).rejects.toThrow('connection display name must be 1-256 UTF-8 bytes');
+    expect(now).not.toHaveBeenCalled();
+  });
+
+  it('persists revocation before reading and revoking its secret, preserving a failed cleanup', async () => {
+    const state = memoryStore();
+    state.connections.push(connection('slack-1', 'slack-shop', 'slack'));
+    state.bindings.push(binding('slack-1'));
+    const events: string[] = [];
+    const put = state.store.putConnection;
+    vi.spyOn(state.store, 'putConnection').mockImplementation(async value => { events.push('connection'); await put(value); });
+    const get = state.store.getCredentialBinding;
+    vi.spyOn(state.store, 'getCredentialBinding').mockImplementation(async (...args) => { events.push('binding'); return get(...args); });
+    const failure = new Error('secret unavailable');
+    const secrets = vault();
+    secrets.revoke.mockImplementation(async () => { events.push('revoke'); throw failure; });
+    const service = connectionService(state.store, secrets);
+    await expect(service.revoke('api:owner-1', 'slack-shop')).rejects.toBe(failure);
+    expect(events).toEqual(['connection', 'binding', 'revoke']);
+    expect(state.connections[0]?.status).toBe('revoked');
+  });
+});
+
+function createInput() {
+  return { ownerId: 'api:owner-1', pluginId: 'slack', authScheme: 'api-key' as const,
+    credential: { token: 'valid' }, grant: { preset: 'read-only' as const } };
+}
+
 function vault() {
   return { create: vi.fn(), replace: vi.fn(), revoke: vi.fn() };
 }
@@ -349,7 +521,7 @@ function connectionService(store: IntegrationStore, vault: {
   revoke: ReturnType<typeof vi.fn>;
 }, credentials?: {
   readRecord: ReturnType<typeof vi.fn>;
-}) {
+}, overrides: Partial<ConnectionServiceOptions> = {}) {
   let id = 0;
   return new ConnectionService({
     store,
@@ -362,6 +534,7 @@ function connectionService(store: IntegrationStore, vault: {
     ids: { random: () => `id-${++id}` },
     clock: { now: () => new Date('2026-08-20T00:00:00.000Z') },
     ...(credentials ? { credentials } : {}),
+    ...overrides,
   });
 }
 

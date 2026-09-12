@@ -193,13 +193,13 @@ class MemoryExecutions implements ExecutionController {
 }
 
 const fixedNow = new Date('2026-08-02T12:34:56.000Z');
-const clock: Clock = { now: () => fixedNow };
 const ids: IdGenerator = {
   random: () => 'random-run-id',
   deterministic: (ownerId, key) => `deterministic:${ownerId}:${key}`,
 };
 
 function harness() {
+  const clock = { now: vi.fn(() => fixedNow) } satisfies Clock;
   const store = new MemoryRunStore();
   const artifacts = new MemoryArtifactStore();
   const queue = new MemoryQueue();
@@ -214,7 +214,7 @@ function harness() {
     retentionSeconds: 600,
     allowedRepositoryHosts: ['github.com', 'gitlab.com'],
   });
-  return { service, store, artifacts, queue, executions };
+  return { service, store, artifacts, queue, executions, clock };
 }
 
 const baseRequest = {
@@ -229,6 +229,76 @@ const baseRequest = {
 } as const;
 
 describe('RunService.submit', () => {
+  it('looks up identity, stores input, reads time, commits the record, and then sends its wake-up', async () => {
+    const { service, store, artifacts, queue, clock } = harness();
+    const events: string[] = [];
+    const get = store.get.bind(store);
+    vi.spyOn(store, 'get').mockImplementation(async (id) => { events.push('lookup'); return get(id); });
+    const put = artifacts.putJson.bind(artifacts);
+    vi.spyOn(artifacts, 'putJson').mockImplementation(async (key, value) => { events.push('input'); return put(key, value); });
+    clock.now.mockImplementation(() => { events.push('clock'); return fixedNow; });
+    const create = store.create.bind(store);
+    vi.spyOn(store, 'create').mockImplementation(async (record) => { events.push('record'); return create(record); });
+    const enqueue = queue.enqueue.bind(queue);
+    vi.spyOn(queue, 'enqueue').mockImplementation(async (message) => { events.push('wake'); return enqueue(message); });
+
+    await service.submit('owner-1', baseRequest, { idempotencyKey: 'receipt-1' });
+    expect(events).toEqual(['lookup', 'input', 'clock', 'record', 'wake']);
+  });
+
+  it('returns a competing creation without sending another wake-up', async () => {
+    const { service, store, artifacts, queue } = harness();
+    const first = await service.submit('owner-1', baseRequest, { idempotencyKey: 'receipt-1' });
+    // The initial read misses a record that wins the subsequent conditional create.
+    vi.spyOn(store, 'get').mockResolvedValueOnce(undefined);
+    await expect(service.submit('owner-1', baseRequest, { idempotencyKey: 'receipt-1' })).resolves.toEqual(first);
+    expect(artifacts.jsonWrites).toHaveLength(2);
+    expect(store.createCalls).toBe(2);
+    expect(queue.messages).toHaveLength(1);
+  });
+
+  it('checks request identity again after a competing creation wins', async () => {
+    const { service, store, queue } = harness();
+    await service.submit('owner-1', baseRequest, { idempotencyKey: 'receipt-1' });
+    vi.spyOn(store, 'get').mockResolvedValueOnce(undefined);
+    await expect(service.submit('owner-1', { ...baseRequest, prompt: 'Different' }, { idempotencyKey: 'receipt-1' }))
+      .rejects.toThrow('the idempotency key was already used with a different request');
+    expect(store.createCalls).toBe(2);
+    expect(queue.messages).toHaveLength(1);
+  });
+
+  it.each([
+    { status: 'queued', enqueue: false },
+    { status: 'running', enqueue: true },
+    { status: 'succeeded', enqueue: true },
+  ] as const)('reuses $status runs with enqueue=$enqueue without new input, time, or wake-ups', async ({ status, enqueue }) => {
+    const { service, store, artifacts, queue, clock } = harness();
+    const first = await service.submit('owner-1', baseRequest, { idempotencyKey: 'receipt-1' });
+    const existing = { ...first, status };
+    store.records.set(first.runId, existing);
+    clock.now.mockClear();
+    await expect(service.submit('owner-1', baseRequest, {
+      idempotencyKey: 'receipt-1', enqueue, capabilityOwnerId: ' ',
+    })).resolves.toEqual(existing);
+    expect(clock.now).not.toHaveBeenCalled();
+    expect(artifacts.jsonWrites).toHaveLength(1);
+    expect(queue.messages).toHaveLength(1);
+  });
+
+  it('validates trusted bindings after input storage and time, preserving the first boundary failure', async () => {
+    const { service, store, artifacts, queue, clock } = harness();
+    const failure = new Error('input unavailable');
+    vi.spyOn(artifacts, 'putJson').mockRejectedValueOnce(failure);
+    const options = { capabilityOwnerId: ' ', conversation: { conversationId: '' } };
+    await expect(service.submit('owner-1', baseRequest, options)).rejects.toBe(failure);
+    expect(clock.now).not.toHaveBeenCalled();
+    await expect(service.submit('owner-1', baseRequest, options)).rejects.toThrow('capability owner identity is invalid');
+    expect(clock.now).toHaveBeenCalledTimes(1);
+    expect(artifacts.jsonWrites).toHaveLength(1);
+    expect(store.createCalls).toBe(0);
+    expect(queue.messages).toEqual([]);
+  });
+
   it('stores an immutable input reference and enqueues only its run envelope', async () => {
     const { service, store, artifacts, queue } = harness();
 
@@ -402,6 +472,61 @@ describe('RunService.submit', () => {
         delivery: 'defer',
       },
     })).rejects.toThrow('different thread occurrence');
+  });
+});
+
+describe('RunService conversation preparation effects', () => {
+  const accepted = { conversationId: 'conversation-1', messageId: 'message-1', delivery: 'defer' } as const;
+  const binding = { ...accepted, turnId: 'turn-1', slice: 0 };
+
+  it('reuses prepared active work before parsing execution input or writing artifacts', async () => {
+    const { service, store, artifacts } = harness();
+    const submitted = await service.submit('owner-1', baseRequest, { enqueue: false, conversation: accepted });
+    const prepared = await service.prepareConversation('owner-1', submitted.runId, baseRequest, binding);
+    const running: RunRecord = { ...prepared, status: 'running' };
+    store.records.set(submitted.runId, running);
+    const put = vi.spyOn(artifacts, 'putJson');
+    await expect(service.prepareConversation('owner-1', submitted.runId, null, binding)).resolves.toEqual(running);
+    await expect(service.prepareConversation('owner-1', submitted.runId, null, { ...binding, slice: 1 }))
+      .rejects.toThrow(`run ${submitted.runId} cannot be prepared from running`);
+    expect(put).not.toHaveBeenCalled();
+  });
+
+  it('checks accepted binding and prepared binding validity before writing execution input', async () => {
+    const { service, artifacts } = harness();
+    const submitted = await service.submit('owner-1', baseRequest, { enqueue: false, conversation: accepted });
+    const put = vi.spyOn(artifacts, 'putJson');
+    await expect(service.prepareConversation('owner-1', submitted.runId, null, { ...binding, messageId: 'message-2' }))
+      .rejects.toThrow('run thread binding changed before preparation');
+    await expect(service.prepareConversation('owner-1', submitted.runId, null, { ...binding, slice: -1 }))
+      .rejects.toThrow('conversation slice is invalid');
+    expect(put).not.toHaveBeenCalled();
+  });
+
+  it('compares queued preparation retries after writing their execution input', async () => {
+    const { service, store, artifacts, queue } = harness();
+    const submitted = await service.submit('owner-1', baseRequest, { enqueue: false, conversation: accepted });
+    const prepared = await service.prepareConversation('owner-1', submitted.runId, baseRequest, binding);
+    const put = vi.spyOn(artifacts, 'putJson');
+    const prepare = vi.spyOn(store, 'prepareConversation');
+    await expect(service.prepareConversation('owner-1', submitted.runId, baseRequest, binding)).resolves.toEqual(prepared);
+    await expect(service.prepareConversation('owner-1', submitted.runId, { ...baseRequest, prompt: 'Changed' }, binding))
+      .rejects.toThrow('run was already prepared with different thread state');
+    expect(put).toHaveBeenCalledTimes(2);
+    expect(prepare).not.toHaveBeenCalled();
+    expect((await store.get(submitted.runId))?.input).toEqual(submitted.input);
+    expect(queue.messages).toEqual([]);
+  });
+
+  it('leaves accepted input intact when committing preparation fails', async () => {
+    const { service, store, artifacts, queue } = harness();
+    const submitted = await service.submit('owner-1', baseRequest, { enqueue: false, conversation: accepted });
+    const failure = new Error('preparation unavailable');
+    vi.spyOn(store, 'prepareConversation').mockRejectedValueOnce(failure);
+    await expect(service.prepareConversation('owner-1', submitted.runId, baseRequest, binding)).rejects.toBe(failure);
+    expect(artifacts.jsonWrites).toHaveLength(2);
+    expect(await store.get(submitted.runId)).toEqual(submitted);
+    expect(queue.messages).toEqual([]);
   });
 });
 

@@ -1,12 +1,10 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import { emitMetric } from '../core/metrics.js';
 import type {
   CredentialVault,
   IntegrationCredentialValue,
 } from '../credentials/types.js';
 import {
-  validateConnectionHealth,
-  validateConnectionGrant,
   validateConnectionSet,
   validateIntegrationConnection,
   validateSourceCapabilityBinding,
@@ -24,6 +22,25 @@ import type {
   VerifiedIntegrationCredential,
 } from './integration-types.js';
 import { IntegrationProviderUnavailableError } from './integration-types.js';
+import {
+  aliasCandidate,
+  connectionCredentialName,
+  connectionGrant,
+  connectionHealthObservation,
+  connectionWithStatus,
+  defaultAlias,
+  newConnection,
+  refreshedConnection,
+  sameProviderIdentity,
+  untestedConnectionHealth,
+} from './connection-planning.js';
+import {
+  connectionDisplayName,
+  requiredOwner,
+  safeAlias,
+  validateCredentialFields,
+  validateGrantOperations,
+} from './connection-validation.js';
 
 export interface ConnectionServiceOptions {
   store: IntegrationStore;
@@ -108,33 +125,19 @@ export class ConnectionService {
       : await this.availableAlias(input.ownerId, defaultAlias(input.pluginId, verified.label));
     const connectionId = this.ids.random();
     const timestamp = this.clock.now().toISOString();
-    const connection = validateIntegrationConnection({
-      version: '1',
+    const connection = newConnection({
       connectionId,
       ownerId: input.ownerId,
       pluginId: input.pluginId,
       alias,
-      label: verified.label,
-      ...(verified.externalTenantId ? { externalTenantId: verified.externalTenantId } : {}),
-      ...(verified.externalSubjectId ? { externalSubjectId: verified.externalSubjectId } : {}),
-      authorization: verified.authorization,
-      status: 'active',
-      createdAt: timestamp,
-      updatedAt: timestamp,
-    });
-    const grant = validateConnectionGrant({
-      version: '1',
+    }, verified, timestamp);
+    const grant = connectionGrant({
       grantId: this.ids.random(),
       ownerId: input.ownerId,
       connectionId,
-      ...input.grant,
-    });
-    validateGrantOperations(plugin, grant);
-    const secretName = [
-      this.options.credentialNamePrefix.replace(/\/$/, ''),
-      createHash('sha256').update(input.ownerId).digest('hex').slice(0, 32),
-      connectionId,
-    ].join('/');
+    }, input.grant);
+    validateGrantOperations(plugin.manifest, grant);
+    const secretName = connectionCredentialName(this.options.credentialNamePrefix, input.ownerId, connectionId);
     const reference = await this.options.vault.create(secretName, input.credential);
     try {
       await this.options.store.putConnectionBundle(
@@ -195,10 +198,7 @@ export class ConnectionService {
     displayName: string,
   ): Promise<IntegrationConnection> {
     const connection = await this.requiredConnection(ownerId, connectionIdOrAlias);
-    const name = displayName.trim();
-    if (!name || Buffer.byteLength(name, 'utf8') > 256) {
-      throw new ValidationError('connection display name must be 1-256 UTF-8 bytes');
-    }
+    const name = connectionDisplayName(displayName);
     const updated = validateIntegrationConnection({
       ...connection,
       displayName: name,
@@ -227,21 +227,12 @@ export class ConnectionService {
     try {
       const credential = await this.options.credentials.readRecord(binding.reference, connection);
       const verified = await verifyCredential(plugin, connection.authorization.scheme, credential);
-      const sameIdentity = verified.authorization.scheme === connection.authorization.scheme &&
-        (verified.externalTenantId ?? '') === (connection.externalTenantId ?? '') &&
-        (verified.externalSubjectId ?? '') === (connection.externalSubjectId ?? '');
-      if (!sameIdentity) {
+      if (!sameProviderIdentity(connection, verified)) {
         const expired = await this.updateStatus(connection, 'expired');
         const health = await this.recordHealth(expired, 'reauth-required', 'identity-mismatch');
         return { connection: expired, health };
       }
-      const active = validateIntegrationConnection({
-        ...connection,
-        label: verified.label,
-        authorization: verified.authorization,
-        status: 'active',
-        updatedAt: this.clock.now().toISOString(),
-      });
+      const active = refreshedConnection(connection, verified, this.clock.now().toISOString());
       await this.options.store.putConnection(active);
       const health = await this.recordHealth(active, 'healthy', 'verified');
       return { connection: active, health };
@@ -266,14 +257,12 @@ export class ConnectionService {
   ): Promise<ConnectionGrant> {
     const connection = await this.requiredConnection(ownerId, connectionIdOrAlias);
     const current = await this.options.store.getGrant(ownerId, connection.connectionId);
-    const grant = validateConnectionGrant({
-      version: '1',
+    const grant = connectionGrant({
       grantId: current?.grantId ?? this.ids.random(),
       ownerId,
       connectionId: connection.connectionId,
-      ...policy,
-    });
-    validateGrantOperations(this.options.registry.plugin(connection.pluginId), grant);
+    }, policy);
+    validateGrantOperations(this.options.registry.plugin(connection.pluginId).manifest, grant);
     await this.options.store.putGrant(grant);
     return grant;
   }
@@ -294,11 +283,7 @@ export class ConnectionService {
     if (!authentication) throw new Error('connection authentication scheme is no longer installed');
     validateCredentialFields(credential, authentication.fields);
     const verified = await verifyCredential(plugin, connection.authorization.scheme, credential);
-    if (
-      verified.authorization.scheme !== connection.authorization.scheme ||
-      (connection.externalTenantId ?? '') !== (verified.externalTenantId ?? '') ||
-      (connection.externalSubjectId ?? '') !== (verified.externalSubjectId ?? '')
-    ) {
+    if (!sameProviderIdentity(connection, verified)) {
       throw new ValidationError('rotated credential belongs to a different provider account');
     }
     const binding = await this.options.store.getCredentialBinding(ownerId, connection.connectionId);
@@ -309,13 +294,7 @@ export class ConnectionService {
       ...binding,
       updatedAt: timestamp,
     });
-    const active = validateIntegrationConnection({
-      ...connection,
-      label: verified.label,
-      authorization: verified.authorization,
-      status: 'active',
-      updatedAt: timestamp,
-    });
+    const active = refreshedConnection(connection, verified, timestamp);
     await this.options.store.putConnection(active);
     const health = await this.recordHealth(active, 'healthy', 'verified');
     return { connection: active, health };
@@ -323,11 +302,7 @@ export class ConnectionService {
 
   public async revoke(ownerId: string, connectionIdOrAlias: string): Promise<IntegrationConnection> {
     const connection = await this.requiredConnection(ownerId, connectionIdOrAlias);
-    const revoked = validateIntegrationConnection({
-      ...connection,
-      status: 'revoked',
-      updatedAt: this.clock.now().toISOString(),
-    });
+    const revoked = connectionWithStatus(connection, 'revoked', this.clock.now().toISOString());
     await this.options.store.putConnection(revoked);
     const binding = await this.options.store.getCredentialBinding(ownerId, connection.connectionId);
     if (binding) await this.options.vault.revoke(binding.reference);
@@ -398,13 +373,8 @@ export class ConnectionService {
   }
 
   private async connectionHealth(ownerId: string, connectionId: string): Promise<ConnectionHealth> {
-    return await this.options.store.getConnectionHealth?.(ownerId, connectionId) ?? validateConnectionHealth({
-      version: '1',
-      ownerId,
-      connectionId,
-      status: 'unknown',
-      code: 'not-tested',
-    });
+    return await this.options.store.getConnectionHealth?.(ownerId, connectionId) ??
+      untestedConnectionHealth(ownerId, connectionId);
   }
 
   private async recordHealth(
@@ -414,17 +384,7 @@ export class ConnectionService {
   ): Promise<ConnectionHealth> {
     const previous = await this.connectionHealth(connection.ownerId, connection.connectionId);
     const now = this.clock.now().toISOString();
-    const health = validateConnectionHealth({
-      version: '1',
-      ownerId: connection.ownerId,
-      connectionId: connection.connectionId,
-      status,
-      code,
-      checkedAt: now,
-      ...(status === 'healthy'
-        ? { lastHealthyAt: now, ...(previous.lastFailureAt ? { lastFailureAt: previous.lastFailureAt } : {}) }
-        : { lastFailureAt: now, ...(previous.lastHealthyAt ? { lastHealthyAt: previous.lastHealthyAt } : {}) }),
-    });
+    const health = connectionHealthObservation(connection, previous, status, code, now);
     await this.options.store.putConnectionHealth?.(health);
     return health;
   }
@@ -434,11 +394,7 @@ export class ConnectionService {
     status: IntegrationConnection['status'],
   ): Promise<IntegrationConnection> {
     if (connection.status === status) return connection;
-    const updated = validateIntegrationConnection({
-      ...connection,
-      status,
-      updatedAt: this.clock.now().toISOString(),
-    });
+    const updated = connectionWithStatus(connection, status, this.clock.now().toISOString());
     await this.options.store.putConnection(updated);
     return updated;
   }
@@ -451,8 +407,7 @@ export class ConnectionService {
 
   private async availableAlias(ownerId: string, base: string): Promise<string> {
     for (let suffix = 1; suffix <= 1_000; suffix += 1) {
-      const ending = suffix === 1 ? '' : `-${suffix}`;
-      const candidate = `${base.slice(0, 128 - ending.length)}${ending}`;
+      const candidate = aliasCandidate(base, suffix);
       if (!await this.options.store.getConnection(ownerId, candidate)) return candidate;
     }
     throw new Error(`could not allocate a connection alias for ${base}`);
@@ -469,59 +424,6 @@ async function verifyCredential(
   } catch (error) {
     if (error instanceof IntegrationProviderUnavailableError) throw error;
     throw new CredentialVerificationError(plugin.manifest.title);
-  }
-}
-
-function requiredOwner(value: string): void {
-  if (typeof value !== 'string' || !value || value.length > 1_024) throw new Error('owner ID is invalid');
-}
-
-function safeAlias(value: string): void {
-  if (!/^[A-Za-z0-9][A-Za-z0-9._:@-]{0,127}$/.test(value)) {
-    throw new ValidationError('connection alias must be 1-128 safe ASCII characters');
-  }
-}
-
-function defaultAlias(pluginId: string, label: string): string {
-  const account = label
-    .normalize('NFKD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 96);
-  return `${pluginId}${account ? `-${account}` : ''}`.slice(0, 128);
-}
-
-function validateCredentialFields(
-  credential: IntegrationCredentialValue,
-  fields: Array<{ key: string; computed?: boolean; required?: boolean }>,
-): void {
-  const expected = new Set(fields.map((field) => field.key));
-  for (const field of fields) {
-    if (field.required !== false && !field.computed && !credential[field.key]) {
-      throw new ValidationError(`integration credential requires ${field.key}`);
-    }
-  }
-  for (const field of Object.keys(credential)) {
-    if (!expected.has(field)) {
-      throw new ValidationError(`integration credential field ${field} is not accepted`);
-    }
-  }
-}
-
-function validateGrantOperations(
-  plugin: ReturnType<IntegrationPluginRegistryLike['plugin']>,
-  grant: ConnectionGrant,
-): void {
-  const installed = new Set(plugin.manifest.operations.map((operation) => operation.id));
-  for (const operationId of [
-    ...(grant.allowOperations ?? []),
-    ...(grant.denyOperations ?? []),
-  ]) {
-    if (!installed.has(operationId)) {
-      throw new ValidationError(`operation ${operationId} is not installed by plugin ${plugin.manifest.id}`);
-    }
   }
 }
 

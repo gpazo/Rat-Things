@@ -1,35 +1,26 @@
 import {
   authorizeConnectionOperation,
   type ConnectionAccessRequest,
-  type ConnectionGrant,
-  type IntegrationConnection,
-  type OperationDefinition,
 } from '../domain/capabilities.js';
 import type { JsonValue } from '../domain/contracts.js';
 import type {
   DynamicIntegrationTool,
   DynamicIntegrationToolCall,
-  IntegrationPlugin,
   IntegrationRuntimeOptions,
   IntegrationToolSession,
   PrepareIntegrationToolsInput,
 } from './integration-types.js';
-
-const MAX_TOOL_RESULT_BYTES = 128 * 1024;
-
-interface SelectedConnection {
-  connection: IntegrationConnection;
-  plugin: IntegrationPlugin;
-  grant: ConnectionGrant;
-  requested?: ConnectionAccessRequest;
-  maximumIntegrationAccess?: NonNullable<PrepareIntegrationToolsInput['maximumIntegrationAccess']>;
-}
-
-interface ResolvedTool {
-  operation: OperationDefinition;
-  connections: SelectedConnection[];
-  defaultConnection?: SelectedConnection;
-}
+import {
+  assertUniqueConnectionAliases,
+  connectionsByPlugin,
+  defaultConnectionFor,
+  resolveToolCall,
+  toolInputSchema,
+  toolName,
+  type ResolvedTool,
+  type SelectedConnection,
+} from './integration-tool-planning.js';
+import { assertBoundedJson, enforceResourceConstraints } from './integration-tool-validation.js';
 
 interface SelectedConnections {
   connections: SelectedConnection[];
@@ -41,15 +32,9 @@ export class IntegrationRuntime {
 
   public async prepare(input: PrepareIntegrationToolsInput): Promise<IntegrationToolSession> {
     const selection = await this.selectedConnections(input);
-    const selected = selection.connections;
     const tools: DynamicIntegrationTool[] = [];
     const resolved = new Map<string, ResolvedTool>();
-    const byPlugin = new Map<string, SelectedConnection[]>();
-    for (const candidate of selected) {
-      const pluginConnections = byPlugin.get(candidate.connection.pluginId) ?? [];
-      pluginConnections.push(candidate);
-      byPlugin.set(candidate.connection.pluginId, pluginConnections);
-    }
+    const byPlugin = connectionsByPlugin(selection.connections);
 
     for (const [pluginId, connections] of byPlugin) {
       const plugin = this.options.registry.plugin(pluginId);
@@ -144,12 +129,7 @@ export class IntegrationRuntime {
         ...(input.maximumIntegrationAccess ? { maximumIntegrationAccess: input.maximumIntegrationAccess } : {}),
       });
     }
-    const duplicateAlias = selected.find(
-      (candidate, index) => selected.findIndex(
-        (other) => other.connection.alias === candidate.connection.alias,
-      ) !== index,
-    );
-    if (duplicateAlias) throw new Error(`duplicate connection alias ${duplicateAlias.connection.alias}`);
+    assertUniqueConnectionAliases(selected);
     return { connections: selected, defaults };
   }
 
@@ -159,19 +139,8 @@ export class IntegrationRuntime {
     call: DynamicIntegrationToolCall,
     signal?: AbortSignal,
   ): Promise<JsonValue> {
-    if (!call.namespace) throw new Error('integration tool namespace is required');
-    const resolved = tools.get(`${call.namespace}:${call.tool}`);
-    if (!resolved) throw new Error(`integration tool ${call.namespace}.${call.tool} is not available`);
-    const argumentsValue = recordValue(call.arguments, 'integration tool arguments');
-    const account = argumentsValue.account === undefined && resolved.defaultConnection
-      ? resolved.defaultConnection.connection.alias
-      : stringValue(argumentsValue.account, 'integration account');
-    const selected = resolved.connections.find(
-      (candidate) => candidate.connection.alias === account || candidate.connection.connectionId === account,
-    );
-    if (!selected) throw new Error(`account ${account} is not authorized for this operation`);
-    const operationInput = operationInputValue(argumentsValue, resolved.operation);
-    const decision = authorizeConnectionOperation({ ...selected, operation: resolved.operation });
+    const { selected, operation, operationInput } = resolveToolCall(tools, call);
+    const decision = authorizeConnectionOperation({ ...selected, operation });
     if (!decision.allowed) throw new Error(decision.reason ?? 'integration operation is not authorized');
     enforceResourceConstraints(selected.grant, operationInput);
     const binding = await this.options.store.getCredentialBinding(
@@ -186,127 +155,12 @@ export class IntegrationRuntime {
       selected.connection,
       signal,
     );
-    const result = await selected.plugin.execute(resolved.operation.id, operationInput, {
+    const result = await selected.plugin.execute(operation.id, operationInput, {
       connection: selected.connection,
       credential,
       ...(signal ? { signal } : {}),
     });
     assertBoundedJson(result, 'integration tool result');
     return result;
-  }
-}
-
-function enforceResourceConstraints(
-  grant: ConnectionGrant,
-  input: { [key: string]: JsonValue },
-): void {
-  for (const [field, allowed] of Object.entries(grant.resourceConstraints ?? {})) {
-    const actual = input[field];
-    const selected = typeof actual === 'string'
-      ? [actual]
-      : Array.isArray(actual) && actual.every((value) => typeof value === 'string')
-        ? actual as string[]
-        : undefined;
-    if (!selected || selected.some((value) => !allowed.includes(value))) {
-      throw new Error(`integration input ${field} is outside the connection resource grant`);
-    }
-  }
-}
-
-function toolInputSchema(
-  operation: OperationDefinition,
-  connections: SelectedConnection[],
-  defaultConnection?: SelectedConnection,
-): { [key: string]: JsonValue } {
-  const defaultAlias = defaultConnection?.connection.alias;
-  return {
-    type: 'object',
-    properties: {
-      account: {
-        type: 'string',
-        description: defaultAlias
-          ? `The connected account alias to use. Defaults to ${defaultAlias}.`
-          : 'The connected account alias to use.',
-        enum: connections.map((candidate) => candidate.connection.alias),
-        ...(defaultAlias ? { default: defaultAlias } : {}),
-      },
-      input: operation.inputSchema ?? { type: 'object', additionalProperties: true },
-    },
-    required: defaultAlias ? ['input'] : ['account', 'input'],
-    additionalProperties: false,
-  };
-}
-
-function defaultConnectionFor(
-  operation: OperationDefinition,
-  connections: SelectedConnection[],
-  defaults: { [key: string]: string },
-): SelectedConnection | undefined {
-  const pluginId = operation.id.split('.')[0] as string;
-  for (const key of [operation.id, pluginId]) {
-    const configured = defaults[key];
-    if (configured) {
-      return connections.find((candidate) => candidate.connection.connectionId === configured);
-    }
-  }
-  const configuredForPlugin = connections.filter((candidate) => (
-    Object.values(defaults).includes(candidate.connection.connectionId)
-  ));
-  if (configuredForPlugin.length === 1) return configuredForPlugin[0];
-  return connections.length === 1 ? connections[0] : undefined;
-}
-
-function toolName(operationId: string, pluginId: string): string {
-  return operationId.slice(pluginId.length + 1).replace(/[.-]/g, '_');
-}
-
-function recordValue(value: JsonValue, label: string): { [key: string]: JsonValue } {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    throw new Error(`${label} must be an object`);
-  }
-  return value;
-}
-
-function operationInputValue(
-  argumentsValue: { [key: string]: JsonValue },
-  operation: OperationDefinition,
-): { [key: string]: JsonValue } {
-  if (argumentsValue.input !== undefined) {
-    return recordValue(argumentsValue.input, 'integration operation input');
-  }
-
-  const flatInput = Object.fromEntries(
-    Object.entries(argumentsValue).filter(([key]) => key !== 'account'),
-  );
-  const schema = operation.inputSchema && recordValue(operation.inputSchema, 'integration operation schema');
-  if (!schema || schema.type !== 'object') {
-    throw new Error('integration tool arguments require an input object');
-  }
-  const properties = schema.properties === undefined
-    ? undefined
-    : recordValue(schema.properties, 'integration operation properties');
-  if (
-    schema.additionalProperties === false &&
-    Object.keys(flatInput).some((key) => properties?.[key] === undefined)
-  ) {
-    throw new Error('integration tool arguments require an input object');
-  }
-  return flatInput;
-}
-
-function stringValue(value: JsonValue | undefined, label: string): string {
-  if (typeof value !== 'string' || !value) throw new Error(`${label} is required`);
-  return value;
-}
-
-function assertBoundedJson(value: JsonValue, label: string): void {
-  let encoded: string;
-  try {
-    encoded = JSON.stringify(value);
-  } catch {
-    throw new Error(`${label} is not JSON`);
-  }
-  if (Buffer.byteLength(encoded) > MAX_TOOL_RESULT_BYTES) {
-    throw new Error(`${label} exceeds ${MAX_TOOL_RESULT_BYTES} bytes`);
   }
 }

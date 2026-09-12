@@ -452,8 +452,8 @@
               "anchor": "if (!finalized) throw new Error"
             },
             {
-              "file": "src/runner/agent-driver.ts",
-              "anchor": "const identity = agentIdentity();"
+              "file": "src/runner/agent-planning.ts",
+              "anchor": "const identity = agentProcessIdentity(environment.RUN_AGENT_UID, environment.RUN_AGENT_GID);"
             }
           ],
           "resource": "runner",
@@ -847,8 +847,8 @@
               "anchor": "...(record.conversation && this.options.s3Files ?"
             },
             {
-              "file": "src/conversation/coordinator.ts",
-              "anchor": "// The MicroVM lease expires independently"
+              "file": "src/conversation/continuation.ts",
+              "anchor": "// Native thread state outlives the VM lease"
             }
           ],
           "resource": "files",
@@ -1609,7 +1609,7 @@
       "kind": "request",
       "sources": [
         {
-          "file": "src/runner/agent-driver.ts",
+          "file": "src/runner/agent-planning.ts",
           "anchor": "modelProvider: codexModelProvider(authMode),"
         }
       ]
@@ -1918,8 +1918,8 @@
                 "anchor": "public async start(record:"
               },
               {
-                "file": "src/conversation/coordinator.ts",
-                "anchor": "// The MicroVM lease expires independently"
+                "file": "src/conversation/continuation.ts",
+                "anchor": "// Native thread state outlives the VM lease"
               }
             ]
           }
@@ -2112,8 +2112,8 @@
                 "anchor": "public async start(record:"
               },
               {
-                "file": "src/conversation/coordinator.ts",
-                "anchor": "// The MicroVM lease expires independently"
+                "file": "src/conversation/continuation.ts",
+                "anchor": "// Native thread state outlives the VM lease"
               }
             ]
           }
@@ -2306,8 +2306,8 @@
                 "anchor": "public async start(record:"
               },
               {
-                "file": "src/conversation/coordinator.ts",
-                "anchor": "// The MicroVM lease expires independently"
+                "file": "src/conversation/continuation.ts",
+                "anchor": "// Native thread state outlives the VM lease"
               }
             ]
           }
@@ -2504,8 +2504,8 @@
                 "anchor": "public async start(record:"
               },
               {
-                "file": "src/conversation/coordinator.ts",
-                "anchor": "// The MicroVM lease expires independently"
+                "file": "src/conversation/continuation.ts",
+                "anchor": "// Native thread state outlives the VM lease"
               }
             ]
           }
@@ -3058,8 +3058,8 @@
       "description": "Committed Run records, conversation context and S3 payloads survive worker loss within configured retention. Optional S3 Files also preserves native conversation state and workspace files across workers.",
       "sources": [
         {
-          "file": "src/conversation/coordinator.ts",
-          "anchor": "// The MicroVM lease expires independently"
+          "file": "src/conversation/continuation.ts",
+          "anchor": "// Native thread state outlives the VM lease"
         },
         {
           "file": "src/adapters/executors.ts",

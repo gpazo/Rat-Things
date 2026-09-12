@@ -1,41 +1,32 @@
 import { randomUUID } from 'node:crypto';
 import type { RunRequest, RunRecord, SandboxMode } from '../domain/contracts.js';
 import { canonicalJson as stableJson, sha256Hex as sha256 } from '../domain/json.js';
-import type {
-  PublicRoutine,
-  RoutineRecord,
-  RoutineSchedule,
-  RoutineTickResult,
-} from '../domain/routines.js';
-import {
-  isRecord,
-  isoDateTime,
-  parseRunRequest,
-  rejectUnknown,
-  requiredTrimmedString,
-  ValidationError,
-} from '../domain/validation.js';
+import { nextOccurrence, parseRoutineInput, validateRoutineId } from '../domain/routine-spec.js';
+import type { RoutineRecord, RoutineTickResult } from '../domain/routines.js';
+import { parseRunRequest, ValidationError, type ValidationOptions } from '../domain/validation.js';
 import type { ArtifactStore, Clock, RoutineStore } from './ports.js';
+import {
+  compileRoutineOccurrence,
+  createRoutineRecord,
+  routineRequestKey,
+  summarizeRoutineTick,
+  type RoutineTickOutcome,
+} from './routine-planning.js';
 import { ForbiddenError, NotFoundError, validateOwner, type RunService } from './run-service.js';
+
+export { nextOccurrence } from '../domain/routine-spec.js';
+export { publicRoutine } from './routine-planning.js';
 
 const DELETED_ROUTINE_RETENTION_SECONDS = 30 * 24 * 60 * 60;
 
 export interface RoutineServiceOptions {
   store: RoutineStore;
-  artifacts: ArtifactStore;
+  artifacts: Pick<ArtifactStore, 'getJson' | 'putJson'>;
   runs: Pick<RunService, 'submit'>;
   allowedRepositoryHosts?: string[];
   allowedSandboxModes?: SandboxMode[];
   clock?: Clock;
   randomId?: () => string;
-}
-
-interface ParsedRoutineInput {
-  name: string;
-  schedule: RoutineSchedule;
-  request: RunRequest;
-  enabled: boolean;
-  startAt?: string;
 }
 
 export class RoutineService {
@@ -49,33 +40,17 @@ export class RoutineService {
 
   public async create(ownerId: string, raw: unknown): Promise<RoutineRecord> {
     validateOwner(ownerId);
-    const parsed = this.parseInput(raw);
+    const parsed = parseRoutineInput(raw, this.validationOptions());
     const routineId = this.randomId();
     if (!/^[A-Za-z0-9-]{1,128}$/.test(routineId)) throw new Error('routine ID generator returned an invalid ID');
     const canonical = stableJson(parsed.request);
     const requestHash = sha256(canonical);
-    const ownerHash = sha256(ownerId).slice(0, 32);
     const request = await this.options.artifacts.putJson(
-      `owners/${ownerHash}/routines/${routineId}/request-${requestHash}.json`,
+      routineRequestKey(ownerId, routineId, requestHash),
       parsed.request,
     );
     const now = this.clock.now();
-    const createdAt = now.toISOString();
-    const nextRunAt = firstOccurrence(now, parsed.schedule, parsed.startAt);
-    const record: RoutineRecord = {
-      version: '1',
-      routineId,
-      ownerId,
-      ownerCreated: `${ownerId}#${createdAt}#${routineId}`,
-      name: parsed.name,
-      status: parsed.enabled ? 'enabled' : 'paused',
-      schedule: parsed.schedule,
-      nextRunAt,
-      request,
-      requestHash,
-      createdAt,
-      updatedAt: createdAt,
-    };
+    const record = createRoutineRecord({ ownerId, routineId, parsed, request, requestHash, now });
     await this.options.store.create(record);
     return record;
   }
@@ -163,8 +138,9 @@ export class RoutineService {
   public async tick(limit = 100): Promise<RoutineTickResult> {
     const now = this.clock.now();
     const due = await this.options.store.listDue(now.toISOString(), Math.max(1, Math.min(500, limit)));
-    const result: RoutineTickResult = { examined: due.length, scheduled: 0, runs: [] };
-    const failures: Error[] = [];
+    const examined = due.length;
+    const outcomes: RoutineTickOutcome[] = [];
+    // Submit and conditionally advance each occurrence before starting the next one.
     for (const routine of due) {
       const scheduledAt = routine.nextRunAt;
       try {
@@ -180,16 +156,14 @@ export class RoutineService {
           run.runId,
           now.toISOString(),
         );
-        if (advanced) {
-          result.scheduled += 1;
-          result.runs.push({ runId: run.runId, status: run.status });
-        }
+        outcomes.push(advanced
+          ? { kind: 'scheduled', run: { runId: run.runId, status: run.status } }
+          : { kind: 'raced' });
       } catch (error) {
-        failures.push(error instanceof Error ? error : new Error(String(error)));
+        outcomes.push({ kind: 'failed', error: error instanceof Error ? error : new Error(String(error)) });
       }
     }
-    if (failures.length > 0) throw new AggregateError(failures, 'one or more due routines failed');
-    return result;
+    return summarizeRoutineTick(examined, outcomes);
   }
 
   private async submitOccurrence(
@@ -198,30 +172,12 @@ export class RoutineService {
     idempotencyKey: string,
   ): Promise<RunRecord> {
     const request = await this.loadRequest(routine);
-    const metadata = {
-      ...request.metadata,
-      routineId: routine.routineId,
-      routineName: routine.name,
-      ...(scheduledAt ? { scheduledAt } : {}),
-    };
-    const occurrenceId = scheduledAt ?? `manual:${sha256(idempotencyKey).slice(0, 32)}`;
-    return this.options.runs.submit(routine.ownerId, {
-      ...request,
-      source: { kind: 'api', requestId: `routine:${routine.routineId}:${occurrenceId}` },
-      metadata,
-    }, {
-      idempotencyKey,
-      capabilityOwnerId: routine.ownerId,
-      provenance: {
-        actor: { kind: 'system', id: `routine:${routine.routineId}`, provider: 'api' },
-        credentialSubject: { kind: 'runtime', id: routine.ownerId },
-      },
-    });
+    const submission = compileRoutineOccurrence({ routine, request, scheduledAt, idempotencyKey });
+    return this.options.runs.submit(routine.ownerId, submission.request, submission.options);
   }
 
   private async loadRequest(routine: RoutineRecord): Promise<RunRequest> {
-    const ownerHash = sha256(routine.ownerId).slice(0, 32);
-    const expectedKey = `owners/${ownerHash}/routines/${routine.routineId}/request-${routine.requestHash}.json`;
+    const expectedKey = routineRequestKey(routine.ownerId, routine.routineId, routine.requestHash);
     if (routine.request.key !== expectedKey) {
       throw new Error('routine request reference is outside its owner scope');
     }
@@ -233,34 +189,7 @@ export class RoutineService {
     return request;
   }
 
-  private parseInput(raw: unknown): ParsedRoutineInput {
-    if (!isRecord(raw)) throw new ValidationError('routine must be an object');
-    rejectUnknown(raw, ['version', 'name', 'schedule', 'request', 'enabled'], 'routine');
-    if (raw.version !== '1') throw new ValidationError('routine.version must be "1"');
-    const name = requiredTrimmedString(raw.name, 'routine.name', 128);
-    const { schedule, startAt } = parseSchedule(raw.schedule);
-    const request = parseRunRequest(raw.request, this.validationOptions());
-    if (request.source) throw new ValidationError('routine request cannot set source');
-    if (request.parentRunId) throw new ValidationError('routine request cannot set parentRunId');
-    if (request.destinations?.some((destination) => destination.kind === 'source')) {
-      throw new ValidationError('routine request cannot use the source delivery destination');
-    }
-    if (request.metadata?.routineId !== undefined || request.metadata?.scheduledAt !== undefined) {
-      throw new ValidationError('routine request metadata uses reserved keys');
-    }
-    if (raw.enabled !== undefined && typeof raw.enabled !== 'boolean') {
-      throw new ValidationError('routine.enabled must be a boolean');
-    }
-    return {
-      name,
-      schedule,
-      enabled: raw.enabled !== false,
-      ...(startAt ? { startAt } : {}),
-      request,
-    };
-  }
-
-  private validationOptions(): { allowedRepositoryHosts?: string[]; allowedSandboxModes?: SandboxMode[] } {
+  private validationOptions(): ValidationOptions {
     return {
       ...(this.options.allowedRepositoryHosts
         ? { allowedRepositoryHosts: this.options.allowedRepositoryHosts }
@@ -270,56 +199,4 @@ export class RoutineService {
         : {}),
     };
   }
-}
-
-export function publicRoutine(record: RoutineRecord): PublicRoutine {
-  const { ownerId: _ownerId, ownerCreated: _ownerCreated, request: _request, ...visible } = record;
-  return visible;
-}
-
-function parseSchedule(value: unknown): { schedule: RoutineSchedule; startAt?: string } {
-  if (!isRecord(value)) throw new ValidationError('routine.schedule must be an object');
-  rejectUnknown(value, ['kind', 'everyMinutes', 'startAt'], 'routine');
-  if (value.kind !== 'interval') throw new ValidationError('routine.schedule.kind must be interval');
-  if (
-    typeof value.everyMinutes !== 'number' ||
-    !Number.isInteger(value.everyMinutes) ||
-    value.everyMinutes < 1 ||
-    value.everyMinutes > 525_600
-  ) throw new ValidationError('routine.schedule.everyMinutes must be an integer from 1 through 525600');
-  const schedule: RoutineSchedule = { kind: 'interval', everyMinutes: value.everyMinutes };
-  if (value.startAt === undefined) return { schedule };
-  const startAt = isoDateTime(value.startAt, 'routine.schedule.startAt');
-  return { schedule, startAt };
-}
-
-function firstOccurrence(now: Date, schedule: RoutineSchedule, startAt?: string): string {
-  if (startAt) return nextOccurrence(startAt, schedule, now, true);
-  return new Date(now.getTime() + intervalMilliseconds(schedule)).toISOString();
-}
-
-export function nextOccurrence(
-  scheduledAt: string,
-  schedule: RoutineSchedule,
-  now: Date,
-  includeScheduled = false,
-): string {
-  const scheduledMs = Date.parse(scheduledAt);
-  if (!Number.isFinite(scheduledMs)) throw new Error('routine has an invalid nextRunAt');
-  const interval = intervalMilliseconds(schedule);
-  let next = includeScheduled ? scheduledMs : scheduledMs + interval;
-  if (includeScheduled && next < now.getTime()) {
-    next += Math.ceil((now.getTime() - next) / interval) * interval;
-  } else if (!includeScheduled && next <= now.getTime()) {
-    next += (Math.floor((now.getTime() - next) / interval) + 1) * interval;
-  }
-  return new Date(next).toISOString();
-}
-
-function intervalMilliseconds(schedule: RoutineSchedule): number {
-  return schedule.everyMinutes * 60_000;
-}
-
-function validateRoutineId(routineId: string): void {
-  if (!/^[A-Za-z0-9-]{1,128}$/.test(routineId)) throw new ValidationError('routine ID is invalid');
 }

@@ -3,6 +3,18 @@ import { dirname, resolve } from 'node:path';
 import type { RepositoryInput } from '../domain/contracts.js';
 import type { CredentialBroker } from '../credentials/broker.js';
 import { runProcess } from './process.js';
+import { agentProcessIdentity } from './agent-identity.js';
+import {
+  assertWorkspaceScope,
+  credentialGitEnvironment,
+  emptyWorkspaceCommands,
+  redactGitDiagnostic,
+  repositoryBaseFetchArguments,
+  repositoryCheckoutCommands,
+  trustedGitEnvironment,
+  validateRepositoryUrl,
+  workspacePatchCommand,
+} from './workspace-planning.js';
 
 export async function prepareWorkspace(
   repository: RepositoryInput | undefined,
@@ -12,9 +24,7 @@ export async function prepareWorkspace(
 ): Promise<void> {
   const absolute = resolve(workspace);
   const root = resolve(process.env.WORKSPACE_ROOT ?? '/tmp/agent-runtime');
-  if (absolute !== root && !absolute.startsWith(`${root}/`)) {
-    throw new Error(`workspace must be below ${root}`);
-  }
+  assertWorkspaceScope(absolute, root);
   if (options.reuseExisting) {
     if (await isReusableWorkspace(absolute)) return;
     await resetPersistentWorkspace(absolute);
@@ -25,47 +35,25 @@ export async function prepareWorkspace(
   if (!repository) {
     await mkdir(absolute, { recursive: true, mode: 0o700 });
     await handoff(absolute);
-    await git(['init', '--quiet', absolute], root);
-    await git(['-C', absolute, '-c', 'user.name=Agent Runtime', '-c', 'user.email=runtime@invalid', 'commit', '--quiet', '--allow-empty', '-m', 'runtime baseline'], root);
-    await git(['-C', absolute, 'update-ref', 'refs/agent-runtime/base', 'HEAD'], root);
+    for (const args of emptyWorkspaceCommands(absolute)) await git(args, root);
     return;
   }
-  validateRepositoryUrl(repository.url);
+  validateRepositoryUrl(repository.url, process.env.ALLOWED_REPOSITORY_HOSTS);
   await mkdir(absolute, { recursive: true, mode: 0o700 });
   await handoff(absolute);
-  const env = gitEnvironment();
+  let env = gitEnvironment();
   if (repository.credentialSecretArn) {
-    env.GIT_TOKEN = await credentials.read(
+    const token = await credentials.read(
       repository.credentialSecretArn,
       ['token', 'access_token', 'password'],
     );
-    env.GIT_USERNAME = repository.provider === 'github' ? 'x-access-token' : 'oauth2';
-    env.GIT_ASKPASS = process.env.GIT_ASKPASS_PATH ?? '/app/bin/git-askpass.sh';
+    env = credentialGitEnvironment(env, repository.provider, token, process.env.GIT_ASKPASS_PATH);
   }
   await git(['init', '--quiet', absolute], root, env);
   await git(['-C', absolute, 'remote', 'add', 'origin', repository.url], root, env);
-  if (repository.ref) {
-    await git(['-C', absolute, 'fetch', '--quiet', '--depth=50', 'origin', repository.ref], root, env);
-    await git(['-C', absolute, 'checkout', '--quiet', '--detach', 'FETCH_HEAD'], root, env);
-  } else {
-    await git(['-C', absolute, 'fetch', '--quiet', '--depth=1', 'origin', 'HEAD'], root, env);
-    await git(['-C', absolute, 'checkout', '--quiet', '--detach', 'FETCH_HEAD'], root, env);
-  }
-  if (repository.baseRef) {
-    await git(
-      [
-        '-C',
-        absolute,
-        'fetch',
-        '--quiet',
-        '--depth=50',
-        'origin',
-        `${repository.baseRef}:refs/remotes/origin/${repository.baseRef}`,
-      ],
-      root,
-      env,
-    );
-  }
+  for (const args of repositoryCheckoutCommands(absolute, repository.ref)) await git(args, root, env);
+  const baseFetch = repositoryBaseFetchArguments(absolute, repository.baseRef);
+  if (baseFetch) await git(baseFetch, root, env);
   await git(['-C', absolute, 'update-ref', 'refs/agent-runtime/base', 'HEAD'], root, env);
   await handoff(absolute);
 }
@@ -104,31 +92,11 @@ async function isReusableWorkspace(workspace: string): Promise<boolean> {
 
 export async function collectWorkspacePatch(workspace: string): Promise<Buffer | undefined> {
   const identity = configuredAgentIdentity();
-  const artifactExclusion = ':(exclude).rat-things/**';
-  const add = await runProcess(
-    'git',
-    ['-C', workspace, 'add', '--intent-to-add', '--all', '--', '.', artifactExclusion],
-    {
-    cwd: workspace,
-    env: { PATH: process.env.PATH, HOME: process.env.HOME },
-    timeoutMs: 30_000,
-    maxStdoutBytes: 64 * 1024,
-    maxStderrBytes: 256 * 1024,
-    ...identity,
-    },
-  );
+  const stage = workspacePatchCommand(workspace, 'stage', process.env, identity);
+  const add = await runProcess('git', stage.args, stage.options);
   if (add.exitCode !== 0) throw new Error(`git add failed: ${add.stderr.toString('utf8').slice(-1_000)}`);
-  const result = await runProcess(
-    'git',
-    ['-C', workspace, 'diff', '--binary', 'refs/agent-runtime/base', '--', '.', artifactExclusion],
-    {
-    cwd: workspace,
-    env: { PATH: process.env.PATH, HOME: process.env.HOME },
-    timeoutMs: 30_000,
-    maxStdoutBytes: 8 * 1024 * 1024,
-    ...identity,
-    },
-  );
+  const diff = workspacePatchCommand(workspace, 'diff', process.env, identity);
+  const result = await runProcess('git', diff.args, diff.options);
   if (result.exitCode !== 0) throw new Error(`git diff failed: ${result.stderr.toString('utf8').slice(-1_000)}`);
   return result.stdout.length > 0 ? result.stdout : undefined;
 }
@@ -148,42 +116,12 @@ async function git(
     ...identity,
   });
   if (result.exitCode !== 0) {
-    throw new Error(`git failed with ${result.exitCode}: ${redact(result.stderr.toString('utf8')).slice(-1_000)}`);
+    throw new Error(`git failed with ${result.exitCode}: ${redactGitDiagnostic(result.stderr.toString('utf8')).slice(-1_000)}`);
   }
 }
 
 function gitEnvironment(): NodeJS.ProcessEnv {
-  return {
-    PATH: process.env.PATH,
-    // Ignore agent-writable user/system Git configuration while trusted setup
-    // handles a repository. Repository bytes are still parsed only as UID 10001.
-    HOME: process.env.GIT_TRUSTED_HOME ?? '/opt/agent-runtime',
-    GIT_CONFIG_NOSYSTEM: '1',
-    GIT_CONFIG_GLOBAL: '/dev/null',
-    GIT_TERMINAL_PROMPT: '0',
-  };
-}
-
-function validateRepositoryUrl(value: string): void {
-  const url = new URL(value);
-  const allowed = (process.env.ALLOWED_REPOSITORY_HOSTS ?? 'github.com,gitlab.com')
-    .split(',')
-    .map((host) => host.trim().toLowerCase())
-    .filter(Boolean);
-  if (
-    url.protocol !== 'https:' ||
-    url.username ||
-    url.password ||
-    url.search ||
-    url.hash ||
-    !allowed.includes(url.hostname.toLowerCase())
-  ) {
-    throw new Error('repository URL is not allowed');
-  }
-}
-
-function redact(value: string): string {
-  return value.replace(/https:\/\/[^@\s]+@/g, 'https://[REDACTED]@');
+  return trustedGitEnvironment(process.env);
 }
 
 async function handoff(workspace: string): Promise<void> {
@@ -202,13 +140,5 @@ async function handoff(workspace: string): Promise<void> {
 }
 
 function configuredAgentIdentity(): { uid: number; gid: number } | undefined {
-  const rawUid = process.env.RUN_AGENT_UID;
-  const rawGid = process.env.RUN_AGENT_GID;
-  if (!rawUid && !rawGid) return undefined;
-  const uid = Number(rawUid);
-  const gid = Number(rawGid);
-  if (!Number.isInteger(uid) || uid < 1 || !Number.isInteger(gid) || gid < 1) {
-    throw new Error('RUN_AGENT_UID and RUN_AGENT_GID must both be positive integers');
-  }
-  return { uid, gid };
+  return agentProcessIdentity(process.env.RUN_AGENT_UID, process.env.RUN_AGENT_GID);
 }

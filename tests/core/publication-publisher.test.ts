@@ -1,11 +1,11 @@
 import { createHash } from 'node:crypto';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import { siteCatalog } from './publication-fixtures.js';
 import {
   latestPublicationSourceRunId,
   PublicationPublisher,
 } from '../../src/core/publication-publisher.js';
 import type { PublicationObjectStore } from '../../src/core/publication-service.js';
-import type { ArtifactCatalog } from '../../src/domain/contracts.js';
 import type {
   BlobReference,
   PublicationManifest,
@@ -190,40 +190,132 @@ describe('publication publisher', () => {
       { version: '1', kind: 'file', path: 'missing.txt' },
     )).toBe('conversation-publication');
   });
+
+  it('commits before generating the token, reading time, and writing the grant', async () => {
+    const objects = new MemoryPublicationObjects();
+    const grants = new MemoryGrants();
+    const events: string[] = [];
+    const commit = objects.commit.bind(objects);
+    objects.commit = async (input) => {
+      events.push('commit');
+      return commit(input);
+    };
+    const put = grants.put.bind(grants);
+    grants.put = async (share) => {
+      events.push('grant');
+      return put(share);
+    };
+    const publisher = new PublicationPublisher(objects, grants, {
+      artifactBucket: 'artifacts', baseDomain: 'agent-content.example', ttlSeconds: 60,
+      randomToken: () => { events.push('token'); return 'a'.repeat(64); },
+      now: () => { events.push('clock'); return new Date('2026-08-15T12:00:00.000Z'); },
+    });
+
+    await publisher.publish(siteInput());
+    expect(events).toEqual(['commit', 'token', 'clock', 'grant']);
+  });
+
+  it('rejects an invalid token after committing and before reading time or writing a grant', async () => {
+    const objects = new MemoryPublicationObjects();
+    const grants = new MemoryGrants();
+    const now = vi.fn(() => new Date());
+    const publisher = new PublicationPublisher(objects, grants, {
+      artifactBucket: 'artifacts', baseDomain: 'agent-content.example', ttlSeconds: 60,
+      randomToken: () => 'INVALID', now,
+    });
+
+    await expect(publisher.publish(siteInput())).rejects.toThrow('invalid token');
+    expect(objects.manifest).toBeDefined();
+    expect(now).not.toHaveBeenCalled();
+    expect(grants.values).toEqual([]);
+  });
+
+  it('retries a failed grant without restaging the committed publication', async () => {
+    const objects = new MemoryPublicationObjects();
+    const cause = new Error('grant storage unavailable');
+    const put = vi.fn().mockRejectedValueOnce(cause).mockResolvedValueOnce(undefined);
+    const randomToken = vi.fn().mockReturnValueOnce('a'.repeat(64)).mockReturnValueOnce('b'.repeat(64));
+    const now = vi.fn(() => new Date('2026-08-15T12:00:00.000Z'));
+    const publisher = new PublicationPublisher(objects, { put }, {
+      artifactBucket: 'artifacts', baseDomain: 'agent-content.example', ttlSeconds: 60,
+      randomToken, now,
+    });
+
+    await expect(publisher.publish(siteInput())).rejects.toBe(cause);
+    const manifest = objects.manifest;
+    const result = await publisher.publish({ ...siteInput(), runId: 'retry-run' });
+
+    expect(objects.staged).toEqual(['index.html', 'app.js']);
+    expect(objects.manifest).toBe(manifest);
+    expect(objects.manifest?.provenance.runId).toBe('run-1');
+    expect(result.url).toContain('b'.repeat(64));
+    expect(randomToken).toHaveBeenCalledTimes(2);
+    expect(now).toHaveBeenCalledTimes(2);
+  });
+
+  it('rejects a foreign unrelated file before selecting the requested site', async () => {
+    const objects = new MemoryPublicationObjects();
+    const grants = new MemoryGrants();
+    const randomToken = vi.fn(() => 'a'.repeat(64));
+    const publisher = new PublicationPublisher(objects, grants, {
+      artifactBucket: 'artifacts', baseDomain: 'agent-content.example', ttlSeconds: 60, randomToken,
+    });
+    const input = siteInput();
+    input.catalog.files[2]!.file.key = siteCatalog('another-owner', 'artifacts').files[2]!.file.key;
+
+    await expect(publisher.publish(input)).rejects.toThrow('outside its owner scope');
+    expect(objects.staged).toEqual([]);
+    expect(randomToken).not.toHaveBeenCalled();
+    expect(grants.values).toEqual([]);
+  });
+
+  it('does not create a token or read grant time when committing fails', async () => {
+    const objects = new MemoryPublicationObjects();
+    objects.commit = async () => { throw new Error('commit failed'); };
+    const grants = new MemoryGrants();
+    const randomToken = vi.fn(() => 'a'.repeat(64));
+    const now = vi.fn(() => new Date());
+    const publisher = new PublicationPublisher(objects, grants, {
+      artifactBucket: 'artifacts', baseDomain: 'agent-content.example', ttlSeconds: 60, randomToken, now,
+    });
+
+    await expect(publisher.publish(siteInput())).rejects.toMatchObject({
+      code: 'storage', message: 'could not commit publication manifest',
+    });
+    expect(objects.staged).toEqual(['index.html', 'app.js']);
+    expect(randomToken).not.toHaveBeenCalled();
+    expect(now).not.toHaveBeenCalled();
+    expect(grants.values).toEqual([]);
+  });
+
+  it('keeps the returned link values independent of grant-store input mutation', async () => {
+    const objects = new MemoryPublicationObjects();
+    const grants = {
+      put: async (share: PublicationShare) => {
+        share.grant.id = 'storage-key';
+        share.grant.ownerHash = 'storage-owner';
+        share.grant.publicationId = 'storage-publication';
+        share.grant.expiresAt = 'storage-expiry';
+      },
+    };
+    const publisher = new PublicationPublisher(objects, grants, {
+      artifactBucket: 'artifacts', baseDomain: 'agent-content.example', ttlSeconds: 60,
+      randomToken: () => 'a'.repeat(64), now: () => new Date('2026-08-15T12:00:00.000Z'),
+    });
+    const ownerHash = createHash('sha256').update('owner-1').digest('hex').slice(0, 32);
+
+    const result = await publisher.publish(siteInput());
+    expect(result.publicationId).toBe(objects.manifest?.publicationId);
+    expect(result.url).toBe(`https://${result.publicationId}-${ownerHash}.agent-content.example/__share/${ownerHash}-${'a'.repeat(64)}`);
+    expect(result.expiresAt).toBe('2026-08-15T12:01:00.000Z');
+  });
 });
 
-function siteCatalog(ownerId: string, bucket: string): ArtifactCatalog {
-  const ownerHash = createHash('sha256').update(ownerId).digest('hex').slice(0, 32);
+function siteInput() {
   return {
-    version: '1',
-    files: [
-      artifact('site/index.html', 'run-1', '2026-08-15T11:00:00.000Z'),
-      artifact('site/app.js', 'run-2', '2026-08-15T11:30:00.000Z'),
-      artifact('notes.txt', 'run-3', '2026-08-15T11:45:00.000Z'),
-    ].map((value) => ({
-      ...value,
-      file: {
-        ...value.file,
-        bucket,
-        key: `owners/${ownerHash}/runs/${value.sourceRunId}/artifacts/${value.id}`,
-      },
-    })),
-  };
-}
-
-function artifact(path: string, sourceRunId: string, createdAt: string) {
-  const id = createHash('sha256').update(path).digest('hex').slice(0, 24);
-  return {
-    id,
-    path,
-    mediaType: path.endsWith('.html') ? 'text/html; charset=utf-8' : 'text/javascript; charset=utf-8',
-    bytes: 12,
-    createdAt,
-    sourceRunId,
-    file: {
-      bucket: '',
-      key: '',
-      sha256: createHash('sha256').update(path).digest('hex'),
-    },
+    ownerId: 'owner-1',
+    spec: { version: '1', kind: 'site', root: 'site' } as const,
+    catalog: siteCatalog('owner-1', 'artifacts'),
+    runId: 'run-1',
   };
 }

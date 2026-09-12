@@ -196,6 +196,126 @@ describe('integration tool runtime', () => {
   });
 });
 
+describe('integration runtime effect boundaries', () => {
+  it('resolves requested aliases before loading selected accounts and their grants in set order', async () => {
+    const first = connection('first', 'mail-first', 'full', ['mail.read', 'mail.send']);
+    const second = connection('second', 'mail-second', 'full', ['mail.read', 'mail.send']);
+    const store = memoryStore([first, second], [grant(first, 'full'), grant(second, 'full')]);
+    const events: string[] = [];
+    store.getConnectionSet = vi.fn(async () => {
+      events.push('set');
+      return { version: '1' as const, connectionSetId: 'set-1', ownerId: 'owner-1', name: 'Mail', connectionIds: ['second', 'first'] };
+    });
+    const get = store.getConnection;
+    store.getConnection = vi.fn(async (ownerId: string, selector: string) => { events.push(`connection:${selector}`); return get(ownerId, selector); });
+    const getGrant = store.getGrant;
+    store.getGrant = vi.fn(async (ownerId: string, connectionId: string) => { events.push(`grant:${connectionId}`); return getGrant(ownerId, connectionId); });
+    const credentials = { readRecord: vi.fn() };
+    const runtime = new IntegrationRuntime({ registry: new IntegrationPluginRegistry([mailPlugin(vi.fn())]), store, credentials });
+    const session = await runtime.prepare({ ownerId: 'owner-1', request: { connectionSet: 'set-1', connections: [
+      { connection: first.alias, preset: 'full' }, { connection: first.connectionId, preset: 'read-only' },
+    ] } });
+    expect(events).toEqual(['set', 'connection:mail-first', 'connection:first', 'connection:second', 'grant:second', 'connection:first', 'grant:first']);
+    expect(session.tools[0]?.tools.map(tool => tool.inputSchema.properties)).toEqual([
+      expect.objectContaining({ account: expect.objectContaining({ enum: ['mail-second', 'mail-first'] }) }),
+      expect.objectContaining({ account: expect.objectContaining({ enum: ['mail-second'] }) }),
+    ]);
+    expect(credentials.readRecord).not.toHaveBeenCalled();
+  });
+
+  it('checks all selected grants before rejecting duplicate account aliases', async () => {
+    const first = connection('first', 'mail-same', 'full', ['mail.read']);
+    const second = connection('second', 'mail-same', 'full', ['mail.read']);
+    const store = memoryStore([first, second], [grant(first, 'full'), grant(second, 'full')]);
+    const getGrant = vi.spyOn(store, 'getGrant');
+    const runtime = new IntegrationRuntime({ registry: new IntegrationPluginRegistry([mailPlugin(vi.fn())]), store, credentials: { readRecord: vi.fn() } });
+    await expect(runtime.prepare({ ownerId: 'owner-1', request: { connections: [{ connection: 'first' }, { connection: 'second' }] } }))
+      .rejects.toThrow('duplicate connection alias mail-same');
+    expect(getGrant.mock.calls).toEqual([['owner-1', 'first'], ['owner-1', 'second']]);
+  });
+
+  it('validates arguments before checking expiry and checks expiry before resource constraints or credential lookup', async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date(now));
+      const test = runtimeFixture();
+      test.policy.expiresAt = '2026-08-20T00:01:00.000Z';
+      test.policy.resourceConstraints = { query: ['allowed'] };
+      const session = await test.runtime.prepare(test.input);
+      vi.setSystemTime(new Date(test.policy.expiresAt));
+      await expect(session.call({ namespace: 'mail', tool: 'messages_search', arguments: { input: false } })).rejects.toThrow('integration operation input must be an object');
+      await expect(session.call({ namespace: 'mail', tool: 'messages_search', arguments: { input: { query: 'blocked' } } })).rejects.toThrow('grant has expired');
+      expect(test.store.getCredentialBinding).not.toHaveBeenCalled();
+      expect(test.credentials.readRecord).not.toHaveBeenCalled();
+      expect(test.execute).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('loads the binding, reads credentials, and executes with the original abort signal in that order', async () => {
+    const test = runtimeFixture();
+    const events: string[] = [];
+    test.store.getCredentialBinding.mockImplementation(async () => {
+      events.push('binding'); return { version: '1', ownerId: 'owner-1', connectionId: 'personal-id', reference: 'secret-ref', createdAt: now, updatedAt: now };
+    });
+    test.credentials.readRecord.mockImplementation(async () => { events.push('credential'); return { token: 'test-token' }; });
+    test.execute.mockImplementation(async () => { events.push('execute'); return false; });
+    const session = await test.runtime.prepare(test.input);
+    const controller = new AbortController();
+    await expect(session.call({ namespace: 'mail', tool: 'messages_search', arguments: { input: {} } }, controller.signal)).resolves.toBe(false);
+    expect(events).toEqual(['binding', 'credential', 'execute']);
+    expect(test.credentials.readRecord).toHaveBeenCalledWith('secret-ref', test.account, controller.signal);
+    expect(test.execute).toHaveBeenCalledWith('mail.messages.search', {}, { connection: test.account, credential: { token: 'test-token' }, signal: controller.signal });
+  });
+
+  it('rejects a foreign credential binding and preserves reader failure before invoking the provider', async () => {
+    const test = runtimeFixture();
+    const session = await test.runtime.prepare(test.input);
+    test.store.getCredentialBinding.mockResolvedValueOnce({ version: '1', ownerId: 'other-owner', connectionId: 'personal-id', reference: 'foreign-ref', createdAt: now, updatedAt: now });
+    const call = { namespace: 'mail', tool: 'messages_search', arguments: { input: {} } };
+    await expect(session.call(call)).rejects.toThrow('credential for mail-personal is not configured');
+    expect(test.credentials.readRecord).not.toHaveBeenCalled();
+    const failure = new Error('credential unavailable');
+    test.credentials.readRecord.mockRejectedValueOnce(failure);
+    await expect(session.call(call)).rejects.toBe(failure);
+    expect(test.execute).not.toHaveBeenCalled();
+  });
+
+  it.each([false, 0, '', null])('returns a valid falsey provider result unchanged: %j', async result => {
+    const test = runtimeFixture();
+    test.execute.mockResolvedValue(result);
+    const session = await test.runtime.prepare(test.input);
+    await expect(session.call({ namespace: 'mail', tool: 'messages_search', arguments: { input: {} } })).resolves.toBe(result);
+    expect(test.execute).toHaveBeenCalledTimes(1);
+  });
+
+  it('checks result size only after provider execution and preserves provider errors', async () => {
+    const test = runtimeFixture();
+    test.execute.mockResolvedValueOnce('x'.repeat(128 * 1024));
+    const session = await test.runtime.prepare(test.input);
+    const call = { namespace: 'mail', tool: 'messages_search', arguments: { input: {} } };
+    await expect(session.call(call)).rejects.toThrow('integration tool result exceeds 131072 bytes');
+    expect(test.credentials.readRecord).toHaveBeenCalledTimes(1);
+    expect(test.execute).toHaveBeenCalledTimes(1);
+    const failure = new Error('provider unavailable');
+    test.execute.mockRejectedValueOnce(failure);
+    await expect(session.call(call)).rejects.toBe(failure);
+  });
+});
+
+function runtimeFixture() {
+  const account = connection('personal-id', 'mail-personal', 'full', ['mail.read', 'mail.send']);
+  const policy = grant(account, 'full');
+  const base = memoryStore([account], [policy]);
+  const store = { ...base, getCredentialBinding: vi.fn(base.getCredentialBinding) };
+  const execute = vi.fn<IntegrationPlugin['execute']>().mockResolvedValue({ ok: true });
+  const credentials = { readRecord: vi.fn().mockResolvedValue({ token: 'test-token' }) };
+  const runtime = new IntegrationRuntime({ registry: new IntegrationPluginRegistry([mailPlugin(execute)]), store, credentials });
+  const input = { ownerId: 'owner-1', request: { connections: [{ connection: account.alias }] } };
+  return { account, policy, store, execute, credentials, runtime, input };
+}
+
 function mailPlugin(execute: IntegrationPlugin['execute']): IntegrationPlugin {
   return {
     manifest: {

@@ -1,5 +1,5 @@
-import { createHash } from 'node:crypto';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import { blob, sourceFile } from './publication-fixtures.js';
 import {
   defaultPublicationBuilders,
   PublicationBuilderRegistry,
@@ -8,7 +8,7 @@ import {
 import type {
   PublicationBuilder,
   PublicationObjectStore,
-  PublicationSourceFile,
+  PublishInput,
 } from '../../src/core/publication-service.js';
 import type { BlobReference, PublicationManifest } from '../../src/domain/publications.js';
 
@@ -161,20 +161,157 @@ describe('publication service', () => {
       runId: 'run-1',
     })).rejects.toMatchObject({ code: 'invalid_path' });
   });
+
+  it('validates every input blob before looking up a committed publication', async () => {
+    const getCommitted = vi.fn(async () => undefined);
+    const store = Object.assign(new MemoryPublicationStore(), { getCommitted });
+    const input = fileInput();
+    input.files = [...input.files, { path: 'unused.txt', blob: { ...input.files[0]!.blob, size: -1 } }];
+
+    await expect(new PublicationService(store).publish(input)).rejects.toMatchObject({
+      code: 'invalid_request',
+    });
+    expect(getCommitted).not.toHaveBeenCalled();
+    expect(store.operations).toEqual([]);
+  });
+
+  it('returns the committed object without planning or staging again', async () => {
+    const store = new MemoryPublicationStore();
+    const committed = await new PublicationService(store).publish(fileInput());
+    const getCommitted = vi.fn(async () => committed);
+    const builder = defaultPublicationBuilders().get('file');
+    const plan = vi.spyOn(builder, 'plan');
+    const now = vi.fn(() => new Date());
+    const service = new PublicationService(
+      Object.assign(store, { getCommitted }),
+      new PublicationBuilderRegistry([builder]),
+      { now },
+    );
+    store.operations.length = 0;
+
+    const input = fileInput();
+    delete input.createdAt;
+    expect(await service.publish(input)).toBe(committed);
+    expect(plan).not.toHaveBeenCalled();
+    expect(now).not.toHaveBeenCalled();
+    expect(store.operations).toEqual([]);
+  });
+
+  it('wraps an invalid committed manifest as a storage read failure', async () => {
+    const store = new MemoryPublicationStore();
+    const committed = await new PublicationService(store).publish(fileInput());
+    committed.manifest.provenance.runId = '';
+    const getCommitted = async () => committed;
+    store.operations.length = 0;
+
+    await expect(new PublicationService(Object.assign(store, { getCommitted })).publish(fileInput()))
+      .rejects.toMatchObject({
+        code: 'storage',
+        message: 'could not read committed publication',
+        cause: expect.objectContaining({ code: 'invalid_request' }),
+      });
+    expect(store.operations).toEqual([]);
+  });
+
+  it('validates the entire plan before staging its first file', async () => {
+    const store = new MemoryPublicationStore();
+    const input = fileInput();
+    const builder: PublicationBuilder = {
+      kind: 'file',
+      name: 'custom',
+      plan: async () => ({
+        ok: true,
+        value: {
+          kind: 'file',
+          entrypoint: 'index.html',
+          files: [
+            { source: 'generated', path: 'index.html', bytes: Buffer.from('ready'), mediaType: 'text/html' },
+            { source: 'blob', path: 'unknown.txt', blob: sourceFile('unknown.txt', 'text/plain').blob },
+          ],
+        },
+      }),
+    };
+
+    await expect(new PublicationService(store, new PublicationBuilderRegistry([builder])).publish(input))
+      .rejects.toMatchObject({ code: 'invalid_request', message: 'publication builder selected an unknown source blob' });
+    expect(store.operations).toEqual([]);
+  });
+
+  it('keeps earlier staged files when a later write fails and preserves its cause', async () => {
+    const store = new MemoryPublicationStore();
+    const cause = new Error('copy failed');
+    store.stageBlob = async ({ path }) => {
+      store.operations.push(`copy:${path}`);
+      throw cause;
+    };
+
+    await expect(new PublicationService(store).publish(fileInput())).rejects.toMatchObject({
+      code: 'storage', message: 'could not stage publication path assets/demo.png', cause,
+    });
+    expect(store.operations).toEqual(['put:index.html', 'copy:assets/demo.png']);
+    expect(store.generated.has('index.html')).toBe(true);
+    expect(store.manifest).toBeUndefined();
+  });
+
+  it('validates provenance after staging and retains an explicitly empty timestamp', async () => {
+    const store = new MemoryPublicationStore();
+
+    await expect(new PublicationService(store).publish({ ...fileInput(), createdAt: '' }))
+      .rejects.toMatchObject({ code: 'invalid_request', message: 'publication provenance is invalid' });
+    expect(store.operations).toEqual(['put:index.html', 'copy:assets/demo.png']);
+    expect(store.manifest).toBeUndefined();
+  });
+
+  it('preserves the diagnostic list and fallback error for an empty failed plan', async () => {
+    const store = new MemoryPublicationStore();
+    const builder: PublicationBuilder = {
+      kind: 'file', name: 'custom', plan: async () => ({ ok: false, error: [] }),
+    };
+
+    await expect(new PublicationService(store, new PublicationBuilderRegistry([builder])).publish(fileInput()))
+      .rejects.toMatchObject({
+        code: 'invalid_request', message: 'publication could not be planned', diagnostics: [],
+      });
+    expect(store.operations).toEqual([]);
+  });
+
+  it('reads time once after staging, and skips the clock when createdAt is supplied', async () => {
+    const store = new MemoryPublicationStore();
+    const now = vi.fn(() => {
+      store.operations.push('clock');
+      return new Date('2026-08-16T00:00:00.000Z');
+    });
+    const service = new PublicationService(store, defaultPublicationBuilders(), { now });
+    const input = fileInput();
+    delete input.createdAt;
+
+    const result = await service.publish(input);
+    expect(store.operations).toEqual(['put:index.html', 'copy:assets/demo.png', 'clock', 'commit:_rat/manifest.json']);
+    expect(result.manifest.provenance.createdAt).toBe('2026-08-16T00:00:00.000Z');
+    await service.publish(fileInput());
+    expect(now).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not read time when staging fails before the manifest is constructed', async () => {
+    const store = new MemoryPublicationStore();
+    store.stageBlob = async () => { throw new Error('copy failed'); };
+    const now = vi.fn(() => new Date());
+    const input = fileInput();
+    delete input.createdAt;
+
+    await expect(new PublicationService(store, defaultPublicationBuilders(), { now }).publish(input))
+      .rejects.toMatchObject({ code: 'storage' });
+    expect(now).not.toHaveBeenCalled();
+  });
 });
 
-function sourceFile(path: string, mediaType: string): PublicationSourceFile {
+function fileInput(): PublishInput {
   return {
-    path,
-    blob: blob(`owners/owner/runs/run-1/${path}`, Buffer.from(path), mediaType),
-  };
-}
-
-function blob(id: string, bytes: Uint8Array, mediaType: string): BlobReference {
-  return {
-    id,
-    digest: `sha256:${createHash('sha256').update(bytes).digest('hex')}`,
-    size: bytes.byteLength,
-    mediaType,
+    ownerId: 'owner-1',
+    publicationId: 'a'.repeat(24),
+    spec: { version: '1', kind: 'file', path: 'demo.png' },
+    files: [sourceFile('demo.png', 'image/png')],
+    runId: 'run-1',
+    createdAt: '2026-08-15T00:00:00.000Z',
   };
 }

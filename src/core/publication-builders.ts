@@ -1,0 +1,205 @@
+import { basename } from 'node:path';
+import type {
+  PublicationDiagnostic,
+  PublicationKind,
+  PublicationSpec,
+  Result,
+} from '../domain/publications.js';
+import type {
+  PlannedPublicationFile,
+  PublicationPlan,
+  PublicationSourceFile,
+} from './publication-planning.js';
+
+export function filePublicationPlan(
+  spec: PublicationSpec,
+  files: readonly PublicationSourceFile[],
+): Result<PublicationPlan, PublicationDiagnostic[]> {
+  if (spec.kind !== 'file') return mismatch('file', spec.kind);
+  const file = findFile(files, spec.path);
+  if (!file) return missing(spec.path);
+  const assetPath = `assets/${basename(file.path)}`;
+  return success({
+    kind: 'file',
+    entrypoint: 'index.html',
+    primaryPath: assetPath,
+    files: [
+      { source: 'generated', path: 'index.html', bytes: fileViewer(spec.title, file, assetPath), mediaType: 'text/html; charset=utf-8' },
+      { source: 'blob', path: assetPath, blob: file.blob },
+    ],
+  });
+}
+
+export function videoPublicationPlan(
+  spec: PublicationSpec,
+  files: readonly PublicationSourceFile[],
+): Result<PublicationPlan, PublicationDiagnostic[]> {
+  if (spec.kind !== 'video') return mismatch('video', spec.kind);
+  const video = findFile(files, spec.path);
+  if (!video) return missing(spec.path);
+  if (!video.blob.mediaType.startsWith('video/')) {
+    return failure('unsupported_media', `${spec.path} is not a supported video`, spec.path);
+  }
+  const videoPath = `assets/${basename(video.path)}`;
+  const poster = spec.poster ? findFile(files, spec.poster) : undefined;
+  if (spec.poster && !poster) return missing(spec.poster);
+  if (poster && !poster.blob.mediaType.startsWith('image/')) {
+    return failure('unsupported_media', `${spec.poster} is not a supported poster image`, spec.poster);
+  }
+  const posterPath = poster ? `assets/${basename(poster.path)}` : undefined;
+  if (posterPath === videoPath) {
+    return failure('path_collision', 'video and poster resolve to the same publication path', video.path);
+  }
+  return success({
+    kind: 'video',
+    entrypoint: 'index.html',
+    primaryPath: videoPath,
+    files: [
+      {
+        source: 'generated',
+        path: 'index.html',
+        bytes: videoViewer(spec.title, video, videoPath, posterPath),
+        mediaType: 'text/html; charset=utf-8',
+      },
+      { source: 'blob', path: videoPath, blob: video.blob },
+      ...(poster && posterPath ? [{ source: 'blob' as const, path: posterPath, blob: poster.blob }] : []),
+    ],
+  });
+}
+
+export function sitePublicationPlan(
+  spec: PublicationSpec,
+  files: readonly PublicationSourceFile[],
+): Result<PublicationPlan, PublicationDiagnostic[]> {
+  if (spec.kind !== 'site') return mismatch('site', spec.kind);
+  const prefix = spec.root ? `${spec.root}/` : '';
+  const selected = files
+    .filter((file) => !prefix || file.path.startsWith(prefix))
+    .map((file) => ({ file, path: prefix ? file.path.slice(prefix.length) : file.path }))
+    .filter((file) => file.path);
+  if (selected.length === 0) return missing(spec.root ?? 'index.html');
+  const entrypoint = spec.entrypoint ?? 'index.html';
+  const sourceEntrypoint = `${prefix}${entrypoint}`;
+  if (!findFile(files, sourceEntrypoint)) return missing(sourceEntrypoint);
+
+  const planned: PlannedPublicationFile[] = selected.map(({ file, path }) => ({
+    source: 'blob',
+    path,
+    blob: file.blob,
+  }));
+  if (entrypoint !== 'index.html') {
+    if (planned.some((file) => file.path === 'index.html')) {
+      return failure('path_collision', 'site already has index.html but declares another entrypoint', sourceEntrypoint);
+    }
+    planned.push({
+      source: 'generated',
+      path: 'index.html',
+      bytes: redirectViewer(spec.title, entrypoint),
+      mediaType: 'text/html; charset=utf-8',
+    });
+  }
+  return success({ kind: 'site', entrypoint: 'index.html', files: planned });
+}
+
+function findFile(files: readonly PublicationSourceFile[], path: string): PublicationSourceFile | undefined {
+  return files.find((file) => file.path === path);
+}
+
+function success(value: PublicationPlan): Result<PublicationPlan, PublicationDiagnostic[]> {
+  const paths = new Set<string>();
+  for (const file of value.files) {
+    if (paths.has(file.path)) return failure('path_collision', `duplicate publication path ${file.path}`, file.path);
+    paths.add(file.path);
+  }
+  return { ok: true, value };
+}
+
+function missing(path: string): Result<PublicationPlan, PublicationDiagnostic[]> {
+  return failure('not_found', `publication source ${path} was not found`, path);
+}
+
+function mismatch(expected: PublicationKind, actual: PublicationKind): Result<PublicationPlan, PublicationDiagnostic[]> {
+  return failure('invalid_request', `${expected} builder cannot publish ${actual}`);
+}
+
+function failure(
+  code: PublicationDiagnostic['code'],
+  message: string,
+  path?: string,
+): Result<PublicationPlan, PublicationDiagnostic[]> {
+  return { ok: false, error: [{ code, message, ...(path ? { path } : {}) }] };
+}
+
+function fileViewer(title: string | undefined, file: PublicationSourceFile, assetPath: string): Uint8Array {
+  const name = title ?? basename(file.path);
+  const href = encodePath(assetPath);
+  let preview = `<a class="download" data-publication-href="${href}" download>Download ${escapeHtml(basename(file.path))}</a>`;
+  if (file.blob.mediaType.startsWith('image/')) {
+    preview = `<img data-publication-src="${href}" alt="${escapeHtml(name)}">${preview}`;
+  } else if (file.blob.mediaType.startsWith('audio/')) {
+    preview = `<audio data-publication-src="${href}" controls preload="metadata"></audio>${preview}`;
+  } else if (file.blob.mediaType === 'application/pdf') {
+    preview = `<iframe data-publication-src="${href}" title="${escapeHtml(name)}"></iframe>${preview}`;
+  }
+  return htmlDocument(name, preview);
+}
+
+function videoViewer(
+  title: string | undefined,
+  video: PublicationSourceFile,
+  videoPath: string,
+  posterPath?: string,
+): Uint8Array {
+  const name = title ?? basename(video.path);
+  const poster = posterPath ? ` data-publication-poster="${encodePath(posterPath)}"` : '';
+  return htmlDocument(
+    name,
+    `<video data-publication-src="${encodePath(videoPath)}"${poster} controls playsinline preload="metadata"></video>` +
+      `<a class="download" data-publication-href="${encodePath(videoPath)}" download>Download ${escapeHtml(basename(video.path))}</a>`,
+  );
+}
+
+function redirectViewer(title: string | undefined, entrypoint: string): Uint8Array {
+  const href = encodePath(entrypoint);
+  const name = title ?? 'Published site';
+  return Buffer.from(`<!doctype html><html lang="en"><head><meta charset="utf-8">` +
+    `<meta http-equiv="refresh" content="0;url=${escapeHtml(href)}">` +
+    `<meta name="viewport" content="width=device-width,initial-scale=1">` +
+    `<title>${escapeHtml(name)}</title></head><body>` +
+    `<a href="${escapeHtml(href)}">Open ${escapeHtml(name)}</a></body></html>`);
+}
+
+function htmlDocument(title: string, body: string): Uint8Array {
+  return Buffer.from(`<!doctype html><html lang="en"><head><meta charset="utf-8">` +
+    `<meta name="viewport" content="width=device-width,initial-scale=1">` +
+    `<title>${escapeHtml(title)}</title><style>` +
+    `:root{color-scheme:dark}*{box-sizing:border-box}body{margin:0;min-height:100vh;background:#101014;color:#f5f5f7;font:16px system-ui,sans-serif;display:grid;place-items:center}` +
+    `main{width:min(1120px,100%);padding:24px;display:grid;gap:20px;text-align:center}h1{font-size:clamp(1.2rem,3vw,2rem);margin:0;overflow-wrap:anywhere}` +
+    `img,video,iframe{display:block;max-width:100%;max-height:78vh;margin:auto;border:0;border-radius:12px;background:#08080a}iframe{width:100%;height:78vh}` +
+    `audio{width:min(720px,100%);margin:auto}.download{color:#9dccff}</style></head>` +
+    `<body><main><h1>${escapeHtml(title)}</h1>${body}</main>` +
+    `<script>${publicationAssetAuthorizationScript()}</script></body></html>`);
+}
+
+function publicationAssetAuthorizationScript(): string {
+  return `(()=>{const names=['Policy','Signature','Key-Pair-Id'];const source=new URLSearchParams(location.search);` +
+    `const auth=new URLSearchParams();for(const name of names){const value=source.get(name);if(value)auth.set(name,value)}` +
+    `const resolve=(path)=>{const url=new URL(path,location.href);url.search=auth.toString();return url.toString()};` +
+    `for(const element of document.querySelectorAll('[data-publication-src]'))element.src=resolve(element.dataset.publicationSrc);` +
+    `for(const element of document.querySelectorAll('[data-publication-href]'))element.href=resolve(element.dataset.publicationHref);` +
+    `for(const element of document.querySelectorAll('[data-publication-poster]'))element.poster=resolve(element.dataset.publicationPoster);})();`;
+}
+
+function escapeHtml(value: string): string {
+  return value.replace(/[&<>"']/g, (character) => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;',
+  })[character] as string);
+}
+
+function encodePath(path: string): string {
+  return path.split('/').map(encodeURIComponent).join('/');
+}

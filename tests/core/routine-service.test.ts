@@ -4,6 +4,7 @@ import { RoutineService } from '../../src/core/routine-service.js';
 import type { RunService } from '../../src/core/run-service.js';
 import type { ArtifactReference, RunRecord } from '../../src/domain/contracts.js';
 import type { ListRoutinesResult, RoutineRecord } from '../../src/domain/routines.js';
+import { parseRunRequest } from '../../src/domain/validation.js';
 
 describe('RoutineService', () => {
   it('stores prompts in artifacts and schedules an idempotent permission-scoped occurrence', async () => {
@@ -220,7 +221,167 @@ describe('RoutineService', () => {
     store.list = async () => { throw new Error('invalid pagination token'); };
     await expect(service.list('owner-1', 25, 'malformed')).rejects.toThrow('nextToken is invalid');
   });
+
+  it('stores the request before reading creation time or saving the routine', async () => {
+    const fixture = routineFixture();
+    const events: string[] = [];
+    fixture.randomId.mockImplementation(() => { events.push('id'); return 'routine-1'; });
+    const putJson = fixture.artifacts.putJson;
+    vi.spyOn(fixture.artifacts, 'putJson').mockImplementation(async (key, value) => {
+      events.push('artifact');
+      return putJson(key, value);
+    });
+    fixture.clock.now.mockImplementation(() => { events.push('clock'); return fixture.now; });
+    vi.spyOn(fixture.store, 'create').mockImplementation(async () => { events.push('record'); });
+
+    await expect(fixture.service.create('owner-1', routineInput)).resolves.toMatchObject({
+      createdAt: fixture.now.toISOString(), nextRunAt: '2026-08-20T10:05:00.000Z',
+    });
+    expect(events).toEqual(['id', 'artifact', 'clock', 'record']);
+  });
+
+  it('stops creation at the first failed boundary', async () => {
+    const fixture = routineFixture();
+    const create = vi.spyOn(fixture.store, 'create');
+    await expect(fixture.service.create('owner-1', { ...routineInput, enabled: 'yes' }))
+      .rejects.toThrow('routine.enabled must be a boolean');
+    expect(fixture.randomId).not.toHaveBeenCalled();
+
+    fixture.randomId.mockReturnValueOnce('invalid/id');
+    await expect(fixture.service.create('owner-1', routineInput)).rejects.toThrow('invalid ID');
+    expect(fixture.artifacts.putJson).not.toHaveBeenCalled();
+
+    const failure = new Error('artifact unavailable');
+    vi.spyOn(fixture.artifacts, 'putJson').mockRejectedValueOnce(failure);
+    await expect(fixture.service.create('owner-1', routineInput)).rejects.toBe(failure);
+    expect(fixture.clock.now).not.toHaveBeenCalled();
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it('rejects a request outside its owner scope before reading artifacts', async () => {
+    const fixture = routineFixture();
+    const routine = await fixture.service.create('owner-1', routineInput);
+    await fixture.store.create({ ...routine, request: { ...routine.request, key: 'another-owner/request.json' } });
+
+    await expect(fixture.service.getRequest('owner-1', routine.routineId)).rejects.toThrow('outside its owner scope');
+    expect(fixture.artifacts.getJson).not.toHaveBeenCalled();
+    expect(fixture.submit).not.toHaveBeenCalled();
+  });
+
+  it('processes each occurrence sequentially using one clock snapshot and excludes lost updates', async () => {
+    const fixture = routineFixture();
+    const first = await fixture.service.create('owner-1', routineInput);
+    const second = await fixture.service.create('owner-1', routineInput);
+    const events: string[] = [];
+    const cutoff = fixture.now.toISOString();
+    fixture.clock.now.mockClear();
+    const listDue = vi.spyOn(fixture.store, 'listDue');
+    const getJson = fixture.artifacts.getJson;
+    vi.spyOn(fixture.artifacts, 'getJson').mockImplementation(async (reference) => {
+      events.push(reference.key === first.request.key ? 'read:first' : 'read:second');
+      return getJson(reference);
+    });
+    fixture.submit.mockImplementation(async (_owner, request) => {
+      const id = parseRunRequest(request).metadata?.routineId === first.routineId ? 'first' : 'second';
+      events.push(`submit:${id}`);
+      // Later submissions must still use the tick's original time snapshot.
+      fixture.clock.now.mockReturnValue(new Date('2026-08-20T11:00:00.000Z'));
+      return run(id);
+    });
+    const advance = vi.spyOn(fixture.store, 'advance').mockImplementation(async (id) => {
+      events.push(id === first.routineId ? 'advance:first' : 'advance:second');
+      return id === second.routineId;
+    });
+
+    await expect(fixture.service.tick()).resolves.toEqual({
+      examined: 2, scheduled: 1, runs: [{ runId: 'second', status: 'queued' }],
+    });
+    expect(events).toEqual(['read:first', 'submit:first', 'advance:first', 'read:second', 'submit:second', 'advance:second']);
+    expect(fixture.clock.now).toHaveBeenCalledTimes(1);
+    expect(listDue).toHaveBeenCalledWith(cutoff, 100);
+    expect(advance.mock.calls).toEqual([
+      [first.routineId, cutoff, '2026-08-20T10:10:00.000Z', 'first', cutoff],
+      [second.routineId, cutoff, '2026-08-20T10:10:00.000Z', 'second', cutoff],
+    ]);
+  });
+
+  it('settles the remaining batch before aggregating submission and persistence failures in order', async () => {
+    const fixture = routineFixture();
+    const first = await fixture.service.create('owner-1', routineInput);
+    const second = await fixture.service.create('owner-1', routineInput);
+    const third = await fixture.service.create('owner-1', routineInput);
+    const events: string[] = [];
+    const storageFailure = new Error('schedule unavailable');
+    fixture.submit.mockImplementation(async (_owner, request) => {
+      const id = String(parseRunRequest(request).metadata?.routineId);
+      events.push(`submit:${id}`);
+      if (id === first.routineId) {
+        throw { toString: () => { events.push('normalize'); return 'queue unavailable'; } };
+      }
+      return run(id);
+    });
+    const advance = fixture.store.advance.bind(fixture.store);
+    vi.spyOn(fixture.store, 'advance').mockImplementation(async (...args) => {
+      events.push(`advance:${args[0]}`);
+      if (args[0] === second.routineId) throw storageFailure;
+      return advance(...args);
+    });
+
+    const failure: unknown = await fixture.service.tick().catch((error: unknown) => error);
+    expect(failure).toBeInstanceOf(AggregateError);
+    if (!(failure instanceof AggregateError)) throw new Error('expected aggregate failure');
+    expect(failure.message).toBe('one or more due routines failed');
+    expect(failure.errors).toEqual([new Error('queue unavailable'), storageFailure]);
+    expect(failure.errors[1]).toBe(storageFailure);
+    expect(events).toEqual([
+      `submit:${first.routineId}`, 'normalize', `submit:${second.routineId}`,
+      `advance:${second.routineId}`, `submit:${third.routineId}`, `advance:${third.routineId}`,
+    ]);
+    expect((await fixture.store.get(first.routineId))?.nextRunAt).toBe(first.nextRunAt);
+    expect((await fixture.store.get(second.routineId))?.nextRunAt).toBe(second.nextRunAt);
+    expect((await fixture.store.get(third.routineId))?.nextRunAt).toBe('2026-08-20T10:10:00.000Z');
+  });
+
+  it('submits before calculating schedule advancement, even when a stored timestamp is invalid', async () => {
+    const fixture = routineFixture();
+    const routine = await fixture.service.create('owner-1', routineInput);
+    vi.spyOn(fixture.store, 'listDue').mockResolvedValue([{ ...routine, nextRunAt: 'invalid' }]);
+    const advance = vi.spyOn(fixture.store, 'advance');
+
+    await expect(fixture.service.tick()).rejects.toMatchObject({
+      errors: [new Error('routine has an invalid nextRunAt')],
+    });
+    expect(fixture.submit).toHaveBeenCalledTimes(1);
+    expect(advance).not.toHaveBeenCalled();
+  });
+
+  it('returns an empty tick without reading requests or submitting work', async () => {
+    const fixture = routineFixture();
+    await expect(fixture.service.tick()).resolves.toEqual({ examined: 0, scheduled: 0, runs: [] });
+    expect(fixture.clock.now).toHaveBeenCalledTimes(1);
+    expect(fixture.artifacts.getJson).not.toHaveBeenCalled();
+    expect(fixture.submit).not.toHaveBeenCalled();
+  });
 });
+
+const routineInput = {
+  version: '1', name: 'Scheduled review',
+  schedule: { kind: 'interval', everyMinutes: 5, startAt: '2026-08-20T10:05:00.000Z' },
+  request: { version: '1', prompt: 'Review the queue' },
+};
+
+function routineFixture() {
+  const now = new Date('2026-08-20T10:05:00.000Z');
+  const store = new MemoryRoutineStore();
+  const artifacts = artifactStore(new Map());
+  const submit = vi.fn<RunService['submit']>(async () => run('run-1'));
+  const clock = { now: vi.fn(() => now) };
+  let nextId = 0;
+  const randomId = vi.fn(() => `routine-${++nextId}`);
+  return { now, store, artifacts, submit, clock, randomId,
+    service: new RoutineService({ store, artifacts, runs: { submit }, clock, randomId }),
+  };
+}
 
 class MemoryRoutineStore implements RoutineStore {
   private readonly records = new Map<string, RoutineRecord>();

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { ArtifactStore, ThingScheduler, ThingSchedulerTarget, ThingStore } from '../../src/core/ports.js';
 import { ThingService } from '../../src/core/thing-service.js';
+import { ConflictError } from '../../src/core/run-service.js';
 import type { RunService } from '../../src/core/run-service.js';
 import type { ArtifactReference, RunRecord } from '../../src/domain/contracts.js';
 import type {
@@ -395,6 +396,145 @@ describe('ThingService', () => {
       'does not match its stored digest',
     );
     expect(submit).not.toHaveBeenCalled();
+  });
+
+  it('retains clock reads on their existing sides of definition persistence', async () => {
+    const store = new MemoryThingStore();
+    const artifacts = artifactStore(new Map());
+    const now = vi.fn(() => new Date('2026-08-21T10:00:00.000Z'));
+    const service = new ThingService({
+      store, artifacts, scheduler: new MemoryScheduler(),
+      runs: { submit: vi.fn(), get: vi.fn() },
+      randomId: () => 'thing-clock', clock: { now },
+    });
+    const create = vi.spyOn(store, 'create');
+    const addVersion = vi.spyOn(store, 'addVersion');
+    const put = vi.mocked(artifacts.putJson);
+
+    await service.create('owner-1', manualSpec('First revision'));
+    expect(now.mock.invocationCallOrder[0]).toBeLessThan(put.mock.invocationCallOrder[0]!);
+    expect(put.mock.invocationCallOrder[0]).toBeLessThan(create.mock.invocationCallOrder[0]!);
+
+    await service.addVersion('owner-1', 'thing-clock', {
+      version: '1', expectedDraftRevision: 1, spec: manualSpec('Second revision'),
+    });
+    expect(now).toHaveBeenCalledTimes(2);
+    expect(put.mock.invocationCallOrder[1]).toBeLessThan(now.mock.invocationCallOrder[1]!);
+    expect(now.mock.invocationCallOrder[1]).toBeLessThan(addVersion.mock.invocationCallOrder[0]!);
+  });
+
+  it('checks publish evidence before reading time, then commits before synchronizing the scheduler', async () => {
+    const store = new MemoryThingStore();
+    const scheduler = new MemoryScheduler();
+    const getTestRun = vi.fn<RunService['get']>();
+    const now = vi.fn(() => new Date('2026-08-21T10:00:00.000Z'));
+    const service = new ThingService({
+      store, scheduler, artifacts: artifactStore(new Map()),
+      runs: { get: getTestRun, submit: vi.fn() },
+      randomId: () => 'thing-publish-order', clock: { now },
+    });
+    const created = await service.create('owner-1', scheduleSpec('Publish ordering', 'rate(1 hour)'));
+    const input = {
+      version: '1', expectedDraftRevision: 1, expectedSpecHash: created.draft.specHash, testRunId: 'run-test',
+    };
+    now.mockClear();
+    const publish = vi.spyOn(store, 'publish');
+    const upsert = vi.spyOn(scheduler, 'upsert');
+    const setTriggerState = vi.spyOn(store, 'setTriggerState');
+
+    await expect(service.publish('owner-1', created.thingId, {
+      ...input, expectedSpecHash: 'f'.repeat(64),
+    })).rejects.toThrow(ConflictError);
+    expect(getTestRun).not.toHaveBeenCalled();
+    expect(now).not.toHaveBeenCalled();
+    expect(publish).not.toHaveBeenCalled();
+
+    getTestRun.mockResolvedValue(run('run-test'));
+    await expect(service.publish('owner-1', created.thingId, input)).rejects.toThrow('has not succeeded');
+    expect(now).not.toHaveBeenCalled();
+    expect(publish).not.toHaveBeenCalled();
+    expect(upsert).not.toHaveBeenCalled();
+
+    getTestRun.mockClear().mockResolvedValue({
+      ...run('run-test'), status: 'succeeded',
+      thing: { version: '1', thingId: created.thingId, revision: 1, specHash: created.draft.specHash, invocation: 'test' },
+    });
+    await service.publish('owner-1', created.thingId, input);
+    expect(now).toHaveBeenCalledTimes(2);
+    expect(publish).toHaveBeenCalledTimes(1);
+    expect(upsert).toHaveBeenCalledTimes(1);
+    expect(setTriggerState).toHaveBeenCalledTimes(1);
+    const order = [
+      getTestRun.mock.invocationCallOrder[0], now.mock.invocationCallOrder[0],
+      publish.mock.invocationCallOrder[0], now.mock.invocationCallOrder[1],
+      upsert.mock.invocationCallOrder[0], setTriggerState.mock.invocationCallOrder[0],
+    ];
+    expect(order).toEqual([...order].sort((left, right) => left! - right!));
+  });
+
+  it('propagates a trigger-state write race without recording a scheduler failure', async () => {
+    const store = new MemoryThingStore();
+    const scheduler = new MemoryScheduler();
+    const service = serviceWith({ store, scheduler, randomId: 'thing-trigger-race' });
+    await service.create('owner-1', scheduleSpec('Race after synchronization', 'rate(1 hour)'));
+    const testRun = await service.test('owner-1', 'thing-trigger-race');
+    const setTriggerState = vi.spyOn(store, 'setTriggerState')
+      .mockRejectedValueOnce(new Error('Thing changed concurrently'));
+
+    await expect(publishTested(service, 'owner-1', 'thing-trigger-race', testRun.runId))
+      .rejects.toThrow(ConflictError);
+    expect(scheduler.upserts).toHaveLength(1);
+    expect(setTriggerState).toHaveBeenCalledTimes(1);
+    expect(setTriggerState.mock.calls[0]?.[2].status).toBe('ready');
+  });
+
+  it('preserves the scheduler failure if recording its error state also races', async () => {
+    const store = new MemoryThingStore();
+    const scheduler = new MemoryScheduler();
+    const service = serviceWith({ store, scheduler, randomId: 'thing-error-race' });
+    await service.create('owner-1', scheduleSpec('Schedule failure', 'rate(1 hour)'));
+    const testRun = await service.test('owner-1', 'thing-error-race');
+    scheduler.failure = new Error('Scheduler unavailable');
+    const setTriggerState = vi.spyOn(store, 'setTriggerState')
+      .mockRejectedValueOnce(new Error('Thing changed concurrently'));
+
+    await expect(publishTested(service, 'owner-1', 'thing-error-race', testRun.runId))
+      .rejects.toThrow('Thing trigger synchronization failed: Scheduler unavailable');
+    expect(setTriggerState).toHaveBeenCalledTimes(1);
+    expect(setTriggerState.mock.calls[0]?.[2]).toMatchObject({ status: 'error', error: 'Scheduler unavailable' });
+  });
+
+  it('does not load definitions or submit work for ignored scheduled deliveries', async () => {
+    const store = new MemoryThingStore();
+    const artifacts = artifactStore(new Map());
+    const submit = vi.fn<RunService['submit']>();
+    const service = new ThingService({
+      store, artifacts, scheduler: new MemoryScheduler(), runs: { submit, get: vi.fn() },
+      randomId: () => 'thing-inactive', clock: fixedClock('2026-08-21T10:00:00.000Z'),
+    });
+    await service.create('owner-1', scheduleSpec('Inactive delivery', 'rate(1 hour)'));
+    const scheduled = { version: '1', revision: 1, scheduledAt: '2026-08-21T11:00:00.000Z' };
+    await expect(service.runScheduled({ ...scheduled, thingId: 'thing-missing' }))
+      .resolves.toEqual({ accepted: false, reason: 'missing' });
+    await expect(service.runScheduled({ ...scheduled, thingId: 'thing-inactive' }))
+      .resolves.toEqual({ accepted: false, reason: 'not-active' });
+    expect(artifacts.getJson).not.toHaveBeenCalled();
+    expect(submit).not.toHaveBeenCalled();
+  });
+
+  it('does not record an occurrence when Run submission fails', async () => {
+    const store = new MemoryThingStore();
+    const submit = vi.fn<RunService['submit']>(async () => run('run-test'));
+    const service = serviceWith({ store, submit, randomId: 'thing-submit-failure' });
+    await service.create('owner-1', manualSpec('Submission failure'));
+    const testRun = await service.test('owner-1', 'thing-submit-failure');
+    await publishTested(service, 'owner-1', 'thing-submit-failure', testRun.runId);
+    const recordRun = vi.spyOn(store, 'recordRun');
+    const failure = new Error('Run submission unavailable');
+    submit.mockRejectedValueOnce(failure);
+
+    await expect(service.runNow('owner-1', 'thing-submit-failure', 'receipt-1')).rejects.toBe(failure);
+    expect(recordRun).not.toHaveBeenCalled();
   });
 });
 

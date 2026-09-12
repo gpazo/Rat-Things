@@ -62,6 +62,37 @@ Provider modules depend on host-supplied contracts. Agent-callable integration a
 only an authorized operation input, one connection's credential value, and an abort signal. See
 [integrations and permissions](plugins.md).
 
+Connection lifecycle calculations live in `src/plugins/connection-planning.ts` and
+`connection-validation.ts`: account identity comparison, validated metadata and grants, alias
+candidates, credential names, and health history. They operate on supplied values; the connection
+service owns provider verification, alias lookups, IDs, clock reads, secret storage, and persistence.
+Creation verifies the provider account and validates metadata and policy before storing its secret.
+If the metadata bundle cannot be saved, the service attempts to revoke that secret and preserves
+the original persistence error even if cleanup fails.
+
+Rotation requires the same authentication scheme, tenant, and subject. It replaces the secret,
+updates its binding, saves refreshed account metadata, and records health in that order. These
+operations are not one transaction: a failed later write can leave the secret replaced. Health
+checks retain the last success and failure times; provider downtime records degraded health
+without expiring the account, while missing or rejected credentials require reauthentication.
+
+Integration tool planning in `src/plugins/integration-tool-planning.ts` groups loaded connections,
+selects eligible account defaults, projects tool schemas, and resolves call arguments. The runtime
+keeps connection and grant reads in selection order and checks authorization during preparation
+and again at invocation, so a grant that expires after preparation cannot authorize a later call.
+`integration-tool-validation.ts` handles input shapes, resource constraints, and bounded JSON
+results. Account and input validation precede invocation authorization; resource constraints are
+checked before binding lookup and credential access. Result bounds are checked after the provider
+operation returns, so an oversized result does not imply that the operation had no external effect.
+
+HTTP integration calculations live in `src/plugins/http-planning.ts`: trusted base URLs, request
+paths and bodies, header precedence, and response classification. The transport validates the URL
+and body before invoking authorization, then performs the network request with cancellation and a
+timeout. It reads the response under a byte limit and releases the reader before interpreting status
+or invoking provider validation. Response plans distinguish parsed JSON, including `null`, `false`,
+and `0`, from empty or plain-text responses. Provider validation runs only for parsed JSON and stays
+at the transport boundary alongside authorization callbacks and network operations.
+
 ## One durable run
 
 <figure class="doc-visual doc-visual-tall">
@@ -86,16 +117,74 @@ namespace: replaying the same body returns the existing run and re-nudges it whe
 reusing the key for a different body returns a conflict. If queue send fails, the durable record stays
 `queued`; the same idempotent client retry or the one-minute reconciler repairs the wake-up.
 
+Run admission calculations live in `src/core/run-planning.ts`: owner-scoped identity, queued record
+construction, accepted-request comparison, and conversation preparation decisions. Trusted Thing
+and conversation bindings are validated in `src/domain/run-bindings.ts`. These functions consume
+supplied values; `RunService` obtains IDs and time and performs storage and queue operations.
+
+Retry identity includes the accepted request and occurrence bindings. Conversation fields added
+during preparation do not change that accepted identity. Retrying preparation of a queued Run
+compares the full prepared binding and stored content digest. Once the Run has left the queue,
+matching prepared state is reused before reading a new execution request. An idempotent submission
+retry of a queued Run can repair a missing wake-up; a competing create that loses its conditional
+write returns the winning record without sending another wake-up.
+
 For a threaded input, the same service reserves the Run before appending its owner-scoped mailbox
 item. The coordinator writes the replay transcript to `executionInput` while leaving the accepted
 request in `input` immutable, then wakes that same Run. The reconciler repairs both the
 Run-reserved/mailbox-write window and the prepared-Run/dispatcher-wake window. A thread therefore
 changes preparation and retention, not admission or the public receipt.
 
+Conversation message admission uses `src/conversation/validation.ts` for input contracts and
+`message-planning.ts` for content identity, timing, and mailbox record construction. The service
+supplies the clock value, stores the canonical message body, then validates trusted policies and
+appends the records. Storage references connect the message, event, and transcript to that body;
+receipt time remains distinct from the time the records were created.
+
+Attachment calculations in `src/conversation/attachments.ts` normalize each upload, return a new
+batch state, and build manifests and merged catalogs. The service checks ownership before handling
+files and validates and writes one upload at a time. A later failure can leave earlier blobs stored;
+the manifest is written only after all files pass validation and storage. Catalog merging rejects
+conflicting records at an existing path, and the service publishes the merged catalog through a
+conditional update using the current lease token.
+
+Conversation coordination separates loaded values from external operations. Continuation
+calculations pair each mailbox receipt with its content, compile bounded replay requests, and
+build bindings from trusted conversation state. Transcript calculations interpret saved
+interaction events and compact history with explicit omission evidence. Completion decisions
+distinguish a saved result from an interrupted tool call whose external outcome remains unknown.
+These calculations live in `src/conversation/continuation.ts`, `transcript.ts`, and `completion.ts`.
+
+Public history uses `src/conversation/history-projection.ts` to format loaded transcript entries,
+completion receipts, and reaction summaries. Pages retain their cursor even when a saved entry has
+no visible message. Public attachment references contain opaque IDs, and completion receipts expose public Run
+IDs and timing without private storage coordinates. `ConversationService` checks ownership before
+loading the page, loads completion evidence before message bodies, and reads reactions only for
+the resulting visible message IDs.
+
+`src/conversation/search.ts` calculates normalized tokens and bounded search postings from supplied
+text. A completed turn gives its last assistant message priority within the posting budget, then
+indexes file paths in catalog order. Search calculations do not read artifacts or access the store.
+
+The coordinators retain the effect ordering: prepare the Run before committing its mailbox
+binding, commit that binding before waking execution, and suspend the worker before settling its
+turn. Clock reads, storage, queue operations, and lease cleanup remain at that boundary. A failed
+suspension leaves the turn active for retry; interrupted tools preserve a durable handoff and clear
+native session resume. The native thread ID can otherwise survive VM expiry and restore into a
+replacement worker.
+
 Routines enter at the same boundary. Their prompts and canonical run requests live in encrypted S3;
 the routine table stores schedule metadata, a digest, and an artifact reference. Each interval uses a
 deterministic occurrence key, and the schedule advances conditionally only after ordinary run
 submission succeeds.
+
+Routine definitions and interval calculations live in `src/domain/routine-spec.ts`. They use
+supplied validation policy and time, so resuming a due occurrence and advancing past a submitted
+occurrence have explicit, distinct rules. `src/core/routine-planning.ts` constructs records,
+compiles trusted occurrence identity, and summarizes committed advances, competing updates, and
+failures. `RoutineService` verifies owner-scoped request references and digests, then processes each
+due occurrence sequentially using one time snapshot for the batch. A failed occurrence remains due
+for retry with the same key; other occurrences are still attempted before failures are reported.
 
 Things are the product-facing entry to that boundary. The control API authenticates the owner,
 validates a credential-free ThingSpec, writes an immutable content-digested revision to the private
@@ -103,6 +192,18 @@ definition bucket, and stores only lifecycle/index metadata in the Thing table. 
 scheduled occurrences compile to ordinary RunRequests and add trusted Thing revision/provenance.
 They do not bypass run idempotency, fixed capability-envelope resolution, connection grants, or
 queue durability.
+
+Thing calculations and external effects have separate boundaries. `src/domain/thing-spec.ts`
+validates portable definitions and compiles them into RunRequests using explicit deployment
+validation options. `src/core/thing-planning.ts` checks publish evidence, selects eligible scheduled
+occurrences, and describes the required scheduler action from supplied records.
+`src/core/thing-projection.ts` builds public summaries and explanations from loaded values.
+
+`ThingService` obtains IDs and timestamps, loads and verifies definitions, and performs the
+resulting operations through ports. It commits lifecycle changes conditionally before changing a
+schedule and records trigger readiness only after scheduler synchronization succeeds. The pure
+decisions do not reserve work or guarantee that a previously read record is still current; the
+conditional writes remain responsible for resolving races.
 
 ### 2. Dispatch
 
@@ -119,6 +220,12 @@ queued -> dispatching -> running -> succeeded
 
 Conditional DynamoDB writes make stale or duplicate deliveries harmless at the state-transition
 boundary. This does not make arbitrary external side effects exactly once.
+
+`src/execution/dispatch-planning.ts` decides whether a loaded Run can dispatch and classifies
+executor start failures. Unprepared conversation Runs wait for continuation input; queued Runs and
+unattached dispatch retries retain their existing admission behavior. Executor selection precedes
+the conditional claim. A failed attachment stops the launched execution before rereading a raced
+cancellation, and transient start failures return to queue retry without marking the Run failed.
 
 The dispatcher chooses `execution.backend`, or the deployment default, and starts one execution. It
 passes identifiers and storage coordinates, not the prompt or a provider token. The worker loads and
@@ -140,6 +247,20 @@ Server as that identity with a sanitized environment. It speaks App Server's bid
 start/resume, turn start, streamed notifications, server requests, steering, interruption, and
 completion. The deterministic mock driver implements the same internal execution interface for
 tests.
+
+Workspace calculations validate resolved paths and repository hosts, construct Git argument arrays,
+and build child environments from supplied settings. Preparation executes the commands in order,
+reading credentials after directory handoff. A reusable checkout skips initialization; first-use
+durable cleanup preserves the managed artifact directory. Patch capture stages and diffs with
+separate output limits while excluding `.rat-things/` control files. File access, credential reads,
+environment reads, and process execution stay in workspace orchestration.
+
+Launch planning combines the admitted Run request with explicit deployment settings to select the
+model provider, child environment, process identity, sandbox, and persistent thread. An explicit
+network restriction narrows `danger-full-access` to `workspace-write`, which can enforce that
+restriction. Planning validates settings before process execution and builds a fresh child
+environment without changing the supplied values. The driver supplies current deployment settings,
+attaches cancellation and interaction callbacks, then executes the plan.
 
 Before the turn, the runner resolves the requested capability profile against the deployment
 ceiling. Installed skills are verified with `skills/list`; app and MCP configuration is attached to
@@ -346,10 +467,26 @@ execution, so a new MicroVM does not depend on residual local bytes. Bucket encr
 lifecycle policy are deployment responsibilities. An S3 reference is sensitive metadata and the
 control API should remain authenticated.
 
+Runner artifact planning takes observed file sizes, checksums, content samples, and prior catalog
+entries as values. It decides whether to upload bytes or renew a stored copy, preserving the previous
+metadata when a file's path, size, and checksum are unchanged. The runner retains file access,
+environment and clock reads, and sequential storage operations. It checks each stored checksum
+before making that blob available for reuse by later files in the batch. A later failure can leave
+earlier uploads stored without committing a new catalog; restoration similarly retains earlier
+restored files while removing the failed file's temporary output.
+
 The [publication layer](publications.md) turns retained files into immutable file, site, or video
 publications. Owner-authorized, expiring grants provide browser access on isolated origins while S3
 remains private. Without publication delivery, the control API provides
 [one-minute download URLs](durable-files.md).
+
+Publication builders calculate file selection, viewer bytes, and bundle paths without storage
+access. Catalog planning validates owner scope and derives a content identity from the requested
+specification and selected files. The publication service validates the complete plan, stages files
+in order, and commits the manifest as the ready marker. Manifest construction takes staged references
+and an explicit timestamp without rearranging the caller's file array. The publisher creates a fresh
+expiring grant after that commit; retrying a failed grant can reuse the committed bundle. Storage,
+clock reads, and random token generation stay at these service boundaries.
 
 When `enable_s3_files=true`, a separate versioned bucket backs an S3 Files filesystem. Its access
 point exposes only `/conversations` to the MicroVM execution role. Each hashed conversation owns a
@@ -374,6 +511,15 @@ The separate conversation queue follows the same rule: the mailbox is canonical.
 attaches a deterministic run before waking the run queue, and a duplicate wake repairs a missed
 enqueue without creating a second semantic slice.
 
+Attached-worker recovery uses `src/execution/reconciliation-planning.ts` to select an observation,
+stop request, cancellation, or lost-execution failure from supplied Run state and inspection
+evidence. Unknown or conflicting identity always produces an observation, including during
+cancellation. Repeated matching uncertainty can quarantine the attachment; a changed uncertainty
+kind resets the count. The reconciler performs inspection and conditional persistence, reads time
+only when recording an observation, and treats a lost conditional write as a race rather than a
+successful repair. Confirmed terminal or absent executions can finish cancellation; an active or
+inactive attached worker must first receive a stop request.
+
 Thing schedules do not use that polling reconciler. Publishing a `schedule` trigger creates or
 updates one Amazon EventBridge Scheduler resource in a deployment-owned group. The control plane
 fixes its Lambda target, narrowly scoped invocation role, retry policy, and encrypted failure queue.
@@ -394,6 +540,15 @@ orchestration resolves clone/model material before launching the unprivileged ag
 validated ChatGPT refresh rotation back to the same secret and removes the runtime file after the
 turn. Integration credentials are read one account at a time only after tool authorization;
 notification credentials remain in the notifier.
+
+Hosted OAuth calculations live in `src/plugins/oauth-planning.ts` and
+`oauth-token-planning.ts`: authorization records and URLs, token request encoding, response
+validation, and expiry decisions use explicit values. `src/credentials/oauth-application.ts`
+validates loaded application credentials. The OAuth service keeps secret reads, randomness, clock
+reads, callback-state consumption, and network requests at the boundary. Callback state is consumed
+before exchanging a code, so a failed or declined callback cannot be replayed. The refresh broker
+holds one connection lease while refreshing primary and delegated tokens in order, replaces the
+stored credential only after all required exchanges succeed, and releases its lease on failure.
 
 ## Identity model
 

@@ -7,8 +7,10 @@ import {
 } from '../../src/conversation/types.js';
 import type { ArtifactStore, Clock } from '../../src/core/ports.js';
 import type {
+  ConversationCheckpoint,
   ConversationMessageRecord,
   ConversationRecord,
+  ConversationTranscriptRecord,
   ConversationTurnRecord,
 } from '../../src/domain/conversations.js';
 
@@ -130,6 +132,185 @@ function harness(ids = ['id-1', 'id-2', 'id-3']) {
 beforeEach(() => vi.restoreAllMocks());
 
 describe('conversation service', () => {
+  it('validates admission before time and storage, then validates policy after storing content', async () => {
+    const { service, store, artifacts, writes } = harness();
+    const now = vi.spyOn(clock, 'now');
+    await expect(service.appendMessage({ ...messageInput(), content: { text: '' } })).rejects.toThrow('message requires text or attachments');
+    expect(now).not.toHaveBeenCalled();
+    await expect(service.appendMessage({ ...messageInput(), receivedAt: 'invalid' })).rejects.toThrow('receivedAt must be an ISO date');
+    expect(now).toHaveBeenCalledTimes(1);
+    expect(artifacts.putBytes).not.toHaveBeenCalled();
+
+    const invalidPolicy = { ...messageInput(), executionPolicy: JSON.parse('{"outputSchema":{}}') };
+    const failure = new Error('content unavailable');
+    vi.mocked(artifacts.putBytes).mockRejectedValueOnce(failure);
+    await expect(service.appendMessage(invalidPolicy)).rejects.toBe(failure);
+    await expect(service.appendMessage(invalidPolicy)).rejects.toThrow('conversation execution policy cannot define an output schema');
+    expect(writes).toHaveLength(1);
+    expect(store.appendMessage).not.toHaveBeenCalled();
+  });
+
+  it('writes a message body before its mailbox bundle and preserves persistence failures', async () => {
+    const { service, store, artifacts } = harness();
+    const events: string[] = [];
+    vi.spyOn(clock, 'now').mockImplementation(() => { events.push('clock'); return fixedNow; });
+    const put = artifacts.putBytes;
+    vi.mocked(artifacts.putBytes).mockImplementation(async (...args) => {
+      events.push('content');
+      return { bucket: 'artifacts', key: args[0], sha256: 'a'.repeat(64) };
+    });
+    const failure = new Error('mailbox unavailable');
+    vi.mocked(store.appendMessage).mockImplementation(async () => { events.push('mailbox'); throw failure; });
+    await expect(service.appendMessage(messageInput())).rejects.toBe(failure);
+    expect(events).toEqual(['clock', 'content', 'mailbox']);
+    expect(put).toHaveBeenCalledTimes(1);
+  });
+
+  it('checks upload batch size and conversation ownership before inspecting file content', async () => {
+    const { service, store, artifacts } = harness();
+    const now = vi.spyOn(clock, 'now');
+    await expect(service.prepareAttachments({ ...uploadInput(), uploads: [] })).rejects.toThrow('attachments must contain 1-6 files');
+    expect(store.getConversation).not.toHaveBeenCalled();
+    vi.mocked(store.getConversation).mockResolvedValue(conversation({ ownerId: 'other-owner' }));
+    await expect(service.prepareAttachments({ ...uploadInput(), uploads: [upload('../invalid')] }))
+      .rejects.toThrow('conversation belongs to another owner');
+    expect(now).not.toHaveBeenCalled();
+    expect(artifacts.putBytes).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { name: 'normalized duplicate', second: upload('ｎｏｔｅｓ.txt'), error: 'attachment name notes.txt is duplicated' },
+    { name: 'bad checksum', second: { ...upload('other.txt'), sha256: 'a'.repeat(64) }, error: 'attachment other.txt checksum is invalid' },
+    { name: 'bad media type', second: { ...upload('other.txt'), mediaType: 'text/plain\r\ninvalid' }, error: 'attachment media type is invalid' },
+  ])('retains the first upload when the next file has a $name', async ({ second, error }) => {
+    const { service, writes } = harness();
+    await expect(service.prepareAttachments({ ...uploadInput(), uploads: [upload('notes.txt'), second] })).rejects.toThrow(error);
+    expect(writes).toHaveLength(1);
+    expect(writes[0]?.key).toContain('/blobs/sha256/');
+  });
+
+  it('stops after a failed upload write before validating later files or committing a manifest', async () => {
+    const { service, artifacts } = harness();
+    const failure = new Error('blob unavailable');
+    vi.mocked(artifacts.putBytes).mockRejectedValueOnce(failure);
+    await expect(service.prepareAttachments({ ...uploadInput(), uploads: [upload('notes.txt'), upload('../invalid')] }))
+      .rejects.toBe(failure);
+    expect(artifacts.putBytes).toHaveBeenCalledTimes(1);
+  });
+
+  it('writes every upload before its manifest and validates the resulting catalog before committing it', async () => {
+    const { service, writes } = harness();
+    const input = { ...uploadInput(), uploads: [upload('notes.txt', ''), upload('other.txt')] };
+    const prepared = await service.prepareAttachments(input);
+    expect(writes.map(({ key }) => key.includes('/attachment-manifests/') ? 'manifest' : 'blob')).toEqual(['blob', 'blob', 'manifest']);
+    expect(prepared.files[0]).toMatchObject({ bytes: 0, mediaType: 'text/plain' });
+    writes.length = 0;
+    await expect(service.prepareAttachments({ ...input, sourceRunId: 'invalid:run' })).rejects.toThrow('invalid source run');
+    expect(writes).toHaveLength(2);
+    expect(writes.every(({ key }) => key.includes('/blobs/sha256/'))).toBe(true);
+  });
+
+  it('does not read a previous catalog for an empty attachment merge and retains the lease check', async () => {
+    const { service, store, artifacts } = harness();
+    const current = conversation();
+    vi.mocked(store.getConversation).mockResolvedValue(current);
+    await expect(service.attachArtifacts({ conversationId: current.conversationId, leaseToken: lease.token, files: [] })).resolves.toBe(current);
+    await expect(service.attachArtifacts({ conversationId: current.conversationId, leaseToken: 'stale', files: [] }))
+      .rejects.toBeInstanceOf(ConversationLeaseError);
+    expect(artifacts.getJson).not.toHaveBeenCalled();
+    expect(artifacts.putBytes).not.toHaveBeenCalled();
+    expect(store.updateArtifacts).not.toHaveBeenCalled();
+  });
+
+  it('leaves catalog content durable when its conditional attachment update fails', async () => {
+    const { service, store, artifacts, writes } = harness();
+    const prepared = await service.prepareAttachments(uploadInput());
+    const current = conversation();
+    vi.mocked(store.getConversation).mockResolvedValue(current);
+    const failure = new Error('lease changed');
+    vi.mocked(store.updateArtifacts).mockRejectedValueOnce(failure);
+    writes.length = 0;
+    await expect(service.attachArtifacts({ conversationId: current.conversationId, leaseToken: lease.token, files: prepared.files }))
+      .rejects.toBe(failure);
+    expect(writes).toHaveLength(1);
+    expect(writes[0]?.key).toContain('/artifacts/');
+    expect(artifacts.getJson).not.toHaveBeenCalled();
+    expect(store.updateArtifacts).toHaveBeenCalledWith(expect.objectContaining({ expectedToken: lease.token,
+      artifacts: expect.objectContaining({ key: writes[0]?.key }) }));
+  });
+
+  it('loads detail dependencies concurrently, then receipts, bodies, and owner reactions in that order', async () => {
+    const { service, store, artifacts } = harness();
+    const events: string[] = [];
+    const checkpoint = deferred<ConversationCheckpoint>();
+    const completion = deferred<ConversationTurnRecord | undefined>();
+    const record = conversation({ ownerId: 'owner-1', activeTurnId: 'turn-active',
+      context: { bucket: 'private', key: 'context', sha256: 'a'.repeat(64) } });
+    const assistant = transcriptRecord({ entryId: 'assistant', messageId: 'assistant-1' });
+    const user = transcriptRecord({ entryId: 'user', role: 'user', contentKind: 'message', messageId: 'user-1' });
+    vi.mocked(store.getConversationByPublicId).mockResolvedValue(record);
+    vi.mocked(artifacts.getJson).mockImplementation(async (reference) => {
+      if (reference.key === 'context') { events.push('checkpoint'); return checkpoint.promise; }
+      events.push('message-body');
+      return { text: 'Review this' };
+    });
+    vi.mocked(store.getTurn).mockImplementation(async () => { events.push('active-turn'); return turn(); });
+    vi.mocked(store.listTranscript).mockImplementation(async () => {
+      events.push('transcript-page'); return { items: [assistant, user], nextToken: 'older' };
+    });
+    vi.mocked(store.getTranscriptTurn).mockImplementation(async () => { events.push('receipt'); return completion.promise; });
+    vi.mocked(artifacts.getBytes).mockImplementation(async () => { events.push('text-body'); return Buffer.from('Done'); });
+    vi.mocked(store.listReactions).mockImplementation(async () => { events.push('reactions'); return []; });
+
+    const detail = service.getPublicDetail('owner-1', 'a'.repeat(64), { limit: 2, nextToken: 'cursor' });
+    await vi.waitFor(() => expect(events).toEqual(['checkpoint', 'active-turn', 'transcript-page']));
+    checkpoint.resolve({ version: '1', messages: [] });
+    await vi.waitFor(() => expect(events).toEqual(['checkpoint', 'active-turn', 'transcript-page', 'receipt']));
+    completion.resolve(turn({ runId: 'run-1', state: 'completed', completedAt: fixedNow.toISOString() }));
+    await expect(detail).resolves.toMatchObject({ transcript: {
+      messages: [{ content: 'Review this', messageId: 'user-1' }, { content: 'Done', messageId: 'assistant-1' }],
+      completions: [{ runId: 'run-1', status: 'succeeded' }], nextToken: 'older',
+    } });
+    expect(events).toEqual(['checkpoint', 'active-turn', 'transcript-page', 'receipt', 'text-body', 'message-body', 'reactions']);
+    expect(store.listTranscript).toHaveBeenCalledWith(record.conversationId, 2, 'cursor');
+    expect(store.listReactions).toHaveBeenCalledWith(record.conversationId, 'owner-1', ['user-1', 'assistant-1']);
+  });
+
+  it('stops after a failed completion read before loading transcript bodies or reactions', async () => {
+    const { service, store, artifacts } = harness();
+    vi.mocked(store.getConversationByPublicId).mockResolvedValue(conversation({ ownerId: 'owner-1' }));
+    vi.mocked(store.listTranscript).mockResolvedValue({ items: [transcriptRecord()] });
+    const failure = new Error('turn receipt unavailable');
+    vi.mocked(store.getTranscriptTurn).mockRejectedValue(failure);
+    await expect(service.getPublicDetail('owner-1', 'a'.repeat(64))).rejects.toBe(failure);
+    expect(artifacts.getJson).not.toHaveBeenCalled();
+    expect(artifacts.getBytes).not.toHaveBeenCalled();
+    expect(store.listReactions).not.toHaveBeenCalled();
+  });
+
+  it('preserves cursors and completion receipts when loaded content has no visible messages', async () => {
+    const { service, store, artifacts } = harness();
+    vi.mocked(store.getConversationByPublicId).mockResolvedValue(conversation({ ownerId: 'owner-1' }));
+    vi.mocked(store.listTranscript).mockResolvedValue({ items: [
+      transcriptRecord({ contentKind: 'turn', messageId: 'assistant-1' }),
+      transcriptRecord({ contentKind: 'message', role: 'user', entryId: 'malformed', messageId: 'user-1' }),
+    ], nextToken: 'older' });
+    vi.mocked(store.getTranscriptTurn).mockResolvedValue(turn({ runId: 'run-1', state: 'completed', completedAt: fixedNow.toISOString() }));
+    vi.mocked(artifacts.getJson).mockResolvedValueOnce([]).mockResolvedValueOnce({ text: 0 });
+    await expect(service.getPublicDetail('owner-1', 'a'.repeat(64))).resolves.toMatchObject({
+      transcript: { messages: [], completions: [{ runId: 'run-1', status: 'succeeded' }], nextToken: 'older' },
+    });
+    expect(store.listReactions).not.toHaveBeenCalled();
+  });
+
+  it('rejects unsearchable queries before accessing the search store', async () => {
+    const { service, store } = harness();
+    for (const query of [' ', 'a ! 1', 'x'.repeat(513)]) {
+      expect(() => service.search('owner-1', query)).toThrow();
+    }
+    expect(store.search).not.toHaveBeenCalled();
+  });
+
   it('lists owner-scoped conversations and reads a bounded public-detail source', async () => {
     const { service, store, artifacts } = harness();
     const record = conversation({
@@ -612,3 +793,31 @@ describe('conversation service', () => {
     }));
   });
 });
+
+function transcriptRecord(patch: Partial<ConversationTranscriptRecord> = {}): ConversationTranscriptRecord {
+  return {
+    version: '1', itemType: 'transcript', conversationId: 'conversation-1', entryId: 'entry-1',
+    role: 'assistant', contentKind: 'text', occurredAt: fixedNow.toISOString(), expiresAt: 1_800_000_000,
+    content: { bucket: 'private', key: 'body', sha256: 'a'.repeat(64) }, ...patch,
+  };
+}
+
+function deferred<T>() {
+  let resolve: (value: T) => void = () => { throw new Error('promise is not initialized'); };
+  const promise = new Promise<T>((done) => { resolve = done; });
+  return { promise, resolve };
+}
+
+function messageInput() {
+  return { conversationId: 'conversation-1', ownerId: 'owner-1', messageId: 'message-1', delivery: 'defer' as const,
+    content: { text: 'Review the queue' }, source, destination: { kind: 'source' as const }, actor, credentialSubject };
+}
+
+function upload(name = 'notes.txt', text = 'saved content') {
+  const bytes = Buffer.from(text);
+  return { name, mediaType: 'text/plain', bytes, sha256: createHash('sha256').update(bytes).digest('hex') };
+}
+
+function uploadInput() {
+  return { conversationId: 'conversation-1', ownerId: 'owner-1', messageId: 'message-1', sourceRunId: 'run-1', uploads: [upload()] };
+}

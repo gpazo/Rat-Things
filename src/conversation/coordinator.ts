@@ -1,29 +1,40 @@
-import { createHash } from 'node:crypto';
 import { emitMetric } from '../core/metrics.js';
-import type { ArtifactStore, RunStore } from '../core/ports.js';
+import type { ArtifactStore, Clock, RunStore } from '../core/ports.js';
 import type { RunService } from '../core/run-service.js';
 import type {
   ArtifactCatalog,
   ArtifactReference,
-  JsonValue,
   RunRecord,
   RunRequest,
   RunStateEvent,
 } from '../domain/contracts.js';
-import type { AgentToolCallRecord } from '../domain/interaction.js';
 import type {
   ConversationCheckpoint,
   ConversationMessageContent,
   ConversationRecord,
   ConversationWakeMessage,
-  ConversationTranscriptMessage,
 } from '../domain/conversations.js';
 import type { ConversationQueue } from './types.js';
-import { ConversationService } from './service.js';
+import type { ConversationService } from './service.js';
+import {
+  bindingForSlice,
+  continuationForMessages,
+  continuationKey,
+  requestForMessage,
+  requestForSlice,
+  type ContinuationBatch,
+} from './continuation.js';
+import { completionDecision, sessionForRun } from './completion.js';
+import {
+  appendContext,
+  appendInterruptedToolContext,
+  interactionTranscript,
+  terminalTranscript,
+  type TerminalTranscript,
+} from './transcript.js';
 
-const MAX_REPLAY_BYTES = 80_000;
-const MAX_CONTEXT_MESSAGES = 200;
-const MAX_CONTEXT_BYTES = 4_500_000;
+// Preserve the coordinator module's existing calculation exports.
+export { appendContext, appendInterruptedToolContext, replayPrompt } from './transcript.js';
 
 export interface ConversationResultReader {
   read(reference: ArtifactReference): Promise<string | undefined>;
@@ -34,34 +45,24 @@ export interface ConversationSessionController {
 }
 
 export interface ConversationCoordinatorOptions {
-  conversations: ConversationService;
+  conversations: Pick<ConversationService,
+    'acquireLease' | 'getTurn' | 'resumeTurn' | 'beginTurn' | 'pending' | 'attachArtifacts' |
+    'scheduleRun' | 'releaseLease' | 'getMessage' | 'readAttachmentManifest' | 'appendMessage'
+  >;
   runs: Pick<RunService, 'get' | 'prepareConversation' | 'wake'>;
-  artifacts: ArtifactStore;
+  artifacts: Pick<ArtifactStore, 'getJson' | 'putJson'>;
   sliceTimeoutSeconds?: number;
-}
-
-interface ContinuationBatch {
-  version: '1';
-  messages: Array<{
-    messageId: string;
-    text: string;
-    receivedAt: string;
-    replyToMessageId?: string;
-    attachments?: Array<{
-      id: string;
-      path: string;
-      mediaType: string;
-      bytes: number;
-    }>;
-  }>;
+  clock?: Clock;
 }
 
 /** Converts durable mailbox work into one bounded, independently retryable agent run. */
 export class ConversationCoordinator {
   private readonly sliceTimeoutSeconds: number;
+  private readonly clock: Clock;
 
   public constructor(private readonly options: ConversationCoordinatorOptions) {
     this.sliceTimeoutSeconds = options.sliceTimeoutSeconds ?? 600;
+    this.clock = options.clock ?? { now: () => new Date() };
   }
 
   public async handle(message: ConversationWakeMessage): Promise<{ status: string; runId?: string }> {
@@ -103,14 +104,16 @@ export class ConversationCoordinator {
         // dispatch, but it never batches several receipts into another Run.
         { limit: 1 },
       );
-      if (pending.length === 0) {
+      const first = pending[0];
+      if (!first) {
         await this.options.conversations.releaseLease(conversation.conversationId, lease.token);
         return { status: 'no_work' };
       }
-      const contents = await Promise.all(pending.map(
-        (item) => this.options.artifacts.getJson<ConversationMessageContent>(item.content),
-      ));
-      const attachedFiles = contents.flatMap((content) => content.attachments ?? []);
+      const loaded = await Promise.all(pending.map(async (message) => ({
+        message,
+        content: await this.options.artifacts.getJson<ConversationMessageContent>(message.content),
+      })));
+      const attachedFiles = loaded.flatMap(({ content }) => content.attachments ?? []);
       const preparedConversation = attachedFiles.length > 0
         ? await this.options.conversations.attachArtifacts({
             conversationId: conversation.conversationId,
@@ -118,25 +121,7 @@ export class ConversationCoordinator {
             files: attachedFiles,
           })
         : conversation;
-      const continuation: ContinuationBatch = {
-        version: '1',
-        messages: pending.map((item, index) => ({
-          messageId: item.messageId,
-          text: contents[index]!.text,
-          receivedAt: item.receivedAt,
-          ...(contents[index]!.replyToMessageId
-            ? { replyToMessageId: contents[index]!.replyToMessageId }
-            : {}),
-          ...(contents[index]!.attachments?.length ? {
-            attachments: contents[index]!.attachments!.map((attachment) => ({
-              id: attachment.id,
-              path: `.rat-things/artifacts/${attachment.path}`,
-              mediaType: attachment.mediaType,
-              bytes: attachment.bytes,
-            })),
-          } : {}),
-        })),
-      };
+      const continuation = continuationForMessages(loaded);
       const continuationArtifact = await this.options.artifacts.putJson(
         continuationKey(conversation, turn.turnId, turn.slice),
         continuation,
@@ -144,13 +129,13 @@ export class ConversationCoordinator {
       const context = conversation.context
         ? await this.options.artifacts.getJson<ConversationCheckpoint>(conversation.context)
         : { version: '1' as const, messages: [] };
-      const rawRequest = contents[0]?.request ?? requestForMessage(conversation, continuation);
-      const runId = pending[0]!.runId;
+      const rawRequest = loaded[0]?.content.request ?? requestForMessage(conversation, continuation);
+      const runId = first.runId;
       if (!runId) throw new Error('thread mailbox item has no Run binding');
       const reserved = await this.options.runs.get(conversation.ownerId, runId);
       if (
         reserved.conversation?.conversationId !== conversation.conversationId ||
-        reserved.conversation.messageId !== pending[0]!.messageId
+        reserved.conversation.messageId !== first.messageId
       ) throw new Error('mailbox item is bound to a different thread Run');
       const request = requestForSlice(
         conversation,
@@ -159,37 +144,20 @@ export class ConversationCoordinator {
         this.sliceTimeoutSeconds,
         rawRequest,
       );
-      const resumable = sessionIsResumable(conversation);
+      const resumable = this.sessionIsResumable(conversation);
       const run = await this.options.runs.prepareConversation(
         conversation.ownerId,
         reserved.runId,
         request,
-        {
-          conversationId: conversation.conversationId,
-          messageId: pending[0]!.messageId,
-          ...(reserved.conversation.title ? { title: reserved.conversation.title } : {}),
-          turnId: turn.turnId,
-          slice: turn.slice,
-          delivery: reserved.conversation.delivery ?? pending[0]!.delivery,
+        bindingForSlice({
+          conversation,
+          preparedConversation,
+          turn,
+          message: first,
+          reserved: reserved.conversation,
           continuation: continuationArtifact,
-          ...(preparedConversation.artifacts ? { artifacts: preparedConversation.artifacts } : {}),
-          ...(reserved.conversation.attachmentManifest
-            ? { attachmentManifest: reserved.conversation.attachmentManifest }
-            : {}),
-          ...(reserved.conversation.attachmentDigest
-            ? { attachmentDigest: reserved.conversation.attachmentDigest }
-            : {}),
-          ...(reserved.conversation.replyToMessageId
-            ? { replyToMessageId: reserved.conversation.replyToMessageId }
-            : {}),
-          ...(resumable ? { preferredMicrovmId: conversation.session!.id } : {}),
-          // The MicroVM lease expires independently of the durable Codex
-          // thread stored in S3 Files. Carry the thread ID into a replacement
-          // VM even when the previous VM can no longer be resumed.
-          ...(conversation.session?.agentThreadId
-            ? { agentThreadId: conversation.session.agentThreadId }
-            : {}),
-        },
+          resumable,
+        }),
       );
       await this.options.conversations.scheduleRun({
         conversationId: conversation.conversationId,
@@ -209,6 +177,12 @@ export class ConversationCoordinator {
       }
       throw error;
     }
+  }
+
+  private sessionIsResumable(conversation: ConversationRecord): boolean {
+    const session = conversation.session;
+    if (!session || session.id === 'unknown') return false;
+    return !session.expiresAt || Date.parse(session.expiresAt) > this.clock.now().getTime();
   }
 
   /** Repairs the Run-reserved/mailbox-write crash window from trusted Run state. */
@@ -261,18 +235,20 @@ export class ConversationCoordinator {
 }
 
 export interface ConversationCompletionOptions {
-  conversations: ConversationService;
+  conversations: Pick<ConversationService,
+    'acquireLease' | 'getTurn' | 'completeTurn' | 'failTurn' | 'releaseLease' | 'get'
+  >;
   runs: Pick<RunStore, 'get'>;
-  artifacts: ArtifactStore;
+  artifacts: Pick<ArtifactStore, 'getJson' | 'getBytes'>;
   results: ConversationResultReader;
   queue: ConversationQueue;
   sessions: ConversationSessionController;
-  clock?: { now(): Date };
+  clock?: Clock;
 }
 
 /** Folds a terminal run back into durable history, then suspends its warm MicroVM. */
 export class ConversationCompletionCoordinator {
-  private readonly clock: { now(): Date };
+  private readonly clock: Clock;
 
   public constructor(private readonly options: ConversationCompletionOptions) {
     this.clock = options.clock ?? { now: () => new Date() };
@@ -296,9 +272,9 @@ export class ConversationCompletionCoordinator {
       // Suspend first so a failed suspension is retried while this turn is still active. Once the
       // turn is terminal, duplicate completion events are intentionally treated as stale.
       if (run.execution) await this.options.sessions.suspend(run.execution.id);
-      const interruptedToolCalls = (run.agentToolCalls ?? []).filter(call => call.status === 'interrupted');
-      const transcriptMessages = await this.terminalTranscript(run);
-      if ((run.status === 'succeeded' || run.status === 'cancelled') && run.result && interruptedToolCalls.length === 0) {
+      const decision = completionDecision(run);
+      const transcript = await this.readTerminalTranscript(run);
+      if (decision.kind === 'complete') {
         const [previous, continuation] = await Promise.all([
           conversation.context
             ? this.options.artifacts.getJson<ConversationCheckpoint>(conversation.context)
@@ -307,57 +283,51 @@ export class ConversationCompletionCoordinator {
             ? this.options.artifacts.getJson<ContinuationBatch>(binding.continuation)
             : Promise.resolve({ version: '1' as const, messages: [] }),
         ]);
-        const context = appendContext(previous, continuation, transcriptMessages.at(-1)!.content, transcriptMessages.slice(0, -1));
+        const context = appendContext(previous, continuation, transcript.output, transcript.interactions);
         await this.options.conversations.completeTurn({
-          runStatus: run.status,
+          runStatus: decision.runStatus,
           conversationId: binding.conversationId,
           turnId: binding.turnId,
           leaseToken: lease.token,
-          result: run.result.output,
-          transcriptMessages,
+          result: decision.result.output,
+          transcriptMessages: transcript.messages,
           context,
-          ...(run.result.artifacts !== undefined ? {
+          ...(decision.result.artifacts !== undefined ? {
             artifactCatalog: {
               version: '1',
-              files: run.result.artifacts,
+              files: decision.result.artifacts,
             } satisfies ArtifactCatalog,
           } : {}),
           ...(run.execution ? {
-            session: sessionForRun(run, conversation, this.clock.now(), run.result.agentThreadId),
+            session: sessionForRun(run, conversation, this.clock.now(), decision.result.agentThreadId),
           } : {}),
         });
       } else {
-        const interruptedContext = interruptedToolCalls.length > 0
-          ? appendInterruptedToolContext(
-              conversation.context
-                ? await this.options.artifacts.getJson<ConversationCheckpoint>(conversation.context)
-                : { version: '1', messages: [] },
-              binding.continuation
-                ? await this.options.artifacts.getJson<ContinuationBatch>(binding.continuation)
-                : { version: '1', messages: [] },
-              interruptedToolCalls,
-            )
-          : run.result ? appendContext(
-            conversation.context ? await this.options.artifacts.getJson<ConversationCheckpoint>(conversation.context) : { version: '1', messages: [] },
-            binding.continuation ? await this.options.artifacts.getJson<ContinuationBatch>(binding.continuation) : { version: '1', messages: [] },
-            transcriptMessages.at(-1)?.content ?? '', transcriptMessages.slice(0, -1),
-          ) : undefined;
+        let interruptedContext: ConversationCheckpoint | undefined;
+        if (decision.interrupted.length > 0 || run.result) {
+          // Preserve sequential reads on failure: a context error must not start a continuation read.
+          const previous = conversation.context
+            ? await this.options.artifacts.getJson<ConversationCheckpoint>(conversation.context)
+            : { version: '1' as const, messages: [] };
+          const continuation = binding.continuation
+            ? await this.options.artifacts.getJson<ContinuationBatch>(binding.continuation)
+            : { version: '1' as const, messages: [] };
+          interruptedContext = decision.interrupted.length > 0
+            ? appendInterruptedToolContext(previous, continuation, decision.interrupted)
+            : appendContext(previous, continuation, transcript.output, transcript.interactions);
+        }
         await this.options.conversations.failTurn({
-          runStatus: run.status === 'cancelled' ? 'cancelled' : 'failed',
+          runStatus: decision.runStatus,
           conversationId: binding.conversationId,
           turnId: binding.turnId,
           leaseToken: lease.token,
-          transcriptMessages,
+          transcriptMessages: transcript.messages,
           ...(run.result?.artifacts ? { artifactCatalog: {version: '1', files: run.result.artifacts} } : {}),
-          ...(run.execution && run.result?.agentThreadId && !interruptedToolCalls.length ? {
+          ...(run.execution && run.result?.agentThreadId && !decision.interrupted.length ? {
             session: sessionForRun(run, conversation, this.clock.now(), run.result.agentThreadId),
           } : {}),
-          error: run.error ?? {
-            code: run.status === 'cancelled' ? 'agent_cancelled' : 'agent_failed',
-            message: `conversation slice ${run.status}`,
-            retryable: false,
-          },
-          ...(interruptedContext ? { context: interruptedContext, ...(interruptedToolCalls.length ? { clearSession: true } : {}) } : {}),
+          error: decision.error,
+          ...(interruptedContext ? { context: interruptedContext, ...(decision.interrupted.length ? { clearSession: true } : {}) } : {}),
         });
       }
       const latest = await this.options.conversations.get(binding.conversationId);
@@ -379,37 +349,15 @@ export class ConversationCompletionCoordinator {
     }
   }
 
-  private async terminalTranscript(run: RunRecord): Promise<ConversationTranscriptMessage[]> {
-    const messages: ConversationTranscriptMessage[] = [];
-    let remaining = 64_000;
-    let omitted = false;
-    if (run.result?.events) {
-      const bytes = await this.options.artifacts.getBytes(run.result.events);
-      for (const line of Buffer.from(bytes).toString('utf8').split('\n')) {
-        let event;
-        try { event = JSON.parse(line); } catch { continue; }
-        if (event?.method !== 'rat/interaction') continue;
-        const value = event.params;
-        if (!value || !['user', 'assistant'].includes(value.role) || typeof value.text !== 'string') continue;
-        if (messages.length >= 255 || remaining <= 0) { omitted = true; continue; }
-        const text = value.text.slice(0, Math.min(16_384, remaining));
-        remaining -= text.length;
-        if (text.length < value.text.length) omitted = true;
-        messages.push({
-          role: value.role, content: text,
-          receivedAt: typeof value.occurredAt === 'string' ? value.occurredAt : run.updatedAt,
-        });
-      }
-    }
-    if (omitted) messages.push({role: 'assistant', content: 'Some interaction details were omitted from this bounded transcript. Full terminal events remain in the Run evidence.'});
-    messages.push({
-      role: 'assistant', receivedAt: run.updatedAt,
-      content: run.result
-        ? await this.options.results.read(run.result.output) ?? run.result.preview
-        : run.status === 'cancelled' ? 'Stopped. No final output was saved.'
-        : `Work failed: ${run.error?.message ?? 'No final output was saved.'}`,
-    });
-    return messages;
+  private async readTerminalTranscript(run: RunRecord): Promise<TerminalTranscript> {
+    const interactions = run.result?.events
+      ? interactionTranscript(
+          Buffer.from(await this.options.artifacts.getBytes(run.result.events)).toString('utf8'),
+          run.updatedAt,
+        )
+      : [];
+    const savedOutput = run.result ? await this.options.results.read(run.result.output) : undefined;
+    return terminalTranscript(run, interactions, savedOutput);
   }
 }
 
@@ -430,221 +378,4 @@ function validateWakeMessage(message: Partial<ConversationWakeMessage>): void {
     (message.runId !== undefined && !/^[A-Za-z0-9-]{1,128}$/.test(message.runId)) ||
     (message.ownerId !== undefined && (!message.ownerId || Buffer.byteLength(message.ownerId, 'utf8') > 1_024))
   ) throw new Error('invalid conversation queue message');
-}
-
-function requestForSlice(
-  conversation: ConversationRecord,
-  context: ConversationCheckpoint,
-  continuation: ContinuationBatch,
-  timeoutSeconds: number,
-  rawRequest: RunRequest,
-): RunRequest {
-  return {
-    ...rawRequest,
-    prompt: replayPrompt(context, continuation),
-    agent: {
-      ...conversation.executionPolicy,
-      ...rawRequest.agent,
-      sandbox: rawRequest.agent?.sandbox ?? conversation.executionPolicy?.sandbox ?? 'danger-full-access',
-    },
-    ...(rawRequest.integrations ?? conversation.integrationPolicy
-      ? { integrations: rawRequest.integrations ?? conversation.integrationPolicy }
-      : {}),
-    execution: {
-      ...rawRequest.execution,
-      backend: 'microvm',
-      timeoutSeconds: Math.min(rawRequest.execution?.timeoutSeconds ?? timeoutSeconds, timeoutSeconds),
-    },
-    metadata: {
-      ...rawRequest.metadata,
-      conversationId: conversation.conversationId,
-      messageIds: continuation.messages.map((message) => message.messageId),
-    },
-  };
-}
-
-function requestForMessage(
-  conversation: ConversationRecord,
-  continuation: ContinuationBatch,
-): RunRequest {
-  return {
-    version: '1',
-    prompt: continuation.messages[0]?.text ?? 'Continue the conversation.',
-    agent: {
-      ...conversation.executionPolicy,
-      sandbox: conversation.executionPolicy?.sandbox ?? 'danger-full-access',
-    },
-    ...(conversation.integrationPolicy ? { integrations: conversation.integrationPolicy } : {}),
-    source: conversation.source,
-    destinations: [conversation.destination],
-  };
-}
-
-export function replayPrompt(
-  context: ConversationCheckpoint,
-  continuation: ContinuationBatch,
-): string {
-  const latest: JsonValue[] = continuation.messages.map((message) => ({
-    role: 'user',
-    content: message.text,
-    messageId: message.messageId,
-    ...(message.replyToMessageId ? { replyToMessageId: message.replyToMessageId } : {}),
-    ...(message.attachments?.length ? { attachments: message.attachments } : {}),
-  }));
-  const transcript = [...context.messages, ...latest];
-  const selected: JsonValue[] = [];
-  let bytes = 0;
-  for (const item of transcript.slice().reverse()) {
-    const encoded = JSON.stringify(item);
-    if (bytes + Buffer.byteLength(encoded) > MAX_REPLAY_BYTES) break;
-    selected.unshift(item);
-    bytes += Buffer.byteLength(encoded);
-  }
-  const compacted = compactedMessageCount(context);
-  const omittedFromReplay = transcript.length - selected.length;
-  const handoff = compacted > 0 || omittedFromReplay > 0
-    ? [
-        'Durable replay handoff:',
-        `- ${compacted} older transcript item(s) were compacted before this turn.`,
-        `- ${omittedFromReplay} retained item(s) were omitted from this bounded replay.`,
-        '- Warm session memory may contain more context, but do not invent omitted details. Ask the user or inspect durable files when an omitted fact is required.',
-      ].join('\n')
-    : 'Durable replay handoff: no known transcript items were omitted.';
-  return [
-    'Continue this durable conversation. The JSON transcript is canonical and may overlap with warm session memory.',
-    'Respond to the newest user message. Use tools when the request requires them.',
-    handoff,
-    JSON.stringify(selected),
-  ].join('\n\n');
-}
-
-export function appendContext(
-  previous: ConversationCheckpoint,
-  continuation: ContinuationBatch,
-  output: string,
-  interactions: ConversationTranscriptMessage[] = [],
-): ConversationCheckpoint {
-  const appended: JsonValue[] = [
-    ...previous.messages,
-    ...continuation.messages.map((message) => ({
-      role: 'user',
-      content: message.text,
-      messageId: message.messageId,
-      ...(message.replyToMessageId ? { replyToMessageId: message.replyToMessageId } : {}),
-      ...(message.attachments?.length ? { attachments: message.attachments } : {}),
-      receivedAt: message.receivedAt,
-    })),
-    ...interactions.map(message => ({ role: message.role, content: message.content, ...(message.receivedAt ? {receivedAt: message.receivedAt} : {}) })),
-    { role: 'assistant', content: output },
-  ];
-  const messages = appended.slice(-MAX_CONTEXT_MESSAGES);
-  while (messages.length > 1 && Buffer.byteLength(JSON.stringify(messages)) > MAX_CONTEXT_BYTES) {
-    messages.shift();
-  }
-  const newlyCompacted = appended.length - messages.length;
-  return {
-    version: '1',
-    messages,
-    metadata: {
-      ...previous.metadata,
-      compactedMessages: Math.min(
-        Number.MAX_SAFE_INTEGER,
-        compactedMessageCount(previous) + newlyCompacted,
-      ),
-    },
-  };
-}
-
-export function appendInterruptedToolContext(
-  previous: ConversationCheckpoint,
-  continuation: ContinuationBatch,
-  interrupted: AgentToolCallRecord[],
-): ConversationCheckpoint {
-  const listed = interrupted.slice(0, 20).map((call) => (
-    `- request ${call.requestId}: ${call.namespace ? `${call.namespace}.` : ''}${call.tool} ` +
-    `(started ${call.startedAt}; argument digest ${call.argumentDigest})`
-  ));
-  const content = [
-    'Execution interruption handoff:',
-    `${interrupted.length} host tool call(s) ended without a durably settled result.`,
-    ...listed,
-    ...(interrupted.length > listed.length
-      ? [`- ${interrupted.length - listed.length} additional interrupted call(s) omitted from this bounded handoff.`]
-      : []),
-    'The external outcome is unknown. Do not replay any of these calls automatically.',
-    'Verify durable/provider state and wait for an explicit new user instruction before attempting a consequential call again.',
-  ].join('\n');
-  const appended: JsonValue[] = [
-    ...previous.messages,
-    ...continuation.messages.map((message) => ({
-      role: 'user',
-      content: message.text,
-      messageId: message.messageId,
-      receivedAt: message.receivedAt,
-    })),
-    { role: 'system', content },
-  ];
-  return boundedCheckpoint(previous, appended);
-}
-
-function compactedMessageCount(context: ConversationCheckpoint): number {
-  const value = context.metadata?.compactedMessages;
-  return typeof value === 'number' && Number.isSafeInteger(value) && value > 0
-    ? value
-    : 0;
-}
-
-function boundedCheckpoint(
-  previous: ConversationCheckpoint,
-  appended: JsonValue[],
-): ConversationCheckpoint {
-  const messages = appended.slice(-MAX_CONTEXT_MESSAGES);
-  while (messages.length > 1 && Buffer.byteLength(JSON.stringify(messages)) > MAX_CONTEXT_BYTES) {
-    messages.shift();
-  }
-  return {
-    version: '1',
-    messages,
-    metadata: {
-      ...previous.metadata,
-      compactedMessages: Math.min(
-        Number.MAX_SAFE_INTEGER,
-        compactedMessageCount(previous) + appended.length - messages.length,
-      ),
-    },
-  };
-}
-
-function sessionForRun(
-  run: RunRecord,
-  conversation: ConversationRecord,
-  now: Date,
-  agentThreadId?: string,
-) {
-  const existingStart = run.execution?.startedAt ? Date.parse(run.execution.startedAt) : now.getTime();
-  const sameSession = conversation.session?.id === run.execution?.id;
-  return {
-    backend: 'microvm' as const,
-    id: run.execution?.id ?? 'unknown',
-    state: 'suspended' as const,
-    updatedAt: now.toISOString(),
-    expiresAt: sameSession && conversation.session?.expiresAt
-      ? conversation.session.expiresAt
-      : new Date(existingStart + 28_800_000).toISOString(),
-    ...(agentThreadId ? { agentThreadId } : {}),
-  };
-}
-
-function sessionIsResumable(conversation: ConversationRecord): boolean {
-  if (!conversation.session || conversation.session.id === 'unknown') return false;
-  return !conversation.session.expiresAt || Date.parse(conversation.session.expiresAt) > Date.now();
-}
-
-function continuationKey(conversation: ConversationRecord, turnId: string, slice: number): string {
-  return `owners/${hash(conversation.ownerId).slice(0, 32)}/conversations/${hash(conversation.conversationId).slice(0, 32)}/turns/${hash(turnId).slice(0, 32)}/slice-${slice}-input.json`;
-}
-
-
-function hash(value: string): string {
-  return createHash('sha256').update(value).digest('hex');
 }

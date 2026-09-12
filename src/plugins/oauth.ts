@@ -1,12 +1,13 @@
-import { createHash, randomBytes, randomUUID } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import { emitMetric } from '../core/metrics.js';
 import type { CredentialBroker } from '../credentials/broker.js';
+import { oauthApplication, type OAuthApplication } from '../credentials/oauth-application.js';
 import type {
   CredentialVault,
   IntegrationCredentialValue,
   SecretReader,
 } from '../credentials/types.js';
-import type { ConnectionGrant, IntegrationConnection } from '../domain/capabilities.js';
+import type { IntegrationConnection } from '../domain/capabilities.js';
 import { ValidationError } from '../domain/validation.js';
 import type { ConnectionService } from './connection-service.js';
 import type {
@@ -15,33 +16,32 @@ import type {
   OAuth2AuthorizationDefinition,
 } from './integration-types.js';
 import { IntegrationProviderUnavailableError } from './integration-types.js';
+import {
+  hashState,
+  oauthAuthorizationRecord,
+  oauthAuthorizationUrl,
+  oauthCodeChallenge,
+  trustedCallbackUrl,
+  type OAuthAuthorizationRecord,
+  type StartOAuthAuthorizationInput,
+} from './oauth-planning.js';
+import {
+  oauthTokenRequest,
+  oauthTokenResponse,
+  tokenField,
+  tokenNeedsRefresh,
+  tokenPrefixes,
+} from './oauth-token-planning.js';
 
-const AUTHORIZATION_LIFETIME_SECONDS = 10 * 60;
-const REFRESH_LEEWAY_MS = 2 * 60_000;
-
-export interface OAuthAuthorizationRecord {
-  version: '1';
-  ownerId: string;
-  pluginId: string;
-  callbackUrl: string;
-  codeVerifier: string;
-  grant: Omit<ConnectionGrant, 'version' | 'grantId' | 'ownerId' | 'connectionId'>;
-  alias?: string;
-  reconnectConnectionId?: string;
-  createdAt: string;
-  expiresAt: number;
-}
+export type { OAuthApplication } from '../credentials/oauth-application.js';
+export { parseOAuthApplicationSecretArns } from './oauth-planning.js';
+export type { OAuthAuthorizationRecord, StartOAuthAuthorizationInput } from './oauth-planning.js';
 
 export interface OAuthAuthorizationStore {
   create(stateHash: string, record: OAuthAuthorizationRecord): Promise<void>;
   consume(stateHash: string): Promise<OAuthAuthorizationRecord | undefined>;
   acquireRefreshLock(ownerId: string, connectionId: string, token: string, expiresAt: number): Promise<boolean>;
   releaseRefreshLock(ownerId: string, connectionId: string, token: string): Promise<void>;
-}
-
-export interface OAuthApplication {
-  clientId: string;
-  clientSecret: string;
 }
 
 export interface OAuthApplicationRegistryLike {
@@ -57,14 +57,6 @@ export interface OAuthAuthorizationServiceOptions {
   fetch?: typeof fetch;
   clock?: { now(): Date };
   randomBytes?: (size: number) => Buffer;
-}
-
-export interface StartOAuthAuthorizationInput {
-  ownerId: string;
-  pluginId: string;
-  callbackUrl: string;
-  grant: Omit<ConnectionGrant, 'version' | 'grantId' | 'ownerId' | 'connectionId'>;
-  alias?: string;
 }
 
 export interface ReconnectOAuthAuthorizationInput {
@@ -152,45 +144,22 @@ export class OAuthAuthorizationService {
     const application = await this.options.applications.application(input.pluginId);
     const state = this.random(32).toString('base64url');
     const codeVerifier = this.random(64).toString('base64url');
-    const codeChallenge = createHash('sha256').update(codeVerifier).digest('base64url');
+    const codeChallenge = oauthCodeChallenge(codeVerifier);
     const now = this.clock.now();
-    const expiresAt = Math.floor(now.getTime() / 1_000) + AUTHORIZATION_LIFETIME_SECONDS;
-    await this.options.store.create(hashState(state), {
-      version: '1',
-      ownerId: input.ownerId,
-      pluginId: input.pluginId,
+    const record = oauthAuthorizationRecord(input, callbackUrl, codeVerifier, now);
+    const expiresAt = record.expiresAt;
+    await this.options.store.create(hashState(state), record);
+    const authorizationUrl = oauthAuthorizationUrl({
+      definition: authentication.oauth2!,
+      clientId: application.clientId,
       callbackUrl,
-      codeVerifier,
-      grant: input.grant,
-      ...(input.alias ? { alias: input.alias } : {}),
-      ...(input.reconnectConnectionId ? { reconnectConnectionId: input.reconnectConnectionId } : {}),
-      createdAt: now.toISOString(),
-      expiresAt,
+      state,
+      codeChallenge,
     });
-    const authorizationUrl = new URL(authentication.oauth2!.authorizationUrl);
-    authorizationUrl.searchParams.set('response_type', 'code');
-    authorizationUrl.searchParams.set('client_id', application.clientId);
-    authorizationUrl.searchParams.set('redirect_uri', callbackUrl);
-    authorizationUrl.searchParams.set('state', state);
-    authorizationUrl.searchParams.set('code_challenge', codeChallenge);
-    authorizationUrl.searchParams.set('code_challenge_method', 'S256');
-    authorizationUrl.searchParams.set(
-      'scope',
-      authentication.oauth2!.scopes.join(authentication.oauth2!.scopeSeparator ?? ' '),
-    );
-    if (authentication.oauth2!.secondaryToken) {
-      authorizationUrl.searchParams.set(
-        authentication.oauth2!.secondaryToken.authorizationParameter,
-        authentication.oauth2!.secondaryToken.scopes.join(' '),
-      );
-    }
-    for (const [key, value] of Object.entries(authentication.oauth2!.authorizationParameters ?? {})) {
-      authorizationUrl.searchParams.set(key, value);
-    }
     return {
       version: '1',
       pluginId: input.pluginId,
-      authorizationUrl: authorizationUrl.href,
+      authorizationUrl,
       callbackUrl,
       expiresAt: new Date(expiresAt * 1_000).toISOString(),
     };
@@ -266,20 +235,7 @@ export class SecretOAuthApplicationRegistry implements OAuthApplicationRegistryL
       if (error instanceof SyntaxError) throw new Error(`OAuth application secret for ${pluginId} is invalid`);
       throw error;
     }
-    if (!value || typeof value !== 'object' || Array.isArray(value)) {
-      throw new Error(`OAuth application secret for ${pluginId} is invalid`);
-    }
-    const clientId = (value as Record<string, unknown>).client_id;
-    const clientSecret = (value as Record<string, unknown>).client_secret;
-    if (
-      typeof clientId !== 'string' ||
-      !clientId ||
-      Buffer.byteLength(clientId, 'utf8') > 2_048 ||
-      typeof clientSecret !== 'string' ||
-      !clientSecret ||
-      Buffer.byteLength(clientSecret, 'utf8') > 8_192
-    ) throw new Error(`OAuth application secret for ${pluginId} requires client_id and client_secret`);
-    return { clientId, clientSecret };
+    return oauthApplication(value, pluginId);
   }
 }
 
@@ -384,29 +340,6 @@ export class OAuthRefreshingCredentialBroker {
   }
 }
 
-export function parseOAuthApplicationSecretArns(value: string | undefined): Record<string, string> {
-  if (!value) return {};
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(value) as unknown;
-  } catch {
-    throw new Error('INTEGRATION_OAUTH_APP_SECRET_ARNS must be valid JSON');
-  }
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    throw new Error('INTEGRATION_OAUTH_APP_SECRET_ARNS must be a JSON object');
-  }
-  const result: Record<string, string> = {};
-  for (const [pluginId, reference] of Object.entries(parsed)) {
-    if (
-      !/^[a-z][a-z0-9-]{0,63}$/.test(pluginId) ||
-      typeof reference !== 'string' ||
-      !/^arn:[A-Za-z0-9-]+:secretsmanager:[A-Za-z0-9-]+:[0-9]{12}:secret:[^\s]{1,512}$/.test(reference)
-    ) throw new Error('INTEGRATION_OAUTH_APP_SECRET_ARNS contains an invalid entry');
-    result[pluginId] = reference;
-  }
-  return result;
-}
-
 function oauthAuthentication(
   registry: IntegrationPluginRegistryLike,
   pluginId: string,
@@ -424,39 +357,6 @@ function oauthAuthentication(
   return authentication;
 }
 
-function trustedCallbackUrl(value: string): URL {
-  const url = new URL(value);
-  if (
-    url.protocol !== 'https:' ||
-    url.username ||
-    url.password ||
-    url.search ||
-    url.hash ||
-    !url.hostname ||
-    url.pathname !== '/v1/integrations/oauth/callback'
-  ) throw new ValidationError('OAuth callback URL is invalid');
-  return url;
-}
-
-function tokenNeedsRefresh(
-  credential: IntegrationCredentialValue,
-  now: Date,
-  prefix = '',
-): boolean {
-  const expires = credential[tokenField(prefix, 'expires_at')];
-  if (!expires) return false;
-  const expiresAt = Date.parse(expires);
-  return !Number.isFinite(expiresAt) || expiresAt <= now.getTime() + REFRESH_LEEWAY_MS;
-}
-
-function tokenPrefixes(definition: OAuth2AuthorizationDefinition): string[] {
-  return ['', ...(definition.secondaryToken ? [definition.secondaryToken.credentialPrefix] : [])];
-}
-
-function tokenField(prefix: string, field: string): string {
-  return prefix ? `${prefix}_${field}` : field;
-}
-
 async function exchangeToken(input: {
   fetcher: typeof fetch;
   pluginTitle: string;
@@ -468,27 +368,14 @@ async function exchangeToken(input: {
   now: Date;
   signal?: AbortSignal;
 }): Promise<IntegrationCredentialValue> {
-  const form = new URLSearchParams(input.parameters);
-  const headers: Record<string, string> = {
-    accept: 'application/json',
-    'content-type': 'application/x-www-form-urlencoded',
-  };
-  if (input.definition.tokenEndpointAuthMethod === 'client-secret-basic') {
-    headers.authorization = `Basic ${Buffer.from(
-      `${formEncoded(input.application.clientId)}:${formEncoded(input.application.clientSecret)}`,
-      'utf8',
-    ).toString('base64')}`;
-  } else {
-    form.set('client_id', input.application.clientId);
-    form.set('client_secret', input.application.clientSecret);
-  }
+  const request = oauthTokenRequest(input);
   let response: Response;
   let text: string;
   try {
     response = await input.fetcher(input.definition.tokenUrl, {
       method: 'POST',
-      headers,
-      body: form.toString(),
+      headers: request.headers,
+      body: request.body,
       redirect: 'error',
       signal: input.signal
         ? AbortSignal.any([input.signal, AbortSignal.timeout(20_000)])
@@ -498,86 +385,14 @@ async function exchangeToken(input: {
   } catch {
     throw new IntegrationProviderUnavailableError(input.pluginTitle);
   }
-  if (Buffer.byteLength(text, 'utf8') > 64 * 1024) {
-    throw new IntegrationProviderUnavailableError(input.pluginTitle);
-  }
-  let value: unknown;
-  try {
-    value = JSON.parse(text) as unknown;
-  } catch {
-    throw new IntegrationProviderUnavailableError(input.pluginTitle);
-  }
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    throw new IntegrationProviderUnavailableError(input.pluginTitle);
-  }
-  const record = value as Record<string, unknown>;
-  if (!response.ok || typeof record.error === 'string' || record.ok === false) {
-    if (response.status === 429 || response.status >= 500) {
-      throw new IntegrationProviderUnavailableError(input.pluginTitle);
-    }
-    throw new ValidationError(`${input.pluginTitle} rejected the OAuth token exchange`);
-  }
-  const result = tokenCredential(record, input.now, input.credentialPrefix ?? '');
-  if (input.includeSecondaryToken && input.definition.secondaryToken) {
-    const secondary = record[input.definition.secondaryToken.responseField];
-    if (!secondary || typeof secondary !== 'object' || Array.isArray(secondary)) {
-      throw new ValidationError(`${input.pluginTitle} did not issue the requested delegated user token`);
-    }
-    Object.assign(result, tokenCredential(
-      secondary as Record<string, unknown>,
-      input.now,
-      input.definition.secondaryToken.credentialPrefix,
-    ));
-  }
-  return result;
-}
-
-function tokenCredential(
-  record: Record<string, unknown>,
-  now: Date,
-  prefix: string,
-): IntegrationCredentialValue {
-  const result: IntegrationCredentialValue = {
-    [tokenField(prefix, 'access_token')]: boundedToken(record.access_token, 'OAuth access token'),
-  };
-  const refreshToken = optionalToken(record.refresh_token, 'OAuth refresh token');
-  const tokenType = optionalToken(record.token_type, 'OAuth token type', 128);
-  const scope = optionalToken(record.scope, 'OAuth scope', 16_384);
-  if (refreshToken) result[tokenField(prefix, 'refresh_token')] = refreshToken;
-  if (tokenType) result[tokenField(prefix, 'token_type')] = tokenType;
-  if (scope) result[tokenField(prefix, 'scope')] = scope;
-  const expiresIn = numericSeconds(record.expires_in);
-  if (expiresIn !== undefined) {
-    result[tokenField(prefix, 'expires_at')] = new Date(now.getTime() + expiresIn * 1_000).toISOString();
-  }
-  return result;
-}
-
-function boundedToken(value: unknown, label: string, maximumBytes = 32_768): string {
-  if (typeof value !== 'string' || !value || Buffer.byteLength(value, 'utf8') > maximumBytes) {
-    throw new ValidationError(`${label} is missing or invalid`);
-  }
-  return value;
-}
-
-function optionalToken(value: unknown, label: string, maximumBytes = 32_768): string | undefined {
-  if (value === undefined || value === null || value === '') return undefined;
-  return boundedToken(value, label, maximumBytes);
-}
-
-function numericSeconds(value: unknown): number | undefined {
-  if (value === undefined || value === null || value === '') return undefined;
-  const parsed = typeof value === 'number' ? value : Number(value);
-  if (!Number.isFinite(parsed) || parsed < 1 || parsed > 366 * 24 * 60 * 60) {
-    throw new ValidationError('OAuth expires_in is invalid');
-  }
-  return Math.floor(parsed);
-}
-
-function formEncoded(value: string): string {
-  return new URLSearchParams({ value }).toString().slice('value='.length);
-}
-
-function hashState(state: string): string {
-  return createHash('sha256').update(state).digest('hex');
+  return oauthTokenResponse({
+    pluginTitle: input.pluginTitle,
+    definition: input.definition,
+    ok: response.ok,
+    status: response.status,
+    text,
+    now: input.now,
+    ...(input.credentialPrefix !== undefined ? { credentialPrefix: input.credentialPrefix } : {}),
+    ...(input.includeSecondaryToken !== undefined ? { includeSecondaryToken: input.includeSecondaryToken } : {}),
+  });
 }
