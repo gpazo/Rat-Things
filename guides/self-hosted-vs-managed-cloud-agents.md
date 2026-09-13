@@ -88,7 +88,7 @@ replaced.
 
 This is an engineering design, not a blanket production claim. The project explicitly remains
 unsuitable for untrusted multi-tenant production until its listed security gates are complete. Read
-the [architecture](../docs/architecture.md#lambda-microvm-execution) and [production security
+the [architecture](../docs/architecture.md#compute-and-environments) and [production security
 gates](../docs/security.md#production-security-gates).
 
 ## Decide how agents receive authority
@@ -96,15 +96,15 @@ gates](../docs/security.md#production-security-gates).
 Managed services usually offer a documented permission and approval model. Evaluate whether it
 matches unattended workflows, provider-specific scopes, and your incident procedures.
 
-Rat Things deliberately has no mid-Run approval inbox. Before launch, it intersects the deployment
-profile, Run or Thing narrowing, IAM, network policy, provider scopes, persistent account grants,
-operation rules, resource constraints, and installed tools. Inside that fixed envelope, work is
+Rat Things deliberately has no runtime approval inbox. Before execution, it intersects the resolved
+Session tools and environment, deployment ceiling, IAM, network policy, provider scopes, selected
+credentials, and any brokered account grants and resource constraints. Inside that fixed envelope, work is
 autonomous. Outside it, the capability is absent or denied.
 
 This model is useful for schedules and headless systems because liveness does not depend on a human
 approval channel. It also means every exposed action must be safe to exercise autonomously. If that
 is not acceptable, use a managed product with the required approval semantics or split the workflow
-into separate preparation and execution Runs.
+into separate preparation and execution Sessions.
 
 ## Compare durability beyond “task history”
 
@@ -118,8 +118,8 @@ Ask each option what survives:
 6. How are ambiguous external writes reconciled?
 7. What are the retention, export, and deletion guarantees?
 
-Rat Things stores one Run receipt for every accepted execution, persists full bodies in encrypted
-S3, and can restore native Codex and workspace state with S3 Files. The [durable-state
+Rat Things retains accepted Session input receipts and Turn outcomes, stores full content in encrypted
+S3, and uses native checkpoints and workspace storage for recovery. Saved files do not recreate live processes. The [durable-state
 guide](durable-ai-agent-state.md) explains the layers and their failure cases.
 
 ## Include the full operating cost
@@ -177,5 +177,5 @@ that path without hiding the current limitations.
 - [OpenAI Codex cloud](https://learn.chatgpt.com/docs/cloud)
 - [GitHub Copilot cloud agent](https://docs.github.com/en/copilot/concepts/agents/cloud-agent/about-cloud-agent)
 - [AWS Lambda MicroVM lifecycle and pricing](https://aws.amazon.com/lambda/pricing/)
-- [Rat Things architecture](../docs/architecture.md#lambda-microvm-execution)
+- [Rat Things architecture](../docs/architecture.md#compute-and-environments)
 - [Rat Things capabilities and boundaries](../docs/status-and-roadmap.md)

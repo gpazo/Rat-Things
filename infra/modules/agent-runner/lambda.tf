@@ -5,32 +5,31 @@ locals {
     DEFAULT_SANDBOX_MODE                = var.default_sandbox_mode
     DEFAULT_AGENT_NETWORK_ACCESS        = tostring(var.default_agent_network_access)
     ARTIFACT_BUCKET                     = aws_s3_bucket.artifacts.id
+    AGENTS_TABLE_NAME                   = aws_dynamodb_table.agents.name
     DEFINITION_BUCKET                   = aws_s3_bucket.definitions.id
     DEFINITION_KMS_KEY_ARN              = aws_kms_key.data.arn
     AWS_NODEJS_CONNECTION_REUSE_ENABLED = "1"
-    CONVERSATIONS_TABLE_NAME            = aws_dynamodb_table.conversations.name
     INTEGRATIONS_TABLE_NAME             = aws_dynamodb_table.integrations.name
-    ROUTINES_TABLE_NAME                 = aws_dynamodb_table.routines.name
-    THINGS_TABLE_NAME                   = aws_dynamodb_table.things.name
     INTEGRATION_CREDENTIAL_NAME_PREFIX  = "${local.name}/connections"
     INTEGRATION_CREDENTIAL_KMS_KEY_ARN  = aws_kms_key.data.arn
-    CONVERSATION_QUEUE_URL              = aws_sqs_queue.conversations.url
     METRIC_DEPLOYMENT                   = local.name
     METRIC_NAMESPACE                    = "RatThings"
     RUNS_TABLE_NAME                     = aws_dynamodb_table.runs.name
     RUN_QUEUE_URL                       = aws_sqs_queue.runs.url
     RUN_RETENTION_SECONDS               = tostring(var.run_retention_seconds)
-    }, length(var.integration_plugin_base_urls) > 0 ? {
+    AGENTS_QUEUE_URL                    = aws_sqs_queue.agents.url
+    }, local.environment_relay_enabled ? {
+    AGENTS_ENVIRONMENT_RELAY_URL = "https://${aws_cloudfront_distribution.environment_relay[0].domain_name}"
+    } : {}, length(var.integration_plugin_base_urls) > 0 ? {
     INTEGRATION_PLUGIN_BASE_URLS = jsonencode(var.integration_plugin_base_urls)
     } : {}, length(var.integration_oauth_app_secret_arns) > 0 ? {
     INTEGRATION_OAUTH_APP_SECRET_ARNS = jsonencode(var.integration_oauth_app_secret_arns)
   } : {})
 
-  executor_environment = merge(local.lambda_common_environment, {
+  worker_environment = merge(local.lambda_common_environment, {
     ALLOW_AGENT_AWS_CREDENTIAL_CHAIN     = tostring(var.allow_agent_aws_credential_chain)
     CODEX_AUTH_MODE                      = var.codex_auth_mode
-    DEFAULT_AGENT_DRIVER                 = var.default_agent_driver
-    DEFAULT_EXECUTION_BACKEND            = "microvm"
+    DEFAULT_EXECUTION_BACKEND            = var.enable_ec2_worker ? "ec2" : "microvm"
     EVENT_BUS_NAME                       = aws_cloudwatch_event_bus.runs.name
     MICROVM_EXECUTION_ROLE_ARN           = aws_iam_role.microvm_execution.arn
     MICROVM_IMAGE_PARAMETER_NAME         = aws_ssm_parameter.microvm_image.name
@@ -49,11 +48,37 @@ locals {
     } : {}, var.codex_auth_mode == "bedrock" && local.bedrock_api_key_secret_arn != null ? {
     BEDROCK_API_KEY_SECRET_ARN = local.bedrock_api_key_secret_arn
     } : {}, var.enable_s3_files ? {
+    S3_FILES_ACCESS_POINT_ID = aws_s3files_access_point.conversation_state[0].id
+    S3_FILES_FILE_SYSTEM_ID  = aws_s3files_file_system.conversation_state[0].id
+    S3_FILES_MOUNT_TARGET_IP = aws_s3files_mount_target.conversation_state[0].ipv4_address
+    } : {}, var.enable_s3_files && var.enable_microvm ? {
     MICROVM_VPC_NETWORK_CONNECTOR_ARN = awscc_lambda_network_connector.s3_files[0].arn
-    S3_FILES_ACCESS_POINT_ID          = aws_s3files_access_point.conversation_state[0].id
-    S3_FILES_FILE_SYSTEM_ID           = aws_s3files_file_system.conversation_state[0].id
-    S3_FILES_MOUNT_TARGET_IP          = aws_s3files_mount_target.conversation_state[0].ipv4_address
   } : {})
+
+  executor_environment = merge(local.worker_environment, var.enable_ec2_worker ? {
+    EC2_LAUNCH_TEMPLATE_ID      = aws_launch_template.session_worker[0].id
+    EC2_LAUNCH_TEMPLATE_VERSION = tostring(aws_launch_template.session_worker[0].latest_version)
+    RAT_DEPLOYMENT              = local.name
+  } : {})
+
+  delivery_environment = merge(local.lambda_common_environment, {
+    DEFAULT_DELIVERY_DESTINATIONS = var.default_delivery_destinations
+    GITHUB_API_BASE_URL           = var.github_api_base_url
+    GITLAB_API_BASE_URL           = var.gitlab_api_base_url
+    TEAMS_DELIVERY_MODE           = var.teams_delivery_mode
+    }, var.github_notify_token_secret_arn == null ? {} : {
+    GITHUB_NOTIFY_TOKEN_SECRET_ARN = var.github_notify_token_secret_arn
+    }, var.gitlab_notify_token_secret_arn == null ? {} : {
+    GITLAB_NOTIFY_TOKEN_SECRET_ARN = var.gitlab_notify_token_secret_arn
+    }, var.teams_workflow_url_secret_arn == null ? {} : {
+    TEAMS_WORKFLOW_URL_SECRET_ARN = var.teams_workflow_url_secret_arn
+    }, var.teams_reply_gateway_url_secret_arn == null ? {} : {
+    TEAMS_REPLY_GATEWAY_URL_SECRET_ARN = var.teams_reply_gateway_url_secret_arn
+    }, length(var.teams_route_secret_arns) == 0 ? {} : {
+    TEAMS_ROUTES_JSON = jsonencode(var.teams_route_secret_arns)
+    }, var.slack_bot_token_secret_arn == null ? {} : {
+    SLACK_BOT_TOKEN_SECRET_ARN = var.slack_bot_token_secret_arn
+  })
 
   thing_scheduler_environment = {
     THING_SCHEDULE_GROUP_NAME = aws_scheduler_schedule_group.things.name
@@ -63,6 +88,29 @@ locals {
   }
 
   lambda_definitions = {
+    agents-api = {
+      enabled  = true
+      zip_path = local.lambda_zip_paths["agents-api"]
+      role_arn = local.environment_relay_enabled ? aws_iam_role.agents_token_issuer.arn : aws_iam_role.control.arn
+      timeout  = 900
+      memory   = 512
+      environment = merge(local.executor_environment, {
+        AGENTS_TABLE_NAME        = aws_dynamodb_table.agents.name
+        AGENTS_TOKEN_ISSUER_ONLY = tostring(local.environment_relay_enabled)
+        ALLOW_OWNER_HEADER       = "false"
+        AGENTS_PUBLIC_BASE_URL   = local.environment_relay_enabled ? "https://${var.environment_relay_origin_hostname}/v1" : ""
+      })
+    }
+    agents-outbox = {
+      enabled  = true
+      zip_path = local.lambda_zip_paths["agents-outbox"]
+      role_arn = aws_iam_role.agents_outbox.arn
+      timeout  = 60
+      memory   = 512
+      environment = merge(local.executor_environment, local.delivery_environment, local.thing_scheduler_environment, {
+        AGENTS_TABLE_NAME = aws_dynamodb_table.agents.name
+      })
+    }
     connection-health = {
       enabled  = var.enable_connection_health_monitor
       zip_path = local.lambda_zip_paths["connection-health"]
@@ -86,6 +134,7 @@ locals {
         local.thing_scheduler_environment,
         {
           ALLOW_OWNER_HEADER       = "false"
+          AGENTS_TABLE_NAME        = aws_dynamodb_table.agents.name
           ARTIFACT_URL_TTL_SECONDS = tostring(var.artifact_url_ttl_seconds)
         },
         local.publication_delivery_enabled ? {
@@ -94,24 +143,6 @@ locals {
           PUBLICATION_PRIVATE_KEY_SECRET_ARN = var.publication_private_key_secret_arn
         } : {},
       )
-    }
-    conversation-coordinator = {
-      enabled  = true
-      zip_path = local.lambda_zip_paths["conversation-coordinator"]
-      role_arn = aws_iam_role.conversation_coordinator.arn
-      timeout  = 60
-      memory   = 512
-      environment = merge(local.lambda_common_environment, {
-        CONVERSATION_SLICE_TIMEOUT_SECONDS = tostring(var.conversation_slice_timeout_seconds)
-      })
-    }
-    conversation-completion = {
-      enabled     = true
-      zip_path    = local.lambda_zip_paths["conversation-completion"]
-      role_arn    = aws_iam_role.conversation_completion.arn
-      timeout     = 60
-      memory      = 512
-      environment = local.lambda_common_environment
     }
     dispatcher = {
       enabled     = true
@@ -122,38 +153,22 @@ locals {
       environment = local.executor_environment
     }
     notifier = {
-      enabled  = true
-      zip_path = local.lambda_zip_paths.notifier
-      role_arn = aws_iam_role.notifier.arn
-      timeout  = 30
-      memory   = 512
-      environment = merge(local.lambda_common_environment, {
-        DEFAULT_DELIVERY_DESTINATIONS = var.default_delivery_destinations
-        GITHUB_API_BASE_URL           = var.github_api_base_url
-        GITLAB_API_BASE_URL           = var.gitlab_api_base_url
-        TEAMS_DELIVERY_MODE           = var.teams_delivery_mode
-        }, var.github_notify_token_secret_arn == null ? {} : {
-        GITHUB_NOTIFY_TOKEN_SECRET_ARN = var.github_notify_token_secret_arn
-        }, var.gitlab_notify_token_secret_arn == null ? {} : {
-        GITLAB_NOTIFY_TOKEN_SECRET_ARN = var.gitlab_notify_token_secret_arn
-        }, var.teams_workflow_url_secret_arn == null ? {} : {
-        TEAMS_WORKFLOW_URL_SECRET_ARN = var.teams_workflow_url_secret_arn
-        }, var.teams_reply_gateway_url_secret_arn == null ? {} : {
-        TEAMS_REPLY_GATEWAY_URL_SECRET_ARN = var.teams_reply_gateway_url_secret_arn
-        }, length(var.teams_route_secret_arns) == 0 ? {} : {
-        TEAMS_ROUTES_JSON = jsonencode(var.teams_route_secret_arns)
-        }, var.slack_bot_token_secret_arn == null ? {} : {
-        SLACK_BOT_TOKEN_SECRET_ARN = var.slack_bot_token_secret_arn
-      })
+      enabled     = true
+      zip_path    = local.lambda_zip_paths.notifier
+      role_arn    = aws_iam_role.notifier.arn
+      timeout     = 30
+      memory      = 512
+      environment = local.delivery_environment
     }
     reconciler = {
       enabled  = true
       zip_path = local.lambda_zip_paths.reconciler
       role_arn = aws_iam_role.reconciler.arn
-      timeout  = 30
-      memory   = 256
+      # Up to 75 bounded worker probes run in batches of five. Durable EC2
+      # control can wait 28 seconds; allow the batch to finish before the next scan.
+      timeout = 600
+      memory  = 256
       environment = merge(local.executor_environment, {
-        ROUTINE_TICK_LIMIT          = "100"
         RUN_HEARTBEAT_STALE_SECONDS = tostring(var.run_heartbeat_stale_seconds)
       })
     }
@@ -265,7 +280,7 @@ resource "aws_lambda_function" "this" {
     }
   }
 
-  depends_on = [aws_cloudwatch_log_group.lambda]
+  depends_on = [aws_cloudwatch_log_group.lambda, aws_iam_role_policy.agents_token_issuer, aws_iam_role_policy.agents_outbox]
 }
 
 resource "aws_lambda_event_source_mapping" "dispatcher" {
@@ -282,19 +297,6 @@ resource "aws_lambda_event_source_mapping" "dispatcher" {
   depends_on = [aws_iam_role_policy.dispatcher]
 }
 
-resource "aws_lambda_event_source_mapping" "conversation_coordinator" {
-  event_source_arn        = aws_sqs_queue.conversations.arn
-  function_name           = aws_lambda_function.this["conversation-coordinator"].arn
-  enabled                 = true
-  batch_size              = 5
-  function_response_types = ["ReportBatchItemFailures"]
-
-  scaling_config {
-    maximum_concurrency = 10
-  }
-
-  depends_on = [aws_iam_role_policy.conversation_coordinator]
-}
 
 resource "aws_lambda_event_source_mapping" "state_stream" {
   event_source_arn = aws_dynamodb_table.runs.stream_arn

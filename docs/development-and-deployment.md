@@ -63,16 +63,9 @@ its App Server sandbox policy.
 The example request contains a deliberately nonexistent repository. Copy it and replace the URL/ref
 before using it remotely.
 
-For the shortest signed external trigger and threaded response path, use the
-[GitHub webhook onboarding helper](github-webhook-onboarding.md):
-
-```bash
-npm run webhook:github -- --repo OWNER/REPOSITORY
-```
-
-The helper packages and applies this same Terraform root, but keeps secret values out of Terraform
-inputs and state. It writes an ignored `infra/github-onboarding.auto.tfvars.json` containing only
-secret ARNs and non-sensitive settings.
+For signed GitHub triggers, configure the deployed webhook and an owned Agent/environment
+binding using [GitHub webhook setup](github-webhook-onboarding.md). The binding is required
+before a provider event can start a Session.
 
 ## Terraform deployment
 
@@ -88,11 +81,12 @@ npm run check
 cp infra/terraform.tfvars.example infra/terraform.tfvars
 ```
 
-Replace or remove all example secret ARNs. For a token-free first smoke test, retain:
+Replace or remove all example secret ARNs and configure credentials for an admitted model.
+Use `npm run smoke:local` for an offline smoke test. Deployed Sessions use the native Codex
+harness and invoke the configured model when input arrives. Start with conservative capabilities:
 
 ```hcl
 environment                      = "dev"
-default_agent_driver             = "mock"
 allow_agent_aws_credential_chain = false
 allowed_sandbox_modes            = ["read-only", "workspace-write"]
 default_sandbox_mode             = "read-only"
@@ -190,71 +184,31 @@ A cold launch must boot the MicroVM and prepare storage before Codex initializes
 conversation can reuse mounted storage and native agent state. Diagnose these phases separately
 using the [startup runbook](runbook.md#slow-conversation-startup-or-codex-initialization).
 
-## Remote mock smoke test
+## Remote Session smoke test
 
-Build the CLI and configure it from Terraform output:
+Build the CLI and configure the Agents endpoint from Terraform output. This
+invokes the deployment's admitted model and provisions execution on demand.
 
 ```bash
 npm run build
-export RAT_THINGS_API_URL="$(terraform -chdir=infra output -raw api_endpoint)"
+export RAT_THINGS_AGENTS_API_URL="$(terraform -chdir=infra output -raw agents_api_base_url)"
 export AWS_REGION="<stack region>"
-
-npm run rat-things -- doctor
-npm run rat-things -- doctor --json
-npm run rat-things -- submit \
-  --driver mock \
-  --backend microvm \
-  --sandbox read-only \
-  --idempotency-key "dev-microvm-smoke-001" \
-  --prompt "Return the remote MicroVM smoke-test marker" \
-  --wait \
-  --output
+npm run rat-things -- sessions create --model YOUR_ADMITTED_MODEL --input "Return the remote smoke-test marker"
+npm run rat-things -- sessions turns sess_example
+npm run rat-things -- sessions items sess_example
+npm run rat-things -- sessions send sess_example --input "Continue the review."
+npm run rat-things -- sessions delete sess_example
 ```
 
-Remote CLI requests use SigV4 for API Gateway. The identity should have `execute-api:Invoke` only
-for the intended stack/stage. Never enable unsigned mode against deployed infrastructure.
+Session deletion closes its private harness; cancellation stops the current Turn
+while preserving the Session. For command execution, provide a standard Session
+request with a managed environment and declared tools; see [Agents API](agents-api.md).
 
-Exercise and inspect the rest of the control surface:
-
-```bash
-npm run rat-things -- list --limit 10
-npm run rat-things -- get RUN_ID
-npm run rat-things -- artifact RUN_ID events
-npm run rat-things -- cancel RUN_ID
-```
-
-Create and validate the public facade before publishing scheduled work:
-
-```bash
-npm run rat-things -- thing-release --file examples/thing-create.json
-npm run rat-things -- thing-run THING_ID --idempotency-key deployment-production-001
-```
-
-`doctor` checks deployment discovery and authenticated control access. Thing definitions live in
-the `definition_bucket_name` output and lifecycle metadata in `things_table_name`; they are separate
-from expiring run artifacts. Never use the local owner-header escape hatch in a deployed stack.
-
-To exercise the same durable mailbox and Lambda MicroVM continuation path used by a chat webhook,
-send two headless turns under one owner-scoped conversation name:
-
-```bash
-npm run rat-things -- \
-  --thread dev-codex-smoke \
-  --sandbox workspace-write \
-  "Use the shell tool to create marker.txt containing alpha, then read it."
-
-npm run rat-things -- \
-  --thread dev-codex-smoke \
-  --sandbox workspace-write \
-  "Read the existing marker.txt and explain what you remember from the first turn."
-```
-
-Each command waits for the exact message's Run to succeed and for completion orchestration to fold
-the result into durable context and suspend the session before printing Codex output. Add `--json`
-to capture the message and Run IDs, public Run state, and suspended session state. Public responses
-intentionally omit private MicroVM and native Codex thread identifiers; trusted operators can
-correlate those only through AWS logs. Reuse the exact agent policy on
-later turns; it is immutable for the conversation.
+Connection installation, [schedules](schedules.md) and explicit publication use
+the separate IAM-authenticated control endpoint in `RAT_THINGS_API_URL`. `doctor`
+checks discovery and control access. Never enable unsigned mode or the local owner
+header against a deployed stack. Use `npm run smoke:local` for deterministic mock
+execution without deploying or invoking a model.
 
 ## Configure model authentication
 

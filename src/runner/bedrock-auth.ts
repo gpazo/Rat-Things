@@ -12,15 +12,18 @@ const MIN_TOKEN_TTL_SECONDS = 900;
  * worker's AWS role. Only the resulting bearer token is exposed to Codex.
  */
 export async function loadCodexBedrockToken(credentials: SecretCredentialReader): Promise<boolean> {
+  process.env.AWS_BEARER_TOKEN_BEDROCK = await readCodexBedrockToken(credentials, tokenTtlSeconds(process.env.RUN_TIMEOUT_SECONDS));
+  return true;
+}
+
+export async function readCodexBedrockToken(credentials: SecretCredentialReader, expiresInSeconds = MIN_TOKEN_TTL_SECONDS): Promise<string> {
   const secretArn = process.env.BEDROCK_API_KEY_SECRET_ARN;
-  const token = secretArn
+  return secretArn
     ? await credentials.read(secretArn, ['api_key', 'token', 'key'])
     : await getTokenProvider({
       region: bedrockRegion(),
-      expiresInSeconds: tokenTtlSeconds(process.env.RUN_TIMEOUT_SECONDS),
+      expiresInSeconds,
     })();
-  process.env.AWS_BEARER_TOKEN_BEDROCK = token;
-  return true;
 }
 
 function bedrockRegion(): string {

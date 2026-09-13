@@ -3,20 +3,24 @@
     {
       "id": "ingress",
       "title": "Ingress",
-      "subtitle": "Authenticate & normalize",
-      "description": "Work enters through an authenticated API or a signed provider webhook. Provider-specific requests become an owner-scoped Run request.",
+      "subtitle": "Authenticated input",
+      "description": "The API derives resource ownership from identity. Signed provider events resolve an owned Session integration target.",
       "facts": [
-        "API identity determines the owner; a caller cannot supply an arbitrary owner ID.",
-        "GitHub, GitLab, Teams and Slack each have their own ingress adapter."
+        "Owned resource or protocol error.",
+        "Durable Session integration input receipt."
       ],
       "sources": [
         {
-          "file": "src/ingress/service.ts",
-          "anchor": "export class WebhookIngressService"
+          "file": "src/lambdas/agents-router.ts",
+          "anchor": "export async function"
         },
         {
-          "file": "src/lambdas/control.ts",
-          "anchor": "const context = apiIngressContext(principal(event));"
+          "file": "src/ingress/service.ts",
+          "anchor": "public async receive("
+        },
+        {
+          "file": "src/identity/context.ts",
+          "anchor": "export function apiIngressContext"
         }
       ],
       "color": "#6acbe8",
@@ -27,61 +31,42 @@
       "components": [
         {
           "id": "api",
-          "title": "Control API",
-          "subtitle": "API Gateway · Lambda",
-          "description": "The control API exposes Runs, Things, connections, artifacts and thread continuity to clients and the reference console.",
+          "title": "Agents API",
+          "subtitle": "Owned standard resources",
+          "description": "Authenticates callers and routes Agent, Session, Turn, Item, environment, Vault, File and Skill operations.",
           "facts": [
-            "Authenticated requests derive their owner from the principal.",
-            "Discovery and schemas describe the installed deployment."
+            "Owned resource or protocol error.",
+            "Invalid identity or request shape is rejected before resource effects."
           ],
           "sources": [
             {
-              "file": "src/lambdas/control.ts",
-              "anchor": "const context = apiIngressContext(principal(event));"
-            },
-            {
-              "file": "infra/modules/agent-runner/api.tf",
-              "anchor": "resource \"aws_apigatewayv2_api\" \"this\""
-            },
-            {
-              "file": "src/lambdas/control.ts",
-              "anchor": "if (method === 'POST' && path === '/v1/runs') {"
-            },
-            {
-              "file": "src/lambdas/control.ts",
-              "anchor": "'POST /v1/runs/{runId}/steer'"
+              "file": "src/lambdas/agents-router.ts",
+              "anchor": "export async function"
             }
           ],
           "resource": "api",
           "aliases": [
-            "HTTP",
-            "REST",
-            "client",
-            "202",
-            "receipt",
-            "progress",
-            "steer",
-            "interrupt"
+            "Agents API",
+            "Owned standard resources",
+            "SDK",
+            "API Gateway",
+            "OpenAI"
           ],
-          "inputs": "An authenticated request, prompt and optional idempotency key.",
-          "outputs": "HTTP 202 and an owner-scoped Run receipt; status and artifacts can be fetched later.",
-          "mechanics": "The principal supplies ownership. Live event, steer and interrupt routes reach an active worker through the trusted control adapter.",
-          "failure": "Invalid requests are rejected. A 202 response means accepted, not that execution or notification has finished."
+          "inputs": "SDK request and authenticated principal.",
+          "outputs": "Owned resource or protocol error.",
+          "mechanics": "Authenticates callers and routes Agent, Session, Turn, Item, environment, Vault, File and Skill operations.",
+          "failure": "Invalid identity or request shape is rejected before resource effects."
         },
         {
           "id": "webhooks",
           "title": "Signed webhooks",
-          "subtitle": "GitHub · GitLab · Teams · Slack",
-          "description": "Each adapter verifies the provider signature before parsing and normalizing the request.",
+          "subtitle": "Provider input to Sessions",
+          "description": "Verifies provider authentication before parsing and resolves an owned Agent/environment binding.",
           "facts": [
-            "Invalid signatures are rejected before submission.",
-            "The ingress service applies source policy and records trusted provenance."
+            "Durable Session integration input receipt.",
+            "Invalid signatures fail before parsing; occurrence receipts prevent duplicate input."
           ],
           "sources": [
-            {
-              "file": "src/ingress/providers/slack.ts",
-              "anchor": "if (!verifySlackSignature("
-            },
             {
               "file": "src/ingress/service.ts",
               "anchor": "public async receive("
@@ -89,81 +74,74 @@
           ],
           "resource": "webhooks",
           "aliases": [
-            "signature",
-            "GitHub",
-            "GitLab",
-            "Slack",
-            "Teams",
-            "provider event"
+            "Signed webhooks",
+            "Provider input to Sessions"
           ],
-          "inputs": "A provider event body and its signature headers.",
-          "outputs": "A normalized request with trusted source and identity context.",
-          "mechanics": "The provider adapter verifies the signature before parsing; ingress applies source policy before submitting work.",
-          "failure": "An invalid signature stops the request before a Run is submitted."
+          "inputs": "Signed GitHub, GitLab, Slack or Teams event.",
+          "outputs": "Durable Session integration input receipt.",
+          "mechanics": "Verifies provider authentication before parsing and resolves an owned Agent/environment binding.",
+          "failure": "Invalid signatures fail before parsing; occurrence receipts prevent duplicate input."
         },
         {
           "id": "identity",
           "title": "Identity context",
-          "subtitle": "Actor ≠ owner ≠ credential subject",
-          "description": "An actor starts work, an owner owns the Run, a source records origin, and a destination determines where the result goes.",
+          "subtitle": "Actor, owner and authority",
+          "description": "Keeps attribution, resource ownership, input source, output destination and credential subject separate.",
           "facts": [
-            "Credential subject is distinct from the actor and owner.",
-            "Provider payload details stay behind ingress and delivery adapters."
+            "Trusted ingress context.",
+            "Callers cannot choose another resource owner or obtain destination credentials."
           ],
           "sources": [
             {
               "file": "src/identity/context.ts",
               "anchor": "export function apiIngressContext"
-            },
-            {
-              "file": "src/identity/context.ts",
-              "anchor": "export function providerIngressContext"
             }
           ],
           "resource": "identity",
           "aliases": [
-            "actor",
-            "owner",
-            "principal",
-            "credential subject",
-            "provenance"
+            "Identity context",
+            "Actor, owner and authority"
           ],
-          "inputs": "An authenticated principal or trusted provider identity mapping.",
-          "outputs": "Separate actor, owner, source and credential-subject values.",
-          "mechanics": "Ownership scopes the Run. Attribution records who initiated it; provider credentials remain deployment-owned.",
-          "failure": "Missing identities are rejected. Being named as an actor does not grant provider credentials."
+          "inputs": "Authenticated API or provider identity.",
+          "outputs": "Trusted ingress context.",
+          "mechanics": "Keeps attribution, resource ownership, input source, output destination and credential subject separate.",
+          "failure": "Callers cannot choose another resource owner or obtain destination credentials."
         }
       ],
       "aliases": [
-        "entry",
-        "request"
+        "Ingress",
+        "Authenticated input"
       ],
-      "inputs": "A caller request or signed provider event.",
-      "outputs": "An authenticated, normalized owner-scoped request.",
-      "mechanics": "API and webhook transports establish identity before passing work to coordination.",
-      "failure": "Invalid authentication, signatures or request policy stop submission."
+      "inputs": "Owned requests and saved state.",
+      "outputs": "Durable progress within the admitted boundary.",
+      "mechanics": "The API derives resource ownership from identity. Signed provider events resolve an owned Session integration target.",
+      "failure": "Conditional state and bounded failures retain evidence for recovery."
     },
     {
       "id": "control",
       "title": "Coordination",
-      "subtitle": "Accept, persist & queue",
-      "description": "Every accepted execution has one durable Run receipt. The control layer records the request before sending a wake-up to execution.",
+      "subtitle": "Sessions, Turns and outbox",
+      "description": "One Session service coordinates durable input, Turns and pending operations. Private Runs identify harness launches; schedules create canonical Session input.",
       "facts": [
-        "Things package reusable work as versioned definitions.",
-        "Threaded work uses a durable mailbox and a lease to coordinate turns."
+        "Session state, Turns, saved Items and pending operations.",
+        "Private execution record and queue wake-up."
       ],
       "sources": [
         {
+          "file": "src/core/session-service.ts",
+          "anchor": "export class SessionService"
+        },
+        {
           "file": "src/core/run-service.ts",
-          "anchor": "export class RunService"
+          "anchor": "public async submit("
         },
         {
-          "file": "src/conversation/coordinator.ts",
-          "anchor": "export class ConversationCoordinator"
+          "file": "src/core/schedule-service.ts",
+          "anchor": "export class ScheduleService"
         },
         {
-          "file": "src/conversation/coordinator.ts",
-          "anchor": "// One accepted input is one public Run."
+          "file": "src/lambdas/agents-outbox.ts",
+          "anchor": "export async function handler"
         }
       ],
       "color": "#879efa",
@@ -174,18 +152,14 @@
       "components": [
         {
           "id": "runs",
-          "title": "Run service",
-          "subtitle": "One accepted input · one Run",
-          "description": "Submission validates the request, writes its input to S3 and conditionally creates a queued Run before enqueueing it.",
+          "title": "Private execution service",
+          "subtitle": "One harness launch",
+          "description": "Stores immutable execution input and reserves a private Run before sending its queue hint. A harness can serve several Session Turns.",
           "facts": [
-            "An idempotent retry reuses the same request and receipt.",
-            "A missed enqueue leaves a durable queued Run that can be recovered."
+            "Private execution record and queue wake-up.",
+            "Matching retries repair a missed enqueue; changed launch bindings conflict."
           ],
           "sources": [
-            {
-              "file": "src/core/run-service.ts",
-              "anchor": "const created = await this.options.store.create(record);"
-            },
             {
               "file": "src/core/run-service.ts",
               "anchor": "public async submit("
@@ -193,151 +167,124 @@
           ],
           "resource": "runs",
           "aliases": [
-            "Run",
-            "receipt",
+            "Private execution service",
+            "One harness launch",
+            "private Run",
             "idempotency",
-            "acceptance",
-            "deduplication"
+            "harness launch"
           ],
-          "inputs": "An owner, validated request and optional idempotency key.",
-          "outputs": "One durable queued Run referencing its stored input, followed by a queue wake-up.",
-          "mechanics": "Store the request in S3 before conditionally creating its record. A matching idempotent retry reuses the receipt and can re-send a queued wake-up.",
-          "failure": "If enqueue fails, the queued record survives. Reusing a key with different request content is rejected."
+          "inputs": "Session launch configuration and stable execution identity.",
+          "outputs": "Private execution record and queue wake-up.",
+          "mechanics": "Stores immutable execution input and reserves a private Run before sending its queue hint. A harness can serve several Session Turns.",
+          "failure": "Matching retries repair a missed enqueue; changed launch bindings conflict."
         },
         {
           "id": "things",
-          "title": "Things & schedules",
-          "subtitle": "Reusable, immutable revisions",
-          "description": "Things carry versioned definitions for reusable work. Published revisions can be executed directly or triggered by a schedule.",
+          "title": "Agent schedules",
+          "subtitle": "Reserved occurrences",
+          "description": "Schedules reference an Agent/environment and reserve each occurrence before submitting canonical Session input.",
           "facts": [
-            "Draft, test and publish are distinct lifecycle operations.",
-            "The scheduler invokes the Thing schedule transport adapter."
+            "Session input with occurrence deduplication and overlap policy.",
+            "Outbox repair retries trigger synchronization; an old occurrence cannot become new work."
           ],
           "sources": [
             {
-              "file": "src/core/thing-service.ts",
-              "anchor": "export class ThingService"
-            },
-            {
-              "file": "src/adapters/eventbridge-thing-scheduler.ts",
-              "anchor": "export class EventBridgeThingScheduler"
-            },
-            {
-              "file": "src/core/thing-service.ts",
-              "anchor": "public async publish("
-            },
-            {
-              "file": "src/core/thing-service.ts",
-              "anchor": "public async runScheduled("
+              "file": "src/core/schedule-service.ts",
+              "anchor": "export class ScheduleService"
             }
           ],
           "resource": "things",
           "aliases": [
-            "Thing",
+            "Agent schedules",
+            "Reserved occurrences",
             "schedule",
-            "definition",
-            "revision",
-            "reusable work"
+            "EventBridge Scheduler"
           ],
-          "inputs": "An owner-scoped work definition with its agent, inputs and trigger.",
-          "outputs": "Immutable revisions and Run receipts tied to the invoked revision.",
-          "mechanics": "Editing advances the draft. Publishing requires a successful test of that exact draft before activating its trigger.",
-          "failure": "A stale revision or mismatched test cannot be published. A schedule does not execute an inactive Thing."
+          "inputs": "Owned schedule and scheduled time.",
+          "outputs": "Session input with occurrence deduplication and overlap policy.",
+          "mechanics": "Schedules reference an Agent/environment and reserve each occurrence before submitting canonical Session input.",
+          "failure": "Outbox repair retries trigger synchronization; an old occurrence cannot become new work."
         },
         {
           "id": "mailbox",
-          "title": "Conversation mailbox",
-          "subtitle": "DynamoDB lease · SQS wake-up",
-          "description": "The coordinator acquires a conversation lease, prepares trusted continuation input and wakes the existing Run for the next turn.",
+          "title": "Sessions and Turns",
+          "subtitle": "One durable coordination model",
+          "description": "Snapshots Agent configuration, commits input receipts and Turn changes, and records pending operations for the outbox.",
           "facts": [
-            "One accepted input remains one public Run, even when it waits for a predecessor.",
-            "Checkpoint and turn state let subsequent work continue a conversation."
+            "Session state, Turns, saved Items and pending operations.",
+            "Deleted Sessions reject later input. Conditional writes fence concurrent operations."
           ],
           "sources": [
             {
-              "file": "src/conversation/coordinator.ts",
-              "anchor": "export class ConversationCoordinator"
-            },
-            {
-              "file": "src/conversation/service.ts",
-              "anchor": "export class ConversationService"
-            },
-            {
-              "file": "src/conversation/coordinator.ts",
-              "anchor": "const pending = await this.options.conversations.pending("
+              "file": "src/core/session-service.ts",
+              "anchor": "export class SessionService"
             }
           ],
           "resource": "mailbox",
           "aliases": [
-            "conversation",
-            "thread",
-            "continuation",
-            "lease",
-            "history",
-            "checkpoint"
+            "Sessions and Turns",
+            "One durable coordination model",
+            "Session",
+            "Turn",
+            "input receipt"
           ],
-          "inputs": "A conversation message and its already reserved Run receipt.",
-          "outputs": "Prepared execution input, predecessor context and a wake-up for that same Run.",
-          "mechanics": "A lease orders turns. The coordinator keeps one accepted input per Run and carries durable context into a resumed or replacement worker.",
-          "failure": "A busy lease delays work. An attach/enqueue crash can be repaired without combining several inputs into another Run."
+          "inputs": "Owned Agent, resolved environment and input events.",
+          "outputs": "Session state, Turns, saved Items and pending operations.",
+          "mechanics": "Snapshots Agent configuration, commits input receipts and Turn changes, and records pending operations for the outbox.",
+          "failure": "Deleted Sessions reject later input. Conditional writes fence concurrent operations."
         },
         {
           "id": "queue",
-          "title": "Run queue",
-          "subtitle": "Amazon SQS",
-          "description": "The queue carries a Run reference and trace ID to the dispatcher. The request body remains in artifact storage.",
+          "title": "Durable outbox and queues",
+          "subtitle": "Wake-ups reference saved work",
+          "description": "Session outbox operations are delivered through FIFO groups. Harness launches use a separate private execution queue.",
           "facts": [
-            "Dispatch claims are conditional; duplicate deliveries do not create a second independent Run.",
-            "Failed deliveries have a dead-letter queue."
+            "Dispatch, control or terminal delivery attempt.",
+            "Saved pending state repairs missed sends. Duplicate wake-ups do not create new semantic work."
           ],
           "sources": [
             {
-              "file": "src/adapters/aws-runtime.ts",
-              "anchor": "export class SqsRunQueue"
-            },
-            {
-              "file": "infra/modules/agent-runner/data.tf",
-              "anchor": "resource \"aws_sqs_queue\" \"runs\""
-            },
-            {
-              "file": "src/execution/dispatcher.ts",
-              "anchor": "if (current.status === 'queued')"
+              "file": "src/lambdas/agents-outbox.ts",
+              "anchor": "export async function handler"
             }
           ],
           "resource": "queue",
           "aliases": [
+            "Durable outbox and queues",
+            "Wake-ups reference saved work",
             "SQS",
-            "wake-up",
-            "message",
-            "dispatch queue",
-            "dead letter"
+            "FIFO",
+            "outbox"
           ],
-          "inputs": "A compact message containing version, Run ID and trace ID.",
-          "outputs": "A delivery that asks the dispatcher to reload the durable Run.",
-          "mechanics": "SQS is a wake-up mechanism. It does not hold the canonical prompt; conditional Run claims handle duplicate deliveries.",
-          "failure": "A lost wake-up can be re-sent from durable state. Repeated queue delivery failures can reach the dead-letter queue."
+          "inputs": "Pending Session operation or private Run ID.",
+          "outputs": "Dispatch, control or terminal delivery attempt.",
+          "mechanics": "Session outbox operations are delivered through FIFO groups. Harness launches use a separate private execution queue.",
+          "failure": "Saved pending state repairs missed sends. Duplicate wake-ups do not create new semantic work."
         }
       ],
       "aliases": [
-        "coordination",
-        "receipt",
-        "conversation"
+        "Coordination",
+        "Sessions, Turns and outbox"
       ],
-      "inputs": "A normalized request or published Thing occurrence.",
-      "outputs": "Durable input and one queued Run; conversation work receives ordered context.",
-      "mechanics": "Persist before enqueueing. A Thing supplies reusable work; a conversation supplies continuity across distinct Runs.",
-      "failure": "Queue failure can leave recoverable durable work; an idempotency conflict rejects different content."
+      "inputs": "Owned requests and saved state.",
+      "outputs": "Durable progress within the admitted boundary.",
+      "mechanics": "One Session service coordinates durable input, Turns and pending operations. Private Runs identify harness launches; schedules create canonical Session input.",
+      "failure": "Conditional state and bounded failures retain evidence for recovery."
     },
     {
       "id": "execution",
       "title": "Execution",
-      "subtitle": "An isolated agent runtime",
-      "description": "The dispatcher launches or resumes a Lambda MicroVM. Trusted orchestration prepares the workspace and runs Codex as a separate non-root process.",
+      "subtitle": "Native harness in your AWS account",
+      "description": "The dispatcher launches a private MicroVM harness. Native Codex executes Session Turns under a fixed capability envelope.",
       "facts": [
-        "The MicroVM is the outer isolation boundary.",
-        "The worker has no public user-facing ingress."
+        "Fenced launch and attached execution generation.",
+        "Private MicroVM execution reference."
       ],
       "sources": [
+        {
+          "file": "src/execution/dispatcher.ts",
+          "anchor": "export class RunDispatcher"
+        },
         {
           "file": "src/adapters/executors.ts",
           "anchor": "export class MicrovmRunExecutor"
@@ -347,8 +294,12 @@
           "anchor": "export async function runAgentWorker()"
         },
         {
-          "file": "src/execution/reconciler.ts",
-          "anchor": "Repairs stale attached Runs without ever replaying their semantic operation."
+          "file": "src/runner/session-mcp.ts",
+          "anchor": "export async function prepareSessionMcp"
+        },
+        {
+          "file": "src/runner/codex-auth.ts",
+          "anchor": "export function codexAuthMode"
         }
       ],
       "color": "#72edbb",
@@ -360,11 +311,11 @@
         {
           "id": "dispatcher",
           "title": "Run dispatcher",
-          "subtitle": "Conditional claim · executor registry",
-          "description": "The dispatcher reads stored input, claims the queued Run and starts its selected executor with a stable execution generation.",
+          "subtitle": "Conditional execution claim",
+          "description": "Reads immutable input and conditionally claims a private Run before invoking the MicroVM executor.",
           "facts": [
-            "A duplicate wake-up is safe after another dispatcher claims the Run.",
-            "An execution with the wrong generation is stopped."
+            "Fenced launch and attached execution generation.",
+            "Retired conversation records are ignored before input reads or launch."
           ],
           "sources": [
             {
@@ -374,204 +325,153 @@
           ],
           "resource": "dispatcher",
           "aliases": [
-            "dispatch",
-            "claim",
-            "executor",
-            "generation"
+            "Run dispatcher",
+            "Conditional execution claim"
           ],
-          "inputs": "A queue reference plus the Run and request loaded from storage.",
-          "outputs": "An attached execution reference with a stable worker generation.",
-          "mechanics": "Claim queued work conditionally, select the backend, then start and attach its execution. Threaded work waits until trusted input is prepared.",
-          "failure": "Retryable start errors can be retried; permanent start errors fail the Run. A mismatched worker generation is stopped."
+          "inputs": "Private execution queue message.",
+          "outputs": "Fenced launch and attached execution generation.",
+          "mechanics": "Reads immutable input and conditionally claims a private Run before invoking the MicroVM executor.",
+          "failure": "Retired conversation records are ignored before input reads or launch."
         },
         {
           "id": "microvm",
           "title": "Lambda MicroVM",
-          "subtitle": "ARM64 · launch or resume",
-          "description": "The MicroVM adapter launches an isolated environment, or first tries to resume the preferred conversation MicroVM.",
+          "subtitle": "AWS-owned isolation boundary",
+          "description": "Launches an isolated harness using a stable client token. Session launches use an idle policy and optional S3 Files storage.",
           "facts": [
-            "An unavailable prior session can fall back to a new launch.",
-            "Conversation continuation goes through the service proxy with an AWS-issued token."
+            "Private MicroVM execution reference.",
+            "Ambiguous launch responses retry with the same identity; unsafe state never grants new authority."
           ],
           "sources": [
             {
               "file": "src/adapters/executors.ts",
               "anchor": "export class MicrovmRunExecutor"
-            },
-            {
-              "file": "src/adapters/executors.ts",
-              "anchor": "export class MicrovmAgentInteractionController"
-            },
-            {
-              "file": "src/adapters/executors.ts",
-              "anchor": "private runHookPayload("
             }
           ],
           "resource": "microvm",
           "aliases": [
-            "VM",
-            "Lambda",
-            "worker",
-            "isolation",
-            "resume",
-            "replacement"
+            "Lambda MicroVM",
+            "AWS-owned isolation boundary",
+            "AWS Lambda",
+            "MicroVM"
           ],
-          "inputs": "A Run reference, input location, execution generation and runtime configuration.",
-          "outputs": "An isolated worker, optionally resumed from a conversation session.",
-          "mechanics": "A preferred session is tried first. If unavailable, launch a replacement; lifecycle and live control use an AWS-issued port-scoped proxy token.",
-          "failure": "An unavailable warm session can fall back to launch. Its memory is not the durable source of truth."
+          "inputs": "Bounded resource references and launch configuration.",
+          "outputs": "Private MicroVM execution reference.",
+          "mechanics": "Launches an isolated harness using a stable client token. Session launches use an idle policy and optional S3 Files storage.",
+          "failure": "Ambiguous launch responses retry with the same identity; unsafe state never grants new authority."
         },
         {
           "id": "runner",
           "title": "Codex runner",
-          "subtitle": "Trusted host · non-root agent",
-          "description": "The host prepares workspace files, credentials and allowed tools, starts the agent driver, then records results and artifacts.",
+          "subtitle": "Native Session harness",
+          "description": "Loads the owned Session launch, runs native Codex App Server, and journals Items, Turns and checkpoint state.",
           "facts": [
-            "Agent processes use argument arrays and a separate UID.",
-            "Codex approval requests fail closed; they cannot widen the Run’s authority."
+            "Saved Session runtime state and managed output artifacts.",
+            "Unexpected human-approval requests fail closed. Final writes are fenced by execution generation."
           ],
           "sources": [
             {
               "file": "src/runner/main.ts",
               "anchor": "export async function runAgentWorker()"
-            },
-            {
-              "file": "src/runner/process.ts",
-              "anchor": "export async function runProcess"
-            },
-            {
-              "file": "src/runner/control.ts",
-              "anchor": "interactive approvals are disabled;"
-            },
-            {
-              "file": "src/runner/codex-app-server.ts",
-              "anchor": "if (request.onTurnStarted)"
-            },
-            {
-              "file": "src/runner/main.ts",
-              "anchor": "if (!finalized) throw new Error"
-            },
-            {
-              "file": "src/runner/agent-planning.ts",
-              "anchor": "const identity = agentProcessIdentity(environment.RUN_AGENT_UID, environment.RUN_AGENT_GID);"
             }
           ],
           "resource": "runner",
           "aliases": [
-            "Codex",
-            "agent",
-            "App Server",
-            "process",
-            "UID",
-            "progress",
-            "steer",
-            "interrupt"
+            "Codex runner",
+            "Native Session harness",
+            "Codex App Server",
+            "native harness"
           ],
-          "inputs": "Stored execution input, resolved capabilities, workspace and trusted tool handlers.",
-          "outputs": "Agent output, events and artifacts, then a fenced terminal Run update.",
-          "mechanics": "Trusted host code starts Codex under a separate non-root UID. App Server exposes progress, steering and turn interruption within the admitted capability envelope.",
-          "failure": "An approval-shaped request fails closed. Lost execution authority prevents the worker from committing an outcome."
+          "inputs": "Stored launch, declared tools and isolated environment.",
+          "outputs": "Saved Session runtime state and managed output artifacts.",
+          "mechanics": "Loads the owned Session launch, runs native Codex App Server, and journals Items, Turns and checkpoint state.",
+          "failure": "Unexpected human-approval requests fail closed. Final writes are fenced by execution generation."
         },
         {
           "id": "browser",
-          "title": "Browser & tools",
-          "subtitle": "Optional capability",
-          "description": "When enabled for the Run, host-provided browser tools let the agent inspect and interact with a browser in the isolated environment.",
+          "title": "Environment tools",
+          "subtitle": "Declared capabilities",
+          "description": "Session MCP and environment tools are exposed from resolved Agent configuration. Legacy local browser helpers are not implicitly injected into Sessions.",
           "facts": [
-            "Browser actions are routed through the trusted tool handler.",
-            "Network and process policy are enforced by the runtime."
+            "Bounded function, MCP, command or file operation.",
+            "Absent or denied capabilities do not become pending approvals."
           ],
           "sources": [
             {
-              "file": "src/runner/browser.ts",
-              "anchor": "export class BrowserToolSession"
-            },
-            {
-              "file": "src/runner/dynamic-tools.ts",
-              "anchor": "export function createDynamicToolRequestHandler"
-            },
-            {
-              "file": "microvm/runtime-network-policy.mjs",
-              "anchor": "export function ensureUntrustedUidCannotReachPort"
+              "file": "src/runner/session-mcp.ts",
+              "anchor": "export async function prepareSessionMcp"
             }
           ],
           "resource": "browser",
           "aliases": [
-            "computer",
-            "browser tools",
-            "web",
-            "screenshot",
-            "network"
+            "Environment tools",
+            "Declared capabilities"
           ],
-          "inputs": "Allowed browser tool calls from the agent.",
-          "outputs": "Browser observations and action results inside the worker.",
-          "mechanics": "The trusted handler routes browser requests. Runtime network rules separate the non-root process from protected host ports.",
-          "failure": "Unavailable tools and denied network access remain failures; a browser call cannot expand the Run’s authority."
+          "inputs": "Declared tool configuration and authorized environment.",
+          "outputs": "Bounded function, MCP, command or file operation.",
+          "mechanics": "Session MCP and environment tools are exposed from resolved Agent configuration. Legacy local browser helpers are not implicitly injected into Sessions.",
+          "failure": "Absent or denied capabilities do not become pending approvals."
         },
         {
           "id": "models",
           "title": "Model access",
-          "subtitle": "ChatGPT / OpenAI · Bedrock",
-          "description": "The runner selects its Codex authentication mode. ChatGPT-backed access and explicit Amazon Bedrock configuration have separate host-side setup.",
+          "subtitle": "Configured provider",
+          "description": "The harness uses the deployment model provider and the Agent model identifier. Authentication material is resolved by trusted code.",
           "facts": [
-            "Model authentication is prepared by trusted runner code.",
-            "Provider credentials do not belong in Run requests or repository URLs."
+            "Authenticated model requests.",
+            "Unsupported models or missing credentials fail without silently choosing another model."
           ],
           "sources": [
             {
               "file": "src/runner/codex-auth.ts",
               "anchor": "export function codexAuthMode"
-            },
-            {
-              "file": "src/runner/bedrock-auth.ts",
-              "anchor": "export async function loadCodexBedrockToken"
             }
           ],
           "resource": "models",
           "aliases": [
-            "LLM",
-            "inference",
-            "ChatGPT",
-            "Bedrock",
-            "model authentication"
+            "Model access",
+            "Configured provider"
           ],
-          "inputs": "The selected model and deployment-owned authentication configuration.",
-          "outputs": "Host-prepared model access used by Codex.",
-          "mechanics": "ChatGPT-backed authentication and explicit Bedrock mode have separate setup. The selected provider is an external service, not a model hosted by this stack.",
-          "failure": "Missing or invalid authentication blocks model access; provider tokens are not supplied in the Run request."
+          "inputs": "Agent model settings and credential references.",
+          "outputs": "Authenticated model requests.",
+          "mechanics": "The harness uses the deployment model provider and the Agent model identifier. Authentication material is resolved by trusted code.",
+          "failure": "Unsupported models or missing credentials fail without silently choosing another model."
         }
       ],
       "aliases": [
-        "runtime",
-        "worker",
-        "agent"
+        "Execution",
+        "Native harness in your AWS account"
       ],
-      "inputs": "A durable Run reference and its fixed capability envelope.",
-      "outputs": "Stored agent output and a terminal Run outcome.",
-      "mechanics": "Dispatch attaches a generation-scoped MicroVM. Trusted host orchestration starts the non-root agent and fences finalization.",
-      "failure": "A lost attached worker does not imply automatic re-execution; reconciliation records a fenced failure."
+      "inputs": "Owned requests and saved state.",
+      "outputs": "Durable progress within the admitted boundary.",
+      "mechanics": "The dispatcher launches a private MicroVM harness. Native Codex executes Session Turns under a fixed capability envelope.",
+      "failure": "Conditional state and bounded failures retain evidence for recovery."
     },
     {
       "id": "delivery",
       "title": "Delivery",
-      "subtitle": "Persist, emit & notify",
-      "description": "Durable Run state drives completion events. A separate notifier resolves destinations and delivers the result behind a delivery fence.",
+      "subtitle": "Saved root Turns to destinations",
+      "description": "Provider delivery follows saved terminal root Turns through an independent outbox operation and an external outcome fence.",
       "facts": [
-        "Completion is emitted from DynamoDB Streams after the state commit.",
-        "Terminal events also advance conversation completion."
+        "Independent delivery operation.",
+        "Provider reply or bounded delivery outcome."
       ],
       "sources": [
         {
-          "file": "src/lambdas/state-stream.ts",
-          "anchor": "export const handler:"
+          "file": "src/core/session-service.ts",
+          "anchor": "public async completeTurn("
         },
         {
           "file": "src/delivery/service.ts",
           "anchor": "export class DeliveryService"
         },
         {
-          "file": "infra/modules/agent-runner/events.tf",
-          "anchor": "resource \"aws_cloudwatch_event_target\" \"conversation_completion\""
+          "file": "src/adapters/dynamo-delivery-fence.ts",
+          "anchor": "export class DynamoDeliveryFence"
+        },
+        {
+          "file": "src/core/session-publication-service.ts",
+          "anchor": "export class SessionPublicationService"
         }
       ],
       "color": "#efc879",
@@ -582,167 +482,135 @@
       "components": [
         {
           "id": "events",
-          "title": "State stream & events",
-          "subtitle": "DynamoDB Streams → EventBridge",
-          "description": "Run status changes are published from the table stream, closing the crash window between a state commit and a worker-side event.",
+          "title": "Terminal Turn events",
+          "subtitle": "Saved result to delivery outbox",
+          "description": "Saved terminal root Turns enqueue provider delivery separately from execution. Private state streams remain operational evidence.",
           "facts": [
-            "The stream handler retries unsuccessful event publishing.",
-            "Terminal Run events feed notification and conversation completion."
+            "Independent delivery operation.",
+            "Harness exit does not issue another notification for Session work."
           ],
           "sources": [
             {
-              "file": "src/lambdas/state-stream.ts",
-              "anchor": "export const handler:"
-            },
-            {
-              "file": "infra/modules/agent-runner/events.tf",
-              "anchor": "resource \"aws_cloudwatch_event_rule\" \"terminal_runs\""
+              "file": "src/core/session-service.ts",
+              "anchor": "public async completeTurn("
             }
           ],
           "resource": "events",
           "aliases": [
-            "DynamoDB Streams",
-            "EventBridge",
-            "state event",
-            "terminal event"
+            "Terminal Turn events",
+            "Saved result to delivery outbox"
           ],
-          "inputs": "A committed insertion or status change in the Runs table.",
-          "outputs": "A bounded state event with Run ID, owner, status and optional result preview.",
-          "mechanics": "The stream handler publishes to EventBridge after the durable commit. Terminal events route separately to notification and conversation completion.",
-          "failure": "A publish failure makes the stream handler fail for retry. Repeated events still pass through delivery fencing."
+          "inputs": "Committed root Turn outcome.",
+          "outputs": "Independent delivery operation.",
+          "mechanics": "Saved terminal root Turns enqueue provider delivery separately from execution. Private state streams remain operational evidence.",
+          "failure": "Harness exit does not issue another notification for Session work."
         },
         {
           "id": "notifier",
           "title": "Result notifier",
-          "subtitle": "Independent delivery stage",
-          "description": "For a succeeded, failed or cancelled Run, the notifier loads stored input and results, resolves destinations and invokes the provider delivery adapter.",
+          "subtitle": "Separate delivery stage",
+          "description": "Resolves the trusted destination and delivers saved terminal Turn content using notification credentials.",
           "facts": [
-            "Source-thread replies and configured destinations are resolved separately.",
-            "Retries do not require the agent to execute again."
+            "Provider reply or bounded delivery outcome.",
+            "Delivery failure does not erase Session output or rerun the Agent."
           ],
           "sources": [
             {
               "file": "src/delivery/service.ts",
               "anchor": "export class DeliveryService"
-            },
-            {
-              "file": "src/delivery/service.ts",
-              "anchor": "export function resolveDestinations"
             }
           ],
           "resource": "notifier",
           "aliases": [
-            "notification",
-            "reply",
-            "delivery",
-            "destination",
-            "message"
+            "Result notifier",
+            "Separate delivery stage"
           ],
-          "inputs": "A terminal Run event and its stored request and result.",
-          "outputs": "A provider delivery attempt and destination-specific receipt or failure record.",
-          "mechanics": "Resolve configured destinations or source replies, claim each destination fence, then send the stored result through its provider adapter.",
-          "failure": "A succeeded Run can have an unsuccessful notification. Delivery handling reads the saved outcome without re-executing the agent."
+          "inputs": "Saved root Turn and its integration destination.",
+          "outputs": "Provider reply or bounded delivery outcome.",
+          "mechanics": "Resolves the trusted destination and delivers saved terminal Turn content using notification credentials.",
+          "failure": "Delivery failure does not erase Session output or rerun the Agent."
         },
         {
           "id": "fence",
           "title": "Delivery fence",
-          "subtitle": "Conditional destination claim",
-          "description": "A DynamoDB fence coordinates each Run/destination delivery and records delivered or uncertain outcomes separately from execution.",
+          "subtitle": "External outcome accounting",
+          "description": "Conditional delivery records distinguish success, known retryable rejection and an uncertain external write.",
           "facts": [
-            "Duplicate terminal events are checked against the destination claim.",
-            "Only known retryable non-delivery releases the claim for retry."
+            "Committed delivery outcome.",
+            "An uncertain write is retained instead of blindly sending another reply."
           ],
           "sources": [
             {
               "file": "src/adapters/dynamo-delivery-fence.ts",
               "anchor": "export class DynamoDeliveryFence"
-            },
-            {
-              "file": "src/delivery/service.ts",
-              "anchor": "error instanceof KnownNotDeliveredError"
-            },
-            {
-              "file": "src/adapters/dynamo-delivery-fence.ts",
-              "anchor": "'outcome_unknown'"
             }
           ],
           "resource": "fence",
           "aliases": [
-            "delivery fence",
-            "deduplication",
-            "outcome unknown",
-            "retry",
-            "claim"
+            "Delivery fence",
+            "External outcome accounting"
           ],
-          "inputs": "A terminal Run and destination key.",
-          "outputs": "A sending claim, delivered receipt, unknown outcome or released claim.",
-          "mechanics": "DynamoDB conditionally claims each Run/destination. Only a known retryable non-delivery releases the claim for another attempt.",
-          "failure": "An ambiguous send error is stored as outcome_unknown and is not blindly retried. The fence is not an exactly-once delivery guarantee."
+          "inputs": "Stable delivery identity and provider result.",
+          "outputs": "Committed delivery outcome.",
+          "mechanics": "Conditional delivery records distinguish success, known retryable rejection and an uncertain external write.",
+          "failure": "An uncertain write is retained instead of blindly sending another reply."
         },
         {
           "id": "publications",
-          "title": "Artifact publication",
-          "subtitle": "Optional scoped sharing",
-          "description": "Publication services turn selected artifacts into file, video or static-site publications using explicit publication grants.",
+          "title": "Session artifact publication",
+          "subtitle": "Explicit immutable selection",
+          "description": "Validates the owner, Session and complete set of saved artifact references before publishing selected relative paths.",
           "facts": [
-            "Publication builders validate and plan output before storage.",
-            "Sharing is a separate capability from completing a Run."
+            "Immutable publication and expiring access grant.",
+            "Invalid scope fails before object reads. Existing saved grants remain readable."
           ],
           "sources": [
             {
-              "file": "src/core/publication-service.ts",
-              "anchor": "export class PublicationService"
-            },
-            {
-              "file": "src/core/publication-publisher.ts",
-              "anchor": "export class PublicationPublisher"
+              "file": "src/core/session-publication-service.ts",
+              "anchor": "export class SessionPublicationService"
             }
           ],
           "resource": "publications",
           "aliases": [
-            "share",
-            "file",
-            "video",
-            "website",
-            "publication grant"
+            "Session artifact publication",
+            "Explicit immutable selection"
           ],
-          "inputs": "Selected owner-scoped artifacts and a publication specification.",
-          "outputs": "A validated file, video or static-site publication with an explicit grant.",
-          "mechanics": "Builders plan paths and content before storage. The publisher verifies artifact ownership and creates the sharing grant.",
-          "failure": "Invalid paths, unknown source blobs or artifacts outside the owner’s scope are rejected before publication."
+          "inputs": "Owned Session artifact IDs and publication specification.",
+          "outputs": "Immutable publication and expiring access grant.",
+          "mechanics": "Validates the owner, Session and complete set of saved artifact references before publishing selected relative paths.",
+          "failure": "Invalid scope fails before object reads. Existing saved grants remain readable."
         }
       ],
       "aliases": [
-        "notification",
-        "completion",
-        "reply"
+        "Delivery",
+        "Saved root Turns to destinations"
       ],
-      "inputs": "A committed terminal Run event.",
-      "outputs": "A destination-specific delivery outcome or publication grant.",
-      "mechanics": "The notifier reads saved output and coordinates each send through a fence, independently of agent execution.",
-      "failure": "A successful Run can still have failed or uncertain delivery."
+      "inputs": "Owned requests and saved state.",
+      "outputs": "Durable progress within the admitted boundary.",
+      "mechanics": "Provider delivery follows saved terminal root Turns through an independent outbox operation and an external outcome fence.",
+      "failure": "Conditional state and bounded failures retain evidence for recovery."
     },
     {
       "id": "storage",
       "title": "Durable state",
-      "subtitle": "Receipts, files & checkpoints",
-      "description": "State and payloads have different homes: DynamoDB holds records and bounded summaries; encrypted S3 holds prompts, results and artifacts.",
+      "subtitle": "Owned state, encrypted content",
+      "description": "DynamoDB indexes owned resources; encrypted S3 stores complete content. Optional S3 Files preserves Session workspace and native state.",
       "facts": [
-        "Persistent conversations can mount Codex home and workspace through S3 Files.",
-        "Storage survives the lifetime of an individual worker."
+        "Durable compare-and-swap result.",
+        "Encrypted object reference."
       ],
       "sources": [
         {
+          "file": "src/adapters/dynamo-agents-store.ts",
+          "anchor": "export class DynamoAgentsStore"
+        },
+        {
           "file": "src/adapters/aws-runtime.ts",
-          "anchor": "export class DynamoRunStore"
+          "anchor": "export class S3ArtifactStore"
         },
         {
-          "file": "infra/modules/agent-runner/data.tf",
-          "anchor": "resource \"aws_s3_bucket_server_side_encryption_configuration\" \"artifacts\""
-        },
-        {
-          "file": "src/adapters/executors.ts",
-          "anchor": "...(record.conversation && this.options.s3Files ?"
+          "file": "src/runner/main.ts",
+          "anchor": "const durableStateRoot = process.env.SESSION_STATE_ROOT;"
         }
       ],
       "color": "#b7a0ec",
@@ -754,148 +622,115 @@
         {
           "id": "records",
           "title": "DynamoDB records",
-          "subtitle": "Runs · conversations · connections",
-          "description": "DynamoDB stores durable Run state, identities, references and bounded summaries. Conditional writes enforce transitions and leases.",
+          "subtitle": "Owned state and indexes",
+          "description": "Stores resource indexes, conditional revisions, pending operations and references to encrypted content. Private Runs retain execution fencing.",
           "facts": [
-            "Large prompts and results are stored by reference.",
-            "Things, routines and integrations have their own tables."
+            "Durable compare-and-swap result.",
+            "Concurrent mutations conflict; secret values and unbounded content stay out of records."
           ],
           "sources": [
             {
-              "file": "src/adapters/aws-runtime.ts",
-              "anchor": "export class DynamoRunStore"
-            },
-            {
-              "file": "infra/modules/agent-runner/data.tf",
-              "anchor": "resource \"aws_dynamodb_table\" \"runs\""
-            },
-            {
-              "file": "src/adapters/aws-runtime.ts",
-              "anchor": "public finishExecution("
+              "file": "src/adapters/dynamo-agents-store.ts",
+              "anchor": "export class DynamoAgentsStore"
             }
           ],
           "resource": "records",
           "aliases": [
+            "DynamoDB records",
+            "Owned state and indexes",
             "DynamoDB",
-            "database",
-            "state",
-            "metadata",
-            "conditional writes"
+            "conditional writes",
+            "revisions"
           ],
-          "inputs": "Run identity, input/output references and bounded lifecycle updates.",
-          "outputs": "Durable receipts, state, execution identity and liveness evidence.",
-          "mechanics": "Conditional writes enforce transitions and worker generations. Payloads remain in S3; the table stores their references.",
-          "failure": "A stale worker or conflicting transition cannot overwrite the current Run state."
+          "inputs": "Resource state with owner and revision.",
+          "outputs": "Durable compare-and-swap result.",
+          "mechanics": "Conditional writes enforce transitions and owned resource revisions. Full resource values live in encrypted S3.",
+          "failure": "Concurrent mutations conflict; secret values and unbounded content stay out of records."
         },
         {
           "id": "artifacts",
-          "title": "Encrypted artifacts",
-          "subtitle": "Amazon S3 · KMS",
-          "description": "Inputs, results and artifact payloads live in S3. Infrastructure configures encryption, public access blocking and retention.",
+          "title": "Encrypted objects",
+          "subtitle": "Definitions, history and output",
+          "description": "S3 stores complete definitions, Session snapshots, uploaded Files and immutable managed output Artifacts.",
           "facts": [
-            "A Run record points to its stored input and output.",
-            "Thing definitions use a separate definitions bucket."
+            "Encrypted object reference.",
+            "Object ownership and checksums are validated before accepting content into execution."
           ],
           "sources": [
             {
               "file": "src/adapters/aws-runtime.ts",
               "anchor": "export class S3ArtifactStore"
-            },
-            {
-              "file": "infra/modules/agent-runner/data.tf",
-              "anchor": "resource \"aws_s3_bucket_server_side_encryption_configuration\" \"artifacts\""
-            },
-            {
-              "file": "src/runner/main.ts",
-              "anchor": "const output = await artifacts.putBytes("
             }
           ],
           "resource": "artifacts",
           "aliases": [
-            "S3",
-            "object storage",
-            "prompt",
-            "result",
-            "files",
-            "payload"
+            "Encrypted objects",
+            "Definitions, history and output"
           ],
-          "inputs": "Input JSON, output text, execution events and artifact bytes.",
-          "outputs": "Stored objects referenced by Run records and artifact catalogs.",
-          "mechanics": "S3 holds the large payloads. The worker stores its output before committing the terminal record that points to it.",
-          "failure": "A worker stopping does not erase already stored objects. An output write must succeed before successful finalization."
+          "inputs": "Owned content and storage key.",
+          "outputs": "Encrypted object reference.",
+          "mechanics": "S3 stores complete definitions, Session snapshots, uploaded Files and immutable managed output Artifacts.",
+          "failure": "Object ownership and checksums are validated before accepting content into execution."
         },
         {
           "id": "files",
           "title": "Persistent workspace",
-          "subtitle": "Optional Amazon S3 Files",
-          "description": "When S3 Files is enabled, conversation execution receives a filesystem and access point for durable native state and workspace files.",
+          "subtitle": "Session workspace and Codex home",
+          "description": "Optional S3 Files mounts a directory keyed by the hash of owner and Session ID. Existing filesystem paths remain stable.",
           "facts": [
-            "The adapter includes S3 Files settings only for conversation executions.",
-            "A resumed agent can reuse its native thread and workspace."
+            "Workspace and native Codex home across replacement compute.",
+            "Compute lifetime is bounded. Saved Artifacts remain available independently of a live workspace."
           ],
           "sources": [
             {
-              "file": "src/adapters/executors.ts",
-              "anchor": "function s3FilesOptionsFromEnv()"
-            },
-            {
               "file": "src/runner/main.ts",
-              "anchor": "const durableStateRoot = process.env.CONVERSATION_STATE_ROOT;"
-            },
-            {
-              "file": "src/adapters/executors.ts",
-              "anchor": "...(record.conversation && this.options.s3Files ?"
-            },
-            {
-              "file": "src/conversation/continuation.ts",
-              "anchor": "// Native thread state outlives the VM lease"
+              "anchor": "const durableStateRoot = process.env.SESSION_STATE_ROOT;"
             }
           ],
           "resource": "files",
           "aliases": [
+            "Persistent workspace",
+            "Session workspace and Codex home",
             "S3 Files",
-            "filesystem",
             "workspace",
-            "native thread",
-            "durable state"
+            "checkpoint"
           ],
-          "inputs": "Conversation storage settings and a native Codex thread identity, when enabled.",
-          "outputs": "Workspace files and native agent state that can be reused across conversation workers.",
-          "mechanics": "S3 Files is optional and applied only to conversation execution. Warm resume can reuse a session; a replacement can restore native state when persistent storage is configured.",
-          "failure": "A warm worker can expire. Without S3 Files, durable Run records and conversation context remain, but native workspace persistence is not promised."
+          "inputs": "Owned Session identity and mounted filesystem.",
+          "outputs": "Workspace and native Codex home across replacement compute.",
+          "mechanics": "Optional S3 Files mounts a directory keyed by the hash of owner and Session ID. Existing filesystem paths remain stable.",
+          "failure": "Compute lifetime is bounded. Saved Artifacts remain available independently of a live workspace."
         }
       ],
       "aliases": [
-        "durability",
-        "persistence",
-        "database"
+        "Durable state",
+        "Owned state, encrypted content"
       ],
-      "inputs": "Requests, state updates, results and conversation context.",
-      "outputs": "Durable records and references plus stored payloads.",
-      "mechanics": "DynamoDB holds state; S3 holds payloads. Optional S3 Files adds native conversation workspace persistence.",
-      "failure": "Worker memory may disappear while committed records and stored payloads remain."
+      "inputs": "Owned requests and saved state.",
+      "outputs": "Durable progress within the admitted boundary.",
+      "mechanics": "DynamoDB indexes owned resources; encrypted S3 stores complete content. Optional S3 Files preserves Session workspace and native state.",
+      "failure": "Conditional state and bounded failures retain evidence for recovery."
     },
     {
       "id": "access",
       "title": "Access boundary",
-      "subtitle": "Fixed before launch",
-      "description": "A Run operates inside a fixed capability envelope. Profiles, requested narrowing, IAM, runtime policy and connection grants constrain what it can do.",
+      "subtitle": "Authority resolved before launch",
+      "description": "Ownership, declared capabilities, IAM and network boundaries are enforced independently. Credentials remain in trusted storage.",
       "facts": [
-        "An operation outside the boundary is unavailable or denied.",
-        "There is no mid-Run approval path to expand authority."
+        "Fixed launch capabilities.",
+        "Isolated process and permitted network/resource access."
       ],
       "sources": [
         {
-          "file": "src/plugins/capability-profiles.ts",
-          "anchor": "export class CapabilityProfileRegistry"
+          "file": "src/runner/session-launch-planning.ts",
+          "anchor": "export function planSessionLaunch"
         },
         {
-          "file": "src/domain/capabilities.ts",
-          "anchor": "export function authorizeConnectionOperation"
+          "file": "microvm/runtime-network-policy.mjs",
+          "anchor": "export function ensureUntrustedUidCannotReachPort"
         },
         {
-          "file": "src/runner/control.ts",
-          "anchor": "interactive approvals are disabled;"
+          "file": "src/core/vault-service.ts",
+          "anchor": "export class VaultService"
         }
       ],
       "color": "#e594af",
@@ -906,140 +741,113 @@
       "components": [
         {
           "id": "profiles",
-          "title": "Capability profiles",
-          "subtitle": "Resolve & narrow",
-          "description": "Trusted capability profiles determine the agent configuration. Run and Thing requests can narrow the admitted capabilities.",
+          "title": "Session capability envelope",
+          "subtitle": "Resolve before launch",
+          "description": "Session launch planning validates declared tools, model configuration and environment capabilities before execution.",
           "facts": [
-            "The runtime resolves an agent profile before running the agent.",
-            "Tool availability is constrained by that resolved profile."
+            "Fixed launch capabilities.",
+            "The guest cannot widen its own authority after admission."
           ],
           "sources": [
             {
-              "file": "src/plugins/capability-profiles.ts",
-              "anchor": "export function resolveAgentProfile"
-            },
-            {
-              "file": "src/runner/main.ts",
-              "anchor": "resolveAgentProfile("
+              "file": "src/runner/session-launch-planning.ts",
+              "anchor": "export function planSessionLaunch"
             }
           ],
           "resource": "profiles",
           "aliases": [
-            "capability profile",
-            "permissions",
-            "read only",
-            "allow list",
-            "envelope"
+            "Session capability envelope",
+            "Resolve before launch"
           ],
-          "inputs": "A trusted profile and optional Run or Thing restrictions.",
-          "outputs": "An effective agent configuration and maximum integration access.",
-          "mechanics": "Resolution takes the narrower sandbox, network, browser and tool settings. Requested selections must fit the installed profile.",
-          "failure": "An unknown profile or disallowed selection is rejected. A request cannot use a profile to widen its configured limits."
+          "inputs": "Resolved Agent and environment configuration.",
+          "outputs": "Fixed launch capabilities.",
+          "mechanics": "Session launch planning validates declared tools, model configuration and environment capabilities before execution.",
+          "failure": "The guest cannot widen its own authority after admission."
         },
         {
           "id": "policy",
-          "title": "Runtime & IAM policy",
-          "subtitle": "Network · process · resources",
-          "description": "IAM and runtime policies enforce the boundaries around the MicroVM, its network access and its agent process.",
+          "title": "Runtime and IAM policy",
+          "subtitle": "Independent enforcing layers",
+          "description": "Non-root children cannot reach the root lifecycle listener. IAM, network policy and environment boundaries enforce admitted authority.",
           "facts": [
-            "The outer environment is the isolation boundary for danger-full-access.",
-            "Enforcement denies operations outside the configured envelope."
+            "Isolated process and permitted network/resource access.",
+            "A denied operation stays denied; inner full access does not bypass the MicroVM boundary."
           ],
           "sources": [
             {
-              "file": "infra/modules/agent-runner/iam.tf",
-              "anchor": "resource \"aws_iam_role_policy\" \"microvm_execution\""
-            },
-            {
-              "file": "microvm/runtime-process-policy.mjs",
-              "anchor": "export function untrustedChildOptions"
-            },
-            {
               "file": "microvm/runtime-network-policy.mjs",
               "anchor": "export function ensureUntrustedUidCannotReachPort"
-            },
-            {
-              "file": "src/runner/control.ts",
-              "anchor": "interactive approvals are disabled;"
             }
           ],
           "resource": "policy",
           "aliases": [
-            "IAM",
-            "network policy",
-            "process policy",
-            "trust boundary",
-            "non-root"
+            "Runtime and IAM policy",
+            "Independent enforcing layers"
           ],
-          "inputs": "Deployment IAM permissions and runtime process and network settings.",
-          "outputs": "Enforced permissions around the worker and the non-root agent process.",
-          "mechanics": "The MicroVM provides the outer isolation boundary. Host rules protect credentials and lifecycle ports; IAM and grants constrain allowed operations.",
-          "failure": "Operations beyond the boundary are denied. There is no mid-Run permission expansion or pending approval path."
+          "inputs": "Worker identity and policy configuration.",
+          "outputs": "Isolated process and permitted network/resource access.",
+          "mechanics": "Non-root children cannot reach the root lifecycle listener. IAM, network policy and environment boundaries enforce admitted authority.",
+          "failure": "A denied operation stays denied; inner full access does not bypass the MicroVM boundary."
         },
         {
           "id": "secrets",
-          "title": "Credential broker",
-          "subtitle": "Host-side secret reader",
-          "description": "The host reads and parses secret values through a credential broker. Requests identify allowed resources without carrying provider tokens.",
+          "title": "Vault and credential storage",
+          "subtitle": "Owned secret references",
+          "description": "Owned Vault resources hold write-only credentials for declared MCP destinations. Host brokers retain provider credentials outside request payloads.",
           "facts": [
-            "Secrets are held separately from Run metadata and task overrides.",
-            "OAuth-backed connections use a host-side vault and refresh broker."
+            "Destination-scoped credential access.",
+            "Secret values are excluded from resource responses, prompts, logs and launch payloads."
           ],
           "sources": [
             {
-              "file": "src/credentials/broker.ts",
-              "anchor": "export class CredentialBroker"
-            },
-            {
-              "file": "src/adapters/secrets-credential-vault.ts",
-              "anchor": "export class SecretsManagerCredentialVault"
-            },
-            {
-              "file": "src/plugins/integration-runtime.ts",
-              "anchor": "enforceResourceConstraints(selected.grant, operationInput);"
+              "file": "src/core/vault-service.ts",
+              "anchor": "export class VaultService"
             }
           ],
           "resource": "secrets",
           "aliases": [
-            "credential broker",
-            "vault",
+            "Vault and credential storage",
+            "Owned secret references",
+            "Vault",
             "Secrets Manager",
-            "token",
-            "secret"
+            "credentials"
           ],
-          "inputs": "A host-owned credential reference, after applicable authorization checks.",
-          "outputs": "Parsed credential values supplied to trusted host-side callers.",
-          "mechanics": "The broker reads a secret through its port and accepts structured or raw values. Integration tools check grants and resource constraints before reading credentials.",
-          "failure": "A missing reference or unusable credential fails the call. Denied integration requests never reach the credential read."
+          "inputs": "Owned credential installation or authorized secret reference.",
+          "outputs": "Destination-scoped credential access.",
+          "mechanics": "Owned Vault resources hold write-only credentials for declared MCP destinations. Host brokers retain provider credentials outside request payloads.",
+          "failure": "Secret values are excluded from resource responses, prompts, logs and launch payloads."
         }
       ],
       "aliases": [
-        "security",
-        "permissions",
-        "boundary"
+        "Access boundary",
+        "Authority resolved before launch"
       ],
-      "inputs": "Trusted configuration and requested narrowing.",
-      "outputs": "A fixed capability envelope enforced by several layers.",
-      "mechanics": "Profiles, IAM, process and network rules, provider scopes and connection grants determine what is available.",
-      "failure": "Out-of-envelope actions are denied; no mid-Run approval widens authority."
+      "inputs": "Owned requests and saved state.",
+      "outputs": "Durable progress within the admitted boundary.",
+      "mechanics": "Ownership, declared capabilities, IAM and network boundaries are enforced independently. Credentials remain in trusted storage.",
+      "failure": "Conditional state and bounded failures retain evidence for recovery."
     },
     {
       "id": "integrations",
       "title": "Connected services",
-      "subtitle": "Granted operations & accounts",
-      "description": "Trusted integration manifests describe operations. The runtime exposes only tools that the selected accounts and their intersected grants allow.",
+      "subtitle": "Provider installation and grants",
+      "description": "Provider adapters, account installation, OAuth and operation grants remain useful application integrations around Sessions.",
       "facts": [
-        "Tool authorization happens before credential access.",
-        "Slack, Linear and Stripe integrations are defined in this repository."
+        "Validated provider adapter.",
+        "Authorized adapter call."
       ],
       "sources": [
         {
-          "file": "src/plugins/integration-runtime.ts",
-          "anchor": "export class IntegrationRuntime"
+          "file": "src/plugins/registry.ts",
+          "anchor": "export class RuntimePluginRegistry"
         },
         {
-          "file": "src/plugins/integrations/builtins.ts",
-          "anchor": "export function createBuiltinIntegrationPlugins"
+          "file": "src/plugins/integration-runtime.ts",
+          "anchor": "enforceResourceConstraints(selected.grant, operationInput);"
+        },
+        {
+          "file": "src/plugins/connection-service.ts",
+          "anchor": "export class ConnectionService"
         }
       ],
       "color": "#efa888",
@@ -1050,130 +858,97 @@
       "components": [
         {
           "id": "plugins",
-          "title": "Trusted plugins",
-          "subtitle": "Manifests & adapters",
-          "description": "Provider plugins bind ingress and delivery capabilities. Integration plugins define separate operations for connected services.",
+          "title": "Trusted provider plugins",
+          "subtitle": "Ingress and delivery adapters",
+          "description": "Reviewed provider manifests bind ingress and delivery capabilities. Provider connection lifecycle remains separate from Session execution.",
           "facts": [
-            "The registries validate trusted manifests.",
-            "Protocol parsing stays behind provider adapters."
+            "Validated provider adapter.",
+            "Untrusted input cannot load arbitrary host code or install a provider."
           ],
           "sources": [
             {
               "file": "src/plugins/registry.ts",
               "anchor": "export class RuntimePluginRegistry"
-            },
-            {
-              "file": "src/plugins/integration-registry.ts",
-              "anchor": "export class IntegrationPluginRegistry"
-            },
-            {
-              "file": "src/plugins/integration-runtime.ts",
-              "anchor": "const allowedConnections = connections.filter("
             }
           ],
           "resource": "plugins",
           "aliases": [
-            "plugin",
-            "manifest",
-            "provider adapter",
-            "integration operation"
+            "Trusted provider plugins",
+            "Ingress and delivery adapters"
           ],
-          "inputs": "Trusted provider or integration manifests and their implementations.",
-          "outputs": "Validated provider capabilities and connected-service operation definitions.",
-          "mechanics": "Provider registries bind ingress and delivery. The separate integration registry supplies operation metadata used to prepare granted tools.",
-          "failure": "Invalid manifests are rejected. Installing a plugin alone does not grant an account or every operation."
+          "inputs": "Trusted manifest and deployment configuration.",
+          "outputs": "Validated provider adapter.",
+          "mechanics": "Reviewed provider manifests bind ingress and delivery capabilities. Provider connection lifecycle remains separate from Session execution.",
+          "failure": "Untrusted input cannot load arbitrary host code or install a provider."
         },
         {
           "id": "grants",
           "title": "Connection grants",
-          "subtitle": "Account · operation · resource",
-          "description": "The integration runtime intersects the stored connection grant with requested restrictions and maximum integration access.",
+          "subtitle": "Operation and resource scope",
+          "description": "Retained provider brokers apply connection grants, operation allowlists and resource constraints before reading credentials.",
           "facts": [
-            "Disallowed operations are omitted from the agent’s tools.",
-            "Per-call resource checks run before credentials are read."
+            "Authorized adapter call.",
+            "Notification access alone grants no Agent tool capability."
           ],
           "sources": [
             {
               "file": "src/plugins/integration-runtime.ts",
-              "anchor": "private async selectedConnections("
-            },
-            {
-              "file": "src/plugins/integration-runtime.ts",
-              "anchor": "private async call("
+              "anchor": "enforceResourceConstraints(selected.grant, operationInput);"
             }
           ],
           "resource": "grants",
           "aliases": [
-            "authorization",
-            "connection grant",
-            "operation",
-            "resource constraint",
-            "account"
+            "Connection grants",
+            "Operation and resource scope"
           ],
-          "inputs": "A selected active connection, stored grants and requested restrictions.",
-          "outputs": "Only admitted operations, with per-call resource checks.",
-          "mechanics": "Tool preparation intersects stored and requested access. Each call repeats operation authorization and checks resource fields before fetching a credential.",
-          "failure": "Disallowed operations are absent or rejected. A valid account credential cannot bypass a denied resource constraint."
+          "inputs": "Owned connection and requested provider operation.",
+          "outputs": "Authorized adapter call.",
+          "mechanics": "Retained provider brokers apply connection grants, operation allowlists and resource constraints before reading credentials.",
+          "failure": "Notification access alone grants no Agent tool capability."
         },
         {
           "id": "oauth",
           "title": "Connection lifecycle",
-          "subtitle": "Install · refresh · health",
-          "description": "Connection and OAuth services manage account installation and host-side credentials; a scheduled monitor checks connection health.",
+          "subtitle": "Install, refresh and revoke",
+          "description": "Connection services validate installation, keep callback state single-use, and refresh expiring credentials behind host-side leases.",
           "facts": [
-            "Active connections and valid grants are required for tool preparation.",
-            "OAuth refresh is separate from guest execution."
+            "Stored credential reference and connection status.",
+            "Failed or revoked connections are unavailable; secret contents stay in Secrets Manager."
           ],
           "sources": [
             {
               "file": "src/plugins/connection-service.ts",
               "anchor": "export class ConnectionService"
-            },
-            {
-              "file": "src/plugins/oauth.ts",
-              "anchor": "export class OAuthRefreshingCredentialBroker"
-            },
-            {
-              "file": "src/plugins/connection-health-monitor.ts",
-              "anchor": "export class ConnectionHealthMonitor"
-            },
-            {
-              "file": "src/plugins/integration-runtime.ts",
-              "anchor": "connection.status !== 'active'"
             }
           ],
           "resource": "oauth",
           "aliases": [
-            "connection",
-            "installation",
-            "OAuth",
-            "refresh",
-            "account health"
+            "Connection lifecycle",
+            "Install, refresh and revoke"
           ],
-          "inputs": "Account installation state, OAuth credentials and connection health settings.",
-          "outputs": "Stored connection metadata and host-managed refreshed credentials.",
-          "mechanics": "Connection services manage account installation. The refresh broker works outside the guest, and a scheduled monitor checks connection health.",
-          "failure": "An inactive connection is unavailable for tool preparation; credential refresh failures are separate from guest execution."
+          "inputs": "Provider account installation and refresh evidence.",
+          "outputs": "Stored credential reference and connection status.",
+          "mechanics": "Connection services validate installation, keep callback state single-use, and refresh expiring credentials behind host-side leases.",
+          "failure": "Failed or revoked connections are unavailable; secret contents stay in Secrets Manager."
         }
       ],
       "aliases": [
-        "connected services",
-        "accounts",
-        "tools"
+        "Connected services",
+        "Provider installation and grants"
       ],
-      "inputs": "Trusted plugins, active accounts and their access grants.",
-      "outputs": "A set of admitted tools and authorized connected-service calls.",
-      "mechanics": "Grants intersect before tool preparation; operation and resource checks run again before credential access.",
-      "failure": "An installed plugin or valid credential does not override a denied operation."
+      "inputs": "Owned requests and saved state.",
+      "outputs": "Durable progress within the admitted boundary.",
+      "mechanics": "Provider adapters, account installation, OAuth and operation grants remain useful application integrations around Sessions.",
+      "failure": "Conditional state and bounded failures retain evidence for recovery."
     },
     {
       "id": "recovery",
       "title": "Recovery",
-      "subtitle": "Reconcile & retry",
-      "description": "Recovery is built around durable state. Conditional transitions, execution heartbeats, reconciliation and dead-letter queues handle interruptions.",
+      "subtitle": "Durable identity and conditional repair",
+      "description": "Queue repair retains execution identity. Worker liveness and terminal writes are fenced; uncertain effects are never blindly replayed.",
       "facts": [
-        "The domain transition table defines legal Run state changes.",
-        "Duplicate deliveries and missing wake-ups are handled explicitly."
+        "Allowed state change.",
+        "Same execution wake-up, observation or fenced terminal state."
       ],
       "sources": [
         {
@@ -1181,12 +956,12 @@
           "anchor": "const TRANSITIONS:"
         },
         {
-          "file": "src/execution/reconciler.ts",
-          "anchor": "export class ActiveRunReconciler"
+          "file": "src/core/run-recovery.ts",
+          "anchor": "export function recoveryMessageForRun"
         },
         {
-          "file": "src/lambdas/reconciler.ts",
-          "anchor": "async function nudgeQueued("
+          "file": "src/runner/heartbeat.ts",
+          "anchor": "export class ExecutionHeartbeat"
         }
       ],
       "color": "#8fa9b6",
@@ -1197,638 +972,574 @@
       "components": [
         {
           "id": "state",
-          "title": "Run state machine",
+          "title": "Private state machine",
           "subtitle": "Conditional transitions",
-          "description": "The Run lifecycle admits only declared transitions. Succeeded, failed and cancelled are terminal states.",
+          "description": "Private execution transitions fence launch, running state, cancellation and terminal evidence. Session Turns have their own public lifecycle.",
           "facts": [
-            "A running Run can succeed, fail or enter cancellation.",
-            "Terminal states have no outgoing transitions."
+            "Allowed state change.",
+            "Terminal or conflicting states cannot be overwritten by a stale worker."
           ],
           "sources": [
             {
               "file": "src/domain/state.ts",
               "anchor": "const TRANSITIONS:"
-            },
-            {
-              "file": "src/core/run-service.ts",
-              "anchor": "public async cancel("
             }
           ],
           "resource": "state",
           "aliases": [
-            "lifecycle",
-            "queued",
-            "running",
-            "succeeded",
-            "failed",
-            "cancelled",
-            "cancelling"
+            "Private state machine",
+            "Conditional transitions"
           ],
-          "inputs": "The current Run status and a requested next status.",
-          "outputs": "Permission to perform only a declared lifecycle transition.",
-          "mechanics": "Queued work can be cancelled immediately. Owner cancellation of running work records cancelling before stopping it; succeeded, failed and cancelled are terminal.",
-          "failure": "Invalid transitions throw. A terminal Run cannot transition back to running or be silently replayed."
+          "inputs": "Current private Run and requested transition.",
+          "outputs": "Allowed state change.",
+          "mechanics": "Private execution transitions fence launch, running state, cancellation and terminal evidence. Session Turns have their own public lifecycle.",
+          "failure": "Terminal or conflicting states cannot be overwritten by a stale worker."
         },
         {
           "id": "reconciler",
           "title": "Execution reconciler",
-          "subtitle": "Repair stalled work",
-          "description": "The reconciler inspects active execution and durable Run records to recover work after missed dispatch or worker failure.",
+          "subtitle": "Repair without duplicate launch",
+          "description": "Uses supplied execution state and time to repair missing queue hints, then inspects stale attached workers without replaying their external effects.",
           "facts": [
-            "Recovery uses the same state and execution ports.",
-            "Provisioning tests remain an explicit opt-in operation."
+            "Same execution wake-up, observation or fenced terminal state.",
+            "Retired records are never requeued. Ambiguous identity is recorded and can be quarantined."
           ],
           "sources": [
             {
-              "file": "src/execution/reconciler.ts",
-              "anchor": "export class ActiveRunReconciler"
-            },
-            {
-              "file": "infra/modules/agent-runner/events.tf",
-              "anchor": "resource \"aws_cloudwatch_event_rule\" \"reconciler\""
-            },
-            {
-              "file": "src/lambdas/reconciler.ts",
-              "anchor": "async function nudgeQueued("
+              "file": "src/core/run-recovery.ts",
+              "anchor": "export function recoveryMessageForRun"
             }
           ],
           "resource": "reconciler",
           "aliases": [
-            "recovery",
-            "lost wake-up",
-            "stale worker",
-            "repair",
-            "quarantine"
+            "Execution reconciler",
+            "Repair without duplicate launch"
           ],
-          "inputs": "Stale queued records or attached execution records with liveness evidence.",
-          "outputs": "A repaired wake-up, verified liveness observation or fenced terminal update.",
-          "mechanics": "Scheduled repair re-sends missing queued wake-ups. Attached workers are inspected against their backend ID, generation and heartbeat; their semantic work is not replayed.",
-          "failure": "A confirmed lost execution is failed. Repeated unknown or conflicting inspections are quarantined instead of guessing or launching duplicate work."
+          "inputs": "Stale durable execution record and liveness evidence.",
+          "outputs": "Same execution wake-up, observation or fenced terminal state.",
+          "mechanics": "Uses supplied execution state and time to repair missing queue hints, then inspects stale attached workers without replaying their external effects.",
+          "failure": "Retired records are never requeued. Ambiguous identity is recorded and can be quarantined."
         },
         {
           "id": "heartbeat",
-          "title": "Heartbeat & dead letters",
-          "subtitle": "Liveness · failed deliveries",
-          "description": "The runner reports execution liveness. Queue and event delivery failures have dedicated dead-letter queues and monitoring.",
+          "title": "Heartbeat and dead letters",
+          "subtitle": "Fenced liveness evidence",
+          "description": "Workers heartbeat only while execution identity matches. Exhausted event and queue delivery retains diagnostic evidence.",
           "facts": [
-            "Heartbeats identify the current execution generation.",
-            "Delivery failures remain separate from agent execution failures."
+            "Liveness timestamp or failure queue entry.",
+            "Heartbeat does not alter semantic update time; uncertainty does not authorize terminating another worker."
           ],
           "sources": [
             {
               "file": "src/runner/heartbeat.ts",
               "anchor": "export class ExecutionHeartbeat"
-            },
-            {
-              "file": "infra/modules/agent-runner/data.tf",
-              "anchor": "resource \"aws_sqs_queue\" \"run_dlq\""
-            },
-            {
-              "file": "src/execution/reconciler.ts",
-              "anchor": "const inspection = await this.options.inspector.inspect("
             }
           ],
           "resource": "heartbeat",
           "aliases": [
-            "liveness",
-            "worker health",
-            "generation",
-            "stale",
-            "monitoring"
+            "Heartbeat and dead letters",
+            "Fenced liveness evidence"
           ],
-          "inputs": "The active worker’s exact execution reference and current timestamp.",
-          "outputs": "A generation-scoped heartbeat stored on the Run.",
-          "mechanics": "A serial loop refreshes liveness. Reconciliation later compares that evidence with the actual execution before changing state.",
-          "failure": "If the heartbeat loses authority, the runner aborts. A delayed heartbeat alone does not prove the worker has stopped."
+          "inputs": "Run ID, MicroVM ID, generation and bounded status.",
+          "outputs": "Liveness timestamp or failure queue entry.",
+          "mechanics": "Workers heartbeat only while execution identity matches. Exhausted event and queue delivery retains diagnostic evidence.",
+          "failure": "Heartbeat does not alter semantic update time; uncertainty does not authorize terminating another worker."
         }
       ],
       "aliases": [
-        "reliability",
-        "cancellation",
-        "liveness"
+        "Recovery",
+        "Durable identity and conditional repair"
       ],
-      "inputs": "Durable state, worker generations and observed liveness.",
-      "outputs": "Repaired queued wake-ups or conditional lifecycle updates.",
-      "mechanics": "Repair separates work that never dispatched from work already attached to a worker.",
-      "failure": "Lost execution can fail; uncertain observations can be quarantined without replaying the operation."
+      "inputs": "Owned requests and saved state.",
+      "outputs": "Durable progress within the admitted boundary.",
+      "mechanics": "Queue repair retains execution identity. Worker liveness and terminal writes are fenced; uncertain effects are never blindly replayed.",
+      "failure": "Conditional state and bounded failures retain evidence for recovery."
     }
   ],
   "connections": [
     {
       "to": "control",
-      "label": "Submit normalized request",
+      "label": "Owned Session input",
       "kind": "request",
       "sources": [
         {
-          "file": "src/ingress/service.ts",
-          "anchor": "const run = await this.runs.submit("
+          "file": "src/core/session-service.ts",
+          "anchor": "export class SessionService"
+        },
+        {
+          "file": "src/core/run-service.ts",
+          "anchor": "public async submit("
+        },
+        {
+          "file": "src/core/schedule-service.ts",
+          "anchor": "export class ScheduleService"
+        },
+        {
+          "file": "src/lambdas/agents-outbox.ts",
+          "anchor": "export async function handler"
         }
       ],
       "from": "ingress"
     },
     {
       "to": "execution",
-      "label": "Queue and dispatch",
+      "label": "Private harness launch",
       "kind": "request",
       "sources": [
         {
           "file": "src/execution/dispatcher.ts",
-          "anchor": "execution = await executor.start("
+          "anchor": "export class RunDispatcher"
+        },
+        {
+          "file": "src/adapters/executors.ts",
+          "anchor": "export class MicrovmRunExecutor"
+        },
+        {
+          "file": "src/runner/main.ts",
+          "anchor": "export async function runAgentWorker()"
+        },
+        {
+          "file": "src/runner/session-mcp.ts",
+          "anchor": "export async function prepareSessionMcp"
+        },
+        {
+          "file": "src/runner/codex-auth.ts",
+          "anchor": "export function codexAuthMode"
         }
       ],
       "from": "control"
     },
     {
       "to": "storage",
-      "label": "Commit results and state",
+      "label": "Saved runtime evidence",
       "kind": "data",
       "sources": [
         {
+          "file": "src/adapters/dynamo-agents-store.ts",
+          "anchor": "export class DynamoAgentsStore"
+        },
+        {
+          "file": "src/adapters/aws-runtime.ts",
+          "anchor": "export class S3ArtifactStore"
+        },
+        {
           "file": "src/runner/main.ts",
-          "anchor": "export async function runAgentWorker()"
+          "anchor": "const durableStateRoot = process.env.SESSION_STATE_ROOT;"
         }
       ],
       "from": "execution"
     },
     {
       "to": "delivery",
-      "label": "Stream committed state",
-      "kind": "request",
+      "label": "Saved terminal Turn",
+      "kind": "data",
       "sources": [
         {
-          "file": "src/lambdas/state-stream.ts",
-          "anchor": "export const handler:"
+          "file": "src/core/session-service.ts",
+          "anchor": "public async completeTurn("
+        },
+        {
+          "file": "src/delivery/service.ts",
+          "anchor": "export class DeliveryService"
+        },
+        {
+          "file": "src/adapters/dynamo-delivery-fence.ts",
+          "anchor": "export class DynamoDeliveryFence"
+        },
+        {
+          "file": "src/core/session-publication-service.ts",
+          "anchor": "export class SessionPublicationService"
         }
       ],
       "from": "storage"
     },
     {
-      "to": "storage",
-      "label": "Persist request and receipt",
-      "kind": "data",
-      "sources": [
-        {
-          "file": "src/core/run-service.ts",
-          "anchor": "const created = await this.options.store.create(record);"
-        }
-      ],
-      "from": "control"
-    },
-    {
       "to": "execution",
-      "label": "Constrain runtime authority",
+      "label": "Fixed authority",
       "kind": "access",
       "sources": [
         {
+          "file": "src/execution/dispatcher.ts",
+          "anchor": "export class RunDispatcher"
+        },
+        {
+          "file": "src/adapters/executors.ts",
+          "anchor": "export class MicrovmRunExecutor"
+        },
+        {
           "file": "src/runner/main.ts",
-          "anchor": "resolveAgentProfile("
+          "anchor": "export async function runAgentWorker()"
+        },
+        {
+          "file": "src/runner/session-mcp.ts",
+          "anchor": "export async function prepareSessionMcp"
+        },
+        {
+          "file": "src/runner/codex-auth.ts",
+          "anchor": "export function codexAuthMode"
         }
       ],
       "from": "access"
     },
     {
-      "to": "execution",
-      "label": "Expose granted tools",
+      "to": "ingress",
+      "label": "Owned provider binding",
       "kind": "access",
       "sources": [
         {
-          "file": "src/plugins/integration-runtime.ts",
-          "anchor": "public async prepare("
+          "file": "src/lambdas/agents-router.ts",
+          "anchor": "export async function"
+        },
+        {
+          "file": "src/ingress/service.ts",
+          "anchor": "public async receive("
+        },
+        {
+          "file": "src/identity/context.ts",
+          "anchor": "export function apiIngressContext"
         }
       ],
       "from": "integrations"
     },
     {
-      "to": "integrations",
-      "label": "Authorize before credentials",
-      "kind": "access",
-      "sources": [
-        {
-          "file": "src/plugins/integration-runtime.ts",
-          "anchor": "private async call("
-        }
-      ],
-      "from": "access"
-    },
-    {
       "to": "execution",
-      "label": "Inspect and reconcile",
+      "label": "Fenced repair",
       "kind": "recovery",
       "sources": [
         {
-          "file": "src/execution/reconciler.ts",
-          "anchor": "export class ActiveRunReconciler"
+          "file": "src/execution/dispatcher.ts",
+          "anchor": "export class RunDispatcher"
+        },
+        {
+          "file": "src/adapters/executors.ts",
+          "anchor": "export class MicrovmRunExecutor"
+        },
+        {
+          "file": "src/runner/main.ts",
+          "anchor": "export async function runAgentWorker()"
+        },
+        {
+          "file": "src/runner/session-mcp.ts",
+          "anchor": "export async function prepareSessionMcp"
+        },
+        {
+          "file": "src/runner/codex-auth.ts",
+          "anchor": "export function codexAuthMode"
         }
       ],
       "from": "recovery"
     },
     {
-      "to": "control",
-      "label": "Complete the conversation turn",
+      "to": "mailbox",
+      "label": "Session creation and events",
       "kind": "request",
       "sources": [
         {
-          "file": "infra/modules/agent-runner/events.tf",
-          "anchor": "resource \"aws_cloudwatch_event_target\" \"conversation_completion\""
+          "file": "src/core/session-service.ts",
+          "anchor": "export class SessionService"
         }
       ],
-      "from": "delivery"
+      "from": "api"
     },
     {
-      "from": "caller",
-      "to": "api",
-      "label": "Authenticated API request",
+      "to": "mailbox",
+      "label": "Durable input receipt",
       "kind": "request",
       "sources": [
         {
-          "file": "src/lambdas/control.ts",
-          "anchor": "const context = apiIngressContext(principal(event));"
+          "file": "src/core/session-service.ts",
+          "anchor": "export class SessionService"
         }
-      ]
+      ],
+      "from": "webhooks"
     },
     {
-      "from": "caller",
-      "to": "webhooks",
-      "label": "Signed provider event",
+      "to": "mailbox",
+      "label": "Reserved occurrence",
       "kind": "request",
+      "sources": [
+        {
+          "file": "src/core/session-service.ts",
+          "anchor": "export class SessionService"
+        }
+      ],
+      "from": "things"
+    },
+    {
+      "to": "queue",
+      "label": "Saved pending operation",
+      "kind": "request",
+      "sources": [
+        {
+          "file": "src/lambdas/agents-outbox.ts",
+          "anchor": "export async function handler"
+        }
+      ],
+      "from": "mailbox"
+    },
+    {
+      "to": "runs",
+      "label": "Harness launch",
+      "kind": "request",
+      "sources": [
+        {
+          "file": "src/core/run-service.ts",
+          "anchor": "public async submit("
+        }
+      ],
+      "from": "queue"
+    },
+    {
+      "to": "dispatcher",
+      "label": "Execution queue hint",
+      "kind": "request",
+      "sources": [
+        {
+          "file": "src/execution/dispatcher.ts",
+          "anchor": "export class RunDispatcher"
+        }
+      ],
+      "from": "runs"
+    },
+    {
+      "to": "microvm",
+      "label": "Conditional launch",
+      "kind": "request",
+      "sources": [
+        {
+          "file": "src/adapters/executors.ts",
+          "anchor": "export class MicrovmRunExecutor"
+        }
+      ],
+      "from": "dispatcher"
+    },
+    {
+      "to": "runner",
+      "label": "Supervised harness",
+      "kind": "request",
+      "sources": [
+        {
+          "file": "src/runner/main.ts",
+          "anchor": "export async function runAgentWorker()"
+        }
+      ],
+      "from": "microvm"
+    },
+    {
+      "to": "records",
+      "label": "Runtime journal",
+      "kind": "data",
+      "sources": [
+        {
+          "file": "src/adapters/dynamo-agents-store.ts",
+          "anchor": "export class DynamoAgentsStore"
+        }
+      ],
+      "from": "runner"
+    },
+    {
+      "to": "files",
+      "label": "Workspace and Codex home",
+      "kind": "data",
+      "sources": [
+        {
+          "file": "src/runner/main.ts",
+          "anchor": "const durableStateRoot = process.env.SESSION_STATE_ROOT;"
+        }
+      ],
+      "from": "runner"
+    },
+    {
+      "to": "artifacts",
+      "label": "Saved managed outputs",
+      "kind": "data",
+      "sources": [
+        {
+          "file": "src/adapters/aws-runtime.ts",
+          "anchor": "export class S3ArtifactStore"
+        }
+      ],
+      "from": "runner"
+    },
+    {
+      "to": "events",
+      "label": "Terminal root Turn",
+      "kind": "data",
+      "sources": [
+        {
+          "file": "src/core/session-service.ts",
+          "anchor": "public async completeTurn("
+        }
+      ],
+      "from": "records"
+    },
+    {
+      "to": "notifier",
+      "label": "Delivery operation",
+      "kind": "request",
+      "sources": [
+        {
+          "file": "src/delivery/service.ts",
+          "anchor": "export class DeliveryService"
+        }
+      ],
+      "from": "events"
+    },
+    {
+      "to": "fence",
+      "label": "Claim external write",
+      "kind": "data",
+      "sources": [
+        {
+          "file": "src/adapters/dynamo-delivery-fence.ts",
+          "anchor": "export class DynamoDeliveryFence"
+        }
+      ],
+      "from": "notifier"
+    },
+    {
+      "to": "publications",
+      "label": "Selected saved output",
+      "kind": "data",
+      "sources": [
+        {
+          "file": "src/core/session-publication-service.ts",
+          "anchor": "export class SessionPublicationService"
+        }
+      ],
+      "from": "artifacts"
+    },
+    {
+      "to": "runner",
+      "label": "Declared capabilities",
+      "kind": "access",
+      "sources": [
+        {
+          "file": "src/runner/main.ts",
+          "anchor": "export async function runAgentWorker()"
+        }
+      ],
+      "from": "profiles"
+    },
+    {
+      "to": "microvm",
+      "label": "Isolation boundary",
+      "kind": "access",
+      "sources": [
+        {
+          "file": "src/adapters/executors.ts",
+          "anchor": "export class MicrovmRunExecutor"
+        }
+      ],
+      "from": "policy"
+    },
+    {
+      "to": "browser",
+      "label": "Destination credentials",
+      "kind": "access",
+      "sources": [
+        {
+          "file": "src/runner/session-mcp.ts",
+          "anchor": "export async function prepareSessionMcp"
+        }
+      ],
+      "from": "secrets"
+    },
+    {
+      "to": "webhooks",
+      "label": "Trusted provider adapter",
+      "kind": "access",
       "sources": [
         {
           "file": "src/ingress/service.ts",
           "anchor": "public async receive("
         }
-      ]
+      ],
+      "from": "plugins"
     },
     {
-      "from": "webhooks",
-      "to": "identity",
-      "label": "Verified provider identity context",
-      "kind": "data",
-      "sources": [
-        {
-          "file": "src/identity/context.ts",
-          "anchor": "export function providerIngressContext"
-        }
-      ]
-    },
-    {
-      "from": "api",
-      "to": "runs",
-      "label": "Owner-scoped request submission",
-      "kind": "request",
-      "sources": [
-        {
-          "file": "src/lambdas/control.ts",
-          "anchor": "const run = await getRunSubmissionService().submit("
-        }
-      ]
-    },
-    {
-      "from": "things",
-      "to": "runs",
-      "label": "Versioned work becomes a Run",
-      "kind": "request",
-      "sources": [
-        {
-          "file": "src/core/thing-service.ts",
-          "anchor": "private async submitOccurrence("
-        }
-      ]
-    },
-    {
-      "from": "mailbox",
-      "to": "runs",
-      "label": "Prepared continuation input",
-      "kind": "data",
-      "sources": [
-        {
-          "file": "src/conversation/coordinator.ts",
-          "anchor": "const run = await this.options.runs.prepareConversation("
-        }
-      ]
-    },
-    {
-      "from": "runs",
-      "to": "queue",
-      "label": "Run ID + trace ID",
-      "kind": "request",
-      "sources": [
-        {
-          "file": "src/core/run-service.ts",
-          "anchor": "private enqueue(runId:"
-        }
-      ]
-    },
-    {
-      "from": "runs",
-      "to": "artifacts",
-      "label": "Store canonical input first",
-      "kind": "data",
-      "sources": [
-        {
-          "file": "src/core/run-service.ts",
-          "anchor": "const input = await this.options.artifacts.putJson("
-        }
-      ]
-    },
-    {
-      "from": "artifacts",
-      "to": "records",
-      "label": "Store input/output references",
-      "kind": "data",
-      "sources": [
-        {
-          "file": "src/core/run-service.ts",
-          "anchor": "const created = await this.options.store.create(record);"
-        }
-      ]
-    },
-    {
-      "from": "queue",
-      "to": "dispatcher",
-      "label": "Wake-up reference",
-      "kind": "request",
-      "sources": [
-        {
-          "file": "src/execution/dispatcher.ts",
-          "anchor": "public async dispatch(message:"
-        }
-      ]
-    },
-    {
-      "from": "dispatcher",
-      "to": "microvm",
-      "label": "Start or resume selected executor",
-      "kind": "request",
-      "sources": [
-        {
-          "file": "src/execution/dispatcher.ts",
-          "anchor": "execution = await executor.start("
-        }
-      ]
-    },
-    {
-      "from": "microvm",
-      "to": "runner",
-      "label": "Input location + execution generation",
-      "kind": "request",
-      "sources": [
-        {
-          "file": "src/adapters/executors.ts",
-          "anchor": "private runHookPayload("
-        }
-      ]
-    },
-    {
-      "from": "runner",
-      "to": "browser",
-      "label": "Admitted browser tool calls",
-      "kind": "request",
-      "sources": [
-        {
-          "file": "src/runner/dynamic-tools.ts",
-          "anchor": "export function createDynamicToolRequestHandler"
-        }
-      ]
-    },
-    {
-      "from": "runner",
-      "to": "models",
-      "label": "Prepare selected model access",
-      "kind": "access",
-      "sources": [
-        {
-          "file": "src/runner/main.ts",
-          "anchor": "loadedBedrockToken = await loadCodexBedrockToken(credentials);"
-        }
-      ]
-    },
-    {
-      "from": "models",
-      "to": "model-provider",
-      "label": "Configured model access",
-      "kind": "request",
-      "sources": [
-        {
-          "file": "src/runner/agent-planning.ts",
-          "anchor": "modelProvider: codexModelProvider(authMode),"
-        }
-      ]
-    },
-    {
-      "from": "api",
-      "to": "runner",
-      "label": "Protected live progress, steer and interrupt",
-      "kind": "request",
-      "sources": [
-        {
-          "file": "src/adapters/executors.ts",
-          "anchor": "export class MicrovmAgentInteractionController"
-        }
-      ]
-    },
-    {
-      "from": "runner",
-      "to": "artifacts",
-      "label": "Output, events and artifact bytes",
-      "kind": "data",
-      "sources": [
-        {
-          "file": "src/runner/main.ts",
-          "anchor": "const output = await artifacts.putBytes("
-        }
-      ]
-    },
-    {
-      "from": "records",
-      "to": "events",
-      "label": "Committed status change",
-      "kind": "data",
-      "sources": [
-        {
-          "file": "src/lambdas/state-stream.ts",
-          "anchor": "const event: RunStateEvent ="
-        }
-      ]
-    },
-    {
-      "from": "events",
-      "to": "notifier",
-      "label": "Terminal Run event",
-      "kind": "request",
-      "sources": [
-        {
-          "file": "infra/modules/agent-runner/events.tf",
-          "anchor": "resource \"aws_cloudwatch_event_rule\" \"terminal_runs\""
-        }
-      ]
-    },
-    {
-      "from": "notifier",
-      "to": "fence",
-      "label": "Claim destination and record outcome",
-      "kind": "request",
-      "sources": [
-        {
-          "file": "src/delivery/service.ts",
-          "anchor": "if (!(await this.options.fence.claim(run, key))) continue;"
-        }
-      ]
-    },
-    {
-      "from": "notifier",
-      "to": "destination",
-      "label": "Saved result to provider destination",
-      "kind": "request",
-      "sources": [
-        {
-          "file": "src/delivery/service.ts",
-          "anchor": "const receipt = await this.options.plugins.deliveryFor("
-        }
-      ]
-    },
-    {
-      "from": "artifacts",
-      "to": "publications",
-      "label": "Selected owner-scoped artifact catalog",
-      "kind": "data",
-      "sources": [
-        {
-          "file": "src/core/publication-publisher.ts",
-          "anchor": "public async publish("
-        }
-      ]
-    },
-    {
-      "from": "files",
-      "to": "runner",
-      "label": "Optional persistent conversation workspace",
-      "kind": "data",
-      "sources": [
-        {
-          "file": "src/runner/main.ts",
-          "anchor": "const durableStateRoot = process.env.CONVERSATION_STATE_ROOT;"
-        }
-      ]
-    },
-    {
-      "from": "profiles",
-      "to": "runner",
-      "label": "Resolved capability envelope",
-      "kind": "access",
-      "sources": [
-        {
-          "file": "src/runner/main.ts",
-          "anchor": "const profile = resolveAgentProfile("
-        }
-      ]
-    },
-    {
-      "from": "policy",
-      "to": "runner",
-      "label": "Process and network enforcement",
-      "kind": "access",
-      "sources": [
-        {
-          "file": "microvm/runtime-process-policy.mjs",
-          "anchor": "export function untrustedChildOptions"
-        }
-      ]
-    },
-    {
-      "from": "plugins",
       "to": "grants",
-      "label": "Operation definitions checked against account access",
-      "kind": "access",
-      "sources": [
-        {
-          "file": "src/plugins/integration-runtime.ts",
-          "anchor": "const allowedConnections = connections.filter("
-        }
-      ]
-    },
-    {
-      "from": "grants",
-      "to": "secrets",
-      "label": "Authorize operation and resources before credential read",
+      "label": "Active owned connection",
       "kind": "access",
       "sources": [
         {
           "file": "src/plugins/integration-runtime.ts",
           "anchor": "enforceResourceConstraints(selected.grant, operationInput);"
         }
-      ]
+      ],
+      "from": "oauth"
     },
     {
-      "from": "grants",
-      "to": "connected-service",
-      "label": "Granted operation with constrained inputs",
+      "to": "queue",
+      "label": "Same execution wake-up",
+      "kind": "recovery",
+      "sources": [
+        {
+          "file": "src/lambdas/agents-outbox.ts",
+          "anchor": "export async function handler"
+        }
+      ],
+      "from": "reconciler"
+    },
+    {
+      "to": "reconciler",
+      "label": "Exact worker evidence",
+      "kind": "recovery",
+      "sources": [
+        {
+          "file": "src/core/run-recovery.ts",
+          "anchor": "export function recoveryMessageForRun"
+        }
+      ],
+      "from": "heartbeat"
+    },
+    {
+      "to": "api",
+      "label": "Authenticated resource request",
       "kind": "request",
       "sources": [
         {
-          "file": "src/plugins/integration-runtime.ts",
-          "anchor": "const result = await selected.plugin.execute("
+          "file": "src/lambdas/agents-router.ts",
+          "anchor": "export async function"
         }
-      ]
+      ],
+      "from": "caller"
     },
     {
-      "from": "oauth",
-      "to": "secrets",
-      "label": "Host-side OAuth credential refresh",
+      "to": "destination",
+      "label": "Provider reply",
+      "kind": "request",
+      "sources": [
+        {
+          "file": "src/delivery/service.ts",
+          "anchor": "export class DeliveryService"
+        }
+      ],
+      "from": "notifier"
+    },
+    {
+      "to": "model-provider",
+      "label": "Model request",
+      "kind": "request",
+      "sources": [
+        {
+          "file": "src/runner/codex-auth.ts",
+          "anchor": "export function codexAuthMode"
+        }
+      ],
+      "from": "runner"
+    },
+    {
+      "to": "connected-service",
+      "label": "Declared service call",
       "kind": "access",
       "sources": [
         {
-          "file": "src/plugins/oauth.ts",
-          "anchor": "export class OAuthRefreshingCredentialBroker"
+          "file": "src/plugins/integration-runtime.ts",
+          "anchor": "enforceResourceConstraints(selected.grant, operationInput);"
         }
-      ]
-    },
-    {
-      "from": "heartbeat",
-      "to": "records",
-      "label": "Execution generation + liveness timestamp",
-      "kind": "data",
-      "sources": [
-        {
-          "file": "src/runner/heartbeat.ts",
-          "anchor": "const retained = await this.options.store.heartbeatExecution("
-        }
-      ]
-    },
-    {
-      "from": "records",
-      "to": "reconciler",
-      "label": "Stale status and liveness evidence",
-      "kind": "recovery",
-      "sources": [
-        {
-          "file": "src/lambdas/reconciler.ts",
-          "anchor": "async function reconcileStaleAttachedExecutions("
-        }
-      ]
-    },
-    {
-      "from": "reconciler",
-      "to": "queue",
-      "label": "Repair a missed queued wake-up",
-      "kind": "recovery",
-      "sources": [
-        {
-          "file": "src/lambdas/reconciler.ts",
-          "anchor": "async function nudgeQueued("
-        }
-      ]
-    },
-    {
-      "from": "reconciler",
-      "to": "state",
-      "label": "Fenced lost-worker or cancellation outcome",
-      "kind": "recovery",
-      "sources": [
-        {
-          "file": "src/execution/reconciler.ts",
-          "anchor": "public async reconcile("
-        }
-      ]
+      ],
+      "from": "browser"
     }
   ],
   "journeys": [
@@ -1839,173 +1550,125 @@
         {
           "node": "api",
           "title": "Authenticate the request",
-          "description": "The caller sends a prompt to the authenticated API. The principal determines the owner. This example requests a result destination for notification later.",
+          "description": "Derive the owner before accepting an SDK resource request.",
           "state": "request",
           "handoff": {
             "from": "caller",
             "to": "api",
-            "payload": "Authenticated request body",
+            "payload": "Derive the owner before accepting an SDK resource request.",
             "kind": "request",
             "sources": [
               {
-                "file": "src/lambdas/control.ts",
-                "anchor": "const context = apiIngressContext(principal(event));"
+                "file": "src/lambdas/agents-router.ts",
+                "anchor": "export async function"
               }
             ]
           }
         },
         {
-          "node": "runs",
-          "title": "Accept one durable Run",
-          "description": "Store input in S3 and conditionally create a queued Run before enqueueing. The API returns HTTP 202 with its receipt now; acceptance does not mean the work is finished.",
+          "node": "mailbox",
+          "title": "Accept Session input",
+          "description": "Commit the owned Session input and pending Turn operation.",
           "state": "queued",
           "handoff": {
             "from": "api",
-            "to": "runs",
-            "payload": "Owner-scoped normalized request",
+            "to": "mailbox",
+            "payload": "Commit the owned Session input and pending Turn operation.",
             "kind": "request",
             "sources": [
               {
-                "file": "src/lambdas/control.ts",
-                "anchor": "const run = await getRunSubmissionService().submit("
-              },
-              {
-                "file": "src/core/run-service.ts",
-                "anchor": "public async submit("
-              },
-              {
-                "file": "src/lambdas/control.ts",
-                "anchor": "if (method === 'POST' && path === '/v1/runs') {"
+                "file": "src/core/session-service.ts",
+                "anchor": "export class SessionService"
               }
             ]
           }
         },
         {
           "node": "queue",
-          "title": "Wake the dispatcher",
-          "description": "SQS carries only the Run reference and trace ID. Its recipient reloads the canonical input from storage; duplicate wake-ups do not create a new receipt.",
+          "title": "Dispatch the saved operation",
+          "description": "Send the pending operation through its Session FIFO group.",
           "state": "queued",
           "handoff": {
-            "from": "runs",
+            "from": "mailbox",
             "to": "queue",
-            "payload": "Run ID + trace ID; prompt stays in S3",
+            "payload": "Send the pending operation through its Session FIFO group.",
             "kind": "request",
             "sources": [
               {
-                "file": "src/core/run-service.ts",
-                "anchor": "private enqueue(runId:"
+                "file": "src/lambdas/agents-outbox.ts",
+                "anchor": "export async function handler"
               }
             ]
           }
         },
         {
-          "node": "dispatcher",
-          "title": "Claim and launch",
-          "description": "Conditionally claim the queued Run, then launch or resume its MicroVM and attach a stable execution generation. A competing wake-up cannot independently claim the same queued state.",
-          "state": "dispatching",
+          "node": "runs",
+          "title": "Reserve the harness execution",
+          "description": "Bind the Session runtime before storing immutable private execution input.",
+          "state": "queued",
           "handoff": {
             "from": "queue",
-            "to": "dispatcher",
-            "payload": "Wake-up reference; reload stored input",
+            "to": "runs",
+            "payload": "Bind the Session runtime before storing immutable private execution input.",
             "kind": "request",
             "sources": [
               {
-                "file": "src/execution/dispatcher.ts",
-                "anchor": "public async dispatch(message:"
-              },
+                "file": "src/core/run-service.ts",
+                "anchor": "public async submit("
+              }
+            ]
+          }
+        },
+        {
+          "node": "microvm",
+          "title": "Launch the isolated harness",
+          "description": "Claim the private Run and launch a MicroVM with stable execution identity.",
+          "state": "dispatching",
+          "handoff": {
+            "from": "dispatcher",
+            "to": "microvm",
+            "payload": "Claim the private Run and launch a MicroVM with stable execution identity.",
+            "kind": "request",
+            "sources": [
               {
                 "file": "src/adapters/executors.ts",
-                "anchor": "public async start(record:"
-              },
-              {
-                "file": "src/conversation/continuation.ts",
-                "anchor": "// Native thread state outlives the VM lease"
+                "anchor": "export class MicrovmRunExecutor"
               }
             ]
           }
         },
         {
           "node": "runner",
-          "title": "Run inside the boundary",
-          "description": "The trusted host loads input and resolves the fixed capability envelope, then starts Codex under a separate non-root UID. Live progress, steer and interrupt use the protected control path.",
+          "title": "Execute the Turn",
+          "description": "Native Codex runs with the resolved Agent configuration and declared tools.",
           "state": "running",
           "handoff": {
             "from": "microvm",
             "to": "runner",
-            "payload": "Input location + generation + fixed configuration",
+            "payload": "Native Codex runs with the resolved Agent configuration and declared tools.",
             "kind": "request",
             "sources": [
               {
-                "file": "src/adapters/executors.ts",
-                "anchor": "private runHookPayload("
-              },
-              {
-                "file": "src/runner/codex-app-server.ts",
-                "anchor": "if (request.onTurnStarted)"
-              },
-              {
-                "file": "src/runner/codex-app-server.ts",
-                "anchor": "if (request.onTurnStarted)"
-              },
-              {
-                "file": "src/runner/codex-app-server.ts",
-                "anchor": "if (request.onTurnStarted)"
-              },
-              {
-                "file": "src/runner/codex-app-server.ts",
-                "anchor": "if (request.onTurnStarted)"
+                "file": "src/runner/main.ts",
+                "anchor": "export async function runAgentWorker()"
               }
             ]
           }
         },
         {
           "node": "artifacts",
-          "title": "Persist the outcome",
-          "description": "Store output and artifacts in S3 before committing succeeded state and result references in DynamoDB. This is execution completion; delivery is still a separate step.",
+          "title": "Save the Turn outcome",
+          "description": "Journal Session evidence and capture immutable managed output artifacts.",
           "state": "succeeded",
           "handoff": {
             "from": "runner",
             "to": "artifacts",
-            "payload": "Output, event log and artifact bytes",
-            "kind": "data",
+            "payload": "Journal Session evidence and capture immutable managed output artifacts.",
+            "kind": "request",
             "sources": [
               {
-                "file": "src/runner/main.ts",
-                "anchor": "const output = await artifacts.putBytes("
-              },
-              {
-                "file": "src/runner/main.ts",
-                "anchor": "const finalized = await store.finishExecution("
-              },
-              {
-                "file": "src/runner/main.ts",
-                "anchor": "const finalized = await store.finishExecution("
-              },
-              {
-                "file": "src/runner/main.ts",
-                "anchor": "const finalized = await store.finishExecution("
-              },
-              {
-                "file": "src/runner/main.ts",
-                "anchor": "const finalized = await store.finishExecution("
-              }
-            ]
-          }
-        },
-        {
-          "node": "events",
-          "title": "Emit the committed state",
-          "description": "The table stream publishes the committed status to EventBridge. The event carries identifiers and a bounded preview; the notifier reloads the saved result.",
-          "state": "succeeded",
-          "handoff": {
-            "from": "records",
-            "to": "events",
-            "payload": "Committed status event + bounded preview",
-            "kind": "data",
-            "sources": [
-              {
-                "file": "src/lambdas/state-stream.ts",
-                "anchor": "const event: RunStateEvent ="
+                "file": "src/adapters/aws-runtime.ts",
+                "anchor": "export class S3ArtifactStore"
               }
             ]
           }
@@ -2013,21 +1676,17 @@
         {
           "node": "notifier",
           "title": "Deliver the result",
-          "description": "Claim the destination fence and send the stored result. Run success and delivery success are distinct; API clients can retrieve the Run even if notification fails.",
+          "description": "Saved terminal root Turns drive independent provider delivery; API-only Sessions retain output for the caller.",
           "state": "succeeded",
           "handoff": {
-            "from": "notifier",
-            "to": "destination",
-            "payload": "Saved result delivered to resolved provider destination",
+            "from": "events",
+            "to": "notifier",
+            "payload": "Saved terminal root Turns drive independent provider delivery; API-only Sessions retain output for the caller.",
             "kind": "request",
             "sources": [
               {
                 "file": "src/delivery/service.ts",
-                "anchor": "const receipt = await this.options.plugins.deliveryFor("
-              },
-              {
-                "file": "infra/modules/agent-runner/events.tf",
-                "anchor": "resource \"aws_cloudwatch_event_target\" \"conversation_completion\""
+                "anchor": "export class DeliveryService"
               }
             ]
           }
@@ -2041,165 +1700,125 @@
         {
           "node": "webhooks",
           "title": "Verify the provider signature",
-          "description": "Validate the signature before parsing the provider payload. Normalize the event and apply its source policy.",
+          "description": "Authenticate before parsing, then reserve the owned provider input receipt.",
           "state": "request",
           "handoff": {
             "from": "caller",
             "to": "webhooks",
-            "payload": "Provider event body + signature headers",
+            "payload": "Authenticate before parsing, then reserve the owned provider input receipt.",
             "kind": "request",
             "sources": [
               {
-                "file": "src/ingress/providers/slack.ts",
-                "anchor": "if (!verifySlackSignature("
+                "file": "src/ingress/service.ts",
+                "anchor": "public async receive("
               }
             ]
           }
         },
         {
-          "node": "runs",
-          "title": "Accept one durable Run",
-          "description": "Store the verified input and create a queued Run before enqueueing. Its receipt identifies accepted work; result delivery is a later terminal-stage operation.",
+          "node": "mailbox",
+          "title": "Accept Session input",
+          "description": "Commit the owned Session input and pending Turn operation.",
           "state": "queued",
           "handoff": {
             "from": "webhooks",
-            "to": "runs",
-            "payload": "Verified, normalized request + trusted provenance",
+            "to": "mailbox",
+            "payload": "Commit the owned Session input and pending Turn operation.",
             "kind": "request",
             "sources": [
               {
-                "file": "src/ingress/service.ts",
-                "anchor": "const run = await this.runs.submit("
+                "file": "src/core/session-service.ts",
+                "anchor": "export class SessionService"
               }
             ]
           }
         },
         {
           "node": "queue",
-          "title": "Wake the dispatcher",
-          "description": "SQS carries only the Run reference and trace ID. Its recipient reloads the canonical input from storage; duplicate wake-ups do not create a new receipt.",
+          "title": "Dispatch the saved operation",
+          "description": "Send the pending operation through its Session FIFO group.",
           "state": "queued",
           "handoff": {
-            "from": "runs",
+            "from": "mailbox",
             "to": "queue",
-            "payload": "Run ID + trace ID; prompt stays in S3",
+            "payload": "Send the pending operation through its Session FIFO group.",
             "kind": "request",
             "sources": [
               {
-                "file": "src/core/run-service.ts",
-                "anchor": "private enqueue(runId:"
+                "file": "src/lambdas/agents-outbox.ts",
+                "anchor": "export async function handler"
               }
             ]
           }
         },
         {
-          "node": "dispatcher",
-          "title": "Claim and launch",
-          "description": "Conditionally claim the queued Run, then launch or resume its MicroVM and attach a stable execution generation. A competing wake-up cannot independently claim the same queued state.",
-          "state": "dispatching",
+          "node": "runs",
+          "title": "Reserve the harness execution",
+          "description": "Bind the Session runtime before storing immutable private execution input.",
+          "state": "queued",
           "handoff": {
             "from": "queue",
-            "to": "dispatcher",
-            "payload": "Wake-up reference; reload stored input",
+            "to": "runs",
+            "payload": "Bind the Session runtime before storing immutable private execution input.",
             "kind": "request",
             "sources": [
               {
-                "file": "src/execution/dispatcher.ts",
-                "anchor": "public async dispatch(message:"
-              },
+                "file": "src/core/run-service.ts",
+                "anchor": "public async submit("
+              }
+            ]
+          }
+        },
+        {
+          "node": "microvm",
+          "title": "Launch the isolated harness",
+          "description": "Claim the private Run and launch a MicroVM with stable execution identity.",
+          "state": "dispatching",
+          "handoff": {
+            "from": "dispatcher",
+            "to": "microvm",
+            "payload": "Claim the private Run and launch a MicroVM with stable execution identity.",
+            "kind": "request",
+            "sources": [
               {
                 "file": "src/adapters/executors.ts",
-                "anchor": "public async start(record:"
-              },
-              {
-                "file": "src/conversation/continuation.ts",
-                "anchor": "// Native thread state outlives the VM lease"
+                "anchor": "export class MicrovmRunExecutor"
               }
             ]
           }
         },
         {
           "node": "runner",
-          "title": "Run inside the boundary",
-          "description": "The trusted host loads input and resolves the fixed capability envelope, then starts Codex under a separate non-root UID. Live progress, steer and interrupt use the protected control path.",
+          "title": "Execute the Turn",
+          "description": "Native Codex runs with the resolved Agent configuration and declared tools.",
           "state": "running",
           "handoff": {
             "from": "microvm",
             "to": "runner",
-            "payload": "Input location + generation + fixed configuration",
+            "payload": "Native Codex runs with the resolved Agent configuration and declared tools.",
             "kind": "request",
             "sources": [
               {
-                "file": "src/adapters/executors.ts",
-                "anchor": "private runHookPayload("
-              },
-              {
-                "file": "src/runner/codex-app-server.ts",
-                "anchor": "if (request.onTurnStarted)"
-              },
-              {
-                "file": "src/runner/codex-app-server.ts",
-                "anchor": "if (request.onTurnStarted)"
-              },
-              {
-                "file": "src/runner/codex-app-server.ts",
-                "anchor": "if (request.onTurnStarted)"
-              },
-              {
-                "file": "src/runner/codex-app-server.ts",
-                "anchor": "if (request.onTurnStarted)"
+                "file": "src/runner/main.ts",
+                "anchor": "export async function runAgentWorker()"
               }
             ]
           }
         },
         {
           "node": "artifacts",
-          "title": "Persist the outcome",
-          "description": "Store output and artifacts in S3 before committing succeeded state and result references in DynamoDB. This is execution completion; delivery is still a separate step.",
+          "title": "Save the Turn outcome",
+          "description": "Journal Session evidence and capture immutable managed output artifacts.",
           "state": "succeeded",
           "handoff": {
             "from": "runner",
             "to": "artifacts",
-            "payload": "Output, event log and artifact bytes",
-            "kind": "data",
+            "payload": "Journal Session evidence and capture immutable managed output artifacts.",
+            "kind": "request",
             "sources": [
               {
-                "file": "src/runner/main.ts",
-                "anchor": "const output = await artifacts.putBytes("
-              },
-              {
-                "file": "src/runner/main.ts",
-                "anchor": "const finalized = await store.finishExecution("
-              },
-              {
-                "file": "src/runner/main.ts",
-                "anchor": "const finalized = await store.finishExecution("
-              },
-              {
-                "file": "src/runner/main.ts",
-                "anchor": "const finalized = await store.finishExecution("
-              },
-              {
-                "file": "src/runner/main.ts",
-                "anchor": "const finalized = await store.finishExecution("
-              }
-            ]
-          }
-        },
-        {
-          "node": "events",
-          "title": "Emit the committed state",
-          "description": "The table stream publishes the committed status to EventBridge. The event carries identifiers and a bounded preview; the notifier reloads the saved result.",
-          "state": "succeeded",
-          "handoff": {
-            "from": "records",
-            "to": "events",
-            "payload": "Committed status event + bounded preview",
-            "kind": "data",
-            "sources": [
-              {
-                "file": "src/lambdas/state-stream.ts",
-                "anchor": "const event: RunStateEvent ="
+                "file": "src/adapters/aws-runtime.ts",
+                "anchor": "export class S3ArtifactStore"
               }
             ]
           }
@@ -2207,21 +1826,17 @@
         {
           "node": "notifier",
           "title": "Deliver the result",
-          "description": "Claim the destination fence and send the stored result. Run success and delivery success are distinct; API clients can retrieve the Run even if notification fails.",
+          "description": "Saved terminal root Turns drive independent provider delivery; API-only Sessions retain output for the caller.",
           "state": "succeeded",
           "handoff": {
-            "from": "notifier",
-            "to": "destination",
-            "payload": "Saved result delivered to resolved provider destination",
+            "from": "events",
+            "to": "notifier",
+            "payload": "Saved terminal root Turns drive independent provider delivery; API-only Sessions retain output for the caller.",
             "kind": "request",
             "sources": [
               {
                 "file": "src/delivery/service.ts",
-                "anchor": "const receipt = await this.options.plugins.deliveryFor("
-              },
-              {
-                "file": "infra/modules/agent-runner/events.tf",
-                "anchor": "resource \"aws_cloudwatch_event_target\" \"conversation_completion\""
+                "anchor": "export class DeliveryService"
               }
             ]
           }
@@ -2230,368 +1845,130 @@
     },
     {
       "id": "thing",
-      "title": "Scheduled Thing",
+      "title": "Scheduled Agent",
       "steps": [
         {
           "node": "things",
-          "title": "Trigger a published Thing",
-          "description": "The schedule transport resolves the active published Thing revision and submits its configured work.",
+          "title": "Reserve a scheduled occurrence",
+          "description": "Resolve the owned Agent/environment schedule and deduplicate its occurrence.",
           "state": "request",
           "handoff": {
-            "from": "things",
-            "to": "runs",
-            "payload": "Published revision + scheduled occurrence identity",
+            "from": "caller",
+            "to": "things",
+            "payload": "Resolve the owned Agent/environment schedule and deduplicate its occurrence.",
             "kind": "request",
             "sources": [
               {
-                "file": "src/core/thing-service.ts",
-                "anchor": "public async runScheduled("
-              }
-            ]
-          }
-        },
-        {
-          "node": "runs",
-          "title": "Accept one durable Run",
-          "description": "The published Thing supplies the work definition. Its scheduled occurrence becomes a separate Run tied to that revision; repeating the same occurrence reuses its idempotency identity.",
-          "state": "queued",
-          "handoff": {
-            "from": "runs",
-            "to": "records",
-            "payload": "Queued receipt + input and Thing revision references",
-            "kind": "data",
-            "sources": [
-              {
-                "file": "src/core/run-service.ts",
-                "anchor": "const created = await this.options.store.create(record);"
-              }
-            ]
-          }
-        },
-        {
-          "node": "queue",
-          "title": "Wake the dispatcher",
-          "description": "SQS carries only the Run reference and trace ID. Its recipient reloads the canonical input from storage; duplicate wake-ups do not create a new receipt.",
-          "state": "queued",
-          "handoff": {
-            "from": "runs",
-            "to": "queue",
-            "payload": "Run ID + trace ID; prompt stays in S3",
-            "kind": "request",
-            "sources": [
-              {
-                "file": "src/core/run-service.ts",
-                "anchor": "private enqueue(runId:"
-              }
-            ]
-          }
-        },
-        {
-          "node": "dispatcher",
-          "title": "Claim and launch",
-          "description": "Conditionally claim the queued Run, then launch or resume its MicroVM and attach a stable execution generation. A competing wake-up cannot independently claim the same queued state.",
-          "state": "dispatching",
-          "handoff": {
-            "from": "queue",
-            "to": "dispatcher",
-            "payload": "Wake-up reference; reload stored input",
-            "kind": "request",
-            "sources": [
-              {
-                "file": "src/execution/dispatcher.ts",
-                "anchor": "public async dispatch(message:"
-              },
-              {
-                "file": "src/adapters/executors.ts",
-                "anchor": "public async start(record:"
-              },
-              {
-                "file": "src/conversation/continuation.ts",
-                "anchor": "// Native thread state outlives the VM lease"
-              }
-            ]
-          }
-        },
-        {
-          "node": "runner",
-          "title": "Run inside the boundary",
-          "description": "The trusted host loads input and resolves the fixed capability envelope, then starts Codex under a separate non-root UID. Live progress, steer and interrupt use the protected control path.",
-          "state": "running",
-          "handoff": {
-            "from": "microvm",
-            "to": "runner",
-            "payload": "Input location + generation + fixed configuration",
-            "kind": "request",
-            "sources": [
-              {
-                "file": "src/adapters/executors.ts",
-                "anchor": "private runHookPayload("
-              },
-              {
-                "file": "src/runner/codex-app-server.ts",
-                "anchor": "if (request.onTurnStarted)"
-              },
-              {
-                "file": "src/runner/codex-app-server.ts",
-                "anchor": "if (request.onTurnStarted)"
-              },
-              {
-                "file": "src/runner/codex-app-server.ts",
-                "anchor": "if (request.onTurnStarted)"
-              },
-              {
-                "file": "src/runner/codex-app-server.ts",
-                "anchor": "if (request.onTurnStarted)"
-              }
-            ]
-          }
-        },
-        {
-          "node": "artifacts",
-          "title": "Persist the outcome",
-          "description": "Store output and artifacts in S3 before committing succeeded state and result references in DynamoDB. This is execution completion; delivery is still a separate step.",
-          "state": "succeeded",
-          "handoff": {
-            "from": "runner",
-            "to": "artifacts",
-            "payload": "Output, event log and artifact bytes",
-            "kind": "data",
-            "sources": [
-              {
-                "file": "src/runner/main.ts",
-                "anchor": "const output = await artifacts.putBytes("
-              },
-              {
-                "file": "src/runner/main.ts",
-                "anchor": "const finalized = await store.finishExecution("
-              },
-              {
-                "file": "src/runner/main.ts",
-                "anchor": "const finalized = await store.finishExecution("
-              },
-              {
-                "file": "src/runner/main.ts",
-                "anchor": "const finalized = await store.finishExecution("
-              },
-              {
-                "file": "src/runner/main.ts",
-                "anchor": "const finalized = await store.finishExecution("
-              }
-            ]
-          }
-        },
-        {
-          "node": "events",
-          "title": "Emit the committed state",
-          "description": "The table stream publishes the committed status to EventBridge. The event carries identifiers and a bounded preview; the notifier reloads the saved result.",
-          "state": "succeeded",
-          "handoff": {
-            "from": "records",
-            "to": "events",
-            "payload": "Committed status event + bounded preview",
-            "kind": "data",
-            "sources": [
-              {
-                "file": "src/lambdas/state-stream.ts",
-                "anchor": "const event: RunStateEvent ="
-              }
-            ]
-          }
-        },
-        {
-          "node": "notifier",
-          "title": "Deliver the result",
-          "description": "Claim the destination fence and send the stored result. Run success and delivery success are distinct; API clients can retrieve the Run even if notification fails.",
-          "state": "succeeded",
-          "handoff": {
-            "from": "notifier",
-            "to": "destination",
-            "payload": "Saved result delivered to resolved provider destination",
-            "kind": "request",
-            "sources": [
-              {
-                "file": "src/delivery/service.ts",
-                "anchor": "const receipt = await this.options.plugins.deliveryFor("
-              },
-              {
-                "file": "infra/modules/agent-runner/events.tf",
-                "anchor": "resource \"aws_cloudwatch_event_target\" \"conversation_completion\""
-              }
-            ]
-          }
-        }
-      ]
-    },
-    {
-      "id": "thread",
-      "title": "Thread continuation",
-      "steps": [
-        {
-          "node": "api",
-          "title": "Accept a threaded input",
-          "description": "A new authenticated thread input receives its own Run receipt. HTTP 202 confirms acceptance even when the conversation must wait for its preceding turn.",
-          "state": "request",
-          "handoff": {
-            "from": "api",
-            "to": "mailbox",
-            "payload": "New input + thread continuity selection",
-            "kind": "request",
-            "sources": [
-              {
-                "file": "src/lambdas/control.ts",
-                "anchor": "...(submission.thread ? { thread: submission.thread } : {}),"
-              },
-              {
-                "file": "src/core/run-submission-service.ts",
-                "anchor": "Every call reserves one durable Run;"
+                "file": "src/core/schedule-service.ts",
+                "anchor": "export class ScheduleService"
               }
             ]
           }
         },
         {
           "node": "mailbox",
-          "title": "Coordinate the next turn",
-          "description": "Acquire the conversation lease and prepare this Run with predecessor context. One input remains one Run; continuity does not batch several receipts into a replacement Run.",
+          "title": "Accept Session input",
+          "description": "Commit the owned Session input and pending Turn operation.",
           "state": "queued",
           "handoff": {
-            "from": "mailbox",
-            "to": "runs",
-            "payload": "Lease-ordered predecessor context + prepared execution input",
-            "kind": "data",
+            "from": "things",
+            "to": "mailbox",
+            "payload": "Commit the owned Session input and pending Turn operation.",
+            "kind": "request",
             "sources": [
               {
-                "file": "src/conversation/coordinator.ts",
-                "anchor": "const run = await this.options.runs.prepareConversation("
+                "file": "src/core/session-service.ts",
+                "anchor": "export class SessionService"
               }
             ]
           }
         },
         {
           "node": "queue",
-          "title": "Wake the dispatcher",
-          "description": "SQS carries only the Run reference and trace ID. Its recipient reloads the canonical input from storage; duplicate wake-ups do not create a new receipt.",
+          "title": "Dispatch the saved operation",
+          "description": "Send the pending operation through its Session FIFO group.",
           "state": "queued",
           "handoff": {
-            "from": "runs",
+            "from": "mailbox",
             "to": "queue",
-            "payload": "Run ID + trace ID; prompt stays in S3",
+            "payload": "Send the pending operation through its Session FIFO group.",
             "kind": "request",
             "sources": [
               {
-                "file": "src/core/run-service.ts",
-                "anchor": "private enqueue(runId:"
+                "file": "src/lambdas/agents-outbox.ts",
+                "anchor": "export async function handler"
               }
             ]
           }
         },
         {
-          "node": "dispatcher",
-          "title": "Claim and launch",
-          "description": "Try the preferred conversation MicroVM. If that session is unavailable, launch a replacement; optional S3 Files preserves native thread and workspace state across workers.",
-          "state": "dispatching",
+          "node": "runs",
+          "title": "Reserve the harness execution",
+          "description": "Bind the Session runtime before storing immutable private execution input.",
+          "state": "queued",
           "handoff": {
             "from": "queue",
-            "to": "dispatcher",
-            "payload": "Wake-up reference; reload stored input",
+            "to": "runs",
+            "payload": "Bind the Session runtime before storing immutable private execution input.",
             "kind": "request",
             "sources": [
               {
-                "file": "src/execution/dispatcher.ts",
-                "anchor": "public async dispatch(message:"
-              },
+                "file": "src/core/run-service.ts",
+                "anchor": "public async submit("
+              }
+            ]
+          }
+        },
+        {
+          "node": "microvm",
+          "title": "Launch the isolated harness",
+          "description": "Claim the private Run and launch a MicroVM with stable execution identity.",
+          "state": "dispatching",
+          "handoff": {
+            "from": "dispatcher",
+            "to": "microvm",
+            "payload": "Claim the private Run and launch a MicroVM with stable execution identity.",
+            "kind": "request",
+            "sources": [
               {
                 "file": "src/adapters/executors.ts",
-                "anchor": "public async start(record:"
-              },
-              {
-                "file": "src/conversation/continuation.ts",
-                "anchor": "// Native thread state outlives the VM lease"
+                "anchor": "export class MicrovmRunExecutor"
               }
             ]
           }
         },
         {
           "node": "runner",
-          "title": "Run inside the boundary",
-          "description": "The trusted host loads input and resolves the fixed capability envelope, then starts Codex under a separate non-root UID. Live progress, steer and interrupt use the protected control path.",
+          "title": "Execute the Turn",
+          "description": "Native Codex runs with the resolved Agent configuration and declared tools.",
           "state": "running",
           "handoff": {
             "from": "microvm",
             "to": "runner",
-            "payload": "Input location + generation + fixed configuration",
+            "payload": "Native Codex runs with the resolved Agent configuration and declared tools.",
             "kind": "request",
             "sources": [
               {
-                "file": "src/adapters/executors.ts",
-                "anchor": "private runHookPayload("
-              },
-              {
-                "file": "src/runner/codex-app-server.ts",
-                "anchor": "if (request.onTurnStarted)"
-              },
-              {
-                "file": "src/runner/codex-app-server.ts",
-                "anchor": "if (request.onTurnStarted)"
-              },
-              {
-                "file": "src/runner/codex-app-server.ts",
-                "anchor": "if (request.onTurnStarted)"
-              },
-              {
-                "file": "src/runner/codex-app-server.ts",
-                "anchor": "if (request.onTurnStarted)"
+                "file": "src/runner/main.ts",
+                "anchor": "export async function runAgentWorker()"
               }
             ]
           }
         },
         {
           "node": "artifacts",
-          "title": "Persist the outcome",
-          "description": "Store output and artifacts in S3 before committing succeeded state and result references in DynamoDB. This is execution completion; delivery is still a separate step.",
+          "title": "Save the Turn outcome",
+          "description": "Journal Session evidence and capture immutable managed output artifacts.",
           "state": "succeeded",
           "handoff": {
             "from": "runner",
             "to": "artifacts",
-            "payload": "Output, event log and artifact bytes",
-            "kind": "data",
+            "payload": "Journal Session evidence and capture immutable managed output artifacts.",
+            "kind": "request",
             "sources": [
               {
-                "file": "src/runner/main.ts",
-                "anchor": "const output = await artifacts.putBytes("
-              },
-              {
-                "file": "src/runner/main.ts",
-                "anchor": "const finalized = await store.finishExecution("
-              },
-              {
-                "file": "src/runner/main.ts",
-                "anchor": "const finalized = await store.finishExecution("
-              },
-              {
-                "file": "src/runner/main.ts",
-                "anchor": "const finalized = await store.finishExecution("
-              },
-              {
-                "file": "src/runner/main.ts",
-                "anchor": "const finalized = await store.finishExecution("
-              }
-            ]
-          }
-        },
-        {
-          "node": "events",
-          "title": "Emit the committed state",
-          "description": "The table stream publishes the committed status to EventBridge. The event carries identifiers and a bounded preview; the notifier reloads the saved result.",
-          "state": "succeeded",
-          "handoff": {
-            "from": "records",
-            "to": "events",
-            "payload": "Committed status event + bounded preview",
-            "kind": "data",
-            "sources": [
-              {
-                "file": "src/lambdas/state-stream.ts",
-                "anchor": "const event: RunStateEvent ="
+                "file": "src/adapters/aws-runtime.ts",
+                "anchor": "export class S3ArtifactStore"
               }
             ]
           }
@@ -2599,21 +1976,17 @@
         {
           "node": "notifier",
           "title": "Deliver the result",
-          "description": "Deliver the saved result. A separate terminal-event consumer completes the conversation turn and prepares continuity for its next Run; the current Run remains its own receipt.",
+          "description": "Saved terminal root Turns drive independent provider delivery; API-only Sessions retain output for the caller.",
           "state": "succeeded",
           "handoff": {
-            "from": "notifier",
-            "to": "destination",
-            "payload": "Saved result delivered to resolved provider destination",
+            "from": "events",
+            "to": "notifier",
+            "payload": "Saved terminal root Turns drive independent provider delivery; API-only Sessions retain output for the caller.",
             "kind": "request",
             "sources": [
               {
                 "file": "src/delivery/service.ts",
-                "anchor": "const receipt = await this.options.plugins.deliveryFor("
-              },
-              {
-                "file": "infra/modules/agent-runner/events.tf",
-                "anchor": "resource \"aws_cloudwatch_event_target\" \"conversation_completion\""
+                "anchor": "export class DeliveryService"
               }
             ]
           }
@@ -2627,35 +2000,35 @@
         {
           "node": "runs",
           "title": "Persist before enqueueing",
-          "description": "The input and queued Run were stored, but the queue send failed. The request body and receipt still exist; this scenario has not launched a worker.",
+          "description": "The queue send failed after immutable input and a queued private execution were stored.",
           "state": "queued",
           "handoff": {
             "from": "runs",
             "to": "records",
-            "payload": "Durable queued receipt survives a failed queue send",
-            "kind": "data",
+            "payload": "Stored immutable input and a queued execution survive an unsuccessful send.",
+            "kind": "request",
             "sources": [
               {
                 "file": "src/core/run-service.ts",
-                "anchor": "const created = await this.options.store.create(record);"
+                "anchor": "public async submit("
               }
             ]
           }
         },
         {
           "node": "reconciler",
-          "title": "Find the waiting Run",
-          "description": "The scheduled reconciler queries stale queued records. It uses the durable record to choose the ordinary Run queue or conversation coordinator queue.",
+          "title": "Find waiting execution",
+          "description": "Query stale queued records and ignore retired conversation records.",
           "state": "queued",
           "handoff": {
             "from": "records",
             "to": "reconciler",
-            "payload": "Stale queued record + conversation binding",
-            "kind": "recovery",
+            "payload": "Query stale queued records and ignore retired conversation records.",
+            "kind": "request",
             "sources": [
               {
-                "file": "src/lambdas/reconciler.ts",
-                "anchor": "async function requeue("
+                "file": "src/core/run-recovery.ts",
+                "anchor": "export function recoveryMessageForRun"
               }
             ]
           }
@@ -2663,35 +2036,35 @@
         {
           "node": "queue",
           "title": "Send another wake-up",
-          "description": "Re-send a reference to the same Run. An idempotent client retry can also repair this window; neither path regenerates the accepted request.",
+          "description": "Use the same Run ID and a trace timestamp supplied by the reconciler.",
           "state": "queued",
           "handoff": {
             "from": "reconciler",
             "to": "queue",
-            "payload": "Same Run ID; a new recovery wake-up",
+            "payload": "Same Run ID; recovery uses a supplied timestamp.",
             "kind": "recovery",
             "sources": [
               {
-                "file": "src/lambdas/reconciler.ts",
-                "anchor": "async function nudgeQueued("
+                "file": "src/core/run-recovery.ts",
+                "anchor": "export function recoveryMessageForRun"
               }
             ]
           }
         },
         {
           "node": "dispatcher",
-          "title": "Claim once from queued state",
-          "description": "The dispatcher conditionally claims the Run and starts its stable execution identity. Duplicate wake-ups race on that claim instead of creating independent Runs.",
+          "title": "Claim the saved execution",
+          "description": "Duplicate hints race on the same conditional execution claim.",
           "state": "dispatching",
           "handoff": {
             "from": "queue",
             "to": "dispatcher",
-            "payload": "Recovered wake-up reference",
+            "payload": "Duplicate hints race on the same conditional execution claim.",
             "kind": "request",
             "sources": [
               {
                 "file": "src/execution/dispatcher.ts",
-                "anchor": "if (current.status === 'queued')"
+                "anchor": "export class RunDispatcher"
               }
             ]
           }
@@ -2699,25 +2072,17 @@
         {
           "node": "runner",
           "title": "Execute the accepted work",
-          "description": "This is the first execution of the waiting request. Recovery of an already attached, lost worker is different: it can mark failure and does not replay the semantic operation.",
+          "description": "This is the first execution of the waiting request. Attached-worker recovery does not replay external effects.",
           "state": "running",
           "handoff": {
             "from": "microvm",
             "to": "runner",
-            "payload": "Original stored input + attached generation",
-            "kind": "request",
+            "payload": "This is the first execution of the waiting request. Attached-worker recovery does not replay external effects.",
+            "kind": "recovery",
             "sources": [
               {
-                "file": "src/adapters/executors.ts",
-                "anchor": "private runHookPayload("
-              },
-              {
-                "file": "src/runner/codex-app-server.ts",
-                "anchor": "if (request.onTurnStarted)"
-              },
-              {
-                "file": "src/execution/reconciler.ts",
-                "anchor": "Repairs stale attached Runs without ever replaying their semantic operation."
+                "file": "src/runner/main.ts",
+                "anchor": "export async function runAgentWorker()"
               }
             ]
           }
@@ -2725,21 +2090,17 @@
         {
           "node": "artifacts",
           "title": "Commit the recovered outcome",
-          "description": "Store the result and commit the terminal Run update. Recovery repaired delivery of the wake-up while preserving the original Run identity.",
+          "description": "Save evidence using the original Run identity; queue repair never created another launch identity.",
           "state": "succeeded",
           "handoff": {
             "from": "runner",
             "to": "artifacts",
-            "payload": "Result and artifacts for the original Run",
-            "kind": "data",
+            "payload": "Save evidence using the original Run identity; queue repair never created another launch identity.",
+            "kind": "recovery",
             "sources": [
               {
-                "file": "src/runner/main.ts",
-                "anchor": "const output = await artifacts.putBytes("
-              },
-              {
-                "file": "src/runner/main.ts",
-                "anchor": "const finalized = await store.finishExecution("
+                "file": "src/adapters/aws-runtime.ts",
+                "anchor": "export class S3ArtifactStore"
               }
             ]
           }
@@ -2748,120 +2109,112 @@
     },
     {
       "id": "cancellation",
-      "title": "Cancel active work",
+      "title": "Delete a Session harness",
       "steps": [
         {
-          "node": "runner",
-          "title": "Start with an active Run",
-          "description": "The Run is already running with an attached worker generation. Cancellation is a lifecycle request, distinct from steering an active Codex turn.",
+          "node": "api",
+          "title": "Delete the owned Session",
+          "description": "Resolve ownership before accepting Session deletion.",
           "state": "running",
           "handoff": {
-            "from": "microvm",
-            "to": "runner",
-            "payload": "Active execution reference + generation",
+            "from": "caller",
+            "to": "api",
+            "payload": "Resolve ownership before accepting Session deletion.",
             "kind": "request",
             "sources": [
               {
-                "file": "src/runner/main.ts",
-                "anchor": "current = await store.startExecution("
-              },
-              {
-                "file": "src/runner/codex-app-server.ts",
-                "anchor": "if (request.onTurnStarted)"
+                "file": "src/lambdas/agents-router.ts",
+                "anchor": "export async function"
               }
             ]
           }
         },
         {
-          "node": "api",
-          "title": "Request cancellation",
-          "description": "The owner asks to cancel this Run. The service loads the owner-scoped record; an already terminal Run is returned unchanged.",
-          "state": "running",
+          "node": "mailbox",
+          "title": "Fence future Session input",
+          "description": "Commit deletion and close the runtime so later input cannot resurrect it.",
+          "state": "cancelling",
           "handoff": {
-            "from": "caller",
-            "to": "api",
-            "payload": "Owner-authorized cancellation request",
+            "from": "api",
+            "to": "mailbox",
+            "payload": "Commit deletion and close the runtime so later input cannot resurrect it.",
             "kind": "request",
             "sources": [
               {
-                "file": "src/core/run-service.ts",
-                "anchor": "public async cancel("
-              },
-              {
-                "file": "src/lambdas/control.ts",
-                "anchor": "return response(202, publicRun(await service().cancel(ownerId, runId)));"
+                "file": "src/core/session-service.ts",
+                "anchor": "export class SessionService"
               }
             ]
           }
         },
         {
           "node": "state",
-          "title": "Record cancellation intent",
-          "description": "Running or dispatching work transitions to cancelling before the stop request. Queued work can instead become cancelled immediately.",
+          "title": "Cancel private execution",
+          "description": "Request cancellation under the private execution transition table.",
           "state": "cancelling",
           "handoff": {
-            "from": "runs",
+            "from": "mailbox",
             "to": "state",
-            "payload": "Conditional running → cancelling transition",
-            "kind": "data",
+            "payload": "Request cancellation under the private execution transition table.",
+            "kind": "request",
             "sources": [
               {
-                "file": "src/core/run-service.ts",
-                "anchor": "const cancelling = current.status === 'cancelling'"
+                "file": "src/domain/state.ts",
+                "anchor": "const TRANSITIONS:"
               }
             ]
           }
         },
         {
           "node": "microvm",
-          "title": "Ask the execution to stop",
-          "description": "The service stops the attached execution. The cancelling state records intent; it does not claim the worker is already gone.",
+          "title": "Stop the attached harness",
+          "description": "Stop the exact attached execution and retire its environment credentials.",
           "state": "cancelling",
           "handoff": {
-            "from": "runs",
+            "from": "state",
             "to": "microvm",
-            "payload": "Stop the attached execution",
-            "kind": "recovery",
+            "payload": "Stop the exact attached execution and retire its environment credentials.",
+            "kind": "request",
             "sources": [
               {
-                "file": "src/core/run-service.ts",
-                "anchor": "await this.options.executions.stop(cancelling.execution,"
+                "file": "src/adapters/executors.ts",
+                "anchor": "export class MicrovmRunExecutor"
               }
             ]
           }
         },
         {
           "node": "reconciler",
-          "title": "Verify a stale cancellation",
-          "description": "For a stale cancellation, inspect the exact execution. An active worker gets another stop request; unknown observations defer or quarantine instead of claiming it stopped.",
+          "title": "Inspect the exact attachment",
+          "description": "Conflicting or unknown observations defer terminal cancellation and can quarantine uncertain identity.",
           "state": "cancelling",
           "handoff": {
-            "from": "reconciler",
-            "to": "microvm",
-            "payload": "Inspect backend ID + execution generation",
+            "from": "microvm",
+            "to": "reconciler",
+            "payload": "Conflicting or unknown observations defer terminal cancellation and can quarantine uncertain identity.",
             "kind": "recovery",
             "sources": [
               {
-                "file": "src/execution/reconciler.ts",
-                "anchor": "public async reconcile("
+                "file": "src/core/run-recovery.ts",
+                "anchor": "export function recoveryMessageForRun"
               }
             ]
           }
         },
         {
           "node": "state",
-          "title": "Finalize after confirmation",
-          "description": "When the inspected execution is terminal or absent, a fenced update can record cancelled. Terminal states have no outgoing transitions.",
+          "title": "Confirm execution cancellation",
+          "description": "Only terminal or absent execution evidence confirms a stopped attachment.",
           "state": "cancelled",
           "handoff": {
             "from": "reconciler",
             "to": "state",
-            "payload": "Confirmed terminal/absent execution → cancelled",
+            "payload": "Only terminal or absent execution evidence confirms a stopped attachment.",
             "kind": "recovery",
             "sources": [
               {
-                "file": "src/execution/reconciler.ts",
-                "anchor": "return await this.options.store.cancelExecution(run.runId, execution) ? 'cancelled' : 'raced';"
+                "file": "src/domain/state.ts",
+                "anchor": "const TRANSITIONS:"
               }
             ]
           }
@@ -2874,62 +2227,54 @@
       "steps": [
         {
           "node": "artifacts",
-          "title": "Begin with saved output",
-          "description": "The agent finished and stored its result. The Run is succeeded; this scenario follows a later notification failure, not an execution failure.",
+          "title": "Keep the saved output",
+          "description": "Immutable output and terminal Turn evidence survive delivery failure.",
           "state": "succeeded",
           "handoff": {
             "from": "runner",
             "to": "artifacts",
-            "payload": "Committed result bytes and artifact references",
-            "kind": "data",
+            "payload": "Immutable output and terminal Turn evidence survive delivery failure.",
+            "kind": "request",
             "sources": [
               {
-                "file": "src/runner/main.ts",
-                "anchor": "const output = await artifacts.putBytes("
-              },
-              {
-                "file": "src/runner/main.ts",
-                "anchor": "const finalized = await store.finishExecution("
+                "file": "src/adapters/aws-runtime.ts",
+                "anchor": "export class S3ArtifactStore"
               }
             ]
           }
         },
         {
-          "node": "events",
-          "title": "Route the terminal event",
-          "description": "A committed status change triggers notification. The event does not launch another agent execution.",
+          "node": "notifier",
+          "title": "Attempt provider delivery",
+          "description": "Read the saved root Turn and resolve its trusted destination.",
           "state": "succeeded",
           "handoff": {
-            "from": "records",
-            "to": "events",
-            "payload": "Succeeded state event",
-            "kind": "data",
+            "from": "events",
+            "to": "notifier",
+            "payload": "Read the saved root Turn and resolve its trusted destination.",
+            "kind": "request",
             "sources": [
               {
-                "file": "src/lambdas/state-stream.ts",
-                "anchor": "const event: RunStateEvent ="
+                "file": "src/delivery/service.ts",
+                "anchor": "export class DeliveryService"
               }
             ]
           }
         },
         {
           "node": "fence",
-          "title": "Claim this destination",
-          "description": "Before sending, the notifier claims the Run/destination fence. Already recorded outcomes are checked when duplicate terminal events arrive.",
+          "title": "Claim the delivery",
+          "description": "Record the delivery identity before sending saved Turn content.",
           "state": "succeeded",
           "handoff": {
             "from": "notifier",
             "to": "fence",
-            "payload": "Run ID + resolved destination key",
-            "kind": "request",
+            "payload": "Record the delivery identity before sending saved Turn content.",
+            "kind": "recovery",
             "sources": [
               {
-                "file": "src/delivery/service.ts",
-                "anchor": "if (!(await this.options.fence.claim(run, key))) continue;"
-              },
-              {
-                "file": "src/delivery/service.ts",
-                "anchor": "error instanceof KnownNotDeliveredError"
+                "file": "src/adapters/dynamo-delivery-fence.ts",
+                "anchor": "export class DynamoDeliveryFence"
               }
             ]
           }
@@ -2937,57 +2282,53 @@
         {
           "node": "notifier",
           "title": "Receive an ambiguous send error",
-          "description": "The provider call throws an error that does not prove safe non-delivery. The saved result remains available, and the Run stays succeeded.",
+          "description": "The provider outcome is uncertain; Session output remains saved.",
           "state": "succeeded",
           "handoff": {
-            "from": "notifier",
-            "to": "destination",
-            "payload": "Attempted result delivery; outcome uncertain",
-            "kind": "request",
+            "from": "fence",
+            "to": "notifier",
+            "payload": "The provider outcome is uncertain; Session output remains saved.",
+            "kind": "recovery",
             "sources": [
               {
                 "file": "src/delivery/service.ts",
-                "anchor": "await this.options.fence.failed(run.runId, key, error);"
+                "anchor": "export class DeliveryService"
               }
             ]
           }
         },
         {
           "node": "fence",
-          "title": "Keep the uncertain outcome",
-          "description": "Record outcome_unknown rather than blindly sending again. Only a known retryable non-delivery releases the claim and throws for a safe retry.",
+          "title": "Retain the uncertain outcome",
+          "description": "Store outcome_unknown rather than sending another potentially duplicate reply.",
           "state": "succeeded",
           "handoff": {
             "from": "notifier",
             "to": "fence",
-            "payload": "Uncertain delivery outcome; retain the claim",
-            "kind": "data",
+            "payload": "Store outcome_unknown rather than sending another potentially duplicate reply.",
+            "kind": "recovery",
             "sources": [
               {
                 "file": "src/adapters/dynamo-delivery-fence.ts",
-                "anchor": "'outcome_unknown'"
-              },
-              {
-                "file": "src/delivery/service.ts",
-                "anchor": "error instanceof KnownNotDeliveredError"
+                "anchor": "export class DynamoDeliveryFence"
               }
             ]
           }
         },
         {
-          "node": "api",
-          "title": "Retrieve the successful Run",
-          "description": "The owner can still retrieve the Run and its stored result through the API. Fixing or inspecting delivery does not require rerunning the agent.",
+          "node": "artifacts",
+          "title": "Retrieve the saved Turn output",
+          "description": "Reading saved output does not require rerunning the Agent or repeating provider delivery.",
           "state": "succeeded",
           "handoff": {
-            "from": "api",
-            "to": "caller",
-            "payload": "Owner-scoped Run receipt + result references",
-            "kind": "data",
+            "from": "fence",
+            "to": "artifacts",
+            "payload": "Reading saved output does not require rerunning the Agent or repeating provider delivery.",
+            "kind": "recovery",
             "sources": [
               {
-                "file": "src/lambdas/control.ts",
-                "anchor": "return response(200, publicRun(await service().get(ownerId, runId)));"
+                "file": "src/adapters/aws-runtime.ts",
+                "anchor": "export class S3ArtifactStore"
               }
             ]
           }
@@ -2997,96 +2338,68 @@
   ],
   "concepts": [
     {
+      "id": "session",
+      "title": "Session",
+      "description": "An owned snapshot of Agent configuration and ongoing work across Turns.",
+      "sources": [
+        {
+          "file": "src/core/session-service.ts",
+          "anchor": "export class SessionService"
+        }
+      ]
+    },
+    {
+      "id": "turn",
+      "title": "Turn",
+      "description": "One period of agent work with its own saved Items and terminal outcome.",
+      "sources": [
+        {
+          "file": "src/core/session-service.ts",
+          "anchor": "export class SessionService"
+        }
+      ]
+    },
+    {
       "id": "run",
-      "title": "Run",
-      "description": "One accepted input creates one owner-scoped execution receipt. The Run records its lifecycle and points to stored input and output; acceptance happens before completion.",
+      "title": "Private Run",
+      "description": "An internal harness launch and fenced worker generation. Several public Turns can share it.",
       "sources": [
         {
           "file": "src/core/run-service.ts",
           "anchor": "public async submit("
-        },
-        {
-          "file": "src/conversation/coordinator.ts",
-          "anchor": "// One accepted input is one public Run."
         }
       ]
     },
     {
-      "id": "thing",
-      "title": "Thing",
-      "description": "A versioned definition of reusable work. Testing a draft and invoking its published revision create Runs; a Thing is not a running worker.",
+      "id": "schedule",
+      "title": "Schedule",
+      "description": "An application integration that reserves occurrences and submits canonical Session input.",
       "sources": [
         {
-          "file": "src/core/thing-service.ts",
-          "anchor": "public async test("
-        },
-        {
-          "file": "src/core/thing-service.ts",
-          "anchor": "public async runNow("
-        }
-      ]
-    },
-    {
-      "id": "conversation",
-      "title": "Conversation",
-      "description": "Ordering and continuity across inputs. A mailbox and lease prepare each Run with predecessor context; several inputs do not merge into one Run.",
-      "sources": [
-        {
-          "file": "src/conversation/coordinator.ts",
-          "anchor": "const pending = await this.options.conversations.pending("
-        }
-      ]
-    },
-    {
-      "id": "microvm",
-      "title": "MicroVM",
-      "description": "Replaceable execution capacity around the trusted host and non-root agent. A conversation may resume a warm session or start a replacement when it is unavailable.",
-      "sources": [
-        {
-          "file": "src/adapters/executors.ts",
-          "anchor": "public async start(record:"
-        },
-        {
-          "file": "src/runner/process.ts",
-          "anchor": "export async function runProcess"
+          "file": "src/core/schedule-service.ts",
+          "anchor": "export class ScheduleService"
         }
       ]
     },
     {
       "id": "durability",
       "title": "What survives a worker",
-      "description": "Committed Run records, conversation context and S3 payloads survive worker loss within configured retention. Optional S3 Files also preserves native conversation state and workspace files across workers.",
+      "description": "Saved resource content, Items and Artifacts live in encrypted storage; S3 Files optionally preserves native workspace state.",
       "sources": [
         {
-          "file": "src/conversation/continuation.ts",
-          "anchor": "// Native thread state outlives the VM lease"
-        },
-        {
-          "file": "src/adapters/executors.ts",
-          "anchor": "...(record.conversation && this.options.s3Files ?"
-        },
-        {
-          "file": "infra/modules/agent-runner/data.tf",
-          "anchor": "resource \"aws_s3_bucket_server_side_encryption_configuration\" \"artifacts\""
+          "file": "src/runner/main.ts",
+          "anchor": "const durableStateRoot = process.env.SESSION_STATE_ROOT;"
         }
       ]
     },
     {
       "id": "capability-envelope",
       "title": "Capability envelope",
-      "description": "The Run starts with fixed authority. Profiles, IAM, network and process rules and connection grants enforce it; forbidden tools are absent or denied, with no mid-Run approval to widen access.",
+      "description": "Resolved tools and independent enforcing layers constrain the autonomous agent.",
       "sources": [
         {
-          "file": "src/plugins/capability-profiles.ts",
-          "anchor": "export function resolveAgentProfile"
-        },
-        {
-          "file": "src/plugins/integration-runtime.ts",
-          "anchor": "enforceResourceConstraints(selected.grant, operationInput);"
-        },
-        {
-          "file": "src/runner/control.ts",
-          "anchor": "interactive approvals are disabled;"
+          "file": "src/runner/session-launch-planning.ts",
+          "anchor": "export function planSessionLaunch"
         }
       ]
     }
@@ -3095,52 +2408,44 @@
     {
       "id": "caller",
       "title": "Caller",
-      "description": "A person, application or provider outside the managed Run resources. Authenticated API calls and signed provider events enter through separate transports. The placement is logical, not a network topology.",
+      "description": "An authenticated SDK caller or verified provider event.",
       "sources": [
         {
-          "file": "src/lambdas/control.ts",
-          "anchor": "const context = apiIngressContext(principal(event));"
-        },
-        {
-          "file": "src/ingress/service.ts",
-          "anchor": "public async receive("
+          "file": "src/lambdas/agents-router.ts",
+          "anchor": "export async function"
         }
       ]
     },
     {
       "id": "destination",
       "title": "Result destination",
-      "description": "A source thread or configured provider destination receiving saved results. Delivery leaves the managed Run resources and has its own outcome; it does not loop back through ingress.",
+      "description": "The trusted provider destination for saved terminal Turn output.",
       "sources": [
         {
           "file": "src/delivery/service.ts",
-          "anchor": "export function resolveDestinations"
+          "anchor": "export class DeliveryService"
         }
       ]
     },
     {
       "id": "model-provider",
       "title": "Model provider",
-      "description": "The selected external model service, using ChatGPT-backed access or configured Amazon Bedrock. This is outside the worker’s process boundary; the drawing does not claim it is outside AWS.",
+      "description": "The model service configured by the deployment operator.",
       "sources": [
         {
           "file": "src/runner/codex-auth.ts",
           "anchor": "export function codexAuthMode"
-        },
-        {
-          "file": "src/runner/bedrock-auth.ts",
-          "anchor": "export async function loadCodexBedrockToken"
         }
       ]
     },
     {
       "id": "connected-service",
       "title": "Connected service",
-      "description": "An external provider account reached through a trusted integration operation. Its own scopes and service rules still apply after Rat Things checks the connection grant. Placement denotes a logical service boundary.",
+      "description": "A service reached through a declared, authorized tool or provider adapter.",
       "sources": [
         {
           "file": "src/plugins/integration-runtime.ts",
-          "anchor": "const result = await selected.plugin.execute("
+          "anchor": "enforceResourceConstraints(selected.grant, operationInput);"
         }
       ]
     }

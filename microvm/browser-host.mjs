@@ -15,6 +15,7 @@ import { dirname, isAbsolute, resolve, sep } from 'node:path';
 
 const VIEWPORT = { width: 1280, height: 720, deviceScaleFactor: 1 };
 const NAVIGATION_TIMEOUT_MS = 20_000;
+const PROTOCOL_TIMEOUT_MS = 15_000;
 const SNAPSHOT_TEXT_LIMIT = 20_000;
 const SNAPSHOT_ELEMENT_LIMIT = 250;
 const DNS_CACHE_TTL_MS = 30_000;
@@ -155,6 +156,9 @@ async function ensurePage() {
     defaultViewport: VIEWPORT,
     executablePath,
     headless: 'shell',
+    // A recording screenshot can lose its reply during navigation. Bound the
+    // protocol call so it releases Puppeteer's screenshot lock for later commands.
+    protocolTimeout: PROTOCOL_TIMEOUT_MS,
     userDataDir: profileRoot,
   });
   page = (await browser.pages())[0] ?? await browser.newPage();
@@ -287,7 +291,27 @@ async function referencedElement(targetPage, ref) {
   return element;
 }
 
-async function snapshot(targetPage, includeScreenshot, additions = {}) {
+export async function snapshot(targetPage, includeScreenshot, additions = {}) {
+  // Navigation may replace the document after an action has already succeeded.
+  // Retry only observation; replaying the action could submit a form twice.
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return await snapshotDocument(targetPage, includeScreenshot, additions);
+    } catch (error) {
+      if (attempt >= 2 || !isNavigationContextLoss(error)) throw error;
+      await settle(targetPage);
+    }
+  }
+}
+
+function isNavigationContextLoss(error) {
+  return error instanceof Error && (
+    error.message.includes('Execution context was destroyed') ||
+    error.message.includes('Cannot find context with specified id')
+  );
+}
+
+async function snapshotDocument(targetPage, includeScreenshot, additions) {
   const state = await targetPage.evaluate(({ textLimit, elementLimit }) => {
     for (const prior of document.querySelectorAll('[data-rat-ref]')) {
       prior.removeAttribute('data-rat-ref');

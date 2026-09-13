@@ -10,6 +10,10 @@ requested_id="${1:-${AWS_E2E_DEPLOYMENT_ID:-e2e-$(date -u +%y%m%d%H%M)}}"
 project_root_hint="$(dirname "$script_dir")"
 aws_e2e_source_runtime_defaults "$project_root_hint/.aws-e2e/$requested_id/runtime.env"
 aws_e2e_configure "$requested_id"
+if [[ "$real_codex_enabled" != "true" ]]; then
+  echo "Set AWS_E2E_REAL_CODEX=true before provisioning an Agents test deployment" >&2
+  exit 2
+fi
 aws_e2e_require aws git jq node npm openssl terraform
 
 if [[ "$publication_enabled" == "true" ]]; then
@@ -59,6 +63,14 @@ fi
 
 account_id="$(aws sts get-caller-identity --query Account --output text)"
 caller_arn="$(aws sts get-caller-identity --query Arn --output text)"
+identity_file="$run_dir/aws-identity.json"
+if [[ -f "$identity_file" && ( "$(jq -r '.account' "$identity_file")" != "$account_id" || "$(jq -r '.region' "$identity_file")" != "$aws_region" ) ]]; then
+  echo "Use this deployment's recorded AWS account and region." >&2
+  exit 1
+fi
+# Persist identity before apply so a partial deployment can be safely recovered.
+jq -n --arg account "$account_id" --arg region "$aws_region" \
+  '{account: $account, region: $region}' >"$identity_file"
 echo "Deploying ephemeral AWS validation stack $deployment_id"
 echo "AWS account: $account_id ($caller_arn)"
 echo "AWS region:  $aws_region"
@@ -134,10 +146,12 @@ aws_e2e_export AWS_E2E_DEPLOYMENT_ID "$deployment_id"
 aws_e2e_export AWS_E2E_CALLER_ACCOUNT "$account_id"
 aws_e2e_export AWS_E2E_CALLER_ARN "$caller_arn"
 aws_e2e_export AWS_E2E_ENABLE_MICROVM "$microvm_enabled"
+aws_e2e_export AWS_E2E_ENABLE_EC2_WORKER "$ec2_worker_enabled"
+aws_e2e_export AWS_E2E_EC2_WORKER_AMI_ID "$ec2_worker_ami_id"
+aws_e2e_export AWS_E2E_EC2_WORKER_IMAGE "$ec2_worker_image"
 aws_e2e_export AWS_E2E_MICROVM_BASE_IMAGE_VERSION "$microvm_base_image_version"
 aws_e2e_export AWS_E2E_REAL_CODEX "$real_codex_enabled"
 aws_e2e_export AWS_E2E_CODEX_MODEL_ID "$codex_model_id"
-aws_e2e_export AWS_E2E_DEFAULT_AGENT_DRIVER "$default_agent_driver"
 aws_e2e_export AWS_E2E_OAUTH_APP_SECRET_ARNS "$oauth_app_secret_arns"
 aws_e2e_export AWS_E2E_PUBLICATION_DOMAIN "$publication_domain"
 aws_e2e_export AWS_E2E_PUBLICATION_ROUTE53_ZONE_ID "$publication_zone_id"
@@ -153,6 +167,11 @@ if [[ -n "$aws_profile" ]]; then
 fi
 aws_e2e_export AGENT_RUNTIME_API_URL "$(aws_e2e_output api_endpoint)"
 aws_e2e_export RAT_THINGS_API_URL "$(aws_e2e_output api_endpoint)"
+aws_e2e_export RAT_THINGS_AGENTS_API_URL "$(aws_e2e_output agents_api_base_url)"
+aws_e2e_export AWS_E2E_ENVIRONMENT_RELAY_IMAGE "$environment_relay_image"
+aws_e2e_export AWS_E2E_ENVIRONMENT_RELAY_ORIGIN_HOSTNAME "$environment_relay_origin_hostname"
+aws_e2e_export AWS_E2E_ENVIRONMENT_RELAY_ORIGIN_CERTIFICATE_ARN "$environment_relay_origin_certificate_arn"
+aws_e2e_export RAT_THINGS_ENVIRONMENT_RELAY_URL "$(aws_e2e_output environment_relay_url)"
 aws_e2e_export AWS_E2E_OAUTH_CALLBACK_URL "$(aws_e2e_output oauth_callback_url)"
 aws_e2e_export AWS_E2E_OAUTH_CONFIGURED "$(jq -r 'if length > 0 then "true" else "false" end' <<<"$oauth_app_secret_arns")"
 aws_e2e_export ARTIFACT_BUCKET "$(aws_e2e_output artifact_bucket_name)"
@@ -164,15 +183,10 @@ aws_e2e_export PUBLICATION_DISTRIBUTION_ID "$(aws_e2e_output publication_deliver
 aws_e2e_export PUBLICATION_DISTRIBUTION_DOMAIN "$(aws_e2e_output publication_delivery | jq -r '.distribution_domain_name // empty')"
 aws_e2e_export RUNS_TABLE_NAME "$(aws_e2e_output runs_table_name)"
 aws_e2e_export RECONCILER_FUNCTION_NAME "$(aws_e2e_output reconciler_function_name)"
-aws_e2e_export CONVERSATIONS_TABLE_NAME "$(aws_e2e_output conversations_table_name)"
 aws_e2e_export INTEGRATIONS_TABLE_NAME "$(aws_e2e_output integrations_table_name)"
-aws_e2e_export THINGS_TABLE_NAME "$(aws_e2e_output things_table_name)"
 aws_e2e_export THING_SCHEDULE_GROUP_NAME "$(aws_e2e_output thing_schedule_group_name)"
 aws_e2e_export THING_SCHEDULE_FAILURE_QUEUE_URL "$(aws_e2e_output thing_schedule_failure_queue_url)"
 aws_e2e_export RUN_QUEUE_URL "$(aws_e2e_output run_queue_url)"
-aws_e2e_export CONVERSATION_QUEUE_URL "$(aws_e2e_output conversation_queue_url)"
-aws_e2e_export CONVERSATION_FAILURE_QUEUE_URL "$(aws_e2e_output conversation_failure_queue_url)"
-aws_e2e_export CONVERSATION_COMPLETION_FAILURE_QUEUE_URL "$(aws_e2e_output conversation_completion_failure_queue_url)"
 aws_e2e_export RUN_FAILURE_QUEUE_URL "$(aws_e2e_output run_failure_queue_url)"
 aws_e2e_export STATE_STREAM_FAILURE_QUEUE_URL "$(aws_e2e_output state_stream_failure_queue_url)"
 aws_e2e_export NOTIFIER_DELIVERY_FAILURE_QUEUE_URL "$(aws_e2e_output notifier_delivery_failure_queue_url)"

@@ -5,6 +5,7 @@ import type {
   PublicationKind,
   PublicationManifest,
   PublicationSpec,
+  PublicationShare,
   Result,
 } from '../domain/publications.js';
 import {
@@ -31,6 +32,10 @@ export interface PublicationBuilder {
     spec: PublicationSpec,
     files: readonly PublicationSourceFile[],
   ): Promise<Result<PublicationPlan, PublicationDiagnostic[]>>;
+}
+
+export interface PublicationGrantStore {
+  put(share: PublicationShare): Promise<void>;
 }
 
 export interface PublicationObjectStore {
@@ -63,8 +68,9 @@ export interface PublishInput {
   publicationId: string;
   spec: PublicationSpec;
   files: readonly PublicationSourceFile[];
-  runId: string;
-  conversationId?: string;
+  runId?: string;
+  sessionId?: string;
+  artifactIds?: string[];
   createdAt?: string;
 }
 
@@ -154,8 +160,8 @@ export class PublicationService {
       publicationId: input.publicationId,
       plan: planned.value,
       files: materialized,
-      runId: input.runId,
-      ...(input.conversationId ? { conversationId: input.conversationId } : {}),
+      ...(input.runId ? { runId: input.runId } : {}),
+      ...(input.sessionId ? { sessionId: input.sessionId, artifactIds: input.artifactIds ?? [] } : {}),
       builder: builder.name,
       createdAt: input.createdAt ?? this.clock.now().toISOString(),
     });

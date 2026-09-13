@@ -33,11 +33,11 @@ export class SlackIngressAdapter implements WebhookIngressAdapter {
     }
     const normalized = normalizeSlackEvent(payload);
     if (!normalized) return { kind: 'response', response: jsonResponse(202, { accepted: false, ignored: true }) };
-    return { kind: 'run', work: normalizedWork(normalized, normalized.idempotencyKey) };
+    return { kind: 'session', work: normalizedWork(normalized, normalized.idempotencyKey) };
   }
 
-  public acknowledge(run: { runId: string }, _work: IngressWork): WebhookResponse {
-    return jsonResponse(202, { accepted: true, runId: run.runId });
+  public acknowledge(session: { sessionId: string }, _work: IngressWork): WebhookResponse {
+    return jsonResponse(202, { accepted: true, sessionId: session.sessionId });
   }
 }
 

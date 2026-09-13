@@ -39,7 +39,7 @@ describe('low-cardinality Lambda metrics', () => {
   it('derives queue delay from the SQS sent timestamp without emitting identifiers', () => {
     const info = vi.spyOn(console, 'info').mockImplementation(() => undefined);
     emitSqsQueueDelay(
-      'conversation-coordinator',
+      'agents-outbox',
       { attributes: { SentTimestamp: '1000' } } as never,
       1_750,
     );
@@ -47,23 +47,23 @@ describe('low-cardinality Lambda metrics', () => {
     expect(info).toHaveBeenCalledOnce();
     const metric = JSON.parse(String(info.mock.calls[0]?.[0])) as Record<string, unknown>;
     expect(metric).toMatchObject({
-      Component: 'conversation-coordinator',
+      Component: 'agents-outbox',
       QueueDelay: 750,
     });
     expect(JSON.stringify(metric)).not.toContain('messageId');
   });
 
-  it('separates cold launch, resume, and fallback timing without execution identifiers', () => {
+  it('reports launch duration and failure without execution identifiers', () => {
     const info = vi.spyOn(console, 'info').mockImplementation(() => undefined);
 
     emitMicrovmStartupObservation({ mode: 'launch', outcome: 'succeeded', durationMs: 42_000 });
-    emitMicrovmStartupObservation({ mode: 'resume', outcome: 'fallback', durationMs: 6_000 });
+    emitMicrovmStartupObservation({ mode: 'launch', outcome: 'failed', durationMs: 6_000 });
 
     const metrics = info.mock.calls.map((call) => JSON.parse(String(call[0])) as Record<string, unknown>);
     expect(metrics).toHaveLength(3);
     expect(metrics[0]).toMatchObject({ Component: 'dispatcher', MicrovmLaunchRequestDuration: 42_000 });
-    expect(metrics[1]).toMatchObject({ Component: 'dispatcher', MicrovmResumeRequestDuration: 6_000 });
-    expect(metrics[2]).toMatchObject({ Component: 'dispatcher', MicrovmResumeFallback: 1 });
+    expect(metrics[1]).toMatchObject({ Component: 'dispatcher', MicrovmLaunchRequestDuration: 6_000 });
+    expect(metrics[2]).toMatchObject({ Component: 'dispatcher', MicrovmStartupFailure: 1 });
     expect(JSON.stringify(metrics)).not.toMatch(/runId|microvmId|ownerId/);
   });
 });

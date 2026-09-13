@@ -103,11 +103,30 @@ output "microvm" {
 }
 
 output "s3_files" {
-  description = "Durable conversation filesystem outputs."
+  description = "Durable Session filesystem outputs."
   value       = module.agent_runner.s3_files
 }
 
 output "publication_delivery" {
   description = "Isolated file, site, and video publication delivery outputs."
   value       = module.agent_runner.publication_delivery
+}
+output "agents_api_base_url" {
+  value = module.agent_runner.agents_api_base_url
+}
+
+output "agents_token_issuer_url" {
+  value = module.agent_runner.agents_token_issuer_url
+}
+
+output "environment_relay_repository_url" {
+  value = module.agent_runner.environment_relay_repository_url
+}
+
+output "environment_relay_url" {
+  value = module.agent_runner.environment_relay_url
+}
+
+output "environment_relay_origin_dns_name" {
+  value = module.agent_runner.environment_relay_origin_dns_name
 }

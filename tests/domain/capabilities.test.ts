@@ -155,7 +155,7 @@ describe('integration capability contracts', () => {
       ownerId: 'owner-1',
       sourceKind: 'github',
       selector: { repository: 'acme/support' },
-      capabilityProfile: 'trusted-browser',
+      agentId: 'agent_1', environment: { type: 'none' },
       connectionSetId: 'acme-operations',
     })).toMatchObject({ bindingId: 'github-acme' });
   });
@@ -167,6 +167,7 @@ describe('integration capability contracts', () => {
       ownerId: 'owner-1',
       sourceKind: 'github',
       selector: { repository: 'acme/support', installationId: '42' },
+      agentId: 'agent_1', environment: { type: 'none' },
     });
     expect(sourceBindingMatches(binding, {
       kind: 'github',

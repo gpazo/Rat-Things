@@ -220,13 +220,14 @@ function request(command) {
     const id = ++nextId;
     const timer = setTimeout(() => {
       child.off('message', listener);
-      reject(new Error('browser canary timed out'));
-    }, 45_000);
+      reject(new Error(`browser canary timed out during ${command.type}`));
+    // The first request also imports Puppeteer and inflates the ARM64 browser.
+    }, id === 1 ? 90_000 : 45_000);
     const listener = (message) => {
       if (message?.id !== id) return;
       clearTimeout(timer);
       child.off('message', listener);
-      if (message.error) reject(new Error(message.error));
+      if (message.error) reject(new Error(`browser ${command.type} failed: ${message.error}`));
       else resolve(message.result);
     };
     child.on('message', listener);

@@ -12,14 +12,14 @@ identity, retention, network policy, and operational limits for the environment 
 
 | System | What it provides | Learn more |
 | --- | --- | --- |
-| Runs | Owner-scoped acceptance, idempotency, state transitions, cancellation, and retained results | [API](api.md) |
-| Things | Immutable revisions, draft testing, active publication, manual invocation, and schedules | [Things](things.md) |
+| Sessions and Turns | Owner-scoped input, ordered execution, cancellation and saved Items | [Agents API](agents-api.md) |
+| Agents and schedules | Reusable standard Agent configurations and AWS schedule inputs | [Agents](agents-api.md), [schedules](schedules.md) |
 | Connections | Provider-verified accounts, host-owned credentials, grants, and account-specific operations | [Integrations](plugins.md) |
 | Capability envelope | A fixed intersection of provider, deployment, profile, account, and Run permissions | [Permissions](capability-envelope.md) |
-| Conversations | Ordered mailboxes, fenced workers, replay, and shared console/CLI history | [Conversation durability](conversations.md#how-durability-works) |
-| Execution | One-shot MicroVMs or suspend/resume; optional S3 Files restores native agent state and workspace in replacement compute | [Execution lifecycle](architecture.md#lifecycle) |
+| Session history | Durable outbox, runtime journal and saved Items in the console and SDK | [Session durability](conversations.md#how-durability-works) |
+| Execution | Private MicroVM harness; saved Session history remains when compute expires | [Agents execution](agents-api.md) |
 | Files and publications | Private retained bytes, owner-scoped catalogs, and expiring file/site/video share grants | [Files](durable-files.md), [publishing](publications.md) |
-| Browser | Public-web navigation, screenshots, recordings, live viewing, exclusive takeover, and demonstration-to-draft conversion | [Browser use](browser-computer-use.md) |
+| Browser | Declared function/MCP integration; private helper retained, public takeover retired | [Browser use](browser-computer-use.md) |
 | Channels | Signed GitHub, GitLab, Teams, and optional Slack ingress with separate result delivery | [Channels](channels.md) |
 | Authentication | A deliberate file-based ChatGPT credential bridge or short-lived Bedrock model authentication | [Credential lifecycle](codex-subscription.md#credential-risk-and-lifecycle) |
 | Recovery | Queue repair, generation-fenced liveness, cancellation settlement, and per-destination delivery fences | [Runbook](runbook.md) |

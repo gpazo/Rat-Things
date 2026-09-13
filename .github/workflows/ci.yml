@@ -10,9 +10,20 @@ permissions:
 
 jobs:
   check:
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.RAT_NATIVE_RUNNER || 'ubuntu-22.04-arm' }}
+    timeout-minutes: 240
     steps:
       - uses: actions/checkout@v7.0.1
+      - name: Reserve native build space
+        run: |
+          # These preinstalled SDKs are unused by this job. All Rust build tools
+          # come from the pinned container, and Node/Terraform are installed below.
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
+          available=$(df -Pk . | awk 'NR == 2 {print $4}')
+          if [ "$available" -lt 20971520 ]; then
+            echo "Native builds need 20 GiB free. Set RAT_NATIVE_RUNNER to an ARM64 runner with more disk."
+            exit 1
+          fi
       - uses: actions/setup-node@v7.0.0
         with:
           node-version: 22
@@ -21,7 +32,19 @@ jobs:
         with:
           terraform_version: 1.15.8
       - run: npm ci
+      - uses: actions/cache@v4
+        id: codex-runtime
+        with:
+          path: .runtime/codex/linux-arm64
+          key: codex-linux-arm64-${{ hashFiles('runtime/codex/**', 'scripts/build-codex-runtime.mjs') }}
+      - name: Build pinned Linux ARM64 runtime
+        if: steps.codex-runtime.outputs.cache-hit != 'true'
+        run: docker buildx build --platform linux/arm64 --file runtime/codex/Dockerfile --output type=local,dest=.runtime/codex/linux-arm64 .
       - run: npm run check
+      - run: npm run test:infra
+      - run: npm run test:e2e:relay-image
+      - run: npm run test:e2e:microvm-image
+      - run: npm run test:e2e:native-image
       - run: npx playwright install --with-deps chromium
       - run: npm run test:e2e:site
       - uses: actions/upload-artifact@v4

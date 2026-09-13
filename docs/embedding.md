@@ -43,12 +43,12 @@ without a central registry. Important entries are:
     "agentGuide": "https://gpazo.github.io/Rat-Things/docs/agents/",
     "agentDocs": "https://gpazo.github.io/Rat-Things/llms.txt",
     "schemas": {
-      "thing": "/schemas/thing-v1.json"
+      "agents": "/schemas/agents-api.schema.json"
     }
   },
   "capabilities": {
     "consumers": ["operator", "embedded-product", "agent", "cli", "provider-event"],
-    "recommendedFacade": "things",
+    "recommendedFacade": "agents",
     "integrations": {
       "multipleAccounts": true,
       "credentialOnboarding": "manifest-driven",
@@ -63,7 +63,7 @@ without a central registry. Important entries are:
 ```
 
 The published [OpenAPI contract](../spec/openapi.json) describes every installed HTTP route and its
-request contract, including Things, integrations, runs, conversations, routines, publications,
+request contract, including Agents, Sessions, integrations, schedules, publications,
 discovery, and optional provider webhooks. JSON Schemas are suitable for editor completion, form
 generation, agent tool definitions, CI fixtures, and validation before a network call. Centrally
 hosted agent-readable navigation is available at `https://gpazo.github.io/Rat-Things/llms.txt`, and
@@ -84,11 +84,9 @@ Build a UI that calls the API on behalf of its signed-in principal:
    credential fields through the host's own OAuth/API-key flow;
 3. submit the credential and let Rat verify and label the provider account;
 4. group accounts into connection sets;
-5. create a draft Thing from a validated ThingSpec form;
-6. render `explain` diagnostics and operation permissions before publishing;
-7. test the draft, publish the selected immutable revision, submit an explicit run, and follow its
-   events; and
-8. display files/publications through the owner-checked artifact APIs.
+5. create an Agent from the standard SDK request;
+6. create a Session with the desired environment and input; and
+7. follow its events and recover saved Turns and Items after reconnecting.
 
 The console must use an authenticated backend-for-frontend when the deployed control API uses AWS
 IAM. Do not expose AWS signing credentials, provider tokens, S3 coordinates, or MicroVM proxy tokens
@@ -97,7 +95,7 @@ to browser JavaScript.
 ### Another agent
 
 Give the agent the deployment base URL and an authenticated CLI, SigV4-capable HTTP tool, or
-host-owned backend tool. It starts at discovery, prefers the Thing facade, and follows links into
+host-owned backend tool. It starts at discovery, uses the Agents API, and follows links into
 raw runs, live events, conversations, files, publications, browser use, skills, apps, or MCP only
 when the task needs them. The complete progressive path and a copyable bootstrap instruction are in
 [Connect an agent to Rat Things](agents.md).
@@ -105,7 +103,7 @@ when the task needs them. The complete progressive path and a copyable bootstrap
 ### Embedded product or SaaS
 
 Keep customer/product state in the host application. Store only Rat IDs needed to associate that
-state with connections, Things, conversations, and runs. The host can map every authenticated
+state with connections, Agents and Sessions. The host can map every authenticated
 tenant or end user to a distinct principal, or intentionally map a group to a shared principal.
 Rat does not implement signup, organizations, seats, billing, or invitations and does not infer
 them from request bodies.
@@ -158,7 +156,7 @@ transport must own and publish a corresponding machine contract. Keep these iden
 | Identity | Meaning |
 | --- | --- |
 | actor | Human or system responsible for the request |
-| owner | Isolation boundary for Things, connections, runs, and artifacts |
+| owner | Isolation boundary for Agents, Sessions, connections and artifacts |
 | source | Verified API/provider context that caused work |
 | destination | Explicit result-delivery target |
 | credential subject | Runtime or actor whose credential policy applies |
@@ -182,7 +180,7 @@ a broad upstream token to be exposed as read-only for one account selection, whi
 showing when enforcement is broker-only because the provider has coarse scopes. Rotation and
 revocation remain explicit owner-authenticated operations.
 
-Never put access tokens in a Thing, run request, DynamoDB record, webhook payload, log, URL, or CLI
+Never put access tokens in an Agent, Session or run request, DynamoDB record, webhook payload, log, URL, or CLI
 argument. JSON credential files used by the CLI should be short-lived and protected by the host OS.
 
 ## Webhooks and outbound events
@@ -193,7 +191,7 @@ must preserve the raw signed body and required headers.
 
 For an embedded product that wants completion events, consume the configured EventBridge stream or
 poll owner-scoped run state. Do not treat provider result delivery as an application event bus: it
-has side-effect fencing and provider-specific retry semantics. Generic signed Thing webhooks and a
+has side-effect fencing and provider-specific retry semantics. Generic unauthenticated Agent webhooks and a
 public SDK are planned facade work, not current v1 behavior.
 
 ## Installation boundary

@@ -10,7 +10,6 @@ describe('Codex launch planning', () => {
   it('uses only supplied deployment values, with ChatGPT and a read-only sandbox as defaults', () => {
     vi.stubEnv('CODEX_AUTH_MODE', 'invalid');
     vi.stubEnv('CODEX_BINARY', '/ambient/binary');
-    vi.stubEnv('AGENT_PUBLICATION_ENABLED', 'true');
     const plan = planCodexLaunch(request, '/workspace', 30_000, Object.freeze({}));
 
     expect(plan).toMatchObject({

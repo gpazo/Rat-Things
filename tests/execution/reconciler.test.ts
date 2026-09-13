@@ -78,6 +78,21 @@ function fixture(inspection: ExecutionInspection, overrides: Partial<ActiveRunRe
 }
 
 describe('active Run reconciliation', () => {
+  it('keeps probing quarantined workers and settles only subsequently verified termination', async () => {
+    const f = fixture({ kind: 'unknown', reason: 'Bootstrap has not connected yet' });
+    let current = run('dispatching');
+    for (let attempt = 0; attempt < 3; attempt++) {
+      await f.reconciler.reconcile(current);
+      current = { ...current, liveness: f.observation()! };
+    }
+    expect(current.liveness?.quarantinedAt).toBeDefined();
+    expect(f.store.failExecution).not.toHaveBeenCalled();
+    expect(f.executions.stop).not.toHaveBeenCalled();
+    f.inspector.inspect.mockResolvedValueOnce({ kind: 'terminal', reason: 'The exact worker terminated during setup' });
+    await expect(f.reconciler.reconcile(current)).resolves.toBe('failed');
+    expect(f.store.failExecution).toHaveBeenCalledWith(current.runId, current.execution, current.heartbeatAt,
+      expect.objectContaining({ code: 'execution_lost' }));
+  });
   describe.each(['dispatching', 'running', 'cancelling'] as const)('%s Run', (status) => {
     it.each([
       { kind: 'active', working: 'active', cancelling: 'stop-requested' },
@@ -133,7 +148,7 @@ describe('active Run reconciliation', () => {
       current.liveness = test.observation()!;
       test.inspector.inspect.mockClear();
       await expect(test.reconciler.reconcile(current)).resolves.toBe('quarantined');
-      expect(test.inspector.inspect).not.toHaveBeenCalled();
+      expect(test.inspector.inspect).toHaveBeenCalledTimes(1);
       expect(test.store.failExecution).not.toHaveBeenCalled();
       expect(test.store.cancelExecution).not.toHaveBeenCalled();
       expect(test.executions.stop).not.toHaveBeenCalled();

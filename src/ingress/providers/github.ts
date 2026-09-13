@@ -37,11 +37,11 @@ export class GitHubIngressAdapter implements WebhookIngressAdapter {
       this.options.commentTrigger,
     );
     if (!normalized) return { kind: 'response', response: jsonResponse(202, { accepted: false, ignored: true }) };
-    return { kind: 'run', work: normalizedWork(normalized, deliveryId) };
+    return { kind: 'session', work: normalizedWork(normalized, deliveryId) };
   }
 
-  public acknowledge(run: { runId: string }, _work: IngressWork): WebhookResponse {
-    return jsonResponse(202, { accepted: true, runId: run.runId });
+  public acknowledge(session: { sessionId: string }, _work: IngressWork): WebhookResponse {
+    return jsonResponse(202, { accepted: true, sessionId: session.sessionId });
   }
 }
 

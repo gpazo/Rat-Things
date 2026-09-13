@@ -275,7 +275,7 @@ function renderDetails() {
   }
   if (!state.selected) {
     $("detail-content").innerHTML =
-      `<div class="detail-head">START HERE <span>↗</span></div><div class="detail-body"><div class="welcome-icon" aria-hidden="true">⌘</div><h2>One request.<br>One durable Run.</h2><p class="detail-description">Rat Things runs cloud agents in your AWS account. A request gets a durable receipt first; execution and result delivery happen later.</p><button class="inspect-action" data-action="start">Follow one task <span>→</span></button><div class="welcome-path"><div><span>1</span>Accept and save the request</div><div><span>2</span>Run within fixed permissions</div><div><span>3</span>Store the result, then deliver it</div></div><button class="child-row" data-action="concepts">Run, Thing, conversation… <span>?</span></button><p class="welcome-note">Select a system, open its parts, then focus a resource. Every explanation links to its implementation.</p><p class="source-note">Logical architecture. Shapes and spacing illustrate roles; they do not describe hardware or a live deployment.</p></div>`;
+      `<div class="detail-head">START HERE <span>↗</span></div><div class="detail-body"><div class="welcome-icon" aria-hidden="true">⌘</div><h2>One Session.<br>Many Turns.</h2><p class="detail-description">Rat Things runs cloud agents in your AWS account. Session input is saved before execution; completed Turns drive result delivery.</p><button class="inspect-action" data-action="start">Follow one task <span>→</span></button><div class="welcome-path"><div><span>1</span>Accept and save the request</div><div><span>2</span>Run within fixed permissions</div><div><span>3</span>Store the result, then deliver it</div></div><button class="child-row" data-action="concepts">Agent, Session, Turn… <span>?</span></button><p class="welcome-note">Select a system, open its parts, then focus a resource. Every explanation links to its implementation.</p><p class="source-note">Logical architecture. Shapes and spacing illustrate roles; they do not describe hardware or a live deployment.</p></div>`;
     return;
   }
   const node = nodes.get(state.selected)!;
@@ -432,14 +432,14 @@ function render() {
   $<HTMLButtonElement>("next-step").disabled =
     state.step >= journey.steps.length - 1;
   $("play").innerHTML =
-    `<span aria-hidden="true">${state.step === journey.steps.length - 1 ? "↻" : "→"}</span><span>${state.step === journey.steps.length - 1 ? "Replay" : state.step >= 0 ? "Continue" : "Trace a Run"}</span>`;
+    `<span aria-hidden="true">${state.step === journey.steps.length - 1 ? "↻" : "→"}</span><span>${state.step === journey.steps.length - 1 ? "Replay" : state.step >= 0 ? "Continue" : "Trace a Session"}</span>`;
   $("play").setAttribute(
     "aria-label",
     state.step === journey.steps.length - 1
       ? "Replay walkthrough"
       : state.step >= 0
         ? "Continue walkthrough"
-        : "Trace a Run",
+        : "Trace a Session",
   );
   $("autoplay").innerHTML = `<span aria-hidden="true">${state.playing ? "Ⅱ" : "▶"}</span> ${state.playing ? "Pause tour" : "Play tour"}`;
   $("autoplay").setAttribute("aria-pressed", String(state.playing));

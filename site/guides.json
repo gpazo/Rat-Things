@@ -80,7 +80,7 @@
       }
     },
     "schedule-codex-tasks-aws.md": {
-      "description": "Turn recurring Codex work into a tested, revisioned AWS schedule with fixed permissions, idempotent occurrences, and durable results.",
+      "description": "Schedule owned Agents in AWS with fixed capabilities, idempotent Session input and durable Turn results.",
       "published": "2026-09-07",
       "reviewed": "2026-09-07",
       "related": [
@@ -88,12 +88,12 @@
         "aws-ai-agent-cost.md"
       ],
       "cta": {
-        "label": "Release a scheduled Thing",
-        "href": "../docs/things.md#lifecycle"
+        "label": "Configure an Agent",
+        "href": "../docs/agents-api.md"
       },
       "evidenceCta": {
         "label": "Understand schedule delivery",
-        "href": "../docs/things.md#eventbridge-scheduler"
+        "href": "../docs/schedules.md"
       }
     },
     "least-privilege-ai-agent-integrations.md": {
@@ -123,7 +123,7 @@
       ],
       "cta": {
         "label": "Configure the two Connections",
-        "href": "../docs/linear.md#7-run-the-slack-to-linear-demo"
+        "href": "../docs/linear.md#7-expose-bounded-operations-to-an-agent"
       },
       "evidenceCta": {
         "label": "Understand integration boundaries",
@@ -144,7 +144,7 @@
       },
       "evidenceCta": {
         "label": "Understand the cost drivers",
-        "href": "../docs/costs.md#what-drives-the-bill"
+        "href": "../docs/costs.md#deployment-and-session-costs"
       }
     },
     "self-hosted-vs-managed-cloud-agents.md": {

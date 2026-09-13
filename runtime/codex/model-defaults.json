@@ -1,0 +1,18 @@
+{
+  "revision": "6b9826e3aa83b1a5947db50f4332cb9c65f1b340",
+  "sourcePath": "codex-rs/models-manager/models.json",
+  "sourceSha256": "f3b8104396daf6381bed9d7c4b154a8664f9b5089b44b01a9d54f421566ec9a7",
+  "defaults": {
+    "gpt-6-astra": "low",
+    "gpt-5.6-sol": "low",
+    "gpt-5.6-terra": "medium",
+    "gpt-5.6-luna": "medium",
+    "gpt-daybreak-blue-latest": "low",
+    "gpt-daybreak-red-latest": "medium",
+    "gpt-5.5": "medium",
+    "gpt-5.4": "medium",
+    "gpt-5.4-mini": "medium",
+    "gpt-5.2": "medium",
+    "codex-auto-review": "medium"
+  }
+}

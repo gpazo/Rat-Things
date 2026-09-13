@@ -19,7 +19,7 @@ describe('agent result markers', () => {
 });
 
 describe('GitHub webhook normalization', () => {
-  it('normalizes a pull-request review into a stable run request', () => {
+  it('normalizes a pull-request review into a provider input', () => {
     const normalized = normalizeGitHubWebhook(
       'pull_request',
       'delivery-123',
@@ -46,7 +46,6 @@ describe('GitHub webhook normalization', () => {
       ownerId: 'github:42',
       idempotencyKey: 'github:delivery-123',
       request: {
-        version: '1',
         prompt: expect.stringContaining('Review GitHub pull request #17 in acme/widgets.'),
         repository: {
           provider: 'github',
@@ -56,7 +55,6 @@ describe('GitHub webhook normalization', () => {
           installationId: '42',
           credentialSecretArn,
         },
-        agent: { sandbox: 'read-only' },
         source: {
           kind: 'github',
           deliveryId: 'delivery-123',
@@ -176,7 +174,6 @@ describe('GitLab webhook normalization', () => {
       ownerId: 'gitlab:81',
       idempotencyKey: 'gitlab:gitlab-delivery-1',
       request: {
-        version: '1',
         prompt: expect.stringContaining('Review GitLab merge request !23 in acme/widgets.'),
         repository: {
           provider: 'gitlab',
@@ -185,7 +182,6 @@ describe('GitLab webhook normalization', () => {
           baseRef: 'main',
           credentialSecretArn,
         },
-        agent: { sandbox: 'read-only' },
         source: {
           kind: 'gitlab',
           event: 'Merge Request Hook',
@@ -302,9 +298,7 @@ describe('chat webhook normalization', () => {
       ownerId: 'teams:tenant-1:user-1',
       idempotencyKey: 'teams:activity-1',
       request: {
-        version: '1',
         prompt: 'inspect this change',
-        agent: { sandbox: 'read-only' },
         source: {
           kind: 'teams',
           tenantId: 'tenant-1',
@@ -336,9 +330,7 @@ describe('chat webhook normalization', () => {
       ownerId: 'slack:workspace-1:user-1',
       idempotencyKey: 'slack:event-1',
       request: {
-        version: '1',
         prompt: 'inspect the queue',
-        agent: { sandbox: 'read-only' },
         source: {
           kind: 'slack',
           teamId: 'workspace-1',

@@ -28,6 +28,22 @@ if [[ ! -f "$state_file" ]]; then
   exit 0
 fi
 
+expected_account="${AWS_E2E_CALLER_ACCOUNT:-}"
+if [[ -f "$run_dir/aws-identity.json" ]]; then
+  expected_account="$(jq -r '.account' "$run_dir/aws-identity.json")"
+  if [[ "$(jq -r '.region' "$run_dir/aws-identity.json")" != "$aws_region" ]]; then
+    echo "Use the deployment's recorded AWS region for teardown." >&2
+    exit 1
+  fi
+fi
+if [[ ! "$expected_account" =~ ^[0-9]{12}$ || "$(aws sts get-caller-identity --query Account --output text)" != "$expected_account" ]]; then
+  echo "Teardown requires credentials for the recorded deployment account." >&2
+  exit 1
+fi
+
+ec2_launch_template_id="$(aws_e2e_terraform show -json "$state_file" |
+  jq -r '[.. | objects | select(.address? == "module.agent_runner.aws_launch_template.session_worker[0]") | .values.id][0] // empty')"
+
 if [[ "$publication_enabled" == "true" ]]; then
   # Deployment intentionally removes its temporary PEM files. Terraform still
   # evaluates the CloudFront public-key resource during destroy, so recover the
@@ -46,7 +62,7 @@ fi
 
 microvm_image_arn="$(aws_e2e_terraform output -state="$state_file" -json microvm 2>/dev/null | jq -r '.image_arn // empty' 2>/dev/null || true)"
 
-# Connection credentials are runtime-created resources rather than Terraform
+# Connection credentials, including nested Agents credentials, are runtime-created
 # resources. Remove the exact deployment prefix before destroying its KMS key.
 credential_prefix="rat-things-${deployment_id}/connections/"
 connection_secret_arns="$(aws secretsmanager list-secrets \
@@ -62,7 +78,7 @@ for connection_secret_arn in $connection_secret_arns; do
     --force-delete-without-recovery >/dev/null
 done
 if [[ -n "$connection_secret_arns" ]]; then
-  echo "Removed runtime-created connection credentials for $deployment_id."
+  echo "Removed runtime-created connection and Agents credentials for $deployment_id."
 fi
 
 echo "Destroying Terraform resources for $deployment_id..."
@@ -74,6 +90,9 @@ for destroy_attempt in 1 2 3; do
   if [[ -n "$microvm_image_arn" ]]; then
     echo "Stopping any running Lambda MicroVMs for $deployment_id..."
     node "$script_dir/terminate-microvms.mjs" "$aws_region" "$microvm_image_arn"
+  fi
+  if [[ -n "$ec2_launch_template_id" ]]; then
+    node "$script_dir/terminate-ec2-workers.mjs" "$aws_region" "rat-things-$deployment_id" "$ec2_launch_template_id"
   fi
   set +e
   aws_e2e_terraform destroy \

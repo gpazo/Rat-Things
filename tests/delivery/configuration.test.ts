@@ -36,7 +36,7 @@ it.each([
   const input = {
     request: { source },
     context: { source, destination: { kind: 'source' } },
-    run: { runId: 'run-1' },
+    execution: { id: 'turn_1', status: 'completed', label: 'Turn' },
     body: 'result',
   } as DeliveryRequest;
 

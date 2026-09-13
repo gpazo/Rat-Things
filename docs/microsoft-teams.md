@@ -187,33 +187,19 @@ teams_reply_gateway_url_secret_arn      = "arn:aws:secretsmanager:REGION:ACCOUNT
 Named Workflow routes are intentionally rejected in `threaded-gateway` mode. See
 [Channel adapters](channels.md#threaded-reply-gateway-contract) for the versioned envelope.
 
-## 4. Verify the live connection
+## 4. Session continuity and delivery
 
-Test in a non-production team with a small mock or Codex canary:
+A valid signed activity is resolved through an owned Agent binding and receives
+an input receipt. Activities from the same sender in the same Teams thread continue
+that sender's Session. Repeated provider deliveries reuse the reserved occurrence.
 
-1. Post `@Rat Things Reply with the marker TEAMS_CANARY_001` in a supported public channel.
-2. Confirm the original chain receives
-   `Rat Things request received. I'll reply when run <id> finishes.` within five seconds.
-3. Confirm exactly one run with source kind `teams` is persisted and reaches a terminal state.
-4. In Workflow mode, confirm one Adaptive Card appears in the configured destination. In threaded
-   mode, confirm the completed result is a reply to the original activity.
-5. Repeat the signed delivery or exercise a provider retry and confirm the run ID and terminal
-   notification are deduplicated.
-6. Review CloudWatch without printing activity bodies, HMAC values, Workflow URLs, access tokens, or
-   model credentials.
+The notification stage reads a saved terminal root Turn. Workflow mode sends an
+Adaptive Card to the configured destination; threaded mode sends the reply envelope
+to the configured gateway. Delivery fencing prevents a provider retry from repeating
+an already confirmed notification. An uncertain external acknowledgement remains
+uncertain until it is reconciled.
 
-Before using real model tokens, validate the same data path locally:
-
-```bash
-npm run test:e2e:localstack
-```
-
-To use the signed-in Codex subscription while keeping Teams and AWS egress simulated:
-
-```bash
-npm exec -- codex login
-npm run test:e2e:teams:codex
-```
+Contributor harness instructions are in [testing/README.md](../testing/README.md).
 
 ## Troubleshooting
 
@@ -222,7 +208,7 @@ npm run test:e2e:teams:codex
 | Teams reports that the webhook is unavailable | Callback URL is the current stack output, the route is deployed, and tenant policy allows outgoing webhooks |
 | `401 invalid_signature` | Secret value is the exact base64 token from this outgoing-webhook installation; the raw request was not rewritten by a proxy |
 | No immediate acknowledgement | API Gateway/Lambda latency stayed under Teams' five-second deadline and durable S3/DynamoDB/SQS submission succeeded |
-| Acknowledgement appears but no terminal card | Run reached a terminal state, Workflow URL secret is current, EventBridge/notifier retries are healthy, and the flow is enabled |
+| Acknowledgement appears but no terminal card | The Session has a saved terminal root Turn, the Workflow URL secret is current, delivery outbox retries are healthy, and the flow is enabled |
 | Workflow returns `401` or `403` | Trigger authentication matches the notifier; the shipped adapter does not attach a Microsoft user bearer token |
 | Result appears in the wrong place | Workflow mode targets its configured destination; use a completed bot gateway for exact-thread delivery |
 | Gateway receives the envelope but Teams rejects it | Bot is installed, token audience and tenant are correct, and the stored `serviceUrl` and conversation reference belong to that bot identity |

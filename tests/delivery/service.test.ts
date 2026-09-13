@@ -49,6 +49,22 @@ const event: RunStateEvent = {
 describe('delivery service', () => {
   afterEach(() => vi.unstubAllGlobals());
 
+  it('leaves Agents notifications to Turn delivery when the private harness exits', async () => {
+    const getJson = vi.fn();
+    const read = vi.fn();
+    const claim = vi.fn();
+    const service = new DeliveryService({
+      store: { get: vi.fn().mockResolvedValue({ ...run, agentsSession: { sessionId: 'sess_one', turnId: 'turn_one', launch: run.input } }) },
+      artifacts: { getJson }, results: { read },
+      fence: { claim, delivered: vi.fn(), failed: vi.fn(), release: vi.fn() },
+      plugins: new RuntimePluginRegistry([]), defaultDestinations: [{ kind: 'source' }],
+    });
+    await service.handle(event);
+    expect(getJson).not.toHaveBeenCalled();
+    expect(read).not.toHaveBeenCalled();
+    expect(claim).not.toHaveBeenCalled();
+  });
+
   it.each([
     { status: 403, retryable: false, known: true },
     { status: 429, retryable: true, known: true },
@@ -83,12 +99,12 @@ describe('delivery service', () => {
 
     if (retryable) {
       await expect(service.handle(event)).rejects.toBeInstanceOf(KnownNotDeliveredError);
-      expect(fence.release).toHaveBeenCalledWith(run.runId, 'github:default');
+      expect(fence.release).toHaveBeenCalledWith(run.runId, JSON.stringify(['github', 'default', 'acme/runtime', 7]));
       expect(fence.failed).not.toHaveBeenCalled();
     } else {
       await service.handle(event);
       expect(fence.release).not.toHaveBeenCalled();
-      expect(fence.failed).toHaveBeenCalledWith(run.runId, 'github:default', expect.any(Error));
+      expect(fence.failed).toHaveBeenCalledWith(run.runId, JSON.stringify(['github', 'default', 'acme/runtime', 7]), expect.any(Error));
       expect(fence.failed.mock.calls[0]?.[2] instanceof KnownNotDeliveredError).toBe(known);
     }
     expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -123,20 +139,18 @@ describe('delivery service', () => {
 
     await service.handle(event);
 
-    expect(fence.claim).toHaveBeenCalledWith(run, 'github:default');
+    expect(fence.claim).toHaveBeenCalledWith(expect.objectContaining({ id: run.runId, expiresAt: run.expiresAt }), JSON.stringify(['github', 'default', 'acme/runtime', 7]));
     expect(deliver).toHaveBeenCalledWith(expect.objectContaining({
       context: expect.objectContaining({ provider: 'github' }),
       request,
-      run,
+      execution: expect.objectContaining({ id: run.runId, status: run.status }),
       body: 'complete result',
     }));
-    expect(fence.delivered).toHaveBeenCalledWith('run-1', 'github:default', 'comment-1');
+    expect(fence.delivered).toHaveBeenCalledWith('run-1', JSON.stringify(['github', 'default', 'acme/runtime', 7]), 'comment-1');
   });
 
   it('normalizes chat source destinations without leaking provider routing into core', () => {
     const contexts = resolveDestinations({
-      version: '1',
-      prompt: 'answer',
       source: {
         kind: 'slack',
         channelId: 'channel-1',

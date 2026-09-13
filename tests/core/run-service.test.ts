@@ -3,7 +3,6 @@ import { describe, expect, it, vi } from 'vitest';
 
 import type {
   ArtifactReference,
-  ConversationRunBinding,
   ExecutionReference,
   ListRunsResult,
   RunError,
@@ -70,17 +69,6 @@ class MemoryRunStore implements RunStore {
     assertTransition(record.status, to);
     this.transitionCalls.push({ runId, from: [...from], to });
     Object.assign(record, structuredClone(patch), { status: to });
-    return structuredClone(record);
-  }
-
-  public async prepareConversation(
-    runId: string,
-    executionInput: ArtifactReference,
-    conversation: ConversationRunBinding,
-  ): Promise<RunRecord> {
-    const record = this.required(runId);
-    record.executionInput = structuredClone(executionInput);
-    record.conversation = structuredClone(conversation);
     return structuredClone(record);
   }
 
@@ -268,17 +256,16 @@ describe('RunService.submit', () => {
   });
 
   it.each([
-    { status: 'queued', enqueue: false },
-    { status: 'running', enqueue: true },
-    { status: 'succeeded', enqueue: true },
-  ] as const)('reuses $status runs with enqueue=$enqueue without new input, time, or wake-ups', async ({ status, enqueue }) => {
+    { status: 'running' },
+    { status: 'succeeded' },
+  ] as const)('reuses $status runs without new input, time, or wake-ups', async ({ status }) => {
     const { service, store, artifacts, queue, clock } = harness();
     const first = await service.submit('owner-1', baseRequest, { idempotencyKey: 'receipt-1' });
     const existing = { ...first, status };
     store.records.set(first.runId, existing);
     clock.now.mockClear();
     await expect(service.submit('owner-1', baseRequest, {
-      idempotencyKey: 'receipt-1', enqueue, capabilityOwnerId: ' ',
+      idempotencyKey: 'receipt-1', capabilityOwnerId: ' ',
     })).resolves.toEqual(existing);
     expect(clock.now).not.toHaveBeenCalled();
     expect(artifacts.jsonWrites).toHaveLength(1);
@@ -289,7 +276,7 @@ describe('RunService.submit', () => {
     const { service, store, artifacts, queue, clock } = harness();
     const failure = new Error('input unavailable');
     vi.spyOn(artifacts, 'putJson').mockRejectedValueOnce(failure);
-    const options = { capabilityOwnerId: ' ', conversation: { conversationId: '' } };
+    const options = { capabilityOwnerId: ' ' };
     await expect(service.submit('owner-1', baseRequest, options)).rejects.toBe(failure);
     expect(clock.now).not.toHaveBeenCalled();
     await expect(service.submit('owner-1', baseRequest, options)).rejects.toThrow('capability owner identity is invalid');
@@ -328,22 +315,6 @@ describe('RunService.submit', () => {
     expect(artifacts.jsonWrites).toEqual([{ key: record.input.key, value: baseRequest }]);
     expect(store.createCalls).toBe(1);
     expect(queue.messages).toEqual([{ version: '1', runId: 'random-run-id', traceId: 'trace-1' }]);
-  });
-
-  it('allows a coordinator to commit related state before explicitly waking the run', async () => {
-    const { service, queue } = harness();
-
-    const record = await service.submit('owner-1', baseRequest, {
-      enqueue: false,
-    });
-
-    expect(queue.messages).toEqual([]);
-    await service.wake(record.runId, 'conversation-trace');
-    expect(queue.messages).toEqual([{
-      version: '1',
-      runId: record.runId,
-      traceId: 'conversation-trace',
-    }]);
   });
 
   it('returns the original run for the same idempotency key and canonical request', async () => {
@@ -412,120 +383,6 @@ describe('RunService.submit', () => {
     ).rejects.toThrow('Idempotency-Key must be 1-200 safe ASCII characters');
     expect(store.createCalls).toBe(0);
     expect(artifacts.jsonWrites).toEqual([]);
-    expect(queue.messages).toEqual([]);
-  });
-
-  it('keeps the public input immutable while attaching trusted thread execution input', async () => {
-    const { service, artifacts, queue } = harness();
-    const submitted = await service.submit('owner-1', baseRequest, {
-      idempotencyKey: 'thread-message-1',
-      enqueue: false,
-      conversation: {
-        conversationId: 'api:owner-1:release',
-        messageId: 'message-1',
-        delivery: 'defer',
-      },
-    });
-    const originalInput = submitted.input;
-    const prepared = await service.prepareConversation(
-      'owner-1',
-      submitted.runId,
-      { ...baseRequest, prompt: 'Canonical transcript\n\nReview the runtime change.' },
-      {
-        conversationId: 'api:owner-1:release',
-        messageId: 'message-1',
-        turnId: 'turn-1',
-        slice: 0,
-        delivery: 'defer',
-      },
-    );
-
-    expect(prepared.input).toEqual(originalInput);
-    expect(prepared.executionInput).toBeDefined();
-    expect(prepared.executionInput).not.toEqual(originalInput);
-    expect(prepared.conversation).toMatchObject({
-      messageId: 'message-1',
-      turnId: 'turn-1',
-      slice: 0,
-    });
-    expect(artifacts.jsonWrites).toHaveLength(2);
-    expect(queue.messages).toEqual([]);
-
-    await expect(service.submit('owner-1', baseRequest, {
-      idempotencyKey: 'thread-message-1',
-      enqueue: false,
-      conversation: {
-        conversationId: 'api:owner-1:release',
-        messageId: 'message-1',
-        delivery: 'defer',
-      },
-    })).resolves.toMatchObject({
-      runId: submitted.runId,
-      executionInput: prepared.executionInput,
-    });
-    await expect(service.submit('owner-1', baseRequest, {
-      idempotencyKey: 'thread-message-1',
-      enqueue: false,
-      conversation: {
-        conversationId: 'api:owner-1:another-thread',
-        messageId: 'message-1',
-        delivery: 'defer',
-      },
-    })).rejects.toThrow('different thread occurrence');
-  });
-});
-
-describe('RunService conversation preparation effects', () => {
-  const accepted = { conversationId: 'conversation-1', messageId: 'message-1', delivery: 'defer' } as const;
-  const binding = { ...accepted, turnId: 'turn-1', slice: 0 };
-
-  it('reuses prepared active work before parsing execution input or writing artifacts', async () => {
-    const { service, store, artifacts } = harness();
-    const submitted = await service.submit('owner-1', baseRequest, { enqueue: false, conversation: accepted });
-    const prepared = await service.prepareConversation('owner-1', submitted.runId, baseRequest, binding);
-    const running: RunRecord = { ...prepared, status: 'running' };
-    store.records.set(submitted.runId, running);
-    const put = vi.spyOn(artifacts, 'putJson');
-    await expect(service.prepareConversation('owner-1', submitted.runId, null, binding)).resolves.toEqual(running);
-    await expect(service.prepareConversation('owner-1', submitted.runId, null, { ...binding, slice: 1 }))
-      .rejects.toThrow(`run ${submitted.runId} cannot be prepared from running`);
-    expect(put).not.toHaveBeenCalled();
-  });
-
-  it('checks accepted binding and prepared binding validity before writing execution input', async () => {
-    const { service, artifacts } = harness();
-    const submitted = await service.submit('owner-1', baseRequest, { enqueue: false, conversation: accepted });
-    const put = vi.spyOn(artifacts, 'putJson');
-    await expect(service.prepareConversation('owner-1', submitted.runId, null, { ...binding, messageId: 'message-2' }))
-      .rejects.toThrow('run thread binding changed before preparation');
-    await expect(service.prepareConversation('owner-1', submitted.runId, null, { ...binding, slice: -1 }))
-      .rejects.toThrow('conversation slice is invalid');
-    expect(put).not.toHaveBeenCalled();
-  });
-
-  it('compares queued preparation retries after writing their execution input', async () => {
-    const { service, store, artifacts, queue } = harness();
-    const submitted = await service.submit('owner-1', baseRequest, { enqueue: false, conversation: accepted });
-    const prepared = await service.prepareConversation('owner-1', submitted.runId, baseRequest, binding);
-    const put = vi.spyOn(artifacts, 'putJson');
-    const prepare = vi.spyOn(store, 'prepareConversation');
-    await expect(service.prepareConversation('owner-1', submitted.runId, baseRequest, binding)).resolves.toEqual(prepared);
-    await expect(service.prepareConversation('owner-1', submitted.runId, { ...baseRequest, prompt: 'Changed' }, binding))
-      .rejects.toThrow('run was already prepared with different thread state');
-    expect(put).toHaveBeenCalledTimes(2);
-    expect(prepare).not.toHaveBeenCalled();
-    expect((await store.get(submitted.runId))?.input).toEqual(submitted.input);
-    expect(queue.messages).toEqual([]);
-  });
-
-  it('leaves accepted input intact when committing preparation fails', async () => {
-    const { service, store, artifacts, queue } = harness();
-    const submitted = await service.submit('owner-1', baseRequest, { enqueue: false, conversation: accepted });
-    const failure = new Error('preparation unavailable');
-    vi.spyOn(store, 'prepareConversation').mockRejectedValueOnce(failure);
-    await expect(service.prepareConversation('owner-1', submitted.runId, baseRequest, binding)).rejects.toBe(failure);
-    expect(artifacts.jsonWrites).toHaveLength(2);
-    expect(await store.get(submitted.runId)).toEqual(submitted);
     expect(queue.messages).toEqual([]);
   });
 });

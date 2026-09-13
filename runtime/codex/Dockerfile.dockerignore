@@ -1,0 +1,6 @@
+**
+!runtime/
+!runtime/codex/
+!runtime/codex/**
+!scripts/
+!scripts/build-codex-runtime.mjs

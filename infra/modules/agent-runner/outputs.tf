@@ -33,12 +33,12 @@ output "definition_bucket_name" {
 }
 
 output "conversation_state_bucket_name" {
-  description = "S3 bucket backing durable S3 Files conversation state, or null when disabled."
+  description = "S3 bucket backing durable S3 Files Session state, or null when disabled."
   value       = try(aws_s3_bucket.conversation_state[0].id, null)
 }
 
 output "s3_files" {
-  description = "Durable conversation filesystem identifiers, or null values when S3 Files is disabled."
+  description = "Durable Session filesystem identifiers, or null values when S3 Files is disabled."
   value = {
     enabled                 = var.enable_s3_files
     file_system_id          = try(aws_s3files_file_system.conversation_state[0].id, null)
@@ -70,7 +70,7 @@ output "runs_table_name" {
 }
 
 output "conversations_table_name" {
-  description = "DynamoDB table holding conversation mailbox, lease, turn, and history projections."
+  description = "DynamoDB table retained from the retired conversation API."
   value       = aws_dynamodb_table.conversations.name
 }
 
@@ -108,17 +108,17 @@ output "run_queue_arn" {
 }
 
 output "conversation_queue_url" {
-  description = "Wake-up queue for durable conversation mailbox work."
+  description = "Retained retired conversation queue; has no producer or consumer."
   value       = aws_sqs_queue.conversations.url
 }
 
 output "conversation_failure_queue_url" {
-  description = "Dead-letter queue for conversation wake-ups that exhaust receives."
+  description = "Retained failure queue for the retired conversation coordinator."
   value       = aws_sqs_queue.conversation_dlq.url
 }
 
 output "conversation_completion_failure_queue_url" {
-  description = "Dead-letter queue for terminal conversation events that exhaust completion retries."
+  description = "Retained failure queue for the retired conversation completion handler."
   value       = aws_sqs_queue.conversation_completion_failures.url
 }
 
@@ -176,4 +176,25 @@ output "microvm_log_group_name" {
 output "reconciler_function_name" {
   description = "Generation-fenced Run reconciler Lambda name."
   value       = aws_lambda_function.this["reconciler"].function_name
+}
+output "agents_api_base_url" {
+  description = "OpenAI SDK base URL. The HTTP service supports large uploads and SSE; the Lambda fallback has AWS payload limits."
+  value       = local.environment_relay_enabled ? "https://${var.environment_relay_origin_hostname}/v1" : "${aws_lambda_function_url.agents.function_url}v1"
+}
+
+output "agents_token_issuer_url" {
+  description = "IAM-authenticated POST endpoint for short-lived OpenAI SDK API keys."
+  value       = "${aws_lambda_function_url.agents.function_url}v1/auth/tokens"
+}
+
+output "environment_relay_repository_url" {
+  value = aws_ecr_repository.environment_relay.repository_url
+}
+
+output "environment_relay_url" {
+  value = local.environment_relay_enabled ? "https://${aws_cloudfront_distribution.environment_relay[0].domain_name}" : null
+}
+
+output "environment_relay_origin_dns_name" {
+  value = local.environment_relay_enabled ? aws_lb.environment_relay[0].dns_name : null
 }

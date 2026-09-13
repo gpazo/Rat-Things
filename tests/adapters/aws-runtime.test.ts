@@ -19,6 +19,20 @@ import {
 import type { AgentToolCallRecord } from '../../src/domain/interaction.js';
 
 describe('AWS runtime client configuration', () => {
+  it('renews EC2 Run retention only under the exact active execution fence', async () => {
+    const send = vi.fn().mockResolvedValue({});
+    const store = new DynamoRunStore({ send } as unknown as DynamoDBDocumentClient, 'runs', 3600);
+    const execution = { backend: 'ec2' as const, id: 'i-worker', generation: 'generation' };
+    const heartbeat = '2026-09-13T00:00:00.000Z';
+    expect(await store.heartbeatExecution('run', execution, heartbeat)).toBe(true);
+    const input = send.mock.calls[0]![0].input;
+    expect(input.ExpressionAttributeValues[':expiresAt']).toBe(Date.parse(heartbeat) / 1000 + 3600);
+    expect(input.ConditionExpression).toContain('#execution.#generation = :generation');
+    expect(input.ExpressionAttributeValues[':expectedStatus0']).toBe('running');
+    send.mockClear();
+    await store.heartbeatExecution('run', { ...execution, backend: 'microvm' }, heartbeat);
+    expect(send.mock.calls[0]![0].input.ExpressionAttributeValues).not.toHaveProperty(':expiresAt');
+  });
   afterEach(() => {
     vi.unstubAllEnvs();
   });

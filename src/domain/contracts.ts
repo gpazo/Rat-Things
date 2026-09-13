@@ -20,7 +20,7 @@ export const RUN_STATUSES = [
 ] as const;
 
 export type RunStatus = (typeof RUN_STATUSES)[number];
-export type ExecutionBackend = 'microvm';
+export type ExecutionBackend = 'microvm' | 'ec2';
 export type AgentDriverName = 'codex' | 'mock';
 export type SandboxMode = 'read-only' | 'workspace-write' | 'danger-full-access';
 export type RepositoryProvider = 'github' | 'gitlab' | 'generic';
@@ -134,7 +134,7 @@ export interface ArtifactReference {
 
 /** A user-visible file published by an agent run. */
 export interface PublishedArtifact {
-  /** Stable for a relative artifact path within a conversation. */
+  /** Stable for a relative path in a private Run artifact catalog. */
   id: string;
   /** Relative path below .rat-things/artifacts in the agent workspace. */
   path: string;
@@ -167,49 +167,6 @@ export interface ExecutionLivenessObservation {
   consecutiveUncertain: number;
   reason?: string;
   quarantinedAt?: string;
-}
-
-/**
- * Trusted control-plane metadata attached by the conversation coordinator.
- * This is deliberately stored on the run record instead of the public
- * RunRequest so callers cannot select another conversation's MicroVM.
- */
-export interface ConversationRunBinding {
-  conversationId: string;
-  /** The exact durable mailbox item represented by this public Run. */
-  messageId?: string;
-  /** Optional human display name, independent of the routing key. */
-  title?: string;
-  /** Assigned by the thread coordinator before the Run is dispatched. */
-  turnId?: string;
-  /** Assigned by the thread coordinator before the Run is dispatched. */
-  slice?: number;
-  /** Delivery priority selected when the Run was accepted. */
-  delivery?: 'interrupt' | 'defer';
-  preferredMicrovmId?: string;
-  agentThreadId?: string;
-  /** S3 batch containing only the messages consumed by this slice. */
-  continuation?: ArtifactReference;
-  /** Trusted catalog used to restore durable files into a replacement MicroVM. */
-  artifacts?: ArtifactReference;
-  /** Private manifest for files attached to this exact mailbox occurrence. */
-  attachmentManifest?: ArtifactReference;
-  /** Stable digest of attachment names, types, sizes, and checksums for idempotency fencing. */
-  attachmentDigest?: string;
-  /** Immutable reply edge used to detect idempotency-key reuse with different context. */
-  replyToMessageId?: string;
-}
-
-export type ThingInvocationKind = 'test' | 'manual' | 'schedule';
-
-/** Trusted, immutable evidence identifying the Thing revision that produced a Run. */
-export interface ThingRunBinding {
-  version: '1';
-  thingId: string;
-  revision: number;
-  specHash: string;
-  invocation: ThingInvocationKind;
-  scheduledAt?: string;
 }
 
 export interface RunError {
@@ -249,15 +206,10 @@ export interface RunRecord {
   requestHash: string;
   /** Original caller/provider input. It is immutable and drives idempotency. */
   input: ArtifactReference;
-  /**
-   * Trusted execution input prepared for a threaded Run after its predecessor
-   * state is known. One-shot Runs execute `input` directly.
-   */
-  executionInput?: ArtifactReference;
   sourceKind: RunSource['kind'];
   provenance?: RunProvenance;
-  conversation?: ConversationRunBinding;
-  thing?: ThingRunBinding;
+  /** Trusted Agents API binding. The launch configuration is stored in encrypted S3. */
+  agentsSession?: { sessionId: string; turnId: string; launch: ArtifactReference };
   execution?: ExecutionReference;
   /** Indexed independently from semantic updatedAt so heartbeats do not resemble state changes. */
   heartbeatAt?: string;

@@ -112,6 +112,6 @@ function binding(
     ownerId,
     sourceKind,
     selector: sourceKind === 'api' ? { kind: 'api' } : { teamId: 'T1', channelId: 'C1' },
-    capabilityProfile: 'small-business',
+    agentId: 'agent_1', environment: { type: 'none' },
   };
 }

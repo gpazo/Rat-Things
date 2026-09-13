@@ -1,3 +1,4 @@
+import { isRetiredRun } from '../domain/run-bindings.js';
 import type { ArtifactReference, RunError, RunRecord } from '../domain/contracts.js';
 
 export type DispatchAdmission =
@@ -9,10 +10,8 @@ export type ExecutorStartFailure =
   | { kind: 'fail'; error: RunError };
 
 export function dispatchAdmission(run: RunRecord | undefined): DispatchAdmission {
-  if (!run || !isDispatchable(run)) return { kind: 'ignore' };
-  // Conversation input must be prepared before an accidental or reconciler wake-up can dispatch it.
-  if (run.conversation && !run.executionInput) return { kind: 'ignore' };
-  return { kind: 'dispatch', run, input: run.executionInput ?? run.input };
+  if (!run || isRetiredRun(run) || !isDispatchable(run)) return { kind: 'ignore' };
+  return { kind: 'dispatch', run, input: run.input };
 }
 
 /** Classify the caught failure before the service chooses whether to persist it or retry delivery. */

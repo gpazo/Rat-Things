@@ -102,8 +102,9 @@ export function publicationManifest(input: {
   publicationId: string;
   plan: PublicationPlan;
   files: readonly PublicationFile[];
-  runId: string;
-  conversationId?: string;
+  runId?: string;
+  sessionId?: string;
+  artifactIds?: string[];
   builder: string;
   createdAt: string;
 }): PublicationManifest {
@@ -115,8 +116,8 @@ export function publicationManifest(input: {
     ...(input.plan.primaryPath ? { primaryPath: input.plan.primaryPath } : {}),
     files: [...input.files].sort((left, right) => left.path.localeCompare(right.path)),
     provenance: {
-      runId: input.runId,
-      ...(input.conversationId ? { conversationId: input.conversationId } : {}),
+      ...(input.runId ? { runId: input.runId } : {}),
+      ...(input.sessionId ? { sessionId: input.sessionId, artifactIds: input.artifactIds ?? [] } : {}),
       builder: input.builder,
       createdAt: input.createdAt,
     },

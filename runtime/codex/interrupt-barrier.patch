@@ -1,0 +1,29 @@
+--- a/codex-rs/core/src/agent/control.rs
++++ b/codex-rs/core/src/agent/control.rs
+@@ -359,19 +359,13 @@
+     /// Interrupt the current task for an existing agent thread.
+     pub(crate) async fn interrupt_agent(&self, agent_id: ThreadId) -> CodexResult<String> {
+         let state = self.upgrade()?;
+-        self.handle_thread_request_result(
+-            agent_id,
+-            &state,
+-            state
+-                .send_op(
+-                    agent_id,
+-                    Op::Interrupt,
+-                    /*parent_turn_id*/ None,
+-                    /*root_turn_id*/ None,
+-                )
+-                .await,
+-        )
+-        .await
++        let thread = state.get_thread(agent_id).await?;
++        // Completion of this tool is a barrier for subsequent follow-up work.
++        // Merely enqueueing Op::Interrupt lets a follow-up see no active Turn
++        // while cancellation still holds its execution guard and rejects the
++        // existing child at the concurrency limit.
++        thread.session.interrupt_task().await;
++        Ok(Uuid::now_v7().to_string())
+     }
+ 
+     async fn handle_thread_request_result(

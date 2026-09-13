@@ -61,7 +61,6 @@ generate_env() {
     echo "export INTEGRATION_PLUGIN_BASE_URLS='{\"fixture-crm\":\"http://localhost:${wiremock_port}/fixture-crm/\"}'"
     echo "export INTEGRATION_FIXTURE_ALPHA_KEY=alpha-local"
     echo "export INTEGRATION_FIXTURE_BETA_KEY=beta-local"
-    echo "export DEFAULT_AGENT_DRIVER=mock"
     echo "export DEFAULT_EXECUTION_BACKEND=microvm"
     echo "export DEFAULT_DELIVERY_DESTINATIONS=source"
     echo "export TEAMS_DELIVERY_MODE=workflow"

@@ -1,4 +1,4 @@
-FROM public.ecr.aws/lambda/microvms:al2023-minimal AS network-policy-builder
+FROM public.ecr.aws/lambda/microvms:al2023-minimal@sha256:05cb9b38d841e7ff1b693dc9e894909612f340bf99ec97d426e8000a5bbe96c3 AS network-policy-builder
 
 RUN dnf install -y clang libbpf-devel \
     && dnf clean all \
@@ -14,9 +14,8 @@ RUN clang \
       -c /tmp/runtime-network-policy.bpf.c \
       -o /tmp/runtime-network-policy.bpf.o
 
-FROM public.ecr.aws/lambda/microvms:al2023-minimal
+FROM public.ecr.aws/lambda/microvms:al2023-minimal@sha256:05cb9b38d841e7ff1b693dc9e894909612f340bf99ec97d426e8000a5bbe96c3 AS worker-dependencies
 
-ARG CODEX_VERSION=0.146.0
 ARG PUPPETEER_CORE_VERSION=25.8.0
 ARG CHROMIUM_VERSION=149.0.0
 ARG WEBM_WRITER_VERSION=1.0.0
@@ -36,6 +35,7 @@ RUN dnf install -y \
       nodejs22 \
       nodejs22-npm \
       openssh-clients \
+      openssl-snapsafe-libs \
       python3-botocore \
       shadow-utils \
       tar \
@@ -43,8 +43,6 @@ RUN dnf install -y \
     && dnf clean all \
     && rm -rf /var/cache/dnf \
     && install -d -m 0755 /opt/agent-runtime /opt/agent-runtime/bin /opt/agent-runtime/config /opt/chromium-pack /mnt/rat-things-state \
-    && npm install --global \
-      "@openai/codex@${CODEX_VERSION}" \
     && npm install --prefix /opt/agent-runtime --omit=dev --no-audit --no-fund \
       "@sparticuz/chromium-min@${CHROMIUM_VERSION}" \
       "puppeteer-core@${PUPPETEER_CORE_VERSION}" \
@@ -63,6 +61,10 @@ RUN dnf install -y \
       /tmp/agent-runtime \
       /workspace
 
+FROM worker-dependencies AS worker
+COPY codex-runtime /opt/codex-runtime
+RUN /opt/codex-runtime/bin/codex --version \
+    && ln -s /opt/codex-runtime/bin/codex /usr/local/bin/codex
 COPY runner.mjs /opt/agent-runtime/runner.mjs
 COPY terminate-microvm.mjs /opt/agent-runtime/terminate-microvm.mjs
 COPY runtime-server.mjs /opt/agent-runtime/runtime-server.mjs
@@ -112,4 +114,6 @@ ENV NODE_ENV=production \
     WORKSPACE_ROOT=/tmp/agent-runtime
 
 EXPOSE 8080
+COPY ec2-supervisor.mjs /opt/agent-runtime/ec2-supervisor.mjs
+RUN chown root:root /opt/agent-runtime/ec2-supervisor.mjs && chmod 0555 /opt/agent-runtime/ec2-supervisor.mjs
 ENTRYPOINT ["node", "/opt/agent-runtime/runtime-server.mjs"]

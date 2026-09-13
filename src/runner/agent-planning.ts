@@ -39,12 +39,12 @@ export function planCodexLaunch(
     binary: environment.CODEX_BINARY ?? 'codex',
     ...(authMode === 'chatgpt'
       ? { binaryArguments: ['-c', 'cli_auth_credentials_store=file', 'app-server'] }
-      : {}),
+      : environment.RAT_BEDROCK_AUTH_FILE ? { binaryArguments: bedrockTokenArguments(environment.RAT_BEDROCK_AUTH_FILE) } : {}),
     workspace,
     environment: agentEnvironment(workspace, environment),
     ...(identity ? { identity } : {}),
     timeoutMs,
-    prompt: artifactPromptText(request.prompt, environment.AGENT_PUBLICATION_ENABLED === 'true'),
+    prompt: artifactPromptText(request.prompt),
     sandbox,
     persistent: persistentSession,
     modelProvider: codexModelProvider(authMode),
@@ -76,7 +76,7 @@ function agentEnvironment(workspace: string, environment: Readonly<NodeJS.Proces
     'AWS_EC2_METADATA_DISABLED',
     'AWS_STS_REGIONAL_ENDPOINTS',
   ]);
-  if (authMode === 'bedrock') allowed.add('AWS_BEARER_TOKEN_BEDROCK');
+  if (authMode === 'bedrock' && !environment.RAT_BEDROCK_AUTH_FILE) allowed.add('AWS_BEARER_TOKEN_BEDROCK');
   if (environment.ALLOW_AGENT_AWS_CREDENTIAL_CHAIN === 'true') {
     for (const name of [
       'AWS_CONTAINER_CREDENTIALS_RELATIVE_URI',
@@ -113,4 +113,8 @@ function defaultSandboxMode(configured: string | undefined): 'read-only' | 'work
     throw new Error('DEFAULT_SANDBOX_MODE is invalid');
   }
   return value as 'read-only' | 'workspace-write' | 'danger-full-access';
+}
+
+export function bedrockTokenArguments(path: string): string[] {
+  return ['-c', `model_providers.amazon-bedrock.auth = { command = "/bin/cat", args = [${JSON.stringify(path)}], cwd = "/", refresh_interval_ms = 60000 }`, 'app-server'];
 }

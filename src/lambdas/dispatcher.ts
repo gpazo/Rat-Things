@@ -66,22 +66,18 @@ function defaultDependencies(): DispatcherDependencies {
 export function emitMicrovmStartupObservation(observation: MicrovmStartupObservation): void {
   emitMetric(
     'dispatcher',
-    observation.mode === 'launch'
-      ? 'MicrovmLaunchRequestDuration'
-      : 'MicrovmResumeRequestDuration',
+    'MicrovmLaunchRequestDuration',
     observation.durationMs,
     'Milliseconds',
   );
-  if (observation.outcome === 'fallback') {
-    emitMetric('dispatcher', 'MicrovmResumeFallback', 1, 'Count');
-  } else if (observation.outcome === 'failed') {
+  if (observation.outcome === 'failed') {
     emitMetric('dispatcher', 'MicrovmStartupFailure', 1, 'Count');
   }
 }
 
 function defaultExecutionBackend(): ExecutionBackend {
   const value = process.env.DEFAULT_EXECUTION_BACKEND ?? 'microvm';
-  if (value !== 'microvm') {
+  if (value !== 'microvm' && value !== 'ec2') {
     throw new Error('DEFAULT_EXECUTION_BACKEND is invalid');
   }
   return value;

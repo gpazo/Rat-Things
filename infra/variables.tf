@@ -136,12 +136,6 @@ variable "default_agent_network_access" {
   default = true
 }
 
-variable "default_agent_driver" {
-  description = "Defaults to mock so a new deployment cannot accidentally spend model tokens."
-  type        = string
-  default     = "mock"
-}
-
 variable "allow_agent_aws_credential_chain" {
   description = "Explicit opt-in for passing a scoped AWS credential chain to Codex. Short-term bearer tokens are preferred."
   type        = bool
@@ -450,4 +444,41 @@ variable "microvm_memory_mib" {
 variable "tags" {
   type    = map(string)
   default = {}
+}
+
+variable "environment_relay_image" {
+  description = "ARM64 relay image pinned by sha256 digest; null disables provisioning."
+  type        = string
+  default     = null
+  nullable    = true
+}
+
+variable "environment_relay_origin_hostname" {
+  type    = string
+  default = null
+}
+
+variable "environment_relay_origin_certificate_arn" {
+  type    = string
+  default = null
+}
+
+variable "enable_ec2_worker" {
+  type        = bool
+  default     = false
+  description = "Run persistent Sessions on dedicated ARM64 EC2 workers."
+}
+variable "ec2_worker_ami_id" {
+  type        = string
+  default     = null
+  description = "Pinned Amazon Linux 2023 ARM64 AMI ID."
+}
+variable "ec2_worker_image" {
+  type        = string
+  default     = null
+  description = "Worker image in private ECR, pinned by digest."
+}
+variable "ec2_worker_instance_type" {
+  type    = string
+  default = "m7g.large"
 }

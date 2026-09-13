@@ -138,3 +138,15 @@ output "teams_webhook_secret_arn" {
 output "teams_workflow_secret_arn" {
   value = aws_secretsmanager_secret.teams_workflow.arn
 }
+
+output "agents_api_base_url" {
+  value = module.agent_runner.agents_api_base_url
+}
+
+output "environment_relay_origin_dns_name" {
+  value = module.agent_runner.environment_relay_origin_dns_name
+}
+
+output "environment_relay_url" {
+  value = module.agent_runner.environment_relay_url
+}

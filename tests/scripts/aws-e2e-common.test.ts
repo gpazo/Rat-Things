@@ -40,22 +40,22 @@ describe('AWS E2E OAuth configuration', () => {
       'export AWS_E2E_OAUTH_APP_SECRET_ARNS=\'{"slack":"saved-arn"}\'',
       'export AWS_E2E_ENABLE_SLACK_WEBHOOK=true',
       'export AWS_E2E_SLACK_SIGNING_SECRET_FILE=/saved/signing-secret',
-      'export AWS_E2E_DEFAULT_AGENT_DRIVER=codex',
+      'export AWS_E2E_REAL_CODEX=false',
       '',
     ].join('\n'));
     const output = execFileSync('bash', ['-lc', `
       set -euo pipefail
-      export AWS_E2E_DEFAULT_AGENT_DRIVER=mock
+      export AWS_E2E_REAL_CODEX=true
       source scripts/aws-e2e-common.sh
       aws_e2e_source_runtime_defaults '${runtime}'
-      printf '%s\n%s\n%s\n%s' "$AWS_E2E_OAUTH_APP_SECRET_ARNS" "$AWS_E2E_ENABLE_SLACK_WEBHOOK" "$AWS_E2E_SLACK_SIGNING_SECRET_FILE" "$AWS_E2E_DEFAULT_AGENT_DRIVER"
+      printf '%s\n%s\n%s\n%s' "$AWS_E2E_OAUTH_APP_SECRET_ARNS" "$AWS_E2E_ENABLE_SLACK_WEBHOOK" "$AWS_E2E_SLACK_SIGNING_SECRET_FILE" "$AWS_E2E_REAL_CODEX"
     `], { encoding: 'utf8' });
 
     expect(output.split('\n')).toEqual([
       '{"slack":"saved-arn"}',
       'true',
       '/saved/signing-secret',
-      'mock',
+      'true',
     ]);
   });
 });

@@ -1,32 +1,23 @@
 import { createHash } from 'node:crypto';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { PublicationPublisher } from '../../src/core/publication-publisher.js';
+import { SessionPublicationService } from '../../src/core/session-publication-service.js';
+import type { SavedSessionArtifact } from '../../src/core/session-ports.js';
 import type { PublicationObjectStore } from '../../src/core/publication-service.js';
-import type { ArtifactReference } from '../../src/domain/contracts.js';
 import type {
   BlobReference,
   PublicationManifest,
   PublicationShare,
 } from '../../src/domain/publications.js';
-import {
-  emptyArtifactCatalog,
-  prepareArtifactDirectory,
-  publishArtifactCatalog,
-} from '../../src/runner/artifacts.js';
+import { prepareArtifactDirectory } from '../../src/runner/artifacts.js';
 import {
   BrowserToolSession,
   type BrowserBackend,
   type BrowserBackendResult,
   type BrowserCommand,
 } from '../../src/runner/browser.js';
-import {
-  appendSharedPublications,
-  readAgentShareRequests,
-} from '../../src/runner/publications.js';
-
 describe('simulated browser capture publication workflow', () => {
   it('turns browser screenshot and recording artifacts into separate share URLs', async () => {
     const workspace = await mkdtemp(join(tmpdir(), 'rat-browser-publication-'));
@@ -48,74 +39,41 @@ describe('simulated browser capture publication workflow', () => {
         tool: 'record_stop',
         arguments: {},
       });
-      await writeFile(join(workspace, '.rat-things/share.json'), JSON.stringify({
-        version: '1',
-        publications: [
-          {
-            version: '1',
-            kind: 'file',
-            path: 'browser/final.jpg',
-            title: 'Browser screenshot',
-          },
-          {
-            version: '1',
-            kind: 'video',
-            path: 'browser/navigation.webm',
-            poster: 'browser/final.jpg',
-            title: 'Browser navigation recording',
-          },
-        ],
-      }));
-
       const ownerId = 'api:browser-demo-owner';
-      const runId = 'run-browser-demo';
-      const artifacts = new MemoryArtifacts('artifacts-bucket');
-      const files = await publishArtifactCatalog({
-        workspace,
-        previous: emptyArtifactCatalog(),
-        artifacts,
-        ownerId,
-        runId,
-        createdAt: '2026-08-21T12:00:00.000Z',
-      });
-      expect(files).toEqual([
-        expect.objectContaining({
-          path: 'browser/final.jpg',
-          mediaType: 'image/jpeg',
-        }),
-        expect.objectContaining({
-          path: 'browser/navigation.webm',
-          mediaType: 'video/webm',
-        }),
-      ]);
-
-      const objects = new MemoryPublicationObjects();
-      const grants = new MemoryPublicationGrants();
-      const publisher = new PublicationPublisher(objects, grants, {
-        artifactBucket: artifacts.bucket,
-        baseDomain: 'shares.example.test',
-        ttlSeconds: 3_600,
-        now: () => new Date('2026-08-21T12:00:00.000Z'),
-        randomToken: () => 'a'.repeat(64),
-      });
-      const requests = await readAgentShareRequests(workspace);
-      const catalog = { version: '1' as const, files };
-      const shared = [];
-      for (const request of requests) {
-        shared.push({
-          ...request,
-          descriptor: await publisher.publish({
-            ownerId,
-            spec: request.spec,
-            catalog,
-            runId,
-          }),
+      const sessionId = 'sess_browser_demo';
+      const ownerHash = createHash('sha256').update(ownerId).digest('hex').slice(0, 32);
+      const values = new Map<string, Buffer>();
+      const saved: SavedSessionArtifact[] = [];
+      for (const [index, path] of ['browser/final.jpg', 'browser/navigation.webm'].entries()) {
+        const bytes = await readFile(join(artifactRoot, path));
+        const id = `art_${index}`;
+        const key = `owners/${ownerHash}/sessions/${sessionId}/turn_demo/artifacts/${id}`;
+        values.set(key, bytes);
+        saved.push({
+          artifact: { id, object: 'agent.session.artifact', session_id: sessionId, turn_id: 'turn_demo', environment_id: 'env_demo', path: `/workspace/${path}`, size_bytes: bytes.length, created_at: 100 },
+          content: { bucket: 'artifacts', key, sha256: createHash('sha256').update(bytes).digest('hex') },
         });
       }
-
-      const result = appendSharedPublications('Navigation complete.', shared);
-      const urls = [...result.matchAll(/\]\((https:\/\/[^)]+)\)/g)]
-        .flatMap((match) => match[1] ? [match[1]] : []);
+      const objects = new MemoryPublicationObjects();
+      const grants = new MemoryPublicationGrants();
+      const publisher = new SessionPublicationService({
+        sessions: { publicationArtifacts: async (owner, session, ids) => {
+          if (owner !== ownerId || session !== sessionId) throw new Error('Session not found');
+          return ids.map((id) => saved.find((entry) => entry.artifact.id === id)!);
+        } },
+        objects, grants, artifactBucket: 'artifacts', readPrefix: async (reference) => values.get(reference.key)!,
+        baseDomain: 'shares.example.test', ttlSeconds: 3_600,
+        now: () => new Date('2026-08-21T12:00:00.000Z'), randomToken: () => 'a'.repeat(64),
+      });
+      const screenshot = { artifact_id: 'art_0', path: 'browser/final.jpg' };
+      const recording = { artifact_id: 'art_1', path: 'browser/navigation.webm' };
+      const image = await publisher.publish(ownerId, sessionId, {
+        publication: { version: '1', kind: 'file', path: screenshot.path, title: 'Browser screenshot' }, files: [screenshot],
+      });
+      const video = await publisher.publish(ownerId, sessionId, {
+        publication: { version: '1', kind: 'video', path: recording.path, poster: screenshot.path, title: 'Browser navigation recording' }, files: [recording, screenshot],
+      });
+      const urls = [image.url, video.url];
       expect(urls).toHaveLength(2);
       expect(new Set(urls).size).toBe(2);
       expect(urls.every((url) => url?.includes('.shares.example.test/__share/'))).toBe(true);
@@ -176,39 +134,6 @@ class SimulatedCaptureBackend implements BrowserBackend {
     const target = join(this.artifactRoot, ...path.split('/'));
     await mkdir(dirname(target), { recursive: true });
     await writeFile(target, bytes, { mode: 0o600 });
-  }
-}
-
-class MemoryArtifacts {
-  public readonly values = new Map<string, Uint8Array>();
-
-  public constructor(public readonly bucket: string) {}
-
-  public async putStream(
-    key: string,
-    value: AsyncIterable<Uint8Array>,
-    _contentType: string,
-  ): Promise<ArtifactReference> {
-    const chunks: Uint8Array[] = [];
-    for await (const chunk of value) chunks.push(chunk);
-    const bytes = Buffer.concat(chunks);
-    this.values.set(key, bytes);
-    return {
-      bucket: this.bucket,
-      key,
-      sha256: createHash('sha256').update(bytes).digest('hex'),
-    };
-  }
-
-  public async copy(
-    source: ArtifactReference,
-    key: string,
-    _contentType: string,
-  ): Promise<ArtifactReference> {
-    const bytes = this.values.get(source.key);
-    if (!bytes) throw new Error('simulated artifact source is missing');
-    this.values.set(key, bytes);
-    return { ...source, key };
   }
 }
 

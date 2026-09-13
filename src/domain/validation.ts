@@ -112,7 +112,7 @@ export function parseRunRequest(value: unknown, options: ValidationOptions = {})
   return result;
 }
 
-function parseRepository(value: unknown, allowedHosts?: string[]): RepositoryInput {
+export function parseRepository(value: unknown, allowedHosts?: string[]): RepositoryInput {
   const input = requiredRecord(value, 'repository');
   rejectUnknown(input, [
     'provider',
@@ -350,8 +350,8 @@ function parseExecution(value: unknown): ExecutionInput {
   rejectUnknown(input, ['backend', 'timeoutSeconds']);
   const result: ExecutionInput = {};
   if (input.backend !== undefined) {
-    if (input.backend !== 'microvm') {
-      throw new ValidationError('execution.backend must be microvm');
+    if (input.backend !== 'microvm' && input.backend !== 'ec2') {
+      throw new ValidationError('execution.backend must be microvm or ec2');
     }
     result.backend = input.backend as ExecutionBackend;
   }

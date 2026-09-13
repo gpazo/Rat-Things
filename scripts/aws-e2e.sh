@@ -2,6 +2,11 @@
 
 set -euo pipefail
 
+if [[ "${AWS_E2E_REAL_CODEX:-false}" != "true" ]]; then
+  echo "Set AWS_E2E_REAL_CODEX=true to opt into AWS provisioning and the Agents model probe" >&2
+  exit 2
+fi
+
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 deployment_id="${AWS_E2E_DEPLOYMENT_ID:-e2e-$(date -u +%y%m%d%H%M)}"
 started_at="$(date +%s)"
@@ -50,11 +55,11 @@ trap 'exit 143' TERM
 set +e
 "$script_dir/aws-e2e-test.sh" "$deployment_id"
 test_status=$?
-if [[ "$test_status" -eq 0 && "${AWS_E2E_DEFAULT_AGENT_DRIVER:-mock}" == "codex" ]]; then
+if [[ "$test_status" -eq 0 && "${AWS_E2E_REAL_CODEX:-false}" == "true" ]]; then
   "$script_dir/aws-e2e-console-test.sh" "$deployment_id"
   test_status=$?
 elif [[ "$test_status" -eq 0 ]]; then
-  echo "Skipping the live console journey; set AWS_E2E_DEFAULT_AGENT_DRIVER=codex to run it."
+  echo "Skipping the live console journey; set AWS_E2E_REAL_CODEX=true to run it."
 fi
 set -e
 if [[ "$test_status" -ne 0 ]]; then

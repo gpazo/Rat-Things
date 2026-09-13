@@ -96,8 +96,7 @@ test("supports mesh picking and does not mistake orbit dragging for selection", 
 for (const [flow, first] of [
   ["api", "Authenticate the request"],
   ["webhook", "Verify the provider signature"],
-  ["thing", "Trigger a published Thing"],
-  ["thread", "Accept a threaded input"],
+  ["thing", "Reserve a scheduled occurrence"],
 ] as const) {
   test(`walks the ${flow} flow from ingress to persisted result delivery`, async ({
     page,
@@ -107,7 +106,7 @@ for (const [flow, first] of [
       .getByRole("combobox", { name: "Request entry point" })
       .selectOption(flow);
     await page
-      .getByRole("button", { name: "Trace a Run", exact: true })
+      .getByRole("button", { name: "Trace a Session", exact: true })
       .click();
     await expect(page.locator("#step-title")).toHaveText(first);
     await expect(
@@ -226,30 +225,30 @@ test("follows one task with a single handoff, resource focus and a return to the
   ).toBeVisible();
   await expect(page.locator('.component-label[data-node="api"]')).toBeVisible();
   await expect(page.locator("#step-handoff .handoff-route")).toContainText(
-    "Control API",
+    "Agents API",
   );
 
   await page.getByRole("button", { name: "Next step", exact: true }).click();
   await expect(page.locator("#step-position")).toHaveText("02 / 08");
   await expect(page.locator("#step-title")).toHaveText(
-    "Accept one durable Run",
+    "Accept Session input",
   );
   await expect(page.locator("#step-handoff .handoff-route")).toHaveText(
-    /Control API\s*→\s*Run service/,
+    /Agents API\s*→\s*Sessions and Turns/,
   );
   await expect(page.locator("#step-handoff .handoff-payload")).toContainText(
     /owner|principal|input/i,
   );
   await expect(page.locator("#scene-host")).toHaveAttribute(
     "data-handoff",
-    "api:runs",
+    "api:mailbox",
   );
   await expect(page.locator("#scene-host")).toHaveAttribute(
     "data-connections",
     "1",
   );
   await expect(
-    page.locator('.component-label[data-node="runs"]'),
+    page.locator('.component-label[data-node="mailbox"]'),
   ).toBeVisible();
   const handoff = await page.locator("#step-handoff").innerText();
 
@@ -268,7 +267,7 @@ test("follows one task with a single handoff, resource focus and a return to the
     "focused",
   );
   await expect(page.locator(".component-label:visible")).toHaveCount(1);
-  await expect(page).toHaveURL(/focus=runs/);
+  await expect(page).toHaveURL(/focus=mailbox/);
   await page.locator('#breadcrumb [data-action="parent"]').click();
   await expect(page.locator("#scene-host")).toHaveAttribute(
     "data-view",
@@ -282,14 +281,14 @@ test("follows one task with a single handoff, resource focus and a return to the
   });
   await expect(page.locator("#scene-host")).toHaveAttribute(
     "data-handoff",
-    "api:runs",
+    "api:mailbox",
   );
   await expect(page.locator("#scene-host")).toHaveAttribute(
     "data-connections",
     "1",
   );
   await expect(
-    page.locator('.component-label[data-node="runs"]'),
+    page.locator('.component-label[data-node="mailbox"]'),
   ).toBeVisible();
 });
 
@@ -407,7 +406,7 @@ test("advances Continue immediately and only advances on a timer when Play tour 
 
   await page.getByRole("button", { name: "Continue walkthrough" }).click();
   await expect(page.locator("#step-position")).toHaveText("02 / 08");
-  await expect(page.locator("#step-title")).toHaveText("Accept one durable Run");
+  await expect(page.locator("#step-title")).toHaveText("Accept Session input");
   await expect(page.getByRole("button", { name: "Play tour", exact: true })).toBeVisible();
   await page.clock.fastForward(7_100);
   await expect(page.locator("#step-position")).toHaveText("02 / 08");
@@ -542,7 +541,7 @@ test("keeps a successful result separate from uncertain notification delivery", 
     "Receive an ambiguous send error",
   );
   await expect(page.locator("#step-handoff .handoff-payload")).toContainText(
-    "outcome uncertain",
+    "outcome is uncertain",
   );
   await expect(page.locator("#run-state")).toHaveText("SUCCEEDED");
   await page.getByRole("button", { name: "Next step", exact: true }).click();
@@ -556,7 +555,7 @@ test("keeps a successful result separate from uncertain notification delivery", 
   await expect(page.locator("#run-state")).toHaveText("SUCCEEDED");
   await page.getByRole("button", { name: "Next step", exact: true }).click();
   await expect(page.locator("#step-title")).toHaveText(
-    "Retrieve the successful Run",
+    "Retrieve the saved Turn output",
   );
   await expect(page.locator("#step-description")).toContainText(
     "does not require rerunning",
@@ -575,7 +574,7 @@ test("stops auto rotation when selecting or opening architecture layers", async 
   await rotate.click();
   await page.locator("#explode-all").click();
   await expect(rotate).toHaveAttribute("aria-pressed", "false");
-  await page.getByRole("button", { name: "Trace a Run", exact: true }).click();
+  await page.getByRole("button", { name: "Trace a Session", exact: true }).click();
   await page.getByRole("button", { name: "Play tour", exact: true }).click();
   await expect(page.getByRole("button", { name: "Pause tour", exact: true })).toBeVisible();
   const position = await page.locator("#step-position").innerText();
@@ -648,19 +647,19 @@ test("keeps the active resource name and handoff understandable on mobile", asyn
   await page.locator('.intro-actions [data-action="start"]').click();
   await expect(page.locator('.component-label[data-node="api"]')).toBeVisible();
   await expect(page.locator('.component-label[data-node="api"]')).toContainText(
-    "Control API",
+    "Agents API",
   );
   await expect(page.locator("#step-handoff .handoff-route")).toBeVisible();
   await expect(page.locator("#step-handoff .handoff-payload")).toBeVisible();
   await page.getByRole("button", { name: "Next step", exact: true }).click();
   await expect(
-    page.locator('.component-label[data-node="runs"]'),
+    page.locator('.component-label[data-node="mailbox"]'),
   ).toBeVisible();
   await expect(page.locator("#scene-host")).toHaveAttribute(
     "data-handoff",
-    "api:runs",
+    "api:mailbox",
   );
-  await expect(page.locator("#step-handoff")).toContainText("Run service");
+  await expect(page.locator("#step-handoff")).toContainText("Sessions and Turns");
   const handoff = (await page.locator("#step-handoff").boundingBox())!;
   expect(handoff.x).toBeGreaterThanOrEqual(0);
   expect(handoff.x + handoff.width).toBeLessThanOrEqual(390);
@@ -687,7 +686,7 @@ test("opens the What survives answer above the mobile model and closes the syste
   await expect(page.locator("#detail-title")).toBeFocused();
   await expect(page.locator("#detail-content .detail-description")).toBeVisible();
   await expect(page.locator("#detail-content .detail-description")).toContainText(
-    "survive worker loss",
+    "Items and Artifacts live in encrypted storage",
   );
   await expect(page).toHaveURL(/view=durability/);
   await page.getByRole("button", { name: "Close details" }).click();

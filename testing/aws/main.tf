@@ -7,19 +7,19 @@ locals {
   }
 
   lambda_zip_paths = {
-    connection-health        = "${path.root}/../../dist/connection-health.zip"
-    control                  = "${path.root}/../../dist/control.zip"
-    conversation-completion  = "${path.root}/../../dist/conversation-completion.zip"
-    conversation-coordinator = "${path.root}/../../dist/conversation-coordinator.zip"
-    dispatcher               = "${path.root}/../../dist/dispatcher.zip"
-    notifier                 = "${path.root}/../../dist/notifier.zip"
-    reconciler               = "${path.root}/../../dist/reconciler.zip"
-    state-stream             = "${path.root}/../../dist/state-stream.zip"
-    thing-schedule           = "${path.root}/../../dist/thing-schedule.zip"
-    webhook-github           = "${path.root}/../../dist/webhook-github.zip"
-    webhook-gitlab           = "${path.root}/../../dist/webhook-gitlab.zip"
-    webhook-teams            = "${path.root}/../../dist/webhook-teams.zip"
-    webhook-slack            = "${path.root}/../../dist/webhook-slack.zip"
+    agents-api        = "${path.root}/../../dist/agents-api.zip"
+    agents-outbox     = "${path.root}/../../dist/agents-outbox.zip"
+    connection-health = "${path.root}/../../dist/connection-health.zip"
+    control           = "${path.root}/../../dist/control.zip"
+    dispatcher        = "${path.root}/../../dist/dispatcher.zip"
+    notifier          = "${path.root}/../../dist/notifier.zip"
+    reconciler        = "${path.root}/../../dist/reconciler.zip"
+    state-stream      = "${path.root}/../../dist/state-stream.zip"
+    thing-schedule    = "${path.root}/../../dist/thing-schedule.zip"
+    webhook-github    = "${path.root}/../../dist/webhook-github.zip"
+    webhook-gitlab    = "${path.root}/../../dist/webhook-gitlab.zip"
+    webhook-teams     = "${path.root}/../../dist/webhook-teams.zip"
+    webhook-slack     = "${path.root}/../../dist/webhook-slack.zip"
   }
 }
 
@@ -108,7 +108,10 @@ resource "aws_acm_certificate_validation" "publication" {
 }
 
 module "agent_runner" {
-  source = "../../infra/modules/agent-runner"
+  environment_relay_image                  = var.environment_relay_image
+  environment_relay_origin_hostname        = var.environment_relay_origin_hostname
+  environment_relay_origin_certificate_arn = var.environment_relay_origin_certificate_arn
+  source                                   = "../../infra/modules/agent-runner"
 
   name_prefix                 = local.name_prefix
   environment                 = var.deployment_id
@@ -130,7 +133,6 @@ module "agent_runner" {
   run_heartbeat_stale_seconds       = 60
   allowed_repository_hosts          = ["github.com", "gitlab.com"]
   allowed_sandbox_modes             = ["read-only", "workspace-write", "danger-full-access"]
-  default_agent_driver              = var.default_agent_driver
   allow_agent_aws_credential_chain  = false
   codex_auth_mode                   = "bedrock"
   codex_bedrock_model_ids           = [var.codex_model_id]
@@ -148,7 +150,11 @@ module "agent_runner" {
   slack_signing_secret_arn          = try(aws_secretsmanager_secret.slack_webhook[0].arn, null)
   slack_webhook_enabled             = var.enable_slack_webhook
   enable_microvm                    = var.enable_microvm
-  enable_s3_files                   = var.enable_microvm
+  enable_ec2_worker                 = var.enable_ec2_worker
+  ec2_worker_ami_id                 = var.ec2_worker_ami_id
+  ec2_worker_image                  = var.ec2_worker_image
+  ec2_worker_instance_type          = var.ec2_worker_instance_type
+  enable_s3_files                   = var.enable_microvm || var.enable_ec2_worker
   microvm_source_zip_path           = "${path.root}/../../dist/microvm-source.zip"
   microvm_base_image_version        = var.microvm_base_image_version
   tags                              = local.tags

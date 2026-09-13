@@ -1,170 +1,49 @@
-# Durable files and share links
+# Durable files and Session Artifacts
 
-Rat Things lets an agent return screenshots, images, video, PDFs, reports, logs, and other
-deliverables—not only text. Treat storage, private inspection, and external sharing as three
-separate decisions:
+The standard Files API stores uploaded input. Session Artifacts retain immutable
+output from completed managed-environment Turns. Both belong to the authenticated
+owner and keep content in encrypted S3.
 
-1. **Retain the file.** The agent writes below `.rat-things/artifacts/`; trusted orchestration
-   validates the bytes and commits them to the owner-scoped durable catalog during runner finalization.
-2. **Inspect or download it privately.** An authenticated owner can list the catalog and open file
-   content through the conversation console or owner-checked API routes.
-3. **Share it externally.** Explicitly create an expiring bearer publication. `rat-things file` is
-   the single-file convenience path; `rat-things publish file|site|video` chooses a richer viewer.
-   Continue with [Publish and share agent work](sharing-work.md) before sending a link.
-
-The MicroVM never receives an S3 credential for sharing. Trusted orchestration creates the
-publication and mints its time-bounded bearer grant only after the file has been retained.
-
-## Simple image demo
-
-This example assumes the configured agent has an image-producing tool. The durable-file mechanism
-does not depend on which browser, renderer, or image model creates the bytes.
+## Uploaded input
 
 ```bash
-rat-things handoff --thread pelican-demo --sandbox workspace-write \
-  "Create an image of a pelican riding a bicycle. Save the final WebP as \
-  .rat-things/artifacts/pelican-bicycle.webp, verify that it is non-empty, and mention the \
-  relative filename in your reply."
-
-rat-things files --thread pelican-demo
-rat-things file pelican-bicycle.webp --thread pelican-demo --open
+rat-things files create --file input.pdf --purpose user_data
+rat-things files list
+rat-things files get file_example
+rat-things files content file_example --output input-copy.pdf
 ```
 
-The successful chat command prints file-specific open and download commands on stderr, alongside
-its final answer on stdout. Text files also offer a bounded `--preview`. `files` lists the same
-actions, and the final `file --open` command opens the selected image in your browser. With no
-mode, `file` prints only its URL; `--json` returns the descriptor for scripts.
+Use the returned File ID in a standard environment file declaration. Environment
+setup pins its input bytes so later deletion or replacement of an uploaded File
+does not alter an already prepared environment. The Files API is separate from
+listing a live environment's filesystem.
 
-Use `--conversation PUBLIC_ID` to select an existing conversation by public ID, or supply its thread
-name. An ambiguous basename lists matching paths with commands that select exact file IDs. In the
-console, generated Markdown file links open the catalog-backed viewer; **Use file in terminal**
-always targets the displayed file, including after following a link to another file. **Back** restores
-the previous file, its scroll position, and the link you followed. Generated download commands retain
-the catalog path, so `reports/brief.md` and `archive/brief.md` become separate local files. Missing
-parent directories are created automatically.
+## Retained output
 
-Download a copy explicitly; existing destination files are never overwritten:
+Managed Session environments snapshot regular files beneath `/workspace/outputs`
+when a Turn completes. A saved artifact has its own ID, Session ID, Turn ID,
+original environment path and size. Subsequent Turns may save new versions of
+the same path. The service supports 200 MiB per artifact and 500 MiB per snapshot.
 
 ```bash
-rat-things file pelican-bicycle.webp \
-  --thread pelican-demo \
-  --download ./pelican-bicycle.webp
+rat-things sessions artifacts sess_example
+rat-things sessions artifacts sess_example art_example
+rat-things sessions artifact-content sess_example art_example --output report.pdf
+rat-things sessions artifact-delete sess_example art_example
 ```
 
-Reuse the thread to continue working with the same file. Rat Things restores the committed catalog
-before the next turn, including on a replacement MicroVM:
+Downloads use authenticated API content routes. Saved artifacts survive
+execution-environment expiry. Deleting an artifact removes its API access without
+deleting the original uploaded File or live environment file. A `self_hosted`
+environment does not automatically publish its live files as Session Artifacts.
 
-```bash
-rat-things handoff --thread pelican-demo --sandbox workspace-write \
-  "Open .rat-things/artifacts/pelican-bicycle.webp, make a second 512px variant, and save it as \
-  .rat-things/artifacts/pelican-bicycle-512.webp."
-```
+Write deliverables with clear names, verify their contents, and keep tool access
+within the Agent's declared capabilities. Filesystem writes and browser/rendering
+tools require an environment and the appropriate declared tools.
 
-Artifact transport and durability are built into Rat Things. Browser control, image generation,
-and video rendering are tools supplied to the agent separately; any such tool can publish through
-the same directory contract.
+## Sharing
 
-## Instructions for an agent running inside Rat Things
-
-Treat `.rat-things/artifacts/` as a managed, durable working directory:
-
-1. Write every user-visible deliverable below `.rat-things/artifacts/` using a clear relative name,
-   such as `screenshots/login.png`, `reports/audit.pdf`, or `video/demo.mp4`.
-2. Create parent directories when needed. Publish regular files only; symbolic links, hard links,
-   devices, sockets, traversal, absolute paths, and control characters are rejected.
-3. Verify the deliverable before completing the turn. At minimum, confirm that it exists and is not
-   empty. When correctness matters, also check its format, dimensions, duration, or SHA-256 digest.
-4. Keep a file in the directory if the conversation should retain it. Remove it when the user wants
-   it removed from the next committed catalog. A stopped or failed turn can also commit its current
-   files when trusted runner finalization completes; retained partial files are not proof that the
-   task succeeded.
-5. Mention each relevant relative filename in the final response. Do not paste binary data or a
-   large base64 payload into the response when a file will do.
-6. Never place credentials, tokens, cookies, private keys, or other secrets in this directory. A
-   later authorized caller can mint a bearer URL for any cataloged file.
-
-Rat Things injects this contract into managed agent prompts. Runner finalization inspects the
-directory after completed, gracefully stopped, and failed agent turns, hashes each file, uploads
-immutable bytes under an owner-scoped
-`blobs/sha256/<digest>` key, and commit the current path catalog. The directory is a VM-local staging
-view restored from that catalog before each turn, so generated output does not create high-churn S3
-Files writes. The agent does not upload to S3 or create share links itself.
-
-Inspect the terminal Run's `result` and artifact list to confirm what was retained. If the VM is
-terminated abruptly or finalization itself fails, uncommitted files can still be lost; the previous
-catalog remains the recovery source. Automatic sharing requests are processed only for successful
-turns, so retaining partial files does not publish them externally.
-
-## Instructions for a supervising agent or automation
-
-Use a stable thread name for work that may continue. Use a stable idempotency key when retrying the
-same semantic request. Keep JSON on stdout and progress on stderr:
-
-```bash
-THREAD_ID=pelican-demo
-TURN_ID=asset-request-001
-
-rat-things chat \
-  --thread "$THREAD_ID" \
-  --idempotency-key "$TURN_ID" \
-  --sandbox workspace-write \
-  --json \
-  "Create the requested image and save it below .rat-things/artifacts/." \
-  > turn.json
-
-rat-things files --thread "$THREAD_ID" --json > files.json
-rat-things file pelican-bicycle.webp \
-  --thread "$THREAD_ID" \
-  --json > file.json
-```
-
-The file-list response contains safe metadata—ID, relative path, media type, byte count, creation
-time, source run, and SHA-256—but no S3 bucket or object key. The single-file response adds `url` and
-`expiresAt`. Select by exact relative path or catalog ID; a basename works only when unique.
-
-For asynchronous supervisors, add `--no-wait` to `chat`, persist its receipt, and poll the returned
-message with the control API. Do not request files until the message is `consumed`, its run is
-`succeeded`, the conversation is `idle`, and the MicroVM session is `suspended`. For a one-shot run,
-replace `--thread THREAD_ID` on the file commands with `--run RUN_ID`.
-
-Recommended automation behavior:
-
-- verify `bytes`, `mediaType`, and `sha256` before forwarding a result;
-- treat `url` as a secret until `expiresAt` and avoid placing it in durable logs;
-- mint a new URL with `rat-things file` instead of caching an expired URL;
-- download to a controlled path with `--download` when another tool needs local bytes; and
-- retain the thread name and file path when asking the agent to revise an existing deliverable.
-
-Run `rat-things help --all` for the complete headless surface.
-
-## Durability and access lifetime
-
-Files are private, content-addressed S3 objects under owner-hashed prefixes. Conversation metadata
-holds a bounded path catalog, and a later turn restores those exact bytes into fresh local staging
-before Codex starts. The default object retention is 30 days and is configured independently from
-the MicroVM lifetime.
-
-With publication delivery enabled, `rat-things file` creates an opaque bearer URL valid for 24 hours
-by default. The public endpoint validates its encrypted grant, opens a signed browser-ready first
-page, and installs host-only CloudFront cookies for its subresources. Generated file and video
-viewers also carry the signed authorization into their asset requests. Deployments without that
-optional custom domain return a direct one-minute S3 download URL from the authenticated control
-API. Publication grant lifetime is configured through `artifact_url_ttl_seconds` from 60 through
-86,400 seconds. A new link can be minted while the owner and retained artifact still exist.
-
-The initial catalog limits are:
-
-- 5,000 files;
-- 5 GiB per file;
-- 20 GiB across the directory;
-- 8 MiB for the JSON catalog; and
-- 512 UTF-8 bytes per relative path.
-
-Transfers are streamed and unchanged retained objects are renewed with S3 server-side copies.
-Identical bytes share one owner-scoped content key even when catalog paths differ. Common image,
-audio, video, PDF, text, web-font, manifest, and WebAssembly formats receive browser-correct media
-types; unknown formats are downloads. See [publications](publications.md) for multi-file sites, video
-players, AWS setup, and the extension model.
-
-See [the control API](api.md#durable-files), [conversation durability](conversations.md), and the
-[security model](security.md) for lower-level contracts and production caveats.
+Creating a publication is a separate explicit action. Select saved artifact IDs
+and relative publication paths, then mint an expiring bearer link through the
+control endpoint. See [publish and share agent work](sharing-work.md). Uploading
+or saving an artifact alone does not make it public.

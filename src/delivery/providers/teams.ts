@@ -43,9 +43,9 @@ export class TeamsDeliveryAdapter implements DeliveryAdapter {
               type: 'AdaptiveCard',
               version: '1.5',
               body: [
-                { type: 'TextBlock', weight: 'Bolder', text: `Agent run ${input.run.status}`, wrap: true },
+                { type: 'TextBlock', weight: 'Bolder', text: `${input.execution.label} ${input.execution.status}`, wrap: true },
                 { type: 'TextBlock', text: input.body.slice(0, 20_000), wrap: true },
-                { type: 'FactSet', facts: [{ title: 'Run', value: input.run.runId }] },
+                { type: 'FactSet', facts: [{ title: input.execution.label, value: input.execution.id }] },
               ],
             },
           },
@@ -68,12 +68,12 @@ export class TeamsDeliveryAdapter implements DeliveryAdapter {
       requiredDeliveryCredential(this.options.replyGatewayUrlSecretArn, 'TEAMS_REPLY_GATEWAY_URL_SECRET_ARN'),
       ['url', 'webhook_url'],
     );
-    const text = formatMessage(input.body, input.run, 20_000);
+    const text = formatMessage(input.body, input.execution, 20_000);
     const response = await fetchWithTimeout(url, {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
-        'idempotency-key': input.run.runId,
+        'idempotency-key': input.execution.id,
       },
       body: JSON.stringify({
         version: '1',
@@ -92,10 +92,7 @@ export class TeamsDeliveryAdapter implements DeliveryAdapter {
           channelId: source.channelId,
           senderId: source.senderId,
         },
-        run: {
-          id: input.run.runId,
-          status: input.run.status,
-        },
+        execution: { id: input.execution.id, status: input.execution.status, sessionId: input.execution.sessionId, type: input.execution.label.toLowerCase() },
       }),
     });
     await checkedResponse(response, 'Teams reply gateway');

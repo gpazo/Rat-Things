@@ -3,10 +3,10 @@ import type { RunRequest } from '../domain/contracts.js';
 import { isRecord } from '../domain/validation.js';
 import { isAgentResultMessage } from './result-marker.js';
 
-export interface NormalizedWebhookRun {
+export interface NormalizedWebhookInput {
   ownerId: string;
   idempotencyKey: string;
-  request: RunRequest;
+  request: Pick<RunRequest, 'prompt' | 'repository' | 'metadata'> & { source: NonNullable<RunRequest['source']> };
 }
 
 export function normalizeGitHubWebhook(
@@ -15,7 +15,7 @@ export function normalizeGitHubWebhook(
   payload: unknown,
   credentialSecretArn?: string,
   commentTrigger?: string,
-): NormalizedWebhookRun | undefined {
+): NormalizedWebhookInput | undefined {
   if (!isRecord(payload)) return undefined;
   const repository = record(payload.repository);
   const fullName = text(repository?.full_name);
@@ -38,7 +38,6 @@ export function normalizeGitHubWebhook(
       ownerId,
       idempotencyKey: safeIdempotencyKey('github', deliveryId),
       request: {
-        version: '1',
         prompt: [
           `Review GitHub pull request #${issueNumber} in ${fullName}.`,
           `Title: ${title}`,
@@ -54,7 +53,6 @@ export function normalizeGitHubWebhook(
           installationId,
           credentialSecretArn,
         }),
-        agent: { sandbox: 'read-only' },
         source: compactSource({
           kind: 'github',
           deliveryId,
@@ -81,7 +79,6 @@ export function normalizeGitHubWebhook(
       ownerId,
       idempotencyKey: safeIdempotencyKey('github', deliveryId),
       request: {
-        version: '1',
         prompt: [
           `Respond to this request on GitHub pull request #${issueNumber} in ${fullName}:`,
           body,
@@ -94,7 +91,6 @@ export function normalizeGitHubWebhook(
           installationId,
           credentialSecretArn,
         }),
-        agent: { sandbox: 'read-only' },
         source: compactSource({
           kind: 'github',
           deliveryId,
@@ -115,7 +111,7 @@ export function normalizeGitLabWebhook(
   payload: unknown,
   credentialSecretArn?: string,
   commentTrigger?: string,
-): NormalizedWebhookRun | undefined {
+): NormalizedWebhookInput | undefined {
   if (!isRecord(payload)) return undefined;
   const project = record(payload.project);
   const projectId = scalarId(project?.id);
@@ -135,7 +131,6 @@ export function normalizeGitLabWebhook(
       ownerId,
       idempotencyKey: safeIdempotencyKey('gitlab', deliveryId),
       request: {
-        version: '1',
         prompt: [
           `Review GitLab merge request !${iid} in ${path}.`,
           `Title: ${text(attributes?.title) ?? ''}`,
@@ -149,7 +144,6 @@ export function normalizeGitLabWebhook(
           baseRef: text(attributes?.target_branch),
           credentialSecretArn,
         }),
-        agent: { sandbox: 'read-only' },
         source: { kind: 'gitlab', event: eventName, projectId, mergeRequestIid: iid },
         metadata: { action: action ?? 'unknown' },
       },
@@ -169,7 +163,6 @@ export function normalizeGitLabWebhook(
       ownerId,
       idempotencyKey: safeIdempotencyKey('gitlab', deliveryId),
       request: {
-        version: '1',
         prompt: [
           `Respond to this request on GitLab merge request !${iid} in ${path}:`,
           body,
@@ -181,7 +174,6 @@ export function normalizeGitLabWebhook(
           ref: text(record(mergeRequest?.last_commit)?.id) ?? `refs/merge-requests/${iid}/head`,
           credentialSecretArn,
         }),
-        agent: { sandbox: 'read-only' },
         source: { kind: 'gitlab', event: eventName, projectId, mergeRequestIid: iid },
       },
     };
@@ -189,7 +181,7 @@ export function normalizeGitLabWebhook(
   return undefined;
 }
 
-export function normalizeTeamsWebhook(payload: unknown): NormalizedWebhookRun | undefined {
+export function normalizeTeamsWebhook(payload: unknown): NormalizedWebhookInput | undefined {
   if (!isRecord(payload)) return undefined;
   const activityId = text(payload.id);
   const conversationId = text(record(payload.conversation)?.id);
@@ -205,9 +197,7 @@ export function normalizeTeamsWebhook(payload: unknown): NormalizedWebhookRun | 
     ownerId: `teams:${tenantId}:${senderId}`,
     idempotencyKey: safeIdempotencyKey('teams', activityId),
     request: {
-      version: '1',
       prompt,
-      agent: { sandbox: 'read-only' },
       source: compactSource({
         kind: 'teams',
         tenantId,
@@ -221,7 +211,7 @@ export function normalizeTeamsWebhook(payload: unknown): NormalizedWebhookRun | 
   };
 }
 
-export function normalizeSlackEvent(payload: unknown): NormalizedWebhookRun | undefined {
+export function normalizeSlackEvent(payload: unknown): NormalizedWebhookInput | undefined {
   if (!isRecord(payload)) return undefined;
   const event = record(payload.event);
   const eventId = text(payload.event_id);
@@ -244,9 +234,7 @@ export function normalizeSlackEvent(payload: unknown): NormalizedWebhookRun | un
     ownerId: `slack:${teamId}:${userId}`,
     idempotencyKey: safeIdempotencyKey('slack', eventId),
     request: {
-      version: '1',
       prompt,
-      agent: { sandbox: 'read-only' },
       source: compactSource({
         kind: 'slack',
         teamId,

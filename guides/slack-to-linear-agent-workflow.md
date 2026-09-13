@@ -36,9 +36,9 @@ Terminal delivery is a third stage with its own credential and idempotency fence
 prevents a Slack payload shape, model process, or result formatter from becoming the authorization
 system for every stage.
 
-Rat Things maps a verified Slack thread to one durable conversation. Every accepted request has one
-Run receipt in the control plane, and the eventual answer returns to the source thread through
-trusted delivery. Review the current [Slack experience and boundaries](../docs/slack.md).
+Rat Things maps each verified Slack sender and thread to an owned Session. Accepted inputs
+have durable receipts; trusted delivery reads saved terminal root Turns and returns their
+answers to the source thread. Review the current [Slack experience and boundaries](../docs/slack.md).
 
 ## Connect Slack and Linear
 
@@ -51,8 +51,9 @@ Rat Things verifies each provider identity before storing its credential in Secr
 Reconnection must resolve to the same provider tenant and subject, so an expired token cannot be
 silently replaced with another workspace while keeping the same alias and consumers.
 
-The model sees stable aliases such as `slack-work`, `linear-read`, and `linear-create`, their
-operation schemas, and bounded identity metadata. It never receives a raw token.
+These connections configure the trusted provider adapter. Standard Agents Sessions do not
+automatically receive their operations as tools: expose the required operations through an explicit
+MCP server or application functions, and declare those tools in the Agent configuration.
 
 ## Give the handoff only the operations it needs
 
@@ -77,26 +78,27 @@ approved team ID, and apply it to `linear-create`.
 npm run rat-things -- grant linear-create --file linear-create-grant.json
 ```
 
-After the grant is installed, run the workflow:
+After installing the grant, configure the Agent's declared MCP/function tools to use
+these bounded operations. The host implementation must enforce the account, operation and
+resource grant before reading a credential. A notification connection alone does not supply
+agent tools.
+
+Create a Session with that saved Agent, replacing the placeholder ID:
 
 ```bash
-npm run rat-things -- chat --thread renewal-handoff \
-  --connection slack-work=read-only \
-  --allow-operation slack-work=slack.messages.search \
-  --connection linear-read=read-only \
-  --allow-operation linear-read=linear.teams.list,linear.issues.search \
-  --connection linear-create=read-write \
-  --allow-operation linear-create=linear.issues.create \
-  "Find the approved renewal decision in Slack. Check Linear for an existing matching issue. \
-  If none exists, create one in the customer-ops team with the open security items and Slack \
-  permalink in its description. Return the Linear identifier and URL."
+npm run rat-things -- sessions create --agent-id agent_example \
+  --input "Find the approved renewal decision in Slack. Check Linear for existing work. If none exists, create one issue in the approved team and return its URL."
 ```
+
+Application function tools require the application to execute each `required_action`
+and submit its result. See [Agents API](../docs/agents-api.md). The prompt describes
+intent; the tool's host implementation enforces authority and deduplication.
 
 Do not put `linear.teams.list` or `linear.comments.create` under that grant: neither operation has a
 `teamId` input, so the broker would reject it. The read alias does not need write authority, and the
 create alias cannot update or comment on existing work.
 
-Notice what is missing: `linear.issues.update`. If a matching issue already exists, this Run can
+Notice what is missing: `linear.issues.update`. If a matching issue already exists, this Session can
 report it but cannot modify it. Add update authority only to a workflow whose approved outcome
 requires changing existing work.
 
@@ -108,7 +110,7 @@ Linear's documented granular scopes.
 
 ## Make duplication an explicit failure case
 
-Search is not a perfect uniqueness constraint. Two concurrent Runs can both observe no match and
+Search is not a perfect uniqueness constraint. Two concurrent Sessions can both observe no match and
 create separate issues unless the provider or workflow supplies an idempotency boundary.
 
 For low-volume human handoffs, serialize work by source thread, ask for the search immediately
@@ -157,7 +159,7 @@ Before enabling the workflow broadly:
 3. Use separate verified Slack and Linear Connections.
 4. Limit Slack to search, use a separate Linear read alias, and constrain a create-only alias to the approved team.
 5. Add a duplicate-issue strategy appropriate to the workflow volume.
-6. Retain the source permalink, Run receipt, and tool ledger.
+6. Retain the source permalink, Session and Turn IDs, and tool ledger.
 7. Reconcile unknown write outcomes instead of replaying them blindly.
 8. Add rate limits, budgets, egress controls, and failure-queue alarms.
 

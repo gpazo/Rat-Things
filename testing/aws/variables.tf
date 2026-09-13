@@ -39,17 +39,6 @@ variable "codex_model_id" {
   default     = "openai.gpt-5.6-terra"
 }
 
-variable "default_agent_driver" {
-  description = "Default agent driver used by API Runs in the disposable stack."
-  type        = string
-  default     = "mock"
-
-  validation {
-    condition     = contains(["mock", "codex"], var.default_agent_driver)
-    error_message = "default_agent_driver must be mock or codex."
-  }
-}
-
 variable "integration_oauth_app_secret_arns" {
   description = "Optional operator-owned OAuth application secrets used by an explicit live provider canary."
   type        = map(string)
@@ -95,4 +84,41 @@ variable "publication_public_key_pem" {
   type        = string
   default     = null
   nullable    = true
+}
+
+variable "enable_ec2_worker" {
+  type        = bool
+  default     = false
+  description = "Run persistent Sessions on dedicated ARM64 EC2 workers."
+}
+variable "ec2_worker_ami_id" {
+  type        = string
+  default     = null
+  description = "Pinned Amazon Linux 2023 ARM64 AMI ID."
+}
+variable "ec2_worker_image" {
+  type        = string
+  default     = null
+  description = "Worker image in private ECR, pinned by digest."
+}
+variable "ec2_worker_instance_type" {
+  type    = string
+  default = "m7g.large"
+}
+variable "environment_relay_image" {
+  description = "Pinned ARM64 image for the dedicated HTTPS API and executor relay."
+  type        = string
+  default     = null
+}
+
+variable "environment_relay_origin_hostname" {
+  description = "Dedicated API/relay hostname pointing to the output ALB DNS name."
+  type        = string
+  default     = null
+}
+
+variable "environment_relay_origin_certificate_arn" {
+  description = "Regional ACM certificate covering the dedicated API/relay hostname."
+  type        = string
+  default     = null
 }

@@ -27,7 +27,6 @@ import {
   artifactByteTotal,
   artifactFileIdentity,
   artifactOwnerHash,
-  artifactPromptText,
   completeArtifactPublication,
   detectMediaType,
   planArtifactPublication,
@@ -94,7 +93,7 @@ export async function restoreArtifactCatalog(
 
 /**
  * Validates and republishes the complete current outbox. Republishing renews
- * object lifecycle with the conversation while preserving last-change metadata.
+ * object retention while preserving last-change metadata.
  */
 export async function publishArtifactCatalog(input: {
   workspace: string;
@@ -152,13 +151,6 @@ export async function localArtifactPaths(workspace: string): Promise<string[]> {
 export async function clearArtifactDirectory(workspace: string): Promise<void> {
   const root = await prepareArtifactDirectory(workspace);
   await clearDirectoryContents(root);
-}
-
-export function artifactPrompt(
-  prompt: string,
-  publicationEnabled = process.env.AGENT_PUBLICATION_ENABLED === 'true',
-): string {
-  return artifactPromptText(prompt, publicationEnabled);
 }
 
 function artifactRoot(workspace: string): string {

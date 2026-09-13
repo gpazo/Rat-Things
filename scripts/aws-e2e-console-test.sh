@@ -30,8 +30,8 @@ set -a
 source "$runtime_env"
 set +a
 
-if [[ "${AWS_E2E_DEFAULT_AGENT_DRIVER:-mock}" != "codex" ]]; then
-  echo "the live console journey requires AWS_E2E_DEFAULT_AGENT_DRIVER=codex because it validates agent file operations" >&2
+if [[ "${AWS_E2E_REAL_CODEX:-false}" != "true" ]]; then
+  echo "the live console journey requires AWS_E2E_REAL_CODEX=true to invoke the configured model" >&2
   exit 2
 fi
 

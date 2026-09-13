@@ -6,19 +6,21 @@ import { fileURLToPath } from 'node:url';
 import { readFile, stat } from 'node:fs/promises';
 import { extname, resolve } from 'node:path';
 import process from 'node:process';
-import { Sha256 } from '@aws-crypto/sha256-js';
-import { defaultProvider } from '@aws-sdk/credential-provider-node';
-import { HttpRequest } from '@smithy/protocol-http';
-import { SignatureV4 } from '@smithy/signature-v4';
+import { createAgentsFetch } from '../src/agents-client.js';
 import { isPrivateArtifactUrl } from '../src/adapters/publication-client.js';
+import { Readable } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
 
 const host = '127.0.0.1';
 let port = boundedPort(process.env.RAT_THINGS_CONSOLE_PORT ?? '4174');
 const consoleRoot = resolve(process.env.RAT_THINGS_CONSOLE_ROOT ?? 'console');
 const upstreamBase = requiredApiUrl();
+let authenticatedFetch: typeof fetch | undefined;
 
 const server = createServer((request, response) => {
   void handle(request, response).catch((error: unknown) => {
+    if (response.destroyed || response.writableEnded) return;
+    if (response.headersSent) { response.destroy(); return; }
     const message = error instanceof Error ? error.message : String(error);
     json(response, 500, { error: { code: 'console_error', message } });
   });
@@ -58,7 +60,7 @@ async function handle(request: IncomingMessage, response: ServerResponse): Promi
     return json(response, 405, error('method_not_allowed', 'only GET and HEAD are allowed for console files'));
   }
   const file = requestUrl.pathname === '/' ? 'index.html' : requestUrl.pathname.slice(1);
-  if (!['index.html', 'app.js', 'presentation.js', 'artifact-links.js', 'activity.js', 'markdown.js', 'marked.js', 'styles.css'].includes(file)) {
+  if (!['index.html', 'app.js', 'markdown.js', 'marked.js', 'styles.css'].includes(file)) {
     return json(response, 404, error('not_found', 'console file not found'));
   }
   const localPath = resolve(consoleRoot, file);
@@ -80,13 +82,13 @@ async function proxy(
   requestUrl: URL,
 ): Promise<void> {
   const method = request.method;
-  if (!method || !['GET', 'POST', 'PATCH'].includes(method)) {
-    return json(response, 405, error('method_not_allowed', 'the console proxy allows GET, POST, and PATCH only'));
+  if (!method || !['GET', 'POST', 'PATCH', 'DELETE'].includes(method)) {
+    return json(response, 405, error('method_not_allowed', 'unsupported console method'));
   }
   if (!validOrigin(request.headers.origin)) {
     return json(response, 403, error('forbidden', 'cross-origin console request rejected'));
   }
-  const mutation = method === 'POST' || method === 'PATCH';
+  const mutation = method !== 'GET';
   if (mutation && request.headers['x-rat-console-request'] !== '1') {
     return json(response, 403, error('forbidden', 'missing console request marker'));
   }
@@ -99,6 +101,7 @@ async function proxy(
   const unsignedHeaders: Record<string, string> = {
     host: url.host,
     accept: 'application/json',
+    'openai-beta': 'agents=v1',
     ...(body ? { 'content-type': 'application/json' } : {}),
     ...(typeof request.headers['idempotency-key'] === 'string'
       ? { 'idempotency-key': request.headers['idempotency-key'] }
@@ -107,35 +110,22 @@ async function proxy(
       ? { 'x-runtime-owner': process.env.RAT_THINGS_LOCAL_OWNER }
       : {}),
   };
-  let headers = unsignedHeaders;
+  let transport = fetch;
   if (process.env.AGENT_RUNTIME_UNSIGNED !== 'true') {
     const region = process.env.AWS_REGION ?? regionFromHostname(url.hostname);
     if (!region) throw new Error('AWS_REGION is required to sign console control API requests');
-    const signer = new SignatureV4({
-      credentials: defaultProvider(),
-      region,
-      service: 'execute-api',
-      sha256: Sha256,
-    });
-    const signed = await signer.sign(new HttpRequest({
-      protocol: url.protocol,
-      hostname: url.hostname,
-      ...(url.port ? { port: Number(url.port) } : {}),
-      method,
-      path: url.pathname,
-      query: Object.fromEntries(url.searchParams.entries()),
-      headers: unsignedHeaders,
-      ...(body ? { body } : {}),
-    }));
-    headers = signed.headers;
+    authenticatedFetch ??= createAgentsFetch({ baseURL: `${url.origin}/v1`, region });
+    transport = authenticatedFetch;
   }
   const contentRequest = upstreamPath.endsWith('/content');
-  let upstream = await fetch(url, {
+  const abort = new AbortController();
+  response.once('close', () => abort.abort());
+  let upstream = await transport(url, {
     method,
-    headers,
+    headers: unsignedHeaders,
     ...(body ? { body } : {}),
-    redirect: contentRequest ? 'manual' : 'follow',
-    signal: AbortSignal.timeout(30_000),
+    redirect: contentRequest ? 'manual' : 'error',
+    signal: AbortSignal.any([abort.signal, AbortSignal.timeout(upstreamPath.endsWith('/events') ? 900_000 : 30_000)]),
   });
   if (contentRequest && isRedirect(upstream.status)) {
     const location = upstream.headers.get('location');
@@ -157,14 +147,14 @@ async function proxy(
       signal: AbortSignal.timeout(30_000),
     });
   }
-  const result = new Uint8Array(await upstream.arrayBuffer());
   secureHeaders(response, contentRequest);
   response.statusCode = upstream.status;
   response.setHeader('cache-control', 'no-store');
   response.setHeader('content-type', upstream.headers.get('content-type') ?? 'application/json; charset=utf-8');
   if (upstream.headers.get('location')) response.setHeader('location', upstream.headers.get('location')!);
-  response.setHeader('content-length', result.byteLength);
-  response.end(result);
+  if (upstream.headers.get('content-type')?.includes('text/event-stream')) response.flushHeaders();
+  if (upstream.body) await pipeline(Readable.fromWeb(upstream.body as import('node:stream/web').ReadableStream), response);
+  else response.end();
 }
 
 function isRedirect(status: number): boolean {
@@ -224,20 +214,20 @@ function error(code: string, message: string): { error: { code: string; message:
 
 function boundedPort(value: string): number {
   const parsed = Number(value);
-  if (!Number.isInteger(parsed) || parsed < 1_024 || parsed > 65_535) {
-    throw new Error('RAT_THINGS_CONSOLE_PORT must be an integer from 1024 through 65535');
+  if (!Number.isInteger(parsed) || (parsed !== 0 && parsed < 1_024) || parsed > 65_535) {
+    throw new Error('RAT_THINGS_CONSOLE_PORT must be 0 or an integer from 1024 through 65535');
   }
   return parsed;
 }
 
 function requiredApiUrl(): string {
-  const value = process.env.RAT_THINGS_API_URL ?? process.env.AGENT_RUNTIME_API_URL;
+  const value = process.env.RAT_THINGS_AGENTS_API_URL ?? process.env.AGENTS_API_BASE_URL ?? process.env.RAT_THINGS_API_URL ?? process.env.AGENT_RUNTIME_API_URL;
   if (!value) throw new Error('RAT_THINGS_API_URL is required to start the local console');
   return value;
 }
 
 function regionFromHostname(hostname: string): string | undefined {
-  return hostname.match(/\.execute-api\.([a-z0-9-]+)\.amazonaws\.com$/)?.[1];
+  return hostname.match(/\.execute-api\.([a-z0-9-]+)\.amazonaws\.com$/)?.[1] ?? hostname.match(/\.lambda-url\.([a-z0-9-]+)\.on\.aws$/)?.[1];
 }
 
 function contentType(extension: string): string {

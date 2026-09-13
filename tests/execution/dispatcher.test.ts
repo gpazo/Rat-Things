@@ -46,15 +46,17 @@ describe('dispatch effect boundaries', () => {
     expect(test.store.attachExecution).toHaveBeenCalledWith('run-1', test.attached);
   });
 
-  it('ignores unprepared conversation wake-ups before reading input and uses prepared content when present', async () => {
-    const current = run({ conversation: { conversationId: 'conversation-1' } });
+  it('ignores both pending and prepared retired records before reading input', async () => {
+    const current = { ...run(), conversation: { conversationId: 'conversation-1' } };
     const waiting = fixture(current);
     await waiting.dispatcher.dispatch(message);
     expect(waiting.events).toEqual(['get']);
     const executionInput = { ...current.input, key: 'prepared.json' };
-    const ready = fixture({ ...current, executionInput });
+    const retired = { ...current, executionInput };
+    const ready = fixture(retired);
     await ready.dispatcher.dispatch(message);
-    expect(ready.readJson).toHaveBeenCalledWith(executionInput);
+    expect(ready.events).toEqual(['get']);
+    expect(ready.readJson).not.toHaveBeenCalled();
   });
 
   it('does not claim a run when executor selection fails', async () => {

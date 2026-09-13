@@ -28,13 +28,13 @@ export class TeamsIngressAdapter implements WebhookIngressAdapter {
     }
     const source = normalized.request.source;
     const traceId = source?.kind === 'teams' ? source.activityId : normalized.idempotencyKey;
-    return { kind: 'run', work: normalizedWork(normalized, traceId) };
+    return { kind: 'session', work: normalizedWork(normalized, traceId) };
   }
 
-  public acknowledge(run: { runId: string }, _work: IngressWork): WebhookResponse {
+  public acknowledge(session: { sessionId: string }, _work: IngressWork): WebhookResponse {
     return jsonResponse(200, {
       type: 'message',
-      text: `Rat Things request received. I'll reply when run ${run.runId} finishes.`,
+      text: `Rat Things request received. I'll reply when session ${session.sessionId} completes a turn.`,
     });
   }
 }

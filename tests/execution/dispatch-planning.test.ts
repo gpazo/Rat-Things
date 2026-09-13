@@ -15,17 +15,14 @@ describe('dispatch admission', () => {
     }
   });
 
-  it('keeps original input for one-shot work and requires prepared input for a conversation', () => {
+  it('keeps immutable input for current work and rejects retired conversation records', () => {
     const current = freeze(run());
     expect(dispatchAdmission(current)).toEqual({ kind: 'dispatch', run: current, input: current.input });
     const threaded = freeze({ ...current, conversation: { conversationId: 'conversation-1' } });
     expect(dispatchAdmission(threaded)).toEqual({ kind: 'ignore' });
     const prepared = freeze({ ...threaded, executionInput: { ...current.input, key: 'prepared.json' } });
     const admission = dispatchAdmission(prepared);
-    expect(admission).toEqual({ kind: 'dispatch', run: prepared, input: prepared.executionInput });
-    if (admission.kind !== 'dispatch') throw new Error('expected prepared input');
-    expect(admission.run).toBe(prepared);
-    expect(admission.input).toBe(prepared.executionInput);
+    expect(admission).toEqual({ kind: 'ignore' });
     expect(current).not.toHaveProperty('executionInput');
   });
 

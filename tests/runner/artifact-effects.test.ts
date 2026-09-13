@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ArtifactCatalog, PublishedArtifact } from '../../src/domain/contracts.js';
 import {
-  artifactPrompt, emptyArtifactCatalog, publishArtifactCatalog, restoreArtifactCatalog,
+  emptyArtifactCatalog, publishArtifactCatalog, restoreArtifactCatalog,
 } from '../../src/runner/artifacts.js';
 import { MemoryArtifacts } from './artifact-fixtures.js';
 
@@ -139,13 +139,6 @@ describe('artifact publication effects', () => {
     expect(input.artifacts.puts).toHaveLength(1);
   });
 
-  it('keeps the environment lookup at the artifact-prompt boundary', () => {
-    vi.stubEnv('AGENT_PUBLICATION_ENABLED', 'false');
-    expect(artifactPrompt('prompt')).not.toContain('share.json');
-    vi.stubEnv('AGENT_PUBLICATION_ENABLED', 'true');
-    expect(artifactPrompt('prompt')).toContain('share.json');
-    expect(artifactPrompt('prompt', false)).not.toContain('share.json');
-  });
 });
 
 describe('artifact restoration effects', () => {

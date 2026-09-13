@@ -2,7 +2,6 @@ import { LambdaMicrovmsClient } from '@aws-sdk/client-lambda-microvms';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   MicrovmExecutionInspector,
-  MicrovmSessionController,
 } from '../../src/adapters/executors.js';
 
 const execution = {
@@ -94,15 +93,5 @@ describe('MicroVM execution inspection', () => {
       kind: 'absent',
       reason: 'the attached MicroVM no longer exists',
     });
-  });
-
-  it('lets conversation completion continue when AWS says the MicroVM is already terminated', async () => {
-    const send = vi.fn().mockRejectedValue(Object.assign(
-      new Error('The MicroVM microvm-1 has been terminated and its state cannot be changed.'),
-      { name: 'ValidationException' },
-    ));
-    const sessions = new MicrovmSessionController({ send } as unknown as LambdaMicrovmsClient);
-
-    await expect(sessions.suspend('microvm-1')).resolves.toBeUndefined();
   });
 });

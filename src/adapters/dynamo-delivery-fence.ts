@@ -8,7 +8,7 @@ import {
 } from '@aws-sdk/lib-dynamodb';
 import type { DeliveryFencePort } from '../delivery/types.js';
 import { KnownNotDeliveredError } from '../delivery/errors.js';
-import type { RunRecord } from '../domain/contracts.js';
+import type { DeliveryExecution } from '../delivery/types.js';
 
 const DEFAULT_LEASE_SECONDS = 120;
 
@@ -27,8 +27,8 @@ export class DynamoDeliveryFence implements DeliveryFencePort {
     private readonly leaseSeconds = DEFAULT_LEASE_SECONDS,
   ) {}
 
-  public async claim(run: RunRecord, destination: string): Promise<boolean> {
-    const key = deliveryKey(run.runId, destination);
+  public async claim(execution: Pick<DeliveryExecution, 'id' | 'expiresAt'>, destination: string): Promise<boolean> {
+    const key = deliveryKey(execution.id, destination);
     const now = this.now();
     try {
       await this.client.send(new PutCommand({
@@ -36,12 +36,12 @@ export class DynamoDeliveryFence implements DeliveryFencePort {
         Item: {
           runId: key,
           itemType: 'delivery',
-          parentRunId: run.runId,
+          executionId: execution.id,
           destination,
           status: 'sending',
           createdAt: new Date(now).toISOString(),
           leaseUntil: Math.floor(now / 1_000) + this.leaseSeconds,
-          expiresAt: run.expiresAt,
+          ...(execution.expiresAt !== undefined ? { expiresAt: execution.expiresAt } : {}),
         },
         ConditionExpression: 'attribute_not_exists(runId)',
       }));
@@ -55,7 +55,7 @@ export class DynamoDeliveryFence implements DeliveryFencePort {
       Key: { runId: key },
       ConsistentRead: true,
     }));
-    if (!existing.Item) return this.claim(run, destination);
+    if (!existing.Item) return this.claim(execution, destination);
     if (existing.Item.status !== 'sending') return false;
 
     const nowSeconds = Math.floor(now / 1_000);
@@ -66,17 +66,18 @@ export class DynamoDeliveryFence implements DeliveryFencePort {
       await this.client.send(new UpdateCommand({
         TableName: this.table,
         Key: { runId: key },
-        UpdateExpression: 'SET leaseUntil = :leaseUntil, updatedAt = :updatedAt',
+        UpdateExpression: 'SET #status = :unknown, updatedAt = :updatedAt REMOVE leaseUntil',
         ConditionExpression: '#status = :sending AND (attribute_not_exists(leaseUntil) OR leaseUntil <= :now)',
         ExpressionAttributeNames: { '#status': 'status' },
         ExpressionAttributeValues: {
           ':sending': 'sending',
           ':now': nowSeconds,
-          ':leaseUntil': nowSeconds + this.leaseSeconds,
+          ':unknown': 'outcome_unknown',
           ':updatedAt': new Date(now).toISOString(),
         },
       }));
-      return true;
+      // A crashed sender may already have posted. Never repeat an ambiguous external write.
+      return false;
     } catch (error) {
       if (isConditionalFailure(error)) throw new DeliveryInProgressError(destination);
       throw error;

@@ -1,14 +1,10 @@
 import openApi from '../../spec/openapi.json' with { type: 'json' };
-import thingCreateSchema from '../../spec/schemas/thing-create-v1.json' with { type: 'json' };
-import thingSchema from '../../spec/schemas/thing-v1.json' with { type: 'json' };
-import thingVersionSchema from '../../spec/schemas/thing-version-v1.json' with { type: 'json' };
+import agentsSchema from '../../spec/schemas/agents-api.schema.json' with { type: 'json' };
 
 export const RAT_THINGS_OPENAPI = openApi;
 
 export const RAT_THINGS_SCHEMAS: Readonly<Record<string, unknown>> = {
-  '/schemas/thing-v1.json': thingSchema,
-  '/schemas/thing-create-v1.json': thingCreateSchema,
-  '/schemas/thing-version-v1.json': thingVersionSchema,
+  '/schemas/agents-api.schema.json': agentsSchema,
 };
 
 /** Relative links keep discovery valid for every independently operated deployment. */
@@ -29,11 +25,7 @@ export function ratThingsDiscovery(docsUrl?: string): Record<string, unknown> {
     api: {
       version: 'v1',
       openapi: '/openapi.json',
-      schemas: {
-        thing: '/schemas/thing-v1.json',
-        createThing: '/schemas/thing-create-v1.json',
-        createThingVersion: '/schemas/thing-version-v1.json',
-      },
+      schemas: { agents: '/schemas/agents-api.schema.json' },
       docs: documentationRoot,
       agentGuide: `${documentationRoot}agents/`,
       agentDocs: 'https://gpazo.github.io/Rat-Things/llms.txt',
@@ -47,22 +39,14 @@ export function ratThingsDiscovery(docsUrl?: string): Record<string, unknown> {
     },
     capabilities: {
       consumers: ['operator', 'embedded-product', 'agent', 'cli', 'provider-event'],
-      recommendedFacade: 'things',
+      recommendedFacade: 'agents',
       authorization: {
         model: 'fixed-before-launch',
         insideEnvelope: 'autonomous',
         midRunApproval: false,
       },
-      things: {
-        specVersions: ['1'],
-        triggers: ['manual', 'schedule:rate', 'schedule:cron'],
-        scheduleBackend: 'amazon-eventbridge-scheduler',
-        scheduleTimezones: 'iana',
-        lifecycle: ['draft', 'active', 'paused', 'archived'],
-        draftAndActiveRevisions: true,
-        immutableRevisions: true,
-        explain: true,
-      },
+      agents: { sessions: true, turns: true, items: true, vaults: true, environmentTemplates: true },
+      schedules: { backend: 'amazon-eventbridge-scheduler', targets: 'agents', overlap: ['allow', 'skip'] },
       integrations: {
         multipleAccounts: true,
         connectionSets: true,
@@ -76,34 +60,6 @@ export function ratThingsDiscovery(docsUrl?: string): Record<string, unknown> {
         automaticTokenRefresh: true,
         identityPreservingReconnect: true,
         scheduledHealthChecks: true,
-      },
-      agent: {
-        browserComputerUse: true,
-        liveComputerView: true,
-        humanComputerTakeover: true,
-        teachByDemonstration: true,
-        teachCreatesDraftThings: true,
-        interactiveEvents: true,
-        steering: true,
-        interruption: true,
-        approvals: false,
-        skills: true,
-        apps: true,
-        mcp: true,
-      },
-      runs: {
-        asynchronous: true,
-        liveEvents: true,
-        approvals: false,
-        steering: true,
-        interruption: true,
-      },
-      conversations: {
-        durable: true,
-        replacementCompute: true,
-        cursorPagedTranscript: true,
-        serverSearch: ['messages', 'files'],
-        organization: ['pin', 'hide', 'read-state'],
       },
       outputs: {
         durableFiles: true,

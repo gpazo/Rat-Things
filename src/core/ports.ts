@@ -1,6 +1,5 @@
 import type {
   ArtifactReference,
-  ConversationRunBinding,
   ExecutionReference,
   ListRunsResult,
   RunError,
@@ -13,27 +12,9 @@ import type {
   AgentInteractionTarget,
   AgentRuntimeSnapshot,
   AgentToolCallRecord,
-  ComputerSnapshot,
-  ComputerTakeoverReceipt,
-  HumanBrowserAction,
-  TeachRecordingInput,
-  TeachRecordingResult,
 } from '../domain/interaction.js';
 import type { JsonValue } from '../domain/contracts.js';
-import type {
-  ListRoutinesResult,
-  RoutineRecord,
-  RoutineStatus,
-} from '../domain/routines.js';
-import type {
-  ListThingsResult,
-  ThingRecord,
-  ThingRevision,
-  ScheduleThingTrigger,
-  ThingStatus,
-  ThingTriggerState,
-  ThingVersionRecord,
-} from '../domain/things.js';
+import type { AgentSessionInputMessageParam } from '../domain/agents-api.js';
 
 export interface CreateRunResult {
   created: boolean;
@@ -45,11 +26,6 @@ export interface RunStore {
   get(runId: string): Promise<RunRecord | undefined>;
   list(ownerId: string, limit: number, nextToken?: string): Promise<ListRunsResult>;
   transition(runId: string, from: RunStatus[], to: RunStatus, patch?: Partial<RunRecord>): Promise<RunRecord>;
-  prepareConversation(
-    runId: string,
-    executionInput: ArtifactReference,
-    conversation: ConversationRunBinding,
-  ): Promise<RunRecord>;
   attachExecution(runId: string, execution: ExecutionReference): Promise<RunRecord>;
   complete(runId: string, result: RunResult): Promise<RunRecord>;
   fail(runId: string, error: RunError, from?: RunStatus[]): Promise<RunRecord>;
@@ -84,19 +60,13 @@ export interface ExecutionController {
 }
 
 export interface AgentInteractionController {
+  environmentFiles?(target: AgentInteractionTarget, operation: import('./environment-file-ports.js').EnvironmentFileOperation): Promise<unknown>;
+  startSessionTurn?(target: AgentInteractionTarget, turn: import('../domain/agents-api.js').Turn, input: AgentSessionInputMessageParam[]): Promise<void>;
   events(target: AgentInteractionTarget, after?: number, limit?: number): Promise<AgentRuntimeSnapshot>;
-  steer(target: AgentInteractionTarget, prompt: string): Promise<void>;
-  interrupt(target: AgentInteractionTarget): Promise<void>;
+  steer(target: AgentInteractionTarget & { turnId: string }, prompt: string, operationId?: string, input?: AgentSessionInputMessageParam[]): Promise<void>;
+  interrupt(target: AgentInteractionTarget & { turnId: string }): Promise<void>;
   respond(target: AgentInteractionTarget, requestId: string, result: JsonValue): Promise<void>;
-  computer(target: AgentInteractionTarget): Promise<ComputerSnapshot>;
-  takeComputer(target: AgentInteractionTarget): Promise<ComputerTakeoverReceipt>;
-  returnComputer(target: AgentInteractionTarget): Promise<ComputerTakeoverReceipt>;
-  actOnComputer(target: AgentInteractionTarget, action: HumanBrowserAction): Promise<ComputerSnapshot>;
-  startTeaching(
-    target: AgentInteractionTarget,
-    input: TeachRecordingInput,
-  ): Promise<ComputerSnapshot>;
-  stopTeaching(target: AgentInteractionTarget, discard: boolean): Promise<TeachRecordingResult>;
+
 }
 
 export interface AgentToolCallStore {
@@ -119,101 +89,4 @@ export interface Clock {
 export interface IdGenerator {
   random(): string;
   deterministic(ownerId: string, idempotencyKey: string): string;
-}
-
-export interface RoutineStore {
-  create(record: RoutineRecord): Promise<void>;
-  get(routineId: string): Promise<RoutineRecord | undefined>;
-  list(ownerId: string, limit: number, nextToken?: string): Promise<ListRoutinesResult>;
-  listDue(cutoff: string, limit: number): Promise<RoutineRecord[]>;
-  setStatus(
-    ownerId: string,
-    routineId: string,
-    status: Exclude<RoutineStatus, 'deleted'>,
-    nextRunAt: string,
-    updatedAt: string,
-  ): Promise<RoutineRecord>;
-  softDelete(
-    ownerId: string,
-    routineId: string,
-    updatedAt: string,
-    expiresAt: number,
-  ): Promise<RoutineRecord>;
-  recordLastRun(
-    ownerId: string,
-    routineId: string,
-    runAt: string,
-    runId: string,
-    updatedAt: string,
-  ): Promise<boolean>;
-  advance(
-    routineId: string,
-    expectedRunAt: string,
-    nextRunAt: string,
-    runId: string,
-    updatedAt: string,
-  ): Promise<boolean>;
-}
-
-export interface ThingStore {
-  create(record: ThingRecord, version: ThingVersionRecord): Promise<void>;
-  get(thingId: string): Promise<ThingRecord | undefined>;
-  getVersion(thingId: string, revision: number): Promise<ThingVersionRecord | undefined>;
-  listVersions(thingId: string): Promise<ThingVersionRecord[]>;
-  list(
-    ownerId: string,
-    limit: number,
-    nextToken?: string,
-    includeArchived?: boolean,
-  ): Promise<ListThingsResult>;
-  addVersion(
-    ownerId: string,
-    thingId: string,
-    draft: ThingRevision,
-    version: ThingVersionRecord,
-    expectedDraftRevision: number,
-    updatedAt: string,
-  ): Promise<ThingRecord>;
-  publish(
-    ownerId: string,
-    thingId: string,
-    draft: ThingRevision,
-    expectedStatus: ThingStatus,
-    triggerState: ThingTriggerState,
-    updatedAt: string,
-  ): Promise<ThingRecord>;
-  setStatus(
-    ownerId: string,
-    thingId: string,
-    from: ThingStatus[],
-    status: ThingStatus,
-    triggerState: ThingTriggerState,
-    updatedAt: string,
-  ): Promise<ThingRecord>;
-  setTriggerState(
-    thingId: string,
-    expectedRevision: number | undefined,
-    state: ThingTriggerState,
-    updatedAt: string,
-  ): Promise<ThingRecord>;
-  recordRun(
-    thingId: string,
-    expectedActiveRevision: number,
-    allowedStatuses: ThingStatus[],
-    runAt: string,
-    runId: string,
-    updatedAt: string,
-  ): Promise<boolean>;
-}
-
-export interface ThingSchedulerTarget {
-  thingId: string;
-  revision: number;
-  trigger: ScheduleThingTrigger;
-}
-
-/** Backend-neutral desired-state port for a deployment-owned Thing schedule. */
-export interface ThingScheduler {
-  upsert(target: ThingSchedulerTarget, enabled: boolean): Promise<void>;
-  remove(thingId: string): Promise<void>;
 }

@@ -12,6 +12,7 @@ import type {
   DeliveryFencePort,
   DestinationContext,
   ResultReader,
+  DeliveryRequest,
 } from './types.js';
 
 export interface DeliveryServiceOptions {
@@ -30,26 +31,31 @@ export class DeliveryService {
     if (!['succeeded', 'failed', 'cancelled'].includes(detail.status)) return;
     const run = await this.options.store.get(detail.runId);
     if (!run) throw new Error(`run ${detail.runId} not found`);
+    if (run.agentsSession) return; // Session delivery follows saved root Turns, not harness exit.
     const request = await this.options.artifacts.getJson<RunRequest>(run.input);
     const body = await this.messageBody(run);
+    await this.deliver({ request, body, execution: { id: run.runId, status: run.status, label: 'Run', expiresAt: run.expiresAt, ...(run.capabilityOwnerId ? { credentialOwnerId: run.capabilityOwnerId } : {}) } });
+  }
+
+  public async deliver({ request, body, execution }: Omit<DeliveryRequest, 'context'>): Promise<void> {
     const failures: Error[] = [];
     for (const context of resolveDestinations(request, this.options.defaultDestinations)) {
-      const key = `${context.provider}:${context.destination.route ?? 'default'}`;
-      if (!(await this.options.fence.claim(run, key))) continue;
+      const key = destinationKey(context);
+      if (!(await this.options.fence.claim(execution, key))) continue;
       try {
         const receipt = await this.options.plugins.deliveryFor(context.provider).deliver({
           context,
           request,
-          run,
+          execution,
           body,
         });
-        await this.options.fence.delivered(run.runId, key, receipt);
+        await this.options.fence.delivered(execution.id, key, receipt);
       } catch (error) {
         if (error instanceof KnownNotDeliveredError && error.retryable) {
-          await this.options.fence.release(run.runId, key);
+          await this.options.fence.release(execution.id, key);
           failures.push(error);
         } else {
-          await this.options.fence.failed(run.runId, key, error);
+          await this.options.fence.failed(execution.id, key, error);
         }
       }
     }
@@ -66,7 +72,7 @@ export class DeliveryService {
 }
 
 export function resolveDestinations(
-  request: RunRequest,
+  request: Pick<RunRequest, 'source' | 'destinations'>,
   defaults: RunDestination[],
 ): DestinationContext[] {
   const configured = request.destinations ?? defaults;
@@ -88,10 +94,17 @@ export function resolveDestinations(
 
 function destinationProvider(
   destination: RunDestination,
-  request: RunRequest,
+  request: Pick<RunRequest, 'source' | 'destinations'>,
 ): ProviderKind | undefined {
   if (destination.kind === 'none') return undefined;
   if (destination.kind === 'teams' || destination.kind === 'slack') return destination.kind;
   const source = request.source?.kind;
   return source && source !== 'api' ? source : undefined;
+}
+
+/** Include thread/activity scope so equal channel names cannot share a delivery fence. */
+export function destinationKey(context: DestinationContext): string {
+  const source = context.source;
+  const thread = source?.kind === 'slack' ? [source.teamId, source.channelId, source.threadTs] : source?.kind === 'teams' ? [source.tenantId, source.conversationId, source.activityId] : source?.kind === 'github' ? [source.repository, source.issueNumber] : source?.kind === 'gitlab' ? [source.projectId, source.mergeRequestIid] : [];
+  return JSON.stringify([context.provider, context.destination.route ?? 'default', ...thread]);
 }

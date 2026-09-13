@@ -87,6 +87,27 @@ if [[ "$ready" != "true" ]]; then
   exit 1
 fi
 
+docker exec --interactive --user 0 "$container_name" node --input-type=module <<'NODE'
+import { spawnSync } from 'node:child_process';
+import { trustedRunnerOptions } from '/opt/agent-runtime/runtime-process-policy.mjs';
+const options = trustedRunnerOptions({ uid: 10001, gid: 10001, environment: process.env });
+const proof = spawnSync(process.execPath, ['--input-type=module', '--eval', `
+  import { spawnSync } from 'node:child_process';
+  if (process.getuid() !== 0) throw new Error('trusted runner lost root identity');
+  const guest = spawnSync(process.execPath, ['--input-type=module', '--eval', \`
+    import { readFileSync } from 'node:fs';
+    if (process.getuid() !== 10001) throw new Error('guest identity was not dropped');
+    let denied = false;
+    try { readFileSync('/proc/' + process.env.SUPERVISOR_PID + '/environ'); }
+    catch (error) { denied = error.code === 'EACCES' || error.code === 'EPERM'; }
+    if (!denied) throw new Error('guest can read the trusted supervisor environment');
+  \`], { uid: 10001, gid: 10001, env: { SUPERVISOR_PID: String(process.pid) }, stdio: 'inherit' });
+  if (guest.status !== 0) throw new Error('guest credential boundary failed');
+`], { ...options, stdio: 'inherit' });
+if (proof.status !== 0) throw new Error('trusted runner isolation failed');
+console.log('trusted runner and guest process credentials are isolated');
+NODE
+
 docker exec \
   --user 10001 \
   --env "MICROVM_E2E_PEER=$peer_name" \

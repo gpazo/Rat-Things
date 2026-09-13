@@ -1,41 +1,8 @@
 import { readFile } from 'node:fs/promises';
 import { describe, expect, it } from 'vitest';
 import { ratThingsDiscovery } from '../../src/app/discovery.js';
-import { compileThingSpec, parseThingSpec } from '../../src/core/thing-service.js';
 
 describe('published machine contracts', () => {
-  it('accepts the checked-in create and version examples through the runtime parser', async () => {
-    const create = await json('examples/thing-create.json') as {
-      version: unknown;
-    };
-    const version = await json('examples/thing-version.json') as {
-      version: unknown;
-    };
-
-    expect(create.version).toBe('1');
-    expect(version.version).toBe('1');
-    const parsedCreate = parseThingSpec(create, {
-      allowedSandboxModes: ['read-only', 'workspace-write', 'danger-full-access'],
-    });
-    const parsedVersion = parseThingSpec(version, {
-      allowedSandboxModes: ['read-only', 'workspace-write', 'danger-full-access'],
-    });
-    expect(compileThingSpec(parsedCreate)).toMatchObject({
-      prompt: expect.stringContaining('Do not use external services'),
-      agent: {
-        sandbox: 'read-only',
-        capabilities: {
-          profile: 'read-only',
-          networkAccess: false,
-          webSearch: 'disabled',
-          computerUse: 'disabled',
-        },
-      },
-      destinations: [{ kind: 'none' }],
-    });
-    expect(compileThingSpec(parsedCreate)).not.toHaveProperty('integrations');
-    expect(parsedVersion.trigger).toEqual({ kind: 'schedule', expression: 'rate(30 minutes)' });
-  });
 
   it('keeps the complete published API and installed API Gateway routes in lockstep', async () => {
     const openapi = await json('spec/openapi.json') as {
@@ -45,7 +12,7 @@ describe('published machine contracts', () => {
     const documentedRoutes = new Set<string>();
     const operationIds = new Set<string>();
     for (const [path, pathItem] of Object.entries(openapi.paths)) {
-      for (const method of ['get', 'post', 'patch']) {
+      for (const method of ['get', 'post', 'put', 'patch', 'delete']) {
         const operation = pathItem[method] as { operationId?: string } | undefined;
         if (!operation) continue;
         documentedRoutes.add(`${method.toUpperCase()} ${path}`);
@@ -56,7 +23,7 @@ describe('published machine contracts', () => {
       }
     }
     const installedRoutes = new Set(
-      [...terraform.matchAll(/"(GET|POST|PATCH) ([^"$]+)"/g)]
+      [...terraform.matchAll(/"(GET|POST|PUT|PATCH|DELETE) ([^"$]+)"/g)]
         .map((match) => `${match[1]} ${match[2]}`),
     );
     expect([...documentedRoutes].sort()).toEqual([...installedRoutes].sort());
@@ -87,10 +54,9 @@ describe('published machine contracts', () => {
       }
       expect(resolved, `missing OpenAPI reference ${reference}`).not.toBeUndefined();
     }
-    expect(new Set(references.filter((candidate) => candidate.startsWith('/schemas/')))).toEqual(
+    expect(new Set(references.filter((candidate) => candidate.startsWith('/schemas/')).map((reference) => reference.split('#')[0]))).toEqual(
       new Set([
-        '/schemas/thing-v1.json',
-        '/schemas/thing-version-v1.json',
+        '/schemas/agents-api.schema.json',
       ]),
     );
   });
@@ -107,90 +73,12 @@ describe('published machine contracts', () => {
       .toEqual([]);
   });
 
-  it('publishes aligned schema identifiers and strict top-level Thing fields', async () => {
-    const [thing, create, version] = await Promise.all([
-      json('spec/schemas/thing-v1.json'),
-      json('spec/schemas/thing-create-v1.json'),
-      json('spec/schemas/thing-version-v1.json'),
-    ]) as Array<{
-      $id: string;
-      additionalProperties?: boolean;
-      required?: string[];
-      properties?: Record<string, unknown>;
-      $ref?: string;
-      $defs?: Record<string, Record<string, unknown>>;
-    }>;
-    expect(thing?.$id).toBe('thing-v1.json');
-    expect(create?.$id).toBe('thing-create-v1.json');
-    expect(create?.$ref).toBe('thing-v1.json');
-    expect(version?.$id).toBe('thing-version-v1.json');
-    expect(thing?.additionalProperties).toBe(false);
-    expect(new Set(thing?.required)).toEqual(new Set(['version', 'name', 'goal', 'trigger']));
-    expect(Object.keys(thing?.properties ?? {}).sort()).toEqual([
-      'agent',
-      'connections',
-      'deliver',
-      'execution',
-      'goal',
-      'metadata',
-      'name',
-      'repository',
-      'trigger',
-      'version',
-    ]);
-    expect(thing?.$defs?.execution?.properties).toMatchObject({
-      timeoutSeconds: { type: 'integer', minimum: 30, maximum: 28_000 },
-    });
-    expect(thing?.$defs?.connections?.anyOf).toEqual([
-      { required: ['set'] },
-      { required: ['accounts'], properties: { accounts: { minItems: 1 } } },
-    ]);
-    expect(thing?.$defs?.repository?.properties).not.toHaveProperty('credentialSecretArn');
-  });
-
-  it('publishes typed success responses for version history and Thing runs', async () => {
-    const openapi = await json('spec/openapi.json') as {
-      paths: Record<string, Record<string, {
-        security?: unknown[];
-        responses?: Record<string, {
-          content?: { 'application/json'?: { schema?: Record<string, unknown> } };
-        }>;
-      }>>;
-      components: { schemas: Record<string, unknown> };
-    };
-
-    expect(
-      openapi.paths['/v1/things/{thingId}/versions']?.get?.responses?.['200']
-        ?.content?.['application/json']?.schema,
-    ).toMatchObject({
-      properties: {
-        versions: {
-          items: { $ref: '#/components/schemas/ThingVersionSummary' },
-        },
-      },
-    });
-    expect(
-      openapi.paths['/v1/things/{thingId}/versions/{revision}']?.get?.responses?.['200']
-        ?.content?.['application/json']?.schema,
-    ).toEqual({ $ref: '#/components/schemas/ThingVersion' });
-    expect(
-      openapi.paths['/v1/things/{thingId}/run']?.post?.responses?.['202']
-        ?.content?.['application/json']?.schema,
-    ).toEqual({ $ref: '#/components/schemas/ThingRunReceipt' });
-    expect(openapi.components.schemas).toMatchObject({
-      ThingVersionSummary: expect.any(Object),
-      ThingVersion: expect.any(Object),
-      RunReceipt: expect.any(Object),
-      ThingRunReceipt: expect.any(Object),
-    });
-  });
-
   it('types every JSON success response in the authenticated control API', async () => {
     const openapi = await json('spec/openapi.json') as {
       paths: Record<string, Record<string, {
         security?: unknown[];
         responses?: Record<string, {
-          content?: { 'application/json'?: { schema?: unknown } };
+          content?: { 'application/json'?: { schema?: unknown }; 'text/event-stream'?: { schema?: unknown }; 'application/octet-stream'?: { schema?: unknown } };
         }>;
       }>>;
     };
@@ -203,55 +91,13 @@ describe('published machine contracts', () => {
         if (Array.isArray(operation.security) && operation.security.length === 0) continue;
         for (const [status, response] of Object.entries(operation.responses ?? {})) {
           if (!/^2\d\d$/.test(status)) continue;
+          if (status === '204') continue;
           expect(
-            response.content?.['application/json']?.schema,
-            `${method.toUpperCase()} ${path} ${status} has no JSON success schema`,
+            response.content?.['application/json']?.schema ?? response.content?.['text/event-stream']?.schema ?? response.content?.['application/octet-stream']?.schema,
+            `${method.toUpperCase()} ${path} ${status} has no success schema`,
           ).toBeDefined();
         }
       }
-    }
-  });
-
-  it('keeps the agent quickstart progressive and aligned with installed routes', async () => {
-    const [guide, siteBuilder, docsConfig, openapi] = await Promise.all([
-      readFile('docs/agents.md', 'utf8'),
-      readFile('scripts/build-pages.mjs', 'utf8'),
-      json('site/docs.json'),
-      json('spec/openapi.json'),
-    ]) as [string, string, {
-      groups: Array<{ title: string; documents: string[] }>;
-      archive: string[];
-      agentCorpusExclude: string[];
-    }, {
-      paths: Record<string, unknown>;
-    }];
-
-    expect(docsConfig.groups.find((group) => group.title === 'Choose your path')?.documents)
-      .toContain('agents.md');
-    expect(docsConfig.groups.find((group) => group.title === 'Choose your path')?.documents?.[0])
-      .toBe('operating-model.md');
-    expect(docsConfig.archive).toEqual(expect.arrayContaining([
-      'grok-bot-0.18-port-audit.md',
-      'grok-bot-current-comparison.md',
-    ]));
-    expect(docsConfig.agentCorpusExclude).toContain('status-and-roadmap.md');
-    expect(siteBuilder).toContain('## Agent quickstart');
-    expect(siteBuilder).toContain('Do not load the full corpus for a simple Thing run');
-    expect(siteBuilder).toContain('Every accepted execution returns one Run');
-    expect(guide).toContain('Prefer the Thing lifecycle for reusable work');
-    expect(guide).toContain('Go deeper only when the task needs it');
-    expect(guide).toContain('not a Thing trigger in v1');
-    expect(guide).toContain('skills, apps, or MCP');
-    expect(guide).toContain('engineering preview');
-    expect(guide).toContain('do not have idempotency keys in v1');
-
-    const documentedPaths = new Set(
-      [...guide.matchAll(/`(?:GET|POST) (\/[^`\s]+)/g)]
-        .map((match) => match[1]?.split('?')[0])
-        .filter((path): path is string => Boolean(path)),
-    );
-    for (const path of documentedPaths) {
-      expect(openapi.paths, `agent guide route ${path} is absent from OpenAPI`).toHaveProperty(path);
     }
   });
 });

@@ -2,10 +2,9 @@ output "test_environment" {
   description = "Stable environment contract consumed by the host-side E2E test."
   sensitive   = true
   value = {
+    AGENTS_TABLE_NAME                  = aws_dynamodb_table.agents.name
     ARTIFACT_BUCKET                    = aws_s3_bucket.artifacts.id
     DEFINITION_BUCKET                  = aws_s3_bucket.definitions.id
-    CONVERSATIONS_TABLE_NAME           = aws_dynamodb_table.conversations.name
-    CONVERSATION_QUEUE_URL             = aws_sqs_queue.conversations.url
     EVENT_BUS_NAME                     = aws_cloudwatch_event_bus.runs.name
     GITHUB_WEBHOOK_SECRET_ARN          = aws_secretsmanager_secret.github_webhook.name
     GITHUB_WEBHOOK_SIGNING_SECRET      = "localstack-github-webhook-secret"
@@ -14,8 +13,6 @@ output "test_environment" {
     INTEGRATIONS_TABLE_NAME            = aws_dynamodb_table.integrations.name
     INTEGRATION_CREDENTIAL_NAME_PREFIX = "${local.name}/connections"
     RUNS_TABLE_NAME                    = aws_dynamodb_table.runs.name
-    ROUTINES_TABLE_NAME                = aws_dynamodb_table.routines.name
-    THINGS_TABLE_NAME                  = aws_dynamodb_table.things.name
     THING_SCHEDULER_MODE               = "simulation"
     RUN_QUEUE_URL                      = aws_sqs_queue.runs.url
     TERMINAL_EVENTS_QUEUE_URL          = aws_sqs_queue.terminal_events.url

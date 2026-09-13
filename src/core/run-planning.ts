@@ -1,8 +1,8 @@
 import type {
-  ArtifactReference, ConversationRunBinding, RunProvenance, RunRecord, RunRequest, ThingRunBinding,
+  ArtifactReference, RunProvenance, RunRecord, RunRequest,
 } from '../domain/contracts.js';
 import { canonicalJson as stableJson, sha256Hex as sha256 } from '../domain/json.js';
-import { validateCapabilityOwner, validateConversationBinding, validateThingBinding } from '../domain/run-bindings.js';
+import { validateCapabilityOwner } from '../domain/run-bindings.js';
 import { ValidationError } from '../domain/validation.js';
 import { ConflictError, ForbiddenError } from './errors.js';
 
@@ -12,17 +12,12 @@ export interface SubmitOptions {
   provenance?: RunProvenance;
   /** Trusted delegated policy principal, distinct from the run owner. */
   capabilityOwnerId?: string;
-  /** Defer the SQS wake-up until a coordinator has committed its related state. */
-  enqueue?: boolean;
-  /** Internal coordinator-only metadata; never copied from a public RunRequest. */
-  conversation?: ConversationRunBinding;
-  /** Internal Thing compiler metadata; never copied from a public RunRequest. */
-  thing?: ThingRunBinding;
+  agentsSession?: RunRecord['agentsSession'];
 }
 
-export function runInputKey(ownerId: string, runId: string, hash: string, kind: 'input' | 'execution'): string {
+export function runInputKey(ownerId: string, runId: string, hash: string): string {
   const ownerHash = sha256(ownerId).slice(0, 32);
-  return `owners/${ownerHash}/runs/${runId}/${kind}-${hash}.json`;
+  return `owners/${ownerHash}/runs/${runId}/input-${hash}.json`;
 }
 
 /** Record construction uses already stored input and supplied time; it performs no operations. */
@@ -54,55 +49,15 @@ export function createQueuedRun({
     input,
     sourceKind: request.source?.kind ?? 'api',
     ...(submit.provenance ? { provenance: submit.provenance } : {}),
-    ...(submit.conversation ? { conversation: validateConversationBinding(submit.conversation) } : {}),
-    ...(submit.thing ? { thing: validateThingBinding(submit.thing) } : {}),
+    ...(submit.agentsSession ? { agentsSession: submit.agentsSession } : {}),
   };
 }
 
 /** Reuse is decided from accepted identity, including bindings, before any retry wake-up. */
 export function assertSameSubmission(record: RunRecord, requestHash: string, submit: SubmitOptions): RunRecord {
   const same = assertSameRequest(record, requestHash);
-  assertSameThing(same.thing, submit.thing);
-  assertSameConversationBinding(same.conversation, submit.conversation);
+  if (stableJson(same.agentsSession ?? null) !== stableJson(submit.agentsSession ?? null)) throw new ConflictError('Agents session launch binding changed on retry');
   return same;
-}
-
-export type ConversationPreparationDecision =
-  | { kind: 'reuse' }
-  | { kind: 'prepare'; binding: ConversationRunBinding };
-
-/** Check the accepted binding before parsing or storing a new execution request. */
-export function conversationPreparationDecision(
-  current: RunRecord,
-  binding: ConversationRunBinding,
-  runId: string,
-): ConversationPreparationDecision {
-  if (current.status !== 'queued') {
-    if (current.executionInput && sameConversation(current.conversation, binding)) return { kind: 'reuse' };
-    throw new ConflictError(`run ${runId} cannot be prepared from ${current.status}`);
-  }
-  if (!current.conversation) throw new ConflictError('run is not awaiting thread preparation');
-  if (
-    current.conversation.conversationId !== binding.conversationId ||
-    current.conversation.messageId !== binding.messageId
-  ) {
-    throw new ConflictError('run thread binding changed before preparation');
-  }
-  return { kind: 'prepare', binding: validateConversationBinding(binding, true) };
-}
-
-/** Compare storage-returned evidence only after the execution request has been written. */
-export function reusePreparedConversation(
-  current: RunRecord,
-  executionInput: ArtifactReference,
-  binding: ConversationRunBinding,
-): boolean {
-  if (!current.executionInput) return false;
-  if (
-    current.executionInput.sha256 === executionInput.sha256 &&
-    sameConversation(current.conversation, binding)
-  ) return true;
-  throw new ConflictError('run was already prepared with different thread state');
 }
 
 export function deterministicRunId(ownerId: string, key: string): string {
@@ -112,39 +67,6 @@ export function deterministicRunId(ownerId: string, key: string): string {
   hex[16] = ((variant & 0x3) | 0x8).toString(16);
   const joined = hex.join('');
   return `${joined.slice(0, 8)}-${joined.slice(8, 12)}-${joined.slice(12, 16)}-${joined.slice(16, 20)}-${joined.slice(20)}`;
-}
-
-function sameConversation(
-  left: ConversationRunBinding | undefined,
-  right: ConversationRunBinding,
-): boolean {
-  return Boolean(left && stableJson(left) === stableJson(right));
-}
-
-function assertSameThing(
-  existing: ThingRunBinding | undefined,
-  requested: ThingRunBinding | undefined,
-): void {
-  if (stableJson(existing) !== stableJson(requested)) {
-    throw new ConflictError('the idempotency key was already used for a different Thing occurrence');
-  }
-}
-
-function assertSameConversationBinding(
-  existing: ConversationRunBinding | undefined,
-  requested: ConversationRunBinding | undefined,
-): void {
-  const same = existing && requested
-    ? existing.conversationId === requested.conversationId &&
-      existing.messageId === requested.messageId &&
-      existing.title === requested.title &&
-      existing.delivery === requested.delivery &&
-      existing.attachmentDigest === requested.attachmentDigest &&
-      existing.replyToMessageId === requested.replyToMessageId
-    : existing === requested;
-  if (!same) {
-    throw new ConflictError('the idempotency key was already used for a different thread occurrence');
-  }
 }
 
 export function validateIdempotencyKey(value: string): string {

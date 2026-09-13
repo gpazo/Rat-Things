@@ -27,7 +27,6 @@ import {
 } from '@aws-sdk/lib-dynamodb';
 import type {
   ArtifactReference,
-  ConversationRunBinding,
   ExecutionLivenessObservation,
   ExecutionReference,
   ListRunsResult,
@@ -38,7 +37,6 @@ import type {
   RunStateEvent,
   RunStatus,
 } from '../domain/contracts.js';
-import type { ConversationWakeMessage } from '../domain/conversations.js';
 import { InvalidStateTransitionError } from '../domain/state.js';
 import type {
   ArtifactStore,
@@ -48,7 +46,7 @@ import type {
   RunStore,
 } from '../core/ports.js';
 import type { AgentToolCallRecord } from '../domain/interaction.js';
-import type { PublicationGrantStore } from '../core/publication-publisher.js';
+import type { PublicationGrantStore } from '../core/publication-service.js';
 import type { PublicationObjectStore } from '../core/publication-service.js';
 import { validateArtifactPath } from '../domain/artifacts.js';
 import type {
@@ -57,7 +55,6 @@ import type {
   PublicationShare,
 } from '../domain/publications.js';
 import { validatePublicationManifest, validateShareGrant } from '../domain/publications.js';
-import type { ConversationQueue } from '../conversation/types.js';
 import { emitMetric } from '../core/metrics.js';
 import type { SecretReader } from '../credentials/types.js';
 import type { ResultReader } from '../delivery/types.js';
@@ -84,8 +81,10 @@ export function createAwsClientConfig(region = process.env.AWS_REGION): AwsClien
   };
 }
 
-export function createAwsClients(region = process.env.AWS_REGION): AwsClients {
-  const config = createAwsClientConfig(region);
+export function createAwsClients(region = process.env.AWS_REGION, options?: { operationTimeoutMs: number }): AwsClients {
+  const config = { ...createAwsClientConfig(region), ...(options ? {
+    maxAttempts: 2, requestHandler: { connectionTimeout: 5000, requestTimeout: options.operationTimeoutMs, throwOnRequestTimeout: true },
+  } : {}) };
   return {
     dynamodb: DynamoDBDocumentClient.from(new DynamoDBClient(config), {
       marshallOptions: { removeUndefinedValues: true },
@@ -106,6 +105,7 @@ export class DynamoRunStore implements RunStore, AgentToolCallStore {
   public constructor(
     private readonly client: DynamoDBDocumentClient,
     private readonly tableName: string,
+    private readonly retentionSeconds = 2_592_000,
   ) {}
 
   public async create(record: RunRecord): Promise<CreateRunResult> {
@@ -161,14 +161,6 @@ export class DynamoRunStore implements RunStore, AgentToolCallStore {
     patch: Partial<RunRecord> = {},
   ): Promise<RunRecord> {
     return this.update(runId, { ...patch, status: to }, from);
-  }
-
-  public prepareConversation(
-    runId: string,
-    executionInput: ArtifactReference,
-    conversation: ConversationRunBinding,
-  ): Promise<RunRecord> {
-    return this.update(runId, { executionInput, conversation }, ['queued']);
   }
 
   public async attachExecution(runId: string, execution: ExecutionReference): Promise<RunRecord> {
@@ -265,9 +257,9 @@ export class DynamoRunStore implements RunStore, AgentToolCallStore {
       runId,
       execution,
       expectedStatuses: ['running'],
-      updateExpression: 'SET #heartbeatAt = :heartbeatAt REMOVE #liveness',
-      names: { '#heartbeatAt': 'heartbeatAt', '#liveness': 'liveness' },
-      values: { ':heartbeatAt': heartbeatAt },
+      updateExpression: `SET #heartbeatAt = :heartbeatAt${execution.backend === 'ec2' ? ', #expiresAt = :expiresAt' : ''} REMOVE #liveness`,
+      names: { '#heartbeatAt': 'heartbeatAt', '#liveness': 'liveness', ...(execution.backend === 'ec2' ? { '#expiresAt': 'expiresAt' } : {}) },
+      values: { ':heartbeatAt': heartbeatAt, ...(execution.backend === 'ec2' ? { ':expiresAt': Math.floor(Date.parse(heartbeatAt) / 1000) + this.retentionSeconds } : {}) },
     }));
   }
 
@@ -410,7 +402,7 @@ export class DynamoRunStore implements RunStore, AgentToolCallStore {
 
   /**
    * Commits terminal Run state and marks every exact-generation pending tool
-   * call interrupted in the same conditional item update. Conversation
+   * call interrupted in the same conditional item update. Session
    * completion can therefore never observe a terminal Run with a stale
    * pending call.
    */
@@ -1067,23 +1059,6 @@ export class SqsRunQueue implements RunQueue {
         },
       }),
     );
-  }
-}
-
-export class SqsConversationQueue implements ConversationQueue {
-  public constructor(
-    private readonly client: SQSClient,
-    private readonly queueUrl: string,
-  ) {}
-
-  public async enqueue(message: ConversationWakeMessage): Promise<void> {
-    await this.client.send(new SendMessageCommand({
-      QueueUrl: this.queueUrl,
-      MessageBody: JSON.stringify(message),
-      MessageAttributes: {
-        traceId: { DataType: 'String', StringValue: message.traceId },
-      },
-    }));
   }
 }
 

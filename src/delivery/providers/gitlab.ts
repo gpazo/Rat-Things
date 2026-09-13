@@ -31,7 +31,7 @@ export class GitLabDeliveryAdapter implements DeliveryAdapter {
       {
         method: 'POST',
         headers: { 'content-type': 'application/json', 'private-token': token },
-        body: JSON.stringify({ body: formatMessage(input.body, input.run, 60_000, true) }),
+        body: JSON.stringify({ body: formatMessage(input.body, input.execution, 60_000, true) }),
       },
     );
     const value = await checkedJson(response, 'GitLab');

@@ -31,10 +31,10 @@ export class SlackDeliveryAdapter implements DeliveryAdapter {
     const source = input.request.source;
     const channel = input.context.destination.route ?? (source?.kind === 'slack' ? source.channelId : undefined);
     if (!channel) throw new KnownNotDeliveredError('Slack destination lacks a channel', false);
-    const text = formatMessage(input.body, input.run, 38_000);
-    if (input.run.capabilityOwnerId && input.request.integrations && this.options.connectionPoster) {
+    const text = formatMessage(input.body, input.execution, 38_000);
+    if (input.execution.credentialOwnerId && input.request.integrations && this.options.connectionPoster) {
       return slackReceipt(await this.options.connectionPoster.post({
-        ownerId: input.run.capabilityOwnerId,
+        ownerId: input.execution.credentialOwnerId,
         request: input.request.integrations,
         channel,
         text,

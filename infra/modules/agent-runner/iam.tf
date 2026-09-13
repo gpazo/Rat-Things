@@ -56,17 +56,7 @@ resource "aws_iam_role" "connection_health" {
   tags               = local.tags
 }
 
-resource "aws_iam_role" "conversation_coordinator" {
-  name               = "${local.name}-lambda-conversation-coordinator"
-  assume_role_policy = data.aws_iam_policy_document.lambda_assume.json
-  tags               = local.tags
-}
 
-resource "aws_iam_role" "conversation_completion" {
-  name               = "${local.name}-lambda-conversation-completion"
-  assume_role_policy = data.aws_iam_policy_document.lambda_assume.json
-  tags               = local.tags
-}
 
 resource "aws_iam_role" "dispatcher" {
   name               = "${local.name}-lambda-dispatcher"
@@ -130,19 +120,6 @@ locals {
     "dynamodb:Query",
     "dynamodb:UpdateItem",
   ]
-  conversation_table_append_actions = [
-    "dynamodb:GetItem",
-    "dynamodb:PutItem",
-    "dynamodb:TransactWriteItems",
-    "dynamodb:UpdateItem",
-  ]
-  conversation_table_coordinator_actions = [
-    "dynamodb:GetItem",
-    "dynamodb:PutItem",
-    "dynamodb:Query",
-    "dynamodb:TransactWriteItems",
-    "dynamodb:UpdateItem",
-  ]
   integration_table_read_actions = [
     "dynamodb:GetItem",
     "dynamodb:Query",
@@ -167,16 +144,12 @@ data "aws_iam_policy_document" "ingress" {
     resources = ["arn:${data.aws_partition.current.partition}:logs:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:log-group:/aws/lambda/${local.name}-webhook-*:*"]
   }
 
-  statement {
-    sid       = "Runs"
-    actions   = local.run_table_read_write_actions
-    resources = [aws_dynamodb_table.runs.arn, "${aws_dynamodb_table.runs.arn}/index/*"]
-  }
+
 
   statement {
-    sid       = "Conversations"
-    actions   = local.conversation_table_append_actions
-    resources = [aws_dynamodb_table.conversations.arn]
+    sid       = "SessionReceipts"
+    actions   = ["dynamodb:GetItem", "dynamodb:Query", "dynamodb:PutItem", "dynamodb:UpdateItem"]
+    resources = [aws_dynamodb_table.agents.arn]
   }
 
   statement {
@@ -186,16 +159,11 @@ data "aws_iam_policy_document" "ingress" {
   }
 
   statement {
-    sid       = "Inputs"
-    actions   = ["s3:PutObject"]
-    resources = ["${aws_s3_bucket.artifacts.arn}/owners/*"]
+    sid       = "SessionDefinitions"
+    actions   = ["s3:GetObject", "s3:PutObject"]
+    resources = ["${aws_s3_bucket.definitions.arn}/owners/*"]
   }
 
-  statement {
-    sid       = "Queue"
-    actions   = ["sqs:SendMessage"]
-    resources = [aws_sqs_queue.runs.arn, aws_sqs_queue.conversations.arn]
-  }
 
   statement {
     sid       = "DataKey"
@@ -221,9 +189,15 @@ resource "aws_iam_role_policy" "ingress" {
 
 data "aws_iam_policy_document" "control" {
   statement {
+    sid       = "AgentsResources"
+    actions   = ["dynamodb:GetItem", "dynamodb:Query", "dynamodb:PutItem", "dynamodb:UpdateItem", "dynamodb:DeleteItem"]
+    resources = [aws_dynamodb_table.agents.arn]
+  }
+
+  statement {
     sid       = "Logs"
     actions   = ["logs:CreateLogStream", "logs:PutLogEvents"]
-    resources = ["${aws_cloudwatch_log_group.lambda["control"].arn}:*"]
+    resources = ["${aws_cloudwatch_log_group.lambda["control"].arn}:*", "${aws_cloudwatch_log_group.lambda["agents-api"].arn}:*"]
   }
 
   statement {
@@ -232,14 +206,6 @@ data "aws_iam_policy_document" "control" {
     resources = [aws_dynamodb_table.runs.arn, "${aws_dynamodb_table.runs.arn}/index/*"]
   }
 
-  statement {
-    sid = "Conversations"
-    actions = concat(local.conversation_table_coordinator_actions, [
-      "dynamodb:BatchGetItem",
-      "dynamodb:ConditionCheckItem",
-    ])
-    resources = [aws_dynamodb_table.conversations.arn, "${aws_dynamodb_table.conversations.arn}/index/*"]
-  }
 
   statement {
     sid       = "Integrations"
@@ -247,20 +213,10 @@ data "aws_iam_policy_document" "control" {
     resources = [aws_dynamodb_table.integrations.arn]
   }
 
-  statement {
-    sid       = "Routines"
-    actions   = local.run_table_read_write_actions
-    resources = [aws_dynamodb_table.routines.arn, "${aws_dynamodb_table.routines.arn}/index/*"]
-  }
+
 
   statement {
-    sid       = "Things"
-    actions   = concat(local.run_table_read_write_actions, ["dynamodb:TransactWriteItems"])
-    resources = [aws_dynamodb_table.things.arn, "${aws_dynamodb_table.things.arn}/index/*"]
-  }
-
-  statement {
-    sid = "ThingSchedules"
+    sid = "SessionSchedules"
     actions = [
       "scheduler:CreateSchedule",
       "scheduler:DeleteSchedule",
@@ -271,7 +227,7 @@ data "aws_iam_policy_document" "control" {
   }
 
   statement {
-    sid       = "PassThingScheduleRole"
+    sid       = "PassSessionScheduleRole"
     actions   = ["iam:PassRole"]
     resources = [aws_iam_role.thing_schedule_invoke.arn]
     condition {
@@ -286,6 +242,7 @@ data "aws_iam_policy_document" "control" {
     actions = [
       "secretsmanager:CreateSecret",
       "secretsmanager:DeleteSecret",
+      "secretsmanager:DescribeSecret",
       "secretsmanager:GetSecretValue",
       "secretsmanager:PutSecretValue",
       "secretsmanager:TagResource",
@@ -335,7 +292,7 @@ data "aws_iam_policy_document" "control" {
   statement {
     sid       = "Queue"
     actions   = ["sqs:SendMessage"]
-    resources = [aws_sqs_queue.runs.arn, aws_sqs_queue.conversations.arn]
+    resources = [aws_sqs_queue.runs.arn]
   }
 
   dynamic "statement" {
@@ -355,6 +312,14 @@ data "aws_iam_policy_document" "control" {
     sid       = "DataKey"
     actions   = local.data_kms_actions
     resources = [aws_kms_key.data.arn]
+  }
+  dynamic "statement" {
+    for_each = length(local.notifier_secret_arns) > 0 ? [1] : []
+    content {
+      sid       = "SessionDeliverySecrets"
+      actions   = ["secretsmanager:GetSecretValue"]
+      resources = local.notifier_secret_arns
+    }
   }
 }
 
@@ -430,11 +395,6 @@ data "aws_iam_policy_document" "dispatcher" {
     resources = [aws_dynamodb_table.runs.arn]
   }
 
-  statement {
-    sid       = "Conversations"
-    actions   = local.conversation_table_coordinator_actions
-    resources = [aws_dynamodb_table.conversations.arn, "${aws_dynamodb_table.conversations.arn}/index/*"]
-  }
 
   statement {
     sid       = "Artifacts"
@@ -449,7 +409,6 @@ data "aws_iam_policy_document" "dispatcher" {
       actions = [
         "lambda:CreateMicrovmAuthToken",
         "lambda:GetMicrovm",
-        "lambda:ResumeMicrovm",
         "lambda:RunMicrovm",
         "lambda:TerminateMicrovm",
       ]
@@ -500,108 +459,9 @@ resource "aws_iam_role_policy" "dispatcher" {
   policy = data.aws_iam_policy_document.dispatcher.json
 }
 
-data "aws_iam_policy_document" "conversation_coordinator" {
-  statement {
-    sid       = "Logs"
-    actions   = ["logs:CreateLogStream", "logs:PutLogEvents"]
-    resources = ["${aws_cloudwatch_log_group.lambda["conversation-coordinator"].arn}:*"]
-  }
 
-  statement {
-    sid       = "ConversationQueueConsumer"
-    actions   = ["sqs:DeleteMessage", "sqs:GetQueueAttributes", "sqs:ReceiveMessage"]
-    resources = [aws_sqs_queue.conversations.arn]
-  }
 
-  statement {
-    sid       = "RunQueueProducer"
-    actions   = ["sqs:SendMessage"]
-    resources = [aws_sqs_queue.runs.arn]
-  }
 
-  statement {
-    sid       = "Runs"
-    actions   = local.run_table_read_write_actions
-    resources = [aws_dynamodb_table.runs.arn, "${aws_dynamodb_table.runs.arn}/index/*"]
-  }
-
-  statement {
-    sid       = "Conversations"
-    actions   = local.conversation_table_coordinator_actions
-    resources = [aws_dynamodb_table.conversations.arn, "${aws_dynamodb_table.conversations.arn}/index/*"]
-  }
-
-  statement {
-    sid       = "Artifacts"
-    actions   = ["s3:GetObject", "s3:PutObject"]
-    resources = ["${aws_s3_bucket.artifacts.arn}/owners/*"]
-  }
-
-  statement {
-    sid       = "DataKey"
-    actions   = local.data_kms_actions
-    resources = [aws_kms_key.data.arn]
-  }
-}
-
-resource "aws_iam_role_policy" "conversation_coordinator" {
-  name   = "conversation-coordinator"
-  role   = aws_iam_role.conversation_coordinator.id
-  policy = data.aws_iam_policy_document.conversation_coordinator.json
-}
-
-data "aws_iam_policy_document" "conversation_completion" {
-  statement {
-    sid       = "Logs"
-    actions   = ["logs:CreateLogStream", "logs:PutLogEvents"]
-    resources = ["${aws_cloudwatch_log_group.lambda["conversation-completion"].arn}:*"]
-  }
-
-  statement {
-    sid       = "Runs"
-    actions   = ["dynamodb:GetItem"]
-    resources = [aws_dynamodb_table.runs.arn]
-  }
-
-  statement {
-    sid       = "Conversations"
-    actions   = local.conversation_table_coordinator_actions
-    resources = [aws_dynamodb_table.conversations.arn, "${aws_dynamodb_table.conversations.arn}/index/*"]
-  }
-
-  statement {
-    sid       = "Artifacts"
-    actions   = ["s3:GetObject", "s3:PutObject"]
-    resources = ["${aws_s3_bucket.artifacts.arn}/owners/*"]
-  }
-
-  statement {
-    sid       = "ConversationQueueProducer"
-    actions   = ["sqs:SendMessage"]
-    resources = [aws_sqs_queue.conversations.arn]
-  }
-
-  dynamic "statement" {
-    for_each = var.enable_microvm ? [1] : []
-    content {
-      sid       = "SuspendConversationMicrovm"
-      actions   = ["lambda:SuspendMicrovm"]
-      resources = ["*"]
-    }
-  }
-
-  statement {
-    sid       = "DataKey"
-    actions   = local.data_kms_actions
-    resources = [aws_kms_key.data.arn]
-  }
-}
-
-resource "aws_iam_role_policy" "conversation_completion" {
-  name   = "conversation-completion"
-  role   = aws_iam_role.conversation_completion.id
-  policy = data.aws_iam_policy_document.conversation_completion.json
-}
 
 data "aws_iam_policy_document" "notifier" {
   statement {
@@ -748,32 +608,13 @@ data "aws_iam_policy_document" "reconciler" {
     }
   }
 
-  statement {
-    sid = "Routines"
-    actions = [
-      "dynamodb:GetItem",
-      "dynamodb:Query",
-      "dynamodb:UpdateItem",
-    ]
-    resources = [aws_dynamodb_table.routines.arn, "${aws_dynamodb_table.routines.arn}/index/*"]
-  }
 
-  statement {
-    sid       = "RoutineRuns"
-    actions   = ["dynamodb:GetItem", "dynamodb:PutItem"]
-    resources = [aws_dynamodb_table.runs.arn]
-  }
 
-  statement {
-    sid       = "RoutineArtifacts"
-    actions   = ["s3:GetObject", "s3:PutObject"]
-    resources = ["${aws_s3_bucket.artifacts.arn}/owners/*"]
-  }
 
   statement {
     sid       = "RenudgeQueue"
     actions   = ["sqs:SendMessage"]
-    resources = [aws_sqs_queue.runs.arn, aws_sqs_queue.conversations.arn]
+    resources = [aws_sqs_queue.runs.arn]
   }
 
   statement {
@@ -796,35 +637,26 @@ data "aws_iam_policy_document" "thing_schedule" {
     resources = ["${aws_cloudwatch_log_group.lambda["thing-schedule"].arn}:*"]
   }
 
+
   statement {
-    sid       = "ThingState"
-    actions   = ["dynamodb:GetItem", "dynamodb:UpdateItem"]
-    resources = [aws_dynamodb_table.things.arn]
+    sid       = "ScheduleAndSessionState"
+    actions   = ["dynamodb:GetItem", "dynamodb:Query", "dynamodb:PutItem", "dynamodb:UpdateItem"]
+    resources = [aws_dynamodb_table.agents.arn]
   }
 
   statement {
     sid       = "RunState"
-    actions   = ["dynamodb:GetItem", "dynamodb:PutItem"]
+    actions   = ["dynamodb:GetItem"]
     resources = [aws_dynamodb_table.runs.arn]
   }
 
   statement {
-    sid       = "ThingDefinitions"
-    actions   = ["s3:GetObject"]
+    sid       = "SessionDefinitions"
+    actions   = ["s3:GetObject", "s3:PutObject"]
     resources = ["${aws_s3_bucket.definitions.arn}/owners/*"]
   }
 
-  statement {
-    sid       = "RunArtifacts"
-    actions   = ["s3:PutObject"]
-    resources = ["${aws_s3_bucket.artifacts.arn}/owners/*"]
-  }
 
-  statement {
-    sid       = "RunQueue"
-    actions   = ["sqs:SendMessage"]
-    resources = [aws_sqs_queue.runs.arn]
-  }
 
   statement {
     sid       = "DataKey"
@@ -866,6 +698,24 @@ resource "aws_iam_role_policy" "thing_schedule_invoke" {
 }
 
 data "aws_iam_policy_document" "worker" {
+  statement {
+    sid       = "AgentVaultState"
+    actions   = ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:UpdateItem", "dynamodb:TransactWriteItems"]
+    resources = [aws_dynamodb_table.agents.arn]
+  }
+
+  statement {
+    sid       = "AgentVaultDefinitions"
+    actions   = ["s3:GetObject", "s3:PutObject"]
+    resources = ["${aws_s3_bucket.definitions.arn}/owners/*"]
+  }
+
+  statement {
+    sid       = "AgentVaultCredentialRotation"
+    actions   = ["secretsmanager:CreateSecret", "secretsmanager:TagResource", "secretsmanager:DeleteSecret", "secretsmanager:DescribeSecret"]
+    resources = ["arn:${data.aws_partition.current.partition}:secretsmanager:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:secret:${local.name}/connections/agents/*"]
+  }
+
   statement {
     sid       = "RunState"
     actions   = ["dynamodb:GetItem", "dynamodb:UpdateItem"]
@@ -923,7 +773,7 @@ data "aws_iam_policy_document" "worker" {
   dynamic "statement" {
     for_each = var.enable_s3_files ? [1] : []
     content {
-      sid       = "ConversationStateFileSystem"
+      sid       = "SessionStateFileSystem"
       actions   = ["s3files:ClientMount", "s3files:ClientWrite"]
       resources = [aws_s3files_file_system.conversation_state[0].arn]
 
@@ -938,7 +788,7 @@ data "aws_iam_policy_document" "worker" {
   dynamic "statement" {
     for_each = var.enable_s3_files ? [1] : []
     content {
-      sid       = "ConversationStateBucket"
+      sid       = "SessionStateBucket"
       actions   = ["s3:ListBucket"]
       resources = [aws_s3_bucket.conversation_state[0].arn]
     }
@@ -947,7 +797,7 @@ data "aws_iam_policy_document" "worker" {
   dynamic "statement" {
     for_each = var.enable_s3_files ? [1] : []
     content {
-      sid       = "ConversationStateObjects"
+      sid       = "SessionStateObjects"
       actions   = ["s3:GetObject", "s3:GetObjectVersion"]
       resources = ["${aws_s3_bucket.conversation_state[0].arn}/*"]
     }

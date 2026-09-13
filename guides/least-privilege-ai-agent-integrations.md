@@ -72,30 +72,22 @@ write operations require the broad `write` scope. The operation allowlist narrow
 can call, but it does not make that provider credential narrowly scoped. Migrating the adapter to
 Linear's granular scopes remains separate product work.
 
-## Start with a read-only Run
+## Start with read-only Session tools
 
-Select one exact account alias and the minimum operation list:
+Select one exact account and expose only the minimum operations through declared
+MCP or application-function tools. A Slack research Agent can receive message
+search without receiving posting or reaction tools. The trusted tool implementation
+must enforce the account grant and operation allowlist before reading credentials.
 
-```bash
-npm run rat-things -- chat \
-  --thread renewal-research \
-  --connection slack-work=read-only \
-  --allow-operation slack-work=slack.messages.search \
-  "Find the approved renewal decision and return links to the source messages. Do not post."
-```
+A standard Session does not inherit tools from a notification Connection. Its Agent
+configuration declares the tools it receives; application functions require the
+application to handle `required_actions` and submit results. See
+[Agents API](../docs/agents-api.md).
 
-The prompt states the user's intent, but the account preset and allowlist enforce it. If the agent
-tries to post, the operation is absent or rejected before the credential is read.
-
-Use a separate Run when a later action genuinely needs write authority:
-
-```bash
-npm run rat-things -- chat \
-  --thread renewal-tracking \
-  --connection linear-work=read-write \
-  --allow-operation linear-work=linear.teams.list,linear.issues.search,linear.issues.create \
-  "Search for an existing renewal issue. If none exists, create one in the approved team."
-```
+Use a separately configured Agent and a new Session when later work requires write
+authority. For example, an issue-creation tool can enforce the approved team and a
+durable deduplication key. Instructions describe the task, while the host's grant
+and validation checks enforce its authority.
 
 For finer control, make the resource boundary part of a persistent grant whose every admitted
 operation contains the constrained field. For example, a separate `slack-customer-post` Connection
@@ -126,7 +118,7 @@ workspace.
 
 ## Keep credentials out of agent-visible state
 
-Provider tokens should never appear in a prompt, Thing definition, Run request, DynamoDB item, tool
+Provider tokens should never appear in a prompt, Agent configuration, Session input, DynamoDB item, tool
 argument, result body, repository URL, or Terraform state. Rat Things stores each credential in a
 per-Connection Secrets Manager secret. A trusted broker resolves the account alias and checks every
 authority layer before it reads that secret and calls the reviewed adapter.
@@ -137,13 +129,13 @@ Those are authenticated host operations that affect only future capability resol
 
 ## Treat “no approval prompt” as a design constraint
 
-Rat Things has no mid-Run human approval layer. Inside the fixed envelope, every exposed action is
+Rat Things has no mid-Turn human approval layer. Inside the fixed envelope, every exposed action is
 autonomous. Outside it, the tool is missing or the enforcing layer denies the operation. The denial
-never becomes a pending request that can widen the active Run.
+never becomes a pending request that can widen the active Session.
 
 This means the pre-launch envelope must be safe even if the model fully exercises it. If a task
-cannot satisfy that rule, split it into a read-only preparation Run and a separately submitted,
-narrowly authorized execution Run after human review.
+cannot satisfy that rule, split it into a read-only preparation Session and a separately submitted,
+narrowly authorized execution Session after human review.
 
 ## Audit effects independently of the final answer
 
@@ -158,8 +150,8 @@ broker boundary; they do not replace provider scopes or Rat Things operation rul
 ## Current boundaries
 
 Slack search uses the provider's legacy `search.messages` method, and Linear OAuth requests broad
-`read,write` scopes. Rat grants and per-Run operation lists narrow those provider credentials.
-Public egress is broad by default; output DLP and tenant budgets remain incomplete. Built-in
+`read,write` scopes. Host-enforced grants and declared tool operation lists narrow those provider credentials.
+Choose the environment network policy explicitly; output DLP and tenant budgets remain incomplete. Built-in
 adapters are trusted code. See the [security threat matrix](../docs/security.md#threats-and-controls)
 before connecting sensitive accounts.
 

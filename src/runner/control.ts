@@ -4,8 +4,8 @@ import type {
   CodexTurnController,
 } from './codex-app-server.js';
 import type { AgentDriverControl } from './agent-driver.js';
-import type { HumanBrowserAction } from '../domain/interaction.js';
-import type { BrowserToolSession } from './browser.js';
+import { canonicalJson } from '../domain/json.js';
+import { parseAgentsContract } from '../domain/agents-api-validation.js';
 
 const CHANNEL = 'rat-things-agent-control';
 
@@ -17,15 +17,16 @@ interface PendingServerRequest {
 
 export interface RunnerControlBridge {
   hooks: AgentDriverControl;
-  setBrowserSession(session: BrowserToolSession): void;
+  setEnvironmentFiles(files: (operation: unknown) => Promise<unknown>): void;
   close(): void;
 }
 
 export function createRunnerControlBridge(runId: string): RunnerControlBridge | undefined {
   if (!process.send || !process.connected) return undefined;
   const pending = new Map<string, PendingServerRequest>();
+  const operations = new Map<string, { digest: string; promise: Promise<unknown> }>();
   let controller: CodexTurnController | undefined;
-  let browser: BrowserToolSession | undefined;
+  let environmentFiles: ((operation: unknown) => Promise<unknown>) | undefined;
   let closed = false;
 
   const send = (message: Record<string, unknown>) => {
@@ -47,19 +48,54 @@ export function createRunnerControlBridge(runId: string): RunnerControlBridge | 
     const commandId = typeof value.commandId === 'string' ? value.commandId : undefined;
     if (!commandId || typeof value.type !== 'string') return;
     void (async () => {
+      const operationId = typeof value.operationId === 'string' ? value.operationId : value.type === 'respond' ? `response:${String(value.requestId)}` : undefined;
+      let resolveOperation: ((value: unknown) => void) | undefined;
+      let rejectOperation: ((error: unknown) => void) | undefined;
       try {
+        if (operationId) {
+          if (operationId.length > 512) throw new Error('control operation ID is too long');
+          const { commandId: _commandId, ...command } = value;
+          const digest = canonicalJson(command);
+          const existing = operations.get(operationId);
+          if (existing) {
+            if (existing.digest !== digest) throw new Error('control operation ID was reused with different input');
+            commandResult(commandId, await existing.promise);
+            return;
+          }
+          if (operations.size >= 10_000) throw new Error('control operation limit reached');
+          const promise = new Promise<unknown>((resolve, reject) => { resolveOperation = resolve; rejectOperation = reject; });
+          void promise.catch(() => {});
+          operations.set(operationId, { digest, promise });
+        }
         let result: unknown;
         switch (value.type) {
+          case 'environment_files':
+            if (!environmentFiles) throw new Error('Environment files are not ready');
+            result = environmentFiles(value.operation);
+            break;
+          case 'session_start': {
+            if (!controller?.startSessionTurn) throw new Error('The session harness is not ready');
+            const turn = parseAgentsContract('Turn', value.turn);
+            const parsed = parseAgentsContract('SessionEvents', { events: [{ type: 'agent.session.input.message', input: value.input }] });
+            const input = parsed.events[0];
+            if (input?.type !== 'agent.session.input.message') throw new Error('Invalid session input');
+            result = controller.startSessionTurn(turn, input.input);
+            break;
+          }
           case 'steer':
             if (!controller) throw new Error('the Codex turn is not ready for steering');
             if (typeof value.prompt !== 'string' || !value.prompt.trim()) {
               throw new Error('steer prompt is required');
             }
-            await controller.steer(value.prompt);
+            await controller.steer(value.prompt, value.input === undefined ? undefined : parseAgentsContract('SessionEvents', { events: [{ type: 'agent.session.input.message', input: value.input }] }).events.flatMap((event) => event.type === 'agent.session.input.message' ? event.input : []), requiredRequestId(value.turnId));
             break;
           case 'interrupt':
             if (!controller) throw new Error('the Codex turn is not ready for interruption');
-            await controller.interrupt();
+            await controller.interrupt(requiredRequestId(value.turnId));
+            break;
+          case 'session_items':
+            if (!controller?.sessionItems) throw new Error('Session history is not available');
+            result = controller.sessionItems();
             break;
           case 'respond': {
             const requestId = requiredRequestId(value.requestId);
@@ -69,43 +105,15 @@ export function createRunnerControlBridge(runId: string): RunnerControlBridge | 
             pending.delete(requestId);
             break;
           }
-          case 'computer_snapshot':
-            result = requiredBrowser(browser).computer(runId);
-            break;
-          case 'computer_takeover_start':
-            result = requiredBrowser(browser).takeComputer(runId);
-            break;
-          case 'computer_takeover_stop':
-            result = requiredBrowser(browser).returnComputer(runId);
-            break;
-          case 'computer_action':
-            if (!isRecord(value.action) || typeof value.action.type !== 'string') {
-              throw new Error('browser action is invalid');
-            }
-            result = requiredBrowser(browser).actOnComputer(
-              runId,
-              value.action as HumanBrowserAction,
-            );
-            break;
-          case 'teach_start':
-            result = requiredBrowser(browser).startTeaching(runId, {
-              name: requiredText(value.name, 'demonstration name', 120),
-              ...(value.goal === undefined
-                ? {}
-                : { goal: requiredText(value.goal, 'demonstration goal', 4_000) }),
-            });
-            break;
-          case 'teach_stop':
-            if (typeof value.discard !== 'boolean') {
-              throw new Error('demonstration discard must be boolean');
-            }
-            result = requiredBrowser(browser).stopTeaching(value.discard);
-            break;
           default:
             throw new Error(`unsupported control command ${value.type}`);
         }
-        commandResult(commandId, await result);
+        result = await result;
+        resolveOperation?.(result);
+        commandResult(commandId, result);
       } catch (error) {
+        rejectOperation?.(error);
+        if (operationId && rejectOperation) operations.delete(operationId);
         commandResult(commandId, undefined, error);
       }
     })();
@@ -120,8 +128,8 @@ export function createRunnerControlBridge(runId: string): RunnerControlBridge | 
       waiter.reject(new Error('agent control channel closed before the request was answered'));
     }
     pending.clear();
+    operations.clear();
     controller = undefined;
-    browser = undefined;
   };
   process.on('message', onMessage);
   process.once('disconnect', close);
@@ -150,15 +158,13 @@ export function createRunnerControlBridge(runId: string): RunnerControlBridge | 
       send({
         type: 'turn-ready',
         turn: { threadId: next.threadId, turnId: next.turnId },
+        session: Boolean(next.sessionItems),
       });
     },
   };
   return {
     hooks,
-    setBrowserSession: (session) => {
-      if (closed) throw new Error('agent control channel is closed');
-      browser = session;
-    },
+    setEnvironmentFiles: (files) => { environmentFiles = files; },
     close,
   };
 }
@@ -177,18 +183,6 @@ function requiredRequestId(value: unknown): string {
     throw new Error('request ID is invalid');
   }
   return value;
-}
-
-function requiredBrowser(browser: BrowserToolSession | undefined): BrowserToolSession {
-  if (!browser) throw new Error('this Run does not have browser computer use enabled');
-  return browser;
-}
-
-function requiredText(value: unknown, label: string, maximum: number): string {
-  if (typeof value !== 'string' || !value.trim() || value.length > maximum) {
-    throw new Error(`${label} is invalid`);
-  }
-  return value.trim();
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

@@ -19,8 +19,8 @@ it.skipIf(process.platform === 'win32')('reopens on an available port without re
   try {
     // Capture launches without opening a user's browser during ordinary tests.
     await writeFile(join(directory, process.platform === 'darwin' ? 'open' : 'xdg-open'), '#!/bin/sh\nexit 0\n', {mode: 0o700});
-    const launch = async (port: number, owner: string, command = 'console') => {
-      const child = spawn(resolve('node_modules/.bin/tsx'), ['src/cli.ts', command, ...(command === 'computer' ? ['open', 'run-1'] : ['--thread', 'review']), '--port', String(port)], {
+    const launch = async (port: number, owner: string) => {
+      const child = spawn(resolve('node_modules/.bin/tsx'), ['src/cli.ts', 'console', '--port', String(port)], {
         env: {...process.env, PATH: `${directory}:${process.env.PATH}`, RAT_THINGS_API_URL: `http://127.0.0.1:${apiPort}`, AGENT_RUNTIME_UNSIGNED: 'true', RAT_THINGS_LOCAL_OWNER: owner},
         detached: true, stdio: ['ignore', 'pipe', 'pipe'],
       });
@@ -38,10 +38,10 @@ it.skipIf(process.platform === 'win32')('reopens on an available port without re
     };
     const first = await launch(occupiedPort, 'first-owner');
     expect(first.port).not.toBe(String(occupiedPort));
-    expect(first.searchParams.get('thread')).toBe('review');
-    const reopened = await launch(Number(first.port), 'second-owner', 'computer');
+    expect(first.search).toBe('');
+    const reopened = await launch(Number(first.port), 'second-owner');
     expect(reopened.port).not.toBe(first.port);
-    expect(reopened.searchParams.get('run')).toBe('run-1');
+    expect(reopened.search).toBe('');
     expect(await (await fetch(new URL('/api/v1/identity', first))).json()).toEqual({owner: 'first-owner'});
     expect(await (await fetch(`http://127.0.0.1:${occupiedPort}`)).text()).toBe('unrelated listener');
   } finally {

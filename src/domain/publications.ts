@@ -42,8 +42,10 @@ export interface PublicationFile {
 }
 
 export interface PublicationProvenance {
-  runId: string;
+  runId?: string;
   conversationId?: string;
+  sessionId?: string;
+  artifactIds?: string[];
   builder: string;
   createdAt: string;
 }
@@ -218,8 +220,7 @@ export function validatePublicationManifest(value: PublicationManifest): void {
   }
   if (
     !value.provenance ||
-    typeof value.provenance.runId !== 'string' ||
-    !value.provenance.runId ||
+    !validPublicationSource(value.provenance) ||
     typeof value.provenance.builder !== 'string' ||
     !value.provenance.builder ||
     !Number.isFinite(Date.parse(value.provenance.createdAt))
@@ -276,4 +277,9 @@ function rejectUnknown(value: Record<string, unknown>, allowed: string[]): void 
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function validPublicationSource(source: PublicationProvenance): boolean {
+  if (source.sessionId !== undefined) return typeof source.sessionId === 'string' && source.sessionId.startsWith('sess_') && source.runId === undefined && source.conversationId === undefined && Array.isArray(source.artifactIds) && source.artifactIds.length > 0 && source.artifactIds.every((id) => typeof id === 'string' && id.startsWith('art_'));
+  return typeof source.runId === 'string' && source.runId.length > 0 && source.artifactIds === undefined;
 }

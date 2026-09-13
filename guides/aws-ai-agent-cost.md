@@ -2,31 +2,30 @@
 
 The cost of a self-hosted agent has four main parts: model usage, active compute, durable state,
 and the control plane. Workload costs grow with tokens, execution time, and retained bytes. Fixed
-costs come from resources that remain provisioned between Runs, such as the optional S3 Files
-network path. Estimate these separately before comparing deployment choices.
+costs come from resources that remain provisioned between Runs, such as HTTP services and the private network. Estimate these separately before comparing deployment choices.
 
-## Decide whether you need the fixed-cost path
+## Account for connected workers and deployment capacity
 
-In the supplied Terraform, `enable_s3_files=true` creates a dedicated NAT gateway so a replacement
-MicroVM can restore native Codex state and exact workspace bytes. AWS currently lists a common NAT
-gateway rate of $0.045 per hour and public IPv4 at $0.005 per hour; 720 hours makes that combination
-about $36 before data processing. Region, taxes, negotiated rates, and future pricing can differ.
+A Session can keep its harness and environment connected between Turns. Include
+that idle time in worker runtime. The dedicated EC2 backend requires S3 Files;
+its private network, encrypted EBS and instance lifetime all contribute to cost.
+The HTTP and relay services, load balancer, NAT and retained storage also remain
+provisioned independently of model requests.
 
-Keep S3 Files disabled for a one-shot deployment that needs durable requests, results, and ordinary
-artifacts but not exact replacement-worker state. Enable it when that continuity is worth the fixed
-networking cost. This architectural decision usually matters more than optimizing a few
-request-scale control-plane calls.
+Estimate these resources from the actual Terraform configuration and current
+regional prices. Delete disposable Sessions when their workers are no longer
+needed, and verify termination separately from public Session deletion.
 
 ## Break the bill into layers
 
 | Layer | Typical cost drivers | How to measure it |
 | --- | --- | --- |
 | Model | Input, cached input, output, model choice, context length | Provider usage records per Run |
-| Isolated compute | Memory size and active seconds | MicroVM and Lambda execution records |
+| Isolated compute | EC2 instance runtime and EBS, or selected MicroVM memory and duration | Worker and AWS execution records |
 | Suspended state | Snapshot reads, writes, retained duration | Snapshot inventory and billing data |
 | Durable files | Stored bytes, access amplification, requests, retention | S3 and S3 Files metrics plus object inventory |
 | Networking | NAT processing, public IPv4, regional transfer, egress | VPC flow and billing dimensions |
-| Control plane | API Gateway, DynamoDB, SQS, EventBridge, logs, KMS | Tagged request-scale resources |
+| Control plane | HTTP and relay services, load balancers, Lambda, DynamoDB, SQS, EventBridge, logs, KMS | Tagged deployment resources |
 | Connected services | Provider API plans and rate limits | Provider billing and operation ledger |
 | Model-independent idle floor | NAT, endpoints, secrets, logs, DNS, optional delivery | Cost Explorer by deployment tags |
 
@@ -42,7 +41,7 @@ Slack-to-Linear handoff. Record:
 ```text
 monthly cost ≈
   runs × model cost per run
-  + active MicroVM seconds × compute rate
+  + connected worker seconds × compute rate
   + snapshot operations and retained GiB-hours
   + durable filesystem and object requests
   + network processing and transfer
@@ -79,13 +78,12 @@ provider usage dimensions per Run so a model or pricing change does not erase th
 
 ## Control infrastructure cost by architecture
 
-Rat Things launches isolated compute only for active work and can suspend a conversation between
-turns. That avoids an always-running worker fleet, but it does not eliminate an idle floor. Optional
-NAT gateways, VPC endpoints, publication delivery, Secrets Manager entries, logs, and retained
-files can cost money even when no agent is active.
+Rat Things keeps connected Session workers available between Turns. Dedicated HTTP services,
+load balancers, NAT gateways, publication delivery, secrets, logs and retained files also
+contribute to the idle floor. Do not budget only for time spent generating model output.
 
-For a small deployment, omit OAuth Connections, schedules, public sharing, and VPC/NAT when they are not
-needed. Set explicit retention, log, concurrency, and timeout limits. Tag every deployment and keep
+For a small deployment, omit optional OAuth Connections, schedules and public sharing when they are not
+needed. The dedicated EC2 Session backend still requires its private network and S3 Files. Set explicit retention, log, concurrency, and timeout limits. Tag every deployment and keep
 development stacks disposable.
 
 The quickstart's KMS key enters AWS's mandatory delayed-deletion state after teardown; the project
@@ -97,7 +95,7 @@ immediately.
 Include engineering time, security review, on-call work, and provider application administration
 alongside the service bill. Account-specific credits are not intrinsic product economics. Rat Things
 has no sustained-load cost guarantee; per-owner budgets and rate controls remain incomplete. See
-[cost controls](../docs/costs.md#cost-controls-before-production) and the
+[cost controls](../docs/costs.md#operating-controls) and the
 [current boundaries](../docs/status-and-roadmap.md#known-gaps).
 
 ## A useful decision rule

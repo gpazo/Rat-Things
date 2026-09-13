@@ -1,7 +1,7 @@
 # AWS infrastructure
 
 This Terraform root deploys the Rat Things control plane and Lambda MicroVM image. One-shot VMs are
-terminated; conversation VMs may be suspended and resumed for a bounded session. Individual
+terminated; Session harnesses use a bounded lifetime and an idle policy. Individual
 MicroVM instances are managed through the service API; they are not Terraform resources.
 
 The reusable implementation is in `modules/agent-runner`. This root configures the standard AWS
@@ -13,7 +13,7 @@ provider and the AWS Cloud Control provider required for the MicroVM image resou
   discovery/contracts, and IAM-authenticated owner-scoped control routes.
 - Lambda ingress, control, dispatcher, reconciler, Thing-schedule, state-stream, and notification
   functions.
-- Encrypted DynamoDB run, conversation, integration, routine, and revisioned Thing stores;
+- Encrypted DynamoDB Agent, Session, execution and integration stores;
   encrypted S3 artifact, non-expiring definition, and MicroVM-source buckets; and encrypted SQS
   work/dead-letter queues.
 - A custom EventBridge bus, an EventBridge Scheduler group with a fixed Thing target and invocation
@@ -27,7 +27,7 @@ provider and the AWS Cloud Control provider required for the MicroVM image resou
 It does not create ECS or ECR. With `enable_s3_files=false`, image builds and runs use AWS-managed
 networking and the stack creates no customer VPC. Enabling S3 Files creates a dedicated VPC,
 private and public subnets, NAT gateway, service endpoints, and Lambda MicroVM network connector so
-replacement compute can mount the same conversation workspace. That optional path adds a continuous
+replacement compute can mount the same Session workspace. That optional path adds a continuous
 networking cost floor and should not be confused with access to an existing application VPC.
 
 ## Package, validate, and deploy
@@ -100,8 +100,10 @@ runtime is initialized. It snapshots no run ID, token, repository, or workspace.
 arrive in the bounded `/run` payload; the worker retrieves the full request from encrypted S3.
 
 The agent subprocess runs as UID/GID 10001. One-shot jobs call `TerminateMicrovm` when the runner
-exits. Conversation jobs retain the workspace and Codex thread, then the completion coordinator
-calls `SuspendMicrovm`; a later slice resumes the VM through its authenticated HTTPS endpoint.
+exits. Session harnesses accept additional Turns through private authenticated control.
+The Session runtime journal saves native state, and optional S3 Files storage
+preserves the workspace and Codex home across replacement compute. The separate
+conversation coordinator and its explicit suspend/resume protocol are removed.
 
 The current AWSCC schema requires non-empty `additional_os_capabilities`, and the service currently
 accepts only `ALL`. Those capabilities remain inside the MicroVM boundary, but this still requires a
@@ -119,8 +121,8 @@ deliver after its configured retries. Repair the target, redrive each event, ver
 per-destination delivery fence, and only then delete the DLQ message.
 
 The `thing_schedule_failure_queue_url` output identifies EventBridge Scheduler deliveries that
-exhausted retries. Inspect the pinned Thing revision and scheduled time, repair the fixed target or
-Thing state, and replay only after confirming the occurrence idempotency key is safe. The
+exhausted retries. Inspect the schedule generation, saved occurrence and scheduled time, repair the fixed target
+or schedule state, and replay only after confirming the occurrence idempotency key is safe. The
 `thing_schedule_group_name` output identifies the deployment-owned group; consumers cannot select
 an arbitrary AWS target or IAM role.
 
@@ -130,3 +132,17 @@ Service references:
 - <https://docs.aws.amazon.com/lambda/latest/dg/microvms-images.html>
 - <https://docs.aws.amazon.com/lambda/latest/dg/microvms-networking.html>
 - <https://docs.aws.amazon.com/lambda/latest/dg/microvms-launching.html>
+
+## Retired data
+
+`modules/agent-runner/retired-data.tf` retains the former Thing, Routine and
+conversation tables and conversation queues at their existing Terraform addresses.
+They have no application producers, consumers or IAM grants. Existing TTL and queue
+retention policies still apply. The old coordinator/completion log groups also
+remain for investigation. Decide export, retention and disposition before removing
+these resources from a deployed stack.
+
+The S3 Files resources still serve current Sessions. Their historical
+`conversation_state` names and `/conversations` access-point root must remain
+stable when applying this cutover. Build the control plane and MicroVM image from
+the same checkout: the new private launch field is `sessionStorageKey`.

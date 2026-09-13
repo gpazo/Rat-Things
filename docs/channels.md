@@ -1,11 +1,11 @@
 # Channel adapters
 
-All channel integrations translate authenticated external events into the same v1 run request. They
-do not bypass validation or create a separate execution path.
+Channel integrations authenticate external events, resolve an owned Agent and environment through
+a source binding, and submit input to a Session. They share the same validation and native Codex
+harness as API-created Sessions. The bound Agent and environment define the execution capabilities.
 
-Normalized channel requests set `sandbox: read-only` but do not select a driver. Dispatch therefore
-uses `default_agent_driver`: the shipped/example `mock` default keeps webhook and chat canaries
-deterministic and model-token-free until an operator explicitly switches the deployment to `codex`.
+Offline tests inject deterministic execution ports; deployed Sessions use the configured model
+credentials and can incur model usage.
 
 The adapters intentionally separate:
 
@@ -70,19 +70,8 @@ authors; keep repository, actor, budget, and rate policy separate.
 
 ### Configure GitHub
 
-For a development or evaluation stack, the recommended path is:
-
-```bash
-npm run webhook:github -- --repo OWNER/REPOSITORY
-```
-
-The helper creates or reuses Secrets Manager values, discovers a MicroVM base image, applies the
-Terraform root, and creates or updates the repository webhook through the authenticated GitHub CLI.
-It defaults to the mock driver and `@rat-things` trigger. See
-[Connect a GitHub webhook](github-webhook-onboarding.md) for prerequisites, the exact external
-changes, status checks, and the explicit Codex-on-Bedrock opt-in.
-
-For production or manual setup:
+Configure the signed webhook and its owned Agent/environment binding as described in
+[Connect a GitHub webhook](github-webhook-onboarding.md).
 
 1. Create a high-entropy webhook secret, a clone-only credential, and a separate comment-only
    credential in Secrets Manager.
@@ -96,9 +85,9 @@ For production or manual setup:
 4. Set a distinct command-like `github_comment_trigger`, and subscribe only to pull-request and
    issue-comment events. Use a separate App/webhook per environment
    so delivery IDs, permissions, URLs, and secrets do not cross dev/prod boundaries.
-5. Send a GitHub “ping”/test delivery and confirm the Lambda log shows an authenticated ignored or
-   accepted event without logging the body or secret. Then open a test PR and verify the run record,
-   one worker execution, and one comment.
+5. Create an owner-authenticated source binding for the repository, selecting an Agent and
+   environment. A signed event without a matching binding returns `source_not_bound`. Each accepted
+   occurrence creates a Session; saved terminal root Turns drive comment delivery.
 
 For `issue_comment`, the adapter checks out `refs/pull/<number>/head` so follow-up questions inspect
 the pull request rather than the repository's default branch. That synthetic ref is mutable; a future
@@ -247,17 +236,16 @@ Set `teams_delivery_mode = "threaded-gateway"` and configure
 `teams_reply_gateway_url_secret_arn` to route source replies through a trusted gateway instead of a
 Workflow. The notifier posts a versioned envelope containing the original `conversationId`, the
 inbound activity ID as `replyToActivityId`, a Bot Activity-shaped message with `replyToId`, and the
-run ID as an idempotency key. Named Workflow routes are rejected in this mode.
+Turn ID as an idempotency key. Named Workflow routes are rejected in this mode.
 
-The LocalStack real-Codex test captures this envelope and proves that the conversation/activity
-reference survives signed ingress, persistence, execution, terminal events, and delivery fencing.
-The URL is still a credential and must point only at infrastructure controlled by the deployment.
+The original conversation/activity reference is retained through Session ingress and terminal
+Turn delivery. The URL is still a credential and must point only at infrastructure controlled by the deployment.
 This repository does not yet implement the gateway's Microsoft Entra token exchange, Bot Connector
 authentication, or live tenant installation.
 
 ### Recommended production Teams gateway
 
-Replace the bridge—not the v1 run contract—with an AWS-hosted Teams app/bot gateway:
+An AWS-hosted Teams app/bot gateway can replace the bridge while retaining the Session contract:
 
 1. Register a Microsoft Entra/Bot identity and Teams app. Point its HTTPS messaging endpoint at an
    API Gateway/Lambda adapter in this repository.
@@ -281,7 +269,7 @@ Replace the bridge—not the v1 run contract—with an AWS-hosted Teams app/bot 
 This keeps AWS as the compute/data plane while using the Microsoft identity and messaging plane that
 Teams requires. It enables tenant policy, installation lifecycle, exact conversation references,
 proactive completion, and future ordinary-input/cancel actions without coupling runs to a Power
-Automate owner. It must not add a mid-Run authority-widening path.
+Automate owner. It must not add a mid-Turn authority-widening path.
 
 ## Slack: self-hosted channel adapter
 
@@ -313,7 +301,7 @@ To enable it:
    bot or user token in Terraform.
 4. Complete the Connections-page flow or
    `rat-things connect slack --oauth --wait --access read-write --alias slack-work`.
-5. Run `rat-things slack-events slack-work --profile read-only --json`. It derives the team selector
+5. Run `rat-things slack-events slack-work --agent-id agent_example --json`. It derives the team selector
    from the verified Connection, creates one owner Connection Set/binding, and rejects a competing
    Connection for the same workspace. The service Connection remains write-capable for trusted
    threaded delivery while the source agent receives the named fixed profile.

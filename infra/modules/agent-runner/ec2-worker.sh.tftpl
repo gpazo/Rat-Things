@@ -1,0 +1,17 @@
+#!/bin/bash
+set -euo pipefail
+# Any bootstrap or supervisor exit retires this dedicated worker.
+trap 'shutdown -h now' EXIT
+timeout 600 dnf install -y docker iptables
+timeout 60 systemctl start docker
+# Host networking retains the guest UID at the host firewall. IMDSv2 is root-only.
+iptables -I OUTPUT -m owner --uid-owner 10001 -d 169.254.169.254/32 -j REJECT
+install -d -m 0700 /etc/rat-worker
+umask 077
+printf '%s' '${configuration}' | base64 -d > /etc/rat-worker/environment.json
+timeout 60 aws ecr get-login-password --region '${region}' | timeout 60 docker login --username AWS --password-stdin '${registry}'
+timeout 600 docker pull '${image}'
+docker run --rm --privileged --network host --cgroupns private --stop-timeout 45 \
+  --log-driver awslogs --log-opt awslogs-region='${region}' --log-opt awslogs-group='${log_group}' \
+  --mount type=bind,source=/etc/rat-worker/environment.json,target=/etc/rat-worker/environment.json,readonly \
+  --entrypoint node '${image}' /opt/agent-runtime/ec2-supervisor.mjs

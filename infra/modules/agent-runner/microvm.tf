@@ -109,19 +109,6 @@ resource "awscc_lambda_microvm_image" "runner" {
       key   = "INTEGRATION_OAUTH_APP_SECRET_ARNS"
       value = jsonencode(var.integration_oauth_app_secret_arns)
     },
-    ] : [], local.publication_delivery_enabled ? [
-    {
-      key   = "AGENT_PUBLICATION_ENABLED"
-      value = "true"
-    },
-    {
-      key   = "PUBLICATION_BASE_DOMAIN"
-      value = local.publication_domain
-    },
-    {
-      key   = "ARTIFACT_URL_TTL_SECONDS"
-      value = tostring(var.artifact_url_ttl_seconds)
-    },
   ] : [])
   resources = [{
     minimum_memory_in_mi_b = var.microvm_memory_mib

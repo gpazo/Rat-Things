@@ -1,0 +1,9 @@
+**
+!package.json
+!package-lock.json
+!tsconfig.json
+!src/**
+!tests/**
+!spec/**
+!runtime/codex/**
+!testing/native-parity.Dockerfile

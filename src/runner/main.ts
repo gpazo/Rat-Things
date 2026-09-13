@@ -1,3 +1,4 @@
+import { isRetiredRun } from '../domain/run-bindings.js';
 import { createHash } from 'node:crypto';
 import { join } from 'node:path';
 import { readdir, rm } from 'node:fs/promises';
@@ -6,96 +7,93 @@ import {
   createAwsClients,
   DynamoRunStore,
   S3ArtifactStore,
-  S3PublicationGrantStore,
-  S3PublicationObjectStore,
 } from '../adapters/aws-runtime.js';
-import { DynamoIntegrationStore } from '../adapters/dynamo-integration-store.js';
-import { DynamoOAuthAuthorizationStore } from '../adapters/dynamo-oauth-store.js';
 import { SecretsManagerCredentialVault } from '../adapters/secrets-credential-vault.js';
-import { PublicationPublisher, publicationTtlSeconds } from '../core/publication-publisher.js';
 import { requiredEnv } from '../adapters/executors.js';
 import { CredentialBroker } from '../credentials/broker.js';
-import type { ArtifactCatalog, RunError, RunRecord } from '../domain/contracts.js';
+import type { RunError, RunRecord } from '../domain/contracts.js';
 import type { SandboxMode } from '../domain/contracts.js';
 import { InvalidStateTransitionError } from '../domain/state.js';
 import { parseRunRequest } from '../domain/validation.js';
+import type { SessionLaunch } from '../domain/session-execution.js';
+import { environmentTokenIdentity, parseEnvironmentCredentials } from '../credentials/environment.js';
 import { CodexExecutionError } from './codex-app-server.js';
 import type { AgentExecution } from './agent-driver.js';
 import { driverFor } from './agent-driver.js';
-import { loadCodexBedrockToken } from './bedrock-auth.js';
+import { loadCodexBedrockToken, readCodexBedrockToken } from './bedrock-auth.js';
+import { installBedrockTokenFile } from './bedrock-token-file.js';
+import { agentProcessIdentity } from './agent-identity.js';
 import { installCodexAuthFile, type CodexAuthFileSession } from './chatgpt-auth.js';
 import { codexAuthMode } from './codex-auth.js';
-import {
-  AGENT_ARTIFACT_DIRECTORY,
-  assertArtifactCatalogScope,
-  clearArtifactDirectory,
-  emptyArtifactCatalog,
-  publishArtifactCatalog,
-  restoreArtifactCatalog,
-} from './artifacts.js';
-import {
-  appendSharedPublications,
-  clearAgentShareRequest,
-  readAgentShareRequests,
-} from './publications.js';
-import type { SharedPublication } from './publications.js';
-import { collectWorkspacePatch, prepareWorkspace } from './workspace.js';
+import { prepareWorkspace } from './workspace.js';
 import { createRunnerControlBridge } from './control.js';
-import { IntegrationPluginRegistry } from '../plugins/integration-registry.js';
-import { IntegrationRuntime } from '../plugins/integration-runtime.js';
-import { createBuiltinIntegrationPlugins } from '../plugins/integrations/builtins.js';
-import {
-  OAuthRefreshingCredentialBroker,
-  parseOAuthApplicationSecretArns,
-  SecretOAuthApplicationRegistry,
-} from '../plugins/oauth.js';
 import {
   CapabilityProfileRegistry,
   createBuiltinCapabilityProfiles,
   resolveAgentProfile,
 } from '../plugins/capability-profiles.js';
 import type { AgentDriverControl } from './agent-driver.js';
-import { BrowserHostBackend, BrowserToolSession } from './browser.js';
-import { createDynamicToolRequestHandler } from './dynamic-tools.js';
 import { ExecutionHeartbeat } from './heartbeat.js';
+import { prepareSessionMcp, type SessionMcpRuntime } from './session-mcp.js';
+import { VaultService } from '../core/vault-service.js';
+import { DynamoAgentsStore } from '../adapters/dynamo-agents-store.js';
+import { SessionEventStore } from '../core/session-event-store.js';
+import { SecretsAgentCredentials } from '../adapters/secrets-agent-credentials.js';
+import { HttpOAuthRefreshClient } from '../adapters/oauth-refresh-client.js';
+import { SessionRuntimeStore } from '../core/session-runtime-store.js';
+import { SessionRuntimeJournal } from './session-runtime-journal.js';
+import { SessionArtifactCapture } from '../core/session-artifact-capture.js';
+import { EnvironmentService } from '../core/environment-service.js';
+import { SecretsEnvironmentCredentials } from '../adapters/secrets-environment-credentials.js';
+import { bindHostedWorkspace, prepareHostedEnvironment } from './hosted-environment.js';
+import { planCodexLaunch } from './agent-planning.js';
+import { codexEnvironmentFiles } from '../adapters/codex-environment-files.js';
+import type { EnvironmentFileOperations } from '../core/environment-file-ports.js';
 
 export async function runAgentWorker(): Promise<void> {
   const clients = createAwsClients();
   const runId = requiredEnv('RUN_ID');
-  const store = new DynamoRunStore(clients.dynamodb, requiredEnv('RUNS_TABLE_NAME'));
+  const store = new DynamoRunStore(clients.dynamodb, requiredEnv('RUNS_TABLE_NAME'), Number(process.env.RUN_RETENTION_SECONDS ?? 2_592_000));
   const artifactBucket = requiredEnv('ARTIFACT_BUCKET');
   const artifacts = new S3ArtifactStore(clients.s3, artifactBucket);
   const secrets = new CachedSecretReader(clients.secrets);
   const credentials = new CredentialBroker(secrets);
   let current = await store.get(runId);
   if (!current) throw new Error(`run ${runId} does not exist`);
-  if (current.status !== 'dispatching') return;
+  if (current.status !== 'dispatching' || isRetiredRun(current)) return;
   const abort = new AbortController();
   const stop = () => abort.abort();
   process.once('SIGTERM', stop);
   process.once('SIGINT', stop);
   const workspaceRoot = process.env.WORKSPACE_ROOT ?? '/tmp/agent-runtime';
-  const persistentSession = Boolean(current.conversation) && process.env.PERSISTENT_SESSION === 'true';
-  const durableStateRoot = process.env.CONVERSATION_STATE_ROOT;
+  const persistentSession = Boolean(current.agentsSession) && process.env.PERSISTENT_SESSION === 'true';
+  const durableStateRoot = process.env.SESSION_STATE_ROOT;
   if (durableStateRoot && !persistentSession) {
-    throw new Error('CONVERSATION_STATE_ROOT requires a persistent conversation session');
+    throw new Error('Durable state requires a persistent session');
   }
   const workspace = durableStateRoot
     ? join(durableStateRoot, 'workspace')
     : join(
       workspaceRoot,
-      persistentSession && current.conversation
-        ? `conversation-${createHash('sha256').update(current.conversation.conversationId).digest('hex').slice(0, 32)}`
+      persistentSession && current.agentsSession
+        ? `session-${createHash('sha256').update(JSON.stringify([current.ownerId, current.agentsSession.sessionId])).digest('hex').slice(0, 32)}`
         : runId,
     );
   const startedAt = new Date().toISOString();
   let loadedBedrockToken = false;
+  let bedrockTokenFile: Awaited<ReturnType<typeof installBedrockTokenFile>> | undefined;
   let codexAuthFileSession: CodexAuthFileSession | undefined;
-  let browserSession: BrowserToolSession | undefined;
   let heartbeat: ExecutionHeartbeat | undefined;
+  let sessionMcp: SessionMcpRuntime | undefined;
+  let sessionJournal: SessionRuntimeJournal | undefined;
+  let managedStatus: ((status: 'connected' | 'failed' | 'expired') => Promise<void>) | undefined;
+  let managedTimer: ReturnType<typeof setInterval> | undefined;
+  let managedUpdate: Promise<void> | undefined;
+  let managedReady = false;
   const runnerControl = createRunnerControlBridge(runId);
 
   try {
+    if (!current.agentsSession) throw new Error('Cloud execution requires an Agents Session binding');
     const rawRequest = await artifacts.getJson<unknown>({
       bucket: requiredEnv('RUN_INPUT_BUCKET'),
       key: requiredEnv('RUN_INPUT_KEY'),
@@ -124,14 +122,14 @@ export async function runAgentWorker(): Promise<void> {
       await store.transition(runId, ['cancelling'], 'cancelled');
       return;
     }
-    if (current.status !== 'dispatching') return;
+    if (current.status !== 'dispatching' || isRetiredRun(current)) return;
     if (!current.execution || current.execution.id === 'pending') {
       throw new Error('execution reference was not attached');
     }
     const executionGeneration = requiredEnv('EXECUTION_GENERATION');
     if (
-      current.execution.backend !== 'microvm' ||
-      current.execution.id !== requiredEnv('MICROVM_ID') ||
+      current.execution.backend !== (process.env.DEFAULT_EXECUTION_BACKEND ?? 'microvm') ||
+      current.execution.id !== requiredEnv(current.execution.backend === 'ec2' ? 'EC2_INSTANCE_ID' : 'MICROVM_ID') ||
       current.execution.generation !== executionGeneration
     ) throw new Error('execution attachment does not match this worker generation');
     current = await store.startExecution(runId, current.execution, startedAt);
@@ -153,101 +151,73 @@ export async function runAgentWorker(): Promise<void> {
       reuseExisting: persistentSession,
     });
     const ownerHash = createHash('sha256').update(current.ownerId).digest('hex').slice(0, 32);
-    if (
-      current.conversation?.artifacts &&
-      (
-        current.conversation.artifacts.bucket !== artifactBucket ||
-        !current.conversation.artifacts.key.startsWith(`owners/${ownerHash}/conversations/`)
-      )
-    ) throw new Error('conversation artifact catalog is outside its owner scope');
-    const previousArtifacts = current.conversation?.artifacts
-      ? await artifacts.getJson<ArtifactCatalog>(current.conversation.artifacts)
-      : emptyArtifactCatalog();
-    assertArtifactCatalogScope(previousArtifacts, artifactBucket, current.ownerId);
-    await restoreArtifactCatalog(workspace, previousArtifacts, artifacts);
-    await clearAgentShareRequest(workspace);
     const timeoutSeconds = Number(
       process.env.RUN_TIMEOUT_SECONDS ?? effectiveRequest.execution?.timeoutSeconds ?? 900,
     );
-    const driver = driverFor(effectiveRequest.agent?.driver ?? defaultDriver());
+    const driver = driverFor('codex');
     let driverControl: AgentDriverControl | undefined = runnerControl?.hooks;
-    const dynamicTools: Array<Record<string, unknown>> = [];
-    let integrationSession: Awaited<ReturnType<IntegrationRuntime['prepare']>> | undefined;
-    if (effectiveRequest.agent?.capabilities?.computerUse === 'browser') {
-      const browserNetworkAccess = effectiveRequest.agent.capabilities.networkAccess ??
-        process.env.CODEX_TOOL_NETWORK_ACCESS === 'true';
-      if (!browserNetworkAccess) {
-        throw new Error('browser computer use requires agent network access');
+    if (current.agentsSession) {
+      const reference = current.agentsSession.launch;
+      if (reference.bucket !== artifactBucket || !reference.key.startsWith(`owners/${ownerHash}/sessions/`)) throw new Error('Session launch configuration is outside its owner scope');
+      let launch = await artifacts.getJson<SessionLaunch>(reference);
+      if (launch.sessionId !== current.agentsSession.sessionId || launch.turnId !== current.agentsSession.turnId) throw new Error('Session launch identity does not match its Run');
+      const agentsStore = new SessionEventStore(new DynamoAgentsStore(clients.dynamodb, requiredEnv('AGENTS_TABLE_NAME'), new S3ArtifactStore(clients.s3, requiredEnv('DEFINITION_BUCKET'))));
+      const runtimes = new SessionRuntimeStore(agentsStore);
+      const runtime = await runtimes.get(current.ownerId, launch.sessionId);
+      if (!runtime || runtime.value.closed || runtime.value.runId !== runId) throw new Error('Session execution authority changed before launch');
+      const sessionOwner = current.ownerId;
+      let environmentFiles: EnvironmentFileOperations | undefined;
+      if (launch.environment.type === 'openai_hosted') {
+        const environmentId = launch.environment.id;
+        const environments = new EnvironmentService({ store: agentsStore, credentials: new SecretsEnvironmentCredentials(clients.secrets, requiredEnv('INTEGRATION_CREDENTIAL_NAME_PREFIX'), requiredEnv('INTEGRATION_CREDENTIAL_KMS_KEY_ARN')) });
+        managedStatus = (status) => environments.managedStatus(sessionOwner, environmentId, runId, status);
+        await bindHostedWorkspace(workspace);
+        const plan = planCodexLaunch(effectiveRequest, workspace, timeoutSeconds * 1000, process.env);
+        launch = await prepareHostedEnvironment({ launch, workspace, plan, artifacts, signal: abort.signal, stateDirectory: '/tmp/rat-hosted-state', previouslyPrepared: Boolean(runtime.value.snapshot) });
+        environmentFiles = { execute: (_environmentId, _reference, operation) => codexEnvironmentFiles({ workspace: '/workspace', operation, binary: plan.binary, ...(plan.identity ? { identity: plan.identity } : {}), signal: abort.signal }) };
+        runnerControl?.setEnvironmentFiles((operation) => environmentFiles!.execute(environmentId, '', operation as import('../core/environment-file-ports.js').EnvironmentFileOperation));
+        await managedStatus('connected');
+        managedReady = true;
+        managedTimer = setInterval(() => {
+          if (managedUpdate) return;
+          managedUpdate = managedStatus!('connected').catch(() => { abort.abort(); }).finally(() => { managedUpdate = undefined; });
+        }, 15_000);
+        managedTimer.unref();
       }
-      if (driver.name !== 'codex') throw new Error('browser computer use requires the Codex driver');
-      browserSession = new BrowserToolSession(
-        new BrowserHostBackend({
-          artifactRoot: join(workspace, AGENT_ARTIFACT_DIRECTORY),
-        }),
-      );
-      runnerControl?.setBrowserSession(browserSession);
-      dynamicTools.push(...browserSession.tools);
-    }
-    if (effectiveRequest.integrations) {
-      const capabilityOwnerId = current.capabilityOwnerId ?? current.ownerId;
-      const integrationStore = new DynamoIntegrationStore(
-        clients.dynamodb,
-        requiredEnv('INTEGRATIONS_TABLE_NAME'),
-      );
-      const integrationRegistry = new IntegrationPluginRegistry(createBuiltinIntegrationPlugins());
-      const integrationCredentialBroker = new CredentialBroker(new CachedSecretReader(clients.secrets, 0));
-      const oauthApplications = new SecretOAuthApplicationRegistry(
-        new CachedSecretReader(clients.secrets),
-        parseOAuthApplicationSecretArns(process.env.INTEGRATION_OAUTH_APP_SECRET_ARNS),
-      );
-      integrationSession = await new IntegrationRuntime({
-        registry: integrationRegistry,
-        store: integrationStore,
-        credentials: new OAuthRefreshingCredentialBroker({
-          credentials: integrationCredentialBroker,
-          vault: new SecretsManagerCredentialVault(
-            clients.secrets,
-            process.env.INTEGRATION_CREDENTIAL_KMS_KEY_ARN,
-          ),
-          registry: integrationRegistry,
-          applications: oauthApplications,
-          store: new DynamoOAuthAuthorizationStore(
-            clients.dynamodb,
-            requiredEnv('INTEGRATIONS_TABLE_NAME'),
-          ),
-        }),
-      }).prepare({
-        ownerId: capabilityOwnerId,
-        request: effectiveRequest.integrations,
-        ...(profile.maximumIntegrationAccess
-          ? { maximumIntegrationAccess: profile.maximumIntegrationAccess }
-          : {}),
+      const capture = new SessionArtifactCapture({ ownerId: sessionOwner, launch, artifacts,
+        ...(environmentFiles ? { files: environmentFiles } : {}),
       });
-      dynamicTools.push(...integrationSession.tools.map((tool) => ({ ...tool })));
-    }
-    if (dynamicTools.length > 0) {
-      const fallbackServerRequest = runnerControl?.hooks.onServerRequest;
-      driverControl = {
-        ...runnerControl?.hooks,
-        dynamicTools,
-        onServerRequest: createDynamicToolRequestHandler({
-          ...(browserSession ? { browser: browserSession } : {}),
-          ...(integrationSession ? { integrations: integrationSession } : {}),
-          signal: abort.signal,
-          ledger: {
-            store,
-            runId,
-            execution: current.execution!,
-            admittedToolsDigest: createHash('sha256')
-              .update(JSON.stringify(dynamicTools))
-              .digest('hex'),
-          },
-          ...(fallbackServerRequest ? { fallback: fallbackServerRequest } : {}),
-        }),
-      };
+      sessionJournal = new SessionRuntimeJournal({
+        publish: async (snapshot) => runtimes.publish(sessionOwner, launch.sessionId, runId, await capture.capture(snapshot)),
+        onFailure: () => abort.abort(),
+      });
+      driverControl = { ...driverControl, session: launch, sessionRuntime: {
+        lifetime: current.execution?.backend === 'ec2' ? 'host-managed' : 'bounded',
+        ...(runtime.value.snapshot ? { previous: runtime.value.snapshot } : {}),
+        changed: sessionJournal.changed, flush: sessionJournal.flush,
+      } };
+      const sessionVaults = launch.mcp?.some((binding) => binding.vaultId) ? new VaultService({
+        store: agentsStore,
+        secrets: new SecretsAgentCredentials(clients.secrets, requiredEnv('INTEGRATION_CREDENTIAL_NAME_PREFIX'), requiredEnv('INTEGRATION_CREDENTIAL_KMS_KEY_ARN')),
+        oauth: new HttpOAuthRefreshClient(),
+      }) : undefined;
+      sessionMcp = await prepareSessionMcp(current.ownerId, launch, secrets, abort.signal, sessionVaults);
+      driverControl = { ...driverControl, sessionMcp };
+      if (launch.environment.type === 'self_hosted') {
+        if (!launch.environmentCredential) throw new Error('Session environment credential is missing');
+        const credential = parseEnvironmentCredentials(await secrets.get(launch.environmentCredential));
+        const identity = environmentTokenIdentity(credential.harness);
+        if (identity?.ownerId !== current.ownerId || identity.environmentId !== launch.environment.id || identity.role !== 'harness') throw new Error('Session environment credential does not match its owner');
+        driverControl = { ...driverControl, sessionEnvironmentToken: credential.harness };
+      }
     }
     if (driver.name === 'codex' && codexAuthMode() === 'bedrock') {
-      loadedBedrockToken = await loadCodexBedrockToken(credentials);
+      if (current.agentsSession && current.execution?.backend === 'ec2') {
+        const identity = agentProcessIdentity(process.env.RUN_AGENT_UID, process.env.RUN_AGENT_GID);
+        bedrockTokenFile = await installBedrockTokenFile({ token: () => readCodexBedrockToken(credentials),
+          onFailure: () => abort.abort(), ...(identity ? { gid: identity.gid } : {}) });
+        process.env.RAT_BEDROCK_AUTH_FILE = bedrockTokenFile.path;
+      } else loadedBedrockToken = await loadCodexBedrockToken(credentials);
     }
     if (driver.name === 'codex' && codexAuthMode() === 'chatgpt') {
       codexAuthFileSession = await installCodexAuthFile(
@@ -282,69 +252,21 @@ export async function runAgentWorker(): Promise<void> {
     if (terminalText) execution.fullText = [execution.fullText, terminalText].filter(Boolean).join('\n\n');
     await codexAuthFileSession?.finalize();
     codexAuthFileSession = undefined;
-    // Finalize any active recording before the artifact catalog takes its
-    // immutable snapshot. Explicit record_stop remains preferable because it
-    // returns metadata to the agent, but a completed turn must not lose bytes.
-    if (browserSession) await browserSession.close();
+    await sessionJournal?.flush();
     const prefix = `owners/${ownerHash}/runs/${runId}`;
-    const [eventArtifact, patch, publishedArtifacts] = await Promise.all([
-      artifacts.putBytes(`${prefix}/events.jsonl`, execution.events, 'application/x-ndjson'),
-      collectWorkspacePatch(workspace),
-      publishArtifactCatalog({
-        workspace,
-        previous: previousArtifacts,
-        artifacts,
-        ownerId: current.ownerId,
-        runId,
-      }),
-    ]);
-    const catalog: ArtifactCatalog = { version: '1', files: publishedArtifacts };
-    const requestedPublications = process.env.AGENT_PUBLICATION_ENABLED === 'true' && terminalStatus === 'succeeded'
-      ? await readAgentShareRequests(workspace)
-      : [];
-    await clearAgentShareRequest(workspace);
-    const sharedPublications: SharedPublication[] = [];
-    if (requestedPublications.length > 0) {
-      const publisher = new PublicationPublisher(
-        new S3PublicationObjectStore(clients.s3, artifactBucket),
-        new S3PublicationGrantStore(clients.s3, artifactBucket),
-        {
-          artifactBucket,
-          baseDomain: requiredEnv('PUBLICATION_BASE_DOMAIN'),
-          ttlSeconds: publicationTtlSeconds(process.env.ARTIFACT_URL_TTL_SECONDS),
-        },
-      );
-      for (const requested of requestedPublications) {
-        const descriptor = await publisher.publish({
-          ownerId: current.ownerId,
-          spec: requested.spec,
-          catalog,
-          runId,
-          ...(current.conversation
-            ? { conversationId: current.conversation.conversationId }
-            : {}),
-        });
-        sharedPublications.push({ ...requested, descriptor });
-      }
-    }
-    const fullText = appendSharedPublications(execution.fullText, sharedPublications);
+    const eventArtifact = await artifacts.putBytes(`${prefix}/events.jsonl`, execution.events, 'application/x-ndjson');
     const output = await artifacts.putBytes(
       `${prefix}/result.md`,
-      Buffer.from(fullText),
+      Buffer.from(execution.fullText),
       'text/markdown; charset=utf-8',
     );
-    const patchArtifact = patch
-      ? await artifacts.putBytes(`${prefix}/workspace.patch`, patch, 'text/x-diff')
-      : undefined;
-    if (persistentSession) await clearPersistentSessionScratch(workspace);
+    if (persistentSession) await clearPersistentSessionScratch();
     const finalized = await store.finishExecution(runId, current.execution!, terminalStatus, {
       output,
       preview: execution.fullText.slice(0, 2_000),
       exitCode: execution.exitCode,
       durationMs: execution.durationMs,
       events: eventArtifact,
-      artifacts: publishedArtifacts,
-      ...(patchArtifact ? { workspacePatch: patchArtifact } : {}),
       ...(execution.threadId ? { agentThreadId: execution.threadId } : {}),
       ...(execution.usage ? { usage: execution.usage } : {}),
     }, executionError);
@@ -387,8 +309,13 @@ export async function runAgentWorker(): Promise<void> {
     }
     throw error;
   } finally {
+    clearInterval(managedTimer);
+    await managedUpdate;
+    await managedStatus?.(managedReady ? 'expired' : 'failed').catch(() => {});
+    await sessionMcp?.close();
     await heartbeat?.stop();
     if (loadedBedrockToken) delete process.env.AWS_BEARER_TOKEN_BEDROCK;
+    if (bedrockTokenFile) { delete process.env.RAT_BEDROCK_AUTH_FILE; await bedrockTokenFile.close(); }
     if (codexAuthFileSession) {
       try {
         await codexAuthFileSession.finalize();
@@ -400,13 +327,6 @@ export async function runAgentWorker(): Promise<void> {
         }));
       }
     }
-    if (browserSession) {
-      try {
-        await browserSession.close();
-      } catch {
-        // The browser host is an isolated helper and may already have exited.
-      }
-    }
     runnerControl?.close();
     process.removeListener('SIGTERM', stop);
     process.removeListener('SIGINT', stop);
@@ -414,8 +334,7 @@ export async function runAgentWorker(): Promise<void> {
   }
 }
 
-async function clearPersistentSessionScratch(workspace: string): Promise<void> {
-  await clearArtifactDirectory(workspace);
+async function clearPersistentSessionScratch(): Promise<void> {
   const codexHome = requiredEnv('CODEX_HOME');
   for (const path of ['.tmp', 'tmp']) {
     const root = join(codexHome, path);
@@ -439,7 +358,7 @@ async function clearPersistentSessionScratch(workspace: string): Promise<void> {
         });
       } catch (error) {
         // Scratch cleanup must not turn an otherwise successful agent turn
-        // into a failed conversation. Every Codex temp directory is uniquely
+        // into a failed Session. Every Codex temp directory is uniquely
         // named and a later turn will make another cleanup attempt.
         console.warn(JSON.stringify({
           level: 'warn',
@@ -493,14 +412,6 @@ async function abortableDelay(milliseconds: number, signal?: AbortSignal): Promi
     }
     signal?.addEventListener('abort', abort, { once: true });
   });
-}
-
-function defaultDriver(): 'codex' | 'mock' {
-  const value = process.env.DEFAULT_AGENT_DRIVER ?? 'codex';
-  if (value !== 'codex' && value !== 'mock') {
-    throw new Error('DEFAULT_AGENT_DRIVER is invalid');
-  }
-  return value;
 }
 
 function csv(value: string): string[] {

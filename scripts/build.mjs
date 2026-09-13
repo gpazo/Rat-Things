@@ -2,10 +2,10 @@ import { cp, rm } from 'node:fs/promises';
 import { build } from 'esbuild';
 
 const lambdaEntries = {
+  'agents-api': 'src/lambdas/agents-api.ts',
+  'agents-outbox': 'src/lambdas/agents-outbox.ts',
   'connection-health': 'src/lambdas/connection-health.ts',
   control: 'src/lambdas/control.ts',
-  'conversation-completion': 'src/lambdas/conversation-completion.ts',
-  'conversation-coordinator': 'src/lambdas/conversation-coordinator.ts',
   dispatcher: 'src/lambdas/dispatcher.ts',
   'integration-fixture': 'src/lambdas/integration-fixture.ts',
   notifier: 'src/lambdas/notifier.ts',
@@ -25,8 +25,12 @@ await Promise.all([
     bundle(entry, `dist/lambdas/${name}/index.mjs`),
   ),
   bundle('src/runner/entry.ts', 'dist/runner.mjs'),
+  bundle('src/runner/ec2-supervisor.ts', 'dist/ec2-supervisor.mjs'),
+  bundle('src/relay.ts', 'dist/environment-relay.mjs'),
+  bundle('src/agents-server.ts', 'dist/agents-server.mjs'),
   bundle('src/runner/terminate-microvm.ts', 'dist/terminate-microvm.mjs'),
   bundle('src/cli.ts', 'dist/cli.mjs'),
+  bundle('src/agents-client.ts', 'dist/agents-client.mjs'),
   bundle('scripts/console-server.ts', 'dist/console-server.mjs'),
   cp('console', 'dist/console', { recursive: true }),
 ]);
@@ -45,7 +49,7 @@ async function bundle(entry, outfile, options = {}) {
     // Node built-ins dynamically. ESM bundles do not expose `require` unless
     // we provide it, which otherwise makes every Lambda fail during init.
     banner: {
-      js: "import { createRequire } from 'node:module'; const require = createRequire(import.meta.url);",
+      js: "import { createRequire as __ratCreateRequire } from 'node:module'; const require = __ratCreateRequire(import.meta.url);",
     },
     sourcemap: false,
     legalComments: 'none',

@@ -22,6 +22,8 @@ import {
 } from '@aws-sdk/client-secrets-manager';
 import { getTokenProvider } from '@aws/bedrock-token-generator';
 import { defaultProvider } from '@aws-sdk/credential-provider-node';
+import { createAgentsClient } from '../src/agents-client.js';
+import { runQuickstartProof, type QuickstartProof } from './agents-quickstart-proof.js';
 import { validateCodexAuthJson } from '../src/runner/chatgpt-auth.js';
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -30,7 +32,6 @@ const configPath = join(quickstartRoot, 'quickstart.tfvars.json');
 const statePath = join(quickstartRoot, 'terraform.tfstate');
 const metadataPath = join(quickstartRoot, 'result.json');
 const contextPath = join(quickstartRoot, 'context.json');
-const thingPath = join(quickstartRoot, 'first-thing.json');
 const debugLogPath = join(quickstartRoot, 'quickstart.log');
 const terraformDataDir = join(quickstartRoot, 'terraform-data');
 const terraformPluginCache = join(projectRoot, '.runtime', 'terraform-plugin-cache');
@@ -78,17 +79,9 @@ interface CommandResult {
   stderr: string;
 }
 
-interface QuickstartRunEvidence {
-  runId: string;
-  status: 'succeeded';
-  invocation: 'test' | 'manual';
-  revision: number;
-  specHash: string;
-  outputPreview: string;
-}
-
 interface QuickstartResult {
-  version: 3;
+  version: 4;
+  agentsApiUrl: string;
   status: 'ready' | 'destroyed';
   apiUrl: string;
   region: string;
@@ -112,17 +105,8 @@ interface QuickstartResult {
   };
   terraformManagedResourceCount: number;
   proofMarker: string;
-  thing: {
-    thingId: string;
-    status: 'active';
-    activeRevision: number;
-    specHash: string;
-  };
-  runs: {
-    draftTest: QuickstartRunEvidence;
-    active: QuickstartRunEvidence;
-  };
-  measurementScope: 'quickstart command through successful active-revision Run';
+  proof: QuickstartProof;
+  measurementScope: 'quickstart command through two completed Session Turns';
   startedAt: string;
   completedAt: string;
   destroyedAt?: string;
@@ -322,7 +306,6 @@ export function awsQuickstartTerraformConfig(
     force_destroy_data: true,
     enable_point_in_time_recovery: false,
     enable_detailed_api_metrics: false,
-    default_agent_driver: options.driver,
     default_sandbox_mode: 'read-only',
     default_agent_network_access: false,
     allow_agent_aws_credential_chain: false,
@@ -344,28 +327,10 @@ export function awsQuickstartTerraformConfig(
   };
 }
 
-export function awsQuickstartThing(
-  driver: 'codex' | 'mock',
-  marker: string,
-): Record<string, unknown> {
-  return {
-    version: '1',
-    name: 'My first Rat Thing',
-    goal: `Reply with this exact marker and one short sentence explaining that the Thing is ready: ${marker}`,
-    trigger: { kind: 'manual' },
-    agent: {
-      driver,
-      sandbox: 'read-only',
-      capabilities: {
-        profile: 'read-only',
-        networkAccess: false,
-        webSearch: 'disabled',
-        computerUse: 'disabled',
-      },
-    },
-    execution: { backend: 'microvm', timeoutSeconds: driver === 'codex' ? 300 : 120 },
-    deliver: [{ kind: 'none' }],
-  };
+export function quickstartModel(options: Pick<AwsQuickstartOptions, 'driver' | 'model'>): string {
+  if (options.driver !== 'codex') throw new Error('Agents quickstart requires Codex; use smoke:local for deterministic mock execution');
+  if (!options.model) throw new Error('Select an admitted model with --model before starting the Agents quickstart');
+  return options.model;
 }
 
 async function main(): Promise<void> {
@@ -383,6 +348,7 @@ async function printPreflight(options: AwsQuickstartOptions): Promise<void> {
 }
 
 async function preflight(options: AwsQuickstartOptions): Promise<QuickstartPreflight> {
+  quickstartModel(options);
   assertSupportedNodeVersion(process.version);
   const tools = {
     node: process.version,
@@ -453,6 +419,7 @@ export function assertSupportedNodeVersion(version: string): void {
 }
 
 async function setup(options: AwsQuickstartOptions): Promise<void> {
+  const model = quickstartModel(options);
   if (options.dryRun) {
     const baseImageVersion = options.baseImageVersion ?? '<newest AVAILABLE al2023-1 version>';
     printValue({
@@ -465,7 +432,7 @@ async function setup(options: AwsQuickstartOptions): Promise<void> {
           : `paid Amazon Bedrock model ${options.model}`
         : 'none (deterministic mock)',
       terraform: awsQuickstartTerraformConfig(options, baseImageVersion),
-      finish: 'create, explain, test, publish, and invoke one safe manual Thing',
+      finish: 'create an Agent, verify two Session Turns, then delete the disposable proof Session',
     }, options.json);
     return;
   }
@@ -501,7 +468,7 @@ async function setup(options: AwsQuickstartOptions): Promise<void> {
         ? 'real Codex via this device\'s file-based ChatGPT login'
         : `real Codex via paid Bedrock model ${options.model}`
       : 'deterministic mock (infrastructure proof only, not a model)'}`,
-    'Scope:       one manual Thing; no OAuth accounts, VPC/NAT, schedules, or public sharing',
+    'Scope:       one Agent and two Turns in a disposable Session; no tools, OAuth, VPC/NAT or sharing',
     'State:       .runtime/aws-quickstart/terraform.tfstate',
     'Debug log:   .runtime/aws-quickstart/quickstart.log',
     '',
@@ -583,84 +550,20 @@ async function setup(options: AwsQuickstartOptions): Promise<void> {
   await loggedCommand(process.execPath, cliArguments(['doctor', '--json']), { env: cliEnv });
   progress('      healthy');
 
+  const agentsApiUrl = capture('terraform', ['-chdir=infra', 'output', `-state=${statePath}`, '-raw', 'agents_api_base_url'], { env: terraformEnvironment(env) });
   const marker = `RAT-THINGS-READY-${randomUUID().slice(0, 8).toUpperCase()}`;
-  await writeFile(thingPath, `${JSON.stringify(awsQuickstartThing(options.driver, marker), null, 2)}\n`, {
-    mode: 0o600,
+  const client = createAgentsClient({ baseURL: agentsApiUrl, region: options.region,
+    ...(options.profile ? { credentials: defaultProvider({ profile: options.profile }) } : {}),
   });
-  progress('[5/6] Create → explain → test → publish the exact Thing revision');
-  const release = JSON.parse(await captureWithProgress(process.execPath, cliArguments([
-    'thing-release',
-    '--file',
-    thingPath,
-    '--poll-seconds',
-    '2',
-    '--wait-timeout',
-    '420',
-  ]), { env: cliEnv })) as {
-    released?: unknown;
-    created?: { thingId?: unknown };
-    testRun?: {
-      runId?: unknown;
-      status?: unknown;
-      thing?: { thingId?: unknown; revision?: unknown; specHash?: unknown; invocation?: unknown };
-      result?: { preview?: unknown };
-    };
-    thing?: {
-      thingId?: unknown;
-      status?: unknown;
-      active?: { revision?: unknown; specHash?: unknown };
-    };
-  };
-  const thingId = requiredString(release.created?.thingId, 'release returned no Thing ID');
-  if (
-    release.released !== true ||
-    release.testRun?.status !== 'succeeded' ||
-    release.thing?.status !== 'active'
-  ) throw new Error('the first Thing did not reach active after a successful exact-draft test');
-  const activeRevision = requiredPositiveInteger(
-    release.thing.active?.revision,
-    'release returned no active Thing revision',
-  );
-  const specHash = requiredSha256(
-    release.thing.active?.specHash,
-    'release returned no active Thing specHash',
-  );
-  const draftTest = quickstartRunEvidence(
-    release.testRun,
-    'test',
-    thingId,
-    activeRevision,
-    specHash,
-    marker,
-  );
-  progress('      active');
-
-  progress('[6/6] Invoke the published active revision and verify its exact evidence');
-  const activeRunRaw = JSON.parse(await captureWithProgress(process.execPath, cliArguments([
-    'thing-run',
-    thingId,
-    '--wait',
-    '--idempotency-key',
-    `quickstart:active:${thingId}:${activeRevision}:${specHash.slice(0, 16)}`,
-    '--poll-seconds',
-    '2',
-    '--wait-timeout',
-    '420',
-  ]), { env: cliEnv })) as unknown;
-  const activeRun = quickstartRunEvidence(
-    activeRunRaw,
-    'manual',
-    thingId,
-    activeRevision,
-    specHash,
-    marker,
-  );
-  progress('      active revision executed successfully');
+  progress('[5/6] Create an Agent and verify two root Turns through the standard SDK');
+  const proof = await runQuickstartProof(client.withOptions({ maxRetries: 0, timeout: 30_000 }).beta.agents, { model, marker, progress });
+  progress('[6/6] Proof complete; disposable Session deleted and its harness stopped');
 
   const completed = Date.now();
   const sourceTag = exactSourceTag();
   const result: QuickstartResult = {
-    version: 3,
+    version: 4,
+    agentsApiUrl,
     status: 'ready',
     apiUrl,
     region: options.region,
@@ -684,9 +587,8 @@ async function setup(options: AwsQuickstartOptions): Promise<void> {
     },
     terraformManagedResourceCount: terraformManagedResourceCount(env),
     proofMarker: marker,
-    thing: { thingId, status: 'active', activeRevision, specHash },
-    runs: { draftTest, active: activeRun },
-    measurementScope: 'quickstart command through successful active-revision Run',
+    proof,
+    measurementScope: 'quickstart command through two completed Session Turns',
     startedAt,
     completedAt: new Date(completed).toISOString(),
     elapsedSeconds: Math.ceil((completed - started) / 1_000),
@@ -715,10 +617,10 @@ async function status(options: AwsQuickstartOptions): Promise<void> {
   const doctor = JSON.parse(capture(process.execPath, cliArguments(['doctor', '--json']), {
     env: { ...env, RAT_THINGS_API_URL: result.apiUrl },
   })) as unknown;
-  const thing = JSON.parse(capture(process.execPath, cliArguments(['thing', result.thing.thingId]), {
-    env: { ...env, RAT_THINGS_API_URL: result.apiUrl },
-  })) as unknown;
-  printValue({ status: 'ready', deployment: result, doctor, thing }, options.json);
+  const agent = result.proof ? await createAgentsClient({ baseURL: result.agentsApiUrl, region: result.region,
+    ...(result.profile ? { credentials: defaultProvider({ profile: result.profile }) } : {}),
+  }).beta.agents.retrieve(result.proof.agentId) : undefined;
+  printValue({ status: 'ready', deployment: result, doctor, ...(agent ? { agent } : {}) }, options.json);
 }
 
 async function syncAuth(options: AwsQuickstartOptions): Promise<void> {
@@ -758,7 +660,7 @@ async function syncAuth(options: AwsQuickstartOptions): Promise<void> {
   printValue({
     status: 'synced',
     credential: 'file-based ChatGPT login',
-    nextStep: 'future cloud Runs will use this login; destroy removes quickstart-managed copies',
+    nextStep: 'future Sessions will use this login; destroy removes quickstart-managed copies',
   }, options.json);
 }
 
@@ -1193,50 +1095,9 @@ async function loggedCommand(
   return result;
 }
 
-async function captureWithProgress(
-  name: string,
-  args: string[],
-  options: CommandOptions = {},
-): Promise<string> {
-  const child = spawn(name, args, {
-    cwd: projectRoot,
-    env: options.env ?? process.env,
-    stdio: ['ignore', 'pipe', 'pipe'],
-  });
-  let stdout = '';
-  let stderr = '';
-  child.stdout.setEncoding('utf8');
-  child.stderr.setEncoding('utf8');
-  child.stdout.on('data', (chunk: string) => {
-    stdout += chunk;
-  });
-  child.stderr.on('data', (chunk: string) => {
-    stderr += chunk;
-    process.stderr.write(chunk);
-  });
-  const status = await new Promise<number>((resolveStatus, reject) => {
-    child.once('error', reject);
-    child.once('close', (code) => resolveStatus(code ?? 1));
-  });
-  const result = { status, stdout, stderr };
-  await appendCommandLog(name, args, result);
-  assertCommandSucceeded(name, args, result);
-  return stdout.trim();
-}
 
-async function appendCommandLog(
-  name: string,
-  args: string[],
-  result: CommandResult,
-): Promise<void> {
-  await appendFile(debugLogPath, [
-    '',
-    `$ ${name} ${args.join(' ')}`,
-    result.stdout,
-    result.stderr,
-    `[exit ${result.status}]`,
-    '',
-  ].join('\n'), { encoding: 'utf8', mode: 0o600 });
+async function appendCommandLog(name: string, args: string[], result: CommandResult): Promise<void> {
+  await appendFile(debugLogPath, ['', `$ ${name} ${args.join(' ')}`, result.stdout, result.stderr, `[exit ${result.status}]`, ''].join('\n'), { encoding: 'utf8', mode: 0o600 });
 }
 
 function assertCommandSucceeded(name: string, args: string[], result: CommandResult): void {
@@ -1308,15 +1169,6 @@ function requiredString(value: unknown, message: string): string {
   return value;
 }
 
-function requiredPositiveInteger(value: unknown, message: string): number {
-  if (!Number.isInteger(value) || Number(value) < 1) throw new Error(message);
-  return Number(value);
-}
-
-function requiredSha256(value: unknown, message: string): string {
-  if (typeof value !== 'string' || !/^[a-f0-9]{64}$/.test(value)) throw new Error(message);
-  return value;
-}
 
 function journeyStartedAt(): number {
   const raw = process.env.RAT_THINGS_QUICKSTART_STARTED_AT_MS;
@@ -1454,41 +1306,6 @@ function kmsTeardownStatus(
   };
 }
 
-export function quickstartRunEvidence(
-  value: unknown,
-  invocation: 'test' | 'manual',
-  thingId: string,
-  revision: number,
-  specHash: string,
-  marker: string,
-): QuickstartRunEvidence {
-  if (!value || typeof value !== 'object') throw new Error(`the ${invocation} Run result is invalid`);
-  const record = value as {
-    runId?: unknown;
-    status?: unknown;
-    thing?: { thingId?: unknown; revision?: unknown; specHash?: unknown; invocation?: unknown };
-    result?: { preview?: unknown };
-  };
-  const runId = requiredString(record.runId, `the ${invocation} Run returned no Run ID`);
-  if (record.status !== 'succeeded') throw new Error(`the ${invocation} Run ${runId} did not succeed`);
-  if (
-    record.thing?.thingId !== thingId ||
-    record.thing.revision !== revision ||
-    record.thing.specHash !== specHash ||
-    record.thing.invocation !== invocation
-  ) {
-    throw new Error(`the ${invocation} Run ${runId} did not bind the expected active Thing revision`);
-  }
-  const outputPreview = requiredString(
-    record.result?.preview,
-    `the successful ${invocation} Run returned no output preview`,
-  );
-  if (!outputPreview.includes(marker)) {
-    throw new Error(`the ${invocation} Run ${runId} output did not contain its proof marker ${marker}`);
-  }
-  return { runId, status: 'succeeded', invocation, revision, specHash, outputPreview };
-}
-
 function printValue(value: unknown, json: boolean): void {
   if (json) {
     process.stdout.write(`${JSON.stringify(value)}\n`);
@@ -1499,7 +1316,8 @@ function printValue(value: unknown, json: boolean): void {
 
 function printHelp(): void {
   process.stdout.write(`Rat Things AWS quickstart\n\n`);
-  process.stdout.write(`  npm run quickstart:aws\n`);
+
+  process.stdout.write(`  npm run quickstart:aws -- --model MODEL\n`);
   process.stdout.write(`  npm run quickstart:aws -- preflight\n`);
   process.stdout.write(`  npm run quickstart:aws -- status\n`);
   process.stdout.write(`  npm run quickstart:aws -- sync-auth\n`);
@@ -1510,17 +1328,17 @@ function printHelp(): void {
   process.stdout.write(`Status and destroy automatically reuse the setup Region and named profile.\n`);
   process.stdout.write(`sync-auth copies the current local login after you sign in again; destroy removes quickstart-managed copies.\n`);
   process.stdout.write(`Amazon Bedrock is available only when selected with --auth bedrock.\n`);
-  process.stdout.write(`Use --driver mock for a token-free infrastructure proof that is explicitly not a model.\n\n`);
+  process.stdout.write(`Setup uses real Codex; smoke:local provides deterministic local mock execution.\n\n`);
   process.stdout.write(`Options:\n`);
   process.stdout.write(`  --region REGION                     default: AWS_REGION or us-west-2\n`);
   process.stdout.write(`  --profile PROFILE                   AWS shared-credentials profile\n`);
   process.stdout.write(`  --environment NAME                  default: quickstart\n`);
-  process.stdout.write(`  --driver codex|mock                 default: codex\n`);
+  process.stdout.write(`  --driver codex                      default: codex\n`);
   process.stdout.write(`  --auth chatgpt|bedrock              default: chatgpt\n`);
   process.stdout.write(`  --codex-auth-file PATH              default: CODEX_HOME/auth.json or ~/.codex/auth.json\n`);
   process.stdout.write(`  --codex-auth-secret-arn ARN         use an existing operator-managed auth-file secret\n`);
   process.stdout.write(`  --accept-codex-credential-risk      required with --yes for file-based ChatGPT auth\n`);
-  process.stdout.write(`  --model MODEL                       optional for ChatGPT; Bedrock default: openai.gpt-5.6-terra\n`);
+  process.stdout.write(`  --model MODEL                       required for ChatGPT; Bedrock default: openai.gpt-5.6-terra\n`);
   process.stdout.write(`  --microvm-base-image-version VALUE  override automatic discovery\n`);
   process.stdout.write(`  --dry-run                            make no external changes\n`);
   process.stdout.write(`  --yes                                skip confirmation\n`);

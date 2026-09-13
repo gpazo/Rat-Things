@@ -1,3 +1,5 @@
+# Session workspaces and native Codex state use these resources.
+# Keep the historical resource names and /conversations access-point root stable.
 data "aws_availability_zones" "s3_files" {
   count = var.enable_s3_files ? 1 : 0
 
@@ -157,11 +159,14 @@ resource "aws_s3files_file_system_policy" "conversation_state" {
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
-      Sid       = "AllowOnlyRuntimeAccessPoint"
-      Effect    = "Allow"
-      Principal = { AWS = aws_iam_role.microvm_execution.arn }
-      Action    = ["s3files:ClientMount", "s3files:ClientWrite"]
-      Resource  = aws_s3files_file_system.conversation_state[0].arn
+      Sid    = "AllowOnlyRuntimeAccessPoint"
+      Effect = "Allow"
+      Principal = { AWS = concat(
+        var.enable_microvm ? [aws_iam_role.microvm_execution.arn] : [],
+        aws_iam_role.ec2_worker[*].arn
+      ) }
+      Action   = ["s3files:ClientMount", "s3files:ClientWrite"]
+      Resource = aws_s3files_file_system.conversation_state[0].arn
       Condition = {
         StringEquals = {
           "s3files:AccessPointArn" = aws_s3files_access_point.conversation_state[0].arn
@@ -294,7 +299,7 @@ resource "aws_security_group" "s3_files_client" {
   count = var.enable_s3_files ? 1 : 0
 
   name        = "${local.name}-s3-files-client"
-  description = "Lambda MicroVM clients mounting the conversation state file system"
+  description = "Lambda MicroVM clients mounting the Session state file system"
   vpc_id      = aws_vpc.s3_files[0].id
 
   egress {
@@ -312,7 +317,7 @@ resource "aws_security_group" "s3_files_mount" {
   count = var.enable_s3_files ? 1 : 0
 
   name        = "${local.name}-s3-files-mount"
-  description = "NFS ingress from Lambda MicroVM conversation runners"
+  description = "NFS ingress from Lambda MicroVM Session runners"
   vpc_id      = aws_vpc.s3_files[0].id
 
   ingress {
@@ -337,7 +342,7 @@ resource "aws_s3files_mount_target" "conversation_state" {
 }
 
 data "aws_iam_policy_document" "network_connector_assume" {
-  count = var.enable_s3_files ? 1 : 0
+  count = var.enable_s3_files && var.enable_microvm ? 1 : 0
 
   statement {
     actions = ["sts:AssumeRole"]
@@ -349,7 +354,7 @@ data "aws_iam_policy_document" "network_connector_assume" {
 }
 
 resource "aws_iam_role" "network_connector" {
-  count = var.enable_s3_files ? 1 : 0
+  count = var.enable_s3_files && var.enable_microvm ? 1 : 0
 
   name               = "${local.name}-network-connector"
   assume_role_policy = data.aws_iam_policy_document.network_connector_assume[0].json
@@ -357,14 +362,14 @@ resource "aws_iam_role" "network_connector" {
 }
 
 resource "aws_iam_role_policy_attachment" "network_connector" {
-  count = var.enable_s3_files ? 1 : 0
+  count = var.enable_s3_files && var.enable_microvm ? 1 : 0
 
   role       = aws_iam_role.network_connector[0].name
   policy_arn = "arn:${data.aws_partition.current.partition}:iam::aws:policy/AWSLambdaNetworkConnectorOperatorPolicy"
 }
 
 resource "awscc_lambda_network_connector" "s3_files" {
-  count = var.enable_s3_files ? 1 : 0
+  count = var.enable_s3_files && var.enable_microvm ? 1 : 0
 
   name          = "${local.name}-s3-files"
   operator_role = aws_iam_role.network_connector[0].arn

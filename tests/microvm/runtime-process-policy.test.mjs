@@ -1,23 +1,23 @@
 import { describe, expect, it } from 'vitest';
-import { untrustedChildOptions } from '../../microvm/runtime-process-policy.mjs';
+import { trustedRunnerOptions } from '../../microvm/runtime-process-policy.mjs';
 
 describe('MicroVM runtime process policy', () => {
-  it('keeps IPC while dropping the agent child to its dedicated UID and GID', () => {
+  it('keeps the trusted runner separate from the non-root agent identity', () => {
     const environment = { RUN_ID: 'run-1' };
 
-    expect(untrustedChildOptions({ uid: 10001, gid: 10001, environment })).toEqual({
-      cwd: '/workspace',
-      env: environment,
-      uid: 10001,
-      gid: 10001,
+    expect(trustedRunnerOptions({ uid: 10001, gid: 10001, environment })).toEqual({
+      cwd: '/opt/agent-runtime',
+      env: { ...environment, RUN_AGENT_UID: '10001', RUN_AGENT_GID: '10001' },
+      uid: 0,
+      gid: 0,
       stdio: ['inherit', 'inherit', 'inherit', 'ipc'],
     });
   });
 
   it('refuses root or malformed identities', () => {
-    expect(() => untrustedChildOptions({ uid: 0, gid: 10001, environment: {} }))
+    expect(() => trustedRunnerOptions({ uid: 0, gid: 10001, environment: {} }))
       .toThrow('UID');
-    expect(() => untrustedChildOptions({ uid: 10001, gid: 0, environment: {} }))
+    expect(() => trustedRunnerOptions({ uid: 10001, gid: 0, environment: {} }))
       .toThrow('GID');
   });
 });

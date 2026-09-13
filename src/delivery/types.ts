@@ -1,7 +1,6 @@
 import type {
   ArtifactReference,
   RunDestination,
-  RunRecord,
   RunRequest,
 } from '../domain/contracts.js';
 import type { ProviderKind } from '../identity/context.js';
@@ -14,9 +13,18 @@ export interface DestinationContext {
 
 export interface DeliveryRequest {
   context: DestinationContext;
-  request: RunRequest;
-  run: RunRecord;
+  request: Pick<RunRequest, 'source' | 'destinations' | 'integrations'>;
+  execution: DeliveryExecution;
   body: string;
+}
+
+export interface DeliveryExecution {
+  id: string;
+  status: string;
+  label: 'Turn' | 'Run';
+  sessionId?: string;
+  credentialOwnerId?: string;
+  expiresAt?: number;
 }
 
 export interface DeliveryAdapter {
@@ -29,7 +37,7 @@ export interface ResultReader {
 }
 
 export interface DeliveryFencePort {
-  claim(run: RunRecord, destination: string): Promise<boolean>;
+  claim(execution: Pick<DeliveryExecution, 'id' | 'expiresAt'>, destination: string): Promise<boolean>;
   delivered(runId: string, destination: string, receipt?: string): Promise<void>;
   release(runId: string, destination: string): Promise<void>;
   failed(runId: string, destination: string, error: unknown): Promise<void>;

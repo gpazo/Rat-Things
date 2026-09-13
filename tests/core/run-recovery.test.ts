@@ -1,34 +1,19 @@
 import { describe, expect, it } from 'vitest';
-import { recoveryWakeForQueuedRun } from '../../src/core/run-recovery.js';
+import { recoveryMessageForRun } from '../../src/core/run-recovery.js';
 import type { RunRecord } from '../../src/domain/contracts.js';
 
-describe('queued Run recovery routing', () => {
-  it('wakes the thread coordinator until trusted execution input is attached', () => {
-    expect(recoveryWakeForQueuedRun(run({
-      conversation: { conversationId: 'thread-owner-main', messageId: 'message-1' },
-    }), 42)).toEqual({
-      kind: 'thread',
-      message: {
-        version: '1',
-        conversationId: 'thread-owner-main',
-        traceId: 'reconcile:run-1:42',
-        runId: 'run-1',
-        ownerId: 'owner-1',
-      },
-    });
+describe('private execution recovery', () => {
+  it('uses supplied time, including zero, and keeps Session wake-ups on the execution queue', () => {
+    const current = Object.freeze(run({ agentsSession: { sessionId: 'sess_1', turnId: 'turn_1', launch: run().input } }));
+    expect(recoveryMessageForRun(current, 0)).toEqual({ version: '1', runId: 'run-1', traceId: 'reconcile:run-1:0' });
+    expect(recoveryMessageForRun(run(), 42)).toEqual({ version: '1', runId: 'run-1', traceId: 'reconcile:run-1:42' });
   });
 
-  it('wakes execution for one-shot and fully prepared threaded Runs', () => {
-    expect(recoveryWakeForQueuedRun(run(), 42).kind).toBe('run');
-    expect(recoveryWakeForQueuedRun(run({
-      conversation: {
-        conversationId: 'thread-owner-main',
-        messageId: 'message-1',
-        turnId: 'turn-1',
-        slice: 0,
-      },
-      executionInput: { bucket: 'artifacts', key: 'execution.json', sha256: 'b'.repeat(64) },
-    }), 42).kind).toBe('run');
+  it('never requeues retained conversation records, whether prepared or not', () => {
+    const retired = { ...run(), conversation: { conversationId: 'old' } };
+    expect(recoveryMessageForRun(retired, 42)).toBeUndefined();
+    const prepared = { ...retired, executionInput: run().input };
+    expect(recoveryMessageForRun(prepared, 42)).toBeUndefined();
   });
 });
 

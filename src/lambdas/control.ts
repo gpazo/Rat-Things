@@ -1,84 +1,31 @@
+import { getSessionPublicationService } from '../app/composition.js';
+import { parseAgentsContract } from '../domain/agents-api-validation.js';
 import type {
   APIGatewayProxyEventV2,
   APIGatewayProxyHandlerV2,
   APIGatewayProxyStructuredResultV2,
 } from 'aws-lambda';
-import { createHash } from 'node:crypto';
-import { GetObjectCommand, HeadObjectCommand } from '@aws-sdk/client-s3';
+import { GetObjectCommand } from '@aws-sdk/client-s3';
 import { GetSecretValueCommand } from '@aws-sdk/client-secrets-manager';
-import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { cloudFrontSignedAccess } from '../adapters/cloudfront-publications.js';
-import {
-  createAwsClients,
-  publicationShareObjectKey,
-  S3PublicationGrantStore,
-  S3PublicationObjectStore,
-} from '../adapters/aws-runtime.js';
-import { AgentInteractionUnavailableError, requiredEnv } from '../adapters/executors.js';
-import { apiConversationId } from '../app/conversation-submission.js';
-import {
-  MAX_CONVERSATION_UPLOAD_FILES,
-  MAX_CONVERSATION_UPLOAD_FILE_BYTES,
-  MAX_CONVERSATION_UPLOAD_TOTAL_BYTES,
-} from '../conversation/service.js';
+import { createAwsClients, publicationShareObjectKey } from '../adapters/aws-runtime.js';
+import { requiredEnv } from '../adapters/executors.js';
 import {
   RAT_THINGS_OPENAPI,
   RAT_THINGS_SCHEMAS,
   ratThingsDiscovery,
 } from '../app/discovery.js';
-import { explainThingEnvironment } from '../app/thing-explanation.js';
-import {
-  getConversationService,
-  getAgentInteractionController,
-  getConnectionConsumerService,
-  getConnectionService,
-  getIntegrationPluginRegistry,
-  getCapabilityProfileRegistry,
-  getOAuthAuthorizationService,
-  getRoutineService,
-  getRunSubmissionService,
-  getThingService,
-} from '../app/composition.js';
-import { ConflictError, NotFoundError } from '../core/run-service.js';
-import {
-  projectPublicConversation,
-  projectPublicConversationDetail,
-  projectPublicConversationSearchHit,
-  type PublicConversationSummary,
-} from '../core/conversation-projection.js';
-import { projectPublicRun, type PublicRunRecord } from '../core/run-projection.js';
-import { projectPublicAgentRuntime } from '../core/agent-activity-projection.js';
-import { publicRoutine } from '../core/routine-service.js';
-import { publicThingSummary } from '../core/thing-service.js';
-import {
-  latestPublicationSourceRunId,
-  PublicationPublisher,
-  publicationTtlSeconds,
-} from '../core/publication-publisher.js';
-import { artifactIdForPath, validateArtifactCatalog } from '../domain/artifacts.js';
-import type { ArtifactReference, JsonValue, RunRecord } from '../domain/contracts.js';
-import type { ArtifactCatalog, PublishedArtifact } from '../domain/contracts.js';
-import type { ConversationRecord } from '../domain/conversations.js';
-import { CONVERSATION_REACTION_EMOJIS, type ConversationReactionEmoji } from '../domain/conversations.js';
-import type { AgentInteractionTarget, HumanBrowserAction } from '../domain/interaction.js';
+import { getConnectionConsumerService, getConnectionService, getIntegrationPluginRegistry, getCapabilityProfileRegistry, getOAuthAuthorizationService, getScheduleService } from '../app/composition.js';
+import { NotFoundError } from '../core/run-service.js';
 import type { IntegrationCredentialValue } from '../credentials/types.js';
 import {
   validateConnectionGrant,
   type ConnectionGrant,
   type IntegrationAuthScheme,
 } from '../domain/capabilities.js';
-import type {
-  PublicationDescriptor,
-  PublicationShare,
-  PublicationSpec,
-  ShareGrant,
-} from '../domain/publications.js';
+import type { PublicationShare, ShareGrant } from '../domain/publications.js';
 import { parseOAuthApplicationSecretArns } from '../plugins/oauth.js';
-import {
-  parsePublicationSpec,
-  validateShareGrant,
-  validatePublicationId,
-} from '../domain/publications.js';
+import { validateShareGrant, validatePublicationId } from '../domain/publications.js';
 import {
   isRecord,
   rejectUnknown,
@@ -86,15 +33,10 @@ import {
   ValidationError,
 } from '../domain/validation.js';
 import { apiIngressContext } from '../identity/context.js';
-import {
-  errorResponse,
-  getRunService,
-  header,
-  jsonBody,
-  principal,
-  response,
-  secretValue,
-} from './runtime.js';
+import { getAgentsApiServices } from '../app/composition.js';
+import { agentsErrorResponse, routeAgentsRequest } from './agents-router.js';
+import { AgentsApiError } from '../domain/agents-api-validation.js';
+import { errorResponse, jsonBody, principal, response, secretValue } from './runtime.js';
 
 const awsClients = createAwsClients();
 const artifactClient = awsClients.s3;
@@ -156,12 +98,37 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
       return artifactShareResponse(shareToken);
     }
 
+    if (/^\/v1\/(agents|vaults|files|skills|webhooks)(\/|$)/.test(path)) {
+      let apiResponse: Response;
+      try {
+        let owner: string;
+        try { owner = principal(event); } catch { throw new AgentsApiError(401, 'Authentication required.', 'invalid_api_key'); }
+        const request = new Request(`https://control.invalid${path}${event.rawQueryString ? `?${event.rawQueryString}` : ''}`, {
+          method,
+          headers: Object.fromEntries(Object.entries(event.headers).filter((entry): entry is [string, string] => entry[1] !== undefined)),
+          ...(event.body && method !== 'GET' && method !== 'HEAD' ? { body: event.isBase64Encoded ? Buffer.from(event.body, 'base64') : event.body } : {}),
+        });
+        apiResponse = await routeAgentsRequest(request, owner, getAgentsApiServices(), event.requestContext.requestId, false);
+      } catch (error) { apiResponse = agentsErrorResponse(error, event.requestContext.requestId); }
+      const headers: Record<string, string> = {};
+      apiResponse.headers.forEach((value, key) => { headers[key] = value; });
+      const binary = ['application/octet-stream', 'application/zip'].includes(apiResponse.headers.get('content-type') ?? '');
+      return {
+        statusCode: apiResponse.status,
+        headers,
+        body: binary ? Buffer.from(await apiResponse.arrayBuffer()).toString('base64') : await apiResponse.text(),
+        ...(binary ? { isBase64Encoded: true } : {}),
+      };
+    }
     const context = apiIngressContext(principal(event));
     const ownerId = context.owner.id;
-    // Most control-plane routes do not need execution control. Keep the
-    // MicroVM executor lazy so integration, routine, conversation, and health
-    // operations do not depend on MicroVM-only environment configuration.
-    const service = () => getRunService(true);
+    const sessionPublication = /^\/v1\/sessions\/(sess_[A-Za-z0-9_-]+)\/publications$/.exec(path);
+    if (method === 'POST' && sessionPublication) {
+      return response(201, await getSessionPublicationService().publish(
+        ownerId, sessionPublication[1]!, jsonBody(event),
+      ));
+    }
+
     if (method === 'GET' && path === '/v1/integrations/plugins') {
       const oauthApplicationSecretArns = parseOAuthApplicationSecretArns(
         process.env.INTEGRATION_OAUTH_APP_SECRET_ARNS,
@@ -204,7 +171,7 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
         ...(body.alias !== undefined ? { alias: boundedText(body.alias, 'alias', 128) } : {}),
       }));
     }
-    const integrationConnectionId = conversationPathParameter(event, 'connectionId', 256);
+    const integrationConnectionId = resourcePathParameter(event, 'connectionId', 256);
     if (
       method === 'GET' &&
       integrationConnectionId &&
@@ -340,7 +307,7 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
         'version',
         'sourceKind',
         'selector',
-        'capabilityProfile',
+        'agentId', 'environment', 'vaultIds',
         'connectionSetId',
       ]);
       requireVersion(body.version);
@@ -348,802 +315,40 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
       if (!['api', 'github', 'gitlab', 'teams', 'slack'].includes(sourceKind)) {
         throw new ValidationError('sourceKind is invalid');
       }
-      const capabilityProfile = body.capabilityProfile === undefined
-        ? undefined
-        : boundedText(body.capabilityProfile, 'capabilityProfile', 256);
-      if (capabilityProfile) {
-        try {
-          getCapabilityProfileRegistry().profile(capabilityProfile);
-        } catch {
-          throw new ValidationError(`capability profile ${capabilityProfile} is not installed`);
-        }
-      }
+      const agentId = boundedText(body.agentId, 'agentId', 256);
+      await getAgentsApiServices().agents.retrieve(ownerId, agentId);
+      const target = parseAgentsContract('SessionCreate', { agent_id: agentId, environment: body.environment, vault_ids: body.vaultIds ?? [], input: 'Validate source binding' });
+      await getAgentsApiServices().vaults.requireVaults(ownerId, target.vault_ids ?? []);
+      if (target.environment.type === 'openai_hosted' && target.environment.environment_template_id) await getAgentsApiServices().templates.retrieve(ownerId, target.environment.environment_template_id);
       return response(201, await getConnectionService().createSourceBinding({
         ownerId,
         sourceKind: sourceKind as 'api' | 'github' | 'gitlab' | 'teams' | 'slack',
         selector: stringRecord(body.selector, 'selector', 32),
-        ...(capabilityProfile ? { capabilityProfile } : {}),
+        agentId, environment: target.environment, vaultIds: target.vault_ids ?? [],
         ...(body.connectionSetId !== undefined
           ? { connectionSetId: boundedText(body.connectionSetId, 'connectionSetId', 256) }
           : {}),
       }));
     }
-    if (method === 'GET' && path === '/v1/things') {
-      return response(200, await getThingService().list(
-        ownerId,
-        parseLimit(event.queryStringParameters?.limit),
-        event.queryStringParameters?.nextToken,
-        event.queryStringParameters?.includeArchived === 'true',
-      ));
+    if (path === '/v1/schedules') {
+      if (method === 'POST') return response(201, await getScheduleService().create(ownerId, jsonBody(event)));
+      if (method === 'GET') return response(200, await getScheduleService().list(ownerId, { ...(event.queryStringParameters?.after ? { after: event.queryStringParameters.after } : {}), ...(event.queryStringParameters?.limit ? { limit: parseLimit(event.queryStringParameters.limit) ?? 20 } : {}) }));
     }
-    if (method === 'POST' && path === '/v1/things') {
-      const thing = await getThingService().create(ownerId, jsonBody(event));
-      return response(201, publicThingSummary(thing), {
-        location: `/v1/things/${thing.thingId}`,
-      });
-    }
-    const thingId = pathParameter(event, 'thingId');
-    if (
-      method === 'GET' &&
-      thingId &&
-      routeMatches(event, 'GET /v1/things/{thingId}', `/v1/things/${thingId}`)
-    ) {
-      return response(200, await getThingService().getPublic(ownerId, thingId));
-    }
-    if (
-      method === 'GET' &&
-      thingId &&
-      routeMatches(
-        event,
-        'GET /v1/things/{thingId}/versions',
-        `/v1/things/${thingId}/versions`,
-      )
-    ) {
-      return response(200, {
-        versions: await getThingService().listVersions(ownerId, thingId),
-      });
-    }
-    const thingRevision = numericPathParameter(event, 'revision');
-    if (
-      method === 'GET' &&
-      thingId &&
-      thingRevision &&
-      routeMatches(
-        event,
-        'GET /v1/things/{thingId}/versions/{revision}',
-        `/v1/things/${thingId}/versions/${thingRevision}`,
-      )
-    ) {
-      return response(200, await getThingService().getVersion(ownerId, thingId, thingRevision));
-    }
-    if (
-      method === 'GET' &&
-      thingId &&
-      routeMatches(
-        event,
-        'GET /v1/things/{thingId}/explain',
-        `/v1/things/${thingId}/explain`,
-      )
-    ) {
-      return response(200, await explainThingEnvironment(
-        ownerId,
-        await getThingService().explain(
-          ownerId,
-          thingId,
-          thingExplanationTarget(event.queryStringParameters?.target),
-        ),
-        {
-          profiles: getCapabilityProfileRegistry(),
-          connections: getConnectionService(),
-          plugins: getIntegrationPluginRegistry(),
-        },
-      ));
-    }
-    if (
-      method === 'POST' &&
-      thingId &&
-      routeMatches(
-        event,
-        'POST /v1/things/{thingId}/versions',
-        `/v1/things/${thingId}/versions`,
-      )
-    ) {
-      return response(
-        201,
-        publicThingSummary(await getThingService().addVersion(ownerId, thingId, jsonBody(event))),
-      );
-    }
-    if (
-      method === 'POST' &&
-      thingId &&
-      routeMatches(
-        event,
-        'POST /v1/things/{thingId}/publish',
-        `/v1/things/${thingId}/publish`,
-      )
-    ) {
-      return response(200, publicThingSummary(
-        await getThingService().publish(ownerId, thingId, jsonBody(event)),
-      ));
-    }
-    for (const operation of ['pause', 'resume', 'archive'] as const) {
-      if (
-        method === 'POST' &&
-        thingId &&
-        routeMatches(
-          event,
-          `POST /v1/things/{thingId}/${operation}`,
-          `/v1/things/${thingId}/${operation}`,
-        )
-      ) {
-        strictBody(jsonBody(event), []);
-        return response(200, publicThingSummary(
-          operation === 'pause'
-              ? await getThingService().pause(ownerId, thingId)
-              : operation === 'resume'
-                ? await getThingService().resume(ownerId, thingId)
-                : await getThingService().archive(ownerId, thingId),
-        ));
-      }
-    }
-    if (
-      method === 'POST' &&
-      thingId &&
-      routeMatches(event, 'POST /v1/things/{thingId}/test', `/v1/things/${thingId}/test`)
-    ) {
-      strictBody(jsonBody(event), []);
-      const idempotencyKey = header(event.headers, 'idempotency-key');
-      const run = await getThingService().test(
-        ownerId,
-        thingId,
-        ...(idempotencyKey ? [requiredIdempotencyKey(idempotencyKey)] : []),
-      );
-      return response(202, publicRun(run), { location: `/v1/runs/${run.runId}` });
-    }
-    if (
-      method === 'POST' &&
-      thingId &&
-      routeMatches(event, 'POST /v1/things/{thingId}/run', `/v1/things/${thingId}/run`)
-    ) {
-      strictBody(jsonBody(event), []);
-      const idempotencyKey = header(event.headers, 'idempotency-key');
-      const run = await getThingService().runNow(
-        ownerId,
-        thingId,
-        ...(idempotencyKey ? [requiredIdempotencyKey(idempotencyKey)] : []),
-      );
-      return response(202, publicRun(run), { location: `/v1/runs/${run.runId}` });
-    }
-    if (method === 'GET' && path === '/v1/routines') {
-      const result = await getRoutineService().list(
-        ownerId,
-        parseLimit(event.queryStringParameters?.limit),
-        event.queryStringParameters?.nextToken,
-      );
-      return response(200, { ...result, items: result.items.map(publicRoutine) });
-    }
-    if (method === 'POST' && path === '/v1/routines') {
-      const routine = await getRoutineService().create(ownerId, jsonBody(event));
-      return response(201, publicRoutine(routine), {
-        location: `/v1/routines/${routine.routineId}`,
-      });
-    }
-    const routineId = pathParameter(event, 'routineId');
-    if (
-      method === 'GET' &&
-      routineId &&
-      routeMatches(event, 'GET /v1/routines/{routineId}', `/v1/routines/${routineId}`)
-    ) {
-      return response(200, publicRoutine(await getRoutineService().get(ownerId, routineId)));
-    }
-    for (const operation of ['pause', 'resume', 'delete'] as const) {
-      if (
-        method === 'POST' &&
-        routineId &&
-        routeMatches(
-          event,
-          `POST /v1/routines/{routineId}/${operation}`,
-          `/v1/routines/${routineId}/${operation}`,
-        )
-      ) {
-        strictBody(jsonBody(event), []);
-        return response(200, publicRoutine(
-          operation === 'pause'
-            ? await getRoutineService().pause(ownerId, routineId)
-            : operation === 'resume'
-              ? await getRoutineService().resume(ownerId, routineId)
-              : await getRoutineService().delete(ownerId, routineId),
-        ));
-      }
-    }
-    if (
-      method === 'POST' &&
-      routineId &&
-      routeMatches(event, 'POST /v1/routines/{routineId}/run', `/v1/routines/${routineId}/run`)
-    ) {
-      strictBody(jsonBody(event), []);
-      const idempotencyKey = header(event.headers, 'idempotency-key');
-      const run = await getRoutineService().runNow(
-        ownerId,
-        routineId,
-        ...(idempotencyKey ? [requiredIdempotencyKey(idempotencyKey)] : []),
-      );
-      return response(202, publicRun(run), { location: `/v1/runs/${run.runId}` });
-    }
-    const conversationKey = conversationPathParameter(event, 'conversationId');
-    const messageId = conversationPathParameter(event, 'messageId', 200);
-    if (
-      method === 'GET' &&
-      conversationKey &&
-      messageId &&
-      routeMatches(
-        event,
-        'GET /v1/conversations/{conversationId}/messages/{messageId}',
-        `/v1/conversations/${conversationKey}/messages/${messageId}`,
-      )
-    ) {
-      return response(200, await conversationMessageStatus(
-        ownerId,
-        conversationKey,
-        messageId,
-      ));
-    }
-    const conversationArtifactId = pathParameter(event, 'artifact');
-    if (
-      method === 'GET' &&
-      conversationKey &&
-      conversationArtifactId &&
-      routeMatches(
-        event,
-        'GET /v1/conversations/{conversationId}/artifacts/{artifact}/content',
-        `/v1/conversations/${conversationKey}/artifacts/${conversationArtifactId}/content`,
-      )
-    ) {
-      const { catalog } = await conversationArtifactContext(ownerId, conversationKey);
-      const published = catalog.files.find((file) => file.id === conversationArtifactId);
-      if (!published) throw new ConflictError(`artifact ${conversationArtifactId} is not available`);
-      const descriptor = await artifactDescriptor(ownerId, published.file, {
-        published, delivery: 'private',
-      });
-      if (!descriptor.url) throw new ConflictError('artifact does not have a private viewer URL');
-      return {
-        statusCode: 302,
-        headers: {
-          'cache-control': 'private, no-store',
-          location: descriptor.url,
-          'referrer-policy': 'no-referrer',
-          'x-content-type-options': 'nosniff',
-        },
-        body: '',
-      };
-    }
-    if (
-      method === 'GET' &&
-      conversationKey &&
-      routeMatches(
-        event,
-        'GET /v1/conversations/{conversationId}/artifacts',
-        `/v1/conversations/${conversationKey}/artifacts`,
-      )
-    ) {
-      const { catalog } = await conversationArtifactContext(ownerId, conversationKey);
-      return response(200, { files: catalog.files.map(artifactMetadata) });
-    }
-    if (
-      method === 'GET' &&
-      conversationKey &&
-      conversationArtifactId &&
-      routeMatches(
-        event,
-        'GET /v1/conversations/{conversationId}/artifacts/{artifact}',
-        `/v1/conversations/${conversationKey}/artifacts/${conversationArtifactId}`,
-      )
-    ) {
-      const { catalog } = await conversationArtifactContext(ownerId, conversationKey);
-      const published = catalog.files.find((file) => file.id === conversationArtifactId);
-      if (!published) throw new ConflictError(`artifact ${conversationArtifactId} is not available`);
-      return response(200, await artifactDescriptor(ownerId, published.file, { published }));
-    }
-    if (
-      method === 'POST' &&
-      conversationKey &&
-      routeMatches(
-        event,
-        'POST /v1/conversations/{conversationId}/publications',
-        `/v1/conversations/${conversationKey}/publications`,
-      )
-    ) {
-      const { catalog, conversation } = await conversationArtifactContext(ownerId, conversationKey);
-      const spec = parsePublicationSpec(jsonBody(event));
-      const sourceRunId = latestPublicationSourceRunId(catalog, spec);
-      return response(201, await publishAndShare({
-        ownerId,
-        spec,
-        catalog,
-        runId: sourceRunId,
-        conversationId: conversation.conversationId,
-      }));
-    }
-    if (method === 'POST' && path === '/v1/runs') {
-      const body = jsonBody(event);
-      const idempotencyKey = header(event.headers, 'idempotency-key');
-      const submission = apiRunSubmissionBody(
-        body,
-        context.source,
-        ownerId,
-        idempotencyKey,
-      );
-      const run = await getRunSubmissionService().submit(ownerId, submission.request, {
-        ...(idempotencyKey ? { idempotencyKey } : {}),
-        traceId: event.requestContext.requestId,
-        provenance: {
-          actor: context.actor,
-          credentialSubject: context.credentialSubject,
-        },
-        ...(submission.thread ? { thread: submission.thread } : {}),
-      });
-      return response(202, publicRun(run), { location: `/v1/runs/${run.runId}` });
-    }
-    if (method === 'GET' && path === '/v1/conversations') {
-      const limit = parseLimit(event.queryStringParameters?.limit);
-      const result = await getConversationService().list(
-        ownerId,
-        limit,
-        event.queryStringParameters?.nextToken,
-        conversationVisibility(event.queryStringParameters?.visibility),
-      );
-      return response(200, {
-        ...result,
-        items: result.items.map(projectPublicConversation),
-      });
-    }
-    if (method === 'GET' && path === '/v1/conversations/search') {
-      const query = boundedText(event.queryStringParameters?.q, 'q', 512);
-      const hits = await getConversationService().search(
-        ownerId,
-        query,
-        boundedInteger(event.queryStringParameters?.limit, 'limit', 20, 1, 50),
-      );
-      return response(200, {
-        query,
-        items: hits.map(projectPublicConversationSearchHit),
-      });
-    }
-    const publicConversationId = pathParameter(event, 'conversationId');
-    if (
-      method === 'POST' &&
-      publicConversationId &&
-      messageId &&
-      routeMatches(
-        event,
-        'POST /v1/conversations/{conversationId}/messages/{messageId}/reactions',
-        `/v1/conversations/${publicConversationId}/messages/${messageId}/reactions`,
-      )
-    ) {
-      const body = strictBody(jsonBody(event), ['emoji', 'reacted']);
-      const emoji = boundedText(body.emoji, 'emoji', 16) as ConversationReactionEmoji;
-      if (!CONVERSATION_REACTION_EMOJIS.includes(emoji)) {
-        throw new ValidationError('emoji must be one of 👍, ❤️, 🎉, or 👀');
-      }
-      if (typeof body.reacted !== 'boolean') throw new ValidationError('reacted must be a boolean');
-      const found = await getConversationService().setReaction(
-        ownerId,
-        publicConversationId,
-        messageId,
-        emoji,
-        body.reacted,
-      );
-      if (!found) throw new NotFoundError('conversation not found');
-      return response(200, { emoji, reacted: body.reacted });
-    }
-    if (
-      method === 'POST' &&
-      publicConversationId &&
-      routeMatches(
-        event,
-        'POST /v1/conversations/{conversationId}/organization',
-        `/v1/conversations/${publicConversationId}/organization`,
-      )
-    ) {
-      const updated = await getConversationService().updateOrganization(
-        ownerId,
-        publicConversationId,
-        conversationOrganizationUpdate(jsonBody(event)),
-      );
-      if (!updated) throw new NotFoundError('conversation not found');
-      return response(200, projectPublicConversation(updated));
-    }
-    if (
-      method === 'GET' &&
-      publicConversationId &&
-      routeMatches(
-        event,
-        'GET /v1/conversations/{conversationId}',
-        `/v1/conversations/${publicConversationId}`,
-      )
-    ) {
-      const detail = await getConversationService().getPublicDetail(ownerId, publicConversationId, {
-        limit: boundedInteger(event.queryStringParameters?.limit, 'limit', 50, 1, 100),
-        ...(event.queryStringParameters?.nextToken
-          ? { nextToken: event.queryStringParameters.nextToken }
-          : {}),
-      });
-      if (!detail) throw new NotFoundError('conversation not found');
-      return response(200, projectPublicConversationDetail(
-        detail.conversation,
-        detail.checkpoint,
-        detail.transcript,
-        detail.activeTurn,
-      ));
-    }
-    if (method === 'GET' && path === '/v1/runs') {
-      const limit = parseLimit(event.queryStringParameters?.limit);
-      const result = await service().list(ownerId, limit, event.queryStringParameters?.nextToken);
-      return response(200, { ...result, items: result.items.map(publicRun) });
-    }
-    const runId = pathParameter(event, 'runId');
-    const agentRequestId = conversationPathParameter(event, 'requestId', 256);
-    if (
-      method === 'GET' &&
-      runId &&
-      routeMatches(
-        event,
-        'GET /v1/runs/{runId}/events',
-        `/v1/runs/${runId}/events`,
-      )
-    ) {
-      if (event.queryStringParameters?.source === 'durable') {
-        return response(200, await service().savedActivity(ownerId, runId));
-      }
-      if (event.queryStringParameters?.source && event.queryStringParameters.source !== 'live') {
-        throw new ValidationError('source must be live or durable');
-      }
-      const target = await agentInteractionTarget(service(), ownerId, runId);
-      return response(200, projectPublicAgentRuntime(
-        await getAgentInteractionController().events(
-          target,
-          nonNegativeInteger(event.queryStringParameters?.after, 'after', 0),
-          boundedInteger(event.queryStringParameters?.limit, 'limit', 100, 1, 100),
-        ),
-      ));
-    }
-    if (
-      method === 'POST' &&
-      runId &&
-      routeMatches(event, 'POST /v1/runs/{runId}/steer', `/v1/runs/${runId}/steer`)
-    ) {
-      const body = strictBody(jsonBody(event), ['prompt']);
-      const prompt = boundedText(body.prompt, 'prompt', 12 * 1024);
-      await getAgentInteractionController().steer(
-        await agentInteractionTarget(service(), ownerId, runId),
-        prompt,
-      );
-      return response(202, { ok: true, operation: 'steer' });
-    }
-    if (
-      method === 'POST' &&
-      runId &&
-      routeMatches(event, 'POST /v1/runs/{runId}/interrupt', `/v1/runs/${runId}/interrupt`)
-    ) {
-      strictBody(jsonBody(event), []);
-      await getAgentInteractionController().interrupt(
-        await agentInteractionTarget(service(), ownerId, runId),
-      );
-      return response(202, { ok: true, operation: 'interrupt' });
-    }
-    if (
-      method === 'POST' &&
-      runId &&
-      agentRequestId &&
-      routeMatches(
-        event,
-        'POST /v1/runs/{runId}/requests/{requestId}/respond',
-        `/v1/runs/${runId}/requests/${agentRequestId}/respond`,
-      )
-    ) {
-      const body = strictBody(jsonBody(event), ['result']);
-      if (!Object.prototype.hasOwnProperty.call(body, 'result')) {
-        throw new ValidationError('result is required');
-      }
-      await getAgentInteractionController().respond(
-        await agentInteractionTarget(service(), ownerId, runId),
-        agentRequestId,
-        body.result as JsonValue,
-      );
-      return response(202, { ok: true, operation: 'respond' });
-    }
-    if (
-      method === 'GET' &&
-      runId &&
-      routeMatches(event, 'GET /v1/runs/{runId}/computer', `/v1/runs/${runId}/computer`)
-    ) {
-      return response(200, await getAgentInteractionController().computer(
-        await agentInteractionTarget(service(), ownerId, runId),
-      ));
-    }
-    if (
-      method === 'POST' &&
-      runId &&
-      routeMatches(
-        event,
-        'POST /v1/runs/{runId}/computer/takeover',
-        `/v1/runs/${runId}/computer/takeover`,
-      )
-    ) {
-      const body = strictBody(jsonBody(event), ['control']);
-      if (body.control !== 'human' && body.control !== 'agent') {
-        throw new ValidationError('control must be human or agent');
-      }
-      const controller = getAgentInteractionController();
-      const target = await agentInteractionTarget(service(), ownerId, runId);
-      return response(200, body.control === 'human'
-        ? await controller.takeComputer(target)
-        : await controller.returnComputer(target));
-    }
-    if (
-      method === 'POST' &&
-      runId &&
-      routeMatches(
-        event,
-        'POST /v1/runs/{runId}/computer/action',
-        `/v1/runs/${runId}/computer/action`,
-      )
-    ) {
-      const body = strictBody(jsonBody(event), ['action']);
-      return response(200, await getAgentInteractionController().actOnComputer(
-        await agentInteractionTarget(service(), ownerId, runId),
-        humanBrowserAction(body.action),
-      ));
-    }
-    if (
-      method === 'POST' &&
-      runId &&
-      routeMatches(
-        event,
-        'POST /v1/runs/{runId}/computer/teach',
-        `/v1/runs/${runId}/computer/teach`,
-      )
-    ) {
-      const body = strictBody(jsonBody(event), ['action', 'name', 'goal', 'discard']);
-      if (body.action === 'start') {
-        strictBody(body, ['action', 'name', 'goal']);
-        return response(200, await getAgentInteractionController().startTeaching(
-          await agentInteractionTarget(service(), ownerId, runId),
-          {
-            name: boundedText(body.name, 'name', 120),
-            ...(body.goal === undefined ? {} : { goal: boundedText(body.goal, 'goal', 4_000) }),
-          },
-        ));
-      }
-      if (body.action === 'stop') {
-        strictBody(body, ['action', 'discard']);
-        if (typeof body.discard !== 'boolean') {
-          throw new ValidationError('discard must be boolean');
-        }
-        const recording = await getAgentInteractionController().stopTeaching(
-          await agentInteractionTarget(service(), ownerId, runId),
-          body.discard,
-        );
-        if (!recording.draft) return response(200, { recording });
-        const { draft, ...recordingSummary } = recording;
-        const created = await getThingService().create(ownerId, draft);
-        return response(201, {
-          recording: recordingSummary,
-          thing: await getThingService().getPublic(ownerId, created.thingId),
-        });
-      }
-      throw new ValidationError('action must be start or stop');
-    }
-    if (method === 'GET' && runId && path === `/v1/runs/${runId}`) {
-      return response(200, publicRun(await service().get(ownerId, runId)));
-    }
-    if (method === 'GET' && runId && path === `/v1/runs/${runId}/artifacts`) {
-      const run = await service().get(ownerId, runId);
-      return response(200, { files: (run.result?.artifacts ?? []).map(artifactMetadata) });
-    }
-    const artifactName = pathParameter(event, 'artifact');
-    if (method === 'GET' && runId && artifactName && path === `/v1/runs/${runId}/artifacts/${artifactName}`) {
-      const run = await service().get(ownerId, runId);
-      const published = run.result?.artifacts?.find((file) => file.id === artifactName);
-      const artifact = published?.file ?? artifactFor(run, artifactName);
-      if (!artifact) throw new ConflictError(`artifact ${artifactName} is not available`);
-      return response(200, await artifactDescriptor(
-        ownerId,
-        artifact,
-        { published, fallbackName: artifactName, sourceRunId: run.runId },
-      ));
-    }
-    if (method === 'POST' && runId && path === `/v1/runs/${runId}/publications`) {
-      const run = await service().get(ownerId, runId);
-      const catalog: ArtifactCatalog = { version: '1', files: run.result?.artifacts ?? [] };
-      const spec = parsePublicationSpec(jsonBody(event));
-      return response(201, await publishAndShare({
-        ownerId,
-        spec,
-        catalog,
-        runId: run.runId,
-      }));
-    }
-    if (method === 'POST' && runId && path === `/v1/runs/${runId}/cancel`) {
-      return response(202, publicRun(await service().cancel(ownerId, runId)));
+    const schedulePath = /^\/v1\/schedules\/([^/]+)(?:\/(pause|resume))?$/.exec(path);
+    if (schedulePath) {
+      const id = schedulePath[1]!;
+      if (method === 'GET' && !schedulePath[2]) return response(200, await getScheduleService().retrieve(ownerId, id));
+      if (method === 'PUT' && !schedulePath[2]) return response(200, await getScheduleService().update(ownerId, id, jsonBody(event)));
+      if (method === 'DELETE' && !schedulePath[2]) return response(200, await getScheduleService().status(ownerId, id, 'deleted'));
+      if (method === 'POST' && schedulePath[2]) return response(200, await getScheduleService().status(ownerId, id, schedulePath[2] === 'pause' ? 'paused' : 'active'));
     }
     return errorResponse(new NotFoundError('route not found'), event.requestContext.requestId);
   } catch (error) {
-    if (error instanceof AgentInteractionUnavailableError) {
-      return errorResponse(new ConflictError(error.message), event.requestContext.requestId);
-    }
     return errorResponse(error, event.requestContext.requestId);
   }
 };
 
-export function apiRequestBody(body: unknown, source: { kind: 'api' } = { kind: 'api' }): unknown {
-  if (!body || typeof body !== 'object' || Array.isArray(body)) return body;
-  return {
-    ...(body as Record<string, unknown>),
-    // API Gateway request IDs are per-attempt transport metadata. They remain
-    // in the queue trace, not the canonical request used for idempotency.
-    source,
-  };
-}
-
-export function apiRunSubmissionBody(
-  body: unknown,
-  source: { kind: 'api' },
-  ownerId: string,
-  idempotencyKey?: string,
-): {
-  request: unknown;
-  thread?: {
-    conversationId: string;
-    messageId: string;
-    title?: string;
-    delivery?: 'interrupt' | 'defer';
-    attachments?: Array<{ name: string; mediaType: string; bytes: Uint8Array; sha256: string }>;
-    replyToMessageId?: string;
-  };
-} {
-  if (!isRecord(body) || body.thread === undefined) {
-    return { request: apiRequestBody(body, source) };
-  }
-  const { thread: rawThread, ...request } = body;
-  const thread = strictBody(rawThread, ['key', 'title', 'delivery', 'attachments', 'replyToMessageId']);
-  const key = boundedText(thread.key, 'thread.key', 128);
-  if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(key)) {
-    throw new ValidationError('thread.key must be 1-128 safe ASCII characters');
-  }
-  const messageId = requiredIdempotencyKey(idempotencyKey);
-  const delivery = thread.delivery === undefined
-    ? undefined
-    : boundedText(thread.delivery, 'thread.delivery', 16);
-  if (delivery !== undefined && delivery !== 'interrupt' && delivery !== 'defer') {
-    throw new ValidationError('thread.delivery must be interrupt or defer');
-  }
-  const attachments = parseConversationAttachments(thread.attachments);
-  const replyToMessageId = thread.replyToMessageId === undefined
-    ? undefined
-    : boundedText(thread.replyToMessageId, 'thread.replyToMessageId', 512);
-  return {
-    request: apiRequestBody(request, source),
-    thread: {
-      conversationId: apiConversationId(ownerId, key),
-      messageId,
-      ...(thread.title === undefined ? {} : { title: boundedText(thread.title, 'thread.title', 128) }),
-      ...(delivery ? { delivery } : {}),
-      ...(attachments.length ? { attachments } : {}),
-      ...(replyToMessageId ? { replyToMessageId } : {}),
-    },
-  };
-}
-
-function parseConversationAttachments(
-  value: unknown,
-): Array<{ name: string; mediaType: string; bytes: Uint8Array; sha256: string }> {
-  if (value === undefined) return [];
-  if (!Array.isArray(value) || value.length > MAX_CONVERSATION_UPLOAD_FILES) {
-    throw new ValidationError(`thread.attachments must contain at most ${MAX_CONVERSATION_UPLOAD_FILES} files`);
-  }
-  let totalBytes = 0;
-  return value.map((candidate, index) => {
-    const input = strictBody(candidate, ['name', 'mediaType', 'base64', 'sha256']);
-    const name = boundedText(input.name, `thread.attachments[${index}].name`, 255);
-    if (name === '.' || name === '..' || /[\\/\0-\x1f\x7f]/.test(name)) {
-      throw new ValidationError(`thread.attachments[${index}].name is invalid`);
-    }
-    const mediaType = boundedText(
-      input.mediaType ?? 'application/octet-stream',
-      `thread.attachments[${index}].mediaType`,
-      128,
-    ).toLowerCase();
-    if (!/^[a-z0-9!#$&^_.+-]+\/[a-z0-9!#$&^_.+-]+$/.test(mediaType)) {
-      throw new ValidationError(`thread.attachments[${index}].mediaType is invalid`);
-    }
-    const base64 = boundedText(
-      input.base64,
-      `thread.attachments[${index}].base64`,
-      Math.ceil(MAX_CONVERSATION_UPLOAD_FILE_BYTES * 4 / 3) + 8,
-    );
-    if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(base64)) {
-      throw new ValidationError(`thread.attachments[${index}].base64 is invalid`);
-    }
-    const bytes = Buffer.from(base64, 'base64');
-    if (bytes.byteLength > MAX_CONVERSATION_UPLOAD_FILE_BYTES) {
-      throw new ValidationError(`thread.attachments[${index}] exceeds ${MAX_CONVERSATION_UPLOAD_FILE_BYTES} bytes`);
-    }
-    totalBytes += bytes.byteLength;
-    if (totalBytes > MAX_CONVERSATION_UPLOAD_TOTAL_BYTES) {
-      throw new ValidationError(`thread.attachments exceed ${MAX_CONVERSATION_UPLOAD_TOTAL_BYTES} bytes`);
-    }
-    const sha256 = createHash('sha256').update(bytes).digest('hex');
-    if (input.sha256 !== undefined && input.sha256 !== sha256) {
-      throw new ValidationError(`thread.attachments[${index}].sha256 does not match its content`);
-    }
-    return { name, mediaType, bytes, sha256 };
-  });
-}
-
-function thingExplanationTarget(value: string | undefined): 'draft' | 'active' {
-  if (value === undefined || value === 'draft') return 'draft';
-  if (value === 'active') return 'active';
-  throw new ValidationError('target must be draft or active');
-}
-
-export interface ApiConversationMessageStatus {
-  conversationId: string;
-  messageId: string;
-  state: 'pending' | 'consumed' | 'dead_letter';
-  delivery: 'interrupt' | 'defer';
-  createdAt: string;
-  consumedAt?: string;
-  conversation: Pick<
-    PublicConversationSummary,
-    'status' | 'pendingCount' | 'createdAt' | 'updatedAt' | 'latestProgress' | 'session'
-  >;
-  run?: PublicRunRecord;
-}
-
-async function conversationMessageStatus(
-  ownerId: string,
-  conversationKey: string,
-  messageId: string,
-): Promise<ApiConversationMessageStatus> {
-  const runtimeConversationId = apiConversationId(ownerId, conversationKey);
-  const conversations = getConversationService();
-  const [conversation, message] = await Promise.all([
-    conversations.get(runtimeConversationId),
-    conversations.getMessage(runtimeConversationId, messageId),
-  ]);
-  if (!conversation || conversation.ownerId !== ownerId || !message) {
-    throw new NotFoundError('conversation message not found');
-  }
-  const run = message.runId
-    ? await getRunService(true).get(ownerId, message.runId)
-    : undefined;
-  const projected = projectPublicConversation(conversation);
-  return {
-    conversationId: conversationKey,
-    messageId,
-    state: message.state,
-    delivery: message.delivery,
-    createdAt: message.createdAt,
-    ...(message.consumedAt ? { consumedAt: message.consumedAt } : {}),
-    conversation: {
-      status: projected.status,
-      pendingCount: projected.pendingCount,
-      createdAt: projected.createdAt,
-      updatedAt: projected.updatedAt,
-      ...(projected.latestProgress ? { latestProgress: projected.latestProgress } : {}),
-      ...(projected.session ? { session: projected.session } : {}),
-    },
-    ...(run ? { run: projectPublicRun(run) } : {}),
-  };
-}
-
-function pathParameter(event: APIGatewayProxyEventV2, name: string): string | undefined {
-  const value = event.pathParameters?.[name];
-  return value && /^[A-Za-z0-9-]{1,128}$/.test(value) ? value : undefined;
-}
-
-function conversationPathParameter(
+function resourcePathParameter(
   event: APIGatewayProxyEventV2,
   name: string,
   maximum = 128,
@@ -1154,13 +359,6 @@ function conversationPathParameter(
     : undefined;
 }
 
-function numericPathParameter(event: APIGatewayProxyEventV2, name: string): number | undefined {
-  const value = event.pathParameters?.[name];
-  if (!value || !/^\d+$/.test(value)) return undefined;
-  const parsed = Number(value);
-  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : undefined;
-}
-
 function routeMatches(
   event: APIGatewayProxyEventV2,
   routeKey: string,
@@ -1169,52 +367,10 @@ function routeMatches(
   return event.routeKey === routeKey || decodeURIComponent(event.rawPath) === decodedPath;
 }
 
-function requiredIdempotencyKey(value: string | undefined): string {
-  if (!value || !/^[A-Za-z0-9._:-]{1,200}$/.test(value)) {
-    throw new ValidationError('Idempotency-Key must be 1-200 safe ASCII characters');
-  }
-  return value;
-}
-
 function parseLimit(value: string | undefined): number {
   if (!value) return 25;
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : 25;
-}
-
-function conversationVisibility(value: string | undefined): 'visible' | 'hidden' | 'all' {
-  if (value === undefined || value === 'visible') return 'visible';
-  if (value === 'hidden' || value === 'all') return value;
-  throw new ValidationError('visibility must be visible, hidden, or all');
-}
-
-function conversationOrganizationUpdate(
-  value: unknown,
-): { title?: string; pinned?: boolean; hidden?: boolean; read?: boolean } {
-  const body = strictBody(value, ['title', 'pinned', 'hidden', 'read']);
-  const update: { title?: string; pinned?: boolean; hidden?: boolean; read?: boolean } = {};
-  if (body.title !== undefined) update.title = boundedText(body.title, 'title', 512);
-  for (const key of ['pinned', 'hidden', 'read'] as const) {
-    if (!(key in body)) continue;
-    if (typeof body[key] !== 'boolean') throw new ValidationError(`${key} must be a boolean`);
-    update[key] = body[key];
-  }
-  if (Object.keys(update).length === 0) {
-    throw new ValidationError('organization update requires title, pinned, hidden, or read');
-  }
-  return update;
-}
-
-async function agentInteractionTarget(
-  service: ReturnType<typeof getRunService>,
-  ownerId: string,
-  runId: string,
-): Promise<AgentInteractionTarget> {
-  const run = await service.get(ownerId, runId);
-  if (!run.execution || !['dispatching', 'running', 'cancelling'].includes(run.status)) {
-    throw new ConflictError('run does not have an active interactive execution');
-  }
-  return { runId: run.runId, execution: run.execution };
 }
 
 function strictBody(value: unknown, allowed: string[]): Record<string, unknown> {
@@ -1256,100 +412,6 @@ function oauthCallbackResponse(
   };
 }
 
-function humanBrowserAction(value: unknown): HumanBrowserAction {
-  const action = strictBody(value, browserActionFields(value));
-  switch (action.type) {
-    case 'navigate':
-      return { type: 'navigate', url: boundedText(action.url, 'action.url', 4_096) };
-    case 'click':
-      return {
-        type: 'click',
-        ...(action.ref === undefined ? {} : { ref: boundedText(action.ref, 'action.ref', 16) }),
-        ...(action.x === undefined ? {} : { x: boundedNumber(action.x, 'action.x', 0, 1_280) }),
-        ...(action.y === undefined ? {} : { y: boundedNumber(action.y, 'action.y', 0, 720) }),
-      };
-    case 'type':
-      return {
-        type: 'type',
-        ...(action.ref === undefined ? {} : { ref: boundedText(action.ref, 'action.ref', 16) }),
-        text: textValue(action.text, 'action.text', 20_000),
-        ...(action.clear === undefined ? {} : { clear: booleanValue(action.clear, 'action.clear') }),
-        ...(action.submit === undefined ? {} : { submit: booleanValue(action.submit, 'action.submit') }),
-      };
-    case 'press':
-      return { type: 'press', key: boundedText(action.key, 'action.key', 64) };
-    case 'select':
-      return {
-        type: 'select',
-        ref: boundedText(action.ref, 'action.ref', 16),
-        value: textValue(action.value, 'action.value', 2_000),
-      };
-    case 'scroll':
-      return {
-        type: 'scroll',
-        ...(action.deltaX === undefined
-          ? {}
-          : { deltaX: boundedNumber(action.deltaX, 'action.deltaX', -5_000, 5_000) }),
-        deltaY: boundedNumber(action.deltaY, 'action.deltaY', -5_000, 5_000),
-      };
-    case 'wait':
-      return {
-        type: 'wait',
-        milliseconds: boundedNumber(action.milliseconds, 'action.milliseconds', 0, 10_000, true),
-      };
-    case 'back':
-      return { type: 'back' };
-    default:
-      throw new ValidationError('action.type is not an available human browser action');
-  }
-}
-
-function browserActionFields(value: unknown): string[] {
-  if (!isRecord(value) || typeof value.type !== 'string') {
-    throw new ValidationError('action must be an object with a type');
-  }
-  const fields: Record<string, string[]> = {
-    navigate: ['type', 'url'],
-    click: ['type', 'ref', 'x', 'y'],
-    type: ['type', 'ref', 'text', 'clear', 'submit'],
-    press: ['type', 'key'],
-    select: ['type', 'ref', 'value'],
-    scroll: ['type', 'deltaX', 'deltaY'],
-    wait: ['type', 'milliseconds'],
-    back: ['type'],
-  };
-  return fields[value.type] ?? ['type'];
-}
-
-function boundedNumber(
-  value: unknown,
-  label: string,
-  minimum: number,
-  maximum: number,
-  integer = false,
-): number {
-  if (
-    typeof value !== 'number' ||
-    !Number.isFinite(value) ||
-    (integer && !Number.isInteger(value)) ||
-    value < minimum ||
-    value > maximum
-  ) throw new ValidationError(`${label} is invalid`);
-  return value;
-}
-
-function booleanValue(value: unknown, label: string): boolean {
-  if (typeof value !== 'boolean') throw new ValidationError(`${label} must be boolean`);
-  return value;
-}
-
-function textValue(value: unknown, label: string, maximumBytes: number): string {
-  if (typeof value !== 'string' || Buffer.byteLength(value, 'utf8') > maximumBytes) {
-    throw new ValidationError(`${label} is invalid`);
-  }
-  return value;
-}
-
 function boundedText(value: unknown, label: string, maximumBytes: number): string {
   if (typeof value !== 'string' || !value.trim()) {
     throw new ValidationError(`${label} must be a non-empty string`);
@@ -1358,30 +420,6 @@ function boundedText(value: unknown, label: string, maximumBytes: number): strin
     throw new ValidationError(`${label} exceeds ${maximumBytes} bytes`);
   }
   return value;
-}
-
-function nonNegativeInteger(value: string | undefined, label: string, fallback: number): number {
-  if (value === undefined || value === '') return fallback;
-  const parsed = Number(value);
-  if (!Number.isSafeInteger(parsed) || parsed < 0) {
-    throw new ValidationError(`${label} must be a non-negative integer`);
-  }
-  return parsed;
-}
-
-function boundedInteger(
-  value: string | undefined,
-  label: string,
-  fallback: number,
-  minimum: number,
-  maximum: number,
-): number {
-  if (value === undefined || value === '') return fallback;
-  const parsed = Number(value);
-  if (!Number.isInteger(parsed) || parsed < minimum || parsed > maximum) {
-    throw new ValidationError(`${label} must be an integer from ${minimum} through ${maximum}`);
-  }
-  return parsed;
 }
 
 function createConnectionBody(body: unknown, ownerId: string) {
@@ -1497,152 +535,6 @@ function stringRecord(value: unknown, label: string, maximum: number): Record<st
   ]));
 }
 
-function publicRun(run: RunRecord) {
-  return projectPublicRun(run);
-}
-
-function artifactFor(run: RunRecord, name: string): ArtifactReference | undefined {
-  if (name === 'input') return run.input;
-  if (name === 'output') return run.result?.output;
-  if (name === 'events') return run.result?.events;
-  if (name === 'patch') return run.result?.workspacePatch;
-  return undefined;
-}
-
-async function conversationArtifactContext(
-  ownerId: string,
-  conversationSelector: string,
-): Promise<{ catalog: ArtifactCatalog; conversation: ConversationRecord }> {
-  const publicConversation = /^[a-f0-9]{64}$/.test(conversationSelector)
-    ? await getConversationService().getByPublicId(ownerId, conversationSelector)
-    : undefined;
-  const conversation = publicConversation ?? await getConversationService().get(
-    apiConversationId(ownerId, conversationSelector),
-  );
-  if (!conversation || conversation.ownerId !== ownerId) throw new NotFoundError('conversation not found');
-  if (!conversation.artifacts) return { catalog: { version: '1', files: [] }, conversation };
-  if (conversation.artifacts.bucket !== requiredEnv('ARTIFACT_BUCKET')) {
-    throw new Error('conversation contains an artifact catalog outside the runtime bucket');
-  }
-  const result = await artifactClient.send(new GetObjectCommand({
-    Bucket: conversation.artifacts.bucket,
-    Key: conversation.artifacts.key,
-  }));
-  if (!result.Body) throw new Error('conversation artifact catalog is empty');
-  const catalog = JSON.parse(await result.Body.transformToString('utf8')) as ArtifactCatalog;
-  validateArtifactCatalog(catalog);
-  return { catalog, conversation };
-}
-
-async function artifactDescriptor(
-  ownerId: string,
-  artifact: ArtifactReference,
-  options: {
-    published?: PublishedArtifact | undefined;
-    fallbackName?: string;
-    sourceRunId?: string;
-    delivery?: 'private';
-  } = {},
-) {
-  const ownerHash = createHash('sha256').update(ownerId).digest('hex').slice(0, 32);
-  if (
-    artifact.bucket !== requiredEnv('ARTIFACT_BUCKET') ||
-    !artifact.key.startsWith(`owners/${ownerHash}/`)
-  ) {
-    throw new Error('run contains an artifact outside the runtime bucket');
-  }
-  const metadata = options.published ?? await publicationMetadataFor(
-    artifact,
-    options.fallbackName ?? 'artifact',
-    options.sourceRunId ?? 'unknown-run',
-  );
-  if (options.delivery !== 'private' && publicationDeliveryConfigured()) {
-    const publication = await publishAndShare({
-      ownerId,
-      spec: { version: '1', kind: 'file', path: metadata.path },
-      catalog: { version: '1', files: [metadata] },
-      runId: metadata.sourceRunId,
-    });
-    return {
-      ...artifactMetadata(metadata),
-      ...publication,
-    };
-  }
-  const expiresIn = 60;
-  const disposition = isInlineMedia(metadata.mediaType) ? 'inline' : 'attachment';
-  const url = await getSignedUrl(
-    artifactClient,
-    new GetObjectCommand({
-      Bucket: artifact.bucket,
-      Key: artifact.key,
-      ResponseContentDisposition: `${disposition}; filename*=UTF-8''${encodeURIComponent(metadata.path)}`,
-      ResponseContentType: metadata.mediaType,
-    }),
-    { expiresIn },
-  );
-  return {
-    ...artifactMetadata(metadata),
-    url,
-    expiresAt: new Date(Date.now() + expiresIn * 1_000).toISOString(),
-  };
-}
-
-async function publishAndShare(input: {
-  ownerId: string;
-  spec: PublicationSpec;
-  catalog: ArtifactCatalog;
-  runId: string;
-  conversationId?: string;
-}): Promise<PublicationDescriptor> {
-  if (!publicationDeliveryConfigured()) {
-    throw new ConflictError('publication delivery is not configured for this deployment');
-  }
-  const bucket = requiredEnv('ARTIFACT_BUCKET');
-  return new PublicationPublisher(
-    new S3PublicationObjectStore(artifactClient, bucket),
-    new S3PublicationGrantStore(artifactClient, bucket),
-    {
-      artifactBucket: bucket,
-      baseDomain: requiredEnv('PUBLICATION_BASE_DOMAIN'),
-      ttlSeconds: publicationTtlSeconds(process.env.ARTIFACT_URL_TTL_SECONDS),
-    },
-  ).publish(input);
-}
-
-async function publicationMetadataFor(
-  artifact: ArtifactReference,
-  path: string,
-  sourceRunId: string,
-): Promise<PublishedArtifact> {
-  const result = await artifactClient.send(new HeadObjectCommand({
-    Bucket: artifact.bucket,
-    Key: artifact.key,
-  }));
-  if (result.ContentLength === undefined) throw new Error('artifact size is unavailable');
-  return {
-    id: artifactIdForPath(path),
-    path,
-    mediaType: result.ContentType ?? 'application/octet-stream',
-    bytes: result.ContentLength,
-    createdAt: result.LastModified?.toISOString() ?? new Date().toISOString(),
-    sourceRunId,
-    file: artifact,
-  };
-}
-
-function publicationDeliveryConfigured(): boolean {
-  const values = [
-    process.env.PUBLICATION_BASE_DOMAIN,
-    process.env.PUBLICATION_KEY_PAIR_ID,
-    process.env.PUBLICATION_PRIVATE_KEY_SECRET_ARN,
-  ];
-  const configured = values.filter((value) => Boolean(value?.trim())).length;
-  if (configured !== 0 && configured !== values.length) {
-    throw new Error('publication delivery configuration is incomplete');
-  }
-  return configured === values.length;
-}
-
 function publicationHost(publicationId: string, ownerHash: string): string {
   validatePublicationId(publicationId);
   if (!/^[a-f0-9]{32}$/.test(ownerHash)) throw new Error('publication owner hash is invalid');
@@ -1754,23 +646,4 @@ function sharePathParameter(event: APIGatewayProxyEventV2): string | undefined {
 
 function errorName(error: unknown): string {
   return error instanceof Error ? error.name : '';
-}
-
-function artifactMetadata(artifact: PublishedArtifact) {
-  return {
-    id: artifact.id,
-    path: artifact.path,
-    mediaType: artifact.mediaType,
-    bytes: artifact.bytes,
-    createdAt: artifact.createdAt,
-    sourceRunId: artifact.sourceRunId,
-    sha256: artifact.file.sha256,
-  };
-}
-
-function isInlineMedia(mediaType: string): boolean {
-  return mediaType.startsWith('image/') ||
-    mediaType.startsWith('video/') ||
-    mediaType.startsWith('audio/') ||
-    mediaType === 'application/pdf';
 }

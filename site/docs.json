@@ -3,6 +3,7 @@
     {
       "title": "Choose your path",
       "documents": [
+        "agents-api.md",
         "operating-model.md",
         "quickstart.md",
         "codex-subscription.md",
@@ -13,7 +14,7 @@
     {
       "title": "Core concepts",
       "documents": [
-        "things.md",
+        "schedules.md",
         "plugins.md",
         "capability-envelope.md",
         "conversations.md"
@@ -57,27 +58,22 @@
       ]
     }
   ],
-  "archive": [
-    "grok-bot-0.18-port-audit.md",
-    "grok-bot-current-comparison.md",
-    "linear-live-demo-social.md"
-  ],
+  "archive": [],
   "agentCorpusExclude": [
-    "status-and-roadmap.md",
-    "linear-live-demo-social.md"
+    "status-and-roadmap.md"
   ],
   "descriptions": {
     "operating-model.md": "Understand the core objects, ownership boundary, permission model, and paths through Rat Things.",
-    "quickstart.md": "Deploy Rat Things in AWS, publish and invoke a Thing, and understand its credentials and lifecycle.",
+    "quickstart.md": "Deploy the AWS backend and configure an Agent and Session.",
     "codex-subscription.md": "Bring the Codex access included with your ChatGPT plan to local work and isolated agents in your AWS account.",
     "agents.md": "Give another agent one deployment URL and a progressive, machine-readable operating contract.",
     "embedding.md": "Discover, authenticate, and embed a self-hosted Rat Things deployment in your own product.",
-    "things.md": "Create, test, activate, schedule, and inspect reusable revisioned agent workflows.",
     "plugins.md": "Connect and verify accounts, choose grants, and understand the effective permission intersection.",
     "capability-envelope.md": "Learn what an agent can use autonomously and what remains unavailable for the entire Run.",
-    "conversations.md": "Move between the console and CLI with exact conversation links, durable Run history, option-specific answers, and safe file handoffs.",
+    "conversations.md": "Use durable Sessions and saved Turns from the console and CLI.",
     "slack.md": "Start durable work from a Slack mention, continue in its thread, search or act through approved accounts, and understand current boundaries.",
     "linear.md": "Install a verified Linear workspace, expose bounded issue and comment operations, and run a Slack-to-Linear handoff.",
-    "status-and-roadmap.md": "Understand the implemented systems, their current boundaries, and the next areas of development."
+    "status-and-roadmap.md": "Understand the implemented systems, their current boundaries, and the next areas of development.",
+    "schedules.md": "Schedule owned Agents and bind signed provider events to durable Sessions."
   }
 }

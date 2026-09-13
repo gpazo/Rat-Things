@@ -1,15 +1,21 @@
 locals {
+  # Retain prior lifecycle logs at their existing addresses for investigation.
+  retired_lambda_logs = {
+    conversation-completion  = true
+    conversation-coordinator = true
+  }
   lambda_names = merge(
+    local.retired_lambda_logs,
     {
-      connection-health        = true
-      control                  = true
-      conversation-completion  = true
-      conversation-coordinator = true
-      dispatcher               = true
-      notifier                 = true
-      reconciler               = true
-      state-stream             = true
-      thing-schedule           = true
+      agents-api        = true
+      agents-outbox     = true
+      connection-health = true
+      control           = true
+      dispatcher        = true
+      notifier          = true
+      reconciler        = true
+      state-stream      = true
+      thing-schedule    = true
     },
     {
       webhook-github = local.github_enabled

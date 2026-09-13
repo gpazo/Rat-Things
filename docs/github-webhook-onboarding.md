@@ -1,150 +1,90 @@
 # Connect a GitHub webhook
 
-The GitHub golden path reduces Rat Things webhook onboarding to one repository command and one pull
-request comment. It preserves the important security boundaries: GitHub signs the raw request,
-Secrets Manager holds credentials, the webhook cannot select a model or owner, and the result returns
-only to the authenticated source repository and pull-request thread.
+A signed GitHub event starts a Session only when it matches an owned Agent/environment
+binding. Rat Things keeps webhook verification, repository checkout and terminal Turn
+notification as separate stages.
 
 ## Prerequisites
 
-- Node.js 22.20+, npm, and Git.
-- Terraform 1.5+.
-- AWS credentials for an account and Region with Lambda MicroVM access and quota.
-- GitHub CLI (`gh`) authenticated to the target repository with permission to manage webhooks.
-- For the automatic onboarding credential, repository contents read and issues/pull-request comments
-  write access. Repository administration is needed to create the hook.
+Deploy the [Agents API and execution backend](development-and-deployment.md), configure
+an admitted model, and authenticate the Rat Things CLI as the operator who will own the
+Sessions. The selected environment must support repository commands. Keep the GitHub
+webhook, clone and comment credentials separate.
 
-Lambda MicroVMs are currently supported by this repository in `us-east-1`, `us-east-2`, `us-west-2`,
-`ap-northeast-1`, and `eu-west-1`. The helper uses `AWS_REGION`, then `AWS_DEFAULT_REGION`, and
-otherwise defaults to `us-west-2`.
+## Configure the webhook
 
-## One-command setup
+Store a high-entropy signing secret, a repository-read token and a comment-write token
+in Secrets Manager. Set these Terraform inputs to their ARNs:
 
-From the repository root:
+- `github_webhook_secret_arn`
+- `github_clone_token_secret_arn`
+- `github_notify_token_secret_arn`
 
-```bash
-npm ci
-npm run webhook:github -- --repo OWNER/REPOSITORY
+Set `github_comment_trigger` to a distinct non-empty trigger for this deployment. Keep
+repository hosts allowlisted. Apply the deployment configuration using the normal
+Terraform workflow; secret values must not enter Terraform variables or state.
+
+In the repository's webhook settings, use the deployed `webhook_urls.github` output,
+`application/json`, and the matching signing secret. Select pull-request and issue-comment
+events. Keep separate hooks, secrets and destinations for development and production.
+
+## Bind the repository to an Agent
+
+Create an Agent with the model, instructions and tools appropriate for repository review.
+Create an environment template with the required packages and network access. Save a binding
+with those returned IDs as `github-binding.json`:
+
+```json
+{
+  "version": "1",
+  "sourceKind": "github",
+  "selector": { "repository": "OWNER/REPOSITORY" },
+  "agentId": "agent_example",
+  "environment": {
+    "type": "openai_hosted",
+    "environment_template_id": "envtpl_example"
+  }
+}
 ```
 
-The helper first prints the exact GitHub repository, AWS account, Region, execution driver, trigger,
-and MicroVM base-image version. Nothing changes until you confirm. Use `--dry-run` to inspect the
-workflow without contacting AWS or GitHub:
-
 ```bash
-npm run webhook:github -- --repo OWNER/REPOSITORY --dry-run
+rat-things bind-source --file github-binding.json
+rat-things source-bindings
 ```
 
-After confirmation, the helper:
+`openai_hosted` is the standard wire name for a managed environment. On this endpoint,
+Rat Things provisions that environment in your AWS account. The authenticated operator owns
+the binding and resulting Sessions. Generic repository selectors are trusted operator
+configuration; they do not independently prove repository ownership.
 
-1. Creates or reuses separate webhook, clone, and notification entries in AWS Secrets Manager.
-2. Generates a high-entropy signing secret without printing or placing it in Terraform.
-3. Discovers the newest available managed `al2023-1` Lambda MicroVM image version.
-4. Writes ignored Terraform variables containing only secret ARNs and non-sensitive settings.
-5. Packages the Lambda and MicroVM artifacts and applies `infra/`.
-6. Creates or updates a GitHub webhook for pull-request and issue-comment events.
-7. Stores only the repository, hook ID, URL, ARNs, and trigger under ignored `.runtime/` metadata.
-
-The operation is rerunnable. Existing named secrets and the previously recorded repository hook are
-updated instead of intentionally creating a new integration.
+A notification destination does not give the Agent GitHub write tools. Declare any desired
+agent-callable operations separately on the Agent, with their own credentials and grants.
 
 ## Trigger the first response
 
-The safe default is `--driver mock`. It spends no model tokens but proves signature verification,
-normalization, repository checkout, MicroVM execution, terminal events, delivery fencing, and the
-final GitHub comment.
+Opening, reopening or updating a pull request, or marking it ready for review, submits a
+review. A newly created pull-request comment containing the configured trigger submits a
+question. Other signed event types are acknowledged and ignored.
 
-Open a pull request and comment:
-
-```text
-@rat-things summarize the riskiest part of this change
-```
-
-GitHub receives an immediate `202` acknowledgement. Rat Things posts the terminal result back to the
-same pull-request thread asynchronously.
-
-Inspect the registered hook and most recent GitHub delivery:
-
-```bash
-npm run webhook:github:status
-```
-
-The status command reads non-secret local metadata and reports whether the hook is active plus the
-latest delivery event, HTTP status, and timestamp.
-
-## Turn on the real Codex driver
-
-AWS webhook workers use the deployment's configured model authentication. The default ChatGPT path
-materializes the operator-consented file-based login inside the MicroVM while Codex runs. Because
-repository-controlled code shares the agent UID and can steal its renewable credentials, enable a
-real webhook agent only for repositories, agents, and AWS accounts you trust. See the
-[credential risk and lifecycle](codex-subscription.md#credential-risk-and-lifecycle).
-
-For a real agent response, configure the ChatGPT auth-file secret (or deliberately select and
-configure Bedrock), then rerun:
-
-```bash
-npm run webhook:github -- \
-  --repo OWNER/REPOSITORY \
-  --driver codex
-```
-
-The deployed runner mints a bounded short-term Bedrock bearer token from its execution role. Bedrock
-model-token charges are separate from Lambda MicroVM compute. The webhook cannot change this driver
-or credential policy.
+The accepted receipt contains a Session ID. Inspect that Session's Turns and Items with the
+standard API or CLI. The saved terminal root Turn supplies the result comment; worker exit
+alone does not trigger another reply. Repeated delivery IDs are deduplicated. Repository
+occurrences use separate Sessions so a later event cannot change an earlier checkout ref.
 
 ## Credential handling
 
-For evaluation, the helper can reuse the current `gh auth token` while placing it in separate clone
-and notification secrets. This minimizes setup, but the two entries still contain the same authority.
-The helper prints a warning when it uses this convenience path.
-
-For a production-shaped test, provide independently scoped fine-grained tokens without putting them
-on the command line:
-
-```bash
-export RAT_THINGS_GITHUB_CLONE_TOKEN="<contents-read token>"
-export RAT_THINGS_GITHUB_NOTIFY_TOKEN="<issues-write token>"
-npm run webhook:github -- --repo OWNER/REPOSITORY
-unset RAT_THINGS_GITHUB_CLONE_TOKEN RAT_THINGS_GITHUB_NOTIFY_TOKEN
-```
-
-The helper transfers secret values to Secrets Manager through mode-`0600` temporary files, deletes
-those files on exit, and never writes values to Terraform configuration, Terraform state, `.runtime/`
-metadata, logs, or the GitHub webhook status output.
-
-Production should replace static tokens with short-lived GitHub App installation credentials. That
-remains a documented maturity gap; the one-command helper does not make a broad personal token
-least-privileged merely by copying it into separate secrets.
-
-## Useful options
-
-```text
---driver mock|codex
---trigger TEXT
---region REGION
---profile AWS_PROFILE
---environment NAME
---microvm-base-image-version VERSION
---dry-run
---yes
-```
-
-Use a distinct environment and trigger for every dev, staging, and production hook. `--yes` is for
-reviewed automation and skips only the helper's confirmation; it does not relax AWS, GitHub, or
-Terraform authorization.
+The verifier reads only the signing secret. Trusted checkout uses the repository-read token;
+terminal Turn delivery uses the notification token. Tokens never belong in clone URLs, bindings,
+Agent instructions or webhook bodies. The current clone adapter consumes a configured token;
+it does not mint GitHub App installation tokens from the event's installation ID.
 
 ## Troubleshooting
 
-1. Run `npm run webhook:github:status` and inspect the latest GitHub HTTP status.
-2. Confirm `gh repo view OWNER/REPOSITORY` works and the authenticated identity can manage hooks.
-3. Confirm the selected AWS account has Lambda MicroVM access, service quota, IAM permissions, and
-   Bedrock model access when `--driver codex` is selected.
-4. A GitHub ping is validly signed but intentionally ignored with HTTP `202`; use a supported pull
-   request event or an `@rat-things` pull-request comment to create a run.
-5. A `401` means the GitHub hook and Secrets Manager signing values differ. Rerun onboarding to
-   reuse the stored signing secret and update the hook.
-6. A successful run with a failed comment normally means the notification token lacks issues-write
-   permission or the notifier failure queue needs inspection.
+- A signed ping returns `202` with `ignored: true`; it does not execute an Agent.
+- `source_not_bound` means no verified source selector matched an Agent/environment binding.
+- `401` means signature verification failed. Check the configured secret and exact raw body.
+- A failed Turn needs inspection through Session Items and worker diagnostics. A completed Turn
+  with no comment needs delivery-fence and notification-credential inspection.
+- An ambiguous comment outcome needs provider reconciliation before another write is attempted.
 
-For lower-level behavior and manual production configuration, see [Channel adapters](channels.md).
+See [channel adapters](channels.md#github) for accepted event shapes and deployment controls.

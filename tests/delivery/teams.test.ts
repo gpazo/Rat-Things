@@ -3,25 +3,6 @@ import { CredentialBroker } from '../../src/credentials/broker.js';
 import { TeamsDeliveryAdapter } from '../../src/delivery/providers/teams.js';
 import type { DeliveryRequest } from '../../src/delivery/types.js';
 
-const run = {
-  runId: 'run-1',
-  ownerId: 'teams:tenant-1:user-1',
-  ownerCreated: 'teams:tenant-1:user-1#2026-01-01T00:00:00.000Z#run-1',
-  status: 'succeeded' as const,
-  createdAt: '2026-01-01T00:00:00.000Z',
-  updatedAt: '2026-01-01T00:01:00.000Z',
-  expiresAt: 1_800_000_000,
-  requestHash: 'hash',
-  input: { bucket: 'artifacts', key: 'input.json', sha256: 'input-hash' },
-  sourceKind: 'teams' as const,
-  result: {
-    output: { bucket: 'artifacts', key: 'result.md', sha256: 'result-hash' },
-    preview: 'Rat Things reply',
-    exitCode: 0,
-    durationMs: 100,
-  },
-};
-
 const request = {
   version: '1' as const,
   prompt: 'Hello Rat Things',
@@ -43,7 +24,7 @@ const delivery: DeliveryRequest = {
     source: request.source,
   },
   request,
-  run,
+  execution: { id: 'turn_1', status: 'completed', label: 'Turn', sessionId: 'sess_1' },
   body: 'Rat Things reply',
 };
 
@@ -73,7 +54,7 @@ describe('Teams delivery adapter', () => {
     );
     const init = fetchMock.mock.calls[0]?.[1] as RequestInit;
     const body = JSON.parse(String(init.body)) as Record<string, unknown>;
-    expect(init.headers).toMatchObject({ 'idempotency-key': 'run-1' });
+    expect(init.headers).toMatchObject({ 'idempotency-key': 'turn_1' });
     expect(body).toMatchObject({
       version: '1',
       operation: 'reply-to-activity',
@@ -90,7 +71,7 @@ describe('Teams delivery adapter', () => {
         channelId: 'channel-1',
         senderId: 'user-1',
       },
-      run: { id: 'run-1', status: 'succeeded' },
+      execution: { id: 'turn_1', status: 'completed', sessionId: 'sess_1', type: 'turn' },
     });
     expect(body.activity).toMatchObject({ text: expect.stringContaining('Rat Things reply') });
   });

@@ -1,171 +1,108 @@
-# How to preserve AI-agent context and files across restarts
+# Durable AI agent state
 
-Preserving an AI agent across restarts requires more than saving chat messages. Store the accepted
-request, transcript, execution events, generated files, workspace bytes, and native agent-thread
-state outside the worker; serialize turns that share a workspace; and make recovery conditional on
-the exact execution generation. Then a replacement worker can continue from durable evidence
-without pretending that an uncertain external side effect never happened.
+Durable agent work needs separate records for accepted input, observed execution,
+saved results and external effects. Keeping a worker alive helps continuation;
+storing a transcript alone does not make a lost worker recoverable.
 
-> **Short answer:** transcripts preserve meaning, workspace snapshots preserve work, and fenced
-> execution state prevents two workers from owning the same conversation at once.
+Rat Things uses the Agents API's Session, Turn and Item primitives. Its API,
+harness, compute and storage remain in the deployment's AWS account.
 
-## Separate the kinds of state
+## Separate the state that must survive
 
-“Agent memory” often combines several systems with different correctness requirements:
-
-| State | Why it matters | Suitable durable home |
+| State | Purpose | Rat Things boundary |
 | --- | --- | --- |
-| Accepted request | Proves what work was authorized | Immutable object plus bounded receipt |
-| Conversation transcript | Lets a later turn understand prior decisions | Durable message bodies and searchable metadata |
-| Execution events | Explains progress, tools, and failure | Append-only event log |
-| Native model thread | Preserves provider-specific conversational continuity | Private, conversation-scoped state |
-| Workspace files | Preserves edits, dependencies, and generated work | Versioned or checksummed durable filesystem |
-| User-facing artifacts | Makes outputs discoverable independently of the worker | Owner-scoped object catalog |
-| External side effects | Determines whether a write is safe to retry | Tool ledger plus provider reconciliation |
+| Session configuration | Fixed model, tools and environment selection | Owner-scoped Session snapshot |
+| Input receipt | Identify one accepted semantic input | Conditional write and idempotency key |
+| Turn and Items | Retain observed work and outcomes | Durable Session journal and saved public resources |
+| Native checkpoint | Continue the harness's private context | Native state in Session storage |
+| Workspace | Retain files changed by commands | Mounted Session storage and explicit output artifacts |
+| Delivery outcome | Avoid repeating an external notification | Separate delivery fence with uncertain outcomes |
 
-Saving only the final answer loses intermediate evidence and files. Saving only a VM snapshot ties
-the conversation to one piece of compute. Saving only a transcript may let the model discuss old
-work while silently missing the actual checkout that produced it.
+## Commit input before dispatch
 
-## Make the mailbox authoritative
+The Session service validates input against current state, reserves the receipt
+and writes durable outbox work before dispatch. Repeated delivery of that work
+must reuse the accepted input rather than create a new Turn. An idempotency key
+binds a retry to the same request body.
 
-A queue should wake processing; it should not be the only record that work exists. Queue messages
-can be delivered more than once, delayed, or consumed immediately before a worker fails.
-
-Rat Things first records each accepted conversation input as one durable Run, attaches it to a
-mailbox turn, and then sends a queue wake-up. A repeated wake repairs the attach/enqueue crash window
-without creating a second semantic Run. Full bodies and results live in encrypted S3 while DynamoDB
-contains bounded coordination records and indexes.
-
-This design makes the durable mailbox—not SQS and not a running MicroVM—the source of truth. The
-complete state layout is documented under [how conversation durability
-works](../docs/conversations.md#how-durability-works).
-
-## Use an explicit recovery algorithm
-
-A replacement path should be deterministic enough to test without asking the model what probably
-happened:
-
-1. Write the immutable request body to durable storage.
-2. Conditionally reserve one Run and attach it to one mailbox turn before returning a receipt.
-3. Send a wake-up message. If enqueueing fails, retry the wake—not the semantic request.
-4. Acquire a generation-bound conversation lease before restoring private state.
-5. Mount the last committed workspace and native thread, then dispatch the reserved Run.
-6. Commit transcript, tool ledger, artifacts, and workspace only while the same lease generation is
-   current.
-7. If the worker disappears, expire its lease, quarantine late writes, and let a successor acquire a
-   new generation.
-8. Before repeating an external mutation with an unknown outcome, reconcile it with the provider or
-   a provider idempotency key.
+The outbox coordinates execution separately from provider delivery. A failed
+notification does not rerun the model; a worker exiting does not produce a second
+notification for an already saved terminal root Turn.
 
 ```text
-client -> durable request + Run receipt -> queue wake
-                         |                    |
-                         v                    v
-                  authoritative mailbox -> lease generation N
-                                               |
-                                  restore -> execute -> commit
-                                               |
-                               missing heartbeat or dead worker
-                                               v
-                                  lease generation N+1 -> restore
+client -> Session input receipt -> durable execution outbox
+                    |                         |
+                    v                         v
+             saved Session state <--- fenced harness journal
+                    |
+                    v
+            terminal root Turn -> independent delivery outbox
 ```
 
-Amazon SQS documents that standard queues use at-least-once delivery, so duplicate wake-ups must be
-expected rather than treated as exceptional. The durable Run identity is what prevents those wakes
-from becoming duplicate work.
+Private Run records identify the worker generation. They are implementation state,
+not a second public conversation API. See [Session durability](../docs/conversations.md#how-durability-works).
 
-## Fence ownership before mounting a workspace
+## Fence execution and late observations
 
-Two workers must not open and modify the same conversation state concurrently. Use a renewable
-lease tied to an immutable execution generation, and require that token on every mutating turn
-operation.
+A worker must match its Run ID, execution ID and generation before updating state.
+Health checks combine that identity with backend state; an unverified worker is
+not assumed terminal. Recovery quarantines ambiguous execution until authority
+can be established. Conditional writes prevent a replaced worker's late results
+from taking ownership of the Session.
 
-Rat Things serializes turns within one conversation while allowing unrelated conversations to run
-in parallel. The lease also fences filesystem ownership: only the current MicroVM may mount and
-open that conversation's native Codex state. A stale or superseded worker cannot update active
-state merely because it finishes later.
+Control requests carry the intended public Turn ID. A delayed cancellation or
+steering command must not target whichever Turn happens to be active later.
+Durable EC2 commands are claimed before effects; ambiguous command acceptance is
+not permission to replay them.
 
-This distinction becomes especially important during heartbeat repair. A missing heartbeat is a
-liveness signal, not proof that an earlier external API call failed.
+## Recover from the strongest available state
 
-## Restore both the workspace and agent thread
+Prefer the saved native checkpoint and workspace. Public Item history is a fallback
+that can retain messages and completed tool results. Historical commands, MCP
+calls and child activity remain historical data; recovery must not execute them
+again merely to rebuild context.
 
-With S3 Files enabled, Rat Things assigns each conversation a private filesystem root derived from
-its durable identity. Before a turn, orchestration restores native Codex state and exact workspace
-bytes. After a successful turn, committed state remains available when the same MicroVM resumes or
-when replacement compute is required.
+Neither fallback history nor copied files recreate live processes, sockets or
+hidden child state. A connected managed environment retains its process state
+between Turns; replacing a lost environment is a different operation. Saved
+history remains available even when further execution is unavailable.
 
-Generated deliverables use a separate retained-artifact contract. An agent writes regular files
-beneath `.rat-things/artifacts/`; trusted orchestration validates paths, hashes the bytes, uploads
-immutable objects, and commits a current path catalog. A gracefully stopped or failed turn can
-retain partial files when trusted finalization completes. An abrupt termination or failed
-finalization can lose uncommitted files; the previous committed catalog remains the recovery source. Read [durable files and share links](../docs/durable-files.md)
-for the exact limits and commands.
+## Retain immutable output
 
-## Continue a durable thread
+Managed output files under `/workspace/outputs` are captured before terminal Turn
+publication. Each artifact identifies its Turn and path and retains immutable
+bytes. A later Turn can create another artifact for the same path. Expiration of
+the environment does not remove saved artifacts; Session deletion does.
 
-Use one stable thread name for related work:
+Self-hosted environment files remain under the operator's file/storage interface.
+They are not automatically published through the managed Session Artifacts API.
+See [durable files](../docs/durable-files.md).
 
-```bash
-npm run rat-things -- handoff \
-  --thread release-investigation \
-  --sandbox workspace-write --no-network \
-  "Create .rat-things/artifacts/reports/release.md with a release-readiness checklist."
+## Reconcile external effects
 
-npm run rat-things -- chat \
-  --thread release-investigation \
-  "Read .rat-things/artifacts/reports/release.md, add a rollback checklist, and save it."
-```
+A timed-out provider call can have succeeded remotely. Keep uncertain outcomes
+separate from confirmed failures and inspect the provider's state or use its
+idempotency facility before retrying. A database receipt cannot make an arbitrary
+remote mutation exactly once.
 
-The second turn selects the same durable conversation. When possible, Rat Things resumes its
-suspended MicroVM and native Codex thread. When replacement is necessary, the transcript remains
-durable and S3 Files can restore the private state and workspace.
-
-For automation, add a stable idempotency key to every semantic input. Preserve the Run receipt and
-wait for the message to be consumed, the Run to become terminal, and the conversation to return to
-idle before treating generated files as committed.
-
-## Do not blindly replay uncertain writes
-
-A worker can lose contact after an external service accepted a request but before the local ledger
-recorded success. Automatically replaying the call may create a duplicate issue, payment, comment,
-or deployment.
-
-Record every connected-service tool call durably and distinguish a known failure from an unknown
-outcome. After interruption or replacement, inspect the ledger and provider state before retrying
-a consequential operation. If the provider offers idempotency keys, derive one from the semantic
-operation rather than from a transient worker attempt.
-
-Rat Things' delivery fence similarly treats an ambiguous provider response as
-`outcome_unknown`; no local database pattern can manufacture exactly-once behavior from an API
-that supplies no idempotency mechanism.
+Use stable input keys and retain Session and Turn IDs in the surrounding
+application. Read saved state after a stream reconnect; a live event stream is a
+notification channel, not the sole copy of completed work.
 
 ## Current boundaries
 
-Retention is finite, and a durable mailbox is not an archival backup. Rat Things does not provide
-cross-Region disaster recovery, sustained-concurrency guarantees, or production-grade untrusted
-tenant isolation. Choose retention and backup policy separately from worker continuity.
-
-## A practical durability checklist
-
-Before calling an agent workflow durable, verify that it can answer all of these questions:
-
-1. Can the client recover the accepted request and receipt after disconnecting?
-2. Can another worker acquire ownership without racing the original worker?
-3. Are transcript, native thread, workspace, and deliverables restored independently?
-4. Can the operator distinguish finalized partial files from uncommitted changes after failure?
-5. Can the operator distinguish a failed external write from an unknown outcome?
-6. Can results be inspected without a live worker?
-7. Are retention, deletion, encryption, and owner boundaries explicit?
-
-Rat Things implements one answer to this checklist. Start with [durable
-conversations](../docs/conversations.md), use the [durable file catalog](../docs/durable-files.md) for deliverables, and enable S3 Files
-when the workflow also needs native thread and exact workspace continuity.
+Recovery depends on available native checkpoints, storage, execution authority and
+an environment that can continue work. Saved public history is not a guarantee of
+process continuity. A lost acknowledgement for an external write requires separate
+reconciliation.
 
 ## Sources
 
-- [Amazon SQS at-least-once delivery](https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/standard-queues-at-least-once-delivery.html)
-- [Rat Things conversation state and validation](../docs/conversations.md)
-- [Rat Things durable-file commit contract](../docs/durable-files.md)
-- [Rat Things security boundaries](../docs/security.md)
+- [Session durability](../docs/conversations.md#how-durability-works)
+- [Execution architecture](../docs/architecture.md)
+- [Durable files](../docs/durable-files.md)
+
+## Try the narrow path
+
+Use the [quickstart](../docs/quickstart.md) with a disposable deployment, then retain
+its Session ID and inspect saved Turns and Items through the standard API.

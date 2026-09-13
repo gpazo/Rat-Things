@@ -1,3 +1,4 @@
+import type { SessionIntegrationTarget } from '../domain/session-integrations.js';
 import { randomUUID } from 'node:crypto';
 import { emitMetric } from '../core/metrics.js';
 import type {
@@ -75,11 +76,10 @@ export interface CreateConnectionSetInput {
   defaults?: { [key: string]: string };
 }
 
-export interface CreateSourceBindingInput {
+export interface CreateSourceBindingInput extends SessionIntegrationTarget {
   ownerId: string;
   sourceKind: SourceCapabilityBinding['sourceKind'];
   selector: SourceCapabilityBinding['selector'];
-  capabilityProfile?: string;
   connectionSetId?: string;
 }
 
@@ -350,7 +350,9 @@ export class ConnectionService {
       ownerId: input.ownerId,
       sourceKind: input.sourceKind,
       selector: input.selector,
-      ...(input.capabilityProfile ? { capabilityProfile: input.capabilityProfile } : {}),
+      agentId: input.agentId, environment: input.environment,
+      ...(input.vaultIds ? { vaultIds: input.vaultIds } : {}),
+      ...(input.destinations ? { destinations: input.destinations } : {}),
       ...(input.connectionSetId ? { connectionSetId: input.connectionSetId } : {}),
     });
     await this.options.store.putSourceBinding(binding);

@@ -1,5 +1,5 @@
 import { AGENT_RESULT_MARKER } from '../channels/result-marker.js';
-import type { RunRecord } from '../domain/contracts.js';
+import type { DeliveryExecution } from './types.js';
 import { KnownNotDeliveredError } from './errors.js';
 
 export async function fetchWithTimeout(url: string, init: RequestInit): Promise<Response> {
@@ -23,12 +23,12 @@ export async function checkedResponse(response: Response, provider: string): Pro
 
 export function formatMessage(
   body: string,
-  run: RunRecord,
+  execution: DeliveryExecution,
   maximum: number,
   markSourceResult = false,
 ): string {
   const prefix = markSourceResult ? `${AGENT_RESULT_MARKER}\n` : '';
-  const suffix = `\n\n---\nAgent run: ${run.runId}`;
+  const suffix = `\n\n---\n${execution.label}: ${execution.id}${execution.sessionId ? `\nSession: ${execution.sessionId}` : ''}`;
   return `${prefix}${body.slice(0, Math.max(0, maximum - prefix.length - suffix.length))}${suffix}`;
 }
 

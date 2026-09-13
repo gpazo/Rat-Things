@@ -72,14 +72,14 @@ describe('publication manifest projection', () => {
     ]);
     const result = publicationManifest({
       publicationId: 'a'.repeat(24), plan: plan(), files,
-      runId: 'run-1', conversationId: 'conversation-1', builder: 'custom',
+      runId: 'run-1', builder: 'custom',
       createdAt: '2026-08-15T00:00:00.000Z',
     });
     expect(result.files.map((file) => file.path)).toEqual(['index.html', 'z.txt']);
     expect(files.map((file) => file.path)).toEqual(['z.txt', 'index.html']);
     expect(result.files[0]).toBe(files[1]);
     expect(result.provenance).toEqual({
-      runId: 'run-1', conversationId: 'conversation-1', builder: 'custom',
+      runId: 'run-1', builder: 'custom',
       createdAt: '2026-08-15T00:00:00.000Z',
     });
     expect(result).not.toHaveProperty('primaryPath');
@@ -88,7 +88,7 @@ describe('publication manifest projection', () => {
   it('validates materialized references and never substitutes a timestamp', () => {
     const input = {
       publicationId: 'a'.repeat(24), plan: plan(), files: [sourceFile('index.html', 'text/html')],
-      runId: 'run-1', conversationId: '', builder: 'custom', createdAt: '',
+      runId: 'run-1', builder: 'custom', createdAt: '',
     };
     expect(() => publicationManifest(input)).toThrow('provenance is invalid');
     input.createdAt = '2026-08-15T00:00:00.000Z';

@@ -1,7 +1,0 @@
-{
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "thing-create-v1.json",
-  "title": "Create Thing request v1",
-  "description": "Creation accepts a ThingSpec directly and always creates draft revision 1.",
-  "$ref": "thing-v1.json"
-}

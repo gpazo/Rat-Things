@@ -1,0 +1,9 @@
+{
+  "repository": "https://github.com/openai/codex.git",
+  "revision": "6b9826e3aa83b1a5947db50f4332cb9c65f1b340",
+  "upstreamVersion": "0.154.0",
+  "patches": [
+    "release-lock.patch",
+    "interrupt-barrier.patch"
+  ]
+}

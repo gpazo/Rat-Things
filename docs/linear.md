@@ -2,8 +2,8 @@
 
 Linear is a built-in Rat Things Connection. An agent can search and inspect issues, discover team
 and workflow-state IDs, create or update issues, and add comments through a verified Linear
-workspace account. The same Connection works from a CLI conversation, Slack thread, Thing,
-Routine, product API, or another agent.
+workspace account. Connections remain separate from the Agent configuration. Standard Sessions require explicitly
+declared MCP or application-function tools to invoke these operations.
 
 This guide sets up a deployment-owned Linear OAuth application, installs one workspace, and runs a
 bounded Slack-to-Linear handoff. Rat Things uses Linear's app actor, so writes appear as the
@@ -26,7 +26,7 @@ installed application rather than impersonating the workspace admin who grants c
 
 The adapter sends fixed GraphQL documents only to `https://api.linear.app/graphql`. The model
 cannot supply a query document, provider origin, OAuth scope, or credential. Linear provider
-authority, the persistent Rat grant, the capability profile, and per-Run operation/resource
+authority, the persistent Rat grant, the capability profile, and declared tool operation/resource
 narrowing must all admit a call before the host credential broker reads the token.
 
 ## Before you start
@@ -155,34 +155,22 @@ rat-things connection reconnect linear-work --oauth --wait
 
 Rat accepts the replacement only if Linear resolves it to the same workspace and app-user IDs.
 
-## 7. Run the Slack-to-Linear demo
+## 7. Expose bounded operations to an Agent
 
-With a separately installed `slack-work` Connection, allow one Slack read and only the Linear
-operations needed for the handoff:
+A verified Connection does not automatically add tools to a standard Session.
+Declare an MCP server or application functions in the Agent configuration. Their
+trusted implementation should invoke only the installed operations and enforce the
+Connection's account, operation and resource grants before reading credentials.
 
-```bash
-rat-things chat --thread renewal-handoff \
-  --connection slack-work=read-only \
-  --allow-operation slack-work=slack.messages.search \
-  --connection linear-work=read-write \
-  --allow-operation linear-work=linear.teams.list,linear.issues.search,linear.issues.create,linear.comments.create \
-  "Find the approved renewal decision in Slack. Check Linear for an existing matching issue. If none exists, create one in the customer-ops team with the open security items and source context, then add a comment summarizing what you did. Return the Linear identifier and URL."
-```
+For a read-only investigation, expose team discovery, issue search and issue reads.
+For issue creation, use a separately bounded tool that validates the approved team.
+If duplicate creation is unacceptable, enforce a durable idempotency boundary in
+that host implementation; a search-first prompt cannot enforce uniqueness.
 
-Review the Run's durable tool-call ledger as well as the resulting Linear issue. The expected shape
-is one Slack search, team discovery if the agent did not already have a team UUID, a Linear search,
-and at most one issue creation plus one comment. If a matching issue exists, this exact envelope
-does not include `linear.issues.update`, so the agent must report that boundary rather than changing
-the issue.
-
-For a read-only investigation:
-
-```bash
-rat-things chat --thread linear-read \
-  --connection linear-work=read-only \
-  --allow-operation linear-work=linear.teams.list,linear.issues.search,linear.issues.get \
-  "Find the most relevant renewal issue and summarize its current state and unresolved comments. Do not change Linear."
-```
+A Session using application functions enters `requires_action` until the application
+returns each result with its `turn_id` and `call_id`. The saved Items record those
+calls. See [Agents API](agents-api.md) and the
+[Slack-to-Linear workflow guide](../guides/slack-to-linear-agent-workflow.md).
 
 ## Optional personal API key path
 
@@ -197,7 +185,7 @@ rat-things connect linear --auth-scheme api-key \
 ```
 
 Linear personal keys are broad and do not report granular OAuth scopes. Prefer OAuth for a shared
-or long-lived deployment, and keep the Rat grant and per-Run operation list narrow either way.
+or long-lived deployment, and keep the Rat grant and declared tool operation list narrow either way.
 
 ## Current boundaries
 
@@ -208,7 +196,7 @@ or long-lived deployment, and keep the Rat grant and per-Run operation list narr
   operations are not installed.
 - Search returns at most 20 ranked issue summaries; issue inspection returns the first page of up
   to 20 comments.
-- Write calls are autonomous inside the fixed Run envelope. There is no mid-Run approval prompt.
+- Write calls are autonomous inside the resolved Session envelope. There is no mid-Turn approval prompt.
 
 Linear documents its GraphQL endpoint, issue queries/mutations, and error envelopes in its
 [GraphQL guide](https://linear.app/developers/graphql). When native Linear ingress is added, it must

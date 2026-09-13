@@ -177,11 +177,11 @@ to verify the stored credential against the fixed plugin and returns one of:
 
 The test response never includes the credential, vault reference, raw provider response, or error
 body. Health is operational metadata stored separately from the secret. `consumers` derives the
-owner's Things, routines, connection sets, and source bindings that select the account from their
+owner's Sessions, schedules, connection sets, and source bindings that select the account from their
 authoritative definitions; it does not read the credential.
 
 The optional display name is presentation only. Renaming does not change the stable alias or ID
-used by Things, routines, Run requests, and the CLI. The desktop details view also shows provider
+used by notification bindings, Run requests and the CLI. The desktop details view also shows provider
 scopes, installed operation access/risk, health, and the “used by” projection before an operator
 changes or disconnects an account.
 
@@ -231,40 +231,25 @@ rat-things connection-set --file /secure/config/customer-ops.json
 }
 ```
 
-Use the set from a direct run:
+Connection sets group installed accounts and defaults for the application integration
+layer. They are not an Agent tool declaration. Configure standard Session tools through
+explicit MCP or application-function definitions; their trusted implementation must
+apply provider scopes, account grants and operation/resource constraints before
+reading credentials. See [Agents API](agents-api.md).
 
-```bash
-rat-things handoff --thread customer-ops \
-  --profile small-business \
-  --connection-set customer-ops \
-  --connection slack-client-b=read-only \
-  "Review support and billing exceptions"
-```
-
-Narrow one account to exact operations with repeatable flags or a comma-separated list:
-
-```bash
-rat-things handoff --thread customer-ops \
-  --connection slack-client-a=read-write \
-  --allow-operation slack-client-a=slack.messages.search,slack.messages.post \
-  "Find the agreed update and post it to the customer channel"
-```
-
-Each operation remains a separate entry in the fixed Run envelope. Comma separation is CLI input
-shorthand; it does not create a broader wildcard permission.
-
-Or place the same aliases/set in a versioned Thing. `rat-things thing-explain THING_ID` resolves the
-accounts and shows why every operation is allowed or denied before the Thing is published.
+Session provider bindings and schedules may select a connection set for notification delivery.
+Agent tools require their own declared configuration and attached Vaults; a notification set does
+not grant execution tools. See [provider bindings](schedules.md#provider-bindings).
 
 ## 5. Understand effective permission
 
 <figure class="doc-visual doc-visual-tall">
-  <a href="permission-intersection.svg"><img src="permission-intersection.svg" alt="Effective integration operations are the intersection of provider authorization, the persistent account grant, the capability profile, and Thing or run narrowing. A deny at any layer wins."></a>
+  <a href="permission-intersection.svg"><img src="permission-intersection.svg" alt="Effective integration operations are the intersection of provider authorization, the persistent account grant, the capability profile, and Session tool or local execution narrowing. A deny at any layer wins."></a>
   <figcaption><strong>Permission is always an intersection.</strong> The resulting operation set is fixed before launch and autonomous during the Run.</figcaption>
 </figure>
 
 Integration permissions follow the [capability envelope](capability-envelope.md): provider
-authorization, the persistent grant, the profile ceiling, and Thing or Run narrowing must all
+authorization, the persistent grant, the profile ceiling, and Session tool or local execution narrowing must all
 permit the operation. A full-access provider key can be exposed to Rat as read-only; a Rat grant
 cannot widen a read-only provider token.
 
@@ -373,7 +358,7 @@ rat-things connection reconnect slack-work --oauth --wait
 ```
 
 Reconnect state is bound server-side to the authenticated owner and existing connection ID. The
-callback preserves that connection's stable alias, Rat grant, Things/routines/source bindings, and
+callback preserves that connection's stable alias, Rat grant, schedules/source bindings, and
 provider scopes selected by the trusted plugin. Rat verifies the exchanged credential resolves to
 the exact same provider tenant and subject before replacing the old secret. Choosing a different
 provider account fails closed and leaves the stored credential unchanged.
@@ -400,23 +385,22 @@ a response to one refresh is not required to repeat the other token family.
 
 `slack-events` derives the workspace selector from the verified Connection rather than accepting a
 caller-supplied team ID. It creates one owner Connection Set and a team-wide source binding,
-idempotently repairs the service Connection grant to `read-write`, and leaves the source agent on the
-requested profile (`read-only` by default). Only one Connection may route mentions for a workspace;
+idempotently repairs the service Connection grant to `read-write`, and binds the source to the
+selected Agent and environment. Only one Connection may route mentions for a workspace;
 attempting to enable another returns a conflict instead of silently changing credentials. The
 trusted notifier may use the bound service Connection to reply in the source thread even though the
-agent itself receives only the read-only tool envelope.
+Agent tools remain explicitly declared and separately credentialed.
 
-For dated live-provider coverage and the remaining canaries, see
-[Status and roadmap](status-and-roadmap.md).
+For supported behavior and current limitations, see [Status and roadmap](status-and-roadmap.md).
 
-Never place a token or application secret in a command-line argument, webhook body, Thing, run
+Never place a token or application secret in a command-line argument, webhook body, Agent, Session
 request, DynamoDB record, or URL. Keep provider exchange logs redacted. Already-issued OAuth tokens
 and API keys remain supported through the manifest-driven credential-file flow.
 
 ## Source-bound permissions
 
-A verified webhook source can select a preconfigured capability profile and/or connection set only
-after provider signature verification:
+A verified webhook source selects an owned Agent, environment and optional delivery connection
+set only after provider signature verification:
 
 ```bash
 rat-things bind-source --file /secure/config/client-channel-binding.json
@@ -430,13 +414,14 @@ rat-things bind-source --file /secure/config/client-channel-binding.json
     "teamId": "T01234567",
     "channelId": "C01234567"
   },
-  "capabilityProfile": "small-business",
+  "agentId": "agent_example",
+  "environment": { "type": "openai_hosted", "environment_template_id": "envtpl_example" },
   "connectionSetId": "customer-ops"
 }
 ```
 
-Selectors match trusted normalized source fields. A binding does not change run ownership or embed
-a credential. Generic source-binding creation is currently a trusted operator action; do not
+Selectors match trusted normalized source fields. The authenticated operator owns the binding
+and its Sessions; provider attribution does not grant ownership or embed a credential. Generic source-binding creation is currently a trusted operator action; do not
 delegate arbitrary selectors to tenants. For Slack, prefer `slack-events`: it derives `teamId` from
 the verified OAuth Connection and atomically refuses a competing exact workspace claim.
 

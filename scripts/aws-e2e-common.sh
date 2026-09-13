@@ -11,10 +11,15 @@ aws_e2e_source_runtime_defaults() {
     AWS_REGION
     AWS_DEFAULT_REGION
     AWS_E2E_ENABLE_MICROVM
+    AWS_E2E_ENABLE_EC2_WORKER
+    AWS_E2E_EC2_WORKER_AMI_ID
+    AWS_E2E_EC2_WORKER_IMAGE
+    AWS_E2E_ENVIRONMENT_RELAY_IMAGE
+    AWS_E2E_ENVIRONMENT_RELAY_ORIGIN_HOSTNAME
+    AWS_E2E_ENVIRONMENT_RELAY_ORIGIN_CERTIFICATE_ARN
     AWS_E2E_MICROVM_BASE_IMAGE_VERSION
     AWS_E2E_REAL_CODEX
     AWS_E2E_CODEX_MODEL_ID
-    AWS_E2E_DEFAULT_AGENT_DRIVER
     AWS_E2E_OAUTH_APP_SECRET_ARNS
     AWS_E2E_PUBLICATION_DOMAIN
     AWS_E2E_PUBLICATION_ROUTE53_ZONE_ID
@@ -63,14 +68,23 @@ aws_e2e_configure() {
   aws_region="${aws_region:-us-west-2}"
   aws_profile="${AWS_PROFILE:-}"
   microvm_enabled="${AWS_E2E_ENABLE_MICROVM:-true}"
+  ec2_worker_enabled="${AWS_E2E_ENABLE_EC2_WORKER:-false}"
+  ec2_worker_ami_id="${AWS_E2E_EC2_WORKER_AMI_ID:-}"
+  ec2_worker_image="${AWS_E2E_EC2_WORKER_IMAGE:-}"
+  environment_relay_image="${AWS_E2E_ENVIRONMENT_RELAY_IMAGE:-}"
+  environment_relay_origin_hostname="${AWS_E2E_ENVIRONMENT_RELAY_ORIGIN_HOSTNAME:-}"
+  environment_relay_origin_certificate_arn="${AWS_E2E_ENVIRONMENT_RELAY_ORIGIN_CERTIFICATE_ARN:-}"
+  if [[ -n "$environment_relay_image$environment_relay_origin_hostname$environment_relay_origin_certificate_arn" && ( -z "$environment_relay_image" || -z "$environment_relay_origin_hostname" || -z "$environment_relay_origin_certificate_arn" ) ]]; then
+    echo "Dedicated HTTPS e2e requires its pinned relay image, origin hostname and regional certificate ARN together" >&2
+    return 1
+  fi
+  if [[ "$ec2_worker_enabled" == "true" && ( -z "$ec2_worker_ami_id" || -z "$ec2_worker_image" ) ]]; then
+    echo "EC2 e2e requires AWS_E2E_EC2_WORKER_AMI_ID and AWS_E2E_EC2_WORKER_IMAGE pinned inputs" >&2
+    return 1
+  fi
   microvm_base_image_version="${AWS_E2E_MICROVM_BASE_IMAGE_VERSION:-}"
   real_codex_enabled="${AWS_E2E_REAL_CODEX:-false}"
   codex_model_id="${AWS_E2E_CODEX_MODEL_ID:-openai.gpt-5.6-terra}"
-  default_agent_driver="${AWS_E2E_DEFAULT_AGENT_DRIVER:-mock}"
-  if [[ "$default_agent_driver" != "mock" && "$default_agent_driver" != "codex" ]]; then
-    echo "AWS_E2E_DEFAULT_AGENT_DRIVER must be mock or codex" >&2
-    return 1
-  fi
   oauth_app_secret_arns="${AWS_E2E_OAUTH_APP_SECRET_ARNS:-}"
   slack_webhook_enabled="${AWS_E2E_ENABLE_SLACK_WEBHOOK:-false}"
   if [[ "$slack_webhook_enabled" != "true" && "$slack_webhook_enabled" != "false" ]]; then
@@ -108,12 +122,20 @@ aws_e2e_configure() {
     "-var=aws_region=$aws_region"
     "-var=deployment_id=$deployment_id"
     "-var=enable_microvm=$microvm_enabled"
+    "-var=enable_ec2_worker=$ec2_worker_enabled"
     "-var=codex_model_id=$codex_model_id"
-    "-var=default_agent_driver=$default_agent_driver"
     "-var=integration_oauth_app_secret_arns=$oauth_app_secret_arns"
     "-var=enable_slack_webhook=$slack_webhook_enabled"
     "-var=enable_publication_delivery=$publication_enabled"
   )
+  if [[ "$ec2_worker_enabled" == "true" ]]; then
+    tf_vars+=("-var=ec2_worker_ami_id=$ec2_worker_ami_id" "-var=ec2_worker_image=$ec2_worker_image")
+  fi
+  if [[ -n "$environment_relay_image" ]]; then
+    tf_vars+=("-var=environment_relay_image=$environment_relay_image"
+      "-var=environment_relay_origin_hostname=$environment_relay_origin_hostname"
+      "-var=environment_relay_origin_certificate_arn=$environment_relay_origin_certificate_arn")
+  fi
   if [[ "$publication_enabled" == "true" ]]; then
     tf_vars+=(
       "-var=publication_base_domain=$publication_domain"

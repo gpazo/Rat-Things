@@ -1,221 +1,69 @@
-# AWS quickstart
+# AWS and Agents quickstart
 
-This is the shortest path from local Codex to an independently operated Rat Things deployment and
-one **published, invoked, active Thing**. Local work uses the ChatGPT subscription already signed in
-on the operator's device. By default, the cloud handoff validates that same file-based ChatGPT
-login, copies it into AWS Secrets Manager after explicit consent, and runs Codex's built-in OpenAI
-provider inside an isolated Lambda MicroVM. Amazon Bedrock is optional rather than the product
-default.
+Rat Things keeps its API, harness, session state and execution in your AWS account.
+Use the [deployment guide](development-and-deployment.md) to configure the Terraform
+module, model credentials, ARM64 runtime image and Agents HTTP service. Package
+Lambda artifacts before Terraform validation or deployment. Deployment creates
+AWS resources; ordinary local checks do not provision MicroVMs.
 
-> [!TIP]
-> **Bring your Codex subscription.** The default path uses the Codex access included with the
-> ChatGPT plan already signed in on this device. It does not require an OpenAI Platform API key or
-> Amazon Bedrock; the quickstart explains and confirms the file-credential bridge before uploading.
+## Automated setup
 
-## What setup does
-
-The command installs pinned dependencies, checks prerequisites, packages and deploys the backend,
-then tests, publishes, and invokes the same Thing revision. Account setup, tool installation,
-service capacity, and provider access must be ready beforehand.
-
-The local `.runtime/aws-quickstart/result.json` stores the selected deployment context, source
-revision, Thing revision, Run receipts, and elapsed time. Setup succeeds when the deployment and
-both Runs complete successfully; elapsed time is diagnostic information. Detailed diagnostics are
-retained in `.runtime/aws-quickstart/quickstart.log` for interrupted setup and recovery.
-
-## Get the workstation and AWS account ready
-
-The entry point requires Bash and is intended for macOS or Linux, including WSL 2. Native Windows
-PowerShell and Command Prompt are not supported by this path.
-
-Install [Bash](https://www.gnu.org/software/bash/),
-[Node.js 22.20+](https://nodejs.org/en/download), npm, [Git](https://git-scm.com/downloads),
-[Terraform 1.5+](https://developer.hashicorp.com/terraform/install), and the
-[AWS CLI v2](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html). The
-ChatGPT workspace path can use any Region where Lambda MicroVMs are available. The optional default
-Bedrock model supports `us-east-1`, `us-east-2`, or `us-west-2`; a deliberate Bedrock deployment can
-choose another supported MicroVM Region only with a model available there.
-
-Authenticate the AWS CLI before cloning. AWS IAM Identity Center is the recommended local path;
-reuse an existing profile or environment-based credentials if your account already supplies one.
+The setup helper deploys the AWS backend, creates an Agent with the selected
+model, and completes two Turns in one Session. It checks the saved assistant
+Items, deletes the disposable Session to stop its harness, and leaves the Agent
+available for new work. Setup provisions AWS resources and invokes the model.
 
 ```bash
-aws configure sso --profile rat-things-sandbox
-aws sso login --profile rat-things-sandbox
-aws sts get-caller-identity --profile rat-things-sandbox
+npm run quickstart:aws -- --model YOUR_ADMITTED_MODEL
 ```
 
-Keep that profile name. Pass it and the Region to setup once. Setup stores only their non-secret
-names under `.runtime/aws-quickstart/`; later `status` and `destroy` commands automatically reuse
-them. Pass the same flags to a standalone preflight because no setup context exists yet.
+For ChatGPT authentication, setup requires explicit consent before copying the
+device's renewable Codex credentials into your AWS Secrets Manager. `--model`
+selects a model admitted by that credential and deployment. Use `--auth bedrock`
+with a configured Bedrock model for AWS model authentication instead.
 
-Use a disposable AWS sandbox account or an isolated deployment role. Host credentials provision
-infrastructure; the generated agent role is separate and `allow_agent_aws_credential_chain=false`.
+`--dry-run` describes setup without deploying. Existing-deployment status,
+credential synchronization and teardown commands retain the deployment's saved
+AWS identity. The local deterministic smoke test is `npm run smoke:local`;
+a mock driver cannot prove an Agents deployment.
 
-Rat Things does not ship an exact least-privilege deployer policy. Derive one from the Terraform
-plan for the features you enable, including role creation and `iam:PassRole`. The
-[deployment guide](development-and-deployment.md) describes the provisioned services.
+The helper uses the Lambda URL transport when a dedicated Agents HTTP service is
+not configured. Large uploads, long-lived SSE and executor connections need the
+[public transport deployment](agents-api.md#deploy-the-public-transport).
 
-The account also needs:
+## Connect an installed deployment
 
-- Lambda MicroVM service access and at least 4 GiB of unused regional memory quota for the default
-  Run. In the [Service Quotas console](https://console.aws.amazon.com/servicequotas/home/services/lambda/quotas),
-  choose AWS Lambda and search for “MicroVM.” AWS documents the
-  [quota and capacity model](https://docs.aws.amazon.com/lambda/latest/dg/microvms-launching.html),
-  including how to request an increase, and the
-  [operator IAM actions](https://docs.aws.amazon.com/lambda/latest/dg/microvms-security.html).
-- A file-based ChatGPT Codex login on the setup device. OpenAI documents file-backed storage with
-  `cli_auth_credentials_store = "file"` and `auth.json` in the
-  [Codex configuration reference](https://learn.chatgpt.com/docs/config-file/config-reference).
-  The quickstart validates the file locally, explains the account risk, and asks for explicit
-  consent before creating an encrypted Secrets Manager copy. Copying it to AWS is a Rat Things
-  bridge and should be used only with agents and AWS accounts you trust.
-- For optional Bedrock mode, `bedrock-mantle:CallWithBearerToken`, model-list access for preflight,
-  and inference access for the generated runtime role.
-
-The quickstart creates AWS resources and invokes the selected model twice. Review the
-[cost model and KMS deletion window](costs.md) before confirming; region, runtime, tokens, and
-account pricing determine the actual charge.
-
-## Run the complete path
+Set the Agents endpoint from `agents_api_base_url` and select an admitted model:
 
 ```bash
-git clone --depth 1 https://github.com/gpazo/Rat-Things.git
-cd Rat-Things
-npm run quickstart:aws -- --profile rat-things-sandbox --region us-west-2
+export RAT_THINGS_AGENTS_API_URL="https://your-agents-endpoint/v1"
+export AWS_REGION="us-west-2"
+export RAT_THINGS_MODEL="your-configured-model"
+
+npm run rat-things -- sessions create --model "$RAT_THINGS_MODEL" \
+  --input "Explain Agents, Sessions and Turns." --stream
 ```
 
-The quickstart prints a dedicated credential warning and requires a separate confirmation
-before it uploads the local login. With `--yes`, also pass
-`--accept-codex-credential-risk` or setup fails closed.
+The CLI obtains an owner-scoped API key using the workstation's AWS identity.
+The identity must be allowed to invoke the deployment's token issuer. Model
+requests use the deployment's configured provider and credentials.
 
-> [!WARNING]
-> `auth.json` contains bearer and renewable refresh credentials. It does not contain your password
-> or MFA secret, but theft may still impersonate the Codex login, consume subscription usage, and
-> reach Codex-visible data or connectors. Use only an AWS account and agents you trust. Read
-> [the complete credential lifecycle](codex-subscription.md#credential-risk-and-lifecycle) before
-> accepting.
-
-Omit `--profile` only when your shell already supplies the intended AWS credentials. Omit `--region`
-only when `AWS_REGION` or `AWS_DEFAULT_REGION` already selects a supported Lambda MicroVM Region.
-
-The quickstart command output is a six-stage readiness and deployment journey. Before any AWS
-write, it shows the exact account, Region, MicroVM image, driver, model-cost boundary, local state
-path, and deliberately omitted features. ChatGPT mode adds a separate credential-risk confirmation.
-Confirm both only when the target and credential transfer are acceptable.
-
-The command then:
-
-1. verifies host tool versions, AWS identity, managed MicroVM image access, and the structure of the
-   local file-based ChatGPT login without printing its value;
-2. after consent, creates a quickstart-managed Secrets Manager copy, packages Rat Things, and
-   applies the narrow backend with no VPC/NAT, OAuth account, schedule, or public sharing;
-3. runs `rat-things doctor` against public discovery and the IAM-authenticated API;
-4. creates a read-only, no-network manual Thing;
-5. explains it, tests its exact immutable draft in a real MicroVM, verifies the marker, and publishes
-   only that revision and `specHash`; and
-6. invokes the published active revision, waits for success, and verifies the same immutable binding
-   and a new Run receipt.
-
-The result includes the active Thing revision and separate Run receipts:
-
-```json
-{
-  "status": "ready",
-  "thing": {
-    "thingId": "...",
-    "status": "active",
-    "activeRevision": 1,
-    "specHash": "..."
-  },
-  "runs": {
-    "draftTest": { "runId": "...", "status": "succeeded", "invocation": "test" },
-    "active": { "runId": "...", "status": "succeeded", "invocation": "manual" }
-  }
-}
-```
-
-`ready` means the active Run succeeded. The destroy command rewrites the local record to
-`destroyed` after removing the deployment.
-
-## Review first without AWS writes
-
-Run these after cloning. The wrapper installs pinned local dependencies when they are absent.
+For reusable work, save an Agent request containing `model`, `name`,
+`instructions` and declared `tools`, then create it:
 
 ```bash
-npm run quickstart:aws -- preflight --profile rat-things-sandbox --region us-west-2
-npm run quickstart:aws -- --dry-run --profile rat-things-sandbox --region us-west-2
+rat-things agents create --file agent.json
+rat-things sessions create --agent-id agent_example --input "Begin the review."
+rat-things sessions turns sess_example
+rat-things sessions items sess_example
+rat-things sessions send sess_example --input "Also include the rollout plan."
 ```
 
-`preflight` creates, updates, and deletes no AWS resources. It checks the active AWS identity,
-resolves a managed MicroVM base image, and validates the local `auth.json` structure without
-printing or uploading its value. Preflight cannot prove remaining capacity, account entitlements,
-token validity, or successful inference; those depend on the deployed Run. With
-`--auth bedrock`, preflight instead mints a short-lived Bedrock authentication token and confirms
-that the selected model appears in the model catalog.
+The default CLI Session environment is `none`. Use a standard Session JSON request
+with an environment template when commands or a filesystem are required. Agent
+configuration is snapshotted when the Session is created.
 
-## Choose the AWS context and driver
-
-Use a named AWS profile or Region without editing Terraform:
-
-```bash
-npm run quickstart:aws -- --profile personal --region us-west-2
-```
-
-For a token-free infrastructure diagnostic, choose the mock explicitly:
-
-```bash
-npm run quickstart:aws -- --driver mock
-```
-
-Mock mode exercises the same deployment, authentication, Thing lifecycle, queueing, MicroVM, and
-artifact paths with deterministic output. It makes no model calls.
-
-## Inspect and remove it
-
-The quickstart is deliberately disposable. Its state and non-secret evidence stay under
-`.runtime/aws-quickstart/`; it does not touch a normal `infra/terraform.tfstate` or require a remote
-state backend. The full debug log is local, ignored by Git, and intended to make a failed stage
-inspectable without filling the normal terminal path with thousands of Terraform lines.
-
-```bash
-npm run quickstart:aws -- status
-npm run quickstart:aws -- sync-auth
-npm run quickstart:aws -- destroy
-```
-
-These commands reuse the profile, Region, and environment stored by setup; explicit flags can
-override a stored profile if its credentials were renamed or replaced. `status` reports
-`incomplete` when setup stopped after confirmation but before the final result, otherwise it reruns
-deployment diagnostics and reads the exact Thing. `sync-auth` validates and replaces the encrypted
-AWS copy after a local re-login and repeats the credential-risk confirmation. `destroy` confirms
-the target, terminates any
-remaining MicroVM for this image, destroys only the quickstart state, then fails
-unless Terraform state is empty, no MicroVM remains active, and the disabled customer-managed KMS
-key is in AWS's mandatory `PendingDeletion` window. It also removes the quickstart-managed Codex
-credential secret; an ARN supplied with `--codex-auth-secret-arn` remains operator-managed. Those
-postchecks are appended to the local result record.
-
-Do not use this disposable state layout as an unreviewed shared production deployment. Once the
-narrow journey is delightful and stable, choose retention, state backend, identity boundary,
-durable conversations, integrations, schedules, and publication delivery deliberately in the
-[deployment guide](development-and-deployment.md).
-
-## If it stops
-
-- `required command not found` or `... is required`: install the named prerequisite and rerun.
-- `could not discover a Lambda MicroVM base image`: confirm Region/service access, or pass a known
-  available version with `--microvm-base-image-version`.
-- Terraform `AccessDenied`: the active principal cannot create one of the printed resources. Do not
-  broaden agent permissions; fix the host deployment role.
-- A failed Codex test with a Bedrock error: confirm model access in the selected Region, or rerun
-  with another `--model`. Use `--driver mock` only when the goal is infrastructure diagnosis.
-- A failed Thing explanation or test prints the created Thing ID before stopping. Inspect it with
-  `npm run rat-things -- thing THING_ID`, then use [diagnostics](diagnostics.md).
-- An interrupted setup after the confirmation may leave exact resources in the quickstart state.
-  Run `npm run quickstart:aws -- status`, then `npm run quickstart:aws -- destroy`; both reuse the
-  saved identity context. Do not delete the state or context file first.
-
-The quickstart introduces one complete Thing lifecycle. Continue with [Things](things.md), then
-add [accounts and permissions](plugins.md) or the [deeper agent controls](agents.md) only when the
-task needs them.
+Use the [SDK guide](agents-api.md) for complete resource examples and
+[schedules and provider bindings](schedules.md) for automated input. Set
+`RAT_THINGS_API_URL` to the separate control endpoint for schedule and connection
+installation commands.

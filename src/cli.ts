@@ -1,11 +1,9 @@
 #!/usr/bin/env node
-
-import { createHash, randomUUID } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { basename, dirname, extname, join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Sha256 } from '@aws-crypto/sha256-js';
 import { defaultProvider } from '@aws-sdk/credential-provider-node';
@@ -13,14 +11,8 @@ import { SecretsManagerClient } from '@aws-sdk/client-secrets-manager';
 import { HttpRequest } from '@smithy/protocol-http';
 import { SignatureV4 } from '@smithy/signature-v4';
 import { CachedSecretReader } from './adapters/aws-runtime.js';
-import { fetchSharedResource } from './adapters/publication-client.js';
 import { CredentialBroker } from './credentials/broker.js';
-import type {
-  AgentDriverName,
-  RunRecord,
-  RunRequest,
-  SandboxMode,
-} from './domain/contracts.js';
+import type { AgentDriverName, RunRequest, SandboxMode } from './domain/contracts.js';
 import type {
   ConnectionAccessRequest,
   IntegrationAuthScheme,
@@ -29,14 +21,6 @@ import type {
 } from './domain/capabilities.js';
 import { INTEGRATION_PERMISSION_PRESETS } from './domain/capabilities.js';
 import type { IntegrationPluginManifest } from './plugins/integration-types.js';
-import type {
-  PublicAgentActivity,
-  PublicAgentRuntimeSnapshot,
-  PublicPendingAgentRequest,
-} from './core/agent-activity-projection.js';
-import { isTerminal } from './domain/state.js';
-import { createActivityProgress } from '../console/activity.js';
-import { runPresentation, isTextArtifact, readTextPreview, formatBytes, fileCommands, answerCommands, conversationOptions, fileScopeOptions, shellArgument as quoteArgument } from '../console/presentation.js';
 import { parseRunRequest } from './domain/validation.js';
 import {
   CapabilityProfileRegistry,
@@ -47,6 +31,8 @@ import { driverFor } from './runner/agent-driver.js';
 import { loadCodexBedrockToken } from './runner/bedrock-auth.js';
 import { codexAuthMode, localCodexAuthMode } from './runner/codex-auth.js';
 import { localArtifactPaths, prepareArtifactDirectory } from './runner/artifacts.js';
+import { sessionPublicationRequest } from './core/session-publication-planning.js';
+import { runAgentsCli } from './agents-cli.js';
 import { collectWorkspacePatch, prepareWorkspace } from './runner/workspace.js';
 
 interface Arguments {
@@ -57,91 +43,9 @@ interface Arguments {
   positionals: string[];
 }
 
-interface ConversationMessageStatus {
-  conversationId: string;
-  messageId: string;
-  state: 'pending' | 'consumed' | 'dead_letter';
-  conversation: {
-    status: 'idle' | 'pending' | 'running' | 'awaiting_resume' | 'failed';
-    pendingCount: number;
-    session?: { state: 'running' | 'suspended' | 'unknown' };
-  };
-  run?: RunRecord;
-}
-
-interface ArtifactMetadata {
-  id: string;
-  path: string;
-  mediaType: string;
-  bytes: number;
-  createdAt: string;
-  sourceRunId: string;
-  sha256: string;
-}
-
-interface ArtifactDescriptor extends ArtifactMetadata {
-  url: string;
-  expiresAt: string;
-  primaryPath?: string;
-  paths?: string[];
-}
-
-interface PublicConversationSummary {
-  conversationId: string;
-  title: string;
-  threadKey?: string;
-  status: 'idle' | 'pending' | 'running' | 'awaiting_resume' | 'failed';
-  pendingCount: number;
-  sourceKind: 'api' | 'github' | 'gitlab' | 'teams' | 'slack';
-  createdAt: string;
-  updatedAt: string;
-  pinned: boolean;
-  hidden: boolean;
-  unread: boolean;
-  lastMessagePreview?: string;
-}
-
-interface PublicConversationMessage {
-  interactions?: PublicConversationMessage[];
-  role: 'user' | 'assistant';
-  content: string;
-  messageId?: string;
-  receivedAt?: string;
-  replyToMessageId?: string;
-  reactions?: Array<{ emoji: string; reacted: boolean }>;
-  attachments?: Array<{ id: string }>;
-}
-
-interface PublicConversationDetail extends PublicConversationSummary {
-  activeRunId?: string;
-  transcript: {
-    messages: PublicConversationMessage[];
-    compactedMessages: number;
-    nextToken?: string;
-  };
-}
-
-interface ConversationAttachment {
-  name: string;
-  mediaType: string;
-  base64: string;
-  sha256: string;
-}
-
 const commands = new Set([
   'local',
-  'chat',
-  'handoff',
-  'submit',
-  'get',
-  'cancel',
-  'watch',
-  'steer',
-  'interrupt',
-  'respond',
-  'computer',
-  'conversations',
-  'conversation',
+  'schedules',
   'console',
   'plugins',
   'profiles',
@@ -156,35 +60,9 @@ const commands = new Set([
   'source-bindings',
   'bind-source',
   'slack-events',
-  'things',
-  'thing',
-  'thing-create',
-  'thing-update',
-  'thing-version',
-  'thing-versions',
-  'thing-test',
-  'thing-publish',
-  'thing-release',
-  'thing-run',
-  'thing-pause',
-  'thing-resume',
-  'thing-archive',
-  'thing-explain',
-  'routines',
-  'routine',
-  'routine-create',
-  'routine-run',
-  'routine-pause',
-  'routine-resume',
-  'routine-delete',
-  'output',
-  'artifact',
-  'files',
-  'file',
-  'publish',
-  'list',
   'doctor',
   'help',
+  'publications',
 ]);
 
 const booleanOptions = new Set([
@@ -224,6 +102,7 @@ const repeatableOptions = new Set([
 ]);
 
 const valueOptions = new Set([
+  'agent-id', 'environment-template', 'session',
   'access',
   'after',
   'alias',
@@ -290,13 +169,6 @@ interface SimpleApiCommand {
 }
 
 const simpleApiCommands: Record<string, SimpleApiCommand> = {
-  get: { method: 'GET', path: (args) => `/v1/runs/${positionalPath(args, 0, 'run ID')}` },
-  cancel: { method: 'POST', path: (args) => `/v1/runs/${positionalPath(args, 0, 'run ID')}/cancel` },
-  interrupt: {
-    method: 'POST',
-    path: (args) => `/v1/runs/${positionalPath(args, 0, 'run ID')}/interrupt`,
-    body: () => ({}),
-  },
   plugins: { method: 'GET', path: () => '/v1/integrations/plugins' },
   profiles: { method: 'GET', path: () => '/v1/capability-profiles' },
   connections: { method: 'GET', path: () => '/v1/integrations/connections' },
@@ -318,50 +190,16 @@ const simpleApiCommands: Record<string, SimpleApiCommand> = {
   'bind-source': {
     method: 'POST', path: () => '/v1/integrations/source-bindings', body: requiredJsonFile,
   },
-  thing: { method: 'GET', path: (args) => `/v1/things/${positionalPath(args, 0, 'Thing ID')}` },
-  'thing-create': { method: 'POST', path: () => '/v1/things', body: requiredJsonFile },
-  'thing-version': {
-    method: 'GET',
-    path: (args) => `/v1/things/${positionalPath(args, 0, 'Thing ID')}/versions/${positionalPath(args, 1, 'revision')}`,
-  },
-  'thing-versions': {
-    method: 'GET', path: (args) => `/v1/things/${positionalPath(args, 0, 'Thing ID')}/versions`,
-  },
-  'routine': { method: 'GET', path: (args) => `/v1/routines/${positionalPath(args, 0, 'routine ID')}` },
-  'routine-create': { method: 'POST', path: () => '/v1/routines', body: requiredJsonFile },
 };
 
-for (const operation of ['pause', 'resume', 'archive']) {
-  simpleApiCommands[`thing-${operation}`] = {
-    method: 'POST',
-    path: (args) => `/v1/things/${positionalPath(args, 0, 'Thing ID')}/${operation}`,
-    body: () => ({}),
-  };
-}
-
-for (const operation of ['pause', 'resume', 'delete']) {
-  simpleApiCommands[`routine-${operation}`] = {
-    method: 'POST',
-    path: (args) => `/v1/routines/${positionalPath(args, 0, 'routine ID')}/${operation}`,
-    body: () => ({}),
-  };
-}
-
 async function main(): Promise<void> {
+  if (await runAgentsCli(process.argv.slice(2))) return;
   const args = parseArguments(normalizeArguments(process.argv.slice(2)));
   if (args.values.has('api-url')) {
     process.env.RAT_THINGS_API_URL = args.values.get('api-url');
   }
   if (args.values.has('region')) process.env.AWS_REGION = args.values.get('region');
-  if (args.flags.has('help')) {
-    if (args.command === 'computer') computerHelp();
-    else if (args.command === 'conversation' || args.command === 'conversations') conversationHelp();
-    else if (args.command === 'chat') chatHelp();
-    else if (args.command === 'watch' || args.command === 'respond') runInteractionHelp();
-    else if (args.command === 'file' || args.command === 'files') fileHelp();
-    else help(args.flags.has('all'));
-    return;
-  }
+  if (args.flags.has('help')) { help(args.flags.has('all')); return; }
   validateRootPositionals(args);
   const simple = simpleApiCommands[args.command];
   if (simple) {
@@ -369,35 +207,14 @@ async function main(): Promise<void> {
     return;
   }
   switch (args.command) {
+    case 'publications':
+      await publicationsCommand(args);
+      return;
+    case 'schedules':
+      await schedulesCommand(args);
+      return;
     case 'local':
       await local(args);
-      return;
-    case 'chat':
-      await chat(args);
-      return;
-    case 'handoff':
-      await chat({ ...args, command: 'chat' });
-      return;
-    case 'submit':
-      await submit(args);
-      return;
-    case 'watch':
-      await watch(args);
-      return;
-    case 'steer':
-      await steer(args);
-      return;
-    case 'respond':
-      await respond(args);
-      return;
-    case 'computer':
-      await computerCommand(args);
-      return;
-    case 'conversations':
-      await conversationsCommand(args);
-      return;
-    case 'conversation':
-      await conversationCommand(args);
       return;
     case 'console':
       await openConsole(args);
@@ -414,113 +231,6 @@ async function main(): Promise<void> {
     case 'slack-events':
       await enableSlackEvents(args);
       return;
-    case 'things': {
-      const query = paginationQuery(args);
-      if (args.flags.has('all')) query.set('includeArchived', 'true');
-      print(await api(collectionPath('/v1/things', query), 'GET'));
-      return;
-    }
-    case 'thing-update': {
-      const thingId = encodeURIComponent(requiredPositional(args, 0, 'Thing ID'));
-      const current = await api(`/v1/things/${thingId}`, 'GET');
-      print(await api(
-        `/v1/things/${thingId}/versions`,
-        'POST',
-        {
-          version: '1',
-          expectedDraftRevision: thingDraftRevision(current),
-          spec: await requiredJsonFile(args),
-        },
-      ));
-      return;
-    }
-    case 'thing-explain':
-      {
-        const target = args.values.get('target');
-        if (target && target !== 'draft' && target !== 'active') {
-          throw new Error('--target must be draft or active');
-        }
-      print(await api(
-        `/v1/things/${encodeURIComponent(requiredPositional(args, 0, 'Thing ID'))}/explain${target ? `?target=${target}` : ''}`,
-        'GET',
-      ));
-      return;
-      }
-    case 'thing-test':
-    case 'thing-run': {
-      const headers: Record<string, string> = {};
-      const key = args.values.get('idempotency-key');
-      if (key) headers['idempotency-key'] = key;
-      const run = await api(
-        `/v1/things/${encodeURIComponent(requiredPositional(args, 0, 'Thing ID'))}/${args.command === 'thing-test' ? 'test' : 'run'}`,
-        'POST',
-        {},
-        headers,
-      ) as RunRecord;
-      const result = args.flags.has('wait') ? await waitForRun(run, args) : run;
-      print(result);
-      if (args.flags.has('wait') && result.status !== 'succeeded') process.exitCode = 1;
-      return;
-    }
-    case 'thing-publish': {
-      const thingId = encodeURIComponent(requiredPositional(args, 0, 'Thing ID'));
-      const current = await api(`/v1/things/${thingId}`, 'GET');
-      const draft = thingDraftIdentity(current);
-      const testRunId = args.values.get('test-run');
-      if (!testRunId) {
-        throw new Error('--test-run RUN_ID is required; use thing-release to test and publish in one command');
-      }
-      print(await api(
-        `/v1/things/${thingId}/publish`,
-        'POST',
-        {
-          version: '1',
-          expectedDraftRevision: draft.revision,
-          expectedSpecHash: draft.specHash,
-          testRunId,
-        },
-      ));
-      return;
-    }
-    case 'thing-release':
-      await releaseThing(args);
-      return;
-    case 'routines':
-      print(await api(collectionPath('/v1/routines', paginationQuery(args)), 'GET'));
-      return;
-    case 'routine-run': {
-      const headers: Record<string, string> = {};
-      const key = args.values.get('idempotency-key');
-      if (key) headers['idempotency-key'] = key;
-      print(await api(
-        `/v1/routines/${encodeURIComponent(requiredPositional(args, 0, 'routine ID'))}/run`,
-        'POST',
-        {},
-        headers,
-      ));
-      return;
-    }
-    case 'output':
-      await writeArtifact(requiredPositional(args, 0, 'run ID'), 'output');
-      return;
-    case 'artifact':
-      await writeArtifact(
-        requiredPositional(args, 0, 'run ID'),
-        requiredPositional(args, 1, 'artifact name'),
-      );
-      return;
-    case 'files':
-      await listFiles(args);
-      return;
-    case 'file':
-      await file(args);
-      return;
-    case 'publish':
-      await publish(args);
-      return;
-    case 'list':
-      print(await api(collectionPath('/v1/runs', paginationQuery(args)), 'GET'));
-      return;
     case 'doctor':
       await doctor(args);
       return;
@@ -534,511 +244,6 @@ async function main(): Promise<void> {
   }
 }
 
-async function chat(args: Arguments): Promise<void> {
-  validateCommandOptions(args, {
-    flags: ['browser', 'diagnostics', 'json', 'network', 'new', 'no-browser', 'no-network', 'no-wait'],
-    values: [
-      'connection-set', 'conversation', 'delivery', 'driver', 'file', 'idempotency-key', 'model',
-      'personality', 'poll-seconds', 'profile', 'prompt', 'reasoning-effort', 'reasoning-summary',
-      'reply-to', 'sandbox', 'thread', 'wait-timeout', 'web-search',
-    ],
-    multiple: [
-      'allow-operation', 'app', 'attach', 'connection', 'deny-operation', 'mcp', 'skill',
-    ],
-  });
-  const interval = positiveNumber(args.values.get('poll-seconds') ?? '2', 'poll-seconds');
-  const waitSeconds = positiveNumber(args.values.get('wait-timeout') ?? '2400', 'wait-timeout');
-  if (args.values.has('file') && (args.values.has('prompt') || args.positionals.length > 0)) {
-    throw new Error('chat accepts either --file REQUEST.json or prompt text, not both');
-  }
-  if (args.values.has('prompt') && args.positionals.length > 0) {
-    throw new Error('chat accepts prompt text either through --prompt or positionally, not both');
-  }
-  if (args.flags.has('new') && (args.values.has('thread') || args.values.has('conversation'))) {
-    throw new Error('--new cannot be combined with --thread or --conversation');
-  }
-  const conversationId = args.flags.has('new')
-    ? `thread-${new Date().toISOString().replace(/\D/g, '').slice(0, 14)}-${randomUUID().slice(0, 8)}`
-    : await selectedThread(args);
-  if (args.flags.has('new')) process.stderr.write(`thread=${conversationId}\n`);
-  const messageId = args.values.get('idempotency-key') ?? randomUUID();
-  const encodedConversation = encodeURIComponent(conversationId);
-  const request = await conversationRequestFromArguments(args) as Record<string, unknown>;
-  const delivery = args.values.get('delivery');
-  if (delivery !== undefined && delivery !== 'interrupt' && delivery !== 'defer') {
-    throw new Error('--delivery must be interrupt or defer');
-  }
-  const attachments = await conversationAttachments(args);
-  const replyToMessageId = args.values.get('reply-to');
-  if (replyToMessageId !== undefined && !replyToMessageId.trim()) {
-    throw new Error('--reply-to cannot be empty');
-  }
-  const run = await api(
-    '/v1/runs',
-    'POST',
-    {
-      ...request,
-      thread: {
-        key: conversationId,
-        ...(delivery ? { delivery } : {}),
-        ...(replyToMessageId ? { replyToMessageId } : {}),
-        ...(attachments.length > 0 ? { attachments } : {}),
-      },
-    },
-    { 'idempotency-key': messageId },
-  ) as RunRecord;
-  if (args.flags.has('no-wait')) {
-    print(run);
-    return;
-  }
-
-  process.stderr.write(`Accepted Run ${terminalText(run.runId)}\n`);
-  process.stderr.write(`Follow: rat-things watch ${shellArgument(run.runId)} --follow\n`);
-  process.stderr.write(`Open: rat-things console --thread ${shellArgument(conversationId)}\n`);
-
-  const deadline = Date.now() + waitSeconds * 1_000;
-  const statusPath = `/v1/conversations/${encodedConversation}/messages/${encodeURIComponent(messageId)}`;
-  let lastProgress = '';
-  const seenPending = new Set<string>();
-  let inputCheckFailed = false;
-  while (Date.now() < deadline) {
-    const current = await api(statusPath, 'GET') as ConversationMessageStatus;
-    let live: PublicAgentRuntimeSnapshot | undefined;
-    if (current.state === 'dead_letter') {
-      throw new Error(`conversation message ${messageId} was dead-lettered`);
-    }
-    if (current.run?.status === 'running') {
-      try {
-        live = await api(`/v1/runs/${encodeURIComponent(current.run.runId)}/events?after=0&limit=1`, 'GET') as PublicAgentRuntimeSnapshot;
-      } catch (error) {
-        // A finishing or not-yet-ready runtime has no live interaction endpoint.
-        if (!(error instanceof RuntimeApiError && error.status === 409) && !inputCheckFailed) {
-          inputCheckFailed = true;
-          process.stderr.write(`Live input could not be checked. Use rat-things watch ${shellArgument(current.run.runId)} --follow to reconnect.\n`);
-        }
-      }
-    }
-    const settled = current.conversation.status === 'idle' && current.conversation.pendingCount === 0 && current.conversation.session?.state === 'suspended';
-    const presentation = runPresentation({ status: current.run?.status ?? 'queued', ready: live?.ready ?? false, ...(live ? {pendingRequests: live.pendingRequests} : {}), settling: !settled });
-    const progress = args.flags.has('diagnostics')
-      ? [presentation.label, `message=${current.state}`, `conversation=${current.conversation.status}`, `run=${current.run?.status ?? 'unscheduled'}`, `microvm=${current.conversation.session?.state ?? 'unknown'}`].join(' · ')
-      : `${presentation.label} · ${presentation.detail}`;
-    if (progress !== lastProgress) {
-      process.stderr.write(`${terminalText(progress)}\n`);
-      lastProgress = progress;
-    }
-    if (live && current.run) renderNewPendingRequests(current.run.runId, live.pendingRequests, seenPending);
-    if (current.run && isTerminal(current.run.status)) {
-      if (current.run.status !== 'succeeded') {
-        if (args.flags.has('json') || args.flags.has('diagnostics')) print(current.run);
-        else process.stderr.write(`Inspect saved output: rat-things artifact ${shellArgument(current.run.runId)} output\n`);
-        process.exitCode = 1;
-        return;
-      }
-      if (settled) {
-        if (args.flags.has('json')) print(current);
-        else {
-          await writeArtifact(current.run.runId, 'output');
-          await completedFileActions(current.run.runId);
-        }
-        return;
-      }
-    }
-    await delay(interval * 1_000);
-  }
-  throw new Error(
-    `conversation message ${messageId} did not complete within ${waitSeconds} seconds`,
-  );
-}
-
-async function conversationsCommand(args: Arguments): Promise<void> {
-  const subcommand = args.positionals[0] ?? 'list';
-  const nested = withPositionals(args, args.positionals.slice(1));
-  if (subcommand === 'help') {
-    conversationHelp();
-    return;
-  }
-  if (subcommand === 'search') {
-    validateCommandOptions(nested, { flags: ['json'], values: ['limit', 'query'] });
-    if (nested.values.has('query') && nested.positionals.length > 0) {
-      throw new Error('conversation search accepts the query either through --query or positionally, not both');
-    }
-    const queryText = nested.values.get('query') ?? nested.positionals.join(' ');
-    if (!queryText.trim()) throw new Error('conversation search query is required');
-    const query = new URLSearchParams({ q: queryText });
-    if (nested.values.has('limit')) {
-      query.set('limit', String(positiveNumber(nested.values.get('limit') as string, 'limit')));
-    }
-    const result = await api(`/v1/conversations/search?${query}`, 'GET') as {
-      query: string;
-      items: Array<{
-        conversation: PublicConversationSummary;
-        matches: Array<{
-          kind: 'message' | 'file';
-          snippet: string;
-          occurredAt: string;
-          role?: 'user' | 'assistant';
-          artifactId?: string;
-        }>;
-      }>;
-    };
-    if (nested.flags.has('json')) print(result);
-    else renderConversationSearch(result);
-    return;
-  }
-  if (subcommand !== 'list') {
-    throw new Error('conversations requires list, search, or help');
-  }
-  validateCommandOptions(nested, {
-    flags: ['all', 'json'],
-    values: ['limit', 'next-token', 'visibility'],
-  });
-  validatePositionals(nested, 0, 0, 'conversations list');
-  if (nested.flags.has('all') && nested.values.has('visibility')) {
-    throw new Error('--all cannot be combined with --visibility');
-  }
-  const visibility = nested.values.get('visibility') ?? (nested.flags.has('all') ? 'all' : 'visible');
-  if (!['visible', 'hidden', 'all'].includes(visibility)) {
-    throw new Error('--visibility must be visible, hidden, or all');
-  }
-  const query = new URLSearchParams({ visibility });
-  if (nested.values.has('limit')) {
-    query.set('limit', String(positiveNumber(nested.values.get('limit') as string, 'limit')));
-  }
-  if (nested.values.has('next-token')) {
-    query.set('nextToken', nested.values.get('next-token') as string);
-  }
-  const result = await api(`/v1/conversations?${query}`, 'GET') as {
-    items: PublicConversationSummary[];
-    nextToken?: string;
-  };
-  if (nested.flags.has('json')) print(result);
-  else renderConversationList(result);
-}
-
-async function conversationCommand(args: Arguments): Promise<void> {
-  const subcommand = args.positionals[0];
-  if (!subcommand || subcommand === 'help') {
-    conversationHelp();
-    return;
-  }
-  const nested = withPositionals(args, args.positionals.slice(1));
-  if (subcommand === 'show') {
-    validateCommandOptions(nested, { flags: ['json'], values: ['limit', 'next-token'] });
-    validatePositionals(nested, 1, 1, 'conversation show ID_OR_THREAD');
-    const conversationId = await resolvePublicConversationId(requiredPositional(nested, 0, 'conversation ID or thread name'));
-    const query = new URLSearchParams();
-    if (nested.values.has('limit')) {
-      query.set('limit', String(positiveNumber(nested.values.get('limit') as string, 'limit')));
-    }
-    if (nested.values.has('next-token')) {
-      query.set('nextToken', nested.values.get('next-token') as string);
-    }
-    const detail = await api(
-      `/v1/conversations/${conversationId}${query.size > 0 ? `?${query}` : ''}`,
-      'GET',
-    ) as PublicConversationDetail;
-    if (nested.flags.has('json')) print(detail);
-    else renderConversationDetail(detail);
-    return;
-  }
-  if (subcommand === 'sources') {
-    validateCommandOptions(nested, { flags: ['json'] });
-    validatePositionals(nested, 1, 1, 'conversation sources ID_OR_THREAD');
-    const conversationId = await resolvePublicConversationId(requiredPositional(nested, 0, 'conversation ID or thread name'));
-    const collected = await conversationSources(conversationId);
-    if (nested.flags.has('json')) print({ conversationId, ...collected });
-    else renderConversationSources(collected);
-    return;
-  }
-  if (subcommand === 'rename') {
-    validateCommandOptions(nested, {});
-    validatePositionals(nested, 2, 2, 'conversation rename ID_OR_THREAD TITLE');
-    const title = requiredPositional(nested, 1, 'title').trim();
-    if (!title || title.length > 128) throw new Error('title must be 1-128 characters');
-    const id = await resolvePublicConversationId(requiredPositional(nested, 0, 'conversation'));
-    print(await api(`/v1/conversations/${id}/organization`, 'POST', {title}));
-    return;
-  }
-  if (['pin', 'unpin', 'hide', 'unhide', 'read', 'unread'].includes(subcommand)) {
-    validateCommandOptions(nested, {});
-    validatePositionals(nested, 1, 1, `conversation ${subcommand} ID_OR_THREAD`);
-    const conversationId = await resolvePublicConversationId(requiredPositional(nested, 0, 'conversation ID or thread name'));
-    const organization = subcommand === 'pin'
-      ? { pinned: true }
-      : subcommand === 'unpin'
-        ? { pinned: false }
-        : subcommand === 'hide'
-          ? { hidden: true }
-          : subcommand === 'unhide'
-            ? { hidden: false }
-            : { read: subcommand === 'read' };
-    print(await api(
-      `/v1/conversations/${conversationId}/organization`,
-      'POST',
-      organization,
-    ));
-    return;
-  }
-  if (subcommand === 'react' || subcommand === 'unreact') {
-    validateCommandOptions(nested, {});
-    validatePositionals(nested, 3, 3, `conversation ${subcommand} ID_OR_THREAD MESSAGE_ID EMOJI`);
-    const conversationId = await resolvePublicConversationId(requiredPositional(nested, 0, 'conversation ID or thread name'));
-    const messageId = encodeURIComponent(requiredPositional(nested, 1, 'message ID'));
-    const emoji = requiredPositional(nested, 2, 'reaction emoji');
-    if (!['👍', '❤️', '🎉', '👀'].includes(emoji)) {
-      throw new Error('reaction emoji must be one of 👍, ❤️, 🎉, or 👀');
-    }
-    print(await api(
-      `/v1/conversations/${conversationId}/messages/${messageId}/reactions`,
-      'POST',
-      { emoji, reacted: subcommand === 'react' },
-    ));
-    return;
-  }
-  throw new Error('conversation requires show, sources, rename, pin, unpin, hide, unhide, read, unread, react, or unreact');
-}
-
-function renderConversationList(result: {
-  items: PublicConversationSummary[];
-  nextToken?: string;
-}): void {
-  if (result.items.length === 0) {
-    process.stdout.write('No conversations found.\n');
-    return;
-  }
-  for (const conversation of result.items) {
-    const markers = [
-      conversation.pinned ? 'pinned' : undefined,
-      conversation.hidden ? 'hidden' : undefined,
-      conversation.unread ? 'unread' : undefined,
-    ].filter(Boolean).join(', ');
-    process.stdout.write(`${terminalText(conversation.conversationId)}\n`);
-    process.stdout.write(`  ${terminalText(conversation.title)} · ${terminalText(conversation.status)} · ${terminalText(conversation.sourceKind)}`);
-    if (markers) process.stdout.write(` · ${markers}`);
-    process.stdout.write(`\n  updated ${terminalText(conversation.updatedAt)}`);
-    if (conversation.threadKey) process.stdout.write(` · thread ${terminalText(conversation.threadKey)}`);
-    process.stdout.write('\n');
-    if (conversation.lastMessagePreview) {
-      process.stdout.write(`  ${singleLine(conversation.lastMessagePreview, 180)}\n`);
-    }
-  }
-  if (result.nextToken) process.stdout.write(`\nNext token: ${terminalText(result.nextToken)}\n`);
-}
-
-function renderConversationSearch(result: {
-  query: string;
-  items: Array<{
-    conversation: PublicConversationSummary;
-    matches: Array<{ kind: 'message' | 'file'; snippet: string; role?: string; artifactId?: string }>;
-  }>;
-}): void {
-  if (result.items.length === 0) {
-    process.stdout.write(`No conversations matched ${JSON.stringify(terminalText(result.query))}.\n`);
-    return;
-  }
-  process.stdout.write(`Matches for ${JSON.stringify(terminalText(result.query))}\n\n`);
-  for (const item of result.items) {
-    process.stdout.write(`${terminalText(item.conversation.conversationId)}\n`);
-    process.stdout.write(`  ${terminalText(item.conversation.title)}\n`);
-    for (const match of item.matches) {
-      const context = match.kind === 'message' ? match.role ?? 'message' : `file ${match.artifactId ?? ''}`.trim();
-      process.stdout.write(`  - ${terminalText(context)}: ${singleLine(match.snippet, 220)}\n`);
-    }
-  }
-}
-
-function renderConversationDetail(detail: PublicConversationDetail): void {
-  process.stdout.write(`${terminalText(detail.title)}\n`);
-  process.stdout.write(`${terminalText(detail.conversationId)}\n`);
-  process.stdout.write(`${terminalText(detail.status)} · ${terminalText(detail.sourceKind)} · updated ${terminalText(detail.updatedAt)}`);
-  if (detail.threadKey) process.stdout.write(` · thread ${terminalText(detail.threadKey)}`);
-  process.stdout.write('\n');
-  if (detail.transcript.compactedMessages > 0) {
-    process.stdout.write(`${detail.transcript.compactedMessages} older messages compacted\n`);
-  }
-  process.stdout.write('\n');
-  for (const message of detail.transcript.messages.flatMap(message => [...(message.interactions ?? []), message])) {
-    const label = message.role === 'user' ? 'You' : 'Rat';
-    const metadata = [
-      message.receivedAt,
-      message.messageId ? `message ${message.messageId}` : undefined,
-      message.replyToMessageId ? `reply to ${message.replyToMessageId}` : undefined,
-    ].filter(Boolean).join(' · ');
-    process.stdout.write(`${label}${metadata ? ` · ${terminalText(metadata)}` : ''}\n`);
-    process.stdout.write(`${indent(message.content.trim() || '(empty)', '  ')}\n`);
-    const reactions = message.reactions?.filter((reaction) => reaction.reacted).map((reaction) => reaction.emoji);
-    if (reactions?.length) process.stdout.write(`  reactions ${terminalText(reactions.join(' '))}\n`);
-    if (message.attachments?.length) {
-      process.stdout.write(`  attachments ${terminalText(message.attachments.map((attachment) => attachment.id).join(', '))}\n`);
-    }
-    process.stdout.write('\n');
-  }
-  if (detail.transcript.nextToken) {
-    process.stdout.write(`Next older page: --next-token ${terminalText(detail.transcript.nextToken)}\n`);
-  }
-  process.stdout.write(`Open: rat-things console --conversation ${shellArgument(detail.conversationId)}\n`);
-  if (detail.threadKey) {
-    process.stdout.write(`Continue: rat-things chat --thread ${shellArgument(detail.threadKey)} "Your next message"\n`);
-    process.stdout.write(`Files: rat-things files --thread ${shellArgument(detail.threadKey)}\n`);
-  }
-}
-
-type ConversationSource =
-  | { kind: 'transcript-link'; url: string; label: string; role: 'user' | 'assistant'; messageId?: string }
-  | { kind: 'attachment'; id: string; role: 'user' | 'assistant'; messageId?: string }
-  | { kind: 'file'; id: string; path: string; mediaType: string; bytes: number };
-
-interface ConversationSourceCollection {
-  sources: ConversationSource[];
-  pages: number;
-  complete: boolean;
-}
-
-async function conversationSources(conversationId: string): Promise<ConversationSourceCollection> {
-  const sources: ConversationSource[] = [];
-  const seen = new Set<string>();
-  const attachmentMessages = new Map<string, { role: 'user' | 'assistant'; messageId?: string }>();
-  const tokens = new Set<string>();
-  let nextToken: string | undefined;
-  let pages = 0;
-  let complete = true;
-  while (true) {
-    const query = new URLSearchParams({ limit: '100' });
-    if (nextToken) query.set('nextToken', nextToken);
-    const detail = await api(
-      `/v1/conversations/${conversationId}?${query}`,
-      'GET',
-    ) as PublicConversationDetail;
-    pages += 1;
-    for (const message of detail.transcript.messages) {
-      for (const match of message.content.matchAll(/https?:\/\/[^\s<>()\]]+/g)) {
-        const url = match[0].replace(/[.,;:!?]+$/, '');
-        try {
-          const parsed = new URL(url);
-          if (!['https:', 'http:'].includes(parsed.protocol) || seen.has(`link:${url}`)) continue;
-          seen.add(`link:${url}`);
-          sources.push({
-            kind: 'transcript-link',
-            url,
-            label: parsed.hostname,
-            role: message.role,
-            ...(message.messageId ? { messageId: message.messageId } : {}),
-          });
-        } catch {
-          // Ignore malformed link-like text in transcript content.
-        }
-      }
-      for (const attachment of message.attachments ?? []) {
-        if (!attachmentMessages.has(attachment.id)) {
-          attachmentMessages.set(attachment.id, {
-            role: message.role,
-            ...(message.messageId ? { messageId: message.messageId } : {}),
-          });
-        }
-      }
-    }
-    const older = detail.transcript.nextToken;
-    if (!older) break;
-    if (pages >= 100 || tokens.has(older)) {
-      complete = false;
-      break;
-    }
-    tokens.add(older);
-    nextToken = older;
-  }
-  const files = await artifactList({ kind: 'conversation', id: conversationId });
-  for (const file of files) {
-    if (seen.has(`file:${file.id}`)) continue;
-    seen.add(`file:${file.id}`);
-    attachmentMessages.delete(file.id);
-    sources.push({
-      kind: 'file',
-      id: file.id,
-      path: file.path,
-      mediaType: file.mediaType,
-      bytes: file.bytes,
-    });
-  }
-  for (const [id, context] of attachmentMessages) {
-    sources.push({ kind: 'attachment', id, ...context });
-  }
-  return { sources: sources.slice(0, 200), pages, complete };
-}
-
-function renderConversationSources(collection: ConversationSourceCollection): void {
-  if (!collection.complete) {
-    process.stderr.write('Warning: source collection stopped after 100 pages or a repeated cursor; results may be incomplete.\n');
-  }
-  if (collection.sources.length === 0) {
-    process.stdout.write('No transcript links, attachments, or durable files found.\n');
-    return;
-  }
-  for (const source of collection.sources) {
-    if (source.kind === 'transcript-link') {
-      process.stdout.write(`link\t${source.role}\t${terminalText(source.label)}\t${terminalText(source.url)}`);
-      if (source.messageId) process.stdout.write(`\t${terminalText(source.messageId)}`);
-      process.stdout.write('\n');
-    } else if (source.kind === 'attachment') {
-      process.stdout.write(`attachment\t${source.role}\t${terminalText(source.id)}`);
-      if (source.messageId) process.stdout.write(`\t${terminalText(source.messageId)}`);
-      process.stdout.write('\n');
-    } else {
-      process.stdout.write(`file\t${terminalText(source.path)}\t${terminalText(source.mediaType)}\t${source.bytes} bytes\t${terminalText(source.id)}\n`);
-    }
-  }
-}
-
-function validateThreadKey(value: string): string {
-  if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(value)) {
-    throw new Error('thread must be 1-128 safe ASCII characters');
-  }
-  return value;
-}
-
-/** Existing conversations only: resolving a read/organization selector never submits work. */
-async function resolvePublicConversationId(selector: string): Promise<string> {
-  validateThreadKey(selector);
-  if (/^[a-f0-9]{64}$/.test(selector)) return selector;
-  const seen = new Set<string>();
-  let nextToken: string | undefined;
-  for (let page = 0; page < 100; page++) {
-    const query = new URLSearchParams({visibility: 'all', limit: '100'});
-    if (nextToken) query.set('nextToken', nextToken);
-    const result = await api(`/v1/conversations?${query}`, 'GET') as {items: PublicConversationSummary[]; nextToken?: string};
-    const match = result.items.find(item => item.threadKey === selector);
-    if (match) return match.conversationId;
-    if (!result.nextToken) throw new Error(`conversation ${JSON.stringify(selector)} was not found; use rat-things conversations list --all`);
-    if (seen.has(result.nextToken)) break;
-    seen.add(result.nextToken);
-    nextToken = result.nextToken;
-  }
-  throw new Error('conversation lookup could not finish; use the public ID from rat-things conversations list --all');
-}
-
-async function selectedThread(args: Arguments, fallback = 'main'): Promise<string> {
-  if (args.values.has('thread') && args.values.has('conversation')) throw new Error('choose only one of --thread or --conversation');
-  const selector = args.values.get('conversation');
-  if (!selector) return validateThreadKey(args.values.get('thread') ?? fallback);
-  const id = await resolvePublicConversationId(selector);
-  const detail = await api(`/v1/conversations/${id}`, 'GET') as PublicConversationDetail;
-  if (!detail.threadKey) throw new Error('this conversation has no CLI thread; open it with rat-things console --conversation ' + shellArgument(id));
-  return validateThreadKey(detail.threadKey);
-}
-
-function singleLine(value: string, maximum: number): string {
-  const line = terminalText(value).replace(/\s+/g, ' ').trim();
-  return line.length <= maximum ? line : `${line.slice(0, maximum - 1)}…`;
-}
-
-function shellArgument(value: string): string {
-  return quoteArgument(terminalText(value));
-}
-
-function indent(value: string, prefix: string): string {
-  return terminalText(value).split('\n').map((line) => `${prefix}${line}`).join('\n');
-}
-
 /** Prevent provider- or agent-authored text from issuing terminal commands in human output. */
 function terminalText(value: string): string {
   return value
@@ -1046,57 +251,7 @@ function terminalText(value: string): string {
     .replace(/[\u0000-\u0008\u000B-\u001F\u007F-\u009F]/g, '�');
 }
 
-async function conversationAttachments(args: Arguments): Promise<ConversationAttachment[]> {
-  const paths = repeated(args, 'attach') ?? [];
-  if (paths.length > 6) throw new Error('--attach accepts at most 6 files');
-  const result: ConversationAttachment[] = [];
-  let totalBytes = 0;
-  for (const path of paths) {
-    const absolute = resolve(path);
-    const metadata = await stat(absolute).catch((error: unknown) => {
-      throw new Error(`could not read attachment ${path}: ${error instanceof Error ? error.message : String(error)}`);
-    });
-    if (!metadata.isFile()) throw new Error(`attachment is not a regular file: ${path}`);
-    if (metadata.size > 4 * 1024 * 1024) throw new Error(`attachment exceeds 4 MiB: ${path}`);
-    totalBytes += metadata.size;
-    if (totalBytes > 6 * 1024 * 1024) throw new Error('attachments exceed 6 MiB in total');
-    const bytes = await readFile(absolute);
-    result.push({
-      name: basename(absolute),
-      mediaType: mediaTypeForPath(absolute),
-      base64: bytes.toString('base64'),
-      sha256: createHash('sha256').update(bytes).digest('hex'),
-    });
-  }
-  return result;
-}
-
-function mediaTypeForPath(path: string): string {
-  return ({
-    '.csv': 'text/csv',
-    '.gif': 'image/gif',
-    '.htm': 'text/html',
-    '.html': 'text/html',
-    '.jpeg': 'image/jpeg',
-    '.jpg': 'image/jpeg',
-    '.json': 'application/json',
-    '.md': 'text/markdown',
-    '.pdf': 'application/pdf',
-    '.png': 'image/png',
-    '.svg': 'image/svg+xml',
-    '.text': 'text/plain',
-    '.txt': 'text/plain',
-    '.webp': 'image/webp',
-    '.yaml': 'application/yaml',
-    '.yml': 'application/yaml',
-    '.zip': 'application/zip',
-  } as Record<string, string>)[extname(path).toLowerCase()] ?? 'application/octet-stream';
-}
-
 async function local(args: Arguments): Promise<void> {
-  if (args.values.has('thread') || args.values.has('conversation')) {
-    throw new Error('Cloud conversations require an explicit command: rat-things chat --thread NAME "..."');
-  }
   validateCommandOptions(args, {
     flags: ['browser', 'events', 'network', 'no-browser', 'no-network', 'patch'],
     values: [
@@ -1107,7 +262,7 @@ async function local(args: Arguments): Promise<void> {
     multiple: ['allow-operation', 'app', 'connection', 'deny-operation', 'mcp', 'skill'],
   });
   const requestedAuthMode = args.values.get('codex-auth');
-  const parsed = await requestFromArguments(args, true);
+  const parsed = await requestFromArguments(args);
   const resolvedProfile = resolveAgentProfile(
     parsed.agent,
     new CapabilityProfileRegistry(createBuiltinCapabilityProfiles()),
@@ -1174,473 +329,14 @@ async function local(args: Arguments): Promise<void> {
   }
 }
 
-async function submit(args: Arguments): Promise<void> {
-  const request = await requestFromArguments(args, false);
-  const headers: Record<string, string> = {};
-  const key = args.values.get('idempotency-key');
-  if (key) headers['idempotency-key'] = key;
-  const record = await api('/v1/runs', 'POST', request, headers) as RunRecord;
-  if (!args.flags.has('wait')) {
-    print(record);
-    return;
-  }
-  const current = await waitForRun(record, args);
-  print(current);
-  if (current.status === 'succeeded' && args.flags.has('output')) {
-    await writeArtifact(current.runId, 'output');
-    await completedFileActions(current.runId);
-  }
-  if (current.status !== 'succeeded') process.exitCode = 1;
-}
-
-async function releaseThing(args: Arguments): Promise<void> {
-  const file = args.values.get('file');
-  if (file && args.positionals.length > 0) {
-    throw new Error('thing-release accepts either THING_ID or --file THING.json, not both');
-  }
-  let created: unknown;
-  let rawThingId = args.positionals[0];
-  if (file) {
-    created = await api('/v1/things', 'POST', await requiredJsonFile(args));
-    rawThingId = thingIdFrom(created);
-    process.stderr.write(`created Thing ${rawThingId}\n`);
-  }
-  if (!rawThingId) {
-    throw new Error('provide a Thing ID or --file THING.json');
-  }
-  const thingId = encodeURIComponent(rawThingId);
-  const explanation = await api(`/v1/things/${thingId}/explain`, 'GET') as {
-    runnable?: unknown;
-    diagnostics?: Array<{ status?: unknown; message?: unknown }>;
-    thing?: unknown;
-  };
-  const errors = Array.isArray(explanation.diagnostics)
-    ? explanation.diagnostics.filter((item) => item.status === 'error')
-    : [];
-  if (explanation.runnable !== true || errors.length > 0) {
-    const detail = errors
-      .map((item) => typeof item.message === 'string' ? item.message : 'unknown diagnostic')
-      .join('; ');
-    throw new Error(`Thing draft is not runnable${detail ? `: ${detail}` : ''}`);
-  }
-  const draft = thingDraftIdentity(explanation.thing);
-  const idempotencyKey = args.values.get('idempotency-key') ??
-    `release:${rawThingId}:${draft.revision}:${draft.specHash.slice(0, 16)}`;
-  process.stderr.write(`testing Thing revision ${draft.revision} (${draft.specHash.slice(0, 12)})\n`);
-  const accepted = await api(
-    `/v1/things/${thingId}/test`,
-    'POST',
-    {},
-    { 'idempotency-key': idempotencyKey },
-  ) as RunRecord;
-  const testRun = await waitForRun(accepted, args);
-  if (testRun.status !== 'succeeded') {
-    print({ version: '1', released: false, ...(created ? { created } : {}), testRun });
-    process.exitCode = 1;
-    return;
-  }
-  process.stderr.write(`publishing tested Thing revision ${draft.revision}\n`);
-  const thing = await api(`/v1/things/${thingId}/publish`, 'POST', {
-    version: '1',
-    expectedDraftRevision: draft.revision,
-    expectedSpecHash: draft.specHash,
-    testRunId: testRun.runId,
-  });
-  print({ version: '1', released: true, ...(created ? { created } : {}), testRun, thing });
-}
-
-function thingIdFrom(value: unknown): string {
-  if (!value || typeof value !== 'object') throw new Error('runtime returned an invalid Thing');
-  const thingId = (value as { thingId?: unknown }).thingId;
-  if (typeof thingId !== 'string' || !thingId) throw new Error('runtime returned no Thing ID');
-  return thingId;
-}
-
-async function waitForRun(record: RunRecord, args: Arguments): Promise<RunRecord> {
-  const interval = positiveNumber(args.values.get('poll-seconds') ?? '2', 'poll-seconds');
-  const waitSeconds = positiveNumber(args.values.get('wait-timeout') ?? '2400', 'wait-timeout');
-  const deadline = Date.now() + waitSeconds * 1_000;
-  let current = record;
-  let previousStatus: string | undefined;
-  while (!isTerminal(current.status)) {
-    if (Date.now() >= deadline) {
-      throw new Error(`timed out after ${waitSeconds}s waiting for Run ${record.runId}`);
-    }
-    if (current.status !== previousStatus) {
-      process.stderr.write(`${runPresentation(current).label} · Run ${current.runId}\n`);
-      previousStatus = current.status;
-    }
-    await delay(interval * 1_000);
-    current = await api(`/v1/runs/${record.runId}`, 'GET') as RunRecord;
-  }
-  if (current.status !== previousStatus) process.stderr.write(`${runPresentation(current).label} · Run ${current.runId}\n`);
-  return current;
-}
-
-async function watch(args: Arguments): Promise<void> {
-  validateCommandOptions(args, {
-    flags: ['follow', 'json', 'raw', 'diagnostics'],
-    values: ['after', 'poll-seconds'],
-  });
-  validatePositionals(args, 1, 1, 'watch RUN_ID');
-  if (args.flags.has('json') && args.flags.has('raw')) {
-    throw new Error('--json cannot be combined with --raw');
-  }
-  const runId = requiredPositional(args, 0, 'run ID');
-  let after = nonNegativeNumber(args.values.get('after') ?? '0', 'after');
-  const interval = positiveNumber(args.values.get('poll-seconds') ?? '1', 'poll-seconds');
-  const seenPending = new Set<string>();
-  let previousRunStatus: string | undefined;
-  let warnedGap: string | undefined;
-  const progressActivities = createActivityProgress(after);
-  while (true) {
-    const requestedAfter = after;
-    const query = new URLSearchParams({ after: String(after), limit: '100' });
-    let snapshot: PublicAgentRuntimeSnapshot;
-    try {
-      snapshot = await api(
-        `/v1/runs/${encodeURIComponent(runId)}/events?${query}`,
-        'GET',
-      ) as PublicAgentRuntimeSnapshot;
-    } catch (error) {
-      if (!(error instanceof RuntimeApiError) || error.status !== 409) {
-        throw error;
-      }
-      const run = await api(`/v1/runs/${encodeURIComponent(runId)}`, 'GET') as RunRecord;
-      if (!args.flags.has('json') && run.status !== previousRunStatus) {
-        process.stderr.write(`${runPresentation(run).label} · Run ${run.runId}${args.flags.has('diagnostics') ? ` · status=${run.status}` : ''}\n`);
-        previousRunStatus = run.status;
-      }
-      if (isTerminal(run.status)) {
-        if (args.flags.has('json')) {
-          const terminal = { runId, status: run.status, active: false };
-          if (args.flags.has('follow')) process.stdout.write(`${JSON.stringify(terminal)}\n`);
-          else print(terminal);
-        }
-        else {
-          process.stderr.write(`Live activity has ended. Read the saved result: rat-things artifact ${shellArgument(runId)} output\n`);
-        }
-        return;
-      }
-      throw error;
-    }
-    if (requestedAfter < snapshot.oldestSequence - 1) {
-      const gap = `${requestedAfter + 1}-${snapshot.oldestSequence - 1}`;
-      if (gap !== warnedGap) {
-        process.stderr.write(
-          `Warning: live activity ${gap} is no longer in the bounded ring; use the terminal events JSONL artifact for the durable record.\n`,
-        );
-        warnedGap = gap;
-      }
-    }
-    if (args.flags.has('json')) {
-      if (args.flags.has('follow')) process.stdout.write(`${JSON.stringify(snapshot)}\n`);
-      else print(snapshot);
-    }
-    else if (args.flags.has('raw')) {
-      for (const event of snapshot.events) {
-        process.stdout.write(`${JSON.stringify(event)}\n`);
-      }
-      for (const pending of snapshot.pendingRequests) {
-        process.stderr.write(`agent request pending: ${JSON.stringify(pending)}\n`);
-      }
-    } else {
-      for (const event of progressActivities(snapshot.events)) renderActivity(event);
-      renderNewPendingRequests(runId, snapshot.pendingRequests, seenPending);
-    }
-    const last = snapshot.events.at(-1);
-    if (last) after = last.sequence;
-    if (!args.flags.has('follow') && !args.flags.has('diagnostics')) return;
-    const run = await api(`/v1/runs/${encodeURIComponent(runId)}`, 'GET') as RunRecord;
-    const presentation = runPresentation({...snapshot, status: run.status});
-    if (!args.flags.has('json') && presentation.label !== previousRunStatus) {
-      process.stderr.write(`${presentation.label} · Run ${run.runId}${args.flags.has('diagnostics') ? ` · status=${run.status}` : ''}\n`);
-      previousRunStatus = presentation.label;
-    }
-    if (isTerminal(run.status) || !args.flags.has('follow')) return;
-    await delay(interval * 1_000);
-  }
-}
-
-function renderActivity(event: PublicAgentActivity): void {
-  const status = ({
-    started: '▶',
-    updated: '·',
-    completed: '✓',
-    failed: '!',
-    info: '·',
-  } as const)[event.status];
-  const time = Number.isNaN(Date.parse(event.occurredAt))
-    ? event.occurredAt
-    : new Date(event.occurredAt).toLocaleTimeString('en-US', { hour12: false });
-  process.stdout.write(`${terminalText(time)}  ${status} ${terminalText(event.title)}`);
-  if (event.detail) process.stdout.write(` — ${terminalText(event.detail)}`);
-  process.stdout.write('\n');
-}
-
-function renderNewPendingRequests(runId: string, requests: PublicPendingAgentRequest[], seen: Set<string>): void {
-  for (const pending of requests) {
-    if (seen.has(pending.requestId)) continue;
-    seen.add(pending.requestId);
-    renderPendingRequest(runId, pending);
-  }
-}
-
-function renderPendingRequest(runId: string, pending: PublicPendingAgentRequest): void {
-  process.stderr.write(`\nInput needed · ${terminalText(pending.title)}\n`);
-  if (pending.detail) process.stderr.write(`${terminalText(pending.detail)}\n`);
-  for (const question of pending.questions ?? []) {
-    process.stderr.write(`  ${terminalText(question.id)}: ${terminalText(question.question)}\n`);
-    for (const option of question.options ?? []) {
-      process.stderr.write(`    - ${terminalText(option.label)}`);
-      if (option.description) process.stderr.write(` — ${terminalText(option.description)}`);
-      process.stderr.write('\n');
-    }
-  }
-  if (pending.questions?.length) {
-    for (const [label, command] of answerCommands(runId, pending)) process.stderr.write(`${terminalText(label!)}: ${terminalText(command!)}\n`);
-    process.stderr.write('\n');
-  } else {
-    process.stderr.write(`Respond: rat-things respond ${terminalText(runId)} ${terminalText(pending.requestId)} --result JSON\n\n`);
-  }
-}
-
-async function steer(args: Arguments): Promise<void> {
-  const runId = requiredPositional(args, 0, 'run ID');
-  const prompt = args.values.get('prompt') ?? args.positionals.slice(1).join(' ');
-  if (!prompt.trim()) throw new Error('steer prompt is required');
-  print(await api(
-    `/v1/runs/${encodeURIComponent(runId)}/steer`,
-    'POST',
-    { prompt },
-  ));
-}
-
-async function respond(args: Arguments): Promise<void> {
-  validateCommandOptions(args, {
-    values: ['result'],
-    multiple: ['answer', 'answer-stdin'],
-  });
-  validatePositionals(args, 2, 2, 'respond RUN_ID REQUEST_ID');
-  const runId = requiredPositional(args, 0, 'run ID');
-  const requestId = requiredPositional(args, 1, 'server request ID');
-  const raw = args.values.get('result');
-  const answers = repeated(args, 'answer') ?? [];
-  const stdinQuestions = repeated(args, 'answer-stdin') ?? [];
-  if (raw !== undefined && (answers.length > 0 || stdinQuestions.length > 0)) {
-    throw new Error('--result cannot be combined with --answer or --answer-stdin');
-  }
-  if (raw === undefined && answers.length === 0 && stdinQuestions.length === 0) {
-    throw new Error('provide --result JSON, --answer QUESTION=VALUE, or --answer-stdin QUESTION');
-  }
-  let result: unknown;
-  if (raw !== undefined) {
-    try {
-      result = JSON.parse(raw) as unknown;
-    } catch {
-      throw new Error('--result must be valid JSON');
-    }
-  } else {
-    const structured: Record<string, { answers: string[] }> = {};
-    for (const answer of answers) {
-      const separator = answer.indexOf('=');
-      if (separator < 1 || separator === answer.length - 1) {
-        throw new Error('--answer must use QUESTION=VALUE');
-      }
-      const question = answer.slice(0, separator);
-      const value = answer.slice(separator + 1).trim();
-      if (!value) throw new Error('--answer value cannot be empty');
-      if (structured[question]) throw new Error(`question ${JSON.stringify(question)} was answered more than once`);
-      structured[question] = { answers: [value] };
-    }
-    const stdinAnswers = await readSecretAnswers(stdinQuestions);
-    for (const [question, value] of stdinAnswers) {
-      if (structured[question]) throw new Error(`question ${JSON.stringify(question)} was answered more than once`);
-      structured[question] = { answers: [value] };
-    }
-    result = { answers: structured };
-  }
-  print(await api(
-    `/v1/runs/${encodeURIComponent(runId)}/requests/${encodeURIComponent(requestId)}/respond`,
-    'POST',
-    { result },
-  ));
-}
-
-async function readSecretAnswers(questionIds: string[]): Promise<Map<string, string>> {
-  const unique = new Set<string>();
-  for (const questionId of questionIds) {
-    if (!questionId.trim()) throw new Error('--answer-stdin question ID cannot be empty');
-    if (unique.has(questionId)) {
-      throw new Error(`question ${JSON.stringify(questionId)} was requested from stdin more than once`);
-    }
-    unique.add(questionId);
-  }
-  if (questionIds.length === 0) return new Map();
-  const values = process.stdin.isTTY
-    ? await readHiddenTtyAnswers(questionIds)
-    : await readPipedAnswers(questionIds);
-  return new Map(questionIds.map((questionId, index) => [questionId, values[index] as string]));
-}
-
-async function readPipedAnswers(questionIds: string[]): Promise<string[]> {
-  const chunks: Buffer[] = [];
-  for await (const chunk of process.stdin) chunks.push(Buffer.from(chunk));
-  const lines = Buffer.concat(chunks).toString('utf8').split(/\r?\n/);
-  if (lines.at(-1) === '') lines.pop();
-  if (lines.length !== questionIds.length) {
-    throw new Error(
-      `--answer-stdin expected ${questionIds.length} line${questionIds.length === 1 ? '' : 's'} on stdin but received ${lines.length}`,
-    );
-  }
-  return lines.map((line, index) => {
-    if (!line) throw new Error(`stdin answer for ${questionIds[index]} cannot be empty`);
-    return line;
-  });
-}
-
-async function readHiddenTtyAnswers(questionIds: string[]): Promise<string[]> {
-  const values: string[] = [];
-  for (const questionId of questionIds) values.push(await readHiddenTtyAnswer(questionId));
-  return values;
-}
-
-async function readHiddenTtyAnswer(questionId: string): Promise<string> {
-  const input = process.stdin;
-  const previousRaw = input.isRaw;
-  process.stderr.write(`Secret answer for ${questionId}: `);
-  input.setEncoding('utf8');
-  input.setRawMode(true);
-  input.resume();
-  return new Promise<string>((resolvePromise, reject) => {
-    let value = '';
-    const cleanup = () => {
-      input.off('data', onData);
-      input.setRawMode(Boolean(previousRaw));
-      input.pause();
-    };
-    const finish = () => {
-      cleanup();
-      process.stderr.write('\n');
-      if (!value) reject(new Error(`secret answer for ${questionId} cannot be empty`));
-      else resolvePromise(value);
-    };
-    const onData = (chunk: string | Buffer) => {
-      for (const character of String(chunk)) {
-        if (character === '\u0003') {
-          cleanup();
-          process.stderr.write('\n');
-          reject(new Error('secret answer input cancelled'));
-          return;
-        }
-        if (character === '\r' || character === '\n' || character === '\u0004') {
-          finish();
-          return;
-        }
-        if (character === '\u007f' || character === '\b') value = value.slice(0, -1);
-        else if (character >= ' ') value += character;
-      }
-    };
-    input.on('data', onData);
-  });
-}
-
-async function computerCommand(args: Arguments): Promise<void> {
-  const subcommand = args.positionals[0];
-  const subcommands = [
-    'open', 'watch', 'screenshot', 'status', 'takeover', 'release', 'act', 'teach',
-    'navigate', 'click', 'type', 'press', 'select', 'scroll', 'wait', 'back', 'help',
-  ];
-  if (!subcommand) {
-    computerHelp();
-    return;
-  }
-  if (!subcommands.includes(subcommand)) {
-    throw new Error(`unknown computer subcommand ${JSON.stringify(subcommand)}; run rat-things computer --help`);
-  }
-  const nested = withPositionals(args, args.positionals.slice(1));
-  switch (subcommand) {
-    case 'open':
-      validateCommandOptions(nested, { flags: ['no-wait'], values: ['port', 'run', 'thread', 'conversation'] });
-      validatePositionals(nested, 0, 1, 'computer open [RUN_ID]');
-      await openConsole(nested);
-      return;
-    case 'watch':
-    case 'screenshot':
-    case 'status':
-      validateCommandOptions(nested, { values: ['screenshot'] });
-      validatePositionals(nested, 1, 1, `computer ${subcommand} RUN_ID`);
-      await computerSnapshot(nested);
-      return;
-    case 'takeover':
-      validateCommandOptions(nested, {});
-      validatePositionals(nested, 1, 1, 'computer takeover RUN_ID');
-      await setComputerControl(nested, 'human');
-      return;
-    case 'release':
-      validateCommandOptions(nested, {});
-      validatePositionals(nested, 1, 1, 'computer release RUN_ID');
-      await setComputerControl(nested, 'agent');
-      return;
-    case 'act':
-      validateCommandOptions(nested, { values: ['file'] });
-      validatePositionals(nested, 1, 1, 'computer act RUN_ID --file ACTION.json');
-      await computerAct(nested);
-      return;
-    case 'navigate':
-    case 'click':
-    case 'type':
-    case 'press':
-    case 'select':
-    case 'scroll':
-    case 'wait':
-    case 'back':
-      await computerFriendlyAction(nested, subcommand);
-      return;
-    case 'teach': {
-      const action = nested.positionals[0];
-      const teachArgs = withPositionals(nested, nested.positionals.slice(1));
-      if (action === 'start') {
-        validateCommandOptions(teachArgs, { values: ['goal', 'name'] });
-        validatePositionals(teachArgs, 1, 1, 'computer teach start RUN_ID --name NAME');
-        await teachStart(teachArgs);
-      } else if (action === 'stop' || action === 'discard') {
-        validateCommandOptions(teachArgs, {});
-        validatePositionals(teachArgs, 1, 1, `computer teach ${action} RUN_ID`);
-        await teachStop(teachArgs, action === 'discard');
-      }
-      else throw new Error('computer teach requires start, stop, or discard');
-      return;
-    }
-    default:
-      computerHelp();
-  }
-}
-
-function withPositionals(args: Arguments, positionals: string[]): Arguments {
-  return { ...args, positionals };
-}
-
 async function openConsole(args: Arguments): Promise<void> {
-  validateCommandOptions(args, { flags: ['no-wait'], values: ['port', 'run', 'thread', 'conversation'] });
-  const base = process.env.RAT_THINGS_API_URL ?? process.env.AGENT_RUNTIME_API_URL;
-  if (!base) throw new Error('RAT_THINGS_API_URL is required to open the signed console');
+  validateCommandOptions(args, { flags: ['no-wait'], values: ['port'] });
+  const base = process.env.RAT_THINGS_AGENTS_API_URL ?? process.env.RAT_THINGS_API_URL;
+  if (!base) throw new Error('RAT_THINGS_AGENTS_API_URL is required to open the signed console');
   const port = Number(args.values.get('port') ?? '4174');
   if (!Number.isInteger(port) || port < 1_024 || port > 65_535) {
     throw new Error('--port must be an integer from 1024 through 65535');
   }
-  const selector = new URLSearchParams();
-  const runId = args.values.get('run') ?? args.positionals[0];
-  const thread = args.values.get('thread');
-  const conversation = args.values.get('conversation');
-  if ([runId, thread, conversation].filter(Boolean).length > 1 || (args.values.has('run') && args.positionals.length)) {
-    throw new Error('choose only one Run, --thread, or --conversation when opening the console');
-  }
-
-  if (runId) selector.set('run', runId);
-  if (thread) selector.set('thread', thread);
-  if (conversation) selector.set('conversation', await resolvePublicConversationId(conversation));
-
   const cliDirectory = dirname(fileURLToPath(import.meta.url));
   const bundledServer = join(cliDirectory, 'console-server.mjs');
   const sourceRoot = dirname(cliDirectory);
@@ -1664,7 +360,7 @@ async function openConsole(args: Arguments): Promise<void> {
   });
   try {
     const boundPort = await waitForLocalConsole(child);
-    const url = `http://127.0.0.1:${boundPort}/${selector.size ? `?${selector.toString()}` : ''}`;
+    const url = `http://127.0.0.1:${boundPort}/`;
     launchBrowser(url);
     process.stdout.write(`Rat Things console: ${url}\n`);
     if (args.flags.has('no-wait')) {
@@ -1722,251 +418,6 @@ function launchBrowser(url: string): void {
       : ['xdg-open', [url]] as const;
   const browser = spawn(command[0], command[1], { detached: true, stdio: 'ignore' });
   browser.unref();
-}
-
-function computerHelp(): void {
-  process.stdout.write(`Rat Things live computer\n\n`);
-  process.stdout.write(`  rat-things computer open [RUN_ID|--run RUN_ID|--thread NAME] [--port 4174]\n`);
-  process.stdout.write(`  rat-things computer watch RUN_ID [--screenshot screen.jpg]\n`);
-  process.stdout.write(`  rat-things computer takeover RUN_ID\n`);
-  process.stdout.write(`  rat-things computer release RUN_ID\n`);
-  process.stdout.write(`  rat-things computer navigate RUN_ID URL\n`);
-  process.stdout.write(`  rat-things computer click RUN_ID (--ref REF | --x X --y Y)\n`);
-  process.stdout.write(`  rat-things computer type RUN_ID [--ref REF] [--clear] [--submit] TEXT\n`);
-  process.stdout.write(`  rat-things computer press RUN_ID KEY\n`);
-  process.stdout.write(`  rat-things computer select RUN_ID REF VALUE\n`);
-  process.stdout.write(`  rat-things computer scroll RUN_ID --delta-y PIXELS [--delta-x PIXELS]\n`);
-  process.stdout.write(`  rat-things computer wait RUN_ID MILLISECONDS\n`);
-  process.stdout.write(`  rat-things computer back RUN_ID\n`);
-  process.stdout.write(`  rat-things computer act RUN_ID --file ACTION.json\n`);
-  process.stdout.write(`  rat-things computer teach start RUN_ID --name NAME [--goal TEXT]\n`);
-  process.stdout.write(`  rat-things computer teach stop|discard RUN_ID\n`);
-}
-
-function chatHelp(): void {
-  process.stdout.write(`Rat Things chat\n\n`);
-  process.stdout.write(`  rat-things chat [${conversationOptions}|--new] [--attach PATH]... [--reply-to MESSAGE_ID]\n`);
-  process.stdout.write(`    [--delivery interrupt|defer] [--driver DRIVER] [--profile NAME]\n`);
-  process.stdout.write(`    [--network|--no-network] [--browser|--no-browser] [--json] [--no-wait] [--diagnostics]\n`);
-  process.stdout.write(`    [--idempotency-key KEY] [--poll-seconds N] [--wait-timeout N] "PROMPT"\n\n`);
-  process.stdout.write(`Repeat --attach up to six times. Use --diagnostics to include underlying Run, conversation, and MicroVM states.\nUse -- before prompt text that starts with a dash.\n`);
-  process.stdout.write(`Use --conversation with an existing name or public ID. Use --thread to create or continue a named thread.\n`);
-  process.stdout.write(`While waiting, questions and copyable response commands appear on stderr.\n`);
-}
-
-function runInteractionHelp(): void {
-  process.stdout.write(`Rat Things live Run interaction\n\n`);
-  process.stdout.write(`  rat-things watch RUN_ID [--follow] [--after SEQUENCE] [--poll-seconds N]\n`);
-  process.stdout.write(`    [--json|--raw] [--diagnostics]\n`);
-  process.stdout.write(`  rat-things respond RUN_ID REQUEST_ID --result JSON\n`);
-  process.stdout.write(`  rat-things respond RUN_ID REQUEST_ID --answer QUESTION=VALUE ...\n`);
-  process.stdout.write(`  rat-things respond RUN_ID REQUEST_ID --answer-stdin SECRET_QUESTION ...\n\n`);
-  process.stdout.write(`Readable watch output groups repeated activity into phases shared with the console.\nOne --json poll is a JSON document;\n`);
-  process.stdout.write(`--follow --json and --raw are JSONL. Secret stdin is hidden on a terminal.\n`);
-  process.stdout.write(`After live activity ends, --json returns {runId, status, active:false}; readable output points to the saved result.\n`);
-}
-
-function conversationHelp(): void {
-  process.stdout.write(`Rat Things conversations\n\n`);
-  process.stdout.write(`  rat-things conversations list [--visibility visible|hidden|all] [--limit N] [--next-token TOKEN] [--json]\n`);
-  process.stdout.write(`  rat-things conversations search QUERY [--limit N] [--json]\n`);
-  process.stdout.write(`  rat-things conversation show ID_OR_THREAD [--limit N] [--next-token TOKEN] [--json]\n`);
-  process.stdout.write(`  rat-things conversation sources ID_OR_THREAD [--json]\n  rat-things conversation rename ID_OR_THREAD TITLE\n`);
-  process.stdout.write(`  rat-things console --conversation PUBLIC_ID [--port 4174]\n`);
-  process.stdout.write(`  rat-things conversation pin|unpin|hide|unhide|read|unread ID_OR_THREAD\n`);
-  process.stdout.write(`  rat-things conversation react|unreact ID_OR_THREAD MESSAGE_ID 👍|❤️|🎉|👀\n\n`);
-  process.stdout.write(`ID_OR_THREAD accepts an existing thread name or the public ID returned by list or search. --thread names a thread; --conversation resolves an existing name or public ID.\n`);
-  process.stdout.write(`Use the displayed thread key with rat-things chat --thread NAME to continue an API conversation.\n`);
-}
-
-async function computerSnapshot(args: Arguments): Promise<void> {
-  const runId = requiredPositional(args, 0, 'run ID');
-  const snapshot = await api(
-    `/v1/runs/${encodeURIComponent(runId)}/computer`,
-    'GET',
-  );
-  if (!isObject(snapshot) || typeof snapshot.imageDataUrl !== 'string') {
-    throw new Error('computer response did not contain a screen image');
-  }
-  const screenshot = args.values.get('screenshot');
-  if (screenshot) {
-    const match = /^data:image\/(jpeg|png);base64,([A-Za-z0-9+/=]+)$/.exec(snapshot.imageDataUrl);
-    if (!match?.[2]) throw new Error('computer response contained an invalid screen image');
-    await writeFile(resolve(screenshot), Buffer.from(match[2], 'base64'), { mode: 0o600 });
-  }
-  const { imageDataUrl: _imageDataUrl, ...summary } = snapshot;
-  print({
-    ...summary,
-    screen: screenshot ? { writtenTo: resolve(screenshot) } : { available: true },
-  });
-}
-
-async function setComputerControl(args: Arguments, control: 'human' | 'agent'): Promise<void> {
-  const runId = requiredPositional(args, 0, 'run ID');
-  print(await api(
-    `/v1/runs/${encodeURIComponent(runId)}/computer/takeover`,
-    'POST',
-    { control },
-  ));
-}
-
-async function computerAct(args: Arguments): Promise<void> {
-  const runId = requiredPositional(args, 0, 'run ID');
-  const action = await requiredJsonFile(args);
-  await sendComputerAction(runId, action);
-}
-
-async function computerFriendlyAction(args: Arguments, type: string): Promise<void> {
-  const runId = requiredPositional(args, 0, 'run ID');
-  let action: Record<string, unknown>;
-  switch (type) {
-    case 'navigate':
-      validateCommandOptions(args, {});
-      validatePositionals(args, 2, 2, 'computer navigate RUN_ID URL');
-      action = { type, url: requiredPositional(args, 1, 'URL') };
-      break;
-    case 'click': {
-      validateCommandOptions(args, { values: ['ref', 'x', 'y'] });
-      validatePositionals(args, 1, 1, 'computer click RUN_ID (--ref REF | --x X --y Y)');
-      const ref = args.values.get('ref');
-      const rawX = args.values.get('x');
-      const rawY = args.values.get('y');
-      if (ref && (rawX !== undefined || rawY !== undefined)) {
-        throw new Error('computer click accepts either --ref or --x with --y');
-      }
-      if (!ref && (rawX === undefined || rawY === undefined)) {
-        throw new Error('computer click requires --ref REF or both --x X and --y Y');
-      }
-      action = ref
-        ? { type, ref }
-        : { type, x: boundedCliNumber(rawX as string, 'x', 0, 1_280), y: boundedCliNumber(rawY as string, 'y', 0, 720) };
-      break;
-    }
-    case 'type': {
-      validateCommandOptions(args, { flags: ['clear', 'submit'], values: ['ref', 'text'] });
-      if (args.values.has('text')) validatePositionals(args, 1, 1, 'computer type RUN_ID --text TEXT');
-      else if (args.positionals.length < 2) throw new Error('computer type requires text');
-      const text = args.values.get('text') ?? args.positionals.slice(1).join(' ');
-      if (!text) throw new Error('computer type requires text');
-      action = {
-        type,
-        text,
-        ...(args.values.has('ref') ? { ref: args.values.get('ref') } : {}),
-        ...(args.flags.has('clear') ? { clear: true } : {}),
-        ...(args.flags.has('submit') ? { submit: true } : {}),
-      };
-      break;
-    }
-    case 'press':
-      validateCommandOptions(args, { values: ['key'] });
-      validatePositionals(args, args.values.has('key') ? 1 : 2, args.values.has('key') ? 1 : 2, 'computer press RUN_ID KEY');
-      action = { type, key: args.values.get('key') ?? requiredPositional(args, 1, 'key') };
-      break;
-    case 'select':
-      validateCommandOptions(args, { values: ['ref', 'value'] });
-      if (args.values.has('ref') !== args.values.has('value')) {
-        throw new Error('computer select requires both --ref and --value when either option is used');
-      }
-      validatePositionals(args, args.values.has('ref') ? 1 : 3, args.values.has('ref') ? 1 : 3, 'computer select RUN_ID REF VALUE');
-      action = {
-        type,
-        ref: args.values.get('ref') ?? requiredPositional(args, 1, 'element reference'),
-        value: args.values.get('value') ?? requiredPositional(args, 2, 'selected value'),
-      };
-      break;
-    case 'scroll':
-      validateCommandOptions(args, { values: ['delta-x', 'delta-y'] });
-      validatePositionals(args, args.values.has('delta-y') ? 1 : 2, args.values.has('delta-y') ? 1 : 2, 'computer scroll RUN_ID --delta-y PIXELS');
-      action = {
-        type,
-        deltaY: boundedCliNumber(
-          args.values.get('delta-y') ?? requiredPositional(args, 1, 'vertical scroll delta'),
-          'delta-y',
-          -5_000,
-          5_000,
-        ),
-        ...(args.values.has('delta-x')
-          ? { deltaX: boundedCliNumber(args.values.get('delta-x') as string, 'delta-x', -5_000, 5_000) }
-          : {}),
-      };
-      break;
-    case 'wait':
-      validateCommandOptions(args, { values: ['milliseconds'] });
-      validatePositionals(args, args.values.has('milliseconds') ? 1 : 2, args.values.has('milliseconds') ? 1 : 2, 'computer wait RUN_ID MILLISECONDS');
-      action = {
-        type,
-        milliseconds: boundedCliNumber(
-          args.values.get('milliseconds') ?? requiredPositional(args, 1, 'milliseconds'),
-          'milliseconds',
-          0,
-          10_000,
-          true,
-        ),
-      };
-      break;
-    case 'back':
-      validateCommandOptions(args, {});
-      validatePositionals(args, 1, 1, 'computer back RUN_ID');
-      action = { type };
-      break;
-    default:
-      throw new Error(`unsupported computer action ${type}`);
-  }
-  await sendComputerAction(runId, action);
-}
-
-async function sendComputerAction(runId: string, action: unknown): Promise<void> {
-  const snapshot = await api(
-    `/v1/runs/${encodeURIComponent(runId)}/computer/action`,
-    'POST',
-    { action },
-  );
-  if (isObject(snapshot)) {
-    const { imageDataUrl: _imageDataUrl, ...summary } = snapshot;
-    print(summary);
-    return;
-  }
-  print(snapshot);
-}
-
-function boundedCliNumber(
-  value: string,
-  label: string,
-  minimum: number,
-  maximum: number,
-  integer = false,
-): number {
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed) || parsed < minimum || parsed > maximum || (integer && !Number.isInteger(parsed))) {
-    throw new Error(`--${label} must be ${integer ? 'an integer' : 'a number'} from ${minimum} through ${maximum}`);
-  }
-  return parsed;
-}
-
-async function teachStart(args: Arguments): Promise<void> {
-  const runId = requiredPositional(args, 0, 'run ID');
-  const name = args.values.get('name');
-  if (!name?.trim()) throw new Error('--name is required');
-  const snapshot = await api(
-    `/v1/runs/${encodeURIComponent(runId)}/computer/teach`,
-    'POST',
-    { action: 'start', name, ...(args.values.has('goal') ? { goal: args.values.get('goal') } : {}) },
-  );
-  if (isObject(snapshot)) {
-    const { imageDataUrl: _imageDataUrl, ...summary } = snapshot;
-    print(summary);
-    return;
-  }
-  print(snapshot);
-}
-
-async function teachStop(args: Arguments, discard: boolean): Promise<void> {
-  const runId = requiredPositional(args, 0, 'run ID');
-  print(await api(
-    `/v1/runs/${encodeURIComponent(runId)}/computer/teach`,
-    'POST',
-    { action: 'stop', discard },
-  ));
 }
 
 async function requiredJsonFile(args: Arguments): Promise<unknown> {
@@ -2170,7 +621,12 @@ async function waitForOAuthConnection(
 }
 
 async function enableSlackEvents(args: Arguments): Promise<void> {
-  validateCommandOptions(args, { flags: ['json'], values: ['profile'] });
+  validateCommandOptions(args, { flags: ['json'], values: ['agent-id', 'environment-template'] });
+  const agentId = args.values.get('agent-id');
+  if (!agentId) throw new Error('--agent-id is required');
+  const templateId = args.values.get('environment-template');
+  const environment = templateId ? { type: 'openai_hosted', environment_template_id: templateId } : { type: 'none' };
+  await api(`/v1/agents/${encodeURIComponent(agentId)}`, 'GET');
   const selector = requiredPositional(args, 0, 'Slack connection ID or alias');
   const item = (await installedConnections()).find(({ connection }) => (
     connection.connectionId === selector || connection.alias === selector
@@ -2209,6 +665,7 @@ async function enableSlackEvents(args: Arguments): Promise<void> {
         `Slack workspace ${teamId} already routes mentions through another connection`,
       );
     }
+    if (existing.agentId !== agentId || JSON.stringify(existing.environment) !== JSON.stringify(environment)) throw new Error('The Slack workspace is bound to a different Agent or environment');
     if (!['read-write', 'full'].includes(String(item?.grant?.preset))) {
       await api(`/v1/integrations/connections/${encodeURIComponent(connectionId)}/grant`, 'POST', {
         version: '1',
@@ -2236,7 +693,7 @@ async function enableSlackEvents(args: Arguments): Promise<void> {
     version: '1',
     sourceKind: 'slack',
     selector: { teamId },
-    capabilityProfile: args.values.get('profile') ?? 'read-only',
+    agentId, environment,
     connectionSetId: setId,
   });
   print({ enabled: true, connection, connectionSet: set, sourceBinding });
@@ -2314,199 +771,7 @@ async function credentialFile(
   return result;
 }
 
-async function writeArtifact(runId: string, name: string): Promise<void> {
-  if (!['input', 'output', 'events', 'patch'].includes(name)) {
-    throw new Error('artifact name must be input, output, events, or patch');
-  }
-  const descriptor = await api(`/v1/runs/${runId}/artifacts/${name}`, 'GET') as {
-    url?: unknown;
-    primaryPath?: string;
-    paths?: string[];
-  };
-  if (typeof descriptor.url !== 'string') throw new Error('runtime returned no artifact URL');
-  const response = await fetchSharedResource(
-    descriptor.url,
-    30_000,
-    publicationAssetPath(descriptor),
-  );
-  if (!response.ok) throw new Error(`artifact download returned HTTP ${response.status}`);
-  process.stdout.write(terminalText(await response.text()));
-  if (name === 'output') process.stdout.write('\n');
-}
-
-async function listFiles(args: Arguments): Promise<void> {
-  validateCommandOptions(args, { flags: ['json'], values: ['thread', 'conversation', 'run'] });
-  const scope = await artifactScope(args);
-  const files = await artifactList(scope);
-  if (args.flags.has('json')) {
-    print({ scope, files });
-    return;
-  }
-  if (files.length === 0) {
-    process.stdout.write('No files.\n');
-    return;
-  }
-  for (const file of files) {
-    renderFileActions(scope, file, process.stdout);
-  }
-  process.stdout.write(`\nUse rat-things file NAME --${scope.selector ?? (scope.kind === 'run' ? 'run' : 'thread')} ${shellArgument(scope.id)} with --preview, --open, or --download PATH.\n`);
-}
-
-function artifactCommands(scope: ArtifactScope, artifact: ArtifactMetadata): string[][] {
-  return fileCommands(terminalText(scope.id), {...artifact, id: terminalText(artifact.id), path: terminalText(artifact.path)}, scope.selector ?? (scope.kind === 'run' ? 'run' : 'thread'));
-}
-
-function renderFileActions(scope: ArtifactScope, artifact: ArtifactMetadata, output: NodeJS.WritableStream): void {
-  output.write(`${terminalText(artifact.path)} · ${formatBytes(artifact.bytes)} · ${terminalText(artifact.mediaType)}\n`);
-  for (const [label, command] of artifactCommands(scope, artifact)) output.write(`  ${label}: ${command}\n`);
-}
-
-async function completedFileActions(runId: string): Promise<void> {
-  const scope: ArtifactScope = {kind: 'run', id: runId};
-  try {
-    const files = await artifactList(scope);
-    if (files.length) process.stderr.write('\nFiles from this Run:\n');
-    for (const artifact of files) renderFileActions(scope, artifact, process.stderr);
-  } catch {
-    process.stderr.write(`Files could not be listed. Retry: rat-things files --run ${shellArgument(runId)}\n`);
-  }
-}
-
-async function file(args: Arguments): Promise<void> {
-  validateCommandOptions(args, { flags: ['json', 'preview', 'open'], values: ['thread', 'conversation', 'run', 'download'] });
-  const destination = args.values.get('download');
-  if ([args.flags.has('json'), args.flags.has('preview'), args.flags.has('open'), destination !== undefined].filter(Boolean).length > 1) {
-    throw new Error('choose only one of --preview, --open, --download PATH, or --json');
-  }
-  const name = requiredPositional(args, 0, 'file name or ID');
-  const scope = await artifactScope(args);
-  const files = await artifactList(scope);
-  const exact = files.filter(candidate => candidate.id === name || candidate.path === name);
-  const matches = exact.length ? exact : files.filter(candidate => candidate.path.split('/').at(-1) === name);
-  if (matches.length === 0) throw new Error(`file ${JSON.stringify(name)} was not found; list files with rat-things files --${scope.selector ?? (scope.kind === 'run' ? 'run' : 'thread')} ${shellArgument(scope.id)}`);
-  if (matches.length > 1) {
-    throw new Error(`file name ${JSON.stringify(name)} is ambiguous. Choose a matching file:\n${matches.map(candidate => `  ${terminalText(candidate.path)}\n    ${artifactCommands(scope, candidate)[0]![1]}`).join('\n')}`);
-  }
-  const selected = matches[0]!;
-  if (args.flags.has('preview') && !isTextArtifact(selected.mediaType)) {
-    throw new Error('this file has no text preview; use --open or --download PATH');
-  }
-  const descriptor = await artifactDescriptorFor(scope, selected.id);
-  if (args.flags.has('open')) {
-    const url = new URL(descriptor.url);
-    if (!['https:', 'http:'].includes(url.protocol)) throw new Error('file URL must use HTTP or HTTPS');
-    launchBrowser(url.href);
-    process.stdout.write(`Opened ${terminalText(selected.path)} in your browser.\n`);
-    return;
-  }
-  if (!destination && !args.flags.has('preview')) {
-    if (args.flags.has('json')) print(descriptor);
-    else process.stdout.write(`${terminalText(descriptor.url)}\n`);
-    return;
-  }
-  const response = await fetchSharedResource(
-    descriptor.url,
-    120_000,
-    publicationAssetPath(descriptor),
-  );
-  if (!response.ok) throw new Error(`file download returned HTTP ${response.status}`);
-  if (args.flags.has('preview')) {
-    const preview = await readTextPreview(response, 65_536);
-    process.stdout.write(terminalText(preview.text));
-    if (!preview.text.endsWith('\n')) process.stdout.write('\n');
-    if (preview.truncated) process.stderr.write('Preview truncated at 64 KiB. Use --download PATH for the full file.\n');
-    return;
-  }
-  const target = resolve(destination!);
-  try {
-    await mkdir(dirname(target), {recursive: true});
-    await writeFile(target, Buffer.from(await response.arrayBuffer()), {flag: 'wx'});
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'EEXIST') throw new Error(`file already exists: ${target}. Choose another --download path.`);
-    throw error;
-  }
-  process.stdout.write(`${terminalText(target)}\n`);
-}
-
-function fileHelp(): void {
-  process.stdout.write(`Rat Things files\n\n  rat-things files [${fileScopeOptions}] [--json]\n  rat-things file NAME [${fileScopeOptions}] [--preview|--open|--download PATH|--json]\n\nPreview prints up to 64 KiB of text. Open uses your browser. Download writes a new local file\nand refuses to overwrite an existing path. With no mode, file prints its URL.\n`);
-}
-
-async function publish(args: Arguments): Promise<void> {
-  const kind = requiredPositional(args, 0, 'publication kind');
-  if (!['file', 'site', 'video'].includes(kind)) {
-    throw new Error('publication kind must be file, site, or video');
-  }
-  const source = requiredPositional(args, 1, kind === 'site' ? 'site root' : 'file name');
-  const title = args.values.get('title');
-  const spec = kind === 'site'
-    ? {
-        version: '1',
-        kind,
-        ...(source === '.' ? {} : { root: source }),
-        ...(args.values.get('entrypoint') ? { entrypoint: args.values.get('entrypoint') } : {}),
-        ...(title ? { title } : {}),
-      }
-    : kind === 'video'
-      ? {
-          version: '1',
-          kind,
-          path: source,
-          ...(args.values.get('poster') ? { poster: args.values.get('poster') } : {}),
-          ...(title ? { title } : {}),
-        }
-      : { version: '1', kind, path: source, ...(title ? { title } : {}) };
-  const scope = await artifactScope(args);
-  const descriptor = await api(`${artifactBasePath(scope)}/publications`, 'POST', spec);
-  if (args.flags.has('json')) print(descriptor);
-  else process.stdout.write(`${terminalText((descriptor as { url: string }).url)}\n`);
-}
-
-function publicationAssetPath(descriptor: {
-  primaryPath?: string;
-  paths?: string[];
-}): string | undefined {
-  return descriptor.primaryPath ?? descriptor.paths?.find((path) => path !== 'index.html');
-}
-
-type ArtifactScope = { kind: 'run' | 'conversation'; id: string; selector?: 'thread' | 'conversation' };
-
-async function artifactScope(args: Arguments): Promise<ArtifactScope> {
-  const runId = args.values.get('run');
-  if (runId && (args.values.has('thread') || args.values.has('conversation'))) throw new Error('--run cannot be combined with --thread or --conversation');
-  if (runId) return { kind: 'run', id: runId };
-  if (args.values.has('thread') && args.values.has('conversation')) throw new Error('choose only one of --thread or --conversation');
-  const selector = args.values.get('conversation');
-  return { kind: 'conversation', id: selector ? await resolvePublicConversationId(selector) : validateThreadKey(args.values.get('thread') ?? 'main'), selector: selector ? 'conversation' : 'thread' };
-}
-
-async function artifactList(scope: ArtifactScope): Promise<ArtifactMetadata[]> {
-  const result = await api(`${artifactBasePath(scope)}/artifacts`, 'GET') as { files?: unknown };
-  if (!Array.isArray(result.files)) throw new Error('runtime returned an invalid file list');
-  return result.files as ArtifactMetadata[];
-}
-
-async function artifactDescriptorFor(
-  scope: ArtifactScope,
-  id: string,
-): Promise<ArtifactDescriptor> {
-  const result = await api(
-    `${artifactBasePath(scope)}/artifacts/${encodeURIComponent(id)}`,
-    'GET',
-  );
-  if (!result || typeof result !== 'object' || typeof (result as { url?: unknown }).url !== 'string') {
-    throw new Error('runtime returned no file URL');
-  }
-  return result as ArtifactDescriptor;
-}
-
-function artifactBasePath(scope: ArtifactScope): string {
-  return scope.kind === 'run'
-    ? `/v1/runs/${encodeURIComponent(scope.id)}`
-    : `/v1/conversations/${encodeURIComponent(scope.id)}`;
-}
-
-async function requestFromArguments(args: Arguments, localMode: boolean): Promise<RunRequest> {
+async function requestFromArguments(args: Arguments): Promise<RunRequest> {
   const file = args.values.get('file');
   if (file) return parseRunRequest(JSON.parse(await readFile(resolve(file), 'utf8')) as unknown, validationOptions());
   const prompt = args.values.get('prompt') ?? args.positionals.join(' ');
@@ -2514,7 +779,7 @@ async function requestFromArguments(args: Arguments, localMode: boolean): Promis
   const request: Record<string, unknown> = {
     version: '1',
     prompt,
-    agent: agentFromArguments(args, localMode),
+    agent: agentFromArguments(args),
     ...withIntegrations(args),
     execution: compact({
       backend: args.values.get('backend'),
@@ -2536,21 +801,7 @@ async function requestFromArguments(args: Arguments, localMode: boolean): Promis
   return parseRunRequest(request, validationOptions());
 }
 
-async function conversationRequestFromArguments(args: Arguments): Promise<unknown> {
-  const file = args.values.get('file');
-  if (file) return JSON.parse(await readFile(resolve(file), 'utf8')) as unknown;
-  const prompt = args.values.get('prompt') ?? args.positionals.join(' ');
-  if (!prompt) throw new Error('provide --prompt TEXT, positional prompt text, or --file REQUEST.json');
-  const agent = agentFromArguments(args, false);
-  return {
-    version: '1',
-    prompt,
-    ...(Object.keys(agent).length ? { agent } : {}),
-    ...withIntegrations(args),
-  };
-}
-
-function agentFromArguments(args: Arguments, localMode: boolean): Record<string, unknown> {
+function agentFromArguments(args: Arguments): Record<string, unknown> {
   if (args.flags.has('network') && args.flags.has('no-network')) {
     throw new Error('--network cannot be combined with --no-network');
   }
@@ -2558,9 +809,8 @@ function agentFromArguments(args: Arguments, localMode: boolean): Record<string,
     throw new Error('--browser cannot be combined with --no-browser');
   }
   const configuredDriver = args.values.get('driver');
-  const driver = (configuredDriver ?? (localMode ? 'codex' : undefined)) as AgentDriverName | undefined;
-  const sandbox = (args.values.get('sandbox') ?? (localMode ? 'read-only' : undefined)) as
-    SandboxMode | undefined;
+  const driver = (configuredDriver ?? 'codex') as AgentDriverName;
+  const sandbox = (args.values.get('sandbox') ?? 'read-only') as SandboxMode;
   const capabilities = compact({
     profile: args.values.get('profile'),
     networkAccess: args.flags.has('network')
@@ -2694,7 +944,7 @@ function delay(milliseconds: number): Promise<void> {
 
 async function api(
   path: string,
-  method: 'GET' | 'POST' | 'PATCH',
+  method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE',
   body?: unknown,
   extraHeaders: Record<string, string> = {},
 ): Promise<unknown> {
@@ -2889,6 +1139,8 @@ function normalizeArguments(argv: string[]): string[] {
   const first = argv[0];
   if (!first) return ['help'];
   if (first === '--help' || first === '-h') return ['help', ...argv.slice(1)];
+  if (/^(?:things?|routines?)(?:-|$)/.test(first)) throw new Error('Thing and Routine commands were removed. Use agents, sessions, or schedules.');
+  if (["chat","handoff","submit","get","cancel","watch","steer","interrupt","respond","computer","conversations","conversation","output","artifact","files","file","publish","list"].includes(first)) throw new Error('This command was removed. Use agents, sessions, files, or publications.');
   if (commands.has(first)) return argv;
   return ['local', ...argv];
 }
@@ -2929,10 +1181,8 @@ function validatePositionals(
 
 function validateRootPositionals(args: Arguments): void {
   const rules: Record<string, readonly [number, number, string]> = {
-    get: [1, 1, 'get RUN_ID'],
-    cancel: [1, 1, 'cancel RUN_ID'],
-    interrupt: [1, 1, 'interrupt RUN_ID'],
-    console: [0, 1, 'console [RUN_ID]'],
+    console: [0, 0, 'console'],
+    publications: [1, 1, 'publications create --session SESSION_ID --file REQUEST.json'],
     plugins: [0, 0, 'plugins'],
     profiles: [0, 0, 'profiles'],
     connections: [0, 0, 'connections'],
@@ -2945,34 +1195,7 @@ function validateRootPositionals(args: Arguments): void {
     'connection-set': [0, 0, 'connection-set --file SET.json'],
     'source-bindings': [0, 0, 'source-bindings'],
     'bind-source': [0, 0, 'bind-source --file BINDING.json'],
-    'slack-events': [1, 1, 'slack-events ACCOUNT [--profile PROFILE] [--json]'],
-    things: [0, 0, 'things'],
-    thing: [1, 1, 'thing THING_ID'],
-    'thing-create': [0, 0, 'thing-create --file THING.json'],
-    'thing-update': [1, 1, 'thing-update THING_ID --file THING.json'],
-    'thing-version': [2, 2, 'thing-version THING_ID REVISION'],
-    'thing-versions': [1, 1, 'thing-versions THING_ID'],
-    'thing-test': [1, 1, 'thing-test THING_ID'],
-    'thing-publish': [1, 1, 'thing-publish THING_ID --test-run RUN_ID'],
-    'thing-release': [0, 1, 'thing-release [THING_ID|--file THING.json]'],
-    'thing-run': [1, 1, 'thing-run THING_ID'],
-    'thing-pause': [1, 1, 'thing-pause THING_ID'],
-    'thing-resume': [1, 1, 'thing-resume THING_ID'],
-    'thing-archive': [1, 1, 'thing-archive THING_ID'],
-    'thing-explain': [1, 1, 'thing-explain THING_ID'],
-    routines: [0, 0, 'routines'],
-    routine: [1, 1, 'routine ROUTINE_ID'],
-    'routine-create': [0, 0, 'routine-create --file ROUTINE.json'],
-    'routine-run': [1, 1, 'routine-run ROUTINE_ID'],
-    'routine-pause': [1, 1, 'routine-pause ROUTINE_ID'],
-    'routine-resume': [1, 1, 'routine-resume ROUTINE_ID'],
-    'routine-delete': [1, 1, 'routine-delete ROUTINE_ID'],
-    output: [1, 1, 'output RUN_ID'],
-    artifact: [2, 2, 'artifact RUN_ID NAME'],
-    files: [0, 0, 'files'],
-    file: [1, 1, 'file NAME'],
-    publish: [2, 2, 'publish file|site|video PATH'],
-    list: [0, 0, 'list'],
+    'slack-events': [1, 1, 'slack-events ACCOUNT --agent-id AGENT_ID [--environment-template TEMPLATE_ID] [--json]'],
     doctor: [0, 0, 'doctor'],
     help: [0, 0, 'help'],
   };
@@ -3014,14 +1237,6 @@ function positiveNumber(value: string, label: string): number {
   return parsed;
 }
 
-function nonNegativeNumber(value: string, label: string): number {
-  const parsed = Number(value);
-  if (!Number.isSafeInteger(parsed) || parsed < 0) {
-    throw new Error(`${label} must be a non-negative integer`);
-  }
-  return parsed;
-}
-
 function requiredPositional(args: Arguments, index: number, label: string): string {
   const value = args.positionals[index];
   if (!value) throw new Error(`${label} is required`);
@@ -3030,45 +1245,6 @@ function requiredPositional(args: Arguments, index: number, label: string): stri
 
 function positionalPath(args: Arguments, index: number, label: string): string {
   return encodeURIComponent(requiredPositional(args, index, label));
-}
-
-function paginationQuery(args: Arguments): URLSearchParams {
-  const query = new URLSearchParams();
-  const limit = args.values.get('limit');
-  const nextToken = args.values.get('next-token');
-  if (limit) query.set('limit', limit);
-  if (nextToken) query.set('nextToken', nextToken);
-  return query;
-}
-
-function collectionPath(path: string, query: URLSearchParams): string {
-  return `${path}${query.size > 0 ? `?${query}` : ''}`;
-}
-
-function thingDraftRevision(value: unknown): number {
-  if (
-    !value ||
-    typeof value !== 'object' ||
-    !('draft' in value) ||
-    !value.draft ||
-    typeof value.draft !== 'object' ||
-    !('revision' in value.draft) ||
-    typeof value.draft.revision !== 'number' ||
-    !Number.isSafeInteger(value.draft.revision) ||
-    value.draft.revision < 1
-  ) {
-    throw new Error('Thing response does not contain a valid draft revision');
-  }
-  return value.draft.revision;
-}
-
-function thingDraftIdentity(value: unknown): { revision: number; specHash: string } {
-  const revision = thingDraftRevision(value);
-  const draft = (value as { draft: { specHash?: unknown } }).draft;
-  if (typeof draft.specHash !== 'string' || !/^[a-f0-9]{64}$/.test(draft.specHash)) {
-    throw new Error('Thing response does not contain a valid draft spec hash');
-  }
-  return { revision, specHash: draft.specHash };
 }
 
 function parseResponse(value: string): unknown {
@@ -3088,70 +1264,19 @@ function print(value: unknown): void {
 }
 
 function help(showAll: boolean): void {
-  process.stdout.write(`Rat Things\n\n`);
-  process.stdout.write(`  rat-things \"Work with your signed-in local Codex\"\n`);
-  process.stdout.write(`  rat-things handoff --thread NAME \"Delegate to the cloud\"\n`);
-  process.stdout.write(`  rat-things chat --thread NAME \"Continue a cloud thread\"\n`);
-  process.stdout.write(`  rat-things conversations list\n`);
-  process.stdout.write(`  rat-things conversations search \"Find earlier work\"\n`);
-  process.stdout.write(`  rat-things console [${conversationOptions}]\n`);
-  process.stdout.write(`  rat-things local \"Run on this computer\"\n`);
-  process.stdout.write(`  rat-things files [${fileScopeOptions}]\n`);
-  process.stdout.write(`  rat-things file NAME [${fileScopeOptions}] [--preview|--open|--download PATH]\n`);
-  process.stdout.write(`  rat-things publish file|site|video PATH [--thread NAME]\n`);
-  process.stdout.write(`\nLocal is the default. Use handoff or chat for a durable cloud thread.\n`);
-  process.stdout.write(`Run rat-things help --all for agent and automation options.\n`);
+  process.stdout.write('Rat Things\n\n');
+  process.stdout.write('  rat-things agents create|list|get|update|delete [ID] [--file REQUEST.json]\n');
+  process.stdout.write('  rat-things sessions create|list|get|send|cancel|items|turns|artifacts|delete [ID]\n');
+  process.stdout.write('  rat-things environments get|connect|templates [ID]\n');
+  process.stdout.write('  rat-things vaults create|list|get|delete|credentials [ID]\n');
+  process.stdout.write('  rat-things files create|list|get|delete|content [ID]\n');
+  process.stdout.write('  rat-things publications create --session SESSION_ID --file REQUEST.json\n');
+  process.stdout.write('  rat-things schedules list|get|create|update|delete|pause|resume [ID] [--file REQUEST.json]\n');
+  process.stdout.write('  rat-things console\n  rat-things doctor\n');
+  process.stdout.write('  rat-things local [--driver codex|mock] [--model MODEL] "Work on this computer"\n');
+  process.stdout.write('\nUnqualified prompts run locally. Use sessions for durable work in AWS.\n');
+  process.stdout.write('Set RAT_THINGS_AGENTS_API_URL for standard resources; RAT_THINGS_API_URL for publications, schedules, and connections.\n');
   if (!showAll) return;
-  process.stdout.write(`\nAgent and automation options\n\n`);
-  process.stdout.write(`  rat-things handoff [cloud chat options] \"...\"\n`);
-  process.stdout.write(`  rat-things chat [--thread NAME] [--driver codex] [--model ID]\n`);
-  process.stdout.write(`    [--sandbox MODE] [--reasoning-effort LEVEL] [--reasoning-summary MODE]\n`);
-  process.stdout.write(`    [--profile NAME]\n`);
-  process.stdout.write(`    [--network|--no-network] [--web-search MODE] [--browser|--no-browser]\n`);
-  process.stdout.write(`    [--skill NAME]... [--app NAME]... [--mcp NAME]...\n`);
-  process.stdout.write(`    [--connection-set NAME] [--connection ACCOUNT[=PRESET]]...\n`);
-  process.stdout.write(`    [--allow-operation ACCOUNT=PLUGIN.OP[,PLUGIN.OP...]]... [--deny-operation ACCOUNT=PLUGIN.OP[,PLUGIN.OP...]]...\n`);
-  process.stdout.write(`    [--attach PATH]... [--reply-to MESSAGE_ID] [--delivery interrupt|defer]\n`);
-  process.stdout.write(`    [--json] [--no-wait] [--diagnostics]\n`);
-  process.stdout.write(`    [--idempotency-key KEY] [--poll-seconds N] [--wait-timeout N] \"...\"\n`);
-  process.stdout.write(`  --api-url URL and --region REGION override RAT_THINGS_API_URL and AWS_REGION\n`);
-  process.stdout.write(`\nLocal execution\n\n`);
-  process.stdout.write(`  rat-things local [--sandbox MODE] [--network] [--events] \"...\"\n`);
-  process.stdout.write(`    defaults to Codex with the device's cached ChatGPT login; use --driver mock for tests\n`);
-  process.stdout.write(`\nRun management\n\n`);
-  process.stdout.write(`  rat-things submit --file examples/run-request.json [--wait]\n`);
-  process.stdout.write(`  rat-things get RUN_ID\n`);
-  process.stdout.write(`  rat-things cancel RUN_ID\n`);
-  process.stdout.write(`  rat-things watch RUN_ID [--follow] [--after SEQUENCE] [--json|--raw] [--diagnostics]\n`);
-  process.stdout.write(`  rat-things steer RUN_ID "Additional direction"\n`);
-  process.stdout.write(`  rat-things interrupt RUN_ID\n`);
-  process.stdout.write(`  rat-things respond RUN_ID REQUEST_ID --result JSON\n`);
-  process.stdout.write(`  rat-things respond RUN_ID REQUEST_ID --answer QUESTION=VALUE [--answer QUESTION=VALUE]...\n`);
-  process.stdout.write(`  rat-things respond RUN_ID REQUEST_ID --answer-stdin SECRET_QUESTION [--answer-stdin QUESTION]...\n`);
-  process.stdout.write(`\nConversations\n\n`);
-  process.stdout.write(`  rat-things conversations list [--visibility visible|hidden|all] [--limit N] [--next-token TOKEN]\n`);
-  process.stdout.write(`  rat-things conversations search QUERY [--limit N]\n`);
-  process.stdout.write(`  rat-things conversation show ID_OR_THREAD [--limit N] [--next-token TOKEN]\n`);
-  process.stdout.write(`  rat-things conversation sources ID_OR_THREAD [--json]\n  rat-things conversation rename ID_OR_THREAD TITLE\n`);
-  process.stdout.write(`  rat-things conversation pin|unpin|hide|unhide|read|unread ID_OR_THREAD\n`);
-  process.stdout.write(`  rat-things conversation react|unreact ID_OR_THREAD MESSAGE_ID 👍|❤️|🎉|👀\n`);
-  process.stdout.write(`\nLive computer and demonstrations\n\n`);
-  process.stdout.write(`  rat-things computer open [RUN_ID|--run RUN_ID|--thread NAME] [--port 4174]\n`);
-  process.stdout.write(`  rat-things computer watch RUN_ID [--screenshot screen.jpg]\n`);
-  process.stdout.write(`  rat-things computer takeover RUN_ID\n`);
-  process.stdout.write(`  rat-things computer release RUN_ID\n`);
-  process.stdout.write(`  rat-things computer navigate RUN_ID URL\n`);
-  process.stdout.write(`  rat-things computer click RUN_ID (--ref REF | --x X --y Y)\n`);
-  process.stdout.write(`  rat-things computer type RUN_ID [--ref REF] [--clear] [--submit] TEXT\n`);
-  process.stdout.write(`  rat-things computer press RUN_ID KEY\n`);
-  process.stdout.write(`  rat-things computer select RUN_ID REF VALUE\n`);
-  process.stdout.write(`  rat-things computer scroll RUN_ID --delta-y PIXELS [--delta-x PIXELS]\n`);
-  process.stdout.write(`  rat-things computer wait RUN_ID MILLISECONDS\n`);
-  process.stdout.write(`  rat-things computer back RUN_ID\n`);
-  process.stdout.write(`  rat-things computer act RUN_ID --file ACTION.json\n`);
-  process.stdout.write(`  rat-things computer teach start RUN_ID --name NAME [--goal TEXT]\n`);
-  process.stdout.write(`  rat-things computer teach stop|discard RUN_ID\n`);
-  process.stdout.write(`    takeover is a temporary exclusive browser lease; teach stop creates an unpublished draft Thing\n`);
   process.stdout.write(`\nIntegrations\n\n`);
   process.stdout.write(`  rat-things plugins\n`);
   process.stdout.write(`  rat-things profiles\n`);
@@ -3171,42 +1296,30 @@ function help(showAll: boolean): void {
   process.stdout.write(`  rat-things connection-set --file SET.json\n`);
   process.stdout.write(`  rat-things source-bindings\n`);
   process.stdout.write(`  rat-things bind-source --file BINDING.json\n`);
-  process.stdout.write(`  rat-things slack-events ACCOUNT [--profile read-only] [--json]\n`);
-  process.stdout.write(`\nThings\n\n`);
-  process.stdout.write(`  rat-things things [--limit 25] [--all]\n`);
-  process.stdout.write(`  rat-things thing THING_ID\n`);
-  process.stdout.write(`  rat-things thing-create --file THING.json\n`);
-  process.stdout.write(`  rat-things thing-update THING_ID --file THING.json\n`);
-  process.stdout.write(`  rat-things thing-version THING_ID REVISION\n`);
-  process.stdout.write(`  rat-things thing-versions THING_ID\n`);
-  process.stdout.write(`  rat-things thing-explain THING_ID [--target draft|active]\n`);
-  process.stdout.write(`  rat-things thing-test THING_ID [--wait] [--idempotency-key KEY]\n`);
-  process.stdout.write(`  rat-things thing-release THING_ID [--poll-seconds N] [--wait-timeout N]\n`);
-  process.stdout.write(`  rat-things thing-release --file THING.json [--poll-seconds N] [--wait-timeout N]\n`);
-  process.stdout.write(`    validates, tests, waits for success, then publishes that exact draft revision\n`);
-  process.stdout.write(`  rat-things thing-publish THING_ID --test-run RUN_ID\n`);
-  process.stdout.write(`  rat-things thing-run THING_ID [--idempotency-key KEY]\n`);
-  process.stdout.write(`  rat-things thing-pause|thing-resume|thing-archive THING_ID\n`);
-  process.stdout.write(`\nRoutines\n\n`);
-  process.stdout.write(`  rat-things routines [--limit 25]\n`);
-  process.stdout.write(`  rat-things routine ROUTINE_ID\n`);
-  process.stdout.write(`  rat-things routine-create --file ROUTINE.json\n`);
-  process.stdout.write(`  rat-things routine-run ROUTINE_ID [--idempotency-key KEY]\n`);
-  process.stdout.write(`  rat-things routine-pause ROUTINE_ID\n`);
-  process.stdout.write(`  rat-things routine-resume ROUTINE_ID\n`);
-  process.stdout.write(`  rat-things routine-delete ROUTINE_ID\n`);
-  process.stdout.write(`  rat-things output RUN_ID\n`);
-  process.stdout.write(`  rat-things artifact RUN_ID input|output|events|patch\n`);
-  process.stdout.write(`  rat-things files [--thread NAME | --run RUN_ID] [--json]\n`);
-  process.stdout.write(`  rat-things file NAME [--thread NAME | --run RUN_ID] [--preview|--open|--download PATH|--json]\n`);
-  process.stdout.write(`  rat-things publish file PATH [--thread NAME | --run RUN_ID] [--title TEXT]\n`);
-  process.stdout.write(`  rat-things publish site ROOT [--entrypoint PATH] [--thread NAME | --run RUN_ID]\n`);
-  process.stdout.write(`  rat-things publish video PATH [--poster PATH] [--thread NAME | --run RUN_ID]\n`);
-  process.stdout.write(`  rat-things list [--limit 25]\n`);
-  process.stdout.write(`  rat-things doctor [--json]\n`);
+  process.stdout.write(`  rat-things slack-events ACCOUNT --agent-id AGENT_ID [--environment-template TEMPLATE_ID] [--json]\n`);
 }
 
 main().catch((error: unknown) => {
   process.stderr.write(`${terminalText(error instanceof Error ? error.message : String(error))}\n`);
   process.exitCode = 1;
 });
+
+async function schedulesCommand(args: Arguments): Promise<void> {
+  const operation = requiredPositional(args, 0, 'schedule operation');
+  if (!['list', 'get', 'create', 'update', 'delete', 'pause', 'resume'].includes(operation)) throw new Error('schedules requires list, get, create, update, delete, pause, or resume');
+  const collection = operation === 'list' || operation === 'create';
+  validatePositionals(args, collection ? 1 : 2, collection ? 1 : 2, `schedules ${operation}${collection ? '' : ' ID'}`);
+  validateCommandOptions(args, { flags: ['json'], values: operation === 'create' || operation === 'update' ? ['file'] : operation === 'list' ? ['limit'] : [] });
+  const path = collection ? '/v1/schedules' : `/v1/schedules/${encodeURIComponent(requiredPositional(args, 1, 'schedule ID'))}${operation === 'pause' || operation === 'resume' ? `/${operation}` : ''}`;
+  const method = operation === 'list' || operation === 'get' ? 'GET' : operation === 'update' ? 'PUT' : operation === 'delete' ? 'DELETE' : 'POST';
+  print(await api(path + (operation === 'list' && args.values.has('limit') ? `?limit=${encodeURIComponent(args.values.get('limit')!)}` : ''), method, operation === 'create' || operation === 'update' ? await requiredJsonFile(args) : undefined));
+}
+
+async function publicationsCommand(args: Arguments): Promise<void> {
+  if (args.positionals[0] !== 'create') throw new Error('Use publications create --session SESSION_ID --file REQUEST.json');
+  validateCommandOptions(args, { values: ['session', 'file'], flags: ['json'] });
+  const session = args.values.get('session');
+  if (!session || !/^sess_[A-Za-z0-9_-]+$/.test(session)) throw new Error('--session requires a Session ID');
+  const request = sessionPublicationRequest(await requiredJsonFile(args));
+  print(await api(`/v1/sessions/${encodeURIComponent(session)}/publications`, 'POST', request));
+}

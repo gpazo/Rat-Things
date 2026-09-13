@@ -2,7 +2,7 @@
   aria-labelledby="durable-execution-title durable-execution-desc"
   data-visual-question="What happens during one durable Rat Things run?">
   <title id="durable-execution-title">Durable execution sequence</title>
-  <desc id="durable-execution-desc">Every authenticated input creates one durable Run immediately. A one-shot Run wakes directly while a threaded Run attaches trusted replay context before the same Run dispatches. Rat Things executes it in an isolated cloud agent, retains evidence outside compute, and returns the outcome.</desc>
+  <desc id="durable-execution-desc">Owned Session input is saved before outbox dispatch. A private MicroVM harness executes Turns, journals durable evidence, and delivers saved root Turn outcomes independently.</desc>
   <defs>
     <style>
       .frame { fill: #071319; stroke: rgba(128, 230, 255, 0.22); stroke-width: 1.5; }
@@ -25,9 +25,9 @@
     <circle class="number-ring" cx="92" cy="105" r="25"/>
     <text class="number" x="92" y="106">1</text>
     <rect class="node" x="145" y="42" width="555" height="126" rx="16"/>
-    <text class="label" x="180" y="89">Create one Run</text>
-    <text class="detail" x="180" y="121">Authenticate ingress; commit its owner-scoped request first.</text>
-    <text class="evidence" x="180" y="146">one receipt · one Run ID · one lifecycle</text>
+    <text class="label" x="180" y="89">Accept Session input</text>
+    <text class="detail" x="180" y="121">Authenticate the owner; save input and Turn state first.</text>
+    <text class="evidence" x="180" y="146">Agent snapshot · Session input · durable receipt</text>
   </g>
 
   <line class="flow" x1="92" y1="131" x2="92" y2="234"/>
@@ -37,22 +37,22 @@
     <circle class="number-ring" cx="92" cy="269" r="25"/>
     <text class="number" x="92" y="270">2</text>
     <rect class="node" x="145" y="206" width="555" height="126" rx="16"/>
-    <text class="label" x="180" y="253">Prepare and wake</text>
-    <text class="detail" x="180" y="285">One-shot wakes now; a thread attaches replay to the same Run.</text>
-    <text class="evidence" x="180" y="310">input · optional thread context · recoverable queues</text>
+    <text class="label" x="180" y="253">Dispatch the outbox</text>
+    <text class="detail" x="180" y="285">Dispatch saved work; reserve a private harness launch.</text>
+    <text class="evidence" x="180" y="310">Session outbox · execution queue · retry fences</text>
   </g>
 
   <line class="flow" x1="92" y1="295" x2="92" y2="398"/>
   <path class="arrow" d="M 83 391 L 92 405 L 101 391 Z"/>
 
-  <text class="boundary-label" x="145" y="391">ISOLATED LAMBDA MICROVM · ONE RUN</text>
+  <text class="boundary-label" x="145" y="391">ISOLATED LAMBDA MICROVM · SESSION HARNESS</text>
   <g data-node="primary">
     <circle class="number-ring" cx="92" cy="433" r="25"/>
     <text class="number" x="92" y="434">3</text>
     <rect class="node--run" x="145" y="402" width="555" height="126" rx="16"/>
-    <text class="label" x="180" y="449">Run</text>
-    <text class="detail" x="180" y="481">Launch the agent in a Lambda MicroVM with resolved policy.</text>
-    <text class="evidence" x="180" y="506">browser · integrations · skills · apps · MCP</text>
+    <text class="label" x="180" y="449">Execute a Turn</text>
+    <text class="detail" x="180" y="481">Native Codex runs with declared tools and resolved policy.</text>
+    <text class="evidence" x="180" y="506">model · function tools · MCP · environment</text>
   </g>
 
   <line class="flow" x1="92" y1="459" x2="92" y2="598"/>
@@ -63,7 +63,7 @@
     <text class="number" x="92" y="634">4</text>
     <rect class="node" x="145" y="570" width="555" height="126" rx="16"/>
     <text class="label" x="180" y="617">Retain</text>
-    <text class="detail" x="180" y="649">Persist events, files, checkpoints, and the final result.</text>
+    <text class="detail" x="180" y="649">Journal Items, Turns and checkpoints; save output Artifacts.</text>
     <text class="evidence" x="180" y="674">durability lives outside the MicroVM</text>
   </g>
 
@@ -75,9 +75,9 @@
     <text class="number" x="92" y="798">5</text>
     <rect class="node" x="145" y="734" width="555" height="126" rx="16"/>
     <text class="label" x="180" y="781">Deliver</text>
-    <text class="detail" x="180" y="813">Expose state, reply to a destination, or publish retained work.</text>
-    <text class="evidence" x="180" y="838">poll · threaded reply · file/site/video URL</text>
+    <text class="detail" x="180" y="813">Read saved output, deliver a root Turn, or publish Artifacts.</text>
+    <text class="evidence" x="180" y="838">SDK Items · provider reply · immutable publication</text>
   </g>
 
-  <text class="detail" x="145" y="906">Compute is disposable. Run evidence and user-visible work are durable.</text>
+  <text class="detail" x="145" y="906">Compute is disposable. Saved Session work is durable.</text>
 </svg>

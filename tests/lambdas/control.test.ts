@@ -1,104 +1,21 @@
 import type { APIGatewayProxyEventV2, APIGatewayProxyStructuredResultV2 } from 'aws-lambda';
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
 import {
-  apiRunSubmissionBody,
-  apiRequestBody,
   handler,
 } from '../../src/lambdas/control.js';
 import { ValidationError } from '../../src/domain/validation.js';
 import { errorResponse } from '../../src/lambdas/runtime.js';
 import { IntegrationProviderUnavailableError } from '../../src/plugins/integration-types.js';
 
-describe('control API request normalization', () => {
-  it('uses stable trusted source metadata across idempotent API attempts', () => {
-    const body = {
-      version: '1',
-      prompt: 'test',
-      source: { kind: 'github', deliveryId: 'untrusted' },
-    };
-
-    expect(apiRequestBody(body)).toEqual({
-      version: '1',
-      prompt: 'test',
-      source: { kind: 'api' },
-    });
-    expect(apiRequestBody(body)).toEqual(apiRequestBody(body));
-  });
-
-  it('turns an owner-scoped thread key into optional continuity on the same Run', () => {
-    const result = apiRunSubmissionBody(
-      {
-        version: '1',
-        prompt: 'Continue the release.',
-        thread: { key: 'release', delivery: 'defer' },
-      },
-      { kind: 'api' },
-      'api:owner-1',
-      'release-message-1',
-    );
-
-    expect(result.request).toEqual({
-      version: '1',
-      prompt: 'Continue the release.',
-      source: { kind: 'api' },
-    });
-    expect(result.thread).toMatchObject({
-      conversationId: expect.stringMatching(/^api:[a-f0-9]{32}:release$/),
-      messageId: 'release-message-1',
-      delivery: 'defer',
-    });
-  });
-
-  it('requires idempotency before accepting threaded work', () => {
-    expect(() => apiRunSubmissionBody(
-      { version: '1', prompt: 'test', thread: { key: 'release' } },
-      { kind: 'api' },
-      'api:owner-1',
-    )).toThrow('Idempotency-Key must be 1-200 safe ASCII characters');
-  });
-
-  it('decodes bounded attachments and reply context outside the canonical Run request', () => {
-    const bytes = Buffer.from('durable attachment');
-    const result = apiRunSubmissionBody(
-      {
-        version: '1',
-        prompt: 'Review this file.',
-        thread: {
-          key: 'release',
-          replyToMessageId: 'assistant-prior',
-          attachments: [{
-            name: 'notes.txt',
-            mediaType: 'text/plain',
-            base64: bytes.toString('base64'),
-            sha256: createHash('sha256').update(bytes).digest('hex'),
-          }],
-        },
-      },
-      { kind: 'api' },
-      'api:owner-1',
-      'release-message-upload',
-    );
-
-    expect(result.request).toEqual({
-      version: '1',
-      prompt: 'Review this file.',
-      source: { kind: 'api' },
-    });
-    expect(result.thread).toMatchObject({
-      replyToMessageId: 'assistant-prior',
-      attachments: [{
-        name: 'notes.txt',
-        mediaType: 'text/plain',
-        bytes,
-        sha256: createHash('sha256').update(bytes).digest('hex'),
-      }],
-    });
-  });
-});
-
 describe('control API discovery', () => {
-  it('serves discovery, OpenAPI, and Thing schemas without an authenticated principal', async () => {
+  it.each(['/v1/runs', '/v1/runs/run_old/events', '/v1/conversations', '/v1/conversations/old/artifacts'])('returns 404 for retired route %s', async (path) => {
+    const request = event(path);
+    Object.assign(request.requestContext, { authorizer: { iam: { userArn: 'arn:aws:iam::000000000000:user/test' } } });
+    const result = await invoke(handler, request);
+    expect(result.statusCode).toBe(404);
+  });
+  it('serves discovery, OpenAPI, and Agents schemas without an authenticated principal', async () => {
     const discovery = await invoke(handler, event('/.well-known/rat-things'));
     expect(discovery.statusCode).toBe(200);
     expect(JSON.parse(discovery.body ?? '{}')).toMatchObject({
@@ -114,25 +31,23 @@ describe('control API discovery', () => {
         agentGuide: 'https://gpazo.github.io/Rat-Things/docs/agents/',
         agentDocs: 'https://gpazo.github.io/Rat-Things/llms.txt',
         agentDocsFull: 'https://gpazo.github.io/Rat-Things/llms-full.txt',
-        schemas: { thing: '/schemas/thing-v1.json' },
+        schemas: { agents: '/schemas/agents-api.schema.json' },
       },
       capabilities: {
         consumers: ['operator', 'embedded-product', 'agent', 'cli', 'provider-event'],
-        recommendedFacade: 'things',
+        recommendedFacade: 'agents',
         authorization: {
           model: 'fixed-before-launch',
           insideEnvelope: 'autonomous',
           midRunApproval: false,
         },
-        things: { immutableRevisions: true, explain: true },
+        agents: { sessions: true, turns: true },
         integrations: {
           multipleAccounts: true,
           credentialOnboarding: 'manifest-driven',
           credentialVerification: 'before-persistence',
           providerIdentity: 'derived',
         },
-        runs: { asynchronous: true, liveEvents: true, approvals: false },
-        conversations: { durable: true, replacementCompute: true },
         outputs: { durableFiles: true, publications: ['file', 'site', 'video'] },
       },
     });
@@ -141,15 +56,14 @@ describe('control API discovery', () => {
     expect(openapi.statusCode).toBe(200);
     expect(JSON.parse(openapi.body ?? '{}')).toMatchObject({
       openapi: '3.1.0',
-      paths: { '/v1/things': expect.any(Object) },
+      paths: { '/v1/agents': expect.any(Object), '/v1/schedules': expect.any(Object) },
     });
 
-    const schema = await invoke(handler, event('/schemas/thing-v1.json'));
+    const schema = await invoke(handler, event('/schemas/agents-api.schema.json'));
     expect(schema.statusCode).toBe(200);
     expect(schema.headers?.['content-type']).toContain('application/schema+json');
     expect(JSON.parse(schema.body ?? '{}')).toMatchObject({
-      title: 'Rat Things ThingSpec v1',
-      required: ['version', 'name', 'goal', 'trigger'],
+      definitions: expect.any(Object),
     });
   });
 });

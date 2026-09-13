@@ -107,7 +107,7 @@ variable "force_destroy_data" {
 }
 
 variable "enable_point_in_time_recovery" {
-  description = "Enable DynamoDB point-in-time recovery for the run and conversation tables."
+  description = "Enable DynamoDB point-in-time recovery for the execution, Agent and retained data tables."
   type        = bool
   default     = true
 }
@@ -159,19 +159,9 @@ variable "run_heartbeat_stale_seconds" {
   }
 }
 
-variable "conversation_slice_timeout_seconds" {
-  description = "Maximum runtime for one resumable conversation slice."
-  type        = number
-  default     = 600
-
-  validation {
-    condition     = var.conversation_slice_timeout_seconds >= 30 && var.conversation_slice_timeout_seconds <= 1800
-    error_message = "conversation_slice_timeout_seconds must be between 30 and 1800."
-  }
-}
 
 variable "microvm_session_idle_seconds" {
-  description = "Idle endpoint time before a conversation MicroVM auto-suspends if explicit suspension fails."
+  description = "Idle endpoint time before a Session MicroVM auto-suspends."
   type        = number
   default     = 1200
 
@@ -182,7 +172,7 @@ variable "microvm_session_idle_seconds" {
 }
 
 variable "microvm_session_suspended_seconds" {
-  description = "Maximum suspended retention for a conversation MicroVM before AWS terminates it."
+  description = "Maximum suspended retention for a Session MicroVM before AWS terminates it."
   type        = number
   default     = 21600
 
@@ -235,17 +225,6 @@ variable "default_agent_network_access" {
   default     = true
 }
 
-variable "default_agent_driver" {
-  description = "Default agent CLI used by a worker."
-  type        = string
-  default     = "mock"
-
-  validation {
-    condition     = contains(["mock", "codex"], var.default_agent_driver)
-    error_message = "default_agent_driver must be mock or codex."
-  }
-}
-
 variable "allow_agent_aws_credential_chain" {
   description = "Allow the Codex subprocess to inherit a scoped AWS credential chain. Disabled by default; short-term bearer tokens are preferred."
   type        = bool
@@ -253,7 +232,7 @@ variable "allow_agent_aws_credential_chain" {
 }
 
 variable "lambda_zip_paths" {
-  description = "Optional overrides for packaged Lambda ZIPs, including conversation-coordinator and conversation-completion."
+  description = "Optional overrides for packaged Lambda ZIPs, for the active control-plane handlers."
   type        = map(string)
   default     = {}
 }
@@ -578,7 +557,7 @@ variable "enable_microvm" {
 }
 
 variable "enable_s3_files" {
-  description = "Provision S3 Files, its VPC mount path, and durable per-conversation Codex/workspace storage."
+  description = "Provision S3 Files, its VPC mount path, and durable per-Session Codex/workspace storage."
   type        = bool
   default     = false
 }
@@ -630,4 +609,27 @@ variable "tags" {
   description = "Additional tags applied to taggable resources."
   type        = map(string)
   default     = {}
+}
+
+variable "environment_relay_image" {
+  description = "ARM64 environment relay image pinned by sha256 digest. Null leaves the relay unprovisioned."
+  type        = string
+  default     = null
+  nullable    = true
+  validation {
+    condition     = var.environment_relay_image == null || can(regex("@sha256:[a-f0-9]{64}$", var.environment_relay_image))
+    error_message = "Pin the relay image by its sha256 digest."
+  }
+}
+
+variable "environment_relay_origin_hostname" {
+  description = "DNS hostname pointing to the relay ALB, covered by environment_relay_origin_certificate_arn."
+  type        = string
+  default     = null
+}
+
+variable "environment_relay_origin_certificate_arn" {
+  description = "ACM certificate in the deployment region covering the relay origin hostname."
+  type        = string
+  default     = null
 }

@@ -37,7 +37,7 @@ export class GitHubDeliveryAdapter implements DeliveryAdapter {
           'user-agent': 'rat-things',
           'x-github-api-version': '2022-11-28',
         },
-        body: JSON.stringify({ body: formatMessage(input.body, input.run, 60_000, true) }),
+        body: JSON.stringify({ body: formatMessage(input.body, input.execution, 60_000, true) }),
       },
     );
     const value = await checkedJson(response, 'GitHub');

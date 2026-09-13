@@ -8,11 +8,6 @@ const visuals = [
     document: 'docs/operating-model.md',
   },
   {
-    file: 'thing-lifecycle.svg',
-    primaryNodes: 5,
-    document: 'docs/things.md',
-  },
-  {
     file: 'permission-intersection.svg',
     primaryNodes: 5,
     document: 'docs/plugins.md',
@@ -61,73 +56,14 @@ describe('visual documentation', () => {
   it('uses the focused product SVG instead of the old raster C4 overview on the homepage', async () => {
     const homepage = await readFile('site/overview.html', 'utf8');
     expect(homepage).toContain('../docs/product-overview.svg');
-    expect(homepage).toContain('Thing lifecycle');
+    expect(homepage).toContain('Agents and Sessions');
     expect(homepage).toContain('Permission intersection');
     expect(homepage).toContain('Durable execution');
     expect(homepage).not.toContain('c4-system-context.png');
     expect(homepage).not.toContain('c4-runtime-containers.png');
   });
 
-  it('publishes accessible product screenshots and capability-focused copy', async () => {
-    const homepage = await readFile('site/overview.html', 'utf8');
-    const buildScript = await readFile('scripts/build-pages.mjs', 'utf8');
-    const screenshots = [
-      { file: 'conversation-console-live-browser.png', format: 'png' },
-      { file: 'conversation-console-live-activity.png', format: 'png' },
-      { file: 'conversation-console-mobile-browser.png', format: 'png' },
-      { file: 'connections-console.png', format: 'png' },
-      { file: 'routines-console.png', format: 'png' },
-      { file: 'cli-live-aws-attachment-reply.jpg', format: 'jpeg' },
-    ];
 
-    expect(homepage).toContain('id="console"');
-    expect(homepage).toContain('Install connections');
-    expect(homepage).toContain('Use connected services');
-    expect(homepage).toContain('Slack → Rat Things → Linear');
-    expect(homepage).toContain('Turn conversation<br>into tracked work.');
-    expect(homepage).toContain('Install both accounts');
-    expect(homepage).toContain('Research before writing');
-    expect(homepage).toContain('Bring Slack and Linear into one workflow.');
-    expect(homepage).toContain('As many trusted integrations as you choose.');
-    expect(homepage).toContain('01 · Request in Slack');
-    expect(homepage).toContain('02 · Tracked outcome');
-    expect(homepage).toContain('Set up Linear');
-    expect(homepage).toContain('docs/linear/');
-    expect(homepage).toContain('Rat Things for Linear');
-    expect(homepage).toContain('Keep the backlog moving—<br>without leaving the conversation.');
-    expect(homepage).toContain('Watch Linear in action');
-    expect(homepage).toContain('linear-marketing-poster.png');
-    expect(homepage).not.toContain('Live AWS proof');
-    expect(homepage).not.toContain('Five Linear tool calls.');
-    expect(homepage).not.toContain('Available today in Slack');
-    expect(homepage).toContain('Extensions are trusted host code.');
-    expect(homepage).not.toContain('Slack live proof');
-    expect(homepage).toContain('Operate routines');
-    expect(homepage).toContain('The reference console and CLI are two views over the same public');
-    expect(homepage).toContain('Durability by design');
-    expect(homepage).not.toContain('slack-proof');
-    expect(homepage).not.toContain('Client-side proof');
-    expect(homepage).not.toContain('Operator-side proof');
-    expect(homepage).not.toContain('236-resource');
-    expect(homepage).not.toContain('662.74');
-    expect(homepage).not.toContain('ux260826a');
-    expect(homepage).not.toContain('cli260826a');
-    expect(buildScript).not.toContain('slack-live-thread.jpg');
-    expect(buildScript).not.toContain('slack-live-connections.jpg');
-    for (const screenshot of screenshots) {
-      const bytes = await readFile(`assets/${screenshot.file}`);
-      if (screenshot.format === 'png') {
-        expect(bytes.subarray(1, 4).toString('ascii')).toBe('PNG');
-      } else {
-        expect([...bytes.subarray(0, 3)]).toEqual([0xff, 0xd8, 0xff]);
-      }
-      expect(bytes.byteLength).toBeGreaterThan(20_000);
-      expect(homepage).toMatch(new RegExp(
-        `src="../assets/${escapeRegExp(screenshot.file)}"[^>]+alt="[^"]+"`,
-      ));
-      expect(buildScript).toContain(`'${screenshot.file}'`);
-    }
-  });
 });
 
 function escapeRegExp(value: string): string {

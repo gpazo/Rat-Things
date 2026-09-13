@@ -24,25 +24,7 @@ const delivery: DeliveryRequest = {
     source: request.source,
   },
   request,
-  run: {
-    runId: 'run-1',
-    ownerId: 'slack:T123:U123',
-    capabilityOwnerId: 'api:owner',
-    ownerCreated: 'slack:T123:U123#2026-01-01T00:00:00.000Z#run-1',
-    status: 'succeeded',
-    createdAt: '2026-01-01T00:00:00.000Z',
-    updatedAt: '2026-01-01T00:01:00.000Z',
-    expiresAt: 1_800_000_000,
-    requestHash: 'hash',
-    input: { bucket: 'artifacts', key: 'input.json', sha256: 'input-hash' },
-    sourceKind: 'slack',
-    result: {
-      output: { bucket: 'artifacts', key: 'result.md', sha256: 'result-hash' },
-      preview: 'Found it',
-      exitCode: 0,
-      durationMs: 100,
-    },
-  },
+  execution: { id: 'turn_1', status: 'completed', label: 'Turn', sessionId: 'sess_1', credentialOwnerId: 'api:owner' },
   body: 'Found it',
 };
 

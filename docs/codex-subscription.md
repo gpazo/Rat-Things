@@ -55,7 +55,7 @@ personality flags. Multi-account Rat Connections and the isolated Chromium helpe
 deployed AWS host.
 
 Local and remote execution both pin Codex to `approvalPolicy: "never"`. Narrow the sandbox,
-networking, and selected capabilities before launch; Rat Things has no mid-Run approval path.
+networking, and selected capabilities before launch; Rat Things has no mid-Turn approval path.
 
 ## Hand the same experience to AWS
 
@@ -79,15 +79,16 @@ npm run quickstart:aws -- \
   --accept-codex-credential-risk
 ```
 
-After deployment, hand work off explicitly:
+After deployment, create a Session using an admitted model:
 
 ```bash
-rat-things handoff --thread release-readiness \
-  "Run the release checks, keep the artifacts, and report back when complete"
+rat-things sessions create --model YOUR_ADMITTED_MODEL \
+  --input "Draft a release checklist and explain the rollback criteria."
 ```
 
-Cloud agents can continue after the local turn ends, use installed Slack or Linear accounts, keep
-files, and resume the same durable conversation later.
+Retain the returned Session ID to inspect Items or submit another input later. Environment
+commands require an explicitly configured environment; provider operations require declared tools
+and their credentials. A notification connection does not grant agent tool access.
 
 ## Credential risk and lifecycle
 

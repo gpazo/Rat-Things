@@ -2,9 +2,9 @@
 
 Rat Things adds durable state and isolated execution so failures can be inspected rather than lost.
 The debugging contract is part of the product: use machine-readable discovery, stable error
-envelopes, Thing explanations, run state, and retained events in that order.
+envelopes, Session state, Turn outcomes, and retained events in that order.
 This follows the same [operating journey](operating-model.md): diagnose installation and discovery,
-then the account, then the Thing's effective permissions, and finally the individual run.
+then the account, then the Agent's declared capabilities, and finally the individual run.
 
 ## Start with doctor
 
@@ -32,7 +32,7 @@ Common repairs:
 | `authenticated-api` failure | Refresh AWS credentials; verify execute-api invoke permission and SigV4 Region |
 
 `/health` is liveness only. It does not prove model access, MicroVM provisioning, an integration
-credential, or a particular Thing.
+credential, or a particular Agent.
 
 ## Debug an integration connection
 
@@ -80,10 +80,10 @@ For a connection that exists but exposes no expected tool, inspect in this order
 1. provider `authorization.access`, `scopeModel`, and `scopes` from `rat-things connections`;
 2. the persistent Rat `grant` returned beside that connection;
 3. the selected capability profile;
-4. the Thing/run connection selection and any deny list; and
+4. the Run connection selection and any deny list; and
 5. the operation's required scopes and resource constraints.
 
-`rat-things thing-explain THING_ID` shows that intersection without reading the credential. A broad
+Inspect the declared tools and attached Vaults for an Agents Session. A broad
 provider key with a read-only Rat grant is expected; widening the key is not a fix for a broker
 denial. To rotate, use the same credential-only shape:
 
@@ -95,30 +95,20 @@ Rotation rejects a credential for a different provider tenant/subject. Create an
 for that account instead. Revocation is terminal for the connection; reconnect as a new account if
 it is needed again.
 
-## Explain a Thing
+## Inspect an Agent and Session
 
 ```bash
-rat-things thing-explain THING_ID > explanation.json
+rat-things agents get agent_example
+rat-things sessions get sess_example
+rat-things sessions turns sess_example
+rat-things sessions items sess_example
 ```
 
-Repair every `error` diagnostic before publishing. In particular:
-
-- install or select an existing capability profile;
-- create a referenced connection set for the same authenticated owner;
-- correct account aliases/IDs and reactivate or rotate expired connections;
-- add a persistent Rat permission grant;
-- remove operation IDs not present in the installed plugin manifest; and
-- inspect each operation's provider, grant, Thing, profile, and resource ceilings.
-
-The explanation contains no credential values. If its direct `compiledRun` differs from
-`effectiveRun`, the capability profile narrowed the request. A denied write in `resolvedConnections`
-is expected when a Thing asks for read-only access; do not widen the provider token merely to make
-the explanation look uniform.
-
-The latest draft runs through `thing-test`; the active revision runs through `thing-run`, including
-while its schedule is paused. Archived Things do not run.
-Use a unique test idempotency key for a changed test; repeat the same key only when retrying the same
-semantic attempt.
+Check the Session's snapshotted Agent configuration, environment and required
+actions. Later Agent changes do not affect that Session. Verify declared tools,
+owned Vaults, deployment policy and environment capability before starting another
+Session to change its authority. Provider bindings also require the owned Agent
+and environment; a notification connection set does not supply Agent tools.
 
 ## Read stable API errors
 
@@ -149,7 +139,7 @@ trace ID in support tools and application logs. Do not turn a 4xx into an automa
 
 ## Follow a run
 
-After `thing-run` returns `202`, use:
+For remaining legacy Run-based application integrations, use:
 
 ```bash
 rat-things get RUN_ID
@@ -174,28 +164,12 @@ logs instead.
 
 ## Verify storage and scheduling
 
-For a Thing that disappears or fails digest validation:
+For a missing Agent or Session, verify the authenticated owner and the Agents
+resource index. Confirm the referenced encrypted definition object exists and
+that the service role has table, object and data-key permissions. Do not edit
+stored content to work around a failed integrity check.
 
-1. confirm `THINGS_TABLE_NAME` and `DEFINITION_BUCKET` are present in the control/Scheduler Lambda
-   environments;
-2. confirm the authenticated principal matches the Thing owner;
-3. verify the Thing root and immutable version item exist in DynamoDB without copying the goal;
-4. verify the referenced object exists below `owners/<owner-hash>/things/<id>/versions/` in the
-   private definition bucket;
-5. verify the Lambda role has table, S3-object, and data-key permissions; and
-6. do not rewrite an immutable definition object to repair a digest—create a new revision or restore
-   the exact version from controlled backup.
-
-For an active schedule that does not fire, inspect `triggerState` first. `error` contains the bounded
-Scheduler API failure; retry `thing-publish` or `thing-resume` after repairing it. Then inspect the
-deployment's EventBridge Scheduler group, the exact schedule's expression/time zone/state/target,
-its fixed invocation role, the Thing Scheduler Lambda logs, the schedule failure queue, SQS send
-permission, and the run table. Confirm the schedule payload pins the current `active.revision` and
-uses `<aws.scheduler.scheduled-time>`. Stale or paused deliveries intentionally produce no run.
-
-## Deeper operator runbook
-
-This guide covers public diagnostics. Queue redrive, delivery fencing, stream failure queues,
-MicroVM incidents, secret rotation, and destructive recovery procedures remain in the
-[operator runbook](runbook.md). Architecture boundaries and data ownership are described in
-[architecture](architecture.md) and [security](security.md).
+For a schedule that does not fire, inspect its stored status and generation, the
+Agents outbox, the AWS schedule expression/timezone/target and the fixed invocation
+role. Check the scheduler failure queue before replaying an occurrence. Paused
+and stale generations accept no new work. Use the [schedule triage guide](runbook.md#session-schedule-triage).

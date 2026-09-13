@@ -1,7 +1,4 @@
-import type { ScheduledThingInvocation, ScheduledThingResult } from '../domain/things.js';
-import { getThingService } from '../app/composition.js';
+import { getScheduleService } from '../app/composition.js';
 
-/** Fixed, non-public target for deployment-owned EventBridge Scheduler schedules. */
-export async function handler(event: ScheduledThingInvocation): Promise<ScheduledThingResult> {
-  return getThingService().runScheduled(event);
-}
+/** The deployed Lambda name is retained so existing schedule-group IAM remains valid. */
+export async function handler(event: unknown) { return getScheduleService().invoke(event); }

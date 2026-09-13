@@ -12,7 +12,6 @@ const docsConfig = JSON.parse(await readFile('site/docs.json', 'utf8'));
 const guidesConfig = JSON.parse(await readFile('site/guides.json', 'utf8'));
 const visualAssetFiles = [
   'product-overview.svg',
-  'thing-lifecycle.svg',
   'permission-intersection.svg',
   'durable-execution.svg',
 ];
@@ -21,40 +20,10 @@ const homepageAssetFiles = [
   'rat-things-architecture-demo-poster.jpg',
   'rat-things-hero.jpg',
   'rat-things-og-v2.jpg',
-  'conversation-console-desktop.png',
-  'conversation-console-artifact-viewer.png',
-  'conversation-console-mobile-input.png',
-  'conversation-console-live-browser.png',
-  'conversation-console-live-activity.png',
-  'conversation-console-mobile-browser.png',
   'connections-console.png',
-  'routines-console.png',
-  'cli-live-aws-attachment-reply.jpg',
-  'linear-live-title.png',
-  'linear-marketing-poster.png',
-  'linear-live-aws-e2e.mp4',
-  'linear-live-issue.png',
-  'linear-live-write-run.png',
-  'linear-live-homepage.png',
 ];
 const documentationSharedAssetFiles = [
-  'conversation-console-live-browser.png',
-  'conversation-console-live-activity.png',
   'connections-console.png',
-  'routines-console.png',
-  'cli-live-aws-attachment-reply.jpg',
-  'cli-live-aws-conversation.jpg',
-  'linear-live-title.png',
-  'linear-marketing-poster.png',
-  'linear-live-aws-e2e.mp4',
-  'linear-live-issue.png',
-  'linear-live-write-run.png',
-  'linear-live-read-only.png',
-  'linear-live-connection.png',
-  'linear-live-connection-details.png',
-  'linear-live-oauth-consent.png',
-  'linear-live-oauth-installed.png',
-  'linear-live-homepage.png',
 ];
 
 marked.setOptions({ gfm: true });
@@ -237,7 +206,8 @@ function renderLlmsIndex(groups, documents, guideGroups, guides) {
     const guide = guides.get(file);
     return `- [${guide.title}](${pagesUrl}/guides/${guide.slug}/): ${guide.description}`;
   }).join('\n')}`).join('\n\n');
-  return `# Rat Things\n\n> The open-source, self-hostable backend for cloud agents, with isolated Codex execution, reusable Things, multi-account integrations, browser use, and durable work. Rat Things is an engineering preview, not a production-ready multi-tenant service.\n\n## Agent quickstart\n\nA host gives you a Rat Things deployment base URL and an authenticated calling method.\n\n1. Fetch \`/.well-known/rat-things\` from that deployment. Resolve its relative links against the deployment URL.\n2. Treat the installed OpenAPI, JSON Schemas, capability profiles, and integration manifests as authoritative.\n3. Prefer Things for reusable work: create a draft, explain it, test it, publish the exact immutable revision, then run or schedule the active revision. Start with explicit read-only/no-network capabilities and widen only for the task.\n4. Every accepted execution returns one Run. Retain its Run ID and follow its \`Location\`, durable state, or live events; optional \`thread\` continuity does not create another public receipt.\n5. Use raw runs, thread continuity, browser use, skills, apps, MCP, publications, and provider-event ingress only when the task needs those deeper surfaces.\n6. Never submit an owner ID or place AWS, provider, S3, or MicroVM credentials in a Thing or run.\n\nRead [Connect an agent to Rat Things](${pagesUrl}/docs/agents/) for authentication options, the smallest complete journey, the deeper capability map, failure rules, and a copyable bootstrap instruction. Do not load the full corpus for a simple Thing run.\n\n## Problem-first guides\n\nUse these concise decision guides when the question starts with a pain, workflow, cost, or architecture choice. Follow their evidence links before repeating a product-specific claim.\n\n${guideSections}\n\n${sections}\n\n## Machine-readable contracts\n\nString lengths in JSON Schema are preflight character limits; runtime UTF-8 byte limits remain authoritative.\n\n- [OpenAPI 3.1](${pagesUrl}/openapi.json): Published reference contract; an installed deployment's linked copy is authoritative.\n- [ThingSpec v1 JSON Schema](${pagesUrl}/schemas/thing-v1.json): Portable credential-free automation definition.\n- [Create Thing schema](${pagesUrl}/schemas/thing-create-v1.json): Direct draft-only Thing creation contract.\n- [Create Thing version schema](${pagesUrl}/schemas/thing-version-v1.json): Compare-and-swap draft revision contract.\n- [Operational agent corpus](${pagesUrl}/llms-full.txt): Published agent documentation combined into one document; load only when broad context is necessary.\n\n## Source and examples\n\n- [Repository](${repositoryUrl})\n- [Safe first-run ThingSpec](${pagesUrl}/examples/thing-create.json)\n- [Connected scheduled ThingSpec](${pagesUrl}/examples/thing-connected-schedule.json)\n- [Updated ThingSpec example for the CLI or nested version request](${pagesUrl}/examples/thing-version.json)\n`;
+  return `# Rat Things\n\n> An independent AWS backend implementing the OpenAI Agents API. The host owns execution, harness and state. Engineering preview.\n\n## Agent quickstart\n\n1. Discover the deployment through \`/.well-known/rat-things\`.\n2. Use its OpenAPI and Agents schemas.\n3. Create an Agent and a Session with explicit tools and environment settings.\n4. Follow Turns, Items and live Session events.\n5. Use Vaults for credentials and schedules or signed provider bindings for recurring input.\n\nRead [Connect an agent](${pagesUrl}/docs/agents/) and [Agents API](${pagesUrl}/docs/agents-api/).\n\n${guideSections}\n\n${sections}\n\n## Machine-readable contracts\n\n- [OpenAPI](${pagesUrl}/openapi.json)\n- [Agents schemas](${pagesUrl}/schemas/agents-api.schema.json)\n- [Operational corpus](${pagesUrl}/llms-full.txt)\n- [Repository](${repositoryUrl})\n`;
+
 }
 
 function renderLlmsFull(documents) {
@@ -647,7 +617,7 @@ function renderDocsHome(groups, documents) {
           <div>
             <p class="docs-card-kicker">For coding agents</p>
             <h2>Give an agent one URL.</h2>
-            <p>The agent guide tells an agent to discover the installed deployment, use Things first, and open live controls, conversations, raw runs, browser use, skills, apps, MCP, files, and publications only as needed.</p>
+            <p>The agent guide tells an agent to discover the installed deployment, use Agents and Sessions, and open environment, Vault, integration and publication guidance as needed.</p>
           </div>
           <div class="docs-home-actions">
             <a class="docs-button docs-button-primary" href="./agents/">Agent quickstart</a>

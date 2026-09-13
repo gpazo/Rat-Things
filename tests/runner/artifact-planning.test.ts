@@ -135,11 +135,10 @@ describe('artifact content values', () => {
     expect(detectMediaType(Buffer.from('unknown'), 'unknown.bin')).toBe('application/octet-stream');
   });
 
-  it('builds prompts from the supplied sharing flag while preserving empty and whitespace requests', () => {
-    expect(artifactPromptText('', false)).toMatch(/User request:\n\n$/);
-    expect(artifactPromptText('  request\n', true)).toMatch(/User request:\n\n  request\n$/);
-    expect(artifactPromptText('request', false)).not.toContain('share.json');
-    expect(artifactPromptText('request', true)).toContain('Never invent or guess a share URL');
+  it('builds file instructions while preserving empty and whitespace requests', () => {
+    expect(artifactPromptText('')).toMatch(/User request:\n\n$/);
+    expect(artifactPromptText('  request\n')).toMatch(/User request:\n\n  request\n$/);
+    expect(artifactPromptText('request')).not.toContain('share.json');
     const first = emptyArtifactCatalog();
     first.files.push(previousFile());
     expect(emptyArtifactCatalog().files).toEqual([]);

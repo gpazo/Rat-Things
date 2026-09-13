@@ -14,59 +14,43 @@ for CLI commands and recipient checks.
 - A **share grant** is an unguessable bearer token authorizing one publication until an explicit
   expiry.
 
-## Conversational publishing
+## Session artifact publishing
 
-When publication delivery is enabled, the agent can request sharing by writing deliverables beneath
-`.rat-things/artifacts/` and an ephemeral outbox at `.rat-things/share.json`. The runner processes
-the outbox after a successful turn:
+Managed environments retain regular files beneath `/workspace/outputs` as
+immutable Session Artifacts after completed Turns. Select saved artifact IDs
+explicitly when publishing. The owner-checked source resolver verifies the whole
+selection before reading content or writing a publication; artifact IDs from
+another owner, another Session, or deleted artifacts are rejected.
 
-```json
+The publication ID derives from the Session, normalized specification, selected
+paths, content digests and media types. Its manifest is committed last. Repeating
+the same selection reuses the publication and mints a fresh grant. Its provenance
+records the Session and artifact IDs. A publication remains available independently
+of the live environment and its source artifact's subsequent deletion, subject to
+the publication retention policy and grant expiry.
+
+## Control API
+
+Use the IAM-authenticated control endpoint, separate from the standard Agents API:
+
+```http
+POST /v1/sessions/{sessionId}/publications
+Content-Type: application/json
+
 {
-  "version": "1",
-  "publications": [
-    {
-      "version": "1",
-      "kind": "site",
-      "root": "web",
-      "entrypoint": "index.html",
-      "title": "The Deliverator chase"
-    }
+  "publication": {"version":"1","kind":"site","entrypoint":"index.html"},
+  "files": [
+    {"artifact_id":"art_index","path":"index.html"},
+    {"artifact_id":"art_style","path":"style.css"}
   ]
 }
 ```
 
-The outbox is cleared before every turn, capped at ten requests and 32 KiB, and rejected if it is a
-symbolic link, hard link, or malformed document. It is a declaration rather than authority: the
-trusted runner resolves every path through the authenticated owner's catalog, performs publication,
-mints the grant, and appends the real link to the stored result. Bearer URLs remain in encrypted S3
-result bodies rather than DynamoDB previews. The outbox is cleared after consumption and never
-replayed.
-
-The publication ID derives from the normalized spec, selected paths, content digests, and media
-types. Its manifest is committed last. Sharing unchanged work reuses the committed publication and
-mints a fresh grant; changed bytes or presentation options produce a new publication ID.
-
-## Control API
-
-Create publications with an IAM-authenticated request to either owner-scoped source:
-
-```http
-POST /v1/conversations/{conversationId}/publications
-POST /v1/runs/{runId}/publications
-Content-Type: application/json
-
-{"version":"1","kind":"file","path":"images/rat-thing.webp","title":"Rat Thing"}
-```
-
-Site and video requests use the same versioned tagged shape:
-
-```json
-{"version":"1","kind":"site","root":"web","entrypoint":"index.html"}
-```
-
-```json
-{"version":"1","kind":"video","path":"video/chase.mp4","poster":"video/poster.webp"}
-```
+Each artifact ID and relative path must be unique. Paths cannot contain traversal,
+absolute paths or backslashes. `file` specifications select `path`; `video`
+specifications select `path` and an optional `poster`; `site` specifications select
+an optional `root` and `entrypoint`. Only the selected saved bytes are available to
+the builder. The agent's live filesystem does not grant publication access.
 
 The response URL is on a publication-specific host. Its `/__share/{token}` route validates the
 encrypted S3 share record and redirects to a cryptographically signed first-page URL while also

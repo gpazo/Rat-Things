@@ -1,16 +1,27 @@
 import { describe, expect, it } from 'vitest';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import {
   awsQuickstartTerraformConfig,
-  awsQuickstartThing,
+  quickstartModel,
   assertSupportedNodeVersion,
   managedTerraformAddresses,
   parseAwsQuickstartOptions,
-  quickstartRunEvidence,
   recoveredQuickstartDestroyEvidence,
   resolveQuickstartAwsContext,
 } from '../../scripts/aws-quickstart.js';
 
 describe('AWS quickstart', () => {
+  it('rejects a mock Agents deployment before any credential transfer or AWS changes', async () => {
+    await expect(promisify(execFile)(process.execPath, ['--import', 'tsx', 'scripts/aws-quickstart.ts', '--driver', 'mock', '--yes'], {
+      env: { PATH: process.env.PATH, AWS_REGION: 'us-west-2' },
+    })).rejects.toMatchObject({ code: 1, stderr: expect.stringContaining('Agents quickstart requires Codex') });
+  });
+  it('requires an explicit admitted model for ChatGPT while keeping recovery independent', () => {
+    expect(() => quickstartModel(parseAwsQuickstartOptions([]))).toThrow('Select an admitted model');
+    expect(quickstartModel(parseAwsQuickstartOptions(['--model', 'configured-model']))).toBe('configured-model');
+    expect(quickstartModel(parseAwsQuickstartOptions(['--auth', 'bedrock']))).toBe('openai.gpt-5.6-terra');
+  });
   it('requires the repository Node 22.20 baseline', () => {
     expect(() => assertSupportedNodeVersion('v20.19.5')).toThrow('Node.js 22.20.0 or newer');
     expect(() => assertSupportedNodeVersion('22.19.0')).toThrow('Node.js 22.20.0 or newer');
@@ -31,7 +42,6 @@ describe('AWS quickstart', () => {
       acceptCodexCredentialRisk: false,
     });
     expect(awsQuickstartTerraformConfig(options, '7')).toMatchObject({
-      default_agent_driver: 'codex',
       codex_auth_mode: 'chatgpt',
       codex_bedrock_model_ids: [],
       default_sandbox_mode: 'read-only',
@@ -61,24 +71,6 @@ describe('AWS quickstart', () => {
     });
     expect(awsQuickstartTerraformConfig(options, '7')).toMatchObject({
       codex_auth_file_secret_arn: secretArn,
-    });
-  });
-
-  it('makes mock mode explicit and generates one safe manual Thing', () => {
-    const options = parseAwsQuickstartOptions(['--driver', 'mock', '--yes']);
-    expect(options).toMatchObject({ driver: 'mock', yes: true });
-    expect(awsQuickstartThing('mock', 'RAT-THINGS-READY-TEST')).toMatchObject({
-      trigger: { kind: 'manual' },
-      agent: {
-        driver: 'mock',
-        sandbox: 'read-only',
-        capabilities: {
-          networkAccess: false,
-          webSearch: 'disabled',
-          computerUse: 'disabled',
-        },
-      },
-      deliver: [{ kind: 'none' }],
     });
   });
 
@@ -208,52 +200,6 @@ describe('AWS quickstart', () => {
       true,
       { listedMicrovms: 1, activeMicrovms: 1 },
     )).toThrow('left 1 active MicroVM');
-  });
-
-  it('accepts only successful Runs bound to the exact Thing revision and proof marker', () => {
-    const specHash = 'a'.repeat(64);
-    const run = {
-      runId: 'run-active',
-      status: 'succeeded',
-      thing: {
-        thingId: 'thing-first',
-        revision: 1,
-        specHash,
-        invocation: 'manual',
-      },
-      result: { preview: 'RAT-THINGS-READY-TEST The Thing is ready.' },
-    };
-    expect(quickstartRunEvidence(
-      run,
-      'manual',
-      'thing-first',
-      1,
-      specHash,
-      'RAT-THINGS-READY-TEST',
-    )).toEqual({
-      runId: 'run-active',
-      status: 'succeeded',
-      invocation: 'manual',
-      revision: 1,
-      specHash,
-      outputPreview: 'RAT-THINGS-READY-TEST The Thing is ready.',
-    });
-    expect(() => quickstartRunEvidence(
-      { ...run, thing: { ...run.thing, specHash: 'b'.repeat(64) } },
-      'manual',
-      'thing-first',
-      1,
-      specHash,
-      'RAT-THINGS-READY-TEST',
-    )).toThrow('did not bind the expected active Thing revision');
-    expect(() => quickstartRunEvidence(
-      { ...run, result: { preview: 'wrong output' } },
-      'manual',
-      'thing-first',
-      1,
-      specHash,
-      'RAT-THINGS-READY-TEST',
-    )).toThrow('did not contain its proof marker');
   });
 
   it('reports managed Terraform resources separately from data-source state entries', () => {

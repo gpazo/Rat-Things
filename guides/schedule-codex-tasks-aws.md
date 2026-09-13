@@ -1,157 +1,70 @@
 # How to schedule recurring Codex tasks in AWS
 
-Schedule recurring Codex work by versioning the task definition, testing the exact draft, activating
-that immutable revision, and letting Amazon EventBridge Scheduler submit an ordinary durable Run
-for each occurrence. The schedule should select no arbitrary AWS role or target, and every run
-should inherit a fixed capability envelope that is safe without a person watching.
+Create an Agent with the model, instructions and tools needed for the task. Then
+create a schedule that references that Agent and its environment. Rat Things
+stores the schedule in your AWS account and uses EventBridge Scheduler to submit
+an occurrence to the Session integration service.
 
-> **Short answer:** schedule a tested agent definition, not a mutable prompt. Pin each occurrence to
-> a revision and scheduled time so retries cannot silently change the work or create duplicates.
+## Define the work
 
-## Start with the risk of unattended work
-
-A scheduled agent has no operator present to approve unexpected actions. Its definition therefore
-needs to answer four questions before activation:
-
-1. What exact goal and input will run?
-2. Which revision is production using?
-3. What shell, network, browser, AWS, and connected-account authority is available?
-4. How will duplicate delivery, failure, and result retention behave?
-
-A cron expression alone answers none of these. Treat scheduling as the final trigger attached to a
-reviewed automation contract.
-
-## Use an immutable task lifecycle
-
-Rat Things calls a reusable cloud-agent definition a **Thing**. One stable Thing ID has immutable
-revisions and separate draft and active pointers:
-
-```text
-edit draft → explain authority → test exact draft → activate exact revision → schedule Runs
-```
-
-Editing creates a new draft without changing production. Activation—called `publish` in the API and
-CLI—requires a successful test Run for the same Thing ID, revision, and specification hash. The
-active schedule remains pinned until another exact revision passes that gate.
-
-For a complete lifecycle, see [Things: reusable cloud agents](../docs/things.md#lifecycle).
-
-## Define the schedule
-
-ThingSpec v1 supports EventBridge rate and cron expressions:
+Keep reusable behavior on the Agent and setup in an environment template. The
+schedule supplies the input, time expression, overlap policy and destinations:
 
 ```json
 {
-  "version": "1",
-  "name": "Weekday release readiness",
-  "goal": "Return a concise release-readiness checklist covering tests, rollback, and go/no-go review.",
-  "trigger": {
-    "kind": "schedule",
-    "expression": "cron(0 8 ? * MON-FRI *)",
-    "timezone": "America/Los_Angeles"
-  },
-  "agent": {
-    "driver": "codex",
-    "sandbox": "read-only",
-    "capabilities": {
-      "profile": "read-only",
-      "networkAccess": false,
-      "webSearch": "disabled",
-      "computerUse": "disabled"
-    }
-  },
-  "execution": { "backend": "microvm", "timeoutSeconds": 300 },
-  "deliver": [{ "kind": "none" }]
+  "name": "Weekday review",
+  "agentId": "agent_example",
+  "environment": { "type": "none" },
+  "expression": "cron(0 8 ? * MON-FRI *)",
+  "timezone": "America/Los_Angeles",
+  "input": "Review the supplied release notes for {{scheduled_at}}.",
+  "overlap": "skip",
+  "destinations": []
 }
 ```
 
-This minimal example needs no checkout or connected account. Before replacing the goal with real
-release checks, configure the repository or inputs, required tools, and their capability envelope.
+Use a managed environment template when the Agent needs a filesystem or commands.
+The upstream `openai_hosted` environment spelling selects your AWS-managed
+execution in this deployment. Declare the required tools and credentials before
+launch; unattended work has no approval step for extending authority.
 
-[Amazon EventBridge Scheduler's schedule-type documentation](https://docs.aws.amazon.com/scheduler/latest/UserGuide/schedule-types.html)
-defines cron and rate schedules, IANA time zones, daylight-saving behavior, and 60-second
-invocation precision. EventBridge cron uses six fields and requires exactly one of day-of-month or
-day-of-week to use `?`. Rat Things defaults the time zone to UTC and deliberately leaves one-time
-`at(...)` expressions out of the current Thing contract.
-
-Start from the checked-in [connected schedule example](../examples/thing-connected-schedule.json)
-when browser use, an account selection, or result delivery is required.
-
-## Test and activate the exact revision
-
-Save the definition as `weekday-release.json`, then use the safe release path:
+Save the definition as `schedule.json` and use the authenticated control endpoint:
 
 ```bash
-npm run rat-things -- thing-release --file weekday-release.json
+rat-things schedules create --file schedule.json
+rat-things schedules list
+rat-things schedules pause sched_example
+rat-things schedules update sched_example --file schedule.json
+rat-things schedules resume sched_example
 ```
 
-That command creates the draft, explains its effective authority, stops on blocking diagnostics,
-tests the exact draft, waits for success, and activates only the revision and `specHash` proven by
-that test.
+## Occurrences and retries
 
-Do not enable a write-capable schedule merely because one test produced the expected prose. Inspect
-the resolved capability envelope and durable tool-call ledger. Restrict connected accounts to the
-exact read or write operations and resources required by every unattended occurrence.
+Each accepted occurrence reserves a Session ID and snapshots the schedule input
+before asynchronous submission. Retries use that receipt. A later schedule edit
+does not change already accepted input. The Agent itself is resolved and
+snapshotted when the Session is first prepared.
 
-## Make retries idempotent
+`overlap: "skip"` suppresses a new occurrence while the previous Session is active
+or awaiting creation. `"allow"` permits concurrent Sessions. Pauses and stale
+schedule generations reject new occurrences; already accepted work continues.
 
-EventBridge Scheduler supports retries and a dead-letter queue when target delivery fails. Rat
-Things therefore assumes an occurrence can be delivered again and derives its idempotency identity from
-the Thing ID, pinned active revision, and Scheduler-provided scheduled time. A retry therefore
-converges on the same semantic Run instead of starting a second occurrence.
+Completed root Turns deliver saved output to configured destinations, independent
+of how long the harness remains alive. Durable delivery fences suppress duplicate
+replies after ambiguous provider outcomes.
 
-Before submission, the trusted target confirms that the Thing still exists, is active, still points
-to the delivered revision, and still has a schedule trigger. A stale or paused delivery is
-acknowledged without creating a Run.
-
-The schedule cannot choose an arbitrary Lambda target or invocation role. Rat Things owns the
-target, fixed role, retry policy, and encrypted failure queue.
-
-## Pause and change production safely
-
-Use lifecycle operations instead of editing AWS resources directly:
-
-```bash
-npm run rat-things -- thing-pause THING_ID
-npm run rat-things -- thing-resume THING_ID
-npm run rat-things -- thing-archive THING_ID
-```
-
-Pausing disables future scheduled delivery but does not cancel a Run already in flight. An explicit
-manual `thing-run` still invokes the active revision while scheduling is paused. Archiving is
-terminal and removes the schedule.
-
-To change the goal or permissions, create a new draft, explain and test it, then activate it. Do not
-edit the Scheduler target, role, or payload by hand; doing so bypasses the lifecycle Rat Things can
-reason about and repair.
-
-## Deliver a useful result
-
-A recurring task needs a destination and a durable receipt. Each occurrence is an ordinary Run with
-the same lifecycle as manual, API, Slack, or webhook work. A Thing can deliver its terminal result
-to a supported destination, while the full result, events, and generated files remain available to
-the authenticated owner.
-
-Useful narrow schedules include:
-
-- a read-only morning Slack decision digest;
-- release-readiness checks that retain a report;
-- an issue-triage summary that proposes rather than performs mutations; and
-- a browser-based monitoring task restricted to approved public origins.
-
-For consequential changes, schedule a read-only preparation Thing and submit a separate, narrowly
-authorized execution Run after review. Rat Things has no mid-Run approval step.
+The [schedule contract](../docs/schedules.md) describes supported expressions,
+input substitutions, ownership and provider bindings. The deployment fixes the
+EventBridge target and invocation role; schedule callers cannot select AWS roles.
 
 ## Current boundaries
 
-A schedule delivers occurrences; it does not authorize extra tools or undo external effects from
-an interrupted Run. Configure failure queues, alarms, runtime limits, and account permissions for
-unattended work. Use the [schedule triage runbook](../docs/runbook.md#thing-schedule-triage) when
-an active Thing stops producing Runs.
+Scheduling is a Rat Things integration extension linked to standard Agents and
+Sessions. It has no separate executable-agent definition or release pointer.
+A schedule stores an Agent reference; the Session snapshots that Agent at first
+preparation. The environment and provider must support every requested tool.
 
 ## Sources
 
-- [Amazon EventBridge Scheduler schedule types, time zones, and precision](https://docs.aws.amazon.com/scheduler/latest/UserGuide/schedule-types.html)
-- [Amazon EventBridge Scheduler retries and dead-letter queues](https://docs.aws.amazon.com/scheduler/latest/UserGuide/managing-schedule.html)
-- [Rat Things Thing lifecycle and schedule contract](../docs/things.md)
-- [Rat Things scheduled-Thing validation](../docs/things.md#eventbridge-scheduler)
+- [Rat Things schedule contract](../docs/schedules.md)
+- [Agents, Sessions and environment configuration](../docs/agents-api.md)

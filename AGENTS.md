@@ -10,20 +10,19 @@ for agents that use Rat Things is [`docs/agents.md`](docs/agents.md).
 
 - `src/domain` owns stable run contracts and state transitions. It must not import AWS SDKs.
 - `src/core` owns orchestration against ports. It must not know about webhook payload shapes.
-- `src/conversation` owns durable mailbox coordination and conversation-facing service contracts.
-  It depends on domain/core ports rather than AWS implementations.
+- `src/core` also owns durable Session, Turn and outbox coordination against storage and execution ports.
 - `src/identity` keeps actor, owner, source, destination, and credential subject distinct.
 - `src/credentials` owns the host-side secret-reader contract and credential-value parsing.
 - `src/ingress` authenticates and normalizes provider requests behind an ingress port.
 - `src/delivery` resolves destinations and delivers results behind a delivery port.
-- `src/execution` owns backend-neutral dispatch and the MicroVM executor registry.
+- `src/execution` owns backend-neutral dispatch and the isolated worker executor registry.
 - `src/plugins` validates trusted provider manifests and binds ingress/delivery capabilities.
 - `src/adapters` owns AWS, DynamoDB delivery fencing, and execution-backend implementations.
 - `src/channels` contains provider protocol parsing/signature helpers only.
 - `src/app` is the composition root. No lower layer may import it.
 - `src/lambdas` contains transport adapters only; business orchestration belongs below it.
 - `src/runner` contains trusted orchestration that drops the actual agent process to a separate
-  non-root UID inside Lambda MicroVMs.
+  non-root UID inside dedicated EC2 workers or Lambda MicroVMs.
 - `infra/modules/agent-runner` is the reusable Terraform module; `infra/` is its dev/root example.
 
 Keep provider ingress, agent execution, and result notification as separate stages. Never put
@@ -41,6 +40,11 @@ npm run test:e2e:localstack
 
 Terraform requires packaged Lambda artifacts:
 
+Packaging also requires the patched Linux ARM64 Codex artifact. Build it with
+`runtime/codex/Dockerfile` or select an exported artifact with
+`CODEX_RUNTIME_ARTIFACT`; see `testing/README.md`. `npm run check` includes packaging
+and validates this artifact. CI caches it by source, patch and builder identity.
+
 ```bash
 npm run package
 terraform -chdir=infra init -backend=false
@@ -57,7 +61,7 @@ The Lambda functions and MicroVM image are ARM64. Container builds must use `lin
 - Repository clone URLs are HTTPS and host-allowlisted.
 - Agent commands are built as argument arrays and are never passed through a shell.
 - Workers have no public or user-facing ingress. The MicroVM image listens only on the
-  service-required lifecycle port; conversation continuation requires an AWS-issued proxy token.
+  service-required lifecycle port; Session continuation requires an AWS-issued proxy token.
 - `danger-full-access` is accepted only because the outer MicroVM is the isolation boundary.
 - Rat Things has no mid-Run human approval layer. Resolve a fixed capability envelope before
   launch from profiles, Run/Thing narrowing, IAM, network policy, provider scopes, connection

@@ -1,7 +1,9 @@
 # Lambda MicroVM image source
 
 `npm run package` builds `dist/microvm-source.zip` with this directory plus the bundled
-`runner.mjs`, Codex configuration, and Git askpass helper. AWS Lambda MicroVMs consumes that S3 ZIP,
+`runner.mjs`, the verified Linux ARM64 Codex runtime, Codex configuration, and Git askpass helper.
+Build the native artifact using `testing/README.md` before packaging; the image never falls back to
+the stock binary. AWS Lambda MicroVMs consumes that S3 ZIP,
 runs the Dockerfile, starts the lifecycle server, and snapshots the initialized process tree.
 
 The lifecycle server and trusted `runner.mjs` run as root because orchestration needs mount/process
@@ -32,18 +34,25 @@ repository code share UID 10001 and can read the active file, so this is an expl
 for trusted agents—not an untrusted-tenant boundary. A run reads its input from encrypted S3 after
 the MicroVM receives fresh run-time credentials.
 
-After a one-shot `runner.mjs` exits, the root lifecycle server launches the separately bundled
-`terminate-microvm.mjs`. Conversation runs instead keep the server, workspace, and Codex session
-files alive. The coordinator suspends the VM after each slice and submits later slices through the
-authenticated `/agent-runtime/v1/runs` endpoint after calling `ResumeMicrovm`. AWS preserves memory
-and disk while suspended. DynamoDB and S3 remain authoritative because a MicroVM is terminated no
-later than eight hours after launch.
+After a private Session worker exits, the lifecycle server launches the separately
+bundled `terminate-microvm.mjs`. A Session harness remains available for additional
+Turns through authenticated control. Native state belongs to the Session runtime
+journal. When S3 Files is enabled, `sessionStorageKey` selects the same owner-and-Session
+hashed directory across replacements; `SESSION_STATE_ROOT` supplies its workspace
+and Codex home. Keep the existing hash and filesystem root stable.
 
 Lifecycle endpoints listen on port 8080 under
-`/aws/lambda-microvms/runtime/v1/{ready,validate,run,resume,suspend,terminate}`. Terraform enables all
-six hooks. Individual MicroVMs are launched by the dispatcher API and are never modeled as
-long-lived Terraform resources. Batch runs self-terminate; conversation sessions use the configured
-idle policy and explicit suspend/resume calls.
+`/aws/lambda-microvms/runtime/v1/{ready,validate,run,resume,suspend,terminate}`.
+AWS invokes these hooks, including storage synchronization on suspend and mount
+validation on resume. The retired endpoint that posted another Run into a
+conversation MicroVM is removed. Current private control routes operate on the
+exact supervised harness and accept Session Turn input.
+
+Individual MicroVMs are launched by the dispatcher and have a bounded service
+lifetime. Saved Session history and artifacts outlive compute. An idle policy
+can explicitly bound idle lifetime; connected Sessions otherwise keep their harness.
+The opt-in dedicated EC2 supervisor uses host-managed lifetime and terminates the
+instance when execution authority ends. Its lifecycle listener is loopback-only.
 
 A cgroup eBPF connect policy denies UID 10001 access to TCP port 8080 when the destination is
 loopback, unspecified, or one of the guest's own IPv4/IPv6 interface addresses. That prevents Codex
@@ -55,6 +64,6 @@ ingress endpoint; Lambda removes its reserved proxy headers before forwarding th
 
 Rat Things has no mid-Run approval path. The runner pins Codex App Server to `approvalPolicy:
 "never"`; an unexpected command/file approval request fails closed. Every tool exposed to UID 10001
-has already been admitted by the capability profile, Run/Thing narrowing, IAM, network policy,
+has already been admitted by the capability profile, Agent and Session configuration, IAM, network policy,
 provider scopes, and connection grants. `danger-full-access` is broad guest access, not permission
 to escape those outer boundaries.

@@ -4,8 +4,13 @@ import type {
   CodexAppServerEvent,
   CodexAppServerInitiatedRequest,
   CodexTurnController,
+  CodexAppServerRequest,
 } from './codex-app-server.js';
 import { planCodexLaunch } from './agent-planning.js';
+import type { SessionLaunch } from '../domain/session-execution.js';
+import { planSessionLaunch } from './session-launch-planning.js';
+import { SessionRuntime } from './session-runtime.js';
+import type { SessionRuntimeState } from '../core/session-runtime-planning.js';
 
 export interface AgentExecution {
   outcome?: 'completed' | 'interrupted' | 'failed';
@@ -34,6 +39,10 @@ export interface AgentDriver {
 }
 
 export interface AgentDriverControl {
+  session?: SessionLaunch;
+  sessionEnvironmentToken?: string;
+  sessionMcp?: import('./session-mcp.js').SessionMcpRuntime;
+  sessionRuntime?: { previous?: SessionRuntimeState; lifetime?: 'bounded' | 'host-managed'; changed(state: SessionRuntimeState): void; flush(): Promise<void> };
   dynamicTools?: Array<Record<string, unknown>>;
   onEvent?(event: CodexAppServerEvent): void | Promise<void>;
   onServerRequest?(request: CodexAppServerInitiatedRequest): unknown | Promise<unknown>;
@@ -60,14 +69,40 @@ export class CodexDriver implements AgentDriver {
     control?: AgentDriverControl,
   ): Promise<AgentExecution> {
     const plan = planCodexLaunch(request, workspace, timeoutMs, process.env);
-    const execution = await runCodexAppServer({
+    const launch: CodexAppServerRequest = {
       ...plan,
+      ...(control?.session ? planSessionLaunch(plan, control.session, control.sessionEnvironmentToken, control.sessionMcp) : {}),
       ...(signal ? { signal } : {}),
       ...(control?.onEvent ? { onEvent: control.onEvent } : {}),
-      ...(control?.onServerRequest ? { onServerRequest: control.onServerRequest } : {}),
+      ...(control?.onServerRequest ? { onServerRequest: control.session ? (event) => {
+        const declared = control.session!.agent.tools.some((tool) => tool.type === 'function' && tool.name === event.params.tool);
+        if (event.method !== 'item/tool/call' || !declared) throw new Error('The session requested a tool outside its declared function tools');
+        return control.onServerRequest!(event);
+      } : control.onServerRequest } : {}),
       ...(control?.onTurnStarted ? { onTurnStarted: control.onTurnStarted } : {}),
       ...(control?.dynamicTools ? { dynamicTools: control.dynamicTools } : {}),
-    });
+    };
+    if (control?.sessionRuntime && control.session) {
+      const runtime = new SessionRuntime({ sessionId: control.session.sessionId, agentId: control.session.agent.id,
+        request: launch, changed: control.sessionRuntime.changed,
+        ...(control.sessionRuntime.lifetime ? { lifetime: control.sessionRuntime.lifetime } : {}),
+        ...(control.sessionRuntime.previous ? { previous: control.sessionRuntime.previous } : {}),
+      });
+      const started = Date.now();
+      try {
+        await runtime.initialize();
+        if (control.session.turn) await runtime.start(control.session.turn, control.session.input);
+        await runtime.finished;
+        await control.sessionRuntime.flush();
+        const snapshot = runtime.snapshot();
+        const roots = snapshot.turns.filter((binding) => binding.turn.subagent_id === null);
+        const latest = roots.at(-1);
+        return { fullText: (latest?.items ?? []).flatMap((item) => item.type === 'message' && item.role === 'assistant' ? item.content.flatMap((part) => part.type === 'output_text' ? [part.text] : []) : []).join('\n\n'),
+          threadId: snapshot.rootThreadId, exitCode: 0, durationMs: Date.now() - started, events: Buffer.alloc(0),
+        };
+      } finally { await runtime.close(); await control.sessionRuntime.flush(); }
+    }
+    const execution = await runCodexAppServer(launch);
     return { ...execution, exitCode: 0 };
   }
 }

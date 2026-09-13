@@ -81,102 +81,6 @@ resource "aws_dynamodb_table" "runs" {
   stream_view_type = "NEW_AND_OLD_IMAGES"
 }
 
-resource "aws_dynamodb_table" "conversations" {
-  name         = "${local.name}-conversations"
-  billing_mode = "PAY_PER_REQUEST"
-  hash_key     = "pk"
-  range_key    = "sk"
-
-  attribute {
-    name = "pk"
-    type = "S"
-  }
-
-  attribute {
-    name = "sk"
-    type = "S"
-  }
-
-  attribute {
-    name = "workPartition"
-    type = "S"
-  }
-
-  attribute {
-    name = "workOrder"
-    type = "S"
-  }
-
-  attribute {
-    name = "status"
-    type = "S"
-  }
-
-  attribute {
-    name = "updatedAt"
-    type = "S"
-  }
-
-  attribute {
-    name = "ownerId"
-    type = "S"
-  }
-
-  attribute {
-    name = "ownerCreated"
-    type = "S"
-  }
-
-  global_secondary_index {
-    name            = "conversation-work-index"
-    projection_type = "ALL"
-
-    key_schema {
-      attribute_name = "workPartition"
-      key_type       = "HASH"
-    }
-
-    key_schema {
-      attribute_name = "workOrder"
-      key_type       = "RANGE"
-    }
-  }
-
-  global_secondary_index {
-    name            = "status-updated-index"
-    projection_type = "ALL"
-
-    key_schema {
-      attribute_name = "status"
-      key_type       = "HASH"
-    }
-
-    key_schema {
-      attribute_name = "updatedAt"
-      key_type       = "RANGE"
-    }
-  }
-
-  global_secondary_index {
-    name            = "owner-created-index"
-    projection_type = "ALL"
-
-    key_schema {
-      attribute_name = "ownerId"
-      key_type       = "HASH"
-    }
-
-    key_schema {
-      attribute_name = "ownerCreated"
-      key_type       = "RANGE"
-    }
-  }
-
-  ttl {
-    attribute_name = "expiresAt"
-    enabled        = true
-  }
-}
 
 resource "aws_dynamodb_table" "integrations" {
   name         = "${local.name}-integrations"
@@ -193,115 +97,6 @@ resource "aws_dynamodb_table" "integrations" {
     name = "sk"
     type = "S"
   }
-}
-
-resource "aws_dynamodb_table" "routines" {
-  name         = "${local.name}-routines"
-  billing_mode = "PAY_PER_REQUEST"
-  hash_key     = "routineId"
-
-  attribute {
-    name = "routineId"
-    type = "S"
-  }
-
-  attribute {
-    name = "ownerId"
-    type = "S"
-  }
-
-  attribute {
-    name = "ownerCreated"
-    type = "S"
-  }
-
-  attribute {
-    name = "status"
-    type = "S"
-  }
-
-  attribute {
-    name = "nextRunAt"
-    type = "S"
-  }
-
-  global_secondary_index {
-    name            = "owner-created-index"
-    projection_type = "ALL"
-
-    key_schema {
-      attribute_name = "ownerId"
-      key_type       = "HASH"
-    }
-
-    key_schema {
-      attribute_name = "ownerCreated"
-      key_type       = "RANGE"
-    }
-  }
-
-  global_secondary_index {
-    name            = "status-next-run-index"
-    projection_type = "ALL"
-
-    key_schema {
-      attribute_name = "status"
-      key_type       = "HASH"
-    }
-
-    key_schema {
-      attribute_name = "nextRunAt"
-      key_type       = "RANGE"
-    }
-  }
-
-  ttl {
-    attribute_name = "expiresAt"
-    enabled        = true
-  }
-}
-
-resource "aws_dynamodb_table" "things" {
-  name         = "${local.name}-things"
-  billing_mode = "PAY_PER_REQUEST"
-  hash_key     = "thingId"
-  range_key    = "recordKey"
-
-  attribute {
-    name = "thingId"
-    type = "S"
-  }
-
-  attribute {
-    name = "recordKey"
-    type = "S"
-  }
-
-  attribute {
-    name = "ownerId"
-    type = "S"
-  }
-
-  attribute {
-    name = "ownerCreated"
-    type = "S"
-  }
-
-  global_secondary_index {
-    name            = "owner-created-index"
-    projection_type = "ALL"
-
-    key_schema {
-      attribute_name = "ownerId"
-      key_type       = "HASH"
-    }
-
-    key_schema {
-      attribute_name = "ownerCreated"
-      key_type       = "RANGE"
-    }
-  }
-
 }
 
 resource "aws_sqs_queue" "run_dlq" {
@@ -321,22 +116,7 @@ resource "aws_sqs_queue" "runs" {
   })
 }
 
-resource "aws_sqs_queue" "conversation_dlq" {
-  name                      = "${local.name}-conversations-dlq"
-  message_retention_seconds = 1209600
-}
 
-resource "aws_sqs_queue" "conversations" {
-  name                       = "${local.name}-conversations"
-  visibility_timeout_seconds = 180
-  message_retention_seconds  = 86400
-  receive_wait_time_seconds  = 1
-
-  redrive_policy = jsonencode({
-    deadLetterTargetArn = aws_sqs_queue.conversation_dlq.arn
-    maxReceiveCount     = 3
-  })
-}
 
 resource "aws_sqs_queue" "terminal_events" {
   name                       = "${local.name}-terminal-events"
@@ -385,4 +165,21 @@ resource "aws_cloudwatch_event_target" "terminal_events" {
   arn            = aws_sqs_queue.terminal_events.arn
 
   depends_on = [aws_sqs_queue_policy.terminal_events]
+}
+
+resource "aws_dynamodb_table" "agents" {
+  name             = "${local.name}-agents"
+  billing_mode     = "PAY_PER_REQUEST"
+  hash_key         = "scope"
+  range_key        = "key"
+  stream_enabled   = true
+  stream_view_type = "NEW_IMAGE"
+  attribute {
+    name = "scope"
+    type = "S"
+  }
+  attribute {
+    name = "key"
+    type = "S"
+  }
 }

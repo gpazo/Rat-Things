@@ -2,7 +2,7 @@ name: rat-things-test
 
 services:
   localstack:
-    image: "${LOCALSTACK_IMAGE:-localstack/localstack:4.8.1}"
+    image: "${LOCALSTACK_IMAGE:-localstack/localstack:4.14.0}"
     ports:
       - "${LOCALSTACK_PORT:-4566}:4566"
     environment:

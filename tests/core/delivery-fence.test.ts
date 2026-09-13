@@ -25,7 +25,7 @@ describe('DynamoDeliveryFence', () => {
     const send = vi.fn().mockResolvedValue({});
     const fence = new DynamoDeliveryFence({ send } as unknown as DynamoDBDocumentClient, 'runs', () => now, 120);
 
-    await expect(fence.claim(run, 'source:default')).resolves.toBe(true);
+    await expect(fence.claim({ id: run.runId, expiresAt: run.expiresAt }, 'source:default')).resolves.toBe(true);
     expect(send.mock.calls[0]?.[0].input.Item).toMatchObject({
       status: 'sending',
       leaseUntil: Math.floor(now / 1_000) + 120,
@@ -38,7 +38,7 @@ describe('DynamoDeliveryFence', () => {
       .mockResolvedValueOnce({ Item: { status: 'delivered' } });
     const fence = new DynamoDeliveryFence({ send } as unknown as DynamoDBDocumentClient, 'runs', () => now);
 
-    await expect(fence.claim(run, 'source:default')).resolves.toBe(false);
+    await expect(fence.claim({ id: run.runId, expiresAt: run.expiresAt }, 'source:default')).resolves.toBe(false);
   });
 
   it('throws while another delivery owns the lease so EventBridge keeps retrying', async () => {
@@ -49,10 +49,10 @@ describe('DynamoDeliveryFence', () => {
       });
     const fence = new DynamoDeliveryFence({ send } as unknown as DynamoDBDocumentClient, 'runs', () => now);
 
-    await expect(fence.claim(run, 'source:default')).rejects.toBeInstanceOf(DeliveryInProgressError);
+    await expect(fence.claim({ id: run.runId, expiresAt: run.expiresAt }, 'source:default')).rejects.toBeInstanceOf(DeliveryInProgressError);
   });
 
-  it('reclaims an expired sending lease', async () => {
+  it('fences an expired sending lease as unknown instead of repeating a possible delivery', async () => {
     const send = vi.fn()
       .mockRejectedValueOnce(conditionalFailure())
       .mockResolvedValueOnce({
@@ -61,9 +61,9 @@ describe('DynamoDeliveryFence', () => {
       .mockResolvedValueOnce({});
     const fence = new DynamoDeliveryFence({ send } as unknown as DynamoDBDocumentClient, 'runs', () => now, 120);
 
-    await expect(fence.claim(run, 'source:default')).resolves.toBe(true);
+    await expect(fence.claim({ id: run.runId, expiresAt: run.expiresAt }, 'source:default')).resolves.toBe(false);
     expect(send.mock.calls[2]?.[0].input.ExpressionAttributeValues).toMatchObject({
-      ':leaseUntil': Math.floor(now / 1_000) + 120,
+      ':unknown': 'outcome_unknown',
     });
   });
 

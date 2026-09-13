@@ -39,7 +39,8 @@ export function reconciliationTarget(run: RunRecord): ReconciliationTarget {
     return { kind: 'skip', outcome: 'legacy' };
   }
   if (!['dispatching', 'running', 'cancelling'].includes(run.status)) return { kind: 'skip', outcome: 'raced' };
-  if (run.liveness?.quarantinedAt) return { kind: 'skip', outcome: 'quarantined' };
+  // Quarantine forbids acting on uncertainty, not subsequent read-only probes.
+  // A later verified termination must still settle a failed bootstrap or cancellation.
   return { kind: 'inspect', execution, heartbeatAt };
 }
 

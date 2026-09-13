@@ -36,7 +36,7 @@ describe('reconciliation eligibility', () => {
     expect(target.execution).toBe(current.execution);
     const liveness = { checkedAt: timestamp, outcome: 'conflict' as const, consecutiveUncertain: 3, quarantinedAt: timestamp };
     expect(reconciliationTarget(attached({ status: 'cancelled', liveness }))).toEqual({ kind: 'skip', outcome: 'raced' });
-    expect(reconciliationTarget(attached({ liveness }))).toEqual({ kind: 'skip', outcome: 'quarantined' });
+    expect(reconciliationTarget(attached({ liveness }))).toEqual({ kind: 'inspect', execution, heartbeatAt: current.heartbeatAt });
     expect(reconciliationTarget(attached({ liveness: { ...liveness, quarantinedAt: '' } })).kind).toBe('inspect');
   });
 });

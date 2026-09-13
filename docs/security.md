@@ -2,284 +2,185 @@
 
 ## Security posture
 
-Treat every prompt, webhook field, repository byte, branch name, agent event, and model response as
-untrusted. A successful provider signature proves that the provider sent the request; it does not
-make the author, repository, prompt, or generated commands trustworthy.
+Treat prompts, webhook fields, repositories, tool results and model output as untrusted.
+A valid provider signature authenticates the delivery; it does not make its author or content
+trustworthy. Rat Things owns the API, harness, state and workers in the operator's AWS account.
 
-The outer Lambda MicroVM is the primary code-execution boundary. A VM is scoped either to one
-one-shot run or to one authenticated conversation session; it is never shared across owners or
-conversation IDs. The agent CLI's `read-only` or `workspace-write` sandbox is useful defense in
-depth, not the tenant-isolation boundary. This repository is an engineering preview and has not yet
-completed the controls marked “required before production” below.
+A managed Session uses a dedicated worker VM. Workspaces and execution identities are isolated
+by owner and Session. The native sandbox is additional protection; the outer VM is the primary
+execution boundary. Trusted orchestration runs as root and launches Codex, repository commands
+and Chromium as UID/GID 10001. Local CLI execution has a separate read-only/no-network default.
 
-Remote MicroVM execution accepts and defaults to `danger-full-access` with command networking
-enabled. This is deliberate: the dedicated MicroVM, UID/environment split, workload IAM role, and
-credential broker are the security boundary, while Codex's inner sandbox is a selectable
-defense-in-depth control. Trusted local execution keeps a read-only/no-network default. Deployments
-can remove modes from `ALLOWED_SANDBOX_MODES`, and profiles/requests can narrow authority, but no
-request can widen the deployment or profile ceiling.
+The EC2 worker supports connected Session lifetime beyond Lambda MicroVM's maximum lifetime.
+Both backends must preserve the same ownership, process and credential boundaries. Self-hosted
+executor connections also require an operator-controlled sandbox; transport encryption does
+not make a shared or privileged executor safe.
 
 ## Protected assets
 
-- AWS account resources and the worker/model IAM roles.
-- Webhook authenticators, source-control tokens, Teams Workflow URLs, and Slack tokens.
-- Connected-account credentials, provider scopes, Rat-side grants, and source bindings.
-- Private repository content and any material generated in the workspace.
-- Prompts, model events, results, patches, and owner/source metadata.
-- Provider threads and chat destinations the notifier can write to.
-- Compute/model budget and queue capacity.
+- AWS resources, worker roles and model credentials.
+- Provider signing secrets, clone tokens, delivery tokens and OAuth refresh tokens.
+- Vault credentials and environment variables deliberately installed into a sandbox.
+- Private source, prompts, native journals, workspace files, Items and saved artifacts.
+- Provider destinations, model budget and execution capacity.
 
 ## Trust boundaries
 
 ```text
-Internet/provider
-  |  untrusted bytes
-  v
-API Gateway -> signature/authentication Lambda -> durable AWS control plane
-                                                   |
-                                                   | run ID + resource coordinates
-                                                   v
-                                          isolated MicroVM
-                                                   |
-                                                   | untrusted generated output
-                                                   v
-                                         notification adapters -> provider APIs
+API caller -> authenticated HTTPS API -> durable Session state and outbox
+Provider   -> signature verification -> owned source binding -> Session input
+                                                     |
+                                               private dispatch
+                                                     |
+                                          dedicated worker + harness
+                                                     |
+                                          durable Turns and Items
+                                                     |
+                                     delivery adapters -> provider APIs
 ```
 
-Authentication, normalization, execution, and delivery are separate boundaries. In particular:
-
-- **Actor attribution** comes from the authenticated API principal or verified provider event and is
-  retained as bounded run provenance; attribution alone grants no authority.
-- **Owner identity** comes only from API Gateway authentication or a verified provider event.
-- **Source identity** is created only by the API transport or an authenticated provider plugin.
-- **Destination identity** comes from trusted normalized source metadata or a deployment-controlled
-  route map.
-- **Credential-subject identity** is explicit (`actor` or deployment `runtime`) before a host-owned
-  credential is considered. Actual credential authority comes from an IAM role or an allowlisted
-  Secrets Manager ARN.
-
-Never let a source field select an owner, a destination route contain a credential, or a credential
-grant ownership. The general control API overwrites caller-supplied source metadata by design.
+The authenticated API principal owns its resources. A provider event supplies attribution and
+source metadata; the preconfigured source binding selects the operator owner and Agent. Generic
+source selectors are trusted operator configuration, not proof that an arbitrary tenant owns a
+repository or channel. Destination selection and credential-subject selection remain separate
+from actor attribution. No caller-provided URL or credential may establish ownership.
 
 ## Threats and controls
 
-| Threat | Present control | Residual risk / required production work |
+| Threat | Present control | Boundary or remaining concern |
 | --- | --- | --- |
-| Forged webhook | Exact raw-body GitHub HMAC; GitLab 19 Standard Webhooks HMAC with ID, five-minute timestamp window, and downgrade-resistant legacy fallback; Teams HMAC; Slack HMAC plus five-minute skew | Prefer GitLab signing tokens over legacy `X-Gitlab-Token`, rotate secrets, isolate environments, alarm on signature failures, and treat source IP only as an optional extra—not an authentication replacement |
-| Replay/duplicate delivery | Provider event IDs become owner-scoped idempotency keys; conditional run insert and transitions | Idempotency expires with the run; establish a longer replay ledger if the business requires it |
-| Caller impersonates owner/source | API Gateway principal derives owner; API source overwritten; webhook source built only after verification | Terraform authorizer policy and tenant mapping need an explicit production review |
-| Prompt injection / malicious repository | Per-run MicroVM with no user-facing workload ingress, restricted Git URL/ref validation, commands use argument arrays, mention-gated comments, webhook review defaults to read-only | Assume injection wins. Restrict the execution role and egress, prevent writes to source providers, and add policy gates for tools and destinations; a trigger mention is not authorization |
-| Repository credential theft | Trusted root orchestration fetches the secret, exposes it only to Git through `GIT_ASKPASS`, then chowns the checkout to UID 10001; the agent child does not receive the token or root environment | Use short-lived installation tokens, restrict selectable secret ARNs, test `/proc`/metadata isolation, and consider a dedicated clone broker for stronger separation |
-| SSRF / arbitrary checkout | Credential-free HTTPS and hostname allowlist; no query/fragment | Validate redirect targets or disable cross-host redirects, restrict DNS/egress, and test alternate encodings. Submodule support must remain off unless separately secured |
-| AWS or model credential abuse by agent | Agent runs as UID 10001 with a sanitized environment; AWS credential-chain variables are omitted unless `ALLOW_AGENT_AWS_CREDENTIAL_CHAIN=true`; the default cloud path keeps file-based Codex authentication encrypted in Secrets Manager, passes only its ARN through orchestration, materializes a private runtime copy, persists refresh rotation, and deletes the runtime copy after the turn. Optional Bedrock mode passes a scoped bearer key | Codex must read `auth.json`, so repository-controlled code running with the same agent UID can steal its bearer and renewable refresh tokens. The file lacks the password/MFA secret but can still enable account impersonation, subscription use, and access to Codex-visible data or connectors. Use only trusted agents and AWS accounts, prefer a dedicated account/workspace for shared automation, restrict the runner role and egress, and maintain rapid secret deletion plus account-session revocation procedures |
-| Connected-account credential theft or confused deputy | Credential values live in per-connection Secrets Manager secrets; the model sees aliases/schemas only; provider authorization, persistent grants, profile ceilings, per-run narrowing, and resource constraints are intersected before one secret is read. OAuth start, connection test/rename/reconnect, grant changes, and consumer inspection are authenticated host control-plane operations and are never registered as agent tools. Tests persist only bounded health status/code/timestamps | Every exposed operation is autonomous: there is no human approval backstop. Coarse/full provider tokens retain upstream authority if the broker or trusted adapter is compromised, and broad public egress can still carry data read through an admitted operation. Prefer granular/short-lived tokens, constrain secret IAM and egress, audit tool calls, and independently review every built-in adapter |
-| OAuth callback forgery, replay, refresh race, or account swap | Authorization starts require an authenticated owner; provider endpoints/scopes are fixed in reviewed plugins; 256-bit state is stored only by SHA-256 hash with a ten-minute TTL and atomically consumed; S256 PKCE binds the code; reconnect state pins the existing connection/grant and replacement requires the same provider tenant/subject; callback pages are static/no-store; refresh uses a short owner+connection lease and replaces the same Secrets Manager value | A compromised provider app secret, trusted plugin, control Lambda, or deployment DNS remains authoritative. Provider consent screens and app review are outside Rat. Keep callback domains stable, scope the OAuth app narrowly, rotate its secret, and alarm on repeated callback/refresh failures |
-| Agent mutates its own capability envelope over the guest-local listener | Codex and Chromium run as UID 10001; a cgroup eBPF connect policy denies that UID access to guest-local TCP port 8080 while the root-owned Lambda proxy remains allowed, and external control still requires Lambda's JWE-authenticated endpoint. The public API has no authority-widening route | Treat a root/kernel, BPF-policy, or AWS proxy-auth bypass as a MicroVM compromise. Keep the UID split and exercise root acceptance, loopback/interface denial, and unrelated external-port-8080 acceptance in the ARM64 image canary |
-| Cross-account integration mix-up | Credentials are verified before persistence; trusted plugins derive tenant/subject identity; connections, grants, sets, and credential pointers are owner-scoped; rotation must resolve to the same provider identity; every ambiguous dynamic tool call selects an exact eligible alias | Provider identity endpoints can be incomplete and plugin code is trusted. Review each verifier, prefer stable provider IDs over labels, and retain duplicate/ambiguous-account conformance tests |
-| Unauthorized source-policy claim | Source selectors are matched only after webhook verification and a global conditional claim prevents duplicate exact bindings. `slack-events` derives its team selector from a provider-verified OAuth Connection and refuses a competing Connection for that workspace | Generic source-binding management still does not prove provider ownership of an arbitrary repository/team/channel selector. Keep `bind-source` restricted to a trusted self-hosted operator; prefer provider-specific verified-binding helpers where available |
-| Browser SSRF or unsafe interaction | Separate unprivileged Chromium helper; loopback/private/link-local/metadata destinations and redirects blocked; popups/downloads rejected; DOM/images bounded; screenshots and agent video recordings use validated artifact paths plus pixel/duration/frame/byte caps; browser/network access is either admitted before launch or absent. Live viewing and allowlisted human actions traverse the owner-authenticated root control plane; a renewable exclusive lease blocks agent browser calls without widening authority. Teach mode stores only a bounded redacted action journal in an unpublished Thing draft, not a video | Admitted browser actions are autonomous outside a human lease. DNS rebinding, public relay endpoints, browser/Chromium vulnerabilities, and exfiltration to attacker-controlled public sites remain. The browser profile and Codex share UID 10001, so takeover is not a secret boundary from the model; page state can persist after control returns. Do not type reusable credentials into the browser; prefer brokered integrations. Add an egress proxy/DNS policy, origin audit, and browser escape testing before sensitive production use |
-| Model-output exfiltration or mention injection | Bounded notifier messages and explicit destinations | There is no output DLP, secret scan, mention escaping, or human approval. Do not post private-repo results to broad channels; add a policy/redaction layer before production |
-| Network exfiltration | MicroVM isolation plus AWS-managed networking | Public egress is broad. Add an explicit proxy/allowlist or a reviewed customer VPC connector when production policy requires it; remember GitHub/GitLab endpoints have dynamic ranges |
-| Queue/cost exhaustion | Bounded request fields, idempotency, asynchronous SQS, AWS concurrency controls | Configure API/WAF throttles, Lambda reserved concurrency, MicroVM quotas, SQS alarms/DLQ, tenant budgets, and mention/command gating |
-| Duplicate or suppressed notification | Conditional per-destination fence; `sending` uses a 120-second reclaimable lease; EventBridge retries failed notifier invocations for up to 24 hours/185 attempts and then uses an encrypted, alarmed DLQ | `outcome_unknown` requires provider reconciliation. A crash after provider acceptance but before recording `delivered` can be reclaimed and posted twice; no fence can make an API without an idempotency key exactly once. Drill DLQ redrive and ambiguous outcomes |
-| Self-triggering provider loop | GitHub/GitLab comments require a non-empty trigger; outbound source replies carry a hidden runtime marker; normalization ignores marked replies and provider-declared bot authors | Marker/bot checks prevent ordinary runtime reply loops, not malicious-author abuse. Test provider payload variations and cap per-owner/thread runs and model cost before production |
-| Lost terminal notification event | DynamoDB Streams separates the state commit from EventBridge publication; the mapping retries ten times over a maximum 24-hour record age, then sends invocation metadata to an encrypted SQS failure queue with an alarm | Replay is manual, the failure item does not contain the full stream record, and DynamoDB Streams data expires. Drill sequence-range replay and current-run event reconstruction; consider a durable outbox if this recovery objective is insufficient |
-| Dead or superseded execution mutates active state | Immutable execution generation plus MicroVM ID; worker start, heartbeat, stale failure, and cancellation settlement use conditional exact-identity writes; a root-owned endpoint proves the supervised Run/generation before repair | Heartbeat is a liveness control, not a defense against full MicroVM compromise. Ambiguous observations are quarantined for operator review, and lost Runs are never semantically replayed automatically |
-| Artifact/publication disclosure | Private S3, checksums, owner-hashed prefixes, authenticated owner check, a public Run projection with no S3 coordinates or internal execution handles, bounded catalogs, one-minute authenticated download URLs, strict agent publication declarations, unguessable grants, publication-specific hosts, host-only signed cookies, and CloudFront OAC | Time-bounded artifact/share URLs remain bearer credentials. Add revocation, audit/rate limits, content scanning, and policy profiles before broader sharing |
-| Supply-chain compromise | Locked npm dependencies and immutable reference-project pins | Pin container bases by digest, scan/sign images and bundles, generate SBOMs, protect CI provenance, and review MicroVM snapshots |
-| Snapshot contamination | Run-specific data is supplied at `/run`, not intended for image build | Verify hooks never bake secrets, unique IDs, live sockets, or checkout state; follow AWS snapshot guidance on every image revision |
+| Forged webhook | Verify the exact raw body before parsing; provider-specific signature and timestamp rules | Rotate authenticators and restrict accepted event types; see [channels](channels.md) |
+| Duplicate ingress | Owner/binding-scoped input receipts and conditional commits | Retention bounds deduplication; do not treat a trigger mention as authorization |
+| Cross-owner access | Owner-scoped resources, hashed storage prefixes and authenticated lookups | Review authorizer/tenant mapping and deployment IAM independently |
+| Malicious repository | Dedicated VM, argument-array commands, HTTPS host allowlist and unprivileged checkout commands | Native tools can exercise all admitted authority; same-UID model/environment credentials are readable by repository code |
+| Guest reaches control plane | Root-owned listener/configuration, guest UID split and cgroup eBPF local-port denial | A root/kernel escape compromises the worker boundary |
+| Guest steals AWS role | Sanitized child environment and metadata denial on EC2 | Keep the explicit AWS credential-chain escape hatch disabled |
+| MCP or function abuse | Explicit tool declarations, credential selection, transport policy and fail-closed approval handling | Environment tools and environment credentials share the admitted sandbox authority |
+| Credential confused deputy | Distinct owner, actor, source, destination and credential subject; broker checks before secret reads | Trusted adapters and the service role remain authoritative |
+| OAuth replay or account swap | Hashed one-use state, PKCE, owner binding, verified provider identity and serialized refresh | Reconnection must preserve the expected tenant/subject; provider consent is an external boundary |
+| Browser SSRF | Unprivileged helper, URL/DNS checks, blocked private/link-local destinations and redirects | Public relay sites, DNS rebinding and browser vulnerabilities require deployment egress controls |
+| Duplicate external write | Durable delivery fences and explicit unknown-outcome state | Reconcile ambiguous provider acceptance; never automatically replay it merely because an acknowledgement was lost |
+| Lost Session event | Durable journal/event commits and an outbox separate from delivery effects | Outbox failures and expired retries need operator reconciliation |
+| Superseded worker write | Immutable execution generation, backend identity and conditional state changes | Lost process memory cannot be recreated from public Items alone |
+| Artifact disclosure | Private encrypted objects, owner checks, saved Turn/path identity and explicit publication grants | Publication URLs are bearer credentials; provider copies have independent retention |
+| Resource exhaustion | Bounded requests, pagination, queues and deployment concurrency controls | Configure tenant budgets, API throttles and provider-event abuse limits |
+| Supply-chain compromise | Locked packages, pinned source/base image, recorded patches and artifact digests | Review build provenance and scan/sign release artifacts |
 
 ## Fixed capability-envelope security model
 
-Rat Things has no mid-Run human authorization decision. Before MicroVM launch, the authenticated
-owner/source, deployment profile, Run or Thing narrowing, execution-role IAM, network policy,
-provider scopes, connection grants, operation rules, and resource constraints resolve to one fixed
-envelope. The agent is assumed able to exercise every capability in that envelope autonomously.
-Outside it, the relevant control fails closed: a tool is omitted, the credential broker rejects
-before secret access, IAM returns `AccessDenied`, or browser/network policy blocks the destination.
-None of those outcomes creates an approval that can be accepted for the active Run.
+The Session retains its resolved Agent configuration. Tools and environments are admitted before
+execution and cannot be widened through a native approval request. Codex uses
+`approvalPolicy: "never"`; approval-shaped requests fail closed. Missing tools, IAM denials,
+broker rejection and blocked network destinations remain failures, not pending authorization.
 
-Connection management is outside the envelope available to the model. A prompt cannot initiate
-OAuth, replace or reconnect an identity, rename an account, test/read a credential, change a grant,
-or install an operation. The desktop UI and CLI call owner-authenticated control routes directly;
-they never turn a model-produced URL or tool call into a management action. Connection tests use
-the host broker and project only bounded health metadata. “Used by” inspection reads validated
-owner-scoped definitions and never opens the credential vault. Any management change is considered
-only when a later Run resolves a fresh envelope; it cannot widen an active Run.
-Scheduled health verification is also operator-plane work: a no-ingress Lambda with a separate IAM
-role scans a bounded rotating slice, can read only connection credentials and declared OAuth app
-secrets, and emits counts rather than provider errors or response bodies.
-
-`danger-full-access` grants broad command/filesystem access inside that Run's MicroVM. It does not
-grant the agent the root lifecycle environment, host control plane, another owner workspace,
-arbitrary AWS APIs, raw integration secrets, or operations/resources denied by the other envelope
-layers. The default child receives no AWS credential chain. Keep `ALLOW_AGENT_AWS_CREDENTIAL_CHAIN`
-false unless the entire execution role is intentionally model-visible.
-
-Codex App Server is pinned to `approvalPolicy: "never"`; an unexpected approval-shaped protocol
-request fails closed. The generic response route may supply ordinary requested data but cannot
-widen authority. See [the capability envelope](capability-envelope.md) for the complete host and
-agent contract.
+Connection installation, OAuth initiation, identity replacement, grants and source-binding
+management are owner-authenticated operator actions. They are not automatically exposed as
+model tools. Notification connection sets do not imply Agent tool access. A host can explicitly
+provide a function or MCP service backed by an appropriate broker, with a separately reviewed
+capability envelope. See [the capability envelope](capability-envelope.md).
 
 ## IAM separation
 
-Do not collapse these roles:
+Keep these roles distinct:
 
-1. **Lambda control/webhook roles** may validate secrets, store requests, update run state, and send SQS
-   messages. They do not need model invocation or repository checkout access.
-2. **Dispatcher role** reads run inputs and calls Lambda MicroVM launch/termination APIs. It is
-   constrained by image and `iam:PassRole` conditions. `lambda:PassNetworkConnector` currently has
-   no resource type or condition key, so that action alone requires `Resource: "*"`.
-3. **MicroVM execution role** lets the trusted lifecycle server and runner read runtime run data and
-   selected secrets, write artifacts/state, and optionally invoke the intended model. The current module
-   scopes DynamoDB to the whole run table and S3 to `owners/*`, not one run; per-run credentials or a
-   broker are a hardening item. The root lifecycle server performs mount/process setup and launches
-   the trusted root runner. The runner starts Codex and Chromium as UID 10001 with sanitized
-   environments; Codex receives only the selected model credential, and Chromium receives no AWS
-   credential variables. Lambda's managed kernel exposes neither nftables nor the legacy
-   `xt_owner` match, so startup loads and verifies a cgroup eBPF connect policy instead. It denies
-   UID 10001 connections to guest-local TCP port 8080, allows the root-owned Lambda loopback proxy,
-   and does not block unrelated external services on port 8080. External requests still require
-   Lambda's port-scoped JWE proxy authorization. For conversational sharing,
-   Codex can write only a versioned publication declaration containing retained relative paths. The
-   trusted runner verifies owner scope, writes publication objects and grants, and returns the bearer
-   URL through the encrypted result; the child receives neither S3 credentials nor CloudFront key
-   material. For agent-callable integrations, the trusted runner reads only the selected account
-   secret after broker authorization and passes it directly to the trusted adapter—not to Codex, its
-   tool schema, its environment, or the browser helper.
-4. **Notifier role** reads terminal artifacts and only the outbound secrets/APIs it serves. It does
-   not run agents or clone repositories.
+1. Token issuance authenticates callers without provider-administration authority.
+2. The HTTPS API reads/writes canonical resources and dispatches through durable state. Its
+   policy is separate from provider control and the outbox.
+3. Ingress validates provider credentials and records normalized inputs under source bindings.
+4. The outbox performs admitted execution, scheduling, webhook and terminal-delivery effects.
+5. Dispatch launches the selected worker backend under constrained launch/pass-role permissions.
+6. The trusted worker reads its runtime inputs and selected secrets, updates fenced execution
+   state and writes Session files/journals. The guest receives only explicitly admitted model
+   and environment credentials.
+7. Delivery reads the saved terminal Turn and credentials for its destination. It does not
+   execute model-generated commands or clone repositories.
 
-The control role has termination authority for cancellation but not launch or pass-role authority.
-The dispatcher owns launch/pass permissions. Constrain the execution role and any future customer
-connector according to the [MicroVM networking model](https://docs.aws.amazon.com/lambda/latest/dg/microvms-networking.html).
+The EC2 backend has no inbound worker security-group rules. A private durable command mailbox
+carries control requests, and each claim precedes its effect. An uncertain acknowledgement does
+not authorize replay. Commands are fenced to their intended public Turn and execution generation.
 
-Avoid `Resource: "*"` except where an AWS API genuinely cannot be resource-scoped, and pair it with
-condition keys. In particular, constrain `iam:PassRole`, SSM parameter names, Lambda MicroVM images,
-artifact prefixes, EventBridge buses, and secret ARNs. Keep the forced wildcard
-`lambda:PassNetworkConnector` statement isolated and re-check AWS support as the service matures.
+Lambda MicroVM control uses AWS-issued port-scoped proxy tokens. Keep those tokens inside trusted
+orchestration. Its root listener permits the service proxy while the guest-local cgroup policy
+denies UID 10001 access to port 8080. Neither transport exposes an authority-widening guest route.
+
+Scope Secrets Manager ARNs, storage prefixes, launch templates, image inputs and `iam:PassRole`.
+Worker role permissions are broader than one Session's object prefix, so the root boundary is
+material. The agent must not inherit that role's full credential chain.
 
 ## Secret handling
 
-- Store only ARNs and opaque route names in configuration; store values in Secrets Manager.
-- Keep webhook verification, clone, model, and notification identities separate. Use the distinct
-  GitHub/GitLab clone and notification ARN inputs so the agent worker never receives a provider-write
-  credential.
-- Prefer short-lived GitHub App/GitLab job or project tokens over static PATs.
-- Never log raw webhook bodies, authorization headers, clone command environments, model credentials,
-  Workflow URLs, or Slack tokens.
-- The secret reader caches values in a warm Lambda/worker process for five minutes. Rotation is not
-  instantaneous; allow both webhook secrets during a controlled migration only if the verifier is
-  explicitly extended to support it.
-- Treat a Teams Workflow URL as a credential even though it looks like a destination.
-- Do not let general API callers choose arbitrary `credentialSecretArn` values. Validate against an
-  owner/repository-to-secret allowlist or remove the field from a public projection.
-- Keep `ALLOW_AGENT_AWS_CREDENTIAL_CHAIN=false` in deployed workers. `AGENT_PASSTHROUGH_ENV` is also a
-  privileged policy surface; every added name must be reviewed as a secret/authority transfer.
-- Keep the default `danger-full-access` policy only where a specific threat review accepts the outer
-  task/VM, UID, IAM, filesystem, broker, and egress controls as the sandbox. Remove it from
-  `ALLOWED_SANDBOX_MODES` when a deployment needs inner-sandbox enforcement as well.
+Store values in Secrets Manager; public configuration uses resource IDs or approved references.
+Never place tokens in prompts, clone URLs, DynamoDB records, task overrides or logs. Keep webhook,
+clone, model, Vault and delivery identities distinct. A Workflow URL is a credential.
 
-The preferred Codex path is `CODEX_AUTH_MODE=chatgpt`. A trusted local run selects Codex's built-in
-`openai` provider and reuses the device's cached `codex login` session. With explicit operator
-consent, a cloud handoff stores the validated file-based login in the secret selected by
-`CODEX_AUTH_FILE_SECRET_ARN`. Only that ARN crosses the Run hook. The trusted runner reads the
-secret, writes `${CODEX_HOME}/auth.json` atomically with mode `0600`, starts App Server, persists a
-validated refreshed bundle back to the same secret, and removes the runtime file after the turn.
-The value is never placed in a Run request, DynamoDB record, log, Terraform state, image, or launch
-payload. When persistent S3 Files backs `CODEX_HOME`, the temporary file can transit that encrypted
-storage during the active turn before removal.
+Service-side MCP credentials stay in the service process. Credentials explicitly installed into
+an environment, including environment MCP variables, are part of that sandbox's authority and
+can be read by code running there. Do not describe those as hidden from the guest.
 
-This is an accepted product risk, not a claim that a personal credential is harmless. The bundle
-contains an access token, identity token, account identifier, and renewable refresh token. It does
-not contain the password, MFA secret, or browser cookies, but theft can still impersonate the Codex
-login, consume subscription usage, and reach data or connectors available to it. An access token's
-short expiry does not bound the risk while the refresh token remains valid. The unprivileged Codex
-process necessarily reads the file, so same-UID malicious repository code can read it too. Use the
-bridge only for trusted owner-operated agents; do not claim untrusted multi-tenant hardening.
-Destroy quickstart-managed copies and use ChatGPT account session controls if compromise is
-suspected. Operator-managed secret ARNs require operator-managed removal.
+With `CODEX_AUTH_MODE=chatgpt`, trusted orchestration reads the selected encrypted file-based login,
+materializes a private `auth.json`, persists validated refresh rotation and removes the runtime
+copy during cleanup. Only the approved secret reference crosses orchestration. A persistent
+Session may retain the credential while its harness is active.
 
-Amazon Bedrock is an explicit alternative. When `CODEX_AUTH_MODE=bedrock`, trusted orchestration
-uses the MicroVM execution role to mint a bounded short-term token, places only that value in
-`AWS_BEARER_TOKEN_BEDROCK`, and deletes it at cleanup. `BEDROCK_API_KEY_SECRET_ARN` remains a
-compatibility path. The AWS credential chain remains a reviewed exception because it expands agent
-authority. See the official [Codex on Amazon Bedrock setup](https://learn.chatgpt.com/codex/amazon-bedrock).
+Codex must read that file, so malicious same-UID code can steal its bearer and renewable refresh
+tokens. The bundle excludes the password and MFA secret but still permits account impersonation
+and Codex usage. Use the bridge only for trusted owner-operated workloads, and use account-session
+revocation plus secret removal when a credential is compromised. Encrypted backing storage does
+not remove the active-process risk.
 
-The pinned Codex client sends `store: false` to the non-Azure Responses endpoint. Preserve and
-re-audit that behavior on every Codex upgrade because the Bedrock Responses API otherwise stores
-responses by default.
+Bedrock is an explicit provider choice. Trusted orchestration mints a bounded bearer token from
+its AWS identity or reads the configured token secret. Keep `ALLOW_AGENT_AWS_CREDENTIAL_CHAIN`
+false unless exposing the entire role is intentional. The requested model identifier must retain
+its meaning; a substitute provider/model is not a compatibility repair.
+
+Keep model credentials out of image builds, test logs and diagnostic output. See
+[Codex subscription setup](codex-subscription.md) for the file bridge and its lifecycle.
 
 ## Storage and retention
 
-Run artifacts use S3-managed encryption (`AES256`); the immutable Thing definition bucket uses the
-deployment data KMS key and bucket keys. Both store SHA-256 checksums and require TLS. If policy
-changes either encryption mode, update bucket policy and writer behavior together and test every
-writer.
+Prompts, journals and artifacts live in encrypted S3. DynamoDB stores resource state, references
+and bounded summaries. Owner checks remain required even when an object outlives its database
+record. Saved artifacts are immutable per Turn/path; publishing creates a separate explicit
+grant. Artifact deletion and workspace-file deletion are distinct operations.
 
-DynamoDB TTL removes expired records asynchronously, not at an exact second. Configure an S3
-lifecycle at least as strict as the run-retention policy and account for EventBridge/SQS DLQ replay
-windows. Deleting the DynamoDB record before the artifact does not authorize the remaining object.
-CloudWatch retention and notification-provider retention are separate.
+DynamoDB TTL is asynchronous. S3 lifecycle, event retry windows, CloudWatch retention and provider
+copies have separate lifetimes. Align them with the operator's retention policy.
 
-Thing definitions intentionally have no run-artifact expiry because current and historical
-revisions must remain executable/auditable. Archive does not delete a definition. Apply an explicit
-reviewed product retention/deletion process before introducing automated definition expiry.
+Retired Thing/Routine/conversation data remains declared at its existing Terraform addresses for
+explicit disposition. It is not executable through the new API. Existing TTL and queue expiry
+still apply; retaining resource definitions is not an archival guarantee. The historically named
+S3 Files resources remain active Session storage and must not be removed with retired data.
 
 ## Repository and process isolation
 
-- Accept only allowlisted, credential-free HTTPS origins. Prefer immutable commit SHAs.
-- The runner never interpolates a prompt, URL, ref, or path into a shell command. Preserve this
-  argument-array invariant.
-- The lifecycle server remains root only to mount S3 Files and control the worker process. Checkout,
-  Codex, tools, and post-agent Git patch collection run as UID/GID 10001 with a small environment
-  allowlist, so an untrusted `.git/config`, attributes file, filter, or textconv cannot regain root.
-- Workspace paths are anchored beneath the configured root and deleted recursively only after that
-  containment check.
-- Do not mount the Docker socket, host paths, shared writable EFS, or a long-lived credential cache.
-- Never reuse a workspace across owners or conversations. A conversation may reuse its own S3 Files
-  workspace in a replacement VM only under the same fenced DynamoDB lease and hashed identity.
-  Without S3 Files, expiry starts a clean VM and reconstructs context from the durable checkpoint.
-- A `workspace-write` agent can change cloned content and those changes may be retained as a patch,
-  but the runtime does not push commits. Do not add push credentials to the worker role.
+Accept only allowlisted credential-free HTTPS repository URLs. Commands use argument arrays;
+trusted orchestration never interpolates a prompt, URL, ref or path into a shell command.
+Repository-controlled Git configuration and commands execute as UID 10001.
+
+Workspace paths are anchored beneath the configured root. A replacement worker may reuse only
+the same owner/Session storage under its fenced execution identity. Native checkpoints preserve
+harness history; public-item recovery preserves historical facts without replaying tool effects.
+Neither recovery path promises survival of a process whose VM has been destroyed.
+
+The EC2 supervisor requires the outer dedicated VM for its privileged mount/network setup. The
+agent does not receive the Docker socket or host control configuration. Metadata and the local
+control listener are denied to the guest while trusted root orchestration remains able to operate.
 
 ## MicroVM-specific review
 
-Lambda MicroVM images support lifecycle hooks and snapshots. At image build time, call the ready hook
-only after generic initialization is complete; initialize run IDs, credentials, `/tmp`, and network
-clients during the run hook. Validate the hook payload and keep it within the service's 4,096-byte
-limit. A connector attached to a running VM is immutable.
+Lambda MicroVM snapshots must contain only generic initialization. Supply Session identity,
+credentials and runtime clients during launch, not image build. Keep launch hooks within the
+service payload limit and keep worker proxy tokens in trusted orchestration.
 
-Conversation continuation uses a short-lived MicroVM endpoint token scoped to port 8080. Keep token
-minting and the HTTPS request inside trusted orchestration, serialize slices per conversation, and
-never expose the endpoint/token to a webhook caller or agent process. Treat suspended memory and disk
-as sensitive conversation state and rely on the configured expiry plus explicit teardown.
-
-Use the AWS [image and lifecycle guidance](https://docs.aws.amazon.com/lambda/latest/dg/microvms-images.html)
-and [snapshot guidance](https://docs.aws.amazon.com/lambda/latest/dg/microvms-images-snapshots.html)
-as release gates, not just implementation examples.
-
-The AWSCC resource schema currently requires `additional_os_capabilities`, and the service currently
-accepts only `ALL`. The trusted root lifecycle process uses those in-VM capabilities for S3 Files
-mounting, process setup, and the cgroup eBPF control-plane guard; Codex and Chromium still drop to
-UID/GID 10001. Re-evaluate that setting when the provider or service supports a narrower set, and
-include it explicitly in the production threat review.
+S3 Files mounting and the local control-port guard require privileged in-VM setup. The agent
+still runs as UID 10001. Suspended memory and disk are sensitive Session state and remain subject
+to configured expiry and explicit teardown. Lambda MicroVM lifetime is bounded; select the EC2
+backend for connected-process requirements beyond that bound.
 
 ## Production security gates
 
-Before calling this subsystem production-ready:
-
-- complete an IAM and `iam:PassRole` review with deployed policy simulation;
-- add WAF/API throttles, concurrency/budget ceilings, and webhook abuse controls;
-- implement short-lived source-control credentials and prevent caller-selected secret access;
-- prove the UID/environment credential boundary and keep the agent AWS-chain escape hatch disabled;
-- enforce and test outbound network policy;
-- add output redaction/mention controls and destination authorization;
-- verify non-empty command triggers and the GitHub/GitLab result-marker/bot-author loop guards against
-  real provider payloads, then add per-owner/thread cost limits;
-- prove the state-stream failure-queue alarm and manual sequence-range/current-run replay procedure;
-- keep the safe external Run projection regression-tested and add audit/rate limits around artifact-download authorization;
-- scan and sign Lambda and MicroVM bundles/snapshots;
-- run prompt-injection, SSRF/redirect, malicious-repository, cancellation, duplicate-delivery, and
-  cross-owner isolation tests; and
-- replace the Teams Workflow bridge with an authenticated Teams app gateway for primary-channel use.
+Deployment review must cover IAM/pass-role scope, authorizer ownership, guest credential and
+metadata isolation, outbound network policy, replay/unknown-outcome handling, budget limits and
+artifact access. Test cancellation, worker replacement, prompt injection, malicious repositories,
+SSRF, cross-owner access and real provider payloads. Keep release provenance and secret rotation
+procedures current. Local conformance fixtures do not establish these deployed guarantees.

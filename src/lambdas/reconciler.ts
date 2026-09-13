@@ -3,9 +3,8 @@ import { SendMessageCommand } from '@aws-sdk/client-sqs';
 import { QueryCommand } from '@aws-sdk/lib-dynamodb';
 import { createAwsClients, DynamoRunStore } from '../adapters/aws-runtime.js';
 import { requiredEnv } from '../adapters/executors.js';
-import type { RunQueueMessage, RunRecord } from '../domain/contracts.js';
-import { recoveryWakeForQueuedRun } from '../core/run-recovery.js';
-import { getRoutineService } from '../app/composition.js';
+import type { RunRecord } from '../domain/contracts.js';
+import { recoveryMessageForRun } from '../core/run-recovery.js';
 import {
   createExecutionInspectorFromEnv,
   createExecutorRegistryFromEnv,
@@ -16,7 +15,6 @@ import { emitMetric } from './metrics.js';
 const clients = createAwsClients();
 const tableName = requiredEnv('RUNS_TABLE_NAME');
 const queueUrl = requiredEnv('RUN_QUEUE_URL');
-const conversationQueueUrl = requiredEnv('CONVERSATION_QUEUE_URL');
 const store = new DynamoRunStore(clients.dynamodb, tableName);
 const activeRuns = new ActiveRunReconciler({
   store,
@@ -37,7 +35,6 @@ export const handler: EventBridgeHandler<'Scheduled Event', Record<string, never
   const heartbeatCutoff = new Date(Date.now() - heartbeatAgeSeconds * 1_000).toISOString();
   await reconcileStaleAttachedExecutions(heartbeatCutoff);
   await reconcileCancellations(cutoff);
-  await getRoutineService().tick(Number(process.env.ROUTINE_TICK_LIMIT ?? 100));
 };
 
 async function requeue(cutoff: string): Promise<void> {
@@ -54,7 +51,7 @@ async function requeue(cutoff: string): Promise<void> {
       ...(startKey ? { ExclusiveStartKey: startKey } : {}),
     }));
     for (const run of (result.Items ?? []) as RunRecord[]) {
-      await nudgeQueued(run);
+      await nudge(run);
       sent += 1;
     }
     startKey = result.LastEvaluatedKey;
@@ -72,34 +69,18 @@ async function redriveUnattachedExecutions(cutoff: string): Promise<void> {
       Limit: 100,
     }));
     for (const run of (result.Items ?? []) as RunRecord[]) {
-      if (!run.execution || run.execution.id === 'pending') await nudge(run.runId);
+      if (!run.execution || run.execution.id === 'pending') await nudge(run);
     }
   }
 }
 
-async function nudge(runId: string): Promise<void> {
-  const message: RunQueueMessage = {
-    version: '1',
-    runId,
-    traceId: `reconcile:${runId}:${Date.now()}`,
-  };
+async function nudge(run: RunRecord): Promise<void> {
+  const message = recoveryMessageForRun(run, Date.now());
+  if (!message) return;
   await clients.sqs.send(new SendMessageCommand({
     QueueUrl: queueUrl,
     MessageBody: JSON.stringify(message),
-    MessageAttributes: {
-      traceId: { DataType: 'String', StringValue: message.traceId },
-    },
-  }));
-}
-
-async function nudgeQueued(run: RunRecord): Promise<void> {
-  const wake = recoveryWakeForQueuedRun(run);
-  await clients.sqs.send(new SendMessageCommand({
-    QueueUrl: wake.kind === 'thread' ? conversationQueueUrl : queueUrl,
-    MessageBody: JSON.stringify(wake.message),
-    MessageAttributes: {
-      traceId: { DataType: 'String', StringValue: wake.message.traceId },
-    },
+    MessageAttributes: { traceId: { DataType: 'String', StringValue: message.traceId } },
   }));
 }
 

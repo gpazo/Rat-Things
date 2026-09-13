@@ -85,7 +85,6 @@ describe('agent launch effects', () => {
     vi.stubEnv('DEFAULT_MODEL', 'bedrock-model');
     vi.stubEnv('AWS_BEARER_TOKEN_BEDROCK', 'deployment-token');
     vi.stubEnv('AGENT_PASSTHROUGH_ENV', '');
-    vi.stubEnv('AGENT_PUBLICATION_ENABLED', 'false');
     runServer.mockResolvedValue(execution());
     const driver = new CodexDriver();
     const request = { version: '1', prompt: 'work' } as const;
@@ -94,7 +93,6 @@ describe('agent launch effects', () => {
     first.environment.PATH = 'changed by executor';
 
     vi.stubEnv('CODEX_AUTH_MODE', 'bedrock');
-    vi.stubEnv('AGENT_PUBLICATION_ENABLED', 'true');
     await driver.execute(request, '/workspace', 1_000);
     const second = runServer.mock.calls[1]![0];
 
@@ -104,7 +102,6 @@ describe('agent launch effects', () => {
     expect(second).toMatchObject({ modelProvider: 'amazon-bedrock', model: 'bedrock-model' });
     expect(second.environment.AWS_BEARER_TOKEN_BEDROCK).toBe('deployment-token');
     expect(second.environment.PATH).toBe(process.env.PATH);
-    expect(second.prompt).toContain('share.json');
     expect(second.environment).not.toBe(first.environment);
     expect(second).not.toHaveProperty('binaryArguments');
   });

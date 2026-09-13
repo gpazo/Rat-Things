@@ -1,122 +1,86 @@
 # How to keep Codex running after you close your laptop
 
-To keep a Codex task running after your laptop disconnects, move execution to remote compute and
-store the request, conversation, workspace, and result outside that compute. A terminal multiplexer
-can survive a closed terminal, but it cannot survive a sleeping laptop or lost machine. Rat Things
-is one self-hosted AWS implementation: submit a durable handoff, run Codex in an isolated Lambda
-MicroVM, and return to the same conversation later.
+Run the agent on remote compute and retain its inputs and results outside your
+laptop. Rat Things runs the API, harness, storage and execution in your AWS account.
+A Session identifies the work; Turns record each execution and Items retain its
+messages and tool activity.
 
-> **Short answer:** remote compute solves process lifetime; durable state solves machine lifetime.
-> You need both if the work must survive suspension, replacement, or a local network disconnect.
+## Choose where work runs
 
-## Why a local Codex task stops
+A terminal multiplexer can survive closing a terminal on a machine that stays
+awake. A remote worker lets work continue when your laptop sleeps. Durable storage
+also preserves saved history and files if the worker is lost, but it cannot recreate
+an arbitrary running process.
 
-A normal local task depends on several things that disappear together:
+Rat Things supports isolated Lambda MicroVM execution and an opt-in dedicated EC2
+Session worker. A connected EC2 worker can retain processes between Turns without
+being subject to the MicroVM's eight-hour maximum lifetime. Retained state and a
+live environment are separate properties: inspect Session and environment status
+before assuming work can continue.
 
-- the Codex process and its parent terminal;
-- a powered, connected computer;
-- the current checkout and uncommitted workspace files;
-- cached agent-thread state; and
-- a place to deliver the eventual result.
+## Submit a Session
 
-Keeping a shell open addresses only the first dependency. Preventing sleep addresses the first two,
-but leaves the task tied to one physical machine. A durable cloud handoff separates the work record
-from the worker that happens to execute it.
-
-## Choose the smallest approach that fits
-
-| Approach | Survives a closed terminal | Survives laptop sleep | Survives worker replacement | Operating burden |
-| --- | --- | --- | --- | --- |
-| `tmux` or `screen` | Yes | No | No | Low |
-| Remote development VM | Yes | Yes | Usually no, unless state is externalized | Medium |
-| [Codex cloud](https://learn.chatgpt.com/docs/cloud) or another managed cloud agent | Yes | Yes | Service-dependent | Low |
-| Self-hosted durable backend | Yes | Yes | Yes, when state lives outside compute | High |
-
-Use `tmux` for a long command on a machine that will remain awake. Use a remote VM when one stable
-server and checkout are enough. Choose a managed service when convenience matters more than owning
-the runtime and credential boundary. Choose a self-hosted backend when the AWS account, identity
-model, integrations, and retained work must remain under your control.
-
-## What a durable handoff needs
-
-A reliable handoff has five separate responsibilities:
-
-1. **Commit the request before starting work.** The client needs a receipt it can retain even if it
-   disconnects immediately afterward.
-2. **Launch isolated compute.** One task should not inherit another task's workspace or authority.
-3. **Store progress and results outside the worker.** Queue delivery alone is not a durable source
-   of truth.
-4. **Restore conversation and workspace state.** A replacement worker needs more than a transcript
-   if the agent modified files or maintains native thread state.
-5. **Deliver or expose the result later.** Completion cannot depend on the submitting terminal
-   still listening.
-
-Rat Things represents every accepted handoff as one durable Run. Conversation metadata and bounded
-coordination live in DynamoDB; complete message bodies, events, results, attachments, and generated
-files live in encrypted S3. With S3 Files enabled, replacement compute can also restore the native
-Codex state and exact workspace bytes. Read the detailed [conversation durability
-model](../docs/conversations.md#how-durability-works).
-
-## Hand a task off from the command line
-
-After deploying Rat Things, submit work without waiting for completion:
+Configure `RAT_THINGS_AGENTS_API_URL`, `AWS_REGION` and your AWS credentials for the
+deployment. Replace the model placeholder with a model admitted by that deployment:
 
 ```bash
-npm run rat-things -- handoff \
-  --thread release-readiness \
-  --no-wait \
-  "Draft a release-readiness checklist with rollback steps and return it in your response."
+npm run rat-things -- sessions create \
+  --model YOUR_ADMITTED_MODEL \
+  --input "Draft a release-readiness checklist with rollback steps."
 ```
 
-This example needs no repository checkout. The command returns the durable Run receipt. Closing the terminal after the
-request has been accepted does not terminate the cloud worker. Later, inspect or continue the same
-work:
+This example uses `environment: {"type":"none"}` and needs no repository checkout.
+Save the returned Session ID before disconnecting. Later, replace `sess_example`
+with that ID to inspect and continue the work:
 
 ```bash
-npm run rat-things -- conversation show release-readiness
-npm run rat-things -- chat --thread release-readiness \
-  "Refine the checklist into a concise go/no-go review."
+npm run rat-things -- sessions get sess_example
+npm run rat-things -- sessions turns sess_example
+npm run rat-things -- sessions items sess_example
+npm run rat-things -- sessions send sess_example \
+  --idempotency-key release-review-2 \
+  --input "Refine the checklist into a concise go/no-go review."
 ```
 
-Use an idempotency key when an automated caller may retry the same semantic request. Reusing the
-same key with the same canonical request returns the existing Run instead of creating duplicate
-work.
+A repeated input with the same idempotency key and body reuses its accepted
+receipt. To work with commands and files, supply a standard Session creation JSON
+file with a managed or self-hosted environment using `--file request.json`.
+See [Agents API](../docs/agents-api.md) for those request shapes.
 
-## Decide authority before the handoff
+## Retain results and control authority
 
-Unattended execution removes the opportunity to approve each command interactively. Rat Things
-therefore resolves a fixed capability envelope before a Run starts. Shell access, network access,
-browser use, connected accounts, IAM, provider scopes, account grants, and operation constraints
-can all narrow what the agent receives. A denied capability does not become a pending approval.
+Encrypted S3 retains full content and native checkpoints; DynamoDB holds resource
+revisions and coordination fences. Managed output files under `/workspace/outputs`
+are saved as immutable Session artifacts when Turns finish. Download them before
+deleting the Session. Saved Items and artifacts survive environment expiration.
 
-Start a new workflow read-only and without network access. Add workspace writes, selected network
-destinations, or exact integration operations only when the task requires them. The complete rule
-is documented in [the capability envelope](../docs/capability-envelope.md).
+The Agent configuration, declared tools, environment policy and credential grants
+bound the work. A denied operation cannot open a human-approval path that widens
+that authority. Notification connections do not automatically grant tools to the
+agent. Read [the capability envelope](../docs/capability-envelope.md).
+
+## Close work deliberately
+
+Use `sessions cancel sess_example` to stop active work while retaining the Session.
+Use `sessions delete sess_example` when it is no longer needed; deletion removes
+it from the public API and closes its private harness. A connected worker can incur
+compute costs while waiting for another Turn.
 
 ## Current boundaries
 
-Remote work depends on the server accepting and retaining the request. Save the Run receipt
-before disconnecting; an unsent local prompt cannot continue in AWS. Use that receipt or the
-conversation ID to reconnect from another client. The deployment remains subject to its runtime,
-retention, service quota, and credential limits.
-
-## When Rat Things is not the right answer
-
-Do not operate this stack merely to keep one occasional command alive. A remote VM or managed cloud
-task is simpler. Rat Things is an engineering preview intended for trusted, owner-operated agents;
-it is not ready to host mutually untrusted customers. It becomes useful when several requirements
-arrive together: AWS ownership, durable conversations, isolated execution, schedules, connected
-accounts, retained files, and one API shared by multiple entry points.
-
-## Sources
-
-- [Codex cloud: background and parallel cloud tasks](https://learn.chatgpt.com/docs/cloud)
-- [Rat Things conversation durability](../docs/conversations.md#how-durability-works)
-- [Rat Things capability envelope](../docs/capability-envelope.md)
-- [Rat Things credential lifecycle](../docs/codex-subscription.md#credential-risk-and-lifecycle)
+Native checkpoints and saved workspace bytes support recovery after execution
+loss. They do not guarantee that background processes, sockets or unacknowledged
+external writes survive replacement. See [Session durability](../docs/conversations.md#how-durability-works)
+and the [durable-state guide](durable-ai-agent-state.md).
 
 ## Try the narrow path
 
-Run the [AWS-ready quickstart](../docs/quickstart.md) in a disposable AWS sandbox. It performs
-readiness checks before AWS writes, creates a deliberately narrow deployment, proves an exact Thing
-revision with two Runs, and provides a self-verifying teardown path.
+The [AWS quickstart](../docs/quickstart.md) creates a disposable deployment, runs two
+root Turns in one Session, and provides teardown. Use an account and credentials
+intended for that work.
+
+## Sources
+
+- [Rat Things Sessions](../docs/conversations.md)
+- [Agents API](../docs/agents-api.md)
+- [Capability envelope](../docs/capability-envelope.md)

@@ -4,7 +4,7 @@
   "identity": "Identity card",
   "runs": "Run receipt",
   "things": "Scheduled definition",
-  "mailbox": "Conversation mailbox",
+  "mailbox": "Session state",
   "queue": "Message queue",
   "dispatcher": "Dispatch switch",
   "microvm": "MicroVM enclosure",

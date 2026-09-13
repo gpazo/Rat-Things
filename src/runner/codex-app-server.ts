@@ -7,6 +7,8 @@ import type {
 } from '../domain/capabilities.js';
 import type { SandboxMode } from '../domain/contracts.js';
 import { emitMetric } from '../core/metrics.js';
+import type { AgentSessionInputMessageParam, AgentSessionItem } from '../domain/agents-api.js';
+import { projectSessionItems } from '../core/session-run-projection.js';
 
 const CODEX_INVALID_REQUEST = -32600;
 const MISSING_ROLLOUT_MESSAGE = 'no rollout found for thread id ';
@@ -36,20 +38,24 @@ export interface CodexAppServerInitiatedRequest extends CodexAppServerEvent {
 export interface CodexTurnController {
   threadId: string;
   turnId: string;
-  steer(text: string): Promise<void>;
-  interrupt(): Promise<void>;
+  steer(text: string, input?: AgentSessionInputMessageParam[], sessionTurnId?: string): Promise<void>;
+  interrupt(sessionTurnId?: string): Promise<void>;
+  sessionItems?(): Promise<AgentSessionItem[]>;
+  startSessionTurn?(turn: import('../domain/agents-api.js').Turn, input: AgentSessionInputMessageParam[]): Promise<void>;
 }
 
 export interface CodexAppServerRequest {
   binary: string;
   binaryArguments?: string[];
   workspace: string;
+  executionWorkspace?: string;
   environment: NodeJS.ProcessEnv;
   identity?: { uid: number; gid: number };
   timeoutMs: number;
   signal?: AbortSignal;
   prompt: string;
   sandbox: SandboxMode;
+  permissions?: string;
   persistent: boolean;
   modelProvider: string;
   model?: string;
@@ -64,6 +70,14 @@ export interface CodexAppServerRequest {
   apps?: string[];
   mcpServers?: string[];
   dynamicTools?: Array<Record<string, unknown>>;
+  input?: Array<Record<string, unknown>>;
+  developerInstructions?: string | null;
+  serviceTier?: string;
+  environments?: Array<{ environmentId: string; cwd: string }>;
+  selectedCapabilityRoots?: Array<{ id: string; location: { type: 'environment'; environmentId: string; path: string } }>;
+  sessionConfig?: Record<string, unknown>;
+  sessionTurnId?: string;
+  recoveryItems?: Array<Record<string, unknown>>;
   onEvent?: (event: CodexAppServerEvent) => void | Promise<void>;
   onServerRequest?: (
     request: CodexAppServerInitiatedRequest,
@@ -101,6 +115,7 @@ export async function runCodexAppServer(
   request: CodexAppServerRequest,
 ): Promise<CodexAppServerExecution> {
   const started = Date.now();
+  const executionWorkspace = request.executionWorkspace ?? request.workspace;
   const child = spawn(request.binary, request.binaryArguments ?? ['app-server'], {
     cwd: request.workspace,
     env: request.environment,
@@ -316,7 +331,7 @@ export async function runCodexAppServer(
         version: process.env.npm_package_version ?? '0.1.0',
       },
       capabilities: {
-        experimentalApi: Boolean(request.dynamicTools?.length),
+        experimentalApi: Boolean(request.sessionConfig || request.dynamicTools?.length),
         requestAttestation: false,
       },
     });
@@ -327,7 +342,7 @@ export async function runCodexAppServer(
       : [];
 
     const threadParams: Record<string, unknown> = {
-      cwd: request.workspace,
+      cwd: executionWorkspace,
       // The outer MicroVM/IAM/grant envelope is the authorization boundary.
       // Never ask for a mid-Run human authorization decision.
       approvalPolicy: 'never',
@@ -336,6 +351,10 @@ export async function runCodexAppServer(
       modelProvider: request.modelProvider,
       ...(request.model ? { model: request.model } : {}),
       ...(request.personality ? { personality: request.personality } : {}),
+      ...(request.developerInstructions !== undefined ? { developerInstructions: request.developerInstructions } : {}),
+      ...(request.serviceTier ? { serviceTier: request.serviceTier } : {}),
+      ...(request.environments ? { environments: request.environments } : {}),
+      ...(request.sessionConfig ? { allowProviderModelFallback: false, selectedCapabilityRoots: request.selectedCapabilityRoots ?? [] } : {}),
       ...appServerConfig(request),
     };
     const startThreadParams = {
@@ -343,6 +362,7 @@ export async function runCodexAppServer(
       ...(request.dynamicTools ? { dynamicTools: request.dynamicTools } : {}),
     };
     let threadResult: unknown;
+    let createdThread = false;
     if (request.resumeThreadId) {
       try {
         threadResult = await call('thread/resume', {
@@ -354,6 +374,7 @@ export async function runCodexAppServer(
         // Durable Rat Things replay remains available when Codex has no native
         // checkpoint for the requested thread. Other resume failures surface.
         emitMetric('runner', 'CodexThreadResumeFallback', 1, 'Count');
+        createdThread = true;
         threadResult = await call('thread/start', {
           ...startThreadParams,
           ephemeral: !request.persistent,
@@ -361,6 +382,7 @@ export async function runCodexAppServer(
         });
       }
     } else {
+      createdThread = true;
       threadResult = await call('thread/start', {
         ...startThreadParams,
         ephemeral: !request.persistent,
@@ -374,10 +396,11 @@ export async function runCodexAppServer(
       throw new Error('Codex app-server returned no thread ID');
     }
     expectedThreadId = thread.id;
+    if (createdThread && request.recoveryItems?.length) await call('thread/inject_items', { threadId: thread.id, items: request.recoveryItems });
 
     const turnResult = await call('turn/start', {
       threadId: thread.id,
-      input: [
+      input: request.input ?? [
         {
           type: 'text',
           text: skillInputs.length > 0
@@ -386,10 +409,10 @@ export async function runCodexAppServer(
         },
         ...skillInputs,
       ],
-      cwd: request.workspace,
+      cwd: executionWorkspace,
       approvalPolicy: 'never',
       approvalsReviewer: 'user',
-      sandboxPolicy: sandboxPolicyFor(request.sandbox, request.workspace, request.networkAccess),
+      sandboxPolicy: sandboxPolicyFor(request.sandbox, executionWorkspace, request.networkAccess),
       ...(request.model ? { model: request.model } : {}),
       ...(request.reasoningEffort ? { effort: request.reasoningEffort } : {}),
       ...(request.reasoningSummary ? { summary: request.reasoningSummary } : {}),
@@ -405,12 +428,12 @@ export async function runCodexAppServer(
       await request.onTurnStarted({
         threadId: thread.id,
         turnId: turn.id,
-        steer: async (text: string) => {
+        steer: async (text: string, input?: AgentSessionInputMessageParam[]) => {
           if (!text.trim()) throw new Error('steer text is required');
           await call('turn/steer', {
             threadId: thread.id,
             expectedTurnId: turn.id,
-            input: [{ type: 'text', text }],
+            input: input ? input.flatMap((message) => message.content.map((part) => part.type === 'input_text' ? { type: 'text', text: part.text } : { type: 'image', url: part.image_url })) : [{ type: 'text', text }],
           });
           interaction('user', `Direction: ${text}`);
         },
@@ -418,6 +441,15 @@ export async function runCodexAppServer(
           interruptRequested = true;
           await call('turn/interrupt', { threadId: thread.id, turnId: turn.id });
         },
+        ...(request.sessionTurnId ? { sessionItems: async () => {
+          const events = lines.flatMap((line) => {
+            try {
+              const value: unknown = JSON.parse(line);
+              return isRecord(value) && isRecord(value.params) && value.params.threadId === thread.id && value.params.turnId === turn.id ? [value] : [];
+            } catch { return []; }
+          });
+          return projectSessionItems(request.sessionTurnId!, events);
+        } } : {}),
       });
     }
     await turnCompleted;
@@ -475,8 +507,8 @@ export function sandboxPolicyFor(
 }
 
 function appServerConfig(request: CodexAppServerRequest): Record<string, unknown> {
-  const config: Record<string, unknown> = {};
-  if (request.onServerRequest) {
+  const config: Record<string, unknown> = { ...request.sessionConfig };
+  if (request.onServerRequest && !request.sessionConfig) {
     config['features.default_mode_request_user_input'] = true;
   }
   if (request.sandbox === 'workspace-write') {

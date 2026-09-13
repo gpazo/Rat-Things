@@ -15,19 +15,19 @@ locals {
   thing_schedule_target_arn = "arn:${data.aws_partition.current.partition}:lambda:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:function:${local.name}-thing-schedule"
 
   lambda_zip_paths = merge({
-    connection-health        = "${path.root}/../dist/connection-health.zip"
-    control                  = "${path.root}/../dist/control.zip"
-    conversation-completion  = "${path.root}/../dist/conversation-completion.zip"
-    conversation-coordinator = "${path.root}/../dist/conversation-coordinator.zip"
-    dispatcher               = "${path.root}/../dist/dispatcher.zip"
-    notifier                 = "${path.root}/../dist/notifier.zip"
-    reconciler               = "${path.root}/../dist/reconciler.zip"
-    state-stream             = "${path.root}/../dist/state-stream.zip"
-    thing-schedule           = "${path.root}/../dist/thing-schedule.zip"
-    webhook-github           = "${path.root}/../dist/webhook-github.zip"
-    webhook-gitlab           = "${path.root}/../dist/webhook-gitlab.zip"
-    webhook-teams            = "${path.root}/../dist/webhook-teams.zip"
-    webhook-slack            = "${path.root}/../dist/webhook-slack.zip"
+    agents-api        = "${path.root}/../dist/agents-api.zip"
+    agents-outbox     = "${path.root}/../dist/agents-outbox.zip"
+    connection-health = "${path.root}/../dist/connection-health.zip"
+    control           = "${path.root}/../dist/control.zip"
+    dispatcher        = "${path.root}/../dist/dispatcher.zip"
+    notifier          = "${path.root}/../dist/notifier.zip"
+    reconciler        = "${path.root}/../dist/reconciler.zip"
+    state-stream      = "${path.root}/../dist/state-stream.zip"
+    thing-schedule    = "${path.root}/../dist/thing-schedule.zip"
+    webhook-github    = "${path.root}/../dist/webhook-github.zip"
+    webhook-gitlab    = "${path.root}/../dist/webhook-gitlab.zip"
+    webhook-teams     = "${path.root}/../dist/webhook-teams.zip"
+    webhook-slack     = "${path.root}/../dist/webhook-slack.zip"
   }, var.lambda_zip_paths)
 
   microvm_source_zip_path = coalesce(
@@ -102,35 +102,28 @@ check "microvm_base_image_version" {
 
 check "microvm_enabled" {
   assert {
-    condition     = var.enable_microvm
-    error_message = "enable_microvm must remain true because Lambda MicroVM is the only execution backend."
+    condition     = var.enable_microvm || var.enable_ec2_worker
+    error_message = "At least one isolated execution backend must be enabled."
   }
 }
 
 check "codex_chatgpt_auth_file" {
   assert {
     condition = (
-      var.default_agent_driver != "codex" ||
       var.codex_auth_mode != "chatgpt" ||
       local.codex_auth_file_secret_arn != null
     )
-    error_message = "codex_auth_file_secret_arn is required when the default agent driver is Codex with ChatGPT authentication. The secret contains renewable account credentials; obtain explicit user consent before configuring it."
+    error_message = "codex_auth_file_secret_arn is required with ChatGPT authentication. The secret contains renewable account credentials; obtain explicit user consent before configuring it."
   }
 }
 
-check "s3_files_requires_microvm" {
+check "s3_files_requires_worker" {
   assert {
-    condition     = !var.enable_s3_files || var.enable_microvm
-    error_message = "enable_s3_files requires enable_microvm because the file system is mounted by the MicroVM runner."
+    condition     = !var.enable_s3_files || var.enable_microvm || var.enable_ec2_worker
+    error_message = "enable_s3_files requires an enabled isolated worker backend."
   }
 }
 
-check "microvm_session_idle_window" {
-  assert {
-    condition     = var.microvm_session_idle_seconds > var.conversation_slice_timeout_seconds
-    error_message = "microvm_session_idle_seconds must exceed conversation_slice_timeout_seconds so an active slice is not auto-suspended."
-  }
-}
 
 check "enabled_webhook_secrets" {
   assert {

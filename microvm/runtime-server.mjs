@@ -13,11 +13,11 @@ import { join } from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 import { gunzipSync } from 'node:zlib';
 import { ensureUntrustedUidCannotReachPort } from './runtime-network-policy.mjs';
-import { untrustedChildOptions } from './runtime-process-policy.mjs';
+import { trustedRunnerOptions } from './runtime-process-policy.mjs';
 
 const hookPrefix = '/aws/lambda-microvms/runtime/v1';
 const maximumHookBodyBytes = 16 * 1024;
-const maximumControlBodyBytes = 32 * 1024;
+const maximumControlBodyBytes = 6 * 1024 * 1024;
 const maximumRunPayloadBytes = 4 * 1024;
 const maximumControlEvents = 512;
 const maximumControlEventBytes = 64 * 1024;
@@ -75,23 +75,16 @@ const server = createServer(async (request, response) => {
     return;
   }
 
-  const isSessionRun = request.url === '/agent-runtime/v1/runs';
   const operation = request.url?.startsWith(`${hookPrefix}/`)
     ? request.url.slice(hookPrefix.length + 1)
     : undefined;
-  if (!isSessionRun && !['ready', 'validate', 'run', 'resume', 'suspend', 'terminate'].includes(operation)) {
+  if (!['ready', 'validate', 'run', 'resume', 'suspend', 'terminate'].includes(operation)) {
     send(response, 404, { error: 'not_found' });
     return;
   }
 
   try {
     const body = await readJsonBody(request);
-    if (isSessionRun) {
-      if (!persistentMicrovmId) throw new InvalidHookRequest('this MicroVM is not a persistent session');
-      startRun(parseRunHook({ microvmId: persistentMicrovmId, ...body }));
-      send(response, 202, { ok: true, operation: 'session-run' });
-      return;
-    }
     switch (operation) {
       case 'ready':
       case 'validate':
@@ -129,7 +122,7 @@ server.on('clientError', (_error, socket) => {
   socket.end('HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n');
 });
 
-server.listen(8080, '0.0.0.0', () => {
+server.listen(8080, process.env.DEFAULT_EXECUTION_BACKEND === 'ec2' ? '127.0.0.1' : '0.0.0.0', () => {
   log('info', 'Lambda MicroVM lifecycle server listening', { port: 8080 });
 });
 
@@ -192,7 +185,8 @@ function parseRunHook(body) {
     ARTIFACT_BUCKET: requiredString(payload, 'artifactBucket', 63, /^[a-z0-9][a-z0-9.-]+[a-z0-9]$/),
     AWS_DEFAULT_REGION: region,
     AWS_REGION: region,
-    DEFAULT_EXECUTION_BACKEND: 'microvm',
+    DEFAULT_EXECUTION_BACKEND: process.env.DEFAULT_EXECUTION_BACKEND === 'ec2' ? 'ec2' : 'microvm',
+    ...(process.env.DEFAULT_EXECUTION_BACKEND === 'ec2' ? { EC2_INSTANCE_ID: microvmId } : {}),
     MICROVM_ID: microvmId,
     RUN_TIMEOUT_SECONDS: String(timeoutSeconds),
     RUN_HEARTBEAT_INTERVAL_MS: String(requiredInteger(payload, 'heartbeatIntervalMs', 10, 300_000)),
@@ -205,7 +199,7 @@ function parseRunHook(body) {
   if (payload.persistentSession && payload.s3FilesFileSystemId !== undefined) {
     const storageKey = requiredString(
       payload,
-      'conversationStorageKey',
+      'sessionStorageKey',
       64,
       /^[a-f0-9]{64}$/,
     );
@@ -217,9 +211,12 @@ function parseRunHook(body) {
       storageKey,
     };
     environment.S3_FILES_ENABLED = 'true';
-    environment.CONVERSATION_STORAGE_KEY = storageKey;
+    environment.SESSION_STORAGE_KEY = storageKey;
   }
-  optionalEnvironment(environment, 'AGENT_THREAD_ID', payload.agentThreadId, 256, /^[A-Za-z0-9._:-]+$/);
+  optionalEnvironment(environment, 'AGENTS_TABLE_NAME', payload.agentsTableName, 255, /^[A-Za-z0-9._-]+$/);
+  optionalEnvironment(environment, 'DEFINITION_BUCKET', payload.definitionBucket, 63, /^[a-z0-9][a-z0-9.-]+[a-z0-9]$/);
+  optionalEnvironment(environment, 'INTEGRATION_CREDENTIAL_NAME_PREFIX', payload.credentialNamePrefix, 512, /^[A-Za-z0-9/_+=.@-]+$/);
+  optionalEnvironment(environment, 'INTEGRATION_CREDENTIAL_KMS_KEY_ARN', payload.credentialKmsKeyArn, 2048, /^arn:[A-Za-z0-9-]+:kms:/);
   optionalEnvironment(environment, 'TRACE_ID', payload.traceId, 256);
   optionalEnvironment(environment, 'EVENT_BUS_NAME', payload.eventBusName, 256);
   optionalEnvironment(
@@ -265,11 +262,6 @@ function parseRunHook(body) {
   }
   environment.CODEX_TOOL_NETWORK_ACCESS = String(payload.defaultAgentNetworkAccess);
 
-  const driver = requiredString(payload, 'defaultAgentDriver', 32);
-  if (!['mock', 'codex'].includes(driver)) {
-    throw new InvalidHookRequest('defaultAgentDriver is invalid');
-  }
-  environment.DEFAULT_AGENT_DRIVER = driver;
   optionalEnvironment(environment, 'DEFAULT_MODEL', payload.defaultModel, 256);
   if (typeof payload.allowAgentAwsCredentialChain !== 'boolean') {
     throw new InvalidHookRequest('allowAgentAwsCredentialChain must be a boolean');
@@ -298,17 +290,17 @@ function startRun(run) {
     storageAlreadyMounted = mount.alreadyMounted;
     const preparationStartedAt = Date.now();
     const stateRoot = join(run.storage.mountRoot, run.storage.storageKey);
-    prepareConversationState(stateRoot);
+    prepareSessionState(stateRoot);
     prepareTransientRunState(stateRoot, run.runId);
     storagePreparationDurationMs = Date.now() - preparationStartedAt;
-    run.environment.CONVERSATION_STATE_ROOT = stateRoot;
+    run.environment.SESSION_STATE_ROOT = stateRoot;
     run.environment.CODEX_HOME = join(stateRoot, 'codex-home');
     run.environment.BROWSER_PROFILE_ROOT = join(stateRoot, 'codex-home', 'browser-profile');
     run.environment.WORKSPACE_ROOT = stateRoot;
     persistentStorage = run.storage;
   }
 
-  const child = spawn(process.execPath, [runnerEntry], untrustedChildOptions({
+  const child = spawn(process.execPath, [runnerEntry], trustedRunnerOptions({
     uid: agentUid,
     gid: agentGid,
     environment: { ...process.env, ...run.environment },
@@ -319,6 +311,7 @@ function startRun(run) {
     control: {
       events: [],
       pendingRequests: new Map(),
+      respondedRequests: new Set(),
       commandWaiters: new Map(),
       nextSequence: 1,
       ready: false,
@@ -345,7 +338,8 @@ function startRun(run) {
     });
     rejectControlWaiters(activeRun, new Error('agent runner exited'));
     activeRun = undefined;
-    if (!serviceTerminationRequested && !run.persistentSession) selfTerminate(run);
+    if (run.environment.DEFAULT_EXECUTION_BACKEND === 'ec2') { void shutdown('worker_exit'); }
+    else if (!serviceTerminationRequested && !run.persistentSession) selfTerminate(run);
   });
 }
 
@@ -357,11 +351,8 @@ function parseControlRoute(rawUrl) {
   if (parts.length < 5) return undefined;
   const runId = parts[3];
   if (!/^[A-Za-z0-9-]{1,128}$/.test(runId)) return undefined;
-  if (parts.length === 5 && ['events', 'health', 'steer', 'interrupt', 'computer'].includes(parts[4])) {
+  if (parts.length === 5 && ['events', 'health', 'steer', 'interrupt', 'session-start', 'environment-files'].includes(parts[4])) {
     return { runId, operation: parts[4], query: url.searchParams };
-  }
-  if (parts.length === 6 && parts[4] === 'computer' && ['takeover', 'action', 'teach'].includes(parts[5])) {
-    return { runId, operation: `computer_${parts[5]}`, query: url.searchParams };
   }
   if (parts.length === 7 && parts[4] === 'requests' && parts[6] === 'respond') {
     return { runId, operation: 'respond', requestId: decodeControlId(parts[5]), query: url.searchParams };
@@ -411,16 +402,9 @@ async function handleControlRequest(request, response, route) {
       nextSequence: run.control.nextSequence,
       events,
       pendingRequests: [...run.control.pendingRequests.values()],
+      ...(run.control.session ? { sessionItems: await sendControlCommand(run, { type: 'session_items' }) } : {}),
       ...(run.control.turn ? { turn: run.control.turn } : {}),
     });
-    return;
-  }
-  if (route.operation === 'computer') {
-    if (request.method !== 'GET') {
-      send(response, 405, { error: 'method_not_allowed' });
-      return;
-    }
-    send(response, 200, await sendControlCommand(run, { type: 'computer_snapshot' }));
     return;
   }
   if (request.method !== 'POST') {
@@ -429,16 +413,27 @@ async function handleControlRequest(request, response, route) {
   }
   const body = await readJsonBody(request, maximumControlBodyBytes);
   switch (route.operation) {
+    case 'environment-files':
+      send(response, 200, await sendControlCommand(run, { type: 'environment_files', operation: body }));
+      return;
+    case 'session-start':
+      if (!isRecord(body.turn) || !Array.isArray(body.input)) throw new InvalidHookRequest('invalid session turn');
+      await sendControlCommand(run, { type: 'session_start', turn: body.turn, input: body.input });
+      break;
     case 'steer': {
       const prompt = requiredString(body, 'prompt', 12 * 1024);
-      await sendControlCommand(run, { type: 'steer', prompt });
+      await sendControlCommand(run, {
+        type: 'steer', prompt, turnId: requiredString(body, 'turnId', 256),
+        ...(body.operationId !== undefined ? { operationId: requiredString(body, 'operationId', 512) } : {}),
+        ...(body.input !== undefined ? { input: body.input } : {}),
+      });
       break;
     }
     case 'interrupt':
-      await sendControlCommand(run, { type: 'interrupt' });
+      await sendControlCommand(run, { type: 'interrupt', turnId: requiredString(body, 'turnId', 256) });
       break;
     case 'respond':
-      if (!route.requestId || !run.control.pendingRequests.has(route.requestId)) {
+      if (!route.requestId || (!run.control.pendingRequests.has(route.requestId) && !run.control.respondedRequests.has(route.requestId))) {
         throw new RuntimeConflict(`server request ${route.requestId ?? ''} is not pending`);
       }
       if (!Object.prototype.hasOwnProperty.call(body, 'result')) {
@@ -450,53 +445,8 @@ async function handleControlRequest(request, response, route) {
         result: body.result,
       });
       run.control.pendingRequests.delete(route.requestId);
+      run.control.respondedRequests.add(route.requestId);
       break;
-    case 'computer_takeover': {
-      const control = requiredString(body, 'control', 16);
-      if (!['human', 'agent'].includes(control)) {
-        throw new InvalidHookRequest('computer control must be human or agent');
-      }
-      const result = await sendControlCommand(run, {
-        type: control === 'human' ? 'computer_takeover_start' : 'computer_takeover_stop',
-      });
-      send(response, 200, result);
-      return;
-    }
-    case 'computer_action': {
-      if (!isRecord(body.action) || typeof body.action.type !== 'string') {
-        throw new InvalidHookRequest('computer action is invalid');
-      }
-      const result = await sendControlCommand(run, {
-        type: 'computer_action',
-        action: body.action,
-      });
-      send(response, 200, result);
-      return;
-    }
-    case 'computer_teach': {
-      const action = requiredString(body, 'action', 16);
-      if (action === 'start') {
-        const result = await sendControlCommand(run, {
-          type: 'teach_start',
-          name: requiredString(body, 'name', 120),
-          ...(body.goal === undefined ? {} : { goal: requiredString(body, 'goal', 4_000) }),
-        });
-        send(response, 200, result);
-        return;
-      }
-      if (action === 'stop') {
-        if (typeof body.discard !== 'boolean') {
-          throw new InvalidHookRequest('demonstration discard must be boolean');
-        }
-        const result = await sendControlCommand(run, {
-          type: 'teach_stop',
-          discard: body.discard,
-        });
-        send(response, 200, result);
-        return;
-      }
-      throw new InvalidHookRequest('demonstration action must be start or stop');
-    }
     default:
       throw new InvalidHookRequest('control operation is invalid');
   }
@@ -529,6 +479,7 @@ function handleRunnerControlMessage(runId, message) {
         typeof message.turn.turnId === 'string'
       ) {
         run.control.ready = true;
+        run.control.session = message.session === true;
         run.control.turn = {
           threadId: message.turn.threadId.slice(0, 256),
           turnId: message.turn.turnId.slice(0, 256),
@@ -686,7 +637,7 @@ function ensureS3FilesMounted(storage) {
       .slice(-2_000);
     throw new Error(`S3 Files mount failed (${result.status ?? 'signal'}): ${diagnostic || 'no diagnostic output'}`);
   }
-  log('info', 'S3 Files conversation state mounted', {
+  log('info', 'S3 Files Session state mounted', {
     fileSystemId: storage.fileSystemId,
     accessPointId: storage.accessPointId,
     mountRoot: storage.mountRoot,
@@ -714,7 +665,7 @@ function ensureMountWatchdogRunning() {
   });
 }
 
-function prepareConversationState(stateRoot) {
+function prepareSessionState(stateRoot) {
   const uid = Number(process.env.RUN_AGENT_UID ?? 10001);
   const gid = Number(process.env.RUN_AGENT_GID ?? 10001);
   const codexHome = join(stateRoot, 'codex-home');

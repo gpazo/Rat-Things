@@ -87,11 +87,11 @@ npm run quickstart:aws -- \
   --accept-codex-credential-risk
 ```
 
-Once deployed, send an explicit cloud handoff:
+Once deployed, create a Session with a model admitted by your deployment:
 
 ```bash
-npm run rat-things -- handoff --thread release-readiness \
-  "Draft a release-readiness checklist with rollback steps and return it in your response."
+npm run rat-things -- sessions create --model YOUR_ADMITTED_MODEL \
+  --input "Draft a release-readiness checklist with rollback steps and return it in your response."
 ```
 
 ## Know what can steal the credential

@@ -1,48 +1,21 @@
 import type { ProviderKind } from '../identity/context.js';
 import type { RuntimePluginRegistry } from '../plugins/registry.js';
-import type {
-  RunSubmissionPort,
-  WebhookRequest,
-  WebhookResponse,
-  SourcePolicyResolver,
-} from './types.js';
+import type { SessionIngressPort, SourceSessionResolver, WebhookRequest, WebhookResponse } from './types.js';
 
 export class WebhookIngressService {
-  public constructor(
-    private readonly plugins: RuntimePluginRegistry,
-    private readonly runs: RunSubmissionPort,
-    private readonly sourcePolicies?: SourcePolicyResolver,
-  ) {}
+  public constructor(private readonly plugins: RuntimePluginRegistry, private readonly sessions: SessionIngressPort, private readonly sources: SourceSessionResolver) {}
 
   public async receive(provider: ProviderKind, request: WebhookRequest): Promise<WebhookResponse> {
     const adapter = this.plugins.ingressFor(provider);
     const decision = await adapter.receive(request);
     if (decision.kind === 'response') return decision.response;
-    const sourcePolicy = this.sourcePolicies
-      ? await this.sourcePolicies.apply(
-          decision.work.context.owner.id,
-          decision.work.request,
-          decision.work.context.source,
-        )
-      : { request: decision.work.request };
-    const work = {
-      ...decision.work,
-      request: sourcePolicy.request,
-      ...(sourcePolicy.policyOwnerId ? { policyOwnerId: sourcePolicy.policyOwnerId } : {}),
-    };
-    const trustedRequest = { ...work.request, source: work.context.source };
-    const run = await this.runs.submit(
-      work.context.owner.id,
-      trustedRequest,
-      {
-        ...work.submit,
-        provenance: {
-          actor: work.context.actor,
-          credentialSubject: work.context.credentialSubject,
-        },
-        ...(work.policyOwnerId ? { capabilityOwnerId: work.policyOwnerId } : {}),
-      },
-    );
-    return adapter.acknowledge(run, work);
+    const { work } = decision;
+    const binding = await this.sources.resolve(work.context.source);
+    if (!binding) return { statusCode: 202, body: { accepted: false, reason: 'source_not_bound' } };
+    // The authenticated operator owns this Agent binding; the provider supplies attribution only.
+    const session = await this.sessions.accept(binding.ownerId, binding.bindingId, work.threadId, binding, {
+      ...work.input, source: work.context.source, actor: work.context.actor, credentialSubject: work.context.credentialSubject,
+    });
+    return adapter.acknowledge(session, work);
   }
 }

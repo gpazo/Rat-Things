@@ -1,3 +1,5 @@
+import type { SessionIntegrationTarget } from './session-integrations.js';
+import { parseAgentsContract } from './agents-api-validation.js';
 import type { JsonValue, RunSource, SandboxMode } from './contracts.js';
 
 export const WEB_SEARCH_MODES = ['disabled', 'cached', 'indexed', 'live'] as const;
@@ -101,7 +103,7 @@ export interface IntegrationConnection {
   ownerId: string;
   pluginId: string;
   alias: string;
-  /** Mutable presentation label. Stable API/Thing references continue to use the alias or ID. */
+  /** Mutable presentation label. Stable API references continue to use the alias or ID. */
   displayName?: string;
   label: string;
   externalTenantId?: string;
@@ -160,14 +162,13 @@ export interface ConnectionSet {
   defaults?: { [key: string]: string };
 }
 
-export interface SourceCapabilityBinding {
+export interface SourceCapabilityBinding extends SessionIntegrationTarget {
   version: '1';
   bindingId: string;
   ownerId: string;
   sourceKind: RunSource['kind'];
   /** Exact source fields such as repository, teamId, or channelId. */
   selector: { [key: string]: string };
-  capabilityProfile?: string;
   connectionSetId?: string;
 }
 
@@ -194,7 +195,7 @@ export function authorizeConnectionOperation(input: {
   connection: IntegrationConnection;
   grant: ConnectionGrant;
   operation: OperationDefinition;
-  /** Run/Thing selection and the deployment profile can only narrow the stored grant. */
+  /** Run selection and the deployment profile can only narrow the stored grant. */
   requested?: ConnectionAccessRequest;
   maximumIntegrationAccess?: CapabilityProfileDefinition['maximumIntegrationAccess'];
   now?: Date;
@@ -355,7 +356,7 @@ export function validateSourceCapabilityBinding(
     requireId(key, 'source selector field');
     requireLabel(selected, `source selector ${key}`, 512);
   }
-  if (value.capabilityProfile) requireId(value.capabilityProfile, 'capability profile');
+  parseAgentsContract('SessionCreate', { agent_id: value.agentId, environment: value.environment, vault_ids: value.vaultIds ?? [], input: 'Validate integration target' });
   if (value.connectionSetId) requireId(value.connectionSetId, 'connection set ID');
   return structuredClone(value);
 }

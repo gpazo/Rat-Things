@@ -11,13 +11,13 @@ describe('Teams ingress adapter', () => {
     );
 
     expect(adapter.acknowledge(
-      { runId: 'run-1' },
+      { sessionId: 'sess_1' },
       {} as IngressWork,
     )).toEqual({
       statusCode: 200,
       body: {
         type: 'message',
-        text: "Rat Things request received. I'll reply when run run-1 finishes.",
+        text: "Rat Things request received. I'll reply when session sess_1 completes a turn.",
       },
     });
   });
