@@ -310,10 +310,11 @@ ports accept traffic only from the load balancer.
 
 - Removed unused control-role Agents/Run stream access, outbox queue access and
   outbox log grants. The dedicated outbox role retains its required permissions.
-- Retire MicroVM-specific launch, proxy transport, idle/suspend configuration and
-  build resources only after EC2 passes live isolation/lifetime/recovery tests and
-  the operator has deliberately migrated existing workers. Keep physical Session
-  S3 Files storage and retained data addresses stable.
+- Retain Lambda MicroVM launch, proxy transport, idle/suspend configuration and
+  build resources as a supported execution backend. EC2 supplies longer process
+  lifetime where needed; its acceptance does not authorize retiring MicroVMs.
+  Preserve both backends' isolation/recovery coverage, physical Session S3 Files
+  storage and retained data addresses.
 - Consolidate the shared worker launch configuration naming and the currently
   MicroVM-named interaction controller once both-backend rollout is complete.
 - LocalStack no longer provisions the obsolete Things/Routines tables or exports
@@ -396,3 +397,22 @@ package through acceptance, then evaluate these bounded changes in a separate cy
 The native CI cache already excludes unrelated TypeScript dependency changes.
 The strict test image installs dependencies directly as UID 10001 and copies files
 with that ownership, avoiding a second dependency layer from recursive `chown`.
+
+
+## Machine-switch follow-up inventory
+
+The route/command scan across active source, Terraform, harnesses, scripts,
+console, guides, examples and browser tests found only the retained private
+`/agent-runtime/v1/runs/...` execution URLs. No obsolete public Run, Thing,
+Routine or conversation route/CLI string was found in the scanned text files.
+`saved-agent-activity.ts` remains called by `RunService` for checksum-verified,
+bounded saved execution diagnostics; its projection module is therefore still
+reachable and useful. This scan does not authorize removing retained tables,
+queues, logs or the active S3 Files storage addresses. The old deployment's data,
+provider bindings and schedule payloads still need explicit disposition.
+
+The current deployment's inline Session credential inventory found only secrets
+already scheduled for deletion. The new preparation deadline/fence closes
+abandoned inline credential adoption. Neither that scoped inventory nor a
+route-string scan constitutes exhaustive provider, runtime or functional-design
+acceptance. Current candidate results are recorded in the compatibility audit.

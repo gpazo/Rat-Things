@@ -62,6 +62,7 @@ function operation(overrides: Partial<OperationDefinition> = {}): OperationDefin
 describe('integration capability contracts', () => {
   it('uses a Rat grant to reduce a coarse full-access credential to read-only', () => {
     expect(authorizeConnectionOperation({
+      now: new Date(now),
       connection: connection(),
       grant: grant(),
       operation: operation(),
@@ -71,6 +72,7 @@ describe('integration capability contracts', () => {
     });
 
     expect(authorizeConnectionOperation({
+      now: new Date(now),
       connection: connection(),
       grant: grant(),
       operation: operation({
@@ -104,6 +106,7 @@ describe('integration capability contracts', () => {
       requiredProviderScopes: ['gmail.send'],
     });
     expect(authorizeConnectionOperation({
+      now: new Date(now),
       connection: oauth,
       grant: grant({ preset: 'read-write' }),
       operation: send,
@@ -114,6 +117,7 @@ describe('integration capability contracts', () => {
     });
 
     expect(authorizeConnectionOperation({
+      now: new Date(now),
       connection: connection({
         authorization: { ...oauth.authorization, scopes: ['gmail.readonly', 'gmail.send'] },
       }),
@@ -127,6 +131,7 @@ describe('integration capability contracts', () => {
 
   it('applies deny rules before presets and allowlists', () => {
     expect(authorizeConnectionOperation({
+      now: new Date(now),
       connection: connection(),
       grant: grant({
         preset: 'full',
@@ -135,6 +140,18 @@ describe('integration capability contracts', () => {
       }),
       operation: operation({ id: 'gmail.messages.send' }),
     })).toMatchObject({ allowed: false, reason: 'operation is explicitly denied' });
+  });
+
+  it('decides expiration from the supplied time, including the exact boundary', () => {
+    const input = {
+      connection: connection(),
+      grant: grant({ expiresAt: now }),
+      operation: operation(),
+    };
+    expect(authorizeConnectionOperation({ ...input, now: new Date(Date.parse(now) - 1) }).allowed).toBe(true);
+    expect(authorizeConnectionOperation({ ...input, now: new Date(now) }))
+      .toMatchObject({ allowed: false, reason: 'grant has expired' });
+    expect(authorizeConnectionOperation({ ...input, now: new Date(Date.parse(now) - 1) }).allowed).toBe(true);
   });
 
   it('validates connection, operation, grant, set, and source binding records', () => {

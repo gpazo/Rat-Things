@@ -16,8 +16,11 @@ export async function codexEnvironmentFiles(options: {
   if (options.identity) await chown(home, options.identity.uid, options.identity.gid);
   const remote = options.registryURL !== undefined;
   if (remote && (!options.environmentId || !options.harnessKey)) throw new Error('Remote file operation requires an environment credential');
-  const rpc = new CodexRpcClient({ binary: options.binary ?? 'codex', cwd: home, environment: {
+  // This helper uses only its declared file MCP server. Disable plugin startup
+  // sync before initialization so background clones cannot outlive cleanup.
+  const rpc = new CodexRpcClient({ binary: options.binary ?? 'codex', binaryArguments: ['-c', 'features.plugins=false', 'app-server'], cwd: home, environment: {
     PATH: process.env.PATH, HOME: home, CODEX_HOME: home, CODEX_API_KEY: 'environment-operations-no-inference',
+    SSL_CERT_FILE: process.env.SSL_CERT_FILE,
     ...(remote ? { CODEX_EXEC_SERVER_NOISE_REGISTRY_URL: options.registryURL,
       CODEX_EXEC_SERVER_NOISE_ENVIRONMENT_ID: options.environmentId,
       CODEX_EXEC_SERVER_NOISE_AUTH_TOKEN: options.harnessKey } : {}),

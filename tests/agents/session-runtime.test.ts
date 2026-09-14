@@ -16,13 +16,14 @@ function fixture(lifetime?: 'bounded' | 'host-managed') {
   let counter = 0;
   let closed = false;
   let controller: CodexTurnController;
+  let rpc: Pick<CodexRpcClient, 'initialize' | 'call' | 'close'>;
   const calls: Array<{ method: string; params: unknown }> = [];
   const runtime = new SessionRuntime({ sessionId: 'sess', agentId: 'agent', now: () => 100,
     ...(lifetime ? { lifetime } : {}),
     request: { binary: 'unused', workspace: '/workspace', environment: {}, timeoutMs: 10_000, prompt: '', sandbox: 'read-only', persistent: true, modelProvider: 'openai', model: 'fixture', networkAccess: false, environments: [], dynamicTools: [{ type: 'function', name: 'lookup', description: 'Lookup', inputSchema: { type: 'object', properties: {} } }], onTurnStarted: (value) => { controller = value; } },
     client: (options) => {
       handlers = options;
-      return {
+      rpc = {
         initialize: async () => {},
         call: async (method, params) => {
           calls.push({ method, params });
@@ -36,14 +37,59 @@ function fixture(lifetime?: 'bounded' | 'host-managed') {
         },
         close: async () => { closed = true; options.onClose!(); },
       };
+      return rpc;
     },
   });
-  return { runtime, calls, controller: () => controller, closed: () => closed, emit: (event: CodexRpcEvent) => handlers.onEvent!(event), request: (event: CodexRpcEvent & { requestId: string }) => handlers.onServerRequest!(event) };
+  return { runtime, calls, rpc: () => rpc, controller: () => controller, closed: () => closed, emit: (event: CodexRpcEvent) => handlers.onEvent!(event), request: (event: CodexRpcEvent & { requestId: string }) => handlers.onServerRequest!(event) };
 }
 const rootTurn = (id: string): Turn => ({ id, agent_id: 'agent', session_id: 'sess', subagent_id: null, object: 'agent.session.turn', status: 'queued', created_at: 90, started_at: null, completed_at: null, usage: null, error: null });
 const message = [{ role: 'user' as const, content: [{ type: 'input_text' as const, text: 'Work' }] }];
 
 describe('persistent native session runtime', () => {
+  it.each([false, true])('retries a follow-up rejected before native admission, with start pending=%s', async (pending) => {
+    const f = fixture();
+    let release!: () => void; const blocked = new Promise<void>((resolve) => { release = resolve; });
+    try {
+      await f.runtime.initialize();
+      if (pending) {
+        const call = f.rpc().call.bind(f.rpc());
+        vi.spyOn(f.rpc(), 'call').mockImplementationOnce(async (...args) => { await blocked; return call(...args); });
+      }
+      const first = f.runtime.start(rootTurn('first'), message);
+      if (!pending) await first;
+      await expect(f.runtime.start(rootTurn('second'), message)).rejects.toThrow('already has an active turn');
+      release(); await first;
+      f.emit({ method: 'turn/completed', params: { threadId: 'root', turn: { id: 'native-1', status: 'completed' } } });
+      await expect(f.runtime.start(rootTurn('second'), message)).resolves.toBeUndefined();
+      await f.runtime.start(rootTurn('second'), message);
+      expect(f.calls.filter(({ method }) => method === 'turn/start')).toHaveLength(2);
+      expect(f.closed()).toBe(false);
+    } finally { release(); await f.runtime.close(); }
+  });
+
+  it('retries a Turn submitted before initialization without poisoning its identity', async () => {
+    const f = fixture();
+    try {
+      await expect(f.runtime.start(rootTurn('first'), message)).rejects.toThrow('unavailable');
+      await f.runtime.initialize();
+      await f.runtime.start(rootTurn('first'), message);
+      expect(f.calls.filter(({ method }) => method === 'turn/start')).toHaveLength(1);
+    } finally { await f.runtime.close(); }
+  });
+
+  it('does not retry an ambiguous native start and keeps the harness closed', async () => {
+    const f = fixture();
+    try {
+      await f.runtime.initialize();
+      const call = vi.spyOn(f.rpc(), 'call').mockRejectedValueOnce(new Error('Native acknowledgement lost'));
+      await expect(f.runtime.start(rootTurn('first'), message)).rejects.toThrow('acknowledgement lost');
+      await expect(f.runtime.start(rootTurn('first'), message)).rejects.toThrow('acknowledgement lost');
+      await expect(f.runtime.start(rootTurn('second'), message)).rejects.toThrow('unavailable');
+      expect(call).toHaveBeenCalledTimes(1);
+      expect(f.closed()).toBe(true);
+    } finally { await f.runtime.close(); }
+  });
+
   it('preserves the same harness beyond eight hours under trusted host lifetime control', async () => {
     vi.useFakeTimers();
     const f = fixture('host-managed');

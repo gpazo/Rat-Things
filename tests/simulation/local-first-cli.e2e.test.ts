@@ -32,9 +32,9 @@ describe('local-first CLI', () => {
   });
 
   it.each([
-    [['--thread', 'cloud-thread'], '--thread is not valid for local'],
+    [['--thread', 'cloud-thread'], 'unknown option --thread'],
     [['--json'], '--json is not valid for local'],
-    [['--attach', 'evidence.txt'], '--attach is not valid for local'],
+    [['--attach', 'evidence.txt'], 'unknown option --attach'],
   ])('rejects cloud options %j before executing locally', (options, diagnostic) => {
     const result = spawnSync(process.execPath, [tsx, cli, '--driver', 'mock', ...options, 'Do work'], {
       encoding: 'utf8',

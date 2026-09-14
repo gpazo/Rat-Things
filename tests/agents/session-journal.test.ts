@@ -72,6 +72,19 @@ describe('durable session journal', () => {
     expect((await store.get('alice', 'session'))?.value.snapshot?.rootThreadId).toBe('root');
   });
 
+  it('fences first and replacement harness claims after closure, including fresh retries', async () => {
+    const store = new SessionRuntimeStore(new MemoryAgentsStore());
+    await store.close('alice', 'session');
+    await expect(store.claim('alice', 'session', 'late', 1)).rejects.toMatchObject({ status: 409 });
+    await expect(store.claim('alice', 'session', 'retry', 2, await store.get('alice', 'session'))).rejects.toMatchObject({ status: 409 });
+    expect(await store.publish('alice', 'session', 'late', initialSessionRuntime('session', 'agent', 'root'))).toBe(false);
+    // The fence is owner scoped and closing again does not erase it.
+    await store.close('alice', 'session');
+    await store.claim('bob', 'session', 'other-owner', 3);
+    expect((await store.get('alice', 'session'))?.value).toMatchObject({ closed: true });
+    expect((await store.get('bob', 'session'))?.value.runId).toBe('other-owner');
+  });
+
   it('copies output bytes before persisting a completed turn and retains that immutable snapshot', async () => {
     let contents = Buffer.from('first output');
     const writes: Buffer[] = [];

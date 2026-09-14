@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { agentsJobGroup, agentsStreamJobs, agentsJobRetrySeconds } from '../../src/core/agents-outbox-planning.js';
+import { agentsJobGroup, agentsStreamJobs, agentsJobRetrySeconds, parseAgentsJob } from '../../src/core/agents-outbox-planning.js';
 
 describe('Session work isolation', () => {
   it('retries a cold managed harness promptly without shortening unknown failure backoff', () => {
@@ -17,6 +17,16 @@ describe('Session work isolation', () => {
     expect(agentsJobGroup(snapshot!)).toBe(agentsJobGroup(dispatch!));
     expect(agentsJobGroup(delivery!)).not.toBe(agentsJobGroup(dispatch!));
     expect(agentsJobGroup({ ...delivery!, ownerId: 'another' })).not.toBe(agentsJobGroup(delivery!));
+  });
+  it('wakes durable credential attempts independently of execution without queueing secret references', () => {
+    const index = { ownerId: 'owner', id: 'attempt', key: 'root', collection: 'session_tool_attempts', revision: 1 };
+    const expected = { ownerId: 'owner', id: 'attempt', type: 'tool_cleanup' };
+    for (const revision of [1, 2, 3]) expect(agentsStreamJobs({ ...index, revision })).toEqual([expected]);
+    const job = parseAgentsJob({ ...expected, secret: 'must-not-be-forwarded' });
+    expect(job).toEqual(expected);
+    expect(agentsJobGroup(job)).not.toBe(agentsJobGroup({ ...job, type: 'dispatch' }));
+    expect(agentsStreamJobs({ ...index, deleted: true })).toEqual([]);
+    expect(agentsStreamJobs({ ...index, key: 'journal' })).toEqual([]);
   });
   it('ignores non-root or deleted resources and prepares completion only for terminal private executions', () => {
     const execution = { ownerId: 'owner', agentsSession: { sessionId: 'session', turnId: 'turn' } };

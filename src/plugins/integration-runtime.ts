@@ -42,7 +42,7 @@ export class IntegrationRuntime {
       const names = new Set<string>();
       for (const operation of plugin.manifest.operations) {
         const allowedConnections = connections.filter(
-          (candidate) => authorizeConnectionOperation({ ...candidate, operation }).allowed,
+          (candidate) => authorizeConnectionOperation({ ...candidate, operation, now: new Date() }).allowed,
         );
         if (allowedConnections.length === 0) continue;
         const defaultConnection = defaultConnectionFor(
@@ -140,7 +140,7 @@ export class IntegrationRuntime {
     signal?: AbortSignal,
   ): Promise<JsonValue> {
     const { selected, operation, operationInput } = resolveToolCall(tools, call);
-    const decision = authorizeConnectionOperation({ ...selected, operation });
+    const decision = authorizeConnectionOperation({ ...selected, operation, now: new Date() });
     if (!decision.allowed) throw new Error(decision.reason ?? 'integration operation is not authorized');
     enforceResourceConstraints(selected.grant, operationInput);
     const binding = await this.options.store.getCredentialBinding(

@@ -74,6 +74,10 @@ to the configured provider without silently choosing another model.
 Input sent to an idle Session starts a Turn. Input sent while the coordinator is
 working steers that Turn. Canceling a Turn preserves the Session. A failed or
 expired environment is terminal for that environment; create another Session.
+Cancellation does not replace a Turn's completed or failed outcome. For work
+already admitted to the harness, inspect the Turn until its outcome is terminal.
+Deleting a Session closes its execution authority even if its first harness has
+not started, so delayed dispatch cannot claim a new harness for that Session.
 
 ```ts
 await client.beta.agents.sessions.events.create(session.id, {
@@ -209,6 +213,18 @@ workers have no public API ingress. Resource indexes live in DynamoDB; complete
 definitions and content live in encrypted S3; confidential credential values live
 in Secrets Manager.
 
+Inline MCP credentials have durable cleanup work recorded before creation. If
+preparation stops or secret storage returns an uncertain result, the outbox
+retries cleanup while protecting credentials adopted by a Session. Deleting a
+Session also records its credential cleanup before removing the bindings.
+Unresolved cleanup follows the outbox's retry and failure-queue handling.
+
+New Session preparations have a one-day completion window. If creation remains
+unfinished, the outbox fences further commits and retires adopted inline MCP
+credentials. A retry after that window returns `session_preparation_expired`.
+Completed Sessions retain their credentials until deletion. Older preparations
+without a recorded deadline require explicit inventory and disposition.
+
 Use the advertised `agents_api_base_url` for SDK requests. CloudFront's default
 origin response timeout is shorter than the input connection wait; increasing
 its normal quota is unnecessary with the direct HTTPS API endpoint. Both services
@@ -228,6 +244,16 @@ Signed provider events and schedules now submit canonical Session input. Provide
 authentication, delivery, connection installation and scheduling remain separate
 integration responsibilities. See [schedules and provider bindings](schedules.md).
 The Thing and Routine definitions and public routes are removed.
+
+Integration retries retain the saved Agent settings selected when Session
+preparation began, including inherited MCP transport headers. Editing or deleting
+that Agent does not change the pending Session's snapshot. A changed request
+cannot resume the same pending preparation. Vault grants are still checked when
+the Session launches work.
+
+An interrupted Session from an older deployment may lack its original MCP
+transport snapshot. Such a preparation returns `session_preparation_incomplete`;
+start a new Session instead of reconstructing its settings from a changed Agent.
 
 Publications select immutable Session artifact IDs through the separate
 `POST /v1/sessions/{sessionId}/publications` application route. See

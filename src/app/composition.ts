@@ -97,7 +97,7 @@ let connectionConsumerService: ConnectionConsumerService | undefined;
 let oauthAuthorizationService: OAuthAuthorizationService | undefined;
 let capabilityProfileRegistry: CapabilityProfileRegistry | undefined;
 let sourcePolicyResolver: StoredSourceSessionResolver | undefined;
-let agentsApiServices: { store: SessionEventStore; tokens: ApiTokenService; agents: AgentService; vaults: VaultService; templates: EnvironmentTemplateService; environments: EnvironmentService; files: FileService; skills: SkillService; webhooks: WebhookService; readonly sessions: SessionService } | undefined;
+let agentsApiServices: { store: SessionEventStore; tokens: ApiTokenService; agents: AgentService; vaults: VaultService; templates: EnvironmentTemplateService; environments: EnvironmentService; files: FileService; skills: SkillService; webhooks: WebhookService; tools: SessionToolService; readonly sessions: SessionService } | undefined;
 let sessionIntegrationService: SessionIntegrationService | undefined;
 let agentsSessionService: SessionService | undefined;
 let apiTokenService: ApiTokenService | undefined;
@@ -120,13 +120,19 @@ export function getAgentsApiServices() {
   const templates = new EnvironmentTemplateService({ store });
   const files = new FileService({ store, artifacts: base.artifacts });
   const skills = new SkillService({ store, artifacts: base.artifacts });
+  const vaults = new VaultService({ store, oauth: new HttpOAuthRefreshClient(), secrets: new SecretsAgentCredentials(
+    base.clients.secrets, requiredEnv('INTEGRATION_CREDENTIAL_NAME_PREFIX'), requiredEnv('INTEGRATION_CREDENTIAL_KMS_KEY_ARN'),
+  ) });
   agentsApiServices = {
     store,
     webhooks: new WebhookService({ store, transport: new HttpsWebhookTransport(), secrets: new SecretsWebhooks(base.clients.secrets, requiredEnv('INTEGRATION_CREDENTIAL_NAME_PREFIX'), requiredEnv('INTEGRATION_CREDENTIAL_KMS_KEY_ARN')) }),
     tokens: getApiTokenService(),
     agents: new AgentService({ store }),
     templates,
-    files, skills,
+    files, skills, vaults,
+    tools: new SessionToolService({ store, vaults, secrets: new SecretsSessionTools(
+      base.clients.secrets, requiredEnv('INTEGRATION_CREDENTIAL_NAME_PREFIX'), requiredEnv('INTEGRATION_CREDENTIAL_KMS_KEY_ARN'),
+    ) }),
     environments: new EnvironmentService({ store, credentials: environmentCredentials, templates, uploadedFiles: files, skills, fileContent: (owner, id) => files.bytes(owner, id),
       managedFiles: async (ownerId, sessionId, operation) => {
         const runtime = await new SessionRuntimeStore(store).get(ownerId, sessionId);
@@ -138,9 +144,6 @@ export function getAgentsApiServices() {
       },
       ...(process.env.AGENTS_ENVIRONMENT_RELAY_URL ? { relayURL: process.env.AGENTS_ENVIRONMENT_RELAY_URL, fileOperations: new RelayEnvironmentFiles(environmentCredentials, process.env.AGENTS_ENVIRONMENT_RELAY_URL) } : {}),
     }),
-    vaults: new VaultService({ store, oauth: new HttpOAuthRefreshClient(), secrets: new SecretsAgentCredentials(
-      base.clients.secrets, requiredEnv('INTEGRATION_CREDENTIAL_NAME_PREFIX'), requiredEnv('INTEGRATION_CREDENTIAL_KMS_KEY_ARN'),
-    ) }),
     get sessions(): SessionService {
       agentsSessionService ??= new SessionService({
         store, agents: this.agents,
@@ -149,9 +152,7 @@ export function getAgentsApiServices() {
           backend: process.env.DEFAULT_EXECUTION_BACKEND === 'ec2' ? 'ec2' : 'microvm',
           runs: getRunService(true), interaction: getAgentInteractionController(),
           artifacts: base.artifacts, vaults: this.vaults, environments: this.environments,
-          tools: new SessionToolService({ store, vaults: this.vaults, secrets: new SecretsSessionTools(
-            base.clients.secrets, requiredEnv('INTEGRATION_CREDENTIAL_NAME_PREFIX'), requiredEnv('INTEGRATION_CREDENTIAL_KMS_KEY_ARN'),
-          ) }),
+          tools: this.tools,
         }),
       });
       return agentsSessionService;

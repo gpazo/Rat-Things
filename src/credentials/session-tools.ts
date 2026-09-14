@@ -8,7 +8,10 @@ export interface SessionToolSecret {
 }
 
 export interface SessionToolSecrets {
-  create(secret: SessionToolSecret): Promise<string>;
+  /** Pure reservation: persist this reference before attempting creation. */
+  reference(identity: Pick<SessionToolSecret, 'ownerId' | 'sessionId' | 'serverLabel'>, attemptId: string): string;
+  create(secret: SessionToolSecret, reference: string): Promise<void>;
+  /** Retire even an uncertain creation; retries must be safe. */
   revoke(reference: string): Promise<void>;
 }
 

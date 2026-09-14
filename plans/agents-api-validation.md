@@ -1,8 +1,10 @@
 # Current migration validation
 
-The local release gates are complete. The migration is ready to start isolated
-live AWS acceptance. This is not a claim of 100% deployed compatibility; the
-remaining behavior and deployment acceptance rows are in
+This records acceptance of the earlier native-readiness candidate. Subsequent
+source changes and deployments are tracked in
+[`agents-api-audit-2026-09-13.md`](agents-api-audit-2026-09-13.md); these historical
+passes do not make the current working tree green. The remaining behavior and
+deployment acceptance rows are in
 [`agents-api-conformance.md`](agents-api-conformance.md).
 
 ## Accepted local evidence

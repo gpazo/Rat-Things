@@ -5,6 +5,8 @@ import { ZipArchive } from 'archiver';
 import { codexRuntimeEntries } from './codex-runtime-artifact.mjs';
 
 const epoch = new Date('2000-01-01T00:00:00.000Z');
+// Validate all native inputs before publishing any archives from this invocation.
+const runtimeEntries = await codexRuntimeEntries();
 const lambdaRoot = 'dist/lambdas';
 const lambdaNames = (await readdir(lambdaRoot)).sort();
 
@@ -15,7 +17,7 @@ for (const name of lambdaNames) {
 }
 
 const microvmEntries = [
-  ...await codexRuntimeEntries(),
+  ...runtimeEntries,
   { source: 'dist/runner.mjs', target: 'runner.mjs', mode: 0o755 },
   { source: 'dist/ec2-supervisor.mjs', target: 'ec2-supervisor.mjs', mode: 0o755 },
   { source: 'dist/terminate-microvm.mjs', target: 'terminate-microvm.mjs', mode: 0o755 },

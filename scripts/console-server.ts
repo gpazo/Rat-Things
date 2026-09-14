@@ -6,7 +6,6 @@ import { fileURLToPath } from 'node:url';
 import { readFile, stat } from 'node:fs/promises';
 import { extname, resolve } from 'node:path';
 import process from 'node:process';
-import { createAgentsFetch } from '../src/agents-client.js';
 import { isPrivateArtifactUrl } from '../src/adapters/publication-client.js';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
@@ -114,6 +113,7 @@ async function proxy(
   if (process.env.AGENT_RUNTIME_UNSIGNED !== 'true') {
     const region = process.env.AWS_REGION ?? regionFromHostname(url.hostname);
     if (!region) throw new Error('AWS_REGION is required to sign console control API requests');
+    const { createAgentsFetch } = await import('../src/agents-client.js');
     authenticatedFetch ??= createAgentsFetch({ baseURL: `${url.origin}/v1`, region });
     transport = authenticatedFetch;
   }

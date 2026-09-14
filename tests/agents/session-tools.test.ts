@@ -24,7 +24,8 @@ describe('session MCP capabilities', () => {
     const agent = sessionAgent({ model: 'test', tools }, 'agent_1', 1);
     const vaults = new VaultService({ store, secrets: { create: async () => { throw new Error('No vault secrets in this fixture'); }, read: async () => { throw new Error('No vault secrets in this fixture'); }, revoke: async () => {} } });
     const service = new SessionToolService({ store, vaults, secrets: {
-      create: async (value) => { secrets.set('secret-ref', structuredClone(value)); return 'secret-ref'; },
+      reference: () => 'secret-ref',
+      create: async (value, reference) => { secrets.set(reference, structuredClone(value)); },
       revoke: async (reference) => { secrets.delete(reference); },
     } });
     await service.prepare('alice', 'sess_1', agent, tools, []);

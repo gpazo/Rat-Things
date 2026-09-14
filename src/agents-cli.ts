@@ -2,9 +2,6 @@ import { createReadStream } from 'node:fs';
 import { writeFile } from 'node:fs/promises';
 import { readFile } from 'node:fs/promises';
 import { parseArgs } from 'node:util';
-import { createAgentsClient } from './agents-client.js';
-import { connectExecutor } from './executor-connection.js';
-import { parseAgentsContract } from './domain/agents-api-validation.js';
 
 /** CLI inputs and outputs use the upstream resource shapes without a second request language. */
 export async function runAgentsCli(argv: string[]): Promise<boolean> {
@@ -25,6 +22,9 @@ export async function runAgentsCli(argv: string[]): Promise<boolean> {
   const baseURL = values['api-url'] ?? process.env.RAT_THINGS_AGENTS_API_URL ?? process.env.RAT_THINGS_API_URL;
   const region = values.region ?? process.env.AWS_REGION ?? process.env.AWS_DEFAULT_REGION;
   if (!baseURL || !region) throw new Error('Set RAT_THINGS_AGENTS_API_URL and AWS_REGION, or use --api-url and --region');
+  const [{ createAgentsClient }, { parseAgentsContract }] = await Promise.all([
+    import('./agents-client.js'), import('./domain/agents-api-validation.js'),
+  ]);
   const endpoint = baseURL.replace(/\/$/, '');
   const client = createAgentsClient({ baseURL: endpoint.endsWith('/v1') ? endpoint : `${endpoint}/v1`, region });
   const agents = client.beta.agents;
@@ -87,7 +87,10 @@ export async function runAgentsCli(argv: string[]): Promise<boolean> {
       const abort = new AbortController();
       const stop = () => abort.abort();
       process.once('SIGINT', stop); process.once('SIGTERM', stop);
-      try { await connectExecutor(client, requiredId(), { signal: abort.signal }); }
+      try {
+        const { connectExecutor } = await import('./executor-connection.js');
+        await connectExecutor(client, requiredId(), { signal: abort.signal });
+      }
       finally { process.removeListener('SIGINT', stop); process.removeListener('SIGTERM', stop); }
     } else if (operation === 'templates') {
       const templates = agents.environments.templates;

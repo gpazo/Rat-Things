@@ -198,7 +198,7 @@ export function authorizeConnectionOperation(input: {
   /** Run selection and the deployment profile can only narrow the stored grant. */
   requested?: ConnectionAccessRequest;
   maximumIntegrationAccess?: CapabilityProfileDefinition['maximumIntegrationAccess'];
-  now?: Date;
+  now: Date;
 }): OperationAuthorizationDecision {
   const { connection, grant, operation } = input;
   const enforcement = operationEnforcement(connection, operation);
@@ -211,7 +211,7 @@ export function authorizeConnectionOperation(input: {
   if (connection.ownerId !== grant.ownerId) return denied('connection and grant owners do not match');
   if (connection.connectionId !== grant.connectionId) return denied('grant targets another connection');
   if (connection.status !== 'active') return denied(`connection is ${connection.status}`);
-  if (grant.expiresAt && Date.parse(grant.expiresAt) <= (input.now ?? new Date()).getTime()) {
+  if (grant.expiresAt && Date.parse(grant.expiresAt) <= input.now.getTime()) {
     return denied('grant has expired');
   }
   const grantDenial = operationPolicyDenial(grant, operation);

@@ -20,10 +20,14 @@ export async function handler(event: DynamoDBStreamEvent | SQSEvent) {
         const job = parseAgentsJob(JSON.parse(record.body));
         const services = getAgentsApiServices();
         if (job.type === 'webhook_batch') await services.webhooks.fanout(job.ownerId, job.id);
-        else if (job.type === 'webhook_delivery') {
-          const attempt = await services.webhooks.deliver(job.ownerId, job.id);
+        else if (job.type === 'webhook_delivery' || job.type === 'tool_cleanup' || job.type === 'preparation_cleanup') {
+          const attempt = job.type === 'preparation_cleanup' ? await services.tools.reconcilePreparation(job.ownerId, job.id)
+            : job.type === 'tool_cleanup' ? await services.tools.reconcile(job.ownerId, job.id)
+            : await services.webhooks.deliver(job.ownerId, job.id);
           if (attempt.retryAfterSeconds) {
-            await queue.send(new ChangeMessageVisibilityCommand({ QueueUrl: requiredEnv('AGENTS_QUEUE_URL'), ReceiptHandle: record.receiptHandle, VisibilityTimeout: Math.min(43_200, Math.max(1, Math.ceil(attempt.retryAfterSeconds))) }));
+            // Revisit long waits hourly. The SQS twelve-hour ceiling starts at
+            // receipt, so requesting the full twelve hours here can be rejected.
+            await queue.send(new ChangeMessageVisibilityCommand({ QueueUrl: requiredEnv('AGENTS_QUEUE_URL'), ReceiptHandle: record.receiptHandle, VisibilityTimeout: Math.min(3600, Math.max(1, Math.ceil(attempt.retryAfterSeconds))) }));
             batchItemFailures.push({ itemIdentifier: record.messageId });
           }
         }

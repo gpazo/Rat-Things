@@ -6,7 +6,8 @@ import { canonicalJson } from '../domain/json.js';
 import type { AgentService } from './agent-service.js';
 import type { AgentResource, AgentsClock, AgentsIds, AgentsStore } from './agents-ports.js';
 import type { SessionExecution, SessionObservation, SessionState } from './session-ports.js';
-import { cursorPage, initialMessages, observeSession, orderedTurnItems, planSessionInput, terminalTurn, sessionAgent } from './session-planning.js';
+import { cancelledStartTurn, cursorPage, initialMessages, observeSession, orderedTurnItems, planSessionInput, terminalTurn } from './session-planning.js';
+import { planSessionPreparation, preparationTools, requireActivePreparation, type SessionPreparation } from './session-preparation-planning.js';
 import { planSessionStream, type SessionStreamSnapshot } from './session-stream.js';
 import { sessionEventBatchId, type SessionEventBatch } from './session-event-store.js';
 
@@ -40,14 +41,26 @@ export class SessionService {
     const messages = initialMessages(input.input);
     if (input.environment.type === 'none' && !messages.length) invalid('Sessions without an environment require initial input', 'input');
     const id = integrationId ?? this.ids.next('sess');
-    const preparation = integrationId ? await this.options.store.get<{ agent: AgentSession['agent']; now: number; created?: boolean }>(ownerId, 'session_preparations', id) : undefined;
-    if (preparation?.value.created) resourceNotFound();
-    const saved = !preparation && input.agent_id ? await this.options.agents.retrieve(ownerId, input.agent_id) : undefined;
-    const now = preparation?.value.now ?? this.clock.now();
-    const agent = preparation?.value.agent ?? sessionAgent(input.agent, this.ids.next('agent'), now, saved);
-    if (integrationId && !preparation) await this.options.store.put({ ownerId, id, collection: 'session_preparations', createdAt: now, revision: 1, value: { agent, now } }, 0);
+    let preparation = integrationId ? (await this.options.store.get<SessionPreparation>(ownerId, 'session_preparations', id))?.value : undefined;
+    if (!preparation) {
+      const saved = input.agent_id ? await this.options.agents.retrieve(ownerId, input.agent_id) : undefined;
+      preparation = planSessionPreparation(input, this.ids.next('agent'), this.clock.now(), saved);
+      try {
+        await this.options.store.put({ ownerId, id, collection: 'session_preparations', createdAt: preparation.now, revision: 1, value: preparation }, 0);
+      } catch (error) {
+        // A concurrent winner or a lost acknowledgement may have committed.
+        // Use that snapshot before performing any preparation effects.
+        const committed = await this.options.store.get<SessionPreparation>(ownerId, 'session_preparations', id).catch(() => undefined);
+        if (!committed) throw error;
+        preparation = committed.value;
+      }
+    }
+    if (preparation.created) return (await this.required(ownerId, id)).value.session;
+    requireActivePreparation(preparation, this.clock.now());
+    const { agent, now } = preparation;
     const vaultIds = [...new Set(input.vault_ids ?? [])];
-    const environment = await this.options.execution.prepare(ownerId, id, input.environment, agent, vaultIds, input.agent?.tools ?? preparation?.value.agent.tools ?? saved?.tools ?? [], Boolean(integrationId));
+    const tools = preparationTools(preparation, input);
+    const environment = await this.options.execution.prepare(ownerId, id, input.environment, agent, vaultIds, tools, Boolean(integrationId));
     const session: AgentSession = {
       id, object: 'agent.session', agent, created_at: now, last_active_at: now,
       environment, error: null, metadata: input.metadata ?? {}, status: 'idle',
@@ -58,15 +71,15 @@ export class SessionService {
     const state = events.length ? this.plan(empty, { session, turns: [] }, events, 'initial') : empty;
     try {
       const resource = { id, ownerId, collection: 'sessions', createdAt: now, revision: 1, value: state };
-      if (integrationId) {
-        const prepared = await this.options.store.get<{ agent: AgentSession['agent']; now: number; created?: boolean }>(ownerId, 'session_preparations', id) ?? resourceNotFound();
-        if (prepared.value.created) return (await this.required(ownerId, id)).value.session;
-        await this.options.store.commit([{ resource, expectedRevision: 0 }, { resource: { ...prepared, revision: prepared.revision + 1, value: { ...prepared.value, created: true } }, expectedRevision: prepared.revision }]);
-      } else await this.options.store.put(resource, 0);
+      const prepared = await this.options.store.get<SessionPreparation>(ownerId, 'session_preparations', id) ?? resourceNotFound();
+      if (prepared.value.created) return (await this.required(ownerId, id)).value.session;
+      requireActivePreparation(prepared.value, this.clock.now());
+      await this.options.store.commit([{ resource, expectedRevision: 0 }, { resource: { ...prepared, revision: prepared.revision + 1, value: { ...prepared.value, created: true } }, expectedRevision: prepared.revision }]);
     }
     catch (error) {
-      if (!integrationId || !(error instanceof AgentsApiError) || error.code !== 'conflict') throw error;
-      return (await this.required(ownerId, id)).value.session;
+      const committed = await this.options.store.get<SessionState>(ownerId, 'sessions', id).catch(() => undefined);
+      if (!committed) throw error;
+      return committed.value.session;
     }
     return (await this.observe(ownerId, state)).session;
   }
@@ -235,9 +248,11 @@ export class SessionService {
             const binding = resource.value.turns.find(({ turn }) => turn.id === command.turnId) ?? resourceNotFound();
             if (binding.cancelRequested) {
               await this.options.execution.cancel(ownerId, session, command.turnId);
+              const observation = await this.options.execution.observe(ownerId, session, binding.turn);
+              const turn = cancelledStartTurn(observation.turn, this.clock.now());
               resource = await this.required(ownerId, id);
               resource = await this.replace(resource, { ...resource.value, turns: resource.value.turns.map((previous) => previous.turn.id === command.turnId ? {
-                ...previous, turn: { ...previous.turn, status: 'cancelled', completed_at: this.clock.now() },
+                ...previous, turn: terminalTurn(previous.turn) ? previous.turn : turn,
               } : previous) });
             } else {
               const preceding = resource.value.turns.slice(0, resource.value.turns.findIndex(({ turn }) => turn.id === command.turnId));

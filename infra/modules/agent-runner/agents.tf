@@ -43,7 +43,7 @@ resource "aws_lambda_event_source_mapping" "agents_outbox" {
   function_response_types            = ["ReportBatchItemFailures"]
   filter_criteria {
     filter {
-      pattern = jsonencode({ dynamodb = { NewImage = { collection = { S = ["sessions", "environments", "session_runtime", "session_integrations", "schedules", "session_event_batches", "webhook_deliveries"] }, key = { S = ["root"] } } } })
+      pattern = jsonencode({ dynamodb = { NewImage = { collection = { S = ["sessions", "environments", "session_runtime", "session_integrations", "schedules", "session_event_batches", "webhook_deliveries", "session_tool_attempts", "session_preparations"] }, key = { S = ["root"] } } } })
     }
   }
   depends_on = [aws_iam_role_policy.agents_outbox]

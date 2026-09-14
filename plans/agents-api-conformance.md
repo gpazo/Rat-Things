@@ -14,25 +14,31 @@ Their generation checks catch SDK drift. The ledger below tracks behavior that
 generated types cannot prove. "Local coverage" means implementation and targeted
 checks exist, not that every edge case or a live deployment is verified.
 
+The [current compatibility audit](agents-api-audit-2026-09-13.md) records the
+working tree's unresolved checks and runtime availability. Earlier native-image
+and deployment results below describe their original candidates; they do not
+certify subsequent changes. Lambda MicroVMs remain a supported backend alongside
+EC2, with S3 Files retained for Session state.
+
 ## Contract and evidence map
 
 | Contract | Implementation | Existing evidence | Remaining acceptance |
 | --- | --- | --- | --- |
 | Agents CRUD, defaults, replacement, nullable fields, metadata | `agent-service`, `agent-configuration` | `sdk-conformance`; pinned native model-default catalogue | Resolved model reasoning defaults, disabled capacity null, object replacement and nullable resets covered; remaining field/limit comparison |
-| Session creation, immutable resolved config, initial input, metadata, list/filter/delete | `session-service`, `session-planning` | `session-lifecycle`, `sdk-conformance` | Creation/deletion races and every documented status/error/limit |
-| Input batches, active-turn steering, cancellation, function results, idempotency | `session-planning`, Session outbox | `session-lifecycle`, `run-session-execution` | Connection wait/deadline, 256-character idempotency boundary and saved-Turn acknowledgement after disconnection/harness shutdown covered; in-flight cancellation/admission races and deployed timing remain |
+| Session creation, immutable resolved config, initial input, metadata, list/filter/delete | `session-service`, `session-planning`, `session-preparation-planning` | `session-lifecycle`, `session-preparation`, `sdk-conformance`, `session-journal`, `run-session-execution` | Saved Agent transport snapshots, concurrent preparation and commit acknowledgement recovery covered; one-day preparation expiry and concurrent abandonment/adoption covered locally and in the deployed cleanup consumer. Local closure-before-first-claim, concurrent claim/closure and delayed dispatch after HTTP deletion are covered; broader creation/deletion races and documented status/error/limit comparison remain |
+| Input batches, active-turn steering, cancellation, function results, idempotency | `session-planning`, Session outbox | `session-lifecycle`, `run-session-execution` | Connection wait/deadline, 256-character idempotency boundary and saved-Turn acknowledgement after disconnection/harness shutdown covered. Local cancellation during an unacknowledged start preserves completed/failed outcomes and pending native cancellation; broader admission/steering races and deployed timing remain |
 | Turns, Items, pagination, retained output, usage | `session-service`, `session-run-projection` | `session-lifecycle`, `session-runtime` | All Item variants, causal order, usage after compaction and child work |
 | Live SSE, all event variants, connect-before-read recovery | `session-stream`, `session-service`, `session-event-store` | `transport-and-launch`, `session-lifecycle`, `webhooks`, `session-journal` | Durable ordered transitions, command deltas, stable identities, late subscriptions and deletion fencing covered; remaining event variants and deployed streaming remain |
-| Outbound Session webhooks | `session-webhooks`, `webhook-service`, durable event/outbox adapters | `webhooks`, `webhook-http` | Five events, pre-wait action, SDK signatures, duplicates, DNS deadline, redirects and 72-hour horizon covered locally; deployed stream/fanout/retry evidence remains |
+| Outbound Session webhooks | `session-webhooks`, `webhook-service`, durable event/outbox adapters | `webhooks`, `webhook-http` | Five events, pre-wait action, SDK signatures, duplicates, DNS deadline, redirects and 72-hour horizon covered locally; earlier live HTTPS capture proved committed-event delivery; broader deployed retry/fanout evidence remains |
 | Subagent CRUD/read surfaces and coordination items | `session-runtime`, runtime planning | `session-runtime`, `native-session` | Patched macOS and packaged Linux ARM64 runtimes pass strict limits 1/6, ten interrupted follow-ups at each limit and ten competing nested admissions; deployed execution remains |
-| No-environment execution and declared tools | `session-launch-planning`, native harness | `native-session`, `transport-and-launch` | Real admitted-model calls; absent capabilities stay absent |
-| Self-hosted executor connection and environment keys | `environment-service`, encrypted relay | `environment-relay` | Deployed connection lifecycle, disconnect/reconnect, deadlines, late connection, owner/role isolation |
+| No-environment execution and declared tools | `session-launch-planning`, native harness | `native-session`, `transport-and-launch` | Earlier live admitted-model calls passed; expand absent-capability and provider coverage |
+| Self-hosted executor connection and environment keys | `environment-service`, encrypted relay | `environment-relay`; live scoped registry/executor connection and 2 MiB deployed file-helper transfer | Broader disconnect/reconnect, deadlines, late connection and deployed owner/role isolation |
 | Managed environments and templates | `environment-service`, `environment-template-service`, hosted runner | `vaults-and-templates`, `files-and-skills`, `managed-executor` | ARM64 setup, packages, capability loading, worker lifetime and replacement behavior |
-| Idle harness continuation and execution loss | `run-session-execution`, MicroVM controller | Private executor/recovery tests, `run-session-execution` | Suspended continuation and reconnect admission fixed locally; shutdown races, checkpoint recovery and maximum worker lifetime remain |
+| Idle harness continuation and execution loss | `run-session-execution`, MicroVM controller | Private executor/recovery tests, `run-session-execution`, `session-runtime` | Suspended continuation and reconnect admission fixed locally. Starts rejected before native admission remain retryable after initialization or root completion; ambiguous native starts still close the harness without replay. Shutdown races, checkpoint recovery and maximum worker lifetime remain |
 | Environment Files, uploads, Skills and versions | File/Skill/environment services | `files-and-skills`, `environment-files`, `http-transport` | Every size/path/version boundary, large deployed transfers and disconnects |
 | Saved Session artifacts | Session service and artifact capture | `session-lifecycle`, `session-publications` | Snapshot timing, documented size limits, child output, expired sandbox and deletion |
 | Vault credential secrecy, rotation, deletion and OAuth | Vault service and credential adapters | `vaults-and-templates`, `vault-oauth` | Live token refresh/revocation and deployed IAM; SDK field/validation limits |
-| MCP service/environment transports and metadata | `session-tool-service`, `session-mcp`, environment MCP bridge | `session-tools`, `environment-mcp` | Managed stdio admission rejects disabled/restricted networking after template resolution; self-hosted inline env rejection retained. Real configured servers, reconnect and failure outputs remain |
+| MCP service/environment transports and metadata | `session-tool-service`, `session-tool-planning`, `session-mcp`, environment MCP bridge | `session-tools`, `session-preparation`, `session-tool-reconciliation`, `secrets-session-tools`, `agents-outbox`, `environment-mcp` | Durable reservations, adoption fencing and outbox cleanup cover uncertain creation, failed revocation and deletion interruptions locally. Managed stdio admission and self-hosted inline env rejection retained. Live Secrets Manager/KMS recovery, deployed stream/SQS cleanup with role IAM, and HTTP Session credential lifecycle passed. One-day abandonment fencing and credential retirement passed locally and through the deployed outbox; the scoped deployment inventory found no active unreferenced inline credentials. Real configured servers, reconnect, broader failure outputs, older-deployment inventory and abandoned environment disposition remain |
 | Functions, programmatic tools, deferred tool search, web search | Agent config and launch planning | Real native programmatic/deferred function round trips against local model fixtures, including required actions and results; launch tests | Admitted live provider calls and web-search results |
 | Authentication, errors, HTTP bodies, multipart, SSE transport | Agents routers, token issuer, direct HTTPS HTTP server | `http-transport`, `sdk-conformance`, `transport-and-launch` | Full reference error/default review and deployed LB timing; public API bypasses CloudFront's shorter response timeout |
 
@@ -144,8 +150,10 @@ macOS ARM64 runtime and Linux ARM64 worker image each passed 148 strict tests,
 including programmatic and deferred function round trips. Deferred tools retain
 their native namespace without changing public function names. Linux egress probes
 use an explicit HTTP Agent and verify allowlist denial without DNS; this avoids
-Node automatically proxying an already-proxied request. No patched AWS worker image
-has been deployed.
+Node automatically proxying an already-proxied request. The earlier patched AWS
+worker was deployed and passed the managed canary in `aws-live-validation.md`.
+Current working-tree/native-image acceptance remains separately tracked in the
+compatibility audit.
 
 The token issuer now has an independent composition and IAM role. HTTP and outbox
 permissions are separate from provider administration. The cloud worker no longer

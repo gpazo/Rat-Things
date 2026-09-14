@@ -1,4 +1,4 @@
-export type AgentsJob = { ownerId: string; id: string; type: 'dispatch' | 'environment' | 'snapshot' | 'integration' | 'schedule' | 'delivery' | 'webhook_batch' | 'webhook_delivery' } | { ownerId: string; id: string; type: 'complete'; turnId: string };
+export type AgentsJob = { ownerId: string; id: string; type: 'dispatch' | 'environment' | 'snapshot' | 'integration' | 'schedule' | 'delivery' | 'webhook_batch' | 'webhook_delivery' | 'tool_cleanup' | 'preparation_cleanup' } | { ownerId: string; id: string; type: 'complete'; turnId: string };
 
 /** Cold workers and disconnected environments are expected admission delays. */
 export function agentsJobRetrySeconds(error: { status: number; code?: string | null }): number | undefined {
@@ -13,6 +13,8 @@ export function agentsStreamJobs(index: Record<string, unknown>): AgentsJob[] {
   const identity = { ownerId: index.ownerId, id: index.id };
   if (index.collection === 'session_event_batches' && Number(index.revision) === 1) return [{ ...identity, type: 'webhook_batch' }];
   if (index.collection === 'webhook_deliveries' && Number(index.revision) === 1) return [{ ...identity, type: 'webhook_delivery' }];
+  if (index.collection === 'session_preparations') return [{ ...identity, type: 'preparation_cleanup' }];
+  if (index.collection === 'session_tool_attempts') return [{ ...identity, type: 'tool_cleanup' }];
   if (index.collection === 'sessions') return [{ ...identity, type: 'dispatch' }, { ...identity, type: 'delivery' }];
   if (index.collection === 'session_integrations') return [{ ...identity, type: 'integration' }, { ...identity, type: 'delivery' }];
   if (index.collection === 'session_runtime') return [{ ...identity, type: 'snapshot' }];
@@ -22,10 +24,10 @@ export function agentsStreamJobs(index: Record<string, unknown>): AgentsJob[] {
 }
 export function parseAgentsJob(value: unknown): AgentsJob {
   if (record(value) && typeof value.ownerId === 'string' && typeof value.id === 'string') {
-    if (value.type === 'dispatch' || value.type === 'environment' || value.type === 'snapshot' || value.type === 'integration' || value.type === 'schedule' || value.type === 'delivery' || value.type === 'webhook_batch' || value.type === 'webhook_delivery') return { type: value.type, ownerId: value.ownerId, id: value.id };
+    if (value.type === 'dispatch' || value.type === 'environment' || value.type === 'snapshot' || value.type === 'integration' || value.type === 'schedule' || value.type === 'delivery' || value.type === 'webhook_batch' || value.type === 'webhook_delivery' || value.type === 'tool_cleanup' || value.type === 'preparation_cleanup') return { type: value.type, ownerId: value.ownerId, id: value.id };
     if (value.type === 'complete' && typeof value.turnId === 'string') return { type: value.type, ownerId: value.ownerId, id: value.id, turnId: value.turnId };
   }
   throw new Error('Invalid Agents job');
 }
-export function agentsJobGroup(job: AgentsJob): string { return JSON.stringify([job.type === 'delivery' || job.type === 'webhook_batch' || job.type === 'webhook_delivery' ? job.type : 'execution', job.ownerId, job.id]); }
+export function agentsJobGroup(job: AgentsJob): string { return JSON.stringify([job.type === 'delivery' || job.type === 'webhook_batch' || job.type === 'webhook_delivery' || job.type === 'tool_cleanup' || job.type === 'preparation_cleanup' ? job.type : 'execution', job.ownerId, job.id]); }
 function record(value: unknown): value is Record<string, unknown> { return typeof value === 'object' && value !== null && !Array.isArray(value); }

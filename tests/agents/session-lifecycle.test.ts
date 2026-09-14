@@ -1,7 +1,9 @@
 import OpenAI from 'openai';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { AgentService } from '../../src/core/agent-service.js';
 import { SessionService } from '../../src/core/session-service.js';
+import { SessionToolService } from '../../src/core/session-tool-service.js';
+import { VaultService } from '../../src/core/vault-service.js';
 import type { SessionExecution, SessionTurnObservation } from '../../src/core/session-ports.js';
 import type { AgentSession } from '../../src/domain/agents-api.js';
 import { AgentsApiError, parseAgentsContract } from '../../src/domain/agents-api-validation.js';
@@ -49,6 +51,42 @@ function fixture() {
 }
 
 describe('Agents API session lifecycle through the OpenAI SDK', () => {
+  it('clears saved MCP tools before preparing credentials when a session overrides tools with null', async () => {
+    const f = fixture();
+    const preparedHeaders: Record<string, string>[] = [];
+    const vaults = new VaultService({ store: f.store, secrets: {
+      create: async () => { throw new Error('No vault credentials in this fixture'); },
+      read: async () => { throw new Error('No vault credentials in this fixture'); },
+      revoke: async () => {},
+    } });
+    const resolveCredential = vi.spyOn(vaults, 'resolve');
+    const tools = new SessionToolService({ store: f.store, vaults, secrets: {
+      reference: (_identity, attempt) => `secret-${attempt}`,
+      create: async (value) => { preparedHeaders.push(value.headers); },
+      revoke: async () => {},
+    } });
+    f.execution.prepare = async (owner, id, environment, agent, vaults, parameters = []) => {
+      await tools.prepare(owner, id, agent, parameters, vaults);
+      if (environment.type !== 'none') throw new Error('Test environment is none');
+      return environment;
+    };
+    const saved = await f.api.create({ model: 'test', tools: [{ type: 'mcp', server_label: 'saved',
+      transport: { type: 'http', server_url: 'https://saved.example/mcp', headers: { 'X-Workspace': 'saved-context' } },
+    }] });
+    for (const override of [null, []]) {
+      const session = await f.api.sessions.create({ agent_id: saved.id, agent: { tools: override }, environment: { type: 'none' }, input: 'Start' });
+      expect(session.agent.tools).toEqual([]);
+      expect((await f.store.get('alice', 'session_tools', session.id))?.value).toEqual([]);
+    }
+    expect(preparedHeaders).toEqual([]);
+    expect(resolveCredential).not.toHaveBeenCalled();
+    const inherited = await f.api.sessions.create({ agent_id: saved.id, environment: { type: 'none' }, input: 'Start' });
+    expect(inherited.agent.tools).toMatchObject([{ type: 'mcp', server_label: 'saved' }]);
+    expect(preparedHeaders).toEqual([{ 'X-Workspace': 'saved-context' }]);
+    expect(resolveCredential).toHaveBeenCalledExactlyOnceWith('alice', [], 'https://saved.example/mcp', null, true);
+    expect(await f.api.retrieve(saved.id)).toEqual(saved);
+  });
+
   it('deletes queued work by closing the harness even when its control channel is unavailable', async () => {
     const f = fixture();
     const session = await f.api.sessions.create({ agent: { model: 'test' }, environment: { type: 'none' }, input: 'Start' });
@@ -205,6 +243,24 @@ describe('Agents API session lifecycle through the OpenAI SDK', () => {
     expect(f.calls.some((call) => call.type === 'start')).toBe(false);
     expect((await f.api.sessions.turns.list(session.id)).data[0]?.status).toBe('cancelled');
     expect((await f.api.sessions.retrieve(session.id)).status).toBe('idle');
+  });
+
+  it.each(['completed', 'failed', 'in_progress', 'waiting'] as const)('preserves %s when cancellation races a retry of an unacknowledged start', async (status) => {
+    const f = fixture();
+    const session = await f.api.sessions.create({ agent: { model: 'test' }, environment: { type: 'none' }, input: 'Start' });
+    // The harness started, but the outbox acknowledgement did not commit.
+    vi.spyOn(f.store, 'put').mockRejectedValueOnce(new Error('Acknowledgement unavailable'));
+    await expect(f.sessions.dispatch('alice', session.id)).rejects.toThrow('Acknowledgement unavailable');
+    const turn = (await f.api.sessions.turns.list(session.id)).data[0]!;
+    await f.api.sessions.events.create(session.id, { events: [{ type: 'agent.session.input.cancel' }] });
+    const completed_at = status === 'completed' || status === 'failed' ? 110 : null;
+    f.observations.set(turn.id, { turn: { ...turn, status, completed_at }, requiredActions: [] });
+    // Interruption may lose to completion or still await native acknowledgement.
+    f.execution.cancel = async () => {};
+    await f.sessions.dispatch('alice', session.id);
+    expect(await f.api.sessions.turns.retrieve(turn.id, { session_id: session.id })).toMatchObject({ status, completed_at });
+    expect((await f.api.sessions.items.list(session.id)).data).toHaveLength(1);
+    expect(f.calls.filter((call) => call.type === 'start')).toHaveLength(1);
   });
 
   it('accepts results only for pending calls and preserves an explicit empty-string output', async () => {

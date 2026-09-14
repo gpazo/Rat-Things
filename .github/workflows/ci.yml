@@ -45,6 +45,17 @@ jobs:
       - run: npm run test:e2e:relay-image
       - run: npm run test:e2e:microvm-image
       - run: npm run test:e2e:native-image
+      - name: Archive verified Linux ARM64 runtime
+        run: tar -C .runtime/codex/linux-arm64 -czf .runtime/codex/linux-arm64.tar.gz artifact.json runtime
+      - name: Export verified Linux ARM64 runtime
+        uses: actions/upload-artifact@v4
+        with:
+          name: codex-linux-arm64-${{ github.sha }}
+          path: .runtime/codex/linux-arm64.tar.gz
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
       - run: npx playwright install --with-deps chromium
       - run: npm run test:e2e:site
       - uses: actions/upload-artifact@v4

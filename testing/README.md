@@ -143,6 +143,22 @@ with an available ARM64 runner label that does. The job's 240-minute limit inclu
 native build, repository checks and actual worker-image tests. A cached artifact still passes
 source, package and checksum validation before packaging.
 
+After the native worker image passes, CI exports `codex-linux-arm64-<commit>`
+as a downloadable artifact containing `linux-arm64.tar.gz`. Extract that tarball
+into an empty directory and set `CODEX_RUNTIME_ARTIFACT` to that directory, which
+must contain `artifact.json` and `runtime/`. The tarball preserves executable
+permissions and hidden companion resources. Packaging verifies source identity, companions and every digest
+before writing Lambda archives; an export from a different source or patch is
+rejected. Cache presence alone is not native image acceptance.
+
+Host-native sandbox checks require an OS that supports the pinned Codex sandbox
+profile. A process exit is a failing check, including macOS Seatbelt profile
+compilation errors; it is not converted into a skip or an unrestricted launch.
+Use the Linux ARM64 worker-image harness to verify the deployment runtime.
+Shell configuration fixtures use non-login Bash so personal startup scripts do
+not change their environment or contaminate JSON output. Install `jq` before
+running the shell fixtures.
+
 ## Worker infrastructure plans
 
 With Terraform 1.15.8 installed, run `npm run test:infra`. Mocked AWS providers exercise

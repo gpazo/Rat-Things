@@ -1,13 +1,27 @@
 import { createHash } from 'node:crypto';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { afterEach, expect, it } from 'vitest';
 import { codexRuntimeEntries } from '../../scripts/codex-runtime-artifact.mjs';
 
 const directories: string[] = [];
 afterEach(async () => { await Promise.all(directories.splice(0).map(path => rm(path, { recursive: true, force: true }))); });
 const digest = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('hex');
+
+it('rejects missing native inputs before replacing any existing Lambda archive', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'rat-package-preflight-')); directories.push(directory);
+  await mkdir(join(directory, 'dist/lambdas/example'), { recursive: true });
+  await writeFile(join(directory, 'dist/lambdas/example/index.mjs'), 'export const handler = () => null;');
+  const archive = join(directory, 'dist/example.zip');
+  await writeFile(archive, 'previous archive');
+  await expect(promisify(execFile)(process.execPath, [resolve('scripts/package-lambdas.mjs')], {
+    cwd: directory, env: { ...process.env, CODEX_RUNTIME_ARTIFACT: join(directory, 'missing') }, timeout: 5000,
+  })).rejects.toThrow('Build the Linux ARM64 Codex runtime first');
+  expect(await readFile(archive, 'utf8')).toBe('previous archive');
+});
 
 async function fixture() {
   const directory = await mkdtemp(join(tmpdir(), 'rat-runtime-artifact-')); directories.push(directory);

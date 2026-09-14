@@ -33,15 +33,17 @@ async function fixture() {
   const interrupt = vi.fn(async () => {});
   const events = vi.fn(async () => ({ runId: run.runId, active: true, ready: true, oldestSequence: 0, nextSequence: 0, events: [], pendingRequests: [] }));
   const runtime = new SessionRuntimeStore(store); await runtime.claim('alice', session.id, run.runId, now);
+  const cancel = vi.fn(async () => run);
+  const putJson = vi.fn(async (key: string) => ({ bucket: 'private', key, sha256: 'fixture' }));
   const execution = new RunSessionExecution({ store, environments,
-    runs: { get: async () => run, idFor: () => 'unused', cancel: async () => run, submit },
+    runs: { get: async () => run, idFor: () => 'unused', cancel, submit },
     interaction: { startSessionTurn: start, events, steer, interrupt, respond: async () => {} },
-    artifacts: { getJson: async () => { throw new Error('Unexpected object read'); }, putJson: async (key) => ({ bucket: 'private', key, sha256: 'fixture' }), getBytes: async () => new Uint8Array(), getStream: async () => { throw new Error('Unexpected stream'); } },
+    artifacts: { getJson: async () => { throw new Error('Unexpected object read'); }, putJson, getBytes: async () => new Uint8Array(), getStream: async () => { throw new Error('Unexpected stream'); } },
     vaults: { requireVaults: async () => {} }, tools: { prepare: async () => {}, launch: async () => [], close: async () => {} },
   });
   if (environment.type !== 'self_hosted') throw new Error('Unexpected environment');
   const connect = () => environments.connection({ ownerId: 'alice', environmentId: environment.id, role: 'executor' }, `connection_${now}`, true);
-  return { execution, session, turn, run, submit, start, steer, interrupt, events, runtime, environments, connect, store, clock: { now: () => now }, now: (time: number) => { now = time; } };
+  return { execution, session, turn, run, submit, cancel, putJson, start, steer, interrupt, events, runtime, environments, connect, store, clock: { now: () => now }, now: (time: number) => { now = time; } };
 }
 
 describe('persistent harness input admission', () => {
@@ -60,6 +62,52 @@ describe('persistent harness input admission', () => {
     await f.execution.start('alice', f.session, { turn: f.turn, input: [] });
     expect(f.start).not.toHaveBeenCalled();
     expect(f.submit).not.toHaveBeenCalled();
+  });
+  it('closes a Session before its first harness and ignores delayed dispatch', async () => {
+    const f = await fixture();
+    await f.store.delete((await f.runtime.get('alice', f.session.id))!);
+    await f.execution.close('alice', f.session);
+    await f.execution.start('alice', f.session, { turn: f.turn, input: [] });
+    expect(f.start).not.toHaveBeenCalled();
+    expect(f.submit).not.toHaveBeenCalled();
+    expect(f.cancel).not.toHaveBeenCalled();
+    expect((await f.runtime.get('alice', f.session.id))?.value).toEqual({ closed: true, runId: null });
+  });
+  it('rejects a first harness claim when deletion wins during launch preparation', async () => {
+    const f = await fixture();
+    const agents = new AgentService({ store: f.store });
+    const sessions = new SessionService({ store: f.store, agents, execution: f.execution, clock: f.clock });
+    const session = await sessions.create('alice', { agent: { model: 'fixture' }, environment: { type: 'none' }, input: 'Start' });
+    let entered!: () => void; const preparing = new Promise<void>((resolve) => { entered = resolve; });
+    let release!: () => void; const blocked = new Promise<void>((resolve) => { release = resolve; });
+    f.putJson.mockImplementationOnce(async (key) => {
+      entered(); await blocked;
+      return { bucket: 'private', key, sha256: 'fixture' };
+    });
+    const starting = sessions.dispatch('alice', session.id);
+    const rejected = expect(starting).rejects.toMatchObject({ status: 409 });
+    await preparing;
+    try {
+      const response = await routeAgentsRequest(new Request(`https://api.example/v1/agents/sessions/${session.id}`, { method: 'DELETE' }), 'alice', { agents, sessions });
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({ id: session.id, object: 'agent.session.deleted', deleted: true });
+    } finally { release(); }
+    await rejected;
+    await expect(sessions.retrieve('alice', session.id)).rejects.toMatchObject({ status: 404 });
+    expect(f.submit).not.toHaveBeenCalled();
+    expect((await f.runtime.get('alice', session.id))?.value.closed).toBe(true);
+  });
+  it('cancels the harness whose claim wins the first closure write', async () => {
+    const f = await fixture();
+    await f.store.delete((await f.runtime.get('alice', f.session.id))!);
+    const put = f.store.put.bind(f.store);
+    vi.spyOn(f.store, 'put').mockImplementationOnce(async (resource, expected) => {
+      await f.runtime.claim('alice', f.session.id, f.run.runId, 100);
+      await put(resource, expected);
+    });
+    await f.execution.close('alice', f.session);
+    expect(f.cancel).toHaveBeenCalledExactlyOnceWith('alice', f.run.runId);
+    expect((await f.runtime.get('alice', f.session.id))?.value).toEqual({ closed: true, runId: f.run.runId });
   });
   it('sends only API message fields when continuing a worker with saved input', async () => {
     const f = await fixture();

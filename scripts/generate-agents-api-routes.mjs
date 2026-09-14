@@ -1,6 +1,9 @@
-import { readFile, writeFile } from 'node:fs/promises';
+import { readFile, readdir, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import ts from 'typescript';
 
 const routes = JSON.parse(await readFile('spec/agents-api-routes.json', 'utf8'));
+await verifySdkRouteCoverage(routes);
 const schema = JSON.parse(await readFile('spec/schemas/agents-api.schema.json', 'utf8'));
 const schemaPath = '/schemas/agents-api.schema.json';
 const ref = (name) => ({ $ref: `${schemaPath}#/definitions/AgentsApiContracts/properties/${name}` });
@@ -72,4 +75,55 @@ async function update(path, value) {
   if (process.argv.includes('--check')) {
     if (await readFile(path, 'utf8') !== value) throw new Error(`${path} is stale; run npm run agents-api:routes`);
   } else await writeFile(path, value);
+}
+
+/** Compare against SDK operations independently of our hand-maintained inventory. */
+async function verifySdkRouteCoverage(routes) {
+  const files = [
+    ...await sourceFiles('node_modules/openai/src/resources/beta/agents'),
+    ...await sourceFiles('node_modules/openai/src/resources/skills'),
+    'node_modules/openai/src/resources/files.ts',
+  ];
+  const expected = new Set((await Promise.all(files.map(async (file) =>
+    sdkRoutes(file, await readFile(file, 'utf8')),
+  ))).flat());
+  const actual = new Set(routes.map(([method, path]) => `${method} ${normalizeRoute(path)}`));
+  const missing = [...expected].filter((route) => !actual.has(route));
+  const extra = [...actual].filter((route) => !expected.has(route));
+  if (!expected.size || actual.size !== routes.length || missing.length || extra.length) {
+    throw new Error(`Agents API route inventory differs from the pinned SDK: ${JSON.stringify({ missing, extra, duplicateRoutes: routes.length - actual.size })}`);
+  }
+}
+
+async function sourceFiles(directory) {
+  const entries = await readdir(directory, { withFileTypes: true });
+  return (await Promise.all(entries.map((entry) => entry.isDirectory()
+    ? sourceFiles(join(directory, entry.name))
+    : entry.name.endsWith('.ts') ? [join(directory, entry.name)] : []))).flat();
+}
+
+function normalizeRoute(path) {
+  return path.replaceAll(/\$\{[^}]+\}|\{[^}]+\}/g, '{}').replace(/^\/v1\//, '/');
+}
+
+function sdkRoutes(file, text) {
+  const source = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true);
+  const routes = [];
+  function visit(node) {
+    if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)
+      && node.expression.expression.getText(source) === 'this._client') {
+      const method = node.expression.name.text;
+      if (['get', 'post', 'delete', 'patch', 'put', 'getAPIList'].includes(method)) {
+        let path = node.arguments[0];
+        if (path && ts.isTaggedTemplateExpression(path)) path = path.template;
+        if (!path || !(ts.isStringLiteral(path) || ts.isNoSubstitutionTemplateLiteral(path) || ts.isTemplateExpression(path))) {
+          throw new Error(`Unrecognized SDK route in ${file}; review route coverage extraction`);
+        }
+        routes.push(`${method === 'getAPIList' ? 'GET' : method.toUpperCase()} ${normalizeRoute(path.getText(source).slice(1, -1))}`);
+      }
+    }
+    ts.forEachChild(node, visit);
+  }
+  visit(source);
+  return routes;
 }

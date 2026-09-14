@@ -1,6 +1,6 @@
 import type { AgentSessionInputMessageParam, AgentSessionInputParam, Turn } from '../domain/agents-api.js';
 import { CodexRpcClient, CodexRpcError, type CodexRpcEvent } from '../adapters/codex-rpc.js';
-import { bindSessionTurn, initialSessionRuntime, reduceSessionRuntime, resolveSessionFunction, stoppedSessionRuntime, type SessionRuntimeState } from '../core/session-runtime-planning.js';
+import { bindSessionTurn, initialSessionRuntime, reduceSessionRuntime, resolveSessionFunction, rootTurnBusy, stoppedSessionRuntime, type SessionRuntimeState } from '../core/session-runtime-planning.js';
 import type { CodexAppServerRequest } from './codex-app-server.js';
 import { sandboxPolicyFor } from './codex-app-server.js';
 
@@ -107,14 +107,16 @@ export class SessionRuntime {
   public start(turn: Turn, input: AgentSessionInputMessageParam[]): Promise<void> {
     const existing = this.started.get(turn.id);
     if (existing) return existing;
-    const promise = this.startTurn(turn, input);
+    // Pre-admission rejection has no native effect and must remain retryable.
+    // Cache only attempts that cross the native boundary, including ambiguity.
+    if (!this.state || this.closed) return Promise.reject(new Error('Session runtime is unavailable'));
+    if (rootTurnBusy(this.state, this.starting)) return Promise.reject(new Error('The root agent already has an active turn'));
+    const promise = this.startTurn(turn, input, this.state.rootThreadId);
     this.started.set(turn.id, promise);
     return promise;
   }
 
-  private async startTurn(turn: Turn, input: AgentSessionInputMessageParam[]): Promise<void> {
-    if (!this.state || this.closed) throw new Error('Session runtime is unavailable');
-    if (this.starting || this.state.turns.some((binding) => binding.threadId === this.state!.rootThreadId && !terminal(binding.turn))) throw new Error('The root agent already has an active turn');
+  private async startTurn(turn: Turn, input: AgentSessionInputMessageParam[], rootThreadId: string): Promise<void> {
     this.starting = true;
     this.startingTurn = turn;
     clearTimeout(this.idleTimer);
@@ -122,7 +124,7 @@ export class SessionRuntime {
     const request = this.options.request;
     try {
       const result = await this.rpc.call('turn/start', {
-        threadId: this.state.rootThreadId, input: nativeInput(input), cwd: request.executionWorkspace ?? request.workspace,
+        threadId: rootThreadId, input: nativeInput(input), cwd: request.executionWorkspace ?? request.workspace,
         environments: request.environments,
         approvalPolicy: 'never', approvalsReviewer: 'user',
         ...(request.permissions ? { permissions: request.permissions } : { sandboxPolicy: sandboxPolicyFor(request.sandbox, request.executionWorkspace ?? request.workspace, request.networkAccess) }),
@@ -130,7 +132,7 @@ export class SessionRuntime {
         ...(request.outputSchema ? { outputSchema: request.outputSchema } : {}),
       });
       if (!record(result) || !record(result.turn) || typeof result.turn.id !== 'string') throw new Error('Native session returned no turn');
-      this.state = bindSessionTurn(this.state, result.turn.id, turn);
+      this.state = bindSessionTurn(this.state!, result.turn.id, turn);
       this.publish();
       await this.ready();
     } catch (error) {

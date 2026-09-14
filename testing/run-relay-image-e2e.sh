@@ -50,4 +50,10 @@ docker exec "$api_name" node --input-type=module --eval '
   console.log("Read-only ARM64 API image: unprivileged health, discovery and authentication passed");
 '
 docker exec "$relay_name" codex --version
+docker exec "$relay_name" node --input-type=module --eval '
+  import { readFileSync } from "node:fs";
+  import { X509Certificate } from "node:crypto";
+  const roots = readFileSync(process.env.SSL_CERT_FILE, "utf8").match(/-----BEGIN CERTIFICATE-----[\s\S]+?-----END CERTIFICATE-----/g);
+  if (!roots?.length || roots.some(root => !new X509Certificate(root).ca)) throw Error("Native TLS CA bundle is missing or invalid");
+'
 printf '%s\n' 'ARM64 relay image: unprivileged health and pinned protocol client passed'

@@ -9,6 +9,11 @@ import { totalUsage } from './session-ports.js';
 
 export const terminalTurn = (turn: Turn): boolean => ['completed', 'failed', 'cancelled'].includes(turn.status);
 
+/** A cancelled queued start never ran; an admitted Turn keeps its observed outcome. */
+export function cancelledStartTurn(turn: Turn, now: number): Turn {
+  return turn.status === 'queued' ? { ...turn, status: 'cancelled', completed_at: now } : turn;
+}
+
 /** Snapshot saved settings once; session overrides replace complete fields. */
 export function sessionAgent(input: SessionCreateParams['agent'], id: string, now: number, saved?: Agent): AgentSession['agent'] {
   const publicInput = input ? { ...input, ...(input.tools ? { tools: input.tools.map((tool) => tool.type !== 'mcp' ? tool : {

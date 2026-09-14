@@ -13,6 +13,10 @@ const digest = (bytes) => createHash('sha256').update(bytes).digest('hex');
 const buildRoot = process.argv[2] && resolve(process.argv[2]);
 const prepareOnly = process.argv[3] === '--prepare-only';
 if (!buildRoot || process.argv.length > 4 || process.argv[3] && !prepareOnly) throw new Error('Usage: node scripts/build-codex-runtime.mjs BUILD_DIRECTORY [--prepare-only]');
+// Resolve host compatibility before creating a build directory or fetching source.
+const triples = { 'darwin-arm64': 'aarch64-apple-darwin', 'linux-arm64': 'aarch64-unknown-linux-musl' };
+const triple = triples[`${process.platform}-${process.arch}`];
+if (!prepareOnly && !triple) throw new Error('The worker runtime build supports ARM64 macOS and Linux. Use the Linux ARM64 Docker builder for the worker artifact.');
 await mkdir(buildRoot, { recursive: true });
 const marker = join(buildRoot, 'rat-codex-source.json');
 const identity = JSON.stringify({ ...source, patches: await Promise.all(source.patches.map(async (name) => ({ name, sha256: createHash('sha256').update(await readFile(join(definition, name))).digest('hex') }))) });
@@ -55,9 +59,6 @@ if (!prepareOnly) {
   const build = { profile: 'release', debug: 'none', incremental: false, locked: true, jobs };
   // Keep the exact upstream package's companion host and resources. Patching the
   // CLI alone silently disables code mode when its sibling executable is absent.
-  const triples = { 'darwin-arm64': 'aarch64-apple-darwin', 'linux-arm64': 'aarch64-unknown-linux-musl' };
-  const triple = triples[`${process.platform}-${process.arch}`];
-  if (!triple) throw new Error('The worker runtime build supports ARM64 macOS and Linux.');
   const packageName = `@openai/codex-${process.platform}-arm64`;
   const packagePath = createRequire(import.meta.url).resolve(`${packageName}/package.json`);
   const upstreamPackage = JSON.parse(await readFile(packagePath, 'utf8'));

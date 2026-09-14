@@ -70,16 +70,17 @@ export class RunSessionExecution implements SessionExecution {
   public async initialize(ownerId: string, session: AgentSession): Promise<void> {
     if (session.environment.type !== 'openai_hosted') return;
     const runtime = await this.runtime.get(ownerId, session.id);
-    if (runtime && await this.runById(ownerId, runtime.value.runId)) return;
+    if (runtime) {
+      if (runtime.value.closed || await this.runById(ownerId, runtime.value.runId)) return;
+    }
     const turn: Turn = { id: 'bootstrap', object: 'agent.session.turn', session_id: session.id, agent_id: session.agent.id,
       subagent_id: null, status: 'queued', created_at: session.created_at, started_at: null, completed_at: null, error: null, usage: null };
     await this.start(ownerId, session, { turn, input: [] }, [], true);
   }
 
   public async close(ownerId: string, session: AgentSession) {
-    const runtime = await this.runtime.get(ownerId, session.id);
-    await this.runtime.close(ownerId, session.id);
-    if (runtime) {
+    const runtime = await this.runtime.close(ownerId, session.id);
+    if (runtime.value.runId !== null) {
       const run = await this.runById(ownerId, runtime.value.runId);
       if (run && !isTerminal(run.status)) await this.options.runs.cancel(ownerId, run.runId);
     }
@@ -228,7 +229,7 @@ export class RunSessionExecution implements SessionExecution {
   public async subagents(ownerId: string, session: AgentSession) {
     const runtime = await this.runtime.get(ownerId, session.id);
     if (!runtime?.value.snapshot) return [];
-    const run = await this.runById(ownerId, runtime.value.runId);
+    const run = runtime.value.runId === null ? undefined : await this.runById(ownerId, runtime.value.runId);
     return runtimeSubagents(run && !isTerminal(run.status) ? runtime.value.snapshot : stoppedSessionRuntime(runtime.value.snapshot, Math.floor(Date.now() / 1000)));
   }
   private async run(ownerId: string, sessionId: string, turnId: string): Promise<RunRecord | undefined> {

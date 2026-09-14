@@ -1,10 +1,13 @@
 # Live AWS acceptance cycle
 
-Status: isolated stack deployed; live API, managed worker, console, webhook,
-five-minute transport and maximum file transfer cases passed. The refreshed-token
-worker and native readiness gate passed the live managed canary. The eight-hour-
-five-minute soak is running; its first Turn completed, but the final result is
-not yet available.
+Historical acceptance: live API, managed worker, console, webhook, five-minute
+transport and maximum file transfer cases passed on the candidate below. Later
+rollouts are recorded in [`agents-api-audit-2026-09-13.md`](agents-api-audit-2026-09-13.md).
+The eight-hour-five-minute soak result is unverified. A consistent storage read
+found its Session under another API owner, with one completed Turn; the current
+API principal therefore receives 404. The original `.aws-e2e` directory and
+Terraform state are on the other machine. Recover the result there before claiming
+continuity or repeating teardown.
 
 - Deployment: `ag260913a`, account `731841023867`, region `us-west-2`.
 - Endpoint: `https://agents-ag260913a.dev.indubitably.ai/v1`.

@@ -37,10 +37,13 @@ describe('managed executor contract without inference', () => {
             response.on('data', chunk => body += chunk);
             response.on('end', () => console.log(JSON.stringify({ status: response.statusCode, denial: JSON.parse(body) })));
           });
-          req.on('error', () => process.exit(3)); req.end();
+          req.on('error', error => {
+            console.error(JSON.stringify({ code: error.code, syscall: error.syscall, address: error.address, port: error.port }));
+            process.exitCode = 3;
+          }); req.end();
         `],
       });
-      expect(result).toMatchObject({ exitCode: 0 });
+      expect(result, JSON.stringify(result)).toMatchObject({ exitCode: 0 });
       expect(JSON.parse((result as { stdout: string }).stdout)).toMatchObject({
         status: 403, denial: { host: '1.1.1.1', decision: 'deny', reason: 'not_allowed' },
       });

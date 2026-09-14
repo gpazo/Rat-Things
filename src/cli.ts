@@ -5,13 +5,6 @@ import { mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { Sha256 } from '@aws-crypto/sha256-js';
-import { defaultProvider } from '@aws-sdk/credential-provider-node';
-import { SecretsManagerClient } from '@aws-sdk/client-secrets-manager';
-import { HttpRequest } from '@smithy/protocol-http';
-import { SignatureV4 } from '@smithy/signature-v4';
-import { CachedSecretReader } from './adapters/aws-runtime.js';
-import { CredentialBroker } from './credentials/broker.js';
 import type { AgentDriverName, RunRequest, SandboxMode } from './domain/contracts.js';
 import type {
   ConnectionAccessRequest,
@@ -27,13 +20,9 @@ import {
   createBuiltinCapabilityProfiles,
   resolveAgentProfile,
 } from './plugins/capability-profiles.js';
-import { driverFor } from './runner/agent-driver.js';
-import { loadCodexBedrockToken } from './runner/bedrock-auth.js';
 import { codexAuthMode, localCodexAuthMode } from './runner/codex-auth.js';
-import { localArtifactPaths, prepareArtifactDirectory } from './runner/artifacts.js';
 import { sessionPublicationRequest } from './core/session-publication-planning.js';
 import { runAgentsCli } from './agents-cli.js';
-import { collectWorkspacePatch, prepareWorkspace } from './runner/workspace.js';
 
 interface Arguments {
   command: string;
@@ -68,33 +57,22 @@ const commands = new Set([
 const booleanOptions = new Set([
   'all',
   'events',
-  'diagnostics',
-  'preview',
   'open',
-  'follow',
   'help',
   'json',
   'browser',
   'network',
-  'new',
   'no-browser',
   'no-network',
   'no-wait',
   'oauth',
-  'output',
   'patch',
-  'raw',
-  'clear',
-  'submit',
   'wait',
 ]);
 
 const repeatableOptions = new Set([
   'allow-operation',
-  'answer',
-  'answer-stdin',
   'app',
-  'attach',
   'connection',
   'deny-operation',
   'mcp',
@@ -104,7 +82,6 @@ const repeatableOptions = new Set([
 const valueOptions = new Set([
   'agent-id', 'environment-template', 'session',
   'access',
-  'after',
   'alias',
   'api-url',
   'auth-scheme',
@@ -112,28 +89,15 @@ const valueOptions = new Set([
   'base-ref',
   'codex-auth',
   'connection-set',
-  'conversation',
   'credential-file',
   'credential-secret-arn',
-  'delivery',
-  'delta-x',
-  'delta-y',
-  'download',
   'driver',
-  'entrypoint',
   'file',
-  'goal',
-  'idempotency-key',
-  'key',
   'limit',
-  'milliseconds',
   'model',
   'name',
-  'next-token',
   'personality',
-  'poll-seconds',
   'port',
-  'poster',
   'profile',
   'prompt',
   'provider',
@@ -141,25 +105,11 @@ const valueOptions = new Set([
   'reasoning-summary',
   'ref',
   'region',
-  'reply-to',
   'repo',
-  'result',
-  'run',
   'sandbox',
-  'screenshot',
-  'target',
-  'test-run',
-  'text',
-  'thread',
   'timeout',
-  'title',
-  'value',
-  'visibility',
-  'wait-timeout',
   'web-search',
   'workspace',
-  'x',
-  'y',
 ]);
 
 interface SimpleApiCommand {
@@ -277,6 +227,15 @@ async function local(args: Arguments): Promise<void> {
   if (request.agent?.capabilities?.computerUse === 'browser') {
     throw new Error('local browser computer use is not supported; use a remote MicroVM or --no-browser');
   }
+  const [
+    { SecretsManagerClient }, { CachedSecretReader }, { CredentialBroker },
+    { driverFor }, { loadCodexBedrockToken }, { localArtifactPaths, prepareArtifactDirectory },
+    { collectWorkspacePatch, prepareWorkspace },
+  ] = await Promise.all([
+    import('@aws-sdk/client-secrets-manager'), import('./adapters/aws-runtime.js'), import('./credentials/broker.js'),
+    import('./runner/agent-driver.js'), import('./runner/bedrock-auth.js'), import('./runner/artifacts.js'),
+    import('./runner/workspace.js'),
+  ]);
   const driverName = request.agent?.driver ?? 'mock';
   if (driverName === 'codex') process.env.CODEX_AUTH_MODE = localCodexAuthMode(requestedAuthMode);
   const timeout = (request.execution?.timeoutSeconds ?? 900) * 1_000;
@@ -962,6 +921,10 @@ async function api(
   if (process.env.AGENT_RUNTIME_UNSIGNED !== 'true') {
     const region = process.env.AWS_REGION ?? regionFromHostname(url.hostname);
     if (!region) throw new Error('AWS_REGION is required to sign control API requests');
+    const [{ Sha256 }, { defaultProvider }, { HttpRequest }, { SignatureV4 }] = await Promise.all([
+      import('@aws-crypto/sha256-js'), import('@aws-sdk/credential-provider-node'),
+      import('@smithy/protocol-http'), import('@smithy/signature-v4'),
+    ]);
     const query = Object.fromEntries(url.searchParams.entries());
     const signer = new SignatureV4({
       credentials: defaultProvider(),

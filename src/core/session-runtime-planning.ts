@@ -24,6 +24,11 @@ export function initialSessionRuntime(sessionId: string, agentId: string, rootTh
   return { sessionId, agentId, rootThreadId, subagents: [], turns: [], requiredActions: [] };
 }
 
+/** A child may keep working while the root admits its next Turn. */
+export function rootTurnBusy(state: SessionRuntimeState, starting: boolean): boolean {
+  return starting || state.turns.some((binding) => binding.threadId === state.rootThreadId && !terminalTurn(binding.turn));
+}
+
 export function stoppedSessionRuntime(state: SessionRuntimeState, now: number): SessionRuntimeState {
   return {
     ...state, requiredActions: [],

@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest';
 
 describe('AWS E2E OAuth configuration', () => {
   it('preserves a configured OAuth application secret map as valid JSON', () => {
-    const output = execFileSync('bash', ['-lc', `
+    const output = execFileSync('bash', ['--noprofile', '--norc', '-c', `
       set -euo pipefail
       export AWS_REGION=us-west-2
       export AWS_E2E_OAUTH_APP_SECRET_ARNS='{"slack":"arn:aws:secretsmanager:us-west-2:123456789012:secret:test"}'
@@ -21,7 +21,7 @@ describe('AWS E2E OAuth configuration', () => {
   });
 
   it('uses an empty JSON object when no OAuth application secret map is configured', () => {
-    const output = execFileSync('bash', ['-lc', `
+    const output = execFileSync('bash', ['--noprofile', '--norc', '-c', `
       set -euo pipefail
       export AWS_REGION=us-west-2
       unset AWS_E2E_OAUTH_APP_SECRET_ARNS
@@ -43,7 +43,7 @@ describe('AWS E2E OAuth configuration', () => {
       'export AWS_E2E_REAL_CODEX=false',
       '',
     ].join('\n'));
-    const output = execFileSync('bash', ['-lc', `
+    const output = execFileSync('bash', ['--noprofile', '--norc', '-c', `
       set -euo pipefail
       export AWS_E2E_REAL_CODEX=true
       source scripts/aws-e2e-common.sh
