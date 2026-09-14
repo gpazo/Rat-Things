@@ -41,6 +41,18 @@ if [[ ! "$expected_account" =~ ^[0-9]{12}$ || "$(aws sts get-caller-identity --q
   exit 1
 fi
 
+# One-off ECS tasks are not owned by the Terraform task definition. Preserve
+# their API and cleanup authority until the active validation run has finished.
+observer_cluster="$(jq -r '.outputs.validation_observer.value.cluster_arn // empty' "$state_file")"
+if [[ -n "$observer_cluster" ]]; then
+  observer_count="$(aws ecs list-tasks --region "$aws_region" --cluster "$observer_cluster" \
+    --family "rat-things-$deployment_id-observer" --desired-status RUNNING --query 'length(taskArns)' --output text)"
+  if [[ "$observer_count" != 0 ]]; then
+    echo 'An AWS validation observer is active. Wait for its result and fixture cleanup before destroying the deployment.' >&2
+    exit 1
+  fi
+fi
+
 ec2_launch_template_id="$(aws_e2e_terraform show -json "$state_file" |
   jq -r '[.. | objects | select(.address? == "module.agent_runner.aws_launch_template.session_worker[0]") | .values.id][0] // empty')"
 

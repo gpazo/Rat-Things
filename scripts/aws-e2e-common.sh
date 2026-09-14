@@ -12,6 +12,8 @@ aws_e2e_source_runtime_defaults() {
     AWS_DEFAULT_REGION
     AWS_E2E_ENABLE_MICROVM
     AWS_E2E_ENABLE_EC2_WORKER
+    AWS_E2E_ENABLE_VALIDATION_OBSERVER
+    AWS_E2E_VALIDATION_OBSERVER_IMAGE
     AWS_E2E_EC2_WORKER_AMI_ID
     AWS_E2E_EC2_WORKER_IMAGE
     AWS_E2E_ENVIRONMENT_RELAY_IMAGE
@@ -123,6 +125,7 @@ aws_e2e_configure() {
     "-var=deployment_id=$deployment_id"
     "-var=enable_microvm=$microvm_enabled"
     "-var=enable_ec2_worker=$ec2_worker_enabled"
+    "-var=enable_validation_observer=${AWS_E2E_ENABLE_VALIDATION_OBSERVER:-false}"
     "-var=codex_model_id=$codex_model_id"
     "-var=integration_oauth_app_secret_arns=$oauth_app_secret_arns"
     "-var=enable_slack_webhook=$slack_webhook_enabled"
@@ -130,6 +133,9 @@ aws_e2e_configure() {
   )
   if [[ "$ec2_worker_enabled" == "true" ]]; then
     tf_vars+=("-var=ec2_worker_ami_id=$ec2_worker_ami_id" "-var=ec2_worker_image=$ec2_worker_image")
+  fi
+  if [[ -n "${AWS_E2E_VALIDATION_OBSERVER_IMAGE:-}" ]]; then
+    tf_vars+=("-var=validation_observer_image=$AWS_E2E_VALIDATION_OBSERVER_IMAGE")
   fi
   if [[ -n "$environment_relay_image" ]]; then
     tf_vars+=("-var=environment_relay_image=$environment_relay_image"

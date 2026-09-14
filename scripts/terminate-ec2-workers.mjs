@@ -6,7 +6,7 @@ export function deploymentWorkers(instances, deployment, launchTemplateId) {
     const tags = Object.fromEntries((instance.Tags ?? []).map(tag => [tag.Key, tag.Value]));
     return instance.InstanceId && instance.State?.Name !== 'terminated'
       && tags.RatDeployment === deployment && tags.RatRunId && tags.RatGeneration
-      && instance.LaunchTemplate?.LaunchTemplateId === launchTemplateId;
+      && tags['aws:ec2launchtemplate:id'] === launchTemplateId;
   });
 }
 

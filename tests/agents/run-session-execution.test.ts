@@ -141,6 +141,36 @@ describe('persistent harness input admission', () => {
     expect(f.start).not.toHaveBeenCalled();
   });
 
+  it('keeps a new Turn queued while the previous harness is terminal and replacement dispatch is pending', async () => {
+    const f = await fixture();
+    f.run.status = 'failed';
+    await f.runtime.publish('alice', f.session.id, f.run.runId, {
+      ...initialSessionRuntime(f.session.id, f.session.agent.id, 'root'),
+      turns: [{ threadId: 'root', nativeTurnId: 'previous-native', turn: { ...f.turn, id: 'previous', status: 'completed' }, items: [] }],
+    });
+    expect(await f.execution.observe('alice', f.session, f.turn)).toEqual({ turn: f.turn, requiredActions: [] });
+    expect(f.submit).not.toHaveBeenCalled();
+    expect(f.start).not.toHaveBeenCalled();
+  });
+
+  it('still fails an acknowledged active Turn when its harness stops', async () => {
+    const f = await fixture();
+    f.run.status = 'failed';
+    await f.runtime.publish('alice', f.session.id, f.run.runId, {
+      ...initialSessionRuntime(f.session.id, f.session.agent.id, 'root'),
+      turns: [{ threadId: 'root', nativeTurnId: 'native', turn: { ...f.turn, status: 'in_progress' }, items: [] }],
+    });
+    expect(await f.execution.observe('alice', f.session, f.turn)).toMatchObject({
+      turn: { id: f.turn.id, status: 'failed', error: { code: 'connection_failed' } }, requiredActions: [],
+    });
+  });
+
+  it('does not attribute the previous harness output to unacknowledged input', async () => {
+    const f = await fixture();
+    expect(await f.execution.items('alice', f.session, f.turn.id)).toEqual([]);
+    expect(f.events).not.toHaveBeenCalled();
+  });
+
   it('addresses steering and cancellation to the requested Turn in a reused worker', async () => {
     const f = await fixture();
     const input = [{ role: 'user' as const, content: [{ type: 'input_text' as const, text: 'Continue' }] }];

@@ -175,7 +175,7 @@ export class SessionService {
       after = page.data.at(-1)?.id;
     } while (after);
     const data = await Promise.all(selected.slice(0, limit).map(({ value }) => this.observe(ownerId, value).then((item) => item.session)));
-    return { object: 'list' as const, data, has_more: selected.length > limit };
+    return { object: 'list' as const, data, has_more: selected.length > limit, first_id: data[0]?.id ?? null, last_id: data.at(-1)?.id ?? null };
   }
 
   public async delete(ownerId: string, id: string): Promise<AgentSessionDeleted> {
@@ -196,18 +196,27 @@ export class SessionService {
   public async events(ownerId: string, id: string, raw: unknown, idempotencyKey?: string, response?: { waitForConnection: boolean; signal?: AbortSignal }): Promise<void> {
     const { events } = parseAgentsContract('SessionEvents', raw);
     if (idempotencyKey !== undefined && (!idempotencyKey || idempotencyKey.length > 256)) invalid('Idempotency-Key must contain 1–256 characters', 'Idempotency-Key');
-    const resource = await this.required(ownerId, id);
     const key = hash(idempotencyKey ?? this.ids.next('request'));
-    const previous = resource.value.receipts[key];
-    if (previous) {
-      if (previous.digest !== hash(canonicalJson(events))) throw new AgentsApiError(409, 'This Idempotency-Key was used with different events.', 'idempotency_conflict');
-      if (response?.waitForConnection) await this.waitForInputConnection(ownerId, id, key, response.signal);
-      return;
+    const digest = hash(canonicalJson(events));
+    for (let attempt = 0; attempt < 10; attempt++) {
+      const resource = await this.required(ownerId, id);
+      const previous = resource.value.receipts[key];
+      if (previous) {
+        if (previous.digest !== digest) throw new AgentsApiError(409, 'This Idempotency-Key was used with different events.', 'idempotency_conflict');
+        break;
+      }
+      const observation = await this.observe(ownerId, resource.value);
+      const items = await this.allItems(ownerId, resource.value);
+      const anchors = Object.fromEntries(resource.value.turns.map(({ turn }) => [turn.id, items.filter((item) => item.turn_id === turn.id).at(-1)?.id ?? null]));
+      const planned = this.plan(resource.value, observation, events, key, anchors);
+      try { await this.replace(resource, planned); break; }
+      catch (error) {
+        // Background dispatch/history writes share this revision. Re-read and
+        // replan only a rejected CAS; ambiguous writes retain the same receipt
+        // for a caller retry, and a deletion must remain a 404.
+        if (!(error instanceof AgentsApiError) || error.status !== 409 || error.code !== 'conflict' || attempt === 9) throw error;
+      }
     }
-    const observation = await this.observe(ownerId, resource.value);
-    const items = await this.allItems(ownerId, resource.value);
-    const anchors = Object.fromEntries(resource.value.turns.map(({ turn }) => [turn.id, items.filter((item) => item.turn_id === turn.id).at(-1)?.id ?? null]));
-    await this.replace(resource, this.plan(resource.value, observation, events, key, anchors));
     if (response?.waitForConnection) await this.waitForInputConnection(ownerId, id, key, response.signal);
   }
 

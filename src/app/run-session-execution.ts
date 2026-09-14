@@ -176,7 +176,10 @@ export class RunSessionExecution implements SessionExecution {
     const run = await this.run(ownerId, session.id, turn.id);
     if (saved && run && !isTerminal(run.status)) return { turn: saved.turn, requiredActions: (runtime?.value.snapshot?.requiredActions ?? []).filter((action) => action.type === 'function_call' && action.turn_id === turn.id) };
     if (saved && runtime?.value.snapshot) return { turn: stoppedSessionRuntime(runtime.value.snapshot, Math.floor(Date.now() / 1000)).turns.find((binding) => binding.turn.id === turn.id)!.turn, requiredActions: [] };
-    if (run?.agentsSession?.turnId !== turn.id && run) return { turn: !isTerminal(run.status) ? turn : { ...turn, status: 'failed', completed_at: Math.floor(Date.now() / 1000), error: { code: 'connection_failed', message: 'The session harness stopped before this turn started.' } }, requiredActions: [] };
+    // Until native acknowledgement or a dedicated launch binds this Turn, the
+    // runtime may still point at the previous harness. Its terminal status is
+    // not evidence that newly queued input failed before replacement dispatch.
+    if (run?.agentsSession?.turnId !== turn.id && run) return { turn, requiredActions: [] };
     if (!run) {
       const environment = await this.environment(ownerId, session);
       return { turn, requiredActions: environment && environment.status !== 'connected' ? [{ type: 'environment_connection', environment_id: environment.id }] : [] };
@@ -192,7 +195,7 @@ export class RunSessionExecution implements SessionExecution {
     const saved = runtime?.value.snapshot?.turns.find((binding) => binding.turn.id === turnId);
     if (saved) return saved.items;
     const run = await this.run(ownerId, session.id, turnId);
-    if (!run) return [];
+    if (!run || run.agentsSession?.turnId !== turnId) return [];
     if (run.result?.events) {
       const bytes = await this.options.artifacts.getBytes(run.result.events);
       if (hash(bytes) !== run.result.events.sha256) throw new Error('Saved session events checksum mismatch');

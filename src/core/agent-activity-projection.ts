@@ -1,8 +1,4 @@
-import type {
-  AgentRuntimeEventRecord,
-  AgentRuntimeSnapshot,
-  PendingAgentRequest,
-} from '../domain/interaction.js';
+import type { AgentRuntimeEventRecord } from '../domain/interaction.js';
 
 export type PublicAgentActivityKind =
   | 'agent'
@@ -36,53 +32,7 @@ export interface PublicAgentActivity {
   detail?: string;
 }
 
-export interface PublicPendingAgentRequest {
-  requestId: string;
-  kind: 'input' | 'authentication' | 'tool' | 'other';
-  title: string;
-  detail?: string;
-  receivedAt: string;
-  questions?: PublicAgentQuestion[];
-}
-
-export interface PublicAgentQuestion {
-  id: string;
-  header?: string;
-  question: string;
-  isOther: boolean;
-  isSecret: boolean;
-  options?: Array<{ label: string; description?: string }>;
-}
-
-export interface PublicAgentRuntimeSnapshot {
-  runId: string;
-  active: boolean;
-  ready: boolean;
-  oldestSequence: number;
-  nextSequence: number;
-  events: PublicAgentActivity[];
-  pendingRequests: PublicPendingAgentRequest[];
-}
-
-/**
- * Converts provider/App Server protocol traffic into a stable product contract.
- * Only completed, bounded assistant commentary is copied as owner-visible progress.
- * Raw methods, parameters, prompts, commands, results, and native thread IDs stay private.
- */
-export function projectPublicAgentRuntime(
-  snapshot: AgentRuntimeSnapshot,
-): PublicAgentRuntimeSnapshot {
-  return {
-    runId: snapshot.runId,
-    active: snapshot.active,
-    ready: snapshot.ready,
-    oldestSequence: snapshot.oldestSequence,
-    nextSequence: snapshot.nextSequence,
-    events: snapshot.events.map(projectPublicAgentEvent),
-    pendingRequests: snapshot.pendingRequests.map(projectPendingRequest),
-  };
-}
-
+/** Projects bounded saved diagnostics without exposing raw protocol values. */
 export function projectPublicAgentEvent(event: AgentRuntimeEventRecord): PublicAgentActivity {
   const base = { sequence: event.sequence, occurredAt: event.occurredAt };
   if (event.method === 'turn/started') {
@@ -259,68 +209,6 @@ function projectItem(
     default:
       return { ...base, kind: 'activity', status, title: 'Agent activity' };
   }
-}
-
-function projectPendingRequest(request: PendingAgentRequest): PublicPendingAgentRequest {
-  if (request.method.includes('requestUserInput') || request.method.includes('elicitation')) {
-    const questions = projectQuestions(request.params.questions);
-    return {
-      requestId: request.requestId,
-      kind: 'input',
-      title: 'Agent needs input',
-      receivedAt: request.receivedAt,
-      ...(questions.length ? { questions } : {}),
-    };
-  }
-  if (request.method.toLowerCase().includes('oauth') || request.method.includes('authentication')) {
-    return {
-      requestId: request.requestId,
-      kind: 'authentication',
-      title: 'Authentication required',
-      receivedAt: request.receivedAt,
-    };
-  }
-  if (request.method.includes('tool')) {
-    return {
-      requestId: request.requestId,
-      kind: 'tool',
-      title: 'Tool needs input',
-      receivedAt: request.receivedAt,
-    };
-  }
-  return {
-    requestId: request.requestId,
-    kind: 'other',
-    title: 'Agent needs input',
-    receivedAt: request.receivedAt,
-  };
-}
-
-function projectQuestions(value: unknown): PublicAgentQuestion[] {
-  if (!Array.isArray(value)) return [];
-  return value.slice(0, 3).flatMap((candidate) => {
-    const input = record(candidate);
-    const id = boundedCopy(input?.id, 128);
-    const question = boundedCopy(input?.question, 2_000);
-    if (!id || !question) return [];
-    const rawOptions = Array.isArray(input?.options) ? input.options : [];
-    const options = rawOptions.slice(0, 12).flatMap((option) => {
-      const projected = record(option);
-      const label = boundedCopy(projected?.label, 256);
-      if (!label) return [];
-      const description = boundedCopy(projected?.description, 1_000);
-      return [{ label, ...(description ? { description } : {}) }];
-    });
-    const header = boundedCopy(input?.header, 256);
-    return [{
-      id,
-      ...(header ? { header } : {}),
-      question,
-      isOther: input?.isOther === true,
-      isSecret: input?.isSecret === true,
-      ...(options.length ? { options } : {}),
-    }];
-  });
 }
 
 function toolActivity(

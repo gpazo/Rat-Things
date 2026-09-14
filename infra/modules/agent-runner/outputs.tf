@@ -198,3 +198,13 @@ output "environment_relay_url" {
 output "environment_relay_origin_dns_name" {
   value = local.environment_relay_enabled ? aws_lb.environment_relay[0].dns_name : null
 }
+
+output "agents_observer_network" {
+  description = "Network coordinates for an operator-owned API validation client."
+  value = local.environment_relay_enabled ? {
+    cluster_arn               = aws_ecs_cluster.environment_relay[0].arn
+    vpc_id                    = aws_vpc.environment_relay[0].id
+    subnet_ids                = aws_subnet.environment_relay[*].id
+    token_issuer_function_arn = aws_lambda_function.this["agents-api"].arn
+  } : null
+}

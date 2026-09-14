@@ -51,6 +51,78 @@ function fixture() {
 }
 
 describe('Agents API session lifecycle through the OpenAI SDK', () => {
+  it('replans input when terminal-history materialization wins the Session write', async () => {
+    const f = fixture();
+    const session = await f.api.sessions.create({ agent: { model: 'test' }, environment: { type: 'none' }, input: 'First' });
+    await f.sessions.dispatch('alice', session.id);
+    const first = (await f.api.sessions.turns.list(session.id)).data[0]!;
+    f.observations.set(first.id, { turn: { ...first, status: 'completed', completed_at: 110 }, requiredActions: [] });
+    const put = f.store.put.bind(f.store);
+    let interleave = true;
+    vi.spyOn(f.store, 'put').mockImplementation(async (resource, revision) => {
+      if (resource.collection === 'sessions' && interleave) {
+        interleave = false;
+        await f.sessions.completeTurn('alice', session.id, first.id);
+      }
+      return put(resource, revision);
+    });
+    const request = { events: [{ type: 'agent.session.input.message' as const, input: [{ role: 'user' as const, content: [{ type: 'input_text' as const, text: 'Second' }] }] }], 'Idempotency-Key': 'next' };
+    await f.api.sessions.events.create(session.id, request);
+    await f.api.sessions.events.create(session.id, request);
+    await f.sessions.dispatch('alice', session.id);
+    const turns = (await f.api.sessions.turns.list(session.id, { order: 'asc' })).data;
+    expect(turns).toHaveLength(2);
+    expect(turns.find(turn => turn.id === first.id)?.status).toBe('completed');
+    expect(f.calls.filter(call => call.type === 'start')).toHaveLength(2);
+    const state = (await f.store.get<import('../../src/core/session-ports.js').SessionState>('alice', 'sessions', session.id))!.value;
+    expect(state.turns.find(binding => binding.turn.id === first.id)).toMatchObject({ savedItems: [], savedArtifacts: [] });
+    expect(state.turns.flatMap(binding => binding.input).filter(message => JSON.stringify(message.content).includes('Second'))).toHaveLength(1);
+  });
+
+  it('recognizes a concurrently committed receipt without adding the same input twice', async () => {
+    const f = fixture();
+    const session = await f.api.sessions.create({ agent: { model: 'test' }, environment: { type: 'none' }, input: 'First' });
+    const request = { events: [{ type: 'agent.session.input.message' as const, input: [{ role: 'user' as const, content: [{ type: 'input_text' as const, text: 'Once' }] }] }], 'Idempotency-Key': 'same' };
+    const put = f.store.put.bind(f.store);
+    let interleave = true;
+    vi.spyOn(f.store, 'put').mockImplementation(async (resource, revision) => {
+      if (resource.collection === 'sessions' && interleave) {
+        interleave = false;
+        await f.api.sessions.events.create(session.id, request);
+      }
+      return put(resource, revision);
+    });
+    await f.api.sessions.events.create(session.id, request);
+    expect((await f.api.sessions.items.list(session.id)).data.filter(item => JSON.stringify(item).includes('Once'))).toHaveLength(1);
+  });
+
+  it('does not revive a deleted Session while retrying conflicting input', async () => {
+    const f = fixture();
+    const session = await f.api.sessions.create({ agent: { model: 'test' }, environment: { type: 'none' }, input: 'First' });
+    const put = f.store.put.bind(f.store);
+    let interleave = true;
+    vi.spyOn(f.store, 'put').mockImplementation(async (resource, revision) => {
+      if (resource.collection === 'sessions' && interleave) { interleave = false; await f.api.sessions.delete(session.id); }
+      return put(resource, revision);
+    });
+    await expect(f.api.sessions.events.create(session.id, { events: [{ type: 'agent.session.input.cancel' }] })).rejects.toMatchObject({ status: 404 });
+    expect(await f.store.get('alice', 'sessions', session.id)).toBeUndefined();
+  });
+
+  it('does not repeat an ambiguous input write before the caller retries its receipt', async () => {
+    const f = fixture();
+    const session = await f.api.sessions.create({ agent: { model: 'test' }, environment: { type: 'none' }, input: 'First' });
+    const put = f.store.put.bind(f.store);
+    const write = vi.spyOn(f.store, 'put').mockImplementationOnce(async (resource, revision) => {
+      await put(resource, revision); throw new Error('Commit acknowledgement lost');
+    });
+    const request = { events: [{ type: 'agent.session.input.message' as const, input: [{ role: 'user' as const, content: [{ type: 'input_text' as const, text: 'Once' }] }] }], 'Idempotency-Key': 'ambiguous' };
+    await expect(f.api.sessions.events.create(session.id, request)).rejects.toMatchObject({ status: 500 });
+    expect(write).toHaveBeenCalledTimes(1);
+    await f.api.sessions.events.create(session.id, request);
+    expect(write).toHaveBeenCalledTimes(1);
+  });
+
   it('clears saved MCP tools before preparing credentials when a session overrides tools with null', async () => {
     const f = fixture();
     const preparedHeaders: Record<string, string>[] = [];

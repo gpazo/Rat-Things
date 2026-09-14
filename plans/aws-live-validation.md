@@ -3,11 +3,13 @@
 Historical acceptance: live API, managed worker, console, webhook, five-minute
 transport and maximum file transfer cases passed on the candidate below. Later
 rollouts are recorded in [`agents-api-audit-2026-09-13.md`](agents-api-audit-2026-09-13.md).
-The eight-hour-five-minute soak result is unverified. A consistent storage read
-found its Session under another API owner, with one completed Turn; the current
-API principal therefore receives 404. The original `.aws-e2e` directory and
-Terraform state are on the other machine. Recover the result there before claiming
-continuity or repeating teardown.
+The original soak failed its second SSE completion assertion, and cleanup stopped
+before Terraform on an AWS signature-expiry error. The state-owning ARM64 machine
+recovered both completed Turns and hash-verified artifacts proving the same process
+survived 29,395 seconds. The Session is deleted and its runtime closed. This is
+process-continuity evidence, not a complete soak pass. State reconciliation,
+current images and follow-up results are in
+[`aws-live-resume-2026-09-14.md`](aws-live-resume-2026-09-14.md).
 
 - Deployment: `ag260913a`, account `731841023867`, region `us-west-2`.
 - Endpoint: `https://agents-ag260913a.dev.indubitably.ai/v1`.

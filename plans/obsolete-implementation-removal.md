@@ -84,11 +84,18 @@ explicit deployment cutover; they are not automatically interpreted as Agents.
 
 ## Next cycle: execution order and acceptance
 
+The [parallel caller audit](obsolete-caller-audit-2026-09-14.md) removes the
+unreferenced catalog publication/restore and live activity snapshot branches.
+It records retained consumers and specific integration administration IAM
+candidates; infrastructure edits and deployment cutover remain pending.
+
 Execute these remaining tasks in order; the detailed sections below also record
 completed removals so they are not recreated:
 
-1. Run the prepared isolated AWS API/managed Session/transport/console cases and
-   add canonical provider, schedule, recovery, credential and webhook failure cases.
+1. Extend the passing isolated AWS API/managed Session/transport/console cases with
+   canonical provider, schedule, recovery, credential and webhook failure cases.
+   Use the [resumed validation report](aws-live-resume-2026-09-14.md) for exact
+   evidence and remaining recovery/soak gaps; do not repeat completed setup work.
 2. Audit private activity/artifact helpers and integration administration grants
    against actual callers; remove only code and grants with no retained consumer.
 3. Complete the deployment cutover inventory for old queues, source bindings and
@@ -115,7 +122,10 @@ canary does not establish its replacement's live coverage.
 
 Port these scenarios to canonical Sessions before claiming deployment parity:
 
-- Managed environment command execution and saved artifact capture now have a prepared canary, including idempotency, SSE, guest boundaries and same-process continuation; execute it on AWS. Explicit CloudFront publication still needs a canonical live case.
+- Managed command execution, artifacts, idempotency, SSE, guest boundaries and
+  same-process continuation pass on AWS. Explicit CloudFront publication still
+  needs a canonical live case. Recovered eight-hour process evidence does not
+  close the original failed long-stream assertion.
 - Signed GitHub/GitLab/Slack/Teams bindings, occurrence replay, per-sender continuity
   and terminal Turn delivery, including missing or rejected credentials.
 - Scheduler occurrence deduplication, overlap and outbox repair in deployed AWS.

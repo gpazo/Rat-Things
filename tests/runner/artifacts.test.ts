@@ -1,203 +1,44 @@
-import { createHash } from 'node:crypto';
-import {
-  mkdir,
-  link,
-  mkdtemp,
-  readFile,
-  rm,
-  symlink,
-  writeFile,
-} from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { describe, expect, it } from 'vitest';
-import { MemoryArtifacts } from './artifact-fixtures.js';
-import {
-  assertArtifactCatalogScope,
-  emptyArtifactCatalog,
-  publishArtifactCatalog,
-  restoreArtifactCatalog,
-} from '../../src/runner/artifacts.js';
+import { afterEach, describe, expect, it } from 'vitest';
+import { localArtifactPaths, prepareArtifactDirectory } from '../../src/runner/artifacts.js';
 
-describe('agent artifact catalog', () => {
-  it('publishes, reuses, restores, and deletes durable files by relative path', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'rat-artifacts-'));
-    const replacement = await mkdtemp(join(tmpdir(), 'rat-artifacts-replacement-'));
-    const store = new MemoryArtifacts();
-    const png = Buffer.concat([
-      Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]),
-      Buffer.from('test-image'),
-    ]);
-    try {
-      await restoreArtifactCatalog(root, emptyArtifactCatalog(), store);
-      await mkdir(join(root, '.rat-things/artifacts/screens'), { recursive: true });
-      await writeFile(join(root, '.rat-things/artifacts/screens/home.png'), png);
+const workspaces: string[] = [];
+afterEach(async () => {
+  await Promise.all(workspaces.splice(0).map((workspace) => rm(workspace, { recursive: true, force: true })));
+});
 
-      const first = await publishArtifactCatalog({
-        workspace: root,
-        previous: emptyArtifactCatalog(),
-        artifacts: store,
-        ownerId: 'owner-1',
-        runId: 'run-1',
-        createdAt: '2026-08-14T12:00:00.000Z',
-      });
-      expect(first).toEqual([
-        expect.objectContaining({
-          id: expect.stringMatching(/^[a-f0-9]{24}$/),
-          path: 'screens/home.png',
-          mediaType: 'image/png',
-          bytes: png.length,
-          sourceRunId: 'run-1',
-        }),
-      ]);
-      expect(first[0]?.file.key).toMatch(/^owners\/[a-f0-9]{32}\/blobs\/sha256\/[a-f0-9]{64}$/);
-      expect(store.puts).toHaveLength(1);
+async function workspace(): Promise<string> {
+  const path = await mkdtemp(join(tmpdir(), 'rat-local-artifacts-'));
+  workspaces.push(path);
+  return path;
+}
 
-      const unchanged = await publishArtifactCatalog({
-        workspace: root,
-        previous: { version: '1', files: first },
-        artifacts: store,
-        ownerId: 'owner-1',
-        runId: 'run-2',
-      });
-      expect(unchanged).toEqual([
-        expect.objectContaining({
-          path: 'screens/home.png',
-          sourceRunId: 'run-1',
-          file: expect.objectContaining({ key: first[0]?.file.key }),
-        }),
-      ]);
-      expect(store.puts).toHaveLength(1);
-      expect(store.copies).toEqual([first[0]?.file.key]);
-      expect(() => assertArtifactCatalogScope(
-        { version: '1', files: unchanged },
-        'artifacts',
-        'owner-1',
-      )).not.toThrow();
-
-      await restoreArtifactCatalog(replacement, { version: '1', files: unchanged }, store);
-      expect(await readFile(
-        join(replacement, '.rat-things/artifacts/screens/home.png'),
-      )).toEqual(png);
-
-      await rm(join(replacement, '.rat-things/artifacts/screens/home.png'));
-      await expect(publishArtifactCatalog({
-        workspace: replacement,
-        previous: { version: '1', files: first },
-        artifacts: store,
-        ownerId: 'owner-1',
-        runId: 'run-3',
-      })).resolves.toEqual([]);
-    } finally {
-      await rm(root, { recursive: true, force: true });
-      await rm(replacement, { recursive: true, force: true });
-    }
+describe('local artifact discovery', () => {
+  it('creates the local output directory and preserves existing nested output', async () => {
+    const root = await workspace();
+    await expect(localArtifactPaths(root)).resolves.toEqual([]);
+    const directory = await prepareArtifactDirectory(root);
+    await mkdir(join(directory, 'screens'));
+    await writeFile(join(directory, 'screens/home.png'), 'image');
+    await writeFile(join(directory, 'answer.txt'), 'answer');
+    await expect(localArtifactPaths(root)).resolves.toEqual(['answer.txt', 'screens/home.png']);
+    await expect(localArtifactPaths(root)).resolves.toEqual(['answer.txt', 'screens/home.png']);
   });
 
-  it('rejects symbolic links instead of reading outside the artifact directory', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'rat-artifact-link-'));
-    const outside = join(root, 'outside.txt');
-    const store = new MemoryArtifacts();
-    try {
-      await restoreArtifactCatalog(root, emptyArtifactCatalog(), store);
-      await writeFile(outside, 'secret');
-      await symlink(outside, join(root, '.rat-things/artifacts/leak.txt'));
-      await expect(publishArtifactCatalog({
-        workspace: root,
-        previous: emptyArtifactCatalog(),
-        artifacts: store,
-        ownerId: 'owner-1',
-        runId: 'run-1',
-      })).rejects.toThrow('cannot be a symbolic link');
-    } finally {
-      await rm(root, { recursive: true, force: true });
-    }
+  it('rejects symbolic links instead of following output outside its directory', async () => {
+    const root = await workspace();
+    const directory = await prepareArtifactDirectory(root);
+    await writeFile(join(root, 'outside.txt'), 'private');
+    await symlink(join(root, 'outside.txt'), join(directory, 'leak.txt'));
+    await expect(localArtifactPaths(root)).rejects.toThrow('cannot be a symbolic link');
   });
 
-  it('rejects hard links instead of treating aliased bytes as an artifact', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'rat-artifact-hard-link-'));
-    const outside = join(root, 'outside.txt');
-    const store = new MemoryArtifacts();
-    try {
-      await restoreArtifactCatalog(root, emptyArtifactCatalog(), store);
-      await writeFile(outside, 'secret');
-      await link(outside, join(root, '.rat-things/artifacts/leak.txt'));
-      await expect(publishArtifactCatalog({
-        workspace: root,
-        previous: emptyArtifactCatalog(),
-        artifacts: store,
-        ownerId: 'owner-1',
-        runId: 'run-1',
-      })).rejects.toThrow('cannot be a hard link');
-    } finally {
-      await rm(root, { recursive: true, force: true });
-    }
-  });
-
-  it('rejects catalog objects from another owner scope', () => {
-    expect(() => assertArtifactCatalogScope({
-      version: '1',
-      files: [{
-        id: createHash('sha256').update('file.txt').digest('hex').slice(0, 24),
-        path: 'file.txt',
-        mediaType: 'text/plain; charset=utf-8',
-        bytes: 4,
-        createdAt: '2026-08-14T12:00:00.000Z',
-        sourceRunId: 'run-1',
-        file: {
-          bucket: 'artifacts',
-          key: 'owners/not-the-owner/runs/run-1/artifacts/file.txt',
-          sha256: 'a'.repeat(64),
-        },
-      }],
-    }, 'artifacts', 'owner-1')).toThrow('outside its owner scope');
-  });
-
-  it('accepts content-addressed upload blobs in the authenticated owner scope', () => {
-    const ownerId = 'owner-1';
-    const digest = 'a'.repeat(64);
-    expect(() => assertArtifactCatalogScope({
-      version: '1',
-      files: [{
-        id: createHash('sha256').update('uploads/message/file.txt').digest('hex').slice(0, 24),
-        path: 'uploads/message/file.txt',
-        mediaType: 'text/plain',
-        bytes: 4,
-        createdAt: '2026-08-25T12:00:00.000Z',
-        sourceRunId: 'run-upload',
-        file: {
-          bucket: 'artifacts',
-          key: `owners/${createHash('sha256').update(ownerId).digest('hex').slice(0, 32)}/blobs/sha256/${digest}`,
-          sha256: digest,
-        },
-      }],
-    }, 'artifacts', ownerId)).not.toThrow();
-  });
-
-  it('preserves browser media types for common site and audio assets', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'rat-artifact-site-types-'));
-    const store = new MemoryArtifacts();
-    try {
-      await restoreArtifactCatalog(root, emptyArtifactCatalog(), store);
-      const directory = join(root, '.rat-things/artifacts/site');
-      await mkdir(directory, { recursive: true });
-      await writeFile(join(directory, 'module.wasm'), Buffer.from([0, 97, 115, 109]));
-      await writeFile(join(directory, 'font.woff2'), Buffer.from('wOF2font'));
-      await writeFile(join(directory, 'sound.mp3'), Buffer.from('ID3audio'));
-      const published = await publishArtifactCatalog({
-        workspace: root,
-        previous: emptyArtifactCatalog(),
-        artifacts: store,
-        ownerId: 'owner-1',
-        runId: 'run-1',
-      });
-      expect(Object.fromEntries(published.map((file) => [file.path, file.mediaType]))).toEqual({
-        'site/font.woff2': 'font/woff2',
-        'site/module.wasm': 'application/wasm',
-        'site/sound.mp3': 'audio/mpeg',
-      });
-    } finally {
-      await rm(root, { recursive: true, force: true });
-    }
+  it('rejects invalid local output paths before exposing them', async () => {
+    const root = await workspace();
+    const directory = await prepareArtifactDirectory(root);
+    await writeFile(join(directory, 'invalid\nname'), 'output');
+    await expect(localArtifactPaths(root)).rejects.toThrow('invalid artifact path');
   });
 });

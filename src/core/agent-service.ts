@@ -52,7 +52,8 @@ export class AgentService {
       invalid('limit must be a positive integer', 'limit');
     }
     const page = await this.options.store.list<Agent>(ownerId, 'agents', query);
-    return { object: 'list' as const, data: page.data.map((resource) => resource.value), has_more: page.has_more };
+    const data = page.data.map((resource) => resource.value);
+    return { object: 'list' as const, data, has_more: page.has_more, first_id: data[0]?.id ?? null, last_id: data.at(-1)?.id ?? null };
   }
 
   public async delete(ownerId: string, id: string): Promise<AgentDeleted> {

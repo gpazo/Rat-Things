@@ -15,10 +15,29 @@ generated types cannot prove. "Local coverage" means implementation and targeted
 checks exist, not that every edge case or a live deployment is verified.
 
 The [current compatibility audit](agents-api-audit-2026-09-13.md) records the
-working tree's unresolved checks and runtime availability. Earlier native-image
+working tree's unresolved checks and runtime availability. The
+[state-owning machine's resumed cycle](aws-live-resume-2026-09-14.md) records
+subsequent native acceptance, state reconciliation and live fixes. Earlier native-image
 and deployment results below describe their original candidates; they do not
 certify subsequent changes. Lambda MicroVMs remain a supported backend alongside
 EC2, with S3 Files retained for Session state.
+
+The resumed AWS cycle passes managed continuation, cancellation during a function
+wait, SSE reconnect-before-read, hosted-expiry rejection with retained artifacts,
+8 MiB Files, the full five-minute disconnected-input deadline, webhook capture
+and the console. Conditional-write contention on input was fixed and retested live.
+Harness-only recovery exposed premature attribution of an old Run's failure to
+new queued input. After correction, AWS replacement execution passes with a new
+worker/Run, retained conversation marker and streamed completion. These cases
+narrow the rows below; they do not close the whole ledger. The subsequent
+[AWS-hosted soak](aws-live-observer-2026-09-14.md) avoids the workstation sleep
+recorded during the original run; it remains in progress until its final proof
+and cleanup are checked.
+
+The subsequent [parallel local review](agents-api-parallel-review-2026-09-14.md)
+corrects Unicode character limits, aligns Agent/Session list examples and removes
+caller-audited obsolete branches while the cloud soak remains on its pinned
+images. Those local changes have not been deployed or certified by that soak.
 
 ## Contract and evidence map
 
@@ -91,7 +110,9 @@ production data, unrelated resources and model credentials remain outside cleanu
   coverage across nine simulated hours. The live canary preserves a background
   process across Turns and offers an eight-hour-plus soak. Host bootstrap, IAM,
   mounts, guest isolation, short process continuity and shutdown passed in AWS.
-  The eight-hour-plus case and replacement-worker recovery remain open. EC2
+  Recovered artifacts prove the same process survived 29,395 seconds, but the
+  original second-Turn SSE assertion failed. A complete soak pass and broader
+  replacement-worker recovery remain open. EC2
   workers refresh scoped Bedrock bearer tokens through native command auth.
 - **Recovery:** native checkpoints remain preferred. Public-item fallback now
   retains all supplied Item variants, pairs completed functions within their Turn,
@@ -99,8 +120,9 @@ production data, unrelated resources and model credentials remain outside cleanu
   calls plus command/MCP/coordination records as labeled historical data. The stock
   harness fixture receives these facts without replaying tools or reopening children.
   This fallback does not recreate live processes, hidden native context or child
-  runtime state; deployed checkpoint-loss and replacement behavior remain acceptance
-  work.
+  runtime state. Harness-only replacement now passes live with saved context and
+  streamed completion; deliberately lost native checkpoints and replacement-compute
+  workspace restoration remain acceptance work.
 - **Container verification:** LocalStack 4.14.0 passed all four canonical workflow
   tests including provisioning and cleanup. The final ARM64 worker passed trusted
   runner/guest environment isolation, lifecycle-port denial with external port 8080

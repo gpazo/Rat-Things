@@ -5,6 +5,15 @@ compatibility audit, credential cleanup and preparation fencing, relay TLS repai
 Session closure/cancellation fixes, and retryable native pre-admission handling.
 The full behavior ledger remains open in
 [`plans/agents-api-conformance.md`](../../../plans/agents-api-conformance.md).
+The state-owning ARM64 machine has resumed this handoff. Consult
+[`the resumed validation report`](../../../plans/aws-live-resume-2026-09-14.md)
+for current images, reconciled state and actual results before repeating phases.
+The [observer continuation](../../../plans/aws-live-observer-2026-09-14.md)
+records any active cloud-hosted soak. Check it before restarting API services.
+The September 14 17:17 UTC heartbeat observed the Agents outbox and all seven
+checked failure queues empty. The original observer remains active; its final
+proof and cleanup are pending. Local contract/cleanup edits made during the soak
+remain undeployed, as recorded in the observer continuation.
 
 ## Resume on the machine with state and ARM64 support
 
@@ -28,6 +37,8 @@ The full behavior ledger remains open in
    saved inputs, incorporating the image input in
    [`ag260913a-image.json`](ag260913a-image.json). Read the rollback constraints in
    [`README.md`](README.md). Do not recreate empty state for the existing resources.
+   This harness uses an explicit local state path: include `-state="$state_file"`
+   in both plan and saved-plan apply commands.
 5. After native acceptance and state reconciliation, deploy the remaining local
    lifecycle fixes and verify cancellation/admission, deletion, reconnect and
    recovery against the deployed services. Preserve Lambda MicroVM and S3 Files
@@ -36,19 +47,23 @@ The full behavior ledger remains open in
 
 ## Deployed versus local changes
 
-The previously verified `ag260913a` HTTP and relay services use the immutable
-image in `ag260913a-image.json`. Preparation cleanup and the expanded stream filter
-were also deployed. The later Session closure/cancellation and native admission
-changes are local source changes awaiting deployment. Newly packaged `dist/`
-archives must not be mistaken for the currently deployed Lambda code.
+The `ag260913a` HTTP/relay services and dedicated workers use the immutable
+inputs in `ag260913a-image.json`. Preparation cleanup, the expanded stream filter,
+Session closure/cancellation and native admission changes have been deployed
+through the original Terraform state. The resumed cycle also fixes conflicting
+input writes and attribution of a stopped harness to newly queued input. Newly
+packaged `dist/` archives must not be mistaken for deployed
+Lambda code; compare their hashes and the actual task image digests.
 
-The existing long-lived Session soak must be inspected under its original owner:
+The original long-lived Session soak ran under its original owner:
 `sess_a3cf9b41996b45898cf3536ccc9729c6`. Its first Turn was
-`turn_b966e063c74e449dbda9bf00b2e3e79c`. A previous read using this machine's API
-principal returned 404, but a consistent storage read found the Session under a
-different owner. That is not evidence that the soak was deleted or completed.
-Recover the original wrapper and final logs before starting a replacement soak.
-Checkpoint loss and replacement-worker recovery still need live proof.
+`turn_b966e063c74e449dbda9bf00b2e3e79c`. Its final logs are now recovered: the
+second SSE completion assertion failed, and teardown stopped before Terraform
+on an AWS signature-expiry error. Both Turns completed, the Session was deleted,
+and hash-verified artifacts establish the same process survived 29,395 seconds.
+That evidence does not turn the failed stream assertion into a passing soak.
+Checkpoint loss, replacement compute and harness recovery are separate cases;
+use the resumed report rather than inferring their result from a completed Turn.
 
 The detailed audit at
 [`plans/agents-api-audit-2026-09-13.md`](../../../plans/agents-api-audit-2026-09-13.md)

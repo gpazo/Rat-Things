@@ -23,8 +23,8 @@ export function resolveAgentConfiguration(
 ): Agent {
   const model = input.model ?? previous?.model;
   if (!model?.trim()) invalid('model is required', 'model');
-  if (model.length > 1_048_576) invalid('model is too long', 'model');
-  if (input.instructions && input.instructions.length > 1_048_576) invalid('instructions is too long', 'instructions');
+  if (exceedsCharacterLimit(model, 1_048_576)) invalid('model is too long', 'model');
+  if (input.instructions && exceedsCharacterLimit(input.instructions, 1_048_576)) invalid('instructions is too long', 'instructions');
   if (input.name && [...input.name].length > 128) invalid('name is too long', 'name');
   validateAgentMetadata(input.metadata);
   if (input.multi_agent?.max_concurrent_subagents !== undefined &&
@@ -59,6 +59,16 @@ export function resolveAgentConfiguration(
     service_tier: field(input.service_tier, previous?.service_tier, defaults.service_tier),
     tools,
   };
+}
+
+/** JSON Schema string limits count Unicode code points, not UTF-16 units. */
+function exceedsCharacterLimit(value: string, maximum: number): boolean {
+  if (value.length <= maximum) return false;
+  let characters = 0;
+  for (const _character of value) {
+    if (++characters > maximum) return true;
+  }
+  return false;
 }
 
 /** Resolve known defaults from the same pinned model catalogue as the harness. */

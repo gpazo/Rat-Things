@@ -1,13 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import { deploymentWorkers, terminateDeploymentWorkers } from '../../scripts/terminate-ec2-workers.mjs';
 
-const worker = (id: string, state = 'running') => ({ InstanceId: id, State: { Name: state }, LaunchTemplate: { LaunchTemplateId: 'lt-proof' },
-  Tags: [{ Key: 'RatDeployment', Value: 'proof' }, { Key: 'RatRunId', Value: 'run-1' }, { Key: 'RatGeneration', Value: 'generation-1' }] });
+const worker = (id: string, state = 'running') => ({ InstanceId: id, State: { Name: state },
+  Tags: [{ Key: 'RatDeployment', Value: 'proof' }, { Key: 'RatRunId', Value: 'run-1' }, { Key: 'RatGeneration', Value: 'generation-1' },
+    { Key: 'aws:ec2launchtemplate:id', Value: 'lt-proof' }] });
 
 describe('disposable EC2 worker cleanup', () => {
   it('selects only exact deployment/template workers with complete execution identity', () => {
     expect(deploymentWorkers([worker('owned'), worker('gone', 'terminated'),
-      { ...worker('wrong-template'), LaunchTemplate: { LaunchTemplateId: 'lt-production' } },
+      { ...worker('wrong-template'), Tags: worker('x').Tags.map(tag => tag.Key === 'aws:ec2launchtemplate:id' ? { ...tag, Value: 'lt-production' } : tag) },
+      { ...worker('missing-template'), Tags: worker('x').Tags.slice(0, 3), LaunchTemplate: { LaunchTemplateId: 'lt-proof' } },
       { ...worker('unrelated'), Tags: [] }, { ...worker('incomplete'), Tags: worker('x').Tags.slice(0, 1) },
     ], 'proof', 'lt-proof').map((value: { InstanceId: string }) => value.InstanceId)).toEqual(['owned']);
   });

@@ -29,6 +29,18 @@ requires IMDS and host-configuration access to be denied. Optional
 second Turn; this requires `AWS_E2E_ENABLE_EC2_WORKER=true`. The ordinary invocation
 does not wait eight hours.
 
+`tests/aws/session-recovery.test.ts` cancels a native Turn waiting for a function
+result, reconnects the event stream before reading saved state, and checks that
+a follow-up Turn completes. Its worker-loss case requires the additional
+`AWS_E2E_WORKER_RECOVERY=true` and `AWS_E2E_RECOVERY_LAUNCH_TEMPLATE_ID` inputs.
+It verifies the deployment account, Run, generation and immutable launch-template
+tag before terminating the exact EC2 instance created by that fixture. It then
+waits for reconciliation. With no execution environment, a replacement harness
+must retain context. With a hosted environment, expiry is terminal and saved
+artifacts must remain readable. This does not prove native checkpoint-loss
+recovery or workspace restoration onto replacement compute. The cases delete
+their own Sessions and Agents; they preserve the deployment for further testing.
+
 Build and verify the patched Linux ARM64 artifact before packaging (see
 `testing/README.md`). EC2 deployment additionally requires an immutable
 `AWS_E2E_EC2_WORKER_AMI_ID` and digest-pinned `AWS_E2E_EC2_WORKER_IMAGE`.
@@ -64,6 +76,43 @@ checks delivery through `DELIVERY_CAPTURE_QUEUE_URL`, and removes its resources.
 Use the deployment-owned capture endpoint; no real provider account is needed.
 
 ## Manual phases
+
+### Run a soak observer in AWS
+
+For long tests, use a one-off ARM64 Fargate client so workstation sleep cannot
+interrupt the observation. This client is separate from the isolated EC2 Session
+worker. It has no inbound network access; its task role can only invoke this
+deployment's IAM-authenticated token issuer. Platform image/log permissions use
+a separate execution role. Neither local tests nor Terraform starts an observer.
+
+Enable `AWS_E2E_ENABLE_VALIDATION_OBSERVER=true` when deploying to create its
+repository, roles, log group and security group. Build `testing/aws/observer.Dockerfile`
+for `linux/arm64`, push it to the `validation_observer.repository_url` output, and
+deploy again with `AWS_E2E_VALIDATION_OBSERVER_IMAGE` set to that repository's
+immutable digest. These values are retained in `runtime.env`.
+
+Run `scripts/aws-e2e-observer.sh DEPLOYMENT_ID 0` for the short managed proof,
+then use `29100` for an eight-hour-plus idle interval. The script refuses a second
+active observer and records its request, idempotency token and task ARN under
+the deployment's ignored `observer-*` directory. Retry an uncertain launch with
+that exact saved request using `node scripts/run-ecs-observer.mjs REQUEST_JSON`
+rather than creating a new token. The helper uses the ECS SDK because older AWS
+CLI versions omit the RunTask client-token field. Inspect ECS task exit
+codes and the output log group for results; a running task is not a passing test.
+The fixture deletes its Session and Agent on normal completion or test failure.
+If the observer is forcibly stopped, use its logged resource IDs and task role
+identity to recover cleanup before tearing down the stack. Do not redeploy the
+API services during an uninterrupted-stream test. The observer ECR repository is
+disposable and its images are removed when its Terraform resource is destroyed.
+The normal destroy helper refuses teardown while an observer is active, before
+removing runtime credentials or stopping workers.
+
+The managed probe treats an unexpected clean stream end as a failure and checks
+stream health throughout the idle interval. Timestamps distinguish a transport
+interruption from workstation scheduling gaps; saved artifacts independently
+prove command-process continuity.
+
+### Deploy, test and remove fixtures
 
 ```bash
 AWS_E2E_REAL_CODEX=true npm run aws:e2e:deploy -- DEPLOYMENT_ID

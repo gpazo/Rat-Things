@@ -1,9 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { projectPublicAgentRuntime } from '../../src/core/agent-activity-projection.js';
-import type { AgentRuntimeSnapshot } from '../../src/domain/interaction.js';
+import { projectPublicAgentEvent } from '../../src/core/agent-activity-projection.js';
 import type { JsonValue } from '../../src/domain/contracts.js';
 
-describe('public agent activity projection', () => {
+describe('saved agent event projection', () => {
   it('copies only completed assistant commentary as bounded progress, never drafts or reasoning', () => {
     const items = [
       {type: 'agentMessage', phase: 'commentary', text: 'Opening the page.\nCapturing its title.\u001b'},
@@ -13,77 +12,16 @@ describe('public agent activity projection', () => {
       {type: 'reasoning', text: 'private reasoning'},
       {type: 'userMessage', phase: 'commentary', text: 'private prompt'},
     ];
-    const projected = projectPublicAgentRuntime({
-      runId: 'commentary', active: true, ready: true, oldestSequence: 0, nextSequence: 7,
-      pendingRequests: [],
-      events: [event(0, 'item/started', {item: items[0]!}), ...items.map((item, index) => event(index + 1, 'item/completed', {item}))],
-    });
-    expect(projected.events.filter(item => item.kind === 'commentary')).toEqual([
+    const projected = [event(0, 'item/started', {item: items[0]!}), ...items.map((item, index) => event(index + 1, 'item/completed', {item}))].map(projectPublicAgentEvent);
+    expect(projected.filter(item => item.kind === 'commentary')).toEqual([
       expect.objectContaining({detail: 'Opening the page. Capturing its title.', status: 'completed'}),
       expect.objectContaining({detail: 'x'.repeat(500)}),
     ]);
     expect(JSON.stringify(projected)).not.toContain('private');
   });
 
-  it('projects bounded structured questions without exposing native turn coordinates', () => {
-    const snapshot: AgentRuntimeSnapshot = {
-      runId: 'run-question',
-      active: true,
-      ready: true,
-      oldestSequence: 0,
-      nextSequence: 1,
-      events: [],
-      pendingRequests: [{
-        requestId: 'request-question',
-        method: 'item/tool/requestUserInput',
-        params: {
-          threadId: 'native-thread-private',
-          turnId: 'native-turn-private',
-          questions: [{
-            id: 'channel',
-            header: 'Release channel',
-            question: 'Where should this run?',
-            isOther: true,
-            isSecret: false,
-            options: [
-              { label: 'Staging', description: 'Use the staging environment.' },
-              { label: 'Production', description: 'Use the production environment.' },
-            ],
-          }],
-        },
-        receivedAt: '2026-08-25T10:00:00.000Z',
-      }],
-    };
-
-    expect(projectPublicAgentRuntime(snapshot).pendingRequests).toEqual([{
-      requestId: 'request-question',
-      kind: 'input',
-      title: 'Agent needs input',
-      receivedAt: '2026-08-25T10:00:00.000Z',
-      questions: [{
-        id: 'channel',
-        header: 'Release channel',
-        question: 'Where should this run?',
-        isOther: true,
-        isSecret: false,
-        options: [
-          { label: 'Staging', description: 'Use the staging environment.' },
-          { label: 'Production', description: 'Use the production environment.' },
-        ],
-      }],
-    }]);
-    expect(JSON.stringify(projectPublicAgentRuntime(snapshot))).not.toContain('native-thread-private');
-  });
-
   it('produces typed cards without leaking App Server methods, native IDs, commands, or results', () => {
-    const snapshot: AgentRuntimeSnapshot = {
-      runId: 'run-1',
-      active: true,
-      ready: true,
-      oldestSequence: 4,
-      nextSequence: 8,
-      turn: { threadId: 'native-thread-secret', turnId: 'native-turn-secret' },
-      events: [
+    const events = [
         event(4, 'turn/started', { threadId: 'native-thread-secret' }),
         event(5, 'item/completed', {
           item: {
@@ -106,20 +44,11 @@ describe('public agent activity projection', () => {
           },
         }),
         event(7, 'item/completed', { item: { type: 'contextCompaction', id: 'private-id' } }),
-      ],
-      pendingRequests: [
-        {
-          requestId: 'request-1',
-          method: 'item/tool/requestUserInput',
-          params: { questions: [{ question: 'Reveal a secret?' }] },
-          receivedAt: '2026-08-25T10:00:04.000Z',
-        },
-      ],
-    };
+    ];
 
-    const projected = projectPublicAgentRuntime(snapshot);
+    const projected = events.map(projectPublicAgentEvent);
 
-    expect(projected.events).toEqual([
+    expect(projected).toEqual([
       expect.objectContaining({ kind: 'agent', status: 'started', title: 'Agent turn started' }),
       expect.objectContaining({
         kind: 'command',
@@ -139,25 +68,13 @@ describe('public agent activity projection', () => {
         title: 'Context compacted',
       }),
     ]);
-    expect(projected.pendingRequests).toEqual([{
-      requestId: 'request-1',
-      kind: 'input',
-      title: 'Agent needs input',
-      receivedAt: '2026-08-25T10:00:04.000Z',
-    }]);
     expect(JSON.stringify(projected)).not.toMatch(
       /turn\/started|item\/completed|native-|Authorization|provider-secret|private@example|Reveal a secret/,
     );
   });
 
-  it('preserves ring cursors while mapping noisy delta families into safe product activity', () => {
-    const snapshot: AgentRuntimeSnapshot = {
-      runId: 'run-deltas',
-      active: true,
-      ready: false,
-      oldestSequence: 20,
-      nextSequence: 29,
-      events: [
+  it('preserves event sequences while mapping noisy delta families into safe diagnostics', () => {
+    const events = [
         event(20, 'item/agentMessage/delta', { delta: 'private response text' }),
         event(21, 'item/reasoning/summaryTextDelta', { delta: 'private reasoning text' }),
         event(22, 'item/commandExecution/outputDelta', { delta: 'private command output' }),
@@ -171,24 +88,12 @@ describe('public agent activity projection', () => {
           item: { type: 'webSearch', query: 'private search query' },
         }),
         event(28, 'error', { message: 'private runtime failure' }),
-      ],
-      pendingRequests: [
-        request('auth-1', 'oauth/authentication'),
-        request('tool-1', 'item/tool/needsData'),
-        request('other-1', 'custom/input'),
-      ],
-    };
+    ];
 
-    const projected = projectPublicAgentRuntime(snapshot);
+    const projected = events.map(projectPublicAgentEvent);
 
-    expect(projected).toMatchObject({
-      runId: 'run-deltas',
-      active: true,
-      ready: false,
-      oldestSequence: 20,
-      nextSequence: 29,
-    });
-    expect(projected.events.map(({ kind, status, title }) => ({ kind, status, title }))).toEqual([
+    expect(projected.map(({ sequence }) => sequence)).toEqual([20, 21, 22, 23, 24, 25, 26, 27, 28]);
+    expect(projected.map(({ kind, status, title }) => ({ kind, status, title }))).toEqual([
       { kind: 'message', status: 'updated', title: 'Writing response' },
       { kind: 'reasoning', status: 'updated', title: 'Reasoning updated' },
       { kind: 'command', status: 'updated', title: 'Command running' },
@@ -199,12 +104,7 @@ describe('public agent activity projection', () => {
       { kind: 'web_search', status: 'started', title: 'Web search started' },
       { kind: 'error', status: 'failed', title: 'Agent runtime error' },
     ]);
-    expect(projected.events[6]?.detail).toBe('1,250 input · 42 output');
-    expect(projected.pendingRequests.map(({ kind, title }) => ({ kind, title }))).toEqual([
-      { kind: 'authentication', title: 'Authentication required' },
-      { kind: 'tool', title: 'Tool needs input' },
-      { kind: 'other', title: 'Agent needs input' },
-    ]);
+    expect(projected[6]?.detail).toBe('1,250 input · 42 output');
     expect(JSON.stringify(projected)).not.toMatch(
       /private response|private reasoning|private command|private tool|private plan|private source|private search|private runtime/,
     );
@@ -221,14 +121,5 @@ function event(
     method,
     params,
     occurredAt: `2026-08-25T10:00:${String(sequence).padStart(2, '0')}.000Z`,
-  };
-}
-
-function request(requestId: string, method: string) {
-  return {
-    requestId,
-    method,
-    params: {},
-    receivedAt: '2026-08-25T10:01:00.000Z',
   };
 }

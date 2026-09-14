@@ -3,6 +3,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { expect, it } from 'vitest';
 import { createAgentsClient } from '../../src/agents-client.js';
 import type { Turn } from '../../src/domain/agents-api.js';
+import { monitorSessionStream } from '../../testing/aws/session-stream-monitor.js';
 
 const live = process.env.AWS_E2E === 'true' ? it : it.skip;
 const timeoutMs = Number(process.env.AWS_E2E_TIMEOUT_MS ?? 420_000);
@@ -24,13 +25,16 @@ live('retains a managed workspace, streams completed Turns, and enforces the gue
   try {
     const session = await client.beta.agents.sessions.create({ agent_id: agent.id, environment: { type: 'openai_hosted', network: { access: 'enabled' } } });
     sessionId = session.id;
+    console.log(JSON.stringify({ phase: 'created', sessionId, agentId: agent.id, at: new Date().toISOString(), soakSeconds }));
     const stream = await client.beta.agents.sessions.events.stream(session.id, { signal: abort.signal });
     const completions = new Set<string>();
-    let streamFailure: unknown;
-    consume = (async () => {
-      try { for await (const event of stream) if (event.type === 'agent.session.turn.completed') completions.add(event.turn.id); }
-      catch (error) { if (!abort.signal.aborted) streamFailure = error; }
-    })();
+    const monitor = monitorSessionStream(stream, abort.signal, event => {
+      if (event.type === 'agent.session.turn.completed') {
+        completions.add(event.turn.id);
+        console.log(JSON.stringify({ phase: 'stream_completion', turnId: event.turn.id, at: new Date().toISOString() }));
+      }
+    });
+    consume = monitor.done;
     const program = [
       'import os, json, time, uuid, urllib.request, urllib.error',
       'started = time.monotonic()',
@@ -69,6 +73,7 @@ live('retains a managed workspace, streams completed Turns, and enforces the gue
     // A repeated receipt must not create a second root Turn or repeat the commands.
     await client.beta.agents.sessions.events.create(session.id, { events: [input], 'Idempotency-Key': key });
     const first = await completedTurn(client, session.id, new Set(), timeoutMs);
+    monitor.check();
     const artifacts = [];
     for await (const artifact of client.beta.agents.sessions.artifacts.list(session.id)) artifacts.push(artifact);
     const artifact = artifacts.find(value => value.path === filePath && value.turn_id === first.id);
@@ -87,8 +92,9 @@ live('retains a managed workspace, streams completed Turns, and enforces the gue
     const soakDeadline = Date.now() + soakSeconds * 1000;
     while (Date.now() < soakDeadline) {
       await delay(Math.min(60_000, soakDeadline - Date.now()));
+      monitor.check();
       expect((await client.beta.agents.sessions.retrieve(session.id)).status).toBe('idle');
-      console.log(`Managed Session soak remaining: ${Math.max(0, Math.ceil((soakDeadline - Date.now()) / 1000))} seconds`);
+      console.log(JSON.stringify({ phase: 'soaking', remainingSeconds: Math.max(0, Math.ceil((soakDeadline - Date.now()) / 1000)), at: new Date().toISOString() }));
     }
     const continuation = [
       'import json, time, os',
@@ -106,8 +112,8 @@ live('retains a managed workspace, streams completed Turns, and enforces the gue
     for await (const item of client.beta.agents.sessions.items.list(session.id)) if (item.turn_id === second.id) secondItems.push(item);
     expect(secondItems).toEqual(expect.arrayContaining([expect.objectContaining({ type: 'command_execution', status: 'completed', exit_code: 0 })]));
     expect(JSON.stringify(secondItems)).toContain(marker);
-    for (let attempt = 0; attempt < 50 && !completions.has(second.id) && !streamFailure; attempt++) await delay(100);
-    expect(streamFailure).toBeUndefined();
+    for (let attempt = 0; attempt < 50 && !completions.has(second.id); attempt++) { monitor.check(); await delay(100); }
+    monitor.check();
     expect(completions).toEqual(new Set([first.id, second.id]));
     const continuedArtifacts = [];
     for await (const value of client.beta.agents.sessions.artifacts.list(session.id)) continuedArtifacts.push(value);
