@@ -34,7 +34,7 @@ export async function routeAgentsRequest(request: Request, ownerId: string, serv
   try {
     if (!ownerId) throw new AgentsApiError(401, 'Authentication required.', 'invalid_api_key');
     const url = new URL(request.url);
-    const parts = url.pathname.split('/').filter(Boolean).map(decodeURIComponent);
+    const parts = pathParts(url.pathname);
     if (parts[0] !== 'v1') throw new AgentsApiError(404, 'Route not found.', 'resource_not_found');
     if (parts[1] === 'webhooks') return await routeWebhook(request, ownerId, parts.slice(2), services.webhooks, requestId);
     if (parts[1] === 'files') return await routeUploadedFiles(request, ownerId, parts.slice(2), services.files, requestId);
@@ -57,11 +57,11 @@ export async function routeAgentsRequest(request: Request, ownerId: string, serv
     if (parts[1] === 'agents' && parts[2] === 'sessions') return await routeSession(request, ownerId, parts.slice(3), services.sessions, requestId, streaming);
     const route = /^\/v1\/agents(?:\/([^/]+))?$/.exec(url.pathname);
     if (!route) throw new AgentsApiError(404, 'Route not found.', 'resource_not_found');
-    const id = route[1];
+    const id = parts[2];
     const method = request.method;
     const { agents } = services;
     if (method === 'GET' && !id) {
-      return json(200, await agents.list(ownerId, queryParameters(url.searchParams)), requestId);
+      return json(200, await agents.list(ownerId, queryParameters(url.searchParams, { nullableLimit: true })), requestId);
     }
     if (method === 'POST' && !id) {
       return json(200, await agents.create(ownerId, await requestBody(request)), requestId);
@@ -134,7 +134,7 @@ async function routeSession(request: Request, ownerId: string, parts: string[], 
     const session = await sessions.create(ownerId, body);
     return isStreaming(body) ? eventStream((signal) => sessions.stream(ownerId, session.id, signal, true), request.signal, requestId) : json(200, session, requestId);
   }
-  if (!id && method === 'GET') return json(200, await sessions.list(ownerId, query()), requestId);
+  if (!id && method === 'GET') return json(200, await sessions.list(ownerId, queryParameters(new URL(request.url).searchParams, { nullableLimit: true })), requestId);
   if (id && !collection) {
     if (method === 'GET') return json(200, await sessions.retrieve(ownerId, id), requestId);
     if (method === 'POST') return json(200, await sessions.update(ownerId, id, await requestBody(request)), requestId);
@@ -228,7 +228,12 @@ export async function requestBody(request: Request): Promise<unknown> {
   catch { throw new AgentsApiError(400, 'Request body must be valid JSON.', 'invalid_json'); }
 }
 
-export function queryParameters(params: URLSearchParams): Record<string, unknown> {
+function pathParts(pathname: string): string[] {
+  try { return pathname.split('/').filter(Boolean).map(decodeURIComponent); }
+  catch { throw new AgentsApiError(400, 'Path must use valid percent encoding.', 'invalid_request'); }
+}
+
+export function queryParameters(params: URLSearchParams, options: { nullableLimit?: boolean } = {}): Record<string, unknown> {
   const query: Record<string, unknown> = Object.fromEntries(params);
   for (const key of params.keys()) {
     if (key.endsWith('[]')) {
@@ -238,6 +243,9 @@ export function queryParameters(params: URLSearchParams): Record<string, unknown
   }
   const limit = params.get('limit');
   if (limit !== null) {
+    // The upstream SDK serializes a nullable query value as `limit=`. Normalize
+    // only routes whose reference admits null, before generated type validation.
+    if (limit === '' && options.nullableLimit) { delete query.limit; return query; }
     if (!/^\d+$/.test(limit)) throw new AgentsApiError(400, 'limit must be a positive integer.', 'invalid_request', 'limit');
     query.limit = Number(limit);
   }

@@ -39,6 +39,31 @@ corrects Unicode character limits, aligns Agent/Session list examples and remove
 caller-audited obsolete branches while the cloud soak remains on its pinned
 images. Those local changes have not been deployed or certified by that soak.
 
+The [contract follow-up](agents-api-contract-followup-2026-09-14.md) accepts the
+SDK's nullable Agent/Session list limit encoding, decodes Agent resource IDs once,
+rejects malformed path escapes, and filters/sorts root and child artifacts before
+pagination. The [usage audit](agents-api-usage-audit-2026-09-14.md) accounts for exact
+response usage including compaction and prevents historical cumulative replay
+from inflating later Turns. These are local corrections with explicit remaining
+contract and recovery limits; they are not a deployed parity result.
+
+The [Item/event follow-up](agents-api-item-event-audit-2026-09-14.md) preserves
+message phases through streaming, leaves unknown phases null, and handles empty
+native reasoning-summary part boundaries. Its local native fixture exercises
+these notifications through the pinned harness. The subsequent
+[message/output follow-up](agents-api-message-output-audit-2026-09-14.md) adds
+owned native `agent_message` history and dynamic function-call results, with
+typed content, public identity mapping and suppression of API result echoes.
+Strict native task-delivery and programmatic/deferred function fixtures pass.
+Broader message delivery, Item status/attribution and deployed recovery remain.
+
+The [interruption follow-up](agents-api-item-interruption-audit-2026-09-14.md)
+finalizes unfinished Items as incomplete on cancellation, failure, thread closure
+and harness loss while preserving confirmed results and independent child work.
+Late append deltas cannot alter finalized Items. A native streamed-output
+cancellation fixture now verifies the partial message and Item-before-Turn
+completion ordering; broader tool interruption and deployed recovery remain.
+
 ## Contract and evidence map
 
 | Contract | Implementation | Existing evidence | Remaining acceptance |
@@ -46,7 +71,7 @@ images. Those local changes have not been deployed or certified by that soak.
 | Agents CRUD, defaults, replacement, nullable fields, metadata | `agent-service`, `agent-configuration` | `sdk-conformance`; pinned native model-default catalogue | Resolved model reasoning defaults, disabled capacity null, object replacement and nullable resets covered; remaining field/limit comparison |
 | Session creation, immutable resolved config, initial input, metadata, list/filter/delete | `session-service`, `session-planning`, `session-preparation-planning` | `session-lifecycle`, `session-preparation`, `sdk-conformance`, `session-journal`, `run-session-execution` | Saved Agent transport snapshots, concurrent preparation and commit acknowledgement recovery covered; one-day preparation expiry and concurrent abandonment/adoption covered locally and in the deployed cleanup consumer. Local closure-before-first-claim, concurrent claim/closure and delayed dispatch after HTTP deletion are covered; broader creation/deletion races and documented status/error/limit comparison remain |
 | Input batches, active-turn steering, cancellation, function results, idempotency | `session-planning`, Session outbox | `session-lifecycle`, `run-session-execution` | Connection wait/deadline, 256-character idempotency boundary and saved-Turn acknowledgement after disconnection/harness shutdown covered. Local cancellation during an unacknowledged start preserves completed/failed outcomes and pending native cancellation; broader admission/steering races and deployed timing remain |
-| Turns, Items, pagination, retained output, usage | `session-service`, `session-run-projection` | `session-lifecycle`, `session-runtime` | All Item variants, causal order, usage after compaction and child work |
+| Turns, Items, pagination, retained output, usage | `session-service`, `session-run-projection`, `session-runtime-planning` | `session-lifecycle`, `session-runtime`; exact response/compaction attribution, duplicate suppression, parent/child isolation and historical cumulative replay regressions | Remaining Item variants and causal order; forced native compaction and deployed usage/recovery comparisons; incomplete historical feeds cannot reconstruct exact accounting |
 | Live SSE, all event variants, connect-before-read recovery | `session-stream`, `session-service`, `session-event-store` | `transport-and-launch`, `session-lifecycle`, `webhooks`, `session-journal` | Durable ordered transitions, command deltas, stable identities, late subscriptions and deletion fencing covered; remaining event variants and deployed streaming remain |
 | Outbound Session webhooks | `session-webhooks`, `webhook-service`, durable event/outbox adapters | `webhooks`, `webhook-http` | Five events, pre-wait action, SDK signatures, duplicates, DNS deadline, redirects and 72-hour horizon covered locally; earlier live HTTPS capture proved committed-event delivery; broader deployed retry/fanout evidence remains |
 | Subagent CRUD/read surfaces and coordination items | `session-runtime`, runtime planning | `session-runtime`, `native-session` | Patched macOS and packaged Linux ARM64 runtimes pass strict limits 1/6, ten interrupted follow-ups at each limit and ten competing nested admissions; deployed execution remains |
@@ -55,7 +80,7 @@ images. Those local changes have not been deployed or certified by that soak.
 | Managed environments and templates | `environment-service`, `environment-template-service`, hosted runner | `vaults-and-templates`, `files-and-skills`, `managed-executor` | ARM64 setup, packages, capability loading, worker lifetime and replacement behavior |
 | Idle harness continuation and execution loss | `run-session-execution`, MicroVM controller | Private executor/recovery tests, `run-session-execution`, `session-runtime` | Suspended continuation and reconnect admission fixed locally. Starts rejected before native admission remain retryable after initialization or root completion; ambiguous native starts still close the harness without replay. Shutdown races, checkpoint recovery and maximum worker lifetime remain |
 | Environment Files, uploads, Skills and versions | File/Skill/environment services | `files-and-skills`, `environment-files`, `http-transport` | Every size/path/version boundary, large deployed transfers and disconnects |
-| Saved Session artifacts | Session service and artifact capture | `session-lifecycle`, `session-publications` | Snapshot timing, documented size limits, child output, expired sandbox and deletion |
+| Saved Session artifacts | Session service and artifact capture | `session-lifecycle`, `session-publications`; environment filtering and creation-time/ID ordering across root and child artifacts before pagination | Remaining snapshot timing and documented size boundaries; broader deployed child output, expired sandbox and deletion |
 | Vault credential secrecy, rotation, deletion and OAuth | Vault service and credential adapters | `vaults-and-templates`, `vault-oauth` | Live token refresh/revocation and deployed IAM; SDK field/validation limits |
 | MCP service/environment transports and metadata | `session-tool-service`, `session-tool-planning`, `session-mcp`, environment MCP bridge | `session-tools`, `session-preparation`, `session-tool-reconciliation`, `secrets-session-tools`, `agents-outbox`, `environment-mcp` | Durable reservations, adoption fencing and outbox cleanup cover uncertain creation, failed revocation and deletion interruptions locally. Managed stdio admission and self-hosted inline env rejection retained. Live Secrets Manager/KMS recovery, deployed stream/SQS cleanup with role IAM, and HTTP Session credential lifecycle passed. One-day abandonment fencing and credential retirement passed locally and through the deployed outbox; the scoped deployment inventory found no active unreferenced inline credentials. Real configured servers, reconnect, broader failure outputs, older-deployment inventory and abandoned environment disposition remain |
 | Functions, programmatic tools, deferred tool search, web search | Agent config and launch planning | Real native programmatic/deferred function round trips against local model fixtures, including required actions and results; launch tests | Admitted live provider calls and web-search results |

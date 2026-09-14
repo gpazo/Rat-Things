@@ -152,8 +152,11 @@ export function orderedTurnItems(state: SessionState, binding: SessionTurnBindin
     });
   }
   insertions.sort((a, b) => a.ordinal - b.ordinal);
+  // The accepted API receipt owns the public result identity and exact supplied
+  // representation. A later native completion echoes the same result.
+  const acceptedCalls = new Set([...results.values()].flatMap(item => item.turn_id === binding.turn.id && item.type === 'function_call_output' ? [item.call_id] : []));
+  const items = outputs.filter(item => item.type !== 'function_call_output' || !acceptedCalls.has(item.call_id));
   // Reverse insertion preserves acceptance order when several inputs share an anchor.
-  const items = [...outputs];
   for (const { item, after } of [...insertions].reverse()) {
     if (items.some((candidate) => candidate.id === item.id)) continue;
     const index = after === null ? -1 : items.findIndex((candidate) => candidate.id === after);

@@ -29,34 +29,51 @@ export function projectSessionItems(turnId: string, events: unknown[], fallbackT
   for (const event of events) {
     if (!record(event)) continue;
     const params = record(event.params) ? event.params : {};
-    if (event.method === 'item/reasoning/summaryTextDelta' && typeof params.itemId === 'string' && typeof params.delta === 'string') {
+    if ((event.method === 'item/reasoning/summaryPartAdded' || event.method === 'item/reasoning/summaryTextDelta' && typeof params.delta === 'string') && typeof params.itemId === 'string') {
       const previous = items.get(params.itemId);
+      if (finalItem(previous)) continue;
       const summary = previous?.type === 'reasoning' ? [...previous.summary] : [];
       const index = typeof params.summaryIndex === 'number' ? params.summaryIndex : 0;
+      if (!Number.isSafeInteger(index) || index < 0) continue;
       while (summary.length <= index) summary.push({ type: 'summary_text', text: '' });
-      summary[index] = { type: 'summary_text', text: summary[index]!.text + params.delta };
+      if (event.method === 'item/reasoning/summaryTextDelta') summary[index] = { type: 'summary_text', text: summary[index]!.text + params.delta };
       items.set(params.itemId, { id: params.itemId, type: 'reasoning', turn_id: turnId, status: 'in_progress', summary });
       continue;
     }
     if (event.method === 'item/commandExecution/outputDelta' && typeof params.itemId === 'string' && typeof params.delta === 'string') {
       const previous = items.get(params.itemId);
+      if (finalItem(previous)) continue;
       if (previous?.type === 'command_execution') items.set(params.itemId, { ...previous, output: (previous.output ?? '') + params.delta });
       continue;
     }
     if (event.method === 'item/agentMessage/delta' && typeof params.itemId === 'string' && typeof params.delta === 'string') {
       const previous = items.get(params.itemId);
+      if (finalItem(previous)) continue;
       const text = previous?.type === 'message' ? previous.content.flatMap((part) => part.type === 'output_text' ? [part.text] : []).join('') : '';
-      items.set(params.itemId, { id: params.itemId, type: 'message', role: 'assistant', turn_id: turnId, phase: null, status: 'in_progress', content: [{ type: 'output_text', text: text + params.delta }] });
+      items.set(params.itemId, { id: params.itemId, type: 'message', role: 'assistant', turn_id: turnId, phase: previous?.type === 'message' ? previous.phase : null, status: 'in_progress', content: [{ type: 'output_text', text: text + params.delta }] });
       continue;
     }
     const item = record(params.item) ? params.item : record(event.item) ? event.item : undefined;
+    if (event.method === 'rawResponseItem/completed' && item?.type === 'agent_message') {
+      if (typeof item.id !== 'string' || typeof item.author !== 'string' || typeof item.recipient !== 'string' || !Array.isArray(item.content)) continue;
+      const content = item.content.flatMap<Extract<AgentSessionItem, { type: 'agent_message' }>['content'][number]>(part => {
+        if (!record(part)) return [];
+        if (part.type === 'input_text' && typeof part.text === 'string') return [{ type: 'output_text' as const, text: part.text }];
+        if (part.type === 'encrypted_content' && typeof part.encrypted_content === 'string') return [{ type: 'encrypted_content' as const, encrypted_content: part.encrypted_content }];
+        return [];
+      });
+      items.set(item.id, { id: item.id, type: 'agent_message', turn_id: turnId,
+        sender_agent_id: publicAgentId(item.author, options.agentIds),
+        recipient_agent_id: publicAgentId(item.recipient, options.agentIds), content });
+      continue;
+    }
     if (!item || !['item/started', 'item/completed', 'item.completed'].includes(String(event.method ?? event.type))) continue;
     const id = typeof item.id === 'string' ? item.id : `${turnId}_output`;
     const done = event.method === 'item/completed' || event.type === 'item.completed';
     if (['agentMessage', 'agent_message'].includes(String(item.type)) && typeof item.text === 'string') {
       items.set(id, { id, type: 'message', role: 'assistant', turn_id: turnId,
         content: [{ type: 'output_text', text: item.text }],
-        phase: item.phase === 'commentary' ? 'commentary' : item.phase === 'final_answer' || done ? 'final_answer' : null,
+        phase: item.phase === 'commentary' || item.phase === 'final_answer' ? item.phase : null,
         status: done ? 'completed' : 'in_progress',
       });
     } else if (item.type === 'userMessage' && options.includeUser && Array.isArray(item.content)) {
@@ -78,7 +95,15 @@ export function projectSessionItems(turnId: string, events: unknown[], fallbackT
       if (item.tool === 'resumeAgent' && receivers[0]) items.set(id, { ...common, type: 'resume_subagent_call', sender_agent_id: sender, recipient_agent_id: receivers[0] });
       if (item.tool === 'closeAgent' && receivers[0]) items.set(id, { ...common, type: 'close_subagent_call', sender_agent_id: sender, recipient_agent_id: receivers[0] });
     } else if (item.type === 'dynamicToolCall' && typeof item.tool === 'string') {
-      items.set(id, { id, type: 'function_call', turn_id: turnId, call_id: typeof item.callId === 'string' ? item.callId : id, name: item.tool, arguments: item.arguments, status: callStatus(item.status, done) });
+      const call_id = typeof item.callId === 'string' ? item.callId : id;
+      items.set(id, { id, type: 'function_call', turn_id: turnId, call_id, name: item.tool, arguments: item.arguments, status: callStatus(item.status, done) });
+      const output = nativeFunctionOutput(item.contentItems);
+      if (done && typeof item.success === 'boolean' && output !== undefined) {
+        const outputId = `fresult_native_${id}`;
+        items.set(outputId, { id: outputId, type: 'function_call_output', turn_id: turnId, call_id,
+          status: item.success ? 'completed' : 'failed', output,
+          error: item.success ? null : output.flatMap(part => part.type === 'input_text' ? [part.text] : []).join('\n') || null });
+      }
     } else if (item.type === 'reasoning') {
       // Only the model's public reasoning summary belongs in API history.
       items.set(id, { id, type: 'reasoning', turn_id: turnId, status: done ? 'completed' : 'in_progress', summary: strings(item.summary).map((text) => ({ type: 'summary_text', text })) });
@@ -98,6 +123,20 @@ export function projectSessionItems(turnId: string, events: unknown[], fallbackT
 }
 
 function record(value: unknown): value is Record<string, unknown> { return typeof value === 'object' && value !== null && !Array.isArray(value); }
+function finalItem(item: AgentSessionItem | undefined): boolean { return item !== undefined && 'status' in item && item.status !== null && item.status !== 'in_progress'; }
+function publicAgentId(value: string, ids?: Record<string, string>): string { return typeof ids?.[value] === 'string' ? ids[value] : value; }
+type FunctionOutputContent = Exclude<Extract<AgentSessionItem, { type: 'function_call_output' }>['output'], string | null>;
+function nativeFunctionOutput(value: unknown): FunctionOutputContent | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const output: FunctionOutputContent = [];
+  for (const part of value) {
+    if (!record(part)) return undefined;
+    if (part.type === 'inputText' && typeof part.text === 'string') output.push({ type: 'input_text', text: part.text });
+    else if (part.type === 'inputImage' && typeof part.imageUrl === 'string') output.push({ type: 'input_image', image_url: part.imageUrl });
+    else return undefined; // Do not present a partial result for unsupported native content.
+  }
+  return output;
+}
 function seconds(value: string): number { return Math.floor(Date.parse(value) / 1000); }
 function stringOrNull(value: unknown): string | null { return typeof value === 'string' ? value : null; }
 function numberOrNull(value: unknown): number | null { return typeof value === 'number' && Number.isFinite(value) ? value : null; }

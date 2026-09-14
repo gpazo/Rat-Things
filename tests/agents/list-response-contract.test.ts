@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest';
+import OpenAI from 'openai';
+import { describe, expect, it, vi } from 'vitest';
 import { AgentService } from '../../src/core/agent-service.js';
 import { SessionService } from '../../src/core/session-service.js';
 import type { SessionExecution } from '../../src/core/session-ports.js';
@@ -22,14 +23,65 @@ function fixture() {
     artifactContent: async () => new ReadableStream({ start(controller) { controller.close(); } }),
   };
   const sessions = new SessionService({ store, agents, execution, ids, clock });
+  const request = (path: string, init?: RequestInit, owner = 'alice') =>
+    routeAgentsRequest(new Request(`https://rat.invalid/v1/${path}`, init), owner, { agents, sessions });
+  const client = new OpenAI({ apiKey: 'test', baseURL: 'https://rat.invalid/v1', maxRetries: 0,
+    fetch: (input, init) => routeAgentsRequest(new Request(input, init), 'alice', { agents, sessions }),
+  });
   // Inspect the wire body: the SDK's CursorPage wrapper does not expose these fields.
   const list = async (path: string, owner = 'alice') => {
     const response = await routeAgentsRequest(new Request(`https://rat.invalid/v1/${path}`), owner, { agents, sessions });
     expect(response.status).toBe(200);
     return response.json() as Promise<{ object: string; data: Array<{ id: string }>; has_more: boolean; first_id: string | null; last_id: string | null }>;
   };
-  return { agents, sessions, list };
+  return { agents, sessions, list, request, client, store };
 }
+
+describe('Agents HTTP query and path contracts', () => {
+  it.each(['agents', 'sessions'] as const)('accepts the SDK encoding of a nullable %s list limit', async resource => {
+    const f = fixture();
+    const agent = await f.agents.create('alice', { model: 'test' });
+    if (resource === 'sessions') await f.sessions.create('alice', { agent_id: agent.id, environment: { type: 'none' }, input: 'Queued' });
+    const api = resource === 'agents' ? f.client.beta.agents : f.client.beta.agents.sessions;
+    // RequestOptions can express the documented null even though this SDK's
+    // inherited CursorPageParams omits null from its TypeScript limit type.
+    const page = await api.list({}, { query: { limit: null } });
+    expect(page.data).toEqual((await api.list()).data);
+    expect(page.data).toHaveLength(1);
+  });
+
+  it.each(['0', '-1', '1.5', 'null', 'NaN', '%20', '+', '1&limit=2'])('rejects invalid or repeated limit %j before listing', async limit => {
+    const f = fixture();
+    const list = vi.spyOn(f.store, 'list');
+    const response = await f.request(`agents?limit=${limit}`);
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({ error: { type: 'invalid_request_error', param: 'limit' } });
+    expect(list).not.toHaveBeenCalled();
+  });
+
+  it('decodes Agent resource IDs once for read, update and deletion without changing ownership', async () => {
+    const f = fixture();
+    const agent = await f.agents.create('alice', { model: 'test' });
+    const path = `agents/%61${agent.id.slice(1)}`;
+    expect(await (await f.request(path)).json()).toEqual(agent);
+    expect((await f.request(path, undefined, 'bob')).status).toBe(404);
+    expect((await f.request(`agents/%2561${agent.id.slice(1)}`)).status).toBe(404);
+    const updated = await f.request(path, { method: 'POST', body: JSON.stringify({ name: 'Updated' }) });
+    expect(updated.status).toBe(200);
+    expect(await updated.json()).toMatchObject({ id: agent.id, name: 'Updated' });
+    expect((await f.request(path, { method: 'DELETE' })).status).toBe(200);
+    await expect(f.agents.retrieve('alice', agent.id)).rejects.toMatchObject({ status: 404 });
+  });
+
+  it.each(['%', '%FF', '%E2%82'])('rejects malformed path encoding %s before accessing storage', async path => {
+    const f = fixture();
+    const get = vi.spyOn(f.store, 'get');
+    const response = await f.request(`agents/${path}`);
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({ error: { type: 'invalid_request_error', code: 'invalid_request' } });
+    expect(get).not.toHaveBeenCalled();
+  });
+});
 
 describe('list response alignment with the documented HTTP examples', () => {
   it.each(['asc', 'desc'] as const)('returns Agent boundary IDs for %s pages and null for an empty page', async order => {

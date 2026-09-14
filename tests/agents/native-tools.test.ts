@@ -81,6 +81,9 @@ it.each(['programmatic', 'deferred'] as const)('executes a %s application functi
     })]));
     expect(JSON.stringify(requests.at(-1)?.input)).toContain('APPLICATION_RESULT');
     expect(runtime.snapshot().turns[0]?.items).toEqual(expect.arrayContaining([expect.objectContaining({ type: 'function_call', name: 'lookup', call_id: action.call_id })]));
+    expect(runtime.snapshot().turns[0]?.items).toEqual(expect.arrayContaining([expect.objectContaining({ type: 'function_call_output', call_id: action.call_id,
+      status: 'completed', error: null, output: [{ type: 'input_text', text: 'APPLICATION_RESULT' }],
+    })]));
   } finally {
     await runtime.close(); server.closeAllConnections();
     await new Promise<void>(resolve => server.close(() => resolve()));

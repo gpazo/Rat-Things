@@ -385,7 +385,11 @@ export class SessionService {
     const query = parseAgentsContract('ArtifactList', raw);
     const { value } = await this.required(ownerId, id);
     const artifacts = await this.allArtifacts(ownerId, value);
-    return cursorPage(artifacts.map(({ artifact }) => artifact).filter((artifact) => !value.deletedArtifacts.includes(artifact.id)), query);
+    const selected = artifacts.map(({ artifact }) => artifact)
+      .filter((artifact) => !value.deletedArtifacts.includes(artifact.id)
+        && (!query.environment_id || artifact.environment_id === query.environment_id))
+      .sort((a, b) => a.created_at - b.created_at || a.id.localeCompare(b.id));
+    return cursorPage(selected, query);
   }
 
   public async artifact(ownerId: string, id: string, artifactId: string) {

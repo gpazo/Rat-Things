@@ -56,6 +56,10 @@ describe('stock harness with a local model protocol fixture', () => {
       expect(state.turns.map(({ turn }) => turn.status)).toEqual(['completed', 'completed']);
       expect(state.turns.find(({ turn }) => turn.id === 'turn_parent')!.items).toEqual(expect.arrayContaining([expect.objectContaining({ type: 'create_subagent_call', status: 'completed' })]));
       const children = runtimeSubagents(state);
+      if (multiAgentV2) expect(children[0]?.items, JSON.stringify(notifications.filter(event => JSON.stringify(event).includes('"type":"agent_message"')))).toContainEqual(expect.objectContaining({
+        type: 'agent_message', sender_agent_id: 'agent_fixture', recipient_agent_id: children[0]?.subagent.id,
+        content: [expect.objectContaining({ type: 'output_text' }), { type: 'encrypted_content', encrypted_content: 'Perform the child fixture task.' }],
+      }));
       parseAgentsContract('Subagent', children[0]!.subagent);
       expect(children[0]!.turns).toHaveLength(1);
       for (const binding of state.turns) { parseAgentsContract('Turn', binding.turn); binding.items.forEach((item) => parseAgentsContract('Item', item)); }

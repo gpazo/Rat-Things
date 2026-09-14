@@ -6,7 +6,15 @@ import { planNativeCoordination, type NativeCoordinationCall } from './session-c
 import { totalUsage } from './session-ports.js';
 
 /** Private native coordinates stay out of the public turn and subagent resources. */
-export interface NativeTurnBinding { threadId: string; nativeTurnId: string; turn: Turn; items: AgentSessionItem[]; artifacts?: SavedSessionArtifact[] }
+export interface NativeTurnBinding {
+  threadId: string;
+  nativeTurnId: string;
+  turn: Turn;
+  items: AgentSessionItem[];
+  artifacts?: SavedSessionArtifact[];
+  /** Exact response accounting survives journal recovery and native Turn binding. */
+  usageResponseIds?: string[];
+}
 export interface SessionRuntimeState {
   sessionId: string;
   agentId: string;
@@ -33,7 +41,7 @@ export function stoppedSessionRuntime(state: SessionRuntimeState, now: number): 
   return {
     ...state, requiredActions: [],
     subagents: state.subagents.map((agent) => agent.status === 'closed' ? agent : { ...agent, status: 'closed', closed_at: now }),
-    turns: state.turns.map((binding) => terminalTurn(binding.turn) ? binding : { ...binding, turn: {
+    turns: state.turns.map((binding) => terminalTurn(binding.turn) ? binding : { ...binding, items: incompleteItems(binding.items), turn: {
       ...binding.turn, status: 'failed', completed_at: now,
       error: { code: 'connection_failed', message: 'The session harness stopped before this turn completed.' },
     } }),
@@ -48,7 +56,7 @@ export function bindSessionTurn(state: SessionRuntimeState, nativeTurnId: string
   }
   // Native notifications can arrive before the turn/start response. Attach the API ID once.
   const previous = state.turns.find((binding) => binding.threadId === state.rootThreadId && binding.nativeTurnId === nativeTurnId);
-  const binding = { threadId: state.rootThreadId, nativeTurnId, turn: { ...turn, ...previous?.turn, id: turn.id, created_at: turn.created_at }, items: (previous?.items ?? []).map((item) => ({ ...item, turn_id: turn.id })) };
+  const binding = { ...previous, threadId: state.rootThreadId, nativeTurnId, turn: { ...turn, ...previous?.turn, id: turn.id, created_at: turn.created_at }, items: (previous?.items ?? []).map((item) => ({ ...item, turn_id: turn.id })) };
   return { ...state, turns: previous ? state.turns.map((entry) => entry === previous ? binding : entry) : [...state.turns, binding], requiredActions: state.requiredActions.map((action) => action.type === 'function_call' && action.turn_id === previous?.turn.id ? { ...action, turn_id: turn.id } : action) };
 }
 
@@ -90,14 +98,20 @@ export function reduceSessionRuntime(state: SessionRuntimeState, event: SessionR
   if (!threadId || threadId !== state.rootThreadId && !state.subagents.some((agent) => agent.id === threadId)) return state;
   if (method === 'thread/closed' || method === 'thread/archived') return {
     ...state, subagents: state.subagents.map((agent) => agent.id === threadId ? { ...agent, status: 'closed', closed_at: observedAt } : agent),
-    turns: state.turns.map((binding) => binding.threadId === threadId && !terminalTurn(binding.turn) ? { ...binding, turn: { ...binding.turn, status: 'cancelled', completed_at: observedAt } } : binding),
+    turns: state.turns.map((binding) => binding.threadId === threadId && !terminalTurn(binding.turn) ? { ...binding, items: incompleteItems(binding.items), turn: { ...binding.turn, status: 'cancelled', completed_at: observedAt } } : binding),
     requiredActions: state.requiredActions.filter((action) => action.type !== 'function_call' || !state.turns.some((binding) => binding.threadId === threadId && binding.turn.id === action.turn_id)),
   };
   const nativeTurn = record(params.turn) ? params.turn : undefined;
   const nativeTurnId = string(nativeTurn?.id) ?? string(params.turnId) ?? (method === 'thread/tokenUsage/updated' ? [...state.turns].reverse().find((turn) => turn.threadId === threadId)?.nativeTurnId ?? null : null);
   if (!nativeTurnId) return state;
-  if (!['turn/started', 'turn/completed', 'thread/tokenUsage/updated', 'item/tool/call', 'error'].includes(method) && !method.startsWith('item/')) return state;
+  const agentMessage = method === 'rawResponseItem/completed' && item?.type === 'agent_message';
+  if (!agentMessage && !['turn/started', 'turn/completed', 'thread/tokenUsage/updated', 'rawResponse/completed', 'item/tool/call', 'error'].includes(method) && !method.startsWith('item/')) return state;
+  if (method === 'rawResponse/completed' && (typeof params.responseId !== 'string' || !record(params.usage))) return state;
   const previous = state.turns.find((binding) => binding.nativeTurnId === nativeTurnId && binding.threadId === threadId);
+  // Attachment replay may report a historical Turn's cumulative snapshot.
+  // It must not rewind the baseline or charge that snapshot a second time.
+  if (method === 'thread/tokenUsage/updated' && previous &&
+    [...state.turns].reverse().find((binding) => binding.threadId === threadId) !== previous) return state;
   let binding = previous ?? newTurn(state, threadId, nativeTurnId, observedAt);
   let requiredActions = state.requiredActions;
   if (method === 'error') {
@@ -114,18 +128,34 @@ export function reduceSessionRuntime(state: SessionRuntimeState, event: SessionR
     } };
     if (method === 'turn/completed') requiredActions = requiredActions.filter((action) => action.type !== 'function_call' || action.turn_id !== binding.turn.id);
   }
+  if (method === 'rawResponse/completed' && typeof params.responseId === 'string' && record(params.usage)) {
+    if (binding.usageResponseIds?.includes(params.responseId)) return state;
+    // The pinned harness emits exact response usage before cumulative updates.
+    // Remote compaction appears only in this feed; summing both would double
+    // count ordinary requests. Exact responses replace the fallback estimate.
+    binding = {
+      ...binding,
+      usageResponseIds: [...binding.usageResponseIds ?? [], params.responseId],
+      turn: { ...binding.turn, usage: totalUsage([
+        binding.usageResponseIds ? binding.turn.usage : null, publicUsage(params.usage),
+      ]) },
+    };
+  }
   if (method === 'thread/tokenUsage/updated') {
     const totals = record(params.tokenUsage) && record(params.tokenUsage.total) ? publicUsage(params.tokenUsage.total) : undefined;
     const last = record(params.tokenUsage) && record(params.tokenUsage.last) ? publicUsage(params.tokenUsage.last) : undefined;
     if (totals) {
       const delta = usageDifference(totals, state.threadUsage?.[threadId]);
-      binding = { ...binding, turn: { ...binding.turn, usage: totalUsage([binding.turn.usage, delta]) } };
+      if (!binding.usageResponseIds) binding = { ...binding, turn: { ...binding.turn, usage: totalUsage([binding.turn.usage, delta]) } };
       state = { ...state, threadUsage: { ...state.threadUsage, [threadId]: totals } };
-    } else if (last) binding = { ...binding, turn: { ...binding.turn, usage: last } };
+    } else if (last && !binding.usageResponseIds) binding = { ...binding, turn: { ...binding.turn, usage: last } };
   }
-  const agentIds = { [state.rootThreadId]: state.agentId };
+  const agentIds = { [state.rootThreadId]: state.agentId, '/root': state.agentId,
+    ...Object.fromEntries(state.subagents.flatMap(agent => [[agent.id, agent.id], ...(state.agentPaths?.[agent.id] ? [[state.agentPaths[agent.id]!, agent.id]] : [])])),
+  };
   const completedItems = method === 'turn/completed' && Array.isArray(nativeTurn?.items) ? nativeTurn.items.map((item) => ({ method: 'item/completed', params: { threadId, turnId: nativeTurnId, item } })) : [];
   binding = { ...binding, items: projectSessionItems(binding.turn.id, [event, ...completedItems], undefined, { initial: binding.items, includeUser: threadId !== state.rootThreadId, agentIds }) };
+  if (binding.turn.status === 'failed' || binding.turn.status === 'cancelled') binding = { ...binding, items: incompleteItems(binding.items) };
   if (method === 'item/tool/call' && typeof params.tool === 'string' && typeof params.callId === 'string') {
     if (!requiredActions.some((action) => action.type === 'function_call' && action.call_id === params.callId && action.turn_id === binding.turn.id)) requiredActions = [...requiredActions, { type: 'function_call', call_id: params.callId, turn_id: binding.turn.id, name: params.tool, arguments: params.arguments }];
     binding = { ...binding, turn: { ...binding.turn, status: 'waiting' } };
@@ -143,6 +173,11 @@ export function runtimeSubagents(state: SessionRuntimeState): SessionSubagentSna
     const bindings = state.turns.filter((binding) => binding.threadId === subagent.id);
     return { subagent, turns: bindings.map((binding) => binding.turn), items: bindings.flatMap((binding) => binding.items), artifacts: bindings.flatMap((binding) => binding.artifacts ?? []), requiredActions: state.requiredActions.filter((action) => action.type === 'function_call' && bindings.some((binding) => binding.turn.id === action.turn_id)) };
   });
+}
+
+/** Missing completion is incomplete work, not evidence that a tool failed. */
+function incompleteItems(items: AgentSessionItem[]): AgentSessionItem[] {
+  return items.map(item => 'status' in item && item.status === 'in_progress' ? { ...item, status: 'incomplete' } : item);
 }
 
 function newTurn(state: SessionRuntimeState, threadId: string, nativeTurnId: string, now: number): NativeTurnBinding {

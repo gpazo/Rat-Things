@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import OpenAI from 'openai';
 import { SessionRuntime } from '../../src/runner/session-runtime.js';
 import type { CodexRpcClient, CodexRpcEvent } from '../../src/adapters/codex-rpc.js';
-import { runtimeSubagents } from '../../src/core/session-runtime-planning.js';
+import { bindSessionTurn, initialSessionRuntime, reduceSessionRuntime, runtimeSubagents } from '../../src/core/session-runtime-planning.js';
 import { SessionService } from '../../src/core/session-service.js';
 import { AgentService } from '../../src/core/agent-service.js';
 import { parseAgentsContract } from '../../src/domain/agents-api-validation.js';
@@ -44,6 +44,10 @@ function fixture(lifetime?: 'bounded' | 'host-managed') {
 }
 const rootTurn = (id: string): Turn => ({ id, agent_id: 'agent', session_id: 'sess', subagent_id: null, object: 'agent.session.turn', status: 'queued', created_at: 90, started_at: null, completed_at: null, usage: null, error: null });
 const message = [{ role: 'user' as const, content: [{ type: 'input_text' as const, text: 'Work' }] }];
+const responseUsage = (threadId: string, turnId: string, responseId: string, inputTokens: number, outputTokens: number, cachedInputTokens = 0, reasoningOutputTokens = 0): CodexRpcEvent => ({
+  method: 'rawResponse/completed',
+  params: { threadId, turnId, responseId, usage: { inputTokens, outputTokens, cachedInputTokens, reasoningOutputTokens, totalTokens: inputTokens + outputTokens } },
+});
 
 describe('persistent native session runtime', () => {
   it.each([false, true])('retries a follow-up rejected before native admission, with start pending=%s', async (pending) => {
@@ -133,6 +137,101 @@ describe('persistent native session runtime', () => {
     usage(6, 9);
     expect(f.runtime.snapshot().turns.map(({ turn }) => turn.usage?.total_tokens)).toEqual([10, 5]);
     await f.runtime.close();
+  });
+
+  it('counts exact model and compaction responses once without adding the cumulative feed', async () => {
+    const f = fixture();
+    try {
+      await f.runtime.initialize();
+      await f.runtime.start(rootTurn('first'), message);
+      const cumulative = (turnId: string, inputTokens: number, outputTokens: number) => f.emit({ method: 'thread/tokenUsage/updated', params: {
+        threadId: 'root', turnId, tokenUsage: { total: { inputTokens, outputTokens, cachedInputTokens: 0, reasoningOutputTokens: 0 } },
+      } });
+      const first = responseUsage('root', 'native-1', 'response-first', 100, 10, 25, 2);
+      f.emit(first);
+      cumulative('native-1', 100, 10);
+      // Remote compaction emits exact response usage but leaves cumulative
+      // model usage unchanged when it recomputes the context estimate.
+      f.emit(responseUsage('root', 'native-1', 'response-compaction', 80, 5, 40, 1));
+      cumulative('native-1', 100, 10);
+      f.emit(responseUsage('root', 'native-1', 'response-next', 120, 15, 60, 4));
+      cumulative('native-1', 220, 25);
+      f.emit({ method: 'turn/completed', params: { threadId: 'root', turn: { id: 'native-1', status: 'completed' } } });
+      await f.runtime.start(rootTurn('second'), message);
+      f.emit(first);
+      cumulative('native-1', 100, 10);
+      f.emit(responseUsage('root', 'native-2', 'response-second-turn', 20, 2));
+      cumulative('native-2', 240, 27);
+      const turns = f.runtime.snapshot().turns.map(({ turn }) => turn);
+      expect(turns[0]?.usage).toEqual({
+        input_tokens: 300, output_tokens: 30, total_tokens: 330,
+        input_tokens_details: { cached_tokens: 125 }, output_tokens_details: { reasoning_tokens: 7 },
+      });
+      expect(turns[1]?.usage?.total_tokens).toBe(22);
+      turns.forEach((turn) => parseAgentsContract('Turn', turn));
+    } finally { await f.runtime.close(); }
+  });
+
+  it('retains exact-response deduplication through early native binding and snapshot recovery', () => {
+    const event = { ...responseUsage('root', 'native-1', 'response-before-ack', 7, 3), observedAt: 100 };
+    const observed = reduceSessionRuntime(initialSessionRuntime('sess', 'agent', 'root'), event);
+    const bound = bindSessionTurn(observed, 'native-1', rootTurn('public-turn'));
+    const restored = JSON.parse(JSON.stringify(bound)) as typeof bound;
+    const before = structuredClone(restored);
+    const replayed = reduceSessionRuntime(restored, event);
+    expect(replayed.turns[0]?.turn).toMatchObject({ id: 'public-turn', usage: { total_tokens: 10 } });
+    expect(restored).toEqual(before);
+    const continued = reduceSessionRuntime(replayed, { ...responseUsage('root', 'native-1', 'response-after-restore', 4, 1), observedAt: 101 });
+    expect(continued.turns[0]?.turn.usage?.total_tokens).toBe(15);
+  });
+
+  it('does not rewind the cumulative baseline when an earlier Turn is replayed', async () => {
+    const f = fixture();
+    const cumulative = (turnId: string, inputTokens: number, outputTokens: number) => f.emit({ method: 'thread/tokenUsage/updated', params: {
+      threadId: 'root', turnId, tokenUsage: { total: { inputTokens, outputTokens } },
+    } });
+    try {
+      await f.runtime.initialize();
+      await f.runtime.start(rootTurn('first'), message);
+      cumulative('native-1', 7, 3);
+      f.emit({ method: 'turn/completed', params: { threadId: 'root', turn: { id: 'native-1', status: 'completed' } } });
+      await f.runtime.start(rootTurn('second'), message);
+      cumulative('native-2', 11, 4);
+      cumulative('native-1', 7, 3);
+      cumulative('native-2', 14, 6);
+      expect(f.runtime.snapshot().turns.map(({ turn }) => turn.usage?.total_tokens)).toEqual([10, 10]);
+      // A reset from the current Turn still starts a new cumulative interval.
+      cumulative('native-2', 2, 1);
+      expect(f.runtime.snapshot().turns.map(({ turn }) => turn.usage?.total_tokens)).toEqual([10, 13]);
+    } finally { await f.runtime.close(); }
+  });
+
+  it('isolates exact usage between parent and child Turns, including reused response IDs', async () => {
+    const f = fixture();
+    try {
+      await f.runtime.initialize();
+      await f.runtime.start(rootTurn('first'), message);
+      f.emit(responseUsage('root', 'native-1', 'response-id', 4, 1));
+      f.emit({ method: 'thread/started', params: { thread: { id: 'child', parentThreadId: 'root' } } });
+      f.emit({ method: 'turn/started', params: { threadId: 'child', turn: { id: 'child-turn' } } });
+      const child = responseUsage('child', 'child-turn', 'response-id', 10, 2);
+      f.emit(child);
+      f.emit(child);
+      f.emit(responseUsage('child', 'child-turn', 'child-compaction', 6, 1));
+      const state = f.runtime.snapshot();
+      expect(state.turns.find(({ threadId }) => threadId === 'root')?.turn.usage?.total_tokens).toBe(5);
+      expect(runtimeSubagents(state)[0]?.turns[0]?.usage?.total_tokens).toBe(19);
+    } finally { await f.runtime.close(); }
+  });
+
+  it('keeps missing exact usage distinct from zero while retaining the cumulative fallback', () => {
+    const initial = bindSessionTurn(initialSessionRuntime('sess', 'agent', 'root'), 'native-1', rootTurn('first'));
+    const missing = reduceSessionRuntime(initial, { method: 'rawResponse/completed', params: { threadId: 'root', turnId: 'native-1', responseId: 'missing', usage: null }, observedAt: 100 });
+    expect(missing.turns[0]?.turn.usage).toBeNull();
+    const fallback = reduceSessionRuntime(missing, { method: 'thread/tokenUsage/updated', params: { threadId: 'root', turnId: 'native-1', tokenUsage: { total: { inputTokens: 2, outputTokens: 3 } } }, observedAt: 100 });
+    expect(fallback.turns[0]?.turn.usage?.total_tokens).toBe(5);
+    const exactZero = reduceSessionRuntime(initial, { ...responseUsage('root', 'native-1', 'zero', 0, 0), observedAt: 100 });
+    expect(exactZero.turns[0]?.turn.usage?.total_tokens).toBe(0);
   });
 
   it('keeps children running across root turns and isolates their items, state, and usage', async () => {

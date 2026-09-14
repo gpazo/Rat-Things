@@ -51,6 +51,34 @@ function fixture() {
 }
 
 describe('Agents API session lifecycle through the OpenAI SDK', () => {
+  it.each(['asc', 'desc'] as const)('filters and orders root and child artifacts before %s pagination', async order => {
+    const f = fixture();
+    const session = await f.api.sessions.create({ agent: { model: 'test' }, environment: { type: 'none' }, input: 'Fixture' });
+    const root = (await f.api.sessions.turns.list(session.id)).data[0]!;
+    const saved = (id: string, created_at: number, environment_id = 'env_selected', turn_id = root.id) => ({
+      artifact: { id, created_at, environment_id, turn_id, session_id: session.id, object: 'agent.session.artifact' as const, path: `/workspace/outputs/${id}`, size_bytes: 1 },
+      content: { bucket: 'private', key: id, sha256: 'a'.repeat(64) },
+    });
+    const roots = [saved('artifact_z', 300), saved('artifact_b', 100), saved('artifact_other', 75, 'env_other')];
+    const childArtifacts = [saved('artifact_first', 50, 'env_selected', 'child_turn'), saved('artifact_a', 100, 'env_selected', 'child_turn')];
+    const original = structuredClone({ roots, childArtifacts });
+    f.execution.artifacts = async () => roots;
+    f.execution.subagents = async () => [{
+      subagent: { id: 'child', object: 'agent.session.subagent', parent_agent_id: session.agent.id, session_id: session.id,
+        opened_at: 40, closed_at: 110, status: 'closed', name: null, instructions: null },
+      turns: [{ ...root, id: 'child_turn', subagent_id: 'child', status: 'completed', completed_at: 110 }], items: [], artifacts: childArtifacts,
+    }];
+    await f.api.sessions.artifacts.delete('artifact_z', { session_id: session.id });
+    const expected = order === 'asc' ? ['artifact_first', 'artifact_a', 'artifact_b'] : ['artifact_b', 'artifact_a', 'artifact_first'];
+    const ids: string[] = [];
+    for await (const artifact of f.api.sessions.artifacts.list(session.id, { environment_id: 'env_selected', order, limit: 1 })) ids.push(artifact.id);
+    expect(ids).toEqual(expected);
+    expect((await f.api.sessions.artifacts.list(session.id, { environment_id: 'env_missing' })).data).toEqual([]);
+    expect((await f.api.sessions.artifacts.list(session.id, { environment_id: null })).data).toHaveLength(4);
+    await expect(f.other.sessions.artifacts.list(session.id, { environment_id: 'env_selected' })).rejects.toMatchObject({ status: 404 });
+    expect({ roots, childArtifacts }).toEqual(original);
+  });
+
   it('replans input when terminal-history materialization wins the Session write', async () => {
     const f = fixture();
     const session = await f.api.sessions.create({ agent: { model: 'test' }, environment: { type: 'none' }, input: 'First' });
@@ -372,6 +400,11 @@ describe('Agents API session lifecycle through the OpenAI SDK', () => {
       { type: 'agent.session.input.tool_result', turn_id: turn.id, call_id: 'call_1', success: true, output: '' },
       { type: 'agent.session.input.message', input: [{ role: 'user', content: [{ type: 'input_text', text: 'Continue with this result' }] }] },
     ] });
-    expect((await f.api.sessions.items.list(session.id, { order: 'asc' })).data.map((item) => item.type)).toEqual(['message', 'function_call', 'function_call_output', 'message']);
+    const beforeEcho = (await f.api.sessions.items.list(session.id, { order: 'asc' })).data;
+    expect(beforeEcho.map(item => item.type)).toEqual(['message', 'function_call', 'function_call_output', 'message']);
+    const output = beforeEcho.find(item => item.type === 'function_call_output')!;
+    const originalItems = f.execution.items;
+    f.execution.items = async (...args) => [...await originalItems(...args), { ...output, id: 'fresult_native_call_1', output: [{ type: 'input_text', text: '' }] }];
+    expect((await f.api.sessions.items.list(session.id, { order: 'asc' })).data).toEqual(beforeEcho);
   });
 });

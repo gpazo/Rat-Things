@@ -31,9 +31,10 @@ isolation and a sparse Session Agent filter spanning more than one storage page.
 The combined boundary, list, SDK and Session lifecycle run passes 37 tests.
 
 The current list reference also presents nullable `limit`, while the pinned SDK
-types and generated request schema do not. That source difference remains to be
-resolved during the exhaustive contract review; this pass does not silently
-change request validation or the SDK baseline.
+types and generated request schema do not. The subsequent
+[contract follow-up](agents-api-contract-followup-2026-09-14.md) resolves its HTTP
+behavior for Agent and Session lists: the SDK's empty-value encoding of null uses
+the default page size. The SDK baseline and generated types remain pinned.
 
 ## Cleanup and remaining acceptance
 
