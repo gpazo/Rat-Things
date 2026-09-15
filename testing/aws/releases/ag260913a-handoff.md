@@ -9,11 +9,12 @@ The state-owning ARM64 machine has resumed this handoff. Consult
 [`the resumed validation report`](../../../plans/aws-live-resume-2026-09-14.md)
 for current images, reconciled state and actual results before repeating phases.
 The [observer continuation](../../../plans/aws-live-observer-2026-09-14.md)
-records any active cloud-hosted soak. Check it before restarting API services.
-The September 14 17:17 UTC heartbeat observed the Agents outbox and all seven
-checked failure queues empty. The original observer remains active; its final
-proof and cleanup are pending. Local contract/cleanup edits made during the soak
-remain undeployed, as recorded in the observer continuation.
+records the completed cloud-hosted soak. The September 14 17:17 UTC heartbeat
+observed the Agents outbox and all seven checked failure queues empty. The
+observer then exited zero after the full 29,100-second Session soak, both streamed
+Turn completions, managed proof assertions, and 404 cleanup checks for its Session
+and Agent. No deployment worker remains. Check the continuation before restarting
+API services; the stack and Terraform state are preserved.
 
 ## Resume on the machine with state and ARM64 support
 

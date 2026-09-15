@@ -69,45 +69,44 @@ Both completed Turns were received on the original SSE connection. Consistent
 DynamoDB reads confirm the Session and Agent are tombstoned; evidence is in
 `observer-short-log.json` and `observer-short-cleanup.json`.
 
-The eight-hour-plus run is active in task
-`9c484f323d854919b59eb40ab0f0785f`, started September 14 at 16:05:47 UTC.
+The eight-hour-plus run completed in task
+`9c484f323d854919b59eb40ab0f0785f`, started September 14 at 16:05:47 UTC and
+stopped September 15 at 00:13:34 UTC with container exit code 0.
 Its Session is `sess_b74d26ea7a45452581dd78f693a0e1bf` and Agent is
 `agent_4fa27408ca2541d596bea7f3edf4e7bc`. Its private launch records are under
 `.aws-e2e/ag260913a/observer-20260914T160512-20146/`, and its log stream is
 `probe/observer/9c484f323d854919b59eb40ab0f0785f` in the same log group.
-It uses 29,100 soak seconds; completion is expected around 00:15 UTC September 15
-(17:15 PDT September 14), depending on model execution and startup time.
+It used 29,100 soak seconds; completion finished around 00:15 UTC September 15
+(17:15 PDT September 14), after model execution and startup.
 The original stream received the first completion,
-`turn_45e2cc85524f474fb761b680c23eea06`, at 16:07:49 UTC. Healthy idle checks
-were recorded at 16:08:52 and 16:09:52 UTC, and the task remains running with
-the accepted image digest.
-A running task is not passing evidence.
+`turn_45e2cc85524f474fb761b680c23eea06`, at 16:07:49 UTC. It then recorded
+healthy idle checks throughout the 29,100-second interval and received the second
+stream completion, `turn_43e37584ea044331bb12373bfd35841f`, at 00:13:06 UTC.
+The managed-session test passed (`1` file, `1` test), including retained artifact
+proofs, same-process continuation, duplicate idempotency receipt, and
+guest-boundary assertions. Direct API reads after teardown returned 404 for both
+the Session and Agent, and no EC2 instances tagged `RatDeployment=ag260913a`
+remain. The observer task itself is stopped; the deployment stack and state remain
+intact.
 
 The thread heartbeat `complete-aws-agents-api-soak` checks every 30 minutes when
 this host is available. It stays quiet on unchanged progress, collects final
 results and cleanup evidence, and pauses after recording the outcome. The AWS
 test itself continues even when this Mac sleeps. Do not start a duplicate.
 
-While this task runs, the [parallel local review](agents-api-parallel-review-2026-09-14.md)
-adds contract corrections and removes caller-audited dead code. Those changes
-remain undeployed. The observer still uses the exact images recorded above;
-its result must not be treated as live acceptance of the newer working tree.
-The 16:44:01 UTC check remained healthy with 26,931 soak seconds left.
+The [parallel local review](agents-api-parallel-review-2026-09-14.md) used the
+same branch but was not part of this observer image; the result is acceptance of
+the immutable deployed images recorded above. It does not substitute for live
+validation of later source changes.
 
 After observer deployment, Terraform reports no drift and the original state
 lineage is retained at serial 441 (`observer-final-drift.log`). The most recent
 outbox check at 17:17 UTC shows zero visible, in-flight and delayed messages,
 down from 22 visible/11 in-flight. All seven checked failure queues also report
-zero in every category. This closes the initial residual-drain observation;
-continue watching for new failures through the final soak cleanup. No queue was
-purged. Evidence: `observer-heartbeat-20260914T1717.json`.
+zero in every category. This closes the initial residual-drain observation; no
+queue was purged. Evidence: `observer-heartbeat-20260914T1717.json`.
 
-At the same heartbeat the observer remains RUNNING on its accepted image. Its
-17:17:12 UTC healthy tick has 24,941 soak seconds remaining. The final Turn,
-stream completion and fixture cleanup are still pending.
-
-Keep the API services stable for the whole test. Record the task exit code,
-both streamed completions, retained proof assertions and fixture cleanup before
-claiming a passing soak. Preserve the stack, original state and unrelated
-`.aws-e2e/oauth260827a` resources. Remaining compatibility and obsolete-code work
-stays in the existing ledgers.
+The observer heartbeat remains paused as requested after the completed result.
+The deployment, original Terraform state, and unrelated
+`.aws-e2e/oauth260827a` resources were preserved. Remaining compatibility and
+obsolete-code work stays in the existing ledgers.
