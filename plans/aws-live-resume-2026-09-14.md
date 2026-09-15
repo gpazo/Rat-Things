@@ -200,9 +200,10 @@ deferred outbox records remain intact; no queues were purged.
 
 This cycle does not establish complete API parity. Prioritize:
 
-1. Confirm residual outbox work drains without failure-queue growth, then run a
-   passing long-stream soak; the original eight-hour second-completion SSE
-   assertion remains failed even though artifacts prove process continuity.
+1. Retain the completed long-stream soak as evidence while continuing the
+   remaining live recovery cases; the original eight-hour second-completion SSE
+   assertion remains a historical failure even though artifacts prove process
+   continuity.
 2. Deliberate native-checkpoint loss, replacement-compute workspace restoration,
    and deployed multi-agent capacity/interruption cases.
 3. Canonical provider/scheduler scenarios, credential refresh/revocation and IAM

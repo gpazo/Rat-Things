@@ -31,8 +31,9 @@ new queued input. After correction, AWS replacement execution passes with a new
 worker/Run, retained conversation marker and streamed completion. These cases
 narrow the rows below; they do not close the whole ledger. The subsequent
 [AWS-hosted soak](aws-live-observer-2026-09-14.md) avoids the workstation sleep
-recorded during the original run; it remains in progress until its final proof
-and cleanup are checked.
+recorded during the original run and completed successfully: both streamed Turn
+completions arrived, the managed proof test passed, and the disposable Session,
+Agent, and EC2 worker were cleaned up.
 
 The subsequent [parallel local review](agents-api-parallel-review-2026-09-14.md)
 corrects Unicode character limits, aligns Agent/Session list examples and removes
@@ -72,7 +73,7 @@ completion ordering; broader tool interruption and deployed recovery remain.
 | Session creation, immutable resolved config, initial input, metadata, list/filter/delete | `session-service`, `session-planning`, `session-preparation-planning` | `session-lifecycle`, `session-preparation`, `sdk-conformance`, `session-journal`, `run-session-execution` | Saved Agent transport snapshots, concurrent preparation and commit acknowledgement recovery covered; one-day preparation expiry and concurrent abandonment/adoption covered locally and in the deployed cleanup consumer. Local closure-before-first-claim, concurrent claim/closure and delayed dispatch after HTTP deletion are covered; broader creation/deletion races and documented status/error/limit comparison remain |
 | Input batches, active-turn steering, cancellation, function results, idempotency | `session-planning`, Session outbox | `session-lifecycle`, `run-session-execution` | Connection wait/deadline, 256-character idempotency boundary and saved-Turn acknowledgement after disconnection/harness shutdown covered. Local cancellation during an unacknowledged start preserves completed/failed outcomes and pending native cancellation; broader admission/steering races and deployed timing remain |
 | Turns, Items, pagination, retained output, usage | `session-service`, `session-run-projection`, `session-runtime-planning` | `session-lifecycle`, `session-runtime`; exact response/compaction attribution, duplicate suppression, parent/child isolation and historical cumulative replay regressions | Remaining Item variants and causal order; forced native compaction and deployed usage/recovery comparisons; incomplete historical feeds cannot reconstruct exact accounting |
-| Live SSE, all event variants, connect-before-read recovery | `session-stream`, `session-service`, `session-event-store` | `transport-and-launch`, `session-lifecycle`, `webhooks`, `session-journal` | Durable ordered transitions, command deltas, stable identities, late subscriptions and deletion fencing covered; remaining event variants and deployed streaming remain |
+| Live SSE, all event variants, connect-before-read recovery | `session-stream`, `session-service`, `session-event-store` | `transport-and-launch`, `session-lifecycle`, `webhooks`, `session-journal`, completed AWS soak | Durable ordered transitions, command deltas, stable identities, late subscriptions, deletion fencing, and the long-lived deployed stream are covered; remaining event variants and deployed recovery comparisons remain |
 | Outbound Session webhooks | `session-webhooks`, `webhook-service`, durable event/outbox adapters | `webhooks`, `webhook-http` | Five events, pre-wait action, SDK signatures, duplicates, DNS deadline, redirects and 72-hour horizon covered locally; earlier live HTTPS capture proved committed-event delivery; broader deployed retry/fanout evidence remains |
 | Subagent CRUD/read surfaces and coordination items | `session-runtime`, runtime planning | `session-runtime`, `native-session` | Patched macOS and packaged Linux ARM64 runtimes pass strict limits 1/6, ten interrupted follow-ups at each limit and ten competing nested admissions; deployed execution remains |
 | No-environment execution and declared tools | `session-launch-planning`, native harness | `native-session`, `transport-and-launch` | Earlier live admitted-model calls passed; expand absent-capability and provider coverage |
@@ -136,8 +137,9 @@ production data, unrelated resources and model credentials remain outside cleanu
   process across Turns and offers an eight-hour-plus soak. Host bootstrap, IAM,
   mounts, guest isolation, short process continuity and shutdown passed in AWS.
   Recovered artifacts prove the same process survived 29,395 seconds, but the
-  original second-Turn SSE assertion failed. A complete soak pass and broader
-  replacement-worker recovery remain open. EC2
+  original second-Turn SSE assertion failed. The replacement 29,100-second
+  observer soak passed with both streamed completions and cleanup; broader
+  replacement-worker recovery remains open. EC2
   workers refresh scoped Bedrock bearer tokens through native command auth.
 - **Recovery:** native checkpoints remain preferred. Public-item fallback now
   retains all supplied Item variants, pairs completed functions within their Turn,
@@ -175,8 +177,8 @@ CloudFront response-timeout quota increase for the five-minute input wait; see
    acknowledgement; control requests carry the intended public Turn ID.
    The EC2 harness uses host-managed lifetime and renews private Run TTL on fenced
    heartbeats. Live host bootstrap, IAM, metadata denial, mounts, short process
-   continuity and shutdown passed. Verify native processes past eight hours and
-   recovery. Fargate cannot directly host the current
+   continuity, the completed eight-hour-plus process soak and shutdown passed.
+   Verify recovery. Fargate cannot directly host the current
    privileged mount/network controls, so it is no longer the selected worker design.
 3. Use the already-authorized AWS deployment/e2e cycle to complete outstanding
    behavior rows. Include real admitted-model calls,
