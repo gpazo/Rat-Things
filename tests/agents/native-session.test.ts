@@ -213,7 +213,7 @@ describe('stock harness with a local model protocol fixture', () => {
   }, 25_000);
   }
 
-  it('recovers saved tool context without replay and preserves two root turns in one native thread', async () => {
+  it('recovers an absent native checkpoint from saved tool context without replay', async () => {
     const requests: Array<Record<string, unknown>> = [];
     const server = createServer(async (request, response) => {
       const chunks: Buffer[] = []; for await (const chunk of request) chunks.push(Buffer.from(chunk));
@@ -246,6 +246,7 @@ describe('stock harness with a local model protocol fixture', () => {
     const runtime = new SessionRuntime({ sessionId: 'sess_fixture', agentId: 'agent_fixture', request: {
       binary: nativeBinary, workspace: home, environment: { PATH: process.env.PATH, HOME: home, CODEX_HOME: home },
       timeoutMs: 15_000, persistent: true, prompt: '', sandbox: 'read-only', networkAccess: false, environments: [], model: 'gpt-5.4', modelProvider: 'fixture',
+      resumeThreadId: '00000000-0000-4000-8000-000000000000',
       recoveryItems: planned.recoveryItems!,
       sessionConfig: { ...planned.sessionConfig, 'model_providers.fixture': { name: 'local fixture', base_url: `http://127.0.0.1:${bound.port}`, wire_api: 'responses', requires_openai_auth: false, supports_websockets: false } },
       dynamicTools: [{ type: 'function', name: 'lookup', description: 'Look up a value', inputSchema: { type: 'object', properties: { key: { type: 'string' } }, required: ['key'] } }],
@@ -256,6 +257,7 @@ describe('stock harness with a local model protocol fixture', () => {
     async function until(predicate: () => boolean) { for (let n = 0; n < 500; n++) { if (predicate()) return; await delay(10); } throw new Error(`Native session did not reach expected state: ${JSON.stringify(runtime.snapshot().turns.map(({ turn }) => turn))}`); }
     try {
       const initial = await runtime.initialize();
+      expect(initial.rootThreadId).not.toBe('00000000-0000-4000-8000-000000000000');
       expect(initial.requiredActions).toEqual([]);
       expect(initial.subagents).toEqual([]);
       expect(requests).toHaveLength(0);

@@ -165,3 +165,21 @@ With Terraform 1.15.8 installed, run `npm run test:infra`. Mocked AWS providers 
 EC2-only and combined worker configurations, including S3 Files principals and MicroVM
 network connector selection. These tests do not contact AWS or provision resources.
 Real IAM enforcement and mount behavior remain part of the opt-in AWS canaries.
+
+The hosted credential proof uses the existing deployment-owned integration fixture.
+After deploying the candidate and loading its runtime environment, set
+`AWS_E2E_CREDENTIAL_PROOF=true` with `AWS_E2E=true` and `AWS_E2E_REAL_CODEX=true`,
+then run `npx vitest run tests/aws/environment-credentials.test.ts`.
+It creates two disposable hosted Sessions, uses the fixture's synthetic alpha/beta
+credentials to verify rotation and HTTPS substitution, checks guest UID/key isolation,
+and requires Session secrets to enter deletion after cleanup. It never reads
+Secrets Manager values through the test client.
+
+`AWS_E2E_WORKER_RECOVERY=true` enables the recovery cases in
+`tests/aws/session-recovery.test.ts`. Set `AWS_E2E_RECOVERY_LAUNCH_TEMPLATE_ID` to
+the exact deployment template. Each injection verifies account, deployment, Run,
+execution generation and instance tags before terminating its own fixture worker.
+The missing-checkpoint case waits for termination, then uses a conditional write
+to give only that disposable Session an absent native thread reference. It proves
+the deployed resume failure and public-history fallback; it does not delete shared
+checkpoint files or claim to simulate every possible storage-corruption mode.

@@ -102,6 +102,15 @@ immutable execution generation, and lost attached executions are not restarted
 under the same Run ID. Replacement claims a new Run, so existing Run-ID fences
 reject superseded readiness/status and journal writes.
 
+The native recovery fixture now supplies an absent checkpoint ID instead of
+starting a new thread directly. It passes locally, preserving saved tool context
+without replay and completing two subsequent Turns. New opt-in AWS cases cover
+the same missing-checkpoint fallback after exact-worker termination, hosted
+credential substitution/rotation/guest isolation/secret retirement, and webhook
+retry/fanout through the existing deployment-owned fixtures. Those live cases
+are prepared, not yet executed. The ordinary check passes 1,015 tests with 23
+opt-in skips and reaches the same native-artifact packaging gate.
+
 ## Remaining priority order
 
 1. Build and test the native settings and typed error patches. Complete environment-variable
