@@ -120,6 +120,13 @@ four-patch CI build was cancelled before restarting with this complete correctio
 CI now saves a completed compilation before later acceptance checks so failures
 in those checks do not discard an otherwise reusable, identity-checked artifact.
 
+The completed ARM64 CI candidate now passes repository, infrastructure, relay,
+MicroVM, native-image, site, packaging and artifact-provenance checks. The local
+MCP bridge adds Streamable HTTP response resumption, notification cursors, retry
+hints and expired-session reinitialization without replaying tool POSTs. A
+deployment-owned MCP fixture and opt-in OAuth/revocation canary cover the real
+service-origin Vault path; they await rollout of this exact candidate.
+
 ## Remaining priority order
 
 1. Build and test the native settings and typed error patches. Complete environment-variable

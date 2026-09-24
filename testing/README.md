@@ -185,3 +185,23 @@ The missing-checkpoint case waits for termination, then uses a conditional write
 to give only that disposable Session an absent native thread reference. It proves
 the deployed resume failure and public-history fallback; it does not delete shared
 checkpoint files or claim to simulate every possible storage-corruption mode.
+
+`AWS_E2E_SCHEDULE_PROOF=true` enables `tests/aws/schedules.test.ts`. It creates a
+one-time schedule two minutes ahead, observes the outbox-created EventBridge
+schedule, requires exactly one completed canonical Session, then verifies schedule
+and Session cleanup. Both `RAT_THINGS_API_URL` (administration) and
+`RAT_THINGS_AGENTS_API_URL` must refer to the candidate deployment.
+
+`AWS_E2E_MULTI_AGENT_PROOF=true` enables `tests/aws/multi-agent.test.ts`. The live
+model fills capacities one and six with children waiting on long-running commands
+in one hosted environment (subagents do not inherit function tools),
+attempts an over-capacity spawn, then interrupts and restarts the same child three
+times before requiring a completed child reply. It verifies public coordination
+Items and stable child identities. Each test deletes its Session and Agent.
+
+`AWS_E2E_MCP_PROOF=true` enables `tests/aws/mcp.test.ts`. The deployment-owned
+integration fixture supplies a real HTTP MCP server and a synthetic OAuth token
+endpoint. The cases cover proactive expired-token refresh, refresh after HTTP 401,
+metadata, public MCP Items, secret redaction and revocation on a subsequent call.
+Audit messages contain only the test proof ID and account, never credential values.
+The tests remove their own Sessions, Vaults and matching audit messages.
