@@ -82,9 +82,17 @@ workspace, and preserved conversation. It has not yet run against these changes.
 The reset batch passes 985 ordinary tests (15 opt-in skips); full checks again
 stop only at the expected old-runtime packaging gate.
 
+Public Turn errors now preserve typed provider failures with fixed safe messages.
+Native context, quota and policy fixture failures pass; credit-balance and HTTP
+error categories require the new `api-turn-errors.patch`, which preserves the
+typed category through the native protocol. All four pinned patches apply
+together and native formatting passes. The ordinary suite passes 1,014 tests
+with 20 opt-in skips, including five acceptance cases reserved for the rebuilt
+binary. Native compilation, strict error acceptance and packaging remain open.
+
 ## Remaining priority order
 
-1. Build and test the native settings patch. Complete environment-variable
+1. Build and test the native settings and typed error patches. Complete environment-variable
    credential and hosted reset image/live acceptance; audit the new credit-balance
    error mapping and the other public Turn error categories.
 2. Run repository, infrastructure, worker/relay/native image and LocalStack

@@ -1,3 +1,4 @@
+import { sessionTurnError } from '../domain/session-errors.js';
 import type { AgentSession, AgentSessionItem, Subagent, TokenUsage, Turn } from '../domain/agents-api.js';
 import type { SavedSessionArtifact, SessionSubagentSnapshot } from './session-ports.js';
 import { projectSessionItems } from './session-run-projection.js';
@@ -116,7 +117,7 @@ export function reduceSessionRuntime(state: SessionRuntimeState, event: SessionR
   let requiredActions = state.requiredActions;
   if (method === 'error') {
     if (params.willRetry === true) return state;
-    binding = { ...binding, turn: { ...binding.turn, status: 'failed', completed_at: observedAt, error: { code: 'internal_error', message: 'The agent could not complete this turn.' } } };
+    binding = { ...binding, turn: { ...binding.turn, status: 'failed', completed_at: observedAt, error: sessionTurnError(params.error, binding.turn.error) } };
     requiredActions = requiredActions.filter((action) => action.type !== 'function_call' || action.turn_id !== binding.turn.id);
   }
   if (method === 'turn/started' || method === 'turn/completed') {
@@ -124,7 +125,7 @@ export function reduceSessionRuntime(state: SessionRuntimeState, event: SessionR
     binding = { ...binding, turn: {
       ...binding.turn, status, started_at: number(nativeTurn?.startedAt) ?? binding.turn.started_at ?? observedAt,
       completed_at: method === 'turn/completed' ? number(nativeTurn?.completedAt) ?? observedAt : null,
-      error: status === 'failed' ? { code: 'internal_error', message: 'The agent could not complete this turn.' } : null,
+      error: status === 'failed' ? sessionTurnError(nativeTurn?.error, binding.turn.error) : null,
     } };
     if (method === 'turn/completed') requiredActions = requiredActions.filter((action) => action.type !== 'function_call' || action.turn_id !== binding.turn.id);
   }

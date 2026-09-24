@@ -5,6 +5,7 @@
   "patches": [
     "release-lock.patch",
     "interrupt-barrier.patch",
-    "api-model-settings.patch"
+    "api-model-settings.patch",
+    "api-turn-errors.patch"
   ]
 }
