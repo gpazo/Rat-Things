@@ -1,11 +1,17 @@
 # Agents API conformance ledger
 
-Target: `OpenAI-Beta: agents=v1`, `openai@7.15.0` and the public guides
-reviewed on 2026-09-12. Native protocol baseline: `@openai/codex@0.154.0`.
+Target: `OpenAI-Beta: agents=v1`, `openai@7.23.0` and the public guides
+reviewed on 2026-09-23. Native protocol baseline: `@openai/codex@0.154.0`.
 The operator owns the endpoint, authentication, harness, storage, relay and
 compute in AWS. Requested model identifiers and capabilities must preserve their
 meaning. A provider substitution or an explicitly rejected supported upstream
 request is a compatibility difference, not a passing conformance case.
+
+The [September 23 continuation](agents-api-parity-2026-09-23.md) records contract
+changes since the previous SDK pin, current validation, and the work still open.
+The new SDK adds Session model updates, environment-variable Vault credentials,
+nullable list inputs, hosted reset events and a credit-balance error code. Generated
+schema coverage does not imply execution support for those additions.
 
 The exhaustive route/request/response inventory is
 [`spec/agents-api-routes.json`](../spec/agents-api-routes.json); runtime field

@@ -379,14 +379,39 @@ describe('Agents API session lifecycle through the OpenAI SDK', () => {
     expect(f.calls.at(-1)).toEqual({ type: 'tool_result', turnId: turn.id, input: event });
   });
 
-  it('validates immutable configuration before persistence', async () => {
+  it('validates immutable configuration and invalid model changes before persistence', async () => {
     const f = fixture();
     await expect(f.api.sessions.create({ agent: { model: 'test' }, environment: { type: 'none' } })).rejects.toMatchObject({ status: 400 });
     expect(f.store.resources.size).toBe(0);
     const session = await f.api.sessions.create({ agent: { model: 'test' }, environment: { type: 'none' }, input: 'Start' });
-    await expect(f.sessions.update('alice', session.id, { agent: { model: 'other' } })).rejects.toMatchObject({ status: 400 });
+    await expect(f.sessions.update('alice', session.id, { agent: { instructions: 'Other' } })).rejects.toMatchObject({ status: 400 });
+    await expect(f.api.sessions.update(session.id, { agent: { model: ' ' } })).rejects.toMatchObject({ status: 400 });
     await f.api.sessions.update(session.id, { metadata: { purpose: 'test' } });
     expect((await f.api.sessions.update(session.id, { metadata: null })).metadata).toEqual({});
+  });
+
+  it('applies partial Session model updates to future Turns without changing admitted Turns or the saved Agent', async () => {
+    const f = fixture();
+    const saved = await f.api.create({ model: 'gpt-5.4', reasoning: { effort: 'high', summary: 'detailed' }, service_tier: 'priority' });
+    const session = await f.api.sessions.create({ agent_id: saved.id, environment: { type: 'none' }, input: 'First' });
+    const original = { model: 'gpt-5.4', reasoning: { effort: 'high' }, service_tier: 'priority' };
+    const update = await f.api.sessions.update(session.id, { agent: { model: 'gpt-6-astra', reasoning: { effort: null }, service_tier: null }, metadata: { updated: 'yes' } });
+    expect(update.agent).toMatchObject({ model: 'gpt-6-astra', reasoning: { effort: 'low', summary: 'detailed' }, service_tier: 'auto' });
+    expect((await f.api.sessions.update(session.id, { agent: { reasoning: {} } })).agent).toEqual(update.agent);
+    expect(await f.api.retrieve(saved.id)).toEqual(saved);
+    await expect(f.other.sessions.update(session.id, { agent: { model: 'gpt-5.4' } })).rejects.toMatchObject({ status: 404 });
+    const start = vi.spyOn(f.execution, 'start');
+    await f.sessions.dispatch('alice', session.id);
+    expect(start.mock.calls[0]![2].modelSettings).toEqual(original);
+    const first = (await f.api.sessions.turns.list(session.id)).data[0]!;
+    f.observations.set(first.id, { turn: { ...first, status: 'completed', completed_at: 110 }, requiredActions: [] });
+    await f.api.sessions.events.create(session.id, { events: [{ type: 'agent.session.input.message', input: [{ role: 'user', content: [{ type: 'input_text', text: 'Next' }] }] }] });
+    // A second edit before outbox dispatch must not rewrite the accepted next Turn.
+    await f.api.sessions.update(session.id, { agent: { reasoning: { effort: 'max' } } });
+    await f.sessions.dispatch('alice', session.id);
+    expect(start.mock.calls[1]![2].modelSettings).toEqual({ model: 'gpt-6-astra', reasoning: { effort: 'low' }, service_tier: 'auto' });
+    expect((await f.api.sessions.retrieve(session.id)).agent.reasoning).toEqual({ effort: 'max', summary: 'detailed' });
+    expect((await f.api.sessions.artifacts.list(session.id, { after: null, limit: null })).data).toEqual([]);
   });
 
   it('preserves acceptance order for tool results and input in the same event batch', async () => {

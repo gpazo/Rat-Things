@@ -43,11 +43,11 @@ describe('Agents HTTP query and path contracts', () => {
     const agent = await f.agents.create('alice', { model: 'test' });
     if (resource === 'sessions') await f.sessions.create('alice', { agent_id: agent.id, environment: { type: 'none' }, input: 'Queued' });
     const api = resource === 'agents' ? f.client.beta.agents : f.client.beta.agents.sessions;
-    // RequestOptions can express the documented null even though this SDK's
-    // inherited CursorPageParams omits null from its TypeScript limit type.
-    const page = await api.list({}, { query: { limit: null } });
+    const page = await api.list({ limit: null });
     expect(page.data).toEqual((await api.list()).data);
     expect(page.data).toHaveLength(1);
+    const direct = resource === 'agents' ? await f.agents.list('alice', { limit: null }) : await f.sessions.list('alice', { limit: null });
+    expect(direct.data).toEqual(page.data);
   });
 
   it.each(['0', '-1', '1.5', 'null', 'NaN', '%20', '+', '1&limit=2'])('rejects invalid or repeated limit %j before listing', async limit => {

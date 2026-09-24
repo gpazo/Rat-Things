@@ -6,7 +6,7 @@ import { canonicalJson } from '../domain/json.js';
 import type { AgentService } from './agent-service.js';
 import type { AgentResource, AgentsClock, AgentsIds, AgentsStore } from './agents-ports.js';
 import type { SessionExecution, SessionObservation, SessionState } from './session-ports.js';
-import { cancelledStartTurn, cursorPage, initialMessages, observeSession, orderedTurnItems, planSessionInput, terminalTurn } from './session-planning.js';
+import { cancelledStartTurn, cursorPage, initialMessages, observeSession, orderedTurnItems, planSessionInput, terminalTurn, updateSessionAgent } from './session-planning.js';
 import { planSessionPreparation, preparationTools, requireActivePreparation, type SessionPreparation } from './session-preparation-planning.js';
 import { planSessionStream, type SessionStreamSnapshot } from './session-stream.js';
 import { sessionEventBatchId, type SessionEventBatch } from './session-event-store.js';
@@ -156,6 +156,7 @@ export class SessionService {
     const observation = await this.observe(ownerId, resource.value);
     const session = {
       ...observation.session,
+      agent: updateSessionAgent(resource.value.session.agent, input.agent),
       metadata: input.metadata === undefined ? resource.value.session.metadata : input.metadata ?? {},
     };
     await this.replace(resource, { ...resource.value, session });
@@ -469,8 +470,8 @@ export class SessionService {
   }
 }
 
-function pageLimit(limit?: number) {
-  if (limit !== undefined && (!Number.isInteger(limit) || limit < 1)) invalid('limit must be a positive integer', 'limit');
+function pageLimit(limit?: number | null) {
+  if (limit != null && (!Number.isInteger(limit) || limit < 1)) invalid('limit must be a positive integer', 'limit');
   return Math.min(limit ?? 20, 100);
 }
 

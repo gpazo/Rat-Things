@@ -18,7 +18,7 @@ import { SessionRuntimeStore } from '../core/session-runtime-store.js';
 import type { SessionIntegrationState } from '../domain/session-integrations.js';
 import type { AgentsStore } from '../core/agents-ports.js';
 import { runtimeSubagents, stoppedSessionRuntime } from '../core/session-runtime-planning.js';
-import { terminalTurn } from '../core/session-planning.js';
+import { sessionModelSettings, terminalTurn } from '../core/session-planning.js';
 
 /** AWS execution is private implementation machinery; public clients see sessions and turns. */
 export class RunSessionExecution implements SessionExecution {
@@ -103,13 +103,14 @@ export class RunSessionExecution implements SessionExecution {
       // bridge's acknowledgement instead of submitting input into that gap.
       if (!(await this.options.interaction.events(target)).ready) throw new AgentsApiError(503, 'The session harness is not ready for input.', 'service_unavailable');
       await this.options.interaction.startSessionTurn(target, binding.turn,
-        binding.input.map(({ role, content }) => ({ role, content })));
+        binding.input.map(({ role, content }) => ({ role, content })), binding.modelSettings ?? sessionModelSettings(session.agent));
       return;
     }
     const existing = await this.runById(ownerId, this.options.runs.idFor(ownerId, this.key(session.id, binding.turn.id)));
     const environmentCredential = session.environment.type === 'self_hosted' ? await this.options.environments.launchReference(ownerId, session.environment.id, existing ? undefined : binding.turn.created_at + 300) : undefined;
     const launch: SessionLaunch = existing?.agentsSession ? await this.options.artifacts.getJson(existing.agentsSession.launch) : {
-      sessionId: session.id, turnId: binding.turn.id, ...(bootstrap ? {} : { turn: binding.turn }), agent: session.agent, environment: session.environment,
+      sessionId: session.id, turnId: binding.turn.id, ...(bootstrap ? {} : { turn: binding.turn }),
+      agent: binding.modelSettings ? { ...session.agent, ...binding.modelSettings, reasoning: { ...session.agent.reasoning, ...binding.modelSettings.reasoning } } : session.agent, environment: session.environment,
       input: binding.input.map(({ role, content }) => ({ role, content })), history,
       mcp: await this.options.tools.launch(ownerId, session),
       ...(environmentCredential ? { environmentCredential } : {}),

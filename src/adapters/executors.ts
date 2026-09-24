@@ -222,8 +222,8 @@ export class MicrovmAgentInteractionController implements AgentInteractionContro
     return this.request(target, `/agent-runtime/v1/runs/${encodeURIComponent(target.runId)}/environment-files`, 'POST', operation);
   }
 
-  public async startSessionTurn(target: AgentInteractionTarget, turn: import('../domain/agents-api.js').Turn, input: import('../domain/agents-api.js').AgentSessionInputMessageParam[]): Promise<void> {
-    await this.request(target, `/agent-runtime/v1/runs/${encodeURIComponent(target.runId)}/session-start`, 'POST', { turn, input });
+  public async startSessionTurn(target: AgentInteractionTarget, turn: import('../domain/agents-api.js').Turn, input: import('../domain/agents-api.js').AgentSessionInputMessageParam[], settings?: import('../domain/session-execution.js').SessionModelSettings): Promise<void> {
+    await this.request(target, `/agent-runtime/v1/runs/${encodeURIComponent(target.runId)}/session-start`, 'POST', { turn, input, settings });
   }
 
   public events(

@@ -869,7 +869,11 @@
             "name": "limit",
             "in": "query",
             "schema": {
-              "type": "number"
+              "type": [
+                "number",
+                "null"
+              ],
+              "description": "The maximum number of resources to return."
             }
           },
           {
@@ -1691,18 +1695,22 @@
             }
           },
           {
-            "name": "limit",
-            "in": "query",
-            "schema": {
-              "type": "number"
-            }
-          },
-          {
             "name": "agent_id",
             "in": "query",
             "schema": {
               "type": "string",
               "description": "Only return sessions whose root agent has this ID. Omit to return sessions for all agents."
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "description": "The maximum number of resources to return."
             }
           },
           {
@@ -2516,14 +2524,11 @@
             "name": "after",
             "in": "query",
             "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "limit",
-            "in": "query",
-            "schema": {
-              "type": "number"
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "Return artifacts after this immutable artifact ID."
             }
           },
           {
@@ -2535,6 +2540,17 @@
                 "null"
               ],
               "description": "Restrict the listing to artifacts produced by this environment."
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "description": "The maximum number of artifacts to return, between 1 and 100."
             }
           },
           {
@@ -2961,7 +2977,11 @@
             "name": "limit",
             "in": "query",
             "schema": {
-              "type": "number"
+              "type": [
+                "number",
+                "null"
+              ],
+              "description": "The maximum number of resources to return. Defaults to 20. Values are clamped between 1 and 100."
             }
           },
           {
@@ -3315,7 +3335,11 @@
             "name": "limit",
             "in": "query",
             "schema": {
-              "type": "number"
+              "type": [
+                "number",
+                "null"
+              ],
+              "description": "The maximum number of resources to return. Defaults to 20. Values are clamped between 1 and 100."
             }
           },
           {
@@ -3767,7 +3791,11 @@
             "name": "limit",
             "in": "query",
             "schema": {
-              "type": "number"
+              "type": [
+                "number",
+                "null"
+              ],
+              "description": "The maximum number of files to return, between 1 and 100."
             }
           },
           {

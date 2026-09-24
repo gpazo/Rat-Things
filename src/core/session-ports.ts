@@ -12,6 +12,7 @@ export interface SessionSubagentSnapshot { subagent: Subagent; turns: Turn[]; it
 export interface SessionTurnBinding {
   turn: Turn;
   input: SessionMessage[];
+  modelSettings?: import('../domain/session-execution.js').SessionModelSettings;
   cancelRequested?: boolean;
   savedItems?: AgentSessionItem[];
   savedArtifacts?: SavedSessionArtifact[];

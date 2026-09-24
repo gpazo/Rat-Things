@@ -116,7 +116,7 @@ describe('persistent harness input admission', () => {
     await f.execution.start('alice', f.session, { turn: f.turn, input: [
       { role: 'user', content, id: 'message', afterItemId: 'previous', acceptedOrdinal: 1 },
     ] });
-    expect(f.start).toHaveBeenCalledExactlyOnceWith({ runId: f.run.runId, execution: f.run.execution }, f.turn, [{ role: 'user', content }]);
+    expect(f.start).toHaveBeenCalledExactlyOnceWith({ runId: f.run.runId, execution: f.run.execution }, f.turn, [{ role: 'user', content }], { model: 'fixture', reasoning: { effort: null }, service_tier: 'auto' });
   });
   it.each(['disabled', 'restricted', 'enabled'] as const)('matches managed stdio MCP admission with %s network access', async (access) => {
     const f = await fixture();
@@ -217,7 +217,7 @@ describe('persistent harness input admission', () => {
     await f.connect();
     await f.execution.start('alice', f.session, { turn: f.turn, input: [] });
     expect(f.start).toHaveBeenCalledTimes(1);
-    expect(f.start).toHaveBeenCalledWith(expect.objectContaining({ runId: 'run' }), f.turn, []);
+    expect(f.start).toHaveBeenCalledWith(expect.objectContaining({ runId: 'run' }), f.turn, [], { model: 'fixture', reasoning: { effort: null }, service_tier: 'auto' });
   });
 
   it('does not replay input when the executor connects after its deadline', async () => {

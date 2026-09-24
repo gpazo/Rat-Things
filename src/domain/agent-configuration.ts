@@ -72,7 +72,7 @@ function exceedsCharacterLimit(value: string, maximum: number): boolean {
 }
 
 /** Resolve known defaults from the same pinned model catalogue as the harness. */
-function modelReasoningDefault(model: string): Agent['reasoning']['effort'] {
+export function modelReasoningDefault(model: string): Agent['reasoning']['effort'] {
   const effort = (nativeModelDefaults.defaults as Record<string, unknown>)[model];
   switch (effort) {
     case 'none': case 'minimal': case 'low': case 'medium': case 'high': case 'xhigh': case 'max': return effort;

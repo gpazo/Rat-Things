@@ -38,7 +38,7 @@ export async function prepareSessionMcp(ownerId: string, launch: SessionLaunch, 
           authorization = (rejected) => vaults.authorization(ownerId, binding.vaultId!, binding.credentialId!, serverURL, rejected);
         } else {
           const auth = parseAgentsContract('CredentialCreate', { name: 'runtime', auth: JSON.parse(await secrets.get(binding.vaultReference)) }).auth;
-          if (credentialUrl(auth.mcp_server_url) !== credentialUrl(tool.transport.server_url)) throw new Error('MCP credential destination is invalid');
+          if (auth.type === 'environment_variable' || credentialUrl(auth.mcp_server_url) !== credentialUrl(tool.transport.server_url)) throw new Error('MCP credential destination is invalid');
           if (auth.type === 'mcp_oauth' && auth.expires_at && Date.parse(auth.expires_at) <= Date.now()) throw new Error('The MCP OAuth credential has expired');
           headers = { ...headers, Authorization: `Bearer ${auth.type === 'static_bearer' ? auth.token : auth.access_token}` };
         }

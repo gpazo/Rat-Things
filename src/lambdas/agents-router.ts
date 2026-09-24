@@ -50,7 +50,7 @@ export async function routeAgentsRequest(request: Request, ownerId: string, serv
     }
     if (parts[1] === 'agents' && parts[2] === 'environments' && parts[3] && parts[4] === 'files' && parts.length === 5) {
       if (!services.environments) throw new AgentsApiError(503, 'Environment service is unavailable.', 'service_unavailable');
-      if (request.method === 'GET') return json(200, await services.environments.files(ownerId, parts[3], queryParameters(url.searchParams)), requestId);
+      if (request.method === 'GET') return json(200, await services.environments.files(ownerId, parts[3], queryParameters(url.searchParams, { nullableLimit: true })), requestId);
       if (request.method === 'POST') return json(200, await services.environments.createFile(ownerId, parts[3], await requestBody(request)), requestId);
     }
     if (parts[1] === 'vaults') return await routeVault(request, ownerId, parts.slice(2), services.vaults, requestId);
@@ -106,7 +106,7 @@ async function routeVault(request: Request, ownerId: string, parts: string[], va
   if (!vaults) throw new AgentsApiError(503, 'Vault service is unavailable.', 'service_unavailable');
   const [vaultId, collection, credentialId] = parts;
   const method = request.method;
-  const query = () => queryParameters(new URL(request.url).searchParams);
+  const query = () => queryParameters(new URL(request.url).searchParams, { nullableLimit: true });
   if (!vaultId && method === 'POST') return json(200, await vaults.create(ownerId, await requestBody(request)), requestId);
   if (!vaultId && method === 'GET') return json(200, await vaults.list(ownerId, query()), requestId);
   if (vaultId && !collection) {
@@ -127,7 +127,7 @@ async function routeSession(request: Request, ownerId: string, parts: string[], 
   if (!sessions) throw new AgentsApiError(503, 'Session service is unavailable.', 'service_unavailable');
   const [id, collection, childId, operation] = parts;
   const method = request.method;
-  const query = () => queryParameters(new URL(request.url).searchParams);
+  const query = () => queryParameters(new URL(request.url).searchParams, { nullableLimit: collection === 'artifacts', nullableAfter: collection === 'artifacts' });
   if (!id && method === 'POST') {
     const body = await requestBody(request);
     if (isStreaming(body) && !streaming) throw new AgentsApiError(400, 'Use the Agents API streaming endpoint for this request.', 'streaming_unavailable');
@@ -233,7 +233,7 @@ function pathParts(pathname: string): string[] {
   catch { throw new AgentsApiError(400, 'Path must use valid percent encoding.', 'invalid_request'); }
 }
 
-export function queryParameters(params: URLSearchParams, options: { nullableLimit?: boolean } = {}): Record<string, unknown> {
+export function queryParameters(params: URLSearchParams, options: { nullableLimit?: boolean; nullableAfter?: boolean } = {}): Record<string, unknown> {
   const query: Record<string, unknown> = Object.fromEntries(params);
   for (const key of params.keys()) {
     if (key.endsWith('[]')) {
@@ -241,6 +241,7 @@ export function queryParameters(params: URLSearchParams, options: { nullableLimi
       delete query[key];
     } else if (params.getAll(key).length > 1) throw new AgentsApiError(400, 'Query parameters must not be repeated.', 'invalid_request', key);
   }
+  if (query.after === '' && options.nullableAfter) delete query.after;
   const limit = params.get('limit');
   if (limit !== null) {
     // The upstream SDK serializes a nullable query value as `limit=`. Normalize

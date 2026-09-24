@@ -3,6 +3,7 @@ import { CodexRpcClient, CodexRpcError, type CodexRpcEvent } from '../adapters/c
 import { bindSessionTurn, initialSessionRuntime, reduceSessionRuntime, resolveSessionFunction, rootTurnBusy, stoppedSessionRuntime, type SessionRuntimeState } from '../core/session-runtime-planning.js';
 import type { CodexAppServerRequest } from './codex-app-server.js';
 import { sandboxPolicyFor } from './codex-app-server.js';
+import type { SessionModelSettings } from '../domain/session-execution.js';
 
 type ToolResult = Extract<AgentSessionInputParam, { type: 'agent.session.input.tool_result' }>;
 interface PendingFunction { nativeTurnId: string; threadId: string; callId: string; resolve(value: unknown): void; reject(error: Error): void }
@@ -104,19 +105,19 @@ export class SessionRuntime {
     return structuredClone(this.state);
   }
 
-  public start(turn: Turn, input: AgentSessionInputMessageParam[]): Promise<void> {
+  public start(turn: Turn, input: AgentSessionInputMessageParam[], settings?: SessionModelSettings): Promise<void> {
     const existing = this.started.get(turn.id);
     if (existing) return existing;
     // Pre-admission rejection has no native effect and must remain retryable.
     // Cache only attempts that cross the native boundary, including ambiguity.
     if (!this.state || this.closed) return Promise.reject(new Error('Session runtime is unavailable'));
     if (rootTurnBusy(this.state, this.starting)) return Promise.reject(new Error('The root agent already has an active turn'));
-    const promise = this.startTurn(turn, input, this.state.rootThreadId);
+    const promise = this.startTurn(turn, input, this.state.rootThreadId, settings);
     this.started.set(turn.id, promise);
     return promise;
   }
 
-  private async startTurn(turn: Turn, input: AgentSessionInputMessageParam[], rootThreadId: string): Promise<void> {
+  private async startTurn(turn: Turn, input: AgentSessionInputMessageParam[], rootThreadId: string, settings?: SessionModelSettings): Promise<void> {
     this.starting = true;
     this.startingTurn = turn;
     clearTimeout(this.idleTimer);
@@ -128,7 +129,14 @@ export class SessionRuntime {
         environments: request.environments,
         approvalPolicy: 'never', approvalsReviewer: 'user',
         ...(request.permissions ? { permissions: request.permissions } : { sandboxPolicy: sandboxPolicyFor(request.sandbox, request.executionWorkspace ?? request.workspace, request.networkAccess) }),
-        model: request.model, effort: request.reasoningEffort, summary: request.reasoningSummary,
+        model: settings?.model ?? request.model,
+        effort: settings ? settings.reasoning.effort : request.reasoningEffort,
+        // Native null effort otherwise means "keep the previous effort". A
+        // default collaboration-mode snapshot clears it to the selected model's default.
+        ...(settings?.reasoning.effort === null ? { collaborationMode: {
+          mode: 'default', settings: { model: settings.model, reasoning_effort: null, developer_instructions: null },
+        } } : {}),
+        serviceTier: settings?.service_tier ?? request.serviceTier, summary: request.reasoningSummary,
         ...(request.outputSchema ? { outputSchema: request.outputSchema } : {}),
       });
       if (!record(result) || !record(result.turn) || typeof result.turn.id !== 'string') throw new Error('Native session returned no turn');
@@ -157,7 +165,7 @@ export class SessionRuntime {
     const root = () => [...this.state!.turns].reverse().find((binding) => binding.threadId === this.state!.rootThreadId);
     await this.options.request.onTurnStarted?.({
       threadId: this.state!.rootThreadId, turnId: root()?.nativeTurnId ?? 'idle',
-      startSessionTurn: (turn, input) => this.start(turn, input),
+      startSessionTurn: (turn, input, settings) => this.start(turn, input, settings),
       steer: async (text, input, turnId) => {
         if (!turnId) throw new Error('The intended Session Turn is required');
         return this.steer(turnId, input ?? [{ role: 'user', content: [{ type: 'input_text', text }] }], `native-${crypto.randomUUID()}`);

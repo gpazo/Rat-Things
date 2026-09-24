@@ -122,7 +122,7 @@ export class VaultService {
     for (const vaultId of [...new Set(vaultIds)]) {
       await this.activeVault(ownerId, vaultId);
       for (const { value } of await this.all<StoredCredential>(ownerId, `vaults/${vaultId}/credentials`)) {
-        if (value.status === 'active' && credentialUrl(value.credential.auth.mcp_server_url) === credentialUrl(serverUrl) && (!credentialId || value.credential.id === credentialId)) matches.push(value);
+        if (value.status === 'active' && value.credential.auth.type !== 'environment_variable' && credentialUrl(value.credential.auth.mcp_server_url) === credentialUrl(serverUrl) && (!credentialId || value.credential.id === credentialId)) matches.push(value);
       }
     }
     if (!matches.length && allowMissing && !credentialId) return undefined;
@@ -137,7 +137,7 @@ export class VaultService {
     for (let attempt = 0; attempt < 100; attempt++) {
       await this.activeVault(ownerId, vaultId);
       const resource = await this.storedCredential(ownerId, vaultId, id);
-      if (resource.value.status !== 'active' || credentialUrl(resource.value.credential.auth.mcp_server_url) !== credentialUrl(serverUrl)) resourceNotFound();
+      if (resource.value.status !== 'active' || resource.value.credential.auth.type === 'environment_variable' || credentialUrl(resource.value.credential.auth.mcp_server_url) !== credentialUrl(serverUrl)) resourceNotFound();
       const auth = await this.options.secrets.read(resource.value.pendingRefresh?.secret ?? resource.value.secret);
       const token = bearer(auth);
       const refresh = auth.type === 'mcp_oauth' && (resource.value.pendingRefresh || needsOAuthRefresh(auth, this.clock.now()) || rejectedToken === token);
@@ -229,4 +229,7 @@ export class VaultService {
   }
 }
 
-function bearer(auth: CredentialAuthCreateParam): string { return `Bearer ${auth.type === 'static_bearer' ? auth.token : auth.access_token}`; }
+function bearer(auth: CredentialAuthCreateParam): string {
+  if (auth.type === 'environment_variable') resourceNotFound();
+  return `Bearer ${auth.type === 'static_bearer' ? auth.token : auth.access_token}`;
+}

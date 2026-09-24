@@ -418,7 +418,7 @@ async function handleControlRequest(request, response, route) {
       return;
     case 'session-start':
       if (!isRecord(body.turn) || !Array.isArray(body.input)) throw new InvalidHookRequest('invalid session turn');
-      await sendControlCommand(run, { type: 'session_start', turn: body.turn, input: body.input });
+      await sendControlCommand(run, { type: 'session_start', turn: body.turn, input: body.input, settings: body.settings });
       break;
     case 'steer': {
       const prompt = requiredString(body, 'prompt', 12 * 1024);

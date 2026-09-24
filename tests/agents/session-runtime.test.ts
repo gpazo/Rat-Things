@@ -50,6 +50,19 @@ const responseUsage = (threadId: string, turnId: string, responseId: string, inp
 });
 
 describe('persistent native session runtime', () => {
+  it('sends captured model settings on each subsequent native Turn', async () => {
+    const f = fixture();
+    try {
+      await f.runtime.initialize();
+      await f.runtime.start(rootTurn('first'), message);
+      f.emit({ method: 'turn/completed', params: { threadId: 'root', turn: { id: 'native-1', status: 'completed' } } });
+      await f.controller().startSessionTurn!(rootTurn('second'), message, { model: 'gpt-6-astra', reasoning: { effort: 'low' }, service_tier: 'priority' });
+      const starts = f.calls.filter(({ method }) => method === 'turn/start');
+      expect(starts[0]!.params).toMatchObject({ model: 'fixture' });
+      expect(starts[1]!.params).toMatchObject({ model: 'gpt-6-astra', effort: 'low', serviceTier: 'priority' });
+      expect(f.calls.filter(({ method }) => method === 'thread/start')).toHaveLength(1);
+    } finally { await f.runtime.close(); }
+  });
   it.each([false, true])('retries a follow-up rejected before native admission, with start pending=%s', async (pending) => {
     const f = fixture();
     let release!: () => void; const blocked = new Promise<void>((resolve) => { release = resolve; });

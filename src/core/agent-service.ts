@@ -48,7 +48,7 @@ export class AgentService {
 
   public async list(ownerId: string, raw: unknown = {}) {
     const query = parseAgentsContract('AgentList', raw);
-    if (query.limit !== undefined && (!Number.isInteger(query.limit) || query.limit < 1)) {
+    if (query.limit != null && (!Number.isInteger(query.limit) || query.limit < 1)) {
       invalid('limit must be a positive integer', 'limit');
     }
     const page = await this.options.store.list<Agent>(ownerId, 'agents', query);

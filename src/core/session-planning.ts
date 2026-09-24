@@ -1,8 +1,8 @@
 import type {
   Agent, AgentSession, AgentSessionInputMessageParam, AgentSessionInputParam,
-  AgentSessionItem, SessionCreateParams, Turn,
+  AgentSessionItem, SessionCreateParams, SessionUpdateParams, Turn,
 } from '../domain/agents-api.js';
-import { resolveAgentConfiguration } from '../domain/agent-configuration.js';
+import { modelReasoningDefault, resolveAgentConfiguration } from '../domain/agent-configuration.js';
 import { AgentsApiError, invalid } from '../domain/agents-api-validation.js';
 import type { SessionCommand, SessionObservation, SessionState, SessionTurnBinding, SessionTurnObservation } from './session-ports.js';
 import { totalUsage } from './session-ports.js';
@@ -40,6 +40,22 @@ export function sessionAgent(input: SessionCreateParams['agent'], id: string, no
 export function initialMessages(input: SessionCreateParams['input']): AgentSessionInputMessageParam[] {
   if (typeof input === 'string') return [{ role: 'user', content: [{ type: 'input_text', text: input }] }];
   return input ?? [];
+}
+
+/** Session edits are partial model-setting updates, not saved-Agent field replacement. */
+export function updateSessionAgent(previous: AgentSession['agent'], update: SessionUpdateParams['agent']): AgentSession['agent'] {
+  if (!update) return previous;
+  const model = update.model ?? previous.model;
+  if (!model.trim() || [...model].length > 1_048_576) invalid('model must contain 1 to 1048576 characters', 'agent.model');
+  return {
+    ...previous, model,
+    reasoning: { ...previous.reasoning, effort: update.reasoning?.effort === undefined ? previous.reasoning.effort : update.reasoning.effort ?? modelReasoningDefault(model) },
+    service_tier: update.service_tier === undefined ? previous.service_tier : update.service_tier ?? 'auto',
+  };
+}
+
+export function sessionModelSettings(agent: AgentSession['agent']): import('../domain/session-execution.js').SessionModelSettings {
+  return { model: agent.model, reasoning: { effort: agent.reasoning.effort }, service_tier: agent.service_tier };
 }
 
 export function observeSession(state: SessionState, observations: SessionTurnObservation[]): SessionObservation {
@@ -96,7 +112,7 @@ export function planSessionInput(
           agent_id: state.session.agent.id, subagent_id: null, status: 'queued',
           created_at: now, started_at: null, completed_at: null, error: null, usage: null,
         };
-        turns = [...turns, { turn, input: messages }];
+        turns = [...turns, { turn, input: messages, modelSettings: sessionModelSettings(observation.session.agent) }];
         commands.push({ type: 'start', turnId: turn.id, input: messages });
       }
     } else if (event.type === 'agent.session.input.cancel') {
@@ -175,9 +191,9 @@ export function orderedTurnItems(state: SessionState, binding: SessionTurnBindin
 /** ID cursors never contain storage coordinates or cross collection boundaries. */
 export function cursorPage<T extends { id: string | null }>(
   resources: T[],
-  query: { after?: string; limit?: number; order?: 'asc' | 'desc' },
+  query: { after?: string | null; limit?: number | null; order?: 'asc' | 'desc' },
 ) {
-  if (query.limit !== undefined && (!Number.isInteger(query.limit) || query.limit < 1)) invalid('limit must be a positive integer', 'limit');
+  if (query.limit != null && (!Number.isInteger(query.limit) || query.limit < 1)) invalid('limit must be a positive integer', 'limit');
   const sorted = query.order === 'asc' ? resources : [...resources].reverse();
   const index = query.after ? sorted.findIndex((resource) => resource.id === query.after) : -1;
   if (query.after && index < 0) invalid('Invalid pagination cursor', 'after');
