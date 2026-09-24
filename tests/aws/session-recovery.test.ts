@@ -58,7 +58,7 @@ live('cancels a waiting native Turn, reconnects SSE and admits a follow-up', asy
   }
 }, timeoutMs * 3);
 
-recovery.each(['none', 'openai_hosted'] as const)('handles %s worker loss while retaining saved context and terminal environment rules', async (environmentType) => {
+recovery.each(['none', 'openai_hosted'] as const)('handles %s worker loss while retaining conversation and resetting hosted workspace state', async (environmentType) => {
   if (process.env.AWS_E2E_ENABLE_EC2_WORKER !== 'true') throw new Error('Worker recovery requires the dedicated EC2 backend.');
   const client = liveClient();
   const region = required('AWS_REGION');
@@ -114,18 +114,14 @@ recovery.each(['none', 'openai_hosted'] as const)('handles %s worker loss while 
     expect((await client.beta.agents.sessions.turns.retrieve(first.id, { session_id: session.id })).status).toBe('completed');
     expect(JSON.stringify((await client.beta.agents.sessions.items.list(session.id, { order: 'asc', limit: 100 })).data)).toContain(marker);
     if (hosted) {
-      // Hosted expiry is terminal in the upstream contract; it must not silently
-      // recreate a sandbox. Saved artifacts remain available independently.
-      expect((await client.beta.agents.sessions.retrieve(session.id)).status).toBe('failed');
-      await expect(input(client, session.id, 'Continue.')).rejects.toMatchObject({ status: 409, code: 'conflict' });
+      expect((await client.beta.agents.sessions.retrieve(session.id)).status).toBe('idle');
       const artifact = (await client.beta.agents.sessions.artifacts.list(session.id)).data.find(value => value.path === '/workspace/outputs/recovery-proof.txt');
       expect(artifact).toBeDefined();
       expect(await (await client.beta.agents.sessions.artifacts.content(artifact!.id, { session_id: session.id })).text()).toBe(marker);
-      expect((await currentRun(session.id))?.runId).toBe(original!.runId);
-      console.log('Expired hosted environment rejects input and retains its saved artifact');
-      return;
     }
-    await input(client, session.id, 'Return exactly the context marker from our previous Turn. Do not invent a new marker.');
+    await input(client, session.id, hosted
+      ? 'Use Python to print WORKSPACE_RESET if /workspace/outputs/recovery-proof.txt is absent, otherwise print STALE_WORKSPACE. Do not create the file. Then return the context marker from our previous Turn. Do not invent a new marker.'
+      : 'Return exactly the context marker from our previous Turn. Do not invent a new marker.');
     const second = await completed(client, session.id, new Set([first.id]));
     await eventually(async () => stream!.terminals.has(second.id));
     const replacement = await currentRun(session.id);
@@ -135,6 +131,14 @@ recovery.each(['none', 'openai_hosted'] as const)('handles %s worker loss while 
     const items = (await client.beta.agents.sessions.items.list(session.id, { order: 'asc', limit: 100 })).data.filter(item => item.turn_id === second.id);
     expect(items).toEqual(expect.arrayContaining([expect.objectContaining({ type: 'message', role: 'assistant', status: 'completed' })]));
     expect(JSON.stringify(items)).toContain(marker);
+    if (hosted && session.environment.type === 'openai_hosted') {
+      await eventually(async () => stream!.resets.get(session.environment.type === 'openai_hosted' ? session.environment.id : '') === 1);
+      expect((await client.beta.agents.sessions.retrieve(session.id)).environment).toMatchObject({ id: session.environment.id });
+      const output = items.flatMap(item => item.type === 'command_execution' ? [item.output ?? ''] : []).join('\n');
+      expect(output).toContain('WORKSPACE_RESET');
+      expect(output).not.toContain('STALE_WORKSPACE');
+      expect((await client.beta.agents.environments.files.list(session.environment.id, { path: '/workspace/outputs' })).data.some(file => file.path === '/workspace/outputs/recovery-proof.txt')).toBe(false);
+    }
     console.log(`Replacement worker ${replacement!.execution.id} completed ${second.id}`);
   } finally {
     try { await stream?.close(); }
@@ -168,12 +172,16 @@ async function subscribe(client: Client, id: string) {
   const abort = new AbortController();
   const events = await client.beta.agents.sessions.events.stream(id, { signal: abort.signal });
   const terminals = new Map<string, string>();
+  const resets = new Map<string, number>();
   let failure: unknown;
   const consume = (async () => {
-    try { for await (const event of events) if (event.type === 'agent.session.turn.completed' || event.type === 'agent.session.turn.failed' || event.type === 'agent.session.turn.cancelled') terminals.set(event.turn.id, event.turn.status); }
+    try { for await (const event of events) {
+      if (event.type === 'agent.session.turn.completed' || event.type === 'agent.session.turn.failed' || event.type === 'agent.session.turn.cancelled') terminals.set(event.turn.id, event.turn.status);
+      if (event.type === 'agent.session.environment.reset') resets.set(event.environment_id, event.reset_count);
+    } }
     catch (error) { if (!abort.signal.aborted) failure = error; }
   })();
-  return { terminals, close: async () => { abort.abort(); await consume; if (failure) throw failure; } };
+  return { terminals, resets, close: async () => { abort.abort(); await consume; if (failure) throw failure; } };
 }
 async function eventually(condition: () => Promise<boolean>) {
   const deadline = Date.now() + timeoutMs;

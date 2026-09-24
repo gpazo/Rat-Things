@@ -62,7 +62,7 @@ uploads and long-lived event streams.
 | Item | Saved messages, public reasoning summaries, tool calls and results |
 | Environment template | Reusable packages, input files, skills, plugins and setup |
 | Environment | The session's connected command and filesystem context |
-| Vault | Owned, write-only credentials for configured MCP destinations |
+| Vault | Owned, write-only credentials for MCP or sandbox HTTPS destinations |
 | File / Skill | Uploaded content and versioned capabilities for environment setup |
 | Artifact | An immutable copy of a managed environment output |
 
@@ -74,6 +74,11 @@ to the configured provider without silently choosing another model.
 Input sent to an idle Session starts a Turn. Input sent while the coordinator is
 working steers that Turn. Canceling a Turn preserves the Session. A failed or
 expired environment is terminal for that environment; create another Session.
+Unexpected worker loss can replace a hosted sandbox on the next Turn. The
+environment ID and conversation remain stable, declared inputs are prepared
+again, and previous sandbox files and processes are lost. The
+`agent.session.environment.reset` event carries a monotonically increasing
+`reset_count`; duplicate notifications for one replacement share that count.
 Cancellation does not replace a Turn's completed or failed outcome. For work
 already admitted to the harness, inspect the Turn until its outcome is terminal.
 Deleting a Session closes its execution authority even if its first harness has

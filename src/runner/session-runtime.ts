@@ -20,6 +20,7 @@ export class SessionRuntime {
   private starting = false;
   private startingTurn: Turn | undefined;
   private closed = false;
+  private expired = false;
   private idleTimer: ReturnType<typeof setTimeout> | undefined;
   private lifetimeTimer: ReturnType<typeof setTimeout> | undefined;
   public readonly finished: Promise<void>;
@@ -44,10 +45,12 @@ export class SessionRuntime {
     };
     this.rpc = options.client ? options.client(args) : new CodexRpcClient(args);
     if (options.lifetime !== 'host-managed') {
-      this.lifetimeTimer = setTimeout(() => { void this.close(); }, request.timeoutMs);
+      this.lifetimeTimer = setTimeout(() => { this.expired = true; void this.close(); }, request.timeoutMs);
       this.lifetimeTimer.unref();
     }
   }
+
+  public sandboxExpired(): boolean { return this.expired; }
 
   public async initialize(): Promise<SessionRuntimeState> {
     const request = this.options.request;
@@ -292,7 +295,7 @@ export class SessionRuntime {
     if (this.state.turns.some((binding) => !terminal(binding.turn))) { clearTimeout(this.idleTimer); this.idleTimer = undefined; }
     // Connected environments receive host keep-alives between turns. Only an
     // explicit host idle policy may shorten that lifetime; stream disconnects do not.
-    else if (!this.idleTimer && this.options.idleTimeoutMs !== undefined) { this.idleTimer = setTimeout(() => { void this.close(); }, this.options.idleTimeoutMs); this.idleTimer.unref(); }
+    else if (!this.idleTimer && this.options.idleTimeoutMs !== undefined) { this.idleTimer = setTimeout(() => { this.expired = true; void this.close(); }, this.options.idleTimeoutMs); this.idleTimer.unref(); }
   }
 }
 

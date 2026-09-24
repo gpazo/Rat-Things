@@ -71,11 +71,22 @@ The credential implementation passes 981 ordinary tests (15 opt-in skips).
 runtime because it lacks the newly pinned settings patch. Draft PR #1 builds
 the updated artifact in ARM64 CI; exact native-image acceptance is still pending.
 
+Hosted replacement now has a private sandbox generation and an atomic reset
+counter/event. Repeated readiness and lost transaction acknowledgements retain
+the same counter. Unexpected worker/native loss leaves a disconnected sandbox
+eligible for replacement on the next Turn; explicit expiry and deletion remain
+terminal. Replacement clears old workspace contents without removing bind
+mounts, reapplies declared inputs, and retains conversation checkpoints and saved
+artifacts. The AWS worker-loss canary now requires the reset event, a fresh
+workspace, and preserved conversation. It has not yet run against these changes.
+The reset batch passes 985 ordinary tests (15 opt-in skips); full checks again
+stop only at the expected old-runtime packaging gate.
+
 ## Remaining priority order
 
 1. Build and test the native settings patch. Complete environment-variable
-   credential snapshot/injection/proxy behavior and hosted reset semantics from
-   the current SDK; audit the new credit-balance error mapping.
+   credential and hosted reset image/live acceptance; audit the new credit-balance
+   error mapping and the other public Turn error categories.
 2. Run repository, infrastructure, worker/relay/native image and LocalStack
    checks, then plan/apply the existing stack with its original Terraform state.
    Validate the exact deployed image digests.

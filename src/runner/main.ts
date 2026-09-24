@@ -88,7 +88,8 @@ export async function runAgentWorker(): Promise<void> {
   let sessionMcp: SessionMcpRuntime | undefined;
   let sessionEnvironmentCredentials: SessionEnvironmentCredentialsRuntime | undefined;
   let sessionJournal: SessionRuntimeJournal | undefined;
-  let managedStatus: ((status: 'connected' | 'failed' | 'expired') => Promise<void>) | undefined;
+  let managedStatus: ((status: 'connected' | 'disconnected' | 'failed' | 'expired') => Promise<void>) | undefined;
+  let managedExpired = false;
   let managedTimer: ReturnType<typeof setInterval> | undefined;
   let managedUpdate: Promise<void> | undefined;
   let managedReady = false;
@@ -176,11 +177,17 @@ export async function runAgentWorker(): Promise<void> {
         await bindHostedWorkspace(workspace);
         const plan = planCodexLaunch(effectiveRequest, workspace, timeoutSeconds * 1000, process.env);
         sessionEnvironmentCredentials = await prepareSessionEnvironmentCredentials(sessionOwner, launch, secrets, abort.signal);
-        launch = await prepareHostedEnvironment({ launch, workspace, plan, artifacts, signal: abort.signal, stateDirectory: '/tmp/rat-hosted-state', previouslyPrepared: Boolean(runtime.value.snapshot), ...(sessionEnvironmentCredentials ? { credentials: sessionEnvironmentCredentials } : {}) });
+        const prepared = await prepareHostedEnvironment({ launch, workspace, plan, artifacts, signal: abort.signal, stateDirectory: '/tmp/rat-hosted-state',
+          previouslyPrepared: await environments.managedPrepared(sessionOwner, environmentId, runId) || Boolean(runtime.value.snapshot),
+          afterWorkspaceReset: () => prepareWorkspace(effectiveRequest.repository, workspace, credentials, { reuseExisting: true }),
+          ...(sessionEnvironmentCredentials ? { credentials: sessionEnvironmentCredentials } : {}),
+        });
+        launch = prepared.launch;
+        if (!prepared.sandbox) throw new Error('Managed sandbox generation is missing');
         environmentFiles = { execute: (_environmentId, _reference, operation) => codexEnvironmentFiles({ workspace: '/workspace', operation, binary: plan.binary, ...(plan.identity ? { identity: plan.identity } : {}), signal: abort.signal }) };
         runnerControl?.setEnvironmentFiles((operation) => environmentFiles!.execute(environmentId, '', operation as import('../core/environment-file-ports.js').EnvironmentFileOperation));
-        await managedStatus('connected');
         managedReady = true;
+        await environments.managedReady(sessionOwner, environmentId, runId, prepared.sandbox);
         managedTimer = setInterval(() => {
           if (managedUpdate) return;
           managedUpdate = managedStatus!('connected').catch(() => { abort.abort(); }).finally(() => { managedUpdate = undefined; });
@@ -233,6 +240,7 @@ export async function runAgentWorker(): Promise<void> {
     const executionStarted = Date.now();
     try {
       execution = await driver.execute(effectiveRequest, workspace, timeoutSeconds * 1_000, abort.signal, driverControl);
+      managedExpired = execution.environmentExpired ?? false;
     } catch (error) {
       execution = {
         ...(error instanceof CodexExecutionError ? error.execution : {
@@ -314,7 +322,7 @@ export async function runAgentWorker(): Promise<void> {
   } finally {
     clearInterval(managedTimer);
     await managedUpdate;
-    await managedStatus?.(managedReady ? 'expired' : 'failed').catch(() => {});
+    await managedStatus?.(managedReady ? managedExpired ? 'expired' : 'disconnected' : 'failed').catch(() => {});
     await Promise.all([sessionMcp?.close(), sessionEnvironmentCredentials?.close()]);
     await heartbeat?.stop();
     if (loadedBedrockToken) delete process.env.AWS_BEARER_TOKEN_BEDROCK;

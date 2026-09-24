@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import OpenAI, { toFile } from 'openai';
 import { zipSync } from 'fflate';
-import { mkdtemp, mkdir, readFile, writeFile, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, writeFile, rm, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { FileService } from '../../src/core/file-service.js';
@@ -85,12 +85,29 @@ describe('uploaded files, skills, and managed setup', () => {
     const plan = planCodexLaunch({ version: '1', prompt: '', agent: { sandbox: 'workspace-write', capabilities: { networkAccess: false } } }, workspace, 1000, { CODEX_AUTH_MODE: 'chatgpt' });
     try {
       const prepared = await prepareHostedEnvironment({ launch, workspace, plan, artifacts: f.artifacts, stateDirectory: join(root, 'host') });
-      expect(prepared.environment).toMatchObject({ capability_directories: ['/workspace/.capabilities/skills/report-reader'] });
+      expect(prepared.launch.environment).toMatchObject({ capability_directories: ['/workspace/.capabilities/skills/report-reader'] });
       expect(await readFile(join(workspace, 'input.txt'), 'utf8')).toBe('immutable input');
       expect(await readFile(join(workspace, '.capabilities/skills/report-reader/SKILL.md'), 'utf8')).toContain('report-reader');
       await writeFile(join(workspace, 'input.txt'), 'updated by the agent');
       await prepareHostedEnvironment({ launch, workspace, plan, artifacts: f.artifacts, stateDirectory: join(root, 'host'), previouslyPrepared: true });
       expect(await readFile(join(workspace, 'input.txt'), 'utf8')).toBe('updated by the agent');
+      await writeFile(join(workspace, 'only-in-old-sandbox.txt'), 'ephemeral');
+      await writeFile(join(root, 'outside.txt'), 'outside');
+      await symlink(join(root, 'outside.txt'), join(workspace, 'link'));
+      await mkdir(join(workspace, '.rat-things/artifacts'), { recursive: true });
+      await writeFile(join(workspace, '.rat-things/artifacts/previous.txt'), 'scratch');
+      let resets = 0;
+      const replacementOptions = { launch, workspace, plan, artifacts: f.artifacts, stateDirectory: join(root, 'replacement-host'), previouslyPrepared: true, afterWorkspaceReset: async () => { resets++; } };
+      const replacement = await prepareHostedEnvironment(replacementOptions);
+      expect(replacement.launch.environment).toMatchObject({ id: environment.id });
+      expect(replacement.sandbox).toMatchObject({ replaced: true });
+      expect(replacement.sandbox?.id).not.toBe(prepared.sandbox?.id);
+      expect(await readFile(join(workspace, 'input.txt'), 'utf8')).toBe('immutable input');
+      await expect(readFile(join(workspace, 'only-in-old-sandbox.txt'))).rejects.toMatchObject({ code: 'ENOENT' });
+      await expect(readFile(join(workspace, '.rat-things/artifacts/previous.txt'))).rejects.toMatchObject({ code: 'ENOENT' });
+      expect(await readFile(join(root, 'outside.txt'), 'utf8')).toBe('outside');
+      expect((await prepareHostedEnvironment(replacementOptions)).sandbox).toEqual(replacement.sandbox);
+      expect(resets).toBe(1);
     } finally { await rm(root, { recursive: true, force: true }); }
     await expect(f.other.skills.retrieve(skill.id)).rejects.toMatchObject({ status: 404 });
     await f.api.skills.delete(skill.id);

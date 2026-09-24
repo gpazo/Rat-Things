@@ -39,7 +39,8 @@ bundled `terminate-microvm.mjs`. A Session harness remains available for additio
 Turns through authenticated control. Native state belongs to the Session runtime
 journal. When S3 Files is enabled, `sessionStorageKey` selects the same owner-and-Session
 hashed directory across replacements; `SESSION_STATE_ROOT` supplies its workspace
-and Codex home. Keep the existing hash and filesystem root stable.
+and Codex home. Hosted sandbox replacement clears workspace contents while retaining
+the native conversation checkpoint. Keep the existing hash and filesystem root stable.
 
 Lifecycle endpoints listen on port 8080 under
 `/aws/lambda-microvms/runtime/v1/{ready,validate,run,resume,suspend,terminate}`.

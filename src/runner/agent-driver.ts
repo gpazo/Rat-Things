@@ -13,6 +13,7 @@ import { SessionRuntime } from './session-runtime.js';
 import type { SessionRuntimeState } from '../core/session-runtime-planning.js';
 
 export interface AgentExecution {
+  environmentExpired?: boolean;
   outcome?: 'completed' | 'interrupted' | 'failed';
   fullText: string;
   exitCode: number;
@@ -99,7 +100,7 @@ export class CodexDriver implements AgentDriver {
         const roots = snapshot.turns.filter((binding) => binding.turn.subagent_id === null);
         const latest = roots.at(-1);
         return { fullText: (latest?.items ?? []).flatMap((item) => item.type === 'message' && item.role === 'assistant' ? item.content.flatMap((part) => part.type === 'output_text' ? [part.text] : []) : []).join('\n\n'),
-          threadId: snapshot.rootThreadId, exitCode: 0, durationMs: Date.now() - started, events: Buffer.alloc(0),
+          threadId: snapshot.rootThreadId, exitCode: 0, durationMs: Date.now() - started, events: Buffer.alloc(0), environmentExpired: runtime.sandboxExpired(),
         };
       } finally { await runtime.close(); await control.sessionRuntime.flush(); }
     }

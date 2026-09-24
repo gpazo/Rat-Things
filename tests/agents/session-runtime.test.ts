@@ -50,6 +50,20 @@ const responseUsage = (threadId: string, turnId: string, responseId: string, inp
 });
 
 describe('persistent native session runtime', () => {
+  it('distinguishes explicit runtime expiry from an unexpected native connection loss', async () => {
+    vi.useFakeTimers();
+    const expired = fixture();
+    const lost = fixture();
+    try {
+      await expired.runtime.initialize(); await lost.runtime.initialize();
+      await lost.rpc().close();
+      expect(lost.runtime.sandboxExpired()).toBe(false);
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(expired.closed()).toBe(true);
+      expect(expired.runtime.sandboxExpired()).toBe(true);
+      expect(lost.runtime.sandboxExpired()).toBe(false);
+    } finally { await expired.runtime.close(); await lost.runtime.close(); vi.useRealTimers(); }
+  });
   it('sends captured model settings on each subsequent native Turn', async () => {
     const f = fixture();
     try {
