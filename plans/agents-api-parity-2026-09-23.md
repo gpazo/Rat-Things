@@ -90,6 +90,18 @@ together and native formatting passes. The ordinary suite passes 1,014 tests
 with 20 opt-in skips, including five acceptance cases reserved for the rebuilt
 binary. Native compilation, strict error acceptance and packaging remain open.
 
+The obsolete control IAM candidates are removed after real composition and
+Terraform graph checks. Schedule administration has no delivery/Scheduler
+effects; the outbox and notifier retain those grants. Control Run deletion and
+integration Update permissions are removed while OAuth/cursor deletion remains.
+Three infrastructure scenarios and 1,015 ordinary tests pass (20 opt-in skips).
+The exact deployed IAM plan and canaries still await packaging.
+
+The hosted reset fence was also checked against dispatch: a semantic Run has one
+immutable execution generation, and lost attached executions are not restarted
+under the same Run ID. Replacement claims a new Run, so existing Run-ID fences
+reject superseded readiness/status and journal writes.
+
 ## Remaining priority order
 
 1. Build and test the native settings and typed error patches. Complete environment-variable

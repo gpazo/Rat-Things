@@ -41,39 +41,48 @@ preserves the caller's exact request, including empty or whitespace input.
 - `tests/runner/artifact-fixtures.ts` remains used by canonical Files, HTTP and CLI
   tests. It was not deleted with the catalog-only tests.
 
-## Next reviewable IAM batch (not applied)
+## Control IAM cleanup (implemented September 23; deployment pending)
 
-These are concrete control-role candidates, separate from the ongoing soak. Keep
-outbox counterparts and verify both direct HTTPS and Lambda fallback deployments.
-Do not mutate the shared action lists blindly: the outbox and other roles have
-retained consumers that the control role does not.
+The continuation removed these control-role permissions after caller and
+composition verification. Outbox counterparts and shared action lists remain.
 
-1. Remove the control policy's `SessionSchedules` and `PassSessionScheduleRole`
-   statements in `infra/modules/agent-runner/iam.tf:219` and `:230`.
+1. Removed the control policy's `SessionSchedules` and `PassSessionScheduleRole`
+   statements in `infra/modules/agent-runner/iam.tf`.
    `control.ts:333` exposes create/list/update/status operations, all of which only
    persist schedule definitions in `ScheduleService`. The sole production caller
    of `synchronize` is `src/lambdas/agents-outbox.ts:35`; only that method invokes
    the Scheduler adapter. Retain both equivalent outbox statements in
    `infra/modules/agent-runner/agents-iam.tf:91` and `:96`.
-2. Remove the control policy's `SessionDeliverySecrets` at `iam.tf:319` after the
-   composition reachability check is captured in a regression test. Control
+2. Removed the control policy's `SessionDeliverySecrets` after the
+   composition reachability check passed in a regression test. Control
    constructs `SessionIntegrationService` through schedule composition but does
    not invoke submission or delivery. The executed delivery entry points are the
    outbox's `deliverReady` and the notifier handler. Neither plain construction
    of `DeliveryService` nor schedule definition validation reads notifier secrets.
    Keep outbox `DeliveryConfiguration` and notifier-role grants.
-3. Narrow control-specific DynamoDB actions after a focused policy check:
+3. Narrowed control-specific DynamoDB actions with focused policy checks:
    `DynamoRunStore` uses Get/Query/Put/Update, without Delete; the control integration
    store uses Get/Query/Put and transactional Put, while OAuth state consumes Delete.
    No control integration Update caller was found. Preserve OAuth Delete and
    connection bundle/source-claim transactions. Delivery fencing does use Update
    in another role, so do not remove Update from the shared integration list.
 
-Acceptance for that future batch: assert control administration does not execute
-Scheduler or provider delivery; retain schedule synchronization and retry tests;
-verify rendered policy scopes and a no-resource-replacement Terraform plan; then
-run deployed schedule, provider credential and publication canaries after the
-soak permits infrastructure changes. This audit alone is not deployed IAM proof.
+`tests/lambdas/control-schedules.test.ts` exercises the real control composition
+with schedule create/list/read/update/pause/resume/delete and guards every AWS
+client and outbound fetch. None is called. Invoking outbox synchronization then
+trips the Scheduler guard, proving the guard is connected. Eight focused tests
+pass, including retained schedule retry behavior. Three Terraform scenarios pass
+for EC2, both worker backends and dedicated relay administration, checking the
+control action sets, retained delivery grants and API role selection. The full
+check passes 1,015 ordinary tests with 20 opt-in skips, then stops at the pending
+new-native-artifact packaging gate.
+
+Transactional writes retain their underlying item grants; DynamoDB does not
+require a separate `TransactWriteItems` permission for these Put operations
+([AWS transaction IAM guidance](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/transaction-apis-iam.html)).
+The live rendered-policy/no-replacement plan and deployed schedule, credential
+and publication canaries remain pending the new native artifact. These local
+checks are not deployed IAM proof.
 
 ## Grants that still have consumers
 
