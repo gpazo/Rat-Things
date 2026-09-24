@@ -7,6 +7,7 @@ RUN npm install --global @openai/codex@0.154.0 && npm cache clean --force
 WORKDIR /app
 COPY dist/environment-relay.mjs /app/environment-relay.mjs
 COPY dist/agents-server.mjs /app/agents-server.mjs
+RUN chmod 0644 /app/environment-relay.mjs /app/agents-server.mjs
 USER node
 EXPOSE 8080
 CMD ["node", "/app/environment-relay.mjs"]

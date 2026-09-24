@@ -191,7 +191,7 @@ locals {
       timeout  = 30
       memory   = 256
       environment = merge(
-        local.lambda_common_environment,
+        local.executor_environment,
         local.thing_scheduler_environment,
       )
     }

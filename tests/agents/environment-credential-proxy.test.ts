@@ -128,7 +128,7 @@ it('keeps raw values outside native configuration and wires distinct harness and
   const planned = planSessionLaunch(planCodexLaunch({ version: '1', prompt: '' }, '/workspace', 1000, {}), launch, undefined, undefined, runtime);
   expect(JSON.stringify(planned)).not.toContain('never-in-guest-config');
   expect(runtime.shellEnvironment.SERVICE_TOKEN).toMatch(/^rat_secret_[a-f0-9]{64}$/);
-  expect(planned.environment).toMatchObject({ NO_PROXY: '*' });
+  expect(planned.environment).toMatchObject({ NO_PROXY: '*', SERVICE_TOKEN: runtime.shellEnvironment.SERVICE_TOKEN });
   expect(planned.sessionConfig?.shell_environment_policy).toMatchObject({ set: { NO_PROXY: '', SERVICE_TOKEN: runtime.shellEnvironment.SERVICE_TOKEN } });
   expect(planned.binaryArguments?.join(' ')).toContain('allow_upstream_proxy = true');
   await expect(prepareSessionEnvironmentCredentials('other', launch, { get: async () => JSON.stringify(secret) })).rejects.toThrow('identity');

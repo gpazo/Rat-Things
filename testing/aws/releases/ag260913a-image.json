@@ -1,6 +1,6 @@
 {
-  "environment_relay_image": "731841023867.dkr.ecr.us-west-2.amazonaws.com/rat-things-ag260913a/accepted-relay@sha256:3da2d216202dedee5b44faf23837261e12b27ad81fb5be9f12759b8786837bd6",
-  "ec2_worker_image": "731841023867.dkr.ecr.us-west-2.amazonaws.com/rat-things-ag260913a/accepted-worker@sha256:5e3a5333fea716a22b7121d9361d5e999dd7cb32f4f593e9623fb9c5da51eb93",
+  "environment_relay_image": "731841023867.dkr.ecr.us-west-2.amazonaws.com/rat-things-ag260913a/accepted-relay@sha256:02e92a81e2d05e6d77f6d5da626daacc4306ad126d461f52f1418a91ae979057",
+  "ec2_worker_image": "731841023867.dkr.ecr.us-west-2.amazonaws.com/rat-things-ag260913a/accepted-worker@sha256:5048a172e44478a6a6a36fb39fae16eefb175a17e346eb65be9a35c9335b8890",
   "enable_validation_observer": true,
   "validation_observer_image": "731841023867.dkr.ecr.us-west-2.amazonaws.com/rat-things-ag260913a/validation-observer@sha256:8ad6189f6d4e1b02ae848f4355ed130d0901f6abb34e428564c2725a17a327b8"
 }

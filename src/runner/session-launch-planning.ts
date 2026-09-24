@@ -32,7 +32,11 @@ export function planSessionLaunch(base: CodexLaunchPlan, launch: SessionLaunch, 
       permissions: 'rat_managed',
       binaryArguments: hostedCodexArguments(base.binaryArguments, launch.environment.network, Boolean(credentials)),
       environments: [{ environmentId: 'local', cwd: '/workspace' }], executionWorkspace: '/workspace',
-      environment: { ...environment, ...hostedProcessEnvironment(launch.hostedConfiguration?.env ?? {}, base.environment.PATH), ...mcp?.environment, ...credentials?.processEnvironment },
+      // Keep credential placeholders in the app-server process environment as a
+      // compatibility fallback for native versions that do not apply
+      // shell_environment_policy.set to command/exec. Values are placeholders;
+      // the host-side proxy remains the only component that can read secrets.
+      environment: { ...environment, ...hostedProcessEnvironment(launch.hostedConfiguration?.env ?? {}, base.environment.PATH), ...credentials?.shellEnvironment, ...mcp?.environment, ...credentials?.processEnvironment },
     } : {}),
     selectedCapabilityRoots: launch.environment.type === 'none' ? [] : launch.environment.capability_directories.map((path, index) => ({
       id: `capability_${index}`, location: { type: 'environment', environmentId: launch.environment.type === 'self_hosted' ? 'remote' : 'local', path },

@@ -35,10 +35,11 @@ live.each(['expired', 'rejected'] as const)('refreshes a %s MCP OAuth grant and 
       agent: { model: required('AWS_E2E_CODEX_MODEL_ID'), instructions: 'Call fixture_lookup exactly once when requested, then report its actual result. If the call fails, report that failure and finish without retrying.',
         tools: [{ type: 'mcp', server_label: 'fixture', connection_origin: 'service', required: true, allowed_tools: ['fixture_lookup'],
           request_metadata: { proof, enabled: false, count: 0 }, transport: { type: 'http', server_url: new URL('/mcp', fixture).href }, credential_id: credential.id }] },
-      vault_ids: [vault.id], environment: { type: 'none' },
+      vault_ids: [vault.id], environment: { type: 'none' }, input: 'Return exactly READY. Do not call any tools.',
     });
     sessionId = session.id;
     assertRedacted(session);
+    await eventually(async () => (await client.beta.agents.sessions.turns.list(session.id, { limit: 100 })).data.some(turn => turn.subagent_id === null && turn.status === 'completed'));
     const first = await input(`Call fixture_lookup with query ${proof}-allowed exactly once, then return its account and query.`);
     expect(first.status).toBe('completed');
     const firstItems = await items(first.id);

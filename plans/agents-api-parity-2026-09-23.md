@@ -1,5 +1,27 @@
 # Agents API parity continuation — September 23
 
+## Current status — 2026-09-24
+
+The repository-wide check is green: architecture and generated-contract checks,
+TypeScript, MicroVM syntax, 1,026 local tests (39 opt-in skips), ARM64 package
+creation and Lambda smoke tests, site generation, and all Terraform format and
+validation checks pass. The check runs tests without the packaging-only runtime
+artifact override, then packages the exact CI-built ARM64 artifact.
+
+The isolated AWS deployment `ag260913a` has passing live evidence for the direct
+HTTP transport and large binary Files, managed Session continuation, workflow
+resources, scheduler delivery, credential proxy/rotation/IAM isolation, webhook
+retry/fan-out, MCP reconnect/revocation, and checkpoint-loss/replacement-worker
+recovery. The deployed relay and scheduler fixes are now pinned to the exact
+image digests in `testing/aws/releases/ag260913a-image.json`.
+
+Parity is still open. The deployed multi-agent capacity/interruption run did not
+complete: four children were active while two admissions remained pending until
+the 15-minute deadline. Provider behavior beyond the tier probe, the broader
+Item/event and limits comparison, real configured MCP/provider coverage, and the
+obsolete-code/caller/grant review still need evidence or explicit disposition.
+Do not claim 100% compatibility until every ledger row has passing evidence.
+
 Starting point: `main` at `3a3d800`. Work branch:
 `codex/agents-parity-completion`. All production infrastructure, harness state,
 and execution remain in the operator's AWS account. The paused soak heartbeat

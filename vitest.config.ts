@@ -6,6 +6,10 @@ export default defineConfig({
     include: ['tests/**/*.{test,spec}.?(c|m)[jt]s?(x)'],
     // Native suites create their own concurrent harnesses and subprocesses.
     // Bound suite concurrency without relaxing per-operation deadlines.
-    maxWorkers: 2,
+    maxWorkers: 1,
+    // Several protocol tests mock Node built-ins; process isolation prevents
+    // those module mocks from crossing file boundaries.
+    pool: 'forks',
+    isolate: true,
   },
 });

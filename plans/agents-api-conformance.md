@@ -71,6 +71,24 @@ Late append deltas cannot alter finalized Items. A native streamed-output
 cancellation fixture now verifies the partial message and Item-before-Turn
 completion ordering; broader tool interruption and deployed recovery remain.
 
+## Live evidence update — 2026-09-24
+
+The isolated `ag260913a` deployment now has passing live proofs for HTTP/SSE
+transport and 8 MiB binary Files, managed Session persistence and UID isolation,
+workflow resources and saved Turns, scheduler delivery, credential substitution
+and rotation with IAM/secret retirement, webhook retry and fan-out, MCP
+reconnect/revocation, and native checkpoint-loss replacement-worker recovery.
+The exact relay and EC2 worker digests are pinned in
+`testing/aws/releases/ag260913a-image.json`; the scheduler environment fix and
+relay file-permission fix are included in the current working tree.
+
+The multi-agent capacity-6 deployment proof remains open. The 15-minute run
+admitted four children while two coordinator admissions stayed pending and then
+timed out; local native tests still pass the exact six-child and interruption
+contract. Provider coverage is currently a tier probe only. Broader provider,
+Item/event, limits, configured-MCP, and obsolete-code/caller/grant rows remain
+open until their evidence or explicit retained/removed disposition is recorded.
+
 ## Contract and evidence map
 
 | Contract | Implementation | Existing evidence | Remaining acceptance |

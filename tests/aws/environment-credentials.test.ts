@@ -117,7 +117,11 @@ live('substitutes hosted credentials outside the guest, snapshots rotation, and 
     });
     const items = (await client.beta.agents.sessions.items.list(id, { order: 'asc', limit: 100 })).data;
     for (const name of ['INTEGRATION_FIXTURE_ALPHA_KEY', 'INTEGRATION_FIXTURE_BETA_KEY']) expect(JSON.stringify(items)).not.toContain(required(name));
-    const artifact = (await client.beta.agents.sessions.artifacts.list(id, { limit: 100 })).data.find(value => value.path === path && value.turn_id === turn!.id);
+    let artifact = (await client.beta.agents.sessions.artifacts.list(id, { limit: 100 })).data.find(value => value.path === path && value.turn_id === turn!.id);
+    await eventually(async () => {
+      artifact = (await client.beta.agents.sessions.artifacts.list(id, { limit: 100 })).data.find(value => value.path === path && value.turn_id === turn!.id);
+      return artifact !== undefined;
+    });
     expect(artifact).toBeDefined();
     const proof = await (await client.beta.agents.sessions.artifacts.content(artifact!.id, { session_id: id })).json() as Record<string, unknown>;
     return { turn: turn!, proof };
