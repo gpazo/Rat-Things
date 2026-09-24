@@ -9,6 +9,7 @@ import { CodexRpcClient } from '../adapters/codex-rpc.js';
 import type { CodexLaunchPlan } from './agent-planning.js';
 import { runProcess } from './process.js';
 import { hostedCodexArguments, hostedProcessEnvironment } from './hosted-environment-planning.js';
+import type { SessionEnvironmentCredentialsRuntime } from './session-environment-credentials.js';
 
 /** Map a private persistent directory to the standard workspace path before guest code starts. */
 export async function bindHostedWorkspace(workspace: string, visible = '/workspace'): Promise<void> {
@@ -26,6 +27,7 @@ export async function prepareHostedEnvironment(options: {
   launch: SessionLaunch; workspace: string; plan: CodexLaunchPlan;
   artifacts: Pick<ArtifactStore, 'getBytes'>; signal?: AbortSignal;
   stateDirectory: string; previouslyPrepared?: boolean;
+  credentials?: SessionEnvironmentCredentialsRuntime;
 }): Promise<SessionLaunch> {
   const { launch, workspace, plan, artifacts, signal } = options;
   if (launch.environment.type !== 'openai_hosted' || !launch.hostedConfiguration) return launch;
@@ -77,14 +79,14 @@ export async function prepareHostedEnvironment(options: {
   ].map((command) => ({ command, cwd: '/workspace' }));
   commands.push(...(configuration.setup_commands ?? []).map((setup) => ({ command: ['bash', '-c', setup.command], cwd: setup.cwd ?? '/workspace' })));
   if (commands.length) {
-    const rpc = new CodexRpcClient({ binary: plan.binary, binaryArguments: hostedCodexArguments(plan.binaryArguments, launch.environment.network), cwd: workspace,
-      environment: { PATH: plan.environment.PATH, HOME: plan.environment.HOME, CODEX_HOME: plan.environment.CODEX_HOME, CODEX_API_KEY: 'setup-without-inference' },
+    const rpc = new CodexRpcClient({ binary: plan.binary, binaryArguments: hostedCodexArguments(plan.binaryArguments, launch.environment.network, Boolean(options.credentials)), cwd: workspace,
+      environment: { PATH: plan.environment.PATH, HOME: plan.environment.HOME, CODEX_HOME: plan.environment.CODEX_HOME, CODEX_API_KEY: 'setup-without-inference', ...options.credentials?.processEnvironment },
       ...(plan.identity ? { identity: plan.identity } : {}), ...(signal ? { signal } : {}),
     });
     try {
       await rpc.initialize();
       for (const [index, command] of commands.entries()) {
-        const execution = await rpc.call('command/exec', { ...command, env: hostedProcessEnvironment(configuration.env ?? {}, plan.environment.PATH),
+        const execution = await rpc.call('command/exec', { ...command, env: { ...hostedProcessEnvironment(configuration.env ?? {}, plan.environment.PATH), ...options.credentials?.shellEnvironment },
           permissionProfile: 'rat_managed', timeoutMs: 600_000, outputBytesCap: 64 * 1024,
         }, 610_000);
         if (typeof execution !== 'object' || execution === null || !('exitCode' in execution) || execution.exitCode !== 0) throw new Error(`Environment setup command ${index + 1} failed`);

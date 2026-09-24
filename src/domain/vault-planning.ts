@@ -17,7 +17,7 @@ export function credentialUrl(value: string, param = 'auth.mcp_server_url'): str
 export function validateCredentialAuth(auth: CredentialAuthCreateParam): void {
   if (auth.type === 'environment_variable') {
     if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(auth.secret_name) || /^CODEX_/.test(auth.secret_name)
-      || /^(?:https?_proxy|all_proxy|no_proxy|SSL_CERT_FILE|SSL_CERT_DIR|REQUESTS_CA_BUNDLE|CURL_CA_BUNDLE|NODE_EXTRA_CA_CERTS)$/i.test(auth.secret_name)) {
+      || /^(?:(?:https?|wss?|all|no|ftp|yarn_https?|npm_config_https?|npm_config|bundle_https?|pip|docker_https?)_proxy|NODE_USE_ENV_PROXY|ELECTRON_GET_USE_PROXY|SSL_CERT_FILE|SSL_CERT_DIR|REQUESTS_CA_BUNDLE|CURL_CA_BUNDLE|NODE_EXTRA_CA_CERTS|GIT_SSL_CAINFO|CARGO_HTTP_CAINFO|PIP_CERT|BUNDLE_SSL_CA_CERT|npm_config_cafile|GRPC_DEFAULT_SSL_ROOTS_FILE)$/i.test(auth.secret_name)) {
       invalid('Environment credential name is invalid or reserved', 'auth.secret_name');
     }
     if (auth.networking.type === 'limited') {

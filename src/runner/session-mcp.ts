@@ -11,6 +11,7 @@ import { credentialUrl } from '../domain/vault-planning.js';
 import type { VaultService } from '../core/vault-service.js';
 import environmentMcpWorkerSource from './environment-mcp-worker-source.json' with { type: 'json' };
 import { hostedCodexArguments } from './hosted-environment-planning.js';
+import type { SessionEnvironmentCredentialsRuntime } from './session-environment-credentials.js';
 
 export interface SessionMcpRuntime {
   servers: Record<string, unknown>;
@@ -19,7 +20,7 @@ export interface SessionMcpRuntime {
 }
 
 /** Resolve credentials in the trusted host, then admit exactly the configured MCP tools. */
-export async function prepareSessionMcp(ownerId: string, launch: SessionLaunch, secrets: SecretReader, signal?: AbortSignal, vaults?: Pick<VaultService, 'authorization'>): Promise<SessionMcpRuntime> {
+export async function prepareSessionMcp(ownerId: string, launch: SessionLaunch, secrets: SecretReader, signal?: AbortSignal, vaults?: Pick<VaultService, 'authorization'>, credentials?: SessionEnvironmentCredentialsRuntime): Promise<SessionMcpRuntime> {
   const servers: Record<string, unknown> = {};
   const environment: Record<string, string> = {};
   const closers: Array<() => Promise<void>> = [];
@@ -57,14 +58,14 @@ export async function prepareSessionMcp(ownerId: string, launch: SessionLaunch, 
         const remote = launch.environment.type === 'self_hosted';
         if (launch.environment.type === 'none') throw new Error('MCP requires an execution environment');
         const headerEnv = Object.fromEntries(Object.keys(headers).map((name, headerIndex) => [name, `RAT_MCP_HEADER_${index}_${headerIndex}`]));
-        const env = { ...inline?.env, ...Object.fromEntries(Object.entries(headers).map(([name, value]) => [headerEnv[name]!, value])) };
+        const env = { ...inline?.env, ...Object.fromEntries(Object.entries(headers).map(([name, value]) => [headerEnv[name]!, value])), ...credentials?.shellEnvironment };
         const configuration = { transport: tool.transport, headerEnv, metadata: tool.request_metadata, allowedTools: tool.allowed_tools };
         const command = ['node', '--input-type=module', '-e', environmentMcpWorkerSource, JSON.stringify(configuration)];
         const managed = launch.environment.type === 'openai_hosted';
         servers[tool.server_label] = {
           ...common, environment_id: remote ? 'remote' : 'local',
           command: managed ? 'codex' : command[0],
-          args: managed ? hostedCodexArguments(['sandbox', '--permission-profile', 'rat_managed', '--', ...command], launch.environment.type === 'openai_hosted' ? launch.environment.network : { access: 'disabled', allowed_domains: [] }) : command.slice(1),
+          args: managed ? hostedCodexArguments(['sandbox', '--permission-profile', 'rat_managed', '--', ...command], launch.environment.type === 'openai_hosted' ? launch.environment.network : { access: 'disabled', allowed_domains: [] }, Boolean(credentials)) : command.slice(1),
           cwd: tool.transport.type === 'stdio' ? tool.transport.cwd : launch.environment.type === 'self_hosted' ? launch.environment.workspace_directory : '/workspace',
           env,
           env_vars: tool.transport.type === 'stdio' ? tool.transport.env_vars.map((name) => ({ name, source: remote ? 'remote' : 'local' })) : [],

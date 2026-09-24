@@ -11,7 +11,7 @@ import { SessionRuntimeStore } from '../../src/core/session-runtime-store.js';
 import { initialSessionRuntime } from '../../src/core/session-runtime-planning.js';
 import type { SessionState } from '../../src/core/session-ports.js';
 import { routeAgentsRequest } from '../../src/lambdas/agents-router.js';
-import { publicWebhookAddress } from '../../src/adapters/webhook-http.js';
+import { publicNetworkAddress } from '../../src/domain/network-address.js';
 import { AgentsApiError, parseAgentsContract } from '../../src/domain/agents-api-validation.js';
 import { agentsStreamJobs, agentsJobGroup } from '../../src/core/agents-outbox-planning.js';
 import type { StoredEnvironment } from '../../src/core/environment-service.js';
@@ -150,8 +150,8 @@ describe('standard outbound Session webhooks', () => {
   });
 
   it('rejects private, link-local, mapped and reserved network destinations', () => {
-    for (const address of ['127.0.0.1', '10.0.0.1', '169.254.169.254', '172.16.0.1', '192.168.1.1', '100.64.0.1', '0.0.0.0', '224.0.0.1', '::1', '::ffff:127.0.0.1', 'fe80::1', 'fc00::1', '2001:db8::1']) expect(publicWebhookAddress(address), address).toBe(false);
-    for (const address of ['8.8.8.8', '1.1.1.1', '2606:4700:4700::1111']) expect(publicWebhookAddress(address), address).toBe(true);
+    for (const address of ['127.0.0.1', '10.0.0.1', '169.254.169.254', '172.16.0.1', '192.168.1.1', '100.64.0.1', '0.0.0.0', '224.0.0.1', '::1', '::ffff:127.0.0.1', 'fe80::1', 'fc00::1', '2001:db8::1']) expect(publicNetworkAddress(address), address).toBe(false);
+    for (const address of ['8.8.8.8', '1.1.1.1', '2606:4700:4700::1111']) expect(publicNetworkAddress(address), address).toBe(true);
   });
 });
 

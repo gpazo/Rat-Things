@@ -4,9 +4,10 @@ import type { CodexLaunchPlan } from './agent-planning.js';
 import { sessionRecoveryItems } from './session-recovery-planning.js';
 import type { SessionMcpRuntime } from './session-mcp.js';
 import { hostedCodexArguments, hostedProcessEnvironment } from './hosted-environment-planning.js';
+import type { SessionEnvironmentCredentialsRuntime } from './session-environment-credentials.js';
 
 /** Translate public agent settings once, without changing the requested model or widening authority. */
-export function planSessionLaunch(base: CodexLaunchPlan, launch: SessionLaunch, environmentToken?: string, mcp?: Pick<SessionMcpRuntime, 'servers' | 'environment'>): Partial<CodexAppServerRequest> {
+export function planSessionLaunch(base: CodexLaunchPlan, launch: SessionLaunch, environmentToken?: string, mcp?: Pick<SessionMcpRuntime, 'servers' | 'environment'>, credentials?: Pick<SessionEnvironmentCredentialsRuntime, 'processEnvironment' | 'shellEnvironment'>): Partial<CodexAppServerRequest> {
   const { agent } = launch;
   const maxSubagents = agent.multi_agent.max_concurrent_subagents ?? 6;
   const { RAT_THINGS_ARTIFACT_DIR: _legacyArtifactDirectory, ...environment } = base.environment;
@@ -29,9 +30,9 @@ export function planSessionLaunch(base: CodexLaunchPlan, launch: SessionLaunch, 
     ...(launch.environment.type === 'none' ? { environments: [] } : {}),
     ...(launch.environment.type === 'openai_hosted' ? {
       permissions: 'rat_managed',
-      binaryArguments: hostedCodexArguments(base.binaryArguments, launch.environment.network),
+      binaryArguments: hostedCodexArguments(base.binaryArguments, launch.environment.network, Boolean(credentials)),
       environments: [{ environmentId: 'local', cwd: '/workspace' }], executionWorkspace: '/workspace',
-      environment: { ...environment, ...hostedProcessEnvironment(launch.hostedConfiguration?.env ?? {}, base.environment.PATH), ...mcp?.environment },
+      environment: { ...environment, ...hostedProcessEnvironment(launch.hostedConfiguration?.env ?? {}, base.environment.PATH), ...mcp?.environment, ...credentials?.processEnvironment },
     } : {}),
     selectedCapabilityRoots: launch.environment.type === 'none' ? [] : launch.environment.capability_directories.map((path, index) => ({
       id: `capability_${index}`, location: { type: 'environment', environmentId: launch.environment.type === 'self_hosted' ? 'remote' : 'local', path },
@@ -57,7 +58,7 @@ export function planSessionLaunch(base: CodexLaunchPlan, launch: SessionLaunch, 
       'features.multi_agent_v2': { enabled: agent.multi_agent.enabled, max_concurrent_threads_per_session: maxSubagents + 1 },
       'features.code_mode': agent.tools.some((tool) => tool.type === 'programmatic_tool_calling' && tool.enabled),
       'features.default_mode_request_user_input': false,
-      ...(launch.environment.type === 'openai_hosted' ? { shell_environment_policy: { inherit: 'core', set: hostedProcessEnvironment(launch.hostedConfiguration?.env ?? {}, base.environment.PATH) } } : {}),
+      ...(launch.environment.type === 'openai_hosted' ? { shell_environment_policy: { inherit: 'core', set: { ...hostedProcessEnvironment(launch.hostedConfiguration?.env ?? {}, base.environment.PATH), ...credentials?.shellEnvironment } } } : {}),
       ...(search ? { 'tools.web_search': { context_size: search.context_size, allowed_domains: search.allowed_domains, location: search.location } } : {}),
     },
   };

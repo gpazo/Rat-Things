@@ -28,7 +28,7 @@ export class RunSessionExecution implements SessionExecution {
     interaction: Pick<AgentInteractionController, 'startSessionTurn' | 'events' | 'steer' | 'interrupt' | 'respond'>;
     artifacts: Pick<ArtifactStore, 'getJson' | 'putJson' | 'getBytes' | 'getStream'>; vaults: Pick<VaultService, 'requireVaults'>;
     environments: Pick<EnvironmentService, 'prepare' | 'state' | 'retire' | 'launchReference' | 'managedLaunch' | 'attachManaged'>;
-    tools: Pick<SessionToolService, 'prepare' | 'launch' | 'close'>;
+    tools: Pick<SessionToolService, 'prepare' | 'launch' | 'close'> & Partial<Pick<SessionToolService, 'environmentLaunch'>>;
     store: AgentsStore;
     backend?: import('../domain/contracts.js').ExecutionBackend;
   }) { this.runtime = new SessionRuntimeStore(options.store); }
@@ -45,7 +45,11 @@ export class RunSessionExecution implements SessionExecution {
         && agent.tools.some((tool) => tool.type === 'mcp' && tool.transport.type === 'stdio')) {
         throw new AgentsApiError(400, 'Managed stdio MCP requires enabled network access.', 'invalid_request', 'environment.network');
       }
-      await this.options.tools.prepare(ownerId, sessionId, agent, tools, vaultIds, resumePreparation);
+      const hosted = prepared.type === 'openai_hosted' ? {
+        environmentId: prepared.id, network: prepared.network,
+        env: (await this.options.environments.managedLaunch(ownerId, prepared.id)).hostedConfiguration?.env ?? {},
+      } : undefined;
+      await this.options.tools.prepare(ownerId, sessionId, agent, tools, vaultIds, resumePreparation, hosted);
       return prepared;
     } catch (error) { if (!resumePreparation && prepared.type !== 'none') await this.options.environments.retire(ownerId, prepared.id); throw error; }
   }
@@ -108,11 +112,13 @@ export class RunSessionExecution implements SessionExecution {
     }
     const existing = await this.runById(ownerId, this.options.runs.idFor(ownerId, this.key(session.id, binding.turn.id)));
     const environmentCredential = session.environment.type === 'self_hosted' ? await this.options.environments.launchReference(ownerId, session.environment.id, existing ? undefined : binding.turn.created_at + 300) : undefined;
+    const environmentCredentials = existing?.agentsSession ? undefined : await this.options.tools.environmentLaunch?.(ownerId, session);
     const launch: SessionLaunch = existing?.agentsSession ? await this.options.artifacts.getJson(existing.agentsSession.launch) : {
       sessionId: session.id, turnId: binding.turn.id, ...(bootstrap ? {} : { turn: binding.turn }),
       agent: binding.modelSettings ? { ...session.agent, ...binding.modelSettings, reasoning: { ...session.agent.reasoning, ...binding.modelSettings.reasoning } } : session.agent, environment: session.environment,
       input: binding.input.map(({ role, content }) => ({ role, content })), history,
       mcp: await this.options.tools.launch(ownerId, session),
+      ...(environmentCredentials ? { environmentCredentials } : {}),
       ...(environmentCredential ? { environmentCredential } : {}),
       ...(session.environment.type === 'openai_hosted' ? await this.options.environments.managedLaunch(ownerId, session.environment.id) : {}),
     };

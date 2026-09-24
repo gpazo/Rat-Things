@@ -35,6 +35,7 @@ RUN dnf install -y \
       nodejs22 \
       nodejs22-npm \
       openssh-clients \
+      openssl \
       openssl-snapsafe-libs \
       python3-botocore \
       shadow-utils \

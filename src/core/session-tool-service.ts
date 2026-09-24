@@ -4,15 +4,16 @@ import type { SessionToolSecrets } from '../credentials/session-tools.js';
 import type { AgentResource, AgentsClock, AgentsStore } from './agents-ports.js';
 import type { VaultService } from './vault-service.js';
 import { AgentsApiError, invalid } from '../domain/agents-api-validation.js';
-import type { SessionMcpBinding } from '../domain/session-execution.js';
+import type { SessionEnvironmentCredentialBinding, SessionMcpBinding } from '../domain/session-execution.js';
+import type { HostedCredentialPolicy } from '../domain/environment-credential-planning.js';
 import { planSessionToolCommitRecovery, planSessionToolTransports, planSessionToolReconciliation, type SessionToolAttempt } from './session-tool-planning.js';
 import { planPreparationReconciliation, requireActivePreparation, type SessionPreparation } from './session-preparation-planning.js';
 
 /** Separate public MCP settings from confidential transports before saving a session. */
 export class SessionToolService {
-  public constructor(private readonly options: { store: AgentsStore; secrets: SessionToolSecrets; vaults: Pick<VaultService, 'resolve' | 'requireVaults'>; clock?: AgentsClock }) {}
+  public constructor(private readonly options: { store: AgentsStore; secrets: SessionToolSecrets; vaults: Pick<VaultService, 'resolve' | 'requireVaults'> & Partial<Pick<VaultService, 'environmentSnapshot'>>; clock?: AgentsClock }) {}
 
-  public async prepare(ownerId: string, sessionId: string, agent: AgentSession['agent'], tools: AgentToolParam[], vaultIds: string[], resumePreparation = false): Promise<void> {
+  public async prepare(ownerId: string, sessionId: string, agent: AgentSession['agent'], tools: AgentToolParam[], vaultIds: string[], resumePreparation = false, hosted?: HostedCredentialPolicy): Promise<void> {
     const preparation = await this.options.store.get<SessionPreparation>(ownerId, 'session_preparations', sessionId);
     if (preparation && !preparation.value.created) requireActivePreparation(preparation.value, this.now());
     if (resumePreparation && await this.options.store.get(ownerId, 'session_tools', sessionId)) return;
@@ -25,13 +26,19 @@ export class SessionToolService {
       }
     }
     const attemptId = randomUUID();
+    if (hosted && vaultIds.length && !this.options.vaults.environmentSnapshot) throw new AgentsApiError(503, 'Environment credential snapshots are unavailable', 'service_unavailable');
+    const credentials = hosted && vaultIds.length ? await this.options.vaults.environmentSnapshot!(ownerId, vaultIds, hosted) : [];
+    const environment: SessionEnvironmentCredentialBinding | undefined = hosted && credentials.length ? {
+      environmentId: hosted.environmentId,
+      references: credentials.map((_credential, index) => this.options.secrets.reference({ ownerId, sessionId, environmentId: hosted.environmentId }, `${attemptId}:${index}`)),
+    } : undefined;
     const bindings = prepared.map(({ serverLabel, headers, env }) => ({ serverLabel,
       ...(Object.keys(headers).length || Object.keys(env).length ? {
         inlineReference: this.options.secrets.reference({ ownerId, sessionId, serverLabel }, attemptId),
       } : {}),
     }));
     const attempt: AgentResource<SessionToolAttempt> = { ownerId, id: attemptId, collection: 'session_tool_attempts',
-      createdAt: this.now(), revision: 1, value: { sessionId, bindings, status: 'pending', deadline: this.now() + 300 },
+      createdAt: this.now(), revision: 1, value: { sessionId, bindings, ...(environment ? { environment } : {}), status: 'pending', deadline: this.now() + 300 },
     };
     // An uncertain intent write creates no secrets. Its stream event still
     // retires all reserved names if the write eventually commits.
@@ -45,9 +52,15 @@ export class SessionToolService {
         const { serverLabel, headers, env } = transport;
         await this.options.secrets.create({ ownerId, sessionId, serverLabel, headers, env }, reference);
       }
+      for (const [index, auth] of credentials.entries()) {
+        const current = await this.options.store.get<SessionToolAttempt>(ownerId, attempt.collection, attempt.id);
+        if (current?.value.status !== 'pending' || this.now() >= current.value.deadline) throw new AgentsApiError(409, 'Session credential preparation expired.', 'conflict');
+        await this.options.secrets.create({ ownerId, sessionId, environmentId: environment!.environmentId, credentials: [auth] }, environment!.references[index]!);
+      }
       await this.options.store.commit([
         { resource: { ownerId, id: sessionId, collection: 'session_tools', createdAt: attempt.createdAt, revision: 1, value: bindings }, expectedRevision: 0 },
         { resource: { ...attempt, revision: 2, value: { ...attempt.value, status: 'adopted' } }, expectedRevision: 1 },
+        ...(environment ? [{ resource: { ownerId, id: sessionId, collection: 'session_environment_credentials', createdAt: attempt.createdAt, revision: 1, value: environment }, expectedRevision: 0 }] : []),
         // The same revision fences credential adoption and final Session commit
         // against abandonment, including a creator paused during secret access.
         ...(preparation ? [{ resource: { ...preparation, revision: preparation.revision + 1 }, expectedRevision: preparation.revision }] : []),
@@ -58,7 +71,8 @@ export class SessionToolService {
       const result = await this.reconcile(ownerId, attempt.id, true).catch(() => undefined);
       if (result?.status === 'adopted') return;
       const winner = await this.options.store.get<SessionMcpBinding[]>(ownerId, 'session_tools', sessionId).catch(() => undefined);
-      if (winner && (resumePreparation || planSessionToolCommitRecovery(bindings, winner.value).adopted)) return;
+      const environmentWinner = await this.options.store.get<SessionEnvironmentCredentialBinding>(ownerId, 'session_environment_credentials', sessionId).catch(() => undefined);
+      if (winner && (resumePreparation || planSessionToolCommitRecovery(bindings, winner.value, environment, environmentWinner?.value).adopted)) return;
       throw error;
     }
   }
@@ -91,7 +105,8 @@ export class SessionToolService {
       : { ...resource, revision: resource.revision + 1, value: { ...resource.value, status: 'cleanup' } };
     if (cleanup !== resource) await this.options.store.put(cleanup, resource.revision);
     const committed = await this.options.store.get<SessionMcpBinding[]>(ownerId, 'session_tools', resource.value.sessionId);
-    const { revoke } = planSessionToolCommitRecovery(resource.value.bindings, committed?.value ?? []);
+    const environment = await this.options.store.get<SessionEnvironmentCredentialBinding>(ownerId, 'session_environment_credentials', resource.value.sessionId);
+    const { revoke } = planSessionToolCommitRecovery(resource.value.bindings, committed?.value ?? [], resource.value.environment, environment?.value);
     for (const reference of revoke) await this.options.secrets.revoke(reference);
     await this.options.store.delete(cleanup);
     return { status: 'cleaned' };
@@ -111,6 +126,13 @@ export class SessionToolService {
   }
 
   public async close(ownerId: string, sessionId: string): Promise<void> {
+    const environment = await this.options.store.get<SessionEnvironmentCredentialBinding>(ownerId, 'session_environment_credentials', sessionId);
+    if (environment) {
+      const cleanup: AgentResource<SessionToolAttempt> = { ownerId, id: randomUUID(), collection: 'session_tool_attempts', createdAt: this.now(), revision: 1,
+        value: { sessionId, bindings: [], environment: environment.value, status: 'cleanup', deadline: this.now() } };
+      await this.options.store.delete(environment, [{ resource: cleanup, expectedRevision: 0 }]);
+      await this.reconcile(ownerId, cleanup.id);
+    }
     const resource = await this.options.store.get<SessionMcpBinding[]>(ownerId, 'session_tools', sessionId);
     if (!resource) return;
     const cleanup: AgentResource<SessionToolAttempt> = { ownerId, id: randomUUID(), collection: 'session_tool_attempts',
@@ -120,6 +142,12 @@ export class SessionToolService {
     // lost acknowledgement cannot discard the outbox's recovery path.
     await this.options.store.delete(resource, [{ resource: cleanup, expectedRevision: 0 }]);
     await this.reconcile(ownerId, cleanup.id);
+  }
+
+  public async environmentLaunch(ownerId: string, session: AgentSession): Promise<SessionEnvironmentCredentialBinding | undefined> {
+    const saved = (await this.options.store.get<SessionEnvironmentCredentialBinding>(ownerId, 'session_environment_credentials', session.id))?.value;
+    if (saved && (session.environment.type !== 'openai_hosted' || saved.environmentId !== session.environment.id)) throw new Error('Environment credential scope does not match the Session');
+    return saved;
   }
 
   private now(): number { return this.options.clock?.now() ?? Math.floor(Date.now() / 1000); }

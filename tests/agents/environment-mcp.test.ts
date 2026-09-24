@@ -74,12 +74,15 @@ describe('MCP connections from the environment', () => {
   it('wraps managed stdio processes in the immutable network profile', async () => {
     const agent = sessionAgent({ model: 'test', tools: [{ type: 'mcp', server_label: 'local', transport: { type: 'stdio', command: 'node', args: ['server.js'], cwd: '/workspace' }, request_metadata: { tenant: 'alice' } }] }, 'agent_test', 1);
     const environment = { id: 'env_test', type: 'openai_hosted' as const, capability_directories: [], files: [], skills: [], plugins: [], packages: { npm: [], python: [], system: [] }, network: { access: 'restricted' as const, allowed_domains: ['api.example.com'] } };
-    const mcp = await prepareSessionMcp('alice', { sessionId: 'sess_test', turnId: 'turn_test', environment, agent, input: [] }, { get: async () => { throw new Error('No secrets'); } });
+    const credentials = { processEnvironment: { NO_PROXY: '*' }, shellEnvironment: { SERVICE_TOKEN: 'placeholder', HTTPS_PROXY: 'http://127.0.0.1:1234', NO_PROXY: '' }, close: async () => {} };
+    const mcp = await prepareSessionMcp('alice', { sessionId: 'sess_test', turnId: 'turn_test', environment, agent, input: [] }, { get: async () => { throw new Error('No secrets'); } }, undefined, undefined, credentials);
     try {
       expect(mcp.servers.local).toMatchObject({ command: 'codex', environment_id: 'local' });
       const args = (mcp.servers.local as { args: string[] }).args;
       expect(args).toContain('sandbox'); expect(args).toContain('--permission-profile'); expect(args).toContain('rat_managed');
       expect(args.join(' ')).toContain('"api.example.com" = "allow"');
+      expect(args.join(' ')).toContain('allow_upstream_proxy = true');
+      expect(mcp.servers.local).toMatchObject({ env: credentials.shellEnvironment });
     } finally { await mcp.close(); }
   });
 });

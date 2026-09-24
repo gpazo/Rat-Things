@@ -27,7 +27,13 @@ Implemented locally:
 - Vault environment-variable credential CRUD validates names, values and exact
   host restrictions, redacts secret values, preserves immutable destination
   configuration across rotation, and excludes these credentials from MCP auth.
-  Sandbox injection and trusted proxy substitution remain to be implemented.
+  Session snapshots use durable reservation/adoption/cleanup and remain stable
+  across Vault rotation. A root-owned TLS proxy supplies exact-host HTTPS header
+  substitution on ports 443/8443, including WebSocket upgrades, with DNS pinning,
+  private-address denial and CONNECT/Host/SNI binding. Sandbox setup, normal
+  commands and environment MCP receive placeholders and public CA configuration.
+  Native enabled/restricted network command fixtures pass locally; deployed
+  Secrets Manager/IAM, guest-UID isolation and worker image validation remain.
 
 The native request fixture exposed an existing routing mismatch: stock Codex
 silently omits `flex`, `auto`, and `default` in some requests, and translates
@@ -59,6 +65,11 @@ pass against the packaged binary before deployment or a parity claim.
 Ignored evidence is under `.aws-e2e/ag260913a/parity-20260923/`.
 The original state remains `.aws-e2e/ag260913a/terraform.tfstate` with lineage
 `be69a19a-2f46-d753-8dc0-0884b98a7269`. No AWS deployment was changed in this cycle.
+
+The credential implementation passes 981 ordinary tests (15 opt-in skips).
+`npm run check` reaches packaging, which correctly rejects the old exported
+runtime because it lacks the newly pinned settings patch. Draft PR #1 builds
+the updated artifact in ARM64 CI; exact native-image acceptance is still pending.
 
 ## Remaining priority order
 

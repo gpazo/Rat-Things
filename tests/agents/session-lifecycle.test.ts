@@ -162,7 +162,10 @@ describe('Agents API session lifecycle through the OpenAI SDK', () => {
     const resolveCredential = vi.spyOn(vaults, 'resolve');
     const tools = new SessionToolService({ store: f.store, vaults, secrets: {
       reference: (_identity, attempt) => `secret-${attempt}`,
-      create: async (value) => { preparedHeaders.push(value.headers); },
+      create: async (value) => {
+        if (!('headers' in value)) throw new Error('Unexpected environment credential');
+        preparedHeaders.push(value.headers);
+      },
       revoke: async () => {},
     } });
     f.execution.prepare = async (owner, id, environment, agent, vaults, parameters = []) => {

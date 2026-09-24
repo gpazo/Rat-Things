@@ -1,7 +1,7 @@
 import type { AgentSession, AgentToolParam } from '../domain/agents-api.js';
 import { invalid } from '../domain/agents-api-validation.js';
 import { canonicalJson } from '../domain/json.js';
-import type { SessionMcpBinding } from '../domain/session-execution.js';
+import type { SessionEnvironmentCredentialBinding, SessionMcpBinding } from '../domain/session-execution.js';
 
 /** Validate and separate confidential transports before any credential access. */
 export function planSessionToolTransports(agent: AgentSession['agent'], tools: AgentToolParam[]) {
@@ -19,11 +19,12 @@ export function planSessionToolTransports(agent: AgentSession['agent'], tools: A
 }
 
 /** A committed winner fences later creates; revoke only this attempt's unadopted refs. */
-export function planSessionToolCommitRecovery(attempt: SessionMcpBinding[], committed: SessionMcpBinding[]) {
-  const retained = new Set(committed.flatMap((binding) => binding.inlineReference ? [binding.inlineReference] : []));
+export function planSessionToolCommitRecovery(attempt: SessionMcpBinding[], committed: SessionMcpBinding[], attemptEnvironment?: SessionEnvironmentCredentialBinding, committedEnvironment?: SessionEnvironmentCredentialBinding) {
+  const retained = new Set([...committed.flatMap((binding) => binding.inlineReference ? [binding.inlineReference] : []), ...committedEnvironment?.references ?? []]);
+  const references = [...attempt.flatMap(binding => binding.inlineReference ? [binding.inlineReference] : []), ...attemptEnvironment?.references ?? []];
   return {
-    adopted: canonicalJson(attempt) === canonicalJson(committed),
-    revoke: [...new Set(attempt.flatMap((binding) => binding.inlineReference && !retained.has(binding.inlineReference) ? [binding.inlineReference] : []))],
+    adopted: canonicalJson([attempt, attemptEnvironment ?? null]) === canonicalJson([committed, committedEnvironment ?? null]),
+    revoke: [...new Set(references.filter(reference => !retained.has(reference)))],
   };
 }
 
@@ -31,6 +32,7 @@ export function planSessionToolCommitRecovery(attempt: SessionMcpBinding[], comm
 export interface SessionToolAttempt {
   sessionId: string;
   bindings: SessionMcpBinding[];
+  environment?: SessionEnvironmentCredentialBinding;
   status: 'pending' | 'adopted' | 'cleanup';
   deadline: number;
 }

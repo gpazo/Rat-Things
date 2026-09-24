@@ -42,6 +42,7 @@ export interface AgentDriverControl {
   session?: SessionLaunch;
   sessionEnvironmentToken?: string;
   sessionMcp?: import('./session-mcp.js').SessionMcpRuntime;
+  sessionEnvironmentCredentials?: import('./session-environment-credentials.js').SessionEnvironmentCredentialsRuntime;
   sessionRuntime?: { previous?: SessionRuntimeState; lifetime?: 'bounded' | 'host-managed'; changed(state: SessionRuntimeState): void; flush(): Promise<void> };
   dynamicTools?: Array<Record<string, unknown>>;
   onEvent?(event: CodexAppServerEvent): void | Promise<void>;
@@ -71,7 +72,7 @@ export class CodexDriver implements AgentDriver {
     const plan = planCodexLaunch(request, workspace, timeoutMs, process.env);
     const launch: CodexAppServerRequest = {
       ...plan,
-      ...(control?.session ? planSessionLaunch(plan, control.session, control.sessionEnvironmentToken, control.sessionMcp) : {}),
+      ...(control?.session ? planSessionLaunch(plan, control.session, control.sessionEnvironmentToken, control.sessionMcp, control.sessionEnvironmentCredentials) : {}),
       ...(signal ? { signal } : {}),
       ...(control?.onEvent ? { onEvent: control.onEvent } : {}),
       ...(control?.onServerRequest ? { onServerRequest: control.session ? (event) => {

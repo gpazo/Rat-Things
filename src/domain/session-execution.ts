@@ -27,6 +27,7 @@ export interface SessionLaunch {
   environmentCredential?: string;
   history?: AgentSessionItem[];
   mcp?: SessionMcpBinding[];
+  environmentCredentials?: SessionEnvironmentCredentialBinding;
   hostedConfiguration?: import('./environment-planning.js').HostedEnvironmentConfiguration;
   hostedFiles?: Array<{ path: string; content: import('./contracts.js').ArtifactReference }>;
   hostedSkills?: Array<{ name: string; description: string; content: import('./contracts.js').ArtifactReference }>;
@@ -38,4 +39,9 @@ export interface SessionMcpBinding {
   vaultReference?: string;
   vaultId?: string;
   credentialId?: string;
+}
+
+export interface SessionEnvironmentCredentialBinding {
+  environmentId: string;
+  references: string[];
 }

@@ -1,13 +1,14 @@
 import { createHash } from 'node:crypto';
 import { CreateSecretCommand, DeleteSecretCommand, DescribeSecretCommand, type SecretsManagerClient } from '@aws-sdk/client-secrets-manager';
-import type { SessionToolSecret, SessionToolSecrets } from '../credentials/session-tools.js';
+import type { SessionCredentialIdentity, SessionCredentialSecret, SessionToolSecrets } from '../credentials/session-tools.js';
 
 export class SecretsSessionTools implements SessionToolSecrets {
   public constructor(private readonly client: SecretsManagerClient, private readonly prefix: string, private readonly kmsKeyId: string) {}
-  public reference(identity: Pick<SessionToolSecret, 'ownerId' | 'sessionId' | 'serverLabel'>, attemptId: string): string {
-    return `${this.prefix}/agents/${hash(identity.ownerId)}/sessions/${identity.sessionId}/${hash(JSON.stringify([attemptId, identity.serverLabel]))}`;
+  public reference(identity: SessionCredentialIdentity, attemptId: string): string {
+    const scope = 'serverLabel' in identity ? identity.serverLabel : { environmentId: identity.environmentId };
+    return `${this.prefix}/agents/${hash(identity.ownerId)}/sessions/${identity.sessionId}/${hash(JSON.stringify([attemptId, scope]))}`;
   }
-  public async create(value: SessionToolSecret, reference: string): Promise<void> {
+  public async create(value: SessionCredentialSecret, reference: string): Promise<void> {
     await this.client.send(new CreateSecretCommand({
       Name: reference, ClientRequestToken: hash(`create:${reference}`),
       KmsKeyId: this.kmsKeyId, SecretString: JSON.stringify(value),

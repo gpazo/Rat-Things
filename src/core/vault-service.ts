@@ -8,6 +8,8 @@ import { AgentsApiError, parseAgentsContract, resourceNotFound, validateAgentMet
 import { credentialUrl, publicCredentialAuth, rotateCredentialAuth, validateCredentialAuth, vaultName } from '../domain/vault-planning.js';
 import type { AgentResource, AgentsClock, AgentsIds, AgentsStore } from './agents-ports.js';
 import { cursorPage } from './session-planning.js';
+import { validateEnvironmentCredentialPolicy, type EnvironmentCredentialAuth, type HostedCredentialPolicy } from '../domain/environment-credential-planning.js';
+import { canonicalJson } from '../domain/json.js';
 
 interface StoredVault { vault: Vault; status: 'active' | 'archived' }
 interface StoredCredential { credential: Credential; status: 'active' | 'archived'; secret: string; refreshLease?: { id: string; expiresAt: number }; pendingRefresh?: { credential: Credential; secret: string } }
@@ -131,6 +133,24 @@ export class VaultService {
   }
 
   public async requireVaults(ownerId: string, ids: string[]): Promise<void> { for (const id of [...new Set(ids)]) await this.activeVault(ownerId, id); }
+
+  /** Snapshot an admitted grant for one hosted Session; later rotations affect new Sessions. */
+  public async environmentSnapshot(ownerId: string, ids: string[], policy: HostedCredentialPolicy): Promise<EnvironmentCredentialAuth[]> {
+    const selected: StoredCredential[] = [];
+    for (const id of [...new Set(ids)]) {
+      await this.activeVault(ownerId, id);
+      selected.push(...(await this.all<StoredCredential>(ownerId, `vaults/${id}/credentials`)).map(resource => resource.value)
+        .filter(value => value.status === 'active' && value.credential.auth.type === 'environment_variable'));
+    }
+    validateEnvironmentCredentialPolicy(selected.flatMap(value => value.credential.auth.type === 'environment_variable' ? [value.credential.auth] : []), policy);
+    return Promise.all(selected.map(async value => {
+      const auth = await this.options.secrets.read(value.secret);
+      if (auth.type !== 'environment_variable') throw new Error('Environment credential type changed');
+      validateCredentialAuth(auth);
+      if (canonicalJson(publicCredentialAuth(auth)) !== canonicalJson(value.credential.auth)) throw new Error('Environment credential destination changed');
+      return auth;
+    }));
+  }
 
   /** Only the trusted MCP transport reads bearer values. Refreshes have a durable per-credential lease. */
   public async authorization(ownerId: string, vaultId: string, id: string, serverUrl: string, rejectedToken?: string): Promise<string> {

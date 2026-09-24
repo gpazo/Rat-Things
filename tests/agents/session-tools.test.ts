@@ -10,14 +10,14 @@ import { SessionToolService } from '../../src/core/session-tool-service.js';
 import { VaultService } from '../../src/core/vault-service.js';
 import { createSessionMcpProxy, planMcpRequest } from '../../src/runner/session-mcp.js';
 import type { AgentToolParam } from '../../src/domain/agents-api.js';
-import type { SessionToolSecret } from '../../src/credentials/session-tools.js';
+import type { SessionCredentialSecret } from '../../src/credentials/session-tools.js';
 import { MemoryAgentsStore } from './fixtures.js';
 import { rpcClient } from './codex-protocol.js';
 
 describe('session MCP capabilities', () => {
   it('keeps inline credentials out of public settings and encrypted session metadata', async () => {
     const store = new MemoryAgentsStore();
-    const secrets = new Map<string, SessionToolSecret>();
+    const secrets = new Map<string, SessionCredentialSecret>();
     const tools: AgentToolParam[] = [{ type: 'mcp', server_label: 'crm', transport: {
       type: 'http', server_url: 'https://crm.example/mcp', authorization: 'Bearer private-token', headers: { 'X-Private': 'private-header' },
     } }];
@@ -31,7 +31,7 @@ describe('session MCP capabilities', () => {
     await service.prepare('alice', 'sess_1', agent, tools, []);
     expect(JSON.stringify(agent)).not.toContain('private-');
     expect(JSON.stringify([...store.resources.values()])).not.toContain('private-');
-    expect(secrets.get('secret-ref')?.headers.Authorization).toBe('Bearer private-token');
+    expect(secrets.get('secret-ref')).toMatchObject({ headers: { Authorization: 'Bearer private-token' } });
     expect(agent.tools[0]).toMatchObject({ transport: { type: 'http', server_url: 'https://crm.example/mcp' } });
     await service.close('alice', 'sess_1');
     expect(secrets.size).toBe(0);

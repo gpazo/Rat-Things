@@ -49,6 +49,7 @@ import { bindHostedWorkspace, prepareHostedEnvironment } from './hosted-environm
 import { planCodexLaunch } from './agent-planning.js';
 import { codexEnvironmentFiles } from '../adapters/codex-environment-files.js';
 import type { EnvironmentFileOperations } from '../core/environment-file-ports.js';
+import { prepareSessionEnvironmentCredentials, type SessionEnvironmentCredentialsRuntime } from './session-environment-credentials.js';
 
 export async function runAgentWorker(): Promise<void> {
   const clients = createAwsClients();
@@ -85,6 +86,7 @@ export async function runAgentWorker(): Promise<void> {
   let codexAuthFileSession: CodexAuthFileSession | undefined;
   let heartbeat: ExecutionHeartbeat | undefined;
   let sessionMcp: SessionMcpRuntime | undefined;
+  let sessionEnvironmentCredentials: SessionEnvironmentCredentialsRuntime | undefined;
   let sessionJournal: SessionRuntimeJournal | undefined;
   let managedStatus: ((status: 'connected' | 'failed' | 'expired') => Promise<void>) | undefined;
   let managedTimer: ReturnType<typeof setInterval> | undefined;
@@ -173,7 +175,8 @@ export async function runAgentWorker(): Promise<void> {
         managedStatus = (status) => environments.managedStatus(sessionOwner, environmentId, runId, status);
         await bindHostedWorkspace(workspace);
         const plan = planCodexLaunch(effectiveRequest, workspace, timeoutSeconds * 1000, process.env);
-        launch = await prepareHostedEnvironment({ launch, workspace, plan, artifacts, signal: abort.signal, stateDirectory: '/tmp/rat-hosted-state', previouslyPrepared: Boolean(runtime.value.snapshot) });
+        sessionEnvironmentCredentials = await prepareSessionEnvironmentCredentials(sessionOwner, launch, secrets, abort.signal);
+        launch = await prepareHostedEnvironment({ launch, workspace, plan, artifacts, signal: abort.signal, stateDirectory: '/tmp/rat-hosted-state', previouslyPrepared: Boolean(runtime.value.snapshot), ...(sessionEnvironmentCredentials ? { credentials: sessionEnvironmentCredentials } : {}) });
         environmentFiles = { execute: (_environmentId, _reference, operation) => codexEnvironmentFiles({ workspace: '/workspace', operation, binary: plan.binary, ...(plan.identity ? { identity: plan.identity } : {}), signal: abort.signal }) };
         runnerControl?.setEnvironmentFiles((operation) => environmentFiles!.execute(environmentId, '', operation as import('../core/environment-file-ports.js').EnvironmentFileOperation));
         await managedStatus('connected');
@@ -201,8 +204,8 @@ export async function runAgentWorker(): Promise<void> {
         secrets: new SecretsAgentCredentials(clients.secrets, requiredEnv('INTEGRATION_CREDENTIAL_NAME_PREFIX'), requiredEnv('INTEGRATION_CREDENTIAL_KMS_KEY_ARN')),
         oauth: new HttpOAuthRefreshClient(),
       }) : undefined;
-      sessionMcp = await prepareSessionMcp(current.ownerId, launch, secrets, abort.signal, sessionVaults);
-      driverControl = { ...driverControl, sessionMcp };
+      sessionMcp = await prepareSessionMcp(current.ownerId, launch, secrets, abort.signal, sessionVaults, sessionEnvironmentCredentials);
+      driverControl = { ...driverControl, sessionMcp, ...(sessionEnvironmentCredentials ? { sessionEnvironmentCredentials } : {}) };
       if (launch.environment.type === 'self_hosted') {
         if (!launch.environmentCredential) throw new Error('Session environment credential is missing');
         const credential = parseEnvironmentCredentials(await secrets.get(launch.environmentCredential));
@@ -312,7 +315,7 @@ export async function runAgentWorker(): Promise<void> {
     clearInterval(managedTimer);
     await managedUpdate;
     await managedStatus?.(managedReady ? 'expired' : 'failed').catch(() => {});
-    await sessionMcp?.close();
+    await Promise.all([sessionMcp?.close(), sessionEnvironmentCredentials?.close()]);
     await heartbeat?.stop();
     if (loadedBedrockToken) delete process.env.AWS_BEARER_TOKEN_BEDROCK;
     if (bedrockTokenFile) { delete process.env.RAT_BEDROCK_AUTH_FILE; await bedrockTokenFile.close(); }
