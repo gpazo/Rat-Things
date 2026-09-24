@@ -133,6 +133,8 @@ does not document the Lambda MicroVM APIs, so `RunMicrovm`, lifecycle hooks, man
 isolation remain live-AWS-only checks.
 
 CI builds the native artifact on ARM64 and caches the exported runtime by source/build inputs.
+The cache is saved after compilation so a later acceptance failure does not force
+another cold build. Every restored runtime still passes all acceptance checks.
 The pinned companion version is part of `runtime/codex/source.json`; ordinary TypeScript
 dependency updates do not invalidate this native cache.
 A cold build requires at least 20 GiB free for source, compilation and container layers; the

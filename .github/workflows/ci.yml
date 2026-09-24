@@ -32,7 +32,7 @@ jobs:
         with:
           terraform_version: 1.15.8
       - run: npm ci
-      - uses: actions/cache@v4
+      - uses: actions/cache/restore@v4
         id: codex-runtime
         with:
           path: .runtime/codex/linux-arm64
@@ -40,6 +40,13 @@ jobs:
       - name: Build pinned Linux ARM64 runtime
         if: steps.codex-runtime.outputs.cache-hit != 'true'
         run: docker buildx build --platform linux/arm64 --file runtime/codex/Dockerfile --output type=local,dest=.runtime/codex/linux-arm64 .
+      # Cache a completed compilation even if a later acceptance check fails.
+      # Restoring this cache never skips package, checksum or native image tests.
+      - uses: actions/cache/save@v4
+        if: steps.codex-runtime.outputs.cache-hit != 'true'
+        with:
+          path: .runtime/codex/linux-arm64
+          key: ${{ steps.codex-runtime.outputs.cache-primary-key }}
       - run: npm run check
       - run: npm run test:infra
       - run: npm run test:e2e:relay-image

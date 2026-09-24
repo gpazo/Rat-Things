@@ -33,7 +33,7 @@ index e42fa9b..5f0a722 100644
          | ApiError::Retryable { .. }
          | ApiError::RateLimitExceeded { .. }
 diff --git a/codex-rs/codex-api/src/api_bridge.rs b/codex-rs/codex-api/src/api_bridge.rs
-index e8d7c47..7e65673 100644
+index e8d7c47..1b33d11 100644
 --- a/codex-rs/codex-api/src/api_bridge.rs
 +++ b/codex-rs/codex-api/src/api_bridge.rs
 @@ -22,6 +22,7 @@ pub fn map_api_error(err: ApiError) -> CodexErr {
@@ -44,43 +44,56 @@ index e8d7c47..7e65673 100644
          ApiError::UsageNotIncluded => CodexErr::UsageNotIncluded,
          ApiError::Retryable { message, delay } => {
              let error = CodexErr::Stream(message);
-@@ -40,6 +41,15 @@ pub fn map_api_error(err: ApiError) -> CodexErr {
+@@ -40,6 +41,9 @@ pub fn map_api_error(err: ApiError) -> CodexErr {
          ApiError::Stream(msg) => CodexErr::Stream(msg),
          ApiError::ServerOverloaded => CodexErr::ServerOverloaded,
          ApiError::Api { status, message } => {
-+            if let Ok(value) = serde_json::from_str::<Value>(&message)
-+                && value
-+                    .get("error")
-+                    .and_then(|error| error.get("code"))
-+                    .and_then(Value::as_str)
-+                    == Some("credit_balance_exhausted")
-+            {
-+                return CodexErr::CreditBalanceExhausted;
++            if let Some(error) = typed_error_body(&message) {
++                return error;
 +            }
              let user_message = api_error_user_message(status, &message);
              CodexErr::UnexpectedStatus(UnexpectedResponseError {
                  status,
-@@ -71,6 +81,15 @@ pub fn map_api_error(err: ApiError) -> CodexErr {
+@@ -71,6 +75,9 @@ pub fn map_api_error(err: ApiError) -> CodexErr {
                  body,
              } => {
                  let body_text = body.unwrap_or_default();
-+                if let Ok(value) = serde_json::from_str::<Value>(&body_text)
-+                    && value
-+                        .get("error")
-+                        .and_then(|error| error.get("code"))
-+                        .and_then(Value::as_str)
-+                        == Some("credit_balance_exhausted")
-+                {
-+                    return CodexErr::CreditBalanceExhausted;
++                if let Some(error) = typed_error_body(&body_text) {
++                    return error;
 +                }
- 
+
                  if status == http::StatusCode::SERVICE_UNAVAILABLE
                      && let Ok(value) = serde_json::from_str::<serde_json::Value>(&body_text)
+@@ -196,6 +203,24 @@ pub fn map_api_error(err: ApiError) -> CodexErr {
+     }
+ }
+
++// Typed failures take precedence over a transport status without retaining the
++// provider body in the resulting error.
++fn typed_error_body(body: &str) -> Option<CodexErr> {
++    let value = serde_json::from_str::<Value>(body).ok()?;
++    match value.get("error")?.get("code")?.as_str()? {
++        "credit_balance_exhausted" => Some(CodexErr::CreditBalanceExhausted),
++        "context_length_exceeded" => Some(CodexErr::ContextWindowExceeded),
++        "session_budget_exceeded" => Some(CodexErr::SessionBudgetExceeded),
++        "insufficient_quota" | "usage_limit_exceeded" => Some(CodexErr::QuotaExceeded),
++        "server_error" => Some(CodexErr::InternalServerError),
++        "server_overloaded" | "server_is_overloaded" | "slow_down" => {
++            Some(CodexErr::ServerOverloaded)
++        }
++        "request_timeout" => Some(CodexErr::RequestTimeout),
++        _ => None,
++    }
++}
++
+ const ACTIVE_LIMIT_HEADER: &str = "x-codex-active-limit";
+ const REQUEST_ID_HEADER: &str = "x-request-id";
+ const OAI_REQUEST_ID_HEADER: &str = "x-oai-request-id";
 diff --git a/codex-rs/codex-api/src/api_bridge_tests.rs b/codex-rs/codex-api/src/api_bridge_tests.rs
-index 666dea8..71f7b0e 100644
+index 666dea8..a2df4c3 100644
 --- a/codex-rs/codex-api/src/api_bridge_tests.rs
 +++ b/codex-rs/codex-api/src/api_bridge_tests.rs
-@@ -521,3 +521,30 @@ fn map_api_error_extracts_identity_auth_details_from_headers() {
+@@ -521,3 +521,67 @@ fn map_api_error_extracts_identity_auth_details_from_headers() {
      );
      assert_eq!(err.identity_error_code.as_deref(), Some("token_expired"));
  }
@@ -111,6 +124,43 @@ index 666dea8..71f7b0e 100644
 +        assert_eq!(mapped.to_string(), "API credit balance exhausted.");
 +    }
 +}
++
++#[test]
++fn typed_provider_errors_are_independent_of_http_transport_status() {
++    for (code, expected) in [
++        (
++            "context_length_exceeded",
++            CodexErrorInfo::ContextWindowExceeded,
++        ),
++        ("insufficient_quota", CodexErrorInfo::UsageLimitExceeded),
++        (
++            "session_budget_exceeded",
++            CodexErrorInfo::SessionBudgetExceeded,
++        ),
++        ("server_error", CodexErrorInfo::InternalServerError),
++        ("server_overloaded", CodexErrorInfo::ServerOverloaded),
++        ("request_timeout", CodexErrorInfo::RequestTimeout),
++    ] {
++        let body = serde_json::json!({"error": {"code": code, "message": "private diagnostic"}})
++            .to_string();
++        for error in [
++            ApiError::Api {
++                status: http::StatusCode::BAD_REQUEST,
++                message: body.clone(),
++            },
++            ApiError::Transport(TransportError::Http {
++                status: http::StatusCode::BAD_REQUEST,
++                url: None,
++                headers: None,
++                body: Some(body),
++            }),
++        ] {
++            let mapped = map_api_error(error);
++            assert_eq!(mapped.to_codex_protocol_error(), expected);
++            assert!(!mapped.to_string().contains("private diagnostic"));
++        }
++    }
++}
 diff --git a/codex-rs/codex-api/src/error.rs b/codex-rs/codex-api/src/error.rs
 index d1d83cf..1030d81 100644
 --- a/codex-rs/codex-api/src/error.rs
@@ -125,24 +175,38 @@ index d1d83cf..1030d81 100644
      UsageNotIncluded,
      #[error("retryable error: {message}")]
 diff --git a/codex-rs/codex-api/src/sse/responses.rs b/codex-rs/codex-api/src/sse/responses.rs
-index e4f5f04..8e51bcf 100644
+index e4f5f04..126005d 100644
 --- a/codex-rs/codex-api/src/sse/responses.rs
 +++ b/codex-rs/codex-api/src/sse/responses.rs
-@@ -420,7 +420,9 @@ pub fn process_responses_event(
+@@ -420,7 +420,23 @@ pub fn process_responses_event(
                  if let Some(error) = resp_val.get("error")
                      && let Ok(error) = serde_json::from_value::<Error>(error.clone())
                  {
 -                    if is_context_window_error(&error) {
 +                    if error.code.as_deref() == Some("credit_balance_exhausted") {
 +                        response_error = ApiError::CreditBalanceExhausted;
++                    } else if matches!(
++                        error.code.as_deref(),
++                        Some(
++                            "server_error"
++                                | "request_timeout"
++                                | "session_budget_exceeded"
++                                | "usage_limit_exceeded"
++                                | "server_overloaded"
++                        )
++                    ) {
++                        response_error = ApiError::Api {
++                            status: http::StatusCode::INTERNAL_SERVER_ERROR,
++                            message: serde_json::json!({"error": {"code": error.code}}).to_string(),
++                        };
 +                    } else if is_context_window_error(&error) {
                          response_error = ApiError::ContextWindowExceeded;
                      } else if is_quota_exceeded_error(&error) {
                          response_error = ApiError::QuotaExceeded;
-@@ -1181,6 +1183,15 @@ mod tests {
+@@ -1181,6 +1197,15 @@ mod tests {
          assert_matches!(events[0], Err(ApiError::ContextWindowExceeded));
      }
- 
+
 +    #[tokio::test]
 +    async fn credit_balance_exhausted_error_is_fatal() {
 +        let raw = r#"{"type":"response.failed","response":{"id":"credit_failure","error":{"code":"credit_balance_exhausted","message":"No API credits remain."}}}"#;
@@ -161,7 +225,7 @@ index 8984899..633b99d 100644
 +++ b/codex-rs/ext/goal/src/extension.rs
 @@ -365,7 +365,9 @@ where
              };
- 
+
              let reason = match input.error {
 -                CodexErrorInfo::UsageLimitExceeded => ActiveGoalStopReason::UsageLimit,
 +                CodexErrorInfo::UsageLimitExceeded | CodexErrorInfo::CreditBalanceExhausted => {

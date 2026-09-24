@@ -12,11 +12,23 @@ const cases: Array<{ code: string; expected: NonNullable<Turn['error']>['code'];
   { code: 'context_length_exceeded', expected: 'context_length_exceeded' },
   { code: 'insufficient_quota', expected: 'usage_limit_exceeded' },
   { code: 'cyber_policy', expected: 'cyber_policy' },
+  { code: 'rate_limit_exceeded', expected: 'rate_limit_exceeded' },
+  { code: 'server_is_overloaded', expected: 'server_overloaded' },
+  { code: 'rate_limit_exceeded', expected: 'rate_limit_exceeded', status: 429 },
+  { code: 'server_error', expected: 'server_error', status: 500 },
   { code: 'credit_balance_exhausted', expected: 'credit_balance_exhausted', patched: true },
   { code: 'credit_balance_exhausted', expected: 'credit_balance_exhausted', status: 402, patched: true },
   { code: 'invalid_api_key', expected: 'authentication_error', status: 401, patched: true },
   { code: 'model_not_found', expected: 'resource_not_found', status: 404, patched: true },
   { code: 'invalid_request_error', expected: 'invalid_request', status: 400, patched: true },
+  { code: 'context_length_exceeded', expected: 'context_length_exceeded', status: 400, patched: true },
+  { code: 'insufficient_quota', expected: 'usage_limit_exceeded', status: 429, patched: true },
+  { code: 'access_denied', expected: 'authentication_error', status: 403, patched: true },
+  { code: 'service_unavailable', expected: 'server_overloaded', status: 503, patched: true },
+  { code: 'timeout', expected: 'request_timeout', status: 408, patched: true },
+  { code: 'gateway_timeout', expected: 'request_timeout', status: 504, patched: true },
+  ...(['server_error', 'request_timeout', 'session_budget_exceeded', 'usage_limit_exceeded', 'server_overloaded'] as const)
+    .map(code => ({ code, expected: code, patched: true })),
 ];
 for (const scenario of cases) it.skipIf(scenario.patched && process.env.CODEX_REQUIRE_PARITY !== 'true')(`preserves provider failure ${scenario.code} over ${scenario.status ?? 'SSE'}`, async () => {
   let requests = 0;

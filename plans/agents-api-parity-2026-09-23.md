@@ -111,6 +111,15 @@ retry/fanout through the existing deployment-owned fixtures. Those live cases
 are prepared, not yet executed. The ordinary check passes 1,015 tests with 23
 opt-in skips and reaches the same native-artifact packaging gate.
 
+The error audit was expanded to HTTP context/quota failures and SSE server,
+timeout and budget categories. Typed response codes take precedence over generic
+transport status. Seven native error fixtures pass on the current local binary;
+sixteen require the expanded native patch. The ordinary suite passes 1,019 tests
+with 34 opt-in skips; packaging still rejects the old runtime. The superseded
+four-patch CI build was cancelled before restarting with this complete correction.
+CI now saves a completed compilation before later acceptance checks so failures
+in those checks do not discard an otherwise reusable, identity-checked artifact.
+
 ## Remaining priority order
 
 1. Build and test the native settings and typed error patches. Complete environment-variable
