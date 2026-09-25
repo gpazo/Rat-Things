@@ -21,6 +21,13 @@ export class AgentsApiError extends Error {
   }
 }
 
+/** Distinguish a rejected storage write from public lifecycle conflicts. */
+export class AgentsResourceConflictError extends AgentsApiError {
+  public constructor() {
+    super(409, 'Resource changed concurrently. Retry the request.', 'conflict');
+  }
+}
+
 const ajv = new Ajv({ strict: false, allErrors: false });
 ajv.addSchema(schema);
 const validators = new Map<keyof AgentsApiContracts, ValidateFunction>();

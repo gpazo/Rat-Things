@@ -4,7 +4,7 @@ import {
   type TransactWriteCommandInput,
 } from '@aws-sdk/lib-dynamodb';
 import type { AgentListParams } from '../domain/agents-api.js';
-import { AgentsApiError, invalid } from '../domain/agents-api-validation.js';
+import { AgentsResourceConflictError, invalid } from '../domain/agents-api-validation.js';
 import type { ArtifactReference } from '../domain/contracts.js';
 import { canonicalJson } from '../domain/json.js';
 import type { AgentResource, AgentsStore } from '../core/agents-ports.js';
@@ -118,7 +118,7 @@ export class DynamoAgentsStore implements AgentsStore {
     try {
       await this.client.send(new TransactWriteCommand({ TransactItems: items }));
     } catch (error) {
-      if (confirmedContention(error)) throw new AgentsApiError(409, 'Resource changed concurrently. Retry the request.', 'conflict');
+      if (confirmedContention(error)) throw new AgentsResourceConflictError();
       throw error;
     }
   }

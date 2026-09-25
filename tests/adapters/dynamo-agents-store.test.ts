@@ -2,6 +2,7 @@ import { expect, it, vi } from 'vitest';
 import { GetCommand, TransactWriteCommand, type DynamoDBDocumentClient } from '@aws-sdk/lib-dynamodb';
 import { DynamoAgentsStore } from '../../src/adapters/dynamo-agents-store.js';
 import { SessionEventStore } from '../../src/core/session-event-store.js';
+import { AgentsResourceConflictError } from '../../src/domain/agents-api-validation.js';
 
 const resource = { ownerId: 'alice', id: 'agent', collection: 'agents', revision: 1, createdAt: 1, value: { name: 'fixture' } };
 const cancelled = (codes?: string[]) => Object.assign(new Error('transaction cancelled'), {
@@ -37,7 +38,7 @@ it.each([
 
 it('does not overwrite a source changed by the competing transaction', async () => {
   const f = fixture(cancelled(['TransactionConflict']), true);
-  await expect(f.store.put(resource, 0)).rejects.toMatchObject({ status: 409, code: 'conflict' });
+  await expect(f.store.put(resource, 0)).rejects.toBeInstanceOf(AgentsResourceConflictError);
   expect(f.writes()).toBe(1);
 });
 
