@@ -188,4 +188,33 @@ preserved. Existing scoped IAM covers these operations. Eighteen targeted tests
 cover the decision boundaries, inventory pagination, identity checks and retry
 after termination failure. Subagent initial-task typing and creator preservation
 are also corrected; 405 strict native cases pass. Full repository validation
-passes 1,093 tests with 47 opt-in skips. New-image live acceptance is pending.
+passes 1,093 tests with 47 opt-in skips. Commit `a766b7a` was deployed through
+the original state (same lineage, serial 598). Worker template 13 contains
+`83e2f70c3ffdf6be5bc7a360e8cb6628ca2527dd2d6f45a0d09281e937c73af0`;
+API task 21 and relay task 18 contain
+`29ba2c2cd9e1c97a9371fcb4cd000a1218cbe1329793e7c42b43ee59a30d0593`.
+Both ECS rollouts completed, and the deployed reconciler archive hash matches
+`dist/reconciler.zip`. The exact worker image passes 405 strict native cases.
+The live retirement proof passed in 524 seconds: Session
+`sess_3083241141c9439b899d9425fcabd05a`, Run
+`110ca0e7-ded2-5bcb-bd22-043bad6e202d`, worker `i-0139578516718b416`.
+The durable Run and public Session both failed as expected. The reconciler
+reported `TerminalWorkersRetired=1` at 02:58:56 UTC after the two-minute grace;
+the test waited for EC2 `terminated` before deleting the Session. No manual
+termination was used. Evidence: `live-worker-retirement-fixed.log`,
+`retirement-reconciler-metrics.json`. CI `36087717512` passed.
+
+Capacity 1 passed in 178 seconds on Session
+`sess_dbe936ce8940472e8c75553407ab031d`, including typed initial instructions
+and preserved origin across three interrupted follow-ups. Capacity 6 on
+`sess_bdbc0aa90e7346799c5f4d9eec825ac9` passed creation/typed initial tasks
+but the model declined the UUID target for interruption, explaining that native
+controls use names. This is not a passing capacity-6 repeat. At the user's
+wrap-up request the test was stopped, its Session and Agent deleted, and Session
+404 verified. No pending/running deployment workers remained. The exact
+remaining work is frozen in `agents-api-closeout-2026-09-25.md`.
+
+An exploratory native v1 close/resume extension found no close Item after its
+scripted call. Its cause remains unverified; the extension was removed from the
+accepted suite and preserved as a bounded follow-up. The prior 405 passing cases
+are not claimed as evidence for this extra scenario.

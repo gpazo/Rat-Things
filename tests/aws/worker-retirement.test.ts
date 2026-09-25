@@ -50,6 +50,7 @@ live('retires the dedicated worker automatically after hosted initialization fai
       return false;
     });
     expect(terminal).toMatchObject({ status: 'failed', error: { code: 'agent_failed', message: 'Environment setup command 1 failed' } });
+    await eventually(async () => (await client.beta.agents.sessions.retrieve(session.id)).status === 'failed');
     console.log(JSON.stringify({ phase: 'failed', sessionId, ...worker }));
     // No Session deletion or termination request may help this assertion pass.
     await eventually(async () => (await instance()).State?.Name === 'terminated');

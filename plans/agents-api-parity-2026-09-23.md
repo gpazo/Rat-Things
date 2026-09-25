@@ -1,5 +1,9 @@
 # Agents API parity continuation — September 23
 
+> September 25 closeout: see [the bounded remaining-work list](agents-api-closeout-2026-09-25.md).
+> The retirement fix passed live; this cycle is closed at the user's request. Full parity remains unclaimed.
+
+
 ## Current status — 2026-09-24
 
 The repository-wide check is green: architecture and generated-contract checks,
