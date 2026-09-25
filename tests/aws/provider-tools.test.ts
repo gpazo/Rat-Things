@@ -46,7 +46,7 @@ live.each(['direct', 'programmatic', 'deferred'] as const)('completes a live %s 
     expect(items.some(item => item.type === 'message' && item.role === 'assistant' && item.content.some(part => part.type === 'output_text' && part.text.includes(marker)))).toBe(true);
     console.log(JSON.stringify({ phase: 'completed', mode, sessionId }));
   } finally {
-    try { if (sessionId) await client.beta.agents.sessions.delete(sessionId); }
+    try { if (sessionId) await client.withOptions({ maxRetries: 2 }).beta.agents.sessions.delete(sessionId); }
     finally { await client.beta.agents.delete(agent.id); }
   }
 }, timeoutMs * 2);
@@ -68,7 +68,7 @@ live('executes declared live web search and saves its public call', async () => 
     expect(items.some(item => item.type === 'message' && item.role === 'assistant' && item.content.some(part => part.type === 'output_text' && part.text.trim()))).toBe(true);
     console.log(JSON.stringify({ phase: 'completed', mode: 'web_search', sessionId }));
   } finally {
-    try { if (sessionId) await client.beta.agents.sessions.delete(sessionId); }
+    try { if (sessionId) await client.withOptions({ maxRetries: 2 }).beta.agents.sessions.delete(sessionId); }
     finally { await client.beta.agents.delete(agent.id); }
   }
 }, timeoutMs);

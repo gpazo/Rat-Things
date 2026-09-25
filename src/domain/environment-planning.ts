@@ -74,7 +74,9 @@ export function workspacePath(value: string, param: string): string {
 }
 
 export function decodeBase64(value: string, param: string): Uint8Array {
-  if (value.length % 4 !== 0 || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(value)) invalid('Standard base64 data is required', param);
+  // Repeated capture groups overflow V8's regexp stack on valid multi-MiB files.
+  // A flat alphabet check plus the canonical round trip also validates padding.
+  if (value.length % 4 !== 0 || /[^A-Za-z0-9+/=]/.test(value)) invalid('Standard base64 data is required', param);
   const bytes = Buffer.from(value, 'base64');
   if (bytes.toString('base64') !== value) invalid('Canonical base64 data is required', param);
   return bytes;

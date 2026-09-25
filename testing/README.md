@@ -219,3 +219,10 @@ same real-model opt-ins. It calls the public OpenAI documentation MCP at
 `https://developers.openai.com/mcp`, separately from the service and a restricted
 hosted environment. Both cases require discovered tools, a completed public MCP
 Item and a documentation URL in the answer, then delete their Session and Agent.
+
+`AWS_E2E_FILE_BOUNDARY_PROOF=true` enables `tests/aws/file-boundaries.test.ts` with
+the same real-model opt-ins. It uploads 10 MiB inline across 50 input files and
+creates, captures, downloads and hashes 500 MiB of output (200/200/100 MiB).
+It also checks that deleting an artifact leaves its environment file intact.
+Allow at least 20 minutes with `AWS_E2E_TIMEOUT_MS=1200000`; this opt-in performs
+large real AWS transfers and deletes its Session and Agent afterward.
