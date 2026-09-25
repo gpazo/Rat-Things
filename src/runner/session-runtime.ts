@@ -258,6 +258,8 @@ export class SessionRuntime {
     if (event.method === 'currentTime/read') return { currentTimeAt: this.now() };
     if (!this.declaredFunction(event)) {
       // Approval-shaped requests fail closed; a guest never widens its own envelope.
+      console.error(JSON.stringify({ message: 'Native harness requested an undeclared host interaction',
+        method: /^[A-Za-z][A-Za-z0-9/]{0,100}$/.test(event.method) ? event.method : 'unknown' }));
       void this.close();
       throw new Error('The session requested an undeclared host interaction');
     }

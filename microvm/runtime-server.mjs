@@ -295,6 +295,10 @@ function startRun(run) {
     storagePreparationDurationMs = Date.now() - preparationStartedAt;
     run.environment.SESSION_STATE_ROOT = stateRoot;
     run.environment.CODEX_HOME = join(stateRoot, 'codex-home');
+    // SQLite WAL/connection locks stay on this worker's local filesystem.
+    // Native rollouts remain durable in CODEX_HOME and rebuild the indexes
+    // when a replacement worker resumes the saved thread.
+    run.environment.CODEX_SQLITE_HOME = join(stateRoot, 'codex-home', 'sqlite');
     run.environment.BROWSER_PROFILE_ROOT = join(stateRoot, 'codex-home', 'browser-profile');
     run.environment.WORKSPACE_ROOT = stateRoot;
     persistentStorage = run.storage;
@@ -692,6 +696,7 @@ function prepareTransientRunState(stateRoot, runId) {
     ['codex-dot-tmp', join(codexHome, '.tmp')],
     ['codex-tmp', join(codexHome, 'tmp')],
     ['codex-cache', join(codexHome, 'cache')],
+    ['codex-sqlite', join(codexHome, 'sqlite')],
     ['plugin-cache', join(codexHome, 'plugins', 'cache')],
     ['artifacts', join(workspace, '.rat-things', 'artifacts')],
   ];

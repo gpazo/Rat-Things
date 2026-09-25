@@ -120,7 +120,7 @@ describe('Codex launch planning', () => {
 describe('agent child environment', () => {
   it('copies only allowed values, preserving empty strings and excluding host credentials by default', () => {
     const allowed = {
-      PATH: '/bin', HOME: '/agent', CODEX_HOME: '/agent/codex', LANG: '', LC_ALL: 'C', TMPDIR: '/tmp',
+      PATH: '/bin', HOME: '/agent', CODEX_HOME: '/agent/codex', CODEX_SQLITE_HOME: '/agent/local-sqlite', LANG: '', LC_ALL: 'C', TMPDIR: '/tmp',
       AWS_REGION: 'us-west-2', AWS_DEFAULT_REGION: 'us-east-1', AWS_EC2_METADATA_DISABLED: 'true',
       AWS_STS_REGIONAL_ENDPOINTS: 'regional',
     };

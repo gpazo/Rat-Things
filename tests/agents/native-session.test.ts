@@ -83,7 +83,12 @@ describe('stock harness with a local model protocol fixture', () => {
     }
   }, 20_000);
 
-  it.each([1, 6])('admits exactly %s simultaneous children, excluding the root', async (limit) => {
+  it.each([
+    { limit: 1, forkTurns: 'none', batch: false },
+    { limit: 6, forkTurns: 'none', batch: false },
+    { limit: 6, forkTurns: 'all', batch: false },
+    { limit: 6, forkTurns: 'all', batch: true },
+  ])('admits exactly $limit simultaneous children with fork_turns=$forkTurns and batch=$batch, excluding the root', async ({ limit, forkTurns, batch }) => {
     let rootCalls = 0;
     let childCalls = 0;
     const outputs: unknown[] = [];
@@ -95,16 +100,23 @@ describe('stock harness with a local model protocol fixture', () => {
     const server = createServer(async (request, response) => {
       const chunks: Buffer[] = []; for await (const chunk of request) chunks.push(Buffer.from(chunk));
       if (!request.url?.endsWith('/responses')) { response.writeHead(404).end(); return; }
-      const body = JSON.parse(Buffer.concat(chunks).toString()) as { input: Array<{ role?: string; content?: unknown }> };
-      const parent = body.input.some((item) => item.role === 'user' && JSON.stringify(item.content).includes('PARENT_LIMIT'));
+      const body = JSON.parse(Buffer.concat(chunks).toString()) as { input: Array<{ type?: string; recipient?: string; role?: string; content?: unknown }> };
+      // Forked children also retain the coordinator's user input. Their task
+      // message, rather than copied history, identifies the receiving agent.
+      const childTask = body.input.some(item => item.type === 'agent_message' && item.recipient?.startsWith('/root/child_'));
+      const parent = !childTask && body.input.some((item) => item.role === 'user' && JSON.stringify(item.content).includes('PARENT_LIMIT'));
       response.writeHead(200, { 'content-type': 'text/event-stream' });
       response.write(`data: ${JSON.stringify({ type: 'response.created', response: { id: `response_${parent ? 'root' : 'child'}_${parent ? ++rootCalls : ++childCalls}` } })}\n\n`);
       if (!parent) { childStarts[childCalls - 1]?.resolve(); return; }
-      if (rootCalls > 1 && rootCalls <= limit + 1) await childStarts[rootCalls - 2]!.promise;
-      const item = rootCalls <= limit + 1
-        ? { type: 'function_call', id: `spawn_${rootCalls}`, call_id: `spawn_${rootCalls}`, namespace: 'collaboration', name: 'spawn_agent', arguments: JSON.stringify({ task_name: `child_${rootCalls}`, message: 'Remain active.', fork_turns: 'none' }) }
-        : { type: 'message', role: 'assistant', id: 'done', content: [{ type: 'output_text', text: 'Limit observed.' }], phase: 'final_answer' };
-      response.end([{ type: 'response.output_item.done', item }, { type: 'response.completed', response: { id: `root_${rootCalls}` } }].map((event) => `data: ${JSON.stringify(event)}\n\n`).join(''));
+      if (batch && rootCalls === 2) await Promise.all(childStarts.map(start => start.promise));
+      if (!batch && rootCalls > 1 && rootCalls <= limit + 1) await childStarts[rootCalls - 2]!.promise;
+      const spawnNumbers = batch
+        ? rootCalls === 1 ? Array.from({ length: limit }, (_, index) => index + 1) : rootCalls === 2 ? [limit + 1] : []
+        : rootCalls <= limit + 1 ? [rootCalls] : [];
+      const items = spawnNumbers.length
+        ? spawnNumbers.map(number => ({ type: 'function_call', id: `spawn_${number}`, call_id: `spawn_${number}`, namespace: 'collaboration', name: 'spawn_agent', arguments: JSON.stringify({ task_name: `child_${number}`, message: 'Remain active.', fork_turns: forkTurns }) }))
+        : [{ type: 'message', role: 'assistant', id: 'done', content: [{ type: 'output_text', text: 'Limit observed.' }], phase: 'final_answer' }];
+      response.end([...items.map(item => ({ type: 'response.output_item.done', item })), { type: 'response.completed', response: { id: `root_${rootCalls}` } }].map((event) => `data: ${JSON.stringify(event)}\n\n`).join(''));
     });
     server.listen(0, '127.0.0.1'); await once(server, 'listening');
     const bound = server.address(); if (!bound || typeof bound === 'string') throw new Error('Missing fixture address');

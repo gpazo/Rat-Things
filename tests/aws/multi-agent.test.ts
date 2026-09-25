@@ -16,9 +16,11 @@ live.each([1, 6])('enforces deployed capacity %i across blocked children and rep
     multi_agent: { enabled: true, max_concurrent_subagents: limit },
     instructions: 'Use native subagent tools exactly as requested. Only children execute the requested long-running commands. The coordinator never runs those commands itself. Never invent subagent results.', tools: [] });
   let sessionId: string | undefined;
+  let proofFailed = false;
   try {
     const session = await client.beta.agents.sessions.create({ agent_id: agent.id, environment: { type: 'openai_hosted', network: { access: 'disabled' } } });
     sessionId = session.id;
+    console.log(JSON.stringify({ phase: 'created', sessionId, capacity: limit }));
     await rootInput(`Spawn exactly ${limit} native subagents named parity_1 through parity_${limit}. Give each child this task: ${holdTask} After spawning the children, finish your own Turn immediately without waiting for them. Do not create any other agents.`);
     let children: Awaited<ReturnType<typeof client.beta.agents.sessions.subagents.list>>['data'] = [];
     await eventually(async () => {
@@ -53,13 +55,37 @@ live.each([1, 6])('enforces deployed capacity %i across blocked children and rep
     const items = (await client.beta.agents.sessions.subagents.items.list(target, { session_id: session.id, limit: 100, order: 'asc' })).data;
     expect(items.some(item => item.type === 'message' && item.role === 'assistant' && item.content.some(part => part.type === 'output_text' && part.text.includes(marker)))).toBe(true);
     console.log(JSON.stringify({ sessionId: session.id, capacity: limit, interruptedFollowUps: 3, childId: target }));
+  } catch (error) {
+    proofFailed = true;
+    // Preserve the original failure even when a diagnostic read or cleanup fails.
+    if (sessionId) {
+      const evidence = await Promise.allSettled([
+        client.beta.agents.sessions.turns.list(sessionId, { limit: 100, order: 'asc' })
+          .then(page => page.data.map(turn => ({ id: turn.id, subagent_id: turn.subagent_id, status: turn.status, error: turn.error }))),
+        client.beta.agents.sessions.subagents.list(sessionId)
+          .then(page => page.data.map(child => ({ id: child.id, name: child.name, status: child.status }))),
+        client.beta.agents.sessions.items.list(sessionId, { limit: 100, order: 'desc' })
+          .then(page => page.data.map(item => ({ id: item.id, type: item.type, ...('status' in item ? { status: item.status } : {}) }))),
+      ]);
+      console.error(JSON.stringify({ phase: 'failed', sessionId, capacity: limit, evidence }));
+    }
+    throw error;
   } finally {
-    try { if (sessionId) await client.beta.agents.sessions.delete(sessionId); }
-    finally { await client.beta.agents.delete(agent.id); }
+    const cleanup = await Promise.allSettled([
+      ...(sessionId ? [client.beta.agents.sessions.delete(sessionId)] : []),
+      client.beta.agents.delete(agent.id),
+    ]);
+    const failures = cleanup.filter(result => result.status === 'rejected');
+    if (failures.length) {
+      console.error(JSON.stringify({ phase: 'cleanup_failed', sessionId, failures }));
+      if (!proofFailed) throw new AggregateError(failures.map(result => result.reason), 'Multi-agent proof cleanup failed');
+    }
   }
 
   async function heldChildren() {
     const turns = (await client.beta.agents.sessions.turns.list(sessionId!, { limit: 100, order: 'asc' })).data;
+    const failed = turns.find(turn => turn.subagent_id && turn.status === 'failed');
+    if (failed) throw new Error(`Child Turn ${failed.id} failed: ${failed.error?.code}`);
     const active = turns.filter(turn => turn.subagent_id && turn.status === 'in_progress');
     const held = await Promise.all(active.map(async turn => {
       const items = (await client.beta.agents.sessions.subagents.items.list(turn.subagent_id!, { session_id: sessionId!, limit: 100, order: 'desc' })).data;
@@ -75,6 +101,7 @@ live.each([1, 6])('enforces deployed capacity %i across blocked children and rep
     return items;
   }
   async function rootInput(text: string): Promise<Turn> {
+    console.log(JSON.stringify({ phase: 'coordinator_input', sessionId, capacity: limit }));
     const previous = new Set((await client.beta.agents.sessions.turns.list(sessionId!, { limit: 100 })).data.map(turn => turn.id));
     await client.beta.agents.sessions.events.create(sessionId!, { events: [{ type: 'agent.session.input.message', input: [{ role: 'user', content: [{ type: 'input_text', text }] }] }] });
     let turn: Turn | undefined;
@@ -83,6 +110,7 @@ live.each([1, 6])('enforces deployed capacity %i across blocked children and rep
       if (turn && ['failed', 'cancelled', 'waiting'].includes(turn.status)) throw new Error(`Coordinator Turn ${turn.id} ended or blocked as ${turn.status}: ${turn.error?.code}`);
       return turn?.status === 'completed';
     });
+    console.log(JSON.stringify({ phase: 'coordinator_completed', sessionId, turnId: turn!.id, capacity: limit }));
     return turn!;
   }
 }, timeoutMs * 8);

@@ -199,7 +199,10 @@ export async function runAgentWorker(): Promise<void> {
       });
       sessionJournal = new SessionRuntimeJournal({
         publish: async (snapshot) => runtimes.publish(sessionOwner, launch.sessionId, runId, await capture.capture(snapshot)),
-        onFailure: () => abort.abort(),
+        onFailure: (error) => {
+          console.error(JSON.stringify({ message: 'Session journal failed; stopping the harness', error: error.name }));
+          abort.abort();
+        },
       });
       driverControl = { ...driverControl, session: launch, sessionRuntime: {
         lifetime: current.execution?.backend === 'ec2' ? 'host-managed' : 'bounded',

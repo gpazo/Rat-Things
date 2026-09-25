@@ -118,12 +118,7 @@ export class DynamoAgentsStore implements AgentsStore {
     try {
       await this.client.send(new TransactWriteCommand({ TransactItems: items }));
     } catch (error) {
-      const conditional = error instanceof Error &&
-        (error.name === 'ConditionalCheckFailedException' ||
-          (error.name === 'TransactionCanceledException' &&
-            'CancellationReasons' in error && Array.isArray(error.CancellationReasons) &&
-            error.CancellationReasons.some((reason: { Code?: string }) => reason.Code === 'ConditionalCheckFailed')));
-      if (conditional) throw new AgentsApiError(409, 'Resource changed concurrently. Retry the request.', 'conflict');
+      if (confirmedContention(error)) throw new AgentsApiError(409, 'Resource changed concurrently. Retry the request.', 'conflict');
       throw error;
     }
   }
@@ -143,6 +138,16 @@ export class DynamoAgentsStore implements AgentsStore {
       value: await this.objects.getJson<T>(index.reference),
     };
   }
+}
+
+/** Only confirmed aborted writes can enter the caller's compare-and-swap retry. */
+function confirmedContention(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  if (error.name === 'ConditionalCheckFailedException' || error.name === 'TransactionConflictException') return true;
+  if (error.name !== 'TransactionCanceledException' || !('CancellationReasons' in error) || !Array.isArray(error.CancellationReasons)) return false;
+  const codes = error.CancellationReasons.map((reason: unknown) => typeof reason === 'object' && reason !== null && 'Code' in reason ? reason.Code : undefined);
+  return codes.some(code => code === 'ConditionalCheckFailed' || code === 'TransactionConflict')
+    && codes.every(code => code === 'None' || code === 'ConditionalCheckFailed' || code === 'TransactionConflict');
 }
 
 function hash(value: string): string { return createHash('sha256').update(value).digest('hex'); }

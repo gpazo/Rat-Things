@@ -68,6 +68,7 @@ function agentEnvironment(workspace: string, environment: Readonly<NodeJS.Proces
     'PATH',
     'HOME',
     'CODEX_HOME',
+    'CODEX_SQLITE_HOME',
     'LANG',
     'LC_ALL',
     'TMPDIR',
