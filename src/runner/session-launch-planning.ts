@@ -1,4 +1,5 @@
 import type { SessionLaunch } from '../domain/session-execution.js';
+import type { PersistedAgentTool } from '../domain/agents-api.js';
 import type { CodexAppServerRequest } from './codex-app-server.js';
 import type { CodexLaunchPlan } from './agent-planning.js';
 import { sessionRecoveryItems } from './session-recovery-planning.js';
@@ -63,7 +64,16 @@ export function planSessionLaunch(base: CodexLaunchPlan, launch: SessionLaunch, 
       'features.code_mode': agent.tools.some((tool) => tool.type === 'programmatic_tool_calling' && tool.enabled),
       'features.default_mode_request_user_input': false,
       ...(launch.environment.type === 'openai_hosted' ? { shell_environment_policy: { inherit: 'core', set: { ...hostedProcessEnvironment(launch.hostedConfiguration?.env ?? {}, base.environment.PATH), ...credentials?.shellEnvironment } } } : {}),
-      ...(search ? { 'tools.web_search': { context_size: search.context_size, allowed_domains: search.allowed_domains, location: search.location } } : {}),
+      ...(search ? { 'tools.web_search': nativeWebSearchConfig(search) } : {}),
     },
+  };
+}
+
+/** Public nullable fields become absent optional native settings. */
+function nativeWebSearchConfig(search: Extract<PersistedAgentTool, { type: 'web_search' }>) {
+  return {
+    context_size: search.context_size,
+    ...(search.allowed_domains !== null ? { allowed_domains: search.allowed_domains } : {}),
+    ...(search.location !== null ? { location: Object.fromEntries(Object.entries(search.location).filter(([, value]) => value !== null)) } : {}),
   };
 }

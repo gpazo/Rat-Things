@@ -21,7 +21,7 @@ live.each([1, 6])('enforces deployed capacity %i across blocked children and rep
     const session = await client.beta.agents.sessions.create({ agent_id: agent.id, environment: { type: 'openai_hosted', network: { access: 'disabled' } } });
     sessionId = session.id;
     console.log(JSON.stringify({ phase: 'created', sessionId, capacity: limit }));
-    await rootInput(`Spawn exactly ${limit} native subagents named parity_1 through parity_${limit}. Give each child this task: ${holdTask} After spawning the children, finish your own Turn immediately without waiting for them. Do not create any other agents.`);
+    const initial = await rootInput(`Spawn exactly ${limit} native subagents named parity_1 through parity_${limit}. Give each child this task: ${holdTask} After spawning the children, finish your own Turn immediately without waiting for them. Do not create any other agents.`);
     let children: Awaited<ReturnType<typeof client.beta.agents.sessions.subagents.list>>['data'] = [];
     await eventually(async () => {
       children = (await client.beta.agents.sessions.subagents.list(session.id)).data;
@@ -29,6 +29,19 @@ live.each([1, 6])('enforces deployed capacity %i across blocked children and rep
       return await heldChildren() === limit;
     });
     const ids = children.map(child => child.id).sort();
+    const created = (await rootItems(initial.id)).flatMap(item => item.type === 'create_subagent_call' && item.status === 'completed' ? [item] : []);
+    expect(created).toHaveLength(limit);
+    const received = (await Promise.all(ids.map(id => client.beta.agents.sessions.subagents.items.list(id, { session_id: session.id, limit: 100, order: 'asc' }))))
+      .flatMap(page => page.data).flatMap(item => item.type === 'agent_message' && item.sender_agent_id === agent.id ? item.content : []);
+    for (const call of created) {
+      expect(call.content.length).toBeGreaterThan(0);
+      for (const part of call.content) {
+        // Compare typed sender/recipient content, never guess encryption from a prefix.
+        expect(received.some(value => part.type === 'encrypted_content'
+          ? value.type === 'encrypted_content' && value.encrypted_content === part.encrypted_content
+          : value.type === 'output_text' && value.text.includes(part.text))).toBe(true);
+      }
+    }
     const overflow = await rootInput('All existing children are occupied. Attempt exactly one extra native subagent named overflow with the task "Return DONE". Do not interrupt, close or reuse any existing child. After the attempt, finish your Turn. Do not retry a rejected admission.');
     const overflowItems = await rootItems(overflow.id);
     expect(overflowItems).toEqual(expect.arrayContaining([expect.objectContaining({ type: 'create_subagent_call', status: 'failed' })]));

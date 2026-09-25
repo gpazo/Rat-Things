@@ -205,3 +205,17 @@ endpoint. The cases cover proactive expired-token refresh, refresh after HTTP 40
 metadata, public MCP Items, secret redaction and revocation on a subsequent call.
 Audit messages contain only the test proof ID and account, never credential values.
 The tests remove their own Sessions, Vaults and matching audit messages.
+
+`AWS_E2E_PROVIDER_PROOF=true` enables `tests/aws/provider-tools.test.ts`, with
+`AWS_E2E=true`, `AWS_E2E_REAL_CODEX=true` and an admitted
+`AWS_E2E_CODEX_MODEL_ID`. Direct, programmatic and deferred application functions
+must produce a required action, accept a client-supplied opaque token, retain one
+function result, and return that token. A separate declared live web-search case
+requires a completed public search Item. These are real model calls against
+`RAT_THINGS_AGENTS_API_URL`; each case deletes its own Session and Agent.
+
+`AWS_E2E_PUBLIC_MCP_PROOF=true` enables `tests/aws/public-mcp.test.ts` with the
+same real-model opt-ins. It calls the public OpenAI documentation MCP at
+`https://developers.openai.com/mcp`, separately from the service and a restricted
+hosted environment. Both cases require discovered tools, a completed public MCP
+Item and a documentation URL in the answer, then delete their Session and Agent.

@@ -39,7 +39,7 @@ export function planCodexLaunch(
     binary: environment.CODEX_BINARY ?? 'codex',
     ...(authMode === 'chatgpt'
       ? { binaryArguments: ['-c', 'cli_auth_credentials_store=file', 'app-server'] }
-      : environment.RAT_BEDROCK_AUTH_FILE ? { binaryArguments: bedrockTokenArguments(environment.RAT_BEDROCK_AUTH_FILE) } : {}),
+      : { binaryArguments: bedrockTokenArguments(environment.RAT_BEDROCK_AUTH_FILE) }),
     workspace,
     environment: agentEnvironment(workspace, environment),
     ...(identity ? { identity } : {}),
@@ -116,6 +116,10 @@ function defaultSandboxMode(configured: string | undefined): 'read-only' | 'work
   return value as 'read-only' | 'workspace-write' | 'danger-full-access';
 }
 
-export function bedrockTokenArguments(path: string): string[] {
-  return ['-c', `model_providers.amazon-bedrock.auth = { command = "/bin/cat", args = [${JSON.stringify(path)}], cwd = "/", refresh_interval_ms = 60000 }`, 'app-server'];
+export function bedrockTokenArguments(path?: string): string[] {
+  // The native model catalog is chosen at process startup, before thread/start.
+  // Selecting only the thread provider loses Bedrock model tool capabilities.
+  return ['-c', 'model_provider="amazon-bedrock"',
+    ...(path ? ['-c', `model_providers.amazon-bedrock.auth = { command = "/bin/cat", args = [${JSON.stringify(path)}], cwd = "/", refresh_interval_ms = 60000 }`] : []),
+    'app-server'];
 }

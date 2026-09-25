@@ -52,7 +52,7 @@ describe('Codex launch planning', () => {
     expect(planCodexLaunch(request, '/workspace', 0, deployment).model).toBe('chat-default');
     const bedrock = planCodexLaunch(request, '/workspace', 0, { ...deployment, CODEX_AUTH_MODE: 'bedrock' });
     expect(bedrock).toMatchObject({ model: 'bedrock-default', modelProvider: 'amazon-bedrock' });
-    expect(bedrock).not.toHaveProperty('binaryArguments');
+    expect(bedrock.binaryArguments).toEqual(['-c', 'model_provider="amazon-bedrock"', 'app-server']);
     expect(planCodexLaunch({ ...request, agent: { model: 'chosen-model' } }, '/workspace', 0, deployment).model).toBe('chosen-model');
     expect(planCodexLaunch({ ...request, agent: { model: '' } }, '/workspace', 0, deployment)).not.toHaveProperty('model');
     expect(planCodexLaunch(request, '/workspace', 0, { DEFAULT_MODEL: 'bedrock-only' })).not.toHaveProperty('model');
