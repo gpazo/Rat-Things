@@ -227,3 +227,11 @@ copies a 50 MiB Files API input, and creates, captures, downloads and hashes
 It also checks that deleting an artifact leaves its environment file intact.
 Allow at least 20 minutes with `AWS_E2E_TIMEOUT_MS=1200000`; this opt-in performs
 large real AWS transfers and deletes its Session and Agent afterward.
+
+`AWS_E2E_WORKER_RETIREMENT_PROOF=true` enables
+`tests/aws/worker-retirement.test.ts` on the dedicated EC2 backend. Set
+`AWS_E2E_RECOVERY_LAUNCH_TEMPLATE_ID` to the deployment's exact template. The
+canary deliberately fails hosted setup, verifies the durable failure, and waits
+for automatic instance termination before deleting the Session. If it times out,
+its cleanup terminates only the instance whose deployment, template, Run and
+generation match this fixture; that cleanup does not count as a passing proof.

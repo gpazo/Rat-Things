@@ -124,3 +124,14 @@ execution inside children is not a missing feature. Remaining focused cases are
 resume/close and nested identity/content projection, input-image/restored-history
 variants, and interrupted/error Item lifecycle and causal ordering across the
 remaining families. Schema union coverage alone does not close these cases.
+
+## September 25 Subagent resource correction
+
+The public Subagent resource now preserves the same encrypted-versus-plaintext
+initial task content as its create Item. A successful resume retains the original
+creator, opening time and initial task while clearing closure state. Regressions
+first reproduced encrypted tasks labeled as text and a sibling resume replacing
+the original task and creator. The pure reducer correction passes 24 focused
+checks and 405 strict native cases, including actual v1/v2 child creation. Live
+acceptance of this latest correction remains separate from the earlier typed
+Item acceptance above.

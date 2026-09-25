@@ -42,9 +42,29 @@ describe('inter-agent message history', () => {
       expect(item).toMatchObject({ status: 'completed', content: plaintext
         ? [{ type: 'output_text', text }] : [{ type: 'encrypted_content', encrypted_content: text }] });
       parseAgentsContract('Item', item);
+      if (name === 'spawn_agent') expect(state.subagents[0]?.instructions).toEqual(plaintext
+        ? [{ type: 'output_text', text }] : [{ type: 'encrypted_content', encrypted_content: text }]);
       expect(reduceSessionRuntime(JSON.parse(JSON.stringify(state)), complete).turns).toEqual(state.turns);
     }
   });
+  it('retains initial task, creator and opening time when another owned agent resumes a child', () => {
+    let state = bindSessionTurn(initialSessionRuntime('session', 'agent', 'root-thread'), 'native', publicTurn);
+    for (const [id, parentThreadId, preview] of [['child', 'root-thread', 'Original task'], ['sibling', 'root-thread', 'Other task']]) {
+      state = reduceSessionRuntime(state, { method: 'thread/started', observedAt: 10, params: { thread: { id, parentThreadId, preview } } });
+    }
+    state = reduceSessionRuntime(state, { method: 'thread/closed', observedAt: 20, params: { threadId: 'child' } });
+    const before = structuredClone(state);
+    const next = reduceSessionRuntime(state, { method: 'item/completed', observedAt: 30, params: { threadId: 'sibling', turnId: 'sibling-turn', item: {
+      id: 'resume', type: 'collabAgentToolCall', tool: 'resumeAgent', status: 'completed', senderThreadId: 'sibling', receiverThreadIds: ['child'], prompt: 'Later task',
+    } } });
+    expect(state).toEqual(before);
+    expect(next.subagents[0]).toMatchObject({ parent_agent_id: 'agent', opened_at: 10, closed_at: null, status: 'active', instructions: [{ type: 'output_text', text: 'Original task' }] });
+    const item = next.turns.find(binding => binding.threadId === 'sibling')?.items[0];
+    expect(item).toMatchObject({ type: 'resume_subagent_call', sender_agent_id: 'sibling', recipient_agent_id: 'child', status: 'completed' });
+    parseAgentsContract('Subagent', next.subagents[0]);
+    parseAgentsContract('Item', item);
+  });
+
   it('preserves typed content and public root identity across early binding, restore and replay', () => {
     const initial = initialSessionRuntime('session', 'agent', 'root-thread');
     const event = rawMessage('root-thread', 'native', '/root/child', '/root');

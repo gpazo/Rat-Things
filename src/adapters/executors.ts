@@ -7,6 +7,8 @@ import {
 } from '@aws-sdk/client-lambda-microvms';
 import { SSMClient, GetParameterCommand } from '@aws-sdk/client-ssm';
 import { EC2Client } from '@aws-sdk/client-ec2';
+import { Ec2WorkerInventory } from './ec2-worker-inventory.js';
+import { TerminalWorkerReconciler } from '../execution/terminal-worker-reconciler.js';
 import { Ec2RunExecutor, Ec2ExecutionInspector } from './ec2-executor.js';
 import { createEc2CommandTransport } from './execution-command-transport.js';
 import type { ExecutionCommandRequest } from '../core/execution-command-planning.js';
@@ -387,6 +389,14 @@ export function createAgentInteractionControllerFromEnv(): MicrovmAgentInteracti
     new LambdaMicrovmsClient({ region: requiredEnv('AWS_REGION') }),
     ...(process.env.EC2_LAUNCH_TEMPLATE_ID ? [createEc2CommandTransport()] as const : []),
   );
+}
+
+export function createTerminalWorkerReconcilerFromEnv(getRun: (id: string) => Promise<RunRecord | undefined>): TerminalWorkerReconciler | undefined {
+  if (!process.env.EC2_LAUNCH_TEMPLATE_ID) return undefined;
+  return new TerminalWorkerReconciler({
+    inventory: new Ec2WorkerInventory(new EC2Client({ region: requiredEnv('AWS_REGION') }), requiredEnv('RAT_DEPLOYMENT'), requiredEnv('EC2_LAUNCH_TEMPLATE_ID')),
+    getRun, now: Date.now, graceMs: 120_000,
+  });
 }
 
 export function createExecutionInspectorFromEnv(): ExecutionInspector {

@@ -31,6 +31,7 @@ live.each([1, 6])('enforces deployed capacity %i across blocked children and rep
     const ids = children.map(child => child.id).sort();
     const created = (await rootItems(initial.id)).flatMap(item => item.type === 'create_subagent_call' && item.status === 'completed' ? [item] : []);
     expect(created).toHaveLength(limit);
+    expect(children.map(child => child.instructions)).toEqual(expect.arrayContaining(created.map(call => call.content)));
     const received = (await Promise.all(ids.map(id => client.beta.agents.sessions.subagents.items.list(id, { session_id: session.id, limit: 100, order: 'asc' }))))
       .flatMap(page => page.data).flatMap(item => item.type === 'agent_message' && item.sender_agent_id === agent.id ? item.content : []);
     for (const call of created) {
@@ -67,6 +68,10 @@ live.each([1, 6])('enforces deployed capacity %i across blocked children and rep
     await rootInput(`Interrupt subagent ${target} once more. Send that same child a follow-up TASK to return exactly ${marker} without calling any functions. Wait for it to finish, then return its answer. Do not create or close agents.`);
     const items = (await client.beta.agents.sessions.subagents.items.list(target, { session_id: session.id, limit: 100, order: 'asc' })).data;
     expect(items.some(item => item.type === 'message' && item.role === 'assistant' && item.content.some(part => part.type === 'output_text' && part.text.includes(marker)))).toBe(true);
+    const finalChildren = (await client.beta.agents.sessions.subagents.list(session.id)).data;
+    for (const original of children) expect(finalChildren.find(child => child.id === original.id)).toMatchObject({
+      instructions: original.instructions, parent_agent_id: original.parent_agent_id, opened_at: original.opened_at,
+    });
     console.log(JSON.stringify({ sessionId: session.id, capacity: limit, interruptedFollowUps: 3, childId: target }));
   } catch (error) {
     proofFailed = true;

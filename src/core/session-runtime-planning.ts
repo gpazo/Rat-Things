@@ -73,7 +73,7 @@ export function reduceSessionRuntime(state: SessionRuntimeState, event: SessionR
     if (parentId && (parentId === state.rootThreadId || state.subagents.some((agent) => agent.id === parentId))) {
       for (const id of item.receiverThreadIds.filter((id): id is string => typeof id === 'string')) {
         if (item.tool === 'spawnAgent' || item.tool === 'resumeAgent') {
-          state = reduceSessionRuntime(state, { method: 'thread/started', params: { thread: { id, parentThreadId: parentId, preview: item.prompt, agentNickname: state.agentPaths?.[id]?.split('/').at(-1) } }, observedAt });
+          state = reduceSessionRuntime(state, { method: 'thread/started', params: { thread: { id, parentThreadId: parentId, preview: item.prompt, previewEncrypted: item.promptEncrypted, agentNickname: state.agentPaths?.[id]?.split('/').at(-1) } }, observedAt });
         } else if (item.tool === 'closeAgent') {
           state = reduceSessionRuntime(state, { method: 'thread/closed', params: { threadId: id }, observedAt });
         }
@@ -88,9 +88,11 @@ export function reduceSessionRuntime(state: SessionRuntimeState, event: SessionR
     const previous = state.subagents.find((agent) => agent.id === thread.id);
     const subagent: Subagent = {
       id: String(thread.id), object: 'agent.session.subagent', session_id: state.sessionId,
-      parent_agent_id: parentId === state.rootThreadId ? state.agentId : parentId,
+      parent_agent_id: previous?.parent_agent_id ?? (parentId === state.rootThreadId ? state.agentId : parentId),
       name: string(thread.agentNickname) ?? string(source.agent_nickname) ?? previous?.name ?? null,
-      instructions: typeof thread.preview === 'string' && thread.preview ? [{ type: 'output_text', text: thread.preview }] : previous?.instructions ?? null,
+      instructions: previous?.instructions ?? (typeof thread.preview === 'string' && thread.preview
+        ? thread.previewEncrypted === true ? [{ type: 'encrypted_content', encrypted_content: thread.preview }]
+          : [{ type: 'output_text', text: thread.preview }] : null),
       opened_at: previous?.opened_at ?? number(thread.createdAt) ?? observedAt, closed_at: null, status: 'active',
     };
     return { ...state, subagents: previous ? state.subagents.map((agent) => agent.id === subagent.id ? subagent : agent) : [...state.subagents, subagent] };

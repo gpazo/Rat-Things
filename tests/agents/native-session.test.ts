@@ -66,6 +66,9 @@ describe('stock harness with a local model protocol fixture', () => {
           ? [{ type: 'encrypted_content', encrypted_content: 'Perform the child fixture task.' }]
           : [{ type: 'output_text', text: 'Perform the child fixture task.' }],
       }));
+      expect(children[0]!.subagent.instructions).toEqual(multiAgentV2 && !plaintext
+        ? [{ type: 'encrypted_content', encrypted_content: 'Perform the child fixture task.' }]
+        : [{ type: 'output_text', text: 'Perform the child fixture task.' }]);
       parseAgentsContract('Subagent', children[0]!.subagent);
       expect(children[0]!.turns).toHaveLength(1);
       for (const binding of state.turns) { parseAgentsContract('Turn', binding.turn); binding.items.forEach((item) => parseAgentsContract('Item', item)); }

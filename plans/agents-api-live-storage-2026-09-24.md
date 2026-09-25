@@ -167,3 +167,25 @@ file. Session, Agent and uploaded File cleanup completed; the deployment had no
 running or pending workers afterward. Evidence: `live-file-boundaries.log`. Worker and relay digests are respectively
 `b5051b0b1f6624bc86ebdd777bf870b1b272adc2a7c74bb94e3298989cbc756b` and
 `11fe6ccc05d48994ec652edb8b89f57c9ec57f48cfed4da0e40ec7d7bcf9bb91`. No provider/model selection changes are part of this follow-up.
+
+## September 25 worker-retirement and Subagent follow-up
+
+A new opt-in failure canary reproduced the retirement gap on `0682e6c`.
+Session `sess_b018b9ce86054bbe868e8866ff3a4bd1` failed its deliberate
+`exit 73` hosted setup command. Run `c3a94d45-2e98-5a54-92a0-fbdf3cf45c50`
+was durably failed, but worker `i-0368f5d444390a987` remained running through
+the six-minute retirement deadline. The fixture verified deployment, template,
+Run and generation before manual termination. This was a failed proof, not a
+passing cleanup test. The console confirms lifecycle shutdown and runner exit;
+it does not establish which remaining process or mount delayed host retirement.
+Evidence: `live-worker-retirement.log`, `setup-failure-worker-console.json`.
+
+The scheduled reconciler now inventories only this deployment's dedicated EC2
+template and checks each candidate against a strongly consistent Run read.
+It retires exact terminal attachments after a two-minute grace period, without
+relying on guest shutdown. Missing, active, recent or mismatched authority is
+preserved. Existing scoped IAM covers these operations. Eighteen targeted tests
+cover the decision boundaries, inventory pagination, identity checks and retry
+after termination failure. Subagent initial-task typing and creator preservation
+are also corrected; 405 strict native cases pass. Full repository validation
+passes 1,093 tests with 47 opt-in skips. New-image live acceptance is pending.
