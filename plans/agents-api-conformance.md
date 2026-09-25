@@ -78,15 +78,37 @@ transport and 8 MiB binary Files, managed Session persistence and UID isolation,
 workflow resources and saved Turns, scheduler delivery, credential substitution
 and rotation with IAM/secret retirement, webhook retry and fan-out, MCP
 reconnect/revocation, and native checkpoint-loss replacement-worker recovery.
-The exact relay and EC2 worker digests are pinned in
-`testing/aws/releases/ag260913a-image.json`; the scheduler environment fix and
-relay file-permission fix are included in the current working tree.
+These proofs belong to the candidates recorded in the continuation, not every
+later image. The `50f7a44` storage-contention
+candidate was deployed through the original state with healthy services and worker
+launch-template version 9. Its capacity/interruption and recovery proofs pass;
+the outbox-only follow-up `48de5d4` also passes a fresh six-child proof after
+shortening confirmed rejected-write retries. The scheduler environment and relay
+file-permission fixes are retained.
 
-The multi-agent capacity-6 deployment proof remains open. The 15-minute run
-admitted four children while two coordinator admissions stayed pending and then
-timed out; local native tests still pass the exact six-child and interruption
-contract. Provider coverage is currently a tier probe only. Broader provider,
-Item/event, limits, configured-MCP, and obsolete-code/caller/grant rows remain
+The release file now selects `fcde56d`'s typed-content candidate, whose deployment
+and live acceptance are tracked in the
+[storage and concurrency report](agents-api-live-storage-2026-09-24.md). Its
+encrypted/plaintext collaboration correction passes local, strict native image
+and deployed capacity-1/6 sender/recipient checks. Both real public MCP origins
+and direct/programmatic function calls pass. Deferred discovery and web search
+initially failed live; `c2c6e34` corrects both configuration defects and passes
+exact-image provider, multi-agent and MCP acceptance.
+
+The multi-agent capacities 1 and 6 now pass in AWS, including overflow rejection,
+three interrupted follow-ups at each limit, stable child identities and final
+child output. All four recovery canaries pass against this worker: cancellation
+and SSE reconnect, harness-only worker replacement, hosted replacement, and
+hosted replacement with an intentionally absent native checkpoint. Earlier admission
+stalls and journal failure were traced to shared-filesystem SQLite indexes and
+aborted DynamoDB transaction contention. The current candidate keeps indexes
+local and retries only confirmed aborted contention with source revision checks.
+Its ARM64 image passes 369 strict native tests, including six full-history forks
+and fresh-index recovery of the same saved native thread. Provider coverage now includes direct/programmatic function round trips and the
+real OpenAI documentation MCP at both origins. Deferred discovery and web search now pass after the provider-catalog and
+nullable-config corrections; a valid maximum inline file exposed a new base64
+validator defect, whose correction awaits full checks and deployment. Broader
+Item/event, limits, and obsolete-code/caller/grant rows remain
 open until their evidence or explicit retained/removed disposition is recorded.
 
 ## Contract and evidence map
@@ -98,17 +120,17 @@ open until their evidence or explicit retained/removed disposition is recorded.
 | Input batches, active-turn steering, cancellation, function results, idempotency | `session-planning`, Session outbox | `session-lifecycle`, `run-session-execution` | Connection wait/deadline, 256-character idempotency boundary and saved-Turn acknowledgement after disconnection/harness shutdown covered. Local cancellation during an unacknowledged start preserves completed/failed outcomes and pending native cancellation; broader admission/steering races and deployed timing remain |
 | Turns, Items, pagination, retained output, usage | `session-service`, `session-run-projection`, `session-runtime-planning` | `session-lifecycle`, `session-runtime`; exact response/compaction attribution, duplicate suppression, parent/child isolation and historical cumulative replay regressions | Remaining Item variants and causal order; forced native compaction and deployed usage/recovery comparisons; incomplete historical feeds cannot reconstruct exact accounting |
 | Live SSE, all event variants, connect-before-read recovery | `session-stream`, `session-service`, `session-event-store` | `transport-and-launch`, `session-lifecycle`, `webhooks`, `session-journal`, completed AWS soak | Durable ordered transitions, command deltas, stable identities, late subscriptions, deletion fencing, and the long-lived deployed stream are covered; remaining event variants and deployed recovery comparisons remain |
-| Outbound Session webhooks | `session-webhooks`, `webhook-service`, durable event/outbox adapters | `webhooks`, `webhook-http` | Five events, pre-wait action, SDK signatures, duplicates, DNS deadline, redirects and 72-hour horizon covered locally; earlier live HTTPS capture proved committed-event delivery; broader deployed retry/fanout evidence remains |
-| Subagent CRUD/read surfaces and coordination items | `session-runtime`, runtime planning | `session-runtime`, `native-session` | Patched macOS and packaged Linux ARM64 runtimes pass strict limits 1/6, ten interrupted follow-ups at each limit and ten competing nested admissions; deployed execution remains |
+| Outbound Session webhooks | `session-webhooks`, `webhook-service`, durable event/outbox adapters | `webhooks`, `webhook-http` | Five events, pre-wait action, SDK signatures, duplicates, DNS deadline, redirects and 72-hour horizon covered locally; live HTTPS capture, retry and fan-out pass on the recorded candidate; remaining event/error boundary comparisons |
+| Subagent CRUD/read surfaces and coordination items | `session-runtime`, runtime planning | `session-runtime`, `native-session` | Patched macOS and packaged Linux ARM64 runtimes pass strict limits 1/6, ten interrupted follow-ups at each limit and ten competing nested admissions; deployed capacities 1/6, overflow, interrupted follow-ups and typed content pass; remaining coordination variants |
 | No-environment execution and declared tools | `session-launch-planning`, native harness | `native-session`, `transport-and-launch` | Earlier live admitted-model calls passed; expand absent-capability and provider coverage |
 | Self-hosted executor connection and environment keys | `environment-service`, encrypted relay | `environment-relay`; live scoped registry/executor connection and 2 MiB deployed file-helper transfer | Broader disconnect/reconnect, deadlines, late connection and deployed owner/role isolation |
 | Managed environments and templates | `environment-service`, `environment-template-service`, hosted runner | `vaults-and-templates`, `files-and-skills`, `managed-executor` | ARM64 setup, packages, capability loading, worker lifetime and replacement behavior |
-| Idle harness continuation and execution loss | `run-session-execution`, MicroVM controller | Private executor/recovery tests, `run-session-execution`, `session-runtime` | Suspended continuation and reconnect admission fixed locally. Starts rejected before native admission remain retryable after initialization or root completion; ambiguous native starts still close the harness without replay. Shutdown races, checkpoint recovery and maximum worker lifetime remain |
-| Environment Files, uploads, Skills and versions | File/Skill/environment services | `files-and-skills`, `environment-files`, `http-transport` | Every size/path/version boundary, large deployed transfers and disconnects |
-| Saved Session artifacts | Session service and artifact capture | `session-lifecycle`, `session-publications`; environment filtering and creation-time/ID ordering across root and child artifacts before pagination | Remaining snapshot timing and documented size boundaries; broader deployed child output, expired sandbox and deletion |
-| Vault credential secrecy, rotation, deletion and OAuth | Vault service and credential adapters | `vaults-and-templates`, `vault-oauth` | Live token refresh/revocation and deployed IAM; SDK field/validation limits |
-| MCP service/environment transports and metadata | `session-tool-service`, `session-tool-planning`, `session-mcp`, environment MCP bridge | `session-tools`, `session-preparation`, `session-tool-reconciliation`, `secrets-session-tools`, `agents-outbox`, `environment-mcp` | Durable reservations, adoption fencing and outbox cleanup cover uncertain creation, failed revocation and deletion interruptions locally. Managed stdio admission and self-hosted inline env rejection retained. Streamable HTTP now resumes interrupted response and notification streams from `Last-Event-ID` without replaying POST effects, reinitializes expired sessions behind a generation fence, honors server retry hints, and keeps provider failures redacted. Live Secrets Manager/KMS recovery, deployed stream/SQS cleanup with role IAM, HTTP Session credential lifecycle, reconnect, and OAuth refresh/revocation are covered by the candidate AWS canary; the scoped deployment inventory found no active unreferenced inline credentials. Real configured servers, older-deployment inventory and abandoned environment disposition remain |
-| Functions, programmatic tools, deferred tool search, web search | Agent config and launch planning | Real native programmatic/deferred function round trips against local model fixtures, including required actions and results; launch tests | Admitted live provider calls and web-search results |
+| Idle harness continuation and execution loss | `run-session-execution`, MicroVM controller | Private executor/recovery tests, `run-session-execution`, `session-runtime` | Suspended continuation and reconnect admission fixed locally. Starts rejected before native admission remain retryable after initialization or root completion; ambiguous native starts still close the harness without replay. Checkpoint-loss/replacement proofs pass on the storage candidate. Shutdown races, automatic cleanup after initialization failure and maximum worker lifetime remain |
+| Environment Files, uploads, Skills and versions | File/Skill/environment services | `files-and-skills`, `environment-files`, `http-transport` | Exact 50-file, 5 MiB/10 MiB inline and 50 MiB copy boundaries covered locally; inline base64 stack-overflow fixed; exact deployed 50-input/50 MiB-copy proof passes on `0682e6c`. Remaining path/version/disconnect comparisons |
+| Saved Session artifacts | Session service and artifact capture | `session-lifecycle`, `session-publications`; environment filtering and creation-time/ID ordering across root and child artifacts before pagination | Exact 200 MiB per-file/500 MiB aggregate capture, empty files and changing-version rejection pass locally; deployed 500 MiB hash/delete proof passes on `0682e6c`, including workspace-file preservation. Remaining snapshot timing, child output and deletion |
+| Vault credential secrecy, rotation, deletion and OAuth | Vault service and credential adapters | `vaults-and-templates`, `vault-oauth` | Live token refresh/revocation, hosted substitution/rotation and deployed IAM pass on recorded candidates; remaining SDK field/validation limits |
+| MCP service/environment transports and metadata | `session-tool-service`, `session-tool-planning`, `session-mcp`, environment MCP bridge | `session-tools`, `session-preparation`, `session-tool-reconciliation`, `secrets-session-tools`, `agents-outbox`, `environment-mcp` | Durable reservations, adoption fencing and outbox cleanup cover uncertain creation, failed revocation and deletion interruptions locally. Managed stdio admission and self-hosted inline env rejection retained. Streamable HTTP now resumes interrupted response and notification streams from `Last-Event-ID` without replaying POST effects, reinitializes expired sessions behind a generation fence, honors server retry hints, and keeps provider failures redacted. Live Secrets Manager/KMS recovery, deployed stream/SQS cleanup with role IAM, HTTP Session credential lifecycle, reconnect, and OAuth refresh/revocation are covered by the candidate AWS canary; the scoped deployment inventory found no active unreferenced inline credentials. Real OpenAI documentation MCP passes at service/environment origins; older-deployment inventory and abandoned environment disposition remain |
+| Functions, programmatic tools, deferred tool search, web search | Agent config and launch planning | Real native programmatic/deferred function round trips against local model fixtures, including required actions and results; launch tests | Direct/programmatic/deferred live calls and web search now pass on `c2c6e34`; broader provider settings and error comparisons remain |
 | Authentication, errors, HTTP bodies, multipart, SSE transport | Agents routers, token issuer, direct HTTPS HTTP server | `http-transport`, `sdk-conformance`, `transport-and-launch` | Full reference error/default review and deployed LB timing; public API bypasses CloudFront's shorter response timeout |
 
 Source guides:
@@ -152,8 +174,10 @@ production data, unrelated resources and model credentials remain outside cleanu
   macOS and Linux ARM64. Exact capacity excludes the coordinator. The complete,
   digest-verified Linux package passed all 148 strict fixtures as UID 10001 inside
   the worker image. The isolated AWS deployment now passes real admitted-model
-  API and managed-worker Turns. Deployed multi-agent capacity/interruption cases
-  remain open; see `aws-live-validation.md`.
+  API and managed-worker Turns. Deployed capacities 1 and 6, overflow and interrupted follow-ups now pass on
+  the storage and typed-content candidates. See the current storage acceptance
+  report for exact images; subsequent provider configuration changes require
+  affected live retesting.
 - **Managed sandbox lifetime:** Lambda MicroVMs permit at most 28,800 seconds;
   they cannot satisfy indefinite connected-process continuity. The dedicated ARM64
   EC2 Session worker uses host-managed lifetime and fenced TTL renewal, with local
@@ -163,7 +187,8 @@ production data, unrelated resources and model credentials remain outside cleanu
   Recovered artifacts prove the same process survived 29,395 seconds, but the
   original second-Turn SSE assertion failed. The replacement 29,100-second
   observer soak passed with both streamed completions and cleanup; broader
-  replacement-worker recovery remains open. EC2
+  recovery and intentional checkpoint-loss proofs now pass on the storage
+  candidate. Maximum-lifetime and broader failure-path comparisons remain. EC2
   workers refresh scoped Bedrock bearer tokens through native command auth.
 - **Recovery:** native checkpoints remain preferred. Public-item fallback now
   retains all supplied Item variants, pairs completed functions within their Turn,
@@ -172,8 +197,10 @@ production data, unrelated resources and model credentials remain outside cleanu
   harness fixture receives these facts without replaying tools or reopening children.
   This fallback does not recreate live processes, hidden native context or child
   runtime state. Harness-only replacement now passes live with saved context and
-  streamed completion; deliberately lost native checkpoints and replacement-compute
-  workspace restoration remain acceptance work.
+  streamed completion. Deliberately absent native checkpoint and hosted
+  replacement-compute workspace restoration now pass on the storage candidate,
+  including retained artifacts/context and exactly one reset event. These do not
+  prove arbitrary checkpoint corruption or every initialization-failure cleanup path.
 - **Container verification:** LocalStack 4.14.0 passed all four canonical workflow
   tests including provisioning and cleanup. The final ARM64 worker passed trusted
   runner/guest environment isolation, lifecycle-port denial with external port 8080

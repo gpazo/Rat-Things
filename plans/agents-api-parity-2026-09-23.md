@@ -3,7 +3,7 @@
 ## Current status — 2026-09-24
 
 The repository-wide check is green: architecture and generated-contract checks,
-TypeScript, MicroVM syntax, 1,026 local tests (39 opt-in skips), ARM64 package
+TypeScript, MicroVM syntax, 1,074 local tests (46 opt-in skips), ARM64 package
 creation and Lambda smoke tests, site generation, and all Terraform format and
 validation checks pass. The check runs tests without the packaging-only runtime
 artifact override, then packages the exact CI-built ARM64 artifact.
@@ -13,19 +13,65 @@ HTTP transport and large binary Files, managed Session continuation, workflow
 resources, scheduler delivery, credential proxy/rotation/IAM isolation, webhook
 retry/fan-out, MCP reconnect/revocation, and checkpoint-loss/replacement-worker
 recovery. The deployed relay and scheduler fixes are now pinned to the exact
-image digests in `testing/aws/releases/ag260913a-image.json`.
+image digests recorded in the [storage acceptance report](agents-api-live-storage-2026-09-24.md).
+The release input file now selects the subsequent typed-content candidate;
+earlier proofs do not certify that newer image automatically.
 
-Parity is still open. The deployed multi-agent capacity/interruption run did not
-complete: four children were active while two admissions remained pending until
-the 15-minute deadline. Provider behavior beyond the tier probe, the broader
-Item/event and limits comparison, real configured MCP/provider coverage, and the
-obsolete-code/caller/grant review still need evidence or explicit disposition.
-Do not claim 100% compatibility until every ledger row has passing evidence.
+Parity is still open. Follow-up diagnostics identified shared-filesystem SQLite
+contention and confirmed aborted DynamoDB transactions that incorrectly stopped
+the Session journal. Commit `50f7a44` keeps SQLite indexes local while preserving
+durable native journals, and routes confirmed transaction contention through the
+existing revision-checked retry. Unknown or ambiguous failures are not replayed.
+The exact ARM64 worker passes 369 strict native tests and the worker isolation,
+browser, network and recording canary. A fresh SQLite directory can recover the
+same native thread from durable journals without new inference.
+
+The storage candidate was deployed through the original Terraform state. Both ECS
+services are healthy; new workers use launch-template version 9 with the pinned
+worker digest. Deployed limits 1 and 6 each pass overflow rejection, three
+interruption/follow-up cycles and final child completion. Cancellation/SSE
+reconnection and replacement-worker recovery with and without a hosted sandbox
+also pass. The hosted missing-checkpoint case passes too: the replacement starts
+from saved public history, preserves the conversation marker and saved artifact,
+and reports a fresh workspace with exactly one reset event.
+
+The six-child proof exposed a six-minute FIFO delay after a confirmed rejected
+storage write. Commit `48de5d4` distinguishes that storage error from generic
+public 409 conflicts and schedules a five-second retry. Its repository check
+passes; only the outbox Lambda changed in the reviewed follow-up deployment.
+A fresh six-child proof passed against that correction in 208 seconds (the
+earlier passing proof took 542 seconds with FIFO contention delays). No running
+or pending proof worker remained after cleanup.
+
+Commit `fcde56d` corrects collaboration call content from native encryption
+metadata. Its typed-content and public MCP proofs pass. Provider tests exposed
+late selection of the Bedrock catalog and null optional web-search fields;
+`c2c6e34` corrects both. Its full check and CI pass. Worker template version 11
+uses the exact accepted digest; API task 19 and relay task 16 are healthy.
+All direct/programmatic/deferred function proofs, web search with cleanup, both
+MCP origins, and capacities 1/6 pass against that image. See the storage report
+for the first web-search cleanup conflict and its explicit resolution.
+
+The next file-boundary pass reproduced a stack overflow on a valid 5 MiB inline
+upload. The base64 validator correction (`0682e6c`) passes full checks and 404
+strict ARM64 native cases. Local artifact capture
+passes exact 200 MiB/500 MiB limits, empty files and mutation rejection. The exact deployed image also passed the 570-second live boundary proof:
+50 inputs, 50 MiB Files API copy, 500 MiB downloaded and hash-verified artifacts,
+and artifact deletion preserving its workspace file. No proof worker remained.
+Broader Item/event, limit, initialization-failure cleanup and obsolete-code rows
+remain open. Do not claim 100% compatibility until every ledger row has passing
+evidence.
 
 Starting point: `main` at `3a3d800`. Work branch:
 `codex/agents-parity-completion`. All production infrastructure, harness state,
 and execution remain in the operator's AWS account. The paused soak heartbeat
 remains paused. The completed September soak validates its pinned images only.
+
+## Earlier cycle record
+
+The sections below retain the earlier implementation and validation sequence.
+Statements about pending builds or deployments describe those earlier candidates;
+the current status above and conformance ledger take precedence.
 
 ## Contract changes
 
@@ -151,19 +197,17 @@ service-origin Vault path; they await rollout of this exact candidate.
 
 ## Remaining priority order
 
-1. Build and test the native settings and typed error patches. Complete environment-variable
-   credential and hosted reset image/live acceptance; audit the new credit-balance
-   error mapping and the other public Turn error categories.
-2. Run repository, infrastructure, worker/relay/native image and LocalStack
-   checks, then plan/apply the existing stack with its original Terraform state.
-   Validate the exact deployed image digests.
-3. Exercise native checkpoint loss, replacement-worker recovery, hosted reset
-   file/process loss, and deployed multi-agent interruption/concurrency limits.
-4. Finish provider, scheduler, credential/IAM, webhook retry, MCP reconnect,
-   artifact/file boundary, Item/event and limit comparisons in the behavior ledger.
-5. Complete the obsolete-code and caller/grant inventory. Remove only callers
-   proven obsolete, preserving still-supported backends and retained data.
-6. Claim parity only when every public behavior row has passing evidence.
+1. Resolve automatic worker retirement after initialization failure. The deployed
+   file-boundary/hash proof now passes on `0682e6c`; provider configuration and
+   affected multi-agent/MCP live proofs pass on `c2c6e34`.
+2. Finish artifact/file boundaries, Item/event causal order, defaults, errors and
+   limits in the behavior ledger. Typed encrypted collaboration content now has
+   native and deployed sender/recipient evidence; this does not close every Item.
+3. Complete the obsolete-code and caller/grant inventory. The deployed control
+   role has lost obsolete scheduler/delivery grants while the outbox retains them;
+   remove only proven-obsolete callers and preserve retained data.
+4. Rerun affected local/image/live gates for further fixes. Claim parity only when
+   every public behavior row has passing evidence.
 
 Hosted reset is a contract change: the new event retains the environment ID and
 conversation, increments `reset_count`, and loses previous sandbox files and

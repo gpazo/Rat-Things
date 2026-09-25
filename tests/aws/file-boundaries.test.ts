@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 import { expect, it } from 'vitest';
+import { toFile } from 'openai';
 import { createAgentsClient } from '../../src/agents-client.js';
 
 const live = process.env.AWS_E2E === 'true' && process.env.AWS_E2E_FILE_BOUNDARY_PROOF === 'true' ? it : it.skip;
@@ -12,14 +13,18 @@ live('accepts maximum inline inputs and preserves exact-limit immutable artifact
   const client = createAgentsClient({ baseURL: required('RAT_THINGS_AGENTS_API_URL'), region: required('AWS_REGION') }).withOptions({ maxRetries: 0, timeout: timeoutMs });
   const agent = await client.beta.agents.create({ model: required('AWS_E2E_CODEX_MODEL_ID'), instructions: 'Execute the requested Python command exactly once, then return FILE_BOUNDARY_READY. Do not inspect file contents or use network tools.' });
   let sessionId: string | undefined;
+  let fileId: string | undefined;
   const sizes = [200, 200, 100];
   try {
+    const upload = await client.files.create({ file: await toFile(Buffer.alloc(50 * mib), 'boundary-input.bin'), purpose: 'user_data' });
+    fileId = upload.id;
     const data = Buffer.alloc(5 * mib).toString('base64');
-    const program = 'import os; assert os.path.getsize("/workspace/input-a.bin") == 5242880; assert os.path.getsize("/workspace/input-b.bin") == 5242880; assert len([p for p in os.listdir("/workspace") if p.startswith("empty-")]) == 48; os.makedirs("/workspace/outputs", exist_ok=True);\nfor i, size in enumerate([200,200,100]):\n with open(f"/workspace/outputs/{i}.bin", "wb") as f: f.truncate(size*1024*1024)\nprint("FILE_BOUNDARY_READY")';
+    const program = 'import os; assert os.path.getsize("/workspace/input-a.bin") == 5242880; assert os.path.getsize("/workspace/input-b.bin") == 5242880; assert len([p for p in os.listdir("/workspace") if p.startswith("empty-")]) == 47; assert os.path.getsize("/workspace/copied.bin") == 52428800; os.makedirs("/workspace/outputs", exist_ok=True);\nfor i, size in enumerate([200,200,100]):\n with open(f"/workspace/outputs/{i}.bin", "wb") as f: f.truncate(size*1024*1024)\nprint("FILE_BOUNDARY_READY")';
     const session = await client.beta.agents.sessions.create({ agent_id: agent.id,
       environment: { type: 'openai_hosted', network: { access: 'disabled' }, files: [
         { type: 'inline', path: '/workspace/input-a.bin', data }, { type: 'inline', path: '/workspace/input-b.bin', data },
-        ...Array.from({ length: 48 }, (_, i) => ({ type: 'inline' as const, path: `/workspace/empty-${i}`, data: '' })),
+        ...Array.from({ length: 47 }, (_, i) => ({ type: 'inline' as const, path: `/workspace/empty-${i}`, data: '' })),
+        { type: 'file_id', path: '/workspace/copied.bin', file_id: fileId },
       ] }, input: `Run this Python program once using python3, preserving its indentation:\n${program}` });
     sessionId = session.id;
     console.log(JSON.stringify({ phase: 'created', sessionId }));
@@ -55,7 +60,10 @@ live('accepts maximum inline inputs and preserves exact-limit immutable artifact
     console.log(JSON.stringify({ phase: 'completed', sessionId, downloadedBytes: 500 * mib }));
   } finally {
     try { if (sessionId) await client.withOptions({ maxRetries: 2 }).beta.agents.sessions.delete(sessionId); }
-    finally { await client.beta.agents.delete(agent.id); }
+    finally {
+      try { await client.beta.agents.delete(agent.id); }
+      finally { if (fileId) await client.files.delete(fileId); }
+    }
   }
 }, timeoutMs * 2);
 

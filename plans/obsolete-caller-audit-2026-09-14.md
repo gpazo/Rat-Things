@@ -41,7 +41,7 @@ preserves the caller's exact request, including empty or whitespace input.
 - `tests/runner/artifact-fixtures.ts` remains used by canonical Files, HTTP and CLI
   tests. It was not deleted with the catalog-only tests.
 
-## Control IAM cleanup (implemented September 23; deployment pending)
+## Control IAM cleanup (implemented September 23; deployed September 24)
 
 The continuation removed these control-role permissions after caller and
 composition verification. Outbox counterparts and shared action lists remain.
@@ -80,9 +80,14 @@ new-native-artifact packaging gate.
 Transactional writes retain their underlying item grants; DynamoDB does not
 require a separate `TransactWriteItems` permission for these Put operations
 ([AWS transaction IAM guidance](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/transaction-apis-iam.html)).
-The live rendered-policy/no-replacement plan and deployed schedule, credential
-and publication canaries remain pending the new native artifact. These local
-checks are not deployed IAM proof.
+The September 24 cycle applied the reviewed plan through the original state
+without replacing retained data stores. The deployed `lambda-control` policy was
+read back: `SessionSchedules`, `PassSessionScheduleRole` and
+`SessionDeliverySecrets` are absent; no retained Thing/Routine/conversation table
+grant remains. Run actions exclude Delete and integration actions exclude Update
+while retaining OAuth Delete. The live scheduler and credential canaries passed
+in this cycle; broader publication/provider acceptance remains in the ledger.
+The policy readback is saved under the ignored `parity-20260923` evidence folder.
 
 ## Grants that still have consumers
 
@@ -97,6 +102,12 @@ checks are not deployed IAM proof.
 | Definitions objects | The canonical resource store uses encrypted definition bodies outside DynamoDB. Do not classify this bucket by its old name alone. |
 
 ## Validation
+
+- September 24 repeat scan across active source, scripts, infrastructure, docs,
+  guides, examples, harnesses and console found no removed submission/catalog/
+  aggregate-runtime symbols. The only Run URL matches are the retained private
+  `/agent-runtime/v1/runs/...` control paths. This does not authorize deletion of
+  retained AWS data or removal of supported execution backends.
 
 - Targeted retained behavior: 65 tests passed across local artifact discovery,
   artifact instructions/media/identity, saved event projection, Run service,
