@@ -17,7 +17,7 @@ const nativeBinary = process.env.CODEX_CONFORMANCE_BINARY ?? resolve('node_modul
 const requireParity = process.env.CODEX_REQUIRE_PARITY === 'true';
 
 describe('stock harness with a local model protocol fixture', () => {
-  it.each([false, true])('records native child work and coordination with multi_agent_v2=%s', async (multiAgentV2) => {
+  it.each([{ multiAgentV2: false, plaintext: false }, { multiAgentV2: true, plaintext: false }, { multiAgentV2: true, plaintext: true }])('records native child work with multi_agent_v2=$multiAgentV2 and plaintext=$plaintext', async ({ multiAgentV2, plaintext }) => {
     let count = 0;
     const requests: Array<Record<string, unknown>> = [];
     const notifications: Array<unknown> = [];
@@ -27,7 +27,7 @@ describe('stock harness with a local model protocol fixture', () => {
       requests.push(JSON.parse(Buffer.concat(chunks).toString()) as Record<string, unknown>);
       const id = `fixture_${++count}`;
       const item = count === 1
-        ? { type: 'function_call', id: 'spawn_1', call_id: 'spawn_fixture', namespace: multiAgentV2 ? 'collaboration' : 'multi_agent_v1', name: 'spawn_agent', arguments: JSON.stringify({ message: 'Perform the child fixture task.', ...(multiAgentV2 ? { task_name: 'child_fixture', fork_turns: 'none' } : { agent_type: 'default' }) }) }
+        ? { type: 'function_call', id: 'spawn_1', call_id: 'spawn_fixture', namespace: multiAgentV2 ? 'collaboration' : 'multi_agent_v1', name: 'spawn_agent', ...(plaintext ? { encrypted_function_args: [] } : {}), arguments: JSON.stringify({ message: 'Perform the child fixture task.', ...(multiAgentV2 ? { task_name: 'child_fixture', fork_turns: 'none' } : { agent_type: 'default' }) }) }
         : { type: 'message', role: 'assistant', id: `msg_${count}`, content: [{ type: 'output_text', text: 'Fixture complete.' }], phase: 'final_answer' };
       response.writeHead(200, { 'content-type': 'text/event-stream' });
       response.end([{ type: 'response.created', response: { id } }, { type: 'response.output_item.done', item }, { type: 'response.completed', response: { id } }].map((event) => `data: ${JSON.stringify(event)}\n\n`).join(''));
@@ -58,7 +58,13 @@ describe('stock harness with a local model protocol fixture', () => {
       const children = runtimeSubagents(state);
       if (multiAgentV2) expect(children[0]?.items, JSON.stringify(notifications.filter(event => JSON.stringify(event).includes('"type":"agent_message"')))).toContainEqual(expect.objectContaining({
         type: 'agent_message', sender_agent_id: 'agent_fixture', recipient_agent_id: children[0]?.subagent.id,
-        content: [expect.objectContaining({ type: 'output_text' }), { type: 'encrypted_content', encrypted_content: 'Perform the child fixture task.' }],
+        content: plaintext ? expect.arrayContaining([expect.objectContaining({ type: 'output_text', text: expect.stringContaining('Perform the child fixture task.') })])
+          : [expect.objectContaining({ type: 'output_text' }), { type: 'encrypted_content', encrypted_content: 'Perform the child fixture task.' }],
+      }));
+      expect(state.turns.find(({ turn }) => turn.id === 'turn_parent')!.items).toContainEqual(expect.objectContaining({
+        type: 'create_subagent_call', content: multiAgentV2 && !plaintext
+          ? [{ type: 'encrypted_content', encrypted_content: 'Perform the child fixture task.' }]
+          : [{ type: 'output_text', text: 'Perform the child fixture task.' }],
       }));
       parseAgentsContract('Subagent', children[0]!.subagent);
       expect(children[0]!.turns).toHaveLength(1);

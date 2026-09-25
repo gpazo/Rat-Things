@@ -16,6 +16,35 @@ const rawMessage = (threadId: string, turnId: string, author: string, recipient:
 });
 
 describe('inter-agent message history', () => {
+  it.each(['spawn_agent', 'send_message', 'followup_task'])('keeps %s content typed through completion and restored history', name => {
+    for (const encryptedArgs of [undefined, null, [], ['message']]) {
+      const plaintext = Array.isArray(encryptedArgs) && encryptedArgs.length === 0;
+      const text = 'pv_this_prefix_does_not_determine_the_content_type';
+      let state = bindSessionTurn(initialSessionRuntime('session', 'agent', 'root-thread'), 'native', publicTurn);
+      state = reduceSessionRuntime(state, { method: 'thread/started', observedAt: 1, params: { thread: { id: 'child', parentThreadId: 'root-thread' } } });
+      const before = structuredClone(state);
+      const call = { method: 'rawResponseItem/completed', observedAt: 2, params: { threadId: 'root-thread', turnId: 'native', item: {
+        type: 'function_call', namespace: 'collaboration', call_id: 'call', name,
+        arguments: JSON.stringify({ message: text, target: 'child', task_name: 'child' }),
+        ...(encryptedArgs !== undefined ? { encrypted_function_args: encryptedArgs } : {}),
+      } } };
+      const started = reduceSessionRuntime(state, call);
+      expect(state).toEqual(before);
+      state = JSON.parse(JSON.stringify(started));
+      state = reduceSessionRuntime(state, { method: 'item/completed', observedAt: 3, params: { threadId: 'root-thread', turnId: 'native', item: {
+        type: 'subAgentActivity', id: 'call', agentThreadId: 'child', agentPath: '/root/child', kind: name === 'spawn_agent' ? 'started' : 'interacted',
+      } } });
+      const complete = { method: 'rawResponseItem/completed', observedAt: 4, params: { threadId: 'root-thread', turnId: 'native', item: {
+        type: 'function_call_output', call_id: 'call', output: name === 'spawn_agent' ? '{"agent_id":"child"}' : '',
+      } } };
+      state = reduceSessionRuntime(state, complete);
+      const item = state.turns.find(binding => binding.turn.id === publicTurn.id)!.items.find(item => item.id === 'call');
+      expect(item).toMatchObject({ status: 'completed', content: plaintext
+        ? [{ type: 'output_text', text }] : [{ type: 'encrypted_content', encrypted_content: text }] });
+      parseAgentsContract('Item', item);
+      expect(reduceSessionRuntime(JSON.parse(JSON.stringify(state)), complete).turns).toEqual(state.turns);
+    }
+  });
   it('preserves typed content and public root identity across early binding, restore and replay', () => {
     const initial = initialSessionRuntime('session', 'agent', 'root-thread');
     const event = rawMessage('root-thread', 'native', '/root/child', '/root');
