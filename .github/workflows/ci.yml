@@ -36,7 +36,7 @@ jobs:
         id: codex-runtime
         with:
           path: .runtime/codex/linux-arm64
-          key: codex-linux-arm64-${{ hashFiles('runtime/codex/**', 'scripts/build-codex-runtime.mjs') }}
+          key: codex-linux-arm64-${{ hashFiles('runtime/codex/**', '!runtime/codex/model-capabilities.json', 'scripts/build-codex-runtime.mjs') }}
       - name: Build pinned Linux ARM64 runtime
         if: steps.codex-runtime.outputs.cache-hit != 'true'
         run: docker buildx build --platform linux/arm64 --file runtime/codex/Dockerfile --output type=local,dest=.runtime/codex/linux-arm64 .
