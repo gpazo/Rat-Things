@@ -7,7 +7,7 @@
   "mailbox": "Session state",
   "queue": "Message queue",
   "dispatcher": "Dispatch switch",
-  "microvm": "MicroVM enclosure",
+  "microvm": "Isolated worker enclosure",
   "runner": "Agent processor",
   "browser": "Browser window",
   "models": "Model network",

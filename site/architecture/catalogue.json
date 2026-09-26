@@ -275,10 +275,10 @@
       "id": "execution",
       "title": "Execution",
       "subtitle": "Native harness in your AWS account",
-      "description": "The dispatcher launches a private MicroVM harness. Native Codex executes Session Turns under a fixed capability envelope.",
+      "description": "The dispatcher launches an isolated EC2 or Lambda MicroVM worker in your AWS account. Its Codex harness executes Session Turns within a fixed capability envelope.",
       "facts": [
         "Fenced launch and attached execution generation.",
-        "Private MicroVM execution reference."
+        "Private worker identity and execution generation."
       ],
       "sources": [
         {
@@ -300,6 +300,10 @@
         {
           "file": "src/runner/codex-auth.ts",
           "anchor": "export function codexAuthMode"
+        },
+        {
+          "file": "src/adapters/ec2-executor.ts",
+          "anchor": "export class Ec2RunExecutor"
         }
       ],
       "color": "#72edbb",
@@ -312,10 +316,10 @@
           "id": "dispatcher",
           "title": "Run dispatcher",
           "subtitle": "Conditional execution claim",
-          "description": "Reads immutable input and conditionally claims a private Run before invoking the MicroVM executor.",
+          "description": "Reads immutable input and conditionally claims a private Run before invoking the configured EC2 or MicroVM executor.",
           "facts": [
             "Fenced launch and attached execution generation.",
-            "Retired conversation records are ignored before input reads or launch."
+            "Only an eligible queued execution can be claimed; duplicate wake-ups cannot launch independent work."
           ],
           "sources": [
             {
@@ -330,34 +334,39 @@
           ],
           "inputs": "Private execution queue message.",
           "outputs": "Fenced launch and attached execution generation.",
-          "mechanics": "Reads immutable input and conditionally claims a private Run before invoking the MicroVM executor.",
-          "failure": "Retired conversation records are ignored before input reads or launch."
+          "mechanics": "Reads immutable input and conditionally claims a private Run before invoking the configured EC2 or MicroVM executor.",
+          "failure": "Only an eligible queued execution can be claimed; duplicate wake-ups cannot launch independent work."
         },
         {
           "id": "microvm",
-          "title": "Lambda MicroVM",
-          "subtitle": "AWS-owned isolation boundary",
-          "description": "Launches an isolated harness using a stable client token. Session launches use an idle policy and optional S3 Files storage.",
+          "title": "Isolated workers",
+          "subtitle": "EC2 or Lambda MicroVM",
+          "description": "Dedicated EC2 workers keep a persistent harness; Lambda MicroVM workers have a bounded lifetime. Both use stable launch identities, non-root agent processes and optional durable journal storage.",
           "facts": [
-            "Private MicroVM execution reference.",
+            "Private worker identity and execution generation.",
             "Ambiguous launch responses retry with the same identity; unsafe state never grants new authority."
           ],
           "sources": [
             {
               "file": "src/adapters/executors.ts",
               "anchor": "export class MicrovmRunExecutor"
+            },
+            {
+              "file": "src/adapters/ec2-executor.ts",
+              "anchor": "export class Ec2RunExecutor"
             }
           ],
           "resource": "microvm",
           "aliases": [
+            "Isolated workers",
+            "EC2",
+            "dedicated worker",
             "Lambda MicroVM",
-            "AWS-owned isolation boundary",
-            "AWS Lambda",
             "MicroVM"
           ],
           "inputs": "Bounded resource references and launch configuration.",
-          "outputs": "Private MicroVM execution reference.",
-          "mechanics": "Launches an isolated harness using a stable client token. Session launches use an idle policy and optional S3 Files storage.",
+          "outputs": "Private worker identity and execution generation.",
+          "mechanics": "Dedicated EC2 workers keep a persistent harness; Lambda MicroVM workers have a bounded lifetime. Both use stable launch identities, non-root agent processes and optional durable journal storage.",
           "failure": "Ambiguous launch responses retry with the same identity; unsafe state never grants new authority."
         },
         {
@@ -391,7 +400,7 @@
           "id": "browser",
           "title": "Environment tools",
           "subtitle": "Declared capabilities",
-          "description": "Session MCP and environment tools are exposed from resolved Agent configuration. Legacy local browser helpers are not implicitly injected into Sessions.",
+          "description": "Resolved Agent configuration declares function, MCP and environment tools. Commands and files require a connected environment; browser automation requires a declared tool.",
           "facts": [
             "Bounded function, MCP, command or file operation.",
             "Absent or denied capabilities do not become pending approvals."
@@ -409,7 +418,7 @@
           ],
           "inputs": "Declared tool configuration and authorized environment.",
           "outputs": "Bounded function, MCP, command or file operation.",
-          "mechanics": "Session MCP and environment tools are exposed from resolved Agent configuration. Legacy local browser helpers are not implicitly injected into Sessions.",
+          "mechanics": "Resolved Agent configuration declares function, MCP and environment tools. Commands and files require a connected environment; browser automation requires a declared tool.",
           "failure": "Absent or denied capabilities do not become pending approvals."
         },
         {
@@ -444,7 +453,7 @@
       ],
       "inputs": "Owned requests and saved state.",
       "outputs": "Durable progress within the admitted boundary.",
-      "mechanics": "The dispatcher launches a private MicroVM harness. Native Codex executes Session Turns under a fixed capability envelope.",
+      "mechanics": "The dispatcher launches an isolated EC2 or Lambda MicroVM worker in your AWS account. Its Codex harness executes Session Turns within a fixed capability envelope.",
       "failure": "Conditional state and bounded failures retain evidence for recovery."
     },
     {
@@ -594,7 +603,7 @@
       "id": "storage",
       "title": "Durable state",
       "subtitle": "Owned state, encrypted content",
-      "description": "DynamoDB indexes owned resources; encrypted S3 stores complete content. Optional S3 Files preserves Session workspace and native state.",
+      "description": "DynamoDB indexes owned resources; encrypted S3 stores complete content. Optional S3 Files preserves native journals for Session recovery.",
       "facts": [
         "Durable compare-and-swap result.",
         "Encrypted object reference."
@@ -674,12 +683,12 @@
         },
         {
           "id": "files",
-          "title": "Persistent workspace",
-          "subtitle": "Session workspace and Codex home",
-          "description": "Optional S3 Files mounts a directory keyed by the hash of owner and Session ID. Existing filesystem paths remain stable.",
+          "title": "Session journals",
+          "subtitle": "Durable native history",
+          "description": "Optional S3 Files preserves native journals under an owner-and-Session directory. SQLite indexes stay worker-local and are rebuilt during recovery.",
           "facts": [
-            "Workspace and native Codex home across replacement compute.",
-            "Compute lifetime is bounded. Saved Artifacts remain available independently of a live workspace."
+            "Native conversation journals across replacement compute.",
+            "Hosted replacement reapplies declared inputs; arbitrary workspace files and processes are lost. Saved Artifacts survive independently."
           ],
           "sources": [
             {
@@ -689,16 +698,16 @@
           ],
           "resource": "files",
           "aliases": [
-            "Persistent workspace",
-            "Session workspace and Codex home",
+            "Session journals",
+            "Durable native history",
             "S3 Files",
             "workspace",
             "checkpoint"
           ],
           "inputs": "Owned Session identity and mounted filesystem.",
-          "outputs": "Workspace and native Codex home across replacement compute.",
-          "mechanics": "Optional S3 Files mounts a directory keyed by the hash of owner and Session ID. Existing filesystem paths remain stable.",
-          "failure": "Compute lifetime is bounded. Saved Artifacts remain available independently of a live workspace."
+          "outputs": "Native conversation journals across replacement compute.",
+          "mechanics": "Optional S3 Files preserves native journals under an owner-and-Session directory. SQLite indexes stay worker-local and are rebuilt during recovery.",
+          "failure": "Hosted replacement reapplies declared inputs; arbitrary workspace files and processes are lost. Saved Artifacts survive independently."
         }
       ],
       "aliases": [
@@ -707,7 +716,7 @@
       ],
       "inputs": "Owned requests and saved state.",
       "outputs": "Durable progress within the admitted boundary.",
-      "mechanics": "DynamoDB indexes owned resources; encrypted S3 stores complete content. Optional S3 Files preserves Session workspace and native state.",
+      "mechanics": "DynamoDB indexes owned resources; encrypted S3 stores complete content. Optional S3 Files preserves native journals for Session recovery.",
       "failure": "Conditional state and bounded failures retain evidence for recovery."
     },
     {
@@ -771,7 +780,7 @@
           "description": "Non-root children cannot reach the root lifecycle listener. IAM, network policy and environment boundaries enforce admitted authority.",
           "facts": [
             "Isolated process and permitted network/resource access.",
-            "A denied operation stays denied; inner full access does not bypass the MicroVM boundary."
+            "A denied operation stays denied. The isolated worker, non-root identity, IAM and network policy enforce the capability boundary."
           ],
           "sources": [
             {
@@ -787,7 +796,7 @@
           "inputs": "Worker identity and policy configuration.",
           "outputs": "Isolated process and permitted network/resource access.",
           "mechanics": "Non-root children cannot reach the root lifecycle listener. IAM, network policy and environment boundaries enforce admitted authority.",
-          "failure": "A denied operation stays denied; inner full access does not bypass the MicroVM boundary."
+          "failure": "A denied operation stays denied. The isolated worker, non-root identity, IAM and network policy enforce the capability boundary."
         },
         {
           "id": "secrets",
@@ -1040,7 +1049,7 @@
             "Heartbeat and dead letters",
             "Fenced liveness evidence"
           ],
-          "inputs": "Run ID, MicroVM ID, generation and bounded status.",
+          "inputs": "Private Run ID, worker ID, generation and bounded status.",
           "outputs": "Liveness timestamp or failure queue entry.",
           "mechanics": "Workers heartbeat only while execution identity matches. Exhausted event and queue delivery retains diagnostic evidence.",
           "failure": "Heartbeat does not alter semantic update time; uncertainty does not authorize terminating another worker."
@@ -1105,6 +1114,10 @@
         {
           "file": "src/runner/codex-auth.ts",
           "anchor": "export function codexAuthMode"
+        },
+        {
+          "file": "src/adapters/ec2-executor.ts",
+          "anchor": "export class Ec2RunExecutor"
         }
       ],
       "from": "control"
@@ -1177,6 +1190,10 @@
         {
           "file": "src/runner/codex-auth.ts",
           "anchor": "export function codexAuthMode"
+        },
+        {
+          "file": "src/adapters/ec2-executor.ts",
+          "anchor": "export class Ec2RunExecutor"
         }
       ],
       "from": "access"
@@ -1225,6 +1242,10 @@
         {
           "file": "src/runner/codex-auth.ts",
           "anchor": "export function codexAuthMode"
+        },
+        {
+          "file": "src/adapters/ec2-executor.ts",
+          "anchor": "export class Ec2RunExecutor"
         }
       ],
       "from": "recovery"
@@ -1309,6 +1330,10 @@
         {
           "file": "src/adapters/executors.ts",
           "anchor": "export class MicrovmRunExecutor"
+        },
+        {
+          "file": "src/adapters/ec2-executor.ts",
+          "anchor": "export class Ec2RunExecutor"
         }
       ],
       "from": "dispatcher"
@@ -1429,6 +1454,10 @@
         {
           "file": "src/adapters/executors.ts",
           "anchor": "export class MicrovmRunExecutor"
+        },
+        {
+          "file": "src/adapters/ec2-executor.ts",
+          "anchor": "export class Ec2RunExecutor"
         }
       ],
       "from": "policy"
@@ -1622,17 +1651,21 @@
         {
           "node": "microvm",
           "title": "Launch the isolated harness",
-          "description": "Claim the private Run and launch a MicroVM with stable execution identity.",
+          "description": "Claim the private Run and launch the configured EC2 or MicroVM worker with stable execution identity.",
           "state": "dispatching",
           "handoff": {
             "from": "dispatcher",
             "to": "microvm",
-            "payload": "Claim the private Run and launch a MicroVM with stable execution identity.",
+            "payload": "Claim the private Run and launch the configured EC2 or MicroVM worker with stable execution identity.",
             "kind": "request",
             "sources": [
               {
                 "file": "src/adapters/executors.ts",
                 "anchor": "export class MicrovmRunExecutor"
+              },
+              {
+                "file": "src/adapters/ec2-executor.ts",
+                "anchor": "export class Ec2RunExecutor"
               }
             ]
           }
@@ -1772,17 +1805,21 @@
         {
           "node": "microvm",
           "title": "Launch the isolated harness",
-          "description": "Claim the private Run and launch a MicroVM with stable execution identity.",
+          "description": "Claim the private Run and launch the configured EC2 or MicroVM worker with stable execution identity.",
           "state": "dispatching",
           "handoff": {
             "from": "dispatcher",
             "to": "microvm",
-            "payload": "Claim the private Run and launch a MicroVM with stable execution identity.",
+            "payload": "Claim the private Run and launch the configured EC2 or MicroVM worker with stable execution identity.",
             "kind": "request",
             "sources": [
               {
                 "file": "src/adapters/executors.ts",
                 "anchor": "export class MicrovmRunExecutor"
+              },
+              {
+                "file": "src/adapters/ec2-executor.ts",
+                "anchor": "export class Ec2RunExecutor"
               }
             ]
           }
@@ -1922,17 +1959,21 @@
         {
           "node": "microvm",
           "title": "Launch the isolated harness",
-          "description": "Claim the private Run and launch a MicroVM with stable execution identity.",
+          "description": "Claim the private Run and launch the configured EC2 or MicroVM worker with stable execution identity.",
           "state": "dispatching",
           "handoff": {
             "from": "dispatcher",
             "to": "microvm",
-            "payload": "Claim the private Run and launch a MicroVM with stable execution identity.",
+            "payload": "Claim the private Run and launch the configured EC2 or MicroVM worker with stable execution identity.",
             "kind": "request",
             "sources": [
               {
                 "file": "src/adapters/executors.ts",
                 "anchor": "export class MicrovmRunExecutor"
+              },
+              {
+                "file": "src/adapters/ec2-executor.ts",
+                "anchor": "export class Ec2RunExecutor"
               }
             ]
           }
@@ -2179,6 +2220,10 @@
               {
                 "file": "src/adapters/executors.ts",
                 "anchor": "export class MicrovmRunExecutor"
+              },
+              {
+                "file": "src/adapters/ec2-executor.ts",
+                "anchor": "export class Ec2RunExecutor"
               }
             ]
           }
@@ -2384,7 +2429,7 @@
     {
       "id": "durability",
       "title": "What survives a worker",
-      "description": "Saved resource content, Items and Artifacts live in encrypted storage; S3 Files optionally preserves native workspace state.",
+      "description": "Saved Items and Artifacts live in encrypted storage; S3 Files optionally preserves native journals. Hosted replacement reapplies declared inputs and loses arbitrary workspace files and processes.",
       "sources": [
         {
           "file": "src/runner/main.ts",
@@ -2400,6 +2445,39 @@
         {
           "file": "src/runner/session-launch-planning.ts",
           "anchor": "export function planSessionLaunch"
+        }
+      ]
+    },
+    {
+      "id": "environment",
+      "title": "Environment",
+      "description": "Choose no command environment, an AWS-managed workspace, or a self-hosted executor. The API, harness and Session storage remain in your AWS account.",
+      "sources": [
+        {
+          "file": "src/core/environment-service.ts",
+          "anchor": "export class EnvironmentService"
+        }
+      ]
+    },
+    {
+      "id": "api-permissions",
+      "title": "Owner and API scopes",
+      "description": "IAM authenticates token issuance. Owner-bound bearer grants separately authorize resource reads, writes, inference, Vault access and trace reads.",
+      "sources": [
+        {
+          "file": "src/domain/api-permissions.ts",
+          "anchor": "export function requireRoutePermission"
+        }
+      ]
+    },
+    {
+      "id": "traces",
+      "title": "Trace export",
+      "description": "Export paginated OTLP traces or capture them locally for your own collector. Structural spans contain hierarchy, outcomes and available timing/usage, excluding prompts and tool payloads.",
+      "sources": [
+        {
+          "file": "src/core/session-trace-planning.ts",
+          "anchor": "export function projectSessionTraces"
         }
       ]
     }

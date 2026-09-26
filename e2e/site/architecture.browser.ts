@@ -39,6 +39,11 @@ test("inspects, explodes and drills into actual implementation references", asyn
     page.getByRole("slider", { name: "Explode layers" }),
   ).toHaveValue("100");
   await expect(page.locator(".component-label:visible")).toHaveCount(5);
+  await page.getByRole("button", { name: "Inspect Isolated workers in 3D" }).click();
+  await expect(page.locator("#detail-title")).toHaveText("Isolated workers");
+  await expect(page.locator("#detail-content")).toContainText("Dedicated EC2 workers");
+  await expect(page.locator("#detail-content")).toContainText("Lambda MicroVM workers");
+  await page.screenshot({ path: "test-results/site/architecture-workers.png" });
   await page
     .getByRole("button", { name: "Inspect Codex runner in 3D" })
     .click();

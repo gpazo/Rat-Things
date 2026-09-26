@@ -3,7 +3,7 @@
   {"id":"explode","title":"Pull the architecture\napart.","caption":"Separate the layers into a named resource inventory.\nOpen a subsystem to follow its internal connections.","label":"EXPLODED ARCHITECTURE","seconds":5.7},
   {"id":"ingress","title":"Every request starts\nwith identity.","caption":"Authenticated APIs and signed webhooks turn incoming work\ninto an owner-scoped request.","label":"01 / INGRESS","seconds":4.4},
   {"id":"control","title":"Durable work.\nOne Run at a time.","caption":"Run receipts, reusable Things, a conversation mailbox\nand a queue keep work coordinated.","label":"02 / COORDINATION","seconds":4.8},
-  {"id":"execution","title":"Inside the\nisolated runtime.","caption":"A dispatcher, Lambda MicroVM, Codex runner, browser\nand model access — each with its own role.","label":"03 / EXECUTION","seconds":7},
+  {"id":"execution","title":"Inside the\nisolated runtime.","caption":"A dispatcher, EC2 or MicroVM worker, Codex harness,\ndeclared tools and model access.","label":"03 / EXECUTION","seconds":7},
   {"id":"storage","title":"The worker ends.\nThe work stays.","caption":"Durable records, encrypted artifacts and an optional\npersistent workspace outlive an individual worker.","label":"04 / DURABLE STATE","seconds":4.6},
   {"id":"access","title":"Fixed boundaries.\nAutonomous execution.","caption":"Profiles, runtime policy and host-side credentials define\nthe boundary. A Run cannot widen its own authority.","label":"05 / ACCESS BOUNDARY","seconds":4.8},
   {"id":"integrations","title":"Connected accounts.\nGranted operations.","caption":"Trusted plugins, account grants and authorization\ndetermine which connected tools are available.","label":"06 / CONNECTED SERVICES","seconds":4.3},

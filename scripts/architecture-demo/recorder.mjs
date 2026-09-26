@@ -84,7 +84,7 @@ export async function beginRecording(browser, options = {}) {
     } else {
       await rotation(true);
       if(chapter.id==='execution') {
-        await pause(2500);await rotation(false);await selectResource('Lambda MicroVM');
+        await pause(2500);await rotation(false);await selectResource('Isolated workers');
         await pause(1400);await selectResource('Browser & tools');
         await pause(1400);await selectResource('Codex runner');
       } else if(chapter.id==='control') {
