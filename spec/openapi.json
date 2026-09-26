@@ -869,7 +869,11 @@
             "name": "limit",
             "in": "query",
             "schema": {
-              "type": "number"
+              "type": [
+                "number",
+                "null"
+              ],
+              "description": "The maximum number of resources to return."
             }
           },
           {
@@ -1691,18 +1695,22 @@
             }
           },
           {
-            "name": "limit",
-            "in": "query",
-            "schema": {
-              "type": "number"
-            }
-          },
-          {
             "name": "agent_id",
             "in": "query",
             "schema": {
               "type": "string",
               "description": "Only return sessions whose root agent has this ID. Omit to return sessions for all agents."
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "description": "The maximum number of resources to return."
             }
           },
           {
@@ -2516,14 +2524,11 @@
             "name": "after",
             "in": "query",
             "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "limit",
-            "in": "query",
-            "schema": {
-              "type": "number"
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "Return artifacts after this immutable artifact ID."
             }
           },
           {
@@ -2535,6 +2540,17 @@
                 "null"
               ],
               "description": "Restrict the listing to artifacts produced by this environment."
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "description": "The maximum number of artifacts to return, between 1 and 100."
             }
           },
           {
@@ -2961,7 +2977,11 @@
             "name": "limit",
             "in": "query",
             "schema": {
-              "type": "number"
+              "type": [
+                "number",
+                "null"
+              ],
+              "description": "The maximum number of resources to return. Defaults to 20. Values are clamped between 1 and 100."
             }
           },
           {
@@ -3315,7 +3335,11 @@
             "name": "limit",
             "in": "query",
             "schema": {
-              "type": "number"
+              "type": [
+                "number",
+                "null"
+              ],
+              "description": "The maximum number of resources to return. Defaults to 20. Values are clamped between 1 and 100."
             }
           },
           {
@@ -3767,7 +3791,11 @@
             "name": "limit",
             "in": "query",
             "schema": {
-              "type": "number"
+              "type": [
+                "number",
+                "null"
+              ],
+              "description": "The maximum number of files to return, between 1 and 100."
             }
           },
           {
@@ -6460,6 +6488,137 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/WebhookEndpointCreated"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/agents/sessions/{session_id}/traces": {
+      "get": {
+        "tags": [
+          "Agents"
+        ],
+        "operationId": "get_agents_sessions_session_id_traces",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "after",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "number"
+            }
+          },
+          {
+            "name": "order",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "asc",
+                "desc"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "data",
+                    "has_more",
+                    "first_id",
+                    "last_id"
+                  ],
+                  "properties": {
+                    "object": {
+                      "const": "list"
+                    },
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "/schemas/agents-api.schema.json#/definitions/AgentsApiContracts/properties/Trace"
+                      }
+                    },
+                    "has_more": {
+                      "type": "boolean"
+                    },
+                    "first_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "last_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "OpenAI-shaped error response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "required": [
+                        "message",
+                        "type",
+                        "param",
+                        "code"
+                      ],
+                      "properties": {
+                        "message": {
+                          "type": "string"
+                        },
+                        "type": {
+                          "type": "string"
+                        },
+                        "param": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "code": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        }
+                      }
+                    }
+                  }
                 }
               }
             }

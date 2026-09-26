@@ -113,9 +113,16 @@ Store values in Secrets Manager; public configuration uses resource IDs or appro
 Never place tokens in prompts, clone URLs, DynamoDB records, task overrides or logs. Keep webhook,
 clone, model, Vault and delivery identities distinct. A Workflow URL is a credential.
 
-Service-side MCP credentials stay in the service process. Credentials explicitly installed into
-an environment, including environment MCP variables, are part of that sandbox's authority and
-can be read by code running there. Do not describe those as hidden from the guest.
+Service-side MCP credentials stay in the service process. A Vault `environment_variable`
+credential supplies a placeholder to a hosted sandbox. The trusted host substitutes its secret
+in HTTPS headers only for the credential's exact allowed hosts on port 443 or 8443, within the
+environment's network policy. TLS verification and public-address checks precede each outbound
+request. Raw values and certificate private keys remain outside the guest UID. A Session keeps
+its credential snapshot across Vault rotation; new Sessions use the replacement value.
+
+Plain environment values and inline environment MCP variables can be read by sandbox code.
+Use Vault placeholders for outbound API authentication when the sandbox should not read the
+secret or use it for local computation.
 
 With `CODEX_AUTH_MODE=chatgpt`, trusted orchestration reads the selected encrypted file-based login,
 materializes a private `auth.json`, persists validated refresh rotation and removes the runtime

@@ -57,15 +57,17 @@ not permission to replay them.
 
 ## Recover from the strongest available state
 
-Prefer the saved native checkpoint and workspace. Public Item history is a fallback
+Prefer the saved native conversation checkpoint. Public Item history is a fallback
 that can retain messages and completed tool results. Historical commands, MCP
 calls and child activity remain historical data; recovery must not execute them
 again merely to rebuild context.
 
 Neither fallback history nor copied files recreate live processes, sockets or
 hidden child state. A connected managed environment retains its process state
-between Turns; replacing a lost environment is a different operation. Saved
-history remains available even when further execution is unavailable.
+between Turns. Hosted replacement retains the environment ID and conversation,
+reapplies declared inputs, and discards previous sandbox files and processes.
+Reset events identify each replacement with a monotonic count. Explicit expiry
+remains terminal, with saved history and artifacts available for retrieval.
 
 ## Retain immutable output
 

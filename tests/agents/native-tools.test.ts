@@ -1,16 +1,38 @@
 import { createServer } from 'node:http';
 import { once } from 'node:events';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { expect, it } from 'vitest';
 import { SessionRuntime } from '../../src/runner/session-runtime.js';
 import { planSessionLaunch } from '../../src/runner/session-launch-planning.js';
-import { planCodexLaunch } from '../../src/runner/agent-planning.js';
+import { bedrockTokenArguments, planCodexLaunch } from '../../src/runner/agent-planning.js';
 import { sessionAgent } from '../../src/core/session-planning.js';
 
-it.each(['programmatic', 'deferred'] as const)('executes a %s application function and retains its required action', async (mode) => {
+it.each([
+  { type: 'web_search' as const },
+  { type: 'web_search' as const, allowed_domains: ['openai.com'] },
+  { type: 'web_search' as const, location: { country: 'US' } },
+])('initializes native web search with public defaults: %j', async tool => {
+  const home = await mkdtemp(join(tmpdir(), 'rat-search-defaults-'));
+  const planned = planSessionLaunch(planCodexLaunch({ version: '1', prompt: '', agent: { sandbox: 'read-only', capabilities: { webSearch: 'live' } } }, home, 10_000, {}), {
+    sessionId: 'sess_search', turnId: 'turn_search', input: [], environment: { type: 'none' },
+    agent: sessionAgent({ model: 'gpt-5.4', tools: [tool] }, 'agent_search', 1),
+  });
+  const runtime = new SessionRuntime({ sessionId: 'sess_search', agentId: 'agent_search', request: {
+    ...planned, binary: process.env.CODEX_CONFORMANCE_BINARY ?? resolve('node_modules/.bin/codex'),
+    workspace: home, environment: { PATH: process.env.PATH, HOME: home, CODEX_HOME: home },
+    timeoutMs: 10_000, persistent: true, prompt: '', model: 'gpt-5.4', modelProvider: 'fixture', sandbox: 'read-only', networkAccess: false,
+    sessionConfig: { ...planned.sessionConfig, 'model_providers.fixture': {
+      name: 'unused local endpoint', base_url: 'http://127.0.0.1:1', wire_api: 'responses', requires_openai_auth: false, supports_websockets: false,
+    } },
+  } });
+  try { expect((await runtime.initialize()).rootThreadId).toBeTruthy(); }
+  finally { await runtime.close(); await rm(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }); }
+}, 15_000);
+
+it.each((['fixture', 'amazon-bedrock'] as const).flatMap(provider => (['programmatic', 'deferred'] as const).map(mode => ({ provider, mode }))))('executes a $mode application function through $provider and retains its required action', async ({ mode, provider }) => {
   const requests: Array<Record<string, unknown>> = [];
   const server = createServer(async (request, response) => {
     const chunks: Buffer[] = [];
@@ -35,9 +57,12 @@ it.each(['programmatic', 'deferred'] as const)('executes a %s application functi
   const address = server.address();
   if (!address || typeof address === 'string') throw new Error('Missing fixture address');
   const home = await mkdtemp(join(tmpdir(), 'rat-native-tools-'));
+  const tokenFile = join(home, 'fixture-token');
+  await writeFile(tokenFile, 'local-test-token', { mode: 0o600 });
+  const model = provider === 'amazon-bedrock' ? 'openai.gpt-5.6-terra' : 'gpt-5.4';
   const planned = planSessionLaunch(planCodexLaunch({ version: '1', prompt: '', agent: { sandbox: 'read-only', capabilities: { webSearch: 'cached' } } }, home, 20_000, {}), {
     sessionId: 'sess_tools', turnId: 'turn_tools', input: [], environment: { type: 'none' },
-    agent: sessionAgent({ model: 'gpt-5.4', reasoning: { effort: 'high', summary: 'concise' }, service_tier: 'priority',
+    agent: sessionAgent({ model, reasoning: { effort: 'high', summary: 'concise' }, service_tier: 'priority',
       text: { verbosity: 'low', format: { type: 'json_schema', schema: { type: 'object', properties: { answer: { type: 'string' } }, required: ['answer'], additionalProperties: false } } }, tools: [
       { type: 'web_search', mode: 'cached', context_size: 'low', allowed_domains: ['example.com'], location: { country: 'US', city: 'Seattle' } },
       mode === 'programmatic' ? { type: 'programmatic_tool_calling', enabled: true } : { type: 'tool_search' },
@@ -46,9 +71,10 @@ it.each(['programmatic', 'deferred'] as const)('executes a %s application functi
   });
   const runtime = new SessionRuntime({ sessionId: 'sess_tools', agentId: 'agent_tools', request: {
     ...planned, binary: process.env.CODEX_CONFORMANCE_BINARY ?? resolve('node_modules/.bin/codex'),
-    workspace: home, environment: { PATH: process.env.PATH, HOME: home, CODEX_HOME: home },
-    timeoutMs: 20_000, persistent: true, prompt: '', model: 'gpt-5.4', modelProvider: 'fixture', sandbox: 'read-only', networkAccess: false,
-    sessionConfig: { ...planned.sessionConfig, 'model_providers.fixture': {
+    binaryArguments: provider === 'amazon-bedrock' ? bedrockTokenArguments(tokenFile) : ['app-server'],
+    workspace: home, environment: { PATH: process.env.PATH, HOME: home, CODEX_HOME: home, AWS_REGION: 'us-west-2', AWS_EC2_METADATA_DISABLED: 'true' },
+    timeoutMs: 20_000, persistent: true, prompt: '', model, modelProvider: provider, sandbox: 'read-only', networkAccess: false,
+    sessionConfig: { ...planned.sessionConfig, 'model_providers.amazon-bedrock.base_url': `http://127.0.0.1:${address.port}`, 'model_providers.fixture': {
       name: 'local fixture', base_url: `http://127.0.0.1:${address.port}`, wire_api: 'responses', requires_openai_auth: false, supports_websockets: false,
     } },
   } });
@@ -69,11 +95,12 @@ it.each(['programmatic', 'deferred'] as const)('executes a %s application functi
     expect(runtime.snapshot().turns[0]?.turn.status).toBe('completed');
     expect(requests).toHaveLength(mode === 'programmatic' ? 2 : 3);
     if (mode === 'deferred') {
+      expect(requests[0]?.tools).toEqual(expect.arrayContaining([expect.objectContaining({ type: 'tool_search' })]));
       expect(requests[0]?.tools).not.toEqual(expect.arrayContaining([expect.objectContaining({ name: 'lookup' })]));
       expect(JSON.stringify(requests[1]?.input)).toContain('tool_search_output');
       expect(JSON.stringify(requests[1]?.input)).toContain('lookup');
     }
-    expect(requests[0]).toMatchObject({ model: 'gpt-5.4', service_tier: 'priority', reasoning: { effort: 'high', summary: 'concise' }, text: {
+    expect(requests[0]).toMatchObject({ model, ...(provider === 'fixture' || process.env.CODEX_REQUIRE_PARITY === 'true' ? { service_tier: 'priority' } : {}), reasoning: { effort: 'high', summary: 'concise' }, text: {
       verbosity: 'low', format: { type: 'json_schema', schema: { type: 'object', required: ['answer'] } },
     } });
     expect(requests[0]?.tools).toEqual(expect.arrayContaining([expect.objectContaining({ type: 'web_search', external_web_access: false,

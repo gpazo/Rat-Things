@@ -2,6 +2,8 @@ import type { SessionRuntimeEvent, SessionRuntimeState } from './session-runtime
 
 export interface NativeCoordinationCall {
   threadId: string; turnId: string; name: string; arguments: Record<string, unknown>; recipients: string[];
+  /** Native v2 declares plaintext only with an explicitly empty encrypted_function_args. */
+  plaintextMessage?: boolean;
 }
 const tools: Record<string, string> = { spawn_agent: 'spawnAgent', send_message: 'sendMessage', followup_task: 'followupTask', interrupt_agent: 'interruptAgent', wait_agent: 'wait' };
 
@@ -18,14 +20,16 @@ export function planNativeCoordination(state: SessionRuntimeState, event: Sessio
     const fullPath = target?.startsWith('/') ? target : `${parentPath}/${target}`;
     const recipient = state.subagents.find((agent) => agent.id === target || state.agentPaths?.[agent.id] === fullPath);
     const recipients = recipient ? [recipient.id] : item.name === 'wait_agent' ? state.subagents.filter((agent) => agent.status === 'active').map((agent) => agent.id) : [];
-    const call: NativeCoordinationCall = { threadId, turnId, name: item.name, arguments: args, recipients };
+    const call: NativeCoordinationCall = { threadId, turnId, name: item.name, arguments: args, recipients,
+      plaintextMessage: Array.isArray(item.encrypted_function_args) && item.encrypted_function_args.length === 0 };
     const next = { ...state, coordinationCalls: { ...state.coordinationCalls, [item.call_id]: call } };
     return { state: next, event: coordinationEvent(event, item.call_id, call, 'inProgress') };
   }
   if (item.type === 'subAgentActivity' && typeof item.id === 'string' && typeof item.agentThreadId === 'string' && ['started', 'interacted', 'interrupted'].includes(String(item.kind))) {
     const saved = state.coordinationCalls?.[item.id];
     const name = saved?.name ?? (item.kind === 'started' ? 'spawn_agent' : item.kind === 'interrupted' ? 'interrupt_agent' : 'send_message');
-    const call: NativeCoordinationCall = { threadId, turnId, name, arguments: saved?.arguments ?? {}, recipients: [item.agentThreadId] };
+    const call: NativeCoordinationCall = { threadId, turnId, name, arguments: saved?.arguments ?? {}, recipients: [item.agentThreadId],
+      plaintextMessage: saved?.plaintextMessage === true };
     const next = { ...state, coordinationCalls: { ...state.coordinationCalls, [item.id]: call }, agentPaths: { ...state.agentPaths, ...(typeof item.agentPath === 'string' ? { [item.agentThreadId]: item.agentPath } : {}) } };
     return { state: next, event: coordinationEvent(event, item.id, call, 'completed') };
   }
@@ -47,6 +51,7 @@ function coordinationEvent(event: SessionRuntimeEvent, id: string, call: NativeC
     threadId: call.threadId, turnId: call.turnId, item: {
       id, type: 'collabAgentToolCall', tool: tools[call.name], status, senderThreadId: call.threadId,
       receiverThreadIds: call.recipients, prompt: typeof call.arguments.message === 'string' ? call.arguments.message : null,
+      promptEncrypted: call.plaintextMessage !== true,
       model: typeof call.arguments.model === 'string' ? call.arguments.model : null,
       reasoningEffort: typeof call.arguments.reasoning_effort === 'string' ? call.arguments.reasoning_effort : null,
     },

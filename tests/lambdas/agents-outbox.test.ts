@@ -2,11 +2,12 @@ import { ChangeMessageVisibilityCommand, SendMessageCommand } from '@aws-sdk/cli
 import { marshall } from '@aws-sdk/util-dynamodb';
 import type { DynamoDBStreamEvent, SQSEvent } from 'aws-lambda';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { AgentsResourceConflictError } from '../../src/domain/agents-api-validation.js';
 
-const f = vi.hoisted(() => ({ send: vi.fn(), reconcile: vi.fn(), reconcilePreparation: vi.fn(), dispatch: vi.fn() }));
+const f = vi.hoisted(() => ({ send: vi.fn(), reconcile: vi.fn(), reconcilePreparation: vi.fn(), dispatch: vi.fn(), completeReadyTurns: vi.fn() }));
 vi.mock('../../src/adapters/aws-runtime.js', () => ({ createAwsClients: () => ({ sqs: { send: f.send } }) }));
 vi.mock('../../src/app/composition.js', () => ({
-  getAgentsApiServices: () => ({ tools: { reconcile: f.reconcile, reconcilePreparation: f.reconcilePreparation }, sessions: { dispatch: f.dispatch } }),
+  getAgentsApiServices: () => ({ tools: { reconcile: f.reconcile, reconcilePreparation: f.reconcilePreparation }, sessions: { dispatch: f.dispatch, completeReadyTurns: f.completeReadyTurns } }),
   getSessionIntegrationService: vi.fn(), getScheduleService: vi.fn(),
 }));
 const { handler } = await import('../../src/lambdas/agents-outbox.js');
@@ -14,6 +15,19 @@ const job = { type: 'tool_cleanup', ownerId: 'alice', id: 'attempt-1' };
 const queueEvent = { Records: [{ body: JSON.stringify(job), receiptHandle: 'receipt', messageId: 'message-1' }] } as SQSEvent;
 beforeEach(() => { vi.resetAllMocks(); vi.stubEnv('AGENTS_QUEUE_URL', 'https://sqs.example/agents'); });
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllEnvs(); });
+
+it('releases a Session FIFO promptly after a rejected write and acknowledges successful redelivery', async () => {
+  f.dispatch.mockRejectedValueOnce(new AgentsResourceConflictError()).mockResolvedValueOnce(undefined);
+  const event = { Records: [{ ...queueEvent.Records[0]!, body: JSON.stringify({ type: 'dispatch', ownerId: 'alice', id: 'session' }) }] } as SQSEvent;
+  expect(await handler(event)).toEqual({ batchItemFailures: [{ itemIdentifier: 'message-1' }] });
+  expect(f.completeReadyTurns).not.toHaveBeenCalled();
+  expect(f.send.mock.calls[0]![0]).toBeInstanceOf(ChangeMessageVisibilityCommand);
+  expect(f.send.mock.calls[0]![0].input).toEqual({ QueueUrl: 'https://sqs.example/agents', ReceiptHandle: 'receipt', VisibilityTimeout: 5 });
+  expect(await handler(event)).toEqual({ batchItemFailures: [] });
+  expect(f.dispatch).toHaveBeenCalledTimes(2);
+  expect(f.completeReadyTurns).toHaveBeenCalledOnce();
+  expect(f.send).toHaveBeenCalledOnce();
+});
 
 describe('credential cleanup outbox delivery', () => {
   it('queues a durable attempt from its index without including credential payloads', async () => {

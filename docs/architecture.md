@@ -87,9 +87,14 @@ bounded summaries. Complete definitions, input, runtime snapshots and file conte
 live in encrypted S3. Secret values live in Secrets Manager; stored records contain
 references. The [durability guide](conversations.md) explains Session recovery.
 
-Optional S3 Files storage preserves the workspace and Codex home across replacement
-MicroVMs. Its directory key hashes the owner and Session ID together. Native thread
-identity comes from the Session runtime journal. The filesystem's historical
+Optional S3 Files storage preserves native Codex journals across replacement workers.
+SQLite databases use a worker-local bind mount so concurrent agents do not share
+database locks through the network filesystem. A replacement worker rebuilds those
+databases while resuming the durable native thread.
+Hosted sandbox replacement clears the old workspace and reapplies declared inputs;
+conversation recovery uses the native checkpoint or saved Items. Its directory key
+hashes the owner and Session ID together. Native thread identity comes from the
+Session runtime journal. The filesystem's historical
 Terraform resource names and `/conversations` access-point root stay unchanged so
 existing Session state remains reachable; they do not imply a second coordination
 service.

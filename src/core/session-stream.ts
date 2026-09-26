@@ -7,6 +7,7 @@ export interface SessionStreamSnapshot {
   session: AgentSession; turns: Turn[]; items: AgentSessionItem[];
   failures?: Array<{ id: string; code: string; message: string }>;
   environment?: AgentSessionEnvironmentState;
+  environmentResetCount?: number;
   subagents?: Subagent[];
 }
 type WithoutId<T> = T extends AgentSessionEvent ? Omit<T, 'event_id'> : never;
@@ -20,6 +21,10 @@ export function planSessionStream(previous: SessionStreamSnapshot | undefined, c
     if (!(previous?.failures ?? []).some((old) => old.id === failure.id)) events.push({ type: 'error', session_id, error: { code: failure.code, message: failure.message, type: 'invalid_request_error', param: null } });
   }
   if (created) events.push({ type: 'agent.session.created', session: current.session });
+  if (current.environment?.type === 'openai_hosted' && (current.environmentResetCount ?? 0) > (previous?.environmentResetCount ?? 0)) events.push({
+    type: 'agent.session.environment.reset', session_id, environment_id: current.environment.id, reset_count: current.environmentResetCount!,
+    turn_id: current.turns.find(turn => !['completed', 'cancelled', 'failed'].includes(turn.status))?.id ?? null,
+  });
   for (const subagent of current.subagents ?? []) {
     const old = previous?.subagents?.find((candidate) => candidate.id === subagent.id);
     if (!old) events.push({ type: 'agent.session.subagent.created', subagent });

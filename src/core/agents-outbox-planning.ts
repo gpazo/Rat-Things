@@ -1,7 +1,10 @@
+import { AgentsResourceConflictError } from '../domain/agents-api-validation.js';
+
 export type AgentsJob = { ownerId: string; id: string; type: 'dispatch' | 'environment' | 'snapshot' | 'integration' | 'schedule' | 'delivery' | 'webhook_batch' | 'webhook_delivery' | 'tool_cleanup' | 'preparation_cleanup' } | { ownerId: string; id: string; type: 'complete'; turnId: string };
 
-/** Cold workers and disconnected environments are expected admission delays. */
+/** Expected admission delays and rejected writes must not block the FIFO for minutes. */
 export function agentsJobRetrySeconds(error: { status: number; code?: string | null }): number | undefined {
+  if (error instanceof AgentsResourceConflictError) return 5;
   return error.status === 503 && ['environment_unavailable', 'service_unavailable'].includes(error.code ?? '') ? 5 : undefined;
 }
 

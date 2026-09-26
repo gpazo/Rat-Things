@@ -21,12 +21,12 @@ beforeEach(() => {
 });
 afterAll(() => { vi.unstubAllEnvs(); vi.unstubAllGlobals(); });
 
-async function request(path: string, authenticated = true) {
+async function request(path: string, authenticated = true, body = '{}') {
   const stream = new PassThrough();
   const chunks: Buffer[] = [];
   stream.on('data', (chunk: Buffer) => { chunks.push(chunk); });
   await invoke({ rawPath: path, headers: { 'content-type': 'application/json', 'x-runtime-owner': 'chosen-owner' },
-    body: '{"ownerId":"chosen-owner"}', requestContext: { http: { method: 'POST' },
+    body, requestContext: { http: { method: 'POST' },
       ...(authenticated ? { authorizer: { iam: { userArn: 'arn:aws:iam::123456789012:user/operator' } } } : {}) },
   }, stream, { awsRequestId: 'request-1', getRemainingTimeInMillis: () => 10_000 });
   return { ...fixture.metadata, body: JSON.parse(Buffer.concat(chunks).toString()) };
@@ -37,8 +37,14 @@ describe('isolated IAM token issuer', () => {
     const response = await request('/v1/auth/tokens');
     expect(response.statusCode).toBe(200);
     expect(response.headers?.['cache-control']).toBe('no-store');
-    expect(fixture.issue).toHaveBeenCalledExactlyOnceWith('api:arn:aws:iam::123456789012:user/operator', 'https://api.example/v1');
+    expect(fixture.issue).toHaveBeenCalledExactlyOnceWith('api:arn:aws:iam::123456789012:user/operator', 'https://api.example/v1', {});
     expect(fixture.services).not.toHaveBeenCalled();
+  });
+  it('passes requested scopes and rejects malformed JSON before issuance', async () => {
+    expect((await request('/v1/auth/tokens', true, '{')).statusCode).toBe(400);
+    expect(fixture.issue).not.toHaveBeenCalled();
+    expect((await request('/v1/auth/tokens', true, '{"scopes":[]}')).statusCode).toBe(200);
+    expect(fixture.issue).toHaveBeenCalledExactlyOnceWith('api:arn:aws:iam::123456789012:user/operator', 'https://api.example/v1', { scopes: [] });
   });
   it('requires authenticated identity and refuses resource mutations on the issuer', async () => {
     expect((await request('/v1/auth/tokens', false)).statusCode).toBe(401);

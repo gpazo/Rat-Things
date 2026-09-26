@@ -6,6 +6,7 @@ import type {
 import type { AgentDriverControl } from './agent-driver.js';
 import { canonicalJson } from '../domain/json.js';
 import { parseAgentsContract } from '../domain/agents-api-validation.js';
+import { parseSessionModelSettings } from '../domain/session-execution.js';
 
 const CHANNEL = 'rat-things-agent-control';
 
@@ -79,7 +80,7 @@ export function createRunnerControlBridge(runId: string): RunnerControlBridge | 
             const parsed = parseAgentsContract('SessionEvents', { events: [{ type: 'agent.session.input.message', input: value.input }] });
             const input = parsed.events[0];
             if (input?.type !== 'agent.session.input.message') throw new Error('Invalid session input');
-            result = controller.startSessionTurn(turn, input.input);
+            result = controller.startSessionTurn(turn, input.input, value.settings === undefined ? undefined : parseSessionModelSettings(value.settings));
             break;
           }
           case 'steer':

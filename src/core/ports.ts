@@ -61,7 +61,7 @@ export interface ExecutionController {
 
 export interface AgentInteractionController {
   environmentFiles?(target: AgentInteractionTarget, operation: import('./environment-file-ports.js').EnvironmentFileOperation): Promise<unknown>;
-  startSessionTurn?(target: AgentInteractionTarget, turn: import('../domain/agents-api.js').Turn, input: AgentSessionInputMessageParam[]): Promise<void>;
+  startSessionTurn?(target: AgentInteractionTarget, turn: import('../domain/agents-api.js').Turn, input: AgentSessionInputMessageParam[], settings?: import('../domain/session-execution.js').SessionModelSettings): Promise<void>;
   events(target: AgentInteractionTarget, after?: number, limit?: number): Promise<AgentRuntimeSnapshot>;
   steer(target: AgentInteractionTarget & { turnId: string }, prompt: string, operationId?: string, input?: AgentSessionInputMessageParam[]): Promise<void>;
   interrupt(target: AgentInteractionTarget & { turnId: string }): Promise<void>;

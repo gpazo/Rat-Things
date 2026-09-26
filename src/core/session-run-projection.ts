@@ -2,6 +2,7 @@ import type { AgentFunctionCallStatus, AgentSessionItem, AgentSessionMessageCont
 import type { RunRecord } from '../domain/contracts.js';
 import type { AgentRuntimeSnapshot } from '../domain/interaction.js';
 import type { SessionTurnObservation } from './session-ports.js';
+import { sessionTurnError } from '../domain/session-errors.js';
 
 /** Public lifecycle is independent of private dispatch states. */
 export function projectSessionTurn(turn: Turn, run: RunRecord, snapshot?: AgentRuntimeSnapshot): SessionTurnObservation {
@@ -16,7 +17,7 @@ export function projectSessionTurn(turn: Turn, run: RunRecord, snapshot?: AgentR
       ...turn, status,
       started_at: run.execution?.startedAt ? seconds(run.execution.startedAt) : turn.started_at,
       completed_at: ['completed', 'failed', 'cancelled'].includes(status) ? seconds(run.updatedAt) : null,
-      error: run.error ? { code: 'internal_error', message: 'The agent could not complete this turn.' } : null,
+      error: run.error ? sessionTurnError(run.error) : null,
       usage: usage ? { input_tokens: usage.inputTokens ?? 0, output_tokens: usage.outputTokens ?? 0, total_tokens: (usage.inputTokens ?? 0) + (usage.outputTokens ?? 0), input_tokens_details: { cached_tokens: usage.cachedInputTokens ?? 0 }, output_tokens_details: { reasoning_tokens: usage.reasoningOutputTokens ?? 0 } } : null,
     },
     requiredActions,
@@ -87,7 +88,9 @@ export function projectSessionItems(turnId: string, events: unknown[], fallbackT
       const sender = typeof item.senderThreadId === 'string' ? options.agentIds?.[item.senderThreadId] ?? item.senderThreadId : '';
       const receivers = strings(item.receiverThreadIds).map((id) => options.agentIds?.[id] ?? id);
       const common = { id, turn_id: turnId, status: callStatus(item.status, done) };
-      const content = typeof item.prompt === 'string' ? [{ type: 'output_text' as const, text: item.prompt }] : [];
+      const content = typeof item.prompt !== 'string' ? [] : item.promptEncrypted === true
+        ? [{ type: 'encrypted_content' as const, encrypted_content: item.prompt }]
+        : [{ type: 'output_text' as const, text: item.prompt }];
       if (item.tool === 'spawnAgent') items.set(id, { ...common, type: 'create_subagent_call', agent_id: sender, content, model: stringOrNull(item.model), reasoning_effort: stringOrNull(item.reasoningEffort) });
       if (item.tool === 'wait') items.set(id, { ...common, type: 'wait_for_subagents_call', sender_agent_id: sender, recipient_agent_ids: receivers });
       if (['sendInput', 'sendMessage', 'followupTask'].includes(String(item.tool)) && receivers[0]) items.set(id, { ...common, type: 'send_subagent_input_call', sender_agent_id: sender, recipient_agent_id: receivers[0], content });

@@ -1,3 +1,4 @@
+import { iamApiPrincipal } from '../../src/domain/api-permissions.js';
 import OpenAI from 'openai';
 import { describe, expect, it } from 'vitest';
 import { AgentService } from '../../src/core/agent-service.js';
@@ -20,7 +21,7 @@ function fixture() {
     fetch: async (url, options) => {
       const request = new Request(url, options);
       requests.push(request.clone());
-      return routeAgentRequest(request, ownerId, service, 'request-1');
+      return routeAgentRequest(request, iamApiPrincipal(ownerId), service, 'request-1');
     },
   });
   return { store, service, requests, alice: client('alice'), bob: client('bob') };
@@ -111,7 +112,7 @@ describe('OpenAI SDK Agents API conformance', () => {
     const { service, alice } = fixture();
     const send = (body: unknown) => routeAgentRequest(new Request('https://rat.invalid/v1/agents', {
       method: 'POST', body: JSON.stringify(body),
-    }), 'alice', service);
+    }), iamApiPrincipal('alice'), service);
     for (const body of [
       { version: '1', name: 'old', goal: 'old', trigger: { kind: 'manual' } },
       { model: 'model', ownerId: 'bob' },

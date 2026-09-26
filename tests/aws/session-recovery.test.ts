@@ -8,6 +8,9 @@ import { expect, it } from 'vitest';
 import { createAgentsClient } from '../../src/agents-client.js';
 import { deploymentWorkers } from '../../scripts/terminate-ec2-workers.mjs';
 import type { Turn } from '../../src/domain/agents-api.js';
+import type { StoredSessionRuntime } from '../../src/core/session-runtime-store.js';
+import { DynamoAgentsStore } from '../../src/adapters/dynamo-agents-store.js';
+import { S3ArtifactStore } from '../../src/adapters/aws-runtime.js';
 
 const live = process.env.AWS_E2E === 'true' ? it : it.skip;
 const recovery = process.env.AWS_E2E === 'true' && process.env.AWS_E2E_WORKER_RECOVERY === 'true' ? it : it.skip;
@@ -58,7 +61,11 @@ live('cancels a waiting native Turn, reconnects SSE and admits a follow-up', asy
   }
 }, timeoutMs * 3);
 
-recovery.each(['none', 'openai_hosted'] as const)('handles %s worker loss while retaining saved context and terminal environment rules', async (environmentType) => {
+recovery.each([
+  { environmentType: 'none', missingCheckpoint: false },
+  { environmentType: 'openai_hosted', missingCheckpoint: false },
+  { environmentType: 'openai_hosted', missingCheckpoint: true },
+] as const)('handles $environmentType worker loss with missing native checkpoint $missingCheckpoint', async ({ environmentType, missingCheckpoint }) => {
   if (process.env.AWS_E2E_ENABLE_EC2_WORKER !== 'true') throw new Error('Worker recovery requires the dedicated EC2 backend.');
   const client = liveClient();
   const region = required('AWS_REGION');
@@ -71,6 +78,7 @@ recovery.each(['none', 'openai_hosted'] as const)('handles %s worker loss while 
   const agent = await client.beta.agents.create({ model: required('AWS_E2E_CODEX_MODEL_ID'), tools: [], instructions: 'Follow each request exactly. Never recreate missing proof files or invent their contents.' });
   let sessionId: string | undefined;
   let stream: Awaited<ReturnType<typeof subscribe>> | undefined;
+  let journal: { ownerId: string; bucket: string; kmsKeyId?: string; value: StoredSessionRuntime } | undefined;
   const currentRun = async (id: string) => {
     let cursor: Record<string, unknown> | undefined;
     let row: Record<string, any> | undefined;
@@ -83,7 +91,8 @@ recovery.each(['none', 'openai_hosted'] as const)('handles %s worker loss while 
     } while (!row && cursor);
     if (!row) return undefined;
     const object = await s3.send(new GetObjectCommand({ Bucket: row.reference.bucket, Key: row.reference.key }));
-    const runtime = JSON.parse(await object.Body!.transformToString()) as { runId: string | null };
+    const runtime = JSON.parse(await object.Body!.transformToString()) as StoredSessionRuntime;
+    journal = { ownerId: row.ownerId, bucket: row.reference.bucket, ...(object.SSEKMSKeyId ? { kmsKeyId: object.SSEKMSKeyId } : {}), value: runtime };
     return runtime.runId ? (await db.send(new GetCommand({ TableName: `${deployment}-runs`, Key: { runId: runtime.runId }, ConsistentRead: true }))).Item : undefined;
   };
   try {
@@ -110,31 +119,55 @@ recovery.each(['none', 'openai_hosted'] as const)('handles %s worker loss while 
     await ec2.send(new TerminateInstancesCommand({ InstanceIds: [instanceId] }));
     console.log(`Terminated this fixture's worker ${instanceId}; waiting for reconciliation`);
     await eventually(async () => ['failed', 'cancelled', 'succeeded'].includes((await currentRun(session.id))?.status ?? ''));
+    let unavailableThread: string | undefined;
+    if (missingCheckpoint) {
+      // Wait until this exact worker cannot publish again, then point only this
+      // disposable Session at an absent native checkpoint. Native thread/resume
+      // must fail and the replacement must rebuild context from public history.
+      await eventually(async () => (await ec2.send(new DescribeInstancesCommand({ InstanceIds: [instanceId] }))).Reservations?.[0]?.Instances?.[0]?.State?.Name === 'terminated');
+      await currentRun(session.id);
+      if (!journal?.value.snapshot || journal.value.closed || journal.value.runId !== original!.runId || journal.ownerId !== original!.ownerId) throw new Error('Checkpoint injection lost its Session/Run fence');
+      const objects = new S3ArtifactStore(s3, journal.bucket, journal.kmsKeyId ? { algorithm: 'aws:kms', kmsKeyId: journal.kmsKeyId } : { algorithm: 'AES256' });
+      const store = new DynamoAgentsStore(db, `${deployment}-agents`, objects);
+      const current = await store.get<StoredSessionRuntime>(journal.ownerId, 'session_runtime', session.id);
+      if (!current?.value.snapshot || current.value.closed || current.value.runId !== original!.runId) throw new Error('Checkpoint injection was superseded');
+      unavailableThread = randomUUID();
+      await store.put({ ...current, revision: current.revision + 1, value: { ...current.value, snapshot: { ...current.value.snapshot, rootThreadId: unavailableThread } } }, current.revision);
+      console.log(`Forced an absent native checkpoint for disposable Session ${session.id}`);
+    }
     stream = await subscribe(client, session.id);
     expect((await client.beta.agents.sessions.turns.retrieve(first.id, { session_id: session.id })).status).toBe('completed');
     expect(JSON.stringify((await client.beta.agents.sessions.items.list(session.id, { order: 'asc', limit: 100 })).data)).toContain(marker);
     if (hosted) {
-      // Hosted expiry is terminal in the upstream contract; it must not silently
-      // recreate a sandbox. Saved artifacts remain available independently.
-      expect((await client.beta.agents.sessions.retrieve(session.id)).status).toBe('failed');
-      await expect(input(client, session.id, 'Continue.')).rejects.toMatchObject({ status: 409, code: 'conflict' });
+      expect((await client.beta.agents.sessions.retrieve(session.id)).status).toBe('idle');
       const artifact = (await client.beta.agents.sessions.artifacts.list(session.id)).data.find(value => value.path === '/workspace/outputs/recovery-proof.txt');
       expect(artifact).toBeDefined();
       expect(await (await client.beta.agents.sessions.artifacts.content(artifact!.id, { session_id: session.id })).text()).toBe(marker);
-      expect((await currentRun(session.id))?.runId).toBe(original!.runId);
-      console.log('Expired hosted environment rejects input and retains its saved artifact');
-      return;
     }
-    await input(client, session.id, 'Return exactly the context marker from our previous Turn. Do not invent a new marker.');
+    await input(client, session.id, hosted
+      ? 'Use Python to print WORKSPACE_RESET if /workspace/outputs/recovery-proof.txt is absent, otherwise print STALE_WORKSPACE. Do not create the file. Then return the context marker from our previous Turn. Do not invent a new marker.'
+      : 'Return exactly the context marker from our previous Turn. Do not invent a new marker.');
     const second = await completed(client, session.id, new Set([first.id]));
     await eventually(async () => stream!.terminals.has(second.id));
     const replacement = await currentRun(session.id);
     expect(replacement?.execution?.backend).toBe('ec2');
     expect(replacement?.execution?.id).not.toBe(instanceId);
     expect(replacement?.runId).not.toBe(original!.runId);
+    if (unavailableThread) {
+      expect(journal?.value.snapshot?.rootThreadId).toBeDefined();
+      expect(journal?.value.snapshot?.rootThreadId).not.toBe(unavailableThread);
+    }
     const items = (await client.beta.agents.sessions.items.list(session.id, { order: 'asc', limit: 100 })).data.filter(item => item.turn_id === second.id);
     expect(items).toEqual(expect.arrayContaining([expect.objectContaining({ type: 'message', role: 'assistant', status: 'completed' })]));
     expect(JSON.stringify(items)).toContain(marker);
+    if (hosted && session.environment.type === 'openai_hosted') {
+      await eventually(async () => stream!.resets.get(session.environment.type === 'openai_hosted' ? session.environment.id : '') === 1);
+      expect((await client.beta.agents.sessions.retrieve(session.id)).environment).toMatchObject({ id: session.environment.id });
+      const output = items.flatMap(item => item.type === 'command_execution' ? [item.output ?? ''] : []).join('\n');
+      expect(output).toContain('WORKSPACE_RESET');
+      expect(output).not.toContain('STALE_WORKSPACE');
+      expect((await client.beta.agents.environments.files.list(session.environment.id, { path: '/workspace/outputs' })).data.some(file => file.path === '/workspace/outputs/recovery-proof.txt')).toBe(false);
+    }
     console.log(`Replacement worker ${replacement!.execution.id} completed ${second.id}`);
   } finally {
     try { await stream?.close(); }
@@ -168,12 +201,16 @@ async function subscribe(client: Client, id: string) {
   const abort = new AbortController();
   const events = await client.beta.agents.sessions.events.stream(id, { signal: abort.signal });
   const terminals = new Map<string, string>();
+  const resets = new Map<string, number>();
   let failure: unknown;
   const consume = (async () => {
-    try { for await (const event of events) if (event.type === 'agent.session.turn.completed' || event.type === 'agent.session.turn.failed' || event.type === 'agent.session.turn.cancelled') terminals.set(event.turn.id, event.turn.status); }
+    try { for await (const event of events) {
+      if (event.type === 'agent.session.turn.completed' || event.type === 'agent.session.turn.failed' || event.type === 'agent.session.turn.cancelled') terminals.set(event.turn.id, event.turn.status);
+      if (event.type === 'agent.session.environment.reset') resets.set(event.environment_id, event.reset_count);
+    } }
     catch (error) { if (!abort.signal.aborted) failure = error; }
   })();
-  return { terminals, close: async () => { abort.abort(); await consume; if (failure) throw failure; } };
+  return { terminals, resets, close: async () => { abort.abort(); await consume; if (failure) throw failure; } };
 }
 async function eventually(condition: () => Promise<boolean>) {
   const deadline = Date.now() + timeoutMs;

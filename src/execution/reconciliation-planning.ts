@@ -13,6 +13,7 @@ export type ExecutionReconciliationOutcome =
   | 'failed'
   | 'cancelled'
   | 'stop-requested'
+  | 'heartbeat-expired'
   | 'deferred'
   | 'quarantined'
   | 'raced'
@@ -30,7 +31,7 @@ export type ReconciliationDecision =
   | LivenessDecision
   | { kind: 'cancel' }
   | { kind: 'stop'; reason: string }
-  | { kind: 'fail'; error: RunError };
+  | { kind: 'fail' | 'expire'; error: RunError };
 
 /** Capture the attachment and heartbeat used by conditional repair operations. */
 export function reconciliationTarget(run: RunRecord): ReconciliationTarget {
@@ -38,6 +39,7 @@ export function reconciliationTarget(run: RunRecord): ReconciliationTarget {
   if (!execution || execution.id === 'pending' || !execution.generation || !heartbeatAt) {
     return { kind: 'skip', outcome: 'legacy' };
   }
+  if (!Number.isFinite(Date.parse(heartbeatAt))) return { kind: 'skip', outcome: 'quarantined' };
   if (!['dispatching', 'running', 'cancelling'].includes(run.status)) return { kind: 'skip', outcome: 'raced' };
   // Quarantine forbids acting on uncertainty, not subsequent read-only probes.
   // A later verified termination must still settle a failed bootstrap or cancellation.
@@ -48,6 +50,7 @@ export function reconciliationTarget(run: RunRecord): ReconciliationTarget {
 export function reconciliationDecision(
   run: Pick<RunRecord, 'status' | 'liveness'>,
   inspection: ExecutionInspection,
+  heartbeatAgeMs = 0,
 ): ReconciliationDecision {
   if (inspection.kind === 'conflict' || inspection.kind === 'unknown') {
     const prior = run.liveness?.outcome === inspection.kind ? run.liveness.consecutiveUncertain : 0;
@@ -58,11 +61,14 @@ export function reconciliationDecision(
       ? { kind: 'cancel' }
       : { kind: 'stop', reason: 'reconciler finalized a stale cancellation' };
   }
+  if (inspection.kind === 'active' && heartbeatAgeMs >= 3_600_000) return {
+    kind: 'expire', error: { code: 'execution_lost', message: 'Worker keep-alives stopped for one hour', retryable: true },
+  };
   if (inspection.kind === 'active') return { kind: 'observe', outcome: 'active', consecutiveUncertain: 0 };
   return { kind: 'fail', error: { code: 'execution_lost', message: boundedReason(inspection.reason), retryable: true } };
 }
 
-/** Time is supplied only for an observation; stopping and finalization do not need a clock. */
+/** Observation timestamps are supplied by the effectful reconciler. */
 export function livenessObservation(
   decision: LivenessDecision,
   checkedAt: string,

@@ -136,6 +136,7 @@ describe('Codex app-server notifications', () => {
         environment: process.env,
         timeoutMs: 5_000,
         prompt: 'Run the integration test',
+        captureTraces: true,
         sandbox: 'workspace-write',
         persistent: false,
         modelProvider: 'openai',
@@ -177,6 +178,7 @@ describe('Codex app-server notifications', () => {
         });
       const thread = events.find((event) => event.method === 'test/threadParams')?.params;
       expect(thread).toMatchObject({
+        experimentalRawEvents: true,
         approvalPolicy: 'never',
         approvalsReviewer: 'user',
         sandbox: 'workspace-write',

@@ -52,7 +52,7 @@ describe('Codex launch planning', () => {
     expect(planCodexLaunch(request, '/workspace', 0, deployment).model).toBe('chat-default');
     const bedrock = planCodexLaunch(request, '/workspace', 0, { ...deployment, CODEX_AUTH_MODE: 'bedrock' });
     expect(bedrock).toMatchObject({ model: 'bedrock-default', modelProvider: 'amazon-bedrock' });
-    expect(bedrock).not.toHaveProperty('binaryArguments');
+    expect(bedrock.binaryArguments).toEqual(['-c', 'model_provider="amazon-bedrock"', 'app-server']);
     expect(planCodexLaunch({ ...request, agent: { model: 'chosen-model' } }, '/workspace', 0, deployment).model).toBe('chosen-model');
     expect(planCodexLaunch({ ...request, agent: { model: '' } }, '/workspace', 0, deployment)).not.toHaveProperty('model');
     expect(planCodexLaunch(request, '/workspace', 0, { DEFAULT_MODEL: 'bedrock-only' })).not.toHaveProperty('model');
@@ -120,7 +120,7 @@ describe('Codex launch planning', () => {
 describe('agent child environment', () => {
   it('copies only allowed values, preserving empty strings and excluding host credentials by default', () => {
     const allowed = {
-      PATH: '/bin', HOME: '/agent', CODEX_HOME: '/agent/codex', LANG: '', LC_ALL: 'C', TMPDIR: '/tmp',
+      PATH: '/bin', HOME: '/agent', CODEX_HOME: '/agent/codex', CODEX_SQLITE_HOME: '/agent/local-sqlite', LANG: '', LC_ALL: 'C', TMPDIR: '/tmp',
       AWS_REGION: 'us-west-2', AWS_DEFAULT_REGION: 'us-east-1', AWS_EC2_METADATA_DISABLED: 'true',
       AWS_STS_REGIONAL_ENDPOINTS: 'regional',
     };

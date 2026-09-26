@@ -1,3 +1,4 @@
+import { canonicalModelName } from './session-model-validation.js';
 import type {
   Agent, AgentCreateParams, AgentUpdateParams, PersistedAgentTool,
   PersistedAgentToolParam,
@@ -72,8 +73,8 @@ function exceedsCharacterLimit(value: string, maximum: number): boolean {
 }
 
 /** Resolve known defaults from the same pinned model catalogue as the harness. */
-function modelReasoningDefault(model: string): Agent['reasoning']['effort'] {
-  const effort = (nativeModelDefaults.defaults as Record<string, unknown>)[model];
+export function modelReasoningDefault(model: string): Agent['reasoning']['effort'] {
+  const effort = (nativeModelDefaults.defaults as Record<string, unknown>)[canonicalModelName(model)];
   switch (effort) {
     case 'none': case 'minimal': case 'low': case 'medium': case 'high': case 'xhigh': case 'max': return effort;
     default: return null;

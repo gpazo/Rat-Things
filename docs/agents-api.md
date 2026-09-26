@@ -11,6 +11,85 @@ installed routes and pinned SDK types. This implementation is an engineering
 preview; matching resource types does not establish complete behavioral parity
 with OpenAI's hosted service.
 
+## Export traces to your own tools
+
+Rat Things captures structural trace information in its encrypted AWS storage.
+No collector is required. Read a page with
+`GET /v1/agents/sessions/{session_id}/traces?limit=20&order=asc`; when `has_more`
+is true, pass `last_id` as `after` for the next page. The response contains
+`data[].otlp.resourceSpans`. Access follows the Session's owner, and deleting
+the Session makes its traces inaccessible through the API.
+
+The CLI can combine all available pages into an OTLP JSON payload:
+
+```bash
+rat-things sessions traces sess_123 --output traces.otlp.json
+```
+
+To capture a run entirely on your computer, without AWS or a collector:
+
+```bash
+rat-things local --trace-output traces.otlp.json "Explain this repository"
+```
+
+Send the resulting file to your own collector's OTLP/HTTP receiver, for example
+one listening locally:
+
+```bash
+curl --fail-with-body http://localhost:4318/v1/traces \
+  -H 'Content-Type: application/json' --data-binary @traces.otlp.json
+```
+
+Configure authentication yourself when sending to a remote collector. Rat Things
+does not store collector credentials or automatically forward telemetry.
+
+Traces become available after a root Turn ends; later child completion or usage
+can add information. Export again after the Session finishes to obtain that
+information. Repeated exports preserve trace and span IDs. Captured timing,
+outcomes, hierarchy and available token counts are included; prompts, tool
+arguments/results, credentials and reasoning content are excluded. Where the
+harness reports only a completion, the span has zero duration and a
+`rat_things.timing=completion_only` attribute. Older runs have no retrospectively
+captured tool or generation spans. Local mock runs have an agent span only.
+
+## Scoped API keys
+
+AWS IAM authenticates token issuance; Rat Things keeps its own owner identity.
+OpenAI organization/project key administration is outside this contract.
+Pass `scopes` to `createAgentsClient` to request a narrowed bearer grant:
+
+```ts
+const client = createAgentsClient({
+  baseURL: process.env.RAT_THINGS_AGENTS_API_URL!,
+  region: process.env.AWS_REGION!,
+  scopes: ['api.agents.read', 'api.traces.read'],
+});
+```
+
+Omitting `scopes` grants all supported operations; `[]` grants none. The IAM-only
+`POST /v1/auth/tokens` endpoint accepts the same optional `scopes` array, returns
+the granted scopes, and stores them with the token digest, owner, audience and
+15-minute expiry. An existing bearer token cannot issue or widen a grant.
+Explicitly scoped clients reject an issuer that omits scopes or returns broader
+authority. Direct IAM API calls retain their IAM-authenticated owner's full API
+authority; narrowed clients must use the bearer endpoint.
+
+| Scope | Authority |
+| --- | --- |
+| `api.agents.read` | Read Agents, Sessions, history, environments and traces |
+| `api.agents.write` | Create, update and delete those resources; cancel Turns |
+| `api.responses.write` | Additionally required for initial input, messages and function results that can trigger inference |
+| `api.vaults.read` | Read Vaults and credential metadata |
+| `api.vaults.write` | Create, rotate and delete Vault credentials |
+| `api.traces.read` | Read Session traces without general Agents read access |
+
+Write authority does not imply read authority. Owner isolation applies to every
+grant. Session creation without input needs only Agents write authority; any
+batch containing a message or function result also requires inference authority
+before any event is applied. As a Rat Things extension, Files, Skills and webhook
+administration use the corresponding Agents read/write scope. These mappings do
+not reproduce OpenAI account administration.
+
 ## Connect
 
 Use the Terraform `agents_api_base_url` output as the SDK base URL. Configure the
@@ -62,7 +141,7 @@ uploads and long-lived event streams.
 | Item | Saved messages, public reasoning summaries, tool calls and results |
 | Environment template | Reusable packages, input files, skills, plugins and setup |
 | Environment | The session's connected command and filesystem context |
-| Vault | Owned, write-only credentials for configured MCP destinations |
+| Vault | Owned, write-only credentials for MCP or sandbox HTTPS destinations |
 | File / Skill | Uploaded content and versioned capabilities for environment setup |
 | Artifact | An immutable copy of a managed environment output |
 
@@ -71,9 +150,55 @@ Later Agent edits do not change an existing Session. Supplied objects and arrays
 replace the corresponding saved fields. The requested model identifier is passed
 to the configured provider without silently choosing another model.
 
+Session model updates validate the resolved reasoning effort against the
+installed API capability catalogue before saving. Service tiers use the API
+enum and are passed through to the provider; interactive Codex menu entries
+do not determine API tier availability. The provider enforces tier entitlement
+and capacity. Reset incompatible
+settings in the same request when changing models. `openai.` provider aliases
+use the corresponding model's capabilities without rewriting the requested
+identifier. Uncatalogued models cannot be selected through a Session update;
+operators must review the catalogue when adding model support. This check does
+not grant provider access or guarantee available capacity.
+
+The installed reasoning matrix is:
+
+| Model | Accepted explicit reasoning efforts |
+| --- | --- |
+| `gpt-6-astra` | `low`, `medium`, `high`, `xhigh`, `max`, `ultra` |
+| `gpt-5.6-sol` | `low`, `medium`, `high`, `xhigh`, `max`, `ultra` |
+| `gpt-5.6-terra` | `low`, `medium`, `high`, `xhigh`, `max`, `ultra` |
+| `gpt-5.6-luna` | `low`, `medium`, `high`, `xhigh`, `max` |
+| `gpt-daybreak-blue-latest` | `low`, `medium`, `high`, `xhigh`, `max`, `ultra` |
+| `gpt-daybreak-red-latest` | `low`, `medium`, `high`, `xhigh`, `max`, `ultra` |
+| `gpt-5.5` | `low`, `medium`, `high`, `xhigh` |
+| `gpt-5.4` | `none`, `low`, `medium`, `high`, `xhigh` |
+| `gpt-5.4-mini` | `none`, `low`, `medium`, `high`, `xhigh` |
+| `gpt-5.2` | `none`, `low`, `medium`, `high`, `xhigh` |
+| `codex-auto-review` | `low`, `medium`, `high`, `xhigh`, `max` |
+| `gpt-5.4-mini-2026-03-17` | `none`, `low`, `medium`, `high`, `xhigh` |
+
+The registry is maintained in `runtime/codex/model-capabilities.json`. The
+GPT-5.4 Mini API supports `none` and its dated snapshot, as documented in the
+[model reference](https://developers.openai.com/api/docs/models/gpt-5.4-mini).
+This is the Session-update support set. Initial Agent definitions may name a
+provider-specific model; that does not promise later model-setting updates or
+provider access. Adding a model requires explicit capability review.
+
 Input sent to an idle Session starts a Turn. Input sent while the coordinator is
 working steers that Turn. Canceling a Turn preserves the Session. A failed or
 expired environment is terminal for that environment; create another Session.
+Workers send durable keep-alives while the Session harness is connected, including
+between Turns. Closing a stream or completing a Turn does not start an expiry
+timer. After one hour without a durable worker keep-alive, reconciliation fails
+the exact stale execution and stops its verified worker. A concurrent keep-alive
+or replacement prevents that stop; uncertain worker identity remains quarantined
+until it can be verified. Earlier verified worker loss may be retired sooner.
+Unexpected worker loss can replace a hosted sandbox on the next Turn. The
+environment ID and conversation remain stable, declared inputs are prepared
+again, and previous sandbox files and processes are lost. The
+`agent.session.environment.reset` event carries a monotonically increasing
+`reset_count`; duplicate notifications for one replacement share that count.
 Cancellation does not replace a Turn's completed or failed outcome. For work
 already admitted to the harness, inspect the Turn until its outcome is terminal.
 Deleting a Session closes its execution authority even if its first harness has

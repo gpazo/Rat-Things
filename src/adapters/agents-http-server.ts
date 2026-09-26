@@ -1,3 +1,4 @@
+import type { ApiPrincipal } from '../domain/api-permissions.js';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { Readable, Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
@@ -7,8 +8,8 @@ import { AgentsApiError } from '../domain/agents-api-validation.js';
 /** A streaming HTTP transport avoids Lambda's request-size and invocation-duration limits. */
 export function createAgentsHttpServer(options: {
   baseURL: string; issuerURL: string;
-  authenticate(authorization: string | null): Promise<string>;
-  route(request: Request, ownerId: string, requestId: string): Promise<Response>;
+  authenticate(authorization: string | null): Promise<ApiPrincipal>;
+  route(request: Request, principal: ApiPrincipal, requestId: string): Promise<Response>;
   error(error: unknown, requestId: string): Response;
 }) {
   const origin = new URL(options.baseURL).origin;

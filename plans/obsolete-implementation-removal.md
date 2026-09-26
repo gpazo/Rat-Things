@@ -426,3 +426,21 @@ already scheduled for deletion. The new preparation deadline/fence closes
 abandoned inline credential adoption. Neither that scoped inventory nor a
 route-string scan constitutes exhaustive provider, runtime or functional-design
 acceptance. Current candidate results are recorded in the compatibility audit.
+
+
+## September 24 disposition update
+
+The [current caller/grant audit](obsolete-caller-audit-2026-09-14.md) records the
+reviewed and deployed control-policy removals and the explicit reasons retained
+private helpers and grants still have consumers. The storage acceptance report
+now records passing scheduler, credential, webhook, MCP, multi-agent and recovery
+canaries for specific candidates; earlier pending-test statements above are
+historical. Provider configuration follow-up remains open in the conformance
+ledger.
+
+Keep a separate cycle for native build-size optimization, old deployment data and
+binding disposition, unused fixture inventory after its replacement scenarios
+are covered, and remaining historical demo-media review. Existing Terraform
+resource names such as `thing-schedule` still identify the canonical schedule
+consumer and its failure queue; a name alone is not dead-code evidence. Do not
+remove those resources or rename their state addresses as incidental cleanup.

@@ -9,6 +9,9 @@ import { CodexRpcClient } from '../adapters/codex-rpc.js';
 import type { CodexLaunchPlan } from './agent-planning.js';
 import { runProcess } from './process.js';
 import { hostedCodexArguments, hostedProcessEnvironment } from './hosted-environment-planning.js';
+import type { SessionEnvironmentCredentialsRuntime } from './session-environment-credentials.js';
+import type { ManagedSandboxGeneration } from '../core/managed-environment-planning.js';
+import { resetPersistentWorkspace } from './workspace.js';
 
 /** Map a private persistent directory to the standard workspace path before guest code starts. */
 export async function bindHostedWorkspace(workspace: string, visible = '/workspace'): Promise<void> {
@@ -26,9 +29,11 @@ export async function prepareHostedEnvironment(options: {
   launch: SessionLaunch; workspace: string; plan: CodexLaunchPlan;
   artifacts: Pick<ArtifactStore, 'getBytes'>; signal?: AbortSignal;
   stateDirectory: string; previouslyPrepared?: boolean;
-}): Promise<SessionLaunch> {
+  credentials?: SessionEnvironmentCredentialsRuntime;
+  afterWorkspaceReset?: () => Promise<void>;
+}): Promise<{ launch: SessionLaunch; sandbox?: ManagedSandboxGeneration }> {
   const { launch, workspace, plan, artifacts, signal } = options;
-  if (launch.environment.type !== 'openai_hosted' || !launch.hostedConfiguration) return launch;
+  if (launch.environment.type !== 'openai_hosted' || !launch.hostedConfiguration) return { launch };
   const configuration = launch.hostedConfiguration;
   const roots = [...launch.environment.capability_directories];
   const inline = [
@@ -52,10 +57,18 @@ export async function prepareHostedEnvironment(options: {
   const digest = createHash('sha256').update(JSON.stringify({ configuration, files: launch.hostedFiles, skills: launch.hostedSkills })).digest('hex');
   const markerState = await lstat(marker).catch((error: NodeJS.ErrnoException) => { if (error.code === 'ENOENT') return undefined; throw error; });
   if (markerState && (!markerState.isFile() || markerState.isSymbolicLink() || markerState.uid !== stateDirectory.uid || (markerState.mode & 0o077) !== 0 || markerState.nlink !== 1)) throw new Error('Managed setup state is invalid');
-  const previous = markerState ? await readFile(marker, 'utf8') : undefined;
-  if (previous === digest) return result;
-  if (!markerState && options.previouslyPrepared) throw new Error('The managed sandbox was lost; create a new session');
+  const previous = markerState ? hostedSetupMarker(await readFile(marker, 'utf8')) : undefined;
+  if (previous?.digest === digest) return { launch: result, sandbox: previous.sandbox };
   if (previous !== undefined) throw new Error('A managed environment cannot change its setup configuration');
+  const sandbox: ManagedSandboxGeneration = { id: randomUUID(), replaced: options.previouslyPrepared ?? false };
+  if (sandbox.replaced) {
+    const directory = await lstat(workspace);
+    if (!directory.isDirectory() || directory.isSymbolicLink()) throw new Error('Managed workspace is invalid');
+    // Keep the directory inode so /workspace's bind mount stays valid. Old
+    // files in durable storage are not a checkpoint for a replaced sandbox.
+    await resetPersistentWorkspace(workspace, true);
+    await options.afterWorkspaceReset?.();
+  }
   const system = configuration.packages?.system ?? [];
   if (system.some((name) => !/^[A-Za-z0-9][A-Za-z0-9+._:=-]*$/.test(name) || name.endsWith('.rpm'))) throw new Error('System packages must be signed repository package names');
   if (system.length) {
@@ -77,22 +90,34 @@ export async function prepareHostedEnvironment(options: {
   ].map((command) => ({ command, cwd: '/workspace' }));
   commands.push(...(configuration.setup_commands ?? []).map((setup) => ({ command: ['bash', '-c', setup.command], cwd: setup.cwd ?? '/workspace' })));
   if (commands.length) {
-    const rpc = new CodexRpcClient({ binary: plan.binary, binaryArguments: hostedCodexArguments(plan.binaryArguments, launch.environment.network), cwd: workspace,
-      environment: { PATH: plan.environment.PATH, HOME: plan.environment.HOME, CODEX_HOME: plan.environment.CODEX_HOME, CODEX_API_KEY: 'setup-without-inference' },
+    const rpc = new CodexRpcClient({ binary: plan.binary, binaryArguments: hostedCodexArguments(plan.binaryArguments, launch.environment.network, Boolean(options.credentials)), cwd: workspace,
+      environment: { PATH: plan.environment.PATH, HOME: plan.environment.HOME, CODEX_HOME: plan.environment.CODEX_HOME, CODEX_API_KEY: 'setup-without-inference', ...options.credentials?.processEnvironment },
       ...(plan.identity ? { identity: plan.identity } : {}), ...(signal ? { signal } : {}),
     });
     try {
       await rpc.initialize();
       for (const [index, command] of commands.entries()) {
-        const execution = await rpc.call('command/exec', { ...command, env: hostedProcessEnvironment(configuration.env ?? {}, plan.environment.PATH),
+        const execution = await rpc.call('command/exec', { ...command, env: { ...hostedProcessEnvironment(configuration.env ?? {}, plan.environment.PATH), ...options.credentials?.shellEnvironment },
           permissionProfile: 'rat_managed', timeoutMs: 600_000, outputBytesCap: 64 * 1024,
         }, 610_000);
         if (typeof execution !== 'object' || execution === null || !('exitCode' in execution) || execution.exitCode !== 0) throw new Error(`Environment setup command ${index + 1} failed`);
       }
     } finally { await rpc.close(); }
   }
-  await writeFile(marker, digest, { flag: 'wx', mode: 0o600 });
-  return result;
+  await writeFile(marker, JSON.stringify({ digest, sandbox }), { flag: 'wx', mode: 0o600 });
+  return { launch: result, sandbox };
+}
+
+function hostedSetupMarker(text: string): { digest: string; sandbox: ManagedSandboxGeneration } {
+  // Existing private markers predate generation IDs. Their stable identifier
+  // permits an in-place upgrade without inventing a sandbox replacement.
+  if (/^[a-f0-9]{64}$/.test(text)) return { digest: text, sandbox: { id: `legacy-${text}`, replaced: false } };
+  const value: unknown = JSON.parse(text);
+  if (typeof value !== 'object' || value === null || !('digest' in value) || typeof value.digest !== 'string'
+    || !('sandbox' in value) || typeof value.sandbox !== 'object' || value.sandbox === null
+    || !('id' in value.sandbox) || typeof value.sandbox.id !== 'string' || !/^[a-f0-9-]{36}$/.test(value.sandbox.id)
+    || !('replaced' in value.sandbox) || typeof value.sandbox.replaced !== 'boolean') throw new Error('Managed setup state is invalid');
+  return { digest: value.digest, sandbox: { id: value.sandbox.id, replaced: value.sandbox.replaced } };
 }
 
 async function directory(root: string, path: string, identity?: { uid: number; gid: number }) {

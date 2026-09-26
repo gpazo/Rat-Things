@@ -30,5 +30,6 @@ export function savedSessionObservation(state: SessionState, runtime: StoredSess
     subagents: subagents.map((entry) => entry.subagent),
     failures: Object.entries(state.receipts).flatMap(([id, receipt]) => receipt.failure ? [{ id, ...receipt.failure }] : []),
     ...(environmentState ? { environment: environmentState } : {}),
+    ...(environment?.environment.type === 'openai_hosted' ? { environmentResetCount: environment.resetCount ?? 0 } : {}),
   };
 }

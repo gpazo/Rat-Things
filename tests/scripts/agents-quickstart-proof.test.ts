@@ -1,3 +1,4 @@
+import { iamApiPrincipal } from '../../src/domain/api-permissions.js';
 import OpenAI from 'openai';
 import { describe, expect, it, vi } from 'vitest';
 import { quickstartAgent, quickstartTurnEvidence, runQuickstartProof } from '../../scripts/agents-quickstart-proof.js';
@@ -20,7 +21,7 @@ async function fixture(wrongOutput = false) {
   const client = new OpenAI({ apiKey: 'fixture', baseURL: 'https://fixture.invalid/v1', maxRetries: 0, fetch: (input, init) => {
     const request = new Request(input, init);
     requests.push(`${request.method} ${new URL(request.url).pathname}`);
-    return routeAgentsRequest(request, 'operator', { agents, sessions: f.sessions });
+    return routeAgentsRequest(request, iamApiPrincipal('operator'), { agents, sessions: f.sessions });
   } });
   let time = 0;
   const wait = async () => {

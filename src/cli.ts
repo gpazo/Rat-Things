@@ -1,7 +1,10 @@
 #!/usr/bin/env node
+import { randomUUID } from 'node:crypto';
+import { localTraceExport, recordLocalTrace } from './core/local-trace-planning.js';
+import type { SessionRuntimeState } from './core/session-runtime-planning.js';
 import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -108,6 +111,7 @@ const valueOptions = new Set([
   'repo',
   'sandbox',
   'timeout',
+  'trace-output',
   'web-search',
   'workspace',
 ]);
@@ -207,7 +211,7 @@ async function local(args: Arguments): Promise<void> {
     values: [
       'base-ref', 'codex-auth', 'connection-set', 'credential-secret-arn', 'driver', 'file', 'model',
       'personality', 'profile', 'prompt', 'provider', 'reasoning-effort', 'reasoning-summary',
-      'ref', 'repo', 'sandbox', 'timeout', 'web-search', 'workspace',
+      'ref', 'repo', 'sandbox', 'timeout', 'trace-output', 'web-search', 'workspace',
     ],
     multiple: ['allow-operation', 'app', 'connection', 'deny-operation', 'mcp', 'skill'],
   });
@@ -264,7 +268,24 @@ async function local(args: Arguments): Promise<void> {
     ) {
       loadedBedrockToken = await loadCodexBedrockToken(credentials);
     }
-    const result = await driverFor(driverName).execute(request, workspace, timeout);
+    const tracePath = args.values.get('trace-output');
+    const traceSessionId = `local_${randomUUID()}`;
+    const traceStart = Date.now() / 1000;
+    let traceState: SessionRuntimeState | undefined;
+    let traceOutcome: 'completed' | 'failed' | 'interrupted' = 'failed';
+    const execute = async () => {
+      try {
+        const result = await driverFor(driverName).execute(request, workspace, timeout, undefined, tracePath ? {
+          captureTraces: true,
+          onEvent: event => { traceState = recordLocalTrace(traceState, traceSessionId, { ...event, observedAt: Date.now() / 1000 }); },
+        } : undefined);
+        traceOutcome = result.outcome ?? (result.exitCode === 0 ? 'completed' : 'failed');
+        return result;
+      } finally {
+        if (tracePath) await writeFile(tracePath, JSON.stringify(localTraceExport(traceState, traceSessionId, request.agent?.model, traceStart, Date.now() / 1000, traceOutcome), null, 2) + '\n', { mode: 0o600 });
+      }
+    };
+    const result = await execute();
     process.stdout.write(`${terminalText(result.fullText)}\n`);
     if (driverName === 'codex') {
       const paths = await localArtifactPaths(workspace);
@@ -1236,7 +1257,7 @@ function help(showAll: boolean): void {
   process.stdout.write('  rat-things publications create --session SESSION_ID --file REQUEST.json\n');
   process.stdout.write('  rat-things schedules list|get|create|update|delete|pause|resume [ID] [--file REQUEST.json]\n');
   process.stdout.write('  rat-things console\n  rat-things doctor\n');
-  process.stdout.write('  rat-things local [--driver codex|mock] [--model MODEL] "Work on this computer"\n');
+  process.stdout.write('  rat-things local [--driver codex|mock] [--model MODEL] "Work on this computer" [--trace-output trace.otlp.json]\n');
   process.stdout.write('\nUnqualified prompts run locally. Use sessions for durable work in AWS.\n');
   process.stdout.write('Set RAT_THINGS_AGENTS_API_URL for standard resources; RAT_THINGS_API_URL for publications, schedules, and connections.\n');
   if (!showAll) return;

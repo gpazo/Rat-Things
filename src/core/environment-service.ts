@@ -11,6 +11,7 @@ import { publicTemplate, type HostedEnvironmentConfiguration } from '../domain/e
 import type { FileService } from './file-service.js';
 import type { SkillService } from './skill-service.js';
 import type { SessionLaunch } from '../domain/session-execution.js';
+import { planManagedReadiness, type ManagedSandboxGeneration } from './managed-environment-planning.js';
 
 export interface StoredEnvironment {
   environment: Exclude<Environment, { type: 'none' }>;
@@ -20,6 +21,8 @@ export interface StoredEnvironment {
   hostedFiles?: SessionLaunch['hostedFiles'];
   hostedSkills?: SessionLaunch['hostedSkills'];
   runId?: string;
+  sandboxId?: string;
+  resetCount?: number;
   status: EnvironmentInfo['status'];
   registrationId?: string;
   connectedUntil?: number;
@@ -158,11 +161,21 @@ export class EnvironmentService {
     await this.update(ownerId, id, (value) => {
       if (value.environment.type !== 'openai_hosted' || value.retired) resourceNotFound();
       if (value.status === 'failed' || value.status === 'expired') throw new AgentsApiError(409, 'The managed environment is unavailable. Create a new session.', 'environment_unavailable');
-      return { ...value, runId, status: 'pending' };
+      return value.runId === runId ? value : { ...value, runId, status: 'pending' };
     });
   }
 
-  public async managedStatus(ownerId: string, id: string, runId: string, status: 'connected' | 'failed' | 'expired'): Promise<void> {
+  public async managedPrepared(ownerId: string, id: string, runId: string): Promise<boolean> {
+    const { value } = await this.required(ownerId, id);
+    if (value.retired || value.runId !== runId || value.environment.type !== 'openai_hosted') throw new Error('Managed environment execution authority changed');
+    return value.sandboxId !== undefined;
+  }
+
+  public async managedReady(ownerId: string, id: string, runId: string, sandbox: ManagedSandboxGeneration): Promise<void> {
+    await this.update(ownerId, id, value => planManagedReadiness(value, runId, sandbox, this.clock.now()));
+  }
+
+  public async managedStatus(ownerId: string, id: string, runId: string, status: 'connected' | 'disconnected' | 'failed' | 'expired'): Promise<void> {
     await this.update(ownerId, id, (value) => {
       if (value.retired || value.runId !== runId || value.environment.type !== 'openai_hosted') throw new Error('Managed environment execution authority changed');
       return { ...value, status, connectedUntil: status === 'connected' ? this.clock.now() + 45 : 0 };

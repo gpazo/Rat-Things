@@ -45,9 +45,26 @@ mock_provider "aws" {
   mock_resource "aws_security_group" {
     defaults = { id = "sg-0123456789abcdef0" }
   }
+  mock_resource "aws_lb" {
+    defaults = { arn = "arn:aws:elasticloadbalancing:us-west-2:123456789012:loadbalancer/app/relay/0000000000000000" }
+  }
+  mock_resource "aws_lb_target_group" {
+    defaults = { arn = "arn:aws:elasticloadbalancing:us-west-2:123456789012:targetgroup/relay/0000000000000000" }
+  }
+  mock_resource "aws_lb_listener" {
+    defaults = { arn = "arn:aws:elasticloadbalancing:us-west-2:123456789012:listener/app/relay/0000000000000000/1111111111111111" }
+  }
   override_resource {
     target = aws_iam_role.ec2_worker
     values = { arn = "arn:aws:iam::123456789012:role/ec2-worker" }
+  }
+  override_resource {
+    target = aws_iam_role.control
+    values = { arn = "arn:aws:iam::123456789012:role/control" }
+  }
+  override_resource {
+    target = aws_iam_role.agents_token_issuer
+    values = { arn = "arn:aws:iam::123456789012:role/token-issuer" }
   }
 }
 mock_provider "awscc" {
@@ -60,12 +77,13 @@ variables {
     "agents-api", "agents-outbox", "connection-health", "control", "dispatcher", "notifier",
     "reconciler", "state-stream", "thing-schedule", "webhook-github", "webhook-gitlab", "webhook-teams", "webhook-slack"
   ] : name => "tests/worker-backends.tftest.hcl" }
-  microvm_source_zip_path    = "tests/worker-backends.tftest.hcl"
-  enable_s3_files            = true
-  codex_auth_mode            = "bedrock"
-  ec2_worker_ami_id          = "ami-0123456789abcdef0"
-  ec2_worker_image           = "123456789012.dkr.ecr.us-west-2.amazonaws.com/worker@sha256:0000000000000000000000000000000000000000000000000000000000000000"
-  microvm_base_image_version = "1"
+  microvm_source_zip_path        = "tests/worker-backends.tftest.hcl"
+  enable_s3_files                = true
+  codex_auth_mode                = "bedrock"
+  ec2_worker_ami_id              = "ami-0123456789abcdef0"
+  ec2_worker_image               = "123456789012.dkr.ecr.us-west-2.amazonaws.com/worker@sha256:0000000000000000000000000000000000000000000000000000000000000000"
+  microvm_base_image_version     = "1"
+  github_notify_token_secret_arn = "arn:aws:secretsmanager:us-west-2:123456789012:secret:test-delivery"
 }
 
 run "ec2_only_storage" {
@@ -74,6 +92,30 @@ run "ec2_only_storage" {
   variables {
     enable_microvm    = false
     enable_ec2_worker = true
+  }
+  assert {
+    condition     = alltrue([for statement in data.aws_iam_policy_document.control.statement : !contains(["SessionSchedules", "PassSessionScheduleRole", "SessionDeliverySecrets"], statement.sid)])
+    error_message = "Control administration must not retain outbox-only scheduling or delivery-secret grants."
+  }
+  assert {
+    condition     = toset(one([for statement in data.aws_iam_policy_document.control.statement : statement.actions if statement.sid == "Runs"])) == toset(["dynamodb:GetItem", "dynamodb:Query", "dynamodb:PutItem", "dynamodb:UpdateItem"])
+    error_message = "Control and fallback Session execution need Run reads/writes, but no Run deletion."
+  }
+  assert {
+    condition     = toset(one([for statement in data.aws_iam_policy_document.control.statement : statement.actions if statement.sid == "Integrations"])) == toset(["dynamodb:GetItem", "dynamodb:Query", "dynamodb:PutItem", "dynamodb:DeleteItem"])
+    error_message = "Connection administration needs transactional Put and OAuth/cursor Delete, but no delivery-fence Update."
+  }
+  assert {
+    condition     = contains(one([for statement in data.aws_iam_policy_document.agents_outbox.statement : statement.actions if statement.sid == "DeliveryState"]), "dynamodb:UpdateItem") && contains(one([for statement in data.aws_iam_policy_document.agents_outbox.statement : statement.resources if statement.sid == "DeliveryConfiguration"]), var.github_notify_token_secret_arn) && contains(one([for statement in data.aws_iam_policy_document.notifier.statement : statement.resources if statement.sid == "DeliverySecrets"]), var.github_notify_token_secret_arn)
+    error_message = "The outbox and notifier must retain delivery fencing and provider credential access."
+  }
+  assert {
+    condition     = contains(one([for statement in data.aws_iam_policy_document.agents_outbox.statement : statement.actions if statement.sid == "SessionSchedules"]), "scheduler:CreateSchedule") && one([for statement in data.aws_iam_policy_document.agents_outbox.statement : statement.resources if statement.sid == "PassSessionScheduleRole"]) == toset([aws_iam_role.thing_schedule_invoke.arn])
+    error_message = "Only the schedule outbox requires schedule mutation and its deployment-scoped execution-role grant."
+  }
+  assert {
+    condition     = local.lambda_definitions["agents-api"].role_arn == aws_iam_role.control.arn
+    error_message = "The Lambda API fallback must retain the control execution role."
   }
   assert {
     condition     = alltrue([for collection in ["session_tool_attempts", "session_preparations"] : contains(jsondecode(one(one(aws_lambda_event_source_mapping.agents_outbox.filter_criteria).filter).pattern).dynamodb.NewImage.collection.S, collection)])
@@ -107,5 +149,25 @@ run "both_worker_backends" {
   assert {
     condition     = toset(jsondecode(aws_s3files_file_system_policy.conversation_state[0].policy).Statement[0].Principal.AWS) == toset(["arn:aws:iam::123456789012:role/microvm", "arn:aws:iam::123456789012:role/ec2-worker"])
     error_message = "Both enabled worker roles must be admitted to the same retained access point."
+  }
+}
+
+run "dedicated_relay_administration" {
+  command = apply
+  module { source = "./modules/agent-runner" }
+  variables {
+    enable_microvm                           = false
+    enable_ec2_worker                        = true
+    environment_relay_image                  = "123456789012.dkr.ecr.us-west-2.amazonaws.com/relay@sha256:0000000000000000000000000000000000000000000000000000000000000000"
+    environment_relay_origin_hostname        = "relay.example.test"
+    environment_relay_origin_certificate_arn = "arn:aws:acm:us-west-2:123456789012:certificate/00000000-0000-0000-0000-000000000000"
+  }
+  assert {
+    condition     = local.lambda_definitions["agents-api"].role_arn == aws_iam_role.agents_token_issuer.arn && local.lambda_definitions["control"].role_arn == aws_iam_role.control.arn
+    error_message = "The relay deployment separates API token issuance from administration."
+  }
+  assert {
+    condition     = alltrue([for statement in data.aws_iam_policy_document.control.statement : !contains(["SessionSchedules", "PassSessionScheduleRole", "SessionDeliverySecrets"], statement.sid)])
+    error_message = "Relay deployments must also keep scheduling and delivery-secret grants out of control administration."
   }
 }

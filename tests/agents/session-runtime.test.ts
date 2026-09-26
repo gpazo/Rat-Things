@@ -1,3 +1,4 @@
+import { iamApiPrincipal } from '../../src/domain/api-permissions.js';
 import { describe, it, expect, vi } from 'vitest';
 import OpenAI from 'openai';
 import { SessionRuntime } from '../../src/runner/session-runtime.js';
@@ -50,6 +51,33 @@ const responseUsage = (threadId: string, turnId: string, responseId: string, inp
 });
 
 describe('persistent native session runtime', () => {
+  it('distinguishes explicit runtime expiry from an unexpected native connection loss', async () => {
+    vi.useFakeTimers();
+    const expired = fixture();
+    const lost = fixture();
+    try {
+      await expired.runtime.initialize(); await lost.runtime.initialize();
+      await lost.rpc().close();
+      expect(lost.runtime.sandboxExpired()).toBe(false);
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(expired.closed()).toBe(true);
+      expect(expired.runtime.sandboxExpired()).toBe(true);
+      expect(lost.runtime.sandboxExpired()).toBe(false);
+    } finally { await expired.runtime.close(); await lost.runtime.close(); vi.useRealTimers(); }
+  });
+  it('sends captured model settings on each subsequent native Turn', async () => {
+    const f = fixture();
+    try {
+      await f.runtime.initialize();
+      await f.runtime.start(rootTurn('first'), message);
+      f.emit({ method: 'turn/completed', params: { threadId: 'root', turn: { id: 'native-1', status: 'completed' } } });
+      await f.controller().startSessionTurn!(rootTurn('second'), message, { model: 'gpt-6-astra', reasoning: { effort: 'low' }, service_tier: 'priority' });
+      const starts = f.calls.filter(({ method }) => method === 'turn/start');
+      expect(starts[0]!.params).toMatchObject({ model: 'fixture' });
+      expect(starts[1]!.params).toMatchObject({ model: 'gpt-6-astra', effort: 'low', serviceTier: 'priority' });
+      expect(f.calls.filter(({ method }) => method === 'thread/start')).toHaveLength(1);
+    } finally { await f.runtime.close(); }
+  });
   it.each([false, true])('retries a follow-up rejected before native admission, with start pending=%s', async (pending) => {
     const f = fixture();
     let release!: () => void; const blocked = new Promise<void>((resolve) => { release = resolve; });
@@ -296,7 +324,7 @@ describe('persistent native session runtime', () => {
       observe: async (_owner, _session, turn) => ({ turn, requiredActions: [] }), items: async () => [], artifacts: async () => [], artifactContent: async () => new ReadableStream(),
       subagents: async (_owner, session) => runtimeSubagents(f.runtime.snapshot()).map((entry) => ({ ...entry, subagent: { ...entry.subagent, session_id: session.id }, turns: entry.turns.map((turn) => ({ ...turn, session_id: session.id })) })),
     } });
-    const client = (owner: string) => new OpenAI({ apiKey: 'fixture', baseURL: 'https://fixture.invalid/v1', maxRetries: 0, fetch: (input, init) => routeAgentsRequest(new Request(input, init), owner, { agents, sessions }) }).beta.agents;
+    const client = (owner: string) => new OpenAI({ apiKey: 'fixture', baseURL: 'https://fixture.invalid/v1', maxRetries: 0, fetch: (input, init) => routeAgentsRequest(new Request(input, init), iamApiPrincipal(owner), { agents, sessions }) }).beta.agents;
     const session = await client('alice').sessions.create({ agent: { model: 'fixture' }, environment: { type: 'none' }, input: 'Work' });
     for (const id of ['child-a', 'child-b']) {
       f.emit({ method: 'thread/started', params: { thread: { id, parentThreadId: 'root' } } });

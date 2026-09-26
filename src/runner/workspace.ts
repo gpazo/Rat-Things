@@ -59,7 +59,7 @@ export async function prepareWorkspace(
 }
 
 /** Resets first-use durable workspaces without removing the artifact bind mount. */
-async function resetPersistentWorkspace(workspace: string): Promise<void> {
+export async function resetPersistentWorkspace(workspace: string, clearArtifacts = false): Promise<void> {
   await mkdir(workspace, { recursive: true, mode: 0o700 });
   for (const entry of await readdir(workspace)) {
     if (entry !== '.rat-things') {
@@ -75,6 +75,11 @@ async function resetPersistentWorkspace(workspace: string): Promise<void> {
     for (const child of await readdir(control)) {
       if (child !== 'artifacts') {
         await rm(resolve(control, child), { recursive: true, force: true });
+      } else if (clearArtifacts) {
+        const artifacts = resolve(control, child);
+        const state = await lstat(artifacts);
+        if (!state.isDirectory() || state.isSymbolicLink()) await rm(artifacts, { recursive: true, force: true });
+        else for (const entry of await readdir(artifacts)) await rm(resolve(artifacts, entry), { recursive: true, force: true });
       }
     }
   }

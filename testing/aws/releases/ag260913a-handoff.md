@@ -1,6 +1,12 @@
 # Machine handoff: Agents API compatibility
 
-Continue from branch `codex/agents-api-compatibility`. This branch contains the
+Continue from branch `codex/agents-parity-completion`. The latest deployment and
+acceptance status is recorded in
+[`the September 23 continuation`](../../../plans/agents-api-parity-2026-09-23.md).
+Preserve the original state, runtime inputs and ignored evidence. The historical
+handoff below describes earlier candidates and does not certify the latest images.
+
+The original compatibility branch contains the
 compatibility audit, credential cleanup and preparation fencing, relay TLS repair,
 Session closure/cancellation fixes, and retryable native pre-admission handling.
 The full behavior ledger remains open in

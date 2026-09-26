@@ -1,3 +1,4 @@
+import { projectSessionTraces } from './session-trace-planning.js';
 import { createHash, randomUUID } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 import type { AgentSession, AgentSessionDeleted, AgentSessionInputParam, SessionArtifactDeleted } from '../domain/agents-api.js';
@@ -6,7 +7,7 @@ import { canonicalJson } from '../domain/json.js';
 import type { AgentService } from './agent-service.js';
 import type { AgentResource, AgentsClock, AgentsIds, AgentsStore } from './agents-ports.js';
 import type { SessionExecution, SessionObservation, SessionState } from './session-ports.js';
-import { cancelledStartTurn, cursorPage, initialMessages, observeSession, orderedTurnItems, planSessionInput, terminalTurn } from './session-planning.js';
+import { cancelledStartTurn, cursorPage, initialMessages, observeSession, orderedTurnItems, planSessionInput, terminalTurn, updateSessionAgent } from './session-planning.js';
 import { planSessionPreparation, preparationTools, requireActivePreparation, type SessionPreparation } from './session-preparation-planning.js';
 import { planSessionStream, type SessionStreamSnapshot } from './session-stream.js';
 import { sessionEventBatchId, type SessionEventBatch } from './session-event-store.js';
@@ -84,6 +85,21 @@ export class SessionService {
     return (await this.observe(ownerId, state)).session;
   }
 
+  public async traces(ownerId: string, id: string, raw: unknown = {}) {
+    const query = parseAgentsContract('TraceList', raw);
+    const { value } = await this.required(ownerId, id);
+    const observation = await this.observe(ownerId, value);
+    const roots = await Promise.all(value.turns.map(async binding => ({
+      turn: observation.turns.find(entry => entry.turn.id === binding.turn.id)?.turn ?? binding.turn,
+      steps: [...new Map([...(binding.savedTraceSteps ?? []), ...await this.options.execution.traceSteps?.(ownerId, value.session, binding.turn.id) ?? []].map(step => [step.id, step])).values()],
+      model: binding.modelSettings?.model ?? value.session.agent.model,
+    })));
+    const children = await this.subagentSnapshots(ownerId, value);
+    const traces = projectSessionTraces(value.session, [...roots, ...children.flatMap(entry => entry.traceTurns ?? entry.turns.map(turn => ({ turn, steps: [], parentAgentId: entry.subagent.parent_agent_id })))], ownerId);
+    const page = cursorPage(traces, query);
+    return { ...page, first_id: page.data[0]?.id ?? null, last_id: page.data.at(-1)?.id ?? null };
+  }
+
   public async retrieve(ownerId: string, id: string): Promise<AgentSession> {
     return (await this.observe(ownerId, (await this.required(ownerId, id)).value)).session;
   }
@@ -156,6 +172,7 @@ export class SessionService {
     const observation = await this.observe(ownerId, resource.value);
     const session = {
       ...observation.session,
+      agent: updateSessionAgent(resource.value.session.agent, input.agent),
       metadata: input.metadata === undefined ? resource.value.session.metadata : input.metadata ?? {},
     };
     await this.replace(resource, { ...resource.value, session });
@@ -364,15 +381,16 @@ export class SessionService {
     const resource = await this.options.store.get<SessionState>(ownerId, 'sessions', id);
     if (!resource) return;
     const binding = resource.value.turns.find(({ turn }) => turn.id === turnId) ?? resourceNotFound();
-    if (binding.savedItems && binding.savedArtifacts && terminalTurn(binding.turn)) return;
     const observation = terminalTurn(binding.turn) ? { turn: binding.turn, requiredActions: [] } : await this.options.execution.observe(ownerId, resource.value.session, binding.turn);
     if (!terminalTurn(observation.turn)) return;
-    const [savedItems, savedArtifacts] = await Promise.all([
-      this.options.execution.items(ownerId, resource.value.session, turnId),
-      this.options.execution.artifacts(ownerId, resource.value.session, turnId),
+    const [savedItems, savedArtifacts, savedTraceSteps] = await Promise.all([
+      binding.savedItems ?? this.options.execution.items(ownerId, resource.value.session, turnId),
+      binding.savedArtifacts ?? this.options.execution.artifacts(ownerId, resource.value.session, turnId),
+      this.options.execution.traceSteps?.(ownerId, resource.value.session, turnId),
     ]);
-    const turns = resource.value.turns.map((previous) => previous.turn.id === turnId ? { ...previous, turn: observation.turn, savedItems, savedArtifacts } : previous);
-    await this.replace(resource, { ...resource.value, turns, subagents: await this.subagentSnapshots(ownerId, resource.value) });
+    const turns = resource.value.turns.map((previous) => previous.turn.id === turnId ? { ...previous, turn: observation.turn, savedItems, savedArtifacts, savedTraceSteps: [...new Map([...(binding.savedTraceSteps ?? []), ...(savedTraceSteps ?? [])].map(step => [step.id, step])).values()] } : previous);
+    const value = { ...resource.value, turns, subagents: await this.subagentSnapshots(ownerId, resource.value) };
+    if (canonicalJson(value) !== canonicalJson(resource.value)) await this.replace(resource, value);
   }
 
   public async items(ownerId: string, id: string, raw: unknown = {}) {
@@ -469,8 +487,8 @@ export class SessionService {
   }
 }
 
-function pageLimit(limit?: number) {
-  if (limit !== undefined && (!Number.isInteger(limit) || limit < 1)) invalid('limit must be a positive integer', 'limit');
+function pageLimit(limit?: number | null) {
+  if (limit != null && (!Number.isInteger(limit) || limit < 1)) invalid('limit must be a positive integer', 'limit');
   return Math.min(limit ?? 20, 100);
 }
 

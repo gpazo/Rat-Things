@@ -39,7 +39,8 @@ bundled `terminate-microvm.mjs`. A Session harness remains available for additio
 Turns through authenticated control. Native state belongs to the Session runtime
 journal. When S3 Files is enabled, `sessionStorageKey` selects the same owner-and-Session
 hashed directory across replacements; `SESSION_STATE_ROOT` supplies its workspace
-and Codex home. Keep the existing hash and filesystem root stable.
+and Codex home. Hosted sandbox replacement clears workspace contents while retaining
+the native conversation checkpoint. Keep the existing hash and filesystem root stable.
 
 Lifecycle endpoints listen on port 8080 under
 `/aws/lambda-microvms/runtime/v1/{ready,validate,run,resume,suspend,terminate}`.
@@ -53,6 +54,10 @@ lifetime. Saved Session history and artifacts outlive compute. An idle policy
 can explicitly bound idle lifetime; connected Sessions otherwise keep their harness.
 The opt-in dedicated EC2 supervisor uses host-managed lifetime and terminates the
 instance when execution authority ends. Its lifecycle listener is loopback-only.
+The scheduled reconciler also retires dedicated workers whose matching Run has
+been terminal for at least two minutes, so a blocked guest or storage shutdown
+cannot retain compute indefinitely. It verifies deployment, launch template,
+Run, instance and generation, and leaves missing or active authority untouched.
 
 A cgroup eBPF connect policy denies UID 10001 access to TCP port 8080 when the destination is
 loopback, unspecified, or one of the guest's own IPv4/IPv6 interface addresses. That prevents Codex

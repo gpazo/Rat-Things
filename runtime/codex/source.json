@@ -4,6 +4,8 @@
   "upstreamVersion": "0.154.0",
   "patches": [
     "release-lock.patch",
-    "interrupt-barrier.patch"
+    "interrupt-barrier.patch",
+    "api-model-settings.patch",
+    "api-turn-errors.patch"
   ]
 }

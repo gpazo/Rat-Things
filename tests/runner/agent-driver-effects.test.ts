@@ -103,6 +103,6 @@ describe('agent launch effects', () => {
     expect(second.environment.AWS_BEARER_TOKEN_BEDROCK).toBe('deployment-token');
     expect(second.environment.PATH).toBe(process.env.PATH);
     expect(second.environment).not.toBe(first.environment);
-    expect(second).not.toHaveProperty('binaryArguments');
+    expect(second.binaryArguments).toEqual(['-c', 'model_provider="amazon-bedrock"', 'app-server']);
   });
 });

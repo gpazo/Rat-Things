@@ -1,3 +1,4 @@
+import { iamApiPrincipal } from '../domain/api-permissions.js';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import type { APIGatewayProxyEventV2 } from 'aws-lambda';
@@ -26,10 +27,10 @@ export const handler = typeof lambdaRuntime?.streamifyResponse !== 'function' ? 
     if (method === 'POST' && event.rawPath === '/v1/auth/tokens') {
       const audience = process.env.AGENTS_PUBLIC_BASE_URL;
       if (!audience) throw new AgentsApiError(503, 'The streaming API is not configured.', 'service_unavailable');
-      response = Response.json(await getApiTokenService().issue(ownerId, audience), { headers: { 'cache-control': 'no-store', 'x-request-id': context.awsRequestId } });
+      response = Response.json(await getApiTokenService().issue(ownerId, audience, await request.json().catch(() => { throw new AgentsApiError(400, 'Expected a JSON token request.', 'invalid_request'); })), { headers: { 'cache-control': 'no-store', 'x-request-id': context.awsRequestId } });
     } else {
       if (process.env.AGENTS_TOKEN_ISSUER_ONLY === 'true') throw new AgentsApiError(404, 'Route not found.', 'not_found');
-      response = await routeAgentsRequest(request, ownerId, getAgentsApiServices(), context.awsRequestId);
+      response = await routeAgentsRequest(request, iamApiPrincipal(ownerId), getAgentsApiServices(), context.awsRequestId);
     }
   } catch (error) { response = agentsErrorResponse(error, context.awsRequestId); }
   const headers: Record<string, string> = {};

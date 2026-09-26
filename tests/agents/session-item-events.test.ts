@@ -30,6 +30,14 @@ function fixture() {
 }
 
 describe('native Item updates projected into public events', () => {
+  it.each(['completed', 'failed'] as const)('retains MCP and command output/error correspondence on %s', status => {
+    const f = fixture();
+    f.emit('item/completed', { item: { id: 'mcp', type: 'mcpToolCall', server: 'docs', tool: 'lookup', arguments: { query: 'x' }, result: status === 'completed' ? { text: 'result' } : null, error: status === 'failed' ? { message: 'denied' } : null, status } });
+    expect(f.snapshot().items[0]).toMatchObject({ type: 'mcp_call', status, output: status === 'completed' ? { text: 'result' } : null, error: status === 'failed' ? { message: 'denied' } : null });
+    f.emit('item/completed', { item: { id: 'command', type: 'commandExecution', command: 'work', cwd: '/workspace', durationMs: 5, exitCode: status === 'completed' ? 0 : 1, aggregatedOutput: 'literal output', status } });
+    expect(f.snapshot().items[1]).toMatchObject({ type: 'command_execution', status, output: 'literal output', exit_code: status === 'completed' ? 0 : 1, duration_ms: 5 });
+  });
+
   it.each(['commentary', 'final_answer', null] as const)('preserves phase %j across text deltas and completion', phase => {
     const f = fixture();
     f.emit('item/started', { item: { type: 'agentMessage', id: 'message', text: '', phase } });

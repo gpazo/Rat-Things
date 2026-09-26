@@ -202,39 +202,17 @@ data "aws_iam_policy_document" "control" {
 
   statement {
     sid       = "Runs"
-    actions   = local.run_table_read_write_actions
+    actions   = ["dynamodb:GetItem", "dynamodb:Query", "dynamodb:PutItem", "dynamodb:UpdateItem"]
     resources = [aws_dynamodb_table.runs.arn, "${aws_dynamodb_table.runs.arn}/index/*"]
   }
 
 
   statement {
-    sid       = "Integrations"
-    actions   = local.integration_table_read_write_actions
+    sid = "Integrations"
+    # OAuth state and source cursors are consumed with conditional DeleteItem.
+    # Connection bundles and source claims use transactional PutItem, not UpdateItem.
+    actions   = ["dynamodb:GetItem", "dynamodb:Query", "dynamodb:PutItem", "dynamodb:DeleteItem"]
     resources = [aws_dynamodb_table.integrations.arn]
-  }
-
-
-
-  statement {
-    sid = "SessionSchedules"
-    actions = [
-      "scheduler:CreateSchedule",
-      "scheduler:DeleteSchedule",
-      "scheduler:GetSchedule",
-      "scheduler:UpdateSchedule",
-    ]
-    resources = ["arn:${data.aws_partition.current.partition}:scheduler:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:schedule/${aws_scheduler_schedule_group.things.name}/*"]
-  }
-
-  statement {
-    sid       = "PassSessionScheduleRole"
-    actions   = ["iam:PassRole"]
-    resources = [aws_iam_role.thing_schedule_invoke.arn]
-    condition {
-      test     = "StringEquals"
-      variable = "iam:PassedToService"
-      values   = ["scheduler.amazonaws.com"]
-    }
   }
 
   statement {
@@ -312,14 +290,6 @@ data "aws_iam_policy_document" "control" {
     sid       = "DataKey"
     actions   = local.data_kms_actions
     resources = [aws_kms_key.data.arn]
-  }
-  dynamic "statement" {
-    for_each = length(local.notifier_secret_arns) > 0 ? [1] : []
-    content {
-      sid       = "SessionDeliverySecrets"
-      actions   = ["secretsmanager:GetSecretValue"]
-      resources = local.notifier_secret_arns
-    }
   }
 }
 

@@ -1,3 +1,4 @@
+import { projectSessionTraces } from '../../src/core/session-trace-planning.js';
 import { createServer } from 'node:http';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
@@ -17,7 +18,7 @@ const nativeBinary = process.env.CODEX_CONFORMANCE_BINARY ?? resolve('node_modul
 const requireParity = process.env.CODEX_REQUIRE_PARITY === 'true';
 
 describe('stock harness with a local model protocol fixture', () => {
-  it.each([false, true])('records native child work and coordination with multi_agent_v2=%s', async (multiAgentV2) => {
+  it.each([{ multiAgentV2: false, plaintext: false }, { multiAgentV2: true, plaintext: false }, { multiAgentV2: true, plaintext: true }])('records native child work with multi_agent_v2=$multiAgentV2 and plaintext=$plaintext', async ({ multiAgentV2, plaintext }) => {
     let count = 0;
     const requests: Array<Record<string, unknown>> = [];
     const notifications: Array<unknown> = [];
@@ -27,7 +28,7 @@ describe('stock harness with a local model protocol fixture', () => {
       requests.push(JSON.parse(Buffer.concat(chunks).toString()) as Record<string, unknown>);
       const id = `fixture_${++count}`;
       const item = count === 1
-        ? { type: 'function_call', id: 'spawn_1', call_id: 'spawn_fixture', namespace: multiAgentV2 ? 'collaboration' : 'multi_agent_v1', name: 'spawn_agent', arguments: JSON.stringify({ message: 'Perform the child fixture task.', ...(multiAgentV2 ? { task_name: 'child_fixture', fork_turns: 'none' } : { agent_type: 'default' }) }) }
+        ? { type: 'function_call', id: 'spawn_1', call_id: 'spawn_fixture', namespace: multiAgentV2 ? 'collaboration' : 'multi_agent_v1', name: 'spawn_agent', ...(plaintext ? { encrypted_function_args: [] } : {}), arguments: JSON.stringify({ message: 'Perform the child fixture task.', ...(multiAgentV2 ? { task_name: 'child_fixture', fork_turns: 'none' } : { agent_type: 'default' }) }) }
         : { type: 'message', role: 'assistant', id: `msg_${count}`, content: [{ type: 'output_text', text: 'Fixture complete.' }], phase: 'final_answer' };
       response.writeHead(200, { 'content-type': 'text/event-stream' });
       response.end([{ type: 'response.created', response: { id } }, { type: 'response.output_item.done', item }, { type: 'response.completed', response: { id } }].map((event) => `data: ${JSON.stringify(event)}\n\n`).join(''));
@@ -56,10 +57,21 @@ describe('stock harness with a local model protocol fixture', () => {
       expect(state.turns.map(({ turn }) => turn.status)).toEqual(['completed', 'completed']);
       expect(state.turns.find(({ turn }) => turn.id === 'turn_parent')!.items).toEqual(expect.arrayContaining([expect.objectContaining({ type: 'create_subagent_call', status: 'completed' })]));
       const children = runtimeSubagents(state);
+      const traces = projectSessionTraces({ id: state.sessionId }, state.turns.map(binding => ({ turn: binding.turn, steps: binding.traceSteps ?? [], parentTurnId: binding.traceParentTurnId })));
+      expect(traces.flatMap(trace => trace.otlp.resourceSpans.flatMap(resource => resource.scopeSpans.flatMap(scope => scope.spans)))).toEqual(expect.arrayContaining([expect.objectContaining({ name: 'subagent' })]));
       if (multiAgentV2) expect(children[0]?.items, JSON.stringify(notifications.filter(event => JSON.stringify(event).includes('"type":"agent_message"')))).toContainEqual(expect.objectContaining({
         type: 'agent_message', sender_agent_id: 'agent_fixture', recipient_agent_id: children[0]?.subagent.id,
-        content: [expect.objectContaining({ type: 'output_text' }), { type: 'encrypted_content', encrypted_content: 'Perform the child fixture task.' }],
+        content: plaintext ? expect.arrayContaining([expect.objectContaining({ type: 'output_text', text: expect.stringContaining('Perform the child fixture task.') })])
+          : [expect.objectContaining({ type: 'output_text' }), { type: 'encrypted_content', encrypted_content: 'Perform the child fixture task.' }],
       }));
+      expect(state.turns.find(({ turn }) => turn.id === 'turn_parent')!.items).toContainEqual(expect.objectContaining({
+        type: 'create_subagent_call', content: multiAgentV2 && !plaintext
+          ? [{ type: 'encrypted_content', encrypted_content: 'Perform the child fixture task.' }]
+          : [{ type: 'output_text', text: 'Perform the child fixture task.' }],
+      }));
+      expect(children[0]!.subagent.instructions).toEqual(multiAgentV2 && !plaintext
+        ? [{ type: 'encrypted_content', encrypted_content: 'Perform the child fixture task.' }]
+        : [{ type: 'output_text', text: 'Perform the child fixture task.' }]);
       parseAgentsContract('Subagent', children[0]!.subagent);
       expect(children[0]!.turns).toHaveLength(1);
       for (const binding of state.turns) { parseAgentsContract('Turn', binding.turn); binding.items.forEach((item) => parseAgentsContract('Item', item)); }
@@ -83,7 +95,12 @@ describe('stock harness with a local model protocol fixture', () => {
     }
   }, 20_000);
 
-  it.each([1, 6])('admits exactly %s simultaneous children, excluding the root', async (limit) => {
+  it.each([
+    { limit: 1, forkTurns: 'none', batch: false },
+    { limit: 6, forkTurns: 'none', batch: false },
+    { limit: 6, forkTurns: 'all', batch: false },
+    { limit: 6, forkTurns: 'all', batch: true },
+  ])('admits exactly $limit simultaneous children with fork_turns=$forkTurns and batch=$batch, excluding the root', async ({ limit, forkTurns, batch }) => {
     let rootCalls = 0;
     let childCalls = 0;
     const outputs: unknown[] = [];
@@ -95,16 +112,23 @@ describe('stock harness with a local model protocol fixture', () => {
     const server = createServer(async (request, response) => {
       const chunks: Buffer[] = []; for await (const chunk of request) chunks.push(Buffer.from(chunk));
       if (!request.url?.endsWith('/responses')) { response.writeHead(404).end(); return; }
-      const body = JSON.parse(Buffer.concat(chunks).toString()) as { input: Array<{ role?: string; content?: unknown }> };
-      const parent = body.input.some((item) => item.role === 'user' && JSON.stringify(item.content).includes('PARENT_LIMIT'));
+      const body = JSON.parse(Buffer.concat(chunks).toString()) as { input: Array<{ type?: string; recipient?: string; role?: string; content?: unknown }> };
+      // Forked children also retain the coordinator's user input. Their task
+      // message, rather than copied history, identifies the receiving agent.
+      const childTask = body.input.some(item => item.type === 'agent_message' && item.recipient?.startsWith('/root/child_'));
+      const parent = !childTask && body.input.some((item) => item.role === 'user' && JSON.stringify(item.content).includes('PARENT_LIMIT'));
       response.writeHead(200, { 'content-type': 'text/event-stream' });
       response.write(`data: ${JSON.stringify({ type: 'response.created', response: { id: `response_${parent ? 'root' : 'child'}_${parent ? ++rootCalls : ++childCalls}` } })}\n\n`);
       if (!parent) { childStarts[childCalls - 1]?.resolve(); return; }
-      if (rootCalls > 1 && rootCalls <= limit + 1) await childStarts[rootCalls - 2]!.promise;
-      const item = rootCalls <= limit + 1
-        ? { type: 'function_call', id: `spawn_${rootCalls}`, call_id: `spawn_${rootCalls}`, namespace: 'collaboration', name: 'spawn_agent', arguments: JSON.stringify({ task_name: `child_${rootCalls}`, message: 'Remain active.', fork_turns: 'none' }) }
-        : { type: 'message', role: 'assistant', id: 'done', content: [{ type: 'output_text', text: 'Limit observed.' }], phase: 'final_answer' };
-      response.end([{ type: 'response.output_item.done', item }, { type: 'response.completed', response: { id: `root_${rootCalls}` } }].map((event) => `data: ${JSON.stringify(event)}\n\n`).join(''));
+      if (batch && rootCalls === 2) await Promise.all(childStarts.map(start => start.promise));
+      if (!batch && rootCalls > 1 && rootCalls <= limit + 1) await childStarts[rootCalls - 2]!.promise;
+      const spawnNumbers = batch
+        ? rootCalls === 1 ? Array.from({ length: limit }, (_, index) => index + 1) : rootCalls === 2 ? [limit + 1] : []
+        : rootCalls <= limit + 1 ? [rootCalls] : [];
+      const items = spawnNumbers.length
+        ? spawnNumbers.map(number => ({ type: 'function_call', id: `spawn_${number}`, call_id: `spawn_${number}`, namespace: 'collaboration', name: 'spawn_agent', arguments: JSON.stringify({ task_name: `child_${number}`, message: 'Remain active.', fork_turns: forkTurns }) }))
+        : [{ type: 'message', role: 'assistant', id: 'done', content: [{ type: 'output_text', text: 'Limit observed.' }], phase: 'final_answer' }];
+      response.end([...items.map(item => ({ type: 'response.output_item.done', item })), { type: 'response.completed', response: { id: `root_${rootCalls}` } }].map((event) => `data: ${JSON.stringify(event)}\n\n`).join(''));
     });
     server.listen(0, '127.0.0.1'); await once(server, 'listening');
     const bound = server.address(); if (!bound || typeof bound === 'string') throw new Error('Missing fixture address');
@@ -213,7 +237,7 @@ describe('stock harness with a local model protocol fixture', () => {
   }, 25_000);
   }
 
-  it('recovers saved tool context without replay and preserves two root turns in one native thread', async () => {
+  it('recovers an absent native checkpoint from saved tool context without replay', async () => {
     const requests: Array<Record<string, unknown>> = [];
     const server = createServer(async (request, response) => {
       const chunks: Buffer[] = []; for await (const chunk of request) chunks.push(Buffer.from(chunk));
@@ -246,6 +270,7 @@ describe('stock harness with a local model protocol fixture', () => {
     const runtime = new SessionRuntime({ sessionId: 'sess_fixture', agentId: 'agent_fixture', request: {
       binary: nativeBinary, workspace: home, environment: { PATH: process.env.PATH, HOME: home, CODEX_HOME: home },
       timeoutMs: 15_000, persistent: true, prompt: '', sandbox: 'read-only', networkAccess: false, environments: [], model: 'gpt-5.4', modelProvider: 'fixture',
+      resumeThreadId: '00000000-0000-4000-8000-000000000000',
       recoveryItems: planned.recoveryItems!,
       sessionConfig: { ...planned.sessionConfig, 'model_providers.fixture': { name: 'local fixture', base_url: `http://127.0.0.1:${bound.port}`, wire_api: 'responses', requires_openai_auth: false, supports_websockets: false } },
       dynamicTools: [{ type: 'function', name: 'lookup', description: 'Look up a value', inputSchema: { type: 'object', properties: { key: { type: 'string' } }, required: ['key'] } }],
@@ -256,6 +281,7 @@ describe('stock harness with a local model protocol fixture', () => {
     async function until(predicate: () => boolean) { for (let n = 0; n < 500; n++) { if (predicate()) return; await delay(10); } throw new Error(`Native session did not reach expected state: ${JSON.stringify(runtime.snapshot().turns.map(({ turn }) => turn))}`); }
     try {
       const initial = await runtime.initialize();
+      expect(initial.rootThreadId).not.toBe('00000000-0000-4000-8000-000000000000');
       expect(initial.requiredActions).toEqual([]);
       expect(initial.subagents).toEqual([]);
       expect(requests).toHaveLength(0);

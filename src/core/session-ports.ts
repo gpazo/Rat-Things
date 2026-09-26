@@ -6,14 +6,16 @@ import type { ArtifactReference } from '../domain/contracts.js';
 
 export type SessionMessage = AgentSessionInputMessageParam & { id: string; afterItemId?: string | null; acceptedOrdinal?: number };
 export interface SavedSessionArtifact { artifact: SessionArtifact; content: ArtifactReference }
-export interface SessionSubagentSnapshot { subagent: Subagent; turns: Turn[]; items: AgentSessionItem[]; artifacts?: SavedSessionArtifact[]; requiredActions?: AgentSession['required_actions'] }
+export interface SessionSubagentSnapshot { subagent: Subagent; turns: Turn[]; items: AgentSessionItem[]; artifacts?: SavedSessionArtifact[]; requiredActions?: AgentSession['required_actions']; traceTurns?: import('./session-trace-planning.js').TraceTurn[] }
 
 /** Private bindings are implementation details, never part of a session response. */
 export interface SessionTurnBinding {
   turn: Turn;
   input: SessionMessage[];
+  modelSettings?: import('../domain/session-execution.js').SessionModelSettings;
   cancelRequested?: boolean;
   savedItems?: AgentSessionItem[];
+  savedTraceSteps?: import('../domain/session-traces.js').TraceStep[];
   savedArtifacts?: SavedSessionArtifact[];
 }
 
@@ -38,6 +40,7 @@ export interface SessionTurnObservation {
 
 /** All execution and environment effects live behind this port. */
 export interface SessionExecution {
+  traceSteps?(ownerId: string, session: AgentSession, turnId: string): Promise<import('../domain/session-traces.js').TraceStep[]>;
   initialize?(ownerId: string, session: AgentSession): Promise<void>;
   subagents?(ownerId: string, session: AgentSession): Promise<SessionSubagentSnapshot[]>;
   environment?(ownerId: string, session: AgentSession): Promise<AgentSessionEnvironmentState | undefined>;

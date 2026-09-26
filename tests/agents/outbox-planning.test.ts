@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { agentsJobGroup, agentsStreamJobs, agentsJobRetrySeconds, parseAgentsJob } from '../../src/core/agents-outbox-planning.js';
+import { AgentsApiError, AgentsResourceConflictError } from '../../src/domain/agents-api-validation.js';
 
 describe('Session work isolation', () => {
+  it('revisits confirmed rejected writes promptly without accelerating other conflicts', () => {
+    expect(agentsJobRetrySeconds(new AgentsResourceConflictError())).toBe(5);
+    expect(agentsJobRetrySeconds(new AgentsApiError(409, 'Session has failed', 'conflict'))).toBeUndefined();
+    expect(agentsJobRetrySeconds(new AgentsApiError(409, 'Different request', 'idempotency_conflict'))).toBeUndefined();
+  });
   it('retries a cold managed harness promptly without shortening unknown failure backoff', () => {
     expect(agentsJobRetrySeconds({ status: 503, code: 'service_unavailable' })).toBe(5);
     expect(agentsJobRetrySeconds({ status: 503, code: 'environment_unavailable' })).toBe(5);

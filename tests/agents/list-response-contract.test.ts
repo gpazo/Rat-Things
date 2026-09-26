@@ -1,3 +1,4 @@
+import { iamApiPrincipal } from '../../src/domain/api-permissions.js';
 import OpenAI from 'openai';
 import { describe, expect, it, vi } from 'vitest';
 import { AgentService } from '../../src/core/agent-service.js';
@@ -24,13 +25,13 @@ function fixture() {
   };
   const sessions = new SessionService({ store, agents, execution, ids, clock });
   const request = (path: string, init?: RequestInit, owner = 'alice') =>
-    routeAgentsRequest(new Request(`https://rat.invalid/v1/${path}`, init), owner, { agents, sessions });
+    routeAgentsRequest(new Request(`https://rat.invalid/v1/${path}`, init), iamApiPrincipal(owner), { agents, sessions });
   const client = new OpenAI({ apiKey: 'test', baseURL: 'https://rat.invalid/v1', maxRetries: 0,
-    fetch: (input, init) => routeAgentsRequest(new Request(input, init), 'alice', { agents, sessions }),
+    fetch: (input, init) => routeAgentsRequest(new Request(input, init), iamApiPrincipal('alice'), { agents, sessions }),
   });
   // Inspect the wire body: the SDK's CursorPage wrapper does not expose these fields.
   const list = async (path: string, owner = 'alice') => {
-    const response = await routeAgentsRequest(new Request(`https://rat.invalid/v1/${path}`), owner, { agents, sessions });
+    const response = await routeAgentsRequest(new Request(`https://rat.invalid/v1/${path}`), iamApiPrincipal(owner), { agents, sessions });
     expect(response.status).toBe(200);
     return response.json() as Promise<{ object: string; data: Array<{ id: string }>; has_more: boolean; first_id: string | null; last_id: string | null }>;
   };
@@ -43,11 +44,11 @@ describe('Agents HTTP query and path contracts', () => {
     const agent = await f.agents.create('alice', { model: 'test' });
     if (resource === 'sessions') await f.sessions.create('alice', { agent_id: agent.id, environment: { type: 'none' }, input: 'Queued' });
     const api = resource === 'agents' ? f.client.beta.agents : f.client.beta.agents.sessions;
-    // RequestOptions can express the documented null even though this SDK's
-    // inherited CursorPageParams omits null from its TypeScript limit type.
-    const page = await api.list({}, { query: { limit: null } });
+    const page = await api.list({ limit: null });
     expect(page.data).toEqual((await api.list()).data);
     expect(page.data).toHaveLength(1);
+    const direct = resource === 'agents' ? await f.agents.list('alice', { limit: null }) : await f.sessions.list('alice', { limit: null });
+    expect(direct.data).toEqual(page.data);
   });
 
   it.each(['0', '-1', '1.5', 'null', 'NaN', '%20', '+', '1&limit=2'])('rejects invalid or repeated limit %j before listing', async limit => {

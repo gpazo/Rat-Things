@@ -18,7 +18,7 @@ import { SessionRuntimeStore } from '../core/session-runtime-store.js';
 import type { SessionIntegrationState } from '../domain/session-integrations.js';
 import type { AgentsStore } from '../core/agents-ports.js';
 import { runtimeSubagents, stoppedSessionRuntime } from '../core/session-runtime-planning.js';
-import { terminalTurn } from '../core/session-planning.js';
+import { sessionModelSettings, terminalTurn } from '../core/session-planning.js';
 
 /** AWS execution is private implementation machinery; public clients see sessions and turns. */
 export class RunSessionExecution implements SessionExecution {
@@ -28,7 +28,7 @@ export class RunSessionExecution implements SessionExecution {
     interaction: Pick<AgentInteractionController, 'startSessionTurn' | 'events' | 'steer' | 'interrupt' | 'respond'>;
     artifacts: Pick<ArtifactStore, 'getJson' | 'putJson' | 'getBytes' | 'getStream'>; vaults: Pick<VaultService, 'requireVaults'>;
     environments: Pick<EnvironmentService, 'prepare' | 'state' | 'retire' | 'launchReference' | 'managedLaunch' | 'attachManaged'>;
-    tools: Pick<SessionToolService, 'prepare' | 'launch' | 'close'>;
+    tools: Pick<SessionToolService, 'prepare' | 'launch' | 'close'> & Partial<Pick<SessionToolService, 'environmentLaunch'>>;
     store: AgentsStore;
     backend?: import('../domain/contracts.js').ExecutionBackend;
   }) { this.runtime = new SessionRuntimeStore(options.store); }
@@ -45,7 +45,11 @@ export class RunSessionExecution implements SessionExecution {
         && agent.tools.some((tool) => tool.type === 'mcp' && tool.transport.type === 'stdio')) {
         throw new AgentsApiError(400, 'Managed stdio MCP requires enabled network access.', 'invalid_request', 'environment.network');
       }
-      await this.options.tools.prepare(ownerId, sessionId, agent, tools, vaultIds, resumePreparation);
+      const hosted = prepared.type === 'openai_hosted' ? {
+        environmentId: prepared.id, network: prepared.network,
+        env: (await this.options.environments.managedLaunch(ownerId, prepared.id)).hostedConfiguration?.env ?? {},
+      } : undefined;
+      await this.options.tools.prepare(ownerId, sessionId, agent, tools, vaultIds, resumePreparation, hosted);
       return prepared;
     } catch (error) { if (!resumePreparation && prepared.type !== 'none') await this.options.environments.retire(ownerId, prepared.id); throw error; }
   }
@@ -103,15 +107,18 @@ export class RunSessionExecution implements SessionExecution {
       // bridge's acknowledgement instead of submitting input into that gap.
       if (!(await this.options.interaction.events(target)).ready) throw new AgentsApiError(503, 'The session harness is not ready for input.', 'service_unavailable');
       await this.options.interaction.startSessionTurn(target, binding.turn,
-        binding.input.map(({ role, content }) => ({ role, content })));
+        binding.input.map(({ role, content }) => ({ role, content })), binding.modelSettings ?? sessionModelSettings(session.agent));
       return;
     }
     const existing = await this.runById(ownerId, this.options.runs.idFor(ownerId, this.key(session.id, binding.turn.id)));
     const environmentCredential = session.environment.type === 'self_hosted' ? await this.options.environments.launchReference(ownerId, session.environment.id, existing ? undefined : binding.turn.created_at + 300) : undefined;
+    const environmentCredentials = existing?.agentsSession ? undefined : await this.options.tools.environmentLaunch?.(ownerId, session);
     const launch: SessionLaunch = existing?.agentsSession ? await this.options.artifacts.getJson(existing.agentsSession.launch) : {
-      sessionId: session.id, turnId: binding.turn.id, ...(bootstrap ? {} : { turn: binding.turn }), agent: session.agent, environment: session.environment,
+      sessionId: session.id, turnId: binding.turn.id, ...(bootstrap ? {} : { turn: binding.turn }),
+      agent: binding.modelSettings ? { ...session.agent, ...binding.modelSettings, reasoning: { ...session.agent.reasoning, ...binding.modelSettings.reasoning } } : session.agent, environment: session.environment,
       input: binding.input.map(({ role, content }) => ({ role, content })), history,
       mcp: await this.options.tools.launch(ownerId, session),
+      ...(environmentCredentials ? { environmentCredentials } : {}),
       ...(environmentCredential ? { environmentCredential } : {}),
       ...(session.environment.type === 'openai_hosted' ? await this.options.environments.managedLaunch(ownerId, session.environment.id) : {}),
     };
@@ -188,6 +195,11 @@ export class RunSessionExecution implements SessionExecution {
       ? await this.options.interaction.events({ runId: run.runId, execution: run.execution }, 0, 100)
       : undefined;
     return projectSessionTurn(turn, run, snapshot);
+  }
+
+  public async traceSteps(ownerId: string, session: AgentSession, turnId: string) {
+    const runtime = await this.runtime.get(ownerId, session.id);
+    return runtime?.value.snapshot?.turns.find(binding => binding.turn.id === turnId)?.traceSteps ?? [];
   }
 
   public async items(ownerId: string, session: AgentSession, turnId: string): Promise<AgentSessionItem[]> {

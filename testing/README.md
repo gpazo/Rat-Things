@@ -133,6 +133,8 @@ does not document the Lambda MicroVM APIs, so `RunMicrovm`, lifecycle hooks, man
 isolation remain live-AWS-only checks.
 
 CI builds the native artifact on ARM64 and caches the exported runtime by source/build inputs.
+The cache is saved after compilation so a later acceptance failure does not force
+another cold build. Every restored runtime still passes all acceptance checks.
 The pinned companion version is part of `runtime/codex/source.json`; ordinary TypeScript
 dependency updates do not invalidate this native cache.
 A cold build requires at least 20 GiB free for source, compilation and container layers; the
@@ -165,3 +167,95 @@ With Terraform 1.15.8 installed, run `npm run test:infra`. Mocked AWS providers 
 EC2-only and combined worker configurations, including S3 Files principals and MicroVM
 network connector selection. These tests do not contact AWS or provision resources.
 Real IAM enforcement and mount behavior remain part of the opt-in AWS canaries.
+
+The hosted credential proof uses the existing deployment-owned integration fixture.
+After deploying the candidate and loading its runtime environment, set
+`AWS_E2E_CREDENTIAL_PROOF=true` with `AWS_E2E=true` and `AWS_E2E_REAL_CODEX=true`,
+then run `npx vitest run tests/aws/environment-credentials.test.ts`.
+It creates two disposable hosted Sessions, uses the fixture's synthetic alpha/beta
+credentials to verify rotation and HTTPS substitution, checks guest UID/key isolation,
+and requires Session secrets to enter deletion after cleanup. It never reads
+Secrets Manager values through the test client.
+
+`AWS_E2E_WORKER_RECOVERY=true` enables the recovery cases in
+`tests/aws/session-recovery.test.ts`. Set `AWS_E2E_RECOVERY_LAUNCH_TEMPLATE_ID` to
+the exact deployment template. Each injection verifies account, deployment, Run,
+execution generation and instance tags before terminating its own fixture worker.
+The missing-checkpoint case waits for termination, then uses a conditional write
+to give only that disposable Session an absent native thread reference. It proves
+the deployed resume failure and public-history fallback; it does not delete shared
+checkpoint files or claim to simulate every possible storage-corruption mode.
+
+`AWS_E2E_SCHEDULE_PROOF=true` enables `tests/aws/schedules.test.ts`. It creates a
+one-time schedule two minutes ahead, observes the outbox-created EventBridge
+schedule, requires exactly one completed canonical Session, then verifies schedule
+and Session cleanup. Both `RAT_THINGS_API_URL` (administration) and
+`RAT_THINGS_AGENTS_API_URL` must refer to the candidate deployment.
+
+`AWS_E2E_MULTI_AGENT_PROOF=true` enables `tests/aws/multi-agent.test.ts`. The live
+model fills capacities one and six with children waiting on long-running commands
+in one hosted environment (subagents do not inherit function tools),
+attempts an over-capacity spawn, then interrupts and restarts the same child three
+times before requiring a completed child reply. It verifies public coordination
+Items and stable child identities. Each test deletes its Session and Agent.
+
+`AWS_E2E_MCP_PROOF=true` enables `tests/aws/mcp.test.ts`. The deployment-owned
+integration fixture supplies a real HTTP MCP server and a synthetic OAuth token
+endpoint. The cases cover proactive expired-token refresh, refresh after HTTP 401,
+metadata, public MCP Items, secret redaction and revocation on a subsequent call.
+Audit messages contain only the test proof ID and account, never credential values.
+The tests remove their own Sessions, Vaults and matching audit messages.
+
+`AWS_E2E_PROVIDER_PROOF=true` enables `tests/aws/provider-tools.test.ts`, with
+`AWS_E2E=true`, `AWS_E2E_REAL_CODEX=true` and an admitted
+`AWS_E2E_CODEX_MODEL_ID`. Direct, programmatic and deferred application functions
+must produce a required action, accept a client-supplied opaque token, retain one
+function result, and return that token. A separate declared live web-search case
+requires a completed public search Item. These are real model calls against
+`RAT_THINGS_AGENTS_API_URL`; each case deletes its own Session and Agent.
+
+`AWS_E2E_PUBLIC_MCP_PROOF=true` enables `tests/aws/public-mcp.test.ts` with the
+same real-model opt-ins. It calls the public OpenAI documentation MCP at
+`https://developers.openai.com/mcp`, separately from the service and a restricted
+hosted environment. Both cases require discovered tools, a completed public MCP
+Item and a documentation URL in the answer, then delete their Session and Agent.
+
+`AWS_E2E_FILE_BOUNDARY_PROOF=true` enables `tests/aws/file-boundaries.test.ts` with
+the same real-model opt-ins. It uploads 10 MiB inline across 50 input files and
+copies a 50 MiB Files API input, and creates, captures, downloads and hashes
+500 MiB of output (200/200/100 MiB).
+It also checks that deleting an artifact leaves its environment file intact.
+Allow at least 20 minutes with `AWS_E2E_TIMEOUT_MS=1200000`; this opt-in performs
+large real AWS transfers and deletes its Session and Agent afterward.
+
+`AWS_E2E_WORKER_RETIREMENT_PROOF=true` enables
+`tests/aws/worker-retirement.test.ts` on the dedicated EC2 backend. Set
+`AWS_E2E_RECOVERY_LAUNCH_TEMPLATE_ID` to the deployment's exact template. The
+canary deliberately fails hosted setup, verifies the durable failure, and waits
+for automatic instance termination before deleting the Session. If it times out,
+its cleanup terminates only the instance whose deployment, template, Run and
+generation match this fixture; that cleanup does not count as a passing proof.
+
+### Focused Agents release acceptance
+
+Against an already deployed, digest-pinned disposable AWS stack, source its saved
+`runtime.env` and opt into `tests/aws/api-closeout.test.ts` with
+`AWS_E2E=true AWS_E2E_REAL_CODEX=true AWS_E2E_API_CLOSEOUT_PROOF=true`.
+It checks narrowed permissions, whole-batch inference denial, atomic model
+updates, native tool traces, pagination and deletion. `AWS_E2E_OTLP_OUTPUT` names
+a local file for a real CLI export comparison. Set
+`AWS_E2E_OTLP_COLLECTOR_URL` to your own collector's `/v1/traces` endpoint to check
+OTLP acceptance; retain the collector's received-span evidence as well as HTTP
+success. The token renewal case advances only the client's renewal deadline; it
+does not claim a fifteen-minute expiry soak.
+
+`AWS_E2E_HEARTBEAT_EXPIRY_PROOF=true` opts into
+`tests/aws/heartbeat-expiry.test.ts`. It requires the dedicated EC2 backend and
+saved deployment/template inputs. After its disposable Session completes a Turn,
+it verifies worker deployment, Run and generation tags, conditionally ages only
+that Run's durable heartbeat, and invokes the deployed reconciler. The proof
+requires the specific expiry error and automatic EC2 termination before cleanup.
+A live heartbeat may defeat the injection; bounded retries preserve that race
+fence. This is a fault-injection proof of the one-hour decision through AWS, not
+an hour of wall-clock inactivity. Failed proofs may terminate their verified
+fixture worker during cleanup, which is logged separately from acceptance.

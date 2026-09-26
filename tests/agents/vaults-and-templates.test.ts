@@ -1,3 +1,4 @@
+import { iamApiPrincipal } from '../../src/domain/api-permissions.js';
 import OpenAI from 'openai';
 import type { CredentialAuthCreateParam } from 'openai/resources/beta/agents/vaults/credentials';
 import { describe, expect, it } from 'vitest';
@@ -20,12 +21,48 @@ function fixture() {
   const templates = new EnvironmentTemplateService({ store });
   const agents = new AgentService({ store });
   const client = (owner: string) => new OpenAI({ apiKey: 'test', baseURL: 'https://rat.invalid/v1', maxRetries: 0,
-    fetch: (input, init) => routeAgentsRequest(new Request(input, init), owner, { agents, vaults, templates }),
+    fetch: (input, init) => routeAgentsRequest(new Request(input, init), iamApiPrincipal(owner), { agents, vaults, templates }),
   }).beta.agents;
   return { store, secrets, vaults, templates, api: client('alice'), other: client('bob') };
 }
 
 describe('vault and environment template contracts', () => {
+  it('stores and rotates environment credentials without exposing values or allowing MCP use', async () => {
+    const f = fixture();
+    const vault = await f.api.vaults.create();
+    const credential = await f.api.vaults.credentials.create(vault.id, { name: 'API token', auth: {
+      type: 'environment_variable', secret_name: 'SERVICE_TOKEN', secret_value: 'private-initial-token', networking: { type: 'limited', allowed_hosts: ['API.example.com'] },
+    } });
+    expect(credential.auth).toEqual({ type: 'environment_variable', secret_name: 'SERVICE_TOKEN', networking: { type: 'limited', allowed_hosts: ['api.example.com'] } });
+    expect(JSON.stringify([...f.store.resources.values()])).not.toContain('private-initial-token');
+    expect((await f.api.vaults.list({ limit: null })).data).toEqual([vault]);
+    expect((await f.api.vaults.credentials.list(vault.id, { limit: null })).data).toEqual([credential]);
+    await expect(f.vaults.resolve('alice', [vault.id], 'https://api.example.com')).rejects.toMatchObject({ status: 400 });
+    await expect(f.vaults.authorization('alice', vault.id, credential.id, 'https://api.example.com')).rejects.toMatchObject({ status: 404 });
+    await expect(f.other.vaults.credentials.update(credential.id, { vault_id: vault.id, auth: { type: 'environment_variable', secret_value: 'unauthorized' } })).rejects.toMatchObject({ status: 404 });
+    const rotated = await f.api.vaults.credentials.update(credential.id, { vault_id: vault.id, auth: { type: 'environment_variable', secret_value: 'private-replacement-token' } });
+    expect(rotated.auth).toEqual(credential.auth);
+    expect(JSON.stringify([...f.store.resources.values()])).not.toContain('private-replacement-token');
+    expect([...f.secrets.values()]).toEqual([expect.objectContaining({ secret_value: 'private-replacement-token' })]);
+    await expect(f.api.vaults.credentials.update(credential.id, { vault_id: vault.id, auth: { type: 'static_bearer', token: 'changed-type' } })).rejects.toMatchObject({ status: 400 });
+    await f.api.vaults.credentials.delete(credential.id, { vault_id: vault.id });
+    expect(f.secrets.size).toBe(0);
+  });
+
+  it.each([
+    { secret_name: 'CODEX_HOME' }, { secret_name: 'https_proxy' }, { secret_name: 'SSL_CERT_FILE' }, { secret_name: '1TOKEN' },
+    { secret_value: '' }, { secret_value: 'token\n' }, { secret_value: 'token\0' },
+    { networking: { type: 'limited', allowed_hosts: [] } },
+    ...['https://api.example.com', 'api.example.com:443', '*.example.com', 'api.example.com/path', '::1', '999.1.1.1'].map(host => ({ networking: { type: 'limited', allowed_hosts: [host] } })),
+    { networking: { type: 'limited', allowed_hosts: ['api.example.com', 'API.example.com'] } },
+  ])('rejects invalid environment credentials before secret persistence: %j', async override => {
+    const f = fixture();
+    const vault = await f.api.vaults.create();
+    await expect(f.vaults.createCredential('alice', vault.id, { name: 'Invalid', auth: {
+      type: 'environment_variable', secret_name: 'SERVICE_TOKEN', secret_value: 'value', networking: { type: 'unrestricted' }, ...override,
+    } })).rejects.toMatchObject({ status: 400 });
+    expect(f.secrets.size).toBe(0);
+  });
   it('keeps credential secrets outside public resources and definition storage through rotation and deletion', async () => {
     const f = fixture();
     const vault = await f.api.vaults.create({ name: '  Tools  ' });

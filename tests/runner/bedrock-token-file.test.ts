@@ -43,7 +43,7 @@ it('selects native command authentication without copying bearer or AWS credenti
     CODEX_AUTH_MODE: 'bedrock', RAT_BEDROCK_AUTH_FILE: '/tmp/host-auth/token',
     AWS_BEARER_TOKEN_BEDROCK: 'stale', AWS_SECRET_ACCESS_KEY: 'private',
   });
-  expect(plan.binaryArguments).toEqual(['-c', expect.stringContaining('model_providers.amazon-bedrock.auth'), 'app-server']);
+  expect(plan.binaryArguments).toEqual(['-c', 'model_provider="amazon-bedrock"', '-c', expect.stringContaining('model_providers.amazon-bedrock.auth'), 'app-server']);
   expect(plan.environment).not.toHaveProperty('AWS_BEARER_TOKEN_BEDROCK');
   expect(plan.environment).not.toHaveProperty('AWS_SECRET_ACCESS_KEY');
   expect(plan.environment).not.toHaveProperty('RAT_BEDROCK_AUTH_FILE');

@@ -1,3 +1,4 @@
+import { iamApiPrincipal } from '../../src/domain/api-permissions.js';
 import OpenAI from 'openai';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
@@ -15,6 +16,28 @@ vi.mock('../../src/agents-client.js', () => ({ createAgentsClient: transport.cre
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllEnvs(); });
 
 describe('standard Files CLI', () => {
+  it('exports every Session trace page as an OTLP payload to a local file', async () => {
+    const requests: URL[] = [];
+    transport.create.mockReturnValue(new OpenAI({ apiKey: 'fixture', baseURL: 'https://fixture.invalid/v1', maxRetries: 0, fetch: async (input, init) => {
+      const request = new Request(input, init);
+      const url = new URL(request.url); requests.push(url);
+      expect(request.headers.get('OpenAI-Beta')).toBe('agents=v1');
+      const id = url.searchParams.has('after') ? 'trace_2' : 'trace_1';
+      return Response.json({ object: 'list', data: [{ id, otlp: { resourceSpans: [{ resource: { attributes: [] }, scopeSpans: [] }] } }], has_more: id === 'trace_1', first_id: id, last_id: id });
+    } }));
+    vi.stubEnv('RAT_THINGS_AGENTS_API_URL', 'https://fixture.invalid/v1');
+    vi.stubEnv('AWS_REGION', 'us-west-2');
+    const root = await mkdtemp(join(tmpdir(), 'rat-traces-cli-'));
+    try {
+      const target = join(root, 'traces.json');
+      await runAgentsCli(['sessions', 'traces', 'sess_1', '--output', target, '--limit', '1']);
+      expect(JSON.parse(await readFile(target, 'utf8')).resourceSpans).toHaveLength(2);
+      expect(requests).toHaveLength(2);
+      expect(requests[1]!.pathname).toBe('/v1/agents/sessions/sess_1/traces');
+      expect(requests[1]!.searchParams.get('after')).toBe('trace_1');
+    } finally { await rm(root, { recursive: true, force: true }); }
+  });
+
   it('uses SDK multipart uploads and streams the exact retained binary to a chosen destination', async () => {
     const store = new MemoryAgentsStore();
     const files = new FileService({ store, artifacts: new MemoryArtifacts() });
@@ -22,7 +45,7 @@ describe('standard Files CLI', () => {
     const requests: string[] = [];
     transport.create.mockReturnValue(new OpenAI({ apiKey: 'fixture', baseURL: 'https://fixture.invalid/v1', maxRetries: 0, fetch: (input, init) => {
       const request = new Request(input, init); requests.push(`${request.method} ${new URL(request.url).pathname}`);
-      return routeAgentsRequest(request, 'owner', { agents, files });
+      return routeAgentsRequest(request, iamApiPrincipal('owner'), { agents, files });
     } }));
     vi.stubEnv('RAT_THINGS_AGENTS_API_URL', 'https://fixture.invalid/v1');
     vi.stubEnv('AWS_REGION', 'us-west-2');

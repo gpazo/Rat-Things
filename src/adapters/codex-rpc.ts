@@ -22,7 +22,19 @@ export class CodexRpcClient {
   private closed = false;
   public constructor(options: { binary: string; binaryArguments?: string[]; cwd: string; environment: NodeJS.ProcessEnv; identity?: { uid: number; gid: number }; signal?: AbortSignal; onEvent?: (event: CodexRpcEvent) => void; onServerRequest?: (event: CodexRpcEvent & { requestId: string | number }) => Promise<unknown>; onClose?: () => void }) {
     this.child = spawn(options.binary, options.binaryArguments ?? ['app-server'], { cwd: options.cwd, env: options.environment, ...options.identity });
-    this.child.stderr.resume();
+    // Report only fixed diagnostic categories, never native stderr (which may
+    // include prompts, credentials, paths or provider payloads).
+    const reported = new Set<string>();
+    const errors = createInterface({ input: this.child.stderr });
+    errors.on('line', line => {
+      const category = /database is locked|database is busy|SQLITE_BUSY|SQLITE_LOCKED/i.test(line) ? 'sqlite_contention'
+        : /disk I\/O error|SQLITE_IOERR/i.test(line) ? 'sqlite_io'
+        : /pool timed out while waiting for an open connection/i.test(line) ? 'sqlite_pool_timeout' : undefined;
+      if (category && !reported.has(category)) {
+        reported.add(category);
+        console.error(JSON.stringify({ message: 'Native harness storage diagnostic', category }));
+      }
+    });
     this.reader = createInterface({ input: this.child.stdout });
     this.reader.on('line', (line) => {
       let value: Record<string, unknown>;
@@ -54,7 +66,12 @@ export class CodexRpcClient {
       this.waiting.clear();
       if (!notified) { notified = true; options.onClose?.(); }
     };
-    this.child.once('error', fail); this.child.once('exit', fail);
+    this.child.once('error', () => { console.error(JSON.stringify({ message: 'Native harness process failed to start' })); fail(); });
+    this.child.once('exit', (code, signal) => {
+      if (!this.closed) console.error(JSON.stringify({ message: 'Native harness process exited unexpectedly', code, signal }));
+      errors.close();
+      fail();
+    });
     if (options.signal) {
       const abort = () => { void this.close(); };
       options.signal.addEventListener('abort', abort, { once: true });

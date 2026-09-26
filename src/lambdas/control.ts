@@ -1,3 +1,4 @@
+import { iamApiPrincipal } from '../domain/api-permissions.js';
 import { getSessionPublicationService } from '../app/composition.js';
 import { parseAgentsContract } from '../domain/agents-api-validation.js';
 import type {
@@ -108,7 +109,7 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
           headers: Object.fromEntries(Object.entries(event.headers).filter((entry): entry is [string, string] => entry[1] !== undefined)),
           ...(event.body && method !== 'GET' && method !== 'HEAD' ? { body: event.isBase64Encoded ? Buffer.from(event.body, 'base64') : event.body } : {}),
         });
-        apiResponse = await routeAgentsRequest(request, owner, getAgentsApiServices(), event.requestContext.requestId, false);
+        apiResponse = await routeAgentsRequest(request, iamApiPrincipal(owner), getAgentsApiServices(), event.requestContext.requestId, false);
       } catch (error) { apiResponse = agentsErrorResponse(error, event.requestContext.requestId); }
       const headers: Record<string, string> = {};
       apiResponse.headers.forEach((value, key) => { headers[key] = value; });

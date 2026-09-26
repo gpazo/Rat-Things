@@ -41,10 +41,11 @@ export interface CodexTurnController {
   steer(text: string, input?: AgentSessionInputMessageParam[], sessionTurnId?: string): Promise<void>;
   interrupt(sessionTurnId?: string): Promise<void>;
   sessionItems?(): Promise<AgentSessionItem[]>;
-  startSessionTurn?(turn: import('../domain/agents-api.js').Turn, input: AgentSessionInputMessageParam[]): Promise<void>;
+  startSessionTurn?(turn: import('../domain/agents-api.js').Turn, input: AgentSessionInputMessageParam[], settings?: import('../domain/session-execution.js').SessionModelSettings): Promise<void>;
 }
 
 export interface CodexAppServerRequest {
+  captureTraces?: boolean;
   binary: string;
   binaryArguments?: string[];
   workspace: string;
@@ -331,7 +332,7 @@ export async function runCodexAppServer(
         version: process.env.npm_package_version ?? '0.1.0',
       },
       capabilities: {
-        experimentalApi: Boolean(request.sessionConfig || request.dynamicTools?.length),
+        experimentalApi: Boolean(request.captureTraces || request.sessionConfig || request.dynamicTools?.length),
         requestAttestation: false,
       },
     });
@@ -359,6 +360,7 @@ export async function runCodexAppServer(
     };
     const startThreadParams = {
       ...threadParams,
+      ...(request.captureTraces ? { experimentalRawEvents: true } : {}),
       ...(request.dynamicTools ? { dynamicTools: request.dynamicTools } : {}),
     };
     let threadResult: unknown;

@@ -1,15 +1,28 @@
 import type { APIGatewayProxyEventV2, APIGatewayProxyResultV2 } from 'aws-lambda';
 import { SendMessageCommand, SQSClient } from '@aws-sdk/client-sqs';
+import { planMcpFixture, planOAuthFixture } from './integration-mcp-fixture.js';
 
 const sqs = new SQSClient({});
 
 export async function handler(event: APIGatewayProxyEventV2): Promise<APIGatewayProxyResultV2> {
   const deploymentId = requiredEnv('DEPLOYMENT_ID');
   const authorization = event.headers.authorization ?? event.headers.Authorization ?? '';
+  const decodedBody = event.isBase64Encoded ? Buffer.from(event.body ?? '', 'base64').toString('utf8') : event.body;
+  if (event.rawPath === '/oauth/token' && event.requestContext.http.method === 'POST') {
+    const planned = planOAuthFixture(deploymentId, authorization, decodedBody ?? '');
+    if (planned.audit) await audit(planned.audit);
+    return response(planned.status, planned.body);
+  }
   const account = accountFor(authorization, deploymentId);
   if (!account) return response(401, { ok: false, error: 'invalid_api_key' });
   const method = event.requestContext.http.method;
   const path = event.rawPath;
+
+  if (path === '/mcp') {
+    const planned = planMcpFixture(account, method, jsonObject(decodedBody));
+    if (planned.audit) await audit(planned.audit);
+    return response(planned.status, planned.body);
+  }
 
   if (method === 'GET' && path === '/me') {
     return response(200, {
@@ -54,6 +67,10 @@ export async function handler(event: APIGatewayProxyEventV2): Promise<APIGateway
     return response(201, { ok: true, account, record: { id: recordId, name } });
   }
   return response(404, { ok: false, error: 'not_found' });
+}
+
+async function audit(value: Record<string, unknown>): Promise<void> {
+  await sqs.send(new SendMessageCommand({ QueueUrl: requiredEnv('AUDIT_QUEUE_URL'), MessageBody: JSON.stringify(value) }));
 }
 
 function accountFor(authorization: string, deploymentId: string): 'alpha' | 'beta' | undefined {

@@ -1,5 +1,28 @@
 # Item and event projection follow-up
 
+## September 24 collaboration-content correction
+
+The deployed multi-agent proof exposed opaque collaboration message payloads
+being labeled `output_text` in create/send calls. The native v2 router treats a
+message as plaintext only when `encrypted_function_args` is explicitly `[]`;
+missing, null and nonempty metadata select encrypted communication. This rule is
+defined by `ToolCall::direct_source` in the pinned upstream
+[`tools/router.rs`](https://github.com/openai/codex/blob/6b9826e3aa83b1a5947db50f4332cb9c65f1b340/codex-rs/core/src/tools/router.rs),
+and `communication_from_tool_message` in
+[`multi_agents_v2.rs`](https://github.com/openai/codex/blob/6b9826e3aa83b1a5947db50f4332cb9c65f1b340/codex-rs/core/src/tools/handlers/multi_agents_v2.rs).
+
+The pure coordination planner now persists that distinction through activity
+completion and restored history. The Item projector preserves encrypted content
+without inspecting its string prefix; native v1 plaintext remains unchanged.
+Regressions cover create, message and follow-up calls, explicitly plaintext
+strings with an opaque-looking prefix, empty/null/missing metadata and replay.
+The native fixture checks actual encrypted and plaintext delivery and the public
+create-call content against the same pinned harness. Sixteen focused tests and
+the repository check (1,044 passed, 39 opt-in skips) pass. Image and AWS acceptance
+of this correction are tracked in the September 23 continuation.
+
+## Earlier audit
+
 This local audit follows the HTTP/artifact and usage corrections. It does not
 change AWS, the active soak candidate, Terraform resources or the native binary.
 The functional-programming guide informs the implementation: native notifications
@@ -82,3 +105,56 @@ bounded native and replay evidence.
 Exhaustive field/default/error comparisons and the remaining live acceptance rows
 continue in the [conformance ledger](agents-api-conformance.md). The obsolete-code
 and IAM candidates remain in the [caller audit](obsolete-caller-audit-2026-09-14.md).
+
+
+## September 24 live evidence and narrower follow-up
+
+The current storage/provider acceptance report records passing deployed
+create/send/wait/interrupt behavior at capacities 1 and 6, including three
+interrupted follow-ups and typed sender/recipient content. Direct, programmatic
+and deferred function calls now retain one public result in AWS. Web search
+produces a completed public call; real documentation MCP calls work at both
+service and environment origins. These results are attributed to `c2c6e34`'s
+image rather than extrapolated to every subsequent build.
+
+The [multi-agent guide](https://developers.openai.com/api/docs/guides/agents-api/multi-agent)
+explicitly excludes function tools from subagents. The existing runtime denial
+check is the relevant child-function boundary; implementing application function
+execution inside children is not a missing feature. Remaining focused cases are
+resume/close and nested identity/content projection, input-image/restored-history
+variants, and interrupted/error Item lifecycle and causal ordering across the
+remaining families. Schema union coverage alone does not close these cases.
+
+## September 25 Subagent resource correction
+
+The public Subagent resource now preserves the same encrypted-versus-plaintext
+initial task content as its create Item. A successful resume retains the original
+creator, opening time and initial task while clearing closure state. Regressions
+first reproduced encrypted tasks labeled as text and a sibling resume replacing
+the original task and creator. The pure reducer correction passes 24 focused
+checks and 405 strict native cases, including actual v1/v2 child creation. Live
+acceptance of this latest correction remains separate from the earlier typed
+Item acceptance above.
+
+
+## Bounded Item/event inventory closure
+
+The earlier "broader variants" wording is superseded by this finite mapping:
+
+| Contract | Passing evidence |
+| --- | --- |
+| Text phases and image input/history | `transport-and-launch`, `session-item-events`, `session-message-history` (historical image snapshot/replay) |
+| Interrupted reasoning/message/command/MCP/search/function lifecycle; Item-before-Turn ordering | `session-item-interruption`, `native-item-events` |
+| Function namespace, falsey/image outputs and failure correlation | `native-tools`, `session-function-output` |
+| Agent message typed content, nested identity and restored history | `session-message-history`; native restored command/MCP/collaboration history in `native-session` |
+| MCP/command completed and failed output/error correspondence | `session-item-events`; native success and deployed provider evidence remain in the live report |
+| Collaboration operations and Subagent identity | `session-message-history`, `session-runtime`, `native-session`; corrected AWS capacity-six result in `agents-api-closeout-next.md` |
+| Exact compaction accounting, duplicate responses and parent/child separation | `session-runtime` |
+
+The direct close/replay regression exposed closure timestamps changing on
+replayed notifications. The reducer now preserves the first close time until a
+real reopen. This local change requires final-release deployment. The exploratory
+private v1 close/resume prompt is not a separate public feature requirement: public
+projection and lifecycle have literal schema-backed assertions, and deployed
+create/send/wait/interrupt remains a distinct live proof. No new provider billing
+accuracy or historical SSE replay guarantees are introduced.

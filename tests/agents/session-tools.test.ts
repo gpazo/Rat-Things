@@ -10,14 +10,53 @@ import { SessionToolService } from '../../src/core/session-tool-service.js';
 import { VaultService } from '../../src/core/vault-service.js';
 import { createSessionMcpProxy, planMcpRequest } from '../../src/runner/session-mcp.js';
 import type { AgentToolParam } from '../../src/domain/agents-api.js';
-import type { SessionToolSecret } from '../../src/credentials/session-tools.js';
+import type { SessionCredentialSecret } from '../../src/credentials/session-tools.js';
 import { MemoryAgentsStore } from './fixtures.js';
 import { rpcClient } from './codex-protocol.js';
 
 describe('session MCP capabilities', () => {
+  it('refreshes a rejected bearer once while preserving the reconnect cursor and request body', async () => {
+    const calls: Array<{ headers: Headers; body: BodyInit | null | undefined }> = [];
+    const grants: Array<string | undefined> = [];
+    const proxy = await createSessionMcpProxy({ serverURL: 'https://mcp.example/service', headers: {}, metadata: { enabled: false }, allowedTools: ['lookup'],
+      authorization: async rejected => { grants.push(rejected); return rejected ? 'Bearer fresh-secret' : 'Bearer stale-secret'; },
+      fetch: async (_url, init) => {
+        calls.push({ headers: new Headers(init!.headers), body: init!.body });
+        return calls.length === 1 ? new Response('private rejection detail', { status: 401 })
+          : new Response('id: next\ndata: {"jsonrpc":"2.0","id":1,"result":{}}\n\n', { headers: { 'content-type': 'text/event-stream', 'mcp-session-id': 'owned-session' } });
+      },
+    });
+    try {
+      const response = await fetch(proxy.url, { method: 'POST', headers: { authorization: `Bearer ${proxy.key}`, 'content-type': 'application/json', 'mcp-session-id': 'owned-session', 'mcp-protocol-version': '2025-03-26', 'last-event-id': 'previous' },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'lookup', arguments: {} } }) });
+      expect(response.status).toBe(200);
+      expect(await response.text()).toBe('id: next\ndata: {"jsonrpc":"2.0","id":1,"result":{}}\n\n');
+      expect(response.headers.get('mcp-session-id')).toBe('owned-session');
+      expect(grants).toEqual([undefined, 'Bearer stale-secret']);
+      expect(calls).toHaveLength(2);
+      expect(calls.map(call => call.headers.get('authorization'))).toEqual(['Bearer stale-secret', 'Bearer fresh-secret']);
+      expect(calls.every(call => call.headers.get('last-event-id') === 'previous' && call.headers.get('mcp-session-id') === 'owned-session')).toBe(true);
+      expect(calls[1]!.body).toEqual(calls[0]!.body);
+      expect(JSON.parse(String(calls[1]!.body))).toMatchObject({ params: { _meta: { enabled: false } } });
+    } finally { await proxy.close(); }
+  });
+
+  it('never repeats an ambiguous MCP tool effect or leaks its provider failure', async () => {
+    let calls = 0;
+    const proxy = await createSessionMcpProxy({ serverURL: 'https://mcp.example/service', headers: {}, metadata: {}, allowedTools: ['save'],
+      fetch: async () => { calls++; throw new Error('private provider token'); } });
+    try {
+      const response = await fetch(proxy.url, { method: 'POST', headers: { authorization: `Bearer ${proxy.key}`, 'content-type': 'application/json' },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'save', arguments: {} } }) });
+      expect(response.status).toBe(502);
+      expect(await response.json()).toEqual({ error: 'MCP request failed' });
+      expect(calls).toBe(1);
+    } finally { await proxy.close(); }
+  });
+
   it('keeps inline credentials out of public settings and encrypted session metadata', async () => {
     const store = new MemoryAgentsStore();
-    const secrets = new Map<string, SessionToolSecret>();
+    const secrets = new Map<string, SessionCredentialSecret>();
     const tools: AgentToolParam[] = [{ type: 'mcp', server_label: 'crm', transport: {
       type: 'http', server_url: 'https://crm.example/mcp', authorization: 'Bearer private-token', headers: { 'X-Private': 'private-header' },
     } }];
@@ -31,7 +70,7 @@ describe('session MCP capabilities', () => {
     await service.prepare('alice', 'sess_1', agent, tools, []);
     expect(JSON.stringify(agent)).not.toContain('private-');
     expect(JSON.stringify([...store.resources.values()])).not.toContain('private-');
-    expect(secrets.get('secret-ref')?.headers.Authorization).toBe('Bearer private-token');
+    expect(secrets.get('secret-ref')).toMatchObject({ headers: { Authorization: 'Bearer private-token' } });
     expect(agent.tools[0]).toMatchObject({ transport: { type: 'http', server_url: 'https://crm.example/mcp' } });
     await service.close('alice', 'sess_1');
     expect(secrets.size).toBe(0);

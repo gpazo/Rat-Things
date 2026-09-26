@@ -7,6 +7,7 @@ import type { RunRecord } from '../domain/contracts.js';
 import { recoveryMessageForRun } from '../core/run-recovery.js';
 import {
   createExecutionInspectorFromEnv,
+  createTerminalWorkerReconcilerFromEnv,
   createExecutorRegistryFromEnv,
 } from '../adapters/executors.js';
 import { ActiveRunReconciler } from '../execution/reconciler.js';
@@ -16,6 +17,7 @@ const clients = createAwsClients();
 const tableName = requiredEnv('RUNS_TABLE_NAME');
 const queueUrl = requiredEnv('RUN_QUEUE_URL');
 const store = new DynamoRunStore(clients.dynamodb, tableName);
+const terminalWorkers = createTerminalWorkerReconcilerFromEnv(id => store.get(id));
 const activeRuns = new ActiveRunReconciler({
   store,
   inspector: createExecutionInspectorFromEnv(),
@@ -35,6 +37,7 @@ export const handler: EventBridgeHandler<'Scheduled Event', Record<string, never
   const heartbeatCutoff = new Date(Date.now() - heartbeatAgeSeconds * 1_000).toISOString();
   await reconcileStaleAttachedExecutions(heartbeatCutoff);
   await reconcileCancellations(cutoff);
+  if (terminalWorkers) emitMetric('reconciler', 'TerminalWorkersRetired', await terminalWorkers.reconcile(), 'Count');
 };
 
 async function requeue(cutoff: string): Promise<void> {
@@ -125,6 +128,7 @@ async function reconcileAttachedRun(run: RunRecord): Promise<void> {
     failed: 'ExecutionLost',
     cancelled: 'CancellationFinalized',
     'stop-requested': 'CancellationStopRequested',
+    'heartbeat-expired': 'ExecutionHeartbeatExpired',
     deferred: 'ExecutionInspectionDeferred',
     quarantined: 'ExecutionQuarantined',
     raced: 'ExecutionReconcileRace',

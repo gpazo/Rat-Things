@@ -13,6 +13,7 @@ import { SessionRuntime } from './session-runtime.js';
 import type { SessionRuntimeState } from '../core/session-runtime-planning.js';
 
 export interface AgentExecution {
+  environmentExpired?: boolean;
   outcome?: 'completed' | 'interrupted' | 'failed';
   fullText: string;
   exitCode: number;
@@ -39,9 +40,11 @@ export interface AgentDriver {
 }
 
 export interface AgentDriverControl {
+  captureTraces?: boolean;
   session?: SessionLaunch;
   sessionEnvironmentToken?: string;
   sessionMcp?: import('./session-mcp.js').SessionMcpRuntime;
+  sessionEnvironmentCredentials?: import('./session-environment-credentials.js').SessionEnvironmentCredentialsRuntime;
   sessionRuntime?: { previous?: SessionRuntimeState; lifetime?: 'bounded' | 'host-managed'; changed(state: SessionRuntimeState): void; flush(): Promise<void> };
   dynamicTools?: Array<Record<string, unknown>>;
   onEvent?(event: CodexAppServerEvent): void | Promise<void>;
@@ -71,7 +74,8 @@ export class CodexDriver implements AgentDriver {
     const plan = planCodexLaunch(request, workspace, timeoutMs, process.env);
     const launch: CodexAppServerRequest = {
       ...plan,
-      ...(control?.session ? planSessionLaunch(plan, control.session, control.sessionEnvironmentToken, control.sessionMcp) : {}),
+      ...(control?.captureTraces ? { captureTraces: true } : {}),
+      ...(control?.session ? planSessionLaunch(plan, control.session, control.sessionEnvironmentToken, control.sessionMcp, control.sessionEnvironmentCredentials) : {}),
       ...(signal ? { signal } : {}),
       ...(control?.onEvent ? { onEvent: control.onEvent } : {}),
       ...(control?.onServerRequest ? { onServerRequest: control.session ? (event) => {
@@ -98,7 +102,7 @@ export class CodexDriver implements AgentDriver {
         const roots = snapshot.turns.filter((binding) => binding.turn.subagent_id === null);
         const latest = roots.at(-1);
         return { fullText: (latest?.items ?? []).flatMap((item) => item.type === 'message' && item.role === 'assistant' ? item.content.flatMap((part) => part.type === 'output_text' ? [part.text] : []) : []).join('\n\n'),
-          threadId: snapshot.rootThreadId, exitCode: 0, durationMs: Date.now() - started, events: Buffer.alloc(0),
+          threadId: snapshot.rootThreadId, exitCode: 0, durationMs: Date.now() - started, events: Buffer.alloc(0), environmentExpired: runtime.sandboxExpired(),
         };
       } finally { await runtime.close(); await control.sessionRuntime.flush(); }
     }
