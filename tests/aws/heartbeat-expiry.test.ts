@@ -14,6 +14,7 @@ const timeoutMs = Number(process.env.AWS_E2E_TIMEOUT_MS ?? 420_000);
 live('expires a verified dedicated worker after fault-injected one-hour heartbeat loss', async () => {
   if (process.env.AWS_E2E_REAL_CODEX !== 'true' || process.env.AWS_E2E_ENABLE_EC2_WORKER !== 'true') throw new Error('Explicit dedicated-worker/model opt-in required');
   const region = required('AWS_REGION');
+  const templateId = required('AWS_E2E_RECOVERY_LAUNCH_TEMPLATE_ID');
   const deployment = `rat-things-${required('AWS_E2E_DEPLOYMENT_ID')}`;
   const db = DynamoDBDocumentClient.from(new DynamoDBClient({ region }));
   const ec2 = new EC2Client({ region });
@@ -23,7 +24,7 @@ live('expires a verified dedicated worker after fault-injected one-hour heartbea
     if (!run?.execution?.generation) throw new Error('Missing fenced worker');
     const instance = (await ec2.send(new DescribeInstancesCommand({ InstanceIds: [run.execution.id] }))).Reservations?.flatMap(value => value.Instances ?? [])[0];
     const tags = Object.fromEntries((instance?.Tags ?? []).map(tag => [tag.Key, tag.Value]));
-    expect(tags).toMatchObject({ RatDeployment: deployment, RatRunId: run.runId, RatGeneration: run.execution.generation, 'aws:ec2launchtemplate:id': required('AWS_E2E_RECOVERY_LAUNCH_TEMPLATE_ID') });
+    expect(tags).toMatchObject({ RatDeployment: deployment, RatRunId: run.runId, RatGeneration: run.execution.generation, 'aws:ec2launchtemplate:id': templateId });
     return instance!;
   };
   try {

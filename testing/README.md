@@ -235,3 +235,27 @@ canary deliberately fails hosted setup, verifies the durable failure, and waits
 for automatic instance termination before deleting the Session. If it times out,
 its cleanup terminates only the instance whose deployment, template, Run and
 generation match this fixture; that cleanup does not count as a passing proof.
+
+### Focused Agents release acceptance
+
+Against an already deployed, digest-pinned disposable AWS stack, source its saved
+`runtime.env` and opt into `tests/aws/api-closeout.test.ts` with
+`AWS_E2E=true AWS_E2E_REAL_CODEX=true AWS_E2E_API_CLOSEOUT_PROOF=true`.
+It checks narrowed permissions, whole-batch inference denial, atomic model
+updates, native tool traces, pagination and deletion. `AWS_E2E_OTLP_OUTPUT` names
+a local file for a real CLI export comparison. Set
+`AWS_E2E_OTLP_COLLECTOR_URL` to your own collector's `/v1/traces` endpoint to check
+OTLP acceptance; retain the collector's received-span evidence as well as HTTP
+success. The token renewal case advances only the client's renewal deadline; it
+does not claim a fifteen-minute expiry soak.
+
+`AWS_E2E_HEARTBEAT_EXPIRY_PROOF=true` opts into
+`tests/aws/heartbeat-expiry.test.ts`. It requires the dedicated EC2 backend and
+saved deployment/template inputs. After its disposable Session completes a Turn,
+it verifies worker deployment, Run and generation tags, conditionally ages only
+that Run's durable heartbeat, and invokes the deployed reconciler. The proof
+requires the specific expiry error and automatic EC2 termination before cleanup.
+A live heartbeat may defeat the injection; bounded retries preserve that race
+fence. This is a fault-injection proof of the one-hour decision through AWS, not
+an hour of wall-clock inactivity. Failed proofs may terminate their verified
+fixture worker during cleanup, which is logged separately from acceptance.

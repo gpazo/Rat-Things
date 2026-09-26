@@ -1,5 +1,15 @@
 # Remaining Agents API closeout
 
+Release continuation: application commit `5fe5ced` is committed and deployed.
+The digest pins in `testing/aws/releases/ag260913a-image.json` select worker
+launch-template version 14 and API/relay task revisions 22/19. The original state
+lineage is preserved (serial 620 at apply). Local full checks, 423 strict native
+image tests, console checks and live scope/model/trace/collector checks passed.
+Final expiry, cleanup and merge acceptance is recorded in
+[PR #1](https://github.com/gpazo/Rat-Things/pull/1); the sections below preserve the
+implementation cycle's original evidence and release-gate rationale.
+
+
 ## Workflow
 
 - [x] Read the Principles section of poteto-mode.
