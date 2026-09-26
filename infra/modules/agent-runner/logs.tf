@@ -1,11 +1,5 @@
 locals {
-  # Retain prior lifecycle logs at their existing addresses for investigation.
-  retired_lambda_logs = {
-    conversation-completion  = true
-    conversation-coordinator = true
-  }
   lambda_names = merge(
-    local.retired_lambda_logs,
     {
       agents-api        = true
       agents-outbox     = true

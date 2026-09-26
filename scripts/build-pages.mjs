@@ -20,10 +20,6 @@ const homepageAssetFiles = [
   'rat-things-architecture-demo-poster.jpg',
   'rat-things-hero.jpg',
   'rat-things-og-v2.jpg',
-  'connections-console.png',
-];
-const documentationSharedAssetFiles = [
-  'connections-console.png',
 ];
 
 marked.setOptions({ gfm: true });
@@ -87,9 +83,6 @@ const orderedGuides = guideGroups.flatMap((group) => group.documents.map((file) 
 
 await mkdir(docsOutput, { recursive: true });
 await copyDocumentationAssets(docsEntries);
-for (const file of documentationSharedAssetFiles) {
-  await cp(join('assets', file), join(docsOutput, 'assets', file));
-}
 await writeFile(join(docsOutput, 'index.html'), renderDocsHome(groups, docs));
 await mkdir(guidesOutput, { recursive: true });
 await writeFile(join(guidesOutput, 'index.html'), renderGuidesHome(guideGroups, guides));

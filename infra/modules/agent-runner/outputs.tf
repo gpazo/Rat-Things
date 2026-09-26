@@ -69,33 +69,18 @@ output "runs_table_name" {
   value = aws_dynamodb_table.runs.name
 }
 
-output "conversations_table_name" {
-  description = "DynamoDB table retained from the retired conversation API."
-  value       = aws_dynamodb_table.conversations.name
-}
-
 output "integrations_table_name" {
   description = "DynamoDB table holding owner-scoped connection metadata, grants, sets, and source bindings."
   value       = aws_dynamodb_table.integrations.name
 }
 
-output "routines_table_name" {
-  description = "DynamoDB table holding owner-scoped routine schedules and encrypted request references."
-  value       = aws_dynamodb_table.routines.name
-}
-
-output "things_table_name" {
-  description = "DynamoDB table holding owner-scoped Thing lifecycle metadata and immutable version references."
-  value       = aws_dynamodb_table.things.name
-}
-
 output "thing_schedule_group_name" {
-  description = "EventBridge Scheduler group containing deployment-owned Thing schedules."
+  description = "EventBridge Scheduler group containing deployment-owned Session schedules."
   value       = aws_scheduler_schedule_group.things.name
 }
 
 output "thing_schedule_failure_queue_url" {
-  description = "Dead-letter queue for Thing schedules that exhaust target retries."
+  description = "Dead-letter queue for Session schedules that exhaust target retries."
   value       = aws_sqs_queue.thing_schedule_failures.url
 }
 
@@ -105,21 +90,6 @@ output "run_queue_url" {
 
 output "run_queue_arn" {
   value = aws_sqs_queue.runs.arn
-}
-
-output "conversation_queue_url" {
-  description = "Retained retired conversation queue; has no producer or consumer."
-  value       = aws_sqs_queue.conversations.url
-}
-
-output "conversation_failure_queue_url" {
-  description = "Retained failure queue for the retired conversation coordinator."
-  value       = aws_sqs_queue.conversation_dlq.url
-}
-
-output "conversation_completion_failure_queue_url" {
-  description = "Retained failure queue for the retired conversation completion handler."
-  value       = aws_sqs_queue.conversation_completion_failures.url
 }
 
 output "run_failure_queue_url" {

@@ -1,5 +1,7 @@
 # Private helper and administration permission caller audit
 
+Current disposition: [completed obsolete implementation cleanup](obsolete-implementation-removal.md). The sections below preserve the original caller evidence and its validation chronology.
+
 This is a source caller audit performed while the AWS long-running observer is
 active. It does not establish live API parity. No AWS resources, Terraform
 configuration, deployed images, credentials or retained data were changed by this

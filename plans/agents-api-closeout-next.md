@@ -1,5 +1,10 @@
 # Remaining Agents API closeout
 
+Cleanup follow-up: the user authorized deletion of legacy test data. The
+[September 26 cleanup inventory](obsolete-implementation-removal.md) supersedes
+retained-data/binding/media tasks below; only optional native build efficiency
+remains outside the completed migration.
+
 Release continuation: application commit `5fe5ced` is committed and deployed.
 The digest pins in `testing/aws/releases/ag260913a-image.json` select worker
 launch-template version 14 and API/relay task revisions 22/19. The original state

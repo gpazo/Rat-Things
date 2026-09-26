@@ -65,6 +65,8 @@ The intended contract remains an AWS-owned implementation: backend, harness, ses
 
 ## Obsolete implementation cleanup
 
+September 26 disposition: [the cleanup inventory](obsolete-implementation-removal.md) supersedes the historical remaining-work paragraph below. Legacy test resources and obsolete media are removed; binding/schedule and fixture inventories are resolved. Native build efficiency remains optional.
+
 The old public Run/conversation/Thing/Routine API, coordinator and unused grants were already removed. Remaining cleanup is old deployment data/bindings, fixtures whose replacements are proven, historical demo media and optional native build-size optimization. Keep private Run execution machinery, active integration consumers and physical resource names still serving canonical Sessions. These are not additional Agents API features and should not delay functional acceptance unless a concrete dependency or security issue is found.
 
 ## Evidence and limits

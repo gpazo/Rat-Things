@@ -99,11 +99,9 @@ Terraform resource names and `/conversations` access-point root stay unchanged s
 existing Session state remains reachable; they do not imply a second coordination
 service.
 
-Retired Thing, Routine and conversation tables and queues remain isolated in
-`infra/modules/agent-runner/retired-data.tf` pending explicit data disposition.
-Existing retention and TTL policies still apply. No application role accesses
-those resources. Retained conversation execution records cannot dispatch or be
-requeued by the new runtime.
+The deployment has no Thing, Routine or conversation tables, queues or
+coordinator services. Private execution records using the retired conversation
+contract cannot dispatch or be requeued by the Session runtime.
 
 ## Recovery and delivery
 

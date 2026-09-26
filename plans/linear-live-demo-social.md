@@ -1,3 +1,5 @@
+> Historical pre-migration demo. Referenced Linear media was removed during test-deployment cleanup; it remains available in Git history.
+
 > Historical media from the pre-Agents API implementation; not current migration evidence.
 
 # Linear live AWS demo launch kit

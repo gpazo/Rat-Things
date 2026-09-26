@@ -31,36 +31,12 @@ output "runs_table_name" {
   value = module.agent_runner.runs_table_name
 }
 
-output "conversations_table_name" {
-  value = module.agent_runner.conversations_table_name
-}
-
 output "integrations_table_name" {
   value = module.agent_runner.integrations_table_name
 }
 
-output "routines_table_name" {
-  value = module.agent_runner.routines_table_name
-}
-
-output "things_table_name" {
-  value = module.agent_runner.things_table_name
-}
-
 output "run_queue_url" {
   value = module.agent_runner.run_queue_url
-}
-
-output "conversation_queue_url" {
-  value = module.agent_runner.conversation_queue_url
-}
-
-output "conversation_failure_queue_url" {
-  value = module.agent_runner.conversation_failure_queue_url
-}
-
-output "conversation_completion_failure_queue_url" {
-  value = module.agent_runner.conversation_completion_failure_queue_url
 }
 
 output "run_failure_queue_url" {

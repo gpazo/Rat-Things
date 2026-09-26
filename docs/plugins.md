@@ -339,8 +339,6 @@ integration_oauth_app_secret_arns = {
 `host-required` and returns the exact callback URL. Start a connection from the desktop Connections
 page or the CLI:
 
-![Connections workspace with verified accounts, access ceilings, disconnect controls, and installed provider onboarding](../assets/connections-console.png)
-
 ```bash
 rat-things connect slack --oauth --wait --access read-write --alias slack-work
 # Add --no-browser on a headless operator host and open the printed URL elsewhere.

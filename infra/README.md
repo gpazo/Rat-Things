@@ -133,14 +133,12 @@ Service references:
 - <https://docs.aws.amazon.com/lambda/latest/dg/microvms-networking.html>
 - <https://docs.aws.amazon.com/lambda/latest/dg/microvms-launching.html>
 
-## Retired data
+## Legacy deployment cutover
 
-`modules/agent-runner/retired-data.tf` retains the former Thing, Routine and
-conversation tables and conversation queues at their existing Terraform addresses.
-They have no application producers, consumers or IAM grants. Existing TTL and queue
-retention policies still apply. The old coordinator/completion log groups also
-remain for investigation. Decide export, retention and disposition before removing
-these resources from a deployed stack.
+This module no longer declares the former Thing, Routine and conversation tables,
+conversation queues, or coordinator/completion log groups. Applying it to a stack
+that still contains those resources deletes them and their data. Review the plan
+before applying to a deployment whose historical data needs preservation.
 
 The S3 Files resources still serve current Sessions. Their historical
 `conversation_state` names and `/conversations` access-point root must remain
