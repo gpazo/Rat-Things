@@ -1,10 +1,10 @@
-# Development, deployment, and migration
+# Development and deployment
 
 This is the host/operator path for installing and maintaining an independent Rat Things deployment.
 Consumers of an existing deployment should start with the [operating model](operating-model.md)
 instead; they do not need Terraform, Docker, or access to the runtime account.
 
-For the smallest fresh-clone deployment and a runnable Thing, start with the
+For the smallest fresh-clone deployment and a runnable Agent and Session, start with the
 [AWS quickstart](quickstart.md). It deliberately omits accounts, VPC/NAT, schedules, and
 public sharing. Return here when choosing a longer-lived installation shape.
 
@@ -246,27 +246,6 @@ authorization. Add repository/actor policy and cost limits before production.
 
 Teams should use the outgoing-webhook/Workflow combination only as a bridge. The production Teams
 SDK/Bot gateway is a separate milestone that can reuse this run subsystem.
-
-## Migration from `indubitably-serverless`
-
-Do not import old Terraform state, reuse old tables/queues, or delete the existing webhook/worker
-path as part of creating this subsystem. Migration is a parallel-deploy and explicit cutover.
-
-1. Inventory callbacks, owner mapping, credentials, prompts/models, retry behavior, destinations,
-   metrics, budgets, and active runs.
-2. Deploy Rat Things independently and pass the mock LocalStack and live-AWS gates.
-3. Canary a dedicated repository/project with a new webhook secret and compare normalized inputs,
-   checkout SHA, output, latency, duplication, and cost.
-4. Run a read-only real-driver canary with delivery disabled, then enable one destination.
-5. Cut over one webhook or API caller; do not subscribe both systems to result-producing events
-   unless duplicate model work and comments are explicitly acceptable.
-6. Observe, drain old active runs, expand gradually, and keep the old subsystem intact for the agreed
-   rollback period.
-7. Decommission the old implementation only as a later project with its own backup, retention,
-   deletion, and rollback approval.
-
-Rollback means restoring the provider callback or API base URL to the retained old subsystem. Do not
-merge run IDs or replay the same business event without checking for an existing provider response.
 
 ## Destruction and retention
 

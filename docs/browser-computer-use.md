@@ -4,8 +4,7 @@ Browser automation for an Agent must be supplied through a declared function or
 MCP tool and enforced by the deployment's fixed capability policy. Creating a
 standard Session does not inject browser tools or grant browser authority.
 
-The former Run-scoped browser viewing, takeover and teaching routes and CLI
-commands are removed. The Session console displays saved messages, tool activity,
+The Session console displays saved messages, tool activity,
 function-result requests and artifacts; it does not provide a browser-control pane.
 
 Rat Things retains its private Chromium helper and process/network isolation code

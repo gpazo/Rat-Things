@@ -379,7 +379,6 @@ RAT_THINGS_AGENTS_API_URL=DEPLOYMENT_BASE_URL AWS_REGION=DEPLOYMENT_REGION \
 Signed provider events and schedules now submit canonical Session input. Provider
 authentication, delivery, connection installation and scheduling remain separate
 integration responsibilities. See [schedules and provider bindings](schedules.md).
-The Thing and Routine definitions and public routes are removed.
 
 Integration retries retain the saved Agent settings selected when Session
 preparation began, including inherited MCP transport headers. Editing or deleting
@@ -393,5 +392,4 @@ start a new Session instead of reconstructing its settings from a changed Agent.
 
 Publications select immutable Session artifact IDs through the separate
 `POST /v1/sessions/{sessionId}/publications` application route. See
-[sharing work](sharing-work.md). The public Run/conversation and browser takeover
-routes are removed. Session execution calls the private execution service directly.
+[sharing work](sharing-work.md). Session execution calls the private execution service directly.

@@ -27,7 +27,6 @@ Use [connections](plugins.md) for provider installation and delivery grants.
 Declare agent-facing tools explicitly on the Agent. A notification connection does
 not automatically expose that provider's operations as model tools.
 
-The former Thing and Routine APIs and CLI commands have been removed. Their saved
-tables are retained pending an explicit decision about old data. Remaining private
-execution and publication integrations are described in the repository's migration
-plan; use Agents and Sessions for new execution workflows.
+Use Agents and Sessions for execution workflows. Publish selected saved artifacts
+through [Session publications](sharing-work.md). Private worker execution records
+are managed by the service beneath the Session API.

@@ -176,10 +176,10 @@ For deployment instructions, secret formats, and a live-tenant verification chec
 Teams @mention
   -> Teams outgoing webhook (HMAC)
   -> API Gateway + webhook Lambda
-  -> durable submission, then queued-run acknowledgement (five-second provider deadline)
+  -> durable Session input, then acknowledgement (five-second provider deadline)
 
-terminal run event
-  -> notifier
+saved terminal root Turn
+  -> independent provider delivery
   -> Teams Workflow incoming URL
   -> Adaptive Card in the Workflow's configured destination
 ```
@@ -189,10 +189,11 @@ terminal run event
 Create an outgoing webhook for the target team, store the base64 HMAC secret Teams returns in
 Secrets Manager, and configure its callback URL from the Terraform output. The handler validates the
 `Authorization: HMAC ...` signature, removes the bot mention/HTML, durably writes S3/DynamoDB/SQS,
-and then returns `Rat Things request received. I'll reply when run <id> finishes.` in the original
+and then returns `Rat Things request received. I'll reply when session <id> completes a turn.` in the original
 reply chain. Completion is asynchronous through the configured Workflow or threaded gateway. The
-normalizer requires both the provider tenant ID and sender ID and derives ownership as
-`teams:<tenant>:<sender>`; a signed activity missing either identity is rejected. The
+normalizer requires both the provider tenant ID and sender ID; a signed activity
+missing either identity is rejected. The owned source binding determines Session
+ownership; tenant, sender and thread determine provider continuity. The
 handler is configured with a five-second timeout, so the synchronous persistence path does not
 guarantee an acknowledgement under cold-start or AWS-service latency; this is another reason to
 replace the bridge with a production gateway/ingest design.

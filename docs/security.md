@@ -153,10 +153,9 @@ grant. Artifact deletion and workspace-file deletion are distinct operations.
 DynamoDB TTL is asynchronous. S3 lifecycle, event retry windows, CloudWatch retention and provider
 copies have separate lifetimes. Align them with the operator's retention policy.
 
-Retired Thing/Routine/conversation data remains declared at its existing Terraform addresses for
-explicit disposition. It is not executable through the new API. Existing TTL and queue expiry
-still apply; retaining resource definitions is not an archival guarantee. The historically named
-S3 Files resources remain active Session storage and must not be removed with retired data.
+S3 Files resources hold active Session journals. Their `conversation_state` Terraform
+addresses and `/conversations` filesystem root identify Session storage. Preserve
+these resources when maintaining worker infrastructure.
 
 ## Repository and process isolation
 

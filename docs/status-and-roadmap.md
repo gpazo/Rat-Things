@@ -1,7 +1,7 @@
 # Capabilities and boundaries
 
-Rat Things accepts work into a durable control plane and runs agents in disposable AWS Lambda
-MicroVMs. Start with the [operating model](operating-model.md) for the core objects and the
+Rat Things accepts work into a durable control plane and runs agents in isolated AWS workers
+using dedicated EC2 instances or Lambda MicroVMs. Start with the [operating model](operating-model.md) for the core objects and the
 [architecture](architecture.md) for their implementation.
 
 ## Current maturity
@@ -15,13 +15,14 @@ identity, retention, network policy, and operational limits for the environment 
 | Sessions and Turns | Owner-scoped input, ordered execution, cancellation and saved Items | [Agents API](agents-api.md) |
 | Agents and schedules | Reusable standard Agent configurations and AWS schedule inputs | [Agents](agents-api.md), [schedules](schedules.md) |
 | Connections | Provider-verified accounts, host-owned credentials, grants, and account-specific operations | [Integrations](plugins.md) |
-| Capability envelope | A fixed intersection of provider, deployment, profile, account, and Run permissions | [Permissions](capability-envelope.md) |
+| Capability envelope | A fixed intersection of provider, deployment, profile, account, and Session permissions | [Permissions](capability-envelope.md) |
 | Session history | Durable outbox, runtime journal and saved Items in the console and SDK | [Session durability](conversations.md#how-durability-works) |
-| Execution | Private MicroVM harness; saved Session history remains when compute expires | [Agents execution](agents-api.md) |
-| Files and publications | Private retained bytes, owner-scoped catalogs, and expiring file/site/video share grants | [Files](durable-files.md), [publishing](publications.md) |
-| Browser | Declared function/MCP integration; private helper retained, public takeover retired | [Browser use](browser-computer-use.md) |
+| Execution | Private EC2 or MicroVM harness; saved Session history survives worker loss | [Agents execution](agents-api.md) |
+| Files and publications | Private retained bytes, immutable Session artifacts, and expiring file/site/video share grants | [Files](durable-files.md), [publishing](publications.md) |
+| Browser | Declared function/MCP integration; isolated private helper for local execution | [Browser use](browser-computer-use.md) |
 | Channels | Signed GitHub, GitLab, Teams, and optional Slack ingress with separate result delivery | [Channels](channels.md) |
-| Authentication | A deliberate file-based ChatGPT credential bridge or short-lived Bedrock model authentication | [Credential lifecycle](codex-subscription.md#credential-risk-and-lifecycle) |
+| API authentication | AWS IAM issuance and owner-bound, scoped bearer tokens | [API permissions](agents-api.md#scoped-api-keys) |
+| Model authentication | Operator-configured ChatGPT credential bridge or Bedrock access | [Credential lifecycle](codex-subscription.md#credential-risk-and-lifecycle) |
 | Recovery | Queue repair, generation-fenced liveness, cancellation settlement, and per-destination delivery fences | [Runbook](runbook.md) |
 
 ## Known gaps
@@ -58,10 +59,10 @@ The next system improvements center on four areas:
 3. Improve browser credential isolation, interaction coverage, and recording finalization without
    exposing a general remote desktop.
 4. Define shared-conversation authorization, semantic memory, and explicit handoff contracts on top
-   of the existing durable mailbox.
+   of the durable Session history and outbox.
 
-Enterprise administration and a separate always-on execution tier remain outside the current
-product scope. Lambda MicroVMs are the only remote execution backend.
+Enterprise administration remains outside the current product scope. Dedicated EC2
+workers support persistent harnesses; Lambda MicroVM workers have a bounded lifetime.
 
 ## Reference provenance
 

@@ -12,7 +12,7 @@ Built-in integrations use the same reviewed contract as services added in truste
 
 ```text
 discover integration -> supply credential -> verify provider account -> choose Rat access
-                     -> select and narrow accounts for a Thing/run -> launch autonomously
+                     -> configure notification bindings or declared Session tools -> launch autonomously
 ```
 
 ## The Integration Contract v1
@@ -25,14 +25,14 @@ discover integration -> supply credential -> verify provider account -> choose R
 | Credential binding | Host-only pointer to the encrypted credential | Reference only |
 | Grant | Persistent Rat-side permission ceiling for one connection | No |
 | Connection set | Reusable selection of accounts, including multiple accounts for one plugin | No |
-| Run selection | Selects and optionally narrows accounts for one run | No |
+| Source binding / schedule | Selects an Agent, environment and notification destinations | No |
 
 The API accepts a credential, but it does not accept claims about which account or permissions that
 credential represents. The plugin verifies the credential against its fixed provider API and
 derives the account label, tenant/subject identifiers, provider access, and provider scopes. Only a
 successful verification creates the secret and connection metadata.
 
-The credential value is never returned. It is not copied into a run request, Thing, DynamoDB record,
+The credential value is never returned. It is not copied into an Agent or Session definition, DynamoDB record,
 MicroVM launch payload, App Server tool schema, model-visible environment variable, URL, or log.
 
 ## 1. Discover what the deployment supports
@@ -181,7 +181,7 @@ owner's Sessions, schedules, connection sets, and source bindings that select th
 authoritative definitions; it does not read the credential.
 
 The optional display name is presentation only. Renaming does not change the stable alias or ID
-used by notification bindings, Run requests and the CLI. The desktop details view also shows provider
+used by notification bindings, schedules and the CLI. The desktop details view also shows provider
 scopes, installed operation access/risk, health, and the “used by” projection before an operator
 changes or disconnects an account.
 

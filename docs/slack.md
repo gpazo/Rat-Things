@@ -30,8 +30,7 @@ provider acknowledgement is fenced instead of blindly repeated.
 
 The Session and Turn IDs connect the Slack result to saved API history. Use the
 console, CLI or API to inspect Items, send more input, cancel active work or retrieve
-managed artifacts. Browser takeover and the former public Run/conversation API are
-retired.
+managed artifacts.
 
 ## Grant tools separately
 

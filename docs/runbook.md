@@ -114,8 +114,7 @@ generations accept no new occurrences; an accepted occurrence retains its input.
 
 Inspect the Agents outbox for schedule synchronization failures and the
 `thing_schedule_failure_queue_url` output for failed EventBridge target delivery.
-The deployment retains the physical `thing-schedule` Lambda and schedule-group
-names. These names do not imply use of the removed Thing API.
+The `thing-schedule` Lambda and its schedule group execute Session schedules.
 
 Correlate the schedule ID and scheduled time with its stored occurrence and
 Session ID. Preserve failed queue messages until the cause is repaired; replaying
@@ -298,7 +297,7 @@ alone does not establish database corruption.
 
 Never place the new value in Terraform variables/state; pass only an existing Secrets Manager ARN.
 
-## Rollback and migration cutback
+## Rollback
 
 - **MicroVM image:** apply the previously known-good pinned source/base-image version. Let known-good
   active runs finish or cancel them by exact ID.
@@ -319,4 +318,4 @@ backup/deletion-protection policy, not that flag, for recovery data.
 Close only after the run/provider outcome is known, queue/backlog is healthy, delivery ambiguity is
 reconciled, canaries pass, and alert noise stops. Capture a redacted timeline, root cause, affected
 owners/repos/destinations, cost and data exposure, corrective actions, and whether the security model,
-tests, alarms, or migration gates need revision.
+tests, alarms, or deployment gates need revision.

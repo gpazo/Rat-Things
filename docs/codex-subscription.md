@@ -119,7 +119,7 @@ Rat Things reduces, but cannot eliminate, the risk:
 - if persistent S3 Files is enabled, the temporary Codex-home copy may transit that encrypted
   backing store during the active turn before deletion.
 
-The credential never belongs in a Thing, Run request, DynamoDB record, log, Terraform state,
+The credential never belongs in an Agent definition, Session input, DynamoDB record, log, Terraform state,
 container image, or repository. An operator-managed deployment can provide an existing secret ARN
 with `--codex-auth-secret-arn`; the secret must contain either raw `auth.json` or a JSON object with
 an `auth_json`, `codex_auth_json`, or `auth` string field.

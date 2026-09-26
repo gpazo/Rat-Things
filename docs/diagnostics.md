@@ -118,7 +118,7 @@ Control and webhook transport failures use:
 {
   "error": {
     "code": "invalid_request",
-    "message": "Thing spec trigger.kind must be manual or schedule",
+    "message": "overlap must be allow or skip",
     "retryable": false,
     "traceId": "API_GATEWAY_REQUEST_ID"
   }
@@ -137,30 +137,23 @@ Control and webhook transport failures use:
 The server logs bounded error metadata for internal failures, never the raw secret. Preserve the
 trace ID in support tools and application logs. Do not turn a 4xx into an automatic retry loop.
 
-## Follow a run
-
-For remaining legacy Run-based application integrations, use:
+## Follow a Session
 
 ```bash
-rat-things get RUN_ID
-rat-things watch RUN_ID --follow
-rat-things files --run RUN_ID --json
-rat-things output RUN_ID
+rat-things sessions get SESSION_ID
+rat-things sessions turns SESSION_ID
+rat-things sessions items SESSION_ID
+rat-things sessions artifacts SESSION_ID
 ```
 
-Interpret durable states before looking at infrastructure:
+Inspect the Session's required actions and the latest Turn's status and error.
+An idle Session does not establish that its last Turn succeeded. A completed Turn
+can still contain failed tools; inspect saved Items and the final response.
 
-- `queued`: record exists; inspect SQS and dispatcher if stale;
-- `dispatching`: a backend is being attached; inspect MicroVM lifecycle if stale;
-- `running`: use live events, ordinary pending input, steering, and interruption;
-- `cancelling`: cancellation requested; wait for backend or reconciler finalization;
-- `succeeded`: inspect output and user-visible file catalog;
-- `failed`: use bounded `error`, terminal events, and artifacts; and
-- `cancelled`: no more agent work should occur, though prior external effects remain.
-
-Live events are a bounded in-MicroVM view. The terminal JSONL artifact is the durable audit source.
-If a run fails before attachment, live events may never exist; use the run record, queues, and Lambda
-logs instead.
+SSE reports live progress. After a disconnect, subscribe again and reconcile
+saved Items and Turns with incoming events. Closing the stream does not cancel
+execution. For work that never starts, inspect the durable input receipt, outbox,
+private execution record and dispatcher logs.
 
 ## Verify storage and scheduling
 

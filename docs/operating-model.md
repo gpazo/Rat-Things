@@ -61,10 +61,10 @@ Agent/Session definitions, logs and model-visible requests.
 
 ## Existing application capabilities
 
-Publication, sharing and browser administration still have consumers of the
-former Run/conversation API while those integrations move to Session artifacts.
-Use the Agents API for new work. Private Run records continue to track isolated
-execution, dispatch, heartbeat and termination beneath Sessions.
+Publications select immutable Session artifacts and create expiring share links.
+Browser capabilities are supplied through declared function or MCP tools. Private
+Run records track harness execution, dispatch, heartbeat and termination beneath
+Sessions; one harness can execute several Turns.
 
 Start with the [quickstart](quickstart.md), [agent operating guide](agents.md),
 [deployment guide](development-and-deployment.md) or [control integrations](api.md).

@@ -56,8 +56,8 @@ durable.
 
 ## Compute and environments
 
-The dispatcher conditionally claims a queued execution before launching a Lambda
-MicroVM with a stable client token. The launch payload contains resource references
+The dispatcher conditionally claims a queued execution before launching the
+configured EC2 or Lambda MicroVM worker with a stable launch identity. The launch payload contains resource references
 and bounded configuration; prompts and credentials remain outside it. Individual
 workers are transient executions, not Terraform-managed instances.
 
@@ -98,10 +98,6 @@ Session runtime journal. The filesystem's historical
 Terraform resource names and `/conversations` access-point root stay unchanged so
 existing Session state remains reachable; they do not imply a second coordination
 service.
-
-The deployment has no Thing, Routine or conversation tables, queues or
-coordinator services. Private execution records using the retired conversation
-contract cannot dispatch or be requeued by the Session runtime.
 
 ## Recovery and delivery
 

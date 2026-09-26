@@ -39,6 +39,5 @@ Inspect the Session and Turn errors instead of assuming the harness is still liv
   authority. A tool denial cannot create an approval that widens authority.
 - Deleting a Session fences further input and closes its private harness.
 
-The former named conversation mailbox, organization/search routes and public Run
-API are retired. Application titles can use Session metadata; provider thread
+Application titles can use Session metadata; provider thread
 continuity uses owned Agent bindings described in [provider bindings](schedules.md#provider-bindings).

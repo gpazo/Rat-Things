@@ -28,21 +28,21 @@ host control-plane operations and are never exposed to the running agent.
 
 ## Build permission as an intersection
 
-Rat Things resolves effective authority before the MicroVM launches:
+Rat Things resolves effective authority before the worker launches:
 
 ```text
 authenticated owner and source
         ∩ deployment profile
         ∩ provider authorization and scopes
         ∩ persistent account grant
-        ∩ Thing or Run selection
+        ∩ declared Agent tools and Session configuration
         ∩ operation and resource constraints
         ∩ IAM and network policy
         = authority available to the agent
 ```
 
 Every layer can narrow access; no layer can widen another. A provider token with write scope does
-not force a Run to receive write tools. Conversely, a `read-write` Run cannot manufacture a write
+not force a Session to receive write tools. Conversely, a write-capable Agent cannot manufacture a write
 operation that the provider scope, persistent grant, or deployment profile denies.
 
 Use [the capability envelope](../docs/capability-envelope.md) for the complete security contract and

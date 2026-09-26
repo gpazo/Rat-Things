@@ -2,7 +2,7 @@
   aria-labelledby="permission-intersection-title permission-intersection-desc"
   data-visual-question="How does Rat Things determine effective permission?">
   <title id="permission-intersection-title">Permission intersection</title>
-  <desc id="permission-intersection-desc">Effective operations are the intersection of verified provider authorization, the account grant, the deployment capability profile, and Thing or run narrowing. Any layer can deny access; no layer can widen an earlier one.</desc>
+  <desc id="permission-intersection-desc">Effective operations are the intersection of verified provider authorization, the account grant, the deployment capability profile, and Session tool constraints. Any layer can deny access; no layer can widen an earlier one.</desc>
   <defs>
     <style>
       .frame { fill: #071319; stroke: rgba(128, 230, 255, 0.22); stroke-width: 1.5; }
@@ -42,7 +42,7 @@
 
   <g data-node="primary">
     <rect class="node" x="120" y="540" width="520" height="112" rx="16"/>
-    <text class="label" x="380" y="586">Thing or run narrowing</text>
+    <text class="label" x="380" y="586">Session tool constraints</text>
     <text class="detail" x="380" y="619">Selected accounts, operation lists, and resources</text>
   </g>
 

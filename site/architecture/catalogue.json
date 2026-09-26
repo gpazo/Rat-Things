@@ -2018,12 +2018,12 @@
         {
           "node": "reconciler",
           "title": "Find waiting execution",
-          "description": "Query stale queued records and ignore retired conversation records.",
+          "description": "Query stale queued execution records and select recoverable work.",
           "state": "queued",
           "handoff": {
             "from": "records",
             "to": "reconciler",
-            "payload": "Query stale queued records and ignore retired conversation records.",
+            "payload": "Query stale queued execution records and select recoverable work.",
             "kind": "request",
             "sources": [
               {

@@ -3,7 +3,7 @@
 Use the [Agents API](agents-api.md) for Agent, Session, Turn, Item, environment,
 Vault, File, Skill and Artifact operations. The official SDK uses the deployment's
 Agents endpoint, including live SSE. The control endpoint below owns IAM-authenticated
-integration installation, provider bindings, schedules and Session artifact publications. The public Run and conversation APIs are removed.
+integration installation, provider bindings, schedules and Session artifact publications.
 
 The deployment's `/openapi.json` is authoritative for installed routes. Signed
 provider ingress resolves the binding creator as Session owner and retains the

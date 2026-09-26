@@ -1,8 +1,8 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 940" role="img"
   aria-labelledby="durable-execution-title durable-execution-desc"
-  data-visual-question="What happens during one durable Rat Things run?">
+  data-visual-question="What happens during durable Session work?">
   <title id="durable-execution-title">Durable execution sequence</title>
-  <desc id="durable-execution-desc">Owned Session input is saved before outbox dispatch. A private MicroVM harness executes Turns, journals durable evidence, and delivers saved root Turn outcomes independently.</desc>
+  <desc id="durable-execution-desc">Owned Session input is saved before outbox dispatch. An isolated worker harness executes Turns, journals durable evidence, and delivers saved root Turn outcomes independently.</desc>
   <defs>
     <style>
       .frame { fill: #071319; stroke: rgba(128, 230, 255, 0.22); stroke-width: 1.5; }
@@ -64,7 +64,7 @@
     <rect class="node" x="145" y="570" width="555" height="126" rx="16"/>
     <text class="label" x="180" y="617">Retain</text>
     <text class="detail" x="180" y="649">Journal Items, Turns and checkpoints; save output Artifacts.</text>
-    <text class="evidence" x="180" y="674">durability lives outside the MicroVM</text>
+    <text class="evidence" x="180" y="674">durability lives outside the worker</text>
   </g>
 
   <line class="flow" x1="92" y1="659" x2="92" y2="762"/>

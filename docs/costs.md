@@ -45,7 +45,7 @@ of metric dimensions; use logs and durable records for individual investigations
 - Set deployment budgets and allocation tags before broad use.
 - Bound admitted concurrency, tool access and output sizes.
 - Delete disposable Sessions and verify their workers terminate.
-- Review retained artifacts, image versions, logs and retired data independently.
+- Review retained artifacts, image versions, logs and stored data independently.
 - Enable detailed API metrics only when their additional breakdown is useful.
 - Include dedicated HTTP services and network infrastructure in idle-cost estimates.
 

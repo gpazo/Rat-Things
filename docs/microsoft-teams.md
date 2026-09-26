@@ -5,28 +5,28 @@ job:
 
 ```text
 @Rat Things <prompt>
-  -> immediate: "Rat Things request received. I'll reply when run <id> finishes."
-  -> asynchronous agent run
+  -> immediate: "Rat Things request received. I'll reply when session <id> completes a turn."
+  -> asynchronous Session Turn
   -> terminal result delivered through the configured Teams egress
 ```
 
 Microsoft gives an outgoing webhook five seconds to return its synchronous response. The delayed
 result therefore cannot come from that HTTP response after the connection closes.
 
-## Conversation boundaries
+## Session boundaries
 
-Keep the user model intentionally simple:
+- A verified Teams event resolves an owned Agent/environment source binding.
+- The same tenant, sender and provider thread reuse a Session. Another sender or
+  thread has independent Session history.
+- A message during active work steers the current Turn; later input starts a new
+  Turn. Durable input receipts prevent duplicate provider deliveries from adding
+  the same input twice.
+- The binding's authenticated creator owns the Session. Provider sender identity
+  remains separate from resource ownership.
 
-- A new top-level Teams post that mentions `@Rat Things` starts a new Rat Things conversation.
-- Replies and later mentions in that same Teams thread add turns to the existing conversation.
-- Different Teams threads may run concurrently; turns inside one thread are serialized by its
-  DynamoDB lease so only one MicroVM opens that conversation's Codex state at a time.
-- Starting a new task requires a new top-level post. There is no `new:` command or session syntax to
-  teach users.
-
-The production Teams gateway must derive the Rat Things conversation key from the trusted root
-thread/conversation reference and retain it for replies. Display text and tags are prompts, not
-conversation identifiers.
+The Teams gateway must preserve the trusted provider tenant, sender and root-thread
+reference. Display text and tags are prompts, not authority or Session identifiers.
+See [provider bindings](schedules.md#provider-bindings) for configuration.
 
 ## Choose a connection mode
 

@@ -96,7 +96,7 @@ to browser JavaScript.
 
 Give the agent the deployment base URL and an authenticated CLI, SigV4-capable HTTP tool, or
 host-owned backend tool. It starts at discovery, uses the Agents API, and follows links into
-raw runs, live events, conversations, files, publications, browser use, skills, apps, or MCP only
+Sessions, Turns, live events, files, publications, browser tools, skills or MCP only
 when the task needs them. The complete progressive path and a copyable bootstrap instruction are in
 [Connect an agent to Rat Things](agents.md).
 

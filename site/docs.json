@@ -69,7 +69,7 @@
     "agents.md": "Give another agent one deployment URL and a progressive, machine-readable operating contract.",
     "embedding.md": "Discover, authenticate, and embed a self-hosted Rat Things deployment in your own product.",
     "plugins.md": "Connect and verify accounts, choose grants, and understand the effective permission intersection.",
-    "capability-envelope.md": "Learn what an agent can use autonomously and what remains unavailable for the entire Run.",
+    "capability-envelope.md": "Learn what an agent can use autonomously and what remains unavailable throughout Session execution.",
     "conversations.md": "Use durable Sessions and saved Turns from the console and CLI.",
     "slack.md": "Start durable work from a Slack mention, continue in its thread, search or act through approved accounts, and understand current boundaries.",
     "linear.md": "Install a verified Linear workspace, expose bounded issue and comment operations, and run a Slack-to-Linear handoff.",
