@@ -1,3 +1,4 @@
+import { iamApiPrincipal } from '../../src/domain/api-permissions.js';
 import OpenAI from 'openai';
 import { describe, expect, it } from 'vitest';
 import { MemoryAgentsStore } from './fixtures.js';
@@ -43,7 +44,7 @@ function fixture() {
     start: async () => {}, steer: async () => {}, cancel: async () => {}, toolResult: async () => {},
     observe: async (_owner, _session, turn) => ({ turn, requiredActions: [] }), items: async () => [], artifacts: async () => [], artifactContent: async () => new ReadableStream(),
   } });
-  const call = (owner: string, path: string, method = 'GET', body?: unknown) => routeAgentsRequest(new Request(`https://rat.invalid/v1/${path}`, { method, ...(body !== undefined ? { body: JSON.stringify(body), headers: { 'content-type': 'application/json' } } : {}) }), owner, { agents, sessions, webhooks });
+  const call = (owner: string, path: string, method = 'GET', body?: unknown) => routeAgentsRequest(new Request(`https://rat.invalid/v1/${path}`, { method, ...(body !== undefined ? { body: JSON.stringify(body), headers: { 'content-type': 'application/json' } } : {}) }), iamApiPrincipal(owner), { agents, sessions, webhooks });
   const create = () => sessions.create('alice', { agent: { model: 'test' }, environment: { type: 'none' }, input: 'Start' });
   const endpoint = () => webhooks.create('alice', { name: 'Events', url: 'https://receiver.example/events', events: sessionWebhookTypes });
   async function fanout() {

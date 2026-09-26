@@ -1,3 +1,4 @@
+import { iamApiPrincipal } from '../../src/domain/api-permissions.js';
 import OpenAI from 'openai';
 import type { CredentialAuthCreateParam } from 'openai/resources/beta/agents/vaults/credentials';
 import { describe, expect, it } from 'vitest';
@@ -20,7 +21,7 @@ function fixture() {
   const templates = new EnvironmentTemplateService({ store });
   const agents = new AgentService({ store });
   const client = (owner: string) => new OpenAI({ apiKey: 'test', baseURL: 'https://rat.invalid/v1', maxRetries: 0,
-    fetch: (input, init) => routeAgentsRequest(new Request(input, init), owner, { agents, vaults, templates }),
+    fetch: (input, init) => routeAgentsRequest(new Request(input, init), iamApiPrincipal(owner), { agents, vaults, templates }),
   }).beta.agents;
   return { store, secrets, vaults, templates, api: client('alice'), other: client('bob') };
 }

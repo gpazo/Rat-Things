@@ -135,3 +135,26 @@ the original task and creator. The pure reducer correction passes 24 focused
 checks and 405 strict native cases, including actual v1/v2 child creation. Live
 acceptance of this latest correction remains separate from the earlier typed
 Item acceptance above.
+
+
+## Bounded Item/event inventory closure
+
+The earlier "broader variants" wording is superseded by this finite mapping:
+
+| Contract | Passing evidence |
+| --- | --- |
+| Text phases and image input/history | `transport-and-launch`, `session-item-events`, `session-message-history` (historical image snapshot/replay) |
+| Interrupted reasoning/message/command/MCP/search/function lifecycle; Item-before-Turn ordering | `session-item-interruption`, `native-item-events` |
+| Function namespace, falsey/image outputs and failure correlation | `native-tools`, `session-function-output` |
+| Agent message typed content, nested identity and restored history | `session-message-history`; native restored command/MCP/collaboration history in `native-session` |
+| MCP/command completed and failed output/error correspondence | `session-item-events`; native success and deployed provider evidence remain in the live report |
+| Collaboration operations and Subagent identity | `session-message-history`, `session-runtime`, `native-session`; corrected AWS capacity-six result in `agents-api-closeout-next.md` |
+| Exact compaction accounting, duplicate responses and parent/child separation | `session-runtime` |
+
+The direct close/replay regression exposed closure timestamps changing on
+replayed notifications. The reducer now preserves the first close time until a
+real reopen. This local change requires final-release deployment. The exploratory
+private v1 close/resume prompt is not a separate public feature requirement: public
+projection and lifecycle have literal schema-backed assertions, and deployed
+create/send/wait/interrupt remains a distinct live proof. No new provider billing
+accuracy or historical SSE replay guarantees are introduced.

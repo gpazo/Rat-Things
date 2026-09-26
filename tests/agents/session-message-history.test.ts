@@ -1,3 +1,4 @@
+import { projectSessionItems } from '../../src/core/session-run-projection.js';
 import { describe, expect, it } from 'vitest';
 import { bindSessionTurn, initialSessionRuntime, reduceSessionRuntime, runtimeSubagents } from '../../src/core/session-runtime-planning.js';
 import { parseAgentsContract } from '../../src/domain/agents-api-validation.js';
@@ -16,6 +17,31 @@ const rawMessage = (threadId: string, turnId: string, author: string, recipient:
 });
 
 describe('inter-agent message history', () => {
+  it('projects a completed close and retains child closure through replay', () => {
+    let state = bindSessionTurn(initialSessionRuntime('session', 'agent', 'root-thread'), 'native', publicTurn);
+    state = reduceSessionRuntime(state, { method: 'thread/started', observedAt: 1, params: { thread: { id: 'child', parentThreadId: 'root-thread' } } });
+    const event = { method: 'item/completed', observedAt: 2, params: { threadId: 'root-thread', turnId: 'native', item: {
+      id: 'close', type: 'collabAgentToolCall', tool: 'closeAgent', status: 'completed', senderThreadId: 'root-thread', receiverThreadIds: ['child'],
+    } } };
+    state = reduceSessionRuntime(state, event);
+    state = reduceSessionRuntime(state, { method: 'thread/closed', observedAt: 3, params: { threadId: 'child' } });
+    const restored = JSON.parse(JSON.stringify(state));
+    const replayed = reduceSessionRuntime(restored, event);
+    expect(replayed.turns[0]!.items).toEqual([{ id: 'close', type: 'close_subagent_call', sender_agent_id: 'agent', recipient_agent_id: 'child', status: 'completed', turn_id: 'public_turn' }]);
+    expect(replayed.subagents).toEqual(state.subagents);
+    expect(replayed.subagents[0]).toMatchObject({ status: 'closed', closed_at: 2 });
+    parseAgentsContract('Item', replayed.turns[0]!.items[0]);
+  });
+  it('preserves historical user images through snapshot and item replay', () => {
+    const event = { method: 'item/completed', params: { item: { id: 'user', type: 'userMessage', content: [
+      { type: 'text', text: 'Describe this' }, { type: 'image', url: 'data:image/png;base64,aGVsbG8=' },
+    ] } } };
+    const items = projectSessionItems('public_turn', [event], undefined, { includeUser: true });
+    expect(items[0]).toMatchObject({ role: 'user', content: [{ type: 'input_text', text: 'Describe this' }, { type: 'input_image', image_url: 'data:image/png;base64,aGVsbG8=' }] });
+    parseAgentsContract('Item', items[0]);
+    expect(projectSessionItems('public_turn', [event], undefined, { includeUser: true, initial: JSON.parse(JSON.stringify(items)) })).toEqual(items);
+  });
+
   it.each(['spawn_agent', 'send_message', 'followup_task'])('keeps %s content typed through completion and restored history', name => {
     for (const encryptedArgs of [undefined, null, [], ['message']]) {
       const plaintext = Array.isArray(encryptedArgs) && encryptedArgs.length === 0;

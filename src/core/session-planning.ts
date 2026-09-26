@@ -1,3 +1,4 @@
+import { validateSessionModelSettings } from '../domain/session-model-validation.js';
 import type {
   Agent, AgentSession, AgentSessionInputMessageParam, AgentSessionInputParam,
   AgentSessionItem, SessionCreateParams, SessionUpdateParams, Turn,
@@ -47,11 +48,13 @@ export function updateSessionAgent(previous: AgentSession['agent'], update: Sess
   if (!update) return previous;
   const model = update.model ?? previous.model;
   if (!model.trim() || [...model].length > 1_048_576) invalid('model must contain 1 to 1048576 characters', 'agent.model');
-  return {
+  const resolved = {
     ...previous, model,
     reasoning: { ...previous.reasoning, effort: update.reasoning?.effort === undefined ? previous.reasoning.effort : update.reasoning.effort ?? modelReasoningDefault(model) },
     service_tier: update.service_tier === undefined ? previous.service_tier : update.service_tier ?? 'auto',
   };
+  validateSessionModelSettings(resolved);
+  return resolved;
 }
 
 export function sessionModelSettings(agent: AgentSession['agent']): import('../domain/session-execution.js').SessionModelSettings {

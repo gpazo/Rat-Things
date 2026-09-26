@@ -1,3 +1,4 @@
+import { iamApiPrincipal } from '../../src/domain/api-permissions.js';
 import OpenAI from 'openai';
 import { describe, expect, it, vi } from 'vitest';
 import { AgentService } from '../../src/core/agent-service.js';
@@ -45,12 +46,45 @@ function fixture() {
   const sessions = new SessionService({ store, agents, execution, streamIntervalMs: 1 });
   const client = (owner: string) => new OpenAI({
     apiKey: 'test', baseURL: 'https://rat.invalid/v1', maxRetries: 0,
-    fetch: (input, init) => routeAgentsRequest(new Request(input, init), owner, { agents, sessions }),
+    fetch: (input, init) => routeAgentsRequest(new Request(input, init), iamApiPrincipal(owner), { agents, sessions }),
   }).beta.agents;
   return { store, agents, sessions, execution, calls, observations, api: client('alice'), other: client('bob') };
 }
 
 describe('Agents API session lifecycle through the OpenAI SDK', () => {
+  it('rejects unsupported resolved model settings without persisting metadata or settings', async () => {
+    const f = fixture();
+    const session = await f.api.sessions.create({ agent: { model: 'gpt-6-astra', reasoning: { effort: 'max' } }, environment: { type: 'none' }, input: 'Start' });
+    await expect(f.api.sessions.update(session.id, { agent: { model: 'gpt-5.4' }, metadata: { changed: 'yes' } })).rejects.toMatchObject({ status: 400 });
+    const unchanged = await f.api.sessions.retrieve(session.id);
+    expect(unchanged.agent).toEqual(session.agent);
+    expect(unchanged.metadata).toEqual({});
+    await expect(f.api.sessions.update(session.id, { agent: { model: 'unknown' } })).rejects.toMatchObject({ status: 400 });
+    expect((await f.api.sessions.update(session.id, { agent: { model: 'gpt-5.4-mini-2026-03-17', reasoning: { effort: 'none' }, service_tier: 'priority' } })).agent).toMatchObject({ model: 'gpt-5.4-mini-2026-03-17', reasoning: { effort: 'none' }, service_tier: 'priority' });
+    expect((await f.api.sessions.update(session.id, { agent: { model: 'openai.gpt-5.4', reasoning: { effort: null } } })).agent.reasoning.effort).toBe('medium');
+  });
+
+  it('serves owner-scoped traces, validates cursors and preserves captured steps after runtime removal', async () => {
+    const f = fixture();
+    const session = await f.api.sessions.create({ agent: { model: 'test' }, environment: { type: 'none' }, input: 'Start' });
+    const turn = (await f.api.sessions.turns.list(session.id)).data[0]!;
+    f.observations.set(turn.id, { turn: { ...turn, status: 'completed', started_at: 100, completed_at: 110 }, requiredActions: [] });
+    f.execution.traceSteps = async () => [{ id: 'tool', kind: 'tool', name: 'function', startedAt: 101, completedAt: 105 }];
+    await f.sessions.completeTurn('alice', session.id, turn.id);
+    f.execution.traceSteps = async () => [];
+    const get = (owner: string, query = '') => routeAgentsRequest(new Request(`https://rat.invalid/v1/agents/sessions/${session.id}/traces${query}`), iamApiPrincipal(owner), { agents: f.agents, sessions: f.sessions });
+    const response = await get('alice', '?limit=1&order=asc');
+    expect(response.status).toBe(200);
+    const page = await response.json();
+    expect(page.last_id).toEqual(page.data[0].id);
+    expect(page.data[0].otlp.resourceSpans[0].scopeSpans[0].spans).toHaveLength(2);
+    expect((await get('bob')).status).toBe(404);
+    expect((await get('alice', '?after=missing')).status).toBe(400);
+    expect((await get('alice', '?order=wrong')).status).toBe(400);
+    await f.api.sessions.delete(session.id);
+    expect((await get('alice')).status).toBe(404);
+  });
+
   it.each(['asc', 'desc'] as const)('filters and orders root and child artifacts before %s pagination', async order => {
     const f = fixture();
     const session = await f.api.sessions.create({ agent: { model: 'test' }, environment: { type: 'none' }, input: 'Fixture' });

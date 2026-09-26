@@ -5,6 +5,12 @@
     "AgentsApiContracts": {
       "type": "object",
       "properties": {
+        "Trace": {
+          "$ref": "#/definitions/SessionTrace"
+        },
+        "TraceList": {
+          "$ref": "#/definitions/TraceListParams"
+        },
         "UploadedFile": {
           "$ref": "#/definitions/FileObject"
         },
@@ -192,6 +198,8 @@
         }
       },
       "required": [
+        "Trace",
+        "TraceList",
         "UploadedFile",
         "UploadedFileDeleted",
         "UploadedFileCreate",
@@ -245,6 +253,219 @@
       ],
       "additionalProperties": false,
       "description": "Schema-generation roots. None of these types copy or rename upstream fields."
+    },
+    "SessionTrace": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "object": {
+          "type": "string",
+          "const": "agent.session.trace"
+        },
+        "session_id": {
+          "type": "string"
+        },
+        "turn_id": {
+          "type": "string"
+        },
+        "otlp": {
+          "$ref": "#/definitions/OtlpTraceData"
+        }
+      },
+      "required": [
+        "id",
+        "object",
+        "session_id",
+        "turn_id",
+        "otlp"
+      ],
+      "additionalProperties": false
+    },
+    "OtlpTraceData": {
+      "type": "object",
+      "properties": {
+        "resourceSpans": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "resource": {
+                "type": "object",
+                "properties": {
+                  "attributes": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/definitions/OtlpAttribute"
+                    }
+                  }
+                },
+                "required": [
+                  "attributes"
+                ],
+                "additionalProperties": false
+              },
+              "scopeSpans": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "scope": {
+                      "type": "object",
+                      "properties": {
+                        "name": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "name"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "spans": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/definitions/OtlpSpan"
+                      }
+                    }
+                  },
+                  "required": [
+                    "scope",
+                    "spans"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": [
+              "resource",
+              "scopeSpans"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "resourceSpans"
+      ],
+      "additionalProperties": false
+    },
+    "OtlpAttribute": {
+      "type": "object",
+      "properties": {
+        "key": {
+          "type": "string"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "object",
+              "properties": {
+                "stringValue": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "stringValue"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "intValue": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "intValue"
+              ],
+              "additionalProperties": false
+            }
+          ]
+        }
+      },
+      "required": [
+        "key",
+        "value"
+      ],
+      "additionalProperties": false,
+      "description": "OTLP JSON uses hexadecimal IDs and decimal strings for nanosecond timestamps."
+    },
+    "OtlpSpan": {
+      "type": "object",
+      "properties": {
+        "traceId": {
+          "type": "string"
+        },
+        "spanId": {
+          "type": "string"
+        },
+        "parentSpanId": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "number"
+        },
+        "startTimeUnixNano": {
+          "type": "string"
+        },
+        "endTimeUnixNano": {
+          "type": "string"
+        },
+        "attributes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/OtlpAttribute"
+          }
+        },
+        "status": {
+          "type": "object",
+          "properties": {
+            "code": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "code"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "traceId",
+        "spanId",
+        "name",
+        "kind",
+        "startTimeUnixNano",
+        "endTimeUnixNano",
+        "attributes",
+        "status"
+      ],
+      "additionalProperties": false
+    },
+    "TraceListParams": {
+      "type": "object",
+      "properties": {
+        "after": {
+          "type": "string"
+        },
+        "limit": {
+          "type": "number"
+        },
+        "order": {
+          "type": "string",
+          "enum": [
+            "asc",
+            "desc"
+          ]
+        }
+      },
+      "additionalProperties": false
     },
     "FileObject": {
       "type": "object",

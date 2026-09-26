@@ -1,3 +1,4 @@
+import { requireRoutePermission, requireInferencePermission, type ApiPrincipal } from '../domain/api-permissions.js';
 import type { AgentService } from '../core/agent-service.js';
 import type { SessionService } from '../core/session-service.js';
 import type { VaultService } from '../core/vault-service.js';
@@ -12,11 +13,11 @@ import type { WebhookService } from '../core/webhook-service.js';
 /** The caller authenticates once and supplies its derived owner, never a body field. */
 export async function routeAgentRequest(
   request: Request,
-  ownerId: string,
+  principal: ApiPrincipal,
   agents: AgentService,
   requestId?: string,
 ): Promise<Response> {
-  return routeAgentsRequest(request, ownerId, { agents }, requestId);
+  return routeAgentsRequest(request, principal, { agents }, requestId);
 }
 
 export interface AgentsApiServices {
@@ -30,11 +31,12 @@ export interface AgentsApiServices {
   webhooks?: WebhookService;
 }
 
-export async function routeAgentsRequest(request: Request, ownerId: string, services: AgentsApiServices, requestId?: string, streaming = true): Promise<Response> {
+export async function routeAgentsRequest(request: Request, principal: ApiPrincipal, services: AgentsApiServices, requestId?: string, streaming = true): Promise<Response> {
   try {
-    if (!ownerId) throw new AgentsApiError(401, 'Authentication required.', 'invalid_api_key');
+    const ownerId = principal.ownerId;
     const url = new URL(request.url);
     const parts = pathParts(url.pathname);
+    requireRoutePermission(principal, request.method, parts);
     if (parts[0] !== 'v1') throw new AgentsApiError(404, 'Route not found.', 'resource_not_found');
     if (parts[1] === 'webhooks') return await routeWebhook(request, ownerId, parts.slice(2), services.webhooks, requestId);
     if (parts[1] === 'files') return await routeUploadedFiles(request, ownerId, parts.slice(2), services.files, requestId);
@@ -54,7 +56,7 @@ export async function routeAgentsRequest(request: Request, ownerId: string, serv
       if (request.method === 'POST') return json(200, await services.environments.createFile(ownerId, parts[3], await requestBody(request)), requestId);
     }
     if (parts[1] === 'vaults') return await routeVault(request, ownerId, parts.slice(2), services.vaults, requestId);
-    if (parts[1] === 'agents' && parts[2] === 'sessions') return await routeSession(request, ownerId, parts.slice(3), services.sessions, requestId, streaming);
+    if (parts[1] === 'agents' && parts[2] === 'sessions') return await routeSession(request, principal, parts.slice(3), services.sessions, requestId, streaming);
     const route = /^\/v1\/agents(?:\/([^/]+))?$/.exec(url.pathname);
     if (!route) throw new AgentsApiError(404, 'Route not found.', 'resource_not_found');
     const id = parts[2];
@@ -123,13 +125,15 @@ async function routeVault(request: Request, ownerId: string, parts: string[], va
   throw new AgentsApiError(404, 'Route not found.', 'resource_not_found');
 }
 
-async function routeSession(request: Request, ownerId: string, parts: string[], sessions: SessionService | undefined, requestId?: string, streaming = true): Promise<Response> {
+async function routeSession(request: Request, principal: ApiPrincipal, parts: string[], sessions: SessionService | undefined, requestId?: string, streaming = true): Promise<Response> {
+  const ownerId = principal.ownerId;
   if (!sessions) throw new AgentsApiError(503, 'Session service is unavailable.', 'service_unavailable');
   const [id, collection, childId, operation] = parts;
   const method = request.method;
   const query = () => queryParameters(new URL(request.url).searchParams, { nullableLimit: collection === 'artifacts', nullableAfter: collection === 'artifacts' });
   if (!id && method === 'POST') {
     const body = await requestBody(request);
+    requireInferencePermission(principal, body, 'create');
     if (isStreaming(body) && !streaming) throw new AgentsApiError(400, 'Use the Agents API streaming endpoint for this request.', 'streaming_unavailable');
     const session = await sessions.create(ownerId, body);
     return isStreaming(body) ? eventStream((signal) => sessions.stream(ownerId, session.id, signal, true), request.signal, requestId) : json(200, session, requestId);
@@ -140,9 +144,12 @@ async function routeSession(request: Request, ownerId: string, parts: string[], 
     if (method === 'POST') return json(200, await sessions.update(ownerId, id, await requestBody(request)), requestId);
     if (method === 'DELETE') return json(200, await sessions.delete(ownerId, id), requestId);
   }
+  if (id && collection === 'traces' && parts.length === 2 && method === 'GET') return json(200, await sessions.traces(ownerId, id, query()), requestId);
   if (id && collection === 'events' && !childId) {
     if (method === 'POST') {
-      await sessions.events(ownerId, id, await requestBody(request), request.headers.get('idempotency-key') ?? undefined, { waitForConnection: true, signal: request.signal });
+      const body = await requestBody(request);
+      requireInferencePermission(principal, body, 'events');
+      await sessions.events(ownerId, id, body, request.headers.get('idempotency-key') ?? undefined, { waitForConnection: true, signal: request.signal });
       return new Response(null, { status: 204, headers: requestId ? { 'x-request-id': requestId } : {} });
     }
     if (method === 'GET') {

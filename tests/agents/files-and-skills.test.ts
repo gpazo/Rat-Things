@@ -1,3 +1,4 @@
+import { iamApiPrincipal } from '../../src/domain/api-permissions.js';
 import { describe, expect, it } from 'vitest';
 import OpenAI, { toFile } from 'openai';
 import { zipSync } from 'fflate';
@@ -27,7 +28,7 @@ function fixture() {
   const templates = new EnvironmentTemplateService({ store });
   const agents = new AgentService({ store });
   const environments = new EnvironmentService({ store, templates, uploadedFiles: files, skills, credentials: { create: async () => 'unused', read: async () => ({ harness: '', executor: '' }), revoke: async () => {} }, managedFiles: async () => [] });
-  const client = (owner: string) => new OpenAI({ apiKey: 'fixture', baseURL: 'https://fixture.invalid/v1', maxRetries: 0, fetch: (input, init) => routeAgentsRequest(new Request(input, init), owner, { agents, files, skills, environments, templates }) });
+  const client = (owner: string) => new OpenAI({ apiKey: 'fixture', baseURL: 'https://fixture.invalid/v1', maxRetries: 0, fetch: (input, init) => routeAgentsRequest(new Request(input, init), iamApiPrincipal(owner), { agents, files, skills, environments, templates }) });
   return { artifacts, files, skills, templates, environments, api: client('alice'), other: client('bob') };
 }
 

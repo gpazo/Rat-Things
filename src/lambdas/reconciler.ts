@@ -128,6 +128,7 @@ async function reconcileAttachedRun(run: RunRecord): Promise<void> {
     failed: 'ExecutionLost',
     cancelled: 'CancellationFinalized',
     'stop-requested': 'CancellationStopRequested',
+    'heartbeat-expired': 'ExecutionHeartbeatExpired',
     deferred: 'ExecutionInspectionDeferred',
     quarantined: 'ExecutionQuarantined',
     raced: 'ExecutionReconcileRace',

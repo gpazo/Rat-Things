@@ -1,3 +1,4 @@
+import type { SessionTrace, TraceListParams } from './session-traces.js';
 /**
  * The public contract belongs to OpenAI's Agents API. Import its published types
  * directly; runtime implementation records belong in ports, never in these DTOs.
@@ -52,6 +53,8 @@ export type CredentialRotateRequest = Omit<CredentialUpdateParams, 'vault_id'>;
 
 /** Schema-generation roots. None of these types copy or rename upstream fields. */
 export interface AgentsApiContracts {
+  Trace: SessionTrace;
+  TraceList: TraceListParams;
   UploadedFile: FileObject;
   UploadedFileDeleted: FileDeleted;
   UploadedFileCreate: Omit<UploadedFileCreateParams, 'file'>;

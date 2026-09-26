@@ -40,6 +40,7 @@ export interface AgentDriver {
 }
 
 export interface AgentDriverControl {
+  captureTraces?: boolean;
   session?: SessionLaunch;
   sessionEnvironmentToken?: string;
   sessionMcp?: import('./session-mcp.js').SessionMcpRuntime;
@@ -73,6 +74,7 @@ export class CodexDriver implements AgentDriver {
     const plan = planCodexLaunch(request, workspace, timeoutMs, process.env);
     const launch: CodexAppServerRequest = {
       ...plan,
+      ...(control?.captureTraces ? { captureTraces: true } : {}),
       ...(control?.session ? planSessionLaunch(plan, control.session, control.sessionEnvironmentToken, control.sessionMcp, control.sessionEnvironmentCredentials) : {}),
       ...(signal ? { signal } : {}),
       ...(control?.onEvent ? { onEvent: control.onEvent } : {}),

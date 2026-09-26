@@ -1,3 +1,4 @@
+import { exportSessionTraces, sessionTracePage } from './trace-export.js';
 import { createReadStream } from 'node:fs';
 import { writeFile } from 'node:fs/promises';
 import { readFile } from 'node:fs/promises';
@@ -16,7 +17,7 @@ export async function runAgentsCli(argv: string[]): Promise<boolean> {
   } });
   const [operation = 'list', id, childId, nestedId] = positionals;
   if (values.help) {
-    process.stdout.write('rat-things agents create|list|get|update|delete [ID] [--file request.json]\nrat-things sessions create|list|get|update|delete|send|cancel|items|turns|artifacts|events [ID]\nrat-things environments get|connect ENVIRONMENT_ID\nrat-things environments templates create|list|get|update|delete [ID] [--file request.json]\nrat-things vaults create|list|get|delete [ID] [--file request.json]\nrat-things sessions artifacts SESSION_ID [ARTIFACT_ID]\nrat-things sessions artifact-content|artifact-delete SESSION_ID ARTIFACT_ID [--output PATH]\nrat-things files create --file PATH [--purpose user_data]\nrat-things files list|get|delete|content [ID] [--output PATH]\nUse --api-url with agents_api_base_url and --region with the deployment AWS region.\nSession creation accepts --model MODEL --input TEXT, --agent-id ID, --stream, or a standard JSON request file.\n');
+    process.stdout.write('rat-things agents create|list|get|update|delete [ID] [--file request.json]\nrat-things sessions create|list|get|update|delete|send|cancel|items|turns|artifacts|events|traces [ID]\nrat-things environments get|connect ENVIRONMENT_ID\nrat-things environments templates create|list|get|update|delete [ID] [--file request.json]\nrat-things vaults create|list|get|delete [ID] [--file request.json]\nrat-things sessions artifacts SESSION_ID [ARTIFACT_ID]\nrat-things sessions artifact-content|artifact-delete SESSION_ID ARTIFACT_ID [--output PATH]\nrat-things files create --file PATH [--purpose user_data]\nrat-things files list|get|delete|content [ID] [--output PATH]\nUse --api-url with agents_api_base_url and --region with the deployment AWS region.\nSession creation accepts --model MODEL --input TEXT, --agent-id ID, --stream, or a standard JSON request file.\n');
     return true;
   }
   const baseURL = values['api-url'] ?? process.env.RAT_THINGS_AGENTS_API_URL ?? process.env.RAT_THINGS_API_URL;
@@ -67,6 +68,12 @@ export async function runAgentsCli(argv: string[]): Promise<boolean> {
     else if (operation === 'get') json(await agents.sessions.retrieve(requiredId()));
     else if (operation === 'update') json(await agents.sessions.update(requiredId(), parseAgentsContract('SessionUpdate', body)));
     else if (operation === 'delete') json(await agents.sessions.delete(requiredId()));
+    else if (operation === 'traces') {
+      const sessionId = requiredId();
+      const traceQuery = parseAgentsContract('TraceList', query);
+      if (values.output) await writeFile(values.output, JSON.stringify(await exportSessionTraces(page => sessionTracePage(client, sessionId, page), traceQuery), null, 2) + '\n', { mode: 0o600 });
+      else json(await sessionTracePage(client, sessionId, traceQuery));
+    }
     else if (operation === 'items') json(await agents.sessions.items.list(requiredId(), parseAgentsContract('ItemList', query)));
     else if (operation === 'turns') json(childId ? await agents.sessions.turns.retrieve(childId, { session_id: requiredId() }) : await agents.sessions.turns.list(requiredId(), parseAgentsContract('TurnList', query)));
     else if (operation === 'artifacts') json(childId ? await agents.sessions.artifacts.retrieve(childId, { session_id: requiredId() }) : await agents.sessions.artifacts.list(requiredId(), parseAgentsContract('ArtifactList', query)));

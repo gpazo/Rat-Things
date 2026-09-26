@@ -1,3 +1,4 @@
+import { projectSessionTraces } from '../../src/core/session-trace-planning.js';
 import { createServer } from 'node:http';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
@@ -56,6 +57,8 @@ describe('stock harness with a local model protocol fixture', () => {
       expect(state.turns.map(({ turn }) => turn.status)).toEqual(['completed', 'completed']);
       expect(state.turns.find(({ turn }) => turn.id === 'turn_parent')!.items).toEqual(expect.arrayContaining([expect.objectContaining({ type: 'create_subagent_call', status: 'completed' })]));
       const children = runtimeSubagents(state);
+      const traces = projectSessionTraces({ id: state.sessionId }, state.turns.map(binding => ({ turn: binding.turn, steps: binding.traceSteps ?? [], parentTurnId: binding.traceParentTurnId })));
+      expect(traces.flatMap(trace => trace.otlp.resourceSpans.flatMap(resource => resource.scopeSpans.flatMap(scope => scope.spans)))).toEqual(expect.arrayContaining([expect.objectContaining({ name: 'subagent' })]));
       if (multiAgentV2) expect(children[0]?.items, JSON.stringify(notifications.filter(event => JSON.stringify(event).includes('"type":"agent_message"')))).toContainEqual(expect.objectContaining({
         type: 'agent_message', sender_agent_id: 'agent_fixture', recipient_agent_id: children[0]?.subagent.id,
         content: plaintext ? expect.arrayContaining([expect.objectContaining({ type: 'output_text', text: expect.stringContaining('Perform the child fixture task.') })])

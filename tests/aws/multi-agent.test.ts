@@ -48,10 +48,12 @@ live.each([1, 6])('enforces deployed capacity %i across blocked children and rep
     expect(overflowItems).toEqual(expect.arrayContaining([expect.objectContaining({ type: 'create_subagent_call', status: 'failed' })]));
     expect((await client.beta.agents.sessions.subagents.list(session.id)).data.map(child => child.id).sort()).toEqual(ids);
     const target = ids[0]!;
+    const targetName = children.find(child => child.id === target)?.name;
+    if (!targetName) throw new Error('The native child must expose a name for follow-up tools');
     for (let cycle = 0; cycle < 3; cycle++) {
       const before = (await client.beta.agents.sessions.turns.list(session.id, { limit: 100, order: 'asc' })).data.find(turn => turn.subagent_id === target && turn.status === 'in_progress');
       expect(before).toBeDefined();
-      const parent = await rootInput(`Interrupt native subagent ${target}. Immediately send that same subagent a follow-up TASK: ${holdTask} Use the follow-up-task tool; do not merely send a message to a stopped child. Do not create or close agents, and do not wait for the child. Finish your own Turn after dispatch. This is interruption cycle ${cycle + 1}.`);
+      const parent = await rootInput(`Interrupt native subagent ${targetName}. Immediately send that same subagent a follow-up TASK: ${holdTask} Use the follow-up-task tool; do not merely send a message to a stopped child. Do not create or close agents, and do not wait for the child. Finish your own Turn after dispatch. This is interruption cycle ${cycle + 1}.`);
       await eventually(async () => {
         const turns = (await client.beta.agents.sessions.turns.list(session.id, { limit: 100, order: 'asc' })).data;
         return turns.find(turn => turn.id === before!.id)?.status === 'cancelled'
@@ -65,7 +67,7 @@ live.each([1, 6])('enforces deployed capacity %i across blocked children and rep
       ]));
       expect((await client.beta.agents.sessions.subagents.list(session.id)).data.map(child => child.id).sort()).toEqual(ids);
     }
-    await rootInput(`Interrupt subagent ${target} once more. Send that same child a follow-up TASK to return exactly ${marker} without calling any functions. Wait for it to finish, then return its answer. Do not create or close agents.`);
+    await rootInput(`Interrupt subagent ${targetName} once more. Send that same child a follow-up TASK to return exactly ${marker} without calling any functions. Wait for it to finish, then return its answer. Do not create or close agents.`);
     const items = (await client.beta.agents.sessions.subagents.items.list(target, { session_id: session.id, limit: 100, order: 'asc' })).data;
     expect(items.some(item => item.type === 'message' && item.role === 'assistant' && item.content.some(part => part.type === 'output_text' && part.text.includes(marker)))).toBe(true);
     const finalChildren = (await client.beta.agents.sessions.subagents.list(session.id)).data;
@@ -90,8 +92,8 @@ live.each([1, 6])('enforces deployed capacity %i across blocked children and rep
     throw error;
   } finally {
     const cleanup = await Promise.allSettled([
-      ...(sessionId ? [client.beta.agents.sessions.delete(sessionId)] : []),
-      client.beta.agents.delete(agent.id),
+      ...(sessionId ? [client.withOptions({ maxRetries: 4 }).beta.agents.sessions.delete(sessionId)] : []),
+      client.withOptions({ maxRetries: 4 }).beta.agents.delete(agent.id),
     ]);
     const failures = cleanup.filter(result => result.status === 'rejected');
     if (failures.length) {

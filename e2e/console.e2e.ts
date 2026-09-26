@@ -1,3 +1,4 @@
+import { iamApiPrincipal } from '../src/domain/api-permissions.js';
 import { once } from 'node:events';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -65,7 +66,7 @@ test.beforeAll(async () => {
     response.once('close', () => abort.abort());
     const input = new Request(`http://127.0.0.1${request.url}`, { method: request.method ?? 'GET', headers: request.headers as Record<string, string>, ...(body ? { body } : {}), signal: abort.signal });
     received.push({ path: new URL(input.url).pathname, method: input.method, ...(body ? { body: JSON.parse(body) } : {}), key: input.headers.get('idempotency-key') });
-    const result = await routeAgentsRequest(input, request.headers['x-runtime-owner'] === owner ? owner : '', { agents, sessions, vaults, templates });
+    const result = await routeAgentsRequest(input, iamApiPrincipal(request.headers['x-runtime-owner'] === owner ? owner : ''), { agents, sessions, vaults, templates });
     const headers: Record<string, string> = {};
     result.headers.forEach((value, key) => { headers[key] = value; });
     response.writeHead(result.status, headers);

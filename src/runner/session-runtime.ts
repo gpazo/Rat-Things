@@ -198,7 +198,7 @@ export class SessionRuntime {
     const content = result.success ? typeof result.output === 'string' ? [{ type: 'inputText', text: result.output }] : (result.output ?? []).map((part) => part.type === 'input_text' ? { type: 'inputText', text: part.text } : { type: 'inputImage', imageUrl: part.image_url }) : [{ type: 'inputText', text: result.error ?? 'Function failed' }];
     request.resolve({ success: result.success, contentItems: content });
     this.requests.delete(key);
-    this.state = resolveSessionFunction(this.state!, result.turn_id, result.call_id);
+    this.state = resolveSessionFunction(this.state!, result.turn_id, result.call_id, { completedAt: this.now(), success: result.success });
     this.publish();
   }
 

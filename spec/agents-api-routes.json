@@ -346,5 +346,11 @@
     "/v1/skills/{skill_id}/versions/{version}/content",
     null,
     "Binary"
+  ],
+  [
+    "GET",
+    "/v1/agents/sessions/{session_id}/traces",
+    "TraceList",
+    "Trace[]"
   ]
 ]

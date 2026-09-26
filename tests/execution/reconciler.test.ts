@@ -78,6 +78,36 @@ function fixture(inspection: ExecutionInspection, overrides: Partial<ActiveRunRe
 }
 
 describe('active Run reconciliation', () => {
+  it.each([3_599_999, 3_600_000])('bounds verified active workers at heartbeat age %i', async age => {
+    const current = { ...run(), execution: { ...execution, backend: 'ec2' as const } };
+    const test = fixture({ kind: 'active' }, { now: () => new Date(Date.parse(current.heartbeatAt!) + age) });
+    expect(await test.reconciler.reconcile(current)).toBe(age < 3_600_000 ? 'active' : 'heartbeat-expired');
+    if (age < 3_600_000) expect(test.executions.stop).not.toHaveBeenCalled();
+    else {
+      expect(test.store.failExecution).toHaveBeenCalledWith(current.runId, current.execution, current.heartbeatAt, expect.objectContaining({ code: 'execution_lost' }));
+      expect(test.executions.stop).toHaveBeenCalledWith(current.execution, 'Worker keep-alives stopped for one hour');
+      expect(test.store.failExecution.mock.invocationCallOrder[0]).toBeLessThan(test.executions.stop.mock.invocationCallOrder[0]!);
+    }
+  });
+  it('quarantines malformed heartbeat evidence without inspecting or stopping a worker', async () => {
+    const test = fixture({ kind: 'active' });
+    expect(await test.reconciler.reconcile({ ...run(), heartbeatAt: 'invalid' })).toBe('quarantined');
+    expect(test.inspector.inspect).not.toHaveBeenCalled();
+    expect(test.executions.stop).not.toHaveBeenCalled();
+  });
+  it('does not stop an expired worker after a heartbeat or generation race', async () => {
+    const test = fixture({ kind: 'active' }, { now: () => new Date('2026-08-24T22:00:00Z') });
+    test.store.failExecution.mockResolvedValue(false);
+    expect(await test.reconciler.reconcile(run())).toBe('raced');
+    expect(test.executions.stop).not.toHaveBeenCalled();
+  });
+  it.each(['unknown', 'conflict'] as const)('quarantines %s identity even after the expiry deadline', async kind => {
+    const test = fixture({ kind, reason: 'uncertain' }, { now: () => new Date('2026-08-24T22:00:00Z') });
+    expect(await test.reconciler.reconcile(run())).toBe('deferred');
+    expect(test.store.failExecution).not.toHaveBeenCalled();
+    expect(test.executions.stop).not.toHaveBeenCalled();
+  });
+
   it('keeps probing quarantined workers and settles only subsequently verified termination', async () => {
     const f = fixture({ kind: 'unknown', reason: 'Bootstrap has not connected yet' });
     let current = run('dispatching');

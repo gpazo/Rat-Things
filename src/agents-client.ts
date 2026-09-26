@@ -1,3 +1,4 @@
+import type { ApiScope } from './domain/api-permissions.js';
 import OpenAI from 'openai';
 import { defaultProvider } from '@aws-sdk/credential-provider-node';
 import { Sha256 } from '@aws-crypto/sha256-js';
@@ -29,7 +30,9 @@ export function createAgentsFetch(options: {
   credentials?: ConstructorParameters<typeof SignatureV4>[0]['credentials'];
   fetch?: typeof fetch;
   tokenIssuerURL?: string;
+  scopes?: readonly ApiScope[];
 }): typeof fetch {
+  const scopes = options.scopes === undefined ? undefined : [...options.scopes];
   const endpoint = new URL(options.baseURL);
   if (endpoint.protocol !== 'https:') throw new Error('The Agents API endpoint must use HTTPS');
   const signer = new SignatureV4({
@@ -37,6 +40,7 @@ export function createAgentsFetch(options: {
     region: options.region, credentials: options.credentials ?? defaultProvider(), sha256: Sha256,
   });
   const transport = options.fetch ?? sdkFetch;
+  if (options.scopes !== undefined && /\.(lambda-url\.[a-z0-9-]+\.on\.aws|execute-api\.[a-z0-9-]+\.amazonaws\.com)$/.test(endpoint.hostname) && !options.tokenIssuerURL) throw new Error('Scoped clients require the bearer-token API endpoint');
   const iamEndpoint = /\.(lambda-url\.[a-z0-9-]+\.on\.aws|execute-api\.[a-z0-9-]+\.amazonaws\.com)$/.test(endpoint.hostname);
   let token: { api_key: string; expires_at: number } | undefined;
   let pendingToken: Promise<void> | undefined;
@@ -47,11 +51,13 @@ export function createAgentsFetch(options: {
       const url = new URL(issuer);
       if (url.protocol !== 'https:' || url.hostname !== `${url.hostname.split('.')[0]}.lambda-url.${options.region}.on.aws` || url.pathname !== '/v1/auth/tokens' || url.search || url.hash || url.username || url.password) throw new Error('The API token issuer must be an AWS Lambda URL in the configured region');
       const issuerSigner = new SignatureV4({ service: 'lambda', region: options.region, credentials: options.credentials ?? defaultProvider(), sha256: Sha256 });
-      const signed = await issuerSigner.sign(new HttpRequest({ protocol: 'https:', hostname: url.hostname, path: url.pathname, method: 'POST', headers: { host: url.host, 'content-type': 'application/json' }, body: '{}' }));
-      const result = await transport(url, { method: 'POST', headers: signed.headers, body: '{}', redirect: 'error', signal: AbortSignal.timeout(30_000) });
+      const body = JSON.stringify(scopes === undefined ? {} : { scopes });
+      const signed = await issuerSigner.sign(new HttpRequest({ protocol: 'https:', hostname: url.hostname, path: url.pathname, method: 'POST', headers: { host: url.host, 'content-type': 'application/json' }, body }));
+      const result = await transport(url, { method: 'POST', headers: signed.headers, body, redirect: 'error', signal: AbortSignal.timeout(30_000) });
       if (!result.ok) throw new Error('API key issuance failed');
       const value: unknown = await result.json();
       if (typeof value !== 'object' || value === null || !('api_key' in value) || typeof value.api_key !== 'string' || !('expires_at' in value) || typeof value.expires_at !== 'number' || !('base_url' in value) || value.base_url !== options.baseURL.replace(/\/$/, '')) throw new Error('Invalid API key issuance response');
+      if (scopes !== undefined && (!('scopes' in value) || !Array.isArray(value.scopes) || value.scopes.some(scope => !scopes.includes(scope)))) throw new Error('API key issuer did not honor requested scopes');
       token = { api_key: value.api_key, expires_at: value.expires_at };
     })().finally(() => { pendingToken = undefined; });
     await pendingToken;

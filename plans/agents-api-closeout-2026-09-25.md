@@ -1,5 +1,8 @@
 # Agents API migration closeout
 
+Current follow-up: [bounded expiry/model/scope and behavior closeout](agents-api-closeout-next.md). The findings below are the earlier baseline; current acceptance and remaining release gates are in that follow-up.
+
+
 The user ended this validation cycle to prevent further scope expansion. The
 backend, harness, state and workers remain in our AWS account. Production commit
 `a766b7a` is deployed; its CI passed. The branch is

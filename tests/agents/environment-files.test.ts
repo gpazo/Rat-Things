@@ -1,3 +1,4 @@
+import { iamApiPrincipal } from '../../src/domain/api-permissions.js';
 import OpenAI from 'openai';
 import { describe, expect, it } from 'vitest';
 import { EnvironmentService } from '../../src/core/environment-service.js';
@@ -19,7 +20,7 @@ describe('environment files through the standard SDK', () => {
       files.set(operation.path, result); return result;
     } } });
     const agents = new AgentService({ store });
-    const api = (owner: string) => new OpenAI({ apiKey: 'test', maxRetries: 0, baseURL: 'https://rat.invalid/v1', fetch: (input, init) => routeAgentsRequest(new Request(input, init), owner, { agents, environments }) }).beta.agents.environments;
+    const api = (owner: string) => new OpenAI({ apiKey: 'test', maxRetries: 0, baseURL: 'https://rat.invalid/v1', fetch: (input, init) => routeAgentsRequest(new Request(input, init), iamApiPrincipal(owner), { agents, environments }) }).beta.agents.environments;
     const environment = await environments.prepare('alice', 'sess_test', { type: 'self_hosted', workspace_directory: '/workspace' });
     if (environment.type === 'none') throw new Error('Expected an environment');
     await environments.connection({ ownerId: 'alice', environmentId: environment.id, role: 'executor' }, 'registration', true);

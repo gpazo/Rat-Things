@@ -55,10 +55,11 @@ export class ActiveRunReconciler {
     if (target.kind === 'skip') return target.outcome;
     const { execution, heartbeatAt } = target;
     const inspection = await this.options.inspector.inspect(run.runId, execution);
-    const decision = reconciliationDecision(run, inspection);
+    const checkedAt = inspection.kind === 'active' && run.status !== 'cancelling' ? this.now() : undefined;
+    const decision = reconciliationDecision(run, inspection, checkedAt ? Date.parse(checkedAt) - Date.parse(heartbeatAt) : 0);
     switch (decision.kind) {
       case 'observe': {
-        const observation = livenessObservation(decision, this.now(), this.options.quarantineAfter);
+        const observation = livenessObservation(decision, checkedAt ?? this.now(), this.options.quarantineAfter);
         const retained = await this.options.store.recordLivenessInspection(
           run.runId,
           execution,
@@ -74,6 +75,12 @@ export class ActiveRunReconciler {
       case 'stop':
         await this.options.executions.stop(execution, decision.reason);
         return 'stop-requested';
+      case 'expire': {
+        const failed = await this.options.store.failExecution(run.runId, execution, heartbeatAt, decision.error);
+        if (!failed) return 'raced';
+        await this.options.executions.stop(execution, decision.error.message);
+        return 'heartbeat-expired';
+      }
       case 'fail': {
         const failed = await this.options.store.failExecution(run.runId, execution, heartbeatAt, decision.error);
         return failed ? 'failed' : 'raced';

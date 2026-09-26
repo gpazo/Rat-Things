@@ -197,6 +197,11 @@ export class RunSessionExecution implements SessionExecution {
     return projectSessionTurn(turn, run, snapshot);
   }
 
+  public async traceSteps(ownerId: string, session: AgentSession, turnId: string) {
+    const runtime = await this.runtime.get(ownerId, session.id);
+    return runtime?.value.snapshot?.turns.find(binding => binding.turn.id === turnId)?.traceSteps ?? [];
+  }
+
   public async items(ownerId: string, session: AgentSession, turnId: string): Promise<AgentSessionItem[]> {
     const runtime = await this.runtime.get(ownerId, session.id);
     const saved = runtime?.value.snapshot?.turns.find((binding) => binding.turn.id === turnId);

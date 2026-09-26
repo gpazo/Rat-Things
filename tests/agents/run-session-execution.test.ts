@@ -1,3 +1,4 @@
+import { iamApiPrincipal } from '../../src/domain/api-permissions.js';
 import { describe, expect, it, vi } from 'vitest';
 import { RunSessionExecution } from '../../src/app/run-session-execution.js';
 import { SessionRuntimeStore } from '../../src/core/session-runtime-store.js';
@@ -88,7 +89,7 @@ describe('persistent harness input admission', () => {
     const rejected = expect(starting).rejects.toMatchObject({ status: 409 });
     await preparing;
     try {
-      const response = await routeAgentsRequest(new Request(`https://api.example/v1/agents/sessions/${session.id}`, { method: 'DELETE' }), 'alice', { agents, sessions });
+      const response = await routeAgentsRequest(new Request(`https://api.example/v1/agents/sessions/${session.id}`, { method: 'DELETE' }), iamApiPrincipal('alice'), { agents, sessions });
       expect(response.status).toBe(200);
       expect(await response.json()).toEqual({ id: session.id, object: 'agent.session.deleted', deleted: true });
     } finally { release(); }
@@ -189,7 +190,7 @@ describe('persistent harness input admission', () => {
     const check = f.execution.checkInputConnection.bind(f.execution);
     f.execution.checkInputConnection = async (...args) => { inspected(); await check(...args); };
     let settled = false;
-    const response = routeAgentsRequest(new Request('https://api.example/v1/agents/sessions/sess/events', { method: 'POST', headers: { 'content-type': 'application/json', 'idempotency-key': 'input' }, body: JSON.stringify({ events: [{ type: 'agent.session.input.message', input: [{ role: 'user', content: [{ type: 'input_text', text: 'Continue' }] }] }] }) }), 'alice', { agents, sessions }).then((value) => { settled = true; return value; });
+    const response = routeAgentsRequest(new Request('https://api.example/v1/agents/sessions/sess/events', { method: 'POST', headers: { 'content-type': 'application/json', 'idempotency-key': 'input' }, body: JSON.stringify({ events: [{ type: 'agent.session.input.message', input: [{ role: 'user', content: [{ type: 'input_text', text: 'Continue' }] }] }] }) }), iamApiPrincipal('alice'), { agents, sessions }).then((value) => { settled = true; return value; });
     await Promise.race([inspecting, response.then(async (value) => { throw new Error(`Response settled before waiting: ${value.status} ${await value.text()}`); })]); expect(settled).toBe(false); expect(f.start).not.toHaveBeenCalled();
     if (expired) f.now(401);
     await f.connect();

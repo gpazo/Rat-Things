@@ -31,6 +31,11 @@ for (const [method, path, input, output] of routes) {
   const responseSchema = output?.endsWith('[]') ? {
     type: 'object', required: ['data', 'has_more', ...(output === 'EnvironmentFile[]' ? ['next'] : [])], properties: { ...(output === 'EnvironmentFile[]' ? { next: { type: ['string', 'null'] } } : { object: { const: 'list' } }), data: { type: 'array', items: ref(output.slice(0, -2)) }, has_more: { type: 'boolean' } },
   } : output === 'Binary' ? { type: 'string', format: 'binary' } : ref(output === 'SessionEventStream' ? 'SessionEvent' : output);
+  if (output === 'Trace[]') {
+    responseSchema.required.push('first_id', 'last_id');
+    responseSchema.properties.first_id = { type: ['string', 'null'] };
+    responseSchema.properties.last_id = { type: ['string', 'null'] };
+  }
   const contentType = output === 'Binary' ? 'application/octet-stream' : output === 'SessionEventStream' ? 'text/event-stream' : 'application/json';
   const content = { [contentType]: { schema: responseSchema } };
   if (input === 'SessionCreate') content['text/event-stream'] = { schema: ref('SessionEvent') };
@@ -89,7 +94,10 @@ async function verifySdkRouteCoverage(routes) {
   ))).flat());
   const actual = new Set(routes.map(([method, path]) => `${method} ${normalizeRoute(path)}`));
   const missing = [...expected].filter((route) => !actual.has(route));
-  const extra = [...actual].filter((route) => !expected.has(route));
+  // Documented operations not yet present in the pinned SDK remain explicit.
+  const documented = new Set(['GET /agents/sessions/{}/traces']);
+  const extra = [...actual].filter((route) => !expected.has(route) && !documented.has(route));
+  missing.push(...[...documented].filter(route => !actual.has(route)));
   if (!expected.size || actual.size !== routes.length || missing.length || extra.length) {
     throw new Error(`Agents API route inventory differs from the pinned SDK: ${JSON.stringify({ missing, extra, duplicateRoutes: routes.length - actual.size })}`);
   }
