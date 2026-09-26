@@ -282,6 +282,17 @@ shim targets this deployment's relay; the encrypted execution channel terminates
 in infrastructure you operate. Executor and harness credentials have different
 roles and are revoked when the environment is retired.
 
+Retrieve `GET /v1/agents/environments/{environment_id}` to check readiness.
+The environment `status` is `pending` while setup or the initial executor
+connection is unfinished, and `connected` when ready. Wait for `connected`
+before using live file operations. The other response statuses are
+`disconnected`, `expired` and `failed`; a disconnected self-hosted executor
+can reconnect, while an expired or failed environment is unavailable.
+These values follow the [Environment API reference](https://developers.openai.com/api/reference/typescript/resources/beta/subresources/agents/subresources/environments/methods/retrieve).
+The hosted guide calls the setup phase `provisioning`, but that is not a
+response status; clients should handle `pending`. The corresponding stream
+event is `agent.session.environment.pending`.
+
 Managed network settings support enabled, disabled and restricted access.
 Restricted lists contain exact hostnames. Session overrides can narrow a
 template's network policy. Commands, setup and managed environment MCP processes

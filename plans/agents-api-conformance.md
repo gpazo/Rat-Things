@@ -7,6 +7,13 @@ compute in AWS. Requested model identifiers and capabilities must preserve their
 meaning. A provider substitution or an explicitly rejected supported upstream
 request is a compatibility difference, not a passing conformance case.
 
+Environment status clarification (2026-09-26): the current official
+[retrieval reference](https://developers.openai.com/api/reference/typescript/resources/beta/subresources/agents/subresources/environments/methods/retrieve)
+and its hosted response example specify `pending`, matching the pinned SDK and
+`EnvironmentService`. The hosted guide's `provisioning` wording does not justify
+adding a new wire value. The discrepancy is resolved for our contract; callers
+wait for `connected`, handling `pending` during setup or initial connection.
+
 The [September 23 continuation](agents-api-parity-2026-09-23.md) records contract
 changes since the previous SDK pin, current validation, and the work still open.
 The new SDK adds Session model updates, environment-variable Vault credentials,

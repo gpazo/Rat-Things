@@ -1,5 +1,15 @@
 # Agents API feature audit — September 25, 2026
 
+Status-wording resolution (September 26): the current official
+[Environment retrieval reference](https://developers.openai.com/api/reference/typescript/resources/beta/subresources/agents/subresources/environments/methods/retrieve)
+lists `pending` and uses it in its `openai_hosted` response example, agreeing with
+`openai@7.23.0` and Rat Things. The hosted guide's `provisioning` wording is a
+guide/reference inconsistency, not a missing Rat Things status. Keep `pending`
+on the wire and `agent.session.environment.pending` in the stream. The client
+guidance is now explicit in `docs/agents-api.md`; this audit question is closed.
+This conclusion compares the published contract and implementation, not a new
+black-box observation of OpenAI's hosted service.
+
 Current follow-up: [bounded expiry/model/scope and behavior closeout](agents-api-closeout-next.md). The findings below are the earlier baseline; current acceptance and remaining release gates are in that follow-up.
 
 
