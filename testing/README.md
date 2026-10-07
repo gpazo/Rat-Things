@@ -85,8 +85,7 @@ Use `testing/localstack.env.example` as the stable contract reference.
 
 To build and exercise the actual ARM64 MicroVM image locally, including lifecycle startup, root/host
 acceptance, cgroup eBPF denial for UID 10001 through loopback and the guest interface, acceptance of
-an unrelated external peer on port 8080, real public Chromium navigation, retained screenshots and
-VP8 WebM recordings, and browser private-address denial, run:
+an unrelated external peer on port 8080, run:
 
 ```bash
 npm run test:e2e:microvm-image

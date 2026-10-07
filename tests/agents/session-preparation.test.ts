@@ -70,16 +70,6 @@ describe('Session preparation recovery', () => {
     expect(JSON.stringify([...f.store.resources.values()])).not.toContain('inline-only');
   });
 
-  it('fails closed for a legacy MCP snapshot whose original transport is unavailable', async () => {
-    const f = await integrationFixture();
-    const t = toolFixture();
-    await f.store.put({ ownerId: 'operator', id: 'sess_legacy', collection: 'session_preparations', createdAt: 100, revision: 1, value: { agent: t.agent, now: 100 } }, 0);
-    const prepare = vi.fn(f.execution.prepare);
-    f.execution.prepare = prepare;
-    await expect(f.sessions.create('operator', { agent_id: f.agent.id, environment: { type: 'none' }, input: 'Original' }, 'sess_legacy'))
-      .rejects.toMatchObject({ code: 'session_preparation_incomplete' });
-    expect(prepare).not.toHaveBeenCalled();
-  });
 
   it('preserves saved MCP headers and configuration after interrupted setup and Agent deletion', async () => {
     const f = await integrationFixture();

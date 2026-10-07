@@ -34,37 +34,3 @@ export interface AgentInteractionTarget {
   runId: string;
   execution: ExecutionReference;
 }
-
-export const COMPUTER_VIEWPORT = { width: 1280, height: 720 } as const;
-
-export const AGENT_TOOL_CALL_STATUSES = [
-  'pending',
-  'succeeded',
-  'failed',
-  'interrupted',
-] as const;
-
-export type AgentToolCallStatus = (typeof AGENT_TOOL_CALL_STATUSES)[number];
-
-/**
- * Durable, bounded evidence for one host dynamic-tool call. Arguments and
- * results are represented only by digests so provider data and secrets do not
- * migrate into the Runs table.
- */
-export interface AgentToolCallRecord {
-  version: '1';
-  runId: string;
-  requestId: string;
-  method: 'item/tool/call';
-  executionId: string;
-  executionGeneration: string;
-  namespace: string | null;
-  tool: string;
-  argumentDigest: string;
-  admittedToolsDigest: string;
-  status: AgentToolCallStatus;
-  startedAt: string;
-  settledAt?: string;
-  resultDigest?: string;
-  error?: string;
-}

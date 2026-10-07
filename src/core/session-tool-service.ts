@@ -78,11 +78,11 @@ export class SessionToolService {
   }
 
   /** Expiry closes adopted inline bindings only after fencing Session creation. */
-  public async reconcilePreparation(ownerId: string, sessionId: string): Promise<{ status: 'created' | 'legacy' | 'cleaned' | 'waiting'; retryAfterSeconds?: number }> {
+  public async reconcilePreparation(ownerId: string, sessionId: string): Promise<{ status: 'created' | 'cleaned' | 'waiting'; retryAfterSeconds?: number }> {
     const resource = await this.options.store.get<SessionPreparation>(ownerId, 'session_preparations', sessionId);
     if (!resource) return { status: 'cleaned' };
     const plan = planPreparationReconciliation(resource.value, this.now());
-    if (plan.type === 'created' || plan.type === 'legacy') return { status: plan.type };
+    if (plan.type === 'created') return { status: plan.type };
     if (plan.type === 'wait') return { status: 'waiting', retryAfterSeconds: plan.retryAfterSeconds };
     if (!resource.value.abandoned) {
       await this.options.store.put({ ...resource, revision: resource.revision + 1, value: { ...resource.value, abandoned: true } }, resource.revision);

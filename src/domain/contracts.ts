@@ -4,7 +4,6 @@ import type {
   IntegrationAccessRequest,
   ReasoningSummary,
 } from './capabilities.js';
-import type { AgentToolCallRecord } from './interaction.js';
 
 export type JsonPrimitive = string | number | boolean | null;
 export type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue };
@@ -215,7 +214,6 @@ export interface RunRecord {
   heartbeatAt?: string;
   liveness?: ExecutionLivenessObservation;
   /** Internal bounded dynamic-tool ledger; omitted from public Run projections. */
-  agentToolCalls?: AgentToolCallRecord[];
   result?: RunResult;
   error?: RunError;
   cancelRequestedAt?: string;

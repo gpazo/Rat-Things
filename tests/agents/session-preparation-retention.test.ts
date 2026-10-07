@@ -1,9 +1,9 @@
+import { parseAgentsContract } from '../../src/domain/agents-api-validation.js';
 import { describe, expect, it, vi } from 'vitest';
 import { VaultService } from '../../src/core/vault-service.js';
-import { sessionAgent } from '../../src/core/session-planning.js';
 import { SessionService } from '../../src/core/session-service.js';
 import { SessionToolService } from '../../src/core/session-tool-service.js';
-import { planPreparationReconciliation, type SessionPreparation } from '../../src/core/session-preparation-planning.js';
+import { planSessionPreparation, type SessionPreparation } from '../../src/core/session-preparation-planning.js';
 import { integrationFixture } from './integration-fixtures.js';
 
 function deferred() {
@@ -122,13 +122,12 @@ describe('abandoned Session preparation retention', () => {
     expect(await f.tools.reconcilePreparation('operator', 'sess_test')).toEqual({ status: 'cleaned' });
   });
 
-  it('retains legacy snapshots for explicit inventory and does not reconcile another owner', async () => {
+  it('does not reconcile another owner’s current preparation', async () => {
     const f = await fixture();
-    const preparation: SessionPreparation = { agent: sessionAgent({ model: 'test' }, 'agent_test', 100), now: 100 };
-    expect(planPreparationReconciliation(preparation, 1_000_000)).toEqual({ type: 'legacy' });
-    await f.store.put({ ownerId: 'operator', collection: 'session_preparations', id: 'sess_legacy', createdAt: 100, revision: 1, value: preparation }, 0);
-    expect(await f.tools.reconcilePreparation('operator', 'sess_legacy')).toEqual({ status: 'legacy' });
-    expect(await f.tools.reconcilePreparation('someone-else', 'sess_legacy')).toEqual({ status: 'cleaned' });
+    const preparation = planSessionPreparation(parseAgentsContract('SessionCreate', f.input), 'agent_test', 100);
+    await f.store.put({ ownerId: 'operator', collection: 'session_preparations', id: 'sess_owned', createdAt: 100, revision: 1, value: preparation }, 0);
+    expect(await f.tools.reconcilePreparation('someone-else', 'sess_owned')).toEqual({ status: 'cleaned' });
+    expect((await f.store.get('operator', 'session_preparations', 'sess_owned'))?.value).toEqual(preparation);
     expect(f.secrets.revoke).not.toHaveBeenCalled();
   });
 });

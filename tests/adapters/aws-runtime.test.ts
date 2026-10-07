@@ -16,7 +16,6 @@ import {
   S3ArtifactStore,
   S3PublicationObjectStore,
 } from '../../src/adapters/aws-runtime.js';
-import type { AgentToolCallRecord } from '../../src/domain/interaction.js';
 
 describe('AWS runtime client configuration', () => {
   it('renews EC2 Run retention only under the exact active execution fence', async () => {
@@ -125,64 +124,6 @@ describe('AWS runtime client configuration', () => {
     expect(send).toHaveBeenCalledTimes(2);
   });
 
-  it('persists and settles a bounded exact-generation dynamic tool record', async () => {
-    const generation = 'a'.repeat(64);
-    const pending = {
-      version: '1' as const,
-      runId: 'run-tool',
-      requestId: 'request-1',
-      method: 'item/tool/call' as const,
-      executionId: 'microvm-tool',
-      executionGeneration: generation,
-      namespace: 'fixture_crm',
-      tool: 'records_create',
-      argumentDigest: 'b'.repeat(64),
-      admittedToolsDigest: 'c'.repeat(64),
-      status: 'pending' as const,
-      startedAt: '2026-08-24T21:00:00.000Z',
-    };
-    let currentCalls: AgentToolCallRecord[] | undefined;
-    const commands: UpdateCommand[] = [];
-    const send = vi.fn(async (command: unknown) => {
-      if (command instanceof GetCommand) return {
-        Item: {
-          runId: 'run-tool',
-          status: 'running',
-          execution: { backend: 'microvm', id: 'microvm-tool', generation },
-          ...(currentCalls ? { agentToolCalls: currentCalls } : {}),
-        },
-      };
-      if (command instanceof UpdateCommand) {
-        commands.push(command);
-        currentCalls = command.input.ExpressionAttributeValues?.[':next'] as AgentToolCallRecord[];
-        return {};
-      }
-      throw new Error('unexpected command');
-    });
-    const store = new DynamoRunStore(
-      { send } as unknown as DynamoDBDocumentClient,
-      'runs',
-    );
-
-    await expect(store.beginAgentToolCall(pending)).resolves.toEqual(pending);
-    await expect(store.settleAgentToolCall({
-      runId: 'run-tool',
-      execution: { backend: 'microvm', id: 'microvm-tool', generation },
-      requestId: 'request-1',
-      status: 'succeeded',
-      settledAt: '2026-08-24T21:00:01.000Z',
-      resultDigest: 'd'.repeat(64),
-    })).resolves.toMatchObject({ status: 'succeeded', resultDigest: 'd'.repeat(64) });
-
-    expect(commands).toHaveLength(2);
-    expect(commands[0]?.input.ConditionExpression).toContain('attribute_not_exists(#agentToolCalls)');
-    expect(commands[0]?.input.ExpressionAttributeValues).not.toHaveProperty(':current');
-    expect(commands[1]?.input.ExpressionAttributeValues).toHaveProperty(':current');
-    expect(commands[1]?.input.ExpressionAttributeValues?.[':next']).toEqual([
-      expect.objectContaining({ requestId: 'request-1', status: 'succeeded' }),
-    ]);
-  });
-
   it('fences terminal artifacts and refuses a stale worker generation', async () => {
     const execution = {backend: 'microvm' as const, id: 'microvm-1', generation: 'generation-1'};
     const result = {output: {bucket: 'artifacts', key: 'partial', sha256: 'a'.repeat(64)}, preview: 'Stopped', durationMs: 10, exitCode: 0};
@@ -201,61 +142,6 @@ describe('AWS runtime client configuration', () => {
     update = undefined;
     expect(await store.finishExecution('run-1', execution, 'cancelled', result)).toBe(false);
     expect(update).toBeUndefined();
-  });
-
-  it('atomically interrupts pending tool calls when an exact execution is failed', async () => {
-    const generation = 'e'.repeat(64);
-    const pending = {
-      version: '1' as const,
-      runId: 'run-lost',
-      requestId: 'request-lost',
-      method: 'item/tool/call' as const,
-      executionId: 'microvm-lost',
-      executionGeneration: generation,
-      namespace: 'fixture_crm',
-      tool: 'records_create',
-      argumentDigest: 'f'.repeat(64),
-      admittedToolsDigest: '1'.repeat(64),
-      status: 'pending' as const,
-      startedAt: '2026-08-24T21:00:00.000Z',
-    };
-    let update: UpdateCommand | undefined;
-    const send = vi.fn(async (command: unknown) => {
-      if (command instanceof GetCommand) return {
-        Item: {
-          runId: 'run-lost',
-          status: 'running',
-          heartbeatAt: '2026-08-24T21:00:02.000Z',
-          execution: { backend: 'microvm', id: 'microvm-lost', generation },
-          agentToolCalls: [pending],
-        },
-      };
-      if (command instanceof UpdateCommand) {
-        update = command;
-        return {};
-      }
-      throw new Error('unexpected command');
-    });
-    const store = new DynamoRunStore(
-      { send } as unknown as DynamoDBDocumentClient,
-      'runs',
-    );
-
-    await expect(store.failExecution(
-      'run-lost',
-      { backend: 'microvm', id: 'microvm-lost', generation },
-      '2026-08-24T21:00:02.000Z',
-      { code: 'execution_lost', message: 'MicroVM terminated', retryable: true },
-    )).resolves.toBe(true);
-
-    expect(update?.input.UpdateExpression).toContain('#agentToolCalls = :nextCalls');
-    expect(update?.input.ExpressionAttributeValues?.[':nextCalls']).toEqual([
-      expect.objectContaining({
-        requestId: 'request-lost',
-        status: 'interrupted',
-        error: expect.stringContaining('must not be replayed automatically'),
-      }),
-    ]);
   });
 
   it('streams artifacts through multipart upload and renews unchanged objects with CopyObject', async () => {

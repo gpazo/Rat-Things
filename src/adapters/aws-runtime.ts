@@ -40,12 +40,10 @@ import type {
 import { InvalidStateTransitionError } from '../domain/state.js';
 import type {
   ArtifactStore,
-  AgentToolCallStore,
   CreateRunResult,
   RunQueue,
   RunStore,
 } from '../core/ports.js';
-import type { AgentToolCallRecord } from '../domain/interaction.js';
 import type { PublicationGrantStore } from '../core/publication-service.js';
 import type { PublicationObjectStore } from '../core/publication-service.js';
 import { validateArtifactPath } from '../domain/artifacts.js';
@@ -101,7 +99,7 @@ export function createAwsClients(region = process.env.AWS_REGION, options?: { op
   };
 }
 
-export class DynamoRunStore implements RunStore, AgentToolCallStore {
+export class DynamoRunStore implements RunStore {
   public constructor(
     private readonly client: DynamoDBDocumentClient,
     private readonly tableName: string,
@@ -297,68 +295,6 @@ export class DynamoRunStore implements RunStore, AgentToolCallStore {
     });
   }
 
-  public async beginAgentToolCall(record: AgentToolCallRecord): Promise<AgentToolCallRecord> {
-    validateToolCallRecord(record);
-    for (let attempt = 0; attempt < 10; attempt += 1) {
-      const run = await this.get(record.runId);
-      if (!run) throw new Error(`run ${record.runId} not found`);
-      assertToolCallExecution(run, record.executionId, record.executionGeneration);
-      if (run.status !== 'running') throw new Error('dynamic tool call Run is not active');
-      const current = run.agentToolCalls ?? [];
-      const existing = current.find((candidate) => candidate.requestId === record.requestId);
-      if (existing) {
-        if (
-          existing.argumentDigest !== record.argumentDigest ||
-          existing.admittedToolsDigest !== record.admittedToolsDigest ||
-          existing.namespace !== record.namespace ||
-          existing.tool !== record.tool ||
-          existing.executionGeneration !== record.executionGeneration
-        ) throw new Error(`dynamic tool request ${record.requestId} was reused with different input`);
-        return existing;
-      }
-      if (current.length >= 256) throw new Error('dynamic tool call ledger exceeds 256 records');
-      if (await this.replaceAgentToolCalls(run, [...current, record], ['running'])) return record;
-    }
-    throw new Error('dynamic tool call ledger changed too frequently');
-  }
-
-  public async settleAgentToolCall(input: {
-    runId: string;
-    execution: ExecutionReference;
-    requestId: string;
-    status: 'succeeded' | 'failed';
-    settledAt: string;
-    resultDigest: string;
-    error?: string;
-  }): Promise<AgentToolCallRecord> {
-    if (!input.execution.generation) throw new Error('dynamic tool settlement requires a generation');
-    for (let attempt = 0; attempt < 10; attempt += 1) {
-      const run = await this.get(input.runId);
-      if (!run) throw new Error(`run ${input.runId} not found`);
-      assertToolCallExecution(run, input.execution.id, input.execution.generation);
-      if (run.status !== 'running') throw new Error('dynamic tool call Run is not active');
-      const current = run.agentToolCalls ?? [];
-      const index = current.findIndex((candidate) => candidate.requestId === input.requestId);
-      if (index < 0) throw new Error(`dynamic tool request ${input.requestId} is not recorded`);
-      const existing = current[index]!;
-      if (existing.status !== 'pending') {
-        if (existing.status === input.status && existing.resultDigest === input.resultDigest) return existing;
-        throw new Error(`dynamic tool request ${input.requestId} is already ${existing.status}`);
-      }
-      const settled: AgentToolCallRecord = {
-        ...existing,
-        status: input.status,
-        settledAt: input.settledAt,
-        resultDigest: input.resultDigest,
-        ...(input.error ? { error: input.error.replace(/[\r\n]+/g, ' ').slice(0, 500) } : {}),
-      };
-      const next = current.slice();
-      next[index] = settled;
-      if (await this.replaceAgentToolCalls(run, next, ['running'])) return settled;
-    }
-    throw new Error('dynamic tool call settlement raced too frequently');
-  }
-
   /** Records bounded repair evidence without making the Run look semantically updated. */
   public async recordLivenessInspection(
     runId: string,
@@ -400,12 +336,7 @@ export class DynamoRunStore implements RunStore, AgentToolCallStore {
     return this.update(runId, { status: 'failed', error }, from);
   }
 
-  /**
-   * Commits terminal Run state and marks every exact-generation pending tool
-   * call interrupted in the same conditional item update. Session
-   * completion can therefore never observe a terminal Run with a stale
-   * pending call.
-   */
+  /** Commits terminal state under the exact execution and optional heartbeat fence. */
   private async terminalizeExactExecution(options: {
     runId: string;
     execution: ExecutionReference;
@@ -428,27 +359,12 @@ export class DynamoRunStore implements RunStore, AgentToolCallStore {
         (options.expectedHeartbeatAt !== undefined && run.heartbeatAt !== options.expectedHeartbeatAt)
       ) return false;
       const settledAt = new Date().toISOString();
-      const currentCalls = run.agentToolCalls ?? [];
-      const nextCalls = currentCalls.map((call): AgentToolCallRecord => (
-        call.status === 'pending' &&
-        call.executionId === options.execution.id &&
-        call.executionGeneration === generation
-          ? {
-              ...call,
-              status: 'interrupted',
-              settledAt,
-              error: 'execution ended before the tool result was durably settled; outcome is unknown and the call must not be replayed automatically',
-            }
-          : call
-      ));
       const values: Record<string, unknown> = {
         ':backend': options.execution.backend,
         ':executionId': options.execution.id,
         ':generation': generation,
         ':status': options.status,
         ':updatedAt': settledAt,
-        ':nextCalls': nextCalls,
-        ...(run.agentToolCalls ? { ':currentCalls': currentCalls } : {}),
         ...(options.error ? { ':error': options.error } : {}),
         ...(options.result ? { ':result': options.result } : {}),
       };
@@ -459,7 +375,6 @@ export class DynamoRunStore implements RunStore, AgentToolCallStore {
         '#id': 'id',
         '#generation': 'generation',
         '#updatedAt': 'updatedAt',
-        '#agentToolCalls': 'agentToolCalls',
         ...(options.error ? { '#error': 'error' } : {}),
         ...(options.result ? { '#result': 'result' } : {}),
       };
@@ -473,9 +388,6 @@ export class DynamoRunStore implements RunStore, AgentToolCallStore {
         '#execution.#backend = :backend',
         '#execution.#id = :executionId',
         '#execution.#generation = :generation',
-        run.agentToolCalls
-          ? '#agentToolCalls = :currentCalls'
-          : 'attribute_not_exists(#agentToolCalls)',
       ];
       if (options.expectedHeartbeatAt !== undefined) {
         names['#heartbeatAt'] = 'heartbeatAt';
@@ -487,7 +399,7 @@ export class DynamoRunStore implements RunStore, AgentToolCallStore {
           TableName: this.tableName,
           Key: { runId: options.runId },
           UpdateExpression: [
-            'SET #status = :status, #updatedAt = :updatedAt, #agentToolCalls = :nextCalls',
+            'SET #status = :status, #updatedAt = :updatedAt',
             ...(options.error ? [', #error = :error'] : []),
             ...(options.result ? [', #result = :result'] : []),
           ].join(''),
@@ -501,55 +413,6 @@ export class DynamoRunStore implements RunStore, AgentToolCallStore {
       }
     }
     return false;
-  }
-
-  private async replaceAgentToolCalls(
-    run: RunRecord,
-    next: AgentToolCallRecord[],
-    statuses: RunStatus[],
-  ): Promise<boolean> {
-    const execution = run.execution;
-    if (!execution?.generation) return false;
-    const values: Record<string, unknown> = {
-      ':backend': execution.backend,
-      ':executionId': execution.id,
-      ':generation': execution.generation,
-      ':next': next,
-      ...(run.agentToolCalls ? { ':current': run.agentToolCalls } : {}),
-    };
-    const expected = statuses.map((status, index) => {
-      values[`:status${index}`] = status;
-      return `:status${index}`;
-    });
-    try {
-      await this.client.send(new UpdateCommand({
-        TableName: this.tableName,
-        Key: { runId: run.runId },
-        UpdateExpression: 'SET #agentToolCalls = :next',
-        ConditionExpression: [
-          `#status IN (${expected.join(', ')})`,
-          '#execution.#backend = :backend',
-          '#execution.#id = :executionId',
-          '#execution.#generation = :generation',
-          run.agentToolCalls
-            ? '#agentToolCalls = :current'
-            : 'attribute_not_exists(#agentToolCalls)',
-        ].join(' AND '),
-        ExpressionAttributeNames: {
-          '#status': 'status',
-          '#execution': 'execution',
-          '#backend': 'backend',
-          '#id': 'id',
-          '#generation': 'generation',
-          '#agentToolCalls': 'agentToolCalls',
-        },
-        ExpressionAttributeValues: values,
-      }));
-      return true;
-    } catch (error) {
-      if (isConditionalFailure(error)) return false;
-      throw error;
-    }
   }
 
   private async updateExactExecution(options: {
@@ -1104,37 +967,6 @@ export class CachedSecretReader implements SecretReader {
     this.values.set(secretArn, { value, expiresAt: Date.now() + this.ttlMs });
     return value;
   }
-}
-
-function validateToolCallRecord(record: AgentToolCallRecord): void {
-  if (
-    record.version !== '1' ||
-    record.method !== 'item/tool/call' ||
-    record.status !== 'pending' ||
-    !record.runId ||
-    !record.requestId ||
-    Buffer.byteLength(record.requestId, 'utf8') > 256 ||
-    !record.executionId ||
-    !/^[a-f0-9]{64}$/.test(record.executionGeneration) ||
-    (record.namespace !== null && (!record.namespace || Buffer.byteLength(record.namespace, 'utf8') > 128)) ||
-    !record.tool ||
-    Buffer.byteLength(record.tool, 'utf8') > 128 ||
-    !/^[a-f0-9]{64}$/.test(record.argumentDigest) ||
-    !/^[a-f0-9]{64}$/.test(record.admittedToolsDigest) ||
-    !Number.isFinite(Date.parse(record.startedAt))
-  ) throw new Error('dynamic tool call record is invalid');
-}
-
-function assertToolCallExecution(
-  run: RunRecord,
-  executionId: string,
-  executionGeneration: string,
-): void {
-  if (
-    run.execution?.backend !== 'microvm' ||
-    run.execution.id !== executionId ||
-    run.execution.generation !== executionGeneration
-  ) throw new Error('dynamic tool call lost its execution authority');
 }
 
 function isConditionalFailure(error: unknown): boolean {

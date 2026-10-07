@@ -11,7 +11,6 @@ import type {
 import type {
   AgentInteractionTarget,
   AgentRuntimeSnapshot,
-  AgentToolCallRecord,
 } from '../domain/interaction.js';
 import type { JsonValue } from '../domain/contracts.js';
 import type { AgentSessionInputMessageParam } from '../domain/agents-api.js';
@@ -67,19 +66,6 @@ export interface AgentInteractionController {
   interrupt(target: AgentInteractionTarget & { turnId: string }): Promise<void>;
   respond(target: AgentInteractionTarget, requestId: string, result: JsonValue): Promise<void>;
 
-}
-
-export interface AgentToolCallStore {
-  beginAgentToolCall(record: AgentToolCallRecord): Promise<AgentToolCallRecord>;
-  settleAgentToolCall(input: {
-    runId: string;
-    execution: ExecutionReference;
-    requestId: string;
-    status: 'succeeded' | 'failed';
-    settledAt: string;
-    resultDigest: string;
-    error?: string;
-  }): Promise<AgentToolCallRecord>;
 }
 
 export interface Clock {

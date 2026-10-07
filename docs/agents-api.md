@@ -386,10 +386,6 @@ that Agent does not change the pending Session's snapshot. A changed request
 cannot resume the same pending preparation. Vault grants are still checked when
 the Session launches work.
 
-An interrupted Session from an older deployment may lack its original MCP
-transport snapshot. Such a preparation returns `session_preparation_incomplete`;
-start a new Session instead of reconstructing its settings from a changed Agent.
-
 Publications select immutable Session artifact IDs through the separate
 `POST /v1/sessions/{sessionId}/publications` application route. See
 [sharing work](sharing-work.md). Session execution calls the private execution service directly.

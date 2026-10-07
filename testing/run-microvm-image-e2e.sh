@@ -144,45 +144,4 @@ docker exec \
   process.stdout.write("agent UID control-plane access blocked; external port 8080 allowed\n");
 '
 
-docker exec --interactive --user 10001 \
-  --env MICROVM_E2E_PRESERVE_BROWSER_ARTIFACTS=true \
-  "$container_name" \
-  node --input-type=module < "$script_dir/microvm-image-canary.mjs"
-
-if command -v ffprobe >/dev/null 2>&1; then
-  browser_artifacts="$build_context/browser-artifacts"
-  mkdir -p "$browser_artifacts"
-  docker cp \
-    "$container_name:/tmp/rat-things-browser-artifacts/browser/navigation.webm" \
-    "$browser_artifacts/navigation.webm"
-  probe_output="$build_context/browser-webm-probe.txt"
-  probe_errors="$build_context/browser-webm-errors.txt"
-  if ! ffprobe \
-    -v error \
-    -select_streams v:0 \
-    -show_entries stream=codec_name,width,height,r_frame_rate \
-    -show_entries format=format_name,duration \
-    -of default=noprint_wrappers=1 \
-    "$browser_artifacts/navigation.webm" \
-    >"$probe_output" 2>"$probe_errors"; then
-    cat "$probe_errors" >&2
-    echo "Browser recording failed strict ffprobe validation." >&2
-    exit 1
-  fi
-  if [[ -s "$probe_errors" ]]; then
-    cat "$probe_errors" >&2
-    echo "Browser recording contains malformed WebM/EBML metadata." >&2
-    exit 1
-  fi
-  if ! grep -Fxq 'codec_name=vp8' "$probe_output" || \
-    ! grep -Fxq 'width=1280' "$probe_output" || \
-    ! grep -Fxq 'height=720' "$probe_output" || \
-    ! grep -Fxq 'r_frame_rate=5/1' "$probe_output"; then
-    cat "$probe_output" >&2
-    echo "Browser recording has unexpected stream metadata." >&2
-    exit 1
-  fi
-  echo "Browser recording passed strict VP8 WebM/EBML validation."
-fi
-
-echo "ARM64 MicroVM lifecycle cgroup-BPF guard and Chromium canaries passed."
+echo "ARM64 MicroVM lifecycle cgroup-BPF guard canary passed."

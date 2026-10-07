@@ -7,9 +7,7 @@ standard Session does not inject browser tools or grant browser authority.
 The Session console displays saved messages, tool activity,
 function-result requests and artifacts; it does not provide a browser-control pane.
 
-Rat Things retains its private Chromium helper and process/network isolation code
-for local execution. Applications can expose browser capabilities through their
-declared tools. An application that exposes browser tools
+Applications expose browser capabilities through declared tools and
 must implement their declared interface and preserve ownership, bounded operations,
 network enforcement and separation from host credentials.
 

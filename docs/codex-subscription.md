@@ -51,7 +51,7 @@ npm run rat-things -- local \
 
 Add `--events` to print the complete Codex JSONL event stream. Add `--workspace PATH` to work in a
 different directory. Local execution supports Codex skills, apps, MCP, search, reasoning, and
-personality flags. Multi-account Rat Connections and the isolated Chromium helper require the
+personality flags. Multi-account Rat Connections require the
 deployed AWS host.
 
 Local and remote execution both pin Codex to `approvalPolicy: "never"`. Narrow the sandbox,

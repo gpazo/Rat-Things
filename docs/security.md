@@ -9,7 +9,7 @@ trustworthy. Rat Things owns the API, harness, state and workers in the operator
 A managed Session uses a dedicated worker VM. Workspaces and execution identities are isolated
 by owner and Session. The native sandbox is additional protection; the outer VM is the primary
 execution boundary. Trusted orchestration runs as root and launches Codex, repository commands
-and Chromium as UID/GID 10001. Local CLI execution has a separate read-only/no-network default.
+as UID/GID 10001. Local CLI execution has a separate read-only/no-network default.
 
 The EC2 worker supports connected Session lifetime beyond Lambda MicroVM's maximum lifetime.
 Both backends must preserve the same ownership, process and credential boundaries. Self-hosted

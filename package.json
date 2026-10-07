@@ -14,7 +14,7 @@
     "build": "node scripts/build.mjs",
     "package": "npm run build && node scripts/package-lambdas.mjs && node scripts/smoke-lambda-bundles.mjs",
     "architecture:check": "node scripts/check-architecture.mjs",
-    "microvm:check": "node --check microvm/runtime-server.mjs && node --check microvm/browser-host.mjs && node --check microvm/runtime-network-policy.mjs && node --check microvm/runtime-process-policy.mjs",
+    "microvm:check": "node --check microvm/runtime-server.mjs && node --check microvm/runtime-network-policy.mjs && node --check microvm/runtime-process-policy.mjs",
     "typecheck": "tsc --noEmit",
     "test": "vitest run --pool=forks --maxWorkers=1 --isolate",
     "test:watch": "vitest",

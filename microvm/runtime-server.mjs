@@ -29,7 +29,7 @@ const terminatorEntry = process.env.AGENT_TERMINATOR_ENTRY ?? '/opt/agent-runtim
 const agentUid = Number(process.env.RUN_AGENT_UID ?? 10001);
 const agentGid = Number(process.env.RUN_AGENT_GID ?? 10001);
 
-// Codex and Chromium run under `agentUid`. Even with inner full access they
+// Codex runs under `agentUid`. Even with inner full access it
 // must not call the root lifecycle/control plane or mutate their own capability envelope.
 ensureUntrustedUidCannotReachPort({ uid: agentUid, port: 8080 });
 

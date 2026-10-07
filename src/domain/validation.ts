@@ -455,24 +455,6 @@ export function requiredString(value: unknown, label: string, maxBytes: number):
   return value;
 }
 
-export function requiredTrimmedString(value: unknown, label: string, maxBytes: number): string {
-  if (typeof value !== 'string' || !value.trim() || Buffer.byteLength(value, 'utf8') > maxBytes) {
-    throw new ValidationError(`${label} is invalid`);
-  }
-  return value.trim();
-}
-
-export function isoDateTime(value: unknown, label: string): string {
-  if (
-    typeof value !== 'string' ||
-    !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/.test(value) ||
-    !Number.isFinite(Date.parse(value))
-  ) {
-    throw new ValidationError(`${label} must be an ISO date-time`);
-  }
-  return new Date(value).toISOString();
-}
-
 function positiveInteger(value: unknown, label: string): number {
   if (typeof value !== 'number' || !Number.isInteger(value) || value < 1) {
     throw new ValidationError(`${label} must be a positive integer`);

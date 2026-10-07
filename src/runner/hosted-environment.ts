@@ -109,9 +109,6 @@ export async function prepareHostedEnvironment(options: {
 }
 
 function hostedSetupMarker(text: string): { digest: string; sandbox: ManagedSandboxGeneration } {
-  // Existing private markers predate generation IDs. Their stable identifier
-  // permits an in-place upgrade without inventing a sandbox replacement.
-  if (/^[a-f0-9]{64}$/.test(text)) return { digest: text, sandbox: { id: `legacy-${text}`, replaced: false } };
   const value: unknown = JSON.parse(text);
   if (typeof value !== 'object' || value === null || !('digest' in value) || typeof value.digest !== 'string'
     || !('sandbox' in value) || typeof value.sandbox !== 'object' || value.sandbox === null
