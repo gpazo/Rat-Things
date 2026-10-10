@@ -44,13 +44,15 @@ it is not part of the limited-role observer.
 result, reconnects the event stream before reading saved state, and checks that
 a follow-up Turn completes. Its worker-loss case requires the additional
 `AWS_E2E_WORKER_RECOVERY=true` and `AWS_E2E_RECOVERY_LAUNCH_TEMPLATE_ID` inputs.
+These dedicated-worker fault probes also require `AWS_E2E_LONG_RUNNING_AGENT_ID`
+selecting an allowlisted Agent; they retain that supplied Agent after cleanup.
 It verifies the deployment account, Run, generation and immutable launch-template
 tag before terminating the exact EC2 instance created by that fixture. It then
 waits for reconciliation. With no execution environment, a replacement harness
 must retain context. With a hosted environment, expiry is terminal and saved
 artifacts must remain readable. This does not prove native checkpoint-loss
 recovery or workspace restoration onto replacement compute. The cases delete
-their own Sessions and Agents; they preserve the deployment for further testing.
+their own Sessions; they preserve the deployment for further testing.
 
 Build and verify the patched Linux ARM64 artifact before packaging (see
 `testing/README.md`). EC2 deployment additionally requires an immutable

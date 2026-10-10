@@ -17,7 +17,7 @@ live('retires the dedicated worker automatically after hosted initialization fai
   const client = createAgentsClient({ baseURL: required('RAT_THINGS_AGENTS_API_URL'), region }).withOptions({ maxRetries: 2 });
   const db = DynamoDBDocumentClient.from(new DynamoDBClient({ region }));
   const ec2 = new EC2Client({ region });
-  const agent = await client.beta.agents.create({ model: required('AWS_E2E_CODEX_MODEL_ID'), tools: [] });
+  const agent = await client.beta.agents.retrieve(required('AWS_E2E_LONG_RUNNING_AGENT_ID'));
   let sessionId: string | undefined;
   let worker: { id: string; runId: string; generation: string } | undefined;
   const instance = async () => {
@@ -63,7 +63,7 @@ live('retires the dedicated worker automatically after hosted initialization fai
       }
     } finally {
       try { if (sessionId) await client.beta.agents.sessions.delete(sessionId); }
-      finally { try { await client.beta.agents.delete(agent.id); } finally { db.destroy(); ec2.destroy(); } }
+      finally { db.destroy(); ec2.destroy(); }
     }
   }
 }, timeoutMs * 2);

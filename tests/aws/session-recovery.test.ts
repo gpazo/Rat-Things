@@ -75,7 +75,7 @@ recovery.each([
   const s3 = new S3Client({ region });
   expect((await db.send(new DescribeTableCommand({ TableName: `${deployment}-agents` }))).Table?.TableArn?.split(':')[4]).toBe(required('AWS_E2E_CALLER_ACCOUNT'));
   const marker = `recovery-${randomUUID()}`;
-  const agent = await client.beta.agents.create({ model: required('AWS_E2E_CODEX_MODEL_ID'), tools: [], instructions: 'Follow each request exactly. Never recreate missing proof files or invent their contents.' });
+  const agent = await client.beta.agents.retrieve(required('AWS_E2E_LONG_RUNNING_AGENT_ID'));
   let sessionId: string | undefined;
   let stream: Awaited<ReturnType<typeof subscribe>> | undefined;
   let journal: { ownerId: string; bucket: string; kmsKeyId?: string; value: StoredSessionRuntime } | undefined;
@@ -98,6 +98,7 @@ recovery.each([
   try {
     const hosted = environmentType === 'openai_hosted';
     const session = await client.beta.agents.sessions.create({ agent_id: agent.id,
+      agent: { tools: [], instructions: 'Follow each request exactly. Never recreate missing proof files or invent their contents.' },
       environment: hosted ? { type: 'openai_hosted', network: { access: 'enabled' } } : { type: 'none' },
       input: hosted ? `Remember this context marker: ${marker}. Use Python to write exactly that marker to /workspace/outputs/recovery-proof.txt, then read it back and return it.`
         : `Remember this context marker: ${marker}. Return it exactly.` });
@@ -172,10 +173,8 @@ recovery.each([
   } finally {
     try { await stream?.close(); }
     finally {
-      try {
-        try { if (sessionId) await client.beta.agents.sessions.delete(sessionId); }
-        finally { await client.beta.agents.delete(agent.id); }
-      } finally { ec2.destroy(); db.destroy(); s3.destroy(); }
+      try { if (sessionId) await client.beta.agents.sessions.delete(sessionId); }
+      finally { ec2.destroy(); db.destroy(); s3.destroy(); }
     }
   }
 }, timeoutMs * 4);
