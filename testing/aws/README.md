@@ -33,6 +33,13 @@ the test; the Session is deleted. The same Agent selection is forwarded by the o
 launcher. Keep MicroVM enabled for ordinary tests; EC2 availability alone no longer routes
 Sessions to it. The ordinary invocation does not wait eight hours.
 
+With both backends enabled and that saved Agent configured, set
+`AWS_E2E_BACKEND_PLACEMENT=true` to run the placement proof. It checks the private
+Run execution for an ordinary Agent and the allowlisted Agent, confirms EC2 uses
+the selected AMI, and verifies that metadata edits do not move either Session.
+The proof requires operator read access to the disposable Run table and EC2;
+it is not part of the limited-role observer.
+
 `tests/aws/session-recovery.test.ts` cancels a native Turn waiting for a function
 result, reconnects the event stream before reading saved state, and checks that
 a follow-up Turn completes. Its worker-loss case requires the additional
