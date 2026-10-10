@@ -119,10 +119,6 @@ data "aws_iam_policy_document" "ec2_worker" {
     actions   = ["logs:CreateLogStream", "logs:PutLogEvents"]
     resources = ["${aws_cloudwatch_log_group.ec2_worker[0].arn}:*"]
   }
-  statement {
-    actions   = ["dynamodb:Query", "dynamodb:DeleteItem"]
-    resources = [aws_dynamodb_table.agents.arn]
-  }
   dynamic "statement" {
     for_each = var.ec2_worker_prepared_ami ? [] : [1]
     content {

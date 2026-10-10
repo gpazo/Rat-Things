@@ -257,6 +257,13 @@ run "both_worker_backends" {
     enable_ec2_worker = true
   }
   assert {
+    condition = (
+      toset(one([for statement in data.aws_iam_policy_document.worker.statement : statement.actions if statement.sid == "AgentVaultState"])) ==
+      toset(["dynamodb:GetItem", "dynamodb:Query", "dynamodb:PutItem", "dynamodb:UpdateItem", "dynamodb:DeleteItem", "dynamodb:TransactWriteItems"])
+    )
+    error_message = "Both worker backends require the shared Session store operations, including journal queries and cleanup."
+  }
+  assert {
     condition     = local.executor_environment.DEFAULT_EXECUTION_BACKEND == "microvm" && local.executor_environment.MICROVM_ENABLED == "true" && local.executor_environment.EC2_WORKER_ENABLED == "true" && local.executor_environment.EC2_SESSION_WORKLOADS_JSON == "[]"
     error_message = "Provisioning EC2 must not change the default or admit any long-running workload."
   }

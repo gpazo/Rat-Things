@@ -670,7 +670,7 @@ resource "aws_iam_role_policy" "thing_schedule_invoke" {
 data "aws_iam_policy_document" "worker" {
   statement {
     sid       = "AgentVaultState"
-    actions   = ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:UpdateItem", "dynamodb:TransactWriteItems"]
+    actions   = ["dynamodb:GetItem", "dynamodb:Query", "dynamodb:PutItem", "dynamodb:UpdateItem", "dynamodb:DeleteItem", "dynamodb:TransactWriteItems"]
     resources = [aws_dynamodb_table.agents.arn]
   }
 
