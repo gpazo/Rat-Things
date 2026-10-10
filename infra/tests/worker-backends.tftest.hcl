@@ -152,6 +152,16 @@ run "prepared_ec2_worker_pipeline" {
     ec2_worker_prepared_ami          = true
   }
   assert {
+    condition = alltrue(flatten([for phase in yamldecode(aws_imagebuilder_component.ec2_worker[0].data).phases : [
+      for step in phase.steps : alltrue([for command in step.inputs.commands : !strcontains(command, "{{")])
+    ]]))
+    error_message = "Image Builder commands must not contain Docker template braces that AWSTOE treats as undeclared parameters."
+  }
+  assert {
+    condition     = !contains(keys(aws_imagebuilder_infrastructure_configuration.ec2_worker[0].resource_tags), "Name")
+    error_message = "Image Builder reserves the Name tag on its generated instances."
+  }
+  assert {
     condition     = length(aws_imagebuilder_image_pipeline.ec2_worker) == 1 && length(aws_imagebuilder_image_pipeline.ec2_worker[0].schedule) == 0
     error_message = "Prepared-worker provisioning must create one dormant pipeline without a schedule."
   }

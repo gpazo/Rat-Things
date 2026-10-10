@@ -111,12 +111,12 @@ resource "aws_imagebuilder_component" "ec2_worker" {
           "set -euo pipefail",
           "test \"$(uname -m)\" = aarch64",
           ". /etc/os-release && test \"$ID\" = amzn && test \"$VERSION_ID\" = 2023",
-          "dnf install -y docker iptables",
+          "dnf install -y docker iptables python3",
           "systemctl enable docker",
           "systemctl start docker",
           "aws ecr get-login-password --region '${data.aws_region.current.region}' | docker login --username AWS --password-stdin '${local.ec2_worker_builder_registry}'",
           "docker pull '${local.ec2_worker_builder_image}'",
-          "test \"$(docker image inspect --format '{{.Architecture}}' '${local.ec2_worker_builder_image}')\" = arm64",
+          "docker image inspect '${local.ec2_worker_builder_image}' | python3 -c 'import json,sys; sys.exit(json.load(sys.stdin)[0][\"Architecture\"] != \"arm64\")'",
           "docker image inspect '${local.ec2_worker_builder_image}' >/dev/null",
           "docker logout '${local.ec2_worker_builder_registry}'",
           "rm -rf /root/.docker",
@@ -132,8 +132,8 @@ resource "aws_imagebuilder_component" "ec2_worker" {
           "set -euo pipefail",
           "systemctl start docker",
           "docker image inspect '${local.ec2_worker_builder_image}' >/dev/null",
-          "test \"$(docker image inspect --format '{{.Architecture}}' '${local.ec2_worker_builder_image}')\" = arm64",
-          "docker image inspect --format '{{range .RepoDigests}}{{println .}}{{end}}' '${local.ec2_worker_builder_image}' | grep -Fx '${local.ec2_worker_builder_image}' >/dev/null",
+          "docker image inspect '${local.ec2_worker_builder_image}' | python3 -c 'import json,sys; sys.exit(json.load(sys.stdin)[0][\"Architecture\"] != \"arm64\")'",
+          "docker image inspect '${local.ec2_worker_builder_image}' | python3 -c 'import json,sys; sys.exit(sys.argv[1] not in json.load(sys.stdin)[0][\"RepoDigests\"])' '${local.ec2_worker_builder_image}'",
           "docker run --pull=never --rm --entrypoint sh '${local.ec2_worker_builder_image}' -c 'node --version >/dev/null && /opt/codex-runtime/bin/codex --version >/dev/null && test -r /opt/agent-runtime/ec2-supervisor.mjs'",
           "test ! -e /root/.docker/config.json",
           "systemctl stop docker",
@@ -207,7 +207,7 @@ resource "aws_imagebuilder_infrastructure_configuration" "ec2_worker" {
       s3_key_prefix  = "image-builder"
     }
   }
-  resource_tags = merge(local.tags, { Name = "${local.name}-worker-image-build" })
+  resource_tags = { for key, value in local.tags : key => value if key != "Name" }
   tags          = local.tags
   depends_on = [
     aws_iam_role_policy.ec2_worker_image_builder,
