@@ -482,3 +482,33 @@ variable "ec2_worker_instance_type" {
   type    = string
   default = "m7g.large"
 }
+
+variable "enable_ec2_worker_ami_pipeline" {
+  type        = bool
+  default     = false
+  description = "Provision the dormant Image Builder pipeline for prepared ARM64 worker AMIs."
+}
+
+variable "ec2_worker_ami_base_id" {
+  type        = string
+  default     = null
+  description = "Pinned Amazon Linux 2023 ARM64 parent AMI for prepared worker builds."
+}
+
+variable "ec2_worker_ami_component_version" {
+  type        = string
+  default     = "1.0.0"
+  description = "Three-part semantic version for the immutable prepared-worker component."
+}
+
+variable "ec2_worker_ami_recipe_version" {
+  type        = string
+  default     = "1.0.0"
+  description = "Three-part semantic version for the immutable prepared-worker recipe."
+}
+
+variable "ec2_worker_prepared_ami" {
+  type        = bool
+  default     = false
+  description = "Use an explicitly selected prepared AMI and forbid package installation, registry login, and image pulls during boot."
+}

@@ -82,6 +82,45 @@ refresh token can impersonate the Codex login even though the file has no passwo
 Optional Bedrock mode mints a short-term token from the execution role;
 `codex_bedrock_model_ids` restricts inference to exact model IDs.
 
+## Prepare an EC2 worker AMI
+
+Cold EC2 workers install Docker and pull `ec2_worker_image` during boot. To move that work into an
+AMI, provision the dormant Image Builder pipeline with a pinned ARM64 Amazon Linux 2023 parent AMI,
+a digest-pinned worker image, and explicit three-part component and recipe versions:
+
+```hcl
+enable_ec2_worker_ami_pipeline   = true
+ec2_worker_ami_base_id           = "ami-0123456789abcdef0"
+ec2_worker_image                 = "123456789012.dkr.ecr.us-west-2.amazonaws.com/worker@sha256:..."
+ec2_worker_ami_component_version = "1.0.0"
+ec2_worker_ami_recipe_version    = "1.0.0"
+```
+
+Terraform creates no schedule and starts no build. Start one build explicitly:
+
+```bash
+PIPELINE_ARN="$(terraform -chdir=infra output -json ec2_worker | jq -r .ami_pipeline_arn)"
+BUILD_ARN="$(aws imagebuilder start-image-pipeline-execution \
+  --image-pipeline-arn "$PIPELINE_ARN" \
+  --query imageBuildVersionArn --output text)"
+aws imagebuilder get-image \
+  --image-build-version-arn "$BUILD_ARN" \
+  --query 'image.{status:state.status,ami:outputResources.amis[0].image}'
+```
+
+Repeat `get-image` until `status` is `AVAILABLE`. Record the returned AMI ID. Do not select an image
+by name or by creation date. Use the ID in a separate runtime apply:
+
+```hcl
+enable_ec2_worker       = true
+ec2_worker_prepared_ami = true
+ec2_worker_ami_id       = "ami-produced-by-the-build"
+```
+
+Prepared boot checks the cached image architecture and exact repository digest. A missing or
+mismatched image terminates the dedicated worker. Bump the component version when its commands
+change. Bump the recipe version when the parent AMI, component version, or worker digest changes.
+
 AWS-managed `INTERNET_EGRESS` gives a MicroVM outbound internet access by default. The dispatcher
 therefore needs `lambda:PassNetworkConnector`; AWS currently documents no resource type or condition
 key for this action, so it is isolated in its own `Resource = "*"` statement on the dispatcher role.

@@ -126,12 +126,74 @@ run "ec2_only_storage" {
     error_message = "EC2-only storage must not provision a Lambda network connector."
   }
   assert {
+    condition     = length(aws_imagebuilder_image_pipeline.ec2_worker) == 0 && length(aws_imagebuilder_component.ec2_worker) == 0
+    error_message = "Ordinary EC2 worker deployments must not provision the optional AMI pipeline."
+  }
+  assert {
     condition     = local.worker_environment.S3_FILES_ENABLED == "true" && !contains(keys(local.worker_environment), "MICROVM_VPC_NETWORK_CONNECTOR_ARN")
     error_message = "EC2 workers require mount coordinates without a MicroVM connector dependency."
   }
   assert {
     condition     = jsondecode(aws_s3files_file_system_policy.conversation_state[0].policy).Statement[0].Principal.AWS == ["arn:aws:iam::123456789012:role/ec2-worker"]
     error_message = "The storage policy must admit the enabled EC2 worker role."
+  }
+}
+
+run "prepared_ec2_worker_pipeline" {
+  command = plan
+  module { source = "./modules/agent-runner" }
+  variables {
+    enable_microvm                   = false
+    enable_ec2_worker                = true
+    enable_ec2_worker_ami_pipeline   = true
+    ec2_worker_ami_base_id           = "ami-0fedcba9876543210"
+    ec2_worker_ami_component_version = "2.3.4"
+    ec2_worker_ami_recipe_version    = "5.6.7"
+    ec2_worker_prepared_ami          = true
+  }
+  assert {
+    condition     = length(aws_imagebuilder_image_pipeline.ec2_worker) == 1 && length(aws_imagebuilder_image_pipeline.ec2_worker[0].schedule) == 0
+    error_message = "Prepared-worker provisioning must create one dormant pipeline without a schedule."
+  }
+  assert {
+    condition     = aws_imagebuilder_image_recipe.ec2_worker[0].parent_image == "ami-0fedcba9876543210" && aws_imagebuilder_image_recipe.ec2_worker[0].version == "5.6.7"
+    error_message = "The prepared recipe must pin its parent AMI and semantic version."
+  }
+  assert {
+    condition     = aws_imagebuilder_component.ec2_worker[0].version == "2.3.4" && [for phase in yamldecode(aws_imagebuilder_component.ec2_worker[0].data).phases : phase.name] == ["build", "validate", "test"]
+    error_message = "The immutable component version must include build, validate, and offline test phases."
+  }
+  assert {
+    condition = (
+      strcontains(base64decode(aws_launch_template.session_worker[0].user_data), "--pull=never") &&
+      !strcontains(base64decode(aws_launch_template.session_worker[0].user_data), "dnf install -y docker iptables") &&
+      !strcontains(base64decode(aws_launch_template.session_worker[0].user_data), "aws ecr get-login-password") &&
+      !strcontains(base64decode(aws_launch_template.session_worker[0].user_data), "docker pull")
+    )
+    error_message = "Prepared boot must use only its cached image."
+  }
+  assert {
+    condition     = alltrue([for statement in data.aws_iam_policy_document.ec2_worker[0].statement : length(setintersection(toset(statement.actions), toset(["ecr:GetAuthorizationToken", "ecr:BatchGetImage", "ecr:GetDownloadUrlForLayer", "ecr:BatchCheckLayerAvailability"]))) == 0])
+    error_message = "Prepared runtime workers must not receive ECR pull permissions."
+  }
+}
+
+run "prepared_component_changes_with_digest" {
+  command = plan
+  module { source = "./modules/agent-runner" }
+  variables {
+    enable_microvm                   = false
+    enable_ec2_worker                = true
+    enable_ec2_worker_ami_pipeline   = true
+    ec2_worker_ami_base_id           = "ami-0fedcba9876543210"
+    ec2_worker_image                 = "123456789012.dkr.ecr.us-west-2.amazonaws.com/worker@sha256:1111111111111111111111111111111111111111111111111111111111111111"
+    ec2_worker_ami_component_version = "2.3.4"
+    ec2_worker_ami_recipe_version    = "5.6.7"
+    ec2_worker_prepared_ami          = true
+  }
+  assert {
+    condition     = aws_imagebuilder_component.ec2_worker[0].name != run.prepared_ec2_worker_pipeline.ec2_worker_ami_component_name
+    error_message = "A different worker digest must create a different immutable Image Builder component identity."
   }
 }
 

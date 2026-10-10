@@ -65,6 +65,11 @@ module "agent_runner" {
   ec2_worker_ami_id                        = var.ec2_worker_ami_id
   ec2_worker_image                         = var.ec2_worker_image
   ec2_worker_instance_type                 = var.ec2_worker_instance_type
+  enable_ec2_worker_ami_pipeline           = var.enable_ec2_worker_ami_pipeline
+  ec2_worker_ami_base_id                   = var.ec2_worker_ami_base_id
+  ec2_worker_ami_component_version         = var.ec2_worker_ami_component_version
+  ec2_worker_ami_recipe_version            = var.ec2_worker_ami_recipe_version
+  ec2_worker_prepared_ami                  = var.ec2_worker_prepared_ami
   enable_s3_files                          = var.enable_s3_files
   s3_files_vpc_cidr                        = var.s3_files_vpc_cidr
   microvm_source_zip_path                  = var.microvm_source_zip_path
