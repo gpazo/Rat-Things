@@ -43,6 +43,13 @@ locals {
   # Secrets Manager ARN (never its value) is intentionally declassified here.
   codex_auth_file_secret_arn = nonsensitive(var.codex_auth_file_secret_arn)
   bedrock_api_key_secret_arn = nonsensitive(var.bedrock_api_key_secret_arn)
+  chatgpt_catalog_model_ids = length(var.codex_chatgpt_model_ids) > 0 ? var.codex_chatgpt_model_ids : (
+    var.codex_chatgpt_model == null ? [] : [var.codex_chatgpt_model]
+  )
+  model_catalog_model_ids = var.codex_auth_mode == "bedrock" ? var.codex_bedrock_model_ids : local.chatgpt_catalog_model_ids
+  model_catalog_default_model = var.codex_auth_mode == "bedrock" ? (
+    length(var.codex_bedrock_model_ids) > 0 ? var.codex_bedrock_model_ids[0] : null
+  ) : var.codex_chatgpt_model
 
   ingress_secret_arns = compact([
     var.github_webhook_secret_arn,
@@ -114,6 +121,18 @@ check "codex_chatgpt_auth_file" {
       local.codex_auth_file_secret_arn != null
     )
     error_message = "codex_auth_file_secret_arn is required with ChatGPT authentication. The secret contains renewable account credentials; obtain explicit user consent before configuring it."
+  }
+}
+
+check "codex_chatgpt_model_catalog" {
+  assert {
+    condition = (
+      var.codex_auth_mode != "chatgpt" ||
+      var.codex_chatgpt_model == null ||
+      length(var.codex_chatgpt_model_ids) == 0 ||
+      contains(var.codex_chatgpt_model_ids, var.codex_chatgpt_model)
+    )
+    error_message = "codex_chatgpt_model must appear in codex_chatgpt_model_ids when both are configured."
   }
 }
 

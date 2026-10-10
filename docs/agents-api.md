@@ -123,7 +123,9 @@ An application that already holds a key can use `new OpenAI({ baseURL, apiKey })
 directly. `POST` the IAM-signed `agents_token_issuer_url` to obtain a key. Keys
 expire after 15 minutes, are scoped to the issuing principal and deployment, and
 are not stored in plaintext. Keep AWS credentials and key issuance in a trusted
-backend; the local console does this in its Node process.
+backend. The native Rust console delegates authentication to a private Node helper.
+Every launch has its own loopback listener and access token. The helper serves only
+API requests and closes with the desktop app.
 
 The HTTP service exposes `/.well-known/agents-api` for issuer discovery. The
 client only signs issuance requests to a Lambda URL in its configured AWS region.
@@ -367,7 +369,7 @@ its normal quota is unnecessary with the direct HTTPS API endpoint. Both service
 authenticate requests, and only the load balancer can reach their container ports.
 
 The issuer authenticates AWS identity before deriving an owner. Public resource
-requests cannot choose an owner ID. Running the console uses the same transport:
+requests cannot choose an owner ID. Build the native console with `npm run console:build`. Running it uses the same transport:
 
 ```bash
 RAT_THINGS_AGENTS_API_URL=DEPLOYMENT_BASE_URL AWS_REGION=DEPLOYMENT_REGION \

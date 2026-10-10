@@ -1,4 +1,13 @@
 locals {
+  model_catalog_environment = merge(
+    length(local.model_catalog_model_ids) > 0 ? {
+      AGENTS_MODEL_IDS_JSON = jsonencode(local.model_catalog_model_ids)
+    } : {},
+    local.model_catalog_default_model != null ? {
+      AGENTS_DEFAULT_MODEL = local.model_catalog_default_model
+    } : {},
+  )
+
   lambda_common_environment = merge({
     ALLOWED_REPOSITORY_HOSTS            = join(",", var.allowed_repository_hosts)
     ALLOWED_SANDBOX_MODES               = join(",", var.allowed_sandbox_modes)
@@ -94,7 +103,7 @@ locals {
       role_arn = local.environment_relay_enabled ? aws_iam_role.agents_token_issuer.arn : aws_iam_role.control.arn
       timeout  = 900
       memory   = 512
-      environment = merge(local.executor_environment, {
+      environment = merge(local.executor_environment, local.model_catalog_environment, {
         AGENTS_TABLE_NAME        = aws_dynamodb_table.agents.name
         AGENTS_TOKEN_ISSUER_ONLY = tostring(local.environment_relay_enabled)
         ALLOW_OWNER_HEADER       = "false"
@@ -131,6 +140,7 @@ locals {
       memory   = 512
       environment = merge(
         local.executor_environment,
+        local.model_catalog_environment,
         local.thing_scheduler_environment,
         {
           ALLOW_OWNER_HEADER       = "false"

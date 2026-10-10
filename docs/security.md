@@ -58,7 +58,7 @@ from actor attribution. No caller-provided URL or credential may establish owner
 | MCP or function abuse | Explicit tool declarations, credential selection, transport policy and fail-closed approval handling | Environment tools and environment credentials share the admitted sandbox authority |
 | Credential confused deputy | Distinct owner, actor, source, destination and credential subject; broker checks before secret reads | Trusted adapters and the service role remain authoritative |
 | OAuth replay or account swap | Hashed one-use state, PKCE, owner binding, verified provider identity and serialized refresh | Reconnection must preserve the expected tenant/subject; provider consent is an external boundary |
-| Browser SSRF | Unprivileged helper, URL/DNS checks, blocked private/link-local destinations and redirects | Public relay sites, DNS rebinding and browser vulnerabilities require deployment egress controls |
+| Browser SSRF | Browser tools run within the admitted execution environment and its network policy | Provider origin filters are not an isolation boundary; redirects, private destinations and DNS rebinding require enforced deployment egress controls |
 | Duplicate external write | Durable delivery fences and explicit unknown-outcome state | Reconcile ambiguous provider acceptance; never automatically replay it merely because an acknowledgement was lost |
 | Lost Session event | Durable journal/event commits and an outbox separate from delivery effects | Outbox failures and expired retries need operator reconciliation |
 | Superseded worker write | Immutable execution generation, backend identity and conditional state changes | Lost process memory cannot be recreated from public Items alone |

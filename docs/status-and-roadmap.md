@@ -19,7 +19,7 @@ identity, retention, network policy, and operational limits for the environment 
 | Session history | Durable outbox, runtime journal and saved Items in the console and SDK | [Session durability](conversations.md#how-durability-works) |
 | Execution | Private EC2 or MicroVM harness; saved Session history survives worker loss | [Agents execution](agents-api.md) |
 | Files and publications | Private retained bytes, immutable Session artifacts, and expiring file/site/video share grants | [Files](durable-files.md), [publishing](publications.md) |
-| Browser | Declared function/MCP integration; isolated private helper for local execution | [Browser use](browser-computer-use.md) |
+| Browser | Declared function/MCP integration and an optional Playwright MCP configuration | [Browser use](browser-computer-use.md) |
 | Channels | Signed GitHub, GitLab, Teams, and optional Slack ingress with separate result delivery | [Channels](channels.md) |
 | API authentication | AWS IAM issuance and owner-bound, scoped bearer tokens | [API permissions](agents-api.md#scoped-api-keys) |
 | Model authentication | Operator-configured ChatGPT credential bridge or Bedrock access | [Credential lifecycle](codex-subscription.md#credential-risk-and-lifecycle) |
@@ -36,9 +36,9 @@ identity, retention, network policy, and operational limits for the environment 
 - **Channels:** Teams uses an outgoing-webhook/Workflow or reply-gateway bridge. A native
   Entra/Bot/Teams gateway remains future work. Linear provides account tools but cannot start
   conversations through native mentions, delegation, or Agent Session events.
-- **Browser scope:** secure credential entry, file transfer, multiple tabs/windows, richer pointer
-  interactions, and general desktop control are absent. Authenticated browser-profile restoration
-  is not a supported continuity guarantee. Video encoding can delay finalization.
+- **Browser scope:** an ordinary Session has no browser provider. The optional provider must be
+  installed in its execution environment. The console has no live browser viewer or takeover;
+  authenticated browser-profile restoration is not a supported continuity guarantee.
 - **Memory and collaboration:** native Codex state and bounded replay are durable. Rat-specific
   semantic memory, fallback summaries, explicit agent handoffs, and shared-conversation membership
   are not implemented. Storage retention is finite and is separate from a backup policy.

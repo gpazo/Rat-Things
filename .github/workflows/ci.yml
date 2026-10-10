@@ -70,3 +70,25 @@ jobs:
         with:
           name: architecture-browser-results
           path: test-results/site
+
+  desktop:
+    runs-on: macos-14
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-node@v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+      - run: rustup toolchain install 1.95.0 --profile minimal --component clippy,rustfmt
+      - run: rustup override set 1.95.0
+      - run: npm ci
+      - run: npm run console:check
+      - run: npx playwright install chromium
+      - run: npm run test:e2e:browser
+      - run: npm run console:build
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: native-console-results
+          path: test-results/native-console

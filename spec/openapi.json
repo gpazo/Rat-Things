@@ -124,6 +124,64 @@
         }
       }
     },
+    "/v1/models": {
+      "get": {
+        "tags": [
+          "Agents"
+        ],
+        "operationId": "listDeployedModels",
+        "description": "List the exact model IDs enabled by this deployment's inference allowlist.",
+        "responses": {
+          "200": {
+            "description": "Configured deployment model catalog",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "object",
+                    "data"
+                  ],
+                  "properties": {
+                    "object": {
+                      "const": "list"
+                    },
+                    "data": {
+                      "type": "array",
+                      "minItems": 1,
+                      "items": {
+                        "type": "object",
+                        "required": [
+                          "id",
+                          "object"
+                        ],
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "object": {
+                            "const": "model"
+                          },
+                          "display_name": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    },
+                    "default_model": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
     "/v1/integrations/plugins": {
       "get": {
         "tags": [

@@ -81,6 +81,11 @@ the turn is active, so this bridge is only for trusted owner-operated agents; th
 refresh token can impersonate the Codex login even though the file has no password or MFA secret.
 Optional Bedrock mode mints a short-term token from the execution role;
 `codex_bedrock_model_ids` restricts inference to exact model IDs.
+The Agents model catalog is operator-declared rather than inferred from Codex support metadata.
+For ChatGPT authentication, set `codex_chatgpt_model_ids` to the exact IDs verified for the
+deployment-owned workspace credential. An explicitly pinned `codex_chatgpt_model` supplies a
+singleton catalog when that list is empty. Without either setting, model discovery returns unavailable
+because the server cannot safely infer account availability from another Codex login.
 
 AWS-managed `INTERNET_EGRESS` gives a MicroVM outbound internet access by default. The dispatcher
 therefore needs `lambda:PassNetworkConnector`; AWS currently documents no resource type or condition

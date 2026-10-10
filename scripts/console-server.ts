@@ -1,26 +1,25 @@
 #!/usr/bin/env node
 
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
-import { existsSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
-import { readFile, stat } from 'node:fs/promises';
-import { extname, resolve } from 'node:path';
 import process from 'node:process';
+import { timingSafeEqual } from 'node:crypto';
 import { isPrivateArtifactUrl } from '../src/adapters/publication-client.js';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 
 const host = '127.0.0.1';
 let port = boundedPort(process.env.RAT_THINGS_CONSOLE_PORT ?? '4174');
-const consoleRoot = resolve(process.env.RAT_THINGS_CONSOLE_ROOT ?? 'console');
+const accessToken = process.env.RAT_THINGS_CONSOLE_TOKEN;
+if (!accessToken || !/^[a-f0-9]{64}$/.test(accessToken)) throw new Error('The native console requires a private launch token');
+delete process.env.RAT_THINGS_CONSOLE_TOKEN;
 const upstreamBase = requiredApiUrl();
 let authenticatedFetch: typeof fetch | undefined;
 
 const server = createServer((request, response) => {
-  void handle(request, response).catch((error: unknown) => {
+  void handle(request, response).catch(() => {
     if (response.destroyed || response.writableEnded) return;
     if (response.headersSent) { response.destroy(); return; }
-    const message = error instanceof Error ? error.message : String(error);
+    const message = 'The console request failed. Check the API endpoint and AWS credentials.';
     json(response, 500, { error: { code: 'console_error', message } });
   });
 });
@@ -39,40 +38,20 @@ server.on('listening', () => {
   const address = server.address();
   if (!address || typeof address === 'string') throw new Error('console has no TCP address');
   port = address.port;
-  if (process.env.RAT_THINGS_CONSOLE_LAUNCHER === '1') {
-    process.stdout.write(`${JSON.stringify({ port })}\n`);
-  } else {
-    process.stdout.write(`Rat Things console: http://${host}:${port}\n`);
-    process.stdout.write(`Control API: ${new URL(upstreamBase).origin}\n`);
-  }
+  process.stdout.write(`${JSON.stringify({ port })}\n`);
 });
 server.listen(port, host);
+process.stdin.resume();
+process.stdin.on('end', () => { server.closeAllConnections(); server.close(); });
 
 async function handle(request: IncomingMessage, response: ServerResponse): Promise<void> {
   if (!validHost(request.headers.host)) return json(response, 403, error('forbidden', 'invalid host'));
+  if (request.headers.origin !== undefined || !authorized(request.headers.authorization)) {
+    return json(response, 403, error('forbidden', 'private console authentication required'));
+  }
   const requestUrl = new URL(request.url ?? '/', `http://${host}:${port}`);
-  if (requestUrl.pathname.startsWith('/api/')) {
-    await proxy(request, response, requestUrl);
-    return;
-  }
-  if (request.method !== 'GET' && request.method !== 'HEAD') {
-    return json(response, 405, error('method_not_allowed', 'only GET and HEAD are allowed for console files'));
-  }
-  const file = requestUrl.pathname === '/' ? 'index.html' : requestUrl.pathname.slice(1);
-  if (!['index.html', 'app.js', 'markdown.js', 'marked.js', 'styles.css'].includes(file)) {
-    return json(response, 404, error('not_found', 'console file not found'));
-  }
-  const localPath = resolve(consoleRoot, file);
-  const path = file === 'marked.js' && !existsSync(localPath) ? fileURLToPath(import.meta.resolve('marked')) : localPath;
-  const metadata = await stat(path);
-  if (!metadata.isFile()) return json(response, 404, error('not_found', 'console file not found'));
-  const body = await readFile(path);
-  secureHeaders(response);
-  response.statusCode = 200;
-  response.setHeader('cache-control', 'no-store');
-  response.setHeader('content-type', contentType(extname(path)));
-  response.setHeader('content-length', body.byteLength);
-  response.end(request.method === 'HEAD' ? undefined : body);
+  if (!requestUrl.pathname.startsWith('/api/v1/')) return json(response, 404, error('not_found', 'console route not found'));
+  await proxy(request, response, requestUrl);
 }
 
 async function proxy(
@@ -83,9 +62,6 @@ async function proxy(
   const method = request.method;
   if (!method || !['GET', 'POST', 'PATCH', 'DELETE'].includes(method)) {
     return json(response, 405, error('method_not_allowed', 'unsupported console method'));
-  }
-  if (!validOrigin(request.headers.origin)) {
-    return json(response, 403, error('forbidden', 'cross-origin console request rejected'));
   }
   const mutation = method !== 'GET';
   if (mutation && request.headers['x-rat-console-request'] !== '1') {
@@ -147,7 +123,7 @@ async function proxy(
       signal: AbortSignal.timeout(30_000),
     });
   }
-  secureHeaders(response, contentRequest);
+  secureHeaders(response);
   response.statusCode = upstream.status;
   response.setHeader('cache-control', 'no-store');
   response.setHeader('content-type', upstream.headers.get('content-type') ?? 'application/json; charset=utf-8');
@@ -179,23 +155,15 @@ function validHost(value: string | undefined): boolean {
   return hostname === host || hostname === 'localhost' || hostname === '[::1]';
 }
 
-function validOrigin(value: string | undefined): boolean {
-  if (!value) return true;
-  try {
-    const origin = new URL(value);
-    return origin.protocol === 'http:' &&
-      ['127.0.0.1', 'localhost', '[::1]'].includes(origin.hostname) &&
-      origin.port === String(port);
-  } catch {
-    return false;
-  }
+
+function authorized(header: string | undefined): boolean {
+  const expected = Buffer.from(`Bearer ${accessToken}`);
+  const actual = Buffer.from(header ?? '');
+  return actual.length === expected.length && timingSafeEqual(actual, expected);
 }
 
-function secureHeaders(response: ServerResponse, embeddable = false): void {
-  response.setHeader('content-security-policy', "default-src 'self'; connect-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; frame-src 'self'; style-src 'self'; script-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'");
-  response.setHeader('referrer-policy', 'no-referrer');
+function secureHeaders(response: ServerResponse): void {
   response.setHeader('x-content-type-options', 'nosniff');
-  response.setHeader('x-frame-options', embeddable ? 'SAMEORIGIN' : 'DENY');
 }
 
 function json(response: ServerResponse, status: number, value: unknown): void {
@@ -223,16 +191,15 @@ function boundedPort(value: string): number {
 function requiredApiUrl(): string {
   const value = process.env.RAT_THINGS_AGENTS_API_URL ?? process.env.AGENTS_API_BASE_URL ?? process.env.RAT_THINGS_API_URL ?? process.env.AGENT_RUNTIME_API_URL;
   if (!value) throw new Error('RAT_THINGS_API_URL is required to start the local console');
-  return value;
+  const endpoint = new URL(value);
+  if (endpoint.username || endpoint.password || endpoint.search || endpoint.hash) throw new Error('Invalid Agents API endpoint');
+  const local = endpoint.protocol === 'http:' && ['127.0.0.1', '[::1]', 'localhost'].includes(endpoint.hostname);
+  if (endpoint.protocol !== 'https:' && !(local && process.env.AGENT_RUNTIME_UNSIGNED === 'true')) throw new Error('Agents API endpoints require HTTPS');
+  if (process.env.AGENT_RUNTIME_UNSIGNED === 'true' && !local) throw new Error('Unsigned desktop requests require a loopback fixture');
+  if (!['/', '/v1', '/v1/'].includes(endpoint.pathname)) throw new Error('Agents API endpoint must be an origin or /v1 base URL');
+  return endpoint.origin;
 }
 
 function regionFromHostname(hostname: string): string | undefined {
   return hostname.match(/\.execute-api\.([a-z0-9-]+)\.amazonaws\.com$/)?.[1] ?? hostname.match(/\.lambda-url\.([a-z0-9-]+)\.on\.aws$/)?.[1];
-}
-
-function contentType(extension: string): string {
-  if (extension === '.html') return 'text/html; charset=utf-8';
-  if (extension === '.js') return 'text/javascript; charset=utf-8';
-  if (extension === '.css') return 'text/css; charset=utf-8';
-  return 'application/octet-stream';
 }

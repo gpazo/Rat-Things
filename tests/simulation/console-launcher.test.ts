@@ -1,14 +1,25 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { createServer } from 'node:http';
+import { randomBytes } from 'node:crypto';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { expect, it } from 'vitest';
 
-it.skipIf(process.platform === 'win32')('reopens on an available port without reusing another identity or printing duplicate URLs', async () => {
-  const directory = await mkdtemp(join(tmpdir(), 'rat-console-launch-'));
+function capture(child: ChildProcess) {
+  let stdout = '';
+  let stderr = '';
+  child.stdout!.on('data', chunk => { stdout += chunk.toString(); });
+  child.stderr!.on('data', chunk => { stderr += chunk.toString(); });
+  return { stdout: () => stdout, stderr: () => stderr };
+}
+
+it('isolates native signer instances, rejects browser access, and exits on parent EOF', async () => {
   const children: ChildProcess[] = [];
-  const upstream = createServer((request, response) => response.end(JSON.stringify({owner: request.headers['x-runtime-owner']})));
+  const upstream = createServer((request, response) => {
+    if (request.url?.endsWith('/content')) { response.writeHead(302, { location: 'https://example.com/private' }); response.end(); return; }
+    response.end(JSON.stringify({ owner: request.headers['x-runtime-owner'], authorization: request.headers.authorization ?? null }));
+  });
   const foreign = createServer((_request, response) => response.end('unrelated listener'));
   const listen = (server: ReturnType<typeof createServer>) => new Promise<number>(resolvePort => server.listen(0, '127.0.0.1', () => {
     const address = server.address();
@@ -17,41 +28,65 @@ it.skipIf(process.platform === 'win32')('reopens on an available port without re
   const apiPort = await listen(upstream);
   const occupiedPort = await listen(foreign);
   try {
-    // Capture launches without opening a user's browser during ordinary tests.
-    await writeFile(join(directory, process.platform === 'darwin' ? 'open' : 'xdg-open'), '#!/bin/sh\nexit 0\n', {mode: 0o700});
     const launch = async (port: number, owner: string) => {
-      const child = spawn(resolve('node_modules/.bin/tsx'), ['src/cli.ts', 'console', '--port', String(port)], {
-        env: {...process.env, PATH: `${directory}:${process.env.PATH}`, RAT_THINGS_API_URL: `http://127.0.0.1:${apiPort}`, AGENT_RUNTIME_UNSIGNED: 'true', RAT_THINGS_LOCAL_OWNER: owner},
-        detached: true, stdio: ['ignore', 'pipe', 'pipe'],
+      const token = randomBytes(32).toString('hex');
+      const child = spawn(process.execPath, ['--import', 'tsx', 'scripts/console-server.ts'], {
+        env: { ...process.env, RAT_THINGS_API_URL: `http://127.0.0.1:${apiPort}`, RAT_THINGS_CONSOLE_TOKEN: token,
+          RAT_THINGS_CONSOLE_PORT: String(port), RAT_THINGS_CONSOLE_LAUNCHER: '1', AGENT_RUNTIME_UNSIGNED: 'true', RAT_THINGS_LOCAL_OWNER: owner },
+        stdio: ['pipe', 'pipe', 'pipe'],
       });
       children.push(child);
-      let output = '';
-      let errors = '';
-      child.stdout!.on('data', chunk => { output += chunk.toString(); });
-      child.stderr!.on('data', chunk => { errors += chunk.toString(); });
-      await expect.poll(() => output, {timeout: 10_000}).toContain('Rat Things console: http://');
-      const url = output.trim().split('Rat Things console: ')[1]!;
-      expect(output.trim().split('\n')).toHaveLength(1);
-      expect(errors).toBe('');
-      expect(await (await fetch(new URL('/api/v1/identity', url))).json()).toEqual({owner});
-      return new URL(url);
+      const output = capture(child);
+      await expect.poll(output.stdout, { timeout: 10_000 }).toMatch(/^\{"port":\d+\}\n$/);
+      const value = JSON.parse(output.stdout()) as { port: number };
+      expect(output.stderr()).toBe('');
+      expect(value.port).not.toBe(port);
+      return { child, token, url: `http://127.0.0.1:${value.port}`, output };
     };
     const first = await launch(occupiedPort, 'first-owner');
-    expect(first.port).not.toBe(String(occupiedPort));
-    expect(first.search).toBe('');
-    const reopened = await launch(Number(first.port), 'second-owner');
-    expect(reopened.port).not.toBe(first.port);
-    expect(reopened.search).toBe('');
-    expect(await (await fetch(new URL('/api/v1/identity', first))).json()).toEqual({owner: 'first-owner'});
+    const second = await launch(Number(new URL(first.url).port), 'second-owner');
+    const headers = { authorization: `Bearer ${first.token}` };
+    expect(await (await fetch(`${first.url}/api/v1/identity`, { headers })).json()).toEqual({ owner: 'first-owner', authorization: null });
+    expect(await (await fetch(`${second.url}/api/v1/identity`, { headers: { authorization: `Bearer ${second.token}` } })).json()).toEqual({ owner: 'second-owner', authorization: null });
+    expect((await fetch(`${second.url}/api/v1/identity`, { headers })).status).toBe(403);
+    expect((await fetch(`${first.url}/api/v1/identity`)).status).toBe(403);
+    expect((await fetch(`${first.url}/api/v1/identity`, { headers: { ...headers, origin: first.url } })).status).toBe(403);
+    expect((await fetch(`${first.url}/api/v1/identity`, { headers: { ...headers, origin: '' } })).status).toBe(403);
+    expect((await fetch(`${first.url}/api/v1/agents`, { method: 'POST', headers })).status).toBe(403);
+    expect((await fetch(`${first.url}/api/v1/agents`, { method: 'POST', headers: { ...headers, 'x-rat-console-request': '1' }, body: '{}' })).status).toBe(200);
+    expect((await fetch(`${first.url}/`, { headers })).status).toBe(404);
+    expect((await fetch(`${first.url}/api/v1/agents/sessions/s/artifacts/a/content`, { headers })).status).toBe(500);
     expect(await (await fetch(`http://127.0.0.1:${occupiedPort}`)).text()).toBe('unrelated listener');
+    first.child.stdin!.end();
+    await expect.poll(() => first.child.exitCode).toBe(0);
+    expect(first.output.stdout()).not.toContain(first.token);
+    expect(first.output.stderr()).not.toContain(first.token);
   } finally {
-    for (const child of children) {
-      if (child.pid) try { process.kill(-child.pid, 'SIGTERM'); } catch { /* Already exited. */ }
-    }
+    for (const child of children) { child.stdin?.end(); if (child.exitCode === null) child.kill(); }
     for (const server of [upstream, foreign]) {
       server.closeAllConnections();
       await new Promise<void>(resolveClose => server.close(() => resolveClose()));
     }
-    await rm(directory, {recursive: true, force: true});
   }
+}, 30_000);
+
+it.skipIf(process.platform === 'win32')('launches a native binary with the bundled signer contract and reports startup failure', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'rat-native-launch-'));
+  const binary = join(directory, 'native-console');
+  try {
+    await writeFile(binary, `#!${process.execPath}\nif (!process.env.RAT_THINGS_CONSOLE_SERVER?.endsWith('console-server.ts') || process.env.RAT_THINGS_CONSOLE_NODE !== process.execPath) process.exit(2);\nconsole.log(JSON.stringify({ready:true}));\n`, { mode: 0o700 });
+    const launch = () => spawn(process.execPath, ['--import', 'tsx', resolve('src/cli.ts'), 'console'], {
+      env: { ...process.env, RAT_THINGS_CONSOLE_BIN: binary, RAT_THINGS_API_URL: 'https://api.example.com' }, stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    const child = launch();
+    const output = capture(child);
+    await expect.poll(() => child.exitCode, { timeout: 10_000 }).toBe(0);
+    expect(output.stdout()).toBe('Rat Things native console opened\n');
+    expect(output.stderr()).toBe('');
+    await writeFile(binary, `#!${process.execPath}\nprocess.exit(2);\n`, { mode: 0o700 });
+    const failed = launch();
+    const failure = capture(failed);
+    await expect.poll(() => failed.exitCode, { timeout: 10_000 }).toBe(1);
+    expect(failure.stderr()).toContain('native console exited before opening a window');
+  } finally { await rm(directory, { recursive: true, force: true }); }
 }, 30_000);

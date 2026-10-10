@@ -172,4 +172,6 @@ npm run quickstart:aws -- --auth bedrock --region us-west-2
 3. Confirm the selected ChatGPT account or workspace has Codex enabled and available usage.
 4. Run `npm ci` again if the pinned `codex` executable is missing.
 5. Leave `CODEX_CHATGPT_MODEL` unset unless the account exposes the exact model ID you configure.
+   For deployed model discovery, set `codex_chatgpt_model_ids` to the exact IDs verified for that
+   same deployment-owned workspace credential; the server does not infer availability from a local login.
 6. If browser login cannot return to the machine, use `npm run codex:login -- --device-auth`.

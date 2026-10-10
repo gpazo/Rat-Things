@@ -9,6 +9,7 @@ import { routeUploadedFiles, routeSkills } from './agents-files-router.js';
 import type { FileService } from '../core/file-service.js';
 import type { SkillService } from '../core/skill-service.js';
 import type { WebhookService } from '../core/webhook-service.js';
+import type { ModelCatalog } from '../core/model-catalog.js';
 
 /** The caller authenticates once and supplies its derived owner, never a body field. */
 export async function routeAgentRequest(
@@ -29,6 +30,7 @@ export interface AgentsApiServices {
   files?: FileService;
   skills?: SkillService;
   webhooks?: WebhookService;
+  models?: ModelCatalog | undefined;
 }
 
 export async function routeAgentsRequest(request: Request, principal: ApiPrincipal, services: AgentsApiServices, requestId?: string, streaming = true): Promise<Response> {
@@ -38,6 +40,7 @@ export async function routeAgentsRequest(request: Request, principal: ApiPrincip
     const parts = pathParts(url.pathname);
     requireRoutePermission(principal, request.method, parts);
     if (parts[0] !== 'v1') throw new AgentsApiError(404, 'Route not found.', 'resource_not_found');
+    if (parts[1] === 'models') return routeModels(request, parts.slice(2), services.models, requestId);
     if (parts[1] === 'webhooks') return await routeWebhook(request, ownerId, parts.slice(2), services.webhooks, requestId);
     if (parts[1] === 'files') return await routeUploadedFiles(request, ownerId, parts.slice(2), services.files, requestId);
     if (parts[1] === 'skills') return await routeSkills(request, ownerId, parts.slice(2), services.skills, requestId);
@@ -75,6 +78,13 @@ export async function routeAgentsRequest(request: Request, principal: ApiPrincip
   } catch (error) {
     return agentsErrorResponse(error, requestId);
   }
+}
+
+function routeModels(request: Request, parts: string[], models: ModelCatalog | undefined, requestId?: string): Response {
+  if (parts.length > 0) throw new AgentsApiError(404, 'Route not found.', 'resource_not_found');
+  if (request.method !== 'GET') throw new AgentsApiError(405, 'Method not allowed.', 'method_not_allowed');
+  if (!models || models.data.length === 0) throw new AgentsApiError(503, 'Model catalog is unavailable.', 'service_unavailable');
+  return json(200, models, requestId);
 }
 
 /** Endpoint administration is operator-owned; delivered events use the standard contract. */

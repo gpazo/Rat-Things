@@ -75,3 +75,7 @@ testing/localstack/outputs.json
 Thumbs.db
 .idea/
 .vscode/
+
+# Native desktop builds and local orchestration
+desktop/target/
+.codex/pstack-runs/

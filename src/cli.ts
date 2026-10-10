@@ -313,77 +313,71 @@ async function openConsole(args: Arguments): Promise<void> {
   validateCommandOptions(args, { flags: ['no-wait'], values: ['port'] });
   const base = process.env.RAT_THINGS_AGENTS_API_URL ?? process.env.RAT_THINGS_API_URL;
   if (!base) throw new Error('RAT_THINGS_AGENTS_API_URL is required to open the signed console');
-  const port = Number(args.values.get('port') ?? '4174');
-  if (!Number.isInteger(port) || port < 1_024 || port > 65_535) {
-    throw new Error('--port must be an integer from 1024 through 65535');
+  const port = Number(args.values.get('port') ?? '0');
+  if (!Number.isInteger(port) || (port !== 0 && port < 1_024) || port > 65_535) {
+    throw new Error('--port must be 0 or an integer from 1024 through 65535');
   }
   const cliDirectory = dirname(fileURLToPath(import.meta.url));
-  const bundledServer = join(cliDirectory, 'console-server.mjs');
   const sourceRoot = dirname(cliDirectory);
-  const bundled = existsSync(bundledServer);
-  const executable = bundled ? process.execPath : join(sourceRoot, 'node_modules', '.bin', 'tsx');
-  const serverArgs = bundled ? [bundledServer] : [join(sourceRoot, 'scripts', 'console-server.ts')];
-  if (!existsSync(executable) || !existsSync(serverArgs[0]!)) {
-    throw new Error('the console runtime is missing; run npm run build from a Rat Things checkout');
-  }
-  const consoleRoot = bundled ? join(cliDirectory, 'console') : join(sourceRoot, 'console');
-  const child = spawn(executable, serverArgs, {
-    env: {
-      ...process.env,
-      RAT_THINGS_API_URL: base,
-      RAT_THINGS_CONSOLE_PORT: String(port),
-      RAT_THINGS_CONSOLE_LAUNCHER: '1',
-      RAT_THINGS_CONSOLE_ROOT: consoleRoot,
-    },
-    stdio: ['ignore', 'pipe', args.flags.has('no-wait') ? 'ignore' : 'inherit'],
-    detached: args.flags.has('no-wait'),
+  const suffix = process.platform === 'win32' ? '.exe' : '';
+  const candidates = process.env.RAT_THINGS_CONSOLE_BIN ? [resolve(process.env.RAT_THINGS_CONSOLE_BIN)] : [
+    join(cliDirectory, `rat-things-desktop${suffix}`),
+    join(sourceRoot, 'desktop', 'target', 'release', `rat-things-desktop${suffix}`),
+    join(sourceRoot, 'desktop', 'target', 'debug', `rat-things-desktop${suffix}`),
+  ];
+  const executable = candidates.find(path => existsSync(path));
+  if (!executable) throw new Error('The native console is not built. Run npm run console:build from a Rat Things checkout.');
+  const bundledServer = join(cliDirectory, 'console-server.mjs');
+  const server = existsSync(bundledServer) ? bundledServer : join(sourceRoot, 'scripts', 'console-server.ts');
+  const detached = args.flags.has('no-wait');
+  const child = spawn(executable, [], {
+    env: { ...process.env, RAT_THINGS_AGENTS_API_URL: base, RAT_THINGS_CONSOLE_SERVER: server,
+      RAT_THINGS_CONSOLE_NODE: process.execPath, RAT_THINGS_CONSOLE_PORT: String(port), RAT_THINGS_CONSOLE_LAUNCHER: '1' },
+    stdio: ['ignore', 'pipe', detached ? 'ignore' : 'inherit'], detached,
   });
+  const stop = () => { if (!child.killed) child.kill('SIGTERM'); };
+  process.once('SIGINT', stop);
+  process.once('SIGTERM', stop);
   try {
-    const boundPort = await waitForLocalConsole(child);
-    const url = `http://127.0.0.1:${boundPort}/`;
-    launchBrowser(url);
-    process.stdout.write(`Rat Things console: ${url}\n`);
-    if (args.flags.has('no-wait')) {
-      child.stdout?.destroy();
-      child.unref();
+    await waitForNativeConsole(child);
+    process.stdout.write('Rat Things native console opened\n');
+    if (detached) { child.stdout?.destroy(); child.unref(); return; }
+    if (child.exitCode !== null) {
+      if (child.exitCode !== 0) throw new Error(`native console exited with code ${child.exitCode}`);
       return;
     }
     await new Promise<void>((resolvePromise, reject) => {
       child.once('error', reject);
       child.once('exit', (code) => code === 0 || code === null
-        ? resolvePromise()
-        : reject(new Error(`console server exited with code ${code}`)));
+        ? resolvePromise() : reject(new Error(`native console exited with code ${code}`)));
     });
-  } catch (error) {
-    if (!child.killed) child.kill('SIGTERM');
-    throw error;
-  }
+  } catch (error) { stop(); throw error; }
+  finally { process.off('SIGINT', stop); process.off('SIGTERM', stop); }
 }
 
-async function waitForLocalConsole(child: ReturnType<typeof spawn>): Promise<number> {
+async function waitForNativeConsole(child: ReturnType<typeof spawn>): Promise<void> {
   return new Promise((resolvePromise, reject) => {
     let output = '';
-    const finish = (error?: Error, port?: number) => {
+    const finish = (error?: Error) => {
       clearTimeout(timer);
       child.stdout?.off('data', onData);
       child.off('error', onError);
       child.off('exit', onExit);
-      if (error) reject(error);
-      else resolvePromise(port!);
+      if (error) reject(error); else resolvePromise();
     };
     const onError = (error: Error) => finish(error);
-    const onExit = () => finish(new Error('console server exited before becoming ready'));
+    const onExit = () => finish(new Error('native console exited before opening a window'));
     const onData = (chunk: Buffer) => {
       output += chunk.toString();
-      if (output.length > 1_024) return finish(new Error('invalid console readiness response'));
+      if (output.length > 1_024) return finish(new Error('invalid native console readiness response'));
       if (!output.includes('\n')) return;
       try {
-        const { port } = JSON.parse(output.split('\n')[0]!) as { port: number };
-        if (!Number.isInteger(port) || port < 1_024 || port > 65_535) throw new Error('invalid console port');
-        finish(undefined, port);
-      } catch { finish(new Error('invalid console readiness response')); }
+        const value: unknown = JSON.parse(output.split('\n')[0]!);
+        if (!value || typeof value !== 'object' || !('ready' in value) || value.ready !== true) throw new Error('invalid readiness');
+        finish();
+      } catch { finish(new Error('invalid native console readiness response')); }
     };
-    const timer = setTimeout(() => finish(new Error('console server did not become ready within 6 seconds')), 6_000);
+    const timer = setTimeout(() => finish(new Error('native console did not open within 20 seconds')), 20_000);
     child.stdout?.on('data', onData);
     child.once('error', onError);
     child.once('exit', onExit);

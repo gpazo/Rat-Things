@@ -70,6 +70,7 @@ import { SecretsWebhooks } from '../adapters/secrets-webhooks.js';
 import { HttpsWebhookTransport } from '../adapters/webhook-http.js';
 import { SecretsAgentCredentials } from '../adapters/secrets-agent-credentials.js';
 import { HttpOAuthRefreshClient } from '../adapters/oauth-refresh-client.js';
+import { modelCatalogFromConfig, type ModelCatalog } from '../core/model-catalog.js';
 
 interface BaseServices {
   clients: AwsClients;
@@ -97,7 +98,7 @@ let connectionConsumerService: ConnectionConsumerService | undefined;
 let oauthAuthorizationService: OAuthAuthorizationService | undefined;
 let capabilityProfileRegistry: CapabilityProfileRegistry | undefined;
 let sourcePolicyResolver: StoredSourceSessionResolver | undefined;
-let agentsApiServices: { store: SessionEventStore; tokens: ApiTokenService; agents: AgentService; vaults: VaultService; templates: EnvironmentTemplateService; environments: EnvironmentService; files: FileService; skills: SkillService; webhooks: WebhookService; tools: SessionToolService; readonly sessions: SessionService } | undefined;
+let agentsApiServices: { store: SessionEventStore; tokens: ApiTokenService; agents: AgentService; vaults: VaultService; templates: EnvironmentTemplateService; environments: EnvironmentService; files: FileService; skills: SkillService; webhooks: WebhookService; tools: SessionToolService; models: ModelCatalog | undefined; readonly sessions: SessionService } | undefined;
 let sessionIntegrationService: SessionIntegrationService | undefined;
 let agentsSessionService: SessionService | undefined;
 let apiTokenService: ApiTokenService | undefined;
@@ -128,6 +129,7 @@ export function getAgentsApiServices() {
     webhooks: new WebhookService({ store, transport: new HttpsWebhookTransport(), secrets: new SecretsWebhooks(base.clients.secrets, requiredEnv('INTEGRATION_CREDENTIAL_NAME_PREFIX'), requiredEnv('INTEGRATION_CREDENTIAL_KMS_KEY_ARN')) }),
     tokens: getApiTokenService(),
     agents: new AgentService({ store }),
+    models: modelCatalogFromConfig(process.env.AGENTS_MODEL_IDS_JSON, process.env.AGENTS_DEFAULT_MODEL),
     templates,
     files, skills, vaults,
     tools: new SessionToolService({ store, vaults, secrets: new SecretsSessionTools(
