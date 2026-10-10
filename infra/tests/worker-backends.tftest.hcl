@@ -247,6 +247,10 @@ run "both_worker_backends" {
     enable_ec2_worker = true
   }
   assert {
+    condition     = local.executor_environment.DEFAULT_EXECUTION_BACKEND == "microvm" && local.executor_environment.MICROVM_ENABLED == "true" && local.executor_environment.EC2_WORKER_ENABLED == "true" && local.executor_environment.EC2_SESSION_WORKLOADS_JSON == "[]"
+    error_message = "Provisioning EC2 must not change the default or admit any long-running workload."
+  }
+  assert {
     condition     = length(awscc_lambda_network_connector.s3_files) == 1 && contains(keys(local.worker_environment), "MICROVM_VPC_NETWORK_CONNECTOR_ARN")
     error_message = "An enabled MicroVM backend still requires its storage network connector."
   }
@@ -288,4 +292,34 @@ run "dedicated_relay_administration" {
     )
     error_message = "The exact ChatGPT workspace catalog must reach both API Lambdas and the ECS Agents server."
   }
+}
+
+run "explicit_ec2_session_workloads" {
+  command = plan
+  module { source = "./modules/agent-runner" }
+  variables {
+    enable_microvm        = true
+    enable_ec2_worker     = true
+    ec2_session_workloads = [{ owner_id = "alice", agent_id = "agent_long" }]
+  }
+  assert {
+    condition = (
+      local.executor_environment.DEFAULT_EXECUTION_BACKEND == "microvm" &&
+      local.executor_environment.EC2_SESSION_WORKLOADS_JSON == jsonencode([{ owner_id = "alice", agent_id = "agent_long" }]) &&
+      local.lambda_definitions["agents-api"].environment.EC2_SESSION_WORKLOADS_JSON == local.executor_environment.EC2_SESSION_WORKLOADS_JSON &&
+      local.lambda_definitions["agents-outbox"].environment.EC2_SESSION_WORKLOADS_JSON == local.executor_environment.EC2_SESSION_WORKLOADS_JSON
+    )
+    error_message = "The API and outbox must receive the explicit policy while ordinary execution remains on MicroVM."
+  }
+}
+
+run "ec2_workloads_require_enabled_backend" {
+  command = plan
+  module { source = "./modules/agent-runner" }
+  variables {
+    enable_microvm        = true
+    enable_ec2_worker     = false
+    ec2_session_workloads = [{ owner_id = "alice", agent_id = "agent_long" }]
+  }
+  expect_failures = [check.ec2_session_workloads]
 }

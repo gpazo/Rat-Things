@@ -59,3 +59,19 @@ describe('AWS E2E OAuth configuration', () => {
     ]);
   });
 });
+
+
+it('passes explicit EC2 workloads to Terraform without changing the MicroVM default', () => {
+  const output = execFileSync('bash', ['--noprofile', '--norc', '-c', `
+    set -euo pipefail
+    export AWS_REGION=us-west-2
+    export AWS_E2E_EC2_SESSION_WORKLOADS_JSON='[{"owner_id":"alice","agent_id":"agent_long"}]'
+    source scripts/aws-e2e-common.sh
+    aws_e2e_configure placement-test
+    printf '%s\n' "\${tf_vars[@]}"
+  `], { encoding: 'utf8' });
+  expect(output.split('\n')).toEqual(expect.arrayContaining([
+    '-var=enable_microvm=true',
+    '-var=ec2_session_workloads=[{"owner_id":"alice","agent_id":"agent_long"}]',
+  ]));
+});

@@ -122,3 +122,9 @@ variable "environment_relay_origin_certificate_arn" {
   type        = string
   default     = null
 }
+
+variable "ec2_session_workloads" {
+  type        = set(object({ owner_id = string, agent_id = string }))
+  default     = []
+  description = "Explicit long-running workload identities for EC2 acceptance tests."
+}

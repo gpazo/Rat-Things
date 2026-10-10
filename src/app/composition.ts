@@ -1,3 +1,4 @@
+import { sessionPlacementFromEnv } from './session-placement.js';
 import { GetObjectCommand } from '@aws-sdk/client-s3';
 import { SessionPublicationService } from '../core/session-publication-service.js';
 import { S3PublicationObjectStore, S3PublicationGrantStore } from '../adapters/aws-runtime.js';
@@ -151,7 +152,7 @@ export function getAgentsApiServices() {
         store, agents: this.agents,
         execution: new RunSessionExecution({
           store,
-          backend: process.env.DEFAULT_EXECUTION_BACKEND === 'ec2' ? 'ec2' : 'microvm',
+          placement: sessionPlacementFromEnv(process.env),
           runs: getRunService(true), interaction: getAgentInteractionController(),
           artifacts: base.artifacts, vaults: this.vaults, environments: this.environments,
           tools: this.tools,

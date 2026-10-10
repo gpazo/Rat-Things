@@ -301,6 +301,12 @@ template's network policy. Commands, setup and managed environment MCP processes
 run under that policy. Service-origin MCP connects from the trusted harness to
 its configured destination; environment-origin MCP connects from the environment.
 
+New Sessions use MicroVM by default. Deployment operators can declare exact owner and
+saved Agent pairs for EC2 when a workload requires uninterrupted execution beyond eight
+hours. Create the Session with that saved `agent_id`; inline Agents and unlisted workloads
+remain on MicroVM. Placement is fixed during creation and is not changed by Session age,
+metadata edits, or later deployment policy changes. See [Session execution configuration](../infra/README.md#choose-session-execution).
+
 The MicroVM service imposes a maximum execution lifetime. Environments and
 harnesses can become unavailable independently of saved Session history. Treat
 environment status and Turn errors as authoritative; retain durable output as

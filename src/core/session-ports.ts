@@ -2,7 +2,7 @@ import type {
   AgentSession, AgentSessionItem, AgentSessionInputMessageParam, AgentSessionInputParam,
   AgentSessionEnvironmentState, AgentToolParam, Environment, EnvironmentParam, SessionArtifact, Subagent, TokenUsage, Turn,
 } from '../domain/agents-api.js';
-import type { ArtifactReference } from '../domain/contracts.js';
+import type { ArtifactReference, ExecutionBackend } from '../domain/contracts.js';
 
 export type SessionMessage = AgentSessionInputMessageParam & { id: string; afterItemId?: string | null; acceptedOrdinal?: number };
 export interface SavedSessionArtifact { artifact: SessionArtifact; content: ArtifactReference }
@@ -21,6 +21,7 @@ export interface SessionTurnBinding {
 
 export interface SessionState {
   session: AgentSession;
+  placement?: ExecutionBackend;
   turns: SessionTurnBinding[];
   receipts: Record<string, { digest: string; commands: SessionCommand[]; dispatched: boolean; failure?: { code: string; message: string } }>;
   deletedArtifacts: string[];
@@ -40,14 +41,15 @@ export interface SessionTurnObservation {
 
 /** All execution and environment effects live behind this port. */
 export interface SessionExecution {
+  placement?(ownerId: string, savedAgentId?: string): ExecutionBackend;
   traceSteps?(ownerId: string, session: AgentSession, turnId: string): Promise<import('../domain/session-traces.js').TraceStep[]>;
-  initialize?(ownerId: string, session: AgentSession): Promise<void>;
+  initialize?(ownerId: string, session: AgentSession, placement?: ExecutionBackend): Promise<void>;
   subagents?(ownerId: string, session: AgentSession): Promise<SessionSubagentSnapshot[]>;
   environment?(ownerId: string, session: AgentSession): Promise<AgentSessionEnvironmentState | undefined>;
   close?(ownerId: string, session: AgentSession): Promise<void>;
   checkInputConnection?(ownerId: string, session: AgentSession, turn: Turn): Promise<void>;
-  prepare(ownerId: string, sessionId: string, environment: EnvironmentParam, agent: AgentSession['agent'], vaultIds: string[], tools?: AgentToolParam[], resumePreparation?: boolean): Promise<Environment>;
-  start(ownerId: string, session: AgentSession, turn: SessionTurnBinding, history?: AgentSessionItem[]): Promise<void>;
+  prepare(ownerId: string, sessionId: string, environment: EnvironmentParam, agent: AgentSession['agent'], vaultIds: string[], tools?: AgentToolParam[], resumePreparation?: boolean, placement?: ExecutionBackend): Promise<Environment>;
+  start(ownerId: string, session: AgentSession, turn: SessionTurnBinding, history?: AgentSessionItem[], placement?: ExecutionBackend): Promise<void>;
   steer(ownerId: string, session: AgentSession, turnId: string, input: AgentSessionInputMessageParam[], operationId: string): Promise<void>;
   cancel(ownerId: string, session: AgentSession, turnId: string): Promise<void>;
   toolResult(ownerId: string, session: AgentSession, event: Extract<AgentSessionInputParam, { type: 'agent.session.input.tool_result' }>): Promise<void>;

@@ -62,6 +62,7 @@ module "agent_runner" {
   codex_bedrock_model_ids                  = var.codex_bedrock_model_ids
   bedrock_api_key_secret_arn               = var.bedrock_api_key_secret_arn
   enable_microvm                           = var.enable_microvm
+  ec2_session_workloads                    = var.ec2_session_workloads
   enable_ec2_worker                        = var.enable_ec2_worker
   ec2_worker_ami_id                        = var.ec2_worker_ami_id
   ec2_worker_image                         = var.ec2_worker_image

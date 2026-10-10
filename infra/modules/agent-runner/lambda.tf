@@ -38,7 +38,10 @@ locals {
   worker_environment = merge(local.lambda_common_environment, {
     ALLOW_AGENT_AWS_CREDENTIAL_CHAIN     = tostring(var.allow_agent_aws_credential_chain)
     CODEX_AUTH_MODE                      = var.codex_auth_mode
-    DEFAULT_EXECUTION_BACKEND            = var.enable_ec2_worker ? "ec2" : "microvm"
+    DEFAULT_EXECUTION_BACKEND            = "microvm"
+    MICROVM_ENABLED                      = tostring(var.enable_microvm)
+    EC2_WORKER_ENABLED                   = tostring(var.enable_ec2_worker)
+    EC2_SESSION_WORKLOADS_JSON           = jsonencode(var.ec2_session_workloads)
     EVENT_BUS_NAME                       = aws_cloudwatch_event_bus.runs.name
     MICROVM_EXECUTION_ROLE_ARN           = aws_iam_role.microvm_execution.arn
     MICROVM_IMAGE_PARAMETER_NAME         = aws_ssm_parameter.microvm_image.name

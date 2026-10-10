@@ -150,6 +150,7 @@ module "agent_runner" {
   slack_signing_secret_arn          = try(aws_secretsmanager_secret.slack_webhook[0].arn, null)
   slack_webhook_enabled             = var.enable_slack_webhook
   enable_microvm                    = var.enable_microvm
+  ec2_session_workloads             = var.ec2_session_workloads
   enable_ec2_worker                 = var.enable_ec2_worker
   ec2_worker_ami_id                 = var.ec2_worker_ami_id
   ec2_worker_image                  = var.ec2_worker_image

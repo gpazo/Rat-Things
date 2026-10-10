@@ -26,8 +26,12 @@ actual command execution, UID 10001, control-port denial, immutable saved artifa
 and continuation of the same command process across two Turns. On EC2 it also
 requires IMDS and host-configuration access to be denied. Optional
 `AWS_E2E_SOAK_SECONDS=28860` keeps the Session idle beyond eight hours before the
-second Turn; this requires `AWS_E2E_ENABLE_EC2_WORKER=true`. The ordinary invocation
-does not wait eight hours.
+second Turn. This requires `AWS_E2E_ENABLE_EC2_WORKER=true` and
+`AWS_E2E_LONG_RUNNING_AGENT_ID` selecting a saved Agent already listed with its owner in
+`AWS_E2E_EC2_SESSION_WORKLOADS_JSON` at deployment. The supplied Agent is retained after
+the test; the Session is deleted. The same Agent selection is forwarded by the observer
+launcher. Keep MicroVM enabled for ordinary tests; EC2 availability alone no longer routes
+Sessions to it. The ordinary invocation does not wait eight hours.
 
 `tests/aws/session-recovery.test.ts` cancels a native Turn waiting for a function
 result, reconnects the event stream before reading saved state, and checks that

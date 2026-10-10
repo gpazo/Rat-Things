@@ -258,3 +258,16 @@ A live heartbeat may defeat the injection; bounded retries preserve that race
 fence. This is a fault-injection proof of the one-hour decision through AWS, not
 an hour of wall-clock inactivity. Failed proofs may terminate their verified
 fixture worker during cleanup, which is logged separately from acceptance.
+
+### Backend placement in AWS tests
+
+Ordinary Sessions use MicroVM even when EC2 is provisioned. For an EC2 process soak,
+create a dedicated saved Agent and set `AWS_E2E_EC2_SESSION_WORKLOADS_JSON` to its exact
+owner/Agent pair before applying the test deployment, for example
+`[{"owner_id":"your-api-owner-id","agent_id":"agent_long_running"}]`. Keep MicroVM enabled
+for the ordinary suite. Set `AWS_E2E_LONG_RUNNING_AGENT_ID` to that Agent ID when running
+`tests/aws/managed-session.test.ts`. The fixture deletes its disposable Session but keeps
+the supplied Agent. The Agent must have the intended model and command-execution instructions.
+A soak of 28,000 seconds or more requires this explicit Agent selection and EC2 opt-in;
+merely enabling EC2 no longer selects it. Never run a long soak to test automatic migration:
+no such migration exists.

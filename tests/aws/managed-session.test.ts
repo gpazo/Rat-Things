@@ -12,12 +12,13 @@ const soakSeconds = Number(process.env.AWS_E2E_SOAK_SECONDS ?? 0);
 live('retains a managed workspace, streams completed Turns, and enforces the guest boundary', async () => {
   if (process.env.AWS_E2E_REAL_CODEX !== 'true') throw new Error('Set AWS_E2E_REAL_CODEX=true to opt into the live managed Session probe.');
   if (!Number.isInteger(soakSeconds) || soakSeconds < 0 || soakSeconds > 86_400) throw new Error('AWS_E2E_SOAK_SECONDS must be between 0 and 86400.');
-  const ec2 = process.env.AWS_E2E_ENABLE_EC2_WORKER === 'true';
-  if (soakSeconds >= 28_000 && !ec2) throw new Error('The long-lived Session probe requires the dedicated EC2 backend.');
+  const savedAgentId = process.env.AWS_E2E_LONG_RUNNING_AGENT_ID;
+  const ec2 = process.env.AWS_E2E_ENABLE_EC2_WORKER === 'true' && Boolean(savedAgentId);
+  if (soakSeconds >= 28_000 && (!ec2 || !savedAgentId)) throw new Error('The long-lived Session probe requires EC2 and AWS_E2E_LONG_RUNNING_AGENT_ID listed in ec2_session_workloads.');
   const client = createAgentsClient({ baseURL: required('RAT_THINGS_AGENTS_API_URL'), region: required('AWS_REGION') }).withOptions({ maxRetries: 0, timeout: 360_000 });
   const marker = `managed-${randomUUID()}`;
   const filePath = '/workspace/outputs/proof.json';
-  const agent = await client.beta.agents.create({ model: required('AWS_E2E_CODEX_MODEL_ID'), name: 'Disposable managed worker proof',
+  const agent = savedAgentId ? await client.beta.agents.retrieve(savedAgentId) : await client.beta.agents.create({ model: required('AWS_E2E_CODEX_MODEL_ID'), name: 'Disposable managed worker proof',
     instructions: 'Execute the requested environment checks precisely. Use the environment command tools. Do not replace execution with a proposed command.', tools: [] });
   let sessionId: string | undefined;
   const abort = new AbortController();
@@ -126,7 +127,7 @@ live('retains a managed workspace, streams completed Turns, and enforces the gue
   } finally {
     abort.abort(); await consume;
     try { if (sessionId) await client.beta.agents.sessions.delete(sessionId); }
-    finally { await client.beta.agents.delete(agent.id); }
+    finally { if (!savedAgentId) await client.beta.agents.delete(agent.id); }
   }
 }, timeoutMs * 2 + 120_000 + soakSeconds * 1000);
 

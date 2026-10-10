@@ -45,7 +45,7 @@ export class SessionService {
     let preparation = integrationId ? (await this.options.store.get<SessionPreparation>(ownerId, 'session_preparations', id))?.value : undefined;
     if (!preparation) {
       const saved = input.agent_id ? await this.options.agents.retrieve(ownerId, input.agent_id) : undefined;
-      preparation = planSessionPreparation(input, this.ids.next('agent'), this.clock.now(), saved);
+      preparation = planSessionPreparation(input, this.ids.next('agent'), this.clock.now(), saved, this.options.execution.placement?.(ownerId, input.agent_id ?? undefined) ?? 'microvm');
       try {
         await this.options.store.put({ ownerId, id, collection: 'session_preparations', createdAt: preparation.now, revision: 1, value: preparation }, 0);
       } catch (error) {
@@ -61,13 +61,13 @@ export class SessionService {
     const { agent, now } = preparation;
     const vaultIds = [...new Set(input.vault_ids ?? [])];
     const tools = preparationTools(preparation, input);
-    const environment = await this.options.execution.prepare(ownerId, id, input.environment, agent, vaultIds, tools, Boolean(integrationId));
+    const environment = await this.options.execution.prepare(ownerId, id, input.environment, agent, vaultIds, tools, Boolean(integrationId), preparation.placement ?? 'microvm');
     const session: AgentSession = {
       id, object: 'agent.session', agent, created_at: now, last_active_at: now,
       environment, error: null, metadata: input.metadata ?? {}, status: 'idle',
       required_actions: [], usage: null, vault_ids: vaultIds,
     };
-    const empty: SessionState = { session, turns: [], receipts: {}, deletedArtifacts: [] };
+    const empty: SessionState = { session, placement: preparation.placement ?? 'microvm', turns: [], receipts: {}, deletedArtifacts: [] };
     const events: AgentSessionInputParam[] = messages.length ? [{ type: 'agent.session.input.message', input: messages }] : [];
     const state = events.length ? this.plan(empty, { session, turns: [] }, events, 'initial') : empty;
     try {
@@ -263,7 +263,7 @@ export class SessionService {
   public async dispatch(ownerId: string, id: string): Promise<void> {
     let resource = await this.options.store.get<SessionState>(ownerId, 'sessions', id);
     if (!resource) return;
-    await this.options.execution.initialize?.(ownerId, resource.value.session);
+    await this.options.execution.initialize?.(ownerId, resource.value.session, resource.value.placement ?? 'microvm');
     for (const [key, receipt] of Object.entries(resource.value.receipts)) {
       if (receipt.dispatched) continue;
       let failure: { code: string; message: string } | undefined;
@@ -283,7 +283,7 @@ export class SessionService {
             } else {
               const preceding = resource.value.turns.slice(0, resource.value.turns.findIndex(({ turn }) => turn.id === command.turnId));
               const history = await this.allItems(ownerId, { ...resource.value, turns: preceding });
-              await this.options.execution.start(ownerId, session, { ...binding, input: command.input }, history);
+              await this.options.execution.start(ownerId, session, { ...binding, input: command.input }, history, resource.value.placement ?? 'microvm');
             }
             break;
           }

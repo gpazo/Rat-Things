@@ -1,7 +1,17 @@
+variable "ec2_session_workloads" {
+  type        = set(object({ owner_id = string, agent_id = string }))
+  default     = []
+  description = "Exact owner and saved Agent pairs requiring uninterrupted Sessions beyond the MicroVM lifetime. Other Sessions use MicroVM. Placement is fixed at Session creation."
+  validation {
+    condition     = alltrue([for workload in var.ec2_session_workloads : trimspace(workload.owner_id) != "" && trimspace(workload.agent_id) != ""])
+    error_message = "Each EC2 Session workload requires a nonempty owner_id and agent_id."
+  }
+}
+
 variable "enable_ec2_worker" {
   type        = bool
   default     = false
-  description = "Use dedicated ARM64 EC2 workers for persistent Sessions. Requires S3 Files and pinned AMI/image inputs."
+  description = "Enable dedicated ARM64 EC2 workers for explicitly listed ec2_session_workloads. Requires S3 Files and pinned AMI/image inputs."
 }
 
 variable "ec2_worker_ami_id" {

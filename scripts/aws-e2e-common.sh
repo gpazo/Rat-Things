@@ -12,6 +12,8 @@ aws_e2e_source_runtime_defaults() {
     AWS_DEFAULT_REGION
     AWS_E2E_ENABLE_MICROVM
     AWS_E2E_ENABLE_EC2_WORKER
+    AWS_E2E_EC2_SESSION_WORKLOADS_JSON
+    AWS_E2E_LONG_RUNNING_AGENT_ID
     AWS_E2E_ENABLE_VALIDATION_OBSERVER
     AWS_E2E_VALIDATION_OBSERVER_IMAGE
     AWS_E2E_EC2_WORKER_AMI_ID
@@ -71,6 +73,8 @@ aws_e2e_configure() {
   aws_profile="${AWS_PROFILE:-}"
   microvm_enabled="${AWS_E2E_ENABLE_MICROVM:-true}"
   ec2_worker_enabled="${AWS_E2E_ENABLE_EC2_WORKER:-false}"
+  ec2_session_workloads="${AWS_E2E_EC2_SESSION_WORKLOADS_JSON:-}"
+  ec2_session_workloads="${ec2_session_workloads:-[]}"
   ec2_worker_ami_id="${AWS_E2E_EC2_WORKER_AMI_ID:-}"
   ec2_worker_image="${AWS_E2E_EC2_WORKER_IMAGE:-}"
   environment_relay_image="${AWS_E2E_ENVIRONMENT_RELAY_IMAGE:-}"
@@ -125,6 +129,7 @@ aws_e2e_configure() {
     "-var=deployment_id=$deployment_id"
     "-var=enable_microvm=$microvm_enabled"
     "-var=enable_ec2_worker=$ec2_worker_enabled"
+    "-var=ec2_session_workloads=$ec2_session_workloads"
     "-var=enable_validation_observer=${AWS_E2E_ENABLE_VALIDATION_OBSERVER:-false}"
     "-var=codex_model_id=$codex_model_id"
     "-var=integration_oauth_app_secret_arns=$oauth_app_secret_arns"
