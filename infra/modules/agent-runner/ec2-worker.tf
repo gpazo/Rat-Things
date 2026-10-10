@@ -1,9 +1,3 @@
-variable "enable_workspace_checkpoints" {
-  description = "Enable frozen workspace checkpoints for hosted Sessions on EC2. Requires writable cgroup v2 freezer support in the worker image."
-  type        = bool
-  default     = false
-}
-
 variable "enable_ec2_worker" {
   type        = bool
   default     = false
@@ -192,7 +186,6 @@ resource "aws_launch_template" "session_worker" {
     configuration = base64encode(jsonencode(merge(local.worker_environment, {
       AWS_REGION                       = data.aws_region.current.region, DEFAULT_EXECUTION_BACKEND = "ec2",
       ALLOW_AGENT_AWS_CREDENTIAL_CHAIN = "false",
-      WORKSPACE_CHECKPOINTS_ENABLED    = tostring(var.enable_workspace_checkpoints),
     })))
   }))
   tags = local.tags

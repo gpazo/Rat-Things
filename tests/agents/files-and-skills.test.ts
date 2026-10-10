@@ -109,12 +109,6 @@ describe('uploaded files, skills, and managed setup', () => {
       expect(await readFile(join(root, 'outside.txt'), 'utf8')).toBe('outside');
       expect((await prepareHostedEnvironment(replacementOptions)).sandbox).toEqual(replacement.sandbox);
       expect(resets).toBe(1);
-      await writeFile(join(workspace, 'input.txt'), 'checkpoint data');
-      const restoringLaunch = { ...launch, hostedConfiguration: { ...launch.hostedConfiguration!, setup_commands: [{ command: 'exit 99' }], packages: { npm: ['must-not-be-installed'], python: [], system: [] } } };
-      const restoring = await prepareHostedEnvironment({ ...replacementOptions, launch: restoringLaunch, stateDirectory: join(root, 'restore-host'), restoringCheckpoint: true });
-      expect(restoring.sandbox?.replaced).toBe(true);
-      expect(await readFile(join(workspace, 'input.txt'), 'utf8')).toBe('checkpoint data');
-      expect(resets).toBe(1);
     } finally { await rm(root, { recursive: true, force: true }); }
     await expect(f.other.skills.retrieve(skill.id)).rejects.toMatchObject({ status: 404 });
     await f.api.skills.delete(skill.id);

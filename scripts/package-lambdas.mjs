@@ -19,7 +19,6 @@ for (const name of lambdaNames) {
 const microvmEntries = [
   ...runtimeEntries,
   { source: 'dist/runner.mjs', target: 'runner.mjs', mode: 0o755 },
-  { source: 'dist/workspace-checkpoint.mjs', target: 'workspace-checkpoint.mjs', mode: 0o644 },
   { source: 'dist/ec2-supervisor.mjs', target: 'ec2-supervisor.mjs', mode: 0o755 },
   { source: 'dist/terminate-microvm.mjs', target: 'terminate-microvm.mjs', mode: 0o755 },
   { source: 'config/codex.toml', target: 'config/codex.toml', mode: 0o644 },

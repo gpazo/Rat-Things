@@ -69,7 +69,6 @@ module "agent_runner" {
   ec2_worker_ami_base_id                   = var.ec2_worker_ami_base_id
   ec2_worker_ami_component_version         = var.ec2_worker_ami_component_version
   ec2_worker_ami_recipe_version            = var.ec2_worker_ami_recipe_version
-  enable_workspace_checkpoints             = var.enable_workspace_checkpoints
   ec2_worker_prepared_ami                  = var.ec2_worker_prepared_ami
   enable_s3_files                          = var.enable_s3_files
   s3_files_vpc_cidr                        = var.s3_files_vpc_cidr

@@ -512,9 +512,3 @@ variable "ec2_worker_prepared_ami" {
   default     = false
   description = "Use an explicitly selected prepared AMI and forbid package installation, registry login, and image pulls during boot."
 }
-
-variable "enable_workspace_checkpoints" {
-  description = "Opt into frozen hosted Session workspace checkpoints on dedicated EC2 workers."
-  type        = bool
-  default     = false
-}

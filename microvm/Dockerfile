@@ -52,7 +52,6 @@ COPY runtime-server.mjs /opt/agent-runtime/runtime-server.mjs
 COPY runtime-network-policy.mjs /opt/agent-runtime/runtime-network-policy.mjs
 COPY --from=network-policy-builder /tmp/runtime-network-policy.bpf.o /opt/agent-runtime/runtime-network-policy.bpf.o
 COPY runtime-process-policy.mjs /opt/agent-runtime/runtime-process-policy.mjs
-COPY checkpoint-host.mjs checkpoint-worker.mjs runner-bootstrap.mjs workspace-checkpoint.mjs /opt/agent-runtime/
 COPY bin/git-askpass.sh /opt/agent-runtime/bin/git-askpass.sh
 COPY config/codex.toml /opt/agent-runtime/config/codex.toml
 COPY config/codex.toml /home/agent/.codex/config.toml

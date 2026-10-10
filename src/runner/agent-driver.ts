@@ -45,7 +45,7 @@ export interface AgentDriverControl {
   sessionEnvironmentToken?: string;
   sessionMcp?: import('./session-mcp.js').SessionMcpRuntime;
   sessionEnvironmentCredentials?: import('./session-environment-credentials.js').SessionEnvironmentCredentialsRuntime;
-  sessionRuntime?: { previous?: SessionRuntimeState; lifetime?: 'bounded' | 'host-managed'; changed(state: SessionRuntimeState): void; flush(): Promise<void>; recoveryItems?: Record<string, unknown>[]; initialAdmission?<T>(operation: () => Promise<T>): Promise<T> };
+  sessionRuntime?: { previous?: SessionRuntimeState; lifetime?: 'bounded' | 'host-managed'; changed(state: SessionRuntimeState): void; flush(): Promise<void> };
   dynamicTools?: Array<Record<string, unknown>>;
   onEvent?(event: CodexAppServerEvent): void | Promise<void>;
   onServerRequest?(request: CodexAppServerInitiatedRequest): unknown | Promise<unknown>;
@@ -88,18 +88,14 @@ export class CodexDriver implements AgentDriver {
     };
     if (control?.sessionRuntime && control.session) {
       const runtime = new SessionRuntime({ sessionId: control.session.sessionId, agentId: control.session.agent.id,
-        request: control.sessionRuntime.recoveryItems ? { ...launch, recoveryItems: control.sessionRuntime.recoveryItems } : launch, changed: control.sessionRuntime.changed,
-        ...(control.sessionRuntime.recoveryItems ? { freshThread: true } : {}),
+        request: launch, changed: control.sessionRuntime.changed,
         ...(control.sessionRuntime.lifetime ? { lifetime: control.sessionRuntime.lifetime } : {}),
         ...(control.sessionRuntime.previous ? { previous: control.sessionRuntime.previous } : {}),
       });
       const started = Date.now();
       try {
         await runtime.initialize();
-        if (control.session.turn) {
-          const start = () => runtime.start(control.session!.turn!, control.session!.input);
-          await (control.sessionRuntime.initialAdmission ? control.sessionRuntime.initialAdmission(start) : start());
-        }
+        if (control.session.turn) await runtime.start(control.session.turn, control.session.input);
         await runtime.finished;
         await control.sessionRuntime.flush();
         const snapshot = runtime.snapshot();

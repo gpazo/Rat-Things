@@ -140,10 +140,9 @@ arrive in the bounded `/run` payload; the worker retrieves the full request from
 
 The agent subprocess runs as UID/GID 10001. One-shot jobs call `TerminateMicrovm` when the runner
 exits. Session harnesses accept additional Turns through private authenticated control.
-The Session runtime journal saves acknowledged conversation state. Optional S3 Files
-storage retains workspace files and Codex home; hosted replacement normally rebuilds
-the workspace. Dedicated EC2 workers can restore committed workspace files through
-the [checkpoint option](#frozen-workspace-checkpoints).
+The Session runtime journal saves native state, and optional S3 Files storage
+preserves the workspace and Codex home across replacement compute. The separate
+conversation coordinator and its explicit suspend/resume protocol are removed.
 
 The current AWSCC schema requires non-empty `additional_os_capabilities`, and the service currently
 accepts only `ALL`. Those capabilities remain inside the MicroVM boundary, but this still requires a
@@ -184,41 +183,3 @@ The S3 Files resources still serve current Sessions. Their historical
 `conversation_state` names and `/conversations` access-point root must remain
 stable when applying this cutover. Build the control plane and MicroVM image from
 the same checkout: the new private launch field is `sessionStorageKey`.
-
-## Frozen workspace checkpoints
-
-`enable_workspace_checkpoints = true` opts hosted Sessions on dedicated EC2 workers into
-workspace recovery. It requires S3 Files and a worker container with writable cgroup v2
-`cgroup.freeze` and `cgroup.kill`. Ordinary MicroVM and nonpersistent launches do not enable
-this path. Build and select an updated worker image before enabling the option.
-
-After all observed root and child Turns become idle, the runner drains its journal and
-excludes new control mutations. The root lifecycle host freezes the runner and all its
-descendants, including detached background commands, while copying workspace files. It
-thaws before uploading an immutable archive to the encrypted, retained definitions bucket.
-A conditional Session runtime update commits the archive pointer and its acknowledged
-history boundary. Archives do not use the run-artifact bucket's expiration policy.
-
-The workspace includes repository `.git`, `.packages`, and relative symlinks whose targets
-stay inside the workspace. The reserved `.rat-things` tree and its runtime artifact mount
-are excluded. Native Codex home, credentials, caches outside the workspace, SQLite, process
-memory, sockets, and external side effects are not checkpointed. Limits are **80 MiB of
-file contents**, **32 MiB per file**, **20,000 entries**, **96 MiB compressed**, and **128 MiB
-expanded archive data**. Unsafe paths, escaping symlinks and special files are rejected.
-A capture exceeding these limits or encountering unsupported files is skipped after a
-verified thaw; work continues and the previous checkpoint remains authoritative. Failure
-to establish safe execution authority or freezer state stops execution.
-
-Replacement workers use a separate writable generation directory. They validate the
-selected archive before replacing workspace contents, reinstall OS prerequisites, and
-restore workspace packages and setup results without replaying setup commands. A corrupt
-selected checkpoint fails recovery; it never silently resets the workspace. Native history
-is reconstructed in a fresh thread from acknowledged Session history, retaining newer facts
-and explicitly warning when they postdate the restored files. This is a frozen filesystem
-paired with an acknowledged idle history boundary, **not an atomic native-process snapshot**.
-Incomplete historical operations are never automatically replayed.
-
-Without a committed checkpoint, replacement retains the existing fresh-workspace behavior.
-Enabling this option does not convert surviving legacy workspace files into a checkpoint.
-Checkpoint archives and old generation directories are retained; automatic garbage
-collection is not implemented. Account for that retained storage when enabling the feature.

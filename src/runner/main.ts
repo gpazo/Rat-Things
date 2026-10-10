@@ -1,5 +1,3 @@
-import { SessionCheckpoints, prepareCheckpointRestore } from './session-checkpoints.js';
-import { checkpointRecoveryItems } from './checkpoint-recovery.js';
 import { isRetiredRun } from '../domain/run-bindings.js';
 import { createHash } from 'node:crypto';
 import { join } from 'node:path';
@@ -89,14 +87,13 @@ export async function runAgentWorker(): Promise<void> {
   let heartbeat: ExecutionHeartbeat | undefined;
   let sessionMcp: SessionMcpRuntime | undefined;
   let sessionEnvironmentCredentials: SessionEnvironmentCredentialsRuntime | undefined;
-  let sessionCheckpoints: SessionCheckpoints | undefined;
   let sessionJournal: SessionRuntimeJournal | undefined;
   let managedStatus: ((status: 'connected' | 'disconnected' | 'failed' | 'expired') => Promise<void>) | undefined;
   let managedExpired = false;
   let managedTimer: ReturnType<typeof setInterval> | undefined;
   let managedUpdate: Promise<void> | undefined;
   let managedReady = false;
-  const runnerControl = createRunnerControlBridge(runId, process.env.WORKSPACE_CHECKPOINTS_ENABLED === 'true');
+  const runnerControl = createRunnerControlBridge(runId);
 
   try {
     if (!current.agentsSession) throw new Error('Cloud execution requires an Agents Session binding');
@@ -153,9 +150,9 @@ export async function runAgentWorker(): Promise<void> {
       })),
     });
     heartbeat.start();
-    const checkpointsEnabled = process.env.WORKSPACE_CHECKPOINTS_ENABLED === 'true';
-    if (checkpointsEnabled && (!persistentSession || current.execution?.backend !== 'ec2' || !durableStateRoot || !runnerControl)) throw new Error('Workspace checkpoints require a persistent EC2 host');
-    if (!checkpointsEnabled) await prepareWorkspace(effectiveRequest.repository, workspace, credentials, { reuseExisting: persistentSession });
+    await prepareWorkspace(effectiveRequest.repository, workspace, credentials, {
+      reuseExisting: persistentSession,
+    });
     const ownerHash = createHash('sha256').update(current.ownerId).digest('hex').slice(0, 32);
     const timeoutSeconds = Number(
       process.env.RUN_TIMEOUT_SECONDS ?? effectiveRequest.execution?.timeoutSeconds ?? 900,
@@ -167,17 +164,12 @@ export async function runAgentWorker(): Promise<void> {
       if (reference.bucket !== artifactBucket || !reference.key.startsWith(`owners/${ownerHash}/sessions/`)) throw new Error('Session launch configuration is outside its owner scope');
       let launch = await artifacts.getJson<SessionLaunch>(reference);
       if (launch.sessionId !== current.agentsSession.sessionId || launch.turnId !== current.agentsSession.turnId) throw new Error('Session launch identity does not match its Run');
-      const checkpointArtifacts = new S3ArtifactStore(clients.s3, requiredEnv('DEFINITION_BUCKET'));
-      const agentsStore = new SessionEventStore(new DynamoAgentsStore(clients.dynamodb, requiredEnv('AGENTS_TABLE_NAME'), checkpointArtifacts));
+      const agentsStore = new SessionEventStore(new DynamoAgentsStore(clients.dynamodb, requiredEnv('AGENTS_TABLE_NAME'), new S3ArtifactStore(clients.s3, requiredEnv('DEFINITION_BUCKET'))));
       const runtimes = new SessionRuntimeStore(agentsStore);
-      if (checkpointsEnabled) await runtimes.bindGeneration(current.ownerId, launch.sessionId, runId, executionGeneration);
       const runtime = await runtimes.get(current.ownerId, launch.sessionId);
       if (!runtime || runtime.value.closed || runtime.value.runId !== runId) throw new Error('Session execution authority changed before launch');
       const sessionOwner = current.ownerId;
       let environmentFiles: EnvironmentFileOperations | undefined;
-      const selectedCheckpoint = checkpointsEnabled && launch.environment.type === 'openai_hosted' ? runtime.value.checkpoint : undefined;
-      const restoration = selectedCheckpoint ? await prepareCheckpointRestore({ ownerId: sessionOwner, sessionId: launch.sessionId, runId, generation: executionGeneration, checkpoint: selectedCheckpoint, bucket: requiredEnv('DEFINITION_BUCKET'), artifacts: checkpointArtifacts }) : undefined;
-      if (checkpointsEnabled && !selectedCheckpoint) await prepareWorkspace(effectiveRequest.repository, workspace, credentials, { reuseExisting: true });
       if (launch.environment.type === 'openai_hosted') {
         const environmentId = launch.environment.id;
         const environments = new EnvironmentService({ store: agentsStore, credentials: new SecretsEnvironmentCredentials(clients.secrets, requiredEnv('INTEGRATION_CREDENTIAL_NAME_PREFIX'), requiredEnv('INTEGRATION_CREDENTIAL_KMS_KEY_ARN')) });
@@ -186,19 +178,11 @@ export async function runAgentWorker(): Promise<void> {
         const plan = planCodexLaunch(effectiveRequest, workspace, timeoutSeconds * 1000, process.env);
         sessionEnvironmentCredentials = await prepareSessionEnvironmentCredentials(sessionOwner, launch, secrets, abort.signal);
         const prepared = await prepareHostedEnvironment({ launch, workspace, plan, artifacts, signal: abort.signal, stateDirectory: '/tmp/rat-hosted-state',
-          restoringCheckpoint: Boolean(restoration),
           previouslyPrepared: await environments.managedPrepared(sessionOwner, environmentId, runId) || Boolean(runtime.value.snapshot),
           afterWorkspaceReset: () => prepareWorkspace(effectiveRequest.repository, workspace, credentials, { reuseExisting: true }),
           ...(sessionEnvironmentCredentials ? { credentials: sessionEnvironmentCredentials } : {}),
         });
         launch = prepared.launch;
-        if (restoration) {
-          try {
-            const authority = await runtimes.get(sessionOwner, launch.sessionId);
-            if (!authority || authority.value.closed || authority.value.runId !== runId || authority.value.generation !== executionGeneration || authority.value.checkpoint?.id !== selectedCheckpoint!.id) throw new Error('Checkpoint restore authority changed');
-            await runnerControl!.checkpoint('restore', restoration.id, restoration.digest);
-          } finally { await restoration.discard(); }
-        }
         if (!prepared.sandbox) throw new Error('Managed sandbox generation is missing');
         environmentFiles = { execute: (_environmentId, _reference, operation) => codexEnvironmentFiles({ workspace: '/workspace', operation, binary: plan.binary, ...(plan.identity ? { identity: plan.identity } : {}), signal: abort.signal }) };
         runnerControl?.setEnvironmentFiles((operation) => environmentFiles!.execute(environmentId, '', operation as import('../core/environment-file-ports.js').EnvironmentFileOperation));
@@ -214,19 +198,16 @@ export async function runAgentWorker(): Promise<void> {
         ...(environmentFiles ? { files: environmentFiles } : {}),
       });
       sessionJournal = new SessionRuntimeJournal({
-        publish: async (snapshot) => runtimes.publish(sessionOwner, launch.sessionId, runId, await capture.capture(snapshot), checkpointsEnabled ? executionGeneration : undefined),
+        publish: async (snapshot) => runtimes.publish(sessionOwner, launch.sessionId, runId, await capture.capture(snapshot)),
         onFailure: (error) => {
           console.error(JSON.stringify({ message: 'Session journal failed; stopping the harness', error: error.name }));
           abort.abort();
         },
       });
-      if (checkpointsEnabled && launch.environment.type === 'openai_hosted') sessionCheckpoints = new SessionCheckpoints({ ownerId: sessionOwner, sessionId: launch.sessionId, runId, generation: executionGeneration, host: runnerControl!, artifacts: checkpointArtifacts, runtimes, journal: sessionJournal, onFailure: () => { console.error(JSON.stringify({ message: 'Workspace checkpoint failed; stopping execution' })); abort.abort(); } });
       driverControl = { ...driverControl, session: launch, sessionRuntime: {
         lifetime: current.execution?.backend === 'ec2' ? 'host-managed' : 'bounded',
         ...(runtime.value.snapshot ? { previous: runtime.value.snapshot } : {}),
-        changed: (state) => { sessionJournal!.changed(state); sessionCheckpoints?.changed(state); }, flush: sessionJournal.flush,
-        ...(checkpointsEnabled && runnerControl ? { initialAdmission: <T>(operation: () => Promise<T>) => runnerControl.exclusive(operation) } : {}),
-        ...(selectedCheckpoint ? { recoveryItems: checkpointRecoveryItems(selectedCheckpoint, runtime.value.snapshot, launch.history ?? []) } : {}),
+        changed: sessionJournal.changed, flush: sessionJournal.flush,
       } };
       const sessionVaults = launch.mcp?.some((binding) => binding.vaultId) ? new VaultService({
         store: agentsStore,
@@ -342,7 +323,6 @@ export async function runAgentWorker(): Promise<void> {
     }
     throw error;
   } finally {
-    await sessionCheckpoints?.close();
     clearInterval(managedTimer);
     await managedUpdate;
     await managedStatus?.(managedReady ? managedExpired ? 'expired' : 'disconnected' : 'failed').catch(() => {});
