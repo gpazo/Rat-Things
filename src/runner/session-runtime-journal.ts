@@ -6,6 +6,8 @@ export class SessionRuntimeJournal {
   private readonly pending: SessionRuntimeState[] = [];
   private writing: Promise<void> | undefined;
   private timer: ReturnType<typeof setTimeout> | undefined;
+  private acknowledgedState: SessionRuntimeState | undefined;
+  private serial: Promise<unknown> = Promise.resolve();
   private failure: Error | undefined;
 
   public constructor(private readonly options: {
@@ -37,7 +39,7 @@ export class SessionRuntimeJournal {
     clearTimeout(this.timer);
     this.timer = undefined;
     if (this.failure) throw this.failure;
-    if (this.writing) return this.writing;
+    if (this.writing) { await this.writing; if (this.pending.length) await this.flush(); return; }
     this.writing = this.drain();
     try { await this.writing; }
     catch (error) {
@@ -45,13 +47,24 @@ export class SessionRuntimeJournal {
       this.options.onFailure(this.failure);
       throw this.failure;
     } finally { this.writing = undefined; }
+    if (this.pending.length) await this.flush();
   };
+
+  public acknowledged(): SessionRuntimeState | undefined { return this.acknowledgedState; }
+
+  /** Checkpoint pointer writes share the journal CAS tail with state publication. */
+  public commit<T>(operation: () => Promise<T>): Promise<T> {
+    const result = this.serial.then(operation);
+    this.serial = result.catch(() => {});
+    return result;
+  }
 
   private async drain(): Promise<void> {
     while (this.pending.length) {
       if (this.failure) throw this.failure;
       const state = this.pending.shift()!;
-      if (!await this.options.publish(state)) throw new Error('Session execution authority changed');
+      if (!await this.commit(() => this.options.publish(state))) throw new Error('Session execution authority changed');
+      this.acknowledgedState = state;
     }
   }
 }

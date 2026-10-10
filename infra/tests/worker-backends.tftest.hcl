@@ -233,3 +233,19 @@ run "dedicated_relay_administration" {
     error_message = "Relay deployments must also keep scheduling and delivery-secret grants out of control administration."
   }
 }
+
+run "checkpoint_workers_are_explicitly_enabled" {
+  command = plan
+  module { source = "./modules/agent-runner" }
+  variables {
+    enable_microvm               = false
+    enable_ec2_worker            = true
+    enable_workspace_checkpoints = true
+  }
+  assert {
+    condition = strcontains(base64decode(aws_launch_template.session_worker[0].user_data), base64encode(jsonencode(merge(local.worker_environment, {
+      AWS_REGION = "us-west-2", DEFAULT_EXECUTION_BACKEND = "ec2", ALLOW_AGENT_AWS_CREDENTIAL_CHAIN = "false", WORKSPACE_CHECKPOINTS_ENABLED = "true"
+    }))))
+    error_message = "Only explicitly enabled EC2 worker configuration should opt into workspace checkpoints."
+  }
+}

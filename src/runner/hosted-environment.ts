@@ -29,6 +29,7 @@ export async function prepareHostedEnvironment(options: {
   launch: SessionLaunch; workspace: string; plan: CodexLaunchPlan;
   artifacts: Pick<ArtifactStore, 'getBytes'>; signal?: AbortSignal;
   stateDirectory: string; previouslyPrepared?: boolean;
+  restoringCheckpoint?: boolean;
   credentials?: SessionEnvironmentCredentialsRuntime;
   afterWorkspaceReset?: () => Promise<void>;
 }): Promise<{ launch: SessionLaunch; sandbox?: ManagedSandboxGeneration }> {
@@ -61,7 +62,7 @@ export async function prepareHostedEnvironment(options: {
   if (previous?.digest === digest) return { launch: result, sandbox: previous.sandbox };
   if (previous !== undefined) throw new Error('A managed environment cannot change its setup configuration');
   const sandbox: ManagedSandboxGeneration = { id: randomUUID(), replaced: options.previouslyPrepared ?? false };
-  if (sandbox.replaced) {
+  if (sandbox.replaced && !options.restoringCheckpoint) {
     const directory = await lstat(workspace);
     if (!directory.isDirectory() || directory.isSymbolicLink()) throw new Error('Managed workspace is invalid');
     // Keep the directory inode so /workspace's bind mount stays valid. Old
@@ -74,6 +75,12 @@ export async function prepareHostedEnvironment(options: {
   if (system.length) {
     const installed = await runProcess('dnf', ['install', '-y', '--setopt=gpgcheck=1', '--', ...system], { cwd: '/', env: { PATH: process.env.PATH, LANG: 'C.UTF-8' }, timeoutMs: 600_000, ...(signal ? { signal } : {}) });
     if (installed.exitCode !== 0) throw new Error('System package installation failed');
+  }
+  // Workspace packages, inputs and setup effects are already in the selected checkpoint.
+  // Only OS prerequisites belong to the new host; never replay setup side effects.
+  if (options.restoringCheckpoint) {
+    await writeFile(marker, JSON.stringify({ digest, sandbox }), { flag: 'wx', mode: 0o600 });
+    return { launch: result, sandbox };
   }
   for (const file of configuration.files ?? []) {
     const reference = launch.hostedFiles?.find((candidate) => candidate.path === file.path)?.content;

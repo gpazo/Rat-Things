@@ -25,6 +25,7 @@ await Promise.all([
     bundle(entry, `dist/lambdas/${name}/index.mjs`),
   ),
   bundle('src/runner/entry.ts', 'dist/runner.mjs'),
+  bundle('src/runner/workspace-checkpoint.ts', 'dist/workspace-checkpoint.mjs'),
   bundle('src/runner/ec2-supervisor.ts', 'dist/ec2-supervisor.mjs'),
   bundle('src/relay.ts', 'dist/environment-relay.mjs'),
   bundle('src/agents-server.ts', 'dist/agents-server.mjs'),

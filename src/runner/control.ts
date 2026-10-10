@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+import { MutationGate } from './mutation-gate.js';
 import type {
   CodexAppServerEvent,
   CodexAppServerInitiatedRequest,
@@ -19,11 +21,15 @@ interface PendingServerRequest {
 export interface RunnerControlBridge {
   hooks: AgentDriverControl;
   setEnvironmentFiles(files: (operation: unknown) => Promise<unknown>): void;
+  exclusive<T>(operation: () => Promise<T>): Promise<T>;
+  checkpoint(action: 'capture' | 'restore' | 'discard', checkpointId: string, sha256?: string): Promise<unknown>;
   close(): void;
 }
 
-export function createRunnerControlBridge(runId: string): RunnerControlBridge | undefined {
+export function createRunnerControlBridge(runId: string, serializeMutations = false): RunnerControlBridge | undefined {
   if (!process.send || !process.connected) return undefined;
+  const gate = new MutationGate();
+  const checkpoints = new Map<string, { resolve(value: unknown): void; reject(error: Error): void; timer: ReturnType<typeof setTimeout> }>();
   const pending = new Map<string, PendingServerRequest>();
   const operations = new Map<string, { digest: string; promise: Promise<unknown> }>();
   let controller: CodexTurnController | undefined;
@@ -46,9 +52,15 @@ export function createRunnerControlBridge(runId: string): RunnerControlBridge | 
 
   const onMessage = (value: unknown) => {
     if (!isRecord(value) || value.channel !== CHANNEL || value.runId !== runId) return;
+    if (value.type === 'checkpoint-result' && typeof value.requestId === 'string') {
+      const waiter = checkpoints.get(value.requestId);
+      if (waiter) { clearTimeout(waiter.timer); checkpoints.delete(value.requestId);
+        if (value.ok === true) waiter.resolve(value.result); else waiter.reject(new Error('Host checkpoint operation failed')); }
+      return;
+    }
     const commandId = typeof value.commandId === 'string' ? value.commandId : undefined;
     if (!commandId || typeof value.type !== 'string') return;
-    void (async () => {
+    const execute = async () => {
       const operationId = typeof value.operationId === 'string' ? value.operationId : value.type === 'respond' ? `response:${String(value.requestId)}` : undefined;
       let resolveOperation: ((value: unknown) => void) | undefined;
       let rejectOperation: ((error: unknown) => void) | undefined;
@@ -117,7 +129,8 @@ export function createRunnerControlBridge(runId: string): RunnerControlBridge | 
         if (operationId && rejectOperation) operations.delete(operationId);
         commandResult(commandId, undefined, error);
       }
-    })();
+    };
+    void (!serializeMutations || value.type === 'session_items' ? execute() : gate.run(execute));
   };
 
   const close = () => {
@@ -128,6 +141,8 @@ export function createRunnerControlBridge(runId: string): RunnerControlBridge | 
     for (const waiter of pending.values()) {
       waiter.reject(new Error('agent control channel closed before the request was answered'));
     }
+    for (const waiter of checkpoints.values()) { clearTimeout(waiter.timer); waiter.reject(new Error('Checkpoint host disconnected')); }
+    checkpoints.clear();
     pending.clear();
     operations.clear();
     controller = undefined;
@@ -165,6 +180,14 @@ export function createRunnerControlBridge(runId: string): RunnerControlBridge | 
   };
   return {
     hooks,
+    exclusive: (operation) => gate.run(operation),
+    checkpoint: (action, checkpointId, sha256) => new Promise((resolve, reject) => {
+      if (closed || !process.connected) { reject(new Error('Checkpoint host unavailable')); return; }
+      const requestId = randomUUID();
+      const timer = setTimeout(() => { checkpoints.delete(requestId); reject(new Error('Checkpoint host timed out')); }, 22_000);
+      checkpoints.set(requestId, { resolve, reject, timer });
+      send({ type: 'checkpoint', action, checkpointId, requestId, ...(sha256 ? { sha256 } : {}) });
+    }),
     setEnvironmentFiles: (files) => { environmentFiles = files; },
     close,
   };

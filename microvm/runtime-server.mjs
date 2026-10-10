@@ -13,6 +13,7 @@ import { join } from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 import { gunzipSync } from 'node:zlib';
 import { ensureUntrustedUidCannotReachPort } from './runtime-network-policy.mjs';
+import { prepareCheckpointHost, checkpointOperation, checkpointHostEnabled, prepareCheckpointStateRoot } from './checkpoint-host.mjs';
 import { trustedRunnerOptions } from './runtime-process-policy.mjs';
 
 const hookPrefix = '/aws/lambda-microvms/runtime/v1';
@@ -284,27 +285,34 @@ function startRun(run) {
     throw new InvalidHookRequest('persistent session MicroVM ID changed');
   }
   if (run.persistentSession) persistentMicrovmId = run.microvmId;
+  run.environment.WORKSPACE_CHECKPOINTS_ENABLED = 'false';
   if (run.storage) {
     const mount = ensureS3FilesMounted(run.storage);
     storageMountDurationMs = mount.durationMs;
     storageAlreadyMounted = mount.alreadyMounted;
     const preparationStartedAt = Date.now();
-    const stateRoot = join(run.storage.mountRoot, run.storage.storageKey);
-    prepareSessionState(stateRoot);
+    const checkpointEnabled = checkpointHostEnabled(process.env.WORKSPACE_CHECKPOINTS_ENABLED, run.environment.DEFAULT_EXECUTION_BACKEND, run.persistentSession, run.storage);
+    const sessionRoot = join(run.storage.mountRoot, run.storage.storageKey);
+    const stateRoot = checkpointEnabled ? join(sessionRoot, 'generations', run.generation) : sessionRoot;
+    if (checkpointEnabled) {
+      run.checkpointGroup = prepareCheckpointHost(run.generation);
+      run.checkpointWorkspace = join(stateRoot, 'workspace');
+      run.environment.WORKSPACE_CHECKPOINTS_ENABLED = 'true';
+      run.environment.RAT_CHECKPOINT_CGROUP = run.checkpointGroup;
+    }
+    prepareSessionState(stateRoot, checkpointEnabled);
     prepareTransientRunState(stateRoot, run.runId);
     storagePreparationDurationMs = Date.now() - preparationStartedAt;
     run.environment.SESSION_STATE_ROOT = stateRoot;
     run.environment.CODEX_HOME = join(stateRoot, 'codex-home');
     // SQLite WAL/connection locks stay on this worker's local filesystem.
-    // Native rollouts remain durable in CODEX_HOME and rebuild the indexes
-    // when a replacement worker resumes the saved thread.
     run.environment.CODEX_SQLITE_HOME = join(stateRoot, 'codex-home', 'sqlite');
     run.environment.BROWSER_PROFILE_ROOT = join(stateRoot, 'codex-home', 'browser-profile');
     run.environment.WORKSPACE_ROOT = stateRoot;
     persistentStorage = run.storage;
   }
 
-  const child = spawn(process.execPath, [runnerEntry], trustedRunnerOptions({
+  const child = spawn(process.execPath, [run.checkpointGroup ? '/opt/agent-runtime/runner-bootstrap.mjs' : runnerEntry], trustedRunnerOptions({
     uid: agentUid,
     gid: agentGid,
     environment: { ...process.env, ...run.environment },
@@ -468,6 +476,14 @@ function handleRunnerControlMessage(runId, message) {
     typeof message.type !== 'string'
   ) return;
   switch (message.type) {
+    case 'checkpoint': {
+      if (typeof message.requestId !== 'string' || message.requestId.length > 64) break;
+      void checkpointOperation(run, message).then(
+        result => { if (run.child.connected) run.child.send({ channel: controlChannel, runId, type: 'checkpoint-result', requestId: message.requestId, ok: true, result }); },
+        () => { if (run.child.connected) run.child.send({ channel: controlChannel, runId, type: 'checkpoint-result', requestId: message.requestId, ok: false }); },
+      );
+      break;
+    }
     case 'event':
       appendControlEvent(run, message.event);
       break;
@@ -602,6 +618,13 @@ function selfTerminate(run) {
 async function terminateActiveRun() {
   const run = activeRun;
   if (!run || run.child.exitCode !== null || run.child.signalCode !== null) return;
+  if (run.checkpointBusy && run.checkpointAction === 'restore') run.checkpointUnsafe = true;
+  run.checkpointAbort?.abort();
+  if (run.checkpointGroup) {
+    const fs = await import('node:fs/promises');
+    if (run.checkpointUnsafe) await fs.writeFile(`${run.checkpointGroup}/cgroup.kill`, '1');
+    await fs.writeFile(`${run.checkpointGroup}/cgroup.freeze`, '0');
+  }
   run.child.kill('SIGTERM');
   const exited = await Promise.race([
     new Promise((resolve) => run.child.once('exit', () => resolve(true))),
@@ -669,12 +692,17 @@ function ensureMountWatchdogRunning() {
   });
 }
 
-function prepareSessionState(stateRoot) {
+function prepareSessionState(stateRoot, checkpointEnabled = false) {
   const uid = Number(process.env.RUN_AGENT_UID ?? 10001);
   const gid = Number(process.env.RUN_AGENT_GID ?? 10001);
   const codexHome = join(stateRoot, 'codex-home');
   const workspace = join(stateRoot, 'workspace');
-  for (const directory of [stateRoot, codexHome, workspace]) {
+  if (checkpointEnabled) {
+    // Traversable but not listable/writable by guests. Restore staging is a
+    // root-private sibling; only the leaf workspace/native home are guest-owned.
+    prepareCheckpointStateRoot(stateRoot);
+  }
+  for (const directory of [...(checkpointEnabled ? [] : [stateRoot]), codexHome, workspace]) {
     ensureOwnedDirectory(directory, uid, gid);
   }
   const config = join(codexHome, 'config.toml');

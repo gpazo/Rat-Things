@@ -30,6 +30,7 @@ export class SessionRuntime {
     sessionId: string; agentId: string; request: CodexAppServerRequest;
     now?: () => number; changed?: (state: SessionRuntimeState) => void;
     previous?: SessionRuntimeState;
+    freshThread?: boolean;
     idleTimeoutMs?: number;
     /** Trusted host policy: dedicated workers terminate on authority loss or closure. */
     lifetime?: 'bounded' | 'host-managed';
@@ -72,7 +73,7 @@ export class SessionRuntime {
     };
     let resumed = false;
     let thread: unknown;
-    const resumeThreadId = this.options.previous?.rootThreadId ?? request.resumeThreadId;
+    const resumeThreadId = this.options.freshThread ? undefined : this.options.previous?.rootThreadId ?? request.resumeThreadId;
     if (resumeThreadId) {
       try {
         const { dynamicTools: _tools, environments: _environments, ...resume } = parameters;

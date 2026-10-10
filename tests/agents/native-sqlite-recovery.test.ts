@@ -6,6 +6,9 @@ import { tmpdir } from 'node:os';
 import { setTimeout as delay } from 'node:timers/promises';
 import { expect, it } from 'vitest';
 import { SessionRuntime } from '../../src/runner/session-runtime.js';
+import { checkpointRecoveryItems } from '../../src/runner/checkpoint-recovery.js';
+import type { SessionCheckpoint } from '../../src/core/session-checkpoint.js';
+import type { SessionRuntimeState } from '../../src/core/session-runtime-planning.js';
 import type { Turn } from '../../src/domain/agents-api.js';
 
 it('resumes a durable native rollout after replacing worker-local SQLite databases', async () => {
@@ -24,16 +27,18 @@ it('resumes a durable native rollout after replacing worker-local SQLite databas
   });
   server.listen(0, '127.0.0.1'); await once(server, 'listening');
   const address = server.address(); if (!address || typeof address === 'string') throw new Error('Missing fixture address');
-  const runtime = (sqlite: string, resumeThreadId?: string) => new SessionRuntime({ sessionId: 'sess_sqlite', agentId: 'agent', request: {
+  const runtime = (sqlite: string, resumeThreadId?: string, recovery?: { checkpoint: SessionCheckpoint; latest: SessionRuntimeState }) => new SessionRuntime({ sessionId: 'sess_sqlite', agentId: 'agent', ...(recovery ? { freshThread: true, previous: recovery.latest } : {}), request: {
     binary: process.env.CODEX_CONFORMANCE_BINARY ?? resolve('node_modules/.bin/codex'), workspace: home,
     environment: { PATH: process.env.PATH, HOME: home, CODEX_HOME: home, CODEX_SQLITE_HOME: join(home, sqlite) },
     timeoutMs: 20_000, persistent: true, prompt: '', sandbox: 'read-only', networkAccess: false, environments: [],
     model: 'gpt-5.4', modelProvider: 'fixture', ...(resumeThreadId ? { resumeThreadId } : {}),
+    ...(recovery ? { recoveryItems: checkpointRecoveryItems(recovery.checkpoint, recovery.latest, []) } : {}),
     sessionConfig: { 'model_providers.fixture': { name: 'fixture', base_url: `http://127.0.0.1:${address.port}`,
       wire_api: 'responses', requires_openai_auth: false, supports_websockets: false } },
   } });
   const first = runtime('worker-one');
   let second: SessionRuntime | undefined;
+  let fresh: SessionRuntime | undefined;
   const turn = (id: string): Turn => ({ id, object: 'agent.session.turn', session_id: 'sess_sqlite', agent_id: 'agent', subagent_id: null,
     status: 'queued', created_at: 1, started_at: null, completed_at: null, error: null, usage: null });
   const complete = async (instance: SessionRuntime, id: string, text: string) => {
@@ -58,8 +63,21 @@ it('resumes a durable native rollout after replacing worker-local SQLite databas
     expect(requests).toHaveLength(2);
     expect(JSON.stringify(requests[1]!.input)).toContain('RETAIN_THIS_NATIVE_CONTEXT');
     expect(JSON.stringify(requests[1]!.input)).toContain('SAVED_NATIVE_ANSWER');
+    const saved = second.snapshot();
+    const checkpoint: SessionCheckpoint = { version: 1, id: 'fixture-checkpoint', ownerId: 'owner', sessionId: 'sess_sqlite', runId: 'old', generation: 'old', createdAt: 1, journalRevision: 1, snapshot: saved, archive: { bucket: 'retained', key: 'fixture', sha256: 'a'.repeat(64) }, archiveBytes: 1, recovery: 'history' };
+    const latest = structuredClone(saved);
+    latest.turns[0]!.items.push({ id: 'after-checkpoint', turn_id: latest.turns[0]!.turn.id, type: 'command_execution', command: 'send external effect', cwd: '/workspace', duration_ms: null, exit_code: null, output: 'EXTERNAL_EFFECT_ALREADY_SENT', status: 'incomplete' });
+    await second.close();
+    // Existing rollouts deliberately remain available: freshThread must bypass resume.
+    fresh = runtime('worker-fresh', before.rootThreadId, { checkpoint, latest });
+    expect((await fresh.initialize()).rootThreadId).not.toBe(before.rootThreadId);
+    await complete(fresh, 'third', 'Describe the saved history without executing anything.');
+    expect(requests).toHaveLength(3);
+    expect(JSON.stringify(requests[2]!.input)).toContain('SAVED_NATIVE_ANSWER');
+    expect(JSON.stringify(requests[2]!.input)).toContain('EXTERNAL_EFFECT_ALREADY_SENT');
+    expect(JSON.stringify(requests[2]!.input)).toContain('newer than the restored workspace');
   } finally {
-    await first.close(); await second?.close(); server.closeAllConnections();
+    await first.close(); await second?.close(); await fresh?.close(); server.closeAllConnections();
     await new Promise<void>(resolve => server.close(() => resolve()));
     await rm(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   }

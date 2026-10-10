@@ -258,3 +258,42 @@ A live heartbeat may defeat the injection; bounded retries preserve that race
 fence. This is a fault-injection proof of the one-hour decision through AWS, not
 an hour of wall-clock inactivity. Failed proofs may terminate their verified
 fixture worker during cleanup, which is logged separately from acceptance.
+
+### Workspace checkpoint verification
+
+The ordinary test suite exercises bounded archive capture/restore on real temporary
+files, corruption and path rejection, generation and revision fences, mutation admission,
+concurrent journal publication, hosted setup recovery, and fresh native Codex history
+reconstruction. The freezer lifecycle tests simulate kernel event files and do not prove
+that the kernel paused processes.
+
+Run the separate kernel conformance harness only on a disposable Linux host/container
+where you explicitly permit root access to writable cgroup v2:
+
+```bash
+RAT_CHECKPOINT_FREEZER_TEST=true npx vitest run tests/microvm/checkpoint-freezer-linux.test.mjs
+```
+
+It creates a private cgroup, runs the production bootstrap with a detached non-root writer,
+checks that the writer stops throughout capture and continues after thaw, restores the
+captured bytes, and kills/cleans up its processes and cgroup. It never provisions AWS
+resources or starts a container. macOS and hosts without the required kernel permissions
+cannot run this conformance test; ordinary tests leave it skipped.
+
+Before promoting a prepared worker image for checkpoint use, the following offline probe
+checks freezer availability under the same privileged/private-cgroup container policy.
+Set `WORKER_IMAGE` to the exact locally cached digest; `--pull=never` forbids image downloads.
+This probe creates no worker, reads no credentials, and does not replace the detached-writer
+conformance test above.
+
+```bash
+docker run --rm --privileged --cgroupns private --network none --pull=never \
+  --entrypoint node "$WORKER_IMAGE" --input-type=module -e '
+import { randomBytes } from "node:crypto";
+import { rmdir } from "node:fs/promises";
+import { prepareCheckpointHost, withFrozenCgroup } from "/opt/agent-runtime/checkpoint-host.mjs";
+const group = prepareCheckpointHost(randomBytes(32).toString("hex"));
+try { await withFrozenCgroup(group, async () => {}); }
+finally { await rmdir(group); }
+'
+```
