@@ -8,7 +8,7 @@ import { FileService } from '../../src/core/file-service.js';
 import { AgentService } from '../../src/core/agent-service.js';
 import { MemoryAgentsStore } from './fixtures.js';
 import { MemoryArtifacts } from '../runner/artifact-fixtures.js';
-import { createAgentsClient } from '../../src/agents-client.js';
+import { createAgentsClient, createAgentsFetch } from '../../src/agents-client.js';
 
 describe('independent HTTP transport', () => {
   it('accepts standard SDK uploads larger than a Lambda request and enforces scoped expiring bearer keys', async () => {
@@ -59,3 +59,27 @@ describe('independent HTTP transport', () => {
     expect(issuances).toBe(1);
   });
 });
+
+
+it.each(['https://api.example/v1', 'https://api.lambda-url.us-west-2.on.aws/v1'])(
+  'returns artifact redirects for validation without following them at %s', async (baseURL) => {
+    const calls: Request[] = [];
+    const client = createAgentsFetch({ baseURL, region: 'us-west-2', credentials: { accessKeyId: 'test', secretAccessKey: 'test' },
+      fetch: async (input, init) => {
+        const request = new Request(input, init);
+        if (request.url.endsWith('/.well-known/agents-api')) return Response.json({ issuer_url: 'https://issuer.lambda-url.us-west-2.on.aws/v1/auth/tokens' });
+        if (request.url.endsWith('/auth/tokens')) return Response.json({ api_key: 'temporary-key', expires_at: Date.now() / 1000 + 900, base_url: baseURL });
+        calls.push(request);
+        return new Response(null, { status: 302, headers: { location: 'https://artifacts.s3.us-west-2.amazonaws.com/private' } });
+      },
+    });
+    const response = await client(`${baseURL}/agents/sessions/s/artifacts/a/content`, { redirect: 'manual' });
+    expect(response.status).toBe(302);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.redirect).toBe('manual');
+    expect(calls[0]!.headers.has('authorization')).toBe(true);
+    await expect(client('https://other.example/private')).rejects.toThrow('another origin');
+    await client(`${baseURL}/agents`, { redirect: 'follow' });
+    expect(calls[1]!.redirect).toBe('error');
+  },
+);

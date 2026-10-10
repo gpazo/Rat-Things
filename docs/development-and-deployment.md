@@ -54,6 +54,10 @@ OpenAI provider, and reuse the account cached by `codex login` on this device. E
 `CODEX_AUTH_MODE=chatgpt|bedrock`; it is not part of the run API and cannot be chosen by callers.
 Leave `CODEX_CHATGPT_MODEL` empty to use the signed-in workspace's default, or set it to an account
 model ID. `DEFAULT_MODEL` is used only by an explicitly selected Bedrock deployment.
+For a deployed native-console model picker, configure `codex_chatgpt_model_ids` with the exact IDs
+verified for the deployment-owned workspace credential. A pinned `codex_chatgpt_model` becomes a
+singleton catalog when no list is supplied. An unconfigured catalog remains unavailable rather than
+guessing from Codex support metadata or a different local login.
 `--events` prints the complete JSONL protocol stream, including command/tool execution records and
 token usage. To allow networking in a local Run, add `--network` and choose the inner sandbox.
 Local runs default to no network. `workspace-write` maps the flag to Codex's

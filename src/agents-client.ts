@@ -70,7 +70,7 @@ export function createAgentsFetch(options: {
       if (!iamEndpoint || options.tokenIssuerURL) {
         const headers = new Headers(request.headers);
         headers.set('authorization', `Bearer ${await authorize()}`);
-        const result = await transport(new Request(request, { headers, redirect: 'error' }));
+        const result = await transport(new Request(request, { headers, redirect: request.redirect === 'manual' ? 'manual' : 'error' }));
         if (result.status === 401) token = undefined;
         return result;
       }
@@ -84,7 +84,7 @@ export function createAgentsFetch(options: {
         query[key] = values.length > 1 ? values : values[0]!;
       }
       const signed = await signer.sign(new HttpRequest({ protocol: url.protocol, hostname: url.hostname, ...(url.port ? { port: Number(url.port) } : {}), path: url.pathname, method: request.method, headers, query, ...(body ? { body } : {}) }));
-      return transport(request.url, { method: request.method, headers: signed.headers, signal: request.signal, redirect: 'error', ...(body ? { body } : {}) });
+      return transport(request.url, { method: request.method, headers: signed.headers, signal: request.signal, redirect: request.redirect === 'manual' ? 'manual' : 'error', ...(body ? { body } : {}) });
   };
 }
 

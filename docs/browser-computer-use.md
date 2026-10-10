@@ -4,6 +4,11 @@ Browser automation for an Agent must be supplied through a declared function or
 MCP tool and enforced by the deployment's fixed capability policy. Creating a
 standard Session does not inject browser tools or grant browser authority.
 
+The [Playwright MCP example](../examples/browser/README.md) supplies a pinned,
+optional browser provider through the environment's standard MCP transport.
+Its declared tools support navigation, typing, clicking, snapshots and screenshots.
+The execution image must contain the provider and Chromium before use.
+
 The Session console displays saved messages, tool activity,
 function-result requests and artifacts; it does not provide a browser-control pane.
 

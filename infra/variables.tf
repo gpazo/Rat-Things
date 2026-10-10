@@ -375,8 +375,24 @@ variable "codex_chatgpt_model" {
   nullable    = true
 
   validation {
-    condition     = var.codex_chatgpt_model == null ? true : (trimspace(var.codex_chatgpt_model) != "" && !can(regex("[\\r\\n]", var.codex_chatgpt_model)))
-    error_message = "codex_chatgpt_model must be null or a non-empty single-line model ID."
+    condition     = var.codex_chatgpt_model == null ? true : (trimspace(var.codex_chatgpt_model) == var.codex_chatgpt_model && var.codex_chatgpt_model != "" && !can(regex("[\\r\\n]", var.codex_chatgpt_model)))
+    error_message = "codex_chatgpt_model must be null or a trimmed, non-empty, single-line model ID."
+  }
+}
+
+variable "codex_chatgpt_model_ids" {
+  description = "Exact model IDs the operator has verified are available to the deployment-owned ChatGPT workspace credential. Empty uses codex_chatgpt_model as a singleton catalog when pinned."
+  type        = list(string)
+  default     = []
+
+  validation {
+    condition = (
+      length(distinct(var.codex_chatgpt_model_ids)) == length(var.codex_chatgpt_model_ids) &&
+      alltrue([
+        for model in var.codex_chatgpt_model_ids : trimspace(model) == model && model != "" && !can(regex("[\\r\\n]", model))
+      ])
+    )
+    error_message = "codex_chatgpt_model_ids must contain unique, non-empty, single-line model IDs."
   }
 }
 

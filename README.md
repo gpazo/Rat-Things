@@ -69,8 +69,12 @@ private implementation cleanup and deployment acceptance work.
 npm ci
 npm run check
 npm run smoke:local
-npm run console:serve
+npm run console:build
+RAT_THINGS_AGENTS_API_URL=https://your-api.example/v1 AWS_REGION=us-west-2 npm run console:serve
 ```
+
+The console is a native Rust desktop app built with egui. It requires Rust 1.95 or newer to build.
+Its private Node helper reuses the CLI authentication code. See [the desktop guide](desktop/README.md).
 
 The CLI supports `agents`, `sessions`, `environments`, `vaults` and `schedules`.
 Use `rat-things agents --help` for canonical resource commands. Local execution,

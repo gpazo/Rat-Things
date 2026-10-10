@@ -48,8 +48,8 @@ local model fixtures with Linux dependencies. `MICROVM_E2E_IMAGE_TAG` selects a
 different worker image. The container enables namespaces for bubblewrap; native
 processes remain unprivileged and receive no model credentials.
 
-Local readiness also requires `npm run check`, `npm run smoke:local`, console
-tests, LocalStack and the ARM64 image canary below. Keep unresolved behavioral
+Local readiness also requires `npm run check`, `npm run smoke:local`,
+[native console checks](native-console/README.md), LocalStack and the ARM64 image canary below. Keep unresolved behavioral
 differences in `plans/agents-api-conformance.md` open until they are addressed;
 this native gate does not certify all API behavior or live AWS wiring.
 

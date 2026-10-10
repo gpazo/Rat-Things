@@ -18,6 +18,7 @@ describe('scoped API authority', () => {
       ['GET', 'v1/vaults/v', ['api.vaults.read']], ['POST', 'v1/vaults/v', ['api.vaults.write']],
       ['GET', 'v1/files/f/content', ['api.agents.read']], ['POST', 'v1/skills', ['api.agents.write']],
       ['DELETE', 'v1/webhooks/w', ['api.agents.write']],
+      ['GET', 'v1/models', ['api.agents.read']],
     ];
     for (const [method, path, allowed] of routes) for (const scope of API_SCOPES) {
       const check = () => requireRoutePermission({ ownerId: 'alice', scopes: [scope] }, method, path.split('/'));

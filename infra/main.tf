@@ -58,6 +58,7 @@ module "agent_runner" {
   codex_auth_mode                          = var.codex_auth_mode
   codex_auth_file_secret_arn               = var.codex_auth_file_secret_arn
   codex_chatgpt_model                      = var.codex_chatgpt_model
+  codex_chatgpt_model_ids                  = var.codex_chatgpt_model_ids
   codex_bedrock_model_ids                  = var.codex_bedrock_model_ids
   bedrock_api_key_secret_arn               = var.bedrock_api_key_secret_arn
   enable_microvm                           = var.enable_microvm

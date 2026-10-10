@@ -103,6 +103,7 @@ locals {
     "GET /v1/skills/{skill_id}/versions/{version}/content",
     "GET /v1/agents/sessions/{session_id}/traces",
     # End generated Agents API routes.
+    "GET /v1/models",
     "POST /v1/sessions/{sessionId}/publications",
     "GET /v1/webhooks",
     "POST /v1/webhooks",

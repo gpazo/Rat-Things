@@ -19,7 +19,7 @@ if [[ -z "$requested_id" ]]; then
 fi
 
 aws_e2e_configure "$requested_id"
-aws_e2e_require aws node npm
+aws_e2e_require aws node npm cargo
 if [[ ! -f "$runtime_env" ]]; then
   echo "runtime environment does not exist: $runtime_env" >&2
   exit 1
@@ -53,6 +53,5 @@ echo "Running console E2E against $deployment_id as $current_arn in $aws_region"
 
 cd "$project_root"
 umask 077
-AWS_E2E_CONSOLE=true npm exec -- playwright test \
-  --config=playwright.config.ts \
-  e2e/console.live.aws.e2e.ts
+AWS_E2E_CONSOLE=true cargo test --locked --manifest-path desktop/Cargo.toml \
+  --test console_live -- --ignored --test-threads=1

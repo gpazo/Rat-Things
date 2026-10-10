@@ -197,6 +197,48 @@ run "prepared_component_changes_with_digest" {
   }
 }
 
+run "chatgpt_unconfigured_model_catalog" {
+  command = plan
+  module { source = "./modules/agent-runner" }
+  variables {
+    enable_microvm             = false
+    enable_ec2_worker          = true
+    codex_auth_mode            = "chatgpt"
+    codex_auth_file_secret_arn = "arn:aws:secretsmanager:us-west-2:123456789012:secret:chatgpt-auth"
+    codex_chatgpt_model        = null
+    codex_chatgpt_model_ids    = []
+  }
+  assert {
+    condition = (
+      length(local.model_catalog_environment) == 0 &&
+      !contains(keys(local.lambda_definitions["agents-api"].environment), "AGENTS_MODEL_IDS_JSON") &&
+      !contains(keys(local.lambda_definitions["control"].environment), "AGENTS_MODEL_IDS_JSON")
+    )
+    error_message = "An unconfigured ChatGPT workspace must leave model discovery unavailable."
+  }
+}
+
+run "chatgpt_pinned_model_catalog" {
+  command = plan
+  module { source = "./modules/agent-runner" }
+  variables {
+    enable_microvm             = false
+    enable_ec2_worker          = true
+    codex_auth_mode            = "chatgpt"
+    codex_auth_file_secret_arn = "arn:aws:secretsmanager:us-west-2:123456789012:secret:chatgpt-auth"
+    codex_chatgpt_model        = "gpt-workspace"
+    codex_chatgpt_model_ids    = []
+  }
+  assert {
+    condition = (
+      jsondecode(local.model_catalog_environment.AGENTS_MODEL_IDS_JSON) == ["gpt-workspace"] &&
+      local.model_catalog_environment.AGENTS_DEFAULT_MODEL == "gpt-workspace" &&
+      !contains(keys(local.worker_environment), "DEFAULT_MODEL")
+    )
+    error_message = "A pinned ChatGPT model must provide a singleton API catalog without becoming the Bedrock runtime default."
+  }
+}
+
 run "both_worker_backends" {
   command = apply
   module { source = "./modules/agent-runner" }
@@ -220,6 +262,10 @@ run "dedicated_relay_administration" {
   variables {
     enable_microvm                           = false
     enable_ec2_worker                        = true
+    codex_auth_mode                          = "chatgpt"
+    codex_auth_file_secret_arn               = "arn:aws:secretsmanager:us-west-2:123456789012:secret:chatgpt-auth"
+    codex_chatgpt_model                      = "gpt-workspace"
+    codex_chatgpt_model_ids                  = ["gpt-workspace", "gpt-workspace-fast"]
     environment_relay_image                  = "123456789012.dkr.ecr.us-west-2.amazonaws.com/relay@sha256:0000000000000000000000000000000000000000000000000000000000000000"
     environment_relay_origin_hostname        = "relay.example.test"
     environment_relay_origin_certificate_arn = "arn:aws:acm:us-west-2:123456789012:certificate/00000000-0000-0000-0000-000000000000"
@@ -231,5 +277,15 @@ run "dedicated_relay_administration" {
   assert {
     condition     = alltrue([for statement in data.aws_iam_policy_document.control.statement : !contains(["SessionSchedules", "PassSessionScheduleRole", "SessionDeliverySecrets"], statement.sid)])
     error_message = "Relay deployments must also keep scheduling and delivery-secret grants out of control administration."
+  }
+  assert {
+    condition = (
+      jsondecode(local.lambda_definitions["agents-api"].environment.AGENTS_MODEL_IDS_JSON) == ["gpt-workspace", "gpt-workspace-fast"] &&
+      local.lambda_definitions["control"].environment.AGENTS_DEFAULT_MODEL == "gpt-workspace" &&
+      jsondecode(lookup({
+        for entry in jsondecode(aws_ecs_task_definition.agents_http[0].container_definitions)[0].environment : entry.name => entry.value
+      }, "AGENTS_MODEL_IDS_JSON", "[]")) == ["gpt-workspace", "gpt-workspace-fast"]
+    )
+    error_message = "The exact ChatGPT workspace catalog must reach both API Lambdas and the ECS Agents server."
   }
 }

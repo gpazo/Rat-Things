@@ -60,7 +60,7 @@ resource "aws_ecs_task_definition" "agents_http" {
     command                = ["node", "/app/agents-server.mjs"],
     readonlyRootFilesystem = true,
     portMappings           = [{ containerPort = 8080, protocol = "tcp" }],
-    environment = [for name, value in merge(local.executor_environment, {
+    environment = [for name, value in merge(local.executor_environment, local.model_catalog_environment, {
       AWS_REGION              = data.aws_region.current.region,
       AGENTS_TABLE_NAME       = aws_dynamodb_table.agents.name,
       AGENTS_PUBLIC_BASE_URL  = "https://${var.environment_relay_origin_hostname}/v1",

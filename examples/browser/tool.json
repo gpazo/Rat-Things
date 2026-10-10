@@ -1,0 +1,30 @@
+{
+  "type": "mcp",
+  "server_label": "browser",
+  "connection_origin": "environment",
+  "required": true,
+  "allowed_tools": [
+    "browser_navigate",
+    "browser_type",
+    "browser_click",
+    "browser_snapshot",
+    "browser_take_screenshot",
+    "browser_close"
+  ],
+  "transport": {
+    "type": "stdio",
+    "command": "node",
+    "args": [
+      "/opt/rat-browser/node_modules/@playwright/mcp/cli.js",
+      "--headless",
+      "--isolated",
+      "--sandbox",
+      "--no-webmcp",
+      "--executable-path",
+      "/opt/rat-browser/chromium",
+      "--output-dir",
+      "/workspace/.browser"
+    ],
+    "cwd": "/workspace"
+  }
+}

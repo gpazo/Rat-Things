@@ -26,6 +26,10 @@ export function requireRoutePermission(principal: ApiPrincipal, method: string, 
     requireAnyScope(principal, ['api.traces.read', 'api.agents.read']);
     return;
   }
+  if (parts[1] === 'models') {
+    requireAnyScope(principal, ['api.agents.read']);
+    return;
+  }
   if (!['agents', 'vaults', 'files', 'skills', 'webhooks'].includes(parts[1] ?? '')) return;
   const resource = parts[1] === 'vaults' ? 'vaults' : 'agents';
   requireAnyScope(principal, [`api.${resource}.${method === 'GET' ? 'read' : 'write'}`]);

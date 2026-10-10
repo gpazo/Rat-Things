@@ -1,4 +1,4 @@
-import { cp, rm } from 'node:fs/promises';
+import { rm } from 'node:fs/promises';
 import { build } from 'esbuild';
 
 const lambdaEntries = {
@@ -32,10 +32,8 @@ await Promise.all([
   bundle('src/cli.ts', 'dist/cli.mjs'),
   bundle('src/agents-client.ts', 'dist/agents-client.mjs'),
   bundle('scripts/console-server.ts', 'dist/console-server.mjs'),
-  cp('console', 'dist/console', { recursive: true }),
 ]);
 
-await cp(new URL(import.meta.resolve('marked')), 'dist/console/marked.js');
 
 async function bundle(entry, outfile, options = {}) {
   await build({
