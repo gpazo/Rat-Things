@@ -206,6 +206,27 @@ resource "aws_launch_template" "session_worker" {
 
 data "aws_iam_policy_document" "ec2_dispatch" {
   count = var.enable_ec2_worker ? 1 : 0
+  dynamic "statement" {
+    for_each = var.ec2_worker_prepared_ami ? [1] : []
+    content {
+      sid       = "UsePreparedWorkerDiskKey"
+      actions   = ["kms:Decrypt", "kms:DescribeKey", "kms:GenerateDataKeyWithoutPlaintext", "kms:ReEncrypt*"]
+      resources = [aws_kms_key.data.arn]
+    }
+  }
+  dynamic "statement" {
+    for_each = var.ec2_worker_prepared_ami ? [1] : []
+    content {
+      sid       = "GrantPreparedWorkerDiskKey"
+      actions   = ["kms:CreateGrant"]
+      resources = [aws_kms_key.data.arn]
+      condition {
+        test     = "Bool"
+        variable = "kms:GrantIsForAWSResource"
+        values   = ["true"]
+      }
+    }
+  }
   statement {
     actions = ["ec2:RunInstances"]
     resources = [

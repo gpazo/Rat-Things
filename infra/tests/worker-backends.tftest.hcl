@@ -152,6 +152,22 @@ run "prepared_ec2_worker_pipeline" {
     ec2_worker_prepared_ami          = true
   }
   assert {
+    condition = anytrue([for statement in data.aws_iam_policy_document.ec2_dispatch[0].statement :
+      statement.sid == "UsePreparedWorkerDiskKey" &&
+      statement.resources == toset([aws_kms_key.data.arn]) &&
+      statement.actions == toset(["kms:Decrypt", "kms:DescribeKey", "kms:GenerateDataKeyWithoutPlaintext", "kms:ReEncrypt*"])
+    ])
+    error_message = "Prepared AMI launch must allow the dispatcher to use only the deployment disk key."
+  }
+  assert {
+    condition = anytrue([for statement in data.aws_iam_policy_document.ec2_dispatch[0].statement :
+      statement.sid == "GrantPreparedWorkerDiskKey" &&
+      statement.resources == toset([aws_kms_key.data.arn]) && statement.actions == toset(["kms:CreateGrant"]) &&
+      anytrue([for condition in statement.condition : condition.test == "Bool" && condition.variable == "kms:GrantIsForAWSResource" && toset(condition.values) == toset(["true"])])
+    ])
+    error_message = "Prepared AMI launch grants must be restricted to AWS resources and the deployment disk key."
+  }
+  assert {
     condition = alltrue(flatten([for phase in yamldecode(aws_imagebuilder_component.ec2_worker[0].data).phases : [
       for step in phase.steps : alltrue([for command in step.inputs.commands : !strcontains(command, "{{")])
     ]]))
