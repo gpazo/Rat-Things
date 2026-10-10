@@ -165,3 +165,10 @@ check "teams_threaded_gateway" {
     error_message = "teams_reply_gateway_url_secret_arn is required when teams_delivery_mode is threaded-gateway."
   }
 }
+
+check "ec2_session_workloads" {
+  assert {
+    condition     = length(var.ec2_session_workloads) == 0 || var.enable_ec2_worker
+    error_message = "ec2_session_workloads requires enable_ec2_worker = true."
+  }
+}

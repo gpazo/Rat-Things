@@ -143,6 +143,21 @@ output "microvm_log_group_name" {
   value = aws_cloudwatch_log_group.microvm.name
 }
 
+output "ec2_worker_ami_pipeline_arn" {
+  description = "ARN of the dormant prepared-worker Image Builder pipeline, or null when disabled. Start it explicitly to incur a build."
+  value       = try(aws_imagebuilder_image_pipeline.ec2_worker[0].arn, null)
+}
+
+output "ec2_worker_ami_component_name" {
+  description = "Content-addressed Image Builder component name, or null when the pipeline is disabled."
+  value       = try(aws_imagebuilder_component.ec2_worker[0].name, null)
+}
+
+output "ec2_worker_selected_ami_id" {
+  description = "Immutable AMI ID selected by the EC2 worker launch template, or null when that backend is disabled."
+  value       = var.enable_ec2_worker ? var.ec2_worker_ami_id : null
+}
+
 output "reconciler_function_name" {
   description = "Generation-fenced Run reconciler Lambda name."
   value       = aws_lambda_function.this["reconciler"].function_name

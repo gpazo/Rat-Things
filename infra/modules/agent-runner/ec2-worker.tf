@@ -1,7 +1,17 @@
+variable "ec2_session_workloads" {
+  type        = set(object({ owner_id = string, agent_id = string }))
+  default     = []
+  description = "Exact owner and saved Agent pairs requiring uninterrupted Sessions beyond the MicroVM lifetime. Other Sessions use MicroVM. Placement is fixed at Session creation."
+  validation {
+    condition     = alltrue([for workload in var.ec2_session_workloads : trimspace(workload.owner_id) != "" && trimspace(workload.agent_id) != ""])
+    error_message = "Each EC2 Session workload requires a nonempty owner_id and agent_id."
+  }
+}
+
 variable "enable_ec2_worker" {
   type        = bool
   default     = false
-  description = "Use dedicated ARM64 EC2 workers for persistent Sessions. Requires S3 Files and pinned AMI/image inputs."
+  description = "Enable dedicated ARM64 EC2 workers for explicitly listed ec2_session_workloads. Requires S3 Files and pinned AMI/image inputs."
 }
 
 variable "ec2_worker_ami_id" {
@@ -31,6 +41,48 @@ variable "ec2_worker_instance_type" {
     condition     = contains(["m7g.large", "m7g.xlarge", "m7g.2xlarge"], var.ec2_worker_instance_type)
     error_message = "Choose a supported ARM64 worker instance size."
   }
+}
+
+variable "enable_ec2_worker_ami_pipeline" {
+  type        = bool
+  default     = false
+  description = "Provision a dormant EC2 Image Builder pipeline for prepared ARM64 worker AMIs. Pipeline execution remains an explicit operator action."
+}
+
+variable "ec2_worker_ami_base_id" {
+  type        = string
+  default     = null
+  description = "Pinned Amazon Linux 2023 ARM64 base AMI used only by the worker Image Builder recipe."
+  validation {
+    condition     = var.ec2_worker_ami_base_id == null ? true : can(regex("^ami-[0-9a-f]+$", var.ec2_worker_ami_base_id))
+    error_message = "ec2_worker_ami_base_id must be an AMI ID."
+  }
+}
+
+variable "ec2_worker_ami_component_version" {
+  type        = string
+  default     = "1.0.0"
+  description = "Immutable semantic version for the prepared-worker Image Builder component. Bump when its commands change."
+  validation {
+    condition     = can(regex("^[0-9]+[.][0-9]+[.][0-9]+$", var.ec2_worker_ami_component_version))
+    error_message = "ec2_worker_ami_component_version must be a three-part numeric semantic version."
+  }
+}
+
+variable "ec2_worker_ami_recipe_version" {
+  type        = string
+  default     = "1.0.0"
+  description = "Immutable semantic version for the prepared-worker Image Builder recipe. Bump when its base image, component, or worker digest changes."
+  validation {
+    condition     = can(regex("^[0-9]+[.][0-9]+[.][0-9]+$", var.ec2_worker_ami_recipe_version))
+    error_message = "ec2_worker_ami_recipe_version must be a three-part numeric semantic version."
+  }
+}
+
+variable "ec2_worker_prepared_ami" {
+  type        = bool
+  default     = false
+  description = "Require a prepared worker AMI and use its cached image without package installation, registry login, or network pulls."
 }
 
 locals {
@@ -67,17 +119,19 @@ data "aws_iam_policy_document" "ec2_worker" {
     actions   = ["logs:CreateLogStream", "logs:PutLogEvents"]
     resources = ["${aws_cloudwatch_log_group.ec2_worker[0].arn}:*"]
   }
-  statement {
-    actions   = ["dynamodb:Query", "dynamodb:DeleteItem"]
-    resources = [aws_dynamodb_table.agents.arn]
+  dynamic "statement" {
+    for_each = var.ec2_worker_prepared_ami ? [] : [1]
+    content {
+      actions   = ["ecr:GetAuthorizationToken"]
+      resources = ["*"]
+    }
   }
-  statement {
-    actions   = ["ecr:GetAuthorizationToken"]
-    resources = ["*"]
-  }
-  statement {
-    actions   = ["ecr:BatchGetImage", "ecr:GetDownloadUrlForLayer", "ecr:BatchCheckLayerAvailability"]
-    resources = ["arn:${data.aws_partition.current.partition}:ecr:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:repository/${try(split("@", join("/", slice(split("/", var.ec2_worker_image), 1, length(split("/", var.ec2_worker_image)))))[0], "UNPROVISIONED")}"]
+  dynamic "statement" {
+    for_each = var.ec2_worker_prepared_ami ? [] : [1]
+    content {
+      actions   = ["ecr:BatchGetImage", "ecr:GetDownloadUrlForLayer", "ecr:BatchCheckLayerAvailability"]
+      resources = ["arn:${data.aws_partition.current.partition}:ecr:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:repository/${try(split("@", join("/", slice(split("/", var.ec2_worker_image), 1, length(split("/", var.ec2_worker_image)))))[0], "UNPROVISIONED")}"]
+    }
   }
 }
 
@@ -129,10 +183,12 @@ resource "aws_launch_template" "session_worker" {
     }
   }
   user_data = base64encode(templatefile("${path.module}/ec2-worker.sh.tftpl", {
-    region    = data.aws_region.current.region
-    image     = coalesce(var.ec2_worker_image, "UNPROVISIONED")
-    registry  = try(split("/", var.ec2_worker_image)[0], "UNPROVISIONED")
-    log_group = aws_cloudwatch_log_group.ec2_worker[0].name
+    prepared                = var.ec2_worker_prepared_ami
+    region                  = data.aws_region.current.region
+    image                   = coalesce(var.ec2_worker_image, "UNPROVISIONED")
+    registry                = try(split("/", var.ec2_worker_image)[0], "UNPROVISIONED")
+    log_group               = aws_cloudwatch_log_group.ec2_worker[0].name
+    configuration_directory = "/etc/rat-worker"
     configuration = base64encode(jsonencode(merge(local.worker_environment, {
       AWS_REGION                       = data.aws_region.current.region, DEFAULT_EXECUTION_BACKEND = "ec2",
       ALLOW_AGENT_AWS_CREDENTIAL_CHAIN = "false",
@@ -141,8 +197,8 @@ resource "aws_launch_template" "session_worker" {
   tags = local.tags
   lifecycle {
     precondition {
-      condition     = var.enable_s3_files && var.ec2_worker_ami_id != null && var.ec2_worker_image != null
-      error_message = "EC2 workers require S3 Files and pinned AMI/image inputs."
+      condition     = var.enable_s3_files && var.ec2_worker_ami_id != null && var.ec2_worker_image != null && (!var.ec2_worker_prepared_ami || can(regex("^ami-[0-9a-f]+$", var.ec2_worker_ami_id)))
+      error_message = "EC2 workers require S3 Files and pinned AMI/image inputs; prepared mode requires an explicit prepared AMI ID."
     }
   }
   depends_on = [aws_iam_role_policy.ec2_worker]
@@ -150,6 +206,27 @@ resource "aws_launch_template" "session_worker" {
 
 data "aws_iam_policy_document" "ec2_dispatch" {
   count = var.enable_ec2_worker ? 1 : 0
+  dynamic "statement" {
+    for_each = var.ec2_worker_prepared_ami ? [1] : []
+    content {
+      sid       = "UsePreparedWorkerDiskKey"
+      actions   = ["kms:Decrypt", "kms:DescribeKey", "kms:GenerateDataKeyWithoutPlaintext", "kms:ReEncrypt*"]
+      resources = [aws_kms_key.data.arn]
+    }
+  }
+  dynamic "statement" {
+    for_each = var.ec2_worker_prepared_ami ? [1] : []
+    content {
+      sid       = "GrantPreparedWorkerDiskKey"
+      actions   = ["kms:CreateGrant"]
+      resources = [aws_kms_key.data.arn]
+      condition {
+        test     = "Bool"
+        variable = "kms:GrantIsForAWSResource"
+        values   = ["true"]
+      }
+    }
+  }
   statement {
     actions = ["ec2:RunInstances"]
     resources = [

@@ -87,6 +87,80 @@ deployment-owned workspace credential. An explicitly pinned `codex_chatgpt_model
 singleton catalog when that list is empty. Without either setting, model discovery returns unavailable
 because the server cannot safely infer account availability from another Codex login.
 
+## Choose Session execution
+
+MicroVM is the default for new Sessions, including deployments that also enable EC2.
+It uses native suspend/resume to preserve memory and disk while the MicroVM remains
+available. Conversation age does not select EC2 or trigger a migration.
+
+Use EC2 for a workload that needs the same process to remain alive beyond the eight-hour
+MicroVM lifetime. Create a saved Agent for that workload, then list its exact owner and
+Agent IDs in deployment configuration:
+
+```hcl
+enable_microvm    = true
+enable_ec2_worker = true
+ec2_session_workloads = [
+  { owner_id = "your-api-owner-id", agent_id = "agent_your_long_running_workload" }
+]
+```
+
+The owner ID must match the authenticated API principal. Create Sessions with that saved
+`agent_id` through the existing API. Inline Agents, other owners and unlisted Agents use
+MicroVM. Enabling EC2 alone does not route any new Session to it; EC2 still requires its
+pinned AMI/image and S3 Files configuration. No new public API fields are required.
+
+Placement is recorded privately during Session preparation and retained for its lifetime.
+Changing the workload list affects new Sessions only. A selected backend that is unavailable
+returns an error rather than silently using another backend. Existing running workers are
+not moved; legacy Sessions without recorded placement default to MicroVM on their next launch.
+An EC2-only deployment must explicitly list each workload it admits.
+
+Native MicroVM resume and conversation-history recovery remain unchanged. A replacement
+hosted worker rebuilds its workspace; retained S3 Files bytes alone are not a committed
+workspace recovery point. There is no automatic MicroVM-to-EC2 handoff or custom workspace
+checkpoint archive in this implementation. The optional AMI pipeline below reduces work
+performed at EC2 boot; it is not required for ordinary MicroVM workloads.
+
+## Prepare an EC2 worker AMI
+
+Cold EC2 workers install Docker and pull `ec2_worker_image` during boot. To move that work into an
+AMI, provision the dormant Image Builder pipeline with a pinned ARM64 Amazon Linux 2023 parent AMI,
+a digest-pinned worker image, and explicit three-part component and recipe versions:
+
+```hcl
+enable_ec2_worker_ami_pipeline   = true
+ec2_worker_ami_base_id           = "ami-0123456789abcdef0"
+ec2_worker_image                 = "123456789012.dkr.ecr.us-west-2.amazonaws.com/worker@sha256:..."
+ec2_worker_ami_component_version = "1.0.0"
+ec2_worker_ami_recipe_version    = "1.0.0"
+```
+
+Terraform creates no schedule and starts no build. Start one build explicitly:
+
+```bash
+PIPELINE_ARN="$(terraform -chdir=infra output -json ec2_worker | jq -r .ami_pipeline_arn)"
+BUILD_ARN="$(aws imagebuilder start-image-pipeline-execution \
+  --image-pipeline-arn "$PIPELINE_ARN" \
+  --query imageBuildVersionArn --output text)"
+aws imagebuilder get-image \
+  --image-build-version-arn "$BUILD_ARN" \
+  --query 'image.{status:state.status,ami:outputResources.amis[0].image}'
+```
+
+Repeat `get-image` until `status` is `AVAILABLE`. Record the returned AMI ID. Do not select an image
+by name or by creation date. Use the ID in a separate runtime apply:
+
+```hcl
+enable_ec2_worker       = true
+ec2_worker_prepared_ami = true
+ec2_worker_ami_id       = "ami-produced-by-the-build"
+```
+
+Prepared boot checks the cached image architecture and exact repository digest. A missing or
+mismatched image terminates the dedicated worker. Bump the component version when its commands
+change. Bump the recipe version when the parent AMI, component version, or worker digest changes.
+
 AWS-managed `INTERNET_EGRESS` gives a MicroVM outbound internet access by default. The dispatcher
 therefore needs `lambda:PassNetworkConnector`; AWS currently documents no resource type or condition
 key for this action, so it is isolated in its own `Resource = "*"` statement on the dispatcher role.
@@ -106,9 +180,9 @@ arrive in the bounded `/run` payload; the worker retrieves the full request from
 
 The agent subprocess runs as UID/GID 10001. One-shot jobs call `TerminateMicrovm` when the runner
 exits. Session harnesses accept additional Turns through private authenticated control.
-The Session runtime journal saves native state, and optional S3 Files storage
-preserves the workspace and Codex home across replacement compute. The separate
-conversation coordinator and its explicit suspend/resume protocol are removed.
+The Session runtime journal saves conversation state. Optional S3 Files storage retains
+workspace and Codex home bytes, but hosted replacement rebuilds the workspace. Native
+MicroVM suspend/resume preserves the existing machine's memory and disk.
 
 The current AWSCC schema requires non-empty `additional_os_capabilities`, and the service currently
 accepts only `ALL`. Those capabilities remain inside the MicroVM boundary, but this still requires a

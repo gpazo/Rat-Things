@@ -8,6 +8,10 @@ seconds="${2:-0}"
 [[ "$deployment" =~ ^[a-z0-9][a-z0-9-]{2,13}$ && "$seconds" =~ ^(0|[1-9][0-9]{0,4})$ && "$seconds" -le 86400 ]] || { echo 'Invalid deployment or duration (0-86400 seconds).' >&2; exit 1; }
 aws_e2e_source_runtime_defaults ".aws-e2e/$deployment/runtime.env"
 aws_e2e_configure "$deployment"
+if [[ "$seconds" -ge 28000 && -z "${AWS_E2E_LONG_RUNNING_AGENT_ID:-}" ]]; then
+  echo 'Set AWS_E2E_LONG_RUNNING_AGENT_ID to an Agent listed in ec2_session_workloads.' >&2
+  exit 1
+fi
 [[ "${AWS_E2E_ENABLE_VALIDATION_OBSERVER:-false}" == true ]] || { echo 'Enable and deploy the validation observer first.' >&2; exit 1; }
 [[ "$(aws sts get-caller-identity --query Account --output text)" == "${AWS_E2E_CALLER_ACCOUNT:?Missing recorded account}" ]] || { echo 'AWS account does not match the deployment.' >&2; exit 1; }
 umask 077
@@ -19,11 +23,11 @@ jq -e '.task_definition != null' "$directory/configuration.json" >/dev/null || {
 cluster="$(jq -r .cluster_arn "$directory/configuration.json")"
 family="$(jq -r '.task_definition | split("/")[-1] | split(":")[0]' "$directory/configuration.json")"
 [[ "$(aws ecs list-tasks --region "$aws_region" --cluster "$cluster" --family "$family" --desired-status RUNNING --query 'length(taskArns)' --output text)" == 0 ]] || { echo 'An observer is already active; inspect it before starting another.' >&2; exit 1; }
-jq --arg run "$run_id" --arg seconds "$seconds" --arg deployment "$deployment" '{
+jq --arg run "$run_id" --arg seconds "$seconds" --arg agent "${AWS_E2E_LONG_RUNNING_AGENT_ID:-}" --arg deployment "$deployment" '{
   cluster:.cluster_arn, taskDefinition:.task_definition, launchType:"FARGATE", platformVersion:"1.4.0",
   count:1, startedBy:$run, clientToken:$run,
   networkConfiguration:{awsvpcConfiguration:{subnets:.subnet_ids,securityGroups:[.security_group_id],assignPublicIp:"ENABLED"}},
-  overrides:{containerOverrides:[{name:"observer",environment:[{name:"AWS_E2E_SOAK_SECONDS",value:$seconds}]}]},
+  overrides:{containerOverrides:[{name:"observer",environment:([{name:"AWS_E2E_SOAK_SECONDS",value:$seconds}] + (if $agent == "" then [] else [{name:"AWS_E2E_LONG_RUNNING_AGENT_ID",value:$agent}] end))}]},
   tags:[{key:"DeploymentId",value:$deployment},{key:"Purpose",value:"live-e2e-validation"},{key:"Ephemeral",value:"true"}]
 }' "$directory/configuration.json" > "$directory/request.json"
 # Keep the client token before dispatch. An uncertain request can be retried with

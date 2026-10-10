@@ -479,10 +479,20 @@ variable "environment_relay_origin_certificate_arn" {
   default = null
 }
 
+variable "ec2_session_workloads" {
+  type        = set(object({ owner_id = string, agent_id = string }))
+  default     = []
+  description = "Exact owner and saved Agent pairs requiring uninterrupted Sessions beyond the MicroVM lifetime. Other Sessions use MicroVM. Placement is fixed at Session creation."
+  validation {
+    condition     = alltrue([for workload in var.ec2_session_workloads : trimspace(workload.owner_id) != "" && trimspace(workload.agent_id) != ""])
+    error_message = "Each EC2 Session workload requires a nonempty owner_id and agent_id."
+  }
+}
+
 variable "enable_ec2_worker" {
   type        = bool
   default     = false
-  description = "Run persistent Sessions on dedicated ARM64 EC2 workers."
+  description = "Enable dedicated ARM64 EC2 workers for explicitly listed ec2_session_workloads."
 }
 variable "ec2_worker_ami_id" {
   type        = string
@@ -497,4 +507,34 @@ variable "ec2_worker_image" {
 variable "ec2_worker_instance_type" {
   type    = string
   default = "m7g.large"
+}
+
+variable "enable_ec2_worker_ami_pipeline" {
+  type        = bool
+  default     = false
+  description = "Provision the dormant Image Builder pipeline for prepared ARM64 worker AMIs."
+}
+
+variable "ec2_worker_ami_base_id" {
+  type        = string
+  default     = null
+  description = "Pinned Amazon Linux 2023 ARM64 parent AMI for prepared worker builds."
+}
+
+variable "ec2_worker_ami_component_version" {
+  type        = string
+  default     = "1.0.0"
+  description = "Three-part semantic version for the immutable prepared-worker component."
+}
+
+variable "ec2_worker_ami_recipe_version" {
+  type        = string
+  default     = "1.0.0"
+  description = "Three-part semantic version for the immutable prepared-worker recipe."
+}
+
+variable "ec2_worker_prepared_ami" {
+  type        = bool
+  default     = false
+  description = "Use an explicitly selected prepared AMI and forbid package installation, registry login, and image pulls during boot."
 }

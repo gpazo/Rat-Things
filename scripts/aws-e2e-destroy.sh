@@ -152,6 +152,21 @@ resource_is_gone_or_deleting() {
     # the harness after their billable resources have been removed. Resolve
     # those exact ARNs through their owning APIs instead of treating a tag
     # tombstone as live infrastructure.
+    arn:aws:ec2:*:instance/*)
+      resource_id="${resource_arn##*/}"
+      status="$(aws ec2 describe-instances --region "$aws_region" --filters "Name=instance-id,Values=$resource_id" --query 'Reservations[].Instances[].State.Name' --output text)" || return 1
+      [[ -z "$status" || "$status" == "None" || "$status" == "terminated" ]]
+      ;;
+    arn:aws:ec2:*:volume/*)
+      resource_id="${resource_arn##*/}"
+      status="$(aws ec2 describe-volumes --region "$aws_region" --filters "Name=volume-id,Values=$resource_id" --query 'Volumes[].VolumeId' --output text)" || return 1
+      [[ -z "$status" || "$status" == "None" ]]
+      ;;
+    arn:aws:ec2:*:snapshot/*)
+      resource_id="${resource_arn##*/}"
+      status="$(aws ec2 describe-snapshots --region "$aws_region" --filters "Name=snapshot-id,Values=$resource_id" --query 'Snapshots[].SnapshotId' --output text)" || return 1
+      [[ -z "$status" || "$status" == "None" ]]
+      ;;
     arn:aws:ecs:*:cluster/*)
       status="$(aws ecs describe-clusters --region "$aws_region" --clusters "$resource_arn" --query 'clusters[0].status' --output text 2>/dev/null || true)"
       [[ -z "$status" || "$status" == "None" || "$status" == "INACTIVE" ]]

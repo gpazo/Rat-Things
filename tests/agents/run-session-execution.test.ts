@@ -1,5 +1,6 @@
 import { iamApiPrincipal } from '../../src/domain/api-permissions.js';
 import { describe, expect, it, vi } from 'vitest';
+import type { SessionPlacementPolicy } from '../../src/app/session-placement.js';
 import { RunSessionExecution } from '../../src/app/run-session-execution.js';
 import { SessionRuntimeStore } from '../../src/core/session-runtime-store.js';
 import { initialSessionRuntime } from '../../src/core/session-runtime-planning.js';
@@ -14,7 +15,7 @@ import { SessionService } from '../../src/core/session-service.js';
 import { AgentService } from '../../src/core/agent-service.js';
 import { routeAgentsRequest } from '../../src/lambdas/agents-router.js';
 
-async function fixture() {
+async function fixture(placement?: SessionPlacementPolicy) {
   const store = new MemoryAgentsStore();
   let now = 100;
   const environments = new EnvironmentService({ store, clock: { now: () => now }, relayURL: 'https://relay.example/agents/api', credentials: {
@@ -36,7 +37,7 @@ async function fixture() {
   const runtime = new SessionRuntimeStore(store); await runtime.claim('alice', session.id, run.runId, now);
   const cancel = vi.fn(async () => run);
   const putJson = vi.fn(async (key: string) => ({ bucket: 'private', key, sha256: 'fixture' }));
-  const execution = new RunSessionExecution({ store, environments,
+  const execution = new RunSessionExecution({ store, environments, ...(placement ? { placement } : {}),
     runs: { get: async () => run, idFor: () => 'unused', cancel, submit },
     interaction: { startSessionTurn: start, events, steer, interrupt, respond: async () => {} },
     artifacts: { getJson: async () => { throw new Error('Unexpected object read'); }, putJson, getBytes: async () => new Uint8Array(), getStream: async () => { throw new Error('Unexpected stream'); } },
@@ -246,5 +247,34 @@ describe('persistent harness input admission', () => {
     });
     await expect(f.execution.checkInputConnection('alice', f.session, f.turn)).resolves.toBeUndefined();
     expect(f.start).not.toHaveBeenCalled();
+  });
+});
+
+
+describe('saved Session placement', () => {
+  it.each(['microvm', 'ec2'] as const)('submits a replacement on the saved %s backend', async backend => {
+    const f = await fixture({ ec2Workloads: [], availableBackends: ['microvm', 'ec2'] });
+    f.run.status = 'failed';
+    f.session.environment = { type: 'none' };
+    f.submit.mockResolvedValue(f.run);
+    await f.execution.start('alice', f.session, { turn: f.turn, input: [] }, [], backend);
+    expect(f.submit).toHaveBeenCalledWith('alice', expect.objectContaining({ execution: { backend, timeoutSeconds: 28_000 } }), expect.anything());
+  });
+
+  it('uses saved EC2 placement for hosted bootstrap with no initial input', async () => {
+    const f = await fixture({ ec2Workloads: [], availableBackends: ['microvm', 'ec2'] });
+    await f.store.delete((await f.runtime.get('alice', f.session.id))!);
+    f.session.environment = await f.environments.prepare('alice', f.session.id, { type: 'openai_hosted' });
+    f.submit.mockResolvedValue(f.run);
+    await f.execution.initialize('alice', f.session, 'ec2');
+    expect(f.submit).toHaveBeenCalledWith('alice', expect.objectContaining({ execution: { backend: 'ec2', timeoutSeconds: 28_000 } }), expect.objectContaining({ agentsSession: expect.objectContaining({ turnId: 'bootstrap' }) }));
+  });
+
+  it('rejects an unavailable saved backend before launch effects', async () => {
+    const f = await fixture();
+    f.run.status = 'failed';
+    await expect(f.execution.start('alice', f.session, { turn: f.turn, input: [] }, [], 'ec2')).rejects.toMatchObject({ status: 503 });
+    expect(f.putJson).not.toHaveBeenCalled();
+    expect(f.submit).not.toHaveBeenCalled();
   });
 });

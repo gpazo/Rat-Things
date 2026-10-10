@@ -78,6 +78,15 @@ output "microvm" {
   }
 }
 
+output "ec2_worker" {
+  description = "Prepared-worker pipeline and immutable runtime selection. The pipeline never starts a build during Terraform apply."
+  value = {
+    ami_pipeline_arn = module.agent_runner.ec2_worker_ami_pipeline_arn
+    selected_ami_id  = module.agent_runner.ec2_worker_selected_ami_id
+    prepared_mode    = var.ec2_worker_prepared_ami
+  }
+}
+
 output "s3_files" {
   description = "Durable Session filesystem outputs."
   value       = module.agent_runner.s3_files

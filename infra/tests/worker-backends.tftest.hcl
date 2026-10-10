@@ -126,12 +126,100 @@ run "ec2_only_storage" {
     error_message = "EC2-only storage must not provision a Lambda network connector."
   }
   assert {
+    condition     = length(aws_imagebuilder_image_pipeline.ec2_worker) == 0 && length(aws_imagebuilder_component.ec2_worker) == 0
+    error_message = "Ordinary EC2 worker deployments must not provision the optional AMI pipeline."
+  }
+  assert {
     condition     = local.worker_environment.S3_FILES_ENABLED == "true" && !contains(keys(local.worker_environment), "MICROVM_VPC_NETWORK_CONNECTOR_ARN")
     error_message = "EC2 workers require mount coordinates without a MicroVM connector dependency."
   }
   assert {
     condition     = jsondecode(aws_s3files_file_system_policy.conversation_state[0].policy).Statement[0].Principal.AWS == ["arn:aws:iam::123456789012:role/ec2-worker"]
     error_message = "The storage policy must admit the enabled EC2 worker role."
+  }
+}
+
+run "prepared_ec2_worker_pipeline" {
+  command = plan
+  module { source = "./modules/agent-runner" }
+  variables {
+    enable_microvm                   = false
+    enable_ec2_worker                = true
+    enable_ec2_worker_ami_pipeline   = true
+    ec2_worker_ami_base_id           = "ami-0fedcba9876543210"
+    ec2_worker_ami_component_version = "2.3.4"
+    ec2_worker_ami_recipe_version    = "5.6.7"
+    ec2_worker_prepared_ami          = true
+  }
+  assert {
+    condition = anytrue([for statement in data.aws_iam_policy_document.ec2_dispatch[0].statement :
+      statement.sid == "UsePreparedWorkerDiskKey" &&
+      statement.resources == toset([aws_kms_key.data.arn]) &&
+      statement.actions == toset(["kms:Decrypt", "kms:DescribeKey", "kms:GenerateDataKeyWithoutPlaintext", "kms:ReEncrypt*"])
+    ])
+    error_message = "Prepared AMI launch must allow the dispatcher to use only the deployment disk key."
+  }
+  assert {
+    condition = anytrue([for statement in data.aws_iam_policy_document.ec2_dispatch[0].statement :
+      statement.sid == "GrantPreparedWorkerDiskKey" &&
+      statement.resources == toset([aws_kms_key.data.arn]) && statement.actions == toset(["kms:CreateGrant"]) &&
+      anytrue([for condition in statement.condition : condition.test == "Bool" && condition.variable == "kms:GrantIsForAWSResource" && toset(condition.values) == toset(["true"])])
+    ])
+    error_message = "Prepared AMI launch grants must be restricted to AWS resources and the deployment disk key."
+  }
+  assert {
+    condition = alltrue(flatten([for phase in yamldecode(aws_imagebuilder_component.ec2_worker[0].data).phases : [
+      for step in phase.steps : alltrue([for command in step.inputs.commands : !strcontains(command, "{{")])
+    ]]))
+    error_message = "Image Builder commands must not contain Docker template braces that AWSTOE treats as undeclared parameters."
+  }
+  assert {
+    condition     = !contains(keys(aws_imagebuilder_infrastructure_configuration.ec2_worker[0].resource_tags), "Name")
+    error_message = "Image Builder reserves the Name tag on its generated instances."
+  }
+  assert {
+    condition     = length(aws_imagebuilder_image_pipeline.ec2_worker) == 1 && length(aws_imagebuilder_image_pipeline.ec2_worker[0].schedule) == 0
+    error_message = "Prepared-worker provisioning must create one dormant pipeline without a schedule."
+  }
+  assert {
+    condition     = aws_imagebuilder_image_recipe.ec2_worker[0].parent_image == "ami-0fedcba9876543210" && aws_imagebuilder_image_recipe.ec2_worker[0].version == "5.6.7"
+    error_message = "The prepared recipe must pin its parent AMI and semantic version."
+  }
+  assert {
+    condition     = aws_imagebuilder_component.ec2_worker[0].version == "2.3.4" && [for phase in yamldecode(aws_imagebuilder_component.ec2_worker[0].data).phases : phase.name] == ["build", "validate", "test"]
+    error_message = "The immutable component version must include build, validate, and offline test phases."
+  }
+  assert {
+    condition = (
+      strcontains(base64decode(aws_launch_template.session_worker[0].user_data), "--pull=never") &&
+      !strcontains(base64decode(aws_launch_template.session_worker[0].user_data), "dnf install -y docker iptables") &&
+      !strcontains(base64decode(aws_launch_template.session_worker[0].user_data), "aws ecr get-login-password") &&
+      !strcontains(base64decode(aws_launch_template.session_worker[0].user_data), "docker pull")
+    )
+    error_message = "Prepared boot must use only its cached image."
+  }
+  assert {
+    condition     = alltrue([for statement in data.aws_iam_policy_document.ec2_worker[0].statement : length(setintersection(toset(statement.actions), toset(["ecr:GetAuthorizationToken", "ecr:BatchGetImage", "ecr:GetDownloadUrlForLayer", "ecr:BatchCheckLayerAvailability"]))) == 0])
+    error_message = "Prepared runtime workers must not receive ECR pull permissions."
+  }
+}
+
+run "prepared_component_changes_with_digest" {
+  command = plan
+  module { source = "./modules/agent-runner" }
+  variables {
+    enable_microvm                   = false
+    enable_ec2_worker                = true
+    enable_ec2_worker_ami_pipeline   = true
+    ec2_worker_ami_base_id           = "ami-0fedcba9876543210"
+    ec2_worker_image                 = "123456789012.dkr.ecr.us-west-2.amazonaws.com/worker@sha256:1111111111111111111111111111111111111111111111111111111111111111"
+    ec2_worker_ami_component_version = "2.3.4"
+    ec2_worker_ami_recipe_version    = "5.6.7"
+    ec2_worker_prepared_ami          = true
+  }
+  assert {
+    condition     = aws_imagebuilder_component.ec2_worker[0].name != run.prepared_ec2_worker_pipeline.ec2_worker_ami_component_name
+    error_message = "A different worker digest must create a different immutable Image Builder component identity."
   }
 }
 
@@ -185,6 +273,17 @@ run "both_worker_backends" {
     enable_ec2_worker = true
   }
   assert {
+    condition = (
+      toset(one([for statement in data.aws_iam_policy_document.worker.statement : statement.actions if statement.sid == "AgentVaultState"])) ==
+      toset(["dynamodb:GetItem", "dynamodb:Query", "dynamodb:PutItem", "dynamodb:UpdateItem", "dynamodb:DeleteItem", "dynamodb:TransactWriteItems"])
+    )
+    error_message = "Both worker backends require the shared Session store operations, including journal queries and cleanup."
+  }
+  assert {
+    condition     = local.executor_environment.DEFAULT_EXECUTION_BACKEND == "microvm" && local.executor_environment.MICROVM_ENABLED == "true" && local.executor_environment.EC2_WORKER_ENABLED == "true" && local.executor_environment.EC2_SESSION_WORKLOADS_JSON == "[]"
+    error_message = "Provisioning EC2 must not change the default or admit any long-running workload."
+  }
+  assert {
     condition     = length(awscc_lambda_network_connector.s3_files) == 1 && contains(keys(local.worker_environment), "MICROVM_VPC_NETWORK_CONNECTOR_ARN")
     error_message = "An enabled MicroVM backend still requires its storage network connector."
   }
@@ -226,4 +325,34 @@ run "dedicated_relay_administration" {
     )
     error_message = "The exact ChatGPT workspace catalog must reach both API Lambdas and the ECS Agents server."
   }
+}
+
+run "explicit_ec2_session_workloads" {
+  command = plan
+  module { source = "./modules/agent-runner" }
+  variables {
+    enable_microvm        = true
+    enable_ec2_worker     = true
+    ec2_session_workloads = [{ owner_id = "alice", agent_id = "agent_long" }]
+  }
+  assert {
+    condition = (
+      local.executor_environment.DEFAULT_EXECUTION_BACKEND == "microvm" &&
+      local.executor_environment.EC2_SESSION_WORKLOADS_JSON == jsonencode([{ owner_id = "alice", agent_id = "agent_long" }]) &&
+      local.lambda_definitions["agents-api"].environment.EC2_SESSION_WORKLOADS_JSON == local.executor_environment.EC2_SESSION_WORKLOADS_JSON &&
+      local.lambda_definitions["agents-outbox"].environment.EC2_SESSION_WORKLOADS_JSON == local.executor_environment.EC2_SESSION_WORKLOADS_JSON
+    )
+    error_message = "The API and outbox must receive the explicit policy while ordinary execution remains on MicroVM."
+  }
+}
+
+run "ec2_workloads_require_enabled_backend" {
+  command = plan
+  module { source = "./modules/agent-runner" }
+  variables {
+    enable_microvm        = true
+    enable_ec2_worker     = false
+    ec2_session_workloads = [{ owner_id = "alice", agent_id = "agent_long" }]
+  }
+  expect_failures = [check.ec2_session_workloads]
 }

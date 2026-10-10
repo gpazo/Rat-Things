@@ -1,3 +1,5 @@
+import { planSessionRun, sessionMessageText } from '../core/session-run-planning.js';
+import { requireSessionBackend, selectSessionBackend, type SessionPlacementPolicy } from './session-placement.js';
 import { createHash } from 'node:crypto';
 import type { AgentSession, AgentSessionInputMessageParam, AgentSessionInputParam, AgentSessionItem, AgentToolParam, EnvironmentParam, Turn } from '../domain/agents-api.js';
 import { AgentsApiError, resourceNotFound } from '../domain/agents-api-validation.js';
@@ -8,7 +10,7 @@ import type { RunService } from '../core/run-service.js';
 import type { VaultService } from '../core/vault-service.js';
 import type { EnvironmentService } from '../core/environment-service.js';
 import type { SessionToolService } from '../core/session-tool-service.js';
-import type { RunRecord } from '../domain/contracts.js';
+import type { ExecutionBackend, RunRecord } from '../domain/contracts.js';
 import { isTerminal } from '../domain/state.js';
 import { NotFoundError } from '../core/errors.js';
 import { canonicalJson } from '../domain/json.js';
@@ -30,10 +32,17 @@ export class RunSessionExecution implements SessionExecution {
     environments: Pick<EnvironmentService, 'prepare' | 'state' | 'retire' | 'launchReference' | 'managedLaunch' | 'attachManaged'>;
     tools: Pick<SessionToolService, 'prepare' | 'launch' | 'close'> & Partial<Pick<SessionToolService, 'environmentLaunch'>>;
     store: AgentsStore;
-    backend?: import('../domain/contracts.js').ExecutionBackend;
+    placement?: SessionPlacementPolicy;
   }) { this.runtime = new SessionRuntimeStore(options.store); }
 
-  public async prepare(ownerId: string, sessionId: string, environment: EnvironmentParam, agent: AgentSession['agent'], vaultIds: string[], tools: AgentToolParam[] = [], resumePreparation = false) {
+  public placement(ownerId: string, savedAgentId?: string): ExecutionBackend {
+    const backend = selectSessionBackend(this.options.placement, ownerId, savedAgentId);
+    requireSessionBackend(this.options.placement, backend);
+    return backend;
+  }
+
+  public async prepare(ownerId: string, sessionId: string, environment: EnvironmentParam, agent: AgentSession['agent'], vaultIds: string[], tools: AgentToolParam[] = [], resumePreparation = false, placement: ExecutionBackend = 'microvm') {
+    requireSessionBackend(this.options.placement, placement);
     await this.options.vaults.requireVaults(ownerId, vaultIds);
     if (environment.type === 'none' && agent.tools.some((tool) => tool.type === 'mcp' && (tool.transport.type === 'stdio' || tool.connection_origin === 'environment'))) throw new AgentsApiError(400, 'This MCP connection requires an execution environment.', 'invalid_request', 'agent.tools');
     if (environment.type === 'self_hosted' && tools.some((tool) => tool.type === 'mcp' && tool.transport.type === 'stdio' && Object.keys(tool.transport.env ?? {}).length)) throw new AgentsApiError(400, 'Self-hosted stdio MCP accepts env_vars from the environment, not inline env values.', 'invalid_request', 'agent.tools.transport.env');
@@ -71,7 +80,7 @@ export class RunSessionExecution implements SessionExecution {
     }
   }
 
-  public async initialize(ownerId: string, session: AgentSession): Promise<void> {
+  public async initialize(ownerId: string, session: AgentSession, placement: ExecutionBackend = 'microvm'): Promise<void> {
     if (session.environment.type !== 'openai_hosted') return;
     const runtime = await this.runtime.get(ownerId, session.id);
     if (runtime) {
@@ -79,7 +88,7 @@ export class RunSessionExecution implements SessionExecution {
     }
     const turn: Turn = { id: 'bootstrap', object: 'agent.session.turn', session_id: session.id, agent_id: session.agent.id,
       subagent_id: null, status: 'queued', created_at: session.created_at, started_at: null, completed_at: null, error: null, usage: null };
-    await this.start(ownerId, session, { turn, input: [] }, [], true);
+    await this.start(ownerId, session, { turn, input: [] }, [], placement, true);
   }
 
   public async close(ownerId: string, session: AgentSession) {
@@ -92,7 +101,7 @@ export class RunSessionExecution implements SessionExecution {
     await this.options.tools.close(ownerId, session.id);
   }
 
-  public async start(ownerId: string, session: AgentSession, binding: SessionTurnBinding, history: AgentSessionItem[] = [], bootstrap = false): Promise<void> {
+  public async start(ownerId: string, session: AgentSession, binding: SessionTurnBinding, history: AgentSessionItem[] = [], placement: ExecutionBackend = 'microvm', bootstrap = false): Promise<void> {
     const runtime = await this.runtime.get(ownerId, session.id);
     // A receipt retry must not replay a saved Turn after its harness has stopped.
     if (runtime?.value.snapshot?.turns.some((saved) => saved.turn.id === binding.turn.id)) return;
@@ -110,6 +119,7 @@ export class RunSessionExecution implements SessionExecution {
         binding.input.map(({ role, content }) => ({ role, content })), binding.modelSettings ?? sessionModelSettings(session.agent));
       return;
     }
+    requireSessionBackend(this.options.placement, placement);
     const existing = await this.runById(ownerId, this.options.runs.idFor(ownerId, this.key(session.id, binding.turn.id)));
     const environmentCredential = session.environment.type === 'self_hosted' ? await this.options.environments.launchReference(ownerId, session.environment.id, existing ? undefined : binding.turn.created_at + 300) : undefined;
     const environmentCredentials = existing?.agentsSession ? undefined : await this.options.tools.environmentLaunch?.(ownerId, session);
@@ -126,16 +136,11 @@ export class RunSessionExecution implements SessionExecution {
     const origin = integration?.inputs[0];
     const owner = hash(ownerId).slice(0, 32);
     const reference = await this.options.artifacts.putJson(`owners/${owner}/sessions/${session.id}/${binding.turn.id}/launch-${hash(canonicalJson(launch))}.json`, launch);
-    const prompt = messageText(launch.input);
+    const request = planSessionRun(session, placement, launch.input, origin);
     const runId = this.options.runs.idFor(ownerId, this.key(session.id, binding.turn.id));
     if (runtime?.value.runId !== runId) await this.runtime.claim(ownerId, session.id, runId, binding.turn.created_at, runtime);
     if (session.environment.type === 'openai_hosted') await this.options.environments.attachManaged(ownerId, session.environment.id, runId);
-    try { await this.options.runs.submit(ownerId, {
-      version: '1', prompt, source: origin?.source ?? { kind: 'api' }, destinations: [{ kind: 'none' }],
-      ...(origin?.repository && session.environment.type === 'openai_hosted' ? { repository: origin.repository } : {}),
-      execution: { backend: this.options.backend ?? 'microvm', timeoutSeconds: 28_000 },
-      agent: { driver: 'codex', sandbox: session.environment.type === 'none' ? 'read-only' : session.environment.type === 'openai_hosted' && session.environment.network.access !== 'enabled' ? 'workspace-write' : 'danger-full-access', capabilities: { networkAccess: session.environment.type !== 'none' && (session.environment.type !== 'openai_hosted' || session.environment.network.access === 'enabled'), webSearch: session.agent.tools.find((tool) => tool.type === 'web_search')?.mode ?? 'disabled', computerUse: 'disabled' } },
-    }, {
+    try { await this.options.runs.submit(ownerId, request, {
       idempotencyKey: this.key(session.id, binding.turn.id),
       agentsSession: { sessionId: session.id, turnId: binding.turn.id, launch: reference },
       provenance: origin ? { actor: origin.actor, credentialSubject: origin.credentialSubject } : { actor: { kind: 'human', id: ownerId, provider: 'api' }, credentialSubject: { kind: 'actor', id: ownerId } },
@@ -149,7 +154,7 @@ export class RunSessionExecution implements SessionExecution {
     const run = await this.requiredRun(ownerId, session.id, turnId);
     if (isTerminal(run.status)) throw new AgentsApiError(409, 'The active turn ended before it could be steered.', 'active_turn_not_steerable');
     if (!run.execution || run.status !== 'running') throw new AgentsApiError(503, 'The turn is not ready for input yet.', 'service_unavailable');
-    await this.options.interaction.steer({ runId: run.runId, execution: run.execution, turnId }, messageText(input), operationId, input);
+    await this.options.interaction.steer({ runId: run.runId, execution: run.execution, turnId }, sessionMessageText(input), operationId, input);
   }
 
   public async cancel(ownerId: string, session: AgentSession, turnId: string): Promise<void> {
@@ -258,7 +263,4 @@ export class RunSessionExecution implements SessionExecution {
   private async requiredRun(ownerId: string, sessionId: string, turnId: string) { return await this.run(ownerId, sessionId, turnId) ?? resourceNotFound(); }
 }
 
-function messageText(input: AgentSessionInputMessageParam[]): string {
-  return input.flatMap((message) => message.content.map((part) => part.type === 'input_text' ? part.text : '[Attached image]')).join('\n\n') || '[Empty user input]';
-}
 function hash(value: string | Uint8Array): string { return createHash('sha256').update(value).digest('hex'); }

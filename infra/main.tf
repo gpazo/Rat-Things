@@ -62,10 +62,16 @@ module "agent_runner" {
   codex_bedrock_model_ids                  = var.codex_bedrock_model_ids
   bedrock_api_key_secret_arn               = var.bedrock_api_key_secret_arn
   enable_microvm                           = var.enable_microvm
+  ec2_session_workloads                    = var.ec2_session_workloads
   enable_ec2_worker                        = var.enable_ec2_worker
   ec2_worker_ami_id                        = var.ec2_worker_ami_id
   ec2_worker_image                         = var.ec2_worker_image
   ec2_worker_instance_type                 = var.ec2_worker_instance_type
+  enable_ec2_worker_ami_pipeline           = var.enable_ec2_worker_ami_pipeline
+  ec2_worker_ami_base_id                   = var.ec2_worker_ami_base_id
+  ec2_worker_ami_component_version         = var.ec2_worker_ami_component_version
+  ec2_worker_ami_recipe_version            = var.ec2_worker_ami_recipe_version
+  ec2_worker_prepared_ami                  = var.ec2_worker_prepared_ami
   enable_s3_files                          = var.enable_s3_files
   s3_files_vpc_cidr                        = var.s3_files_vpc_cidr
   microvm_source_zip_path                  = var.microvm_source_zip_path

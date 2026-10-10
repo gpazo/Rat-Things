@@ -28,7 +28,7 @@ live('expires a verified dedicated worker after fault-injected one-hour heartbea
     return instance!;
   };
   try {
-    const session = await api.beta.agents.sessions.create({ agent: { model: required('AWS_E2E_CODEX_MODEL_ID'), tools: [] }, environment: { type: 'openai_hosted', network: { access: 'disabled' } }, input: 'Answer READY.' });
+    const session = await api.beta.agents.sessions.create({ agent_id: required('AWS_E2E_LONG_RUNNING_AGENT_ID'), agent: { model: required('AWS_E2E_CODEX_MODEL_ID'), tools: [] }, environment: { type: 'openai_hosted', network: { access: 'disabled' } }, input: 'Answer READY.' });
     sessionId = session.id;
     await eventually(async () => {
       if (!(await api.beta.agents.sessions.turns.list(session.id)).data.some(turn => turn.status === 'completed')) return false;

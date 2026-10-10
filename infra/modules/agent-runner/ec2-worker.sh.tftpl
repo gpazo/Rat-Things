@@ -2,16 +2,26 @@
 set -euo pipefail
 # Any bootstrap or supervisor exit retires this dedicated worker.
 trap 'shutdown -h now' EXIT
+%{ if prepared ~}
+timeout 60 systemctl start docker
+%{ else ~}
 timeout 600 dnf install -y docker iptables
 timeout 60 systemctl start docker
+%{ endif ~}
 # Host networking retains the guest UID at the host firewall. IMDSv2 is root-only.
 iptables -I OUTPUT -m owner --uid-owner 10001 -d 169.254.169.254/32 -j REJECT
-install -d -m 0700 /etc/rat-worker
+install -d -m 0700 '${configuration_directory}'
 umask 077
-printf '%s' '${configuration}' | base64 -d > /etc/rat-worker/environment.json
+printf '%s' '${configuration}' | base64 -d > '${configuration_directory}/environment.json'
+%{ if prepared ~}
+timeout 30 docker image inspect '${image}' >/dev/null
+test "$(timeout 30 docker image inspect --format '{{.Architecture}}' '${image}')" = 'arm64'
+timeout 30 docker image inspect --format '{{range .RepoDigests}}{{println .}}{{end}}' '${image}' | grep -Fx '${image}' >/dev/null
+%{ else ~}
 timeout 60 aws ecr get-login-password --region '${region}' | timeout 60 docker login --username AWS --password-stdin '${registry}'
 timeout 600 docker pull '${image}'
-docker run --rm --privileged --network host --cgroupns private --stop-timeout 45 \
+%{ endif ~}
+docker run %{ if prepared }--pull=never %{ endif }--rm --privileged --network host --cgroupns private --stop-timeout 45 \
   --log-driver awslogs --log-opt awslogs-region='${region}' --log-opt awslogs-group='${log_group}' \
-  --mount type=bind,source=/etc/rat-worker/environment.json,target=/etc/rat-worker/environment.json,readonly \
+  --mount type=bind,source='${configuration_directory}/environment.json',target=/etc/rat-worker/environment.json,readonly \
   --entrypoint node '${image}' /opt/agent-runtime/ec2-supervisor.mjs

@@ -1,3 +1,4 @@
+import type { ExecutionBackend } from '../domain/contracts.js';
 import { createHash } from 'node:crypto';
 import type { Agent, AgentSession, AgentToolParam, SessionCreateParams } from '../domain/agents-api.js';
 import { AgentsApiError } from '../domain/agents-api-validation.js';
@@ -6,6 +7,7 @@ import { sessionAgent } from './session-planning.js';
 
 export interface SessionPreparation {
   agent: AgentSession['agent'];
+  placement?: ExecutionBackend;
   now: number;
   created?: boolean;
   abandoned?: boolean;
@@ -15,9 +17,9 @@ export interface SessionPreparation {
   inheritedTools: Agent['tools'];
 }
 
-export function planSessionPreparation(input: SessionCreateParams, id: string, now: number, saved?: Agent): SessionPreparation {
+export function planSessionPreparation(input: SessionCreateParams, id: string, now: number, saved?: Agent, placement: ExecutionBackend = 'microvm'): SessionPreparation {
   return {
-    agent: sessionAgent(input.agent, id, now, saved), now, deadline: now + 86_400, requestDigest: requestDigest(input),
+    placement, agent: sessionAgent(input.agent, id, now, saved), now, deadline: now + 86_400, requestDigest: requestDigest(input),
     inheritedTools: input.agent?.tools === undefined ? saved?.tools ?? [] : [],
   };
 }
