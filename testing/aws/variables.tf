@@ -128,3 +128,24 @@ variable "ec2_session_workloads" {
   default     = []
   description = "Explicit long-running workload identities for EC2 acceptance tests."
 }
+
+variable "enable_ec2_worker_ami_pipeline" {
+  type    = bool
+  default = false
+}
+variable "ec2_worker_ami_base_id" {
+  type    = string
+  default = null
+}
+variable "ec2_worker_ami_component_version" {
+  type    = string
+  default = "1.0.0"
+}
+variable "ec2_worker_ami_recipe_version" {
+  type    = string
+  default = "1.0.0"
+}
+variable "ec2_worker_prepared_ami" {
+  type    = bool
+  default = false
+}

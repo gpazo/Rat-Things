@@ -34,6 +34,11 @@ export function sessionPlacementFromEnv(env: NodeJS.ProcessEnv): SessionPlacemen
 
 function validWorkload(value: unknown): value is SessionPlacementPolicy['ec2Workloads'][number] {
   if (!value || typeof value !== 'object') return false;
-  const workload = value as Record<string, unknown>;
-  return Object.keys(workload).length === 2 && ['owner_id', 'agent_id'].every((key) => typeof workload[key] === 'string' && workload[key].trim().length > 0);
+  return Object.keys(value).length === 2
+    && 'owner_id' in value && nonemptyString(value.owner_id)
+    && 'agent_id' in value && nonemptyString(value.agent_id);
+}
+
+function nonemptyString(value: unknown): value is string {
+  return typeof value === 'string' && value.trim().length > 0;
 }

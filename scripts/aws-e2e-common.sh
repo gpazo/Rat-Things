@@ -18,6 +18,11 @@ aws_e2e_source_runtime_defaults() {
     AWS_E2E_VALIDATION_OBSERVER_IMAGE
     AWS_E2E_EC2_WORKER_AMI_ID
     AWS_E2E_EC2_WORKER_IMAGE
+    AWS_E2E_ENABLE_EC2_WORKER_AMI_PIPELINE
+    AWS_E2E_EC2_WORKER_AMI_BASE_ID
+    AWS_E2E_EC2_WORKER_AMI_COMPONENT_VERSION
+    AWS_E2E_EC2_WORKER_AMI_RECIPE_VERSION
+    AWS_E2E_EC2_WORKER_PREPARED_AMI
     AWS_E2E_ENVIRONMENT_RELAY_IMAGE
     AWS_E2E_ENVIRONMENT_RELAY_ORIGIN_HOSTNAME
     AWS_E2E_ENVIRONMENT_RELAY_ORIGIN_CERTIFICATE_ARN
@@ -77,6 +82,11 @@ aws_e2e_configure() {
   ec2_session_workloads="${ec2_session_workloads:-[]}"
   ec2_worker_ami_id="${AWS_E2E_EC2_WORKER_AMI_ID:-}"
   ec2_worker_image="${AWS_E2E_EC2_WORKER_IMAGE:-}"
+  enable_ec2_worker_ami_pipeline="${AWS_E2E_ENABLE_EC2_WORKER_AMI_PIPELINE:-false}"
+  ec2_worker_ami_base_id="${AWS_E2E_EC2_WORKER_AMI_BASE_ID:-}"
+  ec2_worker_ami_component_version="${AWS_E2E_EC2_WORKER_AMI_COMPONENT_VERSION:-1.0.0}"
+  ec2_worker_ami_recipe_version="${AWS_E2E_EC2_WORKER_AMI_RECIPE_VERSION:-1.0.0}"
+  ec2_worker_prepared_ami="${AWS_E2E_EC2_WORKER_PREPARED_AMI:-false}"
   environment_relay_image="${AWS_E2E_ENVIRONMENT_RELAY_IMAGE:-}"
   environment_relay_origin_hostname="${AWS_E2E_ENVIRONMENT_RELAY_ORIGIN_HOSTNAME:-}"
   environment_relay_origin_certificate_arn="${AWS_E2E_ENVIRONMENT_RELAY_ORIGIN_CERTIFICATE_ARN:-}"
@@ -129,6 +139,10 @@ aws_e2e_configure() {
     "-var=deployment_id=$deployment_id"
     "-var=enable_microvm=$microvm_enabled"
     "-var=enable_ec2_worker=$ec2_worker_enabled"
+    "-var=enable_ec2_worker_ami_pipeline=$enable_ec2_worker_ami_pipeline"
+    "-var=ec2_worker_ami_component_version=$ec2_worker_ami_component_version"
+    "-var=ec2_worker_ami_recipe_version=$ec2_worker_ami_recipe_version"
+    "-var=ec2_worker_prepared_ami=$ec2_worker_prepared_ami"
     "-var=ec2_session_workloads=$ec2_session_workloads"
     "-var=enable_validation_observer=${AWS_E2E_ENABLE_VALIDATION_OBSERVER:-false}"
     "-var=codex_model_id=$codex_model_id"
@@ -136,6 +150,9 @@ aws_e2e_configure() {
     "-var=enable_slack_webhook=$slack_webhook_enabled"
     "-var=enable_publication_delivery=$publication_enabled"
   )
+  if [[ -n "$ec2_worker_ami_base_id" ]]; then
+    tf_vars+=("-var=ec2_worker_ami_base_id=$ec2_worker_ami_base_id")
+  fi
   if [[ "$ec2_worker_enabled" == "true" ]]; then
     tf_vars+=("-var=ec2_worker_ami_id=$ec2_worker_ami_id" "-var=ec2_worker_image=$ec2_worker_image")
   fi

@@ -1,3 +1,4 @@
+import { planSessionRun, sessionMessageText } from '../core/session-run-planning.js';
 import { requireSessionBackend, selectSessionBackend, type SessionPlacementPolicy } from './session-placement.js';
 import { createHash } from 'node:crypto';
 import type { AgentSession, AgentSessionInputMessageParam, AgentSessionInputParam, AgentSessionItem, AgentToolParam, EnvironmentParam, Turn } from '../domain/agents-api.js';
@@ -135,16 +136,11 @@ export class RunSessionExecution implements SessionExecution {
     const origin = integration?.inputs[0];
     const owner = hash(ownerId).slice(0, 32);
     const reference = await this.options.artifacts.putJson(`owners/${owner}/sessions/${session.id}/${binding.turn.id}/launch-${hash(canonicalJson(launch))}.json`, launch);
-    const prompt = messageText(launch.input);
+    const request = planSessionRun(session, placement, launch.input, origin);
     const runId = this.options.runs.idFor(ownerId, this.key(session.id, binding.turn.id));
     if (runtime?.value.runId !== runId) await this.runtime.claim(ownerId, session.id, runId, binding.turn.created_at, runtime);
     if (session.environment.type === 'openai_hosted') await this.options.environments.attachManaged(ownerId, session.environment.id, runId);
-    try { await this.options.runs.submit(ownerId, {
-      version: '1', prompt, source: origin?.source ?? { kind: 'api' }, destinations: [{ kind: 'none' }],
-      ...(origin?.repository && session.environment.type === 'openai_hosted' ? { repository: origin.repository } : {}),
-      execution: { backend: placement, timeoutSeconds: 28_000 },
-      agent: { driver: 'codex', sandbox: session.environment.type === 'none' ? 'read-only' : session.environment.type === 'openai_hosted' && session.environment.network.access !== 'enabled' ? 'workspace-write' : 'danger-full-access', capabilities: { networkAccess: session.environment.type !== 'none' && (session.environment.type !== 'openai_hosted' || session.environment.network.access === 'enabled'), webSearch: session.agent.tools.find((tool) => tool.type === 'web_search')?.mode ?? 'disabled', computerUse: 'disabled' } },
-    }, {
+    try { await this.options.runs.submit(ownerId, request, {
       idempotencyKey: this.key(session.id, binding.turn.id),
       agentsSession: { sessionId: session.id, turnId: binding.turn.id, launch: reference },
       provenance: origin ? { actor: origin.actor, credentialSubject: origin.credentialSubject } : { actor: { kind: 'human', id: ownerId, provider: 'api' }, credentialSubject: { kind: 'actor', id: ownerId } },
@@ -158,7 +154,7 @@ export class RunSessionExecution implements SessionExecution {
     const run = await this.requiredRun(ownerId, session.id, turnId);
     if (isTerminal(run.status)) throw new AgentsApiError(409, 'The active turn ended before it could be steered.', 'active_turn_not_steerable');
     if (!run.execution || run.status !== 'running') throw new AgentsApiError(503, 'The turn is not ready for input yet.', 'service_unavailable');
-    await this.options.interaction.steer({ runId: run.runId, execution: run.execution, turnId }, messageText(input), operationId, input);
+    await this.options.interaction.steer({ runId: run.runId, execution: run.execution, turnId }, sessionMessageText(input), operationId, input);
   }
 
   public async cancel(ownerId: string, session: AgentSession, turnId: string): Promise<void> {
@@ -267,7 +263,4 @@ export class RunSessionExecution implements SessionExecution {
   private async requiredRun(ownerId: string, sessionId: string, turnId: string) { return await this.run(ownerId, sessionId, turnId) ?? resourceNotFound(); }
 }
 
-function messageText(input: AgentSessionInputMessageParam[]): string {
-  return input.flatMap((message) => message.content.map((part) => part.type === 'input_text' ? part.text : '[Attached image]')).join('\n\n') || '[Empty user input]';
-}
 function hash(value: string | Uint8Array): string { return createHash('sha256').update(value).digest('hex'); }

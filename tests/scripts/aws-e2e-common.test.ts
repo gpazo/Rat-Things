@@ -75,3 +75,32 @@ it('passes explicit EC2 workloads to Terraform without changing the MicroVM defa
     '-var=ec2_session_workloads=[{"owner_id":"alice","agent_id":"agent_long"}]',
   ]));
 });
+
+
+it('retains prepared-image settings across a redeploy while accepting a newly built AMI', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'rat-things-prepared-e2e-'));
+  const runtime = join(directory, 'runtime.env');
+  writeFileSync(runtime, [
+    'export AWS_E2E_ENABLE_EC2_WORKER=true',
+    'export AWS_E2E_EC2_WORKER_AMI_ID=ami-111',
+    'export AWS_E2E_EC2_WORKER_IMAGE=registry/worker@sha256:fixture',
+    'export AWS_E2E_ENABLE_EC2_WORKER_AMI_PIPELINE=true',
+    'export AWS_E2E_EC2_WORKER_AMI_BASE_ID=ami-111',
+    'export AWS_E2E_EC2_WORKER_AMI_COMPONENT_VERSION=1.2.3',
+    'export AWS_E2E_EC2_WORKER_AMI_RECIPE_VERSION=2.3.4',
+    'export AWS_E2E_EC2_WORKER_PREPARED_AMI=false',
+  ].join('\n'));
+  const output = execFileSync('bash', ['--noprofile', '--norc', '-c', `
+    set -euo pipefail
+    export AWS_REGION=us-west-2 AWS_E2E_EC2_WORKER_AMI_ID=ami-222 AWS_E2E_EC2_WORKER_PREPARED_AMI=true
+    source scripts/aws-e2e-common.sh
+    aws_e2e_source_runtime_defaults '${runtime}'
+    aws_e2e_configure prepared-test
+    printf '%s\n' "\${tf_vars[@]}"
+  `], { encoding: 'utf8' });
+  expect(output.split('\n')).toEqual(expect.arrayContaining([
+    '-var=ec2_worker_ami_id=ami-222', '-var=ec2_worker_prepared_ami=true',
+    '-var=enable_ec2_worker_ami_pipeline=true', '-var=ec2_worker_ami_base_id=ami-111',
+    '-var=ec2_worker_ami_component_version=1.2.3', '-var=ec2_worker_ami_recipe_version=2.3.4',
+  ]));
+});

@@ -48,6 +48,17 @@ their own Sessions and Agents; they preserve the deployment for further testing.
 Build and verify the patched Linux ARM64 artifact before packaging (see
 `testing/README.md`). EC2 deployment additionally requires an immutable
 `AWS_E2E_EC2_WORKER_AMI_ID` and digest-pinned `AWS_E2E_EC2_WORKER_IMAGE`.
+To exercise prepared AMIs, deploy with `AWS_E2E_ENABLE_EC2_WORKER_AMI_PIPELINE=true`
+and `AWS_E2E_EC2_WORKER_AMI_BASE_ID` set to the pinned ARM64 parent image. Component
+and recipe versions use `AWS_E2E_EC2_WORKER_AMI_COMPONENT_VERSION` and
+`AWS_E2E_EC2_WORKER_AMI_RECIPE_VERSION` (both default to `1.0.0`). The `ec2_worker`
+Terraform output exposes the pipeline ARN. Start its build explicitly as described
+in the [infrastructure guide](../../infra/README.md#prepare-an-ec2-worker-ami), then
+redeploy with `AWS_E2E_EC2_WORKER_PREPARED_AMI=true` and the returned image ID in
+`AWS_E2E_EC2_WORKER_AMI_ID`. These settings persist across harness redeploys.
+Delete build-produced AMIs and their snapshots after terminating the test workers;
+Terraform removes the pipeline but does not own its generated images.
+
 Dedicated HTTPS tests require all three inputs:
 
 - `AWS_E2E_ENVIRONMENT_RELAY_IMAGE`: digest-pinned image for HTTP and relay services.
