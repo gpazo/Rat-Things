@@ -45,6 +45,7 @@
     "console:serve": "tsx src/cli.ts console",
     "test:e2e:console": "cargo test --locked --manifest-path desktop/Cargo.toml --test console_e2e -- --test-threads=1",
     "demo:architecture": "node scripts/architecture-social-demo.mjs",
+    "demo:fork:video": "node scripts/session-fork-video.mjs",
     "test:infra": "terraform -chdir=infra init -backend=false -input=false && terraform -chdir=infra test",
     "terraform:fmt": "terraform -chdir=infra fmt -recursive",
     "terraform:fmt:check": "terraform -chdir=infra fmt -recursive -check",

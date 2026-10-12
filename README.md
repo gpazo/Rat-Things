@@ -50,10 +50,12 @@ Keep its context and files, try different approaches, and discard the branch you
 no longer need. Forking uses the latest terminal root Turn and is opt-in through
 `session_checkpoints_enabled` with S3 Files configured.
 
-The [Fork studio demo](docs/session-fork-demo.md) starts with one UI and explores
-warm editorial and dark electric themes. Compare both, keep a favorite, and
-continue its Session. Run `npm run demo:fork` for the no-cloud walkthrough, or
-follow the guide to connect the same UI to real Sessions in your deployment.
+[Watch the 42-second demo video](https://gpazo.github.io/Rat-Things/assets/session-fork-demo.mp4):
+one UI, two theme directions, and a choice about which Session to keep. The captioned
+replay uses the real generated designs from two Session forks.
+The [Fork studio guide](docs/session-fork-demo.md) also includes a hands-on walkthrough.
+Run `npm run demo:fork` for the no-cloud version, or follow the guide to connect
+the UI to real Sessions in your deployment.
 
 ## Provider events and schedules
 

@@ -1,0 +1,18 @@
+{
+  "description": "Edited presentation replay of the Fieldnotes Session fork run; no cloud calls occur during video rendering.",
+  "recordedRunCheckedAt": "2026-10-12T01:22:04.059Z",
+  "source": "The starter HTML from site/fork-demo/themes.js, supplied to the source Session in the live demo.",
+  "artifacts": {
+    "paper": "bf63e337f4462bb4256f9cf463bcabade6f1411fedf29ba5b7f5ee38dcf7958d",
+    "midnight": "f00fc8a0dfc563bf3b1a2849c869670cbf1d243c7692d51064355a3c26545322"
+  },
+  "verifiedSelection": {
+    "winner": "midnight",
+    "originalHttpStatus": 200,
+    "paperHttpStatus": 404,
+    "midnightHttpStatus": 200,
+    "downloadMatchesArtifact": true
+  },
+  "cleanup": "Both remaining Sessions and the Agent were deleted after validation; the video does not imply they remain running.",
+  "localEvidence": ".aws-e2e/fd261011a/demo-proof.json"
+}

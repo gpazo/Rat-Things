@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#08112b">
+  <title>Fieldnotes — Make room for your next idea</title>
+  <style>
+    :root { --night:#08112b; --night-soft:#121d3e; --ink:#f5f7ff; --muted:#aeb8d4; --lime:#d8ff42; --line:rgba(245,247,255,.16); --round:24px; }
+    * { box-sizing:border-box; } html { background:var(--night); }
+    body { min-width:320px; margin:0; overflow-x:hidden; color:var(--ink); background:radial-gradient(circle at 89% 5%,rgba(126,91,255,.28),transparent 25rem),radial-gradient(circle at 5% 73%,rgba(48,126,216,.16),transparent 23rem),var(--night); font-family:"Avenir Next",Avenir,Montserrat,"Century Gothic",system-ui,sans-serif; }
+    a { color:inherit; text-decoration:none; } .page { width:min(100%,1120px); margin:auto; padding:22px 24px 34px; }
+    .topbar { display:flex; align-items:center; justify-content:space-between; padding:7px 0 17px; border-bottom:1px solid var(--line); }
+    .brand { display:inline-flex; align-items:center; gap:8px; font-size:19px; font-weight:800; letter-spacing:-.075em; }
+    .spark { width:17px; height:17px; display:grid; place-items:center; border-radius:6px; color:var(--night); background:var(--lime); font-size:14px; line-height:1; }
+    .top-note { color:var(--muted); font-size:11px; font-weight:700; letter-spacing:.05em; }
+    .hero { position:relative; padding:64px 0 47px; } .eyebrow,.card-kicker { color:var(--lime); font-size:10px; font-weight:800; letter-spacing:.14em; }
+    h1,h2,p { margin:0; } h1 { max-width:810px; margin-top:17px; font-size:clamp(49px,9vw,105px); font-weight:850; letter-spacing:-.085em; line-height:.86; } h1 em { color:var(--lime); font-style:normal; }
+    .hero-copy { max-width:400px; margin:25px 0 24px; color:var(--muted); font-size:15px; line-height:1.55; }
+    .button { display:inline-flex; align-items:center; gap:18px; padding:14px 15px 14px 19px; border-radius:999px; color:var(--night); background:var(--lime); font-size:12px; font-weight:850; letter-spacing:.025em; }
+    .button b { display:grid; width:23px; height:23px; place-items:center; border-radius:50%; background:var(--night); color:var(--lime); font-size:15px; font-weight:500; }
+    .orbit { position:absolute; right:3%; bottom:44px; width:120px; height:120px; border:1px solid rgba(216,255,66,.55); border-radius:50%; }
+    .orbit::before,.orbit::after { position:absolute; content:""; border-radius:50%; background:var(--lime); } .orbit::before { width:15px; height:15px; top:-7px; left:49px; } .orbit::after { width:8px; height:8px; right:13px; bottom:22px; }
+    .features { display:grid; grid-template-columns:1fr 1fr; gap:16px; } .card { position:relative; min-height:255px; padding:23px; overflow:hidden; border:1px solid var(--line); border-radius:var(--round); background:rgba(18,29,62,.92); }
+    .card.collect { background:var(--lime); color:var(--night); border-color:var(--lime); } .card-kicker { opacity:.95; } .collect .card-kicker { color:#31430d; }
+    h2 { max-width:280px; margin-top:32px; font-size:clamp(29px,4.2vw,43px); font-weight:850; letter-spacing:-.07em; line-height:.94; }
+    .card-copy { position:absolute; bottom:22px; max-width:220px; color:var(--muted); font-size:12px; line-height:1.45; } .collect .card-copy { color:rgba(8,17,43,.72); }
+    .note-lines { position:absolute; right:23px; bottom:25px; width:66px; } .note-lines i { display:block; height:6px; margin-top:7px; border-radius:99px; background:var(--night); } .note-lines i:nth-child(2) { width:78%; } .note-lines i:nth-child(3) { width:48%; }
+    .link-arrow { position:absolute; right:21px; bottom:20px; display:grid; place-items:center; width:39px; height:39px; border:1px solid rgba(216,255,66,.65); border-radius:50%; color:var(--lime); font-size:22px; }
+    .connect::before { position:absolute; right:-27px; top:35px; width:125px; height:125px; content:""; border:1px solid rgba(216,255,66,.22); border-radius:38px; transform:rotate(17deg); } .connect h2 { position:relative; }
+    .footer { display:flex; align-items:center; justify-content:space-between; gap:16px; padding-top:22px; color:var(--muted); font-size:10px; font-weight:700; letter-spacing:.06em; } .footer strong { color:var(--lime); font-size:10px; }
+    @media (max-width:620px) { .page { padding:18px 17px 28px; } .top-note { font-size:9px; } .hero { padding:48px 0 36px; } .orbit { right:0; bottom:32px; width:84px; height:84px; opacity:.75; } .orbit::before { left:34px; } .features { gap:10px; } .card { min-height:240px; padding:17px; border-radius:19px; } .card-kicker { font-size:8px; } h2 { margin-top:25px; font-size:28px; } .card-copy { left:17px; bottom:17px; font-size:10px; max-width:130px; } .note-lines { right:15px; bottom:18px; width:38px; } .link-arrow { right:15px; bottom:15px; } }
+    @media (max-width:380px) { .top-note { display:none; } h1 { font-size:45px; } .features { grid-template-columns:1fr; } .card { min-height:205px; } }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <nav class="topbar" aria-label="Main navigation">
+      <a class="brand" href="#"><span>fieldnotes</span><span class="spark" aria-hidden="true">✦</span></a>
+      <span class="top-note">YOUR THOUGHTS, COLLECTED.</span>
+    </nav>
+    <main>
+      <section class="hero" aria-labelledby="page-title">
+        <div class="eyebrow">FIELDNOTES / AFTER HOURS</div>
+        <h1 id="page-title">Give your ideas<br>the <em>whole room.</em></h1>
+        <p class="hero-copy">A sharp, calm workspace for stray sparks, lasting questions, and everything your mind is making next.</p>
+        <a class="button" href="#collect">START A FRESH PAGE <b aria-hidden="true">↗</b></a>
+        <div class="orbit" aria-hidden="true"></div>
+      </section>
+      <section class="features" aria-label="Fieldnotes features">
+        <article class="card collect" id="collect">
+          <div class="card-kicker">01 / COLLECT</div>
+          <h2>Catch it<br>while it’s alive.</h2>
+          <p class="card-copy">Keep the little things close. They tend to become the big ones.</p>
+          <div class="note-lines" aria-hidden="true"><i></i><i></i><i></i></div>
+        </article>
+        <article class="card connect">
+          <div class="card-kicker">02 / CONNECT</div>
+          <h2>Let one thought<br>lead to another.</h2>
+          <p class="card-copy">Find the threads hiding between your notes.</p>
+          <a class="link-arrow" href="#collect" aria-label="Explore Connect">↗</a>
+        </article>
+      </section>
+    </main>
+    <footer class="footer"><span>A LITTLE SPACE FOR WHAT MATTERS.</span><strong>MADE FOR YOUR MIND</strong></footer>
+  </div>
+</body>
+</html>

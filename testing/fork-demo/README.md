@@ -26,3 +26,31 @@ previews; either winner with the discarded card; downloadable HTML; retry/reset;
 mobile layout; real-mode progress, error, reload and cleanup. Do not represent the
 walkthrough as evidence of live AWS execution. Preview frames are sandboxed and
 block scripts, forms and external asset loading.
+
+## Render the demo video
+
+The shareable deliverable is `assets/session-fork-demo.mp4`: 42 seconds, 1920 × 1080,
+24 fps, H.264 with burned-in captions and no audio. The poster sits beside it.
+
+With FFmpeg/ffprobe on PATH and Playwright Chromium installed:
+
+```bash
+npx playwright install chromium --only-shell
+npm run demo:fork:video -- --preview-only
+npm run demo:fork:video
+```
+
+The first command after installation writes storyboard frames to
+`test-results/fork-video/`; the full render streams frames directly to FFmpeg to
+avoid a large intermediate recording. Inspect these frames and the exported MP4
+for framing, text fit, scroll motion, cursor placement, and the keep/discard outcome.
+The renderer checks browser errors, artifact hashes, duration, codec and dimensions;
+export metadata is written to `test-results/fork-video/export.json`.
+
+`scripts/fork-video/scene.html` is a recording-only presentation stage, not a
+product interface. Its selection sequence replays the verified outcome, without
+calling AWS. The two unmodified generated HTML files are under `fixtures/` and
+their hashes and provenance are in `scripts/fork-video/provenance.json`. Displayed
+prompts summarize the live instructions. The persistent on-screen replay label
+distinguishes the edited video from a fresh execution or a real-time screen capture.
+No active Session identifiers or credentials are embedded in the film.

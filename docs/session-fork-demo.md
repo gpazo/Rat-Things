@@ -4,6 +4,19 @@ Start with one prepared UI, fork it into two independent themes, and choose the 
 worth continuing. The Fieldnotes demo compares **Paper & ink**, a warm editorial
 direction, with **After hours**, a dark, vivid direction.
 
+## Watch the demo
+
+<video controls playsinline preload="none" style="width:100%;border-radius:12px" poster="https://gpazo.github.io/Rat-Things/assets/session-fork-demo-poster.jpg" src="https://gpazo.github.io/Rat-Things/assets/session-fork-demo.mp4" aria-label="Session fork demo: compare two themes and keep After hours"></video>
+
+[Watch or download the 42-second video](https://gpazo.github.io/Rat-Things/assets/session-fork-demo.mp4).
+The captioned video replays the flow with the actual HTML produced by two live
+Session forks. It shows the original brief, both design directions, and choosing
+After hours while discarding Paper & ink. It uses an edited presentation with wait
+times removed and has no audio. The remaining Sessions were cleaned up after the
+recorded run.
+
+## Try the same flow
+
 [Open the interactive walkthrough](https://gpazo.github.io/Rat-Things/fork-demo/). It uses prepared designs, makes
 no AWS calls, and can be reset freely. The same interface also has a live mode that
 creates real Sessions and shows their generated HTML artifacts.

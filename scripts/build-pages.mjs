@@ -16,6 +16,8 @@ const visualAssetFiles = [
   'durable-execution.svg',
 ];
 const homepageAssetFiles = [
+  'session-fork-demo.mp4',
+  'session-fork-demo-poster.jpg',
   'rat-things-architecture-demo.mp4',
   'rat-things-architecture-demo-poster.jpg',
   'rat-things-hero.jpg',
