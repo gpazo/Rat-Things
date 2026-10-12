@@ -1,9 +1,15 @@
 import { createHash } from 'node:crypto';
-import { CreateSecretCommand, DeleteSecretCommand, DescribeSecretCommand, type SecretsManagerClient } from '@aws-sdk/client-secrets-manager';
+import { CreateSecretCommand, DeleteSecretCommand, DescribeSecretCommand, GetSecretValueCommand, type SecretsManagerClient } from '@aws-sdk/client-secrets-manager';
 import type { SessionCredentialIdentity, SessionCredentialSecret, SessionToolSecrets } from '../credentials/session-tools.js';
+import { parseSessionToolSecret, type SessionToolSecret } from '../credentials/session-tools.js';
 
 export class SecretsSessionTools implements SessionToolSecrets {
   public constructor(private readonly client: SecretsManagerClient, private readonly prefix: string, private readonly kmsKeyId: string) {}
+  public async readTool(reference: string, identity: Pick<SessionToolSecret, 'ownerId' | 'sessionId' | 'serverLabel'>): Promise<SessionToolSecret> {
+    const result = await this.client.send(new GetSecretValueCommand({ SecretId: reference }));
+    if (!result.SecretString) throw new Error('Session tool credential is unavailable');
+    return parseSessionToolSecret(result.SecretString, identity);
+  }
   public reference(identity: SessionCredentialIdentity, attemptId: string): string {
     const scope = 'serverLabel' in identity ? identity.serverLabel : { environmentId: identity.environmentId };
     return `${this.prefix}/agents/${hash(identity.ownerId)}/sessions/${identity.sessionId}/${hash(JSON.stringify([attemptId, scope]))}`;

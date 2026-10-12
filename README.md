@@ -43,6 +43,18 @@ The [Agents API guide](docs/agents-api.md) covers authentication, resources,
 continuation, streaming, tools, files, environment connections and current limits.
 The [agent operating guide](docs/agents.md) provides a concise entry point.
 
+## Explore two directions with Session forks
+
+Fork a prepared managed Session into independent conversations and workspaces.
+Keep its context and files, try different approaches, and discard the branch you
+no longer need. Forking uses the latest terminal root Turn and is opt-in through
+`session_checkpoints_enabled` with S3 Files configured.
+
+The [Fork studio demo](docs/session-fork-demo.md) starts with one UI and explores
+warm editorial and dark electric themes. Compare both, keep a favorite, and
+continue its Session. Run `npm run demo:fork` for the no-cloud walkthrough, or
+follow the guide to connect the same UI to real Sessions in your deployment.
+
 ## Provider events and schedules
 
 Signed GitHub, GitLab, Slack and Teams events resolve an operator-owned Agent

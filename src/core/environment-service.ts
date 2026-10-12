@@ -21,6 +21,10 @@ export interface StoredEnvironment {
   hostedFiles?: SessionLaunch['hostedFiles'];
   hostedSkills?: SessionLaunch['hostedSkills'];
   runId?: string;
+  /** Private execution identity used by the opt-in checkpoint foundation. */
+  executionGeneration?: string;
+  pendingRunId?: string;
+  handoff?: import('../domain/workspace-checkpoint.js').WorkspaceHandoff;
   sandboxId?: string;
   resetCount?: number;
   status: EnvironmentInfo['status'];
@@ -28,6 +32,11 @@ export interface StoredEnvironment {
   connectedUntil?: number;
   connectedAt?: number;
   retired?: boolean;
+}
+
+/** A verified ownership change is distinct from a failed storage request. */
+export class ManagedEnvironmentAuthorityLostError extends Error {
+  public constructor() { super('Managed environment execution authority changed'); this.name = 'ManagedEnvironmentAuthorityLostError'; }
 }
 
 export class EnvironmentService {
@@ -38,6 +47,7 @@ export class EnvironmentService {
     uploadedFiles?: Pick<FileService, 'reference' | 'retrieve'>;
     skills?: Pick<SkillService, 'reference'>;
     managedFiles?: (ownerId: string, sessionId: string, operation: import('./environment-file-ports.js').EnvironmentFileOperation) => Promise<unknown>;
+    handoffs?: Pick<import('./workspace-handoff-service.js').WorkspaceHandoffService, 'prepareReplacement'>;
   }) {
     this.clock = options.clock ?? { now: () => Math.floor(Date.now() / 1000) };
     this.ids = options.ids ?? { next: (prefix) => `${prefix}_${randomUUID().replaceAll('-', '')}` };
@@ -90,6 +100,17 @@ export class EnvironmentService {
     const { value } = await this.required(ownerId, id);
     const environment = value.environment;
     return { id, object: 'agent.environment', type: environment.type, status: this.status(value), files: environment.type === 'openai_hosted' ? environment.files : [], plugins: environment.type === 'openai_hosted' ? environment.plugins : [], skills: environment.type === 'openai_hosted' ? environment.skills : [] };
+  }
+
+  /** Reuse pinned setup inputs, never resolve a changed template or uploaded file again. */
+  public async prepareFork(ownerId: string, sessionId: string, sourceId: string, network: Extract<Environment, { type: 'openai_hosted' }>['network']): Promise<Environment> {
+    const source = (await this.required(ownerId, sourceId)).value;
+    if (source.retired || source.environment.type !== 'openai_hosted' || !source.configuration) resourceNotFound();
+    const id = this.ids.next('env');
+    const environment = { ...source.environment, id, network };
+    await this.options.store.put<StoredEnvironment>({ ownerId, id, collection: 'environments', createdAt: this.clock.now(), revision: 1,
+      value: { environment, sessionId, configuration: { ...source.configuration, network }, hostedFiles: source.hostedFiles ?? [], hostedSkills: source.hostedSkills ?? [], status: 'pending' } }, 0);
+    return environment;
   }
 
   public async state(ownerId: string, id: string): Promise<AgentSessionEnvironmentState> {
@@ -158,10 +179,19 @@ export class EnvironmentService {
   }
 
   public async attachManaged(ownerId: string, id: string, runId: string): Promise<void> {
+    const admission = await this.options.handoffs?.prepareReplacement(ownerId, id, runId);
     await this.update(ownerId, id, (value) => {
+      if (admission && (value.runId !== admission.runId || value.executionGeneration !== admission.executionGeneration)) throw new AgentsApiError(409, 'Workspace admission changed concurrently.', 'conflict');
       if (value.environment.type !== 'openai_hosted' || value.retired) resourceNotFound();
       if (value.status === 'failed' || value.status === 'expired') throw new AgentsApiError(409, 'The managed environment is unavailable. Create a new session.', 'environment_unavailable');
-      return value.runId === runId ? value : { ...value, runId, status: 'pending' };
+      if (value.handoff && value.runId !== runId) {
+        if (!this.options.handoffs || value.handoff.phase !== 'committed' || (value.handoff.snapshotLease?.expiresAt ?? 0) > this.clock.now()) throw new AgentsApiError(409, 'The workspace handoff must be adopted or recovered before replacement.', 'conflict');
+        if (value.pendingRunId && value.pendingRunId !== runId) throw new AgentsApiError(409, 'A replacement already owns workspace admission.', 'conflict');
+        return { ...value, pendingRunId: runId, status: 'pending' };
+      }
+      if (value.runId === runId) return value;
+      const { executionGeneration: _generation, ...replacement } = value;
+      return { ...replacement, runId, status: 'pending' };
     });
   }
 
@@ -177,7 +207,11 @@ export class EnvironmentService {
 
   public async managedStatus(ownerId: string, id: string, runId: string, status: 'connected' | 'disconnected' | 'failed' | 'expired'): Promise<void> {
     await this.update(ownerId, id, (value) => {
-      if (value.retired || value.runId !== runId || value.environment.type !== 'openai_hosted') throw new Error('Managed environment execution authority changed');
+      if (value.retired || value.runId !== runId || value.environment.type !== 'openai_hosted') throw new ManagedEnvironmentAuthorityLostError();
+      if (value.handoff && value.handoff.phase !== 'consumed') {
+        if (status === 'disconnected') return value;
+        throw new ManagedEnvironmentAuthorityLostError();
+      }
       return { ...value, status, connectedUntil: status === 'connected' ? this.clock.now() + 45 : 0 };
     });
   }
@@ -222,7 +256,10 @@ export class EnvironmentService {
 
   public async retire(ownerId: string, id: string): Promise<void> {
     const { value } = await this.required(ownerId, id);
-    if (!value.retired) await this.update(ownerId, id, (value) => ({ ...value, retired: true, status: 'expired' }));
+    if (!value.retired) await this.update(ownerId, id, (value) => {
+      if (value.handoff?.phase === 'committed' && (value.handoff.snapshotLease?.expiresAt ?? 0) > this.clock.now()) throw new AgentsApiError(409, 'The workspace is being copied.', 'conflict');
+      return { ...value, retired: true, status: 'expired' };
+    });
     if (value.credentialReference) await this.options.credentials.revoke(value.credentialReference);
   }
 

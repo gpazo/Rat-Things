@@ -7,6 +7,7 @@ import type { AgentDriverControl } from './agent-driver.js';
 import { canonicalJson } from '../domain/json.js';
 import { parseAgentsContract } from '../domain/agents-api-validation.js';
 import { parseSessionModelSettings } from '../domain/session-execution.js';
+import { WorkspaceAdmission } from './workspace-handoff.js';
 
 const CHANNEL = 'rat-things-agent-control';
 
@@ -19,16 +20,18 @@ interface PendingServerRequest {
 export interface RunnerControlBridge {
   hooks: AgentDriverControl;
   setEnvironmentFiles(files: (operation: unknown) => Promise<unknown>): void;
+  prepareStorage(): Promise<void>;
   close(): void;
 }
 
-export function createRunnerControlBridge(runId: string): RunnerControlBridge | undefined {
+export function createRunnerControlBridge(runId: string, admission = new WorkspaceAdmission()): RunnerControlBridge | undefined {
   if (!process.send || !process.connected) return undefined;
   const pending = new Map<string, PendingServerRequest>();
   const operations = new Map<string, { digest: string; promise: Promise<unknown> }>();
   let controller: CodexTurnController | undefined;
   let environmentFiles: ((operation: unknown) => Promise<unknown>) | undefined;
   let closed = false;
+  let storageReady: { resolve(): void; reject(error: Error): void } | undefined;
 
   const send = (message: Record<string, unknown>) => {
     if (closed || !process.send || !process.connected) return;
@@ -46,6 +49,10 @@ export function createRunnerControlBridge(runId: string): RunnerControlBridge | 
 
   const onMessage = (value: unknown) => {
     if (!isRecord(value) || value.channel !== CHANNEL || value.runId !== runId) return;
+    if (value.type === 'storage-ready') {
+      if (value.ok === true) storageReady?.resolve(); else storageReady?.reject(new Error('Persistent storage preparation failed'));
+      storageReady = undefined; return;
+    }
     const commandId = typeof value.commandId === 'string' ? value.commandId : undefined;
     if (!commandId || typeof value.type !== 'string') return;
     void (async () => {
@@ -68,48 +75,54 @@ export function createRunnerControlBridge(runId: string): RunnerControlBridge | 
           void promise.catch(() => {});
           operations.set(operationId, { digest, promise });
         }
-        let result: unknown;
-        switch (value.type) {
-          case 'environment_files':
-            if (!environmentFiles) throw new Error('Environment files are not ready');
-            result = environmentFiles(value.operation);
-            break;
-          case 'session_start': {
-            if (!controller?.startSessionTurn) throw new Error('The session harness is not ready');
-            const turn = parseAgentsContract('Turn', value.turn);
-            const parsed = parseAgentsContract('SessionEvents', { events: [{ type: 'agent.session.input.message', input: value.input }] });
-            const input = parsed.events[0];
-            if (input?.type !== 'agent.session.input.message') throw new Error('Invalid session input');
-            result = controller.startSessionTurn(turn, input.input, value.settings === undefined ? undefined : parseSessionModelSettings(value.settings));
-            break;
-          }
-          case 'steer':
-            if (!controller) throw new Error('the Codex turn is not ready for steering');
-            if (typeof value.prompt !== 'string' || !value.prompt.trim()) {
-              throw new Error('steer prompt is required');
+        const execute = async () => {
+          let result: unknown;
+          switch (value.type) {
+            case 'checkpoint':
+              if (!controller?.checkpoint) throw new Error('Session checkpoint is unavailable');
+              return controller.checkpoint();
+            case 'environment_files':
+              if (!environmentFiles) throw new Error('Environment files are not ready');
+              result = environmentFiles(value.operation);
+              break;
+            case 'session_start': {
+              if (!controller?.startSessionTurn) throw new Error('The session harness is not ready');
+              const turn = parseAgentsContract('Turn', value.turn);
+              const parsed = parseAgentsContract('SessionEvents', { events: [{ type: 'agent.session.input.message', input: value.input }] });
+              const input = parsed.events[0];
+              if (input?.type !== 'agent.session.input.message') throw new Error('Invalid session input');
+              result = controller.startSessionTurn(turn, input.input, value.settings === undefined ? undefined : parseSessionModelSettings(value.settings));
+              break;
             }
-            await controller.steer(value.prompt, value.input === undefined ? undefined : parseAgentsContract('SessionEvents', { events: [{ type: 'agent.session.input.message', input: value.input }] }).events.flatMap((event) => event.type === 'agent.session.input.message' ? event.input : []), requiredRequestId(value.turnId));
-            break;
-          case 'interrupt':
-            if (!controller) throw new Error('the Codex turn is not ready for interruption');
-            await controller.interrupt(requiredRequestId(value.turnId));
-            break;
-          case 'session_items':
-            if (!controller?.sessionItems) throw new Error('Session history is not available');
-            result = controller.sessionItems();
-            break;
-          case 'respond': {
-            const requestId = requiredRequestId(value.requestId);
-            const waiter = pending.get(requestId);
-            if (!waiter) throw new Error(`server request ${requestId} is not pending`);
-            waiter.resolve(value.result);
-            pending.delete(requestId);
-            break;
+            case 'steer':
+              if (!controller) throw new Error('the Codex turn is not ready for steering');
+              if (typeof value.prompt !== 'string' || !value.prompt.trim()) {
+                throw new Error('steer prompt is required');
+              }
+              await controller.steer(value.prompt, value.input === undefined ? undefined : parseAgentsContract('SessionEvents', { events: [{ type: 'agent.session.input.message', input: value.input }] }).events.flatMap((event) => event.type === 'agent.session.input.message' ? event.input : []), requiredRequestId(value.turnId));
+              break;
+            case 'interrupt':
+              if (!controller) throw new Error('the Codex turn is not ready for interruption');
+              await controller.interrupt(requiredRequestId(value.turnId));
+              break;
+            case 'session_items':
+              if (!controller?.sessionItems) throw new Error('Session history is not available');
+              result = controller.sessionItems();
+              break;
+            case 'respond': {
+              const requestId = requiredRequestId(value.requestId);
+              const waiter = pending.get(requestId);
+              if (!waiter) throw new Error(`server request ${requestId} is not pending`);
+              waiter.resolve(value.result);
+              pending.delete(requestId);
+              break;
+            }
+            default:
+              throw new Error(`unsupported control command ${value.type}`);
           }
-          default:
-            throw new Error(`unsupported control command ${value.type}`);
-        }
-        result = await result;
+          return await result;
+        };
+        const result = await (value.type === 'checkpoint' || value.type === 'session_items' ? execute() : admission.run(execute));
         resolveOperation?.(result);
         commandResult(commandId, result);
       } catch (error) {
@@ -129,6 +142,7 @@ export function createRunnerControlBridge(runId: string): RunnerControlBridge | 
       waiter.reject(new Error('agent control channel closed before the request was answered'));
     }
     pending.clear();
+    storageReady?.reject(new Error('Storage control channel closed')); storageReady = undefined;
     operations.clear();
     controller = undefined;
   };
@@ -166,6 +180,12 @@ export function createRunnerControlBridge(runId: string): RunnerControlBridge | 
   return {
     hooks,
     setEnvironmentFiles: (files) => { environmentFiles = files; },
+    prepareStorage: () => new Promise<void>((resolve, reject) => {
+      if (closed || storageReady) { reject(new Error('Storage preparation is unavailable')); return; }
+      const timer = setTimeout(() => { storageReady = undefined; reject(new Error('Storage preparation timed out')); }, 30_000);
+      storageReady = { resolve: () => { clearTimeout(timer); resolve(); }, reject: error => { clearTimeout(timer); reject(error); } };
+      send({ type: 'prepare-storage' });
+    }),
     close,
   };
 }

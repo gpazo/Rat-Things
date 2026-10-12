@@ -17,7 +17,7 @@ export async function runAgentsCli(argv: string[]): Promise<boolean> {
   } });
   const [operation = 'list', id, childId, nestedId] = positionals;
   if (values.help) {
-    process.stdout.write('rat-things agents create|list|get|update|delete [ID] [--file request.json]\nrat-things sessions create|list|get|update|delete|send|cancel|items|turns|artifacts|events|traces [ID]\nrat-things environments get|connect ENVIRONMENT_ID\nrat-things environments templates create|list|get|update|delete [ID] [--file request.json]\nrat-things vaults create|list|get|delete [ID] [--file request.json]\nrat-things sessions artifacts SESSION_ID [ARTIFACT_ID]\nrat-things sessions artifact-content|artifact-delete SESSION_ID ARTIFACT_ID [--output PATH]\nrat-things files create --file PATH [--purpose user_data]\nrat-things files list|get|delete|content [ID] [--output PATH]\nUse --api-url with agents_api_base_url and --region with the deployment AWS region.\nSession creation accepts --model MODEL --input TEXT, --agent-id ID, --stream, or a standard JSON request file.\n');
+    process.stdout.write('rat-things agents create|list|get|update|delete [ID] [--file request.json]\nrat-things sessions create|list|get|update|delete|fork|lineage|send|cancel|items|turns|artifacts|events|traces [ID]\nrat-things environments get|connect ENVIRONMENT_ID\nrat-things environments templates create|list|get|update|delete [ID] [--file request.json]\nrat-things vaults create|list|get|delete [ID] [--file request.json]\nrat-things sessions artifacts SESSION_ID [ARTIFACT_ID]\nrat-things sessions artifact-content|artifact-delete SESSION_ID ARTIFACT_ID [--output PATH]\nrat-things files create --file PATH [--purpose user_data]\nrat-things files list|get|delete|content [ID] [--output PATH]\nUse --api-url with agents_api_base_url and --region with the deployment AWS region.\nSession creation accepts --model MODEL --input TEXT, --agent-id ID, --stream, or a standard JSON request file.\n');
     return true;
   }
   const baseURL = values['api-url'] ?? process.env.RAT_THINGS_AGENTS_API_URL ?? process.env.RAT_THINGS_API_URL;
@@ -66,6 +66,8 @@ export async function runAgentsCli(argv: string[]): Promise<boolean> {
       else json(await agents.sessions.create({ ...input, stream: false }));
     } else if (operation === 'list') json(await agents.sessions.list(parseAgentsContract('SessionList', { ...query, ...(values['agent-id'] ? { agent_id: values['agent-id'] } : {}) })));
     else if (operation === 'get') json(await agents.sessions.retrieve(requiredId()));
+    else if (operation === 'fork') json(await client.post(`/agents/sessions/${encodeURIComponent(requiredId())}/fork`, { body }));
+    else if (operation === 'lineage') json(await client.get(`/agents/sessions/${encodeURIComponent(requiredId())}/lineage`));
     else if (operation === 'update') json(await agents.sessions.update(requiredId(), parseAgentsContract('SessionUpdate', body)));
     else if (operation === 'delete') json(await agents.sessions.delete(requiredId()));
     else if (operation === 'traces') {

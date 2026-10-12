@@ -4,23 +4,31 @@ import { bindSessionTurn, initialSessionRuntime, reduceSessionRuntime, resolveSe
 import type { CodexAppServerRequest } from './codex-app-server.js';
 import { sandboxPolicyFor } from './codex-app-server.js';
 import type { SessionModelSettings } from '../domain/session-execution.js';
+import { checkpointWorkspace, type WorkspaceHandoffPorts } from './workspace-handoff.js';
+
+export type SessionCheckpointOptions = Omit<WorkspaceHandoffPorts, 'inspectIdle' | 'shutdownNative' | 'settle' | 'commit'> & {
+  commit(state: SessionRuntimeState): ReturnType<WorkspaceHandoffPorts['commit']>;
+};
 
 type ToolResult = Extract<AgentSessionInputParam, { type: 'agent.session.input.tool_result' }>;
 interface PendingFunction { nativeTurnId: string; threadId: string; callId: string; resolve(value: unknown): void; reject(error: Error): void }
 
 /** One native harness stays alive across root turns and background subagent work. */
 export class SessionRuntime {
-  private readonly rpc: Pick<CodexRpcClient, 'initialize' | 'call' | 'close'>;
+  private readonly rpc: Pick<CodexRpcClient, 'initialize' | 'call' | 'close'> & Partial<Pick<CodexRpcClient, 'closeCheckpoint'>>;
   private state: SessionRuntimeState | undefined;
   private readonly requests = new Map<string, PendingFunction>();
   private readonly started = new Map<string, Promise<void>>();
   private readonly operations = new Map<string, { digest: string; promise: Promise<void> }>();
   private readonly earlyEvents: CodexRpcEvent[] = [];
   private readonly childEvents: CodexRpcEvent[] = [];
+  private readonly inheritedNativeTurns = new Set<string>();
   private starting = false;
   private startingTurn: Turn | undefined;
   private closed = false;
   private expired = false;
+  private checkpointing = false;
+  private checkpointFailure: unknown;
   private idleTimer: ReturnType<typeof setTimeout> | undefined;
   private lifetimeTimer: ReturnType<typeof setTimeout> | undefined;
   public readonly finished: Promise<void>;
@@ -33,7 +41,12 @@ export class SessionRuntime {
     idleTimeoutMs?: number;
     /** Trusted host policy: dedicated workers terminate on authority loss or closure. */
     lifetime?: 'bounded' | 'host-managed';
-    client?: (options: ConstructorParameters<typeof CodexRpcClient>[0]) => Pick<CodexRpcClient, 'initialize' | 'call' | 'close'>;
+    checkpoint?: SessionCheckpointOptions;
+    requiredResumeThreadId?: string;
+    fork?: { rootThreadId: string; lastNativeTurnId: string | null };
+    /** A replacement's accepted first Turn is busy even before native admission starts. */
+    initialTurnId?: string;
+    client?: (options: ConstructorParameters<typeof CodexRpcClient>[0]) => Pick<CodexRpcClient, 'initialize' | 'call' | 'close'> & Partial<Pick<CodexRpcClient, 'closeCheckpoint'>>;
   }) {
     this.finished = new Promise<void>((resolve) => { this.finish = resolve; });
     const request = options.request;
@@ -51,6 +64,76 @@ export class SessionRuntime {
   }
 
   public sandboxExpired(): boolean { return this.expired; }
+  public assertSuccessfulShutdown(): void { if (this.checkpointFailure) throw this.checkpointFailure; }
+
+  public async checkpoint(): Promise<unknown> {
+    const ports = this.options.checkpoint;
+    if (!ports || !this.state || this.closed || this.checkpointing) throw new Error('Session checkpoint is unavailable');
+    // Set synchronously so a native disconnect cannot finish the Run during shutdown.
+    this.checkpointing = true;
+    let transitionStarted = false;
+    let threadIds: string[] = [];
+    try {
+      return await checkpointWorkspace({ ...ports,
+        inspectIdle: async () => {
+          const idle = Boolean(this.state) && (!this.options.initialTurnId || this.started.has(this.options.initialTurnId)) && !this.starting && !this.requests.size
+            && !this.state!.requiredActions.length && !this.state!.turns.some(binding => !terminal(binding.turn));
+          // Empty native threads may never materialize a rollout. Reject these before
+          // beginning shutdown so we cannot publish an unresumable checkpoint.
+          if (idle) await this.checkPersistedHistory(this.state!.rootThreadId);
+          return { idle, threadIds: [this.state!.rootThreadId] };
+        },
+        begin: async () => {
+          transitionStarted = true;
+          clearTimeout(this.idleTimer); clearTimeout(this.lifetimeTimer);
+          await ports.begin();
+        },
+        shutdownNative: async () => {
+          const loaded = async () => {
+            const ids: string[] = [];
+            let cursor: string | undefined;
+            const cursors = new Set<string>();
+            do {
+              const page = await this.rpc.call('thread/loaded/list', { limit: 100, ...(cursor ? { cursor } : {}) });
+              if (!record(page) || !Array.isArray(page.data) || page.data.some(id => typeof id !== 'string') || ids.length + page.data.length > 1000
+                || page.nextCursor != null && typeof page.nextCursor !== 'string') throw new Error('Invalid native thread list');
+              ids.push(...page.data as string[]);
+              cursor = page.nextCursor as string | undefined;
+              if (cursor && cursors.has(cursor)) throw new Error('Native thread pagination repeated');
+              if (cursor) cursors.add(cursor);
+            } while (cursor);
+            return [...new Set(ids)];
+          };
+          threadIds = await loaded();
+          if (!threadIds.includes(this.state!.rootThreadId)) throw new Error('Root thread is not loaded');
+          // Stop descendants before the root so parent shutdown cannot hide a failed child flush.
+          for (const threadId of [...threadIds.filter(id => id !== this.state!.rootThreadId), this.state!.rootThreadId]) {
+            const result = await this.rpc.call('thread/checkpoint', { threadId }, 35_000);
+            if (!record(result) || result.threadId !== threadId || result.flushed !== true) throw new Error('Native thread checkpoint was not acknowledged');
+            await this.checkPersistedHistory(threadId);
+          }
+          if ((await loaded()).some(id => !threadIds.includes(id))) throw new Error('Native threads changed during checkpoint shutdown');
+          if (!this.rpc.closeCheckpoint) throw new Error('Native checkpoint shutdown is unsupported');
+          await this.rpc.closeCheckpoint();
+          this.disconnected();
+          // Every loaded thread was checked above; the outer barrier identifies the root.
+          return { threadIds: [this.state!.rootThreadId], flushed: true, forced: false };
+        },
+        commit: () => ports.commit(this.snapshot()),
+        settle: () => {},
+      });
+    } catch (error) { if (transitionStarted) this.checkpointFailure = error; throw error; }
+    finally {
+      if (transitionStarted) await this.close();
+      this.checkpointing = false;
+      if (this.closed) this.finish();
+    }
+  }
+
+  private async checkPersistedHistory(threadId: string): Promise<void> {
+    const history = await this.rpc.call('thread/turns/list', { threadId, limit: 1, itemsView: 'summary' });
+    if (!record(history) || !Array.isArray(history.data)) throw new Error('Native checkpoint history is unavailable');
+  }
 
   public async initialize(): Promise<SessionRuntimeState> {
     const request = this.options.request;
@@ -72,19 +155,32 @@ export class SessionRuntime {
     };
     let resumed = false;
     let thread: unknown;
-    const resumeThreadId = this.options.previous?.rootThreadId ?? request.resumeThreadId;
-    if (resumeThreadId) {
+    const resumeThreadId = this.options.requiredResumeThreadId ?? this.options.previous?.rootThreadId ?? request.resumeThreadId;
+    if (this.options.fork) {
+      if (resumeThreadId) throw new Error('Fork and resume are mutually exclusive');
+      thread = await this.rpc.call('thread/fork', { ...parameters, threadId: this.options.fork.rootThreadId,
+        ...(this.options.fork.lastNativeTurnId ? { lastTurnId: this.options.fork.lastNativeTurnId } : {}), deferGoalContinuation: true });
+      resumed = true;
+    } else if (resumeThreadId) {
       try {
         const { dynamicTools: _tools, environments: _environments, ...resume } = parameters;
         thread = await this.rpc.call('thread/resume', { ...resume, threadId: resumeThreadId });
         resumed = true;
       } catch (error) {
-        if (!(error instanceof CodexRpcError) || !error.missingThread) throw error;
+        if (this.options.requiredResumeThreadId || !(error instanceof CodexRpcError) || !error.missingThread) throw error;
         thread = await this.rpc.call('thread/start', parameters);
       }
     } else thread = await this.rpc.call('thread/start', parameters);
     if (!record(thread) || !record(thread.thread) || typeof thread.thread.id !== 'string') throw new Error('Native session initialization failed');
+    if (this.options.fork && thread.thread.id === this.options.fork.rootThreadId) throw new Error('Native fork reused its source identity');
+    for (const id of this.options.previous?.inheritedNativeTurnIds ?? []) this.inheritedNativeTurns.add(id);
+    if (this.options.fork) {
+      if (this.options.fork.lastNativeTurnId) this.inheritedNativeTurns.add(this.options.fork.lastNativeTurnId);
+      for (const turn of Array.isArray(thread.thread.turns) ? thread.thread.turns : []) if (record(turn) && typeof turn.id === 'string') this.inheritedNativeTurns.add(turn.id);
+    }
+    if (this.options.requiredResumeThreadId && thread.thread.id !== this.options.requiredResumeThreadId) throw new Error('Native checkpoint resumed a different thread');
     this.state = initialSessionRuntime(this.options.sessionId, this.options.agentId, thread.thread.id);
+    if (this.inheritedNativeTurns.size) this.state = { ...this.state, inheritedNativeTurnIds: [...this.inheritedNativeTurns] };
     if (this.options.previous) {
       const previous = stoppedSessionRuntime(this.options.previous, this.now());
       this.state = {
@@ -96,7 +192,13 @@ export class SessionRuntime {
       turns: previous.turns.map((binding) => ({ ...binding, threadId: binding.turn.subagent_id === null ? this.state!.rootThreadId : binding.threadId })),
       };
     }
-    for (const event of this.earlyEvents.splice(0)) this.event(event);
+    // Native fork hydration emits inherited usage/history notifications. Those
+    // belong to the source's public history, not newly executed child Turns.
+    const early = this.earlyEvents.splice(0);
+    for (const event of early) {
+      if (this.options.fork) this.inheritForkUsage(event);
+      else this.event(event);
+    }
     if (!resumed && request.recoveryItems?.length) await this.rpc.call('thread/inject_items', { threadId: this.state.rootThreadId, items: request.recoveryItems });
     this.publish();
     await this.ready();
@@ -113,7 +215,7 @@ export class SessionRuntime {
     if (existing) return existing;
     // Pre-admission rejection has no native effect and must remain retryable.
     // Cache only attempts that cross the native boundary, including ambiguity.
-    if (!this.state || this.closed) return Promise.reject(new Error('Session runtime is unavailable'));
+    if (!this.state || this.closed || this.checkpointing) return Promise.reject(new Error('Session runtime is unavailable'));
     if (rootTurnBusy(this.state, this.starting)) return Promise.reject(new Error('The root agent already has an active turn'));
     const promise = this.startTurn(turn, input, this.state.rootThreadId, settings);
     this.started.set(turn.id, promise);
@@ -178,6 +280,7 @@ export class SessionRuntime {
         await this.cancel(turnId);
       },
       sessionItems: async () => root()?.items ?? [],
+      ...(this.options.checkpoint ? { checkpoint: () => this.checkpoint() } : {}),
     });
   }
 
@@ -208,6 +311,7 @@ export class SessionRuntime {
   }
 
   private binding(turnId: string) {
+    if (this.closed || this.checkpointing) throw new Error('Session runtime is unavailable');
     const binding = this.state?.turns.find((binding) => binding.turn.id === turnId);
     if (!binding) throw new Error('Turn does not belong to this session runtime');
     return binding;
@@ -215,6 +319,10 @@ export class SessionRuntime {
 
   private event(event: CodexRpcEvent): void {
     if (!this.state) { this.earlyEvents.push(event); return; }
+    const nativeTurn = record(event.params.turn) ? event.params.turn.id : event.params.turnId;
+    // Hydration notifications can arrive after thread/fork returns, even while
+    // the first child Turn is being started. Never bind a source Turn to it.
+    if (typeof nativeTurn === 'string' && this.inheritedNativeTurns.has(nativeTurn)) { this.inheritForkUsage(event); return; }
     // Only declared function requests become application-required actions.
     if (event.requestId !== undefined && !this.declaredFunction(event)) return;
     void Promise.resolve(this.options.request.onEvent?.(event)).catch(() => this.close());
@@ -244,6 +352,12 @@ export class SessionRuntime {
       } else index++;
     }
     this.publish();
+  }
+
+  private inheritForkUsage(event: CodexRpcEvent): void {
+    if (event.method !== 'thread/tokenUsage/updated' || !this.state || this.state.threadUsage?.[this.state.rootThreadId]) return;
+    const inherited = reduceSessionRuntime(this.state, { ...event, observedAt: this.now() });
+    if (inherited.threadUsage) this.state = { ...this.state, threadUsage: inherited.threadUsage };
   }
 
   private declaredFunction(event: CodexRpcEvent): boolean {
@@ -287,7 +401,7 @@ export class SessionRuntime {
     }
     for (const request of this.requests.values()) request.reject(new Error('Session runtime closed'));
     this.requests.clear();
-    this.finish();
+    if (!this.checkpointing) this.finish();
   }
   private now() { return this.options.now?.() ?? Math.floor(Date.now() / 1000); }
   private publish() {

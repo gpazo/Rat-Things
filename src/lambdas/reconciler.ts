@@ -125,6 +125,7 @@ async function reconcileAttachedRun(run: RunRecord): Promise<void> {
   const outcome = await activeRuns.reconcile(run);
   const metric = {
     active: 'ExecutionVerifiedActive',
+    suspended: 'ExecutionSuspended',
     failed: 'ExecutionLost',
     cancelled: 'CancellationFinalized',
     'stop-requested': 'CancellationStopRequested',

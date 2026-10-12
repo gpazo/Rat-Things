@@ -649,3 +649,14 @@ variable "environment_relay_origin_certificate_arn" {
   type        = string
   default     = null
 }
+
+variable "session_checkpoints_enabled" {
+  description = "Enable durable Session checkpoints and managed Session forks. Requires the matching native runtime and S3 Files."
+  type        = bool
+  default     = false
+
+  validation {
+    condition     = !var.session_checkpoints_enabled || var.enable_s3_files
+    error_message = "Session checkpoints require S3 Files persistent storage."
+  }
+}

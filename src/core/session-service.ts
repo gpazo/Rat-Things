@@ -11,6 +11,8 @@ import { cancelledStartTurn, cursorPage, initialMessages, observeSession, ordere
 import { planSessionPreparation, preparationTools, requireActivePreparation, type SessionPreparation } from './session-preparation-planning.js';
 import { planSessionStream, type SessionStreamSnapshot } from './session-stream.js';
 import { sessionEventBatchId, type SessionEventBatch } from './session-event-store.js';
+import { planSessionFork, requireSessionMutable } from './session-fork-planning.js';
+import type { SessionFork } from '../domain/session-fork.js';
 
 export interface SessionServiceOptions {
   store: AgentsStore;
@@ -100,6 +102,72 @@ export class SessionService {
     return { ...page, first_id: page.data[0]?.id ?? null, last_id: page.data.at(-1)?.id ?? null };
   }
 
+  public async lineage(ownerId: string, id: string) {
+    const fork = (await this.required(ownerId, id)).value.fork;
+    return { forked_from: fork ? { session_id: fork.sourceSessionId, turn_id: fork.checkpoint.lastRootTurnId, created_at: fork.createdAt } : null };
+  }
+
+  public async fork(ownerId: string, sourceId: string, raw: unknown = {}): Promise<AgentSession> {
+    const resource = await this.required(ownerId, sourceId);
+    requireSessionMutable(resource.value, this.clock.now());
+    const observation = await this.observe(ownerId, resource.value);
+    const input = planSessionFork(observation.session, raw);
+    if (!observation.turns.some(entry => entry.turn.subagent_id === null && terminalTurn(entry.turn))) invalid('Complete a root Turn before forking this Session', 'session_id');
+    if (!this.options.execution.prepareFork) throw new AgentsApiError(503, 'Session forks are not configured.', 'fork_unavailable');
+    const now = this.clock.now();
+    const id = this.ids.next('sess');
+    const placement = resource.value.placement ?? 'microvm';
+    await this.replace(resource, { ...resource.value, forkLock: { id, expiresAt: now + 300 } });
+    let fork: SessionFork | undefined;
+    let committed = false;
+    let commitAttempted = false;
+    try {
+      // Credentials are prepared against a durable child identity before any secret creation.
+      const preparation: SessionPreparation = { agent: observation.session.agent, placement, now, deadline: now + 300,
+        requestDigest: hash(canonicalJson([sourceId, input])), inheritedTools: [] };
+      await this.options.store.put({ ownerId, id, collection: 'session_preparations', createdAt: now, revision: 1, value: preparation }, 0);
+      const prepared = await this.options.execution.prepareFork(ownerId, id, observation.session, input.network, input.vaultIds, placement);
+      fork = { ...prepared.fork, createdAt: now, history: [...resource.value.fork?.history ?? [], ...await this.allItems(ownerId, resource.value)] };
+      const latest = observation.turns.filter(entry => entry.turn.subagent_id === null).at(-1)?.turn;
+      if (fork.checkpoint.lastRootTurnId !== (latest?.id ?? null)) throw new AgentsApiError(409, 'Source changed during checkpoint preparation.', 'session_busy');
+      const session: AgentSession = { id, object: 'agent.session', agent: observation.session.agent, created_at: now, last_active_at: now,
+        environment: prepared.environment, error: null, metadata: input.metadata, status: 'idle', required_actions: [], usage: null, vault_ids: input.vaultIds };
+      const empty: SessionState = { session, placement, fork, turns: [], receipts: {}, deletedArtifacts: [] };
+      const messages = initialMessages(input.input);
+      const state = messages.length ? this.plan(empty, { session, turns: [] }, [{ type: 'agent.session.input.message', input: messages }], 'initial') : empty;
+      const current = await this.required(ownerId, sourceId);
+      if (current.value.forkLock?.id !== id || current.value.forkLock.expiresAt <= this.clock.now()) throw new AgentsApiError(409, 'Fork preparation expired.', 'session_busy');
+      const preparedResource = await this.options.store.get<SessionPreparation>(ownerId, 'session_preparations', id) ?? resourceNotFound();
+      requireActivePreparation(preparedResource.value, this.clock.now());
+      commitAttempted = true;
+      await this.options.store.commit([
+        { resource: { ownerId, id, collection: 'sessions', createdAt: now, revision: 1, value: state }, expectedRevision: 0 },
+        { resource: { ...current, revision: current.revision + 1 }, expectedRevision: current.revision },
+        { resource: { ...preparedResource, revision: preparedResource.revision + 1, value: { ...preparedResource.value, created: true } }, expectedRevision: preparedResource.revision },
+      ]);
+      committed = true;
+      return session;
+    } catch (error) {
+      const winner = await this.options.store.get<SessionState>(ownerId, 'sessions', id).catch(() => {
+        // An ambiguous successful commit may already have dispatched the child.
+        // Keep its lease intact until a subsequent read or expiry resolves it.
+        committed = commitAttempted;
+        return undefined;
+      });
+      if (winner) { committed = true; return winner.value.session; }
+      throw error;
+    } finally {
+      if (!committed) {
+        if (fork) await this.options.execution.releaseFork?.(ownerId, fork).catch(() => {});
+        const current = await this.options.store.get<SessionState>(ownerId, 'sessions', sourceId);
+        if (current && current.value.forkLock?.id === id) {
+          const { forkLock: _lock, ...value } = current.value;
+          await this.replace(current, value).catch(() => {});
+        }
+      }
+    }
+  }
+
   public async retrieve(ownerId: string, id: string): Promise<AgentSession> {
     return (await this.observe(ownerId, (await this.required(ownerId, id)).value)).session;
   }
@@ -169,6 +237,7 @@ export class SessionService {
     const input = parseAgentsContract('SessionUpdate', raw);
     validateAgentMetadata(input.metadata);
     const resource = await this.required(ownerId, id);
+    requireSessionMutable(resource.value, this.clock.now());
     const observation = await this.observe(ownerId, resource.value);
     const session = {
       ...observation.session,
@@ -196,7 +265,11 @@ export class SessionService {
   }
 
   public async delete(ownerId: string, id: string): Promise<AgentSessionDeleted> {
-    const resource = await this.required(ownerId, id);
+    let resource = await this.required(ownerId, id);
+    if (!resource.value.closing) {
+      requireSessionMutable(resource.value, this.clock.now());
+      resource = await this.replace(resource, { ...resource.value, closing: true });
+    }
     // Closing the whole harness also revokes queued input. It must remain possible
     // when a Turn never reached the worker or the observation channel is unavailable.
     if (this.options.execution.close) await this.options.execution.close(ownerId, resource.value.session);
@@ -217,6 +290,7 @@ export class SessionService {
     const digest = hash(canonicalJson(events));
     for (let attempt = 0; attempt < 10; attempt++) {
       const resource = await this.required(ownerId, id);
+      requireSessionMutable(resource.value, this.clock.now());
       const previous = resource.value.receipts[key];
       if (previous) {
         if (previous.digest !== digest) throw new AgentsApiError(409, 'This Idempotency-Key was used with different events.', 'idempotency_conflict');
@@ -262,7 +336,7 @@ export class SessionService {
   /** Called by the durable outbox consumer. Every command is retryable with the same identity. */
   public async dispatch(ownerId: string, id: string): Promise<void> {
     let resource = await this.options.store.get<SessionState>(ownerId, 'sessions', id);
-    if (!resource) return;
+    if (!resource || resource.value.closing) return;
     await this.options.execution.initialize?.(ownerId, resource.value.session, resource.value.placement ?? 'microvm');
     for (const [key, receipt] of Object.entries(resource.value.receipts)) {
       if (receipt.dispatched) continue;
@@ -282,7 +356,7 @@ export class SessionService {
               } : previous) });
             } else {
               const preceding = resource.value.turns.slice(0, resource.value.turns.findIndex(({ turn }) => turn.id === command.turnId));
-              const history = await this.allItems(ownerId, { ...resource.value, turns: preceding });
+              const history = [...resource.value.fork?.history ?? [], ...await this.allItems(ownerId, { ...resource.value, turns: preceding })];
               await this.options.execution.start(ownerId, session, { ...binding, input: command.input }, history, resource.value.placement ?? 'microvm');
             }
             break;

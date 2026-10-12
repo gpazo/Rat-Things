@@ -352,5 +352,17 @@
     "/v1/agents/sessions/{session_id}/traces",
     "TraceList",
     "Trace[]"
+  ],
+  [
+    "POST",
+    "/v1/agents/sessions/{session_id}/fork",
+    "SessionFork",
+    "Session"
+  ],
+  [
+    "GET",
+    "/v1/agents/sessions/{session_id}/lineage",
+    null,
+    "SessionLineage"
   ]
 ]

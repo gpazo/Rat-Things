@@ -29,6 +29,21 @@ execution environment can expire or become unavailable; that does not remove
 already saved Items. An unavailable environment may prevent continued execution.
 Inspect the Session and Turn errors instead of assuming the harness is still live.
 
+## Explore a different direction
+
+A fork starts a new Session from an idle source's latest terminal root Turn. The
+child retains conversation context and receives an independent copy of the
+workspace. Its public history starts fresh and its lineage points back to the
+source. Deleting either Session does not delete the other's files or recovery
+history. Choosing a preferred child is an application decision; it does not merge
+changes back into the source.
+
+Forking a live source checkpoints it and stops its worker. The next source input
+resumes its conversation and files. This path requires opt-in checkpoints with
+persistent S3 Files storage; automatic idle checkpoint policies remain separate.
+See [fork semantics](agents-api.md#fork-a-session) and try the
+[two-theme demo](session-fork-demo.md).
+
 ## Invariants
 
 - The authenticated principal owns the Session. Input cannot select another owner.

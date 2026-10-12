@@ -11,6 +11,19 @@ import { planPreparationReconciliation, requireActivePreparation, type SessionPr
 
 /** Separate public MCP settings from confidential transports before saving a session. */
 export class SessionToolService {
+  /** Rehydrate only confidential inline transports; prepare() creates child-owned references. */
+  public async forkTools(ownerId: string, source: import('../domain/agents-api.js').AgentSession): Promise<import('../domain/agents-api.js').AgentToolParam[]> {
+    const saved = await this.options.store.get<import('../domain/session-execution.js').SessionMcpBinding[]>(ownerId, 'session_tools', source.id);
+    return Promise.all(source.agent.tools.map(async tool => {
+      if (tool.type !== 'mcp') return tool;
+      const binding = saved?.value.find(entry => entry.serverLabel === tool.server_label);
+      const confidential = binding?.inlineReference ? await this.options.secrets.readTool?.(binding.inlineReference, { ownerId, sessionId: source.id, serverLabel: tool.server_label }) : undefined;
+      if (binding?.inlineReference && !confidential) throw new Error('Source tool credentials are unavailable');
+      return { ...tool, transport: tool.transport.type === 'http'
+        ? { ...tool.transport, headers: confidential?.headers ?? {} }
+        : { ...tool.transport, env: confidential?.env ?? {} } };
+    }));
+  }
   public constructor(private readonly options: { store: AgentsStore; secrets: SessionToolSecrets; vaults: Pick<VaultService, 'resolve' | 'requireVaults'> & Partial<Pick<VaultService, 'environmentSnapshot'>>; clock?: AgentsClock }) {}
 
   public async prepare(ownerId: string, sessionId: string, agent: AgentSession['agent'], tools: AgentToolParam[], vaultIds: string[], resumePreparation = false, hosted?: HostedCredentialPolicy): Promise<void> {

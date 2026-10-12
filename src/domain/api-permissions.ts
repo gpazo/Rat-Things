@@ -26,6 +26,7 @@ export function requireRoutePermission(principal: ApiPrincipal, method: string, 
     requireAnyScope(principal, ['api.traces.read', 'api.agents.read']);
     return;
   }
+  if (method === 'POST' && parts[1] === 'agents' && parts[2] === 'sessions' && parts[4] === 'fork' && parts.length === 5) requireAnyScope(principal, ['api.agents.read']);
   if (parts[1] === 'models') {
     requireAnyScope(principal, ['api.agents.read']);
     return;

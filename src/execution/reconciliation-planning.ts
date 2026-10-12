@@ -1,7 +1,8 @@
 import type { ExecutionLivenessObservation, ExecutionReference, RunError, RunRecord } from '../domain/contracts.js';
 
 export type ExecutionInspection =
-  | { kind: 'active' }
+  | { kind: 'active'; lastResumedAt?: string }
+  | { kind: 'suspended' }
   | { kind: 'inactive'; reason: string }
   | { kind: 'terminal'; reason: string }
   | { kind: 'absent'; reason: string }
@@ -10,6 +11,7 @@ export type ExecutionInspection =
 
 export type ExecutionReconciliationOutcome =
   | 'active'
+  | 'suspended'
   | 'failed'
   | 'cancelled'
   | 'stop-requested'
@@ -25,6 +27,7 @@ export type ReconciliationTarget =
 
 export type LivenessDecision =
   | { kind: 'observe'; outcome: 'active'; consecutiveUncertain: 0 }
+  | { kind: 'observe'; outcome: 'suspended'; consecutiveUncertain: 0 }
   | { kind: 'observe'; outcome: 'conflict' | 'unknown'; consecutiveUncertain: number; reason: string };
 
 export type ReconciliationDecision =
@@ -61,6 +64,7 @@ export function reconciliationDecision(
       ? { kind: 'cancel' }
       : { kind: 'stop', reason: 'reconciler finalized a stale cancellation' };
   }
+  if (inspection.kind === 'suspended') return { kind: 'observe', outcome: 'suspended', consecutiveUncertain: 0 };
   if (inspection.kind === 'active' && heartbeatAgeMs >= 3_600_000) return {
     kind: 'expire', error: { code: 'execution_lost', message: 'Worker keep-alives stopped for one hour', retryable: true },
   };
@@ -74,7 +78,7 @@ export function livenessObservation(
   checkedAt: string,
   quarantineAfter?: number,
 ): ExecutionLivenessObservation {
-  if (decision.outcome === 'active') return { checkedAt, outcome: 'active', consecutiveUncertain: 0 };
+  if (decision.outcome === 'active' || decision.outcome === 'suspended') return { checkedAt, outcome: decision.outcome, consecutiveUncertain: 0 };
   const threshold = Math.max(1, quarantineAfter ?? 3);
   return {
     checkedAt,
@@ -83,6 +87,16 @@ export function livenessObservation(
     reason: boundedReason(decision.reason),
     ...(decision.consecutiveUncertain >= threshold ? { quarantinedAt: checkedAt } : {}),
   };
+}
+
+/** A frozen worker cannot heartbeat; its trusted resume hook starts a fresh grace period. */
+export function executionHeartbeatAge(heartbeatAt: string, inspection: ExecutionInspection, checkedAt: string): number {
+  const checked = Date.parse(checkedAt);
+  const resumed = inspection.kind === 'active' && inspection.lastResumedAt ? Date.parse(inspection.lastResumedAt) : NaN;
+  // Ignore malformed/future evidence instead of letting it disable expiry indefinitely.
+  const baseline = Number.isFinite(resumed) && resumed <= checked
+    ? Math.max(Date.parse(heartbeatAt), resumed) : Date.parse(heartbeatAt);
+  return Math.max(0, checked - baseline);
 }
 
 function boundedReason(value: string): string {

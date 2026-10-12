@@ -12,6 +12,7 @@ import { hostedCodexArguments, hostedProcessEnvironment } from './hosted-environ
 import type { SessionEnvironmentCredentialsRuntime } from './session-environment-credentials.js';
 import type { ManagedSandboxGeneration } from '../core/managed-environment-planning.js';
 import { resetPersistentWorkspace } from './workspace.js';
+import { workspaceDigests, type WorkspaceCheckpoint } from '../domain/workspace-checkpoint.js';
 
 /** Map a private persistent directory to the standard workspace path before guest code starts. */
 export async function bindHostedWorkspace(workspace: string, visible = '/workspace'): Promise<void> {
@@ -29,12 +30,22 @@ export async function prepareHostedEnvironment(options: {
   launch: SessionLaunch; workspace: string; plan: CodexLaunchPlan;
   artifacts: Pick<ArtifactStore, 'getBytes'>; signal?: AbortSignal;
   stateDirectory: string; previouslyPrepared?: boolean;
+  /** Trusted host receipt, supplied only after the durable single-use claim succeeds. */
+  adoptedCheckpoint?: WorkspaceCheckpoint;
+  /** Independent copied content; policy was narrowed and credentials rebound by preparation. */
+  forkSetupDigest?: string;
   credentials?: SessionEnvironmentCredentialsRuntime;
   afterWorkspaceReset?: () => Promise<void>;
 }): Promise<{ launch: SessionLaunch; sandbox?: ManagedSandboxGeneration }> {
   const { launch, workspace, plan, artifacts, signal } = options;
   if (launch.environment.type !== 'openai_hosted' || !launch.hostedConfiguration) return { launch };
   const configuration = launch.hostedConfiguration;
+  const adopted = options.adoptedCheckpoint;
+  if (options.forkSetupDigest && options.forkSetupDigest !== workspaceDigests(launch).setupDigest) throw new Error('Fork setup does not match its snapshot');
+  if (adopted) {
+    const digests = workspaceDigests(launch);
+    if (adopted.setupDigest !== digests.setupDigest || adopted.policyDigest !== digests.policyDigest || !adopted.sandboxId) throw new Error('Workspace checkpoint is incompatible');
+  }
   const roots = [...launch.environment.capability_directories];
   const inline = [
     ...(configuration.plugins ?? []).map((plugin) => ({ ...plugin, kind: 'plugin' as const })),
@@ -58,9 +69,10 @@ export async function prepareHostedEnvironment(options: {
   const markerState = await lstat(marker).catch((error: NodeJS.ErrnoException) => { if (error.code === 'ENOENT') return undefined; throw error; });
   if (markerState && (!markerState.isFile() || markerState.isSymbolicLink() || markerState.uid !== stateDirectory.uid || (markerState.mode & 0o077) !== 0 || markerState.nlink !== 1)) throw new Error('Managed setup state is invalid');
   const previous = markerState ? hostedSetupMarker(await readFile(marker, 'utf8')) : undefined;
+  if (adopted && previous && previous.sandbox.id !== adopted.sandboxId) throw new Error('Local sandbox does not match the adopted checkpoint');
   if (previous?.digest === digest) return { launch: result, sandbox: previous.sandbox };
   if (previous !== undefined) throw new Error('A managed environment cannot change its setup configuration');
-  const sandbox: ManagedSandboxGeneration = { id: randomUUID(), replaced: options.previouslyPrepared ?? false };
+  const sandbox: ManagedSandboxGeneration = adopted ? { id: adopted.sandboxId, replaced: false } : { id: randomUUID(), replaced: options.previouslyPrepared ?? false };
   if (sandbox.replaced) {
     const directory = await lstat(workspace);
     if (!directory.isDirectory() || directory.isSymbolicLink()) throw new Error('Managed workspace is invalid');
@@ -74,6 +86,12 @@ export async function prepareHostedEnvironment(options: {
   if (system.length) {
     const installed = await runProcess('dnf', ['install', '-y', '--setopt=gpgcheck=1', '--', ...system], { cwd: '/', env: { PATH: process.env.PATH, LANG: 'C.UTF-8' }, timeoutMs: 600_000, ...(signal ? { signal } : {}) });
     if (installed.exitCode !== 0) throw new Error('System package installation failed');
+  }
+  if (adopted || options.forkSetupDigest) {
+    // Workspace packages, setup output and capabilities belong to the checkpoint.
+    // Only system packages above were lost with the previous root filesystem.
+    await writeFile(marker, JSON.stringify({ digest, sandbox }), { flag: 'wx', mode: 0o600 });
+    return { launch: result, sandbox };
   }
   for (const file of configuration.files ?? []) {
     const reference = launch.hostedFiles?.find((candidate) => candidate.path === file.path)?.content;
@@ -91,7 +109,8 @@ export async function prepareHostedEnvironment(options: {
   commands.push(...(configuration.setup_commands ?? []).map((setup) => ({ command: ['bash', '-c', setup.command], cwd: setup.cwd ?? '/workspace' })));
   if (commands.length) {
     const rpc = new CodexRpcClient({ binary: plan.binary, binaryArguments: hostedCodexArguments(plan.binaryArguments, launch.environment.network, Boolean(options.credentials)), cwd: workspace,
-      environment: { PATH: plan.environment.PATH, HOME: plan.environment.HOME, CODEX_HOME: plan.environment.CODEX_HOME, CODEX_API_KEY: 'setup-without-inference', ...options.credentials?.processEnvironment },
+      environment: { PATH: plan.environment.PATH, HOME: plan.environment.HOME, CODEX_HOME: plan.environment.CODEX_HOME,
+        CODEX_SQLITE_HOME: plan.environment.CODEX_SQLITE_HOME, CODEX_API_KEY: 'setup-without-inference', ...options.credentials?.processEnvironment },
       ...(plan.identity ? { identity: plan.identity } : {}), ...(signal ? { signal } : {}),
     });
     try {

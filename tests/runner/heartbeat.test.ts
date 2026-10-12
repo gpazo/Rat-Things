@@ -78,4 +78,47 @@ describe('execution heartbeat', () => {
     expect(onError).toHaveBeenCalledOnce();
     expect(heartbeatExecution).toHaveBeenCalledTimes(2);
   });
+
+  it('recovers from thawed socket errors and resets the bounded failure budget on success', async () => {
+    vi.useFakeTimers();
+    const disconnected = Object.assign(new Error('write ECONNABORTED'), { code: 'ECONNABORTED' });
+    const heartbeatExecution = vi.fn().mockRejectedValueOnce(disconnected).mockRejectedValueOnce(disconnected)
+      .mockResolvedValueOnce(true).mockRejectedValueOnce(disconnected).mockRejectedValueOnce(disconnected).mockResolvedValue(true);
+    const onAuthorityLost = vi.fn();
+    const heartbeat = new ExecutionHeartbeat({ store: { heartbeatExecution }, runId: 'run-1', execution,
+      intervalMs: 10, maxConsecutiveErrors: 3, onAuthorityLost });
+    heartbeat.start();
+    await vi.advanceTimersByTimeAsync(60);
+    await heartbeat.stop();
+    expect(heartbeatExecution).toHaveBeenCalledTimes(6);
+    expect(onAuthorityLost).not.toHaveBeenCalled();
+  });
+
+  it('fails closed and stops refreshing after the configured consecutive error budget', async () => {
+    vi.useFakeTimers();
+    const heartbeatExecution = vi.fn().mockRejectedValue(new Error('storage unavailable'));
+    const onAuthorityLost = vi.fn();
+    const heartbeat = new ExecutionHeartbeat({ store: { heartbeatExecution }, runId: 'run-1', execution,
+      intervalMs: 10, maxConsecutiveErrors: 3, onAuthorityLost });
+    heartbeat.start();
+    await vi.advanceTimersByTimeAsync(20);
+    expect(onAuthorityLost).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(100);
+    await heartbeat.stop();
+    expect(heartbeatExecution).toHaveBeenCalledTimes(3);
+    expect(onAuthorityLost).toHaveBeenCalledOnce();
+  });
+
+  it('does not retry confirmed authority loss even with an error budget', async () => {
+    vi.useFakeTimers();
+    const heartbeatExecution = vi.fn().mockResolvedValue(false);
+    const onAuthorityLost = vi.fn();
+    const heartbeat = new ExecutionHeartbeat({ store: { heartbeatExecution }, runId: 'run-1', execution,
+      intervalMs: 10, maxConsecutiveErrors: 3, onAuthorityLost });
+    heartbeat.start();
+    await vi.advanceTimersByTimeAsync(100);
+    await heartbeat.stop();
+    expect(heartbeatExecution).toHaveBeenCalledOnce();
+    expect(onAuthorityLost).toHaveBeenCalledOnce();
+  });
 });

@@ -26,9 +26,10 @@ repository code share UID 10001 and can read the active file, so this is an expl
 for trusted agents—not an untrusted-tenant boundary. A run reads its input from encrypted S3 after
 the MicroVM receives fresh run-time credentials.
 
-After a private Session worker exits, the lifecycle server launches the separately
-bundled `terminate-microvm.mjs`. A Session harness remains available for additional
-Turns through authenticated control. Native state belongs to the Session runtime
+A Session harness remains available for additional Turns through authenticated
+control. With checkpointing enabled, any exit of that worker launches the separately
+bundled `terminate-microvm.mjs`, including failed handoffs; replacement requires a new
+worker generation. Native state belongs to the Session runtime
 journal. When S3 Files is enabled, `sessionStorageKey` selects the same owner-and-Session
 hashed directory across replacements; `SESSION_STATE_ROOT` supplies its workspace
 and Codex home. Hosted sandbox replacement clears workspace contents while retaining
@@ -37,9 +38,25 @@ the native conversation checkpoint. Keep the existing hash and filesystem root s
 Lifecycle endpoints listen on port 8080 under
 `/aws/lambda-microvms/runtime/v1/{ready,validate,run,resume,suspend,terminate}`.
 AWS invokes these hooks, including storage synchronization on suspend and mount
-validation on resume. The retired endpoint that posted another Run into a
+validation on resume. Before acknowledging resume, the supervisor records the
+active Run's resume timestamp and includes it in the generation-checked health
+response. Reconciliation measures keep-alive age from the later of that timestamp
+and the durable heartbeat. A suspended VM is inspected through AWS state without
+a proxy request. Deploy the lifecycle image and reconciler together for this
+resume protection; older images do not supply resume evidence. Environment keep-alives retry
+transient storage failures after thawing, but stop after three consecutive failures or immediately
+on confirmed loss of environment authority.
+The retired endpoint that posted another Run into a
 conversation MicroVM is removed. Current private control routes operate on the
 exact supervised harness and accept Session Turn input.
+
+With `session_checkpoints_enabled`, the private `checkpoint` route seals Session input and live
+file operations, obtains explicit native persistence acknowledgements, stops guest writers,
+drains the journal and strictly syncs S3 Files before committing a handoff. Native process exit
+alone is insufficient. Replacement workers defer even host-side workspace preparation until
+they have consumed the handoff or bound a fresh execution generation. The flag defaults to false
+and requires S3 Files plus the matching patched native artifact. It does not schedule idle
+hibernation or expose worker ingress to guests or applications.
 
 Individual MicroVMs are launched by the dispatcher and have a bounded service
 lifetime. Saved Session history and artifacts outlive compute. An idle policy

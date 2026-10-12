@@ -157,7 +157,7 @@ export interface ExecutionReference {
   startedAt?: string;
 }
 
-export type ExecutionLivenessOutcome = 'active' | 'conflict' | 'unknown';
+export type ExecutionLivenessOutcome = 'active' | 'suspended' | 'conflict' | 'unknown';
 
 /** Internal repair evidence. This is intentionally absent from public Run projections. */
 export interface ExecutionLivenessObservation {

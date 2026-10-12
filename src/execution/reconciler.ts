@@ -7,6 +7,7 @@ import type {
 } from '../domain/contracts.js';
 import {
   livenessObservation,
+  executionHeartbeatAge,
   reconciliationDecision,
   reconciliationTarget,
   type ExecutionInspection,
@@ -56,7 +57,7 @@ export class ActiveRunReconciler {
     const { execution, heartbeatAt } = target;
     const inspection = await this.options.inspector.inspect(run.runId, execution);
     const checkedAt = inspection.kind === 'active' && run.status !== 'cancelling' ? this.now() : undefined;
-    const decision = reconciliationDecision(run, inspection, checkedAt ? Date.parse(checkedAt) - Date.parse(heartbeatAt) : 0);
+    const decision = reconciliationDecision(run, inspection, checkedAt ? executionHeartbeatAge(heartbeatAt, inspection, checkedAt) : 0);
     switch (decision.kind) {
       case 'observe': {
         const observation = livenessObservation(decision, checkedAt ?? this.now(), this.options.quarantineAfter);
@@ -67,7 +68,7 @@ export class ActiveRunReconciler {
           observation,
         );
         if (!retained) return 'raced';
-        if (observation.outcome === 'active') return 'active';
+        if (observation.outcome === 'active' || observation.outcome === 'suspended') return observation.outcome;
         return observation.quarantinedAt ? 'quarantined' : 'deferred';
       }
       case 'cancel':

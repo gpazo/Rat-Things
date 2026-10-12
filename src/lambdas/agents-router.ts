@@ -154,6 +154,12 @@ async function routeSession(request: Request, principal: ApiPrincipal, parts: st
     if (method === 'POST') return json(200, await sessions.update(ownerId, id, await requestBody(request)), requestId);
     if (method === 'DELETE') return json(200, await sessions.delete(ownerId, id), requestId);
   }
+  if (id && collection === 'fork' && parts.length === 2 && method === 'POST') {
+    const body = await requestBody(request);
+    requireInferencePermission(principal, body, 'create');
+    return json(201, await sessions.fork(ownerId, id, body), requestId);
+  }
+  if (id && collection === 'lineage' && parts.length === 2 && method === 'GET') return json(200, await sessions.lineage(ownerId, id), requestId);
   if (id && collection === 'traces' && parts.length === 2 && method === 'GET') return json(200, await sessions.traces(ownerId, id, query()), requestId);
   if (id && collection === 'events' && !childId) {
     if (method === 'POST') {

@@ -164,6 +164,9 @@ export class MicrovmExecutionInspector implements ExecutionInspector {
     if (microvm.state === 'TERMINATED' || microvm.state === 'TERMINATING') {
       return { kind: 'terminal', reason: `the attached MicroVM is ${microvm.state.toLowerCase()}` };
     }
+    // Describing a suspended VM must not mint a proxy token or wake it just to
+    // inspect liveness. Cancellation still acts on the attached AWS identity.
+    if (microvm.state === 'SUSPENDED' || microvm.state === 'SUSPENDING') return { kind: 'suspended' };
     if (microvm.state !== 'RUNNING' || !microvm.endpoint) {
       return {
         kind: 'unknown',
@@ -209,7 +212,10 @@ export class MicrovmExecutionInspector implements ExecutionInspector {
       ) {
         return { kind: 'conflict', reason: 'the MicroVM health identity does not match the Run attachment' };
       }
-      return { kind: 'active' };
+      if (body.lastResumedAt !== undefined && (typeof body.lastResumedAt !== 'string' || !Number.isFinite(Date.parse(body.lastResumedAt)))) {
+        return { kind: 'unknown', reason: 'MicroVM health returned invalid resume evidence' };
+      }
+      return { kind: 'active', ...(typeof body.lastResumedAt === 'string' ? { lastResumedAt: body.lastResumedAt } : {}) };
     } catch (error) {
       return { kind: 'unknown', reason: `MicroVM health probe failed: ${safeError(error)}` };
     }
@@ -219,6 +225,10 @@ export class MicrovmExecutionInspector implements ExecutionInspector {
 export class MicrovmAgentInteractionController implements AgentInteractionController {
   public constructor(private readonly client: LambdaMicrovmsClient,
     private readonly ec2Request?: (target: AgentInteractionTarget, request: ExecutionCommandRequest) => Promise<unknown>) {}
+
+  public checkpoint(target: AgentInteractionTarget): Promise<unknown> {
+    return this.request(target, `/agent-runtime/v1/runs/${encodeURIComponent(target.runId)}/checkpoint`, 'POST', {});
+  }
 
   public environmentFiles(target: AgentInteractionTarget, operation: import('../core/environment-file-ports.js').EnvironmentFileOperation): Promise<unknown> {
     return this.request(target, `/agent-runtime/v1/runs/${encodeURIComponent(target.runId)}/environment-files`, 'POST', operation);
@@ -379,6 +389,7 @@ export function workerOptionsFromEnv(onStartupObservation?: (observation: Microv
       sessionIdleSeconds: Number(process.env.MICROVM_SESSION_IDLE_SECONDS ?? 1_200),
       sessionSuspendedSeconds: Number(process.env.MICROVM_SESSION_SUSPENDED_SECONDS ?? 21_600),
       heartbeatIntervalMs: Number(process.env.RUN_HEARTBEAT_INTERVAL_MS ?? 15_000),
+      sessionCheckpointsEnabled: process.env.SESSION_CHECKPOINTS_ENABLED === 'true',
       ...(onStartupObservation ? { onStartupObservation } : {}),
       ...(s3Files ? { s3Files } : {}),
     };

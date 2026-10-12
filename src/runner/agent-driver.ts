@@ -45,7 +45,8 @@ export interface AgentDriverControl {
   sessionEnvironmentToken?: string;
   sessionMcp?: import('./session-mcp.js').SessionMcpRuntime;
   sessionEnvironmentCredentials?: import('./session-environment-credentials.js').SessionEnvironmentCredentialsRuntime;
-  sessionRuntime?: { previous?: SessionRuntimeState; lifetime?: 'bounded' | 'host-managed'; changed(state: SessionRuntimeState): void; flush(): Promise<void> };
+  sessionRuntime?: { previous?: SessionRuntimeState; lifetime?: 'bounded' | 'host-managed'; changed(state: SessionRuntimeState): void; flush(): Promise<void>;
+    requiredResumeThreadId?: string; checkpoint?: import('./session-runtime.js').SessionCheckpointOptions };
   dynamicTools?: Array<Record<string, unknown>>;
   onEvent?(event: CodexAppServerEvent): void | Promise<void>;
   onServerRequest?(request: CodexAppServerInitiatedRequest): unknown | Promise<unknown>;
@@ -88,7 +89,11 @@ export class CodexDriver implements AgentDriver {
     };
     if (control?.sessionRuntime && control.session) {
       const runtime = new SessionRuntime({ sessionId: control.session.sessionId, agentId: control.session.agent.id,
+        ...(control.session.fork ? { fork: control.session.fork.checkpoint } : {}),
         request: launch, changed: control.sessionRuntime.changed,
+        ...(control.session.turn ? { initialTurnId: control.session.turn.id } : {}),
+        ...(control.sessionRuntime.requiredResumeThreadId ? { requiredResumeThreadId: control.sessionRuntime.requiredResumeThreadId } : {}),
+        ...(control.sessionRuntime.checkpoint ? { checkpoint: control.sessionRuntime.checkpoint } : {}),
         ...(control.sessionRuntime.lifetime ? { lifetime: control.sessionRuntime.lifetime } : {}),
         ...(control.sessionRuntime.previous ? { previous: control.sessionRuntime.previous } : {}),
       });
@@ -97,6 +102,7 @@ export class CodexDriver implements AgentDriver {
         await runtime.initialize();
         if (control.session.turn) await runtime.start(control.session.turn, control.session.input);
         await runtime.finished;
+        runtime.assertSuccessfulShutdown();
         await control.sessionRuntime.flush();
         const snapshot = runtime.snapshot();
         const roots = snapshot.turns.filter((binding) => binding.turn.subagent_id === null);

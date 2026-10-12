@@ -145,6 +145,22 @@ resource "aws_s3_bucket_lifecycle_configuration" "conversation_state" {
 
   bucket = aws_s3_bucket.conversation_state[0].id
 
+  # Fork staging is needed only during bounded child bootstrap. Mutable child
+  # roots and encrypted recovery history have separate lifetimes.
+  rule {
+    id     = "expire-fork-staging"
+    status = "Enabled"
+    filter {
+      prefix = "runtime/conversations/fork-snapshots/"
+    }
+    expiration {
+      days = 7
+    }
+    noncurrent_version_expiration {
+      noncurrent_days = 7
+    }
+  }
+
   rule {
     id     = "abort-incomplete-uploads"
     status = "Enabled"

@@ -29,7 +29,7 @@ export function validExecutionCommand(target: ExecutionCommandTarget, request: E
   if (!request.path.startsWith(prefix)) return false;
   const suffix = request.path.slice(prefix.length);
   if (request.method === 'GET') return suffix === 'health' || /^events\?after=\d+&limit=\d+$/.test(suffix);
-  return ['environment-files', 'session-start', 'steer', 'interrupt'].includes(suffix)
+  return ['environment-files', 'session-start', 'steer', 'interrupt', 'checkpoint'].includes(suffix)
     || /^requests\/[A-Za-z0-9_%.-]+\/respond$/.test(suffix);
 }
 

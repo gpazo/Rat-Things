@@ -1,5 +1,6 @@
 module "agent_runner" {
-  source = "./modules/agent-runner"
+  session_checkpoints_enabled = var.session_checkpoints_enabled
+  source                      = "./modules/agent-runner"
 
   name_prefix                              = var.name_prefix
   environment                              = var.environment

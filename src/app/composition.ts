@@ -25,6 +25,9 @@ import {
   requiredEnv,
 } from '../adapters/executors.js';
 import { SessionRuntimeStore } from '../core/session-runtime-store.js';
+import { WorkspaceHandoffService } from '../core/workspace-handoff-service.js';
+import { workspaceSourceStopped } from '../adapters/workspace-source-stopped.js';
+import { isTerminal } from '../domain/state.js';
 import { AgentsApiError } from '../domain/agents-api-validation.js';
 import { FileService } from '../core/file-service.js';
 import { SkillService } from '../core/skill-service.js';
@@ -137,6 +140,9 @@ export function getAgentsApiServices() {
       base.clients.secrets, requiredEnv('INTEGRATION_CREDENTIAL_NAME_PREFIX'), requiredEnv('INTEGRATION_CREDENTIAL_KMS_KEY_ARN'),
     ) }),
     environments: new EnvironmentService({ store, credentials: environmentCredentials, templates, uploadedFiles: files, skills, fileContent: (owner, id) => files.bytes(owner, id),
+      ...(process.env.SESSION_CHECKPOINTS_ENABLED === 'true' ? { handoffs: new WorkspaceHandoffService({ store, enabled: true,
+        runEnded: async id => { const run = await new DynamoRunStore(base.clients.dynamodb, requiredEnv('RUNS_TABLE_NAME')).get(id); return Boolean(run && isTerminal(run.status)); },
+        sourceStopped: workspaceSourceStopped(id => new DynamoRunStore(base.clients.dynamodb, requiredEnv('RUNS_TABLE_NAME')).get(id), requiredEnv('AWS_REGION')) }) } : {}),
       managedFiles: async (ownerId, sessionId, operation) => {
         const runtime = await new SessionRuntimeStore(store).get(ownerId, sessionId);
         if (!runtime || runtime.value.closed) throw new AgentsApiError(503, 'The environment is unavailable.', 'environment_unavailable');
@@ -153,6 +159,7 @@ export function getAgentsApiServices() {
         execution: new RunSessionExecution({
           store,
           placement: sessionPlacementFromEnv(process.env),
+          ...(process.env.SESSION_CHECKPOINTS_ENABLED === 'true' ? { handoffs: new WorkspaceHandoffService({ store, enabled: true }) } : {}),
           runs: getRunService(true), interaction: getAgentInteractionController(),
           artifacts: base.artifacts, vaults: this.vaults, environments: this.environments,
           tools: this.tools,

@@ -100,6 +100,113 @@
         "SessionCreate": {
           "$ref": "#/definitions/SessionCreateParams"
         },
+        "SessionFork": {
+          "type": "object",
+          "properties": {
+            "metadata": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string"
+                  }
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Up to 16 string key-value pairs, with keys up to 64 and values up to 512 characters. Omission or null defaults to an empty map."
+            },
+            "vault_ids": {
+              "anyOf": [
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The IDs of vaults made available to the session."
+            },
+            "input": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/definitions/AgentSessionInputMessageParam"
+                  }
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Initial input to submit when the session is created. A string is shorthand for a single user message. Required when `environment.type` is `none`, or when `stream` is `true` for an environment that is not `self_hosted`; optional for self-hosted and non-streaming execution environments."
+            },
+            "environment": {
+              "type": "object",
+              "properties": {
+                "network": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/definitions/EnvironmentParam.EnvironmentParamOpenAIHosted.Network"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "Network access policy for the environment. Defaults to disabled for GA requests and enabled for alpha/beta requests."
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        },
+        "SessionLineage": {
+          "type": "object",
+          "properties": {
+            "forked_from": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "session_id": {
+                      "type": "string"
+                    },
+                    "turn_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "created_at": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "session_id",
+                    "turn_id",
+                    "created_at"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "forked_from"
+          ],
+          "additionalProperties": false
+        },
         "SessionUpdate": {
           "$ref": "#/definitions/SessionUpdateParams"
         },
@@ -218,6 +325,8 @@
         "AgentDeleted",
         "Session",
         "SessionCreate",
+        "SessionFork",
+        "SessionLineage",
         "SessionUpdate",
         "SessionList",
         "SessionDeleted",

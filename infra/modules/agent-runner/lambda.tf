@@ -9,6 +9,7 @@ locals {
   )
 
   lambda_common_environment = merge({
+    SESSION_CHECKPOINTS_ENABLED         = tostring(var.session_checkpoints_enabled)
     ALLOWED_REPOSITORY_HOSTS            = join(",", var.allowed_repository_hosts)
     ALLOWED_SANDBOX_MODES               = join(",", var.allowed_sandbox_modes)
     DEFAULT_SANDBOX_MODE                = var.default_sandbox_mode

@@ -538,3 +538,9 @@ variable "ec2_worker_prepared_ami" {
   default     = false
   description = "Use an explicitly selected prepared AMI and forbid package installation, registry login, and image pulls during boot."
 }
+
+variable "session_checkpoints_enabled" {
+  description = "Enable durable Session checkpoints and managed Session forks. Requires the matching native runtime and S3 Files."
+  type        = bool
+  default     = false
+}

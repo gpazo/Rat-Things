@@ -21,16 +21,21 @@ import type { SessionIntegrationState } from '../domain/session-integrations.js'
 import type { AgentsStore } from '../core/agents-ports.js';
 import { runtimeSubagents, stoppedSessionRuntime } from '../core/session-runtime-planning.js';
 import { sessionModelSettings, terminalTurn } from '../core/session-planning.js';
+import type { WorkspaceHandoffService } from '../core/workspace-handoff-service.js';
+import type { StoredEnvironment } from '../core/environment-service.js';
+import type { SessionFork } from '../domain/session-fork.js';
+import type { SessionState } from '../core/session-ports.js';
 
 /** AWS execution is private implementation machinery; public clients see sessions and turns. */
 export class RunSessionExecution implements SessionExecution {
   private readonly runtime: SessionRuntimeStore;
   public constructor(private readonly options: {
     runs: Pick<RunService, 'get' | 'submit' | 'idFor' | 'cancel'>;
-    interaction: Pick<AgentInteractionController, 'startSessionTurn' | 'events' | 'steer' | 'interrupt' | 'respond'>;
+    interaction: Pick<AgentInteractionController, 'checkpoint' | 'startSessionTurn' | 'events' | 'steer' | 'interrupt' | 'respond'>;
     artifacts: Pick<ArtifactStore, 'getJson' | 'putJson' | 'getBytes' | 'getStream'>; vaults: Pick<VaultService, 'requireVaults'>;
-    environments: Pick<EnvironmentService, 'prepare' | 'state' | 'retire' | 'launchReference' | 'managedLaunch' | 'attachManaged'>;
-    tools: Pick<SessionToolService, 'prepare' | 'launch' | 'close'> & Partial<Pick<SessionToolService, 'environmentLaunch'>>;
+    environments: Pick<EnvironmentService, 'prepare' | 'state' | 'retire' | 'launchReference' | 'managedLaunch' | 'attachManaged'> & Partial<Pick<EnvironmentService, 'prepareFork'>>;
+    tools: Pick<SessionToolService, 'prepare' | 'launch' | 'close'> & Partial<Pick<SessionToolService, 'environmentLaunch' | 'forkTools'>>;
+    handoffs?: WorkspaceHandoffService;
     store: AgentsStore;
     placement?: SessionPlacementPolicy;
   }) { this.runtime = new SessionRuntimeStore(options.store); }
@@ -39,6 +44,46 @@ export class RunSessionExecution implements SessionExecution {
     const backend = selectSessionBackend(this.options.placement, ownerId, savedAgentId);
     requireSessionBackend(this.options.placement, backend);
     return backend;
+  }
+
+  public async prepareFork(owner: string, id: string, source: AgentSession, network: Extract<AgentSession['environment'], { type: 'openai_hosted' }>['network'], vaultIds: string[], placement: ExecutionBackend) {
+    requireSessionBackend(this.options.placement, placement);
+    const handoffs = this.options.handoffs;
+    if (!handoffs || !this.options.environments.prepareFork || !this.options.tools.forkTools) throw new AgentsApiError(503, 'Session forks require checkpoint-enabled persistent storage.', 'fork_unavailable');
+    if (source.environment.type !== 'openai_hosted') throw new AgentsApiError(400, 'Forks require a managed environment.', 'invalid_request');
+    if (network.access !== 'enabled' && source.agent.tools.some(tool => tool.type === 'mcp' && tool.transport.type === 'stdio')) throw new AgentsApiError(400, 'Managed stdio MCP requires enabled network access.', 'invalid_request');
+    const environmentId = source.environment.id;
+    await this.options.vaults.requireVaults(owner, vaultIds);
+    const tools = await this.options.tools.forkTools(owner, source);
+    const read = async () => (await this.options.store.get<StoredEnvironment>(owner, 'environments', environmentId))?.value ?? resourceNotFound();
+    let stored = await read();
+    if (stored.handoff?.phase !== 'committed') {
+      const runtime = await this.runtime.get(owner, source.id);
+      const run = runtime && !runtime.value.closed ? await this.options.runs.get(owner, runtime.value.runId) : undefined;
+      if (!run?.execution || run.status !== 'running' || !this.options.interaction.checkpoint) throw new AgentsApiError(409, 'Wait for the source environment to become ready before forking.', 'session_busy');
+      try { await this.options.interaction.checkpoint({ runId: run.runId, execution: run.execution }); }
+      catch (error) { if ((await read()).handoff?.phase !== 'committed') throw error; }
+      stored = await read();
+    }
+    if (stored.handoff?.phase !== 'committed' || stored.retired) throw new AgentsApiError(409, 'Source checkpoint is unavailable.', 'session_busy');
+    const checkpoint = stored.handoff.checkpoint;
+    const reservation = await handoffs.leaseSnapshot(owner, environmentId, checkpoint.id, 300);
+    let environment: AgentSession['environment'] | undefined;
+    try {
+      environment = await this.options.environments.prepareFork(owner, id, environmentId, network);
+      if (environment.type !== 'openai_hosted') throw new Error('Invalid fork environment');
+      await this.options.tools.prepare(owner, id, source.agent, tools, vaultIds, false, { environmentId: environment.id, network,
+        env: (await this.options.environments.managedLaunch(owner, environment.id)).hostedConfiguration?.env ?? {} });
+      return { environment, fork: { sourceSessionId: source.id, sourceEnvironmentId: environmentId, checkpoint, ...reservation } };
+    } catch (error) {
+      await handoffs.releaseSnapshot(owner, environmentId, checkpoint.id, reservation.lease.id).catch(() => {});
+      if (environment?.type === 'openai_hosted') await this.options.environments.retire(owner, environment.id).catch(() => {});
+      throw error;
+    }
+  }
+
+  public async releaseFork(owner: string, fork: SessionFork): Promise<void> {
+    await this.options.handoffs?.releaseSnapshot(owner, fork.sourceEnvironmentId, fork.checkpoint.id, fork.lease.id);
   }
 
   public async prepare(ownerId: string, sessionId: string, environment: EnvironmentParam, agent: AgentSession['agent'], vaultIds: string[], tools: AgentToolParam[] = [], resumePreparation = false, placement: ExecutionBackend = 'microvm') {
@@ -123,10 +168,13 @@ export class RunSessionExecution implements SessionExecution {
     const existing = await this.runById(ownerId, this.options.runs.idFor(ownerId, this.key(session.id, binding.turn.id)));
     const environmentCredential = session.environment.type === 'self_hosted' ? await this.options.environments.launchReference(ownerId, session.environment.id, existing ? undefined : binding.turn.created_at + 300) : undefined;
     const environmentCredentials = existing?.agentsSession ? undefined : await this.options.tools.environmentLaunch?.(ownerId, session);
+    const savedFork = (await this.options.store.get<SessionState>(ownerId, 'sessions', session.id))?.value.fork;
+    const forkLaunch = savedFork ? (({ history: _history, ...fork }) => fork)(savedFork) : undefined;
     const launch: SessionLaunch = existing?.agentsSession ? await this.options.artifacts.getJson(existing.agentsSession.launch) : {
       sessionId: session.id, turnId: binding.turn.id, ...(bootstrap ? {} : { turn: binding.turn }),
       agent: binding.modelSettings ? { ...session.agent, ...binding.modelSettings, reasoning: { ...session.agent.reasoning, ...binding.modelSettings.reasoning } } : session.agent, environment: session.environment,
-      input: binding.input.map(({ role, content }) => ({ role, content })), history,
+      input: binding.input.map(({ role, content }) => ({ role, content })), history: bootstrap ? savedFork?.history ?? history : history,
+      ...(!runtime && forkLaunch ? { fork: forkLaunch } : {}),
       mcp: await this.options.tools.launch(ownerId, session),
       ...(environmentCredentials ? { environmentCredentials } : {}),
       ...(environmentCredential ? { environmentCredential } : {}),

@@ -21,6 +21,7 @@ export type SessionCredentialSecret = SessionToolSecret | SessionEnvironmentSecr
 export type SessionCredentialIdentity = Pick<SessionToolSecret, 'ownerId' | 'sessionId' | 'serverLabel'> | Pick<SessionEnvironmentSecret, 'ownerId' | 'sessionId' | 'environmentId'>;
 
 export interface SessionToolSecrets {
+  readTool?(reference: string, identity: Pick<SessionToolSecret, 'ownerId' | 'sessionId' | 'serverLabel'>): Promise<SessionToolSecret>;
   /** Pure reservation: persist this reference before attempting creation. */
   reference(identity: SessionCredentialIdentity, attemptId: string): string;
   create(secret: SessionCredentialSecret, reference: string): Promise<void>;

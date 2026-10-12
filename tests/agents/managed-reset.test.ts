@@ -1,6 +1,6 @@
 import { expect, it, vi } from 'vitest';
 import { AgentService } from '../../src/core/agent-service.js';
-import { EnvironmentService, type StoredEnvironment } from '../../src/core/environment-service.js';
+import { EnvironmentService, ManagedEnvironmentAuthorityLostError, type StoredEnvironment } from '../../src/core/environment-service.js';
 import { EnvironmentTemplateService } from '../../src/core/environment-template-service.js';
 import { SessionEventStore, type SessionEventBatch } from '../../src/core/session-event-store.js';
 import { SessionService } from '../../src/core/session-service.js';
@@ -64,6 +64,16 @@ it('does not increment again after a committed readiness response is lost', asyn
   await f.environments.managedReady('alice', f.id, 'third', { id: 'sandbox_3', replaced: true });
   expect((await f.events()).flatMap(event => event.type === 'agent.session.environment.reset' ? [event.reset_count] : [])).toEqual([1, 2]);
   expect((await f.store.get<StoredEnvironment>('alice', 'environments', f.id))?.value.resetCount).toBe(2);
+});
+
+it('distinguishes a transient keep-alive failure from a verified successor taking authority', async () => {
+  const f = await fixture();
+  const disconnected = Object.assign(new Error('write ECONNABORTED'), { code: 'ECONNABORTED' });
+  vi.spyOn(f.base, 'get').mockRejectedValueOnce(disconnected);
+  await expect(f.environments.managedStatus('alice', f.id, 'first', 'connected')).rejects.toBe(disconnected);
+  await expect(f.environments.managedStatus('alice', f.id, 'first', 'connected')).resolves.toBeUndefined();
+  await f.environments.attachManaged('alice', f.id, 'second');
+  await expect(f.environments.managedStatus('alice', f.id, 'first', 'connected')).rejects.toBeInstanceOf(ManagedEnvironmentAuthorityLostError);
 });
 
 it('keeps explicit expiry and deletion terminal instead of resetting retired sandboxes', async () => {

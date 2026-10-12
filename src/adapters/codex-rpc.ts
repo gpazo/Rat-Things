@@ -89,7 +89,12 @@ export class CodexRpcClient {
     if (this.closed || this.waiting.size >= 64) return Promise.reject(new Error('Executor protocol client is unavailable'));
     return new Promise((resolve, reject) => {
       const id = ++this.nextId;
-      const timer = setTimeout(() => { this.waiting.delete(id); reject(new Error('Executor protocol request timed out')); }, timeoutMs);
+      const timer = setTimeout(() => {
+        this.waiting.delete(id);
+        // Methods are host-owned; omit parameters and native output from diagnostics.
+        console.error(JSON.stringify({ message: 'Native harness request timed out', method: /^[A-Za-z][A-Za-z0-9/]{0,100}$/.test(method) ? method : 'unknown' }));
+        reject(new Error('Executor protocol request timed out'));
+      }, timeoutMs);
       this.waiting.set(id, { resolve, reject, timer });
       this.child.stdin.write(`${JSON.stringify({ id, method, params })}\n`);
     });
@@ -104,6 +109,23 @@ export class CodexRpcClient {
     this.child.kill('SIGTERM');
     await Promise.race([exited, delay(1000)]);
     if (this.child.exitCode === null && this.child.signalCode === null) { this.child.kill('SIGKILL'); await exited; }
+  }
+
+  /** After every thread acknowledged persistence, require a clean process exit as well. */
+  public async closeCheckpoint(): Promise<void> {
+    if (this.closed) throw new Error('Native process closed before checkpoint acknowledgement');
+    this.closed = true;
+    const exited = once(this.child, 'exit');
+    this.child.stdin.end();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<never>((_resolve, reject) => { timer = setTimeout(() => reject(new Error('Native checkpoint exit timed out')), 30_000); });
+    try {
+      const [code, signal] = await Promise.race([exited, timeout]);
+      if (code !== 0 || signal) throw new Error('Native checkpoint exit was not clean');
+    } catch (error) {
+      if (this.child.exitCode === null && this.child.signalCode === null) { this.child.kill('SIGKILL'); await exited.catch(() => {}); }
+      throw error;
+    } finally { clearTimeout(timer); this.reader.close(); }
   }
 }
 

@@ -126,9 +126,8 @@ check "codex_chatgpt_auth_file" {
 
 check "codex_chatgpt_model_catalog" {
   assert {
-    condition = (
+    condition = var.codex_chatgpt_model == null ? true : (
       var.codex_auth_mode != "chatgpt" ||
-      var.codex_chatgpt_model == null ||
       length(var.codex_chatgpt_model_ids) == 0 ||
       contains(var.codex_chatgpt_model_ids, var.codex_chatgpt_model)
     )

@@ -16,6 +16,7 @@ identity, retention, network policy, and operational limits for the environment 
 | Agents and schedules | Reusable standard Agent configurations and AWS schedule inputs | [Agents](agents-api.md), [schedules](schedules.md) |
 | Connections | Provider-verified accounts, host-owned credentials, grants, and account-specific operations | [Integrations](plugins.md) |
 | Capability envelope | A fixed intersection of provider, deployment, profile, account, and Session permissions | [Permissions](capability-envelope.md) |
+| Session forks | Independent managed workspaces and inherited conversation context, with lineage and fresh credentials; opt-in checkpoints required | [Fork semantics](agents-api.md#fork-a-session), [demo](session-fork-demo.md) |
 | Session history | Durable outbox, runtime journal and saved Items in the console and SDK | [Session durability](conversations.md#how-durability-works) |
 | Execution | Private EC2 or MicroVM harness; saved Session history survives worker loss | [Agents execution](agents-api.md) |
 | Files and publications | Private retained bytes, immutable Session artifacts, and expiring file/site/video share grants | [Files](durable-files.md), [publishing](publications.md) |

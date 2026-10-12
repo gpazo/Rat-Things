@@ -195,7 +195,12 @@ between Turns. Closing a stream or completing a Turn does not start an expiry
 timer. After one hour without a durable worker keep-alive, reconciliation fails
 the exact stale execution and stops its verified worker. A concurrent keep-alive
 or replacement prevents that stop; uncertain worker identity remains quarantined
-until it can be verified. Earlier verified worker loss may be retired sooner.
+until it can be verified. Native MicroVM suspension pauses this expiry rule:
+reconciliation observes the suspended worker without waking or quarantining it.
+On resume, the trusted lifecycle timestamp starts a fresh keep-alive grace period.
+The environment may report `disconnected` while frozen because its connection
+lease expires; the next control request can still resume the same worker.
+Earlier verified worker loss may be retired sooner.
 Unexpected worker loss can replace a hosted sandbox on the next Turn. The
 environment ID and conversation remain stable, declared inputs are prepared
 again, and previous sandbox files and processes are lost. The
@@ -311,6 +316,61 @@ The MicroVM service imposes a maximum execution lifetime. Environments and
 harnesses can become unavailable independently of saved Session history. Treat
 environment status and Turn errors as authoritative; retain durable output as
 Artifacts rather than relying on a live workspace indefinitely.
+
+Deployments that enable private Session checkpoints can release an idle managed worker and
+resume it on new compute while retaining workspace files and conversation history. A successful
+checkpoint does not rerun setup commands or increment the environment reset count. System
+packages are installed again because the operating system is new. Unexpected worker loss without
+a valid handoff still resets the workspace and reapplies its declared inputs. Checkpointing is
+host-controlled; there is no public checkpoint endpoint or automatic idle timer.
+
+## Fork a Session
+
+Set `session_checkpoints_enabled = true` with S3 Files configured to enable forks;
+the deployment setting defaults to `false`. Enabled deployments support `POST /v1/agents/sessions/{session_id}/fork`,
+a Rat Things extension returning `201` with the new standard Session object:
+
+```typescript
+const branch = await client.post('/agents/sessions/sess_source/fork', {
+  body: { metadata: { attempt: 'b' }, input: 'Try a different approach.' },
+});
+```
+
+The source must be idle and have a terminal root Turn. Forks use that latest Turn
+and its workspace, including installed workspace packages and setup output. Setup
+commands are not rerun. Only managed environments with persistent S3 Files storage
+support forks. Empty Sessions, older Turn selection, and self-hosted environments
+are not supported.
+
+Forking checkpoints a live source and stops its processes. Its next input resumes
+the same files and conversation on a replacement worker. An already checkpointed
+source stays stopped. While the snapshot is being copied, source mutations return
+`409`; retry after the child environment becomes ready. Child preparation is
+asynchronous, like ordinary managed Session preparation, and can fail if storage
+copying exceeds its limits.
+
+The child receives independent files, a new sandbox and native conversation identity,
+and the source's snapshotted Agent settings. Optional `vault_ids` must be a subset
+of the source's vaults; optional `environment.network` may only narrow network access.
+Credentials are prepared again for the child. Browser profiles, authentication files,
+caches, transient artifacts, and subagent threads are excluded. Each copy is bounded
+to 256 MiB, 50,000 traversal/copy steps, and 90 seconds. Absolute or escaping symbolic
+links, hard-linked files, and special files are rejected. Temporary immutable snapshots expire after
+seven days; the child's files and recovery history are independent of them.
+
+User metadata defaults to an empty object. Public Items and Turns begin empty, while
+the native conversation retains context. Private recovery history survives deletion
+of the source. Read provenance with `GET /v1/agents/sessions/{session_id}/lineage`;
+the result is `{ forked_from: { session_id, turn_id, created_at } }`, or
+`{ forked_from: null }` for an ordinary Session.
+
+Forking requires both `api.agents.read` and `api.agents.write`, plus
+`api.responses.write` when initial input is supplied. The CLI equivalents are
+`rat-things sessions fork SESSION_ID --file fork.json` and
+`rat-things sessions lineage SESSION_ID`.
+
+Try the [two-theme fork demo](session-fork-demo.md) to compare two UI directions,
+discard one child, and continue the other through the same API.
 
 ## Files, skills and artifacts
 

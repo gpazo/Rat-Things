@@ -16,6 +16,8 @@ export interface ExecutionHeartbeatOptions {
   now?: () => Date;
   onAuthorityLost: () => void;
   onError?: (error: unknown) => void;
+  /** Fail closed after bounded consecutive refresh errors, independently of frozen wall time. */
+  maxConsecutiveErrors?: number;
 }
 
 /** Serial, abort-aware heartbeat loop for one exact execution generation. */
@@ -23,6 +25,7 @@ export class ExecutionHeartbeat {
   private timer: NodeJS.Timeout | undefined;
   private inFlight: Promise<void> | undefined;
   private stopped = false;
+  private consecutiveErrors = 0;
 
   public constructor(private readonly options: ExecutionHeartbeatOptions) {
     if (
@@ -31,6 +34,7 @@ export class ExecutionHeartbeat {
       options.intervalMs > 300_000
     ) throw new Error('heartbeat interval is invalid');
     if (!options.execution.generation) throw new Error('execution heartbeat requires a generation');
+    if (options.maxConsecutiveErrors !== undefined && (!Number.isInteger(options.maxConsecutiveErrors) || options.maxConsecutiveErrors < 1)) throw new Error('heartbeat error limit is invalid');
   }
 
   public start(): void {
@@ -65,12 +69,18 @@ export class ExecutionHeartbeat {
         this.options.execution,
         heartbeatAt,
       );
+      this.consecutiveErrors = 0;
       if (!retained) {
         this.stopped = true;
         this.options.onAuthorityLost();
       }
     } catch (error) {
       this.options.onError?.(error);
+      this.consecutiveErrors += 1;
+      if (this.options.maxConsecutiveErrors !== undefined && this.consecutiveErrors >= this.options.maxConsecutiveErrors) {
+        this.stopped = true;
+        this.options.onAuthorityLost();
+      }
     }
   }
 }

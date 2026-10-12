@@ -95,6 +95,9 @@ const server = createServer(async (request, response) => {
         break;
       case 'resume':
         if (persistentStorage) ensureS3FilesMounted(persistentStorage);
+        // Set this before acknowledging resume or serving the next health probe.
+        // The root supervisor owns this evidence; the agent UID cannot reach it.
+        if (activeRun) activeRun.lastResumedAt = new Date().toISOString();
         break;
       case 'suspend':
         syncPersistentStorage();
@@ -195,6 +198,8 @@ function parseRunHook(body) {
     throw new InvalidHookRequest('persistentSession must be a boolean');
   }
   environment.PERSISTENT_SESSION = String(payload.persistentSession);
+  if (payload.sessionCheckpointsEnabled !== undefined && typeof payload.sessionCheckpointsEnabled !== 'boolean') throw new InvalidHookRequest('Invalid checkpoint flag');
+  environment.SESSION_CHECKPOINTS_ENABLED = String(payload.sessionCheckpointsEnabled === true);
   let storage;
   if (payload.persistentSession && payload.s3FilesFileSystemId !== undefined) {
     const storageKey = requiredString(
@@ -290,8 +295,10 @@ function startRun(run) {
     storageAlreadyMounted = mount.alreadyMounted;
     const preparationStartedAt = Date.now();
     const stateRoot = join(run.storage.mountRoot, run.storage.storageKey);
-    prepareSessionState(stateRoot);
-    prepareTransientRunState(stateRoot, run.runId);
+    if (run.environment.SESSION_CHECKPOINTS_ENABLED !== 'true') {
+      prepareSessionState(stateRoot);
+      prepareTransientRunState(stateRoot, run.runId);
+    }
     storagePreparationDurationMs = Date.now() - preparationStartedAt;
     run.environment.SESSION_STATE_ROOT = stateRoot;
     run.environment.CODEX_HOME = join(stateRoot, 'codex-home');
@@ -343,7 +350,9 @@ function startRun(run) {
     rejectControlWaiters(activeRun, new Error('agent runner exited'));
     activeRun = undefined;
     if (run.environment.DEFAULT_EXECUTION_BACKEND === 'ec2') { void shutdown('worker_exit'); }
-    else if (!serviceTerminationRequested && !run.persistentSession) selfTerminate(run);
+    // A checkpoint-enabled process owns a single workspace generation. Once it
+    // exits, replacement must use a new worker, including after failed handoff.
+    else if (!serviceTerminationRequested && (!run.persistentSession || run.environment.SESSION_CHECKPOINTS_ENABLED === 'true')) selfTerminate(run);
   });
 }
 
@@ -355,7 +364,7 @@ function parseControlRoute(rawUrl) {
   if (parts.length < 5) return undefined;
   const runId = parts[3];
   if (!/^[A-Za-z0-9-]{1,128}$/.test(runId)) return undefined;
-  if (parts.length === 5 && ['events', 'health', 'steer', 'interrupt', 'session-start', 'environment-files'].includes(parts[4])) {
+  if (parts.length === 5 && ['events', 'health', 'steer', 'interrupt', 'session-start', 'environment-files', 'checkpoint'].includes(parts[4])) {
     return { runId, operation: parts[4], query: url.searchParams };
   }
   if (parts.length === 7 && parts[4] === 'requests' && parts[6] === 'respond') {
@@ -384,6 +393,7 @@ async function handleControlRequest(request, response, route) {
       generation: run.generation,
       active: true,
       workerConnected: run.child.connected,
+      ...(run.lastResumedAt ? { lastResumedAt: run.lastResumedAt } : {}),
     });
     return;
   }
@@ -417,6 +427,10 @@ async function handleControlRequest(request, response, route) {
   }
   const body = await readJsonBody(request, maximumControlBodyBytes);
   switch (route.operation) {
+    case 'checkpoint':
+      if (run.environment.SESSION_CHECKPOINTS_ENABLED !== 'true') throw new RuntimeConflict('Session checkpoint is disabled');
+      send(response, 200, await sendControlCommand(run, { type: 'checkpoint' }, 120_000));
+      return;
     case 'environment-files':
       send(response, 200, await sendControlCommand(run, { type: 'environment_files', operation: body }));
       return;
@@ -468,6 +482,20 @@ function handleRunnerControlMessage(runId, message) {
     typeof message.type !== 'string'
   ) return;
   switch (message.type) {
+    case 'prepare-storage': {
+      let ok = false;
+      try {
+        if (!run.storage || run.environment.SESSION_CHECKPOINTS_ENABLED !== 'true') throw new Error('Storage preparation is unavailable');
+        if (!run.storagePrepared) {
+          const root = join(run.storage.mountRoot, run.storage.storageKey);
+          prepareSessionState(root); prepareTransientRunState(root, run.runId);
+          run.storagePrepared = true;
+        }
+        ok = true;
+      } catch { log('error', 'Deferred persistent storage preparation failed'); }
+      if (run.child.connected) run.child.send({ channel: controlChannel, runId, type: 'storage-ready', ok });
+      break;
+    }
     case 'event':
       appendControlEvent(run, message.event);
       break;
@@ -544,14 +572,14 @@ function normalizedServerRequest(value) {
   });
 }
 
-function sendControlCommand(run, command) {
+function sendControlCommand(run, command, timeoutMs = controlCommandTimeoutMs) {
   if (!run.child.connected) throw new RuntimeConflict('agent control channel is not connected');
   const commandId = randomUUID();
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
       run.control.commandWaiters.delete(commandId);
       reject(new RuntimeConflict('agent control command timed out'));
-    }, controlCommandTimeoutMs);
+    }, timeoutMs);
     run.control.commandWaiters.set(commandId, { resolve, reject, timer });
     run.child.send(
       { channel: controlChannel, runId: run.runId, commandId, ...command },

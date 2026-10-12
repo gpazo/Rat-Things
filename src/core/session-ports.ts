@@ -20,6 +20,9 @@ export interface SessionTurnBinding {
 }
 
 export interface SessionState {
+  fork?: import('../domain/session-fork.js').SessionFork;
+  forkLock?: { id: string; expiresAt: number };
+  closing?: boolean;
   session: AgentSession;
   placement?: ExecutionBackend;
   turns: SessionTurnBinding[];
@@ -41,6 +44,8 @@ export interface SessionTurnObservation {
 
 /** All execution and environment effects live behind this port. */
 export interface SessionExecution {
+  prepareFork?(ownerId: string, sessionId: string, source: AgentSession, network: Extract<Environment, { type: 'openai_hosted' }>['network'], vaultIds: string[], placement: ExecutionBackend): Promise<{ environment: Environment; fork: Omit<import('../domain/session-fork.js').SessionFork, 'history' | 'createdAt'> }>;
+  releaseFork?(ownerId: string, fork: import('../domain/session-fork.js').SessionFork): Promise<void>;
   placement?(ownerId: string, savedAgentId?: string): ExecutionBackend;
   traceSteps?(ownerId: string, session: AgentSession, turnId: string): Promise<import('../domain/session-traces.js').TraceStep[]>;
   initialize?(ownerId: string, session: AgentSession, placement?: ExecutionBackend): Promise<void>;

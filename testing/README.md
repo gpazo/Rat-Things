@@ -271,3 +271,59 @@ the supplied Agent. The Agent must have the intended model and command-execution
 A soak of 28,000 seconds or more requires this explicit Agent selection and EC2 opt-in;
 merely enabling EC2 no longer selects it. Never run a long soak to test automatic migration:
 no such migration exists.
+
+### MicroVM suspension proof
+
+Against a disposable candidate stack, source its `runtime.env` and run
+`AWS_E2E_SUSPENSION_PROOF=true npm exec -- vitest run tests/aws/session-suspension.test.ts --no-file-parallelism`.
+It also requires `AWS_E2E=true`, `AWS_E2E_REAL_CODEX=true` and
+`AWS_E2E_ENABLE_MICROVM=true`. The test verifies the caller account, deployment execution role,
+Session, Run and generation before suspending its own MicroVM or aging its heartbeat. It requires
+four deployed reconciliations to retain the suspended state, then checks fresh resume evidence,
+a second completed Turn, preserved workspace content and an unchanged native thread. It then
+suspends again and verifies Session deletion releases the worker. It deletes its Agent; fallback termination is logged separately from successful cleanup.
+
+This is an explicit native-suspension and stale-heartbeat fault-injection proof. It does not
+measure the idle-policy timer or claim an hour-long suspension soak. Normal tests skip it.
+
+### Workspace handoff storage proof
+
+Run `tests/aws/workspace-handoff.test.ts` with `AWS_E2E=true`,
+`AWS_E2E_CHECKPOINT_FOUNDATION=true`, `AWS_E2E_CALLER_ACCOUNT` set to the expected account,
+and `AWS_REGION` set to a region other than `us-east-1`. This proof creates its own tagged
+DynamoDB table and encrypted, public-access-blocked S3 bucket; it needs no running stack or
+MicroVM. It races four adoption claims, checks that exactly one succeeds, verifies owner and
+generation fencing, and checks atomic snapshot-record publication and independence from the
+source record. It deletes both resources and saves cleanup evidence under `.aws-e2e/`.
+
+This validates the storage foundation only. It does not run native checkpoint shutdown,
+copy workspace bytes into a snapshot, or replace a real worker.
+
+The separate worker proof requires a disposable deployment with
+`TF_VAR_session_checkpoints_enabled=true` and the matching native artifact. With its generated
+runtime environment loaded, run:
+
+```bash
+AWS_E2E_CHECKPOINT_WORKER=true npx vitest run tests/aws/session-checkpoint.test.ts --maxWorkers=1
+```
+
+The proof checkpoints and replaces the actual worker twice. It checks native thread identity,
+conversation-only context, modified declared inputs, setup execution count, sandbox identity and
+reset count. It then terminates only the fixture's worker without checkpointing to verify that a
+consumed handoff recovers through the ordinary reset path. The explicit AWS, MicroVM and model
+opt-ins remain required. Destroy the disposable stack after the proof.
+
+The fork proof uses the same checkpoint-enabled disposable deployment:
+
+```bash
+AWS_E2E_SESSION_FORK=true npx vitest run tests/aws/session-fork.test.ts --maxWorkers=1
+```
+
+It creates three branches from one prepared workspace, checks conversation context and file
+isolation, verifies setup ran only once, resumes the source, and replaces a child after source
+deletion. The harness terminates only its own workers. Source mutations may return `409` until
+snapshot publication releases the source. Destroy the disposable deployment afterward.
+
+For an interactive two-theme fork workflow, including a no-cloud walkthrough and an
+explicit live mode, see [the Fork studio harness](fork-demo/README.md). Browser checks
+run with the website suite; live validation remains an opt-in operation.

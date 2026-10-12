@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { RunRecord } from '../../src/domain/contracts.js';
 import {
   livenessObservation,
+  executionHeartbeatAge,
   reconciliationDecision,
   reconciliationTarget,
   type ExecutionInspection,
@@ -42,6 +43,25 @@ describe('reconciliation eligibility', () => {
 });
 
 describe('reconciliation decisions', () => {
+  it('clears quarantine on suspension without expiring an old heartbeat, but still permits cancellation', () => {
+    const current = freeze(attached({ liveness: { checkedAt: timestamp, outcome: 'unknown', consecutiveUncertain: 5, quarantinedAt: timestamp } }));
+    const decision = reconciliationDecision(current, { kind: 'suspended' }, 8 * 3_600_000);
+    expect(decision).toEqual({ kind: 'observe', outcome: 'suspended', consecutiveUncertain: 0 });
+    if (decision.kind !== 'observe') throw new Error('expected observation');
+    expect(livenessObservation(decision, timestamp)).toEqual({ checkedAt: timestamp, outcome: 'suspended', consecutiveUncertain: 0 });
+    expect(reconciliationDecision({ ...current, status: 'cancelling' }, { kind: 'suspended' }, 8 * 3_600_000))
+      .toEqual({ kind: 'stop', reason: 'reconciler finalized a stale cancellation' });
+  });
+
+  it.each([
+    ['2026-08-24T21:59:59.000Z', 1_000],
+    ['2026-08-24T20:59:59.000Z', 3_601_000],
+    ['2026-08-24T19:00:00.000Z', 7_200_000],
+    ['2026-08-24T23:00:00.000Z', 7_200_000],
+    ['invalid', 7_200_000],
+  ])('bounds heartbeat age with resume evidence %s', (lastResumedAt, age) => {
+    expect(executionHeartbeatAge('2026-08-24T20:00:00.000Z', { kind: 'active', lastResumedAt }, '2026-08-24T22:00:00.000Z')).toBe(age);
+  });
   it.each(['conflict', 'unknown'] as const)('only retains %s evidence during cancellation, even after repeated uncertainty', kind => {
     const current = freeze(attached({ status: 'cancelling', liveness: { checkedAt: timestamp, outcome: kind, consecutiveUncertain: 2 } }));
     const before = structuredClone(current);

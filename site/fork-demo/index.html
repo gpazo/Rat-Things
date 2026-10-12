@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="description"
+      content="Fork one prepared Session into two design directions. Compare the results, discard one, and keep going with your favorite."
+    />
+    <title>Two paths, one starting point · Rat Things</title>
+    <link rel="icon" href="../favicon.svg" />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header>
+      <a class="brand" href="../">RAT THINGS <span>/ THE FORK STUDIO</span></a
+      ><span id="mode" class="mode"
+        >Interactive walkthrough · no cloud resources</span
+      >
+    </header>
+    <main>
+      <section class="intro">
+        <div>
+          <p class="eyebrow">TRY ANOTHER DIRECTION</p>
+          <h1>One idea.<br /><em>Two possible futures.</em></h1>
+          <p class="lede">
+            Keep the work you've done. Explore two directions.<br />Choose the
+            one worth taking further.
+          </p>
+        </div>
+        <aside class="brief">
+          <span class="label">THE BRIEF</span>
+          <p>
+            A landing page for <strong>Fieldnotes</strong>, a quiet little home
+            for your ideas.
+          </p>
+          <div class="brief-tags">
+            <span>Same files</span><span>Same context</span
+            ><span>Fresh possibilities</span>
+          </div>
+        </aside>
+      </section>
+      <ol class="steps" aria-label="Demo progress">
+        <li data-step="1"><b>01</b> Prepare a starting point</li>
+        <li data-step="2"><b>02</b> Explore both paths</li>
+        <li data-step="3"><b>03</b> Keep your favorite</li>
+      </ol>
+      <section class="workspace" aria-label="Theme comparison">
+        <div class="workspace-bar">
+          <div>
+            <span class="status-dot"></span
+            ><strong id="stage-title">A good place to start</strong>
+          </div>
+          <span id="status" role="status" aria-live="polite"
+            >One prepared workspace. Ready for a new direction.</span
+          >
+        </div>
+        <div id="error" role="alert" hidden></div>
+        <div id="starter" class="starter">
+          <div class="starter-copy">
+            <span class="label">ORIGINAL SESSION</span>
+            <h2>The idea is already here.</h2>
+            <p>
+              Your brief, conversation, and files travel with each fork. Each
+              direction gets its own space to change.
+            </p>
+            <button id="start" class="primary">
+              Prepare the starting point <span>↗</span></button
+            ><button id="fork" class="primary" hidden>
+              Fork into two themes <span>⑂</span>
+            </button>
+            <p class="micro" id="start-note">
+              A hands-on walkthrough with prepared examples.
+            </p>
+          </div>
+          <div class="preview-wrap">
+            <div class="browser-bar">
+              <i></i><i></i><i></i><span>fieldnotes / original</span>
+            </div>
+            <iframe
+              id="source-preview"
+              title="Original Fieldnotes design"
+              sandbox=""
+            ></iframe>
+          </div>
+        </div>
+        <div id="branches" class="branches" hidden></div>
+        <div id="result" class="result" hidden>
+          <div>
+            <span class="label">YOUR CHOSEN DIRECTION</span>
+            <h2 id="result-title"></h2>
+            <p id="result-copy"></p>
+            <code id="session-id" hidden></code>
+          </div>
+          <a id="download" class="primary" download="fieldnotes.html"
+            >Download this design ↗</a
+          >
+        </div>
+      </section>
+      <footer>
+        <p id="explanation">
+          This walkthrough uses prepared designs. Live mode forks real Sessions
+          in your AWS deployment.
+        </p>
+        <div>
+          <a href="../docs/session-fork-demo/">Run it with real Sessions ↗</a
+          ><button id="reset" class="text-button" hidden>Start again</button>
+        </div>
+      </footer>
+    </main>
+    <script type="module" src="app.js"></script>
+  </body>
+</html>

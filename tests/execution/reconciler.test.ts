@@ -78,6 +78,31 @@ function fixture(inspection: ExecutionInspection, overrides: Partial<ActiveRunRe
 }
 
 describe('active Run reconciliation', () => {
+  it('retains a suspended worker across repeated checks without quarantine or termination', async () => {
+    const test = fixture({ kind: 'suspended' }, { now: () => new Date('2026-08-25T00:00:00Z') });
+    let current = run();
+    for (let index = 0; index < 5; index++) {
+      expect(await test.reconciler.reconcile(current)).toBe('suspended');
+      current = { ...current, liveness: test.observation()! };
+    }
+    expect(current.liveness).toEqual({ checkedAt: '2026-08-25T00:00:00.000Z', outcome: 'suspended', consecutiveUncertain: 0 });
+    expect(test.store.failExecution).not.toHaveBeenCalled();
+    expect(test.executions.stop).not.toHaveBeenCalled();
+    test.store.recordLivenessInspection.mockResolvedValueOnce(false);
+    expect(await test.reconciler.reconcile(current)).toBe('raced');
+  });
+
+  it.each([3_599_999, 3_600_000])('expires resumed workers only after their post-resume grace: %i', async age => {
+    const lastResumedAt = '2026-08-25T00:00:00.000Z';
+    const test = fixture({ kind: 'active', lastResumedAt }, { now: () => new Date(Date.parse(lastResumedAt) + age) });
+    expect(await test.reconciler.reconcile(run())).toBe(age < 3_600_000 ? 'active' : 'heartbeat-expired');
+    if (age < 3_600_000) {
+      expect(test.store.failExecution).not.toHaveBeenCalled();
+      expect(test.executions.stop).not.toHaveBeenCalled();
+      expect(test.store.recordLivenessInspection).toHaveBeenCalledWith(run().runId, execution, run().heartbeatAt, expect.any(Object));
+    } else expect(test.store.failExecution).toHaveBeenCalledWith(run().runId, execution, run().heartbeatAt, expect.any(Object));
+  });
+
   it.each([3_599_999, 3_600_000])('bounds verified active workers at heartbeat age %i', async age => {
     const current = { ...run(), execution: { ...execution, backend: 'ec2' as const } };
     const test = fixture({ kind: 'active' }, { now: () => new Date(Date.parse(current.heartbeatAt!) + age) });
@@ -126,6 +151,7 @@ describe('active Run reconciliation', () => {
   describe.each(['dispatching', 'running', 'cancelling'] as const)('%s Run', (status) => {
     it.each([
       { kind: 'active', working: 'active', cancelling: 'stop-requested' },
+      { kind: 'suspended', working: 'suspended', cancelling: 'stop-requested' },
       { kind: 'inactive', working: 'failed', cancelling: 'stop-requested' },
       { kind: 'terminal', working: 'failed', cancelling: 'cancelled' },
       { kind: 'absent', working: 'failed', cancelling: 'cancelled' },
@@ -142,9 +168,9 @@ describe('active Run reconciliation', () => {
       expect(test.store.cancelExecution).toHaveBeenCalledTimes(expected === 'cancelled' ? 1 : 0);
       expect(test.executions.stop).toHaveBeenCalledTimes(expected === 'stop-requested' ? 1 : 0);
       expect(test.store.recordLivenessInspection).toHaveBeenCalledTimes(
-        expected === 'active' || expected === 'deferred' ? 1 : 0,
+        expected === 'active' || expected === 'suspended' || expected === 'deferred' ? 1 : 0,
       );
-      if (expected === 'active' || expected === 'deferred') {
+      if (expected === 'active' || expected === 'suspended' || expected === 'deferred') {
         expect(test.store.recordLivenessInspection).toHaveBeenCalledWith(
           'run-1', execution, run(status).heartbeatAt, expect.objectContaining({ outcome: kind }),
         );

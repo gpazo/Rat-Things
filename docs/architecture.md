@@ -88,16 +88,37 @@ live in encrypted S3. Secret values live in Secrets Manager; stored records cont
 references. The [durability guide](conversations.md) explains Session recovery.
 
 Optional S3 Files storage preserves native Codex journals across replacement workers.
-SQLite databases use a worker-local bind mount so concurrent agents do not share
-database locks through the network filesystem. A replacement worker rebuilds those
-databases while resuming the durable native thread.
-Hosted sandbox replacement clears the old workspace and reapplies declared inputs;
-conversation recovery uses the native checkpoint or saved Items. Its directory key
+SQLite databases, including those used by setup commands, use a worker-local bind
+mount so concurrent agents do not share database locks through the network filesystem.
+A replacement worker rebuilds those databases while resuming the durable native thread.
+Ordinary hosted sandbox replacement clears the old workspace and reapplies declared inputs;
+conversation recovery uses the native journal or saved Items. Its directory key
 hashes the owner and Session ID together. Native thread identity comes from the
 Session runtime journal. The filesystem's historical
 Terraform resource names and `/conversations` access-point root stay unchanged so
 existing Session state remains reachable; they do not imply a second coordination
 service.
+
+The opt-in `session_checkpoints_enabled` deployment setting adds a private host checkpoint
+protocol for idle managed Sessions with S3 Files. The host seals input and file admission,
+requires each loaded native thread to acknowledge persistence shutdown, closes the native
+process, stops remaining guest writers, drains the Session journal and strictly syncs storage.
+Only then does it publish a single-use handoff. A replacement claims that handoff before any
+workspace preparation, verifies the setup and execution authority, and resumes the exact native
+thread. It retains workspace files and sandbox identity without replaying setup commands.
+System packages are reinstalled on the new worker. Failed or ambiguous shutdown cannot publish
+a new handoff. Abandoned or consumed handoffs recover on durable input retry only after the exact
+previous execution is confirmed terminated. Automatic idle hibernation is a separate policy.
+
+Session forks build on explicit checkpointing. The source's Session admission lock and bounded
+snapshot lease prevent new work and deletion during copying. A trusted child worker copies only
+the workspace and root native rollout using directory handles without following symbolic links.
+After syncing and publishing an immutable snapshot, it releases the source and creates a separate
+mutable child root. Child credentials are prepared under the child's identity, and vault and
+network policies may only narrow. Native `thread/fork` receives the captured Turn boundary and
+creates a new root identity. Lineage and private recovery Items belong to the child, so deleting
+the source cannot remove the child's conversation context. Public child Items and Turns describe
+only work performed after the fork.
 
 ## Recovery and delivery
 
@@ -110,6 +131,11 @@ Workers heartbeat only while the Run ID, worker ID, generation and running
 status match. The reconciler combines AWS state with a root-supervised worker
 health check. It records ambiguous identity and can quarantine repeated uncertainty.
 Read-only probes continue so a later confirmed termination can settle the Run.
+Native MicroVM suspension is recorded separately from uncertain identity, without
+proxy traffic that would wake the guest. After resume, the generation-checked
+health response carries the trusted lifecycle resume time so a pre-suspension
+heartbeat cannot immediately expire the worker. Cancellation still stops a
+suspended execution.
 It never treats uncertainty as permission to terminate another worker. Confirmed
 loss can finish cancellation or record an execution failure; reconciliation does
 not blindly replay an agent's external side effects.

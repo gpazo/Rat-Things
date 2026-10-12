@@ -149,3 +149,9 @@ variable "ec2_worker_prepared_ami" {
   type    = bool
   default = false
 }
+
+variable "session_checkpoints_enabled" {
+  description = "Enable durable Session checkpoints and managed Session forks. Requires the matching native runtime and S3 Files."
+  type        = bool
+  default     = false
+}

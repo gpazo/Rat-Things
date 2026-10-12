@@ -108,6 +108,7 @@ resource "aws_acm_certificate_validation" "publication" {
 }
 
 module "agent_runner" {
+  session_checkpoints_enabled              = var.session_checkpoints_enabled
   environment_relay_image                  = var.environment_relay_image
   environment_relay_origin_hostname        = var.environment_relay_origin_hostname
   environment_relay_origin_certificate_arn = var.environment_relay_origin_certificate_arn

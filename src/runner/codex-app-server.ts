@@ -36,6 +36,7 @@ export interface CodexAppServerInitiatedRequest extends CodexAppServerEvent {
 }
 
 export interface CodexTurnController {
+  checkpoint?(): Promise<unknown>;
   threadId: string;
   turnId: string;
   steer(text: string, input?: AgentSessionInputMessageParam[], sessionTurnId?: string): Promise<void>;

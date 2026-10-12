@@ -28,6 +28,7 @@ export interface MicrovmExecutorOptions {
   sessionIdleSeconds?: number;
   sessionSuspendedSeconds?: number;
   heartbeatIntervalMs?: number;
+  sessionCheckpointsEnabled?: boolean;
   onStartupObservation?: (observation: MicrovmStartupObservation) => void;
   s3Files?: {
     networkConnectorArn?: string;
@@ -62,6 +63,7 @@ export function runHookPayload(record: RunRecord, request: RunRequest, options: 
       defaultSandboxMode: options.defaultSandboxMode ?? 'danger-full-access',
       defaultAgentNetworkAccess: options.defaultAgentNetworkAccess ?? true,
       persistentSession: Boolean(record.agentsSession),
+      ...(options.sessionCheckpointsEnabled ? { sessionCheckpointsEnabled: true } : {}),
       ...((record.agentsSession) && options.s3Files ? {
         sessionStorageKey: createHash('sha256')
           .update(JSON.stringify([record.ownerId, record.agentsSession.sessionId]))

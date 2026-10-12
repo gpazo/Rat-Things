@@ -29,6 +29,8 @@ export interface SessionRuntimeState {
   coordinationCalls?: Record<string, NativeCoordinationCall>;
   agentPaths?: Record<string, string>;
   threadUsage?: Record<string, TokenUsage>;
+  /** Source Turn IDs remain private across replacement before a fork's first new Turn. */
+  inheritedNativeTurnIds?: string[];
 }
 export interface SessionRuntimeEvent { method: string; params: Record<string, unknown>; observedAt: number; requestId?: string | number }
 
