@@ -1,7 +1,8 @@
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
+import { directions, type Theme } from './directions.js';
 
-export type Theme = 'paper' | 'midnight';
+export type { Theme } from './directions.js';
 export interface DemoBranch {
   key: Theme;
   sessionId?: string;
@@ -54,7 +55,15 @@ export class ForkDemoController {
     private readonly backend: DemoBackend,
     private readonly file: string,
     private readonly deployment: string,
-  ) {}
+    private readonly themes: readonly Theme[] = ['paper', 'midnight'],
+  ) {
+    if (
+      themes.length < 2 ||
+      new Set(themes).size !== themes.length ||
+      themes.some((theme) => !Object.hasOwn(directions, theme))
+    )
+      throw new Error('Configure at least two distinct known design directions.');
+  }
   public async restore() {
     const saved = await readFile(this.file, 'utf8').catch(
       (error: NodeJS.ErrnoException) => {
@@ -94,9 +103,11 @@ export class ForkDemoController {
     if (
       action === 'choose' &&
       (this.state.phase !== 'comparing' ||
-        !['paper', 'midnight'].includes(String(key)))
+        !this.state.branches.some(
+          (branch) => branch.key === key && !branch.discarded,
+        ))
     )
-      throw new Error('Choose one of the two completed paths.');
+      throw new Error('Choose one of the completed paths.');
     if (!['start', 'fork', 'choose', 'cleanup'].includes(action))
       throw new Error('Unknown demo action.');
   }
@@ -146,7 +157,7 @@ export class ForkDemoController {
     this.state = {
       ...this.state,
       phase: 'ready',
-      status: 'Original Session ready. Fork it into two design directions.',
+      status: `Original Session ready. Fork it into ${this.themes.length} design directions.`,
     };
   }
   private async fork() {
@@ -155,15 +166,15 @@ export class ForkDemoController {
     this.state = {
       ...this.state,
       phase: 'forking',
-      branches: [{ key: 'paper' }, { key: 'midnight' }],
-      status: 'Checkpointing the source and creating Paper & ink…',
+      branches: this.themes.map((key) => ({ key })),
+      status: 'Checkpointing the source and creating independent directions…',
     };
     await this.save();
     // Sequential creation waits for source admission to reopen after snapshot publication.
     for (const branch of this.state.branches) {
       branch.sessionId = await this.backend.fork(sourceId, branch.key);
       await this.save();
-      this.state.status = `Designing ${branch.key === 'paper' ? 'Paper & ink' : 'After hours'} in its own Session…`;
+      this.state.status = `Designing ${directions[branch.key].name} in its own Session…`;
       await this.save();
       await this.backend.wait(branch.sessionId);
       branch.html = await this.backend.preview(branch.sessionId);
@@ -172,29 +183,38 @@ export class ForkDemoController {
     this.state = {
       ...this.state,
       phase: 'comparing',
-      status: 'Two real forks. Choose one to keep and delete the other child.',
+      status: `${this.state.branches.length} real forks. Choose one to keep and delete the other children.`,
     };
   }
   private async choose(key: Theme) {
-    const loser = this.state.branches.find((branch) => branch.key !== key);
+    const losers = this.state.branches.filter((branch) => branch.key !== key);
     const winner = this.state.branches.find((branch) => branch.key === key);
-    if (!loser?.sessionId || !winner?.html)
-      throw new Error('Both paths must be ready before choosing.');
+    if (
+      !winner?.sessionId ||
+      !winner.html ||
+      this.state.branches.some(
+        (branch) => !branch.sessionId || !branch.html || branch.discarded,
+      )
+    )
+      throw new Error('All paths must be ready before choosing.');
     this.state = {
       ...this.state,
       phase: 'choosing',
-      status: 'Deleting the unchosen child Session…',
+      status: 'Deleting the unchosen child Sessions…',
     };
     await this.save();
-    await this.backend.deleteSession(loser.sessionId);
-    loser.discarded = true;
-    loser.html = null;
+    for (const loser of losers) {
+      await this.backend.deleteSession(loser.sessionId!);
+      loser.discarded = true;
+      loser.html = null;
+      await this.save();
+    }
     this.state = {
       ...this.state,
       phase: 'chosen',
       winner: key,
       status:
-        'Your chosen Session is ready to continue. The other child is deleted.',
+        'Your chosen Session is ready to continue. The other children are deleted.',
     };
   }
   private async cleanup() {

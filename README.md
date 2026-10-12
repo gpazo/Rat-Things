@@ -43,17 +43,19 @@ The [Agents API guide](docs/agents-api.md) covers authentication, resources,
 continuation, streaming, tools, files, environment connections and current limits.
 The [agent operating guide](docs/agents.md) provides a concise entry point.
 
-## Explore two directions with Session forks
+## Explore design directions with Session forks
 
 Fork a prepared managed Session into independent conversations and workspaces.
 Keep its context and files, try different approaches, and discard the branch you
 no longer need. Forking uses the latest terminal root Turn and is opt-in through
 `session_checkpoints_enabled` with S3 Files configured.
 
-[Watch the 42-second demo video](https://gpazo.github.io/Rat-Things/assets/session-fork-demo.mp4?v=docs-theme):
-one UI, two theme directions, and a choice about which Session to keep. The captioned
-replay uses the real generated designs from two Session forks.
-The [Fork studio guide](docs/session-fork-demo.md) also includes a hands-on walkthrough.
+[Watch the 68-second demo video](https://gpazo.github.io/Rat-Things/assets/session-fork-demo.mp4?v=five-forks):
+one UI, five independent design directions, and an evaluation before choosing one.
+The captioned replay reviews the real fork outputs on desktop and mobile, explains
+their tradeoffs, and discards the four unchosen Sessions. Five is an example; repeat
+the fork endpoint for the alternatives your deployment can support.
+The [Fork studio guide](docs/session-fork-demo.md) also includes a two-direction hands-on walkthrough.
 Run `npm run demo:fork` for the no-cloud version, or follow the guide to connect
 the UI to real Sessions in your deployment.
 

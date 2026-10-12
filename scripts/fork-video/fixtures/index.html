@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Fieldnotes is a quiet home for ideas, notes, and the connections between them.">
+  <title>Fieldnotes — A quiet home for ideas</title>
+  <style>
+    :root {
+      --paper: #f7f7f3;
+      --card: #fcfcfa;
+      --ink: #20201d;
+      --muted: #6e6d67;
+      --line: #cfcec7;
+      --amber: #be731e;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--paper);
+      color: var(--ink);
+      font-family: Arial, Helvetica, sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+    .page { width: min(100% - 40px, 940px); margin: 0 auto; }
+    .site-header, .site-footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-color: var(--line);
+      border-style: solid;
+    }
+    .site-header { min-height: 68px; border-width: 0 0 1px; }
+    .wordmark {
+      color: var(--ink);
+      font-size: 17px;
+      font-weight: 700;
+      letter-spacing: -0.7px;
+      text-decoration: none;
+    }
+    .mark { color: var(--amber); font-size: 19px; vertical-align: -1px; }
+    .micro {
+      color: var(--muted);
+      font-family: "Courier New", Courier, monospace;
+      font-size: 10px;
+      letter-spacing: 0.08em;
+      line-height: 1.3;
+      text-transform: uppercase;
+    }
+    .hero {
+      max-width: 710px;
+      padding: clamp(72px, 15vw, 142px) 0 clamp(72px, 11vw, 108px);
+    }
+    .kicker {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin: 0 0 24px;
+    }
+    .kicker::before { width: 18px; height: 1px; background: var(--amber); content: ""; }
+    h1, h2, p { margin: 0; }
+    h1 {
+      max-width: 650px;
+      font-size: clamp(43px, 8.4vw, 79px);
+      font-weight: 500;
+      letter-spacing: -0.065em;
+      line-height: 0.98;
+    }
+    .intro {
+      max-width: 410px;
+      margin-top: 29px;
+      color: #494943;
+      font-size: 16px;
+      line-height: 1.55;
+    }
+    .start-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 11px;
+      margin-top: 34px;
+      border-bottom: 1px solid var(--ink);
+      padding: 0 0 7px;
+      color: var(--ink);
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: -0.01em;
+      text-decoration: none;
+    }
+    .start-link span { color: var(--amber); font-size: 17px; line-height: 0; }
+    .features {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      border-top: 1px solid var(--ink);
+    }
+    .feature {
+      min-height: 284px;
+      padding: 21px 23px 23px;
+      border-right: 1px solid var(--line);
+      border-bottom: 1px solid var(--line);
+      background: var(--card);
+    }
+    .feature:first-child { border-left: 1px solid var(--line); }
+    .card-head { display: flex; align-items: center; justify-content: space-between; }
+    .number { color: var(--amber); }
+    .feature h2 {
+      max-width: 260px;
+      margin-top: 63px;
+      font-size: clamp(25px, 4.7vw, 38px);
+      font-weight: 500;
+      letter-spacing: -0.055em;
+      line-height: 1.05;
+    }
+    .feature-copy {
+      max-width: 245px;
+      margin-top: 17px;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.5;
+    }
+    .card-foot {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      margin-top: 27px;
+      color: var(--ink);
+      font-family: "Courier New", Courier, monospace;
+      font-size: 10px;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+    .dots { display: flex; gap: 4px; }
+    .dots i { display: block; width: 5px; height: 5px; background: var(--amber); }
+    .site-footer { min-height: 94px; border-width: 0; }
+    .footer-note { max-width: 200px; color: var(--muted); font-size: 11px; line-height: 1.45; }
+    @media (max-width: 560px) {
+      .page { width: min(100% - 32px, 940px); }
+      .header-note { display: none; }
+      .hero { padding-top: 75px; }
+      h1 { font-size: clamp(42px, 12vw, 60px); }
+      .features { grid-template-columns: 1fr; }
+      .feature, .feature:first-child {
+        min-height: 239px;
+        border-left: 1px solid var(--line);
+      }
+      .feature h2 { margin-top: 46px; }
+      .site-footer { min-height: 82px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <header class="site-header">
+      <a class="wordmark" href="#" aria-label="Fieldnotes home">fieldnotes<span class="mark">·</span></a>
+      <span class="micro header-note">A quiet home for ideas</span>
+    </header>
+    <main>
+      <section class="hero" aria-labelledby="page-title">
+        <p class="micro kicker">Fieldnotes / 001</p>
+        <h1 id="page-title">Give your thinking somewhere to land.</h1>
+        <p class="intro">A considered space to catch passing thoughts, return to what matters, and find the threads between them.</p>
+        <a class="start-link" href="#features">Start a fresh page <span aria-hidden="true">↗</span></a>
+      </section>
+      <section class="features" id="features" aria-label="How Fieldnotes works">
+        <article class="feature">
+          <div class="card-head">
+            <span class="micro">Collect</span>
+            <span class="micro number">01</span>
+          </div>
+          <h2>Hold on to the small things.</h2>
+          <p class="feature-copy">Notes, fragments, reminders—keep them close before they disappear.</p>
+          <div class="card-foot">
+            <span class="dots" aria-hidden="true"><i></i><i></i><i></i></span>
+            <span>One place, no rush</span>
+          </div>
+        </article>
+        <article class="feature">
+          <div class="card-head">
+            <span class="micro">Connect</span>
+            <span class="micro number">02</span>
+          </div>
+          <h2>Let one thought lead to another.</h2>
+          <p class="feature-copy">Follow the links that emerge and let your ideas find their own shape.</p>
+          <div class="card-foot">
+            <span>There’s something here</span>
+            <span aria-hidden="true">↗</span>
+          </div>
+        </article>
+      </section>
+    </main>
+    <footer class="site-footer">
+      <p class="footer-note">Made for the ideas worth keeping.</p>
+      <span class="micro">Fieldnotes © 2026</span>
+    </footer>
+  </div>
+</body>
+</html>

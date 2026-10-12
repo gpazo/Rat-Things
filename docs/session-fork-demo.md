@@ -1,23 +1,31 @@
-# Try two design directions with Session forks
+# Explore design directions with Session forks
 
-Start with one prepared UI, fork it into two independent themes, and choose the one
-worth continuing. The Fieldnotes demo compares **Paper & ink**, a warm editorial
-direction, with **After hours**, a dark, vivid direction.
+Start with one prepared UI, fork it into independent directions, evaluate the
+results, and choose the one worth continuing. The Fieldnotes video explores five:
+**Paper & ink**, **After hours**, **Studio blue**, **Soft sage**, and **Index**.
+Each inherits the same conversation and files, then develops its own design.
 
 ## Watch the demo
 
-<video controls playsinline preload="none" style="width:100%;border-radius:12px" poster="https://gpazo.github.io/Rat-Things/assets/session-fork-demo-poster.jpg?v=docs-theme" src="https://gpazo.github.io/Rat-Things/assets/session-fork-demo.mp4?v=docs-theme" aria-label="Session fork demo: compare two themes and keep After hours"></video>
+<video controls playsinline preload="none" style="width:100%;border-radius:12px" poster="https://gpazo.github.io/Rat-Things/assets/session-fork-demo-poster.jpg?v=five-forks" src="https://gpazo.github.io/Rat-Things/assets/session-fork-demo.mp4?v=five-forks" aria-label="Session fork demo: evaluate five design directions and keep one"></video>
 
-[Watch or download the 42-second video](https://gpazo.github.io/Rat-Things/assets/session-fork-demo.mp4?v=docs-theme).
-The captioned video replays the flow with the actual HTML produced by two live
-Session forks. It shows the original brief, both design directions, and choosing
-After hours while discarding Paper & ink. It uses an edited presentation with wait
-times removed and has no audio. The remaining Sessions were cleaned up after the
-recorded run.
+[Watch or download the 68-second video](https://gpazo.github.io/Rat-Things/assets/session-fork-demo.mp4?v=five-forks).
+The captioned video replays five live Session forks, using their actual generated
+HTML. Each design is reviewed on desktop and mobile for brief fit, hierarchy,
+mobile layout, and visual character. The comparison uses editorial judgments,
+with a strength and tradeoff for each option. After choosing a direction, the
+other four Sessions are discarded. The presentation removes wait times and has
+no audio. The remaining Sessions were cleaned up after the recorded run.
+
+Five is an example, not a fork limit. Each call to the fork endpoint creates one
+independent child. Repeat it for the alternatives you want to explore, within your
+deployment's capacity and quotas. The source briefly checkpoints for each copy,
+so wait for its admission to reopen before creating another child from it.
 
 ## Try the same flow
 
-[Open the interactive walkthrough](https://gpazo.github.io/Rat-Things/fork-demo/). It uses prepared designs, makes
+[Open the two-direction interactive walkthrough](https://gpazo.github.io/Rat-Things/fork-demo/).
+This compact companion compares Paper & ink with After hours. It uses prepared designs, makes
 no AWS calls, and can be reset freely. The same interface also has a live mode that
 creates real Sessions and shows their generated HTML artifacts.
 

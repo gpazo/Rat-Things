@@ -29,7 +29,7 @@ block scripts, forms and external asset loading.
 
 ## Render the demo video
 
-The shareable deliverable is `assets/session-fork-demo.mp4`: 42 seconds, 1920 × 1080,
+The shareable deliverable is `assets/session-fork-demo.mp4`: 68 seconds, 1920 × 1080,
 24 fps, H.264 with burned-in captions and no audio. The poster sits beside it.
 
 With FFmpeg/ffprobe on PATH and Playwright Chromium installed:
@@ -49,7 +49,7 @@ export metadata is written to `test-results/fork-video/export.json`.
 
 `scripts/fork-video/scene.html` is a recording-only presentation stage, not a
 product interface. Its selection sequence replays the verified outcome, without
-calling AWS. The two unmodified generated HTML files are under `fixtures/` and
+calling AWS. The five unmodified generated HTML files are under `fixtures/` and
 their hashes and provenance are in `scripts/fork-video/provenance.json`. Displayed
 prompts summarize the live instructions. The persistent on-screen replay label
 distinguishes the edited video from a fresh execution or a real-time screen capture.
@@ -58,3 +58,35 @@ No active Session identifiers or credentials are embedded in the film.
 The recording stage inherits its palette and brand mark from `site/docs.css`.
 Keep the video framing aligned with the documentation's blue-black, cyan, and
 amber theme; the generated designs inside preview frames retain their own styles.
+
+## Capture five real alternatives
+
+The browser companion keeps its two-path flow. The capture harness uses all five
+entries in `testing/fork-demo/directions.ts`; the controller accepts a configurable
+set and persists each discarded child separately so interrupted cleanup can resume.
+As with the live server, use an explicitly opted-in deployment with checkpoints,
+S3 Files, `RAT_THINGS_AGENTS_API_URL`, `AWS_REGION`, and `AGENT_MODEL` configured.
+For the disposable AWS harness, set `TF_VAR_session_checkpoints_enabled=true`
+before deploying; checkpoints default to disabled.
+
+```bash
+export FORK_DEMO_CAPTURE_DIR="$PWD/.aws-e2e/my-run/fork-capture"
+npm run demo:fork:capture -- --live prepare
+# Inspect all five saved HTML files at desktop, preview and mobile widths.
+npm run demo:fork:capture -- --live choose direction_key
+npm run demo:fork:capture -- --live cleanup
+```
+
+Use one capture process per directory. Prepare creates the source and five real
+children, saving their artifacts and hashes. Choose accepts only a recorded branch
+key and verifies that the original and winner remain readable while all four
+others return 404. Cleanup verifies all recorded Sessions and the Agent are gone.
+Keep the inventory until cleanup succeeds; an interrupted prepare must be cleaned
+up before retrying. Artifacts and proof remain available after resource cleanup.
+
+Review the actual artifacts before writing `scripts/fork-video/evaluation.json`.
+Record a specific strength and tradeoff for every option, mobile and desktop pan
+distances, qualitative ratings in the displayed criterion order, and a reason for
+the selected winner. These are editorial assessments, not automatic benchmark
+scores. Update the fixture hashes and selection proof in `provenance.json` from
+the capture evidence, then render and inspect the film.

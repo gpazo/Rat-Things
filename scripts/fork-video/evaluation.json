@@ -1,0 +1,99 @@
+{
+  "winner": "sage",
+  "reason": "Calm, clear, and compact on mobile: the best fit for Fieldnotes.",
+  "scope": "Editorial visual review of unmodified generated static HTML. No functional or accessibility audit is implied.",
+  "reviewedWidths": [
+    390,
+    520,
+    800,
+    1280
+  ],
+  "criteria": {
+    "briefFit": "A quiet home for ideas, retaining Collect and Connect.",
+    "hierarchy": "Clarity of the headline, action, and supporting content.",
+    "mobile": "Legibility, compactness, and scanning at 390px.",
+    "character": "A coherent and distinctive visual identity."
+  },
+  "designs": [
+    {
+      "key": "paper",
+      "name": "Paper & ink",
+      "direction": "Warm paper. Editorial serif.",
+      "strength": "Expressive type gives the quiet brief real warmth.",
+      "tradeoff": "Tiny mobile copy; decoration overlaps the content.",
+      "ratings": [
+        "Strong",
+        "Strong",
+        "Mixed",
+        "Strong"
+      ],
+      "caption": "Paper & ink: expressive and calm, but weaker on mobile legibility.",
+      "desktopPan": 205,
+      "mobilePan": 0
+    },
+    {
+      "key": "midnight",
+      "name": "After hours",
+      "direction": "Deep navy. Electric lime.",
+      "strength": "A bold headline and unmistakable primary action.",
+      "tradeoff": "Louder mood; card text crowds together at 800px.",
+      "ratings": [
+        "Mixed",
+        "Mixed",
+        "Strong",
+        "Strong"
+      ],
+      "caption": "After hours: memorable energy, with a crowded desktop card.",
+      "desktopPan": 415,
+      "mobilePan": 75
+    },
+    {
+      "key": "studio",
+      "name": "Studio blue",
+      "direction": "Cobalt accents. Swiss grid.",
+      "strength": "Numbered sections make the product story easy to scan.",
+      "tradeoff": "Large feature illustrations lengthen the mobile scroll.",
+      "ratings": [
+        "Strong",
+        "Strong",
+        "Mixed",
+        "Strong"
+      ],
+      "caption": "Studio blue: crisp structure, with more scrolling to reach Connect.",
+      "desktopPan": 752,
+      "mobilePan": 515
+    },
+    {
+      "key": "sage",
+      "name": "Soft sage",
+      "direction": "Forest green. Gentle shapes.",
+      "strength": "Calm tone, clear action, compact mobile feature cards.",
+      "tradeoff": "Less distinctive than the editorial and Swiss directions.",
+      "ratings": [
+        "Strong",
+        "Strong",
+        "Strong",
+        "Mixed"
+      ],
+      "caption": "Soft sage: the strongest balance for this quiet, everyday product.",
+      "desktopPan": 355,
+      "mobilePan": 75
+    },
+    {
+      "key": "index",
+      "name": "Index",
+      "direction": "Thin rules. Amber details.",
+      "strength": "Restrained type and stacked cards keep the content clear.",
+      "tradeoff": "The primary action and tiny labels feel understated.",
+      "ratings": [
+        "Strong",
+        "Mixed",
+        "Strong",
+        "Mixed"
+      ],
+      "caption": "Index: clear and restrained, but its primary action is easy to overlook.",
+      "desktopPan": 390,
+      "mobilePan": 220
+    }
+  ]
+}

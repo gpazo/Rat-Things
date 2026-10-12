@@ -6,6 +6,7 @@ import {
   ForkDemoController,
   type DemoBackend,
 } from '../../testing/fork-demo/controller.js';
+import { allThemes, type Theme } from '../../testing/fork-demo/directions.js';
 const directories: string[] = [];
 afterEach(async () => {
   await Promise.all(
@@ -14,7 +15,7 @@ afterEach(async () => {
       .map((dir) => rm(dir, { recursive: true, force: true })),
   );
 });
-async function fixture() {
+async function fixture(themes?: readonly Theme[]) {
   const dir = await mkdtemp(join(tmpdir(), 'fork-demo-'));
   directories.push(dir);
   const file = join(dir, 'state.json');
@@ -30,10 +31,41 @@ async function fixture() {
   return {
     backend,
     file,
-    controller: new ForkDemoController(backend, file, 'deployment-a'),
+    controller: new ForkDemoController(backend, file, 'deployment-a', themes),
   };
 }
 describe('Fork studio live resource ownership', () => {
+  it.each(allThemes)('keeps %s among five forks and deletes every other child', async winner => {
+    const { controller, backend, file } = await fixture(allThemes);
+    await controller.action('start');
+    await controller.action('fork');
+    expect(backend.fork.mock.calls).toEqual(allThemes.map(key => ['source', key]));
+    await controller.action('choose', winner);
+    expect(backend.deleteSession.mock.calls).toEqual(allThemes.filter(key => key !== winner).map(key => [`child-${key}`]));
+    expect(controller.state.winner).toBe(winner);
+    expect(controller.state.branches.filter(branch => !branch.discarded)).toHaveLength(1);
+    // Restoration uses the recorded inventory even if the default configuration has two paths.
+    const restored = new ForkDemoController(backend, file, 'deployment-a');
+    await restored.restore();
+    await restored.action('cleanup');
+    expect(backend.deleteSession.mock.calls.map(([id]) => id).sort()).toEqual([...allThemes.map(key => `child-${key}`), 'source'].sort());
+    expect(restored.state.phase).toBe('empty');
+  });
+  it('persists each discarded child when deletion stops partway through five forks', async () => {
+    const { controller, backend, file } = await fixture(allThemes);
+    await controller.action('start');
+    await controller.action('fork');
+    backend.deleteSession.mockResolvedValueOnce().mockRejectedValueOnce(new Error('Temporary disconnect'));
+    await controller.action('choose', 'index');
+    expect(controller.state.phase).toBe('error');
+    expect(controller.state.branches.find(branch => branch.key === 'paper')?.discarded).toBe(true);
+    expect(controller.state.branches.find(branch => branch.key === 'index')?.html).toContain('index');
+    const restored = new ForkDemoController(backend, file, 'deployment-a');
+    await restored.restore();
+    await restored.action('cleanup');
+    expect(backend.deleteSession.mock.calls.filter(([id]) => id === 'child-paper')).toHaveLength(1);
+    expect(restored.state.phase).toBe('empty');
+  });
   it.each(['paper', 'midnight'])(
     'keeps %s, deletes only its sibling, and restores ownership for cleanup',
     async (winner) => {
@@ -82,6 +114,14 @@ describe('Fork studio live resource ownership', () => {
     expect(backend.createAgent).toHaveBeenCalledTimes(1);
     expect(backend.deleteSession).not.toHaveBeenCalled();
   });
+  it('rejects a known direction that is not part of the recorded comparison', async () => {
+    const { controller, backend } = await fixture();
+    await controller.action('start');
+    await controller.action('fork');
+    await expect(controller.action('choose', 'studio')).rejects.toThrow('Choose');
+    expect(backend.deleteSession).not.toHaveBeenCalled();
+    expect(controller.state.phase).toBe('comparing');
+  });
   it('retains partial creation after failure and retries interrupted cleanup', async () => {
     const { controller, backend, file } = await fixture();
     await controller.action('start');
@@ -115,6 +155,23 @@ describe('Fork studio live resource ownership', () => {
 });
 
 describe('Fork studio managed startup', () => {
+  it('retries an explicitly rejected fork conflict without duplicating the returned child', async () => {
+    const { AgentsForkDemoBackend } = await import('../../testing/fork-demo/backend.js');
+    const post = vi.fn()
+      .mockRejectedValueOnce({ status: 409, code: 'conflict' })
+      .mockResolvedValueOnce({ id: 'child-studio' });
+    const backend = new AgentsForkDemoBackend({ post } as unknown as import('openai').default, 'model');
+    await expect(backend.fork('source', 'studio')).resolves.toBe('child-studio');
+    expect(post).toHaveBeenCalledTimes(2);
+    expect(post.mock.calls[0]).toEqual(post.mock.calls[1]);
+  });
+  it('does not retry a fork creation after an ambiguous transport failure', async () => {
+    const { AgentsForkDemoBackend } = await import('../../testing/fork-demo/backend.js');
+    const post = vi.fn().mockRejectedValue(new Error('Connection lost'));
+    const backend = new AgentsForkDemoBackend({ post } as unknown as import('openai').default, 'model');
+    await expect(backend.fork('source', 'studio')).rejects.toThrow('Connection lost');
+    expect(post).toHaveBeenCalledTimes(1);
+  });
   it('waits through the managed environment connection state until its Turn completes', async () => {
     const { AgentsForkDemoBackend } = await import(
       '../../testing/fork-demo/backend.js'

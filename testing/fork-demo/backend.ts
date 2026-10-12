@@ -2,13 +2,8 @@ import { setTimeout as delay } from 'node:timers/promises';
 import type OpenAI from 'openai';
 import type { AgentSession } from '../../src/domain/agents-api.js';
 import { renderPreview } from '../../site/fork-demo/themes.js';
-import type { DemoBackend, Theme } from './controller.js';
-const directions = {
-  paper:
-    'Warm editorial: cream paper, terracotta accents, generous space, expressive serif headlines. Quiet, tactile, thoughtful.',
-  midnight:
-    'Bold after-hours: deep navy, electric lime accents, large geometric sans-serif headlines, rounded cards. Confident, vivid, energetic.',
-};
+import type { DemoBackend } from './controller.js';
+import { directions, type Theme } from './directions.js';
 export class AgentsForkDemoBackend implements DemoBackend {
   public constructor(
     private readonly api: OpenAI,
@@ -53,17 +48,31 @@ export class AgentsForkDemoBackend implements DemoBackend {
     ).id;
   }
   public async fork(sourceId: string, theme: Theme) {
-    const session = await this.api.post<AgentSession>(
-      `/agents/sessions/${sourceId}/fork`,
-      {
-        maxRetries: 0,
-        body: {
-          metadata: { demo: 'fieldnotes-fork', path: theme },
-          input: `Use the inherited brief and /workspace/index.html. Take this design direction: ${directions[theme]} Rewrite /workspace/index.html as a polished self-contained landing page under 100 KB, using inline CSS. Preserve the brand, feature cards, and product purpose. It must look good in a 520px-wide preview and on mobile. Copy the finished file to /workspace/outputs/index.html so it becomes a saved artifact. Briefly summarize the design.`,
-        },
-      },
-    );
-    return session.id;
+    for (let attempt = 0; ; attempt++) {
+      try {
+        const session = await this.api.post<AgentSession>(
+          `/agents/sessions/${sourceId}/fork`,
+          {
+            maxRetries: 0,
+            body: {
+              metadata: { demo: 'fieldnotes-fork', path: theme },
+              input: `Use the inherited brief and /workspace/index.html. Take this design direction: ${directions[theme].prompt} Rewrite /workspace/index.html as a polished self-contained landing page under 100 KB, using inline CSS. Preserve the brand, feature cards, and product purpose. It must look good in a 520px-wide preview and on mobile. Copy the finished file to /workspace/outputs/index.html so it becomes a saved artifact. Briefly summarize the design.`,
+            },
+          },
+        );
+        return session.id;
+      } catch (error) {
+        // A rejected conditional write or busy source did not create a child.
+        // Do not retry ambiguous transport errors or other creation failures.
+        if (
+          attempt >= 12 ||
+          typeof error !== 'object' || error === null ||
+          !('status' in error) || error.status !== 409 ||
+          !('code' in error) || !['conflict', 'session_busy'].includes(String(error.code))
+        ) throw error;
+        await delay(1500);
+      }
+    }
   }
   public async wait(sessionId: string) {
     const deadline = Date.now() + 10 * 60_000;
@@ -83,7 +92,7 @@ export class AgentsForkDemoBackend implements DemoBackend {
         sessionId,
       )) {
         if (turn.subagent_id !== null) continue;
-        if (turn.status === 'completed') return;
+        if (turn.status === 'completed' && session.status === 'idle') return;
         if (turn.status === 'failed' || turn.status === 'cancelled')
           throw new Error(
             `Session ${sessionId} stopped: ${JSON.stringify(turn.error)}`,

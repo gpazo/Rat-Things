@@ -1,0 +1,329 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f8f7f1">
+  <title>Fieldnotes — a quiet home for ideas</title>
+  <style>
+    :root {
+      --paper: #f8f7f1;
+      --paper-deep: #eef0e5;
+      --sage: #dce6d5;
+      --sage-mid: #9caf8d;
+      --forest: #214433;
+      --ink: #193429;
+      --muted: #5d7466;
+      --line: rgba(33, 68, 51, .14);
+      --white: #fffefa;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      min-width: 280px;
+      margin: 0;
+      overflow-x: hidden;
+      color: var(--ink);
+      background: var(--paper);
+      font-family: ui-rounded, "Nunito Sans", "Avenir Next", Avenir, system-ui, sans-serif;
+      font-size: 16px;
+      line-height: 1.5;
+    }
+
+    .page {
+      position: relative;
+      max-width: 760px;
+      min-height: 100vh;
+      margin: auto;
+      padding: 24px 24px 30px;
+      overflow: hidden;
+    }
+
+    .leaf {
+      position: absolute;
+      z-index: -1;
+      border: 1px solid rgba(81, 117, 85, .14);
+      background: rgba(201, 218, 190, .34);
+      border-radius: 100% 0 100% 0;
+      transform: rotate(-23deg);
+      pointer-events: none;
+    }
+
+    .leaf--one { width: 112px; height: 56px; top: 98px; right: -32px; }
+    .leaf--two { width: 76px; height: 38px; top: 150px; right: 42px; transform: rotate(35deg); }
+    .leaf--three { width: 148px; height: 74px; bottom: 120px; left: -77px; transform: rotate(34deg); }
+
+    .masthead {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+    }
+
+    .brand {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--forest);
+      font-size: 20px;
+      font-weight: 800;
+      letter-spacing: -.8px;
+      text-decoration: none;
+    }
+
+    .brand-mark {
+      display: grid;
+      width: 27px;
+      height: 27px;
+      place-items: center;
+      border-radius: 9px 9px 9px 3px;
+      color: var(--white);
+      background: var(--forest);
+      font-size: 15px;
+      transform: rotate(-7deg);
+    }
+
+    .sign-in {
+      color: var(--forest);
+      font-size: 13px;
+      font-weight: 700;
+      text-decoration: none;
+    }
+
+    .hero {
+      padding: 67px 0 46px;
+      max-width: 530px;
+    }
+
+    .kicker {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      margin: 0 0 17px;
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 1.35px;
+    }
+
+    .kicker::before {
+      width: 20px;
+      height: 1px;
+      background: var(--sage-mid);
+      content: "";
+    }
+
+    h1, h2, p { margin-top: 0; }
+
+    h1 {
+      max-width: 540px;
+      margin-bottom: 18px;
+      color: var(--forest);
+      font-size: clamp(42px, 10vw, 69px);
+      font-weight: 750;
+      letter-spacing: -2.8px;
+      line-height: .98;
+    }
+
+    .intro {
+      max-width: 408px;
+      margin-bottom: 25px;
+      color: var(--muted);
+      font-size: 16px;
+      line-height: 1.65;
+    }
+
+    .button {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      min-height: 47px;
+      padding: 0 18px 0 20px;
+      border-radius: 15px;
+      color: var(--white);
+      background: var(--forest);
+      box-shadow: 0 8px 18px rgba(33, 68, 51, .16);
+      font-size: 14px;
+      font-weight: 750;
+      text-decoration: none;
+    }
+
+    .button span { font-size: 19px; line-height: 1; }
+
+    .features {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    .card {
+      min-height: 226px;
+      padding: 20px;
+      border: 1px solid var(--line);
+      border-radius: 22px;
+      background: rgba(255, 254, 250, .82);
+      box-shadow: 0 9px 22px rgba(41, 66, 47, .045);
+    }
+
+    .card--collect { background: var(--sage); }
+
+    .number {
+      display: block;
+      margin-bottom: 29px;
+      color: var(--muted);
+      font-size: 10px;
+      font-weight: 800;
+      letter-spacing: 1.2px;
+    }
+
+    h2 {
+      margin-bottom: 10px;
+      color: var(--forest);
+      font-size: clamp(23px, 5.5vw, 30px);
+      font-weight: 750;
+      letter-spacing: -1.2px;
+      line-height: 1.05;
+    }
+
+    .card p {
+      margin-bottom: 0;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.55;
+    }
+
+    .sprouts {
+      display: flex;
+      align-items: flex-end;
+      gap: 5px;
+      height: 29px;
+      margin-top: 14px;
+    }
+
+    .sprouts i {
+      display: block;
+      width: 11px;
+      height: 19px;
+      border-radius: 100% 0 100% 0;
+      background: var(--forest);
+      transform: rotate(-28deg);
+    }
+
+    .sprouts i:nth-child(2) { height: 26px; background: #577761; transform: rotate(28deg); }
+    .sprouts i:nth-child(3) { height: 15px; background: #78947a; }
+
+    .thread {
+      position: relative;
+      display: block;
+      width: 100%;
+      height: 31px;
+      margin-top: 17px;
+      border-bottom: 1.5px solid var(--sage-mid);
+      border-radius: 0 0 50% 50%;
+    }
+
+    .thread::after {
+      position: absolute;
+      right: 8px;
+      bottom: -5px;
+      width: 8px;
+      height: 8px;
+      border: 2px solid var(--forest);
+      border-radius: 50%;
+      background: var(--paper);
+      content: "";
+    }
+
+    .note {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-top: 25px;
+      padding: 14px 16px;
+      border: 1px solid rgba(114, 145, 108, .2);
+      border-radius: 16px;
+      background: rgba(238, 240, 229, .63);
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .note b {
+      display: grid;
+      flex: 0 0 auto;
+      width: 25px;
+      height: 25px;
+      place-items: center;
+      border-radius: 8px;
+      color: var(--forest);
+      background: var(--sage);
+      font-size: 14px;
+    }
+
+    footer {
+      display: flex;
+      justify-content: space-between;
+      gap: 15px;
+      margin-top: 40px;
+      color: var(--muted);
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: .65px;
+      text-transform: uppercase;
+    }
+
+    @media (max-width: 390px) {
+      .page { padding: 20px 18px 25px; }
+      .hero { padding-top: 52px; }
+      .features { gap: 10px; }
+      .card { min-height: 218px; padding: 15px; border-radius: 18px; }
+      .number { margin-bottom: 31px; }
+      .card p { font-size: 11px; }
+    }
+
+    @media (min-width: 600px) {
+      .page { padding: 30px 42px 38px; }
+      .hero { padding-top: 86px; }
+      .features { gap: 18px; }
+      .card { min-height: 245px; padding: 25px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <i class="leaf leaf--one"></i><i class="leaf leaf--two"></i><i class="leaf leaf--three"></i>
+    <header class="masthead">
+      <a class="brand" href="#" aria-label="Fieldnotes home"><span class="brand-mark">✳</span>fieldnotes</a>
+      <a class="sign-in" href="#">Sign in</a>
+    </header>
+
+    <main>
+      <section class="hero">
+        <p class="kicker">A QUIET PLACE TO THINK</p>
+        <h1>Make room for what matters.</h1>
+        <p class="intro">Fieldnotes is a calm, clear home for the ideas, observations, and loose threads you want to keep close.</p>
+        <a class="button" href="#">Start a fresh page <span>→</span></a>
+      </section>
+
+      <section class="features" aria-label="How Fieldnotes helps">
+        <article class="card card--collect">
+          <span class="number">01 / COLLECT</span>
+          <h2>Catch the small things.</h2>
+          <p>Save a spark before it slips away. Notes, lists, and moments all have a place here.</p>
+          <div class="sprouts" aria-hidden="true"><i></i><i></i><i></i></div>
+        </article>
+        <article class="card">
+          <span class="number">02 / CONNECT</span>
+          <h2>Follow where they lead.</h2>
+          <p>Let one thought find another, and give your next good idea somewhere to grow.</p>
+          <span class="thread" aria-hidden="true"></span>
+        </article>
+      </section>
+
+      <aside class="note"><b>✦</b><span>There’s no perfect way to begin. Just leave yourself a note.</span></aside>
+    </main>
+
+    <footer><span>A little space for your mind</span><span>Fieldnotes © 2026</span></footer>
+  </div>
+</body>
+</html>

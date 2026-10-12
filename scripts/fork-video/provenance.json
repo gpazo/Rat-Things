@@ -1,18 +1,32 @@
 {
-  "description": "Edited presentation replay of the Fieldnotes Session fork run; no cloud calls occur during video rendering.",
-  "recordedRunCheckedAt": "2026-10-12T01:22:04.059Z",
+  "description": "Edited presentation replay of five real Fieldnotes Session forks; rendering makes no cloud calls.",
+  "recordedRunCheckedAt": "2026-10-12T03:05:32.775Z",
   "source": "The starter HTML from site/fork-demo/themes.js, supplied to the source Session in the live demo.",
   "artifacts": {
-    "paper": "bf63e337f4462bb4256f9cf463bcabade6f1411fedf29ba5b7f5ee38dcf7958d",
-    "midnight": "f00fc8a0dfc563bf3b1a2849c869670cbf1d243c7692d51064355a3c26545322"
+    "paper": "74ce252f31814f6afe1b560e4365cce384fd4fb895b376630acdb8b2e7f7184e",
+    "midnight": "e0e9164c2c4d79a97d92661d964dfcc46f290593916d7226a61eb604d65c8f3f",
+    "studio": "8be00a59c255b49b3c4b4ebae705b5bd04a482a2aab54ec3bd3e64f2f29458d1",
+    "sage": "a1110493fdd073d8c675413d285c247282a6583e537aa7c92c33f06dc84bf852",
+    "index": "26aca717430ac8f86c822f35917ac1d2c4a32888f8e7951496e3f6beb24785c5"
   },
   "verifiedSelection": {
-    "winner": "midnight",
+    "winner": "sage",
     "originalHttpStatus": 200,
-    "paperHttpStatus": 404,
-    "midnightHttpStatus": 200,
+    "branches": {
+      "paper": 404,
+      "midnight": 404,
+      "studio": 404,
+      "sage": 200,
+      "index": 404
+    },
     "downloadMatchesArtifact": true
   },
-  "cleanup": "Both remaining Sessions and the Agent were deleted after validation; the video does not imply they remain running.",
-  "localEvidence": ".aws-e2e/fd261011a/demo-proof.json"
+  "evaluation": "evaluation.json contains editorial judgments of the actual outputs, not automatic benchmark scores.",
+  "localEvidence": ".aws-e2e/f5261011a/final-capture/proof.json",
+  "cleanup": {
+    "allSixSessionsMissing": true,
+    "agentMissing": true,
+    "checkedAt": "2026-10-12T03:05:47.849Z",
+    "description": "The remaining original and winner were deleted after the selection check; the replay does not imply they remain running."
+  }
 }
