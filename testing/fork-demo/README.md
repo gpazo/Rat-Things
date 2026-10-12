@@ -54,3 +54,7 @@ their hashes and provenance are in `scripts/fork-video/provenance.json`. Display
 prompts summarize the live instructions. The persistent on-screen replay label
 distinguishes the edited video from a fresh execution or a real-time screen capture.
 No active Session identifiers or credentials are embedded in the film.
+
+The recording stage inherits its palette and brand mark from `site/docs.css`.
+Keep the video framing aligned with the documentation's blue-black, cyan, and
+amber theme; the generated designs inside preview frames retain their own styles.

@@ -25,7 +25,9 @@ try {
   page.on('pageerror', error => errors.push(error.message));
   // The film is a local presentation replay. Frames cannot fetch external content.
   await page.route('**/*', route => route.abort());
-  await page.setContent(await readFile('scripts/fork-video/scene.html', 'utf8'));
+  const siteTheme = await readFile('site/docs.css', 'utf8');
+  const scene = await readFile('scripts/fork-video/scene.html', 'utf8');
+  await page.setContent(scene.replace('<!-- SITE_THEME -->', `<style>${siteTheme}</style>`));
   await page.evaluate(html => window.loadFrames(html), html);
   await page.evaluate(() => document.fonts.ready);
   const samples = [2, 9.8, 13, 16.5, 20, 27, 31.7, 34, 39];

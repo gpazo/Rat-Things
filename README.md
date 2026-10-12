@@ -50,7 +50,7 @@ Keep its context and files, try different approaches, and discard the branch you
 no longer need. Forking uses the latest terminal root Turn and is opt-in through
 `session_checkpoints_enabled` with S3 Files configured.
 
-[Watch the 42-second demo video](https://gpazo.github.io/Rat-Things/assets/session-fork-demo.mp4):
+[Watch the 42-second demo video](https://gpazo.github.io/Rat-Things/assets/session-fork-demo.mp4?v=docs-theme):
 one UI, two theme directions, and a choice about which Session to keep. The captioned
 replay uses the real generated designs from two Session forks.
 The [Fork studio guide](docs/session-fork-demo.md) also includes a hands-on walkthrough.

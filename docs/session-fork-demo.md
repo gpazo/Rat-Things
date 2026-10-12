@@ -6,9 +6,9 @@ direction, with **After hours**, a dark, vivid direction.
 
 ## Watch the demo
 
-<video controls playsinline preload="none" style="width:100%;border-radius:12px" poster="https://gpazo.github.io/Rat-Things/assets/session-fork-demo-poster.jpg" src="https://gpazo.github.io/Rat-Things/assets/session-fork-demo.mp4" aria-label="Session fork demo: compare two themes and keep After hours"></video>
+<video controls playsinline preload="none" style="width:100%;border-radius:12px" poster="https://gpazo.github.io/Rat-Things/assets/session-fork-demo-poster.jpg?v=docs-theme" src="https://gpazo.github.io/Rat-Things/assets/session-fork-demo.mp4?v=docs-theme" aria-label="Session fork demo: compare two themes and keep After hours"></video>
 
-[Watch or download the 42-second video](https://gpazo.github.io/Rat-Things/assets/session-fork-demo.mp4).
+[Watch or download the 42-second video](https://gpazo.github.io/Rat-Things/assets/session-fork-demo.mp4?v=docs-theme).
 The captioned video replays the flow with the actual HTML produced by two live
 Session forks. It shows the original brief, both design directions, and choosing
 After hours while discarding Paper & ink. It uses an edited presentation with wait
