@@ -29,8 +29,17 @@ block scripts, forms and external asset loading.
 
 ## Render the demo video
 
-The shareable deliverable is `assets/session-fork-demo.mp4`: 68 seconds, 1920 × 1080,
-24 fps, H.264 with burned-in captions and no audio. The poster sits beside it.
+The shareable deliverable is `assets/session-fork-demo.mp4`: 42 seconds, 1920 × 1080,
+24 fps, H.264 with burned-in captions and a quiet AAC music bed. The poster sits beside it.
+
+The music bed is `scripts/fork-video/score.m4a`, muxed unchanged into every render. It
+is 42 seconds of Debussy's *Clair de lune* starting at 1:36 of
+[Laurens Goedhart's recording](https://commons.wikimedia.org/wiki/File:Clair_de_lune_(Claude_Debussy)_Suite_bergamasque.ogg),
+licensed [CC BY 3.0](https://creativecommons.org/licenses/by/3.0/). It is trimmed,
+faded in over 1.2 seconds and out over the last 4, and loudness-normalized to
+−22 LUFS with a −3 dBTP ceiling. Keep the credit wherever the video is published. Scene lengths live in one
+plan in `scene.html`; the renderer takes its duration from it. If the total changes,
+rebuild the clip to the same length or the render fails its audio check.
 
 With FFmpeg/ffprobe on PATH and Playwright Chromium installed:
 
@@ -44,7 +53,7 @@ The first command after installation writes storyboard frames to
 `test-results/fork-video/`; the full render streams frames directly to FFmpeg to
 avoid a large intermediate recording. Inspect these frames and the exported MP4
 for framing, text fit, scroll motion, cursor placement, and the keep/discard outcome.
-The renderer checks browser errors, artifact hashes, duration, codec and dimensions;
+The renderer checks browser errors, artifact hashes, duration, codecs and dimensions;
 export metadata is written to `test-results/fork-video/export.json`.
 
 `scripts/fork-video/scene.html` is a recording-only presentation stage, not a
@@ -56,8 +65,9 @@ distinguishes the edited video from a fresh execution or a real-time screen capt
 No active Session identifiers or credentials are embedded in the film.
 
 The recording stage inherits its palette and brand mark from `site/docs.css`.
-Keep the video framing aligned with the documentation's blue-black, cyan, and
-amber theme; the generated designs inside preview frames retain their own styles.
+Follow [BRAND.md](../../BRAND.md) when revising the recording stage: neutral surfaces,
+one indigo accent and the canonical mark. Generated designs inside preview frames
+retain their own styles.
 
 ## Capture five real alternatives
 

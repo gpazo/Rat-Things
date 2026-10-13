@@ -24,7 +24,7 @@ header{position:absolute;inset:0 64px auto;height:105px;display:flex;align-items
 <div class="caption-bar"><span class="caption-label">FORK / EVALUATE / CHOOSE</span><div class="caption" id="caption"></div></div><div class="footer"><span>EDITED REPLAY · REAL SESSION OUTPUTS · WAIT TIMES REMOVED</span><span>FIVE OPTIONS · FOUR CRITERIA · ONE CHOICE</span></div><div class="progress"></div>
 <script>
 const clamp=v=>Math.max(0,Math.min(1,v)),ease=v=>{v=clamp(v);return v*v*(3-2*v)},esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-let review,scenes;
+let review,scenes,at,total;
 const frame=(key,title)=>`<iframe data-theme="${esc(key)}" sandbox title="${esc(title)}"></iframe>`;
 window.loadFrames=async({html,evaluation})=>{
  review=evaluation;
@@ -46,22 +46,27 @@ window.loadFrames=async({html,evaluation})=>{
  document.getElementById('kept-name').textContent=`✓ ${chosen.name} kept`;
  document.getElementById('winner-chrome').textContent=`fieldnotes / ${chosen.name.toLowerCase()}`;
  document.getElementById('winner-frame').dataset.theme=review.winner;
- scenes=[['intro',0,5.5],['fork',5.5,12],['gallery',12,17],...ds.map((d,i)=>[`review-${d.key}`,17+i*5.5,22.5+i*5.5]),['evaluation',44.5,54.5],['gallery',54.5,61.5],['end',61.5,68]];
+ // Scene lengths in seconds; every start time and cue derives from them.
+ const plan=[['intro',3.5],['fork',4],['gallery',3],...ds.map(d=>[`review-${d.key}`,3.5]),['evaluation',5.5],['choose',4.5],['end',4]];
+ scenes=[];at={};total=0;
+ for(const[name,length]of plan){at[name]??=total;scenes.push([name==='choose'?'gallery':name,total,total+length]);total+=length}
+ at.review=at[`review-${ds[0].key}`];at.click=at.choose+1.6;
  for(const f of document.querySelectorAll('iframe'))await new Promise(resolve=>{f.onload=resolve;f.srcdoc=html[f.dataset.theme]});
+ return{seconds:total,scenes,poster:at.gallery+1.5,click:at.click};
 };
 window.paint=t=>{
  for(const el of document.querySelectorAll('.scene')){el.style.opacity=0;el.style.visibility='hidden'}
- for(const[id,start,end]of scenes){if(t<start||t>=end)continue;const el=document.getElementById(id),alpha=ease((t-start)/.4)*(1-ease((t-end+.4)/.4));el.style.opacity=alpha;el.style.visibility='visible';el.style.transform=`translateY(${(1-ease((t-start)/.6))*14}px)`}
- document.querySelector('.progress').style.width=`${t/68*1920}px`;
- let caption=t<5.5?'Start with the brief, context, and files in one prepared Session.':t<12?'Fork into five independent workspaces. Let each explore a different direction.':t<17?'Five generated designs. Now evaluate the differences.':t<44.5?'Review the actual design on desktop and mobile.':t<54.5?'Strong / Mixed / Weak are my design judgments, not automated scores.':t<61.5?'Keep the strongest fit for the brief. Discard the other four Sessions.':'Continue the chosen Session, with its conversation and workspace intact.';
- if(t>=17&&t<44.5){const d=review.designs[Math.floor((t-17)/5.5)];caption=d.caption;const p=clamp((t-(17+Math.floor((t-17)/5.5)*5.5)-2)/2.3);document.querySelectorAll(`#review-${d.key} iframe`).forEach((f,i)=>f.style.top=`${-ease(p)*(i?d.mobilePan:d.desktopPan)}px`)}
+ for(const[id,start,end]of scenes){if(t<start||t>=end)continue;const el=document.getElementById(id),alpha=ease((t-start)/.3)*(1-ease((t-end+.3)/.3));el.style.opacity=alpha;el.style.visibility='visible';el.style.transform=`translateY(${(1-ease((t-start)/.45))*14}px)`}
+ document.querySelector('.progress').style.width=`${t/total*1920}px`;
+ let caption=t<at.fork?'Start with the brief, context, and files in one prepared Session.':t<at.gallery?'Fork into five independent workspaces. Let each explore a different direction.':t<at.review?'Five generated designs. Now evaluate the differences.':t<at.evaluation?'Review the actual design on desktop and mobile.':t<at.choose?'Strong / Mixed / Weak are my design judgments, not automated scores.':t<at.end?'Keep the strongest fit for the brief. Discard the other four Sessions.':'Continue the chosen Session, with its conversation and workspace intact.';
+ if(t>=at.review&&t<at.evaluation){const i=Math.floor((t-at.review)/3.5),d=review.designs[i];caption=d.caption;const p=clamp((t-at.review-i*3.5-.7)/1.9);document.querySelectorAll(`#review-${d.key} iframe`).forEach((f,i)=>f.style.top=`${-ease(p)*(i?d.mobilePan:d.desktopPan)}px`)}
  document.getElementById('caption').textContent=caption;
- document.querySelectorAll('.branch-lines path').forEach(p=>p.style.strokeDashoffset=1300*(1-ease((t-6.5)/1.4)));
- const chosen=ease((t-57.4)/.65);
- for(const tile of document.querySelectorAll('.tile')){const winner=tile.dataset.key===review.winner;tile.querySelector('.window').style.opacity=winner?1:1-chosen*.8;tile.querySelector('.discard').style.opacity=winner?0:chosen;const button=tile.querySelector('.choice');button.classList.toggle('selected',winner&&t>57.4);button.textContent=winner&&t>57.4?'✓ Keep this direction':'Keep this direction';button.style.opacity=winner?1:1-chosen}
- document.getElementById('gallery-note').textContent=t>57.5?'ONE CHOSEN / FOUR DISCARDED':'REVIEW BEFORE YOU CHOOSE';
- document.getElementById('retention-note').textContent=t>57.5?'Original + chosen Session retained':'Original Session preserved';
- const index=review.designs.findIndex(d=>d.key===review.winner),x=index*362.4+170,y=676,cursor=document.querySelector('.cursor');cursor.style.left=`${x}px`;cursor.style.top=`${y}px`;cursor.style.opacity=ease((t-55)/.4)*(1-ease((t-59.7)/.4));cursor.style.transform=`translate(${(1-ease((t-55)/1.8))*90}px,${(1-ease((t-55)/1.8))*-90}px)`;
- const pulse=clamp((t-57.4)/.7),ripple=document.querySelector('.ripple');ripple.style.left=`${x-25}px`;ripple.style.top=`${y-25}px`;ripple.style.opacity=Math.sin(pulse*Math.PI)*.8;ripple.style.transform=`scale(${.5+pulse*1.4})`;
+ document.querySelectorAll('.branch-lines path').forEach(p=>p.style.strokeDashoffset=1300*(1-ease((t-at.fork-.5)/1.1)));
+ const chosen=ease((t-at.click)/.5);
+ for(const tile of document.querySelectorAll('.tile')){const winner=tile.dataset.key===review.winner;tile.querySelector('.window').style.opacity=winner?1:1-chosen*.8;tile.querySelector('.discard').style.opacity=winner?0:chosen;const button=tile.querySelector('.choice');button.classList.toggle('selected',winner&&t>at.click);button.textContent=winner&&t>at.click?'✓ Keep this direction':'Keep this direction';button.style.opacity=winner?1:1-chosen}
+ document.getElementById('gallery-note').textContent=t>at.click+.1?'ONE CHOSEN / FOUR DISCARDED':'REVIEW BEFORE YOU CHOOSE';
+ document.getElementById('retention-note').textContent=t>at.click+.1?'Original + chosen Session retained':'Original Session preserved';
+ const index=review.designs.findIndex(d=>d.key===review.winner),x=index*362.4+170,y=676,cursor=document.querySelector('.cursor');cursor.style.left=`${x}px`;cursor.style.top=`${y}px`;const glide=1-ease((t-at.choose-.3)/1.1);cursor.style.opacity=ease((t-at.choose-.2)/.3)*(1-ease((t-at.click-1.7)/.3));cursor.style.transform=`translate(${glide*90}px,${glide*-90}px)`;
+ const pulse=clamp((t-at.click)/.6),ripple=document.querySelector('.ripple');ripple.style.left=`${x-25}px`;ripple.style.top=`${y-25}px`;ripple.style.opacity=Math.sin(pulse*Math.PI)*.8;ripple.style.transform=`scale(${.5+pulse*1.4})`;
 };
 </script></html>

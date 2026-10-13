@@ -17,7 +17,6 @@ if (evaluation.designs.length !== 5 || new Set(evaluation.designs.map(design => 
   !evaluation.designs.some(design => design.key === evaluation.winner) ||
   evaluation.designs.some(design => design.ratings.length !== 4 || design.ratings.some(rating => !['Strong', 'Mixed', 'Weak'].includes(rating))))
   throw new Error('Complete the five-option review before rendering.');
-const seconds = 68;
 const html = { starter: renderPreview('starter') };
 for (const { key } of evaluation.designs) {
   html[key] = await readFile(`scripts/fork-video/fixtures/${key}.html`, 'utf8');
@@ -34,9 +33,11 @@ try {
   const siteTheme = await readFile('site/docs.css', 'utf8');
   const scene = await readFile('scripts/fork-video/scene.html', 'utf8');
   await page.setContent(scene.replace('<!-- SITE_THEME -->', `<style>${siteTheme}</style>`));
-  await page.evaluate(data => window.loadFrames(data), { html, evaluation });
+  const timing = await page.evaluate(data => window.loadFrames(data), { html, evaluation });
+  const { seconds } = timing;
   await page.evaluate(() => document.fonts.ready);
-  const samples = [2, 9, 14, 19, 23, 25, 28.5, 30.5, 34, 36, 39.5, 41.5, 43.5, 49, 57, 59, 65];
+  // Storyboard each scene late, after its motion has settled, plus the moment after the choice.
+  const samples = [...timing.scenes.map(([, , end]) => end - .5), timing.click + .8].map(time => Number(time.toFixed(2))).sort((a, b) => a - b);
   for (const time of samples) {
     await page.evaluate(t => window.paint(t), time);
     const overflow = await page.evaluate(() => [...document.querySelectorAll('.caption,.finding p,.recommendation,h1,h2,h3')]
@@ -48,7 +49,9 @@ try {
   }
   if (!previewOnly) {
     const output = 'assets/session-fork-demo.mp4';
-    encoder = spawn('ffmpeg', ['-y', '-hide_banner', '-loglevel', 'error', '-f', 'image2pipe', '-vcodec', 'mjpeg', '-framerate', '24', '-i', 'pipe:0', '-an', '-vf', 'scale=in_range=pc:out_range=tv,format=yuv420p', '-color_range', 'tv', '-c:v', 'libx264', '-preset', 'medium', '-crf', '20', '-pix_fmt', 'yuv420p', '-movflags', '+faststart', output], { stdio: ['pipe', 'inherit', 'inherit'] });
+    // Prepared music bed; see testing/fork-demo/README.md for its source and credit.
+    const score = 'scripts/fork-video/score.m4a';
+    encoder = spawn('ffmpeg', ['-y', '-hide_banner', '-loglevel', 'error', '-f', 'image2pipe', '-vcodec', 'mjpeg', '-framerate', '24', '-i', 'pipe:0', '-i', score, '-map', '0:v:0', '-map', '1:a:0', '-vf', 'scale=in_range=pc:out_range=tv,format=yuv420p', '-color_range', 'tv', '-c:v', 'libx264', '-preset', 'medium', '-crf', '20', '-pix_fmt', 'yuv420p', '-c:a', 'copy', '-shortest', '-movflags', '+faststart', output], { stdio: ['pipe', 'inherit', 'inherit'] });
     const completion = new Promise((resolve, reject) => {
       encoder.once('error', reject);
       encoder.once('exit', code => code === 0 ? resolve() : reject(new Error(`ffmpeg exited ${code}`)));
@@ -64,7 +67,7 @@ try {
     }
     encoder.stdin.end();
     await completion;
-    await page.evaluate(() => window.paint(14));
+    await page.evaluate(t => window.paint(t), timing.poster);
     await page.screenshot({ path: 'assets/session-fork-demo-poster.jpg', type: 'jpeg', quality: 90 });
     const probe = spawn('ffprobe', ['-v', 'error', '-show_streams', '-show_format', '-of', 'json', output]);
     let metadata = '';
@@ -73,6 +76,8 @@ try {
     if (code !== 0) throw new Error('ffprobe failed.');
     const info = JSON.parse(metadata);
     const stream = info.streams.find(stream => stream.codec_type === 'video');
+    const audio = info.streams.find(stream => stream.codec_type === 'audio');
+    if (audio?.codec_name !== 'aac' || Math.abs(Number(audio.duration) - seconds) > .05) throw new Error('Unexpected audio format.');
     if (stream.width !== 1920 || stream.height !== 1080 || stream.codec_name !== 'h264' || stream.pix_fmt !== 'yuv420p' || Math.abs(Number(info.format.duration) - seconds) > .05) throw new Error('Unexpected video format.');
     await writeFile(`${directory}/export.json`, JSON.stringify({ output, seconds: Number(info.format.duration), width: stream.width, height: stream.height, bytes: Number(info.format.size), provenance, errors }, null, 2) + '\n');
     console.log(`Created ${output} · ${seconds} seconds · 1920 × 1080 · ${(Number(info.format.size) / 1024 / 1024).toFixed(1)} MiB`);

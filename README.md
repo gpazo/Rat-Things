@@ -11,9 +11,9 @@ environments, environment templates, Files, Skills and Vaults. Your account owns
 the API service, harness, session state, execution environments and encrypted
 storage. Model requests use the provider configured by your deployment.
 
-This is an engineering preview. The migration includes the official SDK models
-and execution protocol. Native runtime, deployment and behavioral acceptance are
-tracked in the [conformance ledger](plans/agents-api-conformance.md).
+This is an engineering preview. See [capabilities and boundaries](docs/status-and-roadmap.md)
+for implemented features and current limits, and [security](docs/security.md) before
+connecting sensitive accounts.
 
 ## Use the API
 
@@ -55,7 +55,7 @@ Keep its context and files, try different approaches, and discard the branch you
 no longer need. Forking uses the latest terminal root Turn and is opt-in through
 `session_checkpoints_enabled` with S3 Files configured.
 
-[Watch the 68-second demo video](https://gpazo.github.io/Rat-Things/assets/session-fork-demo.mp4?v=five-forks):
+[Watch the 42-second demo video](https://gpazo.github.io/Rat-Things/assets/session-fork-demo.mp4?v=five-forks-42s):
 one UI, five independent design directions, and an evaluation before choosing one.
 The captioned replay reviews the real fork outputs on desktop and mobile, explains
 their tradeoffs, and discards the four unchosen Sessions. Five is an example; repeat
@@ -79,26 +79,25 @@ Connections retain provider installation, OAuth refresh, grant narrowing and
 notification access. Agent-facing tools are explicitly declared on Agents;
 notification credentials do not silently add tools.
 
-The former Thing and Routine APIs, executable definitions and CLI commands are
-removed. Saved tables remain pending explicit data disposition. The
-[cleanup handoff](plans/obsolete-implementation-removal.md) lists the remaining
-private implementation cleanup and deployment acceptance work.
-
 ## Work locally
 
 ```bash
 npm ci
-npm run check
 npm run smoke:local
 npm run console:build
 RAT_THINGS_AGENTS_API_URL=https://your-api.example/v1 AWS_REGION=us-west-2 npm run console:serve
 ```
 
+For the full repository checks, run `npm run check`. It includes Lambda packaging
+and requires a patched Linux ARM64 Codex artifact, Docker and Terraform; see
+[development prerequisites](testing/README.md). To deploy a backend, start with
+the [AWS quickstart](docs/quickstart.md).
+
 The console is a native Rust desktop app built with egui. It requires Rust 1.95 or newer to build.
 Its private Node helper reuses the CLI authentication code. See [the desktop guide](desktop/README.md).
 
-The CLI supports `agents`, `sessions`, `environments`, `vaults` and `schedules`.
-Use `rat-things agents --help` for canonical resource commands. Local execution,
+The CLI supports `agents`, `sessions`, `environments`, `files`, `vaults` and `schedules`.
+Use `npm run rat-things -- agents --help` for resource commands. Local execution,
 connection installation, diagnostics and deployment tooling remain available.
 Codex is pinned consistently in the npm dependency, MicroVM image and relay image.
 
@@ -108,11 +107,13 @@ use ARM64 (`linux/arm64`). Ordinary tests never provision a MicroVM.
 
 ## Boundaries
 
-The harness drops the agent process to a separate non-root UID inside a MicroVM.
-Worker ingress is private. Provider signatures are checked before parsing, owners
+The harness drops the agent process to a separate non-root UID inside a Lambda
+MicroVM or dedicated EC2 worker. Worker ingress is private. Provider signatures are checked before parsing, owners
 come from trusted identity, clone URLs are HTTPS and host-allowlisted, and state
 changes use conditional writes. Prompts and results live in encrypted S3; DynamoDB
-holds indexes and references. Credentials remain behind host-side brokers.
+holds indexes and references. Integration credentials remain behind host-side brokers.
+The optional [ChatGPT login bridge](docs/codex-subscription.md) exposes its runtime
+authentication file to the agent UID and requires trusted workloads.
 
 Capabilities are fixed before launch. Rat Things has no mid-Turn approval layer;
 an operation outside the allowed capabilities remains unavailable.
