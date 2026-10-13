@@ -6,9 +6,6 @@ boundary, credentials, network path, runtime policy, and durable data must remai
 control—and your team is prepared to operate them. Neither choice is inherently safer; each moves
 responsibility to a different place.
 
-> **Short answer:** decide where trust and operations should live before comparing feature lists.
-> The decisive question is usually “Who must be able to control or observe this agent?”
-
 ## Compare control planes, not landing pages
 
 | Decision | Managed service | Self-hosted backend |
@@ -38,8 +35,8 @@ generic vendor onto every managed service:
 - [GitHub Copilot cloud agent](https://docs.github.com/en/copilot/concepts/agents/cloud-agent/about-cloud-agent)
   works in a GitHub Actions-powered ephemeral environment and centers its workflow on repository
   research, branches, and pull requests.
-- Rat Things is the self-hosted reference in this guide: an AWS control plane plus isolated Lambda
-  MicroVM execution, durable conversations, schedules, and deployment-owned Connections.
+- Rat Things is the self-hosted reference in this guide: an AWS control plane with Lambda
+  MicroVM or opt-in dedicated EC2 workers, durable Sessions, schedules, and deployment-owned Connections.
 
 This is not a feature ranking. Product behavior, plan availability, prices, and limits change. Use
 each vendor's current documentation to fill the worksheet for your actual workflow.
@@ -80,11 +77,11 @@ Agent code may inspect repositories, run commands, browse the web, install depen
 connected services. Process or container isolation can be sufficient for trusted internal tasks,
 but stronger tenant or repository boundaries may justify VM-level isolation.
 
-Rat Things runs each active conversation in an AWS Lambda MicroVM. The outer MicroVM is the primary
-execution boundary; an unprivileged agent process, sanitized environment, root-owned lifecycle
-process, credential broker, browser URL policy, and IAM/network controls add layers inside and
-outside it. Persistent conversation state lives outside the VM so compute can suspend or be
-replaced.
+Rat Things runs managed work in Lambda MicroVMs or opt-in dedicated EC2 Session
+workers. The outer worker is the isolation boundary; an unprivileged agent process,
+sanitized environment, root-owned lifecycle process, credential broker, browser URL
+policy, and IAM/network controls add layers. Persistent conversation state lives
+outside the worker so saved history remains available after execution ends.
 
 This is an engineering design, not a blanket production claim. The project explicitly remains
 unsuitable for untrusted multi-tenant production until its listed security gates are complete. Read
@@ -118,9 +115,12 @@ Ask each option what survives:
 6. How are ambiguous external writes reconciled?
 7. What are the retention, export, and deletion guarantees?
 
-Rat Things retains accepted Session input receipts and Turn outcomes, stores full content in encrypted
-S3, and uses native checkpoints and workspace storage for recovery. Saved files do not recreate live processes. The [durable-state
-guide](durable-ai-agent-state.md) explains the layers and their failure cases.
+Rat Things retains accepted Session input receipts and Turn outcomes and stores
+full content in encrypted S3. Conversation recovery uses native checkpoints or
+saved history. Workspace handoff requires opt-in checkpoint support and S3 Files;
+ordinary managed replacement resets sandbox files. Saved files do not recreate
+live processes. The [durable-state guide](durable-ai-agent-state.md) explains the
+layers and their failure cases.
 
 ## Include the full operating cost
 
@@ -135,9 +135,9 @@ A self-hosted bill usually does not. Compare:
 - monitoring, backups, failure recovery, and on-call ownership; and
 - the cost of missing product features your team must build.
 
-Rat Things publishes a measured two-turn workload and its non-model infrastructure breakdown, with
-explicit caveats. Use [the AWS agent cost guide](aws-ai-agent-cost.md) as a measurement template,
-not as a universal price comparison.
+Use [the AWS agent cost guide](aws-ai-agent-cost.md) to estimate model usage,
+connected worker time, storage and the deployment's idle cost. Apply current
+regional rates to your own workload.
 
 ## Current boundaries
 

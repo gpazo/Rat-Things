@@ -17,7 +17,8 @@ for CLI commands and recipient checks.
 ## Session artifact publishing
 
 Managed environments retain regular files beneath `/workspace/outputs` as
-immutable Session Artifacts after completed Turns. Select saved artifact IDs
+immutable Session Artifacts after terminal Turns, including failure or cancellation
+when the worker can capture output. Select saved artifact IDs
 explicitly when publishing. The owner-checked source resolver verifies the whole
 selection before reading content or writing a publication; artifact IDs from
 another owner, another Session, or deleted artifacts are rejected.
@@ -47,7 +48,8 @@ Content-Type: application/json
 ```
 
 Each artifact ID and relative path must be unique. Paths cannot contain traversal,
-absolute paths or backslashes. `file` specifications select `path`; `video`
+absolute paths or backslashes, and `_rat/` is reserved. Publications allow at most
+5,000 files, including generated viewer pages. `file` specifications select `path`; `video`
 specifications select `path` and an optional `poster`; `site` specifications select
 an optional `root` and `entrypoint`. Only the selected saved bytes are available to
 the builder. The agent's live filesystem does not grant publication access.
@@ -58,6 +60,10 @@ installing host-only signed cookies. The first page therefore opens even when a 
 drops cookies from the redirect. CloudFront repeats the cookies on that successful page response,
 and generated file and video viewers also carry the signed authorization into their asset requests.
 Relative site assets then work naturally beneath the same isolated origin for the grant lifetime.
+
+The deployment sets grant lifetime with `artifact_url_ttl_seconds`, bounded to
+60 seconds through 24 hours. The publication request cannot override it. Expiry
+limits access independently of the S3 retention policy described in [durable files](durable-files.md).
 
 ## AWS setup
 

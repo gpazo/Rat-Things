@@ -2,7 +2,7 @@
 
 The cost of a self-hosted agent has four main parts: model usage, active compute, durable state,
 and the control plane. Workload costs grow with tokens, execution time, and retained bytes. Fixed
-costs come from resources that remain provisioned between Runs, such as HTTP services and the private network. Estimate these separately before comparing deployment choices.
+costs come from resources that remain provisioned between Turns, such as HTTP services and the private network. Estimate these separately before comparing deployment choices.
 
 ## Account for connected workers and deployment capacity
 
@@ -71,7 +71,7 @@ include:
 - avoid repeatedly loading broad documentation when a narrow guide or schema is enough;
 - cap output and execution time;
 - reuse a durable conversation only when its accumulated context remains valuable; and
-- make idempotent submission prevent duplicate semantic Runs.
+- use idempotency keys when retrying Session input.
 
 Caching may reduce billed input cost, but it does not make unnecessarily large context free. Retain
 provider usage dimensions per Run so a model or pricing change does not erase the baseline.

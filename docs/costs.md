@@ -25,8 +25,10 @@ turns that shutdown into instance termination.
 The HTTP/relay services and private-network resources can have a baseline cost
 even when no Session is active. Include the [load balancer](https://aws.amazon.com/elasticloadbalancing/pricing/),
 Fargate, NAT, logs and retained storage when estimating an idle deployment.
-S3 Files is required by the dedicated EC2 Session backend. It also preserves
-native checkpoints and workspace state for replacement workers.
+S3 Files is required by the dedicated EC2 Session backend. It retains Codex home
+and workspace bytes; preserving a hosted workspace across replacement requires a
+committed checkpoint. Ordinary replacement resets the workspace while retained
+artifacts remain available.
 
 ## Estimating a deployment
 

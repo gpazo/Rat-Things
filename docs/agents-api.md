@@ -148,7 +148,8 @@ uploads and long-lived event streams.
 | Artifact | An immutable copy of a managed environment output |
 
 Session creation snapshots the Agent and resolves its environment template.
-Later Agent edits do not change an existing Session. Supplied objects and arrays
+Later Agent edits do not change an existing Session. Supported Session settings
+can be changed through the Session update endpoint. Supplied objects and arrays
 replace the corresponding saved fields. The requested model identifier is passed
 to the configured provider without silently choosing another model.
 
@@ -385,9 +386,12 @@ File content and Skill versions so later edits or deletion of the original
 resources do not change that environment's prepared inputs.
 
 Files in `/workspace/outputs` in managed environments become immutable Artifacts
-when a Turn finishes. The API supports up to 200 MiB per artifact and 500 MiB per
-output snapshot. These saved copies survive environment expiry. Self-hosted
-environments do not implicitly publish their live files as Artifacts.
+when a Turn completes, fails or is cancelled and the worker can capture output.
+Abrupt worker loss cannot guarantee that final snapshot. The API supports up to
+200 MiB per artifact and 500 MiB per output snapshot. These saved copies survive
+environment expiry. Self-hosted environments do not implicitly publish their live
+files as Artifacts. Saved bytes
+remain subject to the deployment's [storage retention policy](durable-files.md#retained-output).
 
 Capability archives are validated for safe paths, metadata and file counts. ZIP
 uploads allow 50 MiB, with at most 500 files of up to 25 MiB each. Setup expands

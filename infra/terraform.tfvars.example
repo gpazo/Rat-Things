@@ -14,6 +14,7 @@ allow_agent_aws_credential_chain = false
 codex_auth_mode                 = "chatgpt"
 codex_auth_file_secret_arn      = "arn:aws:secretsmanager:us-west-2:111122223333:secret:agent/codex-auth-file-AbCdEf"
 # codex_chatgpt_model = "gpt-5.6-terra" # null uses the workspace default
+# codex_chatgpt_model_ids = ["gpt-5.6-terra"] # exact IDs verified for this workspace credential
 
 # Optional Bedrock deployment instead of ChatGPT/OpenAI:
 # codex_auth_mode              = "bedrock"

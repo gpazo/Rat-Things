@@ -11,7 +11,10 @@ and documents ChatGPT sign-in in the official [Codex authentication guide](https
 OpenAI also documents `cli_auth_credentials_store = "file"` plus `auth.json` in the official
 [configuration reference](https://learn.chatgpt.com/docs/config-file/config-reference). Copying that
 file into your AWS deployment is a Rat Things credential bridge, not a claim that OpenAI designed a
-personal login as a general-purpose server credential.
+personal login as a general-purpose server credential. OpenAI describes trusted-runner account
+authentication as an advanced path, recommends API keys for general automation, and excludes
+public/open-source repository CI from that account-auth workflow. See
+[non-interactive authentication](https://learn.chatgpt.com/docs/non-interactive-mode#authenticate-in-automation).
 
 ## Fastest local path
 
@@ -115,9 +118,10 @@ Rat Things reduces, but cannot eliminate, the risk:
 - the unprivileged Codex process necessarily has access to that file while it runs;
 - if Codex refreshes the login, the trusted runner writes the updated bundle back to Secrets
   Manager;
-- the runtime copy is deleted after each turn; and
+- execution cleanup persists a validated refresh and deletes the runtime copy; a persistent
+  Session harness can retain it across multiple Turns until that execution ends; and
 - if persistent S3 Files is enabled, the temporary Codex-home copy may transit that encrypted
-  backing store during the active turn before deletion.
+  backing store while the harness is active.
 
 The credential never belongs in an Agent definition, Session input, DynamoDB record, log, Terraform state,
 container image, or repository. An operator-managed deployment can provide an existing secret ARN

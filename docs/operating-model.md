@@ -15,6 +15,7 @@ inference requests; OpenAI does not operate the Rat Things control plane.
 Create an Agent with a model, instructions and declared tools. Create a Session
 from that Agent, select an environment and provide input. The Session snapshots
 its resolved configuration so later Agent edits do not change existing work.
+Supported settings can still be changed explicitly through a Session update.
 
 Input to an idle Session starts a Turn. Input during active work steers that Turn.
 Turns complete, fail or cancel independently of the Session. Saved Items and Turns
@@ -40,7 +41,7 @@ The console and canonical CLI groups use the same resource models.
 Signed provider events resolve an owned Agent binding and add input to a Session.
 Schedules reference an Agent and environment, with their own occurrence identity,
 input template, overlap policy and delivery destinations. Provider delivery follows
-a completed root Turn and has a separate retry queue group.
+a terminal root Turn, including failure or cancellation, and has a separate retry queue group.
 
 Connections retain provider installation, OAuth, verification, grants and secret
 brokering. A notification connection does not automatically grant the Agent tools.

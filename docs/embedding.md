@@ -2,8 +2,9 @@
 
 Rat Things is an open-source, headless backend for cloud agents. It can sit behind a small-business
 operator console, a CLI, another agent, or a SaaS product without requiring a Rat-operated control
-plane. The same deployment can serve one person or many authenticated users; the host decides that
-product model.
+plane. The host decides whether its product serves one person or multiple authenticated users.
+Rat Things remains an engineering preview: owner isolation alone does not provide the budgets,
+rate limits, destination authorization and output controls needed for untrusted multi-tenant use.
 Every consumer follows the same [operating model](operating-model.md); this guide explains how a host
 turns those primitives into its own UX.
 
@@ -97,7 +98,7 @@ to browser JavaScript.
 Give the agent the deployment base URL and an authenticated CLI, SigV4-capable HTTP tool, or
 host-owned backend tool. It starts at discovery, uses the Agents API, and follows links into
 Sessions, Turns, live events, files, publications, browser tools, skills or MCP only
-when the task needs them. The complete progressive path and a copyable bootstrap instruction are in
+when the task needs them. The starting workflow is in
 [Connect an agent to Rat Things](agents.md).
 
 ### Embedded product or SaaS
@@ -149,9 +150,12 @@ into Rat's identity namespace. Callers cannot submit an `ownerId`. Local testing
 `ALLOW_OWNER_HEADER=true`; production deployments must keep that escape hatch disabled. A
 host-owned backend can use its own customer authentication and SigV4-sign the downstream Rat call.
 
-The handler has a JWT `sub` extraction hook for a separately maintained adapter, but the published
-v1 discovery/OpenAPI contract does not advertise bearer authentication. Any replacement direct
-transport must own and publish a corresponding machine contract. Keep these identities distinct:
+The control handler has a JWT `sub` extraction hook for a separately maintained adapter; the
+included control endpoint uses AWS IAM. The separate Agents HTTP endpoint accepts owner-bound,
+scoped bearer credentials issued through IAM authentication. Use the
+[SDK transport](agents-api.md#connect) to obtain and refresh them. A shared backend IAM principal
+produces a shared Rat owner; authenticating different customers in the host application does not
+by itself create distinct Rat owners. Keep these identities distinct:
 
 | Identity | Meaning |
 | --- | --- |
@@ -189,10 +193,15 @@ Provider webhooks are separate from the control API. Each unauthenticated route 
 provider signature before parsing or enqueueing. A host may place a reverse proxy in front, but it
 must preserve the raw signed body and required headers.
 
-For an embedded product that wants completion events, consume the configured EventBridge stream or
-poll owner-scoped run state. Do not treat provider result delivery as an application event bus: it
-has side-effect fencing and provider-specific retry semantics. Generic unauthenticated Agent webhooks and a
-public SDK are planned facade work, not current v1 behavior.
+For application lifecycle notifications, register an owned endpoint through
+`POST /v1/webhooks` on the Agents API and verify each delivery with its signing secret.
+Use [Session webhooks](agents-api.md#session-webhooks) for background notifications and
+Session SSE for live progress. Read saved Turns and Items after reconnecting; an idle Session
+can have a completed, failed or cancelled last Turn.
+
+Provider result delivery has its own side-effect fencing and retries. The EventBridge stream
+describes private execution state for operational consumers; it is not the public Session
+history or a replacement for Session webhooks.
 
 ## Installation boundary
 
@@ -208,6 +217,7 @@ terraform -chdir=infra init
 terraform -chdir=infra apply
 
 export RAT_THINGS_API_URL="$(terraform -chdir=infra output -raw api_endpoint)"
+export RAT_THINGS_AGENTS_API_URL="$(terraform -chdir=infra output -raw agents_api_base_url)"
 export AWS_REGION="<deployment-region>"
 rat-things doctor --json
 ```

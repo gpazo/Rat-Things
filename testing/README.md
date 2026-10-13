@@ -1,4 +1,4 @@
-# LocalStack workflow testing
+# Contributor verification
 
 ## Agents API native compatibility gate
 
@@ -166,6 +166,13 @@ With Terraform 1.15.8 installed, run `npm run test:infra`. Mocked AWS providers 
 EC2-only and combined worker configurations, including S3 Files principals and MicroVM
 network connector selection. These tests do not contact AWS or provision resources.
 Real IAM enforcement and mount behavior remain part of the opt-in AWS canaries.
+
+## Focused AWS proofs
+
+These tests incur AWS and model costs. Source the intended disposable deployment's
+`runtime.env` and set each proof's explicit opt-ins before running it. Dedicated EC2
+proofs also require `AWS_E2E_LONG_RUNNING_AGENT_ID` selecting an Agent admitted by
+`AWS_E2E_EC2_SESSION_WORKLOADS_JSON`; see [backend placement](#backend-placement-in-aws-tests).
 
 The hosted credential proof uses the existing deployment-owned integration fixture.
 After deploying the candidate and loading its runtime environment, set

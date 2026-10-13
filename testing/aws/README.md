@@ -48,11 +48,12 @@ These dedicated-worker fault probes also require `AWS_E2E_LONG_RUNNING_AGENT_ID`
 selecting an allowlisted Agent; they retain that supplied Agent after cleanup.
 It verifies the deployment account, Run, generation and immutable launch-template
 tag before terminating the exact EC2 instance created by that fixture. It then
-waits for reconciliation. With no execution environment, a replacement harness
-must retain context. With a hosted environment, expiry is terminal and saved
-artifacts must remain readable. This does not prove native checkpoint-loss
-recovery or workspace restoration onto replacement compute. The cases delete
-their own Sessions; they preserve the deployment for further testing.
+waits for reconciliation. The replacement harness must retain context. For hosted environments, it must reset
+the workspace, preserve the environment ID, emit one reset event and retain previously
+captured artifacts. A separate case points the disposable Session at an absent native
+thread after worker termination and verifies fallback to saved public history. This
+tests ordinary replacement, not adoption of a committed workspace checkpoint. The
+cases delete their own Sessions and preserve the supplied Agent and deployment.
 
 Build and verify the patched Linux ARM64 artifact before packaging (see
 `testing/README.md`). EC2 deployment additionally requires an immutable
@@ -78,11 +79,10 @@ Point the owned hostname at the `environment_relay_origin_dns_name` Terraform
 output before invoking tests. The harness does not create or overwrite that DNS
 record. The public Agents URL uses direct ALB TLS; the executor relay uses CloudFront.
 
-The old public Run/conversation, browser takeover, and account-specific demo
-canaries are retired. Port provider delivery, environment artifact publication,
-schedule overlap, execution-loss recovery, replacement harness and grant-narrowing
-scenarios to canonical Sessions before relying on live coverage for those paths.
-The exact remaining work is in `plans/obsolete-implementation-removal.md`.
+The old public Run/conversation, browser takeover and account-specific demo
+canaries are retired. Current proofs use canonical Sessions. The [harness guide](../README.md)
+lists focused opt-ins for recovery, schedules, credentials, tool permissions,
+checkpoints and forks; a default smoke run does not execute every proof.
 
 The dedicated HTTPS canaries round-trip an 8 MiB File with an end-to-end checksum and hold
 SSE open while a disconnected self-hosted environment reaches its five-minute input deadline.
@@ -123,7 +123,8 @@ that exact saved request using `node scripts/run-ecs-observer.mjs REQUEST_JSON`
 rather than creating a new token. The helper uses the ECS SDK because older AWS
 CLI versions omit the RunTask client-token field. Inspect ECS task exit
 codes and the output log group for results; a running task is not a passing test.
-The fixture deletes its Session and Agent on normal completion or test failure.
+The fixture deletes its Session on normal completion or test failure. It also deletes
+an Agent it created, but retains an Agent supplied through `AWS_E2E_LONG_RUNNING_AGENT_ID`.
 If the observer is forcibly stopped, use its logged resource IDs and task role
 identity to recover cleanup before tearing down the stack. Do not redeploy the
 API services during an uninterrupted-stream test. The observer ECR repository is

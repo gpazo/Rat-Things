@@ -5,9 +5,6 @@ expose reviewed operations as typed tools, and calculate effective access as the
 provider scopes, a persistent account grant, the selected workflow, operation and resource rules,
 IAM, and network policy. The model should receive aliases and schemas—not raw tokens.
 
-> **Short answer:** least privilege for an agent is enforced by the capabilities it can actually
-> exercise, not by a sentence in its prompt.
-
 ## Separate identity from authority
 
 An integration workflow involves several identities that are easy to collapse accidentally:
@@ -125,7 +122,8 @@ authority layer before it reads that secret and calls the reviewed adapter.
 
 The model can see bounded identity, health, scope, and operation metadata. It cannot test a
 credential, reconnect OAuth, rotate a token, rename an account, or change its persistent grant.
-Those are authenticated host operations that affect only future capability resolution.
+Those are authenticated host operations. Changes cannot widen a running Session's
+snapshotted capabilities; revocation and narrower grants can still deny later calls.
 
 ## Treat “no approval prompt” as a design constraint
 

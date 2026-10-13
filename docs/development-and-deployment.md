@@ -11,7 +11,9 @@ public sharing. Return here when choosing a longer-lived installation shape.
 ## Prerequisites
 
 - Node.js 22.20+, npm, and Git.
-- Docker with Compose for LocalStack and Buildx for the opt-in ARM64 image canary.
+- Docker with Compose for LocalStack and Buildx for the patched Linux ARM64 runtime and image canaries.
+- A verified patched native artifact for packaging; build or import it using
+  [`testing/README.md`](../testing/README.md#agents-api-native-compatibility-gate).
 - Terraform 1.5+ and AWS credentials for infrastructure work.
 - GitHub CLI authenticated for the one-command GitHub webhook path.
 - A Region and quota that support AWS Lambda MicroVMs, plus a currently `AVAILABLE` managed
@@ -19,9 +21,12 @@ public sharing. Return here when choosing a longer-lived installation shape.
 - A local `codex login` with ChatGPT, or Bedrock access, only for real local driver tests. `npm ci`
   installs the same pinned CLI version used in the MicroVM image.
 
-There is no worker-container build, ECR push, or ECS cluster. A deployment used only for one-shot
-Runs needs no customer VPC. Enabling S3 Files creates a dedicated VPC, mount target, network connector, and NAT gateway for
-durable conversations, so tear disposable stacks down promptly.
+The MicroVM service builds its image from the packaged source ZIP. Dedicated EC2 workers
+require a pinned ARM64 container image and AMI. The module also creates an ECR repository;
+configuring `environment_relay_image` enables the Agents HTTP and relay Fargate services
+with their own VPC and load balancer. Enabling S3 Files creates a separate VPC, mount target,
+NAT gateway and, when MicroVM is enabled, a network connector. These optional services
+add standing costs even without active Sessions.
 
 ## Local workflow
 
@@ -63,9 +68,6 @@ token usage. To allow networking in a local Run, add `--network` and choose the 
 Local runs default to no network. `workspace-write` maps the flag to Codex's
 `sandbox_workspace_write.network_access`; `read-only` carries the same explicit network selection in
 its App Server sandbox policy.
-
-The example request contains a deliberately nonexistent repository. Copy it and replace the URL/ref
-before using it remotely.
 
 For signed GitHub triggers, configure the deployed webhook and an owned Agent/environment
 binding using [GitHub webhook setup](github-webhook-onboarding.md). The binding is required
@@ -139,8 +141,12 @@ team ID:
 
 ```bash
 rat-things connect slack --oauth --wait --access read-write --alias slack-work
-rat-things slack-events slack-work --profile read-only --json
+rat-things slack-events slack-work --agent-id agent_example --json
 ```
+
+Replace `agent_example` with an owned saved Agent. Add `--environment-template TEMPLATE_ID`
+when it needs an execution environment; the default is `none`. The binding does not turn
+the notification connection into an Agent tool.
 
 The resulting bot and delegated-user token families share one owner credential but expire and
 refresh independently. Search uses only the user token and therefore inherits that user's Slack
@@ -163,24 +169,24 @@ or MicroVM access. Configure `enable_connection_health_monitor`,
 deployment size require a different cadence.
 
 The live-E2E deploy helper reloads saved runtime configuration before updating an existing
-deployment. OAuth app ARNs, webhook toggles/signing-secret paths, the selected driver, and S3 Files
-settings therefore survive a MicroVM-only redeploy unless an explicit environment variable
-overrides them.
+deployment. OAuth app ARNs, webhook toggles/signing-secret paths, model selection and backend
+configuration survive a redeploy unless an explicit supported environment variable overrides them.
+Review the generated configuration before applying changes.
 
-MicroVM builds and one-shot runs use AWS-managed internet egress. S3 Files is VPC-mounted, so
-persistent conversation runs use the Terraform-managed network connector, private subnet, S3 and
-DynamoDB endpoints, and NAT gateway for public Git/model access. Set `enable_s3_files=false` only
-when native workspace/app-server restoration across replacement VMs is not required.
+MicroVM builds and runs without S3 Files use AWS-managed internet egress. MicroVM
+Sessions with S3 Files use the managed network connector, private subnet, service
+endpoints and NAT gateway. EC2 workers also require S3 Files. Persistent storage is
+required for native checkpoint adoption and forks; storage alone does not guarantee
+workspace recovery after an unplanned worker loss.
 
-Review the [cost model](costs.md) before choosing that setting. The
-optional NAT gateway and public IPv4 address create an approximately $36/month idle floor in
-`us-west-2`; the default 4-GB/2-vCPU MicroVM itself costs about $0.0042 only for each active minute,
-before snapshots and model tokens. Activate billing allocation tags and a project budget before the
-first shared or persistent deployment.
+Review the [cost model](costs.md) before choosing storage and transport settings.
+NAT gateways, public IPv4 addresses, Fargate services and load balancers can incur
+charges while no Turn is running. Use current rates for the deployment Region, and
+activate billing allocation tags and a project budget before shared use.
 
-Both low-traffic SQS consumers dispatch available records immediately; they retain a batch size of
-five for bursts without a configured batching window. CloudWatch Embedded Metric Format records
-queue delay and processing duration using only deployment and component dimensions. Per-route API
+The Run dispatch queue processes batches of up to five records without a batching
+window. The Agents outbox uses a FIFO queue with one record per invocation. Dispatcher
+CloudWatch Embedded Metric Format records queue delay and processing duration using only deployment and component dimensions. Per-route API
 Gateway metrics remain available through `enable_detailed_api_metrics=true`, but are off by default
 to avoid paying for idle route cardinality.
 
@@ -240,9 +246,9 @@ Enable one adapter at a time by supplying its ingress-secret ARN and following
 [channel configuration](channels.md). Use a disposable repository/team and inspect provider delivery
 history plus CloudWatch correlation.
 
-For shadow observation, use `default_delivery_destinations="none"`. This prevents a second provider
-post but does not prevent agent/model cost. Keep the default driver `mock` until a real-driver canary
-is intentional.
+For shadow observation, use `default_delivery_destinations="none"` where a binding does not
+set explicit destinations. This suppresses the default provider reply but does not prevent
+agent/model cost. Deployed Sessions use the native Codex harness; `mock` is a local test driver.
 
 Comments/notes require the configured non-empty trigger and outbound replies carry a runtime marker;
 the adapters ignore marked replies and provider-declared bot authors. These are loop guards, not

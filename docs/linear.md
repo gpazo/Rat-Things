@@ -2,16 +2,15 @@
 
 Linear is a built-in Rat Things Connection. An agent can search and inspect issues, discover team
 and workflow-state IDs, create or update issues, and add comments through a verified Linear
-workspace account. Connections remain separate from the Agent configuration. Standard Sessions require explicitly
-declared MCP or application-function tools to invoke these operations.
+workspace account. Connections remain separate from Agent configuration. Standard Sessions require
+explicit MCP or application-function tools backed by a trusted implementation of these operations.
 
 This guide sets up a deployment-owned Linear OAuth application, installs one workspace, and runs a
 bounded Slack-to-Linear handoff. Rat Things uses Linear's app actor, so writes appear as the
 installed application rather than impersonating the workspace admin who grants consent.
 
-> This is currently a connected-service integration, not Linear-native Run ingress. Do not enable
-> Agent session event webhooks or request `app:assignable` or `app:mentionable`: assigning or
-> mentioning Rat Things inside Linear does not start a Run yet.
+> Linear events cannot start or continue Sessions. Leave Agent session event webhooks disabled
+> and omit the `app:assignable` and `app:mentionable` scopes.
 
 ## What the built-in Connection can do
 
@@ -194,8 +193,8 @@ or long-lived deployment, and keep the Rat grant and declared tool operation lis
 - Rat does not emit Linear Agent Activities or use Linear's native agent-session progress UI.
 - Issue deletion, archival, labels, projects, cycles, attachments, relations, and administrative
   operations are not installed.
-- Search returns at most 20 ranked issue summaries; issue inspection returns the first page of up
-  to 20 comments.
+- Team discovery returns the first 100 teams. Search returns at most 20 issue summaries; issue
+  inspection returns the first page of up to 20 comments. The tools do not expose pagination inputs.
 - Write calls are autonomous inside the resolved Session envelope. There is no mid-Turn approval prompt.
 
 Linear documents its GraphQL endpoint, issue queries/mutations, and error envelopes in its
@@ -204,5 +203,5 @@ also follow Linear's signed raw-body and timestamp checks from the
 [webhook guide](https://linear.app/developers/webhooks), acknowledge within five seconds, and keep
 ingress separate from agent execution and result delivery.
 
-For the shared account model, see [Integrations, accounts, and permissions](plugins.md). For Run
+For the shared account model, see [Integrations, accounts, and permissions](plugins.md). For Session
 authority, see [The fixed capability envelope](capability-envelope.md).

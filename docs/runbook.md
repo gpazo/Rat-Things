@@ -1,8 +1,8 @@
 # Operational runbook
 
 This runbook assumes an operator with read access to the runtime stack, CloudWatch Logs/Metrics,
-DynamoDB run records, SQS, S3 metadata, and Lambda MicroVM APIs. Use a separately
-audited break-glass role for mutations not exposed by the control API.
+DynamoDB Session/execution records, SQS, S3 metadata, and the configured MicroVM or EC2 APIs.
+Use a separately audited break-glass role for mutations not exposed by the control API.
 
 ## First response
 
@@ -15,30 +15,34 @@ aws sts get-caller-identity
 terraform -chdir=infra workspace show
 terraform -chdir=infra output -json
 npm run build
-npm run rat-things -- doctor
 ```
 
-Set `AWS_REGION` and `RAT_THINGS_API_URL` from the intended stack output, then inspect the run as
-its owning API identity:
+Set `AWS_REGION`, `RAT_THINGS_API_URL` (control) and `RAT_THINGS_AGENTS_API_URL`
+(Agents) from the intended stack outputs, then inspect the Session as its owning identity:
 
 ```bash
-npm run rat-things -- get RUN_ID
-npm run rat-things -- output RUN_ID
-npm run rat-things -- artifact RUN_ID events
+npm run rat-things -- doctor
+npm run rat-things -- sessions get SESSION_ID
+npm run rat-things -- sessions turns SESSION_ID
+npm run rat-things -- sessions items SESSION_ID
+npm run rat-things -- sessions artifacts SESSION_ID
 ```
 
-Webhook-owned runs are intentionally not visible to an unrelated API principal. Use administrative
-AWS read access and the provider delivery/activity ID to correlate them; do not weaken ownership or
-enable `ALLOW_OWNER_HEADER` in a deployed environment.
+An idle Session can contain a failed Turn. Inspect the latest Turn and saved Items before
+investigating its private execution Run. Provider-bound Sessions belong to the binding's
+owner and are not visible to unrelated API identities. Use administrative read access to
+correlate the provider occurrence, input receipt, Session and private Run; never weaken
+ownership or enable `ALLOW_OWNER_HEADER` in a deployed environment.
 
 Record this evidence before changing anything:
 
-- run ID, owner/source kind, status, created/updated/cancel times, request hash, and execution ID;
+- Session and Turn IDs, owner, input receipt, required actions, status and bounded error;
+- private Run ID, status, timestamps, execution ID and generation;
 - API Gateway request ID or provider delivery/activity ID;
 - SQS message receive count and DLQ presence;
-- dispatcher, worker, state-stream, and notifier log timestamps;
-- MicroVM state/termination reason;
-- terminal EventBridge event and provider delivery receipt/fence status; and
+- Agents outbox, dispatcher, worker and delivery log timestamps;
+- backend state and termination reason;
+- provider delivery receipt/fence status and any applicable terminal event; and
 - deployment/image revision plus any active AWS/provider incident.
 
 Do not paste prompts, repository contents, presigned URLs, headers, secret values, or full model event
@@ -53,6 +57,8 @@ Expected log-group naming for a stack named `<prefix>-<environment>` is:
 
 ```text
 /aws/lambda/<name>-control
+/aws/lambda/<name>-agents-api
+/aws/lambda/<name>-agents-outbox
 /aws/lambda/<name>-dispatcher
 /aws/lambda/<name>-reconciler
 /aws/lambda/<name>-thing-schedule
@@ -65,7 +71,16 @@ Expected log-group naming for a stack named `<prefix>-<environment>` is:
 
 Use Terraform outputs/resource tags instead of guessing physical names.
 
-## Run status triage
+## Session input and execution triage
+
+For input that never starts, inspect the durable receipt, `session_integrations` entry
+for provider input, Agents table stream, FIFO queue and `agents-outbox` logs. Confirm
+that the saved Agent, environment template and Vaults belong to the binding owner.
+Inspect the Agents failure queue before redriving work. A Session waiting for an
+application function result needs the matching result, not another input message.
+
+The statuses below belong to private execution Runs, not public Turns. Use operator
+read access for these records; the public CLI does not expose Run commands.
 
 ### `queued` for longer than normal
 
@@ -88,14 +103,14 @@ create a duplicate when the reconciler later wakes the first run.
 ### `dispatching` without an execution reference
 
 The dispatcher advanced state but did not durably attach a backend ID. Review dispatcher logs and
-CloudTrail for `RunMicrovm`. The scheduled reconciler re-nudges stale `dispatching` and
-`running` records with no execution or `id: pending`; the backend uses the run ID as a client token,
+CloudTrail for `RunMicrovm` or EC2 `RunInstances`, according to placement. The scheduled
+reconciler re-nudges stale `dispatching` and `running` records with no execution or `id: pending`; the backend uses the run ID as a client token,
 so retrying the start is intended to return the same execution.
 
 A newly launched worker waits up to 60 seconds for this attachment before it will start the agent.
-If repair does not complete in that window, it records a terminal failure and exits. A one-shot VM
-self-terminates through its supervisor; a conversation VM is suspended by the completion path and
-must be inspected if that terminal event cannot be folded into the mailbox.
+If repair does not complete in that window, it records a terminal failure and exits.
+Inspect supervisor shutdown and the Agents completion stream to confirm that the
+Session observes the failure and the worker releases compute.
 
 - Confirm the reconciler ran after the age threshold and the dispatcher attached the returned ARN/ID.
 - If no execution was created, diagnose backend start/IAM/quota errors before a new submission.
@@ -105,6 +120,64 @@ must be inspected if that terminal event cannot be folded into the mailbox.
   monotonic terminal transitions.
 
 Escalate for audited state repair when the control API cannot safely reach a terminal state.
+
+### A Turn stalls while its private Run remains `running`
+
+1. Inspect the execution ID in the run record.
+   If it is missing or `pending`, check the unattached-launch reconciliation path first.
+2. For a fenced attachment, compare `heartbeatAt` with the configured stale threshold and inspect
+   `liveness`. `active` means the reconciler proved the exact root-supervised worker despite a stale
+   DynamoDB heartbeat. `conflict` or `unknown` with `quarantinedAt` requires operator review; do not
+   terminate an execution whose generation cannot be proven.
+3. Inspect backend state, image/AMI configuration, connector selection, execution-role errors,
+   lifecycle logs and lifetime. `execution_lost` can mean confirmed worker loss or
+   expiry after one hour without keep-alives; inspect its bounded message.
+4. Check model/provider latency and repository-clone/network failures.
+5. If the execution is alive and cancellation is safe, use:
+
+   ```bash
+   npm run rat-things -- sessions cancel SESSION_ID
+   ```
+
+The reconciler checks stale attached executions against the exact worker generation.
+Confirmed worker loss fails that attachment. Suspended MicroVMs are retained without
+probing their frozen listener. Active workers with no keep-alive for one hour expire;
+a trusted resume timestamp starts a fresh grace period. Session recovery depends on
+the environment and available checkpoint. Review possible external effects before retrying work.
+
+### `cancelling` does not finish
+
+For an active Turn, the console's Stop and `rat-things sessions cancel SESSION_ID`
+request graceful interruption and preserve the Session. Inspect saved partial Items and
+artifacts after the Turn settles. If it has not reached a running worker, cancellation
+uses the private Run cancellation path instead.
+
+`rat-things sessions delete SESSION_ID` closes the whole harness and queued input. Use it
+only when the Session is no longer needed. Neither operation retracts provider posts or
+other external effects.
+
+For a private Run stuck in `cancelling`, inspect its exact execution attachment. The
+reconciler repeats termination only for a verified generation and finalizes once the
+backend is terminal or absent. It finalizes unattached cancellations directly and
+quarantines identity conflicts. Preserve evidence before any operator repair.
+
+### `failed`
+
+Use `error.code`, bounded message, worker events, backend reason, and adjacent logs. Common classes:
+
+| Code/symptom | Investigate |
+| --- | --- |
+| Submit failed while record remains `queued` | SQS URL/policy, KMS if configured, throttling, network; retry the same idempotency key |
+| `repository_checkout_failed` | Host allowlist, ref existence, secret scope/expiry, DNS/egress, redirect behavior |
+| `agent_timeout` | Timeout sizing, model latency, repository size, tool loop, backend duration |
+| `agent_failed` | Driver binary/config/auth, Bedrock model access, output-schema failure, OOM/disk |
+| `execution_lost` | Confirmed worker loss or one-hour keep-alive expiry; inspect the exact generation and review possible side effects before retrying |
+| Dispatch error mentioning backend disabled | The privately selected MicroVM or EC2 backend is disabled, unprovisioned or misconfigured |
+| MicroVM image `UNPROVISIONED` | Explicit provisioning was not completed; stop new dispatch while repairing |
+
+An idempotent retry of input preserves its receipt; new input is new work. Fix the cause
+and inspect saved outcomes before choosing either. Never reset a terminal private Run
+to `queued`.
 
 ## Session schedule triage
 
@@ -120,61 +193,6 @@ Correlate the schedule ID and scheduled time with its stored occurrence and
 Session ID. Preserve failed queue messages until the cause is repaired; replaying
 the same occurrence must reuse its receipt. Change schedules through the control
 API so stored generations and AWS targets remain synchronized.
-
-### `running` longer than `timeoutSeconds` plus start-up allowance
-
-1. Inspect the execution ID in the run record.
-   If it is missing or `pending`, check the unattached-launch reconciliation path first.
-2. For a fenced attachment, compare `heartbeatAt` with the configured stale threshold and inspect
-   `liveness`. `active` means the reconciler proved the exact root-supervised worker despite a stale
-   DynamoDB heartbeat. `conflict` or `unknown` with `quarantinedAt` requires operator review; do not
-   terminate an execution whose generation cannot be proven.
-3. Inspect the MicroVM state, image parameters, managed-connector selection, execution-role errors,
-   lifecycle hook logs, and maximum duration. `execution_lost` means the reconciler proved that the
-   exact attached backend or worker was absent and conditionally failed the unchanged generation.
-4. Check model/provider latency and repository-clone/network failures.
-5. If the execution is alive and cancellation is safe, use:
-
-   ```bash
-   npm run rat-things -- cancel RUN_ID
-   ```
-
-The scheduled reconciler repairs a dead attached MicroVM after two missed heartbeat windows. It
-does not create a replacement semantic Run. Submit a new idempotency identity only after reviewing
-whether the lost execution could already have caused an external side effect.
-
-### `cancelling` does not finish
-
-For an active Codex turn, the console's Stop and `rat-things interrupt RUN_ID` request graceful
-interruption. They normally finish as `cancelled` after saving partial output and private files,
-including when an ordinary question has no answer. Check the Run's result/artifact references and
-conversation completion before concluding that files were lost. The `/cancel` route below instead
-terminates the backend, so new file retention depends on whether runner cleanup can finish.
-
-Confirm `TerminateMicrovm` reached the execution ID, then check whether the worker
-observed `SIGTERM`/abort and committed `cancelled`. Repeating the API cancellation safely repeats the
-stop call when an execution is attached. The scheduled reconciler finalizes an unattached
-cancellation directly. For an attached generation, it proves the backend identity, repeats
-termination only for that exact attachment, and conditionally finalizes once AWS reports it
-terminal or absent. Identity conflicts are quarantined. Cancellation cannot retract an
-already-published provider message or other external side effect.
-
-### `failed`
-
-Use `error.code`, bounded message, worker events, backend reason, and adjacent logs. Common classes:
-
-| Code/symptom | Investigate |
-| --- | --- |
-| Submit failed while record remains `queued` | SQS URL/policy, KMS if configured, throttling, network; retry the same idempotency key |
-| `repository_checkout_failed` | Host allowlist, ref existence, secret scope/expiry, DNS/egress, redirect behavior |
-| `agent_timeout` | Timeout sizing, model latency, repository size, tool loop, backend duration |
-| `agent_failed` | Driver binary/config/auth, Bedrock model access, output-schema failure, OOM/disk |
-| `execution_lost` | A generation-fenced heartbeat went stale and the exact MicroVM or supervised worker was proven absent; review possible side effects before submitting a new Run |
-| Dispatch error mentioning backend disabled | Requested `microvm` without an enabled/provisioned backend or invalid deployment default |
-| MicroVM image `UNPROVISIONED` | Explicit provisioning was not completed; stop new dispatch while repairing |
-
-Retries are new semantic runs. Fix the cause, choose a new idempotency key, and retain the failed run
-for audit. Do not mutate a terminal record back to `queued`.
 
 ## Webhook triage
 
@@ -206,38 +224,45 @@ delivery by broadening provider event subscriptions beyond the documented set.
 
 ### Duplicate webhook
 
-Correlate provider delivery/activity/event ID with the deterministic run ID. Identical replays should
-return the existing run. A conflict means the same idempotency identity arrived with a different
-canonical request and should be investigated as a provider/configuration or integrity anomaly.
+Correlate the provider delivery/activity/event ID with the stored input receipt. The
+binding and provider thread determine the Session ID. Identical replays reuse the
+receipt; the same occurrence with different input returns an idempotency conflict.
+Investigate that conflict as a provider/configuration or integrity anomaly.
 
 ## Notification triage
 
-1. Confirm a terminal run produced an EventBridge `Agent Run State` event. If terminal state exists
-   without an event, inspect state-stream Lambda errors and the event-source mapping. The current
-   mapping retries ten times with a maximum 24-hour record age, then sends failed invocation metadata
-   to the encrypted SQS queue from `state_stream_failure_queue_url` and raises its CloudWatch alarm.
-   Read but do not delete that message. Within stream retention, use its stream/shard/sequence range
-   to replay through the state-stream handler. After expiration, reconstruct the bounded state event
-   from the durable run record, verify downstream delivery, and only then delete the failure item.
-   Do not mutate the terminal run.
-2. Confirm the stored request resolves to at least one non-`none` destination. Plain API runs with the
-   default `source` destination intentionally have no reply target.
-3. Inspect notifier logs and its delivery-fence item before retrying.
-4. HTTP 429 releases the fence for EventBridge retry. Missing delivery configuration and permanent
-   provider rejections are `not_delivered`; fix the recorded cause before an audited replay.
-   HTTP 5xx and unclassified failures remain `outcome_unknown`, since the provider may have accepted
-   the write. Do not blindly retry them.
-5. `sending` owns a 120-second lease. Redelivery before expiry throws and remains retryable; after
-   expiry it conditionally reclaims the lease and posts again. This repairs a notifier crash/timeout,
-   but can duplicate a post that the provider accepted just before the crash. Correlate by run ID.
-6. EventBridge retries a failed notifier target for up to 24 hours and 185 attempts. If exhausted,
-   inspect the encrypted queue from `notifier_delivery_failure_queue_url` and the visible-message
-   alarm; also check the `InvocationsFailedToBeSentToDLQ` alarm. Fix target/invoke/provider behavior,
-   redrive each retained terminal event, verify its delivery fence, and only then delete the DLQ
-   message.
-7. For `outcome_unknown`, search the provider thread/channel for the run ID. If it arrived, record the
-   reconciliation. If it did not, use an audited, provider-aware replay procedure; there is no public
-   notification-retry API.
+Provider replies follow saved terminal root Turns through the Agents outbox. They do
+not wait for the private harness Run to exit, and the Run notifier intentionally skips
+Session executions.
+
+1. Confirm the input receipt has a Turn ID, the root Turn is terminal, and its Items
+   are saved. Inspect `session_integrations`, the Agents table stream, FIFO queue and
+   `agents-outbox` delivery job. Subagent completion is not a provider reply trigger.
+2. Check the binding's source, destinations and notification connection set. A `none`
+   destination suppresses delivery. A direct API Session has no provider reply target
+   unless an integration supplies one.
+3. Inspect the per-destination delivery fence, keyed by Turn ID for Session replies.
+   An input marked `deliveryProcessed` means the delivery attempt was processed;
+   the fence records whether the provider accepted it.
+4. HTTP 429 releases the fence for queue retry. Missing configuration and permanent
+   provider rejections become `not_delivered`; fix the cause before an audited replay.
+   HTTP 5xx and unclassified failures become `outcome_unknown`, because the provider
+   may already have accepted the write. Do not blindly retry them.
+5. A `sending` fence has a 120-second lease. Redelivery before expiry stays retryable;
+   an expired lease becomes `outcome_unknown` without another provider write. Search
+   the provider thread for the Turn ID and reconcile the outcome before any audited replay.
+6. Inspect the Agents failure queue for exhausted delivery jobs. Retain each message
+   until the cause is repaired and its receipt/fence is reconciled. There is no public
+   provider-notification retry API.
+
+For non-Session execution events, the separate state-stream/notifier path still uses
+EventBridge `Agent Run State`. Exhausted state-stream invocations go to
+`state_stream_failure_queue_url`; retain the shard/sequence metadata for replay while
+stream records exist. After stream expiry, reconstruct only the bounded event from
+the durable Run. EventBridge notifier failures go to
+`notifier_delivery_failure_queue_url` after up to 24 hours and 185 attempts. Verify the
+Run's delivery fence before deleting either failure item. Never mutate terminal state
+to force another notification.
 
 Provider checks:
 
@@ -263,7 +288,8 @@ Before diagnosing workload code, confirm:
 - image SSM parameters contain a provisioned ARN rather than `UNPROVISIONED`;
 - AWS-managed egress and DNS can reach required public endpoints;
 - hook payload is under 4,096 bytes and lifecycle endpoints return the expected states; and
-- no snapshot contains run-specific data or credentials.
+- the base-image snapshot contains no run-specific data or credentials. Session
+  suspension/checkpoints are separate, private state and need their configured protection.
 
 Pause dispatch during a MicroVM control-plane incident. Submit only non-sensitive explicit canaries
 after the service recovers. Terminate existing VMs only after resolving exact IDs and preserving
@@ -301,9 +327,9 @@ Never place the new value in Terraform variables/state; pass only an existing Se
 
 - **MicroVM image:** apply the previously known-good pinned source/base-image version. Let known-good
   active runs finish or cancel them by exact ID.
-- **Webhook cutback:** restore the provider callback URL to the retained
-  `indubitably-serverless` endpoint. Keep secrets and events environment-specific; watch for duplicate
-  delivery during the switch.
+- **Webhook cutback:** restore a previously validated endpoint only if its bindings,
+  credentials and ownership remain compatible. Keep environments separate and watch
+  for duplicate provider occurrences during the switch.
 - **Control client cutback:** restore the prior API base URL in the caller's configuration. Do not
   merge old/new run IDs or storage tables.
 - **Terraform:** review the saved plan and state before applying. Do not use destructive state/reset

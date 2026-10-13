@@ -1,6 +1,6 @@
 # AWS infrastructure
 
-This Terraform root deploys the Rat Things control plane and Lambda MicroVM image. One-shot VMs are
+This Terraform root deploys the Rat Things control plane and configured execution backends. One-shot VMs are
 terminated; Session harnesses use a bounded lifetime and an idle policy. Individual
 MicroVM instances are managed through the service API; they are not Terraform resources.
 
@@ -11,12 +11,12 @@ provider and the AWS Cloud Control provider required for the MicroVM image resou
 
 - HTTP API Gateway with public signature-validated provider routes, public machine-readable
   discovery/contracts, and IAM-authenticated owner-scoped control routes.
-- Lambda ingress, control, dispatcher, reconciler, Thing-schedule, state-stream, and notification
-  functions.
+- Lambda ingress, control, Agents API/token issuance, Agents outbox, dispatcher, reconciler,
+  Session scheduling, connection-health, state-stream, and notification functions.
 - Encrypted DynamoDB Agent, Session, execution and integration stores;
   encrypted S3 artifact, non-expiring definition, and MicroVM-source buckets; and encrypted SQS
   work/dead-letter queues.
-- A custom EventBridge bus, an EventBridge Scheduler group with a fixed Thing target and invocation
+- A custom EventBridge bus, an EventBridge Scheduler group with a fixed Session-schedule target and invocation
   role, terminal-state notifier targets, failure queues, and alarms.
 - A Lambda MicroVM image built from `dist/microvm-source.zip`, its execution/build roles, log group,
   and SSM image metadata.
@@ -24,11 +24,16 @@ provider and the AWS Cloud Control provider required for the MicroVM image resou
   entry URLs and cookies, response hardening, and optional Route 53 aliases for file, site, and
   video sharing.
 
-It does not create ECS or ECR. With `enable_s3_files=false`, image builds and runs use AWS-managed
-networking and the stack creates no customer VPC. Enabling S3 Files creates a dedicated VPC,
-private and public subnets, NAT gateway, service endpoints, and Lambda MicroVM network connector so
-replacement compute can mount the same Session workspace. That optional path adds a continuous
-networking cost floor and should not be confused with access to an existing application VPC.
+The module creates an ECR repository for the HTTP/relay image. Setting
+`environment_relay_image` enables dedicated Agents HTTP and relay Fargate services, an ECS
+cluster, load balancer, CloudFront relay distribution and transport VPC. EC2 workers and
+their AMI pipeline are separate opt-ins.
+
+Without S3 Files or dedicated transport, MicroVM builds and runs use AWS-managed
+networking and need no customer VPC. Enabling S3 Files creates a dedicated VPC, private
+and public subnets, NAT gateway and service endpoints. A Lambda MicroVM network connector
+is added when that backend is enabled. These resources mount persistent Session storage;
+they do not connect workers to an existing application VPC.
 
 ## Package, validate, and deploy
 
@@ -43,12 +48,15 @@ terraform -chdir=infra plan
 terraform -chdir=infra apply
 ```
 
-`npm run package` produces the Lambda ZIPs and `dist/microvm-source.zip`. Configure a remote, locked
+Build or import the patched Linux ARM64 native artifact before running `npm run package`;
+see the [runtime build instructions](../testing/README.md#agents-api-native-compatibility-gate).
+Packaging verifies the artifact and produces the Lambda ZIPs and `dist/microvm-source.zip`. Configure a remote, locked
 Terraform backend before sharing an environment. Pin a currently `AVAILABLE` managed base-image
 version rather than relying on an implicit latest version.
 
-The default driver is `mock`, so the initial infrastructure smoke test does not spend model tokens.
-See [development and deployment](../docs/development-and-deployment.md) for the full validation flow.
+Deployed Sessions use the native Codex harness and invoke the configured model when input
+arrives. `npm run smoke:local` uses a deterministic mock without provisioning or model calls.
+See [development and deployment](../docs/development-and-deployment.md) for configuration.
 
 Publication delivery is optional and requires a separate registrable wildcard user-content domain,
 a matching CloudFront certificate in `us-east-1`, an RSA public key, and the matching private key in
@@ -116,11 +124,13 @@ returns an error rather than silently using another backend. Existing running wo
 not moved; legacy Sessions without recorded placement default to MicroVM on their next launch.
 An EC2-only deployment must explicitly list each workload it admits.
 
-Native MicroVM resume and conversation-history recovery remain unchanged. A replacement
-hosted worker rebuilds its workspace; retained S3 Files bytes alone are not a committed
-workspace recovery point. There is no automatic MicroVM-to-EC2 handoff or custom workspace
-checkpoint archive in this implementation. The optional AMI pipeline below reduces work
-performed at EC2 boot; it is not required for ordinary MicroVM workloads.
+Native MicroVM resume preserves the same machine. With `session_checkpoints_enabled=true`,
+S3 Files and the matching native runtime, a committed checkpoint can preserve workspace and
+conversation state across a planned replacement or managed fork. Without an adoptable
+checkpoint, hosted replacement rebuilds the workspace; retained bytes alone are not a
+recovery guarantee. See [Sessions](../docs/conversations.md) for recovery and fork behavior.
+There is no automatic MicroVM-to-EC2 migration. The optional AMI pipeline below reduces
+EC2 boot work and is not required for MicroVM workloads.
 
 ## Prepare an EC2 worker AMI
 
@@ -169,7 +179,7 @@ Re-check that limitation as the service matures.
 The module permits `read-only`, `workspace-write`, and `danger-full-access` by default; its default
 inner sandbox is `danger-full-access`, and agent network access defaults on. Those broad inner
 defaults rely on the outer MicroVM, IAM, integration broker, and network policy as the security
-boundary. The supplied `terraform.tfvars.example` explicitly narrows its mock-driver bring-up to
+boundary. The supplied `terraform.tfvars.example` explicitly narrows initial execution to
 read-only/no-network. Review and set these values deliberately for every real deployment.
 
 ## MicroVM lifecycle
@@ -181,7 +191,8 @@ arrive in the bounded `/run` payload; the worker retrieves the full request from
 The agent subprocess runs as UID/GID 10001. One-shot jobs call `TerminateMicrovm` when the runner
 exits. Session harnesses accept additional Turns through private authenticated control.
 The Session runtime journal saves conversation state. Optional S3 Files storage retains
-workspace and Codex home bytes, but hosted replacement rebuilds the workspace. Native
+workspace and Codex home bytes. A committed checkpoint can be adopted when checkpointing
+is enabled; ordinary hosted replacement rebuilds the workspace. Native
 MicroVM suspend/resume preserves the existing machine's memory and disk.
 
 The current AWSCC schema requires non-empty `additional_os_capabilities`, and the service currently

@@ -4,8 +4,7 @@ Channel integrations authenticate external events, resolve an owned Agent and en
 a source binding, and submit input to a Session. They share the same validation and native Codex
 harness as API-created Sessions. The bound Agent and environment define the execution capabilities.
 
-Offline tests inject deterministic execution ports; deployed Sessions use the configured model
-credentials and can incur model usage.
+Deployed Sessions use the configured model credentials and can incur model usage.
 
 The adapters intentionally separate:
 
@@ -18,8 +17,9 @@ owner ID, or Secrets Manager ARN supplied by an untrusted user.
 
 Use `terraform -chdir=infra output -json webhook_urls` to obtain enabled endpoints. The paths are
 `POST /webhooks/github`, `/webhooks/gitlab`, `/webhooks/teams`, and `/webhooks/slack`; a route exists
-only when its ingress secret ARN is configured. The API hostname changes per stack, so do not copy a
-URL from another environment.
+when enabled by its `*_webhook_enabled` input. If that input is unset, enablement is inferred from
+the ingress secret ARN; an enabled route requires that ARN. The API hostname changes per stack,
+so do not copy a URL from another environment.
 
 ## Secret formats
 
@@ -152,8 +152,10 @@ and rate policy separate.
    and comments/notes only.
 4. Restrict the API credential to read repository and create merge-request notes for the intended
    projects. Do not embed it in the clone URL.
-5. Test in a non-production project. Confirm a redelivery maps to the same run ID and does not create a
-   duplicate note.
+5. Create an owner-authenticated source binding with `sourceKind: "gitlab"`, a `projectId` selector
+   containing the provider project ID as a string, and the selected Agent and managed environment.
+   See [provider bindings](schedules.md#provider-bindings). A signed event without a matching binding
+   returns `source_not_bound`; each accepted occurrence gets its own Session.
 
 GitLab documents the signing-token format, Standard Webhooks headers, multi-signature verification,
 timestamp, idempotency header, and legacy-token warning under
@@ -164,12 +166,10 @@ For GitLab Self-Managed, add its clone hostname to `allowed_repository_hosts` an
 `https://gitlab.com/api/v4`. Keep both values environment-specific and integration-test clone and
 `source` delivery together.
 
-## Microsoft Teams: primary channel, bridge implementation
+## Microsoft Teams: outgoing webhook and delivery bridge
 
-Teams is the preferred chat surface for this subsystem, but the repository currently implements two
-temporary adapters:
-
-For deployment instructions, secret formats, and a live-tenant verification checklist, see
+Teams ingress uses an outgoing webhook. Delayed results use a Workflow or a separately deployed
+threaded-reply gateway. For setup and secret formats, see
 [Connect Rat Things to Microsoft Teams](microsoft-teams.md).
 
 ```text
@@ -188,7 +188,7 @@ saved terminal root Turn
 
 Create an outgoing webhook for the target team, store the base64 HMAC secret Teams returns in
 Secrets Manager, and configure its callback URL from the Terraform output. The handler validates the
-`Authorization: HMAC ...` signature, removes the bot mention/HTML, durably writes S3/DynamoDB/SQS,
+`Authorization: HMAC ...` signature, removes the bot mention/HTML, durably records the input in S3/DynamoDB,
 and then returns `Rat Things request received. I'll reply when session <id> completes a turn.` in the original
 reply chain. Completion is asynchronous through the configured Workflow or threaded gateway. The
 normalizer requires both the provider tenant ID and sender ID; a signed activity
@@ -216,15 +216,13 @@ route names to Workflow URL secret ARNs with `teams_route_secret_arns`; Terrafor
 `TEAMS_ROUTES_JSON`. Callers receive route names, never URLs or ARNs. An unknown named route is
 rejected rather than falling back to the default.
 
-The notifier sends an Adaptive Card containing terminal status, a truncated body, and run ID. It
-does not use the inbound `conversationId` to post a proactive reply. Consequently, a `source`
+The notifier sends an Adaptive Card containing the terminal Turn status, a truncated body, and Turn ID.
+It does not use the inbound `conversationId` to post a proactive reply. Consequently, a `source`
 destination means “the configured Teams Workflow destination,” which may not be the exact originating
 thread.
 
-Microsoft recommends Workflows as the successor path while legacy Microsoft 365 connectors approach
-retirement, but Workflows still have operational constraints: flows are owned by specific users and
-can become orphaned without co-owners, private-channel support is limited, and webhook-trigger/card
-features do not equal a full bot. Review
+Workflows are owned by specific users and can become orphaned without co-owners. Their
+channel support and webhook/card features differ from a full bot. Review
 [Create incoming webhooks with Workflows](https://learn.microsoft.com/en-us/microsoftteams/platform/webhooks-and-connectors/how-to/connectors-using)
 and the [Teams connector reference](https://learn.microsoft.com/en-us/connectors/teams/).
 
@@ -254,8 +252,7 @@ An AWS-hosted Teams app/bot gateway can replace the bridge while retaining the S
    allowlists before creating a trusted Teams source. Do not treat activity JSON fields as proof of
    identity.
 3. Use the [Teams SDK](https://learn.microsoft.com/en-us/microsoftteams/platform/teams-sdk/) for the
-   Teams-facing gateway. The JavaScript and C# SDKs are GA; verify language status before choosing an
-   implementation.
+   Teams-facing gateway and check its current language support before choosing an implementation.
 4. Store an authorized conversation reference when the app is installed or messaged. Map it to a
    server-side destination ID; never accept a raw callback URL or arbitrary conversation ID as a
    public run destination.
@@ -283,11 +280,11 @@ For the user-facing workflows this enables—workspace research, durable follow-
 posting/reactions, scheduled briefings, and broader MicroVM work launched from a mention—start with
 [Use Rat Things from Slack](slack.md).
 
-Like the Teams bridge, Slack currently performs secret resolution plus durable S3/DynamoDB/SQS
-submission before acknowledging the event, inside a five-second Lambda timeout. Slack requires an
+Like the Teams bridge, Slack currently performs secret resolution plus durable S3/DynamoDB
+input persistence before acknowledging the event, inside a five-second Lambda timeout. Slack requires an
 HTTP 2xx within **three seconds** and recommends acknowledging before processing; this synchronous
-path can therefore time out at Slack and cause provider retries even when AWS later accepted the run.
-Idempotency limits duplicate runs, but not latency or retry noise. Treat an acknowledge-first durable
+path can therefore time out at Slack and cause provider retries even when AWS later accepted the input.
+Idempotency limits duplicate inputs, but not latency or retry noise. Treat an acknowledge-first durable
 ingress queue/worker split as a production requirement and validate cold starts against Slack's
 [Events API response contract](https://docs.slack.dev/apis/events-api/).
 
@@ -305,15 +302,14 @@ To enable it:
 5. Run `rat-things slack-events slack-work --agent-id agent_example --json`. It derives the team selector
    from the verified Connection, creates one owner Connection Set/binding, and rejects a competing
    Connection for the same workspace. The service Connection remains write-capable for trusted
-   threaded delivery while the source agent receives the named fixed profile.
-6. Test URL verification, a real mention, a same-thread continuation, replayed event, stale
-   signature, read-only write denial, delegated search, and both bot/user token refresh paths.
+   threaded delivery. The Agent supplies its declared tools; this command does not select a
+   capability profile. Add `--environment-template envtpl_example` for managed execution; without
+   it, the binding uses `environment: {"type":"none"}`.
 
 Slack event IDs are the idempotency source. Accepted mentions require both `team_id` and the event's
-user ID, deriving ownership as `slack:<team>:<user>`; missing identity is ignored. Destination
-channel/thread metadata does not establish the run owner and the bot token does not establish the
-inbound sender. Delegated search visibility is exactly the installing Slack user's visibility; it
-is not bot-wide or workspace-administrator search authority.
+user ID; missing identity is ignored. `slack:<team>:<user>` identifies the actor. The authenticated
+operator who created the matching source binding owns the Session. Channel/thread metadata and the
+bot token do not establish that ownership. Delegated search visibility is exactly the installing
+Slack user's visibility; it is not bot-wide or workspace-administrator search authority.
 
-For dated live-provider coverage and remaining validation work, see
-[Status and roadmap](status-and-roadmap.md).
+For supported behavior and current limitations, see [Status and roadmap](status-and-roadmap.md).

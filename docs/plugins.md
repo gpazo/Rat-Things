@@ -3,8 +3,9 @@
 Command convention: this guide uses the installed `rat-things` shorthand. From a source checkout,
 use `npm run rat-things --` before the same arguments, or run `npm run build && npm link` once.
 
-Rat Things turns trusted external APIs into agent-visible tools. One deployment can serve one
-person, a team, or an embedded product; every connection remains scoped to the authenticated owner.
+Rat Things manages verified external accounts for result delivery and trusted tool implementations.
+One deployment can serve one person, a team, or an embedded product; every connection remains scoped
+to the authenticated owner.
 An owner can connect several accounts for the same service and grant each account different access.
 This is the account-connection step in the [Rat Things operating model](operating-model.md).
 
@@ -178,7 +179,9 @@ to verify the stored credential against the fixed plugin and returns one of:
 The test response never includes the credential, vault reference, raw provider response, or error
 body. Health is operational metadata stored separately from the secret. `consumers` derives the
 owner's Sessions, schedules, connection sets, and source bindings that select the account from their
-authoritative definitions; it does not read the credential.
+authoritative definitions; it does not read the credential. The projection scans up to 1,000
+Session integration records and 1,000 schedules per request. It reports `complete: false` when
+more records remain beyond either limit.
 
 The optional display name is presentation only. Renaming does not change the stable alias or ID
 used by notification bindings, schedules and the CLI. The desktop details view also shows provider
@@ -195,8 +198,9 @@ never an agent Run, and stores only lifecycle, status/code, and timestamps. Tune
 These are authenticated control-plane operations. They are not dynamic integration tools and are
 never registered with Codex. A prompt, webpage, repository, or provider message therefore cannot
 start OAuth, test or read a credential, rename/reconnect an account, change a grant, or install a
-new capability. Those changes apply only through trusted UI/CLI/API management and affect later
-Runs after a fresh envelope is resolved.
+new capability. Those changes require trusted UI/CLI/API management. Existing Sessions retain
+their declared tools and resolved Agent configuration; external revocation and provider policy
+can still deny later calls. Cancel active work when immediate containment is required.
 
 ## 4. Connect multiple accounts
 
@@ -304,8 +308,9 @@ rat-things revoke stripe-old-account
 
 Rat verifies a rotated credential before replacing the stored value and rejects it if its provider
 tenant or subject differs from the existing connection. Revocation marks the connection inactive
-and asks the vault to delete the credential. Existing run requests cannot bypass revocation because
-connection status is checked again when an agent tool session is created.
+and asks the vault to delete the credential. New integration tool sessions check that status before
+admission. Revocation cannot recall a credential already used by an in-flight provider request;
+cancel active work and reconcile the provider's state when containment is required.
 
 The raw rotation API request is `{"version":"1","credential":{...}}`.
 
@@ -342,7 +347,8 @@ page or the CLI:
 ```bash
 rat-things connect slack --oauth --wait --access read-write --alias slack-work
 # Add --no-browser on a headless operator host and open the printed URL elsewhere.
-rat-things slack-events slack-work --profile read-only --json
+rat-things slack-events slack-work --agent-id agent_example --json
+# Add --environment-template envtpl_example when the Agent needs a managed environment.
 ```
 
 `--wait` polls only the owner-scoped connection catalog and returns the verified connection bundle
@@ -441,7 +447,7 @@ third-party account.
 
 ## Add a trusted integration
 
-Integration plugins are trusted TypeScript adapters compiled into the MicroVM image:
+Integration plugins are trusted TypeScript adapters compiled into the deployment:
 
 1. Define an `IntegrationPluginManifest` in `src/plugins/integrations` with a lowercase plugin ID,
    authentication definitions, and namespaced operation IDs.
@@ -452,7 +458,8 @@ Integration plugins are trusted TypeScript adapters compiled into the MicroVM im
    input schema.
 4. Prefer `TrustedHttpIntegrationPlugin`: use a credential-free HTTPS base URL and construct only
    relative paths from validated inputs. Never let the model provide an origin.
-5. Register the adapter in `src/plugins/integrations/builtins.ts` and rebuild the trusted image.
+5. Register the adapter in `src/plugins/integrations/builtins.ts` and rebuild the affected Lambda
+   packages and worker image.
 6. Add contract, simulation, LocalStack, and disposable live-AWS tests. Prove a read, an
    autonomously admitted write, a denied credential/scope, account selection, and absence of secret
    values.

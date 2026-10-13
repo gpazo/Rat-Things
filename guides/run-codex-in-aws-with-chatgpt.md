@@ -2,8 +2,9 @@
 
 Codex supports signing in with ChatGPT for subscription access, and its CLI can keep that login in
 a local `auth.json` file. To use the same identity inside self-hosted AWS compute, Rat Things
-deliberately copies a validated file-backed login into AWS Secrets Manager, materializes it only for
-the active Codex process, persists token refreshes, and removes the runtime copy afterward. This is
+deliberately copies a validated file-backed login into AWS Secrets Manager, materializes it for
+the Codex harness, persists token refreshes, and removes the runtime copy during execution cleanup.
+A connected Session harness can retain that file between Turns. This is
 a Rat Things credential bridge—not an OpenAI recommendation to treat a personal login as a general
 server credential.
 
@@ -24,8 +25,6 @@ ChatGPT-login options. The file contains access tokens and must be protected lik
 
 Rat Things builds on that documented local storage option. The additional transfer into Secrets
 Manager, remote materialization, refresh persistence, and teardown behavior belong to Rat Things.
-OpenAI does not need to have designed personal credentials for arbitrary server workloads for the
-bridge to function, but that distinction matters when deciding whether its risk is acceptable.
 
 ## Distinguish Codex options relevant to Rat Things
 
@@ -87,9 +86,14 @@ npm run quickstart:aws -- \
   --accept-codex-credential-risk
 ```
 
-Once deployed, create a Session with a model admitted by your deployment:
+Once deployed, set the endpoint from Terraform's `agents_api_base_url` output, the
+region, and the same authorized AWS profile. Then choose a model admitted by your
+deployment:
 
 ```bash
+export RAT_THINGS_AGENTS_API_URL="https://your-agents-api.example/v1"
+export AWS_REGION=us-west-2
+export AWS_PROFILE=rat-things-sandbox
 npm run rat-things -- sessions create --model YOUR_ADMITTED_MODEL \
   --input "Draft a release-readiness checklist with rollback steps and return it in your response."
 ```
@@ -97,7 +101,7 @@ npm run rat-things -- sessions create --model YOUR_ADMITTED_MODEL \
 ## Know what can steal the credential
 
 Secrets Manager protects the canonical AWS copy at rest and lets orchestration pass an ARN instead
-of a credential value. Inside the MicroVM, trusted runner code writes `auth.json` with mode `0600`
+of a credential value. Inside the managed worker, trusted runner code writes `auth.json` with mode `0600`
 immediately before starting Codex. The unprivileged Codex process must be able to read the file in
 order to authenticate.
 
@@ -147,6 +151,6 @@ that exposure. Keep credential custody, refresh, revocation, and deletion explic
 
 ## Next step
 
-Use the [AWS-ready quickstart](../docs/quickstart.md) for prerequisites, preflight, the exact two-Run
-proof, status inspection, and teardown. Choose `--auth bedrock` instead when an AWS-native model and
+Use the [AWS quickstart](../docs/quickstart.md) for prerequisites, preflight, Session
+continuation, status inspection, and teardown. Choose `--auth bedrock` instead when an AWS-native model and
 billing boundary is more appropriate than transferring a ChatGPT login.

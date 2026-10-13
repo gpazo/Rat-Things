@@ -78,7 +78,8 @@ and filesystem context:
 
 Managed environments use `/workspace`, declared tools, prepared capabilities and
 network policy. Session workers capture `/workspace/outputs` as immutable artifacts
-when a Turn finishes. Local execution retains its private artifact workflow.
+when a Turn reaches a terminal outcome and the worker can capture output. Local
+execution retains its private artifact workflow.
 
 ## Durable state
 

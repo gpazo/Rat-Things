@@ -32,8 +32,9 @@ bundled `terminate-microvm.mjs`, including failed handoffs; replacement requires
 worker generation. Native state belongs to the Session runtime
 journal. When S3 Files is enabled, `sessionStorageKey` selects the same owner-and-Session
 hashed directory across replacements; `SESSION_STATE_ROOT` supplies its workspace
-and Codex home. Hosted sandbox replacement clears workspace contents while retaining
-the native conversation checkpoint. Keep the existing hash and filesystem root stable.
+and Codex home. Without a committed workspace handoff, hosted replacement resets the workspace and
+restores available conversation state. With checkpointing enabled, replacement can adopt
+a committed handoff before preparing the workspace. Keep the hash and filesystem root stable.
 
 Lifecycle endpoints listen on port 8080 under
 `/aws/lambda-microvms/runtime/v1/{ready,validate,run,resume,suspend,terminate}`.

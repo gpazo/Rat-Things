@@ -35,9 +35,8 @@ See [provider bindings](schedules.md#provider-bindings) for configuration.
 | Outgoing webhook + Workflow | Yes | Posts to a configured chat or channel, not necessarily the originating thread | Initial tenant integration and controlled deployments |
 | Teams bot + threaded gateway | Gateway contract only | Replies to the originating activity | Production conversational experience after the gateway is implemented |
 
-The LocalStack suite validates the complete threaded-gateway envelope, including the original
-`conversationId` and `activityId`. It does not validate Microsoft identity, bot installation, or
-live tenant delivery.
+The gateway contract retains the original `conversationId` and `activityId`. Microsoft identity,
+bot installation and Bot Connector delivery must be supplied by the gateway deployment.
 
 ## Prerequisites
 
@@ -149,7 +148,7 @@ This is the connection mode that can be completed with the current repository.
    ```
 
 The callback URL contains a credential and must never be committed or logged. The notifier sends an
-Adaptive Card with the run status, response, and run ID. The card appears in the Workflow's selected
+Adaptive Card with the Turn status, response, and Turn ID. The card appears in the Workflow's selected
 destination; it is not guaranteed to be a reply to the original mention.
 
 ### Option B: exact delayed replies through a Teams bot
@@ -169,7 +168,8 @@ The Teams-facing implementation must:
    `reply-to-activity` envelope. Do not expose this as an unsigned public relay.
 5. Acquire a Bot Connector access token and send the terminal activity to
    `/v3/conversations/{conversationId}/activities/{activityId}` using the original trusted
-   `serviceUrl`. Enforce tenant allowlists and idempotency by run ID.
+   `serviceUrl`. Enforce tenant allowlists and idempotency by the envelope's `execution.id`,
+   which is the terminal Turn ID.
 
 After that gateway exists, store its trusted AWS URL in Secrets Manager:
 
@@ -187,7 +187,39 @@ teams_reply_gateway_url_secret_arn      = "arn:aws:secretsmanager:REGION:ACCOUNT
 Named Workflow routes are intentionally rejected in `threaded-gateway` mode. See
 [Channel adapters](channels.md#threaded-reply-gateway-contract) for the versioned envelope.
 
-## 4. Session continuity and delivery
+## 4. Bind the Teams source to an Agent
+
+Authenticate the CLI as the operator who will own the Sessions. Create an Agent and, if it needs
+shell or filesystem tools, a managed environment template. Save a binding as `teams-binding.json`
+using the tenant and channel IDs from the trusted Teams installation:
+
+```json
+{
+  "version": "1",
+  "sourceKind": "teams",
+  "selector": {
+    "tenantId": "TEAMS_TENANT_ID",
+    "channelId": "TEAMS_CHANNEL_ID"
+  },
+  "agentId": "agent_example",
+  "environment": {
+    "type": "openai_hosted",
+    "environment_template_id": "envtpl_example"
+  }
+}
+```
+
+```bash
+rat-things bind-source --file teams-binding.json
+rat-things source-bindings
+```
+
+For an Agent that needs no execution environment, use `"environment": {"type":"none"}`.
+A valid signature without a matching source binding returns `source_not_bound` and starts no
+Session. Generic selectors are trusted operator configuration; limit them to the intended
+tenant and channel. See [provider bindings](schedules.md#provider-bindings).
+
+## 5. Session continuity and delivery
 
 A valid signed activity is resolved through an owned Agent binding and receives
 an input receipt. Activities from the same sender in the same Teams thread continue
@@ -207,7 +239,7 @@ Contributor harness instructions are in [testing/README.md](../testing/README.md
 | --- | --- |
 | Teams reports that the webhook is unavailable | Callback URL is the current stack output, the route is deployed, and tenant policy allows outgoing webhooks |
 | `401 invalid_signature` | Secret value is the exact base64 token from this outgoing-webhook installation; the raw request was not rewritten by a proxy |
-| No immediate acknowledgement | API Gateway/Lambda latency stayed under Teams' five-second deadline and durable S3/DynamoDB/SQS submission succeeded |
+| No immediate acknowledgement | API Gateway/Lambda latency stayed under Teams' five-second deadline, input persistence succeeded, and the source matches a binding |
 | Acknowledgement appears but no terminal card | The Session has a saved terminal root Turn, the Workflow URL secret is current, delivery outbox retries are healthy, and the flow is enabled |
 | Workflow returns `401` or `403` | Trigger authentication matches the notifier; the shipped adapter does not attach a Microsoft user bearer token |
 | Result appears in the wrong place | Workflow mode targets its configured destination; use a completed bot gateway for exact-thread delivery |

@@ -68,9 +68,10 @@ compute costs while waiting for another Turn.
 
 ## Current boundaries
 
-Native checkpoints and saved workspace bytes support recovery after execution
-loss. They do not guarantee that background processes, sockets or unacknowledged
-external writes survive replacement. See [Session durability](../docs/conversations.md#how-durability-works)
+Native checkpoints support conversation recovery. Preserving the managed workspace
+across a clean handoff requires S3 Files and `session_checkpoints_enabled`; ordinary
+replacement resets sandbox files. Neither path preserves background processes,
+sockets or unacknowledged external writes. See [Session durability](../docs/conversations.md#how-durability-works)
 and the [durable-state guide](durable-ai-agent-state.md).
 
 ## Try the narrow path

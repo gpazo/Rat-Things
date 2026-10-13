@@ -4,7 +4,8 @@ Rat Things keeps its API, harness, session state and execution in your AWS accou
 Use the [deployment guide](development-and-deployment.md) to configure the Terraform
 module, model credentials, ARM64 runtime image and Agents HTTP service. Package
 Lambda artifacts before Terraform validation or deployment. Deployment creates
-AWS resources; ordinary local checks do not provision MicroVMs.
+AWS resources; ordinary local checks do not provision MicroVMs. Packaging requires the
+patched Linux ARM64 Codex artifact described in the [contributor guide](../testing/README.md#agents-api-native-compatibility-gate). Do not substitute the stock npm binary.
 
 ## Automated setup
 
@@ -52,11 +53,11 @@ For reusable work, save an Agent request containing `model`, `name`,
 `instructions` and declared `tools`, then create it:
 
 ```bash
-rat-things agents create --file agent.json
-rat-things sessions create --agent-id agent_example --input "Begin the review."
-rat-things sessions turns sess_example
-rat-things sessions items sess_example
-rat-things sessions send sess_example --input "Also include the rollout plan."
+npm run rat-things -- agents create --file agent.json
+npm run rat-things -- sessions create --agent-id agent_example --input "Begin the review."
+npm run rat-things -- sessions turns sess_example
+npm run rat-things -- sessions items sess_example
+npm run rat-things -- sessions send sess_example --input "Also include the rollout plan."
 ```
 
 The default CLI Session environment is `none`. Use a standard Session JSON request

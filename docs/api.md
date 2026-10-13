@@ -13,8 +13,9 @@ provider sender separately. See [provider bindings](schedules.md#provider-bindin
 
 Deployment discovery and contract documents (`GET /health`, `GET /.well-known/rat-things`,
 `GET /openapi.json`, and `GET /schemas/*.json`) are public and contain no owner data. Publication
-share redemption uses its own bearer grant. Every other integration/application control route requires an IAM
-principal supplied by API Gateway through its `userArn` or `callerId`.
+share redemption uses its own bearer grant, and the OAuth callback validates one-time state.
+Owner-scoped integration/application control routes require an IAM principal supplied by
+API Gateway through its `userArn` or `callerId`.
 
 The handler derives `ownerId` from that value. A caller cannot supply or select its owner. The
 `X-Runtime-Owner` escape hatch works only when `ALLOW_OWNER_HEADER=true`; this is for isolated local
@@ -140,20 +141,34 @@ Installed JSON Schemas use relative `$id` values, so relative references resolve
 deployment that served them rather than silently switching to the central documentation copy.
 Schema `maxLength` is character-based preflight; runtime UTF-8 byte limits remain authoritative.
 
-Errors use a stable envelope:
+Control errors commonly use this envelope:
 
 ```json
 {
   "error": {
     "code": "invalid_request",
-    "message": "Invalid schedule expression",
+    "message": "Invalid connection request",
     "retryable": false,
     "traceId": "API_GATEWAY_REQUEST_ID"
   }
 }
 ```
 
-Preserve `traceId` when reporting an issue. `invalid_request`, `forbidden`, `not_found`, and
+Schedule validation and other Agents-backed operations use the Agents error shape instead:
+
+```json
+{
+  "error": {
+    "type": "invalid_request_error",
+    "code": "invalid_request",
+    "message": "expression must be an EventBridge rate, cron, or at expression",
+    "param": null
+  }
+}
+```
+
+These errors do not include `retryable` or `traceId`. Preserve `traceId` when it is supplied.
+`invalid_request`, `forbidden`, `not_found`, and
 `conflict` are not retryable without changing state or input. Unexpected internal failures hide
 their details from the caller and set `retryable: true`; use bounded structured logs for diagnosis.
 

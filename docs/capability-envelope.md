@@ -48,9 +48,11 @@ another owner's storage, or operations denied by IAM, egress or the credential b
 | Browser and network | Environment network policy, deployment egress controls and browser URL checks |
 | Control plane | Owner authentication, fenced execution identity and private transport; the guest cannot call its lifecycle listener |
 
-Vault values explicitly installed into an environment or used by an environment MCP process
-are visible within that admitted environment. Treat them as part of its authority. Service-side
-MCP and notification credentials stay in their trusted service boundary.
+Vault `environment_variable` credentials supply placeholders to managed environments. The trusted
+host substitutes their values in HTTPS headers only for admitted hosts; sandbox code cannot read
+the raw values. Plain environment values and inline environment MCP variables remain readable by
+sandbox code. Service-side MCP and notification credentials stay in their trusted service boundary.
+See [secret handling](security.md#secret-handling).
 
 ## Instructions for agents
 

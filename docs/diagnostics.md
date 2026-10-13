@@ -15,7 +15,7 @@ rat-things doctor
 rat-things doctor --json
 ```
 
-The command checks Node compatibility, API URL/Region inference, public `/health`, public
+The command reports the Node version, API URL/Region inference, public `/health`, public
 `/.well-known/rat-things`, and an authenticated `GET /v1/capability-profiles`. JSON output has a
 stable `version`, overall `ok`, and checks with `pass`, `warning`, or `fail` status. A warning means
 a local-only workflow may still work; a failed authenticated API check means remote control is not
@@ -32,7 +32,9 @@ Common repairs:
 | `authenticated-api` failure | Refresh AWS credentials; verify execute-api invoke permission and SigV4 Region |
 
 `/health` is liveness only. It does not prove model access, MicroVM provisioning, an integration
-credential, or a particular Agent.
+credential, or a particular Agent. The Codex binary/auth entries report configured values;
+they do not launch Codex or validate its login. Use the repository requirement of Node.js
+22.20+ even if the doctor Node check passes on an older major version.
 
 ## Debug an integration connection
 
@@ -56,7 +58,7 @@ For an OAuth definition, first inspect `oauthInstallation`. `configured` support
 callback URL and add the provider app secret ARN to `integration_oauth_app_secret_arns`. A callback
 page failure consumes the one-time state, so restart the CLI flow rather than replaying the URL.
 
-Connection creation follows four independently inspectable stages:
+Connection installation and maintenance have independently inspectable stages:
 
 | Stage | Failure meaning | Repair |
 | --- | --- | --- |

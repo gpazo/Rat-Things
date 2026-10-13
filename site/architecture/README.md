@@ -19,7 +19,7 @@ npm run check
 
 Install the test browser once with `npx playwright install chromium`. The browser
 suite starts its own static server when needed. It exercises real WebGL rendering,
-mesh raycasting, drag rejection, exploded component inspection, all seven request and failure
+mesh raycasting, drag rejection, exploded component inspection, all request and failure
 walkthroughs, keyboard controls, deep links/back navigation, mobile/reduced-motion
 use, missing data, no-WebGL fallback and the `/Rat-Things/` deployment prefix.
 Screenshots and failure traces are written to `test-results/site`. CI runs the
@@ -45,7 +45,7 @@ execution is involved in the website walkthroughs or these browser tests.
 - Walkthrough steps reference component IDs and carry an explanatory state label.
   Each step also declares the exact handoff endpoints, payload, kind and evidence.
   The selected resource must be one endpoint; invalid handoffs fail the build.
-  Four entry paths and three recovery/failure stories are included. A walkthrough
+  API, webhook and schedule entry paths accompany recovery, cancellation and delivery-failure stories. A walkthrough
   is an illustration, not a live state-machine simulator or proof of execution.
   The delivery-failure story intentionally keeps the Run state `succeeded`: the
   notification outcome is separate from the agent execution outcome.

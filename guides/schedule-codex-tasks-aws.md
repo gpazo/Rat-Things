@@ -31,11 +31,11 @@ launch; unattended work has no approval step for extending authority.
 Save the definition as `schedule.json` and use the authenticated control endpoint:
 
 ```bash
-rat-things schedules create --file schedule.json
-rat-things schedules list
-rat-things schedules pause sched_example
-rat-things schedules update sched_example --file schedule.json
-rat-things schedules resume sched_example
+npm run rat-things -- schedules create --file schedule.json
+npm run rat-things -- schedules list
+npm run rat-things -- schedules pause sched_example
+npm run rat-things -- schedules update sched_example --file schedule.json
+npm run rat-things -- schedules resume sched_example
 ```
 
 ## Occurrences and retries

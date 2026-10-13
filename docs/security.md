@@ -8,7 +8,7 @@ trustworthy. Rat Things owns the API, harness, state and workers in the operator
 
 A managed Session uses a dedicated worker VM. Workspaces and execution identities are isolated
 by owner and Session. The native sandbox is additional protection; the outer VM is the primary
-execution boundary. Trusted orchestration runs as root and launches Codex, repository commands
+execution boundary. Trusted orchestration runs as root and launches Codex and repository commands
 as UID/GID 10001. Local CLI execution has a separate read-only/no-network default.
 
 The EC2 worker supports connected Session lifetime beyond Lambda MicroVM's maximum lifetime.
@@ -49,13 +49,13 @@ from actor attribution. No caller-provided URL or credential may establish owner
 
 | Threat | Present control | Boundary or remaining concern |
 | --- | --- | --- |
-| Forged webhook | Verify the exact raw body before parsing; provider-specific signature and timestamp rules | Rotate authenticators and restrict accepted event types; see [channels](channels.md) |
+| Forged webhook | Authenticate before parsing; verify exact raw-body signatures where supported | Legacy GitLab token auth does not sign the body or enforce freshness; see [channels](channels.md) |
 | Duplicate ingress | Owner/binding-scoped input receipts and conditional commits | Retention bounds deduplication; do not treat a trigger mention as authorization |
 | Cross-owner access | Owner-scoped resources, hashed storage prefixes and authenticated lookups | Review authorizer/tenant mapping and deployment IAM independently |
 | Malicious repository | Dedicated VM, argument-array commands, HTTPS host allowlist and unprivileged checkout commands | Native tools can exercise all admitted authority; same-UID model/environment credentials are readable by repository code |
 | Guest reaches control plane | Root-owned listener/configuration, guest UID split and cgroup eBPF local-port denial | A root/kernel escape compromises the worker boundary |
 | Guest steals AWS role | Sanitized child environment and metadata denial on EC2 | Keep the explicit AWS credential-chain escape hatch disabled |
-| MCP or function abuse | Explicit tool declarations, credential selection, transport policy and fail-closed approval handling | Environment tools and environment credentials share the admitted sandbox authority |
+| MCP or function abuse | Explicit tool declarations, credential selection, transport policy and fail-closed approval handling | Sandbox code can read inline environment secrets and exercise admitted Vault placeholders |
 | Credential confused deputy | Distinct owner, actor, source, destination and credential subject; broker checks before secret reads | Trusted adapters and the service role remain authoritative |
 | OAuth replay or account swap | Hashed one-use state, PKCE, owner binding, verified provider identity and serialized refresh | Reconnection must preserve the expected tenant/subject; provider consent is an external boundary |
 | Browser SSRF | Browser tools run within the admitted execution environment and its network policy | Provider origin filters are not an isolation boundary; redirects, private destinations and DNS rebinding require enforced deployment egress controls |

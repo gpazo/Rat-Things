@@ -11,7 +11,7 @@ harness, compute and storage remain in the deployment's AWS account.
 
 | State | Purpose | Rat Things boundary |
 | --- | --- | --- |
-| Session configuration | Fixed model, tools and environment selection | Owner-scoped Session snapshot |
+| Session configuration | Saved Agent settings, tools and environment selection | Owner-scoped snapshot; model, reasoning effort and service tier can be updated for later Turns |
 | Input receipt | Identify one accepted semantic input | Conditional write and idempotency key |
 | Turn and Items | Retain observed work and outcomes | Durable Session journal and saved public resources |
 | Native checkpoint | Continue the harness's private context | Native state in Session storage |
@@ -64,10 +64,15 @@ again merely to rebuild context.
 
 Neither fallback history nor copied files recreate live processes, sockets or
 hidden child state. A connected managed environment retains its process state
-between Turns. Hosted replacement retains the environment ID and conversation,
-reapplies declared inputs, and discards previous sandbox files and processes.
-Reset events identify each replacement with a monotonic count. Explicit expiry
-remains terminal, with saved history and artifacts available for retrieval.
+between Turns. Ordinary managed replacement retains the environment ID and
+conversation, reapplies declared inputs, and discards previous sandbox files and
+processes. Reset events identify this replacement with a monotonic count.
+
+With S3 Files and `session_checkpoints_enabled`, a clean idle handoff can instead
+commit workspace and native state for a compatible successor. Adoption preserves
+the saved workspace, but does not revive processes or sockets. A missing or
+incompatible checkpoint is not a promise of restoration. Explicit expiry remains
+terminal, with saved history and artifacts available for retrieval.
 
 ## Retain immutable output
 

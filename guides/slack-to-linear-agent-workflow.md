@@ -5,10 +5,9 @@ the approved decision, check Linear for existing work, attempt one bounded issue
 needed, and return the Linear link to the same conversation. Slack read access and Linear write
 access should use separate verified accounts and independently bounded grants.
 
-> **Short answer:** use separate search and create tools, constrain creation to the approved team,
-> and treat “search first, create once” as an acceptance criterion—not as an invariant enforced by
-> the current allowlist. Enforce ordering and at-most-once creation in trusted host code when the
-> workflow cannot tolerate duplicates.
+Use separate search and create tools and constrain creation to the approved team.
+The current allowlist does not enforce call order or deduplication; add those checks
+in trusted host code when duplicate issues are unacceptable.
 
 ## Define the outcome before choosing tools
 
@@ -124,7 +123,7 @@ does, a deterministic external reference and reconciliation job can make duplica
 but cannot promise at-most-once provider writes. Always retain the Slack permalink in the issue.
 
 The conversation input itself should have an idempotency key when a client may retry submission.
-That prevents duplicate Runs for the same semantic request; it does not automatically make an
+That prevents duplicate accepted input for the same semantic request; it does not automatically make an
 external provider write exactly once.
 
 ## Verify the effect, not the prose
@@ -164,7 +163,7 @@ Before enabling the workflow broadly:
 8. Add rate limits, budgets, egress controls, and failure-queue alarms.
 
 Follow [the Linear setup guide](../docs/linear.md) to install the OAuth application, verify the
-Connection, run the bounded demo, and inspect the current limitations.
+Connection, declare bounded Agent tools, and inspect the current limitations.
 
 ## Sources
 

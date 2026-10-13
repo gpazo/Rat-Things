@@ -34,10 +34,11 @@ The `openai_hosted` discriminator is the upstream API spelling; this deployment
 runs that managed environment in your AWS account. A `none` environment is also
 available. Self-hosted executors must connect before the connection deadline.
 
-Input templates recognize `{{scheduled_at}}` and `{{schedule_id}}`. The scheduled
-instant is normalized to UTC. Retries reuse the occurrence's saved configuration
+Expressions use EventBridge `rate(...)`, `cron(...)` or `at(...)` syntax; `timezone`
+is an IANA time zone. Input templates recognize `{{scheduled_at}}` and `{{schedule_id}}`.
+The scheduled instant is normalized to UTC. Retries reuse the occurrence's saved configuration
 and Session ID. `overlap: "skip"` suppresses an occurrence while the previous
-Session is active or awaiting creation; `"allow"` permits separate concurrent
+Session is `in_progress` or awaiting creation; `"allow"` permits separate concurrent
 Sessions. Paused schedules and stale generations accept no new occurrences.
 Already accepted work continues with its saved configuration.
 
