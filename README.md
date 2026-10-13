@@ -1,4 +1,9 @@
-# Rat Things
+<h1>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/brand/rat-things-lockup-dark.svg">
+    <img alt="Rat Things" src="assets/brand/rat-things-lockup-light.svg" height="64">
+  </picture>
+</h1>
 
 Rat Things runs durable cloud agents in your AWS account. Its public execution
 contract follows the OpenAI Agents API: Agents, Sessions, Turns, Items,

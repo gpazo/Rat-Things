@@ -95,7 +95,9 @@ Read it before changing any of them.
   teal palettes must not return.
 - Inter at weights 400, 500 and 600; sentence case; no glows, radial gradients or tinted shadows.
   Primary buttons use the light fill with dark text.
-- The only mark is `site/favicon.svg`. Amber appears only inside the Rat illustration.
+- Marks come from `scripts/build-brand-marks.mjs` into `assets/brand/` (the flat mark is also
+  `site/favicon.svg`). Change the generator, not the SVGs. Amber appears only inside the Rat
+  illustration.
 
 ## Verification
 

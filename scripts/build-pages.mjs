@@ -42,6 +42,7 @@ await mkdir(join(output, 'assets', 'visuals'), { recursive: true });
 for (const file of homepageAssetFiles) {
   await cp(join('assets', file), join(output, 'assets', file));
 }
+await cp(join('assets', 'brand'), join(output, 'assets', 'brand'), { recursive: true });
 await writeFile(join(output, '.nojekyll'), '');
 
 const docsEntries = await readdir('docs', { withFileTypes: true });
@@ -555,6 +556,7 @@ function guidePageTemplate({ title, description, canonicalPath, assetPrefix, mai
     <meta name="twitter:card" content="summary_large_image">
     <link rel="canonical" href="${pagesUrl}${canonicalPath}">
     <link rel="icon" href="${assetPrefix}favicon.svg" type="image/svg+xml">
+    <link rel="apple-touch-icon" href="${assetPrefix}assets/brand/rat-things-mark-1024.png">
     <link rel="stylesheet" href="${assetPrefix}brand.css?v=1">
     <link rel="stylesheet" href="${assetPrefix}docs.css?v=5">
     <script defer src="${assetPrefix}docs.js?v=2"></script>${structuredData}
@@ -674,6 +676,7 @@ function pageTemplate({ title, description, canonicalPath, assetPrefix, nav, mai
     <meta name="twitter:card" content="summary_large_image">
     <link rel="canonical" href="${pagesUrl}${canonicalPath}">
     <link rel="icon" href="${assetPrefix}favicon.svg" type="image/svg+xml">
+    <link rel="apple-touch-icon" href="${assetPrefix}assets/brand/rat-things-mark-1024.png">
     <link rel="stylesheet" href="${assetPrefix}brand.css?v=1">
     <link rel="stylesheet" href="${assetPrefix}docs.css?v=5">
     <script defer src="${assetPrefix}docs.js?v=2"></script>

@@ -93,12 +93,32 @@ example, Linear's mark in a Linear issue mock. Keep those inside the mock.
 
 ## Logo
 
-The Rat Things mark is an **R whose leg becomes a rat's tail**, drawn as an off-white stroke on a
-dark rounded tile with a `--rt-border-strong` outline. The source is
-[`site/favicon.svg`](site/favicon.svg); headers use the same file at 22–24px.
+The Rat Things mark is an **R whose leg becomes a rat's tail**. One geometry, generated on a
+512px grid, produces every version in [`assets/brand/`](assets/brand/):
 
-- Wordmark: "Rat Things" in Inter 600, sentence case, beside the mark.
-- Don't recolor the mark, add a glow, or set the wordmark in uppercase.
+| File | Use |
+| --- | --- |
+| `rat-things-mark.svg` | **Feature mark.** README, social cards, slides, app icons — anywhere the mark is 96px or larger |
+| `rat-things-mark-1024.png` | Feature mark as a bitmap for tools that cannot take SVG; also the site's touch icon |
+| `rat-things-mark-flat.svg` | **Flat mark.** Favicon and headers at 16–48px; copied to [`site/favicon.svg`](site/favicon.svg) |
+| `rat-things-lockup-dark.svg` / `-light.svg` | Feature mark beside the wordmark, for dark and light grounds |
+| `rat-things-glyph-light.svg` / `-dark.svg` | The R and tail alone in one ink, for embossing, print and single-color use |
+| `rat-things-social-preview.png` | 1280 × 640 card for the GitHub repository's social preview |
+
+**Feature mark.** The R is a white-to-`#c3c9d4` vertical gradient. Its leg flows into the tail,
+which blends from the R's ink into `--rt-accent` and lightens toward the tip. It sits on a
+graphite tile (`#2c2c30` to `#121213`) with a top-lit rim, a soft indigo bloom behind the tail, and a
+neutral drop shadow under the glyph. This is the only place the brand uses gradients or a glow. Keep
+them inside the tile.
+
+**Flat mark.** It is a single `--rt-text` ink on an `--rt-bg` tile with a `--rt-border-strong` outline. The
+stroke is heavier so the tail survives at 16px.
+
+- Wordmark: "Rat Things" in Inter 600, sentence case, tracking `-0.02em`, beside the mark. The
+  lockups set it as outlines, so they render without Inter installed.
+- Don't recolor the R, move the accent off the tail, add effects outside the tile, or set the
+  wordmark in uppercase.
+- Leave clear space around the mark of at least a quarter of its width.
 
 ## The Rat
 
