@@ -82,8 +82,20 @@ resulting behavior instead of an account of how the finding was discovered.
 
 ## Visual style
 
-Desktop, site, documentation, explorer and diagram changes follow [`BRAND.md`](BRAND.md). Web
-colors come from `site/brand.css` tokens, which mirror `desktop/src/theme.rs`.
+[`BRAND.md`](BRAND.md) is the style guide for every visual surface: the desktop console, the
+GitHub Pages site, documentation pages, the 3D architecture explorer, SVG diagrams and Rat artwork.
+Read it before changing any of them.
+
+- `desktop/src/theme.rs` is the reference palette; `site/brand.css` mirrors it as `--rt-*` tokens.
+  Change a value in both or neither, and update `BRAND.md` with it.
+- Web stylesheets link `brand.css` first and use its tokens. They may alias a token but must not
+  introduce new colors. SVG diagrams in `docs/` use the token hex values directly.
+- Neutral grays only, plus one accent (`#828fff`) for focus, links, selection and "working" state.
+  Status colors appear only on status indicators. The retired cyan, amber, mint, lime and
+  teal palettes must not return.
+- Inter at weights 400, 500 and 600; sentence case; no glows, radial gradients or tinted shadows.
+  Primary buttons use the light fill with dark text.
+- The only mark is `site/favicon.svg`. Amber appears only inside the Rat illustration.
 
 ## Verification
 

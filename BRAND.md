@@ -20,6 +20,15 @@ Change a value in both places or in neither.
   radial gradients or tinted shadows.
 - **Sentence case.** Labels, kickers and buttons use sentence case. No letter-spaced uppercase.
 
+## Voice
+
+Plain and specific. Say what the system does in the reader's terms, then stop.
+
+- Headings make a short claim: "The machine can stop. The work continues."
+- Kickers name the topic, not a slogan: "How work survives", "Authority is decided before launch".
+- Buttons say exactly what happens: "Deploy your agent cloud", "Trace a Session", "New session".
+- Product nouns are capitalized as defined terms: Agent, Session, Turn, Item, Vault.
+
 ## Color
 
 | Token | Value | Use |
@@ -33,12 +42,12 @@ Change a value in both places or in neither.
 | `--rt-hover` | `#333336` | Hovered control |
 | `--rt-border` | `#2e2e31` | Default 1px border |
 | `--rt-border-strong` | `#3e3e44` | Hovered border, secondary button border |
-| `--rt-text` | `#f7f8f8` | Primary text and headings |
-| `--rt-text-secondary` | `#d0d6e0` | Lede paragraphs, emphasized supporting text |
-| `--rt-muted` | `#8a8f98` | Supporting text, kickers, labels, step numbers |
-| `--rt-faint` | `#62666d` | Disabled text, fine print |
-| `--rt-accent` | `#828fff` | Focus rings, links, selection stroke, "working" status |
-| `--rt-primary-fill` | `#e5e5e6` | Primary button fill (`--rt-primary-text` `#181819` on top) |
+| `--rt-text` | `#f7f8f8` | Primary text and headings (16.7:1 on `--rt-bg`) |
+| `--rt-text-secondary` | `#d0d6e0` | Lede paragraphs, emphasized supporting text (12.1:1) |
+| `--rt-muted` | `#8a8f98` | Supporting text, kickers, labels, step numbers (5.5:1; 4.7:1 on `--rt-surface`) |
+| `--rt-faint` | `#62666d` | Disabled text and fine print only (3.1:1, below 4.5:1) |
+| `--rt-accent` | `#828fff` | Focus rings, links, selection stroke, "working" status (6.2:1) |
+| `--rt-primary-fill` | `#e5e5e6` | Primary button fill (`--rt-primary-text` `#181819` on top, 14.1:1) |
 
 Status colors are muted and appear only on status indicators, never as decoration:
 success `#a1bfa2`, warning `#dfbf84`, error `#ec9f9b`.
@@ -59,12 +68,27 @@ example, Linear's mark in a Linear issue mock. Keep those inside the mock.
 - Monospace (`var(--rt-mono)`) is for code, commands, identifiers and numeric data — not for
   labels or kickers.
 
+| Style | Size / line-height | Weight | Use |
+| --- | --- | --- | --- |
+| Web hero | 76px / 1.0, `-0.025em` | 600 | Overview hero; about 46px on phones |
+| Web section heading | 56px / 1.05, `-0.025em` | 600 | Section headings |
+| Web card title | 21.6px / 1.2 | 600 | Card and step titles |
+| Web lede | 21.6px / 1.55 | 400 | Paragraph under a hero, in `--rt-text-secondary` |
+| Web body | 16px / 1.6 | 400 | Running text |
+| Web kicker | 13.6px / 1.4 | 500 | Label above a heading, in `--rt-muted` |
+| Desktop heading | 19px | 600 | egui `TextStyle::Heading` |
+| Desktop body / button | 13px | 400 / 500 | egui `Body` and `Button` |
+| Desktop small | 11px | 400 | Sidebar section labels, hints |
+| Desktop mono | 12px | 400 | Commands, identifiers |
+
 ## Shape and spacing
 
 - Radius: `6px` for small controls, `8px` for buttons and cards, `12px` for large media and
   section cards. Desktop uses 5px and 7px at its denser scale.
 - Borders are always 1px.
 - Controls are 30px tall on desktop and 40px on the web.
+- Desktop spacing: 6px button padding (vertical), 8px item gap, 12px button padding (horizontal),
+  16px card padding, 22px window margin. Web pages keep at least a 16px side gutter on phones.
 - Shadows only on floating layers (menus, windows, raised media), always neutral black.
 
 ## Logo
