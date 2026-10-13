@@ -19,12 +19,12 @@ export function createResourceAsset(
     emissiveIntensity: 0.05,
   });
   const dark = new THREE.MeshStandardMaterial({
-    color: "#142b32",
+    color: "#2d2e30",
     metalness: 0.45,
     roughness: 0.33,
   });
   const light = new THREE.MeshStandardMaterial({
-    color: "#d7efe6",
+    color: "#e7e8ea",
     metalness: 0.25,
     roughness: 0.45,
   });

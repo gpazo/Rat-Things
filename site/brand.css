@@ -1,0 +1,50 @@
+/*
+ * Rat Things brand tokens. One source for every web surface.
+ * Values mirror desktop/src/theme.rs; see BRAND.md before adding a color.
+ */
+:root {
+  color-scheme: dark;
+
+  /* Surfaces, darkest to lightest */
+  --rt-bg-deep: #111112;
+  --rt-bg: #181819;
+  --rt-panel: #1c1c1d;
+  --rt-card: #202022;
+  --rt-surface: #252527;
+  --rt-selected: #303033;
+  --rt-hover: #333336;
+
+  /* Lines */
+  --rt-border: #2e2e31;
+  --rt-border-strong: #3e3e44;
+  --rt-hairline: rgba(255, 255, 255, 0.08);
+
+  /* Text */
+  --rt-text: #f7f8f8;
+  --rt-text-secondary: #d0d6e0;
+  --rt-muted: #8a8f98;
+  --rt-faint: #62666d;
+
+  /* The one accent: focus, links, selection and "working" state only */
+  --rt-accent: #828fff;
+  --rt-accent-soft: rgba(130, 143, 255, 0.14);
+
+  /* Primary action: light fill, dark text */
+  --rt-primary-fill: #e5e5e6;
+  --rt-primary-fill-hover: #f7f8f8;
+  --rt-primary-text: #181819;
+
+  /* Status, never decoration */
+  --rt-success: #a1bfa2;
+  --rt-warning: #dfbf84;
+  --rt-error: #ec9f9b;
+
+  /* Shape */
+  --rt-radius-sm: 6px;
+  --rt-radius: 8px;
+  --rt-radius-lg: 12px;
+
+  /* Type */
+  --rt-font: Inter, "Inter Variable", ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --rt-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+}

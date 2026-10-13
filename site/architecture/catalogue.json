@@ -23,7 +23,7 @@
           "anchor": "export function apiIngressContext"
         }
       ],
-      "color": "#6acbe8",
+      "color": "#bbbcbe",
       "position": [
         -6,
         -2
@@ -144,7 +144,7 @@
           "anchor": "export async function handler"
         }
       ],
-      "color": "#879efa",
+      "color": "#c4c5c7",
       "position": [
         -2,
         -2
@@ -306,7 +306,7 @@
           "anchor": "export class Ec2RunExecutor"
         }
       ],
-      "color": "#72edbb",
+      "color": "#d0d1d3",
       "position": [
         2,
         -2
@@ -483,7 +483,7 @@
           "anchor": "export class SessionPublicationService"
         }
       ],
-      "color": "#efc879",
+      "color": "#cdced0",
       "position": [
         6,
         -2
@@ -622,7 +622,7 @@
           "anchor": "const durableStateRoot = process.env.SESSION_STATE_ROOT;"
         }
       ],
-      "color": "#b7a0ec",
+      "color": "#b4b5b7",
       "position": [
         -6,
         3
@@ -742,7 +742,7 @@
           "anchor": "export class VaultService"
         }
       ],
-      "color": "#e594af",
+      "color": "#afb0b2",
       "position": [
         -2,
         3
@@ -859,7 +859,7 @@
           "anchor": "export class ConnectionService"
         }
       ],
-      "color": "#efa888",
+      "color": "#babbbd",
       "position": [
         2,
         3
@@ -973,7 +973,7 @@
           "anchor": "export class ExecutionHeartbeat"
         }
       ],
-      "color": "#8fa9b6",
+      "color": "#a3a4a6",
       "position": [
         6,
         3

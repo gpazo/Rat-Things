@@ -5,17 +5,17 @@
   <desc id="durable-execution-desc">Owned Session input is saved before outbox dispatch. An isolated worker harness executes Turns, journals durable evidence, and delivers saved root Turn outcomes independently.</desc>
   <defs>
     <style>
-      .frame { fill: #071319; stroke: rgba(128, 230, 255, 0.22); stroke-width: 1.5; }
-      .node { fill: #102129; stroke: #3c6672; stroke-width: 1.5; }
-      .node--run { fill: #10323c; stroke: #80e6ff; stroke-width: 2; }
-      .number { fill: #071319; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 16px; font-weight: 800; text-anchor: middle; dominant-baseline: middle; }
-      .number-ring { fill: #ffb13b; stroke: #ffb13b; stroke-width: 2; }
-      .label { fill: #edf6f8; font-family: Inter, ui-sans-serif, system-ui, sans-serif; font-size: 27px; font-weight: 700; }
-      .detail { fill: #9db2b8; font-family: Inter, ui-sans-serif, system-ui, sans-serif; font-size: 17px; }
-      .evidence { fill: #bff3ff; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 14px; }
-      .flow { fill: none; stroke: #80e6ff; stroke-width: 3; }
-      .arrow { fill: #80e6ff; }
-      .boundary-label { fill: #ffca79; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; font-weight: 700; letter-spacing: 0.05em; }
+      .frame { fill: #1c1c1d; stroke: #2e2e31; stroke-width: 1.5; }
+      .node { fill: #202022; stroke: #3e3e44; stroke-width: 1.5; }
+      .node--run { fill: #252527; stroke: #828fff; stroke-width: 2; }
+      .number { fill: #1c1c1d; font-family: ui-monospace, "SF Mono", SFMono-Regular, Menlo, monospace; font-size: 16px; font-weight: 600; text-anchor: middle; dominant-baseline: middle; }
+      .number-ring { fill: #d0d6e0; stroke: #d0d6e0; stroke-width: 2; }
+      .label { fill: #f7f8f8; font-family: Inter, ui-sans-serif, system-ui, sans-serif; font-size: 27px; font-weight: 600; }
+      .detail { fill: #8a8f98; font-family: Inter, ui-sans-serif, system-ui, sans-serif; font-size: 17px; }
+      .evidence { fill: #d0d6e0; font-family: ui-monospace, "SF Mono", SFMono-Regular, Menlo, monospace; font-size: 14px; }
+      .flow { fill: none; stroke: #8a8f98; stroke-width: 3; }
+      .arrow { fill: #8a8f98; }
+      .boundary-label { fill: #828fff; font-family: ui-monospace, "SF Mono", SFMono-Regular, Menlo, monospace; font-size: 13px; font-weight: 600; }
     </style>
   </defs>
 
@@ -45,7 +45,7 @@
   <line class="flow" x1="92" y1="295" x2="92" y2="398"/>
   <path class="arrow" d="M 83 391 L 92 405 L 101 391 Z"/>
 
-  <text class="boundary-label" x="145" y="391">ISOLATED LAMBDA MICROVM · SESSION HARNESS</text>
+  <text class="boundary-label" x="145" y="391">Isolated Lambda MicroVM · Session harness</text>
   <g data-node="primary">
     <circle class="number-ring" cx="92" cy="433" r="25"/>
     <text class="number" x="92" y="434">3</text>

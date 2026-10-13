@@ -5,15 +5,15 @@
   <desc id="product-overview-desc">Your product, agent, or event gives work to Rat Things. Rat Things defines, runs, and retains the work, then returns durable replies, files, and URLs.</desc>
   <defs>
     <style>
-      .frame { fill: #071319; stroke: rgba(128, 230, 255, 0.22); stroke-width: 1.5; }
-      .node { fill: #102129; stroke: #3c6672; stroke-width: 1.5; }
-      .node--rat { fill: #10323c; stroke: #80e6ff; stroke-width: 2; }
-      .label { fill: #edf6f8; font-family: Inter, ui-sans-serif, system-ui, sans-serif; font-size: 25px; font-weight: 700; text-anchor: middle; }
-      .label--rat { fill: #edf6f8; font-family: Inter, ui-sans-serif, system-ui, sans-serif; font-size: 30px; font-weight: 700; text-anchor: middle; }
-      .detail { fill: #9db2b8; font-family: Inter, ui-sans-serif, system-ui, sans-serif; font-size: 16px; text-anchor: middle; }
-      .detail--rat { fill: #bff3ff; font-family: Inter, ui-sans-serif, system-ui, sans-serif; font-size: 16px; font-weight: 650; text-anchor: middle; }
-      .flow { fill: none; stroke: #80e6ff; stroke-width: 3; }
-      .arrow { fill: #80e6ff; }
+      .frame { fill: #1c1c1d; stroke: #2e2e31; stroke-width: 1.5; }
+      .node { fill: #202022; stroke: #3e3e44; stroke-width: 1.5; }
+      .node--rat { fill: #252527; stroke: #828fff; stroke-width: 2; }
+      .label { fill: #f7f8f8; font-family: Inter, ui-sans-serif, system-ui, sans-serif; font-size: 25px; font-weight: 600; text-anchor: middle; }
+      .label--rat { fill: #f7f8f8; font-family: Inter, ui-sans-serif, system-ui, sans-serif; font-size: 30px; font-weight: 600; text-anchor: middle; }
+      .detail { fill: #8a8f98; font-family: Inter, ui-sans-serif, system-ui, sans-serif; font-size: 16px; text-anchor: middle; }
+      .detail--rat { fill: #d0d6e0; font-family: Inter, ui-sans-serif, system-ui, sans-serif; font-size: 16px; font-weight: 500; text-anchor: middle; }
+      .flow { fill: none; stroke: #8a8f98; stroke-width: 3; }
+      .arrow { fill: #8a8f98; }
     </style>
   </defs>
 

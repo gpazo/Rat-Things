@@ -275,7 +275,7 @@ function renderDetails() {
   }
   if (!state.selected) {
     $("detail-content").innerHTML =
-      `<div class="detail-head">START HERE <span>↗</span></div><div class="detail-body"><div class="welcome-icon" aria-hidden="true">⌘</div><h2>One Session.<br>Many Turns.</h2><p class="detail-description">Rat Things runs cloud agents in your AWS account. Session input is saved before execution; completed Turns drive result delivery.</p><button class="inspect-action" data-action="start">Follow one task <span>→</span></button><div class="welcome-path"><div><span>1</span>Accept and save the request</div><div><span>2</span>Run within fixed permissions</div><div><span>3</span>Store the result, then deliver it</div></div><button class="child-row" data-action="concepts">Agent, Session, Turn… <span>?</span></button><p class="welcome-note">Select a system, open its parts, then focus a resource. Every explanation links to its implementation.</p><p class="source-note">Logical architecture. Shapes and spacing illustrate roles; they do not describe hardware or a live deployment.</p></div>`;
+      `<div class="detail-head">Start here <span>↗</span></div><div class="detail-body"><div class="welcome-icon" aria-hidden="true">⌘</div><h2>One Session.<br>Many Turns.</h2><p class="detail-description">Rat Things runs cloud agents in your AWS account. Session input is saved before execution; completed Turns drive result delivery.</p><button class="inspect-action" data-action="start">Follow one task <span>→</span></button><div class="welcome-path"><div><span>1</span>Accept and save the request</div><div><span>2</span>Run within fixed permissions</div><div><span>3</span>Store the result, then deliver it</div></div><button class="child-row" data-action="concepts">Agent, Session, Turn… <span>?</span></button><p class="welcome-note">Select a system, open its parts, then focus a resource. Every explanation links to its implementation.</p><p class="source-note">Logical architecture. Shapes and spacing illustrate roles; they do not describe hardware or a live deployment.</p></div>`;
     return;
   }
   const node = nodes.get(state.selected)!;
@@ -362,18 +362,18 @@ function render() {
     !state.isolated && state.explosion === 100;
   document.querySelector<HTMLElement>(".orbit-hint")!.textContent =
     !state.isolated && state.explosion === 100
-      ? "DRAG TO PAN · SCROLL TO ZOOM · CLICK TO INSPECT"
-      : "DRAG TO ORBIT · SCROLL TO ZOOM · CLICK TO INSPECT";
+      ? "Drag to pan · Scroll to zoom · Click to inspect"
+      : "Drag to orbit · Scroll to zoom · Click to inspect";
   $<HTMLSelectElement>("focused-view").value = state.lens;
   $("stage-mode").textContent = state.focused
-    ? "RESOURCE FOCUS"
+    ? "Resource focus"
     : state.isolated
-      ? "COMPONENT VIEW"
+      ? "Component view"
       : state.explosion === 100
-        ? "RESOURCE INVENTORY"
+        ? "Resource inventory"
         : state.explosion > 0
-          ? "EXPLODED VIEW"
-          : "ASSEMBLED VIEW";
+          ? "Exploded view"
+          : "Assembled view";
   $("model-caption").textContent = state.focused
     ? nodes.get(state.focused)!.title
     : state.isolated
@@ -394,7 +394,7 @@ function render() {
   $<HTMLSelectElement>("journey").value = state.journey;
   $("step-handoff").hidden = !step;
   $("step-handoff").innerHTML = step
-    ? `<span class="handoff-kind" data-kind="${step.handoff.kind}">${step.handoff.kind === "data" ? "DURABLE DATA" : step.handoff.kind.toUpperCase()}</span><span class="handoff-route">${escape(endpointTitle(step.handoff.from))} <b aria-hidden="true">→</b> ${escape(endpointTitle(step.handoff.to))}</span><span class="handoff-payload">${escape(step.handoff.payload)}</span>`
+    ? `<span class="handoff-kind" data-kind="${step.handoff.kind}">${step.handoff.kind === "data" ? "Durable data" : step.handoff.kind[0]!.toUpperCase() + step.handoff.kind.slice(1)}</span><span class="handoff-route">${escape(endpointTitle(step.handoff.from))} <b aria-hidden="true">→</b> ${escape(endpointTitle(step.handoff.to))}</span><span class="handoff-payload">${escape(step.handoff.payload)}</span>`
     : "";
   $("inspect-step").hidden = !step || state.inspecting;
   $("resume-step").hidden = !step || !state.inspecting;
@@ -417,7 +417,7 @@ function render() {
   $("step-title").textContent = step?.title ?? "From request to result.";
   $("step-position").textContent = step
     ? `${String(state.step + 1).padStart(2, "0")} / ${String(journey.steps.length).padStart(2, "0")}`
-    : "READY TO TRACE";
+    : "Ready to trace";
   $("step-description").textContent =
     step?.description ??
     "Walk through a request and see each system take its part.";

@@ -80,6 +80,11 @@ pages in `docs/` and `guides/`. Put validation results in commit/PR descriptions
 keep contributor test instructions with the harness. Turn a finding into an explanation of the
 resulting behavior instead of an account of how the finding was discovered.
 
+## Visual style
+
+Desktop, site, documentation, explorer and diagram changes follow [`BRAND.md`](BRAND.md). Web
+colors come from `site/brand.css` tokens, which mirror `desktop/src/theme.rs`.
+
 ## Verification
 
 Run `npm run check` after code or Terraform changes. Lambda MicroVM provisioning is an explicit

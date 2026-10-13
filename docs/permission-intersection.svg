@@ -5,15 +5,15 @@
   <desc id="permission-intersection-desc">Effective operations are the intersection of verified provider authorization, the account grant, the deployment capability profile, and Session tool constraints. Any layer can deny access; no layer can widen an earlier one.</desc>
   <defs>
     <style>
-      .frame { fill: #071319; stroke: rgba(128, 230, 255, 0.22); stroke-width: 1.5; }
-      .node { fill: #102129; stroke: #3c6672; stroke-width: 1.5; }
-      .node--result { fill: #10323c; stroke: #80e6ff; stroke-width: 2; }
-      .label { fill: #edf6f8; font-family: Inter, ui-sans-serif, system-ui, sans-serif; font-size: 25px; font-weight: 700; text-anchor: middle; }
-      .detail { fill: #9db2b8; font-family: Inter, ui-sans-serif, system-ui, sans-serif; font-size: 16px; text-anchor: middle; }
-      .and-label { fill: #ffca79; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; font-weight: 800; letter-spacing: 0.08em; text-anchor: middle; }
-      .equals { fill: #80e6ff; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 30px; font-weight: 800; text-anchor: middle; }
-      .result-detail { fill: #bff3ff; font-family: Inter, ui-sans-serif, system-ui, sans-serif; font-size: 16px; text-anchor: middle; }
-      .rule { fill: #ffca79; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 14px; font-weight: 700; letter-spacing: 0.03em; text-anchor: middle; }
+      .frame { fill: #1c1c1d; stroke: #2e2e31; stroke-width: 1.5; }
+      .node { fill: #202022; stroke: #3e3e44; stroke-width: 1.5; }
+      .node--result { fill: #252527; stroke: #828fff; stroke-width: 2; }
+      .label { fill: #f7f8f8; font-family: Inter, ui-sans-serif, system-ui, sans-serif; font-size: 25px; font-weight: 600; text-anchor: middle; }
+      .detail { fill: #8a8f98; font-family: Inter, ui-sans-serif, system-ui, sans-serif; font-size: 16px; text-anchor: middle; }
+      .and-label { fill: #8a8f98; font-family: ui-monospace, "SF Mono", SFMono-Regular, Menlo, monospace; font-size: 12px; font-weight: 600; text-anchor: middle; }
+      .equals { fill: #8a8f98; font-family: ui-monospace, "SF Mono", SFMono-Regular, Menlo, monospace; font-size: 30px; font-weight: 600; text-anchor: middle; }
+      .result-detail { fill: #d0d6e0; font-family: Inter, ui-sans-serif, system-ui, sans-serif; font-size: 16px; text-anchor: middle; }
+      .rule { fill: #8a8f98; font-family: ui-monospace, "SF Mono", SFMono-Regular, Menlo, monospace; font-size: 14px; font-weight: 600; text-anchor: middle; }
     </style>
   </defs>
 
@@ -54,5 +54,5 @@
     <text class="result-detail" x="380" y="800">Only what every layer permits; autonomous for this Run</text>
   </g>
 
-  <text class="rule" x="380" y="872">A DENY ALWAYS WINS · NO LAYER CAN WIDEN AN EARLIER LAYER</text>
+  <text class="rule" x="380" y="872">A deny always wins · no layer can widen an earlier layer</text>
 </svg>

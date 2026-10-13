@@ -78,7 +78,7 @@ export class ArchitectureScene {
       powerPreference: "low-power",
     });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.75));
-    this.renderer.setClearColor(0x071114, 0);
+    this.renderer.setClearColor(0x18191a, 0);
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.4;
@@ -98,18 +98,18 @@ export class ArchitectureScene {
     this.cleanups.push(() =>
       this.renderer.domElement.removeEventListener("webglcontextlost", lost),
     );
-    this.world.add(new THREE.HemisphereLight(0xe4fffa, 0x223143, 2.4));
-    const key = new THREE.DirectionalLight(0xd3fff3, 3);
+    this.world.add(new THREE.HemisphereLight(0xf7f8fa, 0x353537, 2.4));
+    const key = new THREE.DirectionalLight(0xf3f4f6, 3);
     key.position.set(4, 12, 8);
     this.world.add(key);
-    const rim = new THREE.DirectionalLight(0x809bff, 2);
+    const rim = new THREE.DirectionalLight(0xc8cad0, 2);
     rim.position.set(-10, 5, -6);
     this.world.add(rim);
     this.board = new THREE.Group();
-    const base = this.box(19.2, 0.16, 11.4, "#193037", 0.7);
+    const base = this.box(19.2, 0.16, 11.4, "#313234", 0.7);
     base.position.y = -0.42;
     this.board.add(base);
-    const grid = new THREE.GridHelper(25, 40, 0x31484b, 0x152a2e);
+    const grid = new THREE.GridHelper(25, 40, 0x454648, 0x2c2d2f);
     grid.position.y = -0.54;
     (grid.material as THREE.Material).transparent = true;
     (grid.material as THREE.Material).opacity = 0.45;
@@ -194,7 +194,7 @@ export class ArchitectureScene {
       parent ? 3.35 : 1.27,
       parent ? 0.24 : 0.12,
       parent ? 2.7 : 0.85,
-      "#193039",
+      "#323234",
     );
     mesh.material.emissive.set(system.color);
     mesh.material.emissiveIntensity = parent ? 0.03 : 0.06;
@@ -218,7 +218,7 @@ export class ArchitectureScene {
           3.12 - rail * 0.09,
           0.05,
           2.47 - rail * 0.09,
-          "#243e44",
+          "#3d3d3f",
         );
         layer.position.y = -0.2 - rail * 0.1;
         group.add(layer);
@@ -287,12 +287,12 @@ export class ArchitectureScene {
   ): SceneConnection {
     const color =
       kind === "request"
-        ? 0x78d9bb
+        ? 0xc2c3c5
         : kind === "access"
-          ? 0xb987a3
+          ? 0x97989a
           : kind === "recovery"
-            ? 0xe0b977
-            : 0x7ea8c4;
+            ? 0xbebfc1
+            : 0xa1a2a4;
     const line = new THREE.Line(
       new THREE.BufferGeometry().setFromPoints(
         Array.from({ length: 4 }, () => new THREE.Vector3()),
@@ -301,7 +301,7 @@ export class ArchitectureScene {
     );
     const dot = new THREE.Mesh(
       new THREE.SphereGeometry(0.07, 8, 6),
-      new THREE.MeshBasicMaterial({ color: 0xe3fff0 }),
+      new THREE.MeshBasicMaterial({ color: 0xf6f7f9 }),
     );
     const arrow = new THREE.Mesh(
       new THREE.ConeGeometry(0.11, 0.28, 8),
@@ -896,12 +896,12 @@ export class ArchitectureScene {
       this.handoffPath.to = handoff.to;
       const color =
         handoff.kind === "access"
-          ? 0xb987a3
+          ? 0x97989a
           : handoff.kind === "recovery"
-            ? 0xe0b977
+            ? 0xbebfc1
             : handoff.kind === "data"
-              ? 0x7ea8c4
-              : 0x78d9bb;
+              ? 0xa1a2a4
+              : 0xc2c3c5;
       (this.handoffPath.line.material as THREE.LineBasicMaterial).color.setHex(
         color,
       );
