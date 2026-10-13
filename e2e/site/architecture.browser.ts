@@ -123,7 +123,7 @@ for (const [flow, first] of [
         .click();
     await expect(page.locator("#step-title")).toHaveText("Deliver the result");
     await expect(page.locator("#detail-title")).toHaveText("Result notifier");
-    await expect(page.locator("#run-state")).toHaveText("SUCCEEDED");
+    await expect(page.locator("#run-state")).toHaveText("Succeeded");
     await expect(
       page.getByRole("button", { name: "Next step", exact: true }),
     ).toBeDisabled();
@@ -494,7 +494,7 @@ test("explains recovery of a missed wake-up without inventing another Run", asyn
   await expect(page.locator("#step-description")).toContainText(
     "queue send failed",
   );
-  await expect(page.locator("#run-state")).toHaveText("QUEUED");
+  await expect(page.locator("#run-state")).toHaveText("Queued");
   await page.locator('#step-track [data-step="2"]').click();
   await expect(page.locator("#step-handoff .handoff-payload")).toContainText(
     "Same Run ID",
@@ -504,7 +504,7 @@ test("explains recovery of a missed wake-up without inventing another Run", asyn
     "reconciler:queue",
   );
   await page.locator('#step-track [data-step="5"]').click();
-  await expect(page.locator("#run-state")).toHaveText("SUCCEEDED");
+  await expect(page.locator("#run-state")).toHaveText("Succeeded");
   await expect(page.locator("#step-description")).toContainText(
     "original Run identity",
   );
@@ -519,16 +519,16 @@ test("distinguishes a cancellation request from a confirmed cancelled execution"
   await ready(page);
   await page.locator("#journey").selectOption("cancellation");
   await page.locator('.intro-actions [data-action="start"]').click();
-  await expect(page.locator("#run-state")).toHaveText("RUNNING");
+  await expect(page.locator("#run-state")).toHaveText("Running");
   await page.locator('#step-track [data-step="2"]').click();
-  await expect(page.locator("#run-state")).toHaveText("CANCELLING");
+  await expect(page.locator("#run-state")).toHaveText("Cancelling");
   await page.locator('#step-track [data-step="4"]').click();
-  await expect(page.locator("#run-state")).toHaveText("CANCELLING");
+  await expect(page.locator("#run-state")).toHaveText("Cancelling");
   await expect(page.locator("#step-description")).toContainText(
     "unknown observations defer",
   );
   await page.getByRole("button", { name: "Next step", exact: true }).click();
-  await expect(page.locator("#run-state")).toHaveText("CANCELLED");
+  await expect(page.locator("#run-state")).toHaveText("Cancelled");
   await expect(page.locator("#step-description")).toContainText(
     "terminal or absent",
   );
@@ -540,7 +540,7 @@ test("keeps a successful result separate from uncertain notification delivery", 
   await ready(page);
   await page.locator("#journey").selectOption("delivery-failure");
   await page.locator('.intro-actions [data-action="start"]').click();
-  await expect(page.locator("#run-state")).toHaveText("SUCCEEDED");
+  await expect(page.locator("#run-state")).toHaveText("Succeeded");
   await page.locator('#step-track [data-step="3"]').click();
   await expect(page.locator("#step-title")).toHaveText(
     "Receive an ambiguous send error",
@@ -548,7 +548,7 @@ test("keeps a successful result separate from uncertain notification delivery", 
   await expect(page.locator("#step-handoff .handoff-payload")).toContainText(
     "outcome is uncertain",
   );
-  await expect(page.locator("#run-state")).toHaveText("SUCCEEDED");
+  await expect(page.locator("#run-state")).toHaveText("Succeeded");
   await page.getByRole("button", { name: "Next step", exact: true }).click();
   await expect(page.locator("#step-description")).toContainText(
     "outcome_unknown",
@@ -557,7 +557,7 @@ test("keeps a successful result separate from uncertain notification delivery", 
     "data-handoff",
     "notifier:fence",
   );
-  await expect(page.locator("#run-state")).toHaveText("SUCCEEDED");
+  await expect(page.locator("#run-state")).toHaveText("Succeeded");
   await page.getByRole("button", { name: "Next step", exact: true }).click();
   await expect(page.locator("#step-title")).toHaveText(
     "Retrieve the saved Turn output",

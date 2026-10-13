@@ -9,6 +9,9 @@ import {
 } from "./types.js";
 import { createResourceAsset } from "./resources.js";
 
+/** The brand accent (BRAND.md): selection and handoff endpoints only. */
+const SELECTION_COLOR = "#828fff";
+
 type Piece = {
   id: string;
   system: System;
@@ -431,6 +434,9 @@ export class ArchitectureScene {
       piece.mesh.material.emissiveIntensity =
         selected || endpoint ? 0.48 : inSelection ? 0.09 : 0.01;
       piece.outline.material.opacity = selected ? 1 : inSelection ? 0.66 : 0.2;
+      piece.outline.material.color.set(
+        selected || endpoint ? SELECTION_COLOR : piece.system.color,
+      );
       piece.label.classList.toggle("selected", selected);
       piece.label.classList.toggle("handoff-endpoint", endpoint);
       piece.label.classList.toggle(

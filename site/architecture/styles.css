@@ -149,9 +149,9 @@ button[aria-pressed="true"] {
 }
 .eyebrow {
   margin: 0 0 12px;
-  font: 500 0.75rem var(--mono);
+  font: 500 0.8125rem var(--font);
   letter-spacing: 0;
-  color: #b7b8ba;
+  color: var(--muted);
   display: flex;
   align-items: center;
   gap: 9px;
@@ -184,9 +184,9 @@ h1 {
   color: var(--muted);
 }
 .edition {
-  font: 400 0.75rem var(--mono);
+  font: 400 0.8125rem var(--font);
   letter-spacing: 0;
-  color: #b9babc;
+  color: var(--muted);
 }
 .edition span {
   margin-left: 15px;
@@ -280,8 +280,8 @@ h1 {
   position: relative;
 }
 .system-row.selected {
-  background: #313133;
-  border-color: #464648;
+  background: var(--rt-selected);
+  border-color: var(--rt-border-strong);
 }
 .system-dot {
   width: 7px;
@@ -309,9 +309,9 @@ h1 {
   color: var(--muted);
 }
 .small-label {
-  font: 400 0.75rem var(--mono);
+  font: 500 0.75rem var(--font);
   letter-spacing: 0;
-  color: #9a9b9d;
+  color: var(--muted);
 }
 .path-key {
   font-size: 0.75rem;
@@ -379,9 +379,9 @@ h1 {
   pointer-events: auto;
 }
 .stage-mode {
-  font: 400 0.625rem var(--mono);
+  font: 500 0.75rem var(--font);
   letter-spacing: 0;
-  color: #8a8b8c;
+  color: var(--muted);
   white-space: nowrap;
 }
 .scene-host {
@@ -432,7 +432,7 @@ h1 {
 }
 .scene-label:hover,
 .scene-label.selected {
-  border-color: var(--system-color);
+  border-color: var(--rt-accent);
   color: #fff;
   background: #303132;
 }
@@ -455,8 +455,8 @@ h1 {
   display: flex;
   gap: 7px;
   align-items: center;
-  font: 400 0.625rem var(--mono);
-  color: #909193;
+  font: 400 0.75rem var(--font);
+  color: var(--muted);
   pointer-events: none;
 }
 .annotation-divider {
@@ -505,8 +505,8 @@ h1 {
   right: 10px;
   text-align: center;
   margin: 0;
-  color: #87888a;
-  font: 400 0.625rem var(--mono);
+  color: var(--muted);
+  font: 400 0.75rem var(--font);
   letter-spacing: 0;
   pointer-events: none;
 }
@@ -594,9 +594,9 @@ input[type="checkbox"] {
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  font: 400 0.75rem var(--mono);
+  font: 500 0.75rem var(--font);
   letter-spacing: 0;
-  color: #a1a2a4;
+  color: var(--muted);
 }
 .detail-head .icon-button {
   margin: -8px -7px -8px 0;
@@ -613,8 +613,8 @@ input[type="checkbox"] {
   margin: 4px 0 10px;
 }
 .detail-subtitle {
-  color: var(--system-color, var(--accent));
-  font: 400 0.75rem var(--mono);
+  color: var(--rt-text-secondary);
+  font: 400 0.8125rem var(--font);
   line-height: 1.65;
   margin: 0 0 19px;
 }
@@ -816,8 +816,8 @@ select {
   max-width: 100%;
 }
 .simulation-note {
-  font: 400 0.625rem var(--mono);
-  color: #8d8e90;
+  font: 400 0.75rem var(--font);
+  color: var(--muted);
 }
 .journey-main {
   flex: 1;
@@ -829,8 +829,8 @@ select {
   gap: 12px;
 }
 .journey-title > span:first-child {
-  font: 400 0.625rem var(--mono);
-  color: #9d9ea0;
+  font: 500 0.75rem var(--font);
+  color: var(--muted);
   white-space: nowrap;
 }
 .journey-title h2 {
@@ -839,10 +839,10 @@ select {
   margin: 0;
 }
 .run-state {
-  font: 400 0.625rem var(--mono);
-  color: var(--accent);
-  background: #353638;
-  border: 1px solid #494a4c;
+  font: 500 0.6875rem var(--font);
+  color: var(--text);
+  background: var(--rt-surface);
+  border: 1px solid var(--rt-border-strong);
   padding: 3px 6px;
   border-radius: 3px;
   margin-left: auto;
@@ -932,8 +932,8 @@ select {
   justify-content: space-between;
   gap: 12px;
   padding: 13px 0 15px;
-  font: 400 0.625rem var(--mono);
-  color: #88898b;
+  font: 400 0.75rem var(--font);
+  color: var(--muted);
   flex-shrink: 0;
 }
 .explorer-footer a {
@@ -1637,7 +1637,7 @@ select {
   display: none;
 }
 .search-label {
-  font: 500 0.625rem var(--mono);
+  font: 500 0.75rem var(--font);
   letter-spacing: 0;
   color: var(--muted);
   margin: 9px 8px 7px;
@@ -1719,8 +1719,8 @@ select {
   margin: 0 0 20px;
 }
 .resource-contract dt {
-  font: 500 0.65rem var(--mono);
-  color: var(--accent);
+  font: 500 0.75rem var(--font);
+  color: var(--muted);
   margin: 20px 0 7px;
   letter-spacing: 0;
 }
@@ -1739,8 +1739,8 @@ select {
   font-size: 0.73rem;
 }
 .handoff-kind {
-  color: #c5c6c8;
-  font: 500 0.56rem var(--mono);
+  color: var(--rt-text-secondary);
+  font: 500 0.6875rem var(--font);
   letter-spacing: 0;
   border: 1px solid #444547;
   padding: 3px 5px;
@@ -1863,7 +1863,7 @@ select {
 [data-view="inventory"] .label-system {
   display: block;
   color: var(--muted);
-  font: 400 0.5rem var(--mono);
+  font: 500 0.625rem var(--font);
 }
 .handoff-endpoint {
   border-color: var(--accent);
