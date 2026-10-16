@@ -1,5 +1,12 @@
 # Contributor verification
 
+## Execution-command time travel
+
+Run `npm run sim:commands -- demo --out /tmp/command-demo` for a local,
+self-checking simulation and an interactive trace report. See the
+[command schedule harness](time-travel/README.md) for exploration, verified
+replay, inspection, branching, and minimization commands.
+
 ## Agents API native compatibility gate
 
 `npm run test:agents:parity` runs the Agents suites with strict native interruption
