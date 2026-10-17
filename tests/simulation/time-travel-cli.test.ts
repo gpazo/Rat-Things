@@ -3,7 +3,7 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, writeFileSync, existsSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { parseTrace, provenance } from '../../testing/time-travel/cli.js';
+import { parseTrace, provenance } from '../../testing/time-travel/artifacts.js';
 import { hash, type Trace } from '../../testing/time-travel/model.js';
 import { branch } from '../../testing/time-travel/simulator.js';
 

@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import { demo } from '../../testing/time-travel/cli.js';
+import { demo } from '../../testing/time-travel/demo.js';
 import { hash, type Provenance } from '../../testing/time-travel/model.js';
 
 const provenance: Provenance = {
