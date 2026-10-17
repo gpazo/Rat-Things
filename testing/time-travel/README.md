@@ -1,83 +1,121 @@
 # Inspect command schedules
 
-Run the self-checking demonstration from the repository root. Choose an output
-directory that does not exist.
+Create a recorded command race, replay it, and change one scheduling decision.
+The simulator runs the real `ExecutionCommandService.drain` against controlled
+ports and an in-memory store. It needs no AWS account or model calls.
+
+Run these commands from the repository root after `npm ci`. Keep the same source
+files and runtime throughout the walkthrough. Every file in `testing/time-travel`,
+including these documents, contributes to the replay fingerprint. After editing
+one, generate new artifacts. See [provenance](reference.md#provenance).
+
+## Create the demonstration
+
+Create a fresh working directory. The commands below create new children inside
+it because existing output files and directories are rejected.
 
 ```bash
-npm run sim:commands -- demo --out /tmp/command-demo
-open /tmp/command-demo/index.html
+work=$(mktemp -d "${TMPDIR:-/tmp}/rat-command-travel.XXXXXX")
+npm run sim:commands -- demo --out "$work/demo"
 ```
 
-The report shows the recorded original, a branch, and a correct-store comparison.
-Select a trace and an event to see durable records and the external effect ledger.
-The original uses `unsafe-claim-cas`, an injected test-store defect. It is not a
-production bug. The race suffix comes from seeded exploration after an irrelevant
-consumer reads and crashes. The demonstration verifies replay, a shared branch
-prefix, actor removal during minimization, lost acknowledgements, crashes,
-deadlines, stale targets, and tamper rejection.
-
-To search fresh schedules, use bounded exploration. The default store preserves
-compare-and-swap transactions.
+The result includes `replayVerified: true` and four successful `checks`. The
+command writes seven traces, `summary.json`, and an interactive `index.html` with
+local styles and fonts. Open the report in a browser. On macOS, run:
 
 ```bash
-npm run sim:commands -- explore --seed 17 --runs 100 --steps 80 --out /tmp/command-search
-npm run sim:commands -- replay /tmp/command-search/last.json --json
-npm run sim:commands -- inspect /tmp/command-demo/original.json --at 17 --json
+open "$work/demo/index.html"
 ```
 
-Exploration saves `failure.json` if it finds a violation, or `last.json` otherwise.
-Use `--fault-model unsafe-claim-cas` to explore the injected defect. Optional
-`--actors` accepts 2 or 3, `--restarts` accepts 0 through 2, and `--faults` accepts
-0 through 10. Search limits are 1,000 runs and 1,000 steps per run. Seed values
-range from 1 through 4,294,966,295. Each result distinguishes a violation,
-completion, parked continuations, and an exhausted step budget. No bounded search
-establishes an exhaustive guarantee.
+The report compares two effects in **Original** with one in **Branch** and
+**Correct**. Select a trace, then select an event or move the timeline. The durable
+records and effect ledger show the state after that event.
 
-To choose a counterfactual, copy an enabled choice from inspection into `--choice`.
-The chosen event runs first. The seed selects the remaining suffix. `--at 0`
-branches from the initial fixture. Other event points are inclusive.
+The original uses `unsafe-claim-cas`, an intentionally broken test store. This
+demonstrates a duplicate-effect witness, not a production bug. The demo finds its
+race suffix through seeded exploration after consumer `c` reads and crashes.
+
+## Replay the recorded race
 
 ```bash
-npm run sim:commands -- branch /tmp/command-demo/original.json --at 1 \
-  --choice '{"kind":"crash","actor":"c"}' --seed 91 --steps 80 --out /tmp/branch.json
-npm run sim:commands -- replay /tmp/branch.json --parent /tmp/command-demo/original.json --json
-npm run sim:commands -- minimize /tmp/command-demo/original.json --attempts 300 --out /tmp/minimal.json
+npm run --silent sim:commands -- replay "$work/demo/original.json" --json
 ```
 
-Only one branch generation is supported: create branches from root traces.
-Branched artifacts require the root trace as `--parent` for replay, inspection,
-and minimization. The parent digest and complete shared event prefix must match.
-Further branching is unsupported until the harness can verify an ancestor chain.
-A branch cannot exceed 2,000 total events. Minimization reruns candidates through
-the real service. It attempts actor removal, restart removal, then contiguous
-choice deletion. The report states its attempt bound and the transformations it
-accepted. A fixed point applies to choice deletion after the workload pass.
+The result has `verified: true`, two entries in `world.effects`, and an
+`at-most-once` violation. Replay runs the recorded choices through the service and
+compares the resulting events. Matching hashes alone do not establish replay.
 
-All artifact writes create new files. Existing paths fail. `--json` produces one
-machine-readable result or error. Use `npm run --silent sim:commands -- ... --json`
-to suppress npm's own command banner. Input artifacts are limited to 32 MiB.
-Verified replay requires identical source bytes, lockfile, Node version, tsx
-version, platform, and architecture. Git revision is supplemental metadata.
-A different commit with identical relevant bytes does not invalidate replay.
-
-The harness invokes `ExecutionCommandService.drain` and the existing atomic
-`MemoryAgentsStore`. Application, acknowledgement, and continuation are separate
-choices. A continuation runs until its next port call or completion. A crash
-abandons its parked promise. A restarted actor begins a fresh drain against the
-same durable records. An applied write or effect survives a lost acknowledgement.
-A fail-before choice applies neither. A returned error resumes the real service's
-error handling, which differs from death.
-
-The model covers one synthetic command and sequential awaits per consumer.
-It cancels operations that were invoked but not applied before a crash. It does
-not model late remote application after client death, requester polling, multiple
-commands, AWS behavior, or real external effects. Deadline safety is checked at
-`perform` invocation, so transport delay after invocation can cross the deadline.
-The claim provides at-most-once effect acceptance, without unconditional liveness.
-
-Run focused verification with:
+## Inspect a boundary
 
 ```bash
-npx vitest run tests/simulation/time-travel.test.ts tests/simulation/time-travel-cli.test.ts --pool=forks --maxWorkers=1 --isolate
-npm run typecheck
+npm run --silent sim:commands -- inspect "$work/demo/original.json" --at 1 --json
 ```
+
+The result has `at: 1`. Actor `c` is waiting at its first store call, and `enabled`
+includes `{"kind":"crash","actor":"c"}`. An event point is inclusive. Point `1`
+means after event 1; point `0` means before any choices.
+
+Inspection verifies the entire saved trace before returning this partial view.
+An invalid later event still causes an error.
+
+## Branch from that boundary
+
+Copy the enabled crash choice into a new branch:
+
+```bash
+npm run sim:commands -- branch "$work/demo/original.json" --at 1 \
+  --choice '{"kind":"crash","actor":"c"}' --seed 91 --steps 80 \
+  --out "$work/branch.json"
+```
+
+The new trace preserves event 1. Its second event crashes `c`, and the seed selects
+the remaining suffix. The result includes a `parent` proof that identifies the
+original trace and preserved prefix. The original file is unchanged.
+
+Replay the branch with its parent:
+
+```bash
+npm run --silent sim:commands -- replay "$work/branch.json" \
+  --parent "$work/demo/original.json" --json
+```
+
+The result has `verified: true`. Keep the parent file with the branch. Replay,
+inspection, and minimization require it. Only one branch generation is supported,
+so create each branch from a root trace.
+
+## Reduce the failing schedule
+
+```bash
+npm run sim:commands -- minimize "$work/demo/original.json" \
+  --attempts 300 --out "$work/minimal.json"
+```
+
+The output reports fewer `minimizedSteps` than `originalSteps`, includes
+`remove actor c` in `transformations`, and retains the `at-most-once` violation.
+Each accepted candidate has been rerun through the service. The stop reason
+describes the bounded reduction, not a globally smallest witness.
+
+## Explore fresh schedules
+
+```bash
+npm run sim:commands -- explore --seed 23 --runs 3 --steps 40 --out "$work/search"
+```
+
+The default store enforces compare-and-swap. The result reports counts by status
+and the requested bounds. The directory contains `summary.json` and either
+`failure.json` or `last.json`. Use the returned `artifact` path for replay.
+`failure.json` means the search stopped at its first invariant violation.
+
+To explore the injected defect, run another search in a new directory:
+
+```bash
+npm run sim:commands -- explore --fault-model unsafe-claim-cas \
+  --seed 17 --runs 100 --steps 80 --out "$work/unsafe-search"
+```
+
+A search with no violation only describes the schedules it tried. It does not
+prove safety for all schedules.
+
+See the [command and artifact reference](reference.md) for every flag and result,
+[architecture](architecture.md) for fault and continuation semantics, and
+[contributor guide](CONTRIBUTING.md) to add scenarios.
