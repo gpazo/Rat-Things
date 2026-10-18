@@ -16,10 +16,10 @@ export function piProjectionRepair(store: AgentsStore, mode: 'repair' | 'abort' 
     const image = await lease.load();
     const storage = await openPiStorage({ ...lease, load: async () => image });
     const nativeSeq = image.head?.seq ?? 0;
-    const { snapshot, hasLiveTasks } = await (mode === 'abort' ? abortPiRecovery : projectPiStorage)(storage, { sessionId, turnId: state.turns.at(-1)?.turn.id ?? 'bootstrap',
+    const { snapshot, hasLiveTasks, nativeSeq: projectedSeq } = await (mode === 'abort' ? abortPiRecovery : projectPiStorage)(storage, { sessionId, turnId: state.turns.at(-1)?.turn.id ?? 'bootstrap',
       runtime: state.runtime, agent: state.session.agent, environment: state.session.environment, input: [] }, nativeSeq);
-    if ((runtime.value.projectionSeq ?? -1) < nativeSeq) {
-      await runtimes.publishNative(ownerId, sessionId, runtime.value.runId, nativeSeq, { ...snapshot,
+    if ((runtime.value.projectionSeq ?? -1) < projectedSeq) {
+      await runtimes.publishNative(ownerId, sessionId, runtime.value.runId, projectedSeq, { ...snapshot,
         turns: snapshot.turns.map(binding => { const previous = runtime.value.snapshot?.turns.find(saved => saved.turn.id === binding.turn.id);
           return { ...binding, ...(previous?.artifacts ? { artifacts: previous.artifacts } : {}) }; }),
       });

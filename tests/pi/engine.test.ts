@@ -2,6 +2,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Type, createModels, fauxAssistantMessage, fauxProvider, fauxThinking, fauxToolCall, createAssistantMessageEventStream, type FauxResponseStep, type AssistantMessageEventStream, type AssistantMessage } from '@earendil-works/pi-ai';
 import { Harness, LiveDoc, type Storage } from '@earendil-works/pi-durable';
 import { MemoryAgentsStore } from '../agents/fixtures.js';
+import { piProjectionRepair } from '../../src/app/pi-projection-repair.js';
+import type { SessionState } from '../../src/core/session-ports.js';
 import { SessionRuntimeStore } from '../../src/core/session-runtime-store.js';
 import { nativeLease } from '../../src/core/session-native-store.js';
 import { planSessionStream, type SessionStreamSnapshot, type PlannedSessionEvent } from '../../src/core/session-stream.js';
@@ -47,6 +49,27 @@ async function fixture(responses: FauxResponseStep[], changes: Partial<SessionLa
 }
 
 describe('native Pi Session engine', () => {
+  it('publishes the cleanup commit sequence when recovery aborts unfinished native work', async () => {
+    const f = await fixture([]);
+    const engine = await f.open();
+    await engine.start(turn(), input('accepted'));
+    await engine.close();
+    const state: SessionState = { runtime: f.launch.runtime!,
+      session: { id: 'session', object: 'agent.session', agent: f.launch.agent, environment: f.launch.environment,
+        created_at: 1, last_active_at: 1, status: 'in_progress', error: null, required_actions: [], usage: null, vault_ids: [], metadata: {} },
+      turns: [{ turn: turn(), input: [] }], receipts: {}, deletedArtifacts: [] };
+    await f.store.put({ ownerId: 'owner', collection: 'sessions', id: 'session', createdAt: 1, revision: 1, value: state }, 0);
+    await piProjectionRepair(f.store)('owner', 'session');
+    const original = (await f.runtime.get('owner', 'session'))!.value;
+    expect(original.snapshot?.turns[0]?.turn.status).not.toBe('failed');
+    expect(await piProjectionRepair(f.store, 'abort')('owner', 'session')).toEqual({ hasLiveTasks: false });
+    const repaired = (await f.runtime.get('owner', 'session'))!.value;
+    expect(repaired.projectionSeq).toBe(repaired.native?.head?.seq);
+    expect(repaired.projectionSeq).toBeGreaterThan(original.projectionSeq!);
+    expect(repaired.snapshot?.turns[0]?.turn).toMatchObject({ status: 'failed', error: { code: 'server_error' } });
+    expect(f.faux.state.callCount).toBe(0);
+  });
+
   it('admits once while paused, finishes through actual Pi, and repairs projection without running tasks', async () => {
     const f = await fixture([fauxAssistantMessage([fauxThinking('private reasoning'), { type: 'text', text: 'Hello from Pi' }])]);
     const engine = await f.open({ mode: 'bounded' });
