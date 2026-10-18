@@ -2,9 +2,16 @@
 //! Run: cargo test --test walkthrough_capture -- --ignored --nocapture
 //! Frames stream into ffmpeg as raw RGBA; the video and chapter markers land in
 //! test-results/walkthrough/.
+#[expect(
+    dead_code,
+    reason = "Shared support includes helpers used by other integration test targets"
+)]
 mod support;
 use egui::{Vec2, accesskit::Role};
-use egui_kittest::{Harness, kittest::{NodeT, Queryable}};
+use egui_kittest::{
+    Harness,
+    kittest::{NodeT, Queryable},
+};
 use rat_things_desktop::ConsoleApp;
 use reqwest::blocking::Client;
 use serde_json::json;
@@ -61,7 +68,11 @@ impl Rec {
         app.run_steps(2);
         let image = app.render().expect("render frame");
         let (w, h) = (image.width() as usize, image.height() as usize);
-        Frame { rgba: image.into_raw(), w, h }
+        Frame {
+            rgba: image.into_raw(),
+            w,
+            h,
+        }
     }
 
     fn emit(&mut self, mut image: Frame, frames: usize) {
@@ -69,12 +80,35 @@ impl Rec {
         if let Some((x, y, age)) = self.ripple {
             draw_ripple(&mut image.rgba, w, h, x * PPP, y * PPP, age);
         }
-        draw_cursor(&mut image.rgba, w, h, self.cursor.0 * PPP, self.cursor.1 * PPP);
+        draw_cursor(
+            &mut image.rgba,
+            w,
+            h,
+            self.cursor.0 * PPP,
+            self.cursor.1 * PPP,
+        );
         let encoder = self.encoder.get_or_insert_with(|| {
             Command::new("ffmpeg")
-                .args(["-y", "-v", "error", "-f", "rawvideo", "-pix_fmt", "rgba", "-s"])
+                .args([
+                    "-y", "-v", "error", "-f", "rawvideo", "-pix_fmt", "rgba", "-s",
+                ])
                 .arg(format!("{w}x{h}"))
-                .args(["-r", "30", "-i", "-", "-vf", "pad=ceil(iw/2)*2:ceil(ih/2)*2", "-c:v", "libx264", "-crf", "12", "-preset", "fast", "-pix_fmt", "yuv420p"])
+                .args([
+                    "-r",
+                    "30",
+                    "-i",
+                    "-",
+                    "-vf",
+                    "pad=ceil(iw/2)*2:ceil(ih/2)*2",
+                    "-c:v",
+                    "libx264",
+                    "-crf",
+                    "12",
+                    "-preset",
+                    "fast",
+                    "-pix_fmt",
+                    "yuv420p",
+                ])
                 .arg(self.dir.join("console.mp4"))
                 .stdin(Stdio::piped())
                 .spawn()
@@ -109,9 +143,19 @@ impl Rec {
         let n = ((seconds * FPS).round() as usize).max(1);
         for i in 1..=n {
             let p = i as f32 / n as f32;
-            let e = if p < 0.5 { 4.0 * p * p * p } else { 1.0 - (-2.0 * p + 2.0).powi(3) / 2.0 };
+            let e = if p < 0.5 {
+                4.0 * p * p * p
+            } else {
+                1.0 - (-2.0 * p + 2.0).powi(3) / 2.0
+            };
             self.cursor = (x0 + (x - x0) * e, y0 + (y - y0) * e);
-            self.emit(Frame { rgba: image.rgba.clone(), ..image }, 1);
+            self.emit(
+                Frame {
+                    rgba: image.rgba.clone(),
+                    ..image
+                },
+                1,
+            );
         }
     }
 
@@ -121,7 +165,9 @@ impl Rec {
         find(app, role, label).unwrap().scroll_to_me();
         tick(app);
         let rect = find(app, role, label).unwrap().rect();
-        let distance = ((rect.center().x - self.cursor.0).powi(2) + (rect.center().y - self.cursor.1).powi(2)).sqrt();
+        let distance = ((rect.center().x - self.cursor.0).powi(2)
+            + (rect.center().y - self.cursor.1).powi(2))
+        .sqrt();
         let seconds = (0.35 + distance as f64 / 1800.0).min(0.9);
         let x = rect.left() + (rect.width() * 0.5).min(60.0);
         self.move_to(app, x, rect.center().y + 2.0, seconds);
@@ -150,7 +196,8 @@ impl Rec {
         tick(app);
         let chars: Vec<char> = text.chars().collect();
         for chunk in chars.chunks(chars_per_frame) {
-            app.get_by_label(label).type_text(&chunk.iter().collect::<String>());
+            app.get_by_label(label)
+                .type_text(&chunk.iter().collect::<String>());
             app.run_steps(1);
             let image = self.base(app);
             self.emit(image, 1);
@@ -172,10 +219,17 @@ impl Rec {
         let mut encoder = self.encoder.take().unwrap();
         drop(encoder.stdin.take());
         assert!(encoder.wait().unwrap().success(), "ffmpeg failed");
-        let markers: Vec<_> = self.markers.iter().map(|(n, t)| json!({"name": n, "t": t})).collect();
+        let markers: Vec<_> = self
+            .markers
+            .iter()
+            .map(|(n, t)| json!({"name": n, "t": t}))
+            .collect();
         std::fs::write(
             self.dir.join("markers.json"),
-            serde_json::to_string_pretty(&json!({"duration": self.t, "markers": markers, "clicks": self.clicks})).unwrap(),
+            serde_json::to_string_pretty(
+                &json!({"duration": self.t, "markers": markers, "clicks": self.clicks}),
+            )
+            .unwrap(),
         )
         .unwrap();
     }
@@ -196,9 +250,20 @@ fn blend(px: &mut [u8], rgb: [u8; 3], a: f32) {
 
 fn draw_cursor(buf: &mut [u8], w: usize, h: usize, x: f32, y: f32) {
     // Classic arrow, in logical points, tip at the origin.
-    const ARROW: [(f32, f32); 7] = [(0.0, 0.0), (0.0, 17.0), (4.2, 13.2), (7.2, 19.8), (10.0, 18.6), (7.1, 12.2), (12.4, 12.2)];
+    const ARROW: [(f32, f32); 7] = [
+        (0.0, 0.0),
+        (0.0, 17.0),
+        (4.2, 13.2),
+        (7.2, 19.8),
+        (10.0, 18.6),
+        (7.1, 12.2),
+        (12.4, 12.2),
+    ];
     let s = PPP * 1.15;
-    let pts: Vec<(f32, f32)> = ARROW.iter().map(|(px, py)| (x + px * s, y + py * s)).collect();
+    let pts: Vec<(f32, f32)> = ARROW
+        .iter()
+        .map(|(px, py)| (x + px * s, y + py * s))
+        .collect();
     let inside = |qx: f32, qy: f32| {
         let mut c = false;
         let mut j = pts.len() - 1;
@@ -233,7 +298,11 @@ fn draw_cursor(buf: &mut [u8], w: usize, h: usize, x: f32, y: f32) {
                     let qx = px as f32 + (sx as f32 + 0.5) / 3.0;
                     let qy = py as f32 + (sy as f32 + 0.5) / 3.0;
                     if inside(qx, qy) {
-                        if edge(qx, qy) < 1.4 * PPP { black += 1.0 / 9.0 } else { white += 1.0 / 9.0 }
+                        if edge(qx, qy) < 1.4 * PPP {
+                            black += 1.0 / 9.0
+                        } else {
+                            white += 1.0 / 9.0
+                        }
                     } else if inside(qx - 1.5, qy - 2.5) {
                         shadow += 1.0 / 9.0;
                     }
@@ -241,9 +310,15 @@ fn draw_cursor(buf: &mut [u8], w: usize, h: usize, x: f32, y: f32) {
             }
             let i = (py as usize * w + px as usize) * 4;
             let px = &mut buf[i..i + 4];
-            if shadow > 0.0 { blend(px, [0, 0, 0], shadow * 0.35) }
-            if black > 0.0 { blend(px, [12, 12, 14], black) }
-            if white > 0.0 { blend(px, [255, 255, 255], white) }
+            if shadow > 0.0 {
+                blend(px, [0, 0, 0], shadow * 0.35)
+            }
+            if black > 0.0 {
+                blend(px, [12, 12, 14], black)
+            }
+            if white > 0.0 {
+                blend(px, [255, 255, 255], white)
+            }
         }
     }
 }
@@ -269,7 +344,10 @@ fn draw_ripple(buf: &mut [u8], w: usize, h: usize, x: f32, y: f32, age: usize) {
 }
 
 fn root() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().to_owned()
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .to_owned()
 }
 
 fn dump(app: &App) {
@@ -281,7 +359,11 @@ fn dump(app: &App) {
 fn record_walkthrough() {
     let root = root();
     let upstream = Server::spawn(&root, "test-results/walkthrough/server.ts", &[]);
-    let token = format!("{}{}", uuid::Uuid::new_v4().simple(), uuid::Uuid::new_v4().simple());
+    let token = format!(
+        "{}{}",
+        uuid::Uuid::new_v4().simple(),
+        uuid::Uuid::new_v4().simple()
+    );
     let proxy = Server::spawn(
         &root,
         "scripts/console-server.ts",
@@ -294,7 +376,10 @@ fn record_walkthrough() {
             ("RAT_THINGS_CONSOLE_LAUNCHER", "1"),
         ],
     );
-    let client = Client::builder().timeout(Duration::from_secs(10)).build().unwrap();
+    let client = Client::builder()
+        .timeout(Duration::from_secs(10))
+        .build()
+        .unwrap();
     let advance = |mode: &str| {
         client
             .post(format!("{}/__test/advance", upstream.url))
@@ -315,9 +400,18 @@ fn record_walkthrough() {
     {
         let mut app = app_for();
         for (name, task) in [
-            ("Audit IAM policies for least privilege", "Audit the worker IAM policies."),
-            ("Weekly dependency upgrades", "Upgrade dependencies and run the checks."),
-            ("Triage checkout error spike", "Investigate the checkout 500s."),
+            (
+                "Audit IAM policies for least privilege",
+                "Audit the worker IAM policies.",
+            ),
+            (
+                "Weekly dependency upgrades",
+                "Upgrade dependencies and run the checks.",
+            ),
+            (
+                "Triage checkout error spike",
+                "Investigate the checkout 500s.",
+            ),
             ("Draft Q4 launch notes", "Draft the Q4 launch notes."),
         ] {
             click(&mut app, "New session");
@@ -325,7 +419,9 @@ fn record_walkthrough() {
             fill(&mut app, "Name", name);
             fill(&mut app, "Task", task);
             click(&mut app, "Create");
-            until(&mut app, "session created", |app| app.query_by_label("Cancel").is_none());
+            until(&mut app, "session created", |app| {
+                app.query_by_label("Cancel").is_none()
+            });
         }
         advance("complete");
         tick(&mut app);
@@ -365,7 +461,9 @@ fn record_walkthrough() {
     r.choose(&mut app, "Model", "gpt-6-astra");
     r.hold(&mut app, 0.6);
     r.button(&mut app, "Create");
-    until(&mut app, "agent saved", |app| app.query_by_label("Cancel").is_none());
+    until(&mut app, "agent saved", |app| {
+        app.query_by_label("Cancel").is_none()
+    });
     r.hold(&mut app, 1.4);
 
     r.mark("templates");
@@ -374,10 +472,17 @@ fn record_walkthrough() {
     r.button(&mut app, "New environment template");
     r.hold(&mut app, 0.5);
     r.type_into(&mut app, "Name", "Node 22 release checks", 2);
-    r.type_into(&mut app, "npm packages", "typescript, vitest, @playwright/test", 3);
+    r.type_into(
+        &mut app,
+        "npm packages",
+        "typescript, vitest, @playwright/test",
+        3,
+    );
     r.hold(&mut app, 0.6);
     r.button(&mut app, "Create");
-    until(&mut app, "template saved", |app| app.query_by_label("Cancel").is_none());
+    until(&mut app, "template saved", |app| {
+        app.query_by_label("Cancel").is_none()
+    });
     r.hold(&mut app, 1.4);
 
     r.mark("vaults");
@@ -386,15 +491,29 @@ fn record_walkthrough() {
     r.button(&mut app, "New vault");
     r.type_into(&mut app, "Name", "Release tooling", 2);
     r.button(&mut app, "Create");
-    until(&mut app, "vault saved", |app| app.query_by_label("Cancel").is_none());
+    until(&mut app, "vault saved", |app| {
+        app.query_by_label("Cancel").is_none()
+    });
     r.hold(&mut app, 0.6);
     r.button(&mut app, "Add credential");
     r.type_into(&mut app, "Name", "GitHub MCP", 2);
-    r.type_into(&mut app, "Server URL", "https://api.githubcopilot.com/mcp/", 3);
-    r.type_into(&mut app, "Secret value", "ghp_walkthroughDemoTokenNotReal0000", 3);
+    r.type_into(
+        &mut app,
+        "Server URL",
+        "https://api.githubcopilot.com/mcp/",
+        3,
+    );
+    r.type_into(
+        &mut app,
+        "Secret value",
+        "ghp_walkthroughDemoTokenNotReal0000",
+        3,
+    );
     r.hold(&mut app, 0.6);
     r.button(&mut app, "Create");
-    until(&mut app, "credential saved", |app| app.query_by_label("Cancel").is_none());
+    until(&mut app, "credential saved", |app| {
+        app.query_by_label("Cancel").is_none()
+    });
     r.hold(&mut app, 1.4);
 
     r.mark("session");
@@ -415,12 +534,19 @@ fn record_walkthrough() {
     r.click(&mut app, None, "Session options");
     r.type_into(&mut app, "Name", "v2.4 release review", 2);
     r.button(&mut app, "Create");
-    until(&mut app, "session started", |app| app.query_by_label("Cancel").is_none());
+    until(&mut app, "session started", |app| {
+        app.query_by_label("Cancel").is_none()
+    });
     contains(&mut app, "Turn in progress");
     r.hold(&mut app, 1.5);
 
     r.mark("steer");
-    r.type_into(&mut app, "Message", "Also double-check the us-west-2 worker permissions.", 3);
+    r.type_into(
+        &mut app,
+        "Message",
+        "Also double-check the us-west-2 worker permissions.",
+        3,
+    );
     r.button(&mut app, "Steer");
     r.hold(&mut app, 1.6);
 

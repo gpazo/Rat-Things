@@ -3018,8 +3018,10 @@ mod runtime_tests {
 
     #[test]
     fn catalog_refresh_preserves_a_saved_model_and_reports_unavailable() {
-        let mut picker = ModelPicker::default();
-        picker.catalog = Some(catalog(&["new-default"], "new-default"));
+        let mut picker = ModelPicker {
+            catalog: Some(catalog(&["new-default"], "new-default")),
+            ..Default::default()
+        };
         let mut value = json!({"agent":{"model":"retired"}});
         draw_model(&mut picker, &mut value);
         assert_eq!(value["agent"]["model"], "retired");
