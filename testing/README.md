@@ -341,3 +341,9 @@ snapshot publication releases the source. Destroy the disposable deployment afte
 For an interactive two-theme fork workflow, including a no-cloud walkthrough and an
 explicit live mode, see [the Fork studio harness](fork-demo/README.md). Browser checks
 run with the website suite; live validation remains an opt-in operation.
+
+The native image parity gate also runs `tests/pi`. It exercises the packaged
+non-root Pi child and the managed execution broker without model credentials.
+The LocalStack entrypoint runs all of `tests/localstack`, including native Pi
+S3/DynamoDB commit acknowledgement and ownership fencing tests. CI runs this
+entrypoint explicitly; neither suite provisions live AWS resources.

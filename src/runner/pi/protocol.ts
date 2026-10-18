@@ -46,7 +46,6 @@ export async function activeTurn(tx: Tx, conversationId: ConversationId): Promis
   return json(link);
 }
 
-/** Version-pinned admission, using Pi's exported task and documents in one transaction. */
 export async function admitPiInput(tx: Tx, conversationId: ConversationId, requestId: string, content: UserMessage['content'], now: number, whenBusy: 'reject' | 'followUp' = 'reject', fresh = false): Promise<number> {
   const previous = fresh ? undefined : await tx.submissionByRequest(conversationId, requestId);
   if (previous) return previous.id;

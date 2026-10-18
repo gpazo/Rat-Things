@@ -56,7 +56,7 @@ export function validateRuntimeAgent(pin: RuntimePin, agent: AgentSession['agent
   if (agent.service_tier !== 'auto') invalid('Pi supports only the auto service tier', 'agent.service_tier');
   if (agent.text.verbosity !== 'medium') invalid('Pi supports only medium verbosity', 'agent.text.verbosity');
   if (agent.text.format.type !== 'text') invalid('Pi does not support JSON-schema output', 'agent.text.format');
-  const names = new Set(['spawn_agent', 'send_input', 'wait_agent', 'close_agent', ...(environment?.type === 'openai_hosted' ? ['exec_command', 'read_file', 'write_file', 'list_files'] : [])]);
+  const names = new Set([...(agent.multi_agent.enabled ? ['spawn_agent', 'send_input', 'wait_agent', 'close_agent'] : []), ...(environment?.type === 'openai_hosted' ? ['exec_command', 'read_file', 'write_file', 'list_files'] : [])]);
   for (const tool of agent.tools) {
     if (tool.type === 'function') {
       if (!/^[A-Za-z0-9_-]{1,64}$/.test(tool.name) || names.has(tool.name) || tool.name.startsWith('rat_mcp_')) invalid('Pi function names must be unique Bedrock tool identifiers and must not use reserved tool names', 'agent.tools.name');

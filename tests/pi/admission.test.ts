@@ -44,7 +44,7 @@ describe('Pi admission and immutable runtime', () => {
   it('rejects unsupported input, tool identifiers and unavailable persistent managed storage before preparation', async () => {
     const f = await fixture(); f.execution.prepare = vi.fn(f.execution.prepare);
     await expect(f.sessions.create('operator', { ...f.input, input: [{ role: 'user', content: [{ type: 'input_image', image_url: 'https://example.com/image.png' }] }] })).rejects.toThrow('images');
-    for (const name of ['bad.name', 'spawn_agent', 'rat_mcp_reserved', 'x'.repeat(65)]) await expect(f.sessions.create('operator', { ...f.input, agent: { model: descriptor.id, tools: [{ type: 'function', name, description: 'Fixture', parameters: { type: 'object', properties: {} } }] } })).rejects.toThrow('tool identifiers');
+    for (const name of ['bad.name', 'spawn_agent', 'rat_mcp_reserved', 'x'.repeat(65)]) await expect(f.sessions.create('operator', { ...f.input, agent: { model: descriptor.id, multi_agent: { enabled: true }, tools: [{ type: 'function', name, description: 'Fixture', parameters: { type: 'object', properties: {} } }] } })).rejects.toThrow('tool identifiers');
     await expect(f.sessions.create('operator', { ...f.input, environment: { type: 'openai_hosted' } })).rejects.toThrow('S3 Files');
     expect(f.execution.prepare).not.toHaveBeenCalled();
     const session = await f.sessions.create('operator', f.input);

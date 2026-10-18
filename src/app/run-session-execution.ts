@@ -41,6 +41,7 @@ export class RunSessionExecution implements SessionExecution {
     store: AgentsStore;
     placement?: SessionPlacementPolicy;
     sourceStopped?(source: import('../domain/workspace-checkpoint.js').WorkspaceExecution): Promise<boolean>;
+    abortPi?(ownerId: string, sessionId: string): Promise<{ hasLiveTasks: boolean }>;
     repairPi?(ownerId: string, sessionId: string): Promise<{ hasLiveTasks: boolean }>;
   }) { this.runtime = new SessionRuntimeStore(options.store); }
 
@@ -309,8 +310,21 @@ export class RunSessionExecution implements SessionExecution {
     if (decision.type === 'idle') return;
     if (decision.type === 'wait') throw new AgentsApiError(503, 'Waiting for verified Pi worker termination.', 'service_unavailable');
     if (decision.type === 'exhausted' && !runtime.value.attempt?.dueAt) {
-      await this.options.store.put({ ...runtime, revision: runtime.revision + 1, value: { ...runtime.value, recoveryExhausted: true,
-        ...(snapshot ? { snapshot: stoppedSessionRuntime(snapshot, now) } : {}) } }, runtime.revision);
+      if (!this.options.abortPi) throw new AgentsApiError(503, 'Pi recovery cleanup is unavailable.', 'service_unavailable');
+      await this.options.abortPi(ownerId, session.id);
+      const settled = await this.runtime.get(ownerId, session.id);
+      if (!settled || settled.value.closed || settled.value.runId !== runtime.value.runId) return;
+      const sessionState = await this.options.store.get<SessionState>(ownerId, 'sessions', session.id);
+      if (!sessionState || sessionState.value.closing) return;
+      const admitted = new Set(settled.value.snapshot?.turns.map(binding => binding.turn.id));
+      const unadmitted = new Set(sessionState.value.turns.filter(binding => !terminalTurn(binding.turn) && !admitted.has(binding.turn.id)).map(binding => binding.turn.id));
+      await this.options.store.commit([
+        { resource: { ...settled, revision: settled.revision + 1, value: { ...settled.value, recoveryExhausted: true } }, expectedRevision: settled.revision },
+        ...(unadmitted.size ? [{ resource: { ...sessionState, revision: sessionState.revision + 1, value: { ...sessionState.value,
+          turns: sessionState.value.turns.map(binding => unadmitted.has(binding.turn.id) ? { ...binding, turn: { ...binding.turn, status: 'failed' as const, completed_at: now, error: { code: 'server_error' as const, message: 'Pi worker recovery exhausted its replacement budget.' } } } : binding),
+          receipts: Object.fromEntries(Object.entries(sessionState.value.receipts).map(([key, receipt]) => [key, receipt.commands.some(command => command.type === 'start' && unadmitted.has(command.turnId)) ? { ...receipt, dispatched: true, failure: { code: 'recovery_exhausted', message: 'Pi worker recovery exhausted its replacement budget.' } } : receipt])),
+        } }, expectedRevision: sessionState.revision }] : []),
+      ]);
       return;
     }
     const turn = state.turns.find(binding => !terminalTurn(snapshot?.turns.find(saved => saved.turn.id === binding.turn.id)?.turn ?? binding.turn)) ?? state.turns.at(-1);
@@ -391,7 +405,7 @@ export class RunSessionExecution implements SessionExecution {
 function hash(value: string | Uint8Array): string { return createHash('sha256').update(value).digest('hex'); }
 
 function replayCommands(state: SessionState): SessionReplayCommand[] {
-  return Object.values(state.receipts).flatMap(receipt => receipt.commands.map((command): SessionReplayCommand => {
+  return Object.values(state.receipts).flatMap(receipt => receipt.failure ? [] : receipt.commands.map((command): SessionReplayCommand => {
     if (command.type === 'start') {
       const binding = state.turns.find(entry => entry.turn.id === command.turnId);
       if (!binding) throw new Error('Accepted Turn is missing');

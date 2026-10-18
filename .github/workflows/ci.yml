@@ -49,6 +49,8 @@ jobs:
           key: ${{ steps.codex-runtime.outputs.cache-primary-key }}
       - run: npm run check
       - run: npm run test:infra
+      - name: Verify durable storage with LocalStack
+        run: npm run test:e2e:localstack
       - run: npm run test:e2e:relay-image
       - run: npm run test:e2e:microvm-image
       - run: npm run test:e2e:native-image

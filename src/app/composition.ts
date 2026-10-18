@@ -161,7 +161,7 @@ export function getAgentsApiServices() {
       agentsSessionService ??= new SessionService({
         store, agents: this.agents, piCatalog, piManagedStorage: process.env.SESSION_CHECKPOINTS_ENABLED === 'true' && process.env.S3_FILES_ENABLED === 'true',
         execution: new RunSessionExecution({
-          store, repairPi: piProjectionRepair(store),
+          store, repairPi: piProjectionRepair(store), abortPi: piProjectionRepair(store, 'abort'),
           sourceStopped: workspaceSourceStopped(id => new DynamoRunStore(base.clients.dynamodb, requiredEnv('RUNS_TABLE_NAME')).get(id), requiredEnv('AWS_REGION')),
           placement: sessionPlacementFromEnv(process.env),
           ...(process.env.SESSION_CHECKPOINTS_ENABLED === 'true' ? { handoffs: new WorkspaceHandoffService({ store, enabled: true }) } : {}),

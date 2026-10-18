@@ -24,15 +24,16 @@ async function fixture() {
   await runtime.publish('owner', session.id, run.runId, { ...initialSessionRuntime(session.id, session.agent.id, 'root'), turns: [{ threadId: 'root', nativeTurnId: 'native', turn, items: [] }] });
   const submit = vi.fn(async (_owner: string, _request: unknown, options: { idempotencyKey?: string } = {}) => { const created = { ...run, runId: options.idempotencyKey!, status: 'queued' as const }; runs.set(created.runId, created); return created; });
   const stopped = vi.fn(async () => true);
+  const abort = vi.fn(async () => ({ hasLiveTasks: false }));
   const repair = vi.fn(async () => ({ hasLiveTasks: true }));
-  const execution = new RunSessionExecution({ store, sourceStopped: stopped, repairPi: repair,
+  const execution = new RunSessionExecution({ store, sourceStopped: stopped, repairPi: repair, abortPi: abort,
     runs: { get: async (_owner, id) => { const value = runs.get(id); if (!value) throw new NotFoundError('missing'); return value; }, idFor: (_owner, key) => key, cancel: async () => run, submit },
     interaction: { events: async () => ({ runId: run.runId, active: true, ready: true, oldestSequence: 0, nextSequence: 0, events: [], pendingRequests: [] }), steer: async () => {}, interrupt: async () => {}, respond: async () => {} },
     artifacts: { getJson: async () => { throw new Error('Unexpected launch read'); }, putJson: async key => ({ bucket: 'private', key, sha256: 'fixture' }), getBytes: async () => new Uint8Array(), getStream: async () => { throw new Error('Unexpected stream'); } },
     environments: { prepare: async () => ({ type: 'none' }), state: async () => { throw new Error('Unexpected state'); }, retire: async () => {}, launchReference: async () => { throw new Error('Unexpected credential'); }, managedLaunch: async () => ({}), attachManaged: async () => {} },
     vaults: { requireVaults: async () => {} }, tools: { prepare: async () => {}, launch: async () => [], close: async () => {} },
   });
-  return { store, session, turn, state, run, runs, runtime, submit, stopped, repair, execution };
+  return { store, session, turn, state, run, runs, runtime, submit, stopped, repair, abort, execution };
 }
 afterEach(() => vi.useRealTimers());
 describe('Pi worker attempt recovery', () => {
@@ -76,6 +77,18 @@ describe('Pi worker attempt recovery', () => {
     await expect(f.execution.steer('owner', f.session, f.turn.id, [], 'steer')).rejects.toMatchObject({ status: 503 });
     await expect(f.execution.cancel('owner', f.session, f.turn.id)).rejects.toMatchObject({ status: 503 });
     await expect(f.execution.toolResult('owner', f.session, { type: 'agent.session.input.tool_result', turn_id: f.turn.id, call_id: 'call', success: true, output: 'result' })).rejects.toMatchObject({ status: 503 });
+  });
+  it('settles exhaustion once and fails accepted input that never reached native admission', async () => {
+    vi.useFakeTimers(); vi.setSystemTime(1_000_000);
+    const f = await fixture(); const runtime = (await f.runtime.get('owner', f.session.id))!;
+    await f.store.put({ ...runtime, revision: runtime.revision + 1, value: { ...runtime.value, snapshot: initialSessionRuntime(f.session.id, f.session.agent.id, 'root'), attempt: { ...runtime.value.attempt!, failures: [900, 950, 999] } } }, runtime.revision);
+    await f.execution.reconcile('owner', f.session);
+    expect(f.abort).toHaveBeenCalledTimes(1);
+    expect((await f.runtime.get('owner', f.session.id))?.value.recoveryExhausted).toBe(true);
+    const state = (await f.store.get<SessionState>('owner', 'sessions', f.session.id))!.value;
+    expect(state.turns[0]?.turn).toMatchObject({ status: 'failed', error: { code: 'server_error' } });
+    expect(state.receipts.initial?.failure?.code).toBe('recovery_exhausted');
+    await f.execution.reconcile('owner', f.session); expect(f.abort).toHaveBeenCalledTimes(1);
   });
   it('clears an exhausted recovery budget for a legitimate new Turn claim', async () => {
     const f = await fixture(); const runtime = (await f.runtime.get('owner', f.session.id))!;

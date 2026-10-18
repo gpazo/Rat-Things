@@ -3,9 +3,10 @@ import type { SessionState } from '../core/session-ports.js';
 import { SessionRuntimeStore } from '../core/session-runtime-store.js';
 import { nativeLease } from '../core/session-native-store.js';
 import { openPiStorage } from '../runner/pi/storage.js';
+import { abortPiRecovery } from '../runner/pi/engine.js';
 import { projectPiStorage } from '../runner/pi/projection.js';
 
-export function piProjectionRepair(store: AgentsStore) {
+export function piProjectionRepair(store: AgentsStore, mode: 'repair' | 'abort' = 'repair') {
   return async (ownerId: string, sessionId: string): Promise<{ hasLiveTasks: boolean }> => {
     const state = (await store.get<SessionState>(ownerId, 'sessions', sessionId))?.value;
     const runtimes = new SessionRuntimeStore(store);
@@ -15,7 +16,7 @@ export function piProjectionRepair(store: AgentsStore) {
     const image = await lease.load();
     const storage = await openPiStorage({ ...lease, load: async () => image });
     const nativeSeq = image.head?.seq ?? 0;
-    const { snapshot, hasLiveTasks } = await projectPiStorage(storage, { sessionId, turnId: state.turns.at(-1)?.turn.id ?? 'bootstrap',
+    const { snapshot, hasLiveTasks } = await (mode === 'abort' ? abortPiRecovery : projectPiStorage)(storage, { sessionId, turnId: state.turns.at(-1)?.turn.id ?? 'bootstrap',
       runtime: state.runtime, agent: state.session.agent, environment: state.session.environment, input: [] }, nativeSeq);
     if ((runtime.value.projectionSeq ?? -1) < nativeSeq) {
       await runtimes.publishNative(ownerId, sessionId, runtime.value.runId, nativeSeq, { ...snapshot,
