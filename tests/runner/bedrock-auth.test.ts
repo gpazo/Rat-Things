@@ -5,7 +5,7 @@ const getTokenProvider = vi.hoisted(() => vi.fn(() => tokenProvider));
 
 vi.mock('@aws/bedrock-token-generator', () => ({ getTokenProvider }));
 
-import { loadCodexBedrockToken, tokenTtlSeconds } from '../../src/runner/bedrock-auth.js';
+import { loadCodexBedrockToken, readPiBedrockToken, tokenTtlSeconds } from '../../src/runner/bedrock-auth.js';
 
 beforeEach(() => {
   getTokenProvider.mockClear();
@@ -56,4 +56,13 @@ describe('Codex Bedrock authentication', () => {
     expect(tokenTtlSeconds('50000')).toBe(43_200);
     expect(tokenTtlSeconds('not-a-number')).toBe(1_200);
   });
+});
+
+it('always mints Pi short-term credentials independently of the Codex long-term key', async () => {
+  vi.stubEnv('AWS_REGION', 'eu-west-1');
+  vi.stubEnv('BEDROCK_API_KEY_SECRET_ARN', 'codex-only');
+  tokenProvider.mockResolvedValue('short-term');
+  expect(await readPiBedrockToken()).toBe('short-term');
+  expect(getTokenProvider).toHaveBeenCalledWith({ region: 'eu-west-1', expiresInSeconds: 900 });
+  expect(process.env.AWS_BEARER_TOKEN_BEDROCK).toBeUndefined();
 });

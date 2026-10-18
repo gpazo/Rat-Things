@@ -20,14 +20,15 @@ export interface Schedule extends ScheduleConfiguration {
 export interface ScheduleState {
   schedule: Schedule;
   activeSessionId?: string;
-  occurrences: Record<string, { sessionId: string; configuration: ScheduleConfiguration } | { skipped: true }>;
+  occurrences: Record<string, { sessionId: string; configuration: ScheduleConfiguration; runtimePin?: import('./session-runtime.js').RuntimePin } | { skipped: true }>;
 }
 export interface ScheduleInvocation { ownerId: string; scheduleId: string; generation: number; scheduledAt: string }
 
 export function scheduleConfiguration(raw: unknown): ScheduleConfiguration {
   if (!isRecord(raw)) invalid('Schedule configuration must be an object');
-  const keys = ['name', 'expression', 'timezone', 'input', 'overlap', 'agentId', 'environment', 'vaultIds', 'destinations', 'connectionSetId'];
+  const keys = ['name', 'expression', 'timezone', 'input', 'overlap', 'agentId', 'environment', 'vaultIds', 'destinations', 'connectionSetId', 'runtime'];
   if (Object.keys(raw).some((key) => !keys.includes(key))) invalid('Unknown schedule field');
+  if (raw.runtime !== undefined && raw.runtime !== 'pi' && raw.runtime !== 'codex') invalid('runtime must be codex or pi');
   const name = text(raw.name, 'name', 128);
   const expression = text(raw.expression, 'expression', 256);
   if (!/^(?:rate|cron|at)\([^\r\n]+\)$/.test(expression)) invalid('expression must be an EventBridge rate, cron, or at expression');
@@ -39,7 +40,7 @@ export function scheduleConfiguration(raw: unknown): ScheduleConfiguration {
   const target = parseAgentsContract('SessionCreate', { agent_id: raw.agentId, environment: raw.environment, vault_ids: raw.vaultIds ?? [], input });
   if (!target.agent_id) invalid('agentId is required');
   if (raw.destinations !== undefined && (!Array.isArray(raw.destinations) || raw.destinations.some((entry) => !isRecord(entry) || !['source', 'teams', 'slack', 'none'].includes(String(entry.kind)) || Object.keys(entry).some((key) => key !== 'kind' && key !== 'route') || entry.route !== undefined && (typeof entry.route !== 'string' || entry.route.length > 512)))) invalid('Invalid destinations');
-  return { name, expression, ...(timezone ? { timezone } : {}), input, overlap, agentId: target.agent_id, environment: target.environment, vaultIds: target.vault_ids ?? [],
+  return { ...(raw.runtime ? { runtime: raw.runtime as 'pi' | 'codex' } : {}), name, expression, ...(timezone ? { timezone } : {}), input, overlap, agentId: target.agent_id, environment: target.environment, vaultIds: target.vault_ids ?? [],
     ...(raw.destinations !== undefined ? { destinations: structuredClone(raw.destinations) as NonNullable<ScheduleConfiguration['destinations']> } : {}),
     ...(raw.connectionSetId !== undefined ? { connectionSetId: text(raw.connectionSetId, 'connectionSetId', 256) } : {}),
   };

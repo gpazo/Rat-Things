@@ -74,6 +74,7 @@ export interface AgentsApiContracts {
   Session: AgentSession;
   SessionCreate: SessionCreateParams;
   SessionFork: { metadata?: SessionCreateParams['metadata']; vault_ids?: SessionCreateParams['vault_ids']; input?: SessionCreateParams['input']; environment?: { network?: Extract<SessionCreateParams['environment'], { type: 'openai_hosted' }>['network'] } };
+  SessionRuntime: { runtime: 'codex'; model: string } | { runtime: 'pi'; version: string; catalog_digest: string; model: string };
   SessionLineage: { forked_from: { session_id: string; turn_id: string | null; created_at: number } | null };
   SessionUpdate: SessionUpdateParams;
   SessionList: SessionListParams;

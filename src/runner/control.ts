@@ -99,7 +99,7 @@ export function createRunnerControlBridge(runId: string, admission = new Workspa
               if (typeof value.prompt !== 'string' || !value.prompt.trim()) {
                 throw new Error('steer prompt is required');
               }
-              await controller.steer(value.prompt, value.input === undefined ? undefined : parseAgentsContract('SessionEvents', { events: [{ type: 'agent.session.input.message', input: value.input }] }).events.flatMap((event) => event.type === 'agent.session.input.message' ? event.input : []), requiredRequestId(value.turnId));
+              await controller.steer(value.prompt, value.input === undefined ? undefined : parseAgentsContract('SessionEvents', { events: [{ type: 'agent.session.input.message', input: value.input }] }).events.flatMap((event) => event.type === 'agent.session.input.message' ? event.input : []), requiredRequestId(value.turnId), operationId);
               break;
             case 'interrupt':
               if (!controller) throw new Error('the Codex turn is not ready for interruption');
@@ -111,6 +111,7 @@ export function createRunnerControlBridge(runId: string, admission = new Workspa
               break;
             case 'respond': {
               const requestId = requiredRequestId(value.requestId);
+              if (controller?.respondSessionTool) { await controller.respondSessionTool(String(requestId), value.result); break; }
               const waiter = pending.get(requestId);
               if (!waiter) throw new Error(`server request ${requestId} is not pending`);
               waiter.resolve(value.result);

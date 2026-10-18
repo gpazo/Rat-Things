@@ -95,7 +95,7 @@ async function verifySdkRouteCoverage(routes) {
   const actual = new Set(routes.map(([method, path]) => `${method} ${normalizeRoute(path)}`));
   const missing = [...expected].filter((route) => !actual.has(route));
   // Documented operations not yet present in the pinned SDK remain explicit.
-  const documented = new Set(['GET /agents/sessions/{}/traces', 'POST /agents/sessions/{}/fork', 'GET /agents/sessions/{}/lineage']);
+  const documented = new Set(['GET /agents/sessions/{}/traces', 'POST /agents/sessions/{}/fork', 'GET /agents/sessions/{}/lineage', 'GET /agents/sessions/{}/runtime']);
   const extra = [...actual].filter((route) => !expected.has(route) && !documented.has(route));
   missing.push(...[...documented].filter(route => !actual.has(route)));
   if (!expected.size || actual.size !== routes.length || missing.length || extra.length) {

@@ -19,6 +19,7 @@ locals {
 
   lambda_common_environment = merge(local.pi_catalog_environment, {
     SESSION_CHECKPOINTS_ENABLED         = tostring(var.session_checkpoints_enabled)
+    S3_FILES_ENABLED                    = tostring(var.enable_s3_files)
     ALLOWED_REPOSITORY_HOSTS            = join(",", var.allowed_repository_hosts)
     ALLOWED_SANDBOX_MODES               = join(",", var.allowed_sandbox_modes)
     DEFAULT_SANDBOX_MODE                = var.default_sandbox_mode

@@ -3,7 +3,7 @@ import { amazonBedrockProvider } from '@earendil-works/pi-ai/providers/amazon-be
 import { createPiModels, piCatalog } from '../../src/runner/pi/provider.js';
 import { resolveRuntime } from '../../src/domain/session-runtime.js';
 
-const model = amazonBedrockProvider().getModels()[0]!;
+const model = amazonBedrockProvider().getModels().find(model => model.id === 'amazon.nova-micro-v1:0')!;
 const pin = resolveRuntime({ rat_things_runtime: 'pi' }, null, piCatalog([model.id], 'us-east-1'));
 if (pin.kind !== 'pi') throw new Error('Pi fixture');
 describe('Pi Bedrock provider boundary', () => {

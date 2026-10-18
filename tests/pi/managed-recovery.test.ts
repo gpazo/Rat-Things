@@ -1,0 +1,51 @@
+import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { expect, it, vi } from 'vitest';
+import { EnvironmentService } from '../../src/core/environment-service.js';
+import { EnvironmentTemplateService } from '../../src/core/environment-template-service.js';
+import { WorkspaceHandoffService } from '../../src/core/workspace-handoff-service.js';
+import { prepareHostedEnvironment } from '../../src/runner/hosted-environment.js';
+import { planCodexLaunch } from '../../src/runner/agent-planning.js';
+import { sessionAgent } from '../../src/core/session-planning.js';
+import { workspaceDigests } from '../../src/domain/workspace-checkpoint.js';
+import { resolveRuntime, type PiModelDescriptor } from '../../src/domain/session-runtime.js';
+import type { SessionLaunch } from '../../src/domain/session-execution.js';
+import { MemoryAgentsStore } from '../agents/fixtures.js';
+
+it('preserves a Pi workspace and setup identity only after verified termination, including a failed environment', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rat-pi-recovery-'));
+  try {
+    const store = new MemoryAgentsStore();
+    const stopped = vi.fn(async () => false);
+    const handoffs = new WorkspaceHandoffService({ store, enabled: true, sourceStopped: stopped });
+    const environments = new EnvironmentService({ store, handoffs, credentials: { create: async () => '', read: async () => ({ executor: '', harness: '' }), revoke: async () => {} }, templates: new EnvironmentTemplateService({ store }), managedFiles: async () => [] });
+    const environment = await environments.prepare('owner', 'session', { type: 'openai_hosted', network: { access: 'disabled' }, files: [{ type: 'inline', path: '/workspace/input.txt', data: Buffer.from('original').toString('base64') }] });
+    if (environment.type !== 'openai_hosted') throw new Error('Expected managed environment');
+    const descriptor: PiModelDescriptor = { id: 'fixture', name: 'Fixture', provider: 'amazon-bedrock', api: 'bedrock-converse-stream', region: 'us-east-1', input: ['text'], reasoning: [], contextWindow: 1000, maxTokens: 100 };
+    const runtime = resolveRuntime({ rat_things_runtime: 'pi' }, null, [descriptor]);
+    await store.put({ ownerId: 'owner', collection: 'sessions', id: 'session', revision: 1, createdAt: 1, value: { runtime } }, 0);
+    await environments.attachManaged('owner', environment.id, 'source');
+    await handoffs.bind('owner', environment.id, { runId: 'source', generation: 'generation' });
+    const workspace = join(root, 'workspace'); await mkdir(workspace);
+    const launch: SessionLaunch = { sessionId: 'session', turnId: 'turn', runtime, agent: sessionAgent({ model: 'fixture' }, 'agent', 1), environment, input: [], ...await environments.managedLaunch('owner', environment.id) };
+    const plan = planCodexLaunch({ version: '1', prompt: '' }, workspace, 1000, {});
+    const first = await prepareHostedEnvironment({ launch, workspace, plan, artifacts: { getBytes: async () => new Uint8Array() }, stateDirectory: join(root, 'host-one') });
+    await environments.managedReady('owner', environment.id, 'source', first.sandbox!, { sandboxId: first.sandbox!.id, ...workspaceDigests(launch) });
+    await writeFile(join(workspace, 'input.txt'), 'changed by tool'); await writeFile(join(workspace, 'tool-result.txt'), 'durable result');
+    await environments.managedStatus('owner', environment.id, 'source', 'failed');
+    await expect(environments.attachManaged('owner', environment.id, 'replacement')).rejects.toThrow('confirmed stopped');
+    const recoveredLaunch = { ...launch, ...await environments.managedLaunch('owner', environment.id) };
+    expect(recoveredLaunch.piWorkspace?.sandboxId).toBe(first.sandbox!.id);
+    stopped.mockResolvedValue(true);
+    await environments.attachManaged('owner', environment.id, 'replacement');
+    await handoffs.bind('owner', environment.id, { runId: 'replacement', generation: 'next' });
+    const reset = vi.fn(async () => {});
+    const recovered = await prepareHostedEnvironment({ launch: recoveredLaunch, workspace, plan, artifacts: { getBytes: async () => new Uint8Array() }, stateDirectory: join(root, 'host-two'), previouslyPrepared: true, afterWorkspaceReset: reset });
+    expect(recovered.sandbox).toEqual({ id: first.sandbox!.id, replaced: false });
+    expect(await readFile(join(workspace, 'input.txt'), 'utf8')).toBe('changed by tool');
+    expect(await readFile(join(workspace, 'tool-result.txt'), 'utf8')).toBe('durable result');
+    expect(reset).not.toHaveBeenCalled();
+    await expect(prepareHostedEnvironment({ launch: { ...recoveredLaunch, piWorkspace: { ...recoveredLaunch.piWorkspace!, setupDigest: 'changed' } }, workspace, plan, artifacts: { getBytes: async () => new Uint8Array() }, stateDirectory: join(root, 'invalid'), previouslyPrepared: true })).rejects.toThrow('incompatible');
+  } finally { await rm(root, { recursive: true, force: true }); }
+});

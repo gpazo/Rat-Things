@@ -364,5 +364,11 @@
     "/v1/agents/sessions/{session_id}/lineage",
     null,
     "SessionLineage"
+  ],
+  [
+    "GET",
+    "/v1/agents/sessions/{session_id}/runtime",
+    null,
+    "SessionRuntime"
   ]
 ]

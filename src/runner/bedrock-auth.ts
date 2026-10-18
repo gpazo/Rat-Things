@@ -26,6 +26,10 @@ export async function readCodexBedrockToken(credentials: SecretCredentialReader,
     })();
 }
 
+export async function readPiBedrockToken(): Promise<string> {
+  return getTokenProvider({ region: bedrockRegion(), expiresInSeconds: MIN_TOKEN_TTL_SECONDS })();
+}
+
 function bedrockRegion(): string {
   const region = process.env.AWS_REGION ?? process.env.AWS_DEFAULT_REGION;
   if (!region) throw new Error('AWS_REGION is required to generate a Bedrock token');

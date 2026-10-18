@@ -37,7 +37,7 @@ export class SessionIntegrationService {
     for (const [index, input] of current.value.inputs.entries()) {
       if (input.turnId) continue;
       const { target } = current.value;
-      if (index === 0) await this.options.sessions.create(ownerId, { agent_id: target.agentId, environment: target.environment, vault_ids: target.vaultIds ?? [], input: input.text }, id);
+      if (index === 0) await this.options.sessions.create(ownerId, { agent_id: target.agentId, environment: target.environment, vault_ids: target.vaultIds ?? [], input: input.text, ...(target.runtime ? { metadata: { rat_things_runtime: target.runtime } } : {}) }, id, target.runtimePin);
       else await this.options.sessions.events(ownerId, id, { events: [{ type: 'agent.session.input.message', input: [{ role: 'user', content: [{ type: 'input_text', text: input.text }] }] }] }, receiptKey(input.id));
       const session = await this.options.store.get<SessionState>(ownerId, 'sessions', id);
       const commands = session?.value.receipts[index === 0 ? 'initial' : integrationDigestString(receiptKey(input.id))]?.commands;

@@ -1,3 +1,5 @@
+import { CODEX_RUNTIME, assertRuntimeUnchanged, validateRuntimeInput, resolveRuntime, piModel, validateRuntimeAgent, type PiModelDescriptor } from '../domain/session-runtime.js';
+import { planRuntimeClosure } from './session-runtime-store.js';
 import { projectSessionTraces } from './session-trace-planning.js';
 import { createHash, randomUUID } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -15,12 +17,14 @@ import { planSessionFork, requireSessionMutable } from './session-fork-planning.
 import type { SessionFork } from '../domain/session-fork.js';
 
 export interface SessionServiceOptions {
+  piManagedStorage?: boolean;
   store: AgentsStore;
   agents: Pick<AgentService, 'retrieve'>;
   execution: SessionExecution;
   clock?: AgentsClock;
   ids?: AgentsIds;
   streamIntervalMs?: number;
+  piCatalog?: readonly PiModelDescriptor[];
 }
 
 /** Sessions own configuration and an outbox. Execution acknowledgements are separate writes. */
@@ -33,7 +37,7 @@ export class SessionService {
     this.ids = options.ids ?? { next: (prefix) => `${prefix}_${randomUUID().replaceAll('-', '')}` };
   }
 
-  public async create(ownerId: string, raw: unknown, integrationId?: string): Promise<AgentSession> {
+  public async create(ownerId: string, raw: unknown, integrationId?: string, runtimePin?: import('../domain/session-runtime.js').RuntimePin): Promise<AgentSession> {
     // Only trusted integration code supplies this identity; it is never an HTTP parameter.
     if (integrationId) {
       const previous = await this.options.store.get<SessionState>(ownerId, 'sessions', integrationId);
@@ -47,7 +51,12 @@ export class SessionService {
     let preparation = integrationId ? (await this.options.store.get<SessionPreparation>(ownerId, 'session_preparations', id))?.value : undefined;
     if (!preparation) {
       const saved = input.agent_id ? await this.options.agents.retrieve(ownerId, input.agent_id) : undefined;
-      preparation = planSessionPreparation(input, this.ids.next('agent'), this.clock.now(), saved, this.options.execution.placement?.(ownerId, input.agent_id ?? undefined) ?? 'microvm');
+      preparation = planSessionPreparation(input, this.ids.next('agent'), this.clock.now(), saved, this.options.execution.placement?.(ownerId, input.agent_id ?? undefined) ?? 'microvm', this.options.piCatalog);
+      if (runtimePin) {
+        assertRuntimeUnchanged(runtimePin, input.metadata);
+        validateRuntimeAgent(runtimePin, preparation.agent, input.environment);
+        preparation = { ...preparation, runtime: runtimePin };
+      }
       try {
         await this.options.store.put({ ownerId, id, collection: 'session_preparations', createdAt: preparation.now, revision: 1, value: preparation }, 0);
       } catch (error) {
@@ -61,15 +70,19 @@ export class SessionService {
     if (preparation.created) return (await this.required(ownerId, id)).value.session;
     requireActivePreparation(preparation, this.clock.now());
     const { agent, now } = preparation;
+    this.requireRuntimeAllowed(preparation.runtime ?? CODEX_RUNTIME, agent);
+    validateRuntimeAgent(preparation.runtime ?? CODEX_RUNTIME, agent, input.environment);
+    validateRuntimeInput(preparation.runtime ?? CODEX_RUNTIME, agent, messages);
+    if (preparation.runtime?.kind === 'pi' && input.environment.type === 'openai_hosted' && !this.options.piManagedStorage) invalid('Pi managed environments require S3 Files and Session checkpoints', 'environment');
     const vaultIds = [...new Set(input.vault_ids ?? [])];
     const tools = preparationTools(preparation, input);
-    const environment = await this.options.execution.prepare(ownerId, id, input.environment, agent, vaultIds, tools, Boolean(integrationId), preparation.placement ?? 'microvm');
+    const environment = await this.options.execution.prepare(ownerId, id, input.environment, agent, vaultIds, tools, Boolean(integrationId), preparation.placement ?? 'microvm', preparation.runtime?.kind ?? 'codex');
     const session: AgentSession = {
       id, object: 'agent.session', agent, created_at: now, last_active_at: now,
       environment, error: null, metadata: input.metadata ?? {}, status: 'idle',
       required_actions: [], usage: null, vault_ids: vaultIds,
     };
-    const empty: SessionState = { session, placement: preparation.placement ?? 'microvm', turns: [], receipts: {}, deletedArtifacts: [] };
+    const empty: SessionState = { session, runtime: preparation.runtime ?? CODEX_RUNTIME, placement: preparation.placement ?? 'microvm', turns: [], receipts: {}, deletedArtifacts: [] };
     const events: AgentSessionInputParam[] = messages.length ? [{ type: 'agent.session.input.message', input: messages }] : [];
     const state = events.length ? this.plan(empty, { session, turns: [] }, events, 'initial') : empty;
     try {
@@ -102,6 +115,24 @@ export class SessionService {
     return { ...page, first_id: page.data[0]?.id ?? null, last_id: page.data.at(-1)?.id ?? null };
   }
 
+  public async runtimePinFor(ownerId: string, agentId: string, runtime?: import('../domain/session-runtime.js').SessionRuntime) {
+    const saved = await this.options.agents.retrieve(ownerId, agentId);
+    return resolveRuntime(runtime ? { rat_things_runtime: runtime } : undefined, saved.metadata, this.options.piCatalog ?? []);
+  }
+
+  public async runtime(ownerId: string, id: string) {
+    const { value } = await this.required(ownerId, id);
+    const pin = value.runtime ?? CODEX_RUNTIME;
+    return pin.kind === 'codex' ? { runtime: 'codex' as const, model: value.session.agent.model }
+      : { runtime: 'pi' as const, version: pin.engine, catalog_digest: pin.catalogDigest, model: value.session.agent.model };
+  }
+
+  private requireRuntimeAllowed(runtime: import('../domain/session-runtime.js').RuntimePin, agent: AgentSession['agent']): void {
+    if (runtime.kind !== 'pi') return;
+    const model = piModel(runtime, agent.model);
+    if (!this.options.piCatalog?.some(current => canonicalJson(current) === canonicalJson(model))) invalid('This Pi model has been revoked by the deployment', 'agent.model');
+  }
+
   public async lineage(ownerId: string, id: string) {
     const fork = (await this.required(ownerId, id)).value.fork;
     return { forked_from: fork ? { session_id: fork.sourceSessionId, turn_id: fork.checkpoint.lastRootTurnId, created_at: fork.createdAt } : null };
@@ -112,6 +143,9 @@ export class SessionService {
     requireSessionMutable(resource.value, this.clock.now());
     const observation = await this.observe(ownerId, resource.value);
     const input = planSessionFork(observation.session, raw);
+    const runtime = resource.value.runtime ?? CODEX_RUNTIME;
+    assertRuntimeUnchanged(runtime, input.metadata);
+    this.requireRuntimeAllowed(runtime, observation.session.agent);
     if (!observation.turns.some(entry => entry.turn.subagent_id === null && terminalTurn(entry.turn))) invalid('Complete a root Turn before forking this Session', 'session_id');
     if (!this.options.execution.prepareFork) throw new AgentsApiError(503, 'Session forks are not configured.', 'fork_unavailable');
     const now = this.clock.now();
@@ -123,7 +157,7 @@ export class SessionService {
     let commitAttempted = false;
     try {
       // Credentials are prepared against a durable child identity before any secret creation.
-      const preparation: SessionPreparation = { agent: observation.session.agent, placement, now, deadline: now + 300,
+      const preparation: SessionPreparation = { runtime, agent: observation.session.agent, placement, now, deadline: now + 300,
         requestDigest: hash(canonicalJson([sourceId, input])), inheritedTools: [] };
       await this.options.store.put({ ownerId, id, collection: 'session_preparations', createdAt: now, revision: 1, value: preparation }, 0);
       const prepared = await this.options.execution.prepareFork(ownerId, id, observation.session, input.network, input.vaultIds, placement);
@@ -132,7 +166,7 @@ export class SessionService {
       if (fork.checkpoint.lastRootTurnId !== (latest?.id ?? null)) throw new AgentsApiError(409, 'Source changed during checkpoint preparation.', 'session_busy');
       const session: AgentSession = { id, object: 'agent.session', agent: observation.session.agent, created_at: now, last_active_at: now,
         environment: prepared.environment, error: null, metadata: input.metadata, status: 'idle', required_actions: [], usage: null, vault_ids: input.vaultIds };
-      const empty: SessionState = { session, placement, fork, turns: [], receipts: {}, deletedArtifacts: [] };
+      const empty: SessionState = { session, runtime, placement, fork, turns: [], receipts: {}, deletedArtifacts: [] };
       const messages = initialMessages(input.input);
       const state = messages.length ? this.plan(empty, { session, turns: [] }, [{ type: 'agent.session.input.message', input: messages }], 'initial') : empty;
       const current = await this.required(ownerId, sourceId);
@@ -241,9 +275,11 @@ export class SessionService {
     const observation = await this.observe(ownerId, resource.value);
     const session = {
       ...observation.session,
-      agent: updateSessionAgent(resource.value.session.agent, input.agent),
+      agent: updateSessionAgent(resource.value.session.agent, input.agent, resource.value.runtime ?? CODEX_RUNTIME),
       metadata: input.metadata === undefined ? resource.value.session.metadata : input.metadata ?? {},
     };
+    assertRuntimeUnchanged(resource.value.runtime ?? CODEX_RUNTIME, input.metadata);
+    this.requireRuntimeAllowed(resource.value.runtime ?? CODEX_RUNTIME, session.agent);
     await this.replace(resource, { ...resource.value, session });
     return session;
   }
@@ -268,7 +304,11 @@ export class SessionService {
     let resource = await this.required(ownerId, id);
     if (!resource.value.closing) {
       requireSessionMutable(resource.value, this.clock.now());
-      resource = await this.replace(resource, { ...resource.value, closing: true });
+      const runtime = await this.options.store.get<import('./session-runtime-store.js').StoredSessionRuntime>(ownerId, 'session_runtime', id);
+      const closing = { ...resource, revision: resource.revision + 1, value: { ...resource.value, closing: true } };
+      await this.options.store.commit([{ resource: closing, expectedRevision: resource.revision },
+        { resource: planRuntimeClosure(ownerId, id, this.clock.now(), runtime), expectedRevision: runtime?.revision ?? 0 }]);
+      resource = closing;
     }
     // Closing the whole harness also revokes queued input. It must remain possible
     // when a Turn never reached the worker or the observation channel is unavailable.
@@ -337,6 +377,7 @@ export class SessionService {
   public async dispatch(ownerId: string, id: string): Promise<void> {
     let resource = await this.options.store.get<SessionState>(ownerId, 'sessions', id);
     if (!resource || resource.value.closing) return;
+    this.requireRuntimeAllowed(resource.value.runtime ?? CODEX_RUNTIME, resource.value.session.agent);
     await this.options.execution.initialize?.(ownerId, resource.value.session, resource.value.placement ?? 'microvm');
     for (const [key, receipt] of Object.entries(resource.value.receipts)) {
       if (receipt.dispatched) continue;
@@ -346,6 +387,7 @@ export class SessionService {
         try { switch (command.type) {
           case 'start': {
             const binding = resource.value.turns.find(({ turn }) => turn.id === command.turnId) ?? resourceNotFound();
+            this.requireRuntimeAllowed(resource.value.runtime ?? CODEX_RUNTIME, binding.modelSettings ? { ...session.agent, ...binding.modelSettings, reasoning: { ...session.agent.reasoning, ...binding.modelSettings.reasoning } } : session.agent);
             if (binding.cancelRequested) {
               await this.options.execution.cancel(ownerId, session, command.turnId);
               const observation = await this.options.execution.observe(ownerId, session, binding.turn);
@@ -448,6 +490,8 @@ export class SessionService {
   public async completeReadyTurns(ownerId: string, id: string): Promise<void> {
     const resource = await this.options.store.get<SessionState>(ownerId, 'sessions', id);
     if (!resource) return;
+    for (const binding of resource.value.turns.filter(binding => !terminalTurn(binding.turn))) this.requireRuntimeAllowed(resource.value.runtime ?? CODEX_RUNTIME, binding.modelSettings ? { ...resource.value.session.agent, ...binding.modelSettings, reasoning: { ...resource.value.session.agent.reasoning, ...binding.modelSettings.reasoning } } : resource.value.session.agent);
+    if (!resource.value.closing) await this.options.execution.reconcile?.(ownerId, resource.value.session);
     for (const binding of resource.value.turns) await this.completeTurn(ownerId, id, binding.turn.id);
   }
 
@@ -531,6 +575,13 @@ export class SessionService {
       operationIds: events.map(() => this.ids.next('event')),
       ...(itemAnchors ? { itemAnchors } : {}),
     }, this.clock.now());
+    for (const command of plan.commands) {
+      const binding = plan.state.turns.find(entry => entry.turn.id === command.turnId);
+      const agent = binding?.modelSettings ? { ...state.session.agent, ...binding.modelSettings, reasoning: { ...state.session.agent.reasoning, ...binding.modelSettings.reasoning } } : state.session.agent;
+      this.requireRuntimeAllowed(state.runtime ?? CODEX_RUNTIME, agent);
+      if (command.type === 'start' || command.type === 'steer') validateRuntimeInput(state.runtime ?? CODEX_RUNTIME, agent, command.input);
+      if (command.type === 'tool_result' && command.event.success && Array.isArray(command.event.output)) validateRuntimeInput(state.runtime ?? CODEX_RUNTIME, agent, [{ role: 'user', content: command.event.output }]);
+    }
     return { ...plan.state, receipts: {
       ...state.receipts, [key]: { digest: hash(canonicalJson(events)), commands: plan.commands, dispatched: false },
     } };
@@ -540,7 +591,7 @@ export class SessionService {
     const observations = await Promise.all(state.turns.map(({ turn }) => terminalTurn(turn) ? { turn, requiredActions: [] } : this.options.execution.observe(ownerId, state.session, turn)));
     const subagents = await this.subagentSnapshots(ownerId, state);
     const environment = await this.options.execution.environment?.(ownerId, state.session);
-    const current = environment?.status === 'failed' ? { ...state, session: { ...state.session, status: 'failed' as const, error: 'The execution environment is unavailable. Create a new session.' } } : state;
+    const current = state.runtime?.kind !== 'pi' && environment?.status === 'failed' ? { ...state, session: { ...state.session, status: 'failed' as const, error: 'The execution environment is unavailable. Create a new session.' } } : state;
     return observeSession(current, [...observations, ...subagents.flatMap((entry) => entry.turns.map((turn) => ({ turn, requiredActions: (entry.requiredActions ?? []).filter((action) => action.type === 'function_call' && action.turn_id === turn.id) })))]);
   }
 

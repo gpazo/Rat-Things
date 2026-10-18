@@ -19,7 +19,7 @@
     "test": "vitest run --pool=forks --maxWorkers=1 --isolate",
     "test:watch": "vitest",
     "codex:build": "node scripts/build-codex-runtime.mjs",
-    "test:agents:parity": "CODEX_REQUIRE_PARITY=true vitest run tests/agents --no-file-parallelism",
+    "test:agents:parity": "CODEX_REQUIRE_PARITY=true vitest run tests/agents tests/pi --no-file-parallelism",
     "localstack:up": "./testing/bootstrap.sh",
     "localstack:status": "./testing/bootstrap.sh --status",
     "localstack:down": "./testing/bootstrap.sh --down",
@@ -97,6 +97,7 @@
     "archiver": "8.0.0",
     "fflate": "0.8.2",
     "openai": "7.23.0",
+    "typebox": "1.3.27",
     "undici": "8.10.2",
     "ws": "8.21.3",
     "yaml": "2.8.1"

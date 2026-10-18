@@ -46,6 +46,10 @@ function validModelId(value: unknown): value is string {
 
 export const PI_CAPABILITIES = {
   environments: ['none', 'openai_hosted'],
+  managed_environment_requires: ['s3_files', 'session_checkpoints'],
+  image_sources: ['base64_data_url'],
+  hosted_skills: false,
+  hosted_plugins: false,
   tools: ['function', 'mcp'],
   multi_agent: true,
   programmatic_tool_calling: false,

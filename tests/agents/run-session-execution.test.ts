@@ -73,7 +73,7 @@ describe('persistent harness input admission', () => {
     expect(f.start).not.toHaveBeenCalled();
     expect(f.submit).not.toHaveBeenCalled();
     expect(f.cancel).not.toHaveBeenCalled();
-    expect((await f.runtime.get('alice', f.session.id))?.value).toEqual({ closed: true, runId: null });
+    expect((await f.runtime.get('alice', f.session.id))?.value).toEqual({ closed: true, runId: null, epoch: 1 });
   });
   it('rejects a first harness claim when deletion wins during launch preparation', async () => {
     const f = await fixture();
@@ -109,7 +109,7 @@ describe('persistent harness input admission', () => {
     });
     await f.execution.close('alice', f.session);
     expect(f.cancel).toHaveBeenCalledExactlyOnceWith('alice', f.run.runId);
-    expect((await f.runtime.get('alice', f.session.id))?.value).toEqual({ closed: true, runId: f.run.runId });
+    expect((await f.runtime.get('alice', f.session.id))?.value).toEqual({ closed: true, runId: f.run.runId, epoch: 1 });
   });
   it('sends only API message fields when continuing a worker with saved input', async () => {
     const f = await fixture();

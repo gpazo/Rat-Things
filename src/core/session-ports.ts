@@ -45,6 +45,7 @@ export interface SessionTurnObservation {
 
 /** All execution and environment effects live behind this port. */
 export interface SessionExecution {
+  reconcile?(ownerId: string, session: AgentSession): Promise<void>;
   prepareFork?(ownerId: string, sessionId: string, source: AgentSession, network: Extract<Environment, { type: 'openai_hosted' }>['network'], vaultIds: string[], placement: ExecutionBackend): Promise<{ environment: Environment; fork: Omit<import('../domain/session-fork.js').SessionFork, 'history' | 'createdAt'> }>;
   releaseFork?(ownerId: string, fork: import('../domain/session-fork.js').SessionFork): Promise<void>;
   placement?(ownerId: string, savedAgentId?: string): ExecutionBackend;
@@ -54,7 +55,7 @@ export interface SessionExecution {
   environment?(ownerId: string, session: AgentSession): Promise<AgentSessionEnvironmentState | undefined>;
   close?(ownerId: string, session: AgentSession): Promise<void>;
   checkInputConnection?(ownerId: string, session: AgentSession, turn: Turn): Promise<void>;
-  prepare(ownerId: string, sessionId: string, environment: EnvironmentParam, agent: AgentSession['agent'], vaultIds: string[], tools?: AgentToolParam[], resumePreparation?: boolean, placement?: ExecutionBackend): Promise<Environment>;
+  prepare(ownerId: string, sessionId: string, environment: EnvironmentParam, agent: AgentSession['agent'], vaultIds: string[], tools?: AgentToolParam[], resumePreparation?: boolean, placement?: ExecutionBackend, runtime?: import('../domain/session-runtime.js').SessionRuntime): Promise<Environment>;
   start(ownerId: string, session: AgentSession, turn: SessionTurnBinding, history?: AgentSessionItem[], placement?: ExecutionBackend): Promise<void>;
   steer(ownerId: string, session: AgentSession, turnId: string, input: AgentSessionInputMessageParam[], operationId: string): Promise<void>;
   cancel(ownerId: string, session: AgentSession, turnId: string): Promise<void>;

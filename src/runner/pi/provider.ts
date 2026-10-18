@@ -1,19 +1,10 @@
+import { piRegistryModel } from '../../adapters/pi-model-catalog.js';
+export { piCatalog } from '../../adapters/pi-model-catalog.js';
 import { createModels, type CredentialStore, type Model, type Models } from '@earendil-works/pi-ai';
 import { amazonBedrockProvider } from '@earendil-works/pi-ai/providers/amazon-bedrock';
-import type { PiModelDescriptor, RuntimePin } from '../../domain/session-runtime.js';
+import type { RuntimePin } from '../../domain/session-runtime.js';
 
-export function piCatalog(modelIds: readonly string[], region: string): PiModelDescriptor[] {
-  const known = amazonBedrockProvider().getModels();
-  return modelIds.map(id => {
-    const model = known.find(entry => entry.id === id);
-    if (!model || model.api !== 'bedrock-converse-stream') throw new Error(`Unknown Pi Converse model: ${id}`);
-    return { id, name: model.name, provider: 'amazon-bedrock', api: 'bedrock-converse-stream', region,
-      input: model.input, contextWindow: model.contextWindow, maxTokens: model.maxTokens,
-      reasoning: model.reasoning ? ['minimal', 'low', 'medium', 'high'] : ['none'] };
-  });
-}
-
-export function createPiModels(pin: Extract<RuntimePin, { kind: 'pi' }>, token: () => Promise<string>): Models {
+export function createPiModels(pin: Extract<RuntimePin, { kind: 'pi' }>, token: () => Promise<string>, allowedModelIds: readonly string[] = pin.catalog.map(model => model.id)): Models {
   const denied = async (): Promise<never> => { throw new Error('Pi credentials are host-owned and read-only'); };
   const credentials: CredentialStore = {
     read: async provider => {
@@ -26,11 +17,28 @@ export function createPiModels(pin: Extract<RuntimePin, { kind: 'pi' }>, token: 
   };
   const models = createModels({ credentials, authContext: { env: async () => undefined, fileExists: async () => false } });
   const provider = amazonBedrockProvider();
-  const admitted: Model<'bedrock-converse-stream'>[] = pin.catalog.map(descriptor => {
-    const model = provider.getModels().find(entry => entry.id === descriptor.id);
-    if (!model) throw new Error('Pinned Pi model is absent from the installed registry');
+  const admitted: Model<'bedrock-converse-stream'>[] = pin.catalog.filter(descriptor => allowedModelIds.includes(descriptor.id)).map(descriptor => {
+    const model = piRegistryModel(descriptor.id);
     return { ...model };
   });
-  models.setProvider({ ...provider, getModels: () => admitted, getAllModels: () => admitted });
+  const selected = (id: string) => {
+    const model = admitted.find(entry => entry.id === id);
+    const descriptor = pin.catalog.find(entry => entry.id === id);
+    if (!model || !descriptor) throw new Error('Pi model is outside the pinned catalog');
+    return { model, region: descriptor.region };
+  };
+  models.setProvider({ ...provider, getModels: () => admitted, getAllModels: () => admitted,
+    stream: (model, context, options) => {
+      const entry = selected(model.id);
+      const { toolChoice: _toolChoice, ...base } = options ?? {};
+      const configured = { ...base, ...(options?.toolChoice !== undefined ? { toolChoice: options.toolChoice as 'auto' | 'any' | 'none' | { type: 'tool'; name: string } } : {}), region: entry.region, env: { AWS_REGION: entry.region, AWS_EC2_METADATA_DISABLED: 'true', AWS_SHARED_CREDENTIALS_FILE: '/dev/null', AWS_CONFIG_FILE: '/dev/null' } };
+      return provider.stream(entry.model, context, configured as Parameters<typeof provider.stream>[2]);
+    },
+    streamSimple: (model, context, options) => {
+      const entry = selected(model.id);
+      const configured = { ...options, region: entry.region, env: { AWS_REGION: entry.region, AWS_EC2_METADATA_DISABLED: 'true', AWS_SHARED_CREDENTIALS_FILE: '/dev/null', AWS_CONFIG_FILE: '/dev/null' } };
+      return provider.streamSimple(entry.model, context, configured);
+    },
+  });
   return models;
 }

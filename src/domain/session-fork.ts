@@ -2,6 +2,7 @@ import type { AgentSessionItem } from './agents-api.js';
 import type { WorkspaceCheckpoint, SnapshotLease } from './workspace-checkpoint.js';
 
 export interface SessionFork {
+  piContextId?: string;
   sourceSessionId: string;
   sourceEnvironmentId: string;
   checkpoint: WorkspaceCheckpoint;

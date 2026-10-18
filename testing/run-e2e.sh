@@ -20,4 +20,4 @@ source "$script_dir/localstack.env"
 set +a
 
 cd "$project_root"
-npm exec -- vitest run tests/localstack/workflow.test.ts --no-file-parallelism
+npm exec -- vitest run tests/localstack --no-file-parallelism

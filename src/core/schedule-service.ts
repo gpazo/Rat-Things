@@ -12,7 +12,7 @@ export interface SessionScheduler {
 }
 
 export class ScheduleService {
-  public constructor(private readonly options: { store: AgentsStore; scheduler: SessionScheduler; integrations: SessionIntegrationService; sessions: Pick<SessionService, 'retrieve'>; validateTarget(ownerId: string, target: ScheduleConfiguration): Promise<void>; clock?: AgentsClock }) {}
+  public constructor(private readonly options: { store: AgentsStore; scheduler: SessionScheduler; integrations: SessionIntegrationService; sessions: Pick<SessionService, 'retrieve'> & Partial<Pick<SessionService, 'runtimePinFor'>>; validateTarget(ownerId: string, target: ScheduleConfiguration): Promise<void>; clock?: AgentsClock }) {}
   public async create(ownerId: string, raw: unknown): Promise<Schedule> {
     const config = scheduleConfiguration(raw);
     await this.options.validateTarget(ownerId, config);
@@ -56,20 +56,21 @@ export class ScheduleService {
       if (!current) return { accepted: false, reason: 'schedule_missing' };
       const previous = current.value.occurrences[scheduledAt];
       // An accepted occurrence retains its snapshot even if its schedule is subsequently edited.
-      if (previous) return 'skipped' in previous ? { accepted: false, reason: 'overlap' } : this.submit(invocation, previous.configuration, previous.sessionId);
+      if (previous) return 'skipped' in previous ? { accepted: false, reason: 'overlap' } : this.submit(invocation, previous.configuration, previous.sessionId, previous.runtimePin);
       const { schedule } = current.value;
       if (schedule.status !== 'active' || invocation.generation !== schedule.generation) return { accepted: false, reason: 'stale_schedule' };
       const overlapping = schedule.overlap === 'skip' && current.value.activeSessionId && await this.active(ownerId, current.value.activeSessionId);
       const sessionId = integrationSessionId(scheduleId, scheduledAt);
-      const occurrence = overlapping ? { skipped: true as const } : { sessionId, configuration: scheduleConfiguration(configurationFields(schedule)) };
+      const runtimePin = overlapping ? undefined : await this.options.sessions.runtimePinFor?.(ownerId, schedule.agentId, schedule.runtime);
+      const occurrence = overlapping ? { skipped: true as const } : { sessionId, configuration: scheduleConfiguration(configurationFields(schedule)), ...(runtimePin ? { runtimePin } : {}) };
       try {
         await this.options.store.put({ ...current, revision: current.revision + 1, value: { ...current.value, ...(overlapping ? {} : { activeSessionId: sessionId }), occurrences: { ...current.value.occurrences, [scheduledAt]: occurrence } } }, current.revision);
       } catch (error) { if (!(error instanceof AgentsApiError) || error.code !== 'conflict' || attempt >= 9) throw error; continue; }
-      return 'skipped' in occurrence ? { accepted: false, reason: 'overlap' } : this.submit(invocation, occurrence.configuration, sessionId);
+      return 'skipped' in occurrence ? { accepted: false, reason: 'overlap' } : this.submit(invocation, occurrence.configuration, sessionId, occurrence.runtimePin);
     }
   }
-  private async submit(invocation: ScheduleInvocation, configuration: ScheduleConfiguration, sessionId: string) {
-    await this.options.integrations.accept(invocation.ownerId, invocation.scheduleId, invocation.scheduledAt, configuration, {
+  private async submit(invocation: ScheduleInvocation, configuration: ScheduleConfiguration, sessionId: string, runtimePin?: import('../domain/session-runtime.js').RuntimePin) {
+    await this.options.integrations.accept(invocation.ownerId, invocation.scheduleId, invocation.scheduledAt, { ...configuration, ...(runtimePin ? { runtimePin } : {}) }, {
       id: invocation.scheduledAt, text: scheduleInput(configuration, invocation), source: { kind: 'api' },
       actor: { kind: 'system', id: `schedule:${invocation.scheduleId}`, provider: 'api' }, credentialSubject: { kind: 'actor', id: invocation.ownerId },
     });

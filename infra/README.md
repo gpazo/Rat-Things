@@ -101,7 +101,9 @@ Pi Sessions use Bedrock Converse independently of `codex_auth_mode`. Configure
 `pi_bedrock_model_ids` with exact supported model IDs and
 `pi_bedrock_inference_resource_arns` with the exact resources that the worker may
 invoke. Set `pi_bedrock_default_model` to advertise a picker default. It must be
-in the model list. An empty list disables Pi.
+in the model list. An empty list disables Pi. A catalog entry does not grant model access or guarantee
+availability in an AWS account or region. Managed Pi environments additionally
+require `enable_s3_files` and `session_checkpoints_enabled`.
 
 ```hcl
 pi_bedrock_model_ids     = ["amazon.nova-micro-v1:0"]

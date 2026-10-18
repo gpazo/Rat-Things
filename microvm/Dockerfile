@@ -46,6 +46,7 @@ FROM worker-dependencies AS worker
 COPY codex-runtime /opt/codex-runtime
 RUN /opt/codex-runtime/bin/codex --version \
     && ln -s /opt/codex-runtime/bin/codex /usr/local/bin/codex
+COPY pi-child.mjs /opt/agent-runtime/pi-child.mjs
 COPY runner.mjs /opt/agent-runtime/runner.mjs
 COPY terminate-microvm.mjs /opt/agent-runtime/terminate-microvm.mjs
 COPY runtime-server.mjs /opt/agent-runtime/runtime-server.mjs
@@ -57,6 +58,7 @@ COPY config/codex.toml /opt/agent-runtime/config/codex.toml
 COPY config/codex.toml /home/agent/.codex/config.toml
 
 RUN chown root:root \
+      /opt/agent-runtime/pi-child.mjs \
       /opt/agent-runtime/runner.mjs \
       /opt/agent-runtime/terminate-microvm.mjs \
       /opt/agent-runtime/runtime-server.mjs \
@@ -66,6 +68,7 @@ RUN chown root:root \
       /opt/agent-runtime/bin/git-askpass.sh \
       /opt/agent-runtime/config/codex.toml \
     && chmod 0555 \
+      /opt/agent-runtime/pi-child.mjs \
       /opt/agent-runtime/runner.mjs \
       /opt/agent-runtime/terminate-microvm.mjs \
       /opt/agent-runtime/runtime-server.mjs \

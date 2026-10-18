@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import type { Agent, AgentSession, EnvironmentParam } from './agents-api.js';
+import type { Agent, AgentSession, AgentSessionInputMessageParam, EnvironmentParam } from './agents-api.js';
 import { invalid } from './agents-api-validation.js';
 import { canonicalJson } from './json.js';
 
@@ -47,7 +47,7 @@ export function piModel(pin: Extract<RuntimePin, { kind: 'pi' }>, model: string)
   return descriptor;
 }
 
-export function validateRuntimeAgent(pin: RuntimePin, agent: AgentSession['agent'], environment?: EnvironmentParam): void {
+export function validateRuntimeAgent(pin: RuntimePin, agent: AgentSession['agent'], environment?: Pick<EnvironmentParam, 'type'>): void {
   if (pin.kind === 'codex') return;
   const model = piModel(pin, agent.model);
   if (environment?.type === 'self_hosted') invalid('Pi does not support self-hosted environments', 'environment.type');
@@ -56,8 +56,24 @@ export function validateRuntimeAgent(pin: RuntimePin, agent: AgentSession['agent
   if (agent.service_tier !== 'auto') invalid('Pi supports only the auto service tier', 'agent.service_tier');
   if (agent.text.verbosity !== 'medium') invalid('Pi supports only medium verbosity', 'agent.text.verbosity');
   if (agent.text.format.type !== 'text') invalid('Pi does not support JSON-schema output', 'agent.text.format');
+  const names = new Set(['spawn_agent', 'send_input', 'wait_agent', 'close_agent', ...(environment?.type === 'openai_hosted' ? ['exec_command', 'read_file', 'write_file', 'list_files'] : [])]);
   for (const tool of agent.tools) {
+    if (tool.type === 'function') {
+      if (!/^[A-Za-z0-9_-]{1,64}$/.test(tool.name) || names.has(tool.name) || tool.name.startsWith('rat_mcp_')) invalid('Pi function names must be unique Bedrock tool identifiers and must not use reserved tool names', 'agent.tools.name');
+      names.add(tool.name);
+    }
+    if (tool.type === 'programmatic_tool_calling' && !tool.enabled) continue;
     if (tool.type !== 'function' && tool.type !== 'mcp') invalid('Pi supports function and MCP tools', 'agent.tools');
     if (tool.type === 'function' && tool.defer_loading) invalid('Pi does not support deferred function loading', 'agent.tools.defer_loading');
+  }
+}
+
+export function validateRuntimeInput(pin: RuntimePin, agent: AgentSession['agent'], input: readonly AgentSessionInputMessageParam[]): void {
+  if (pin.kind !== 'pi') return;
+  const model = piModel(pin, agent.model);
+  for (const message of input) for (const part of message.content) {
+    if (part.type === 'input_text') continue;
+    if (!model.input.includes('image')) invalid('The selected Pi model does not accept images', 'input');
+    if (!/^data:image\/(?:png|jpeg|webp|gif);base64,[A-Za-z0-9+/]+={0,2}$/.test(part.image_url)) invalid('Pi images require a base64 PNG, JPEG, WebP, or GIF data URL', 'input');
   }
 }

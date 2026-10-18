@@ -31,6 +31,7 @@ export interface AgentsApiServices {
   skills?: SkillService;
   webhooks?: WebhookService;
   models?: ModelCatalog | undefined;
+  piModels?: ModelCatalog | undefined;
 }
 
 export async function routeAgentsRequest(request: Request, principal: ApiPrincipal, services: AgentsApiServices, requestId?: string, streaming = true): Promise<Response> {
@@ -40,7 +41,11 @@ export async function routeAgentsRequest(request: Request, principal: ApiPrincip
     const parts = pathParts(url.pathname);
     requireRoutePermission(principal, request.method, parts);
     if (parts[0] !== 'v1') throw new AgentsApiError(404, 'Route not found.', 'resource_not_found');
-    if (parts[1] === 'models') return routeModels(request, parts.slice(2), services.models, requestId);
+    if (parts[1] === 'models' || parts[1] === 'agents' && parts[2] === 'models') {
+      const runtime = url.searchParams.get('runtime');
+      if (runtime !== null && runtime !== 'codex' && runtime !== 'pi') throw new AgentsApiError(400, 'Runtime must be codex or pi.', 'invalid_request', 'runtime');
+      return routeModels(request, parts.slice(parts[1] === 'models' ? 2 : 3), runtime === 'pi' ? services.piModels : services.models, requestId);
+    }
     if (parts[1] === 'webhooks') return await routeWebhook(request, ownerId, parts.slice(2), services.webhooks, requestId);
     if (parts[1] === 'files') return await routeUploadedFiles(request, ownerId, parts.slice(2), services.files, requestId);
     if (parts[1] === 'skills') return await routeSkills(request, ownerId, parts.slice(2), services.skills, requestId);
@@ -159,6 +164,7 @@ async function routeSession(request: Request, principal: ApiPrincipal, parts: st
     requireInferencePermission(principal, body, 'create');
     return json(201, await sessions.fork(ownerId, id, body), requestId);
   }
+  if (id && collection === 'runtime' && parts.length === 2 && method === 'GET') return json(200, await sessions.runtime(ownerId, id), requestId);
   if (id && collection === 'lineage' && parts.length === 2 && method === 'GET') return json(200, await sessions.lineage(ownerId, id), requestId);
   if (id && collection === 'traces' && parts.length === 2 && method === 'GET') return json(200, await sessions.traces(ownerId, id, query()), requestId);
   if (id && collection === 'events' && !childId) {

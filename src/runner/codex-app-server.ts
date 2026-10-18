@@ -39,8 +39,9 @@ export interface CodexTurnController {
   checkpoint?(): Promise<unknown>;
   threadId: string;
   turnId: string;
-  steer(text: string, input?: AgentSessionInputMessageParam[], sessionTurnId?: string): Promise<void>;
-  interrupt(sessionTurnId?: string): Promise<void>;
+  steer(text: string, input?: AgentSessionInputMessageParam[], sessionTurnId?: string, operationId?: string): Promise<void>;
+  interrupt(sessionTurnId?: string, operationId?: string): Promise<void>;
+  respondSessionTool?(callId: string, result: unknown): Promise<void>;
   sessionItems?(): Promise<AgentSessionItem[]>;
   startSessionTurn?(turn: import('../domain/agents-api.js').Turn, input: AgentSessionInputMessageParam[], settings?: import('../domain/session-execution.js').SessionModelSettings): Promise<void>;
 }

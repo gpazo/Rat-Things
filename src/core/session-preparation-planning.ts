@@ -1,3 +1,4 @@
+import { resolveRuntime, validateRuntimeAgent, type PiModelDescriptor } from '../domain/session-runtime.js';
 import type { ExecutionBackend } from '../domain/contracts.js';
 import { createHash } from 'node:crypto';
 import type { Agent, AgentSession, AgentToolParam, SessionCreateParams } from '../domain/agents-api.js';
@@ -18,9 +19,13 @@ export interface SessionPreparation {
   inheritedTools: Agent['tools'];
 }
 
-export function planSessionPreparation(input: SessionCreateParams, id: string, now: number, saved?: Agent, placement: ExecutionBackend = 'microvm'): SessionPreparation {
+export function planSessionPreparation(input: SessionCreateParams, id: string, now: number, saved?: Agent, placement: ExecutionBackend = 'microvm', catalog: readonly PiModelDescriptor[] = []): SessionPreparation {
+  const runtime = resolveRuntime(input.metadata, saved?.metadata, catalog);
+  const agent = sessionAgent(input.agent, id, now, saved);
+  validateRuntimeAgent(runtime, agent, input.environment);
+  if (runtime.kind === 'pi' && (input.agent?.tools ?? saved?.tools ?? []).some(tool => tool.type === 'tool_search')) throw new AgentsApiError(400, 'Pi does not support tool_search.', 'invalid_request', 'agent.tools');
   return {
-    placement, agent: sessionAgent(input.agent, id, now, saved), now, deadline: now + 86_400, requestDigest: requestDigest(input),
+    runtime, placement, agent, now, deadline: now + 86_400, requestDigest: requestDigest(input),
     inheritedTools: input.agent?.tools === undefined ? saved?.tools ?? [] : [],
   };
 }

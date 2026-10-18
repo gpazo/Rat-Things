@@ -168,6 +168,52 @@
           },
           "additionalProperties": false
         },
+        "SessionRuntime": {
+          "anyOf": [
+            {
+              "type": "object",
+              "properties": {
+                "runtime": {
+                  "type": "string",
+                  "const": "codex"
+                },
+                "model": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "runtime",
+                "model"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "runtime": {
+                  "type": "string",
+                  "const": "pi"
+                },
+                "version": {
+                  "type": "string"
+                },
+                "catalog_digest": {
+                  "type": "string"
+                },
+                "model": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "runtime",
+                "version",
+                "catalog_digest",
+                "model"
+              ],
+              "additionalProperties": false
+            }
+          ]
+        },
         "SessionLineage": {
           "type": "object",
           "properties": {
@@ -326,6 +372,7 @@
         "Session",
         "SessionCreate",
         "SessionFork",
+        "SessionRuntime",
         "SessionLineage",
         "SessionUpdate",
         "SessionList",

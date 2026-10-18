@@ -16,7 +16,16 @@ export function parseSessionModelSettings(value: unknown): SessionModelSettings 
 }
 
 /** Immutable, confidential execution input in the owner's encrypted artifact namespace. */
+export type SessionReplayCommand =
+  | { type: 'start'; turn: import('./agents-api.js').Turn; input: AgentSessionInputMessageParam[]; settings?: SessionModelSettings }
+  | { type: 'steer'; turnId: string; input: AgentSessionInputMessageParam[]; operationId: string }
+  | { type: 'cancel'; turnId: string }
+  | { type: 'tool_result'; turnId: string; callId: string; output: unknown; success: boolean };
+
 export interface SessionLaunch {
+  replay?: SessionReplayCommand[];
+  piForkContext?: unknown;
+  piWorkspace?: { sandboxId: string; setupDigest: string; policyDigest: string };
   runtime?: import('./session-runtime.js').RuntimePin;
   sessionId: string;
   turnId: string;

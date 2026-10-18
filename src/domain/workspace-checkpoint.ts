@@ -7,6 +7,7 @@ export interface WorkspaceCompatibility { sandboxId: string; setupDigest: string
 /** A single-use permit for a mutable root whose writers have all stopped. */
 export interface WorkspaceCheckpoint extends WorkspaceCompatibility {
   id: string;
+  piContextId?: string;
   source: WorkspaceExecution;
   rootThreadId: string;
   lastRootTurnId: string | null;
@@ -39,11 +40,11 @@ export interface ForkSnapshot extends Omit<WorkspaceCompatibility, 'sandboxId' |
 }
 
 /** Setup compatibility excludes policy; policy remains a separate, conservative equality check. */
-export function workspaceDigests(launch: Pick<SessionLaunch, 'hostedConfiguration' | 'hostedFiles' | 'hostedSkills' | 'environment' | 'environmentCredentials' | 'mcp'>) {
+export function workspaceDigests(launch: Pick<SessionLaunch, 'hostedConfiguration' | 'hostedFiles' | 'hostedSkills' | 'environment' | 'environmentCredentials' | 'mcp' | 'runtime'>) {
   const { network: _network, ...setup } = launch.hostedConfiguration ?? {};
   return {
     setupDigest: sha256Hex(canonicalJson({ setup, files: launch.hostedFiles ?? [], skills: launch.hostedSkills ?? [] })),
-    policyDigest: sha256Hex(canonicalJson({ environment: launch.environment, network: launch.hostedConfiguration?.network, credentials: launch.environmentCredentials, mcp: launch.mcp })),
+    policyDigest: sha256Hex(canonicalJson({ environment: launch.environment, network: launch.hostedConfiguration?.network, credentials: launch.environmentCredentials, mcp: launch.mcp, ...(launch.runtime?.kind === 'pi' ? { runtime: launch.runtime } : {}) })),
   };
 }
 

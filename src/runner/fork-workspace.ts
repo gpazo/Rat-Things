@@ -9,9 +9,9 @@ import { runProcess } from './process.js';
 import { syncWorkspaceStorage } from './workspace-sync.js';
 
 /** The copier uses directory handles and O_NOFOLLOW for every source and destination component. */
-export async function copyForkTree(source: string, destination: string, rootThreadId: string, options: { maxBytes?: number; deadline?: number; uid?: number; gid?: number; signal?: AbortSignal } = {}): Promise<number> {
-  if (!/^[A-Za-z0-9-]+$/.test(rootThreadId)) throw new Error('Invalid native fork identity');
-  const result = await runProcess('python3', ['-c', copier, source, destination, rootThreadId,
+export async function copyForkTree(source: string, destination: string, rootThreadId: string, options: { runtime?: 'codex' | 'pi'; maxBytes?: number; deadline?: number; uid?: number; gid?: number; signal?: AbortSignal } = {}): Promise<number> {
+  if (options.runtime !== 'pi' && !/^[A-Za-z0-9-]+$/.test(rootThreadId)) throw new Error('Invalid native fork identity');
+  const result = await runProcess('python3', ['-c', copier, source, destination, options.runtime === 'pi' ? '' : rootThreadId,
     String(options.maxBytes ?? 256 * 1024 * 1024), String(options.deadline ?? Math.floor(Date.now() / 1000) + 90),
     String(options.uid ?? process.getuid?.() ?? 10001), String(options.gid ?? process.getgid?.() ?? 10001)],
   { cwd: '/', timeoutMs: 95_000, ...(options.signal ? { signal: options.signal } : {}) });
@@ -33,7 +33,7 @@ export async function prepareForkWorkspace(options: { store: AgentsStore; ownerI
     || handoff.snapshotLease.expiresAt <= Date.now() / 1000) throw new Error('Fork source lease is unavailable');
   const root = dirname(stateRoot);
   const snapshotRoot = join(root, fork.storageKey);
-  const copyOptions = { deadline: Math.min(fork.lease.expiresAt - 5, Math.floor(Date.now() / 1000) + 90), uid: 10001, gid: 10001, ...(options.signal ? { signal: options.signal } : {}) };
+  const copyOptions = { ...(fork.piContextId ? { runtime: 'pi' as const } : {}), deadline: Math.min(fork.lease.expiresAt - 5, Math.floor(Date.now() / 1000) + 90), uid: 10001, gid: 10001, ...(options.signal ? { signal: options.signal } : {}) };
   const bytes = await copyForkTree(join(root, key(fork.sourceSessionId)), snapshotRoot, fork.checkpoint.rootThreadId, copyOptions);
   await syncWorkspaceStorage(snapshotRoot);
   const handoffs = new WorkspaceHandoffService({ store, enabled: true });
@@ -141,7 +141,7 @@ source = destination = None
 try:
     source = directory(src)
     destination = directory(dst, True)
-    for sub in ('workspace', 'codex-home/sessions', 'codex-home/archived_sessions'):
+    for sub in (('workspace',) if not thread else ('workspace', 'codex-home/sessions', 'codex-home/archived_sessions')):
         try: s = directory(src + '/' + sub)
         except FileNotFoundError:
             if sub == 'workspace': raise

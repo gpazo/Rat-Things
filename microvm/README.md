@@ -1,7 +1,7 @@
 # Lambda MicroVM image source
 
 `npm run package` builds `dist/microvm-source.zip` with this directory plus the bundled
-`runner.mjs`, the verified Linux ARM64 Codex runtime, Codex configuration, and Git askpass helper.
+`runner.mjs`, the pinned `pi-child.mjs`, the verified Linux ARM64 Codex runtime, Codex configuration, and Git askpass helper.
 Build the native artifact using `testing/README.md` before packaging; the image never falls back to
 the stock binary. AWS Lambda MicroVMs consumes that S3 ZIP,
 runs the Dockerfile, starts the lifecycle server, and snapshots the initialized process tree.

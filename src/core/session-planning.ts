@@ -1,3 +1,4 @@
+import { CODEX_RUNTIME, validateRuntimeAgent, type RuntimePin } from '../domain/session-runtime.js';
 import { validateSessionModelSettings } from '../domain/session-model-validation.js';
 import type {
   Agent, AgentSession, AgentSessionInputMessageParam, AgentSessionInputParam,
@@ -44,7 +45,7 @@ export function initialMessages(input: SessionCreateParams['input']): AgentSessi
 }
 
 /** Session edits are partial model-setting updates, not saved-Agent field replacement. */
-export function updateSessionAgent(previous: AgentSession['agent'], update: SessionUpdateParams['agent']): AgentSession['agent'] {
+export function updateSessionAgent(previous: AgentSession['agent'], update: SessionUpdateParams['agent'], runtime: RuntimePin = CODEX_RUNTIME): AgentSession['agent'] {
   if (!update) return previous;
   const model = update.model ?? previous.model;
   if (!model.trim() || [...model].length > 1_048_576) invalid('model must contain 1 to 1048576 characters', 'agent.model');
@@ -53,7 +54,8 @@ export function updateSessionAgent(previous: AgentSession['agent'], update: Sess
     reasoning: { ...previous.reasoning, effort: update.reasoning?.effort === undefined ? previous.reasoning.effort : update.reasoning.effort ?? modelReasoningDefault(model) },
     service_tier: update.service_tier === undefined ? previous.service_tier : update.service_tier ?? 'auto',
   };
-  validateSessionModelSettings(resolved);
+  if (runtime.kind === 'codex') validateSessionModelSettings(resolved);
+  else validateRuntimeAgent(runtime, resolved);
   return resolved;
 }
 

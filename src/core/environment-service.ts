@@ -26,6 +26,7 @@ export interface StoredEnvironment {
   pendingRunId?: string;
   handoff?: import('../domain/workspace-checkpoint.js').WorkspaceHandoff;
   sandboxId?: string;
+  piWorkspace?: SessionLaunch['piWorkspace'];
   resetCount?: number;
   status: EnvironmentInfo['status'];
   registrationId?: string;
@@ -54,7 +55,7 @@ export class EnvironmentService {
     if (options.relayURL && new URL(options.relayURL).protocol !== 'https:') throw new Error('Environment relay URL must use HTTPS');
   }
 
-  public async prepare(ownerId: string, sessionId: string, input: EnvironmentParam, resumePreparation = false): Promise<Environment> {
+  public async prepare(ownerId: string, sessionId: string, input: EnvironmentParam, resumePreparation = false, runtime: import('../domain/session-runtime.js').SessionRuntime = 'codex'): Promise<Environment> {
     if (input.type === 'none') return input;
     const environmentId = resumePreparation ? `env_${createHash('sha256').update(sessionId).digest('hex').slice(0, 32)}` : this.ids.next('env');
     const previous = resumePreparation ? await this.options.store.get<StoredEnvironment>(ownerId, 'environments', environmentId) : undefined;
@@ -63,6 +64,7 @@ export class EnvironmentService {
       if (!this.options.templates || !this.options.managedFiles) throw new AgentsApiError(503, 'Managed environment execution is not configured.', 'environment_unavailable', 'environment');
       const { type: _type, environment_template_id, ...inline } = input;
       const configuration = await this.options.templates.resolve(ownerId, environment_template_id, inline);
+      if (runtime === 'pi' && ((configuration.skills?.length ?? 0) || (configuration.plugins?.length ?? 0) || (configuration.capability_directories?.length ?? 0))) throw new AgentsApiError(400, 'Pi does not support hosted skills, plugins, or capability directories.', 'invalid_request', 'environment');
       const id = environmentId;
       const now = this.clock.now();
       const { name: _name, object: _object, created_at: _created, updated_at: _updated, ...settings } = publicTemplate(configuration, { id, created_at: now, updated_at: now });
@@ -171,19 +173,25 @@ export class EnvironmentService {
     throw new AgentsApiError(503, 'Environment files are unavailable.', 'environment_unavailable');
   }
 
-  public async managedLaunch(ownerId: string, id: string): Promise<Pick<SessionLaunch, 'hostedConfiguration' | 'hostedFiles' | 'hostedSkills'>> {
+  private async piRecoveryAllowed(ownerId: string, value: StoredEnvironment): Promise<boolean> {
+    return Boolean(this.options.handoffs && (await this.options.store.get<import('./session-ports.js').SessionState>(ownerId, 'sessions', value.sessionId))?.value.runtime?.kind === 'pi');
+  }
+
+  public async managedLaunch(ownerId: string, id: string): Promise<Pick<SessionLaunch, 'hostedConfiguration' | 'hostedFiles' | 'hostedSkills' | 'piWorkspace'>> {
     const { value } = await this.required(ownerId, id);
     if (value.environment.type !== 'openai_hosted' || !value.configuration || value.retired) resourceNotFound();
-    if (value.status === 'failed' || value.status === 'expired') throw new AgentsApiError(409, 'The managed environment is unavailable. Create a new session.', 'environment_unavailable');
-    return { hostedConfiguration: value.configuration, hostedFiles: value.hostedFiles ?? [], hostedSkills: value.hostedSkills ?? [] };
+    const pi = await this.piRecoveryAllowed(ownerId, value);
+    if ((value.status === 'failed' || value.status === 'expired') && !pi) throw new AgentsApiError(409, 'The managed environment is unavailable. Create a new session.', 'environment_unavailable');
+    return { hostedConfiguration: value.configuration, hostedFiles: value.hostedFiles ?? [], hostedSkills: value.hostedSkills ?? [], ...(pi && value.piWorkspace ? { piWorkspace: value.piWorkspace } : {}) };
   }
 
   public async attachManaged(ownerId: string, id: string, runId: string): Promise<void> {
     const admission = await this.options.handoffs?.prepareReplacement(ownerId, id, runId);
+    const pi = await this.piRecoveryAllowed(ownerId, (await this.required(ownerId, id)).value);
     await this.update(ownerId, id, (value) => {
       if (admission && (value.runId !== admission.runId || value.executionGeneration !== admission.executionGeneration)) throw new AgentsApiError(409, 'Workspace admission changed concurrently.', 'conflict');
       if (value.environment.type !== 'openai_hosted' || value.retired) resourceNotFound();
-      if (value.status === 'failed' || value.status === 'expired') throw new AgentsApiError(409, 'The managed environment is unavailable. Create a new session.', 'environment_unavailable');
+      if ((value.status === 'failed' || value.status === 'expired') && !pi) throw new AgentsApiError(409, 'The managed environment is unavailable. Create a new session.', 'environment_unavailable');
       if (value.handoff && value.runId !== runId) {
         if (!this.options.handoffs || value.handoff.phase !== 'committed' || (value.handoff.snapshotLease?.expiresAt ?? 0) > this.clock.now()) throw new AgentsApiError(409, 'The workspace handoff must be adopted or recovered before replacement.', 'conflict');
         if (value.pendingRunId && value.pendingRunId !== runId) throw new AgentsApiError(409, 'A replacement already owns workspace admission.', 'conflict');
@@ -201,8 +209,9 @@ export class EnvironmentService {
     return value.sandboxId !== undefined;
   }
 
-  public async managedReady(ownerId: string, id: string, runId: string, sandbox: ManagedSandboxGeneration): Promise<void> {
-    await this.update(ownerId, id, value => planManagedReadiness(value, runId, sandbox, this.clock.now()));
+  public async managedReady(ownerId: string, id: string, runId: string, sandbox: ManagedSandboxGeneration, piWorkspace?: SessionLaunch['piWorkspace']): Promise<void> {
+    if (piWorkspace && piWorkspace.sandboxId !== sandbox.id) throw new Error('Pi workspace identity mismatch');
+    await this.update(ownerId, id, value => ({ ...planManagedReadiness(value, runId, sandbox, this.clock.now()), ...(piWorkspace ? { piWorkspace } : {}) }));
   }
 
   public async managedStatus(ownerId: string, id: string, runId: string, status: 'connected' | 'disconnected' | 'failed' | 'expired'): Promise<void> {

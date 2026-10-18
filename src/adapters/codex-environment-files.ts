@@ -10,6 +10,7 @@ export async function codexEnvironmentFiles(options: {
   registryURL?: string; environmentId?: string; harnessKey?: string; workspace: string;
   operation: EnvironmentFileOperation;
   binary?: string; signal?: AbortSignal;
+  managed?: { binaryArguments: string[] };
   identity?: { uid: number; gid: number };
 }): Promise<unknown> {
   const home = await mkdtemp(join(tmpdir(), 'rat-environment-files-'));
@@ -18,7 +19,7 @@ export async function codexEnvironmentFiles(options: {
   if (remote && (!options.environmentId || !options.harnessKey)) throw new Error('Remote file operation requires an environment credential');
   // This helper uses only its declared file MCP server. Disable plugin startup
   // sync before initialization so background clones cannot outlive cleanup.
-  const rpc = new CodexRpcClient({ binary: options.binary ?? 'codex', binaryArguments: ['-c', 'features.plugins=false', 'app-server'], cwd: home, environment: {
+  const rpc = new CodexRpcClient({ binary: options.binary ?? 'codex', binaryArguments: options.managed?.binaryArguments ?? ['-c', 'features.plugins=false', 'app-server'], cwd: home, environment: {
     PATH: process.env.PATH, HOME: home, CODEX_HOME: home, CODEX_API_KEY: 'environment-operations-no-inference',
     SSL_CERT_FILE: process.env.SSL_CERT_FILE,
     ...(remote ? { CODEX_EXEC_SERVER_NOISE_REGISTRY_URL: options.registryURL,
@@ -29,7 +30,7 @@ export async function codexEnvironmentFiles(options: {
     await rpc.initialize();
     const started = await rpc.call('thread/start', {
       cwd: options.workspace, environments: [{ environmentId: remote ? 'remote' : 'local', cwd: options.workspace }], ephemeral: true,
-      approvalPolicy: 'never', sandbox: 'danger-full-access', selectedCapabilityRoots: [],
+      approvalPolicy: 'never', ...(options.managed ? { permissions: 'rat_managed' } : { sandbox: 'danger-full-access' }), selectedCapabilityRoots: [],
       config: { mcp_servers: { rat_workspace: {
         command: 'node', args: ['--input-type=module', '-e', environmentFileWorkerSource], cwd: options.workspace,
         environment_id: remote ? 'remote' : 'local', required: true, enabled_tools: ['files'], default_tools_approval_mode: 'approve',

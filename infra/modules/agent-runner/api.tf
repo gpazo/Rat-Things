@@ -104,6 +104,7 @@ locals {
     "GET /v1/agents/sessions/{session_id}/traces",
     "POST /v1/agents/sessions/{session_id}/fork",
     "GET /v1/agents/sessions/{session_id}/lineage",
+    "GET /v1/agents/sessions/{session_id}/runtime",
     # End generated Agents API routes.
     "GET /v1/models",
     "POST /v1/sessions/{sessionId}/publications",

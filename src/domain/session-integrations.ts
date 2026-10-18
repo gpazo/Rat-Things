@@ -3,6 +3,8 @@ import type { RunRequest, RunSource, RunDestination, RunActorContext, RunCredent
 
 /** Application integration settings reference the canonical reusable resources. */
 export interface SessionIntegrationTarget {
+  runtime?: import('./session-runtime.js').SessionRuntime;
+  runtimePin?: import('./session-runtime.js').RuntimePin;
   agentId: string;
   environment: EnvironmentParam;
   vaultIds?: string[];

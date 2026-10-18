@@ -1,3 +1,8 @@
+import { piCatalogFromConfig } from '../adapters/pi-model-catalog.js';
+import { hostedCodexArguments } from './hosted-environment-planning.js';
+import { executePiWorker, type PiHostDependencies } from './pi-host.js';
+import { nativeLease } from '../core/session-native-store.js';
+import { validateRuntimeAgent } from '../domain/session-runtime.js';
 import { isRetiredRun } from '../domain/run-bindings.js';
 import { createHash, randomUUID } from 'node:crypto';
 import { join } from 'node:path';
@@ -20,7 +25,7 @@ import { environmentTokenIdentity, parseEnvironmentCredentials } from '../creden
 import { CodexExecutionError } from './codex-app-server.js';
 import type { AgentExecution } from './agent-driver.js';
 import { driverFor } from './agent-driver.js';
-import { loadCodexBedrockToken, readCodexBedrockToken } from './bedrock-auth.js';
+import { loadCodexBedrockToken, readCodexBedrockToken, readPiBedrockToken } from './bedrock-auth.js';
 import { installBedrockTokenFile } from './bedrock-token-file.js';
 import { agentProcessIdentity } from './agent-identity.js';
 import { installCodexAuthFile, type CodexAuthFileSession } from './chatgpt-auth.js';
@@ -167,6 +172,8 @@ export async function runAgentWorker(): Promise<void> {
       process.env.RUN_TIMEOUT_SECONDS ?? effectiveRequest.execution?.timeoutSeconds ?? 900,
     );
     const driver = driverFor('codex');
+    let piHost: PiHostDependencies | undefined;
+    let piContextId: string | undefined;
     let driverControl: AgentDriverControl | undefined = runnerControl?.hooks;
     if (current.agentsSession) {
       const reference = current.agentsSession.launch;
@@ -177,8 +184,11 @@ export async function runAgentWorker(): Promise<void> {
       const runtimes = new SessionRuntimeStore(agentsStore);
       const runtime = await runtimes.get(current.ownerId, launch.sessionId);
       if (!runtime || runtime.value.closed || runtime.value.runId !== runId) throw new Error('Session execution authority changed before launch');
+      if (launch.runtime?.kind === 'pi' && launch.environment.type === 'openai_hosted' && !checkpointEnabled) throw new Error('Pi managed environments require checkpoint-enabled S3 Files');
+      if (launch.runtime?.kind === 'pi' && launch.environment.type === 'openai_hosted' && runtime.value.native?.head && !launch.piWorkspace && !launch.fork) throw new Error('Pi native history has no durable workspace receipt');
       if (launch.fork && !checkpointEnabled) throw new Error('Fork bootstrap requires checkpoint-enabled persistent storage');
       const sessionOwner = current.ownerId;
+      validateRuntimeAgent(launch.runtime ?? { kind: 'codex' }, launch.agent, launch.environment);
       let environmentFiles: EnvironmentFileOperations | undefined;
       let checkpointOptions: import('./session-runtime.js').SessionCheckpointOptions | undefined;
       let adoptedCheckpoint: WorkspaceCheckpoint | undefined;
@@ -219,10 +229,11 @@ export async function runAgentWorker(): Promise<void> {
         });
         launch = prepared.launch;
         if (!prepared.sandbox) throw new Error('Managed sandbox generation is missing');
-        environmentFiles = { execute: (_environmentId, _reference, operation) => codexEnvironmentFiles({ workspace: '/workspace', operation, binary: plan.binary, ...(plan.identity ? { identity: plan.identity } : {}), signal: abort.signal }) };
+        environmentFiles = { execute: async (_environmentId, _reference, operation) => { const result = await codexEnvironmentFiles({ workspace: '/workspace', operation, binary: plan.binary, ...(launch.runtime?.kind === 'pi' && launch.environment.type === 'openai_hosted' ? { managed: { binaryArguments: hostedCodexArguments(['-c', 'features.plugins=false', 'app-server'], launch.environment.network) } } : {}), ...(plan.identity ? { identity: plan.identity } : {}), signal: abort.signal }); if (launch.runtime?.kind === 'pi') await syncWorkspaceStorage(workspace); return result; } };
         runnerControl?.setEnvironmentFiles((operation) => environmentFiles!.execute(environmentId, '', operation as import('../core/environment-file-ports.js').EnvironmentFileOperation));
         managedReady = true;
-        await environments.managedReady(sessionOwner, environmentId, runId, prepared.sandbox);
+        if (launch.runtime?.kind === 'pi') await syncWorkspaceStorage(workspace);
+        await environments.managedReady(sessionOwner, environmentId, runId, prepared.sandbox, launch.runtime?.kind === 'pi' ? { sandboxId: prepared.sandbox.id, ...digests } : undefined);
         managedHeartbeat = new ExecutionHeartbeat({
           store: { heartbeatExecution: async () => {
             try { await managedStatus!('connected'); return true; }
@@ -259,7 +270,7 @@ export async function runAgentWorker(): Promise<void> {
             commit: async state => {
               if (abort.signal.aborted || state.requiredActions.length || state.turns.some(binding => !['completed', 'failed', 'cancelled'].includes(binding.turn.status))) throw new Error('Session changed during checkpoint shutdown');
               const root = state.turns.filter(binding => binding.turn.subagent_id === null).at(-1);
-              const checkpoint: WorkspaceCheckpoint = { id: checkpointId, source, sandboxId: prepared.sandbox!.id, ...digests, authorityDigest,
+              const checkpoint: WorkspaceCheckpoint = { id: checkpointId, ...(piContextId ? { piContextId } : {}), source, sandboxId: prepared.sandbox!.id, ...digests, authorityDigest,
                 rootThreadId: state.rootThreadId, lastRootTurnId: root?.turn.id ?? null, lastNativeTurnId: root?.nativeTurnId ?? null,
                 reason: 'hibernate', createdAt: Math.floor(Date.now() / 1000) };
               await handoffs.commit(sessionOwner, environmentId, checkpoint);
@@ -283,6 +294,22 @@ export async function runAgentWorker(): Promise<void> {
           abort.abort();
         },
       });
+      if (launch.runtime?.kind === 'pi') {
+        const lease = nativeLease(agentsStore, sessionOwner, launch.sessionId, runId, runtime.value.epoch ?? 0);
+        const currentCatalog = piCatalogFromConfig(process.env.PI_BEDROCK_MODEL_IDS_JSON, process.env.AWS_REGION);
+        const allowedModelIds = launch.runtime.catalog.filter(model => currentCatalog.some(current => canonicalJson(current) === canonicalJson(model))).map(model => model.id);
+        if (!allowedModelIds.includes(launch.agent.model)) throw new Error('Pi model was revoked before worker launch');
+        piHost = { allowedModelIds,
+          lease,
+          token: readPiBedrockToken,
+          changed: async (snapshot, seq) => { await runtimes.publishNative(sessionOwner, launch.sessionId, runId, seq, await capture.capture(snapshot)); },
+          saveForkContext: async context => {
+            piContextId = `${launch.sessionId}:fork-context:${sha256Hex(canonicalJson(context))}`;
+            const previous = await agentsStore.get(sessionOwner, 'session_native', piContextId);
+            if (!previous) await agentsStore.put({ ownerId: sessionOwner, id: piContextId, collection: 'session_native', createdAt: Math.floor(Date.now() / 1000), revision: 1, value: context }, 0);
+          },
+        };
+      }
       driverControl = { ...driverControl, session: launch, sessionRuntime: {
         lifetime: current.execution?.backend === 'ec2' ? 'host-managed' : 'bounded',
         ...(checkpointOptions ? { checkpoint: checkpointOptions } : {}),
@@ -305,7 +332,7 @@ export async function runAgentWorker(): Promise<void> {
         driverControl = { ...driverControl, sessionEnvironmentToken: credential.harness };
       }
     }
-    if (driver.name === 'codex' && codexAuthMode() === 'bedrock') {
+    if (!piHost && driver.name === 'codex' && codexAuthMode() === 'bedrock') {
       if (current.agentsSession && current.execution?.backend === 'ec2') {
         const identity = agentProcessIdentity(process.env.RUN_AGENT_UID, process.env.RUN_AGENT_GID);
         bedrockTokenFile = await installBedrockTokenFile({ token: () => readCodexBedrockToken(credentials),
@@ -313,7 +340,7 @@ export async function runAgentWorker(): Promise<void> {
         process.env.RAT_BEDROCK_AUTH_FILE = bedrockTokenFile.path;
       } else loadedBedrockToken = await loadCodexBedrockToken(credentials);
     }
-    if (driver.name === 'codex' && codexAuthMode() === 'chatgpt') {
+    if (!piHost && driver.name === 'codex' && codexAuthMode() === 'chatgpt') {
       codexAuthFileSession = await installCodexAuthFile(
         credentials,
         new SecretsManagerCredentialVault(clients.secrets),
@@ -323,7 +350,8 @@ export async function runAgentWorker(): Promise<void> {
     let executionError: RunError | undefined;
     const executionStarted = Date.now();
     try {
-      execution = await driver.execute(effectiveRequest, workspace, timeoutSeconds * 1_000, abort.signal, driverControl);
+      execution = piHost && driverControl ? await executePiWorker(effectiveRequest, workspace, timeoutSeconds * 1_000, driverControl, piHost, abort.signal)
+        : await driver.execute(effectiveRequest, workspace, timeoutSeconds * 1_000, abort.signal, driverControl);
       managedExpired = execution.environmentExpired ?? false;
     } catch (error) {
       execution = {

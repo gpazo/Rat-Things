@@ -1,3 +1,5 @@
+import { planPiRecovery } from '../core/pi-recovery-planning.js';
+import type { SessionReplayCommand } from '../domain/session-execution.js';
 import { planSessionRun, sessionMessageText } from '../core/session-run-planning.js';
 import { requireSessionBackend, selectSessionBackend, type SessionPlacementPolicy } from './session-placement.js';
 import { createHash } from 'node:crypto';
@@ -38,6 +40,8 @@ export class RunSessionExecution implements SessionExecution {
     handoffs?: WorkspaceHandoffService;
     store: AgentsStore;
     placement?: SessionPlacementPolicy;
+    sourceStopped?(source: import('../domain/workspace-checkpoint.js').WorkspaceExecution): Promise<boolean>;
+    repairPi?(ownerId: string, sessionId: string): Promise<{ hasLiveTasks: boolean }>;
   }) { this.runtime = new SessionRuntimeStore(options.store); }
 
   public placement(ownerId: string, savedAgentId?: string): ExecutionBackend {
@@ -70,11 +74,17 @@ export class RunSessionExecution implements SessionExecution {
     const reservation = await handoffs.leaseSnapshot(owner, environmentId, checkpoint.id, 300);
     let environment: AgentSession['environment'] | undefined;
     try {
+      let piContextId: string | undefined;
+      if (checkpoint.piContextId) {
+        const context = await this.options.store.get(owner, 'session_native', checkpoint.piContextId) ?? resourceNotFound();
+        piContextId = `${id}:fork-context:${hash(canonicalJson(context.value))}`;
+        await this.options.store.put({ ownerId: owner, id: piContextId, collection: 'session_native', createdAt: Math.floor(Date.now() / 1000), revision: 1, value: context.value }, 0);
+      }
       environment = await this.options.environments.prepareFork(owner, id, environmentId, network);
       if (environment.type !== 'openai_hosted') throw new Error('Invalid fork environment');
       await this.options.tools.prepare(owner, id, source.agent, tools, vaultIds, false, { environmentId: environment.id, network,
         env: (await this.options.environments.managedLaunch(owner, environment.id)).hostedConfiguration?.env ?? {} });
-      return { environment, fork: { sourceSessionId: source.id, sourceEnvironmentId: environmentId, checkpoint, ...reservation } };
+      return { environment, fork: { ...(piContextId ? { piContextId } : {}), sourceSessionId: source.id, sourceEnvironmentId: environmentId, checkpoint, ...reservation } };
     } catch (error) {
       await handoffs.releaseSnapshot(owner, environmentId, checkpoint.id, reservation.lease.id).catch(() => {});
       if (environment?.type === 'openai_hosted') await this.options.environments.retire(owner, environment.id).catch(() => {});
@@ -86,12 +96,12 @@ export class RunSessionExecution implements SessionExecution {
     await this.options.handoffs?.releaseSnapshot(owner, fork.sourceEnvironmentId, fork.checkpoint.id, fork.lease.id);
   }
 
-  public async prepare(ownerId: string, sessionId: string, environment: EnvironmentParam, agent: AgentSession['agent'], vaultIds: string[], tools: AgentToolParam[] = [], resumePreparation = false, placement: ExecutionBackend = 'microvm') {
+  public async prepare(ownerId: string, sessionId: string, environment: EnvironmentParam, agent: AgentSession['agent'], vaultIds: string[], tools: AgentToolParam[] = [], resumePreparation = false, placement: ExecutionBackend = 'microvm', runtime: import('../domain/session-runtime.js').SessionRuntime = 'codex') {
     requireSessionBackend(this.options.placement, placement);
     await this.options.vaults.requireVaults(ownerId, vaultIds);
     if (environment.type === 'none' && agent.tools.some((tool) => tool.type === 'mcp' && (tool.transport.type === 'stdio' || tool.connection_origin === 'environment'))) throw new AgentsApiError(400, 'This MCP connection requires an execution environment.', 'invalid_request', 'agent.tools');
     if (environment.type === 'self_hosted' && tools.some((tool) => tool.type === 'mcp' && tool.transport.type === 'stdio' && Object.keys(tool.transport.env ?? {}).length)) throw new AgentsApiError(400, 'Self-hosted stdio MCP accepts env_vars from the environment, not inline env values.', 'invalid_request', 'agent.tools.transport.env');
-    const prepared = await this.options.environments.prepare(ownerId, sessionId, environment, resumePreparation);
+    const prepared = await this.options.environments.prepare(ownerId, sessionId, environment, resumePreparation, runtime);
     try {
       // The upstream managed stdio contract requires enabled network access,
       // including when a template supplies the effective network policy.
@@ -147,9 +157,11 @@ export class RunSessionExecution implements SessionExecution {
   }
 
   public async start(ownerId: string, session: AgentSession, binding: SessionTurnBinding, history: AgentSessionItem[] = [], placement: ExecutionBackend = 'microvm', bootstrap = false): Promise<void> {
+    const state = (await this.options.store.get<SessionState>(ownerId, 'sessions', session.id))?.value;
+    const pi = state?.runtime?.kind === 'pi';
     const runtime = await this.runtime.get(ownerId, session.id);
     // A receipt retry must not replay a saved Turn after its harness has stopped.
-    if (runtime?.value.snapshot?.turns.some((saved) => saved.turn.id === binding.turn.id)) return;
+    if (!pi && runtime?.value.snapshot?.turns.some((saved) => saved.turn.id === binding.turn.id)) return;
     if (runtime?.value.closed) return;
     const activeRun = runtime && !runtime.value.closed ? await this.options.runs.get(ownerId, runtime.value.runId).catch((error: unknown) => { if (error instanceof NotFoundError) return undefined; throw error; }) : undefined;
     if (activeRun && !isTerminal(activeRun.status)) {
@@ -165,12 +177,20 @@ export class RunSessionExecution implements SessionExecution {
       return;
     }
     requireSessionBackend(this.options.placement, placement);
-    const existing = await this.runById(ownerId, this.options.runs.idFor(ownerId, this.key(session.id, binding.turn.id)));
+    if (pi && runtime && !activeRun && runtime.value.attempt?.phase !== 'reserved') throw new AgentsApiError(503, 'Previous Pi worker termination cannot be verified.', 'service_unavailable');
+    if (pi && activeRun && (!activeRun.execution?.generation || !await this.options.sourceStopped?.({ runId: activeRun.runId, generation: activeRun.execution.generation }))) throw new AgentsApiError(503, 'Waiting for the previous Pi worker to stop.', 'service_unavailable');
+    const ordinal = pi ? activeRun ? (runtime?.value.attempt?.ordinal ?? 0) + 1 : runtime?.value.attempt?.ordinal ?? 0 : 0;
+    const runKey = pi ? `agents:${session.id}:attempt:${ordinal}` : this.key(session.id, binding.turn.id);
+    const existing = await this.runById(ownerId, this.options.runs.idFor(ownerId, runKey));
     const environmentCredential = session.environment.type === 'self_hosted' ? await this.options.environments.launchReference(ownerId, session.environment.id, existing ? undefined : binding.turn.created_at + 300) : undefined;
     const environmentCredentials = existing?.agentsSession ? undefined : await this.options.tools.environmentLaunch?.(ownerId, session);
-    const savedFork = (await this.options.store.get<SessionState>(ownerId, 'sessions', session.id))?.value.fork;
+    const sessionState = (await this.options.store.get<SessionState>(ownerId, 'sessions', session.id))?.value;
+    const savedFork = sessionState?.fork;
     const forkLaunch = savedFork ? (({ history: _history, ...fork }) => fork)(savedFork) : undefined;
     const launch: SessionLaunch = existing?.agentsSession ? await this.options.artifacts.getJson(existing.agentsSession.launch) : {
+      runtime: sessionState?.runtime ?? { kind: 'codex' },
+      ...(pi && sessionState ? { replay: replayCommands(sessionState) } : {}),
+      ...(savedFork?.piContextId && !runtime?.value.native?.head ? { piForkContext: (await this.options.store.get(ownerId, 'session_native', savedFork.piContextId))?.value } : {}),
       sessionId: session.id, turnId: binding.turn.id, ...(bootstrap ? {} : { turn: binding.turn }),
       agent: binding.modelSettings ? { ...session.agent, ...binding.modelSettings, reasoning: { ...session.agent.reasoning, ...binding.modelSettings.reasoning } } : session.agent, environment: session.environment,
       input: binding.input.map(({ role, content }) => ({ role, content })), history: bootstrap ? savedFork?.history ?? history : history,
@@ -185,11 +205,16 @@ export class RunSessionExecution implements SessionExecution {
     const owner = hash(ownerId).slice(0, 32);
     const reference = await this.options.artifacts.putJson(`owners/${owner}/sessions/${session.id}/${binding.turn.id}/launch-${hash(canonicalJson(launch))}.json`, launch);
     const request = planSessionRun(session, placement, launch.input, origin);
-    const runId = this.options.runs.idFor(ownerId, this.key(session.id, binding.turn.id));
-    if (runtime?.value.runId !== runId) await this.runtime.claim(ownerId, session.id, runId, binding.turn.created_at, runtime);
+    const runId = this.options.runs.idFor(ownerId, runKey);
+    if (runtime?.value.runId !== runId) await this.runtime.claim(ownerId, session.id, runId, binding.turn.created_at, runtime, pi ? { phase: 'reserved', ordinal, turnId: binding.turn.id, failures: runtime?.value.attempt?.turnId === binding.turn.id ? runtime.value.attempt.failures : [], dueAt: 0 } : undefined);
     if (session.environment.type === 'openai_hosted') await this.options.environments.attachManaged(ownerId, session.environment.id, runId);
+    if (pi) {
+      const claimed = await this.runtime.get(ownerId, session.id);
+      if (!claimed || claimed.value.closed || claimed.value.runId !== runId || !claimed.value.attempt) throw new AgentsApiError(409, 'Pi ownership changed.', 'conflict');
+      await this.options.store.put({ ...claimed, revision: claimed.revision + 1, value: { ...claimed.value, attempt: { ...claimed.value.attempt, phase: 'submitting' } } }, claimed.revision);
+    }
     try { await this.options.runs.submit(ownerId, request, {
-      idempotencyKey: this.key(session.id, binding.turn.id),
+      idempotencyKey: runKey,
       agentsSession: { sessionId: session.id, turnId: binding.turn.id, launch: reference },
       provenance: origin ? { actor: origin.actor, credentialSubject: origin.credentialSubject } : { actor: { kind: 'human', id: ownerId, provider: 'api' }, credentialSubject: { kind: 'actor', id: ownerId } },
     }); } catch (error) {
@@ -200,13 +225,21 @@ export class RunSessionExecution implements SessionExecution {
 
   public async steer(ownerId: string, session: AgentSession, turnId: string, input: AgentSessionInputMessageParam[], operationId: string): Promise<void> {
     const run = await this.requiredRun(ownerId, session.id, turnId);
-    if (isTerminal(run.status)) throw new AgentsApiError(409, 'The active turn ended before it could be steered.', 'active_turn_not_steerable');
+    if (isTerminal(run.status)) {
+      const state = (await this.options.store.get<SessionState>(ownerId, 'sessions', session.id))?.value;
+      if (state?.runtime?.kind === 'pi') { await this.reconcile(ownerId, session); throw new AgentsApiError(503, 'Pi worker recovery is pending.', 'service_unavailable'); }
+      throw new AgentsApiError(409, 'The active turn ended before it could be steered.', 'active_turn_not_steerable');
+    }
     if (!run.execution || run.status !== 'running') throw new AgentsApiError(503, 'The turn is not ready for input yet.', 'service_unavailable');
     await this.options.interaction.steer({ runId: run.runId, execution: run.execution, turnId }, sessionMessageText(input), operationId, input);
   }
 
   public async cancel(ownerId: string, session: AgentSession, turnId: string): Promise<void> {
     const run = await this.run(ownerId, session.id, turnId);
+    if ((await this.options.store.get<SessionState>(ownerId, 'sessions', session.id))?.value.runtime?.kind === 'pi' && (!run || isTerminal(run.status) || run.status !== 'running')) {
+      await this.reconcile(ownerId, session);
+      throw new AgentsApiError(503, 'Pi worker recovery is pending.', 'service_unavailable');
+    }
     if (!run || isTerminal(run.status)) return;
     if (run.status === 'running' && run.execution) await this.options.interaction.interrupt({ runId: run.runId, execution: run.execution, turnId });
     else await this.options.runs.cancel(ownerId, run.runId);
@@ -214,9 +247,16 @@ export class RunSessionExecution implements SessionExecution {
 
   public async toolResult(ownerId: string, session: AgentSession, event: Extract<AgentSessionInputParam, { type: 'agent.session.input.tool_result' }>): Promise<void> {
     const run = await this.requiredRun(ownerId, session.id, event.turn_id);
-    if (isTerminal(run.status)) return;
+    if (isTerminal(run.status)) {
+      if ((await this.options.store.get<SessionState>(ownerId, 'sessions', session.id))?.value.runtime?.kind === 'pi') { await this.reconcile(ownerId, session); throw new AgentsApiError(503, 'Pi worker recovery is pending.', 'service_unavailable'); }
+      return;
+    }
     if (!run.execution) throw new AgentsApiError(503, 'The turn is not ready for input yet.', 'service_unavailable');
     const target = { runId: run.runId, execution: run.execution };
+    if ((await this.options.store.get<SessionState>(ownerId, 'sessions', session.id))?.value.runtime?.kind === 'pi') {
+      await this.options.interaction.respond(target, event.call_id, JSON.parse(canonicalJson({ success: event.success, output: (event.success ? event.output : event.error) ?? null })));
+      return;
+    }
     const snapshot = await this.options.interaction.events(target);
     const pending = snapshot.pendingRequests.find((request) => request.method === 'item/tool/call' && (request.params.callId ?? request.requestId) === event.call_id);
     if (!pending) {
@@ -232,6 +272,8 @@ export class RunSessionExecution implements SessionExecution {
   public async observe(ownerId: string, session: AgentSession, turn: Turn): Promise<SessionTurnObservation> {
     const runtime = await this.runtime.get(ownerId, session.id);
     const saved = runtime?.value.snapshot?.turns.find((binding) => binding.turn.id === turn.id);
+    const pin = (await this.options.store.get<SessionState>(ownerId, 'sessions', session.id))?.value.runtime;
+    if (pin?.kind === 'pi' && !runtime?.value.closed) return { turn: saved?.turn ?? turn, requiredActions: (runtime?.value.snapshot?.requiredActions ?? []).filter(action => action.type === 'function_call' && action.turn_id === turn.id) };
     if (saved && terminalTurn(saved.turn)) return { turn: saved.turn, requiredActions: [] };
     const run = await this.run(ownerId, session.id, turn.id);
     if (saved && run && !isTerminal(run.status)) return { turn: saved.turn, requiredActions: (runtime?.value.snapshot?.requiredActions ?? []).filter((action) => action.type === 'function_call' && action.turn_id === turn.id) };
@@ -248,6 +290,40 @@ export class RunSessionExecution implements SessionExecution {
       ? await this.options.interaction.events({ runId: run.runId, execution: run.execution }, 0, 100)
       : undefined;
     return projectSessionTurn(turn, run, snapshot);
+  }
+
+  public async reconcile(ownerId: string, session: AgentSession): Promise<void> {
+    const state = (await this.options.store.get<SessionState>(ownerId, 'sessions', session.id))?.value;
+    if (state?.runtime?.kind !== 'pi' || state.closing) return;
+    const native = await this.options.repairPi?.(ownerId, session.id);
+    const runtime = await this.runtime.get(ownerId, session.id);
+    if (!runtime || runtime.value.closed || runtime.value.recoveryExhausted) return;
+    const run = await this.runById(ownerId, runtime.value.runId);
+    if (run && !isTerminal(run.status)) return;
+    const snapshot = runtime.value.snapshot;
+    const hasWork = state.turns.some(binding => !terminalTurn(snapshot?.turns.find(saved => saved.turn.id === binding.turn.id)?.turn ?? binding.turn))
+      || native?.hasLiveTasks === true;
+    const now = Math.floor(Date.now() / 1000);
+    const decision = planPiRecovery({ closed: false, hasWork, now, failures: runtime.value.attempt?.failures ?? [],
+      worker: !run ? runtime.value.attempt?.phase === 'reserved' ? 'absent' : 'unknown' : run.execution?.generation && await this.options.sourceStopped?.({ runId: run.runId, generation: run.execution.generation }) ? 'stopped' : 'unknown' });
+    if (decision.type === 'idle') return;
+    if (decision.type === 'wait') throw new AgentsApiError(503, 'Waiting for verified Pi worker termination.', 'service_unavailable');
+    if (decision.type === 'exhausted' && !runtime.value.attempt?.dueAt) {
+      await this.options.store.put({ ...runtime, revision: runtime.revision + 1, value: { ...runtime.value, recoveryExhausted: true,
+        ...(snapshot ? { snapshot: stoppedSessionRuntime(snapshot, now) } : {}) } }, runtime.revision);
+      return;
+    }
+    const turn = state.turns.find(binding => !terminalTurn(snapshot?.turns.find(saved => saved.turn.id === binding.turn.id)?.turn ?? binding.turn)) ?? state.turns.at(-1);
+    if (!turn) return;
+    const dueAt = runtime.value.attempt?.dueAt ?? 0;
+    if (!dueAt) {
+      await this.options.store.put({ ...runtime, revision: runtime.revision + 1, value: { ...runtime.value, attempt: {
+        ...(runtime.value.attempt?.phase ? { phase: runtime.value.attempt.phase } : {}), ordinal: runtime.value.attempt?.ordinal ?? 0, turnId: turn.turn.id, failures: decision.type === 'replace' ? decision.failures : runtime.value.attempt?.failures ?? [], dueAt: now + (decision.type === 'replace' ? decision.delaySeconds : 0),
+      } } }, runtime.revision);
+      throw new AgentsApiError(503, 'Pi worker replacement is scheduled.', 'service_unavailable');
+    }
+    if (now < dueAt) throw new AgentsApiError(503, 'Pi worker replacement is scheduled.', 'service_unavailable');
+    await this.start(ownerId, session, turn, [], state.placement ?? 'microvm');
   }
 
   public async traceSteps(ownerId: string, session: AgentSession, turnId: string) {
@@ -298,7 +374,8 @@ export class RunSessionExecution implements SessionExecution {
     const runtime = await this.runtime.get(ownerId, session.id);
     if (!runtime?.value.snapshot) return [];
     const run = runtime.value.runId === null ? undefined : await this.runById(ownerId, runtime.value.runId);
-    return runtimeSubagents(run && !isTerminal(run.status) ? runtime.value.snapshot : stoppedSessionRuntime(runtime.value.snapshot, Math.floor(Date.now() / 1000)));
+    const pi = (await this.options.store.get<SessionState>(ownerId, 'sessions', session.id))?.value.runtime?.kind === 'pi';
+    return runtimeSubagents(pi || run && !isTerminal(run.status) ? runtime.value.snapshot : stoppedSessionRuntime(runtime.value.snapshot, Math.floor(Date.now() / 1000)));
   }
   private async run(ownerId: string, sessionId: string, turnId: string): Promise<RunRecord | undefined> {
     const runtime = await this.runtime.get(ownerId, sessionId);
@@ -312,3 +389,15 @@ export class RunSessionExecution implements SessionExecution {
 }
 
 function hash(value: string | Uint8Array): string { return createHash('sha256').update(value).digest('hex'); }
+
+function replayCommands(state: SessionState): SessionReplayCommand[] {
+  return Object.values(state.receipts).flatMap(receipt => receipt.commands.map((command): SessionReplayCommand => {
+    if (command.type === 'start') {
+      const binding = state.turns.find(entry => entry.turn.id === command.turnId);
+      if (!binding) throw new Error('Accepted Turn is missing');
+      return { type: 'start', turn: binding.turn, input: command.input, ...(binding.modelSettings ? { settings: binding.modelSettings } : {}) };
+    }
+    if (command.type === 'tool_result') return { type: 'tool_result', turnId: command.turnId, callId: command.event.call_id, output: command.event.success ? command.event.output : command.event.error, success: command.event.success };
+    return command;
+  }));
+}

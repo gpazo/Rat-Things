@@ -43,7 +43,11 @@ current deployment. Each accepted Turn captures its selected model. The server
 never substitutes a different model.
 
 Pi supports no environment or a managed environment, text and model-supported
-images, explicit function tools, MCP, and subagents. Self-hosted environments,
+base64 image data URLs, explicit function tools, MCP, and subagents. Managed Pi
+environments require S3 Files and Session checkpoints. Hosted skills, plugins,
+and capability directories are unsupported. Function names must be unique
+Bedrock identifiers of 1–64 letters, digits, underscores, or hyphens; names used
+by the runtime are reserved. Self-hosted environments,
 web search, enabled programmatic tool calling, deferred function loading, tool
 search, and JSON-schema output are rejected. Pi accepts medium verbosity, the
 auto service tier, no reasoning summary, and each model's advertised reasoning
@@ -244,7 +248,7 @@ provider-specific model; that does not promise later model-setting updates or
 provider access. Adding a model requires explicit capability review.
 
 Input sent to an idle Session starts a Turn. Input sent while the coordinator is
-working steers that Turn. Canceling a Turn preserves the Session. A failed or
+working steers that Turn. Canceling a Turn preserves the Session. For Codex, a failed or
 expired environment is terminal for that environment; create another Session.
 Workers send durable keep-alives while the Session harness is connected, including
 between Turns. Closing a stream or completing a Turn does not start an expiry
@@ -257,11 +261,20 @@ On resume, the trusted lifecycle timestamp starts a fresh keep-alive grace perio
 The environment may report `disconnected` while frozen because its connection
 lease expires; the next control request can still resume the same worker.
 Earlier verified worker loss may be retired sooner.
-Unexpected worker loss can replace a hosted sandbox on the next Turn. The
+For Codex, unexpected worker loss can replace a hosted sandbox on the next Turn. The
 environment ID and conversation remain stable, declared inputs are prepared
 again, and previous sandbox files and processes are lost. The
 `agent.session.environment.reset` event carries a monotonically increasing
 `reset_count`; duplicate notifications for one replacement share that count.
+Pi instead reopens its committed task graph after the previous worker is confirmed
+terminated. Pending function results and background children keep their identities.
+Its managed workspace retains flushed files and setup identity in S3 Files; setup
+commands are not replayed after successful setup. A completed tool result is
+committed only after the workspace flush succeeds. Effects interrupted before
+acknowledgement can have happened; unsafe effects are not automatically repeated.
+Missing termination evidence keeps recovery pending, and repeated confirmed
+worker failures exhaust the bounded replacement budget.
+
 Cancellation does not replace a Turn's completed or failed outcome. For work
 already admitted to the harness, inspect the Turn until its outcome is terminal.
 Deleting a Session closes its execution authority even if its first harness has

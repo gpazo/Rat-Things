@@ -41,6 +41,11 @@ export async function prepareHostedEnvironment(options: {
   if (launch.environment.type !== 'openai_hosted' || !launch.hostedConfiguration) return { launch };
   const configuration = launch.hostedConfiguration;
   const adopted = options.adoptedCheckpoint;
+  const recovered = launch.runtime?.kind === 'pi' ? launch.piWorkspace : undefined;
+  if (recovered) {
+    const digests = workspaceDigests(launch);
+    if (recovered.setupDigest !== digests.setupDigest || recovered.policyDigest !== digests.policyDigest || !recovered.sandboxId) throw new Error('Pi workspace recovery is incompatible');
+  }
   if (options.forkSetupDigest && options.forkSetupDigest !== workspaceDigests(launch).setupDigest) throw new Error('Fork setup does not match its snapshot');
   if (adopted) {
     const digests = workspaceDigests(launch);
@@ -72,7 +77,7 @@ export async function prepareHostedEnvironment(options: {
   if (adopted && previous && previous.sandbox.id !== adopted.sandboxId) throw new Error('Local sandbox does not match the adopted checkpoint');
   if (previous?.digest === digest) return { launch: result, sandbox: previous.sandbox };
   if (previous !== undefined) throw new Error('A managed environment cannot change its setup configuration');
-  const sandbox: ManagedSandboxGeneration = adopted ? { id: adopted.sandboxId, replaced: false } : { id: randomUUID(), replaced: options.previouslyPrepared ?? false };
+  const sandbox: ManagedSandboxGeneration = adopted || recovered ? { id: (adopted ?? recovered)!.sandboxId, replaced: false } : { id: randomUUID(), replaced: options.previouslyPrepared ?? false };
   if (sandbox.replaced) {
     const directory = await lstat(workspace);
     if (!directory.isDirectory() || directory.isSymbolicLink()) throw new Error('Managed workspace is invalid');
@@ -87,7 +92,7 @@ export async function prepareHostedEnvironment(options: {
     const installed = await runProcess('dnf', ['install', '-y', '--setopt=gpgcheck=1', '--', ...system], { cwd: '/', env: { PATH: process.env.PATH, LANG: 'C.UTF-8' }, timeoutMs: 600_000, ...(signal ? { signal } : {}) });
     if (installed.exitCode !== 0) throw new Error('System package installation failed');
   }
-  if (adopted || options.forkSetupDigest) {
+  if (adopted || recovered || options.forkSetupDigest) {
     // Workspace packages, setup output and capabilities belong to the checkpoint.
     // Only system packages above were lost with the previous root filesystem.
     await writeFile(marker, JSON.stringify({ digest, sandbox }), { flag: 'wx', mode: 0o600 });

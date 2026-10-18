@@ -24,6 +24,7 @@ await Promise.all([
   ...Object.entries(lambdaEntries).map(([name, entry]) =>
     bundle(entry, `dist/lambdas/${name}/index.mjs`),
   ),
+  bundle('src/runner/pi-child.ts', 'dist/pi-child.mjs'),
   bundle('src/runner/entry.ts', 'dist/runner.mjs'),
   bundle('src/runner/ec2-supervisor.ts', 'dist/ec2-supervisor.mjs'),
   bundle('src/relay.ts', 'dist/environment-relay.mjs'),

@@ -1,3 +1,5 @@
+import { piProjectionRepair } from './pi-projection-repair.js';
+import { piCatalogFromConfig } from '../adapters/pi-model-catalog.js';
 import { sessionPlacementFromEnv } from './session-placement.js';
 import { GetObjectCommand } from '@aws-sdk/client-s3';
 import { SessionPublicationService } from '../core/session-publication-service.js';
@@ -74,7 +76,7 @@ import { SecretsWebhooks } from '../adapters/secrets-webhooks.js';
 import { HttpsWebhookTransport } from '../adapters/webhook-http.js';
 import { SecretsAgentCredentials } from '../adapters/secrets-agent-credentials.js';
 import { HttpOAuthRefreshClient } from '../adapters/oauth-refresh-client.js';
-import { modelCatalogFromConfig, type ModelCatalog } from '../core/model-catalog.js';
+import { createPiModelCatalog, modelCatalogFromConfig, type ModelCatalog } from '../core/model-catalog.js';
 
 interface BaseServices {
   clients: AwsClients;
@@ -102,7 +104,7 @@ let connectionConsumerService: ConnectionConsumerService | undefined;
 let oauthAuthorizationService: OAuthAuthorizationService | undefined;
 let capabilityProfileRegistry: CapabilityProfileRegistry | undefined;
 let sourcePolicyResolver: StoredSourceSessionResolver | undefined;
-let agentsApiServices: { store: SessionEventStore; tokens: ApiTokenService; agents: AgentService; vaults: VaultService; templates: EnvironmentTemplateService; environments: EnvironmentService; files: FileService; skills: SkillService; webhooks: WebhookService; tools: SessionToolService; models: ModelCatalog | undefined; readonly sessions: SessionService } | undefined;
+let agentsApiServices: { store: SessionEventStore; tokens: ApiTokenService; agents: AgentService; vaults: VaultService; templates: EnvironmentTemplateService; environments: EnvironmentService; files: FileService; skills: SkillService; webhooks: WebhookService; tools: SessionToolService; models: ModelCatalog | undefined; piModels: ModelCatalog | undefined; readonly sessions: SessionService } | undefined;
 let sessionIntegrationService: SessionIntegrationService | undefined;
 let agentsSessionService: SessionService | undefined;
 let apiTokenService: ApiTokenService | undefined;
@@ -128,8 +130,10 @@ export function getAgentsApiServices() {
   const vaults = new VaultService({ store, oauth: new HttpOAuthRefreshClient(), secrets: new SecretsAgentCredentials(
     base.clients.secrets, requiredEnv('INTEGRATION_CREDENTIAL_NAME_PREFIX'), requiredEnv('INTEGRATION_CREDENTIAL_KMS_KEY_ARN'),
   ) });
+  const piCatalog = piCatalogFromConfig(process.env.PI_BEDROCK_MODEL_IDS_JSON, process.env.AWS_REGION);
   agentsApiServices = {
     store,
+    piModels: createPiModelCatalog(piCatalog, process.env.PI_BEDROCK_DEFAULT_MODEL),
     webhooks: new WebhookService({ store, transport: new HttpsWebhookTransport(), secrets: new SecretsWebhooks(base.clients.secrets, requiredEnv('INTEGRATION_CREDENTIAL_NAME_PREFIX'), requiredEnv('INTEGRATION_CREDENTIAL_KMS_KEY_ARN')) }),
     tokens: getApiTokenService(),
     agents: new AgentService({ store }),
@@ -155,9 +159,10 @@ export function getAgentsApiServices() {
     }),
     get sessions(): SessionService {
       agentsSessionService ??= new SessionService({
-        store, agents: this.agents,
+        store, agents: this.agents, piCatalog, piManagedStorage: process.env.SESSION_CHECKPOINTS_ENABLED === 'true' && process.env.S3_FILES_ENABLED === 'true',
         execution: new RunSessionExecution({
-          store,
+          store, repairPi: piProjectionRepair(store),
+          sourceStopped: workspaceSourceStopped(id => new DynamoRunStore(base.clients.dynamodb, requiredEnv('RUNS_TABLE_NAME')).get(id), requiredEnv('AWS_REGION')),
           placement: sessionPlacementFromEnv(process.env),
           ...(process.env.SESSION_CHECKPOINTS_ENABLED === 'true' ? { handoffs: new WorkspaceHandoffService({ store, enabled: true }) } : {}),
           runs: getRunService(true), interaction: getAgentInteractionController(),
