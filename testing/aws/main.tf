@@ -125,46 +125,48 @@ module "agent_runner" {
     aws_secretsmanager_secret.publication_signing_key[0].arn,
     null,
   )
-  publication_route53_zone_id       = var.publication_route53_zone_id
-  log_retention_days                = 1
-  force_destroy_data                = true
-  enable_point_in_time_recovery     = false
-  run_retention_seconds             = 3600
-  run_heartbeat_interval_seconds    = 30
-  run_heartbeat_stale_seconds       = 60
-  allowed_repository_hosts          = ["github.com", "gitlab.com"]
-  allowed_sandbox_modes             = ["read-only", "workspace-write", "danger-full-access"]
-  allow_agent_aws_credential_chain  = false
-  codex_auth_mode                   = "bedrock"
-  codex_bedrock_model_ids           = [var.codex_model_id]
-  default_delivery_destinations     = "source"
-  integration_plugin_base_urls      = { fixture-crm = aws_lambda_function_url.integration_fixture.function_url }
-  integration_oauth_app_secret_arns = var.integration_oauth_app_secret_arns
-  lambda_zip_paths                  = local.lambda_zip_paths
-  github_webhook_secret_arn         = aws_secretsmanager_secret.github_webhook.arn
-  github_webhook_enabled            = true
-  gitlab_webhook_secret_arn         = aws_secretsmanager_secret.gitlab_webhook.arn
-  gitlab_webhook_enabled            = true
-  teams_outgoing_webhook_secret_arn = aws_secretsmanager_secret.teams_webhook.arn
-  teams_webhook_enabled             = true
-  teams_workflow_url_secret_arn     = aws_secretsmanager_secret.teams_workflow.arn
-  slack_signing_secret_arn          = try(aws_secretsmanager_secret.slack_webhook[0].arn, null)
-  slack_webhook_enabled             = var.enable_slack_webhook
-  enable_microvm                    = var.enable_microvm
-  ec2_session_workloads             = var.ec2_session_workloads
-  enable_ec2_worker                 = var.enable_ec2_worker
-  ec2_worker_ami_id                 = var.ec2_worker_ami_id
-  ec2_worker_image                  = var.ec2_worker_image
-  ec2_worker_instance_type          = var.ec2_worker_instance_type
-  enable_ec2_worker_ami_pipeline    = var.enable_ec2_worker_ami_pipeline
-  ec2_worker_ami_base_id            = var.ec2_worker_ami_base_id
-  ec2_worker_ami_component_version  = var.ec2_worker_ami_component_version
-  ec2_worker_ami_recipe_version     = var.ec2_worker_ami_recipe_version
-  ec2_worker_prepared_ami           = var.ec2_worker_prepared_ami
-  enable_s3_files                   = var.enable_microvm || var.enable_ec2_worker
-  microvm_source_zip_path           = "${path.root}/../../dist/microvm-source.zip"
-  microvm_base_image_version        = var.microvm_base_image_version
-  tags                              = local.tags
+  publication_route53_zone_id        = var.publication_route53_zone_id
+  log_retention_days                 = 1
+  force_destroy_data                 = true
+  enable_point_in_time_recovery      = false
+  run_retention_seconds              = 3600
+  run_heartbeat_interval_seconds     = 30
+  run_heartbeat_stale_seconds        = 60
+  allowed_repository_hosts           = ["github.com", "gitlab.com"]
+  allowed_sandbox_modes              = ["read-only", "workspace-write", "danger-full-access"]
+  allow_agent_aws_credential_chain   = false
+  codex_auth_mode                    = "bedrock"
+  codex_bedrock_model_ids            = [var.codex_model_id]
+  pi_bedrock_model_ids               = var.pi_bedrock_model_ids
+  pi_bedrock_inference_resource_arns = var.pi_bedrock_inference_resource_arns
+  default_delivery_destinations      = "source"
+  integration_plugin_base_urls       = { fixture-crm = aws_lambda_function_url.integration_fixture.function_url }
+  integration_oauth_app_secret_arns  = var.integration_oauth_app_secret_arns
+  lambda_zip_paths                   = local.lambda_zip_paths
+  github_webhook_secret_arn          = aws_secretsmanager_secret.github_webhook.arn
+  github_webhook_enabled             = true
+  gitlab_webhook_secret_arn          = aws_secretsmanager_secret.gitlab_webhook.arn
+  gitlab_webhook_enabled             = true
+  teams_outgoing_webhook_secret_arn  = aws_secretsmanager_secret.teams_webhook.arn
+  teams_webhook_enabled              = true
+  teams_workflow_url_secret_arn      = aws_secretsmanager_secret.teams_workflow.arn
+  slack_signing_secret_arn           = try(aws_secretsmanager_secret.slack_webhook[0].arn, null)
+  slack_webhook_enabled              = var.enable_slack_webhook
+  enable_microvm                     = var.enable_microvm
+  ec2_session_workloads              = var.ec2_session_workloads
+  enable_ec2_worker                  = var.enable_ec2_worker
+  ec2_worker_ami_id                  = var.ec2_worker_ami_id
+  ec2_worker_image                   = var.ec2_worker_image
+  ec2_worker_instance_type           = var.ec2_worker_instance_type
+  enable_ec2_worker_ami_pipeline     = var.enable_ec2_worker_ami_pipeline
+  ec2_worker_ami_base_id             = var.ec2_worker_ami_base_id
+  ec2_worker_ami_component_version   = var.ec2_worker_ami_component_version
+  ec2_worker_ami_recipe_version      = var.ec2_worker_ami_recipe_version
+  ec2_worker_prepared_ami            = var.ec2_worker_prepared_ami
+  enable_s3_files                    = var.enable_microvm || var.enable_ec2_worker
+  microvm_source_zip_path            = "${path.root}/../../dist/microvm-source.zip"
+  microvm_base_image_version         = var.microvm_base_image_version
+  tags                               = local.tags
 }
 
 resource "aws_sqs_queue" "integration_fixture_audit" {

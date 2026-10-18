@@ -15,6 +15,21 @@ runs the API and console canaries, terminates remaining MicroVMs and destroys th
 isolated stack from its exit trap. Deployment identity and Terraform state live
 under `.aws-e2e/DEPLOYMENT_ID/`; recovery verifies the original AWS account.
 
+To configure the optional Pi proof, set `AWS_E2E_PI_BEDROCK_MODEL_IDS_JSON` and
+`AWS_E2E_PI_BEDROCK_INFERENCE_RESOURCE_ARNS_JSON` to JSON arrays. The module
+checks the model IDs and exact inference resource ARNs before it grants access.
+Set `AWS_E2E_REAL_CODEX=true` and `AWS_E2E_ENABLE_MICROVM=true` when you deploy.
+After the deployment, source its `runtime.env` and run:
+
+```bash
+AWS_E2E_PI_PROOF=true npx vitest run tests/aws/pi-runtime.test.ts
+```
+
+The proof runs each configured model in sequence. It creates and deletes its
+own Agent and Session for each model. It verifies a function result, a stopped
+MicroVM, committed native history, and a replacement worker that recalls the
+result. The proof requires at least two distinct configured model IDs.
+
 The API canary uploads and downloads a binary File, checks deletion and rejected
 unauthenticated access, then creates an Agent and verifies two completed root
 Turns using saved assistant Items. It deletes the disposable Session and Agent.

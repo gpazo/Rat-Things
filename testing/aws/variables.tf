@@ -39,6 +39,18 @@ variable "codex_model_id" {
   default     = "openai.gpt-5.6-terra"
 }
 
+variable "pi_bedrock_model_ids" {
+  description = "Exact Bedrock model IDs admitted to the optional Pi runtime proof."
+  type        = list(string)
+  default     = []
+}
+
+variable "pi_bedrock_inference_resource_arns" {
+  description = "Exact Bedrock inference resource ARNs admitted to the optional Pi runtime proof."
+  type        = list(string)
+  default     = []
+}
+
 variable "integration_oauth_app_secret_arns" {
   description = "Optional operator-owned OAuth application secrets used by an explicit live provider canary."
   type        = map(string)

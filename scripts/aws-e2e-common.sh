@@ -29,6 +29,9 @@ aws_e2e_source_runtime_defaults() {
     AWS_E2E_MICROVM_BASE_IMAGE_VERSION
     AWS_E2E_REAL_CODEX
     AWS_E2E_CODEX_MODEL_ID
+    AWS_E2E_PI_BEDROCK_MODEL_IDS_JSON
+    AWS_E2E_PI_BEDROCK_INFERENCE_RESOURCE_ARNS_JSON
+    AWS_E2E_PI_PROOF
     AWS_E2E_OAUTH_APP_SECRET_ARNS
     AWS_E2E_PUBLICATION_DOMAIN
     AWS_E2E_PUBLICATION_ROUTE53_ZONE_ID
@@ -101,6 +104,21 @@ aws_e2e_configure() {
   microvm_base_image_version="${AWS_E2E_MICROVM_BASE_IMAGE_VERSION:-}"
   real_codex_enabled="${AWS_E2E_REAL_CODEX:-false}"
   codex_model_id="${AWS_E2E_CODEX_MODEL_ID:-openai.gpt-5.6-terra}"
+  pi_bedrock_model_ids="${AWS_E2E_PI_BEDROCK_MODEL_IDS_JSON:-[]}"
+  pi_bedrock_inference_resource_arns="${AWS_E2E_PI_BEDROCK_INFERENCE_RESOURCE_ARNS_JSON:-[]}"
+  pi_proof_enabled="${AWS_E2E_PI_PROOF:-false}"
+  if [[ "$pi_proof_enabled" != "true" && "$pi_proof_enabled" != "false" ]]; then
+    echo "AWS_E2E_PI_PROOF must be true or false" >&2
+    return 1
+  fi
+  if ! jq -e 'type == "array" and all(.[]; type == "string")' >/dev/null <<<"$pi_bedrock_model_ids"; then
+    echo "AWS_E2E_PI_BEDROCK_MODEL_IDS_JSON must be a JSON array of strings" >&2
+    return 1
+  fi
+  if ! jq -e 'type == "array" and all(.[]; type == "string")' >/dev/null <<<"$pi_bedrock_inference_resource_arns"; then
+    echo "AWS_E2E_PI_BEDROCK_INFERENCE_RESOURCE_ARNS_JSON must be a JSON array of strings" >&2
+    return 1
+  fi
   oauth_app_secret_arns="${AWS_E2E_OAUTH_APP_SECRET_ARNS:-}"
   slack_webhook_enabled="${AWS_E2E_ENABLE_SLACK_WEBHOOK:-false}"
   if [[ "$slack_webhook_enabled" != "true" && "$slack_webhook_enabled" != "false" ]]; then
@@ -146,6 +164,8 @@ aws_e2e_configure() {
     "-var=ec2_session_workloads=$ec2_session_workloads"
     "-var=enable_validation_observer=${AWS_E2E_ENABLE_VALIDATION_OBSERVER:-false}"
     "-var=codex_model_id=$codex_model_id"
+    "-var=pi_bedrock_model_ids=$pi_bedrock_model_ids"
+    "-var=pi_bedrock_inference_resource_arns=$pi_bedrock_inference_resource_arns"
     "-var=integration_oauth_app_secret_arns=$oauth_app_secret_arns"
     "-var=enable_slack_webhook=$slack_webhook_enabled"
     "-var=enable_publication_delivery=$publication_enabled"
