@@ -1,5 +1,5 @@
 export type { PiEffectTool, PiToolEffect, PiToolEffectHandler, PiRootCheckpoint, PiFunctionResult } from './protocol.js';
-import type { Models, ModelThinkingLevel } from '@earendil-works/pi-ai';
+import { createModels, type Models, type ModelThinkingLevel } from '@earendil-works/pi-ai';
 import { AgentDoc, Harness, InboxDoc, LiveDoc, configure, createRegistry, defineTool, type AgentChange, type JsonObject, type Storage } from '@earendil-works/pi-durable';
 import type { SessionRuntimeState } from '../../core/session-runtime-planning.js';
 import type { AgentSessionInputMessageParam, AgentSessionItem, Turn } from '../../domain/agents-api.js';
@@ -8,7 +8,7 @@ import { PI_REGISTRY, piModel, validateRuntimeAgent, type RuntimePin } from '../
 import { canonicalJson } from '../../domain/json.js';
 import { ChildKeeperTask, coordinationTools } from './coordination.js';
 import { functionTools, resolvePiFunction } from './functions.js';
-import { applyPiCommit, piImageHasLiveTasks, projectPi, readPiImage, type PiCommittedImage } from './projection.js';
+import { applyPiCommit, piImageHasLiveTasks, projectPi, projectPiStorage, readPiImage, type PiCommittedImage } from './projection.js';
 import { CommandsDoc, FunctionsDoc, LinksDoc, PI_CONTEXT, admitPiInput, asConversationId, json, piInput, publicCallId, type PiEffectTool, type PiFunctionResult, type PiRootCheckpoint, type PiToolEffectHandler } from './protocol.js';
 
 export interface PiEngineOptions {
@@ -164,12 +164,12 @@ export async function openPiEngine(options: PiEngineOptions): Promise<PiEngine> 
     resume: () => { if (closed) throw new Error('Pi engine is closed'); resumed = true; harness.resume(); completeIfIdle(); },
     start: (turn, input, settings) => enqueue(async () => {
       if (turn.session_id !== launch.sessionId || turn.subagent_id !== null) throw new Error('Pi root Turn belongs to a different Session');
-      const change = agentChange(pin, launch, settings, options.models);
-      const content = piInput(input);
-      assertInput(pin, settings?.model ?? launch.agent.model, input);
       await harness.commit(async tx => {
         const links = await tx.doc(LinksDoc);
         if (links.turns[turn.id]) return;
+        const change = agentChange(pin, launch, settings, options.models);
+        const content = piInput(input);
+        assertInput(pin, settings?.model ?? launch.agent.model, input);
         await configure(tx, root.id, change);
         const requestId = `turn:${turn.id}`;
         const submissionId = await admitPiInput(tx, root.id, requestId, content, now());
@@ -241,4 +241,40 @@ function forkItem(item: AgentSessionItem): AgentSessionItem {
   if (item.id === null) return item;
   if ('call_id' in item) return { ...item, id: `pi_fork_${item.id}`, call_id: `pi_fork_${item.call_id}` };
   return { ...item, id: `pi_fork_${item.id}` };
+}
+
+
+export async function abortPiRecovery(storage: Storage, launch: SessionLaunch, nativeSeq: number): Promise<{ snapshot: SessionRuntimeState; nativeSeq: number; hasLiveTasks: boolean }> {
+  const pin = launch.runtime;
+  if (pin?.kind !== 'pi' || pin.engine !== '1.3.0' || pin.schema !== 1 || pin.registryDigest !== PI_REGISTRY) throw new Error('Pi 1.3.0 runtime pin is required');
+  const registry = createRegistry();
+  registry.install({ name: 'rat', tasks: [ChildKeeperTask] });
+  const tracked = new Proxy(storage, { get(target, key) {
+    if (key === 'commit') return async (...args: Parameters<Storage['commit']>) => {
+      const seq = await target.commit(...args); nativeSeq = seq; return seq;
+    };
+    const value: unknown = Reflect.get(target, key);
+    return typeof value === 'function' ? value.bind(target) : value;
+  } });
+  const harness = await Harness.open(tracked, { models: createModels(), registry }, PI_CONTEXT);
+  try {
+    const links = await harness.snapshot(LinksDoc, PI_CONTEXT);
+    if (links?.sessionId !== launch.sessionId) throw new Error('Pi storage belongs to a different Session');
+    const before = await projectPiStorage(storage, launch, nativeSeq);
+    const affected = before.snapshot.turns.filter(binding => ['queued', 'in_progress', 'waiting'].includes(binding.turn.status)).map(binding => binding.turn.id);
+    const inspection = await harness.inspect(PI_CONTEXT);
+    await harness.commit(async tx => {
+      const links = await tx.doc(LinksDoc);
+      for (const turnId of affected) links.turns[turnId]!.recoveryFailure ??= { message: 'Pi recovery attempts were exhausted.', at: Date.now() };
+      for (const child of Object.values(links.children)) if (child.closedAt === undefined) child.closing = true;
+    }, PI_CONTEXT);
+    for (const task of inspection.tasks) await harness.abortTask(task.record.id, PI_CONTEXT);
+    for (const submission of inspection.submissions) if (submission.status === 'queued') await harness.abortSubmission(submission.id, PI_CONTEXT);
+    for (const task of inspection.tasks) await harness.waitForTask(task.record.id, PI_CONTEXT);
+    const remaining = await harness.inspect(PI_CONTEXT);
+    if (remaining.tasks.length || remaining.submissions.length) throw new Error('Pi recovery cleanup left unfinished native work');
+    const result = await projectPiStorage(storage, launch, nativeSeq);
+    if (result.hasLiveTasks) throw new Error('Pi recovery cleanup left an open child closure');
+    return result;
+  } finally { await harness.close(PI_CONTEXT); }
 }

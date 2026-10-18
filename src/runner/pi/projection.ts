@@ -92,16 +92,17 @@ function projectTurn(image: PiCommittedImage, link: PiTurnLink, links: PiLinks, 
   const entries = entryId === undefined ? [] : Object.values(image.entries).filter(entry => entry.conversationId === link.conversationId && entry.id >= entryId && (nextEntry === undefined || entry.id < nextEntry)).sort((a, b) => a.id - b.id);
   const tasks = Object.values(image.tasks).filter(task => task.conversationId === link.conversationId && entryId !== undefined && task.id > entryId && (nextEntry === undefined || task.id < nextEntry));
   const pending = Object.values(functions?.calls ?? {}).some(call => call.turnId === link.turn.id && !call.result && image.tasks[call.taskId]?.state.status !== 'terminal');
-  const status: Turn['status'] = activeSubmission ? activeSubmission.status === 'placed' ? pending ? 'waiting' : 'in_progress' : 'queued'
+  const nativeStatus: Turn['status'] = activeSubmission ? activeSubmission.status === 'placed' ? pending ? 'waiting' : 'in_progress' : 'queued'
     : lastSubmission?.status === 'done' ? 'completed' : lastSubmission?.status === 'unanswered' ? lastSubmission.reason === 'aborted' ? 'cancelled' : 'failed' : 'queued';
+  const status = link.recoveryFailure && ['completed', 'cancelled', 'failed'].includes(nativeStatus) ? 'failed' : nativeStatus;
   const terminal = status === 'completed' || status === 'cancelled' || status === 'failed';
   const lastEnd = tasks.reduce((value, task) => Math.max(value, task.endedAt ?? 0), 0);
   const messages = entries.flatMap(entry => entry.model ?? []);
   const firstMessage = messages[0];
-  const completedAt = Math.max(lastEnd, ...messages.map(message => message.timestamp));
+  const completedAt = Math.max(lastEnd, link.recoveryFailure?.at ?? 0, ...messages.map(message => message.timestamp));
   const turn: Turn = { ...link.turn, status, started_at: firstMessage ? Math.floor(firstMessage.timestamp / 1000) : null,
     completed_at: terminal ? Math.floor(completedAt / 1000) : null, usage: usage(messages.filter((message): message is AssistantMessage => message.role === 'assistant')),
-    error: status === 'failed' ? { code: 'server_error', message: 'The Pi run ended without an answer.' } : null };
+    error: status === 'failed' ? { code: 'server_error', message: link.recoveryFailure?.message ?? 'The Pi run ended without an answer.' } : null };
   const items = entries.flatMap(entry => entryItems(image, entry, link, functions, effects, terminal, coordination, messageIds));
   const live = image.documents[`pi.live:${link.conversationId}:`] as LiveState | undefined;
   if (live?.run?.inputs.some(id => id === link.submissionId || link.steerIds?.includes(id)) && live.generation?.message) {

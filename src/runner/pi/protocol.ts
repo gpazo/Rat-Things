@@ -8,7 +8,7 @@ import type { AgentSessionInputMessageParam, Turn } from '../../domain/agents-ap
 import type { RuntimePin } from '../../domain/session-runtime.js';
 
 export const PI_CONTEXT: Context = BACKGROUND_CONTEXT;
-export type PiTurnLink = { turn: JsonRepresentation<Turn>; conversationId: number; submissionId: number; requestId: string; steerIds?: number[]; parentTurnId?: string };
+export type PiTurnLink = { turn: JsonRepresentation<Turn>; conversationId: number; submissionId: number; requestId: string; steerIds?: number[]; recoveryFailure?: { message: string; at: number }; parentTurnId?: string };
 export type PiChildLink = { id: string; conversationId: number; keeperId: number; spawnTaskId: number; parentId: string; parentTurnId: string; name: string; prompt: string; openedAt: number; closing: boolean; closedAt?: number };
 export type PiLinks = { sessionId: string; agentId: string; rootId: number; effects: PiEffectDescriptor[]; turns: Record<string, PiTurnLink>; children: Record<string, PiChildLink>; inherited: JsonRepresentation<NativeTurnBinding>[] };
 export const LinksDoc = defineDoc<PiLinks>({ kind: 'rat.links', version: 1, scope: 'session', initial: () => ({ sessionId: '', agentId: '', rootId: 1, effects: [], turns: {}, children: {}, inherited: [] }) });

@@ -11,7 +11,7 @@ import { resolveRuntime } from '../../src/domain/session-runtime.js';
 import type { SessionLaunch } from '../../src/domain/session-execution.js';
 import type { AgentSessionInputMessageParam, Turn } from '../../src/domain/agents-api.js';
 import { openPiStorage } from '../../src/runner/pi/storage.js';
-import { openPiEngine, type PiEngine, type PiEngineOptions } from '../../src/runner/pi/engine.js';
+import { abortPiRecovery, openPiEngine, type PiEngine, type PiEngineOptions } from '../../src/runner/pi/engine.js';
 import { piHasLiveTasks, projectPiStorage } from '../../src/runner/pi/projection.js';
 import { PI_CONTEXT } from '../../src/runner/pi/protocol.js';
 
@@ -355,6 +355,24 @@ describe('Pi model accounting and fork boundaries', () => {
     expect({ model: checkpoint.model, reasoning: checkpoint.reasoning }).toEqual({ model: 'second-model', reasoning: 'low' });
   });
 
+  it('replays a completed Turn after model revocation without admitting new work on the revoked model', async () => {
+    const f = await fixture([answer('Original answer'), answer('Allowed model answer')], {}, ['test-model', 'second-model']);
+    const first = await f.open({ mode: 'bounded' }); await first.start(turn(), input('original')); first.resume(); await first.finished;
+    const completed = first.snapshot(); await first.close();
+    const getModel = f.models.getModel.bind(f.models);
+    vi.spyOn(f.models, 'getModel').mockImplementation((provider, model) => model === 'test-model' ? undefined : getModel(provider, model));
+    const second = await f.open({ mode: 'bounded', launch: { ...f.launch, agent: { ...f.launch.agent, model: 'second-model' } } });
+    const seq = second.nativeSeq;
+    const oldSettings = { model: 'test-model', service_tier: 'auto' as const, reasoning: { effort: 'medium' as const } };
+    await second.start(turn(), input('original'), oldSettings);
+    expect(second.nativeSeq).toBe(seq); expect(second.snapshot()).toEqual(completed);
+    await expect(second.start(turn('turn_revoked'), input('new revoked'), oldSettings)).rejects.toThrow('unavailable');
+    expect(second.nativeSeq).toBe(seq); expect(f.faux.state.callCount).toBe(1);
+    await second.start(turn('turn_allowed'), input('new allowed')); second.resume(); await second.finished;
+    expect(second.snapshot().turns.at(-1)?.turn).toMatchObject({ id: 'turn_allowed', status: 'completed' });
+    expect(f.faux.state.callCount).toBe(2);
+  });
+
   it('counts each committed answer once, including cache and reasoning token counts without publishing reasoning text', async () => {
     const f = await fixture([]);
     const message = { ...fauxAssistantMessage([fauxThinking('hidden'), { type: 'text', text: 'Visible' }]), api: 'bedrock-converse-stream', provider: 'amazon-bedrock', model: 'test-model',
@@ -468,5 +486,81 @@ describe('Pi committed streaming identity', () => {
     expect(done.map(event => ({ id: event.item.id, status: event.item.status }))).toEqual([{ id: oldId, status: 'incomplete' }, { id: items[1]!.id, status: 'completed' }]);
     expect(sink.events.filter(event => event.type === 'agent.session.turn.output_text.delta').map(event => event.delta)).toEqual(['Old attempt', 'Different answer']);
     const snapshot = second.snapshot(); await second.close(); const reopened = await f.open(); expect(reopened.snapshot()).toEqual(snapshot);
+  });
+});
+
+
+describe('Pi recovery exhaustion', () => {
+  it('durably ends root, child and queued work without inference and then admits a new Turn', async () => {
+    const route: FauxResponseStep = context => {
+      const last = [...context.messages].reverse().find(message => message.role === 'user');
+      const prompt = last?.role === 'user' ? typeof last.content === 'string' ? last.content : last.content.flatMap(part => part.type === 'text' ? [part.text] : []).join('') : '';
+      if (prompt === 'previous completed') return answer('Previous answer');
+      if (prompt === 'fresh turn') return answer('New answer');
+      if (prompt === 'first child') return tool('lookup', { query: 'child' });
+      const results = context.messages.filter(message => message.role === 'toolResult');
+      const spawn = results.find(message => message.toolName === 'spawn_agent');
+      if (!spawn) return tool('spawn_agent', { name: 'worker', message: 'first child' });
+      const id = JSON.parse(spawn.content.find(part => part.type === 'text')!.text).agent_id as string;
+      if (!results.some(message => message.toolName === 'send_input')) return tool('send_input', { id, message: 'queued child' });
+      return tool('wait_agent', { ids: [id] });
+    };
+    const f = await fixture(Array.from({ length: 16 }, () => route), {
+      multi_agent: { enabled: true, max_concurrent_subagents: 2 },
+      tools: [{ type: 'function', name: 'lookup', description: 'Lookup', parameters: { type: 'object', properties: { query: { type: 'string' } }, required: ['query'] }, defer_loading: false }],
+    });
+    const first = await f.open();
+    await first.start(turn('turn_cancelled'), input('previous cancelled')); await first.cancel('turn_cancelled'); first.resume();
+    await until(() => first.snapshot().turns[0]?.turn.status === 'cancelled');
+    await first.start(turn('turn_completed'), input('previous completed')); await until(() => first.snapshot().turns[1]?.turn.status === 'completed');
+    await first.start(turn(), input('exhausted root'));
+    await until(() => first.snapshot().turns[2]?.items.some(item => item.type === 'wait_for_subagents_call') === true && first.snapshot().requiredActions.length === 1);
+    await first.steer('turn_1', input('queued root correction'), 'recovery-steer');
+    const childId = first.snapshot().subagents[0]!.id;
+    const activeIds = first.snapshot().turns.filter(binding => ['queued', 'waiting', 'in_progress'].includes(binding.turn.status)).map(binding => binding.turn.id);
+    expect(activeIds).toHaveLength(3);
+    await first.close();
+    const calls = f.faux.state.callCount;
+    const native = await f.lease.load();
+    const open = Harness.open;
+    let maintenanceStreams = 0; let maintenanceOpens = 0;
+    const maintenance = vi.spyOn(Harness, 'open').mockImplementation(async (...args) => {
+      expect(args[1].registry.snapshot().tools()).toEqual([]);
+      maintenanceOpens++;
+      const stream = args[1].models.streamSimple.bind(args[1].models);
+      args[1].models.streamSimple = (...request) => { maintenanceStreams++; return stream(...request); };
+      return open(...args);
+    });
+    const cleaned = await abortPiRecovery(await openPiStorage(f.lease), f.launch, native.head!.seq);
+    expect(maintenanceOpens).toBe(1);
+    expect(maintenanceStreams).toBe(0); maintenance.mockRestore();
+    expect(f.faux.state.callCount).toBe(calls);
+    expect(cleaned.hasLiveTasks).toBe(false);
+    expect(cleaned.nativeSeq).toBe((await f.lease.load()).head!.seq);
+    expect(cleaned.snapshot.requiredActions).toEqual([]);
+    expect(cleaned.snapshot.subagents).toMatchObject([{ id: childId, status: 'closed', closed_at: expect.any(Number) }]);
+    expect(cleaned.snapshot.turns.slice(0, 2).map(binding => binding.turn.status)).toEqual(['cancelled', 'completed']);
+    expect(cleaned.snapshot.turns.filter(binding => activeIds.includes(binding.turn.id)).map(binding => ({ status: binding.turn.status, error: binding.turn.error }))).toEqual(activeIds.map(() => ({ status: 'failed', error: { code: 'server_error', message: 'Pi recovery attempts were exhausted.' } })));
+    const repeated = await abortPiRecovery(await openPiStorage(f.lease), f.launch, cleaned.nativeSeq);
+    expect(repeated.snapshot).toEqual(cleaned.snapshot); expect(repeated.hasLiveTasks).toBe(false);
+    const second = await f.open({ mode: 'bounded' }); expect(second.snapshot()).toEqual(cleaned.snapshot);
+    await second.start(turn('turn_new'), input('fresh turn')); second.resume(); await second.finished;
+    expect(second.snapshot().turns.at(-1)?.turn).toMatchObject({ id: 'turn_new', status: 'completed', error: null });
+    expect(f.faux.state.callCount).toBe(calls + 1);
+    expect(second.snapshot().turns.slice(0, -1)).toEqual(cleaned.snapshot.turns);
+  });
+
+  it('aborts an uncertain unsafe host effect without invoking it again', async () => {
+    const f = await fixture([tool('remote_write', {}), answer('New safe Turn')]);
+    const entered = deferred<void>(); let effects = 0;
+    const options: Partial<PiEngineOptions> = { effectTools: [{ name: 'remote_write', kind: 'mcp', description: 'Remote write', serverLabel: 'remote', toolName: 'write', parameters: Type.Object({}) }],
+      effect: async (_request, signal) => { effects++; entered.resolve(); return new Promise<never>((_resolve, reject) => signal.addEventListener('abort', () => reject(new Error('worker stopped')), { once: true })); } };
+    const first = await f.open(options); await first.start(turn(), input('write')); first.resume(); await entered.promise; await first.close();
+    const result = await abortPiRecovery(await openPiStorage(f.lease), f.launch, (await f.lease.load()).head!.seq);
+    expect(effects).toBe(1); expect(f.faux.state.callCount).toBe(1);
+    expect(result.snapshot.turns[0]?.turn.status).toBe('failed'); expect(result.hasLiveTasks).toBe(false);
+    expect(result.snapshot.turns[0]?.items).toMatchObject([{ type: 'mcp_call', name: 'write', status: 'failed' }]);
+    const second = await f.open({ ...options, mode: 'bounded' }); await second.start(turn('turn_new'), input('continue')); second.resume(); await second.finished;
+    expect(second.snapshot().turns[1]?.turn.status).toBe('completed'); expect(effects).toBe(1); expect(f.faux.state.callCount).toBe(2);
   });
 });
