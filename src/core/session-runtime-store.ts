@@ -2,7 +2,7 @@ import type { AgentsStore, AgentResource, AgentsClock } from './agents-ports.js'
 import type { SessionRuntimeState } from './session-runtime-planning.js';
 import { AgentsApiError } from '../domain/agents-api-validation.js';
 
-export type StoredSessionRuntime = { snapshot?: SessionRuntimeState } & (
+export type StoredSessionRuntime = { snapshot?: SessionRuntimeState; epoch?: number; native?: { schema: 1; highWater: number; head?: import('./session-native-store.js').NativeHead }; projectionSeq?: number } & (
   | { runId: string; closed?: false }
   | { runId: string | null; closed: true }
 );
@@ -13,7 +13,7 @@ export class SessionRuntimeStore {
   public get(ownerId: string, sessionId: string) { return this.store.get<StoredSessionRuntime>(ownerId, 'session_runtime', sessionId); }
   public async claim(ownerId: string, sessionId: string, runId: string, now: number, previous?: AgentResource<StoredSessionRuntime>): Promise<void> {
     if (previous?.value.closed) throw new AgentsApiError(409, 'The session harness has been closed.', 'conflict');
-    await this.store.put({ ownerId, id: sessionId, collection: 'session_runtime', revision: (previous?.revision ?? 0) + 1, createdAt: previous?.createdAt ?? now, value: { runId, ...(previous?.value.snapshot ? { snapshot: previous.value.snapshot } : {}) } }, previous?.revision ?? 0);
+    await this.store.put({ ownerId, id: sessionId, collection: 'session_runtime', revision: (previous?.revision ?? 0) + 1, createdAt: previous?.createdAt ?? now, value: { ...previous?.value, runId, closed: false, epoch: (previous?.value.epoch ?? -1) + 1 } }, previous?.revision ?? 0);
   }
   public async publish(ownerId: string, sessionId: string, runId: string, snapshot: SessionRuntimeState): Promise<boolean> {
     const current = await this.get(ownerId, sessionId);
@@ -38,6 +38,6 @@ function planRuntimeClosure(ownerId: string, sessionId: string, now: number, cur
   return {
     ownerId, id: sessionId, collection: 'session_runtime',
     createdAt: current?.createdAt ?? now, revision: (current?.revision ?? 0) + 1,
-    value: { ...current?.value, runId: current?.value.runId ?? null, closed: true },
+    value: { ...current?.value, runId: current?.value.runId ?? null, closed: true, epoch: (current?.value.epoch ?? 0) + 1 },
   };
 }

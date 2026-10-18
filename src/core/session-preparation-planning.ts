@@ -6,6 +6,7 @@ import { canonicalJson } from '../domain/json.js';
 import { sessionAgent } from './session-planning.js';
 
 export interface SessionPreparation {
+  runtime?: import('../domain/session-runtime.js').RuntimePin;
   agent: AgentSession['agent'];
   placement?: ExecutionBackend;
   now: number;

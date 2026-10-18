@@ -20,6 +20,7 @@ export interface SessionTurnBinding {
 }
 
 export interface SessionState {
+  runtime?: import('../domain/session-runtime.js').RuntimePin;
   fork?: import('../domain/session-fork.js').SessionFork;
   forkLock?: { id: string; expiresAt: number };
   closing?: boolean;

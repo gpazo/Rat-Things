@@ -17,6 +17,7 @@ export function parseSessionModelSettings(value: unknown): SessionModelSettings 
 
 /** Immutable, confidential execution input in the owner's encrypted artifact namespace. */
 export interface SessionLaunch {
+  runtime?: import('./session-runtime.js').RuntimePin;
   sessionId: string;
   turnId: string;
   turn?: import('./agents-api.js').Turn;
