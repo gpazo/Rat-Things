@@ -154,6 +154,7 @@ async function main(): Promise<void> {
   }
   if (args.values.has('region')) process.env.AWS_REGION = args.values.get('region');
   if (args.flags.has('help')) { help(args.flags.has('all')); return; }
+  if (args.values.get('driver') === 'pi') throw new Error('Pi requires a durable Session. Use rat-things sessions create --runtime pi --model MODEL --input TEXT');
   validateRootPositionals(args);
   const simple = simpleApiCommands[args.command];
   if (simple) {
@@ -783,6 +784,7 @@ function agentFromArguments(args: Arguments): Record<string, unknown> {
     throw new Error('--browser cannot be combined with --no-browser');
   }
   const configuredDriver = args.values.get('driver');
+  if (configuredDriver === 'pi') throw new Error('Pi requires a durable Session. Use rat-things sessions create --runtime pi --model MODEL --input TEXT');
   const driver = (configuredDriver ?? 'codex') as AgentDriverName;
   const sandbox = (args.values.get('sandbox') ?? 'read-only') as SandboxMode;
   const capabilities = compact({
@@ -1251,6 +1253,7 @@ function help(showAll: boolean): void {
   process.stdout.write('  rat-things publications create --session SESSION_ID --file REQUEST.json\n');
   process.stdout.write('  rat-things schedules list|get|create|update|delete|pause|resume [ID] [--file REQUEST.json]\n');
   process.stdout.write('  rat-things console\n  rat-things doctor\n');
+  process.stdout.write('  Pi runs in durable Sessions. Use sessions create --runtime pi --model MODEL --input TEXT.\n');
   process.stdout.write('  rat-things local [--driver codex|mock] [--model MODEL] "Work on this computer" [--trace-output trace.otlp.json]\n');
   process.stdout.write('\nUnqualified prompts run locally. Use sessions for durable work in AWS.\n');
   process.stdout.write('Set RAT_THINGS_AGENTS_API_URL for standard resources; RAT_THINGS_API_URL for publications, schedules, and connections.\n');

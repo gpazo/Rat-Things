@@ -11,15 +11,19 @@ export async function runAgentsCli(argv: string[]): Promise<boolean> {
   const { values, positionals } = parseArgs({ args: argv.slice(1), allowPositionals: true, options: {
     output: { type: 'string' }, purpose: { type: 'string' },
     'api-url': { type: 'string' }, region: { type: 'string' }, file: { type: 'string' },
-    input: { type: 'string' }, model: { type: 'string' }, 'agent-id': { type: 'string' },
+    input: { type: 'string' }, runtime: { type: 'string' }, model: { type: 'string' }, 'agent-id': { type: 'string' },
     after: { type: 'string' }, limit: { type: 'string' }, order: { type: 'string' },
     'idempotency-key': { type: 'string' }, stream: { type: 'boolean' }, help: { type: 'boolean', short: 'h' },
   } });
   const [operation = 'list', id, childId, nestedId] = positionals;
   if (values.help) {
-    process.stdout.write('rat-things agents create|list|get|update|delete [ID] [--file request.json]\nrat-things sessions create|list|get|update|delete|fork|lineage|send|cancel|items|turns|artifacts|events|traces [ID]\nrat-things environments get|connect ENVIRONMENT_ID\nrat-things environments templates create|list|get|update|delete [ID] [--file request.json]\nrat-things vaults create|list|get|delete [ID] [--file request.json]\nrat-things sessions artifacts SESSION_ID [ARTIFACT_ID]\nrat-things sessions artifact-content|artifact-delete SESSION_ID ARTIFACT_ID [--output PATH]\nrat-things files create --file PATH [--purpose user_data]\nrat-things files list|get|delete|content [ID] [--output PATH]\nUse --api-url with agents_api_base_url and --region with the deployment AWS region.\nSession creation accepts --model MODEL --input TEXT, --agent-id ID, --stream, or a standard JSON request file.\n');
+    process.stdout.write('rat-things agents create|list|get|update|delete|models [ID] [--file request.json]\nrat-things sessions create|list|get|update|delete|fork|lineage|runtime|send|cancel|items|turns|artifacts|events|traces [ID]\nrat-things environments get|connect ENVIRONMENT_ID\nrat-things environments templates create|list|get|update|delete [ID] [--file request.json]\nrat-things vaults create|list|get|delete [ID] [--file request.json]\nrat-things sessions artifacts SESSION_ID [ARTIFACT_ID]\nrat-things sessions artifact-content|artifact-delete SESSION_ID ARTIFACT_ID [--output PATH]\nrat-things files create --file PATH [--purpose user_data]\nrat-things files list|get|delete|content [ID] [--output PATH]\nUse --api-url with agents_api_base_url and --region with the deployment AWS region.\nSession creation accepts --runtime codex|pi --model MODEL --input TEXT, --agent-id ID, --stream, or a standard JSON request file. Runtime is fixed for each Session. Pi uses Bedrock and supports none or managed environments, function and MCP tools, text output, medium verbosity, auto tier, and no reasoning summary. Use agents models --runtime pi to discover supported models and settings, and sessions runtime ID to read the pinned runtime.\n');
     return true;
   }
+  if (values.runtime !== undefined && !['codex', 'pi'].includes(values.runtime)) throw new Error('--runtime must be codex or pi');
+  const definitionFlags = ['agents', 'sessions'].includes(group) && ['create', 'update'].includes(operation);
+  if (values.model !== undefined && !definitionFlags) throw new Error('--model applies only to agents or sessions create and update');
+  if (values.runtime !== undefined && !definitionFlags && !(group === 'agents' && operation === 'models')) throw new Error('--runtime applies only to agents or sessions create and update, or agents models');
   const baseURL = values['api-url'] ?? process.env.RAT_THINGS_AGENTS_API_URL ?? process.env.RAT_THINGS_API_URL;
   const region = values.region ?? process.env.AWS_REGION ?? process.env.AWS_DEFAULT_REGION;
   if (!baseURL || !region) throw new Error('Set RAT_THINGS_AGENTS_API_URL and AWS_REGION, or use --api-url and --region');
@@ -49,17 +53,17 @@ export async function runAgentsCli(argv: string[]): Promise<boolean> {
     else if (operation === 'content') await saveContent(() => client.files.content(requiredId()));
     else throw new Error(`Unknown files operation: ${operation}`);
   } else if (group === 'agents') {
-    if (operation === 'create') json(await agents.create(parseAgentsContract('AgentCreate', body)));
+    if (operation === 'create') json(await agents.create(parseAgentsContract('AgentCreate', mergeAgentFlags(body, values, false))));
     else if (operation === 'list') json(await agents.list(parseAgentsContract('AgentList', query)));
     else if (operation === 'get') json(await agents.retrieve(requiredId()));
-    else if (operation === 'update') json(await agents.update(requiredId(), parseAgentsContract('AgentUpdate', body)));
+    else if (operation === 'update') json(await agents.update(requiredId(), parseAgentsContract('AgentUpdate', mergeAgentFlags(body, values, false))));
     else if (operation === 'delete') json(await agents.delete(requiredId()));
+    else if (operation === 'models') json(await client.get(`/models${values.runtime ? `?runtime=${values.runtime}` : ''}`));
     else throw new Error(`Unknown agents operation: ${operation}`);
   } else if (group === 'sessions') {
     if (operation === 'create') {
       const input = parseAgentsContract('SessionCreate', {
-        ...(values.file ? body as Record<string, unknown> : { environment: { type: 'none' } }),
-        ...(values.model ? { agent: { model: values.model } } : {}), ...(values['agent-id'] ? { agent_id: values['agent-id'] } : {}),
+        ...mergeAgentFlags(values.file ? body : { environment: { type: 'none' } }, values, true), ...(values['agent-id'] ? { agent_id: values['agent-id'] } : {}),
         ...(values.input !== undefined ? { input: values.input } : {}), ...(values.stream ? { stream: true } : {}),
       });
       if (input.stream) for await (const event of await agents.sessions.create({ ...input, stream: true })) json(event);
@@ -67,8 +71,9 @@ export async function runAgentsCli(argv: string[]): Promise<boolean> {
     } else if (operation === 'list') json(await agents.sessions.list(parseAgentsContract('SessionList', { ...query, ...(values['agent-id'] ? { agent_id: values['agent-id'] } : {}) })));
     else if (operation === 'get') json(await agents.sessions.retrieve(requiredId()));
     else if (operation === 'fork') json(await client.post(`/agents/sessions/${encodeURIComponent(requiredId())}/fork`, { body }));
+    else if (operation === 'runtime') json(await client.get(`/agents/sessions/${encodeURIComponent(requiredId())}/runtime`));
     else if (operation === 'lineage') json(await client.get(`/agents/sessions/${encodeURIComponent(requiredId())}/lineage`));
-    else if (operation === 'update') json(await agents.sessions.update(requiredId(), parseAgentsContract('SessionUpdate', body)));
+    else if (operation === 'update') json(await agents.sessions.update(requiredId(), parseAgentsContract('SessionUpdate', mergeAgentFlags(body, values, true))));
     else if (operation === 'delete') json(await agents.sessions.delete(requiredId()));
     else if (operation === 'traces') {
       const sessionId = requiredId();
@@ -126,4 +131,19 @@ export async function runAgentsCli(argv: string[]): Promise<boolean> {
     } else throw new Error(`Unknown vaults operation: ${operation}`);
   }
   return true;
+}
+
+function mergeAgentFlags(body: unknown, flags: { runtime?: string; model?: string }, session: boolean): Record<string, unknown> {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) throw new Error('Request must be a JSON object');
+  const request = body as Record<string, unknown>;
+  const object = (value: unknown, field: string): Record<string, unknown> => {
+    if (value === undefined || value === null) return {};
+    if (typeof value !== 'object' || Array.isArray(value)) throw new Error(`${field} must be a JSON object`);
+    return value as Record<string, unknown>;
+  };
+  return {
+    ...request,
+    ...(flags.runtime === undefined ? {} : { metadata: { ...object(request.metadata, 'metadata'), rat_things_runtime: flags.runtime } }),
+    ...(flags.model === undefined ? {} : session ? { agent: { ...object(request.agent, 'agent'), model: flags.model } } : { model: flags.model }),
+  };
 }

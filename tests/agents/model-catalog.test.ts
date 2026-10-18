@@ -62,3 +62,29 @@ describe('deployed model catalog', () => {
     }
   });
 });
+
+describe('Pi Bedrock catalog', () => {
+  it('preserves exact IDs and deployment order with published model capabilities', async () => {
+    const { piCatalog } = await import('../../src/adapters/pi-model-catalog.js');
+    const { createPiModelCatalog } = await import('../../src/core/model-catalog.js');
+    const models = piCatalog(['amazon.nova-micro-v1:0', 'us.anthropic.claude-sonnet-4-6'], 'us-west-2');
+    expect(models.map(model => model.id)).toEqual(['amazon.nova-micro-v1:0', 'us.anthropic.claude-sonnet-4-6']);
+    expect(models[0]).toMatchObject({ provider: 'amazon-bedrock', api: 'bedrock-converse-stream', region: 'us-west-2', input: ['text'], reasoning: ['none'] });
+    expect(models[1]).toMatchObject({ input: ['text', 'image'], reasoning: ['low', 'medium', 'high'] });
+    expect(createPiModelCatalog(models, models[1]!.id)).toMatchObject({ runtime: 'pi', default_model: 'us.anthropic.claude-sonnet-4-6', capabilities: { environments: ['none', 'openai_hosted'], tools: ['function', 'mcp'], programmatic_tool_calling: false } });
+    expect(createPiModelCatalog(models, 'other')).toBeUndefined();
+  });
+
+  it('rejects registry labels that lack supported Converse inference and reasoning', async () => {
+    const { piCatalog, piCatalogFromConfig, piRegistryModel } = await import('../../src/adapters/pi-model-catalog.js');
+    for (const id of ['openai.gpt-5.5', 'openai.gpt-5.4', 'google.gemma-4-31b', 'xai.grok-4.3', 'amazon.nova-2-lite-v1:0', 'unknown']) {
+      expect(() => piCatalog([id], 'us-west-2')).toThrow('Unsupported Pi Converse model');
+    }
+    expect(piRegistryModel('us.openai.gpt-5.4')).toMatchObject({ id: 'us.openai.gpt-5.4', api: 'bedrock-converse-stream' });
+    expect(piCatalog(['global.openai.gpt-5.4'], 'us-west-2')[0]).toMatchObject({ id: 'global.openai.gpt-5.4', reasoning: ['low', 'medium', 'high'] });
+    expect(piCatalogFromConfig(undefined, undefined)).toEqual([]);
+    expect(() => piCatalogFromConfig('{}', 'us-west-2')).toThrow('JSON array');
+    expect(() => piCatalog(['amazon.nova-micro-v1:0'], '')).toThrow('AWS_REGION');
+    expect(() => piCatalog(['amazon.nova-micro-v1:0', 'amazon.nova-micro-v1:0'], 'us-west-2')).toThrow('duplicates');
+  });
+});

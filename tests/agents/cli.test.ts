@@ -70,3 +70,45 @@ describe('standard Files CLI', () => {
     } finally { await rm(root, { recursive: true, force: true }); }
   });
 });
+
+describe('runtime selection CLI', () => {
+  const setup = () => {
+    const requests: { path: string; body: unknown }[] = [];
+    transport.create.mockReturnValue(new OpenAI({ apiKey: 'fixture', baseURL: 'https://fixture.invalid/v1', maxRetries: 0, fetch: async (input, init) => {
+      const request = new Request(input, init);
+      requests.push({ path: new URL(request.url).pathname, body: request.method === 'GET' ? undefined : await request.json() });
+      return Response.json({ kind: 'pi' });
+    } }));
+    vi.stubEnv('RAT_THINGS_AGENTS_API_URL', 'https://fixture.invalid/v1');
+    vi.stubEnv('AWS_REGION', 'us-west-2');
+    vi.spyOn(process.stdout, 'write').mockReturnValue(true);
+    return requests;
+  };
+
+  it('merges runtime and model into existing Session configuration', async () => {
+    const requests = setup();
+    const root = await mkdtemp(join(tmpdir(), 'rat-runtime-cli-'));
+    try {
+      const file = join(root, 'request.json');
+      await writeFile(file, JSON.stringify({ environment: { type: 'none' }, metadata: { name: 'Kept' }, agent: { model: 'old', instructions: 'Keep me', tools: [{ type: 'function', name: 'lookup', description: 'Look up a record', parameters: { type: 'object', properties: {} }, defer_loading: false }] } }));
+      await runAgentsCli(['sessions', 'create', '--file', file, '--runtime', 'pi', '--model', 'amazon.nova-micro-v1:0']);
+      expect(requests[0]).toMatchObject({ path: '/v1/agents/sessions', body: { metadata: { name: 'Kept', rat_things_runtime: 'pi' }, agent: { model: 'amazon.nova-micro-v1:0', instructions: 'Keep me', tools: [{ type: 'function', name: 'lookup' }] } } });
+      await runAgentsCli(['sessions', 'runtime', 'session/one']);
+      expect(requests[1]!.path).toBe('/v1/agents/sessions/session%2Fone/runtime');
+      await expect(runAgentsCli(['sessions', 'create', '--runtime', 'other'])).rejects.toThrow('--runtime must be codex or pi');
+      await expect(runAgentsCli(['sessions', 'get', 'id', '--runtime', 'pi'])).rejects.toThrow('applies only');
+      expect(requests).toHaveLength(2);
+    } finally { await rm(root, { recursive: true, force: true }); }
+  });
+
+  it('keeps saved Agent metadata when runtime changes', async () => {
+    const requests = setup();
+    const root = await mkdtemp(join(tmpdir(), 'rat-agent-runtime-cli-'));
+    try {
+      const file = join(root, 'request.json');
+      await writeFile(file, JSON.stringify({ name: 'Example', model: 'old', metadata: { team: 'engineering' }, instructions: 'Keep me' }));
+      await runAgentsCli(['agents', 'create', '--file', file, '--runtime', 'pi', '--model', 'amazon.nova-micro-v1:0']);
+      expect(requests[0]!.body).toMatchObject({ metadata: { team: 'engineering', rat_things_runtime: 'pi' }, instructions: 'Keep me', model: 'amazon.nova-micro-v1:0' });
+    } finally { await rm(root, { recursive: true, force: true }); }
+  });
+});
