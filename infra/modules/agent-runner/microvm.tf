@@ -109,7 +109,10 @@ resource "awscc_lambda_microvm_image" "runner" {
       key   = "INTEGRATION_OAUTH_APP_SECRET_ARNS"
       value = jsonencode(var.integration_oauth_app_secret_arns)
     },
-  ] : [])
+    ] : [], [for key, value in local.pi_catalog_environment : {
+      key   = key
+      value = value
+  }])
   resources = [{
     minimum_memory_in_mi_b = var.microvm_memory_mib
   }]
