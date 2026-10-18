@@ -389,6 +389,59 @@ run "pi_with_chatgpt_codex" {
   }
 }
 
+run "pi_microvm_catalog_reaches_image" {
+  command = plan
+  module { source = "./modules/agent-runner" }
+  variables {
+    enable_microvm             = true
+    enable_ec2_worker          = false
+    codex_auth_mode            = "chatgpt"
+    codex_auth_file_secret_arn = "arn:aws:secretsmanager:us-west-2:123456789012:secret:codex"
+    codex_chatgpt_model        = "gpt-5.4"
+    codex_chatgpt_model_ids    = ["gpt-5.4"]
+    pi_bedrock_model_ids       = ["us.amazon.nova-micro-v1:0", "us.amazon.nova-lite-v1:0"]
+    pi_bedrock_default_model   = "us.amazon.nova-micro-v1:0"
+    pi_bedrock_inference_resource_arns = [
+      "arn:aws:bedrock:us-west-2:123456789012:inference-profile/us.amazon.nova-micro-v1:0",
+      "arn:aws:bedrock:us-west-2:123456789012:inference-profile/us.amazon.nova-lite-v1:0",
+    ]
+  }
+  assert {
+    condition = (
+      lookup({ for entry in awscc_lambda_microvm_image.runner[0].environment_variables : entry.key => entry.value }, "PI_BEDROCK_MODEL_IDS_JSON", "MISSING") == jsonencode(["us.amazon.nova-micro-v1:0", "us.amazon.nova-lite-v1:0"]) &&
+      lookup({ for entry in awscc_lambda_microvm_image.runner[0].environment_variables : entry.key => entry.value }, "PI_BEDROCK_DEFAULT_MODEL", "MISSING") == "us.amazon.nova-micro-v1:0"
+    )
+    error_message = "The MicroVM image must receive the configured Pi catalog and default."
+  }
+  assert {
+    condition = (
+      jsondecode(local.lambda_definitions["agents-api"].environment.AGENTS_MODEL_IDS_JSON) == ["gpt-5.4"] &&
+      local.lambda_definitions["agents-api"].environment.AGENTS_DEFAULT_MODEL == "gpt-5.4" &&
+      lookup({ for entry in awscc_lambda_microvm_image.runner[0].environment_variables : entry.key => entry.value }, "CODEX_CHATGPT_MODEL", "MISSING") == "gpt-5.4"
+    )
+    error_message = "Adding Pi configuration must preserve the configured Codex model catalog and image default."
+  }
+}
+
+run "pi_microvm_unset_default_is_omitted" {
+  command = plan
+  module { source = "./modules/agent-runner" }
+  variables {
+    enable_microvm                     = true
+    enable_ec2_worker                  = false
+    pi_bedrock_model_ids               = ["us.amazon.nova-micro-v1:0"]
+    pi_bedrock_inference_resource_arns = ["arn:aws:bedrock:us-west-2:123456789012:inference-profile/us.amazon.nova-micro-v1:0"]
+  }
+  assert {
+    condition     = lookup({ for entry in awscc_lambda_microvm_image.runner[0].environment_variables : entry.key => entry.value }, "PI_BEDROCK_MODEL_IDS_JSON", "MISSING") == jsonencode(["us.amazon.nova-micro-v1:0"])
+    error_message = "The MicroVM image must receive the configured Pi model catalog."
+  }
+  assert {
+    condition     = !contains([for entry in awscc_lambda_microvm_image.runner[0].environment_variables : entry.key], "PI_BEDROCK_DEFAULT_MODEL")
+    error_message = "The MicroVM image must omit the Pi default when none is configured."
+  }
+}
+
 run "pi_requires_inference_resources" {
   command = plan
   module { source = "./modules/agent-runner" }
