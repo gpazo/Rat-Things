@@ -2,13 +2,13 @@ export type { PiEffectTool, PiToolEffect, PiToolEffectHandler, PiRootCheckpoint,
 import type { Models, ModelThinkingLevel } from '@earendil-works/pi-ai';
 import { AgentDoc, Harness, InboxDoc, LiveDoc, configure, createRegistry, defineTool, type AgentChange, type JsonObject, type Storage } from '@earendil-works/pi-durable';
 import type { SessionRuntimeState } from '../../core/session-runtime-planning.js';
-import type { AgentSessionInputMessageParam, Turn } from '../../domain/agents-api.js';
+import type { AgentSessionInputMessageParam, AgentSessionItem, Turn } from '../../domain/agents-api.js';
 import type { SessionLaunch, SessionModelSettings } from '../../domain/session-execution.js';
-import { piModel, validateRuntimeAgent, type RuntimePin } from '../../domain/session-runtime.js';
+import { PI_REGISTRY, piModel, validateRuntimeAgent, type RuntimePin } from '../../domain/session-runtime.js';
 import { canonicalJson } from '../../domain/json.js';
 import { ChildKeeperTask, coordinationTools } from './coordination.js';
 import { functionTools, resolvePiFunction } from './functions.js';
-import { applyPiCommit, projectPi, readPiImage, type PiCommittedImage } from './projection.js';
+import { applyPiCommit, piImageHasLiveTasks, projectPi, readPiImage, type PiCommittedImage } from './projection.js';
 import { CommandsDoc, FunctionsDoc, LinksDoc, PI_CONTEXT, admitPiInput, asConversationId, json, piInput, publicCallId, type PiEffectTool, type PiFunctionResult, type PiRootCheckpoint, type PiToolEffectHandler } from './protocol.js';
 
 export interface PiEngineOptions {
@@ -39,7 +39,7 @@ export interface PiEngine {
 export async function openPiEngine(options: PiEngineOptions): Promise<PiEngine> {
   const { launch } = options;
   const pin = launch.runtime;
-  if (pin?.kind !== 'pi' || pin.engine !== '1.3.0' || pin.schema !== 1) throw new Error('Pi 1.3.0 runtime pin is required');
+  if (pin?.kind !== 'pi' || pin.engine !== '1.3.0' || pin.schema !== 1 || pin.registryDigest !== PI_REGISTRY) throw new Error('Pi 1.3.0 runtime pin is required');
   validateRuntimeAgent(pin, launch.agent);
   if (launch.environment.type === 'self_hosted') throw new Error('Pi self-hosted environments are unsupported');
   const effectTools = options.effectTools ?? [];
@@ -68,13 +68,14 @@ export async function openPiEngine(options: PiEngineOptions): Promise<PiEngine> 
     links.sessionId = launch.sessionId;
     links.agentId = launch.turn?.agent_id ?? launch.agent.id ?? launch.sessionId;
     links.rootId = rootId;
+    links.effects = json(effectTools.map(({ name, kind, serverLabel, toolName }) => ({ name, kind, serverLabel, toolName })));
     await tx.doc(CommandsDoc);
     await tx.doc(FunctionsDoc);
     if (options.seed) {
       const change = agentChange(pin, launch, { model: options.seed.model, service_tier: 'auto', reasoning: { effort: options.seed.reasoning as SessionModelSettings['reasoning']['effort'] } }, options.models);
       await configure(tx, rootId, change);
       await tx.appendEntry(rootId, { kind: 'rat.fork_context', model: structuredClone(options.seed.messages) });
-      links.inherited = json(options.seed.history.map(binding => ({ ...binding, turn: { ...binding.turn, session_id: launch.sessionId, agent_id: links.agentId, usage: null } })));
+      links.inherited = json(options.seed.history.map(binding => ({ ...binding, threadId: `pi_thread_${rootId}`, nativeTurnId: `pi_fork_${binding.nativeTurnId}`, items: binding.items.map(forkItem), turn: { ...binding.turn, session_id: launch.sessionId, agent_id: links.agentId, usage: null } })));
     }
   } });
   const links = await harness.snapshot(LinksDoc, PI_CONTEXT);
@@ -98,9 +99,7 @@ export async function openPiEngine(options: PiEngineOptions): Promise<PiEngine> 
   };
   const completeIfIdle = () => {
     if (options.mode !== 'bounded' || !started || !resumed) return;
-    const active = Object.values(image.tasks).some(task => task.kind !== 'rat.child' && task.state.status !== 'terminal');
-    const queued = Object.values(image.submissions).some(submission => submission.status === 'queued' || submission.status === 'placed');
-    if (!active && !queued) void publishing.then(resolveFinished, rejectFinished);
+    if (!piImageHasLiveTasks(image)) void publishing.then(resolveFinished, rejectFinished);
   };
   const publish = () => {
     const snapshot = structuredClone(state);
@@ -110,9 +109,14 @@ export async function openPiEngine(options: PiEngineOptions): Promise<PiEngine> 
     completeIfIdle();
   };
   const unsubscribe = harness.subscribeCommits(publication => {
-    image = applyPiCommit(image, publication);
-    state = projectPi(image, launch, effectTools);
-    publish();
+    try {
+      image = applyPiCommit(image, publication);
+      state = projectPi(image, launch, effectTools);
+      publish();
+    } catch (error) {
+      rejectFinished(error);
+      void Promise.resolve().then(() => harness.close(PI_CONTEXT));
+    }
   });
   void harness.closed.then(async end => {
     closed = true;
@@ -143,12 +147,12 @@ export async function openPiEngine(options: PiEngineOptions): Promise<PiEngine> 
         }
         const taskId = live.run.taskId;
         commands.operations[key] = { kind: 'cancel', turnId, fingerprint: turnId, status: 'accepted', taskId };
-        return taskId;
+        return { taskId, conversationId: asConversationId(link.conversationId) };
       }, PI_CONTEXT);
       if (target === undefined) return;
-      await harness.abortTask(target, PI_CONTEXT);
-      const live = await harness.snapshot(LiveDoc, root.id, PI_CONTEXT);
-      if (live?.run?.taskId === target) return;
+      await harness.abortTask(target.taskId, PI_CONTEXT);
+      const live = await harness.snapshot(LiveDoc, target.conversationId, PI_CONTEXT);
+      if (live?.run?.taskId === target.taskId) return;
     }
   };
   const pendingCancels = await harness.snapshot(CommandsDoc, PI_CONTEXT);
@@ -208,7 +212,7 @@ export async function openPiEngine(options: PiEngineOptions): Promise<PiEngine> 
     toolResult: (callId, result) => enqueue(() => resolvePiFunction(harness, callId, result)),
     checkpoint: () => enqueue(async () => {
       const inspection = await harness.inspect(PI_CONTEXT);
-      if (inspection.tasks.some(task => task.record.kind !== 'rat.child') || inspection.submissions.length || state.requiredActions.length) throw new Error('Pi checkpoint requires quiescent root and children');
+      if (piImageHasLiveTasks(image) || inspection.tasks.some(task => task.record.kind !== 'rat.child') || inspection.submissions.length || state.requiredActions.length) throw new Error('Pi checkpoint requires quiescent root and children');
       const context = await root.context(PI_CONTEXT);
       const agent = await root.agent(PI_CONTEXT);
       return { schema: 1, runtime: structuredClone(pin), model: agent.model!.modelId, reasoning: agent.thinkingLevel === 'off' ? null : agent.thinkingLevel,
@@ -231,4 +235,10 @@ function agentChange(pin: Extract<RuntimePin, { kind: 'pi' }>, launch: SessionLa
 }
 function assertInput(pin: Extract<RuntimePin, { kind: 'pi' }>, model: string, input: readonly AgentSessionInputMessageParam[]): void {
   if (!piModel(pin, model).input.includes('image') && input.some(message => message.content.some(part => part.type === 'input_image'))) throw new Error('Pi model does not support image input');
+}
+
+function forkItem(item: AgentSessionItem): AgentSessionItem {
+  if (item.id === null) return item;
+  if ('call_id' in item) return { ...item, id: `pi_fork_${item.id}`, call_id: `pi_fork_${item.call_id}` };
+  return { ...item, id: `pi_fork_${item.id}` };
 }

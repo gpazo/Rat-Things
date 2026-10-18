@@ -1,9 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { Type, createModels, fauxAssistantMessage, fauxProvider, fauxThinking, fauxToolCall, type FauxResponseStep } from '@earendil-works/pi-ai';
+import { Type, createModels, fauxAssistantMessage, fauxProvider, fauxThinking, fauxToolCall, createAssistantMessageEventStream, type FauxResponseStep, type AssistantMessageEventStream, type AssistantMessage } from '@earendil-works/pi-ai';
 import { Harness, LiveDoc, type Storage } from '@earendil-works/pi-durable';
 import { MemoryAgentsStore } from '../agents/fixtures.js';
 import { SessionRuntimeStore } from '../../src/core/session-runtime-store.js';
 import { nativeLease } from '../../src/core/session-native-store.js';
+import { planSessionStream, type SessionStreamSnapshot, type PlannedSessionEvent } from '../../src/core/session-stream.js';
+import type { SessionRuntimeState } from '../../src/core/session-runtime-planning.js';
 import { sessionAgent } from '../../src/core/session-planning.js';
 import { resolveRuntime } from '../../src/domain/session-runtime.js';
 import type { SessionLaunch } from '../../src/domain/session-execution.js';
@@ -25,15 +27,15 @@ async function until(predicate: () => boolean, timeout = 3000): Promise<void> {
   while (!predicate()) { if (Date.now() > deadline) throw new Error('Pi test condition timed out'); await new Promise(resolve => setTimeout(resolve, 5)); }
 }
 function deferred<T>() { let resolve!: (value: T) => void; const promise = new Promise<T>(done => { resolve = done; }); return { resolve, promise }; }
-async function fixture(responses: FauxResponseStep[], changes: Partial<SessionLaunch['agent']> = {}) {
-  const faux = fauxProvider({ provider: 'amazon-bedrock', api: 'bedrock-converse-stream', models: [{ id: 'test-model', reasoning: true, input: ['text', 'image'], contextWindow: 100000, maxTokens: 10000 }], tokensPerSecond: Infinity });
+async function fixture(responses: FauxResponseStep[], changes: Partial<SessionLaunch['agent']> = {}, modelIds = ['test-model']) {
+  const faux = fauxProvider({ provider: 'amazon-bedrock', api: 'bedrock-converse-stream', models: modelIds.map(id => ({ id, reasoning: true, input: ['text', 'image'], contextWindow: 100000, maxTokens: 10000 })), tokensPerSecond: Infinity });
   faux.setResponses(responses);
   const models = createModels(); models.setProvider(faux.provider);
   const store = new MemoryAgentsStore();
   const runtime = new SessionRuntimeStore(store);
   await runtime.claim('owner', 'session', 'run', 1);
   const lease = nativeLease(store, 'owner', 'session', 'run', 0);
-  const pin = resolveRuntime({ rat_things_runtime: 'pi' }, null, [{ id: 'test-model', name: 'Test', provider: 'amazon-bedrock', api: 'bedrock-converse-stream', region: 'us-east-1', input: ['text', 'image'], contextWindow: 100000, maxTokens: 10000, reasoning: ['none', 'minimal', 'low', 'medium', 'high'] }]);
+  const pin = resolveRuntime({ rat_things_runtime: 'pi' }, null, modelIds.map(id => ({ id, name: 'Test', provider: 'amazon-bedrock', api: 'bedrock-converse-stream', region: 'us-east-1', input: ['text', 'image'], contextWindow: 100000, maxTokens: 10000, reasoning: ['none', 'minimal', 'low', 'medium', 'high'] })));
   const launch: SessionLaunch = { runtime: pin, sessionId: 'session', turnId: 'turn_1', turn: turn(), input: input('hello'), environment: { type: 'none' },
     agent: { ...sessionAgent({ model: 'test-model', reasoning: { effort: 'medium' } }, 'agent', 1), ...changes } };
   const open = async (overrides: Partial<PiEngineOptions> = {}, customStorage?: Storage) => {
@@ -61,7 +63,7 @@ describe('native Pi Session engine', () => {
     await engine.close();
     const storage = await openPiStorage(f.lease);
     const repaired = await projectPiStorage(storage, f.launch, seq);
-    expect(repaired).toEqual({ snapshot: original, nativeSeq: seq });
+    expect(repaired).toEqual({ snapshot: original, nativeSeq: seq, hasLiveTasks: false });
     expect(f.faux.state.callCount).toBe(1);
     await storage.close(PI_CONTEXT);
     const reopened = await f.open();
@@ -100,13 +102,20 @@ describe('native Pi Session engine', () => {
       calls++; entered.resolve();
       return new Promise<never>((_resolve, reject) => signal.addEventListener('abort', () => reject(new Error('terminated')), { once: true }));
     };
-    const options: Partial<PiEngineOptions> = { effect, effectTools: [{ name: 'remote_write', description: 'Write remotely', kind: 'mcp', serverLabel: 'remote', parameters: Type.Object({ value: Type.String() }) }] };
+    const options: Partial<PiEngineOptions> = { effect, effectTools: [{ name: 'remote_write', description: 'Write remotely', kind: 'mcp', serverLabel: 'remote', toolName: 'original_write', parameters: Type.Object({ value: Type.String() }) }] };
     const first = await f.open(options); await first.start(turn(), input('write')); first.resume(); await entered.promise;
     await first.close();
     const second = await f.open({ ...options, mode: 'bounded' }); second.resume(); await second.finished;
     expect(calls).toBe(1);
     expect(text(second)).toBe('The interrupted write is uncertain');
-    expect(second.snapshot().turns[0]?.items.find(item => item.type === 'mcp_call')).toMatchObject({ status: 'failed' });
+    expect(second.snapshot().turns[0]?.items.find(item => item.type === 'mcp_call')).toMatchObject({ status: 'failed', server_label: 'remote', name: 'original_write' });
+    const snapshot = second.snapshot();
+    const seq = second.nativeSeq;
+    await second.close();
+    const storage = await openPiStorage(f.lease);
+    const repair = await projectPiStorage(storage, f.launch, seq);
+    expect(repair).toEqual({ snapshot, nativeSeq: seq, hasLiveTasks: false });
+    await storage.close(PI_CONTEXT);
   });
 });
 
@@ -231,5 +240,233 @@ describe('Pi controls and durable graph', () => {
     expect(engine.snapshot().turns.map(binding => binding.turn.id)).toEqual(['turn_1', 'turn_fork']);
     expect(text(engine)).toBe('Remember the blue rat\nI remember');
     expect(target.faux.state.callCount).toBe(1);
+  });
+});
+
+
+describe('Pi coordination replay', () => {
+  it('reacquires spawn after a committed child creation loses its acknowledgement', async () => {
+    const route: FauxResponseStep = context => {
+      const child = context.messages.some(message => message.role === 'user' && message.content === 'child job');
+      if (child) return answer('Child finished');
+      return context.messages.some(message => message.role === 'toolResult') ? answer('Root finished') : tool('spawn_agent', { name: 'worker', message: 'child job' });
+    };
+    const f = await fixture(Array.from({ length: 8 }, () => route), { multi_agent: { enabled: true, max_concurrent_subagents: 2 } });
+    const base = await openPiStorage(f.lease);
+    const interrupted = new Proxy(base, { get(target, key) {
+      if (key === 'commit') return async (...args: Parameters<Storage['commit']>) => {
+        const seq = await target.commit(...args);
+        if (args[0].some(write => write.type === 'conversation' && write.value.id !== 1)) throw new Error('worker lost after durable child creation');
+        return seq;
+      };
+      const value: unknown = Reflect.get(target, key);
+      return typeof value === 'function' ? value.bind(target) : value;
+    } });
+    const first = await f.open({}, interrupted); await first.start(turn(), input('spawn')); first.resume();
+    await expect(first.finished).rejects.toThrow('worker lost');
+    const repair = await openPiStorage(f.lease);
+    const stored = await projectPiStorage(repair, f.launch, (await f.lease.load()).head!.seq);
+    expect(stored.snapshot.subagents.map(child => child.name)).toEqual(['worker']);
+    const childId = stored.snapshot.subagents[0]!.id;
+    await repair.close(PI_CONTEXT);
+    const second = await f.open({ mode: 'bounded' }); second.resume(); await second.finished;
+    expect(second.snapshot().subagents.map(child => child.id)).toEqual([childId]);
+    expect(second.snapshot().turns.map(binding => binding.turn.status)).toEqual(['completed', 'completed']);
+    expect(text(second)).toBe('Root finished\nChild finished');
+    expect(f.faux.state.callCount).toBe(3);
+  });
+
+  it('recovers send and wait receipts, then closes the durable child', async () => {
+    const route: FauxResponseStep = context => {
+      const lastUser = [...context.messages].reverse().find(message => message.role === 'user');
+      const results = context.messages.filter(message => message.role === 'toolResult');
+      if (lastUser?.role === 'user' && lastUser.content === 'first child') return results.some(message => message.toolName === 'lookup') ? answer('First child complete') : tool('lookup', { query: 'child' });
+      if (lastUser?.role === 'user' && lastUser.content === 'second child') return answer('Second child complete');
+      const spawn = results.find(message => message.toolName === 'spawn_agent');
+      if (!spawn) return tool('spawn_agent', { name: 'worker', message: 'first child' });
+      const id = JSON.parse(spawn.content.find(part => part.type === 'text')!.text).agent_id as string;
+      if (!results.some(message => message.toolName === 'send_input')) return tool('send_input', { id, message: 'second child' });
+      if (!results.some(message => message.toolName === 'wait_agent')) return tool('wait_agent', { ids: [id] });
+      if (!results.some(message => message.toolName === 'close_agent')) return tool('close_agent', { id });
+      return answer('All closed');
+    };
+    const f = await fixture(Array.from({ length: 16 }, () => route), {
+      multi_agent: { enabled: true, max_concurrent_subagents: 2 },
+      tools: [{ type: 'function', name: 'lookup', description: 'Lookup', parameters: { type: 'object', properties: { query: { type: 'string' } }, required: ['query'] }, defer_loading: false }],
+    });
+    const first = await f.open(); await first.start(turn(), input('root')); first.resume();
+    await until(() => first.snapshot().turns[0]?.items.some(item => item.type === 'wait_for_subagents_call') === true && first.snapshot().requiredActions.length === 1);
+    const pending = first.snapshot().requiredActions[0]!;
+    const childId = first.snapshot().subagents[0]!.id;
+    const childTurns = first.snapshot().turns.filter(binding => binding.turn.subagent_id === childId).map(binding => binding.turn.id);
+    expect(childTurns.length).toBe(2);
+    await first.close();
+    const second = await f.open({ mode: 'bounded' });
+    await second.toolResult(pending.type === 'function_call' ? pending.call_id : '', { success: true, output: 'ready' });
+    second.resume(); await second.finished;
+    expect(second.snapshot().turns.filter(binding => binding.turn.subagent_id === childId).map(binding => binding.turn.id)).toEqual(childTurns);
+    expect(second.snapshot().subagents).toMatchObject([{ id: childId, status: 'closed' }]);
+    expect(second.snapshot().turns.map(binding => binding.turn.status)).toEqual(['completed', 'completed', 'completed']);
+    expect(second.snapshot().turns[0]?.items.filter(item => item.type !== 'message').map(item => ({ type: item.type, status: 'status' in item ? item.status : null }))).toEqual([
+      { type: 'create_subagent_call', status: 'completed' }, { type: 'send_subagent_input_call', status: 'completed' }, { type: 'wait_for_subagents_call', status: 'completed' }, { type: 'close_subagent_call', status: 'completed' },
+    ]);
+    expect(text(second)).toBe('All closed\nFirst child complete\nSecond child complete');
+    expect(f.faux.state.callCount).toBe(8);
+  });
+
+  it('rejects unsupported settings before admission and exposes no managed effect in a none environment', async () => {
+    const f = await fixture([answer('Allowed')]);
+    const engine = await f.open({ mode: 'bounded' });
+    const seq = engine.nativeSeq;
+    await expect(engine.start(turn(), input('bad'), { model: 'not-pinned', service_tier: 'auto', reasoning: { effort: 'medium' } })).rejects.toThrow('approved Pi Bedrock catalog');
+    await expect(engine.start(turn(), input('bad'), { model: 'test-model', service_tier: 'priority', reasoning: { effort: 'medium' } })).rejects.toThrow('auto service tier');
+    expect(engine.nativeSeq).toBe(seq);
+    expect(f.faux.state.callCount).toBe(0);
+    await expect(f.open({ effectTools: [{ name: 'shell', description: 'Shell', kind: 'managed', parameters: Type.Object({}) }] })).rejects.toThrow('none environment');
+    await engine.start(turn(), input('good')); engine.resume(); await engine.finished;
+    expect(text(engine)).toBe('Allowed');
+  });
+});
+
+
+describe('Pi model accounting and fork boundaries', () => {
+  it('pins the model of an active Turn through tool rounds and applies a new model only on the next admitted Turn', async () => {
+    const seen: string[] = [];
+    const responses: FauxResponseStep[] = [
+      (_context, _options, _state, model) => { seen.push(model.id); return tool('lookup', { query: 'first' }); },
+      (_context, _options, _state, model) => { seen.push(model.id); return answer('First model finished'); },
+      (_context, _options, _state, model) => { seen.push(model.id); return answer('Second model finished'); },
+    ];
+    const f = await fixture(responses, { tools: [{ type: 'function', name: 'lookup', description: 'Lookup', parameters: { type: 'object', properties: { query: { type: 'string' } }, required: ['query'] }, defer_loading: false }] }, ['test-model', 'second-model']);
+    const engine = await f.open(); await engine.start(turn(), input('first')); engine.resume();
+    await until(() => engine.snapshot().requiredActions.length === 1);
+    const settings = { model: 'second-model', service_tier: 'auto' as const, reasoning: { effort: 'low' as const } };
+    const before = engine.nativeSeq;
+    await expect(engine.start(turn('turn_2'), input('second'), settings)).rejects.toThrow('active Turn');
+    expect(engine.nativeSeq).toBe(before);
+    const action = engine.snapshot().requiredActions[0]!;
+    await engine.toolResult(action.type === 'function_call' ? action.call_id : '', { success: true, output: 'done' });
+    await until(() => engine.snapshot().turns[0]?.turn.status === 'completed');
+    await engine.start(turn('turn_2'), input('second'), settings);
+    await until(() => engine.snapshot().turns[1]?.turn.status === 'completed');
+    expect(seen).toEqual(['test-model', 'test-model', 'second-model']);
+    expect(text(engine)).toBe('First model finished\nSecond model finished');
+    const checkpoint = await engine.checkpoint();
+    expect({ model: checkpoint.model, reasoning: checkpoint.reasoning }).toEqual({ model: 'second-model', reasoning: 'low' });
+  });
+
+  it('counts each committed answer once, including cache and reasoning token counts without publishing reasoning text', async () => {
+    const f = await fixture([]);
+    const message = { ...fauxAssistantMessage([fauxThinking('hidden'), { type: 'text', text: 'Visible' }]), api: 'bedrock-converse-stream', provider: 'amazon-bedrock', model: 'test-model',
+      usage: { input: 10, output: 8, cacheRead: 3, cacheWrite: 2, reasoning: 4, totalTokens: 23, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } } };
+    const stream = vi.spyOn(f.models, 'streamSimple').mockImplementation(() => {
+      const result = createAssistantMessageEventStream(); result.push({ type: 'done', reason: 'stop', message }); return result;
+    });
+    const first = await f.open({ mode: 'bounded' }); await first.start(turn(), input('account')); first.resume(); await first.finished;
+    const expected = { input_tokens: 15, output_tokens: 8, total_tokens: 23, input_tokens_details: { cached_tokens: 3 }, output_tokens_details: { reasoning_tokens: 4 } };
+    expect(first.snapshot().turns[0]?.turn.usage).toEqual(expected);
+    expect(text(first)).toBe('Visible');
+    expect(JSON.stringify(first.snapshot())).not.toContain('hidden');
+    await first.close();
+    const reopened = await f.open();
+    expect(reopened.snapshot().turns[0]?.turn.usage).toEqual(expected);
+    expect(stream).toHaveBeenCalledTimes(1);
+  });
+
+  it('checkpoints a root with an idle open child and imports no source task graph', async () => {
+    const route: FauxResponseStep = context => context.messages.some(message => message.role === 'user' && message.content === 'child memory') ? answer('Private child answer')
+      : context.messages.some(message => message.role === 'toolResult') ? answer('Root memory') : tool('spawn_agent', { name: 'worker', message: 'child memory' });
+    const source = await fixture(Array.from({ length: 8 }, () => route), { multi_agent: { enabled: true, max_concurrent_subagents: 2 } });
+    const first = await source.open({ mode: 'bounded' }); await first.start(turn(), input('root')); first.resume(); await first.finished;
+    expect(first.snapshot().subagents).toMatchObject([{ status: 'active', name: 'worker' }]);
+    const checkpoint = await first.checkpoint();
+    expect(checkpoint.history.map(binding => binding.turn.subagent_id)).toEqual([null]);
+    expect(JSON.stringify(checkpoint.messages)).not.toContain('Private child answer');
+    await first.close(); source.store.resources.clear();
+    const target = await fixture([answer('Independent fork')]);
+    const second = await target.open({ mode: 'bounded', seed: checkpoint });
+    expect(second.snapshot().subagents).toEqual([]);
+    expect(second.snapshot().inheritedNativeTurnIds).toEqual([`pi_fork_${checkpoint.history[0]!.nativeTurnId}`]);
+    const native = await target.lease.load();
+    expect(native.commits.flatMap(commit => commit.writes).filter(write => typeof write === 'object' && write !== null && 'type' in write && write.type === 'task')).toEqual([]);
+    await second.start(turn('turn_fork'), input('continue')); second.resume(); await second.finished;
+    expect(text(second)).toBe('Root memory\nIndependent fork');
+    const items = second.snapshot().turns.flatMap(binding => binding.items);
+    expect(new Set(items.map(item => item.id)).size).toBe(items.length);
+    expect(second.snapshot().turns[0]!.items.every(item => item.id?.startsWith('pi_fork_'))).toBe(true);
+    expect(target.faux.state.callCount).toBe(1);
+  });
+});
+
+
+describe('Pi committed streaming identity', () => {
+  function collectStream(launch: SessionLaunch) {
+    let previous: SessionStreamSnapshot | undefined;
+    const events: PlannedSessionEvent[] = [];
+    return { events, changed(state: SessionRuntimeState) {
+      const current: SessionStreamSnapshot = { session: { id: launch.sessionId, object: 'agent.session', agent: launch.agent, environment: launch.environment,
+        created_at: 1, last_active_at: 1, error: null, metadata: {}, required_actions: state.requiredActions, status: 'in_progress', usage: null, vault_ids: [] },
+        turns: state.turns.map(binding => binding.turn), items: state.turns.flatMap(binding => binding.items) };
+      events.push(...planSessionStream(previous, current)); previous = current;
+    } };
+  }
+  function partial(stream: AssistantMessageEventStream, text: string): AssistantMessage {
+    const message: AssistantMessage = { ...fauxAssistantMessage(text), api: 'bedrock-converse-stream', provider: 'amazon-bedrock', model: 'test-model', stopReason: 'pending' };
+    stream.push({ type: 'text_delta', contentIndex: 0, delta: text, partial: message });
+    return message;
+  }
+  it('streams one message ID from incremental native partials through completion and read-only reopen', async () => {
+    const f = await fixture([]);
+    const entered = deferred<AssistantMessageEventStream>();
+    vi.spyOn(f.models, 'streamSimple').mockImplementation(() => { const stream = createAssistantMessageEventStream(); entered.resolve(stream); return stream; });
+    const sink = collectStream(f.launch);
+    const first = await f.open({ mode: 'bounded', changed: sink.changed }); await first.start(turn(), input('stream')); first.resume();
+    const stream = await entered.promise;
+    partial(stream, 'First'); await until(() => sink.events.some(event => event.type === 'agent.session.turn.output_text.delta'));
+    const complete = partial(stream, 'First and second'); await until(() => sink.events.filter(event => event.type === 'agent.session.turn.output_text.delta').length === 2);
+    stream.push({ type: 'done', reason: 'stop', message: { ...complete, stopReason: 'stop' } });
+    await first.finished;
+    const added = sink.events.filter(event => event.type === 'agent.session.turn.item.added');
+    const deltas = sink.events.filter(event => event.type === 'agent.session.turn.output_text.delta');
+    const done = sink.events.filter(event => event.type === 'agent.session.turn.item.done');
+    expect(added).toHaveLength(1); expect(done).toHaveLength(1);
+    expect(deltas.map(event => event.delta)).toEqual(['First', ' and second']);
+    expect(new Set([...added.map(event => event.item.id), ...deltas.map(event => event.item_id), ...done.map(event => event.item.id)])).toEqual(new Set([first.snapshot().turns[0]!.items[0]!.id]));
+    const snapshot = first.snapshot(); await first.close();
+    const eventCount = sink.events.length;
+    const published = deferred<void>();
+    const reopened = await f.open({ changed: state => { sink.changed(state); published.resolve(); } }); await published.promise;
+    expect(reopened.snapshot()).toEqual(snapshot); expect(sink.events).toHaveLength(eventCount);
+    expect(text(reopened)).toBe('First and second');
+  });
+  it('finalizes an interrupted partial under its original ID and gives a divergent retry a new ID', async () => {
+    const f = await fixture([]);
+    const entered = deferred<AssistantMessageEventStream>();
+    const resumed = deferred<AssistantMessageEventStream>();
+    let count = 0;
+    vi.spyOn(f.models, 'streamSimple').mockImplementation((_model, _context, options) => {
+      const stream = createAssistantMessageEventStream();
+      if (++count === 1) {
+        options?.signal?.addEventListener('abort', () => stream.push({ type: 'error', reason: 'aborted', error: { ...fauxAssistantMessage('Old attempt'), stopReason: 'aborted' } }), { once: true });
+        entered.resolve(stream);
+      } else resumed.resolve(stream);
+      return stream;
+    });
+    const sink = collectStream(f.launch);
+    const first = await f.open({ changed: sink.changed }); await first.start(turn(), input('restart')); first.resume();
+    partial(await entered.promise, 'Old attempt'); await until(() => sink.events.some(event => event.type === 'agent.session.turn.output_text.delta'));
+    const oldId = first.snapshot().turns[0]!.items[0]!.id;
+    await first.close();
+    const second = await f.open({ mode: 'bounded', changed: sink.changed }); second.resume();
+    const stream = await resumed.promise;
+    const message = partial(stream, 'Different answer'); await until(() => second.snapshot().turns[0]!.items.length === 2);
+    stream.push({ type: 'done', reason: 'stop', message: { ...message, stopReason: 'stop' } }); await second.finished;
+    const items = second.snapshot().turns[0]!.items;
+    expect(items).toMatchObject([{ id: oldId, status: 'incomplete' }, { status: 'completed' }]);
+    expect(items[1]!.id).not.toBe(oldId);
+    const done = sink.events.filter(event => event.type === 'agent.session.turn.item.done');
+    expect(done.map(event => ({ id: event.item.id, status: event.item.status }))).toEqual([{ id: oldId, status: 'incomplete' }, { id: items[1]!.id, status: 'completed' }]);
+    expect(sink.events.filter(event => event.type === 'agent.session.turn.output_text.delta').map(event => event.delta)).toEqual(['Old attempt', 'Different answer']);
+    const snapshot = second.snapshot(); await second.close(); const reopened = await f.open(); expect(reopened.snapshot()).toEqual(snapshot);
   });
 });

@@ -1,7 +1,7 @@
-import { Type } from '@earendil-works/pi-ai';
-import { configure, defineTask, defineTool, type Harness, type ToolRegistration } from '@earendil-works/pi-durable';
+import { Type, type ModelThinkingLevel } from '@earendil-works/pi-ai';
+import { AgentDoc, configure, defineTask, defineTool, type Harness, type ToolRegistration } from '@earendil-works/pi-durable';
 import type { SessionLaunch } from '../../domain/session-execution.js';
-import { piModel } from '../../domain/session-runtime.js';
+import { validateRuntimeAgent } from '../../domain/session-runtime.js';
 import { waitForDocument } from './functions.js';
 import { LinksDoc, CommandsDoc, activeTurn, admitPiInput, asConversationId, asTaskId, childTurn, json, type PiChildLink } from './protocol.js';
 
@@ -31,7 +31,7 @@ export function coordinationTools(launch: SessionLaunch, harness: () => Harness,
   if (!launch.agent.multi_agent.enabled) return [];
   const spawn = defineTool({
     name: 'spawn_agent', description: 'Start a durable background subagent. Its ID remains available across turns and recovery.', replay: 'safe',
-    parameters: Type.Object({ message: Type.String(), name: Type.String(), model: Type.Optional(Type.String()) }),
+    parameters: Type.Object({ message: Type.String(), name: Type.String(), model: Type.Optional(Type.String()), reasoning_effort: Type.Optional(Type.Union([Type.Literal('none'), Type.Literal('minimal'), Type.Literal('low'), Type.Literal('medium'), Type.Literal('high')])) }),
     execute: async (args, api, context) => {
       const child = await api.commit(async tx => {
         const links = await tx.doc(LinksDoc);
@@ -39,13 +39,14 @@ export function coordinationTools(launch: SessionLaunch, harness: () => Harness,
         if (found) return json(found);
         const parent = await activeTurn(tx, api.conversationId);
         if (Object.values(links.children).filter(child => child.closedAt === undefined).length >= (launch.agent.multi_agent.max_concurrent_subagents ?? 6)) throw new Error('Session subagent limit reached');
-        if (args.model) {
-          if (launch.runtime?.kind !== 'pi') throw new Error('Pi runtime pin is required');
-          piModel(launch.runtime, args.model);
-        }
+        const parentAgent = await tx.doc(AgentDoc, api.conversationId);
+        const model = args.model ?? parentAgent.model?.modelId ?? launch.agent.model;
+        const effort = args.reasoning_effort ?? (parentAgent.thinkingLevel === 'off' ? null : parentAgent.thinkingLevel ?? null);
+        if (launch.runtime?.kind !== 'pi') throw new Error('Pi runtime pin is required');
+        validateRuntimeAgent(launch.runtime, { ...launch.agent, model, reasoning: { ...launch.agent.reasoning, effort } });
         const keeperId = await tx.createTask(ChildKeeperTask, { spawnTaskId: api.taskId }, { ownership: { kind: 'conversation' }, background: true, abandonOnRestart: false, conversationId: api.conversationId });
         const conversation = await tx.createConversation({ ownership: { kind: 'task', taskId: keeperId } });
-        if (args.model) await configure(tx, conversation.id, { model: { provider: 'amazon-bedrock', modelId: args.model } });
+        await configure(tx, conversation.id, { model: { provider: 'amazon-bedrock', modelId: model }, thinkingLevel: effort === 'none' || effort === null ? 'off' : effort as ModelThinkingLevel });
         const child: PiChildLink = { id: `pi_agent_${conversation.id}`, conversationId: conversation.id, keeperId, spawnTaskId: api.taskId,
           parentId: parent.turn.agent_id, parentTurnId: parent.turn.id, name: args.name, prompt: args.message, openedAt: Math.floor(now() / 1000), closing: false };
         const requestId = `spawn:${api.taskId}`;
@@ -69,9 +70,10 @@ export function coordinationTools(launch: SessionLaunch, harness: () => Harness,
         if (commands.operations[requestId]) return commands.operations[requestId]!.turnId;
         const child = links.children[args.id];
         if (!child || child.closing) throw new Error('Subagent is unavailable');
+        const sender = await activeTurn(tx, api.conversationId);
         const submissionId = await admitPiInput(tx, asConversationId(child.conversationId), requestId, args.message, now(), 'followUp');
         const turn = childTurn(links, json(child), requestId, now());
-        links.turns[turn.id] = { turn: json(turn), conversationId: child.conversationId, requestId, submissionId, parentTurnId: child.parentTurnId };
+        links.turns[turn.id] = { turn: json(turn), conversationId: child.conversationId, requestId, submissionId, parentTurnId: sender.turn.id };
         commands.operations[requestId] = { kind: 'send', turnId: turn.id, status: 'settled', fingerprint: JSON.stringify(args), submissionId };
         return turn.id;
       }, context);
