@@ -13,4 +13,6 @@ COPY --chown=10001:10001 src ./src
 COPY --chown=10001:10001 tests ./tests
 COPY --chown=10001:10001 spec ./spec
 COPY --chown=10001:10001 runtime ./runtime
+COPY --chown=10001:10001 testing/fork-demo ./testing/fork-demo
+COPY --chown=10001:10001 site/fork-demo/themes.js ./site/fork-demo/themes.js
 ENTRYPOINT ["npm", "run", "test:agents:parity"]
