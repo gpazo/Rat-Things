@@ -5,8 +5,9 @@ import type { AddressInfo } from 'node:net';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import type { CredentialAuthCreateParam } from 'openai/resources/beta/agents/vaults/credentials';
+import { piCatalog } from '../../src/adapters/pi-model-catalog.js';
 import { AgentService } from '../../src/core/agent-service.js';
-import { createModelCatalog, type ModelCatalog } from '../../src/core/model-catalog.js';
+import { createModelCatalog, createPiModelCatalog, type ModelCatalog } from '../../src/core/model-catalog.js';
 import { SessionService } from '../../src/core/session-service.js';
 import { VaultService } from '../../src/core/vault-service.js';
 import { EnvironmentService } from '../../src/core/environment-service.js';
@@ -57,7 +58,8 @@ function fixtureModels(): ModelCatalog | undefined {
   return { ...catalog, data: catalog.data.map(model => ({ ...model, display_name: model.id === 'fixture-model' ? 'Review model' : 'Fast model' })) };
 }
 const agents = new AgentService({ store });
-const sessions = new SessionService({ store, agents, execution, streamIntervalMs: 20 });
+const piModels = piCatalog(['amazon.nova-micro-v1:0', 'amazon.nova-2-lite-v1:0', 'us.anthropic.claude-sonnet-4-6'], 'us-west-2');
+const sessions = new SessionService({ store, agents, execution, piCatalog: piModels, streamIntervalMs: 20 });
 const templates = new EnvironmentTemplateService({ store });
 // Real template resolution and stored environment state; no VM is provisioned.
 const environments = new EnvironmentService({ store, templates,
@@ -142,7 +144,9 @@ const server = createServer((request, response) => void (async () => {
       return;
     }
   }
-  const routed = await routeAgentsRequest(input, iamApiPrincipal(request.headers['x-runtime-owner'] === owner ? owner : ''), { agents, sessions, vaults, templates, models: fixtureModels() });
+  const routed = await routeAgentsRequest(input, iamApiPrincipal(request.headers['x-runtime-owner'] === owner ? owner : ''), {
+    agents, sessions, vaults, templates, models: fixtureModels(), piModels: createPiModelCatalog(piModels, piModels[0]!.id),
+  });
   // An adverse wire response exercises the desktop's empty-state handling after real authentication/routing.
   const result = modelMode === 'empty-response' && input.method === 'GET' && url.pathname === '/v1/models' && routed.ok
     ? Response.json({ object: 'list', data: [] }) : routed;

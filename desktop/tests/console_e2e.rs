@@ -166,6 +166,102 @@ fn choose_model(app: &mut App, option: &str) {
 }
 
 #[test]
+fn pi_session_selects_bedrock_model_rejects_unsupported_effort_and_reads_runtime_pin() {
+    let f = Fixture::new();
+    let mut app = f.app();
+    click(&mut app, "New session");
+    app.get_by_role_and_label(Role::ComboBox, "Runtime").click();
+    tick(&mut app);
+    click(&mut app, "Pi");
+    choose_model(&mut app, "amazon.nova-2-lite-v1:0");
+    visible(&mut app, "Reasoning effort: model default only");
+    fill(&mut app, "Name", "Pi Bedrock review");
+    fill(
+        &mut app,
+        "Task",
+        "Review this task with the pinned Pi runtime",
+    );
+    f.screenshot(&mut app, "pi-session-form-1280x850.png");
+
+    let mut draft = model_draft(&mut app);
+    assert_eq!(draft["metadata"]["rat_things_runtime"], "pi");
+    assert_eq!(draft["agent"]["model"], "amazon.nova-2-lite-v1:0");
+    draft["agent"]["reasoning"] = json!({"effort":"high"});
+    fill(&mut app, "Configuration JSON", &draft.to_string());
+    click(&mut app, "Advanced JSON");
+    click(&mut app, "Create");
+    visible(
+        &mut app,
+        "The Pi model does not support this reasoning effort.",
+    );
+    assert_eq!(f.state()["sessionCount"], 0);
+    assert!(
+        !f.state()["received"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|request| {
+                request["method"] == "POST" && request["path"] == "/v1/agents/sessions"
+            })
+    );
+    f.screenshot(&mut app, "pi-unsupported-effort-1280x850.png");
+
+    let rejected = f
+        .client
+        .post(format!("{}/api/v1/agents/sessions", f.proxy.url))
+        .bearer_auth(&f.token)
+        .header("x-rat-console-request", "1")
+        .json(&draft)
+        .send()
+        .unwrap();
+    assert_eq!(rejected.status(), 400);
+    assert_eq!(
+        rejected.json::<Value>().unwrap()["error"]["param"],
+        "agent.reasoning.effort"
+    );
+    assert_eq!(f.state()["sessionCount"], 0);
+
+    draft["agent"]["reasoning"] = json!({"effort":null});
+    advanced_json(&mut app);
+    fill(&mut app, "Configuration JSON", &draft.to_string());
+    click(&mut app, "Advanced JSON");
+    click(&mut app, "Create");
+    visible(&mut app, "Message");
+    visible(&mut app, "Runtime pi");
+    let session = f.get("/v1/agents/sessions")["data"][0].clone();
+    assert_eq!(session["agent"]["model"], "amazon.nova-2-lite-v1:0");
+    let id = session["id"].as_str().unwrap();
+    let runtime_path = format!("/v1/agents/sessions/{id}/runtime");
+    let runtime = f.get(&runtime_path);
+    assert_eq!(runtime["runtime"], "pi");
+    assert_eq!(runtime["version"], "1.3.0");
+    assert_eq!(runtime["model"], "amazon.nova-2-lite-v1:0");
+    assert_eq!(runtime["catalog_digest"].as_str().unwrap().len(), 64);
+    assert!(
+        f.state()["received"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|request| { request["method"] == "GET" && request["path"] == runtime_path })
+    );
+    f.screenshot(&mut app, "pi-session-runtime-1280x850.png");
+
+    let updated = f.post(
+        &format!("/v1/agents/sessions/{id}"),
+        json!({
+            "metadata":{"name":"Pi Bedrock review"}
+        }),
+    );
+    assert!(updated["metadata"].get("rat_things_runtime").is_none());
+    assert_eq!(f.get(&runtime_path), runtime);
+    drop(app);
+    let mut reopened = f.app();
+    click(&mut reopened, "Pi Bedrock review");
+    visible(&mut reopened, "Runtime pi");
+    f.screenshot(&mut reopened, "pi-session-reopened-1280x850.png");
+}
+
+#[test]
 fn sidebar_keeps_long_titles_compact_and_names_new_conversations() {
     let f = Fixture::new();
     let long_title = "Review the deployment configuration and browser integration before publishing the next release";
