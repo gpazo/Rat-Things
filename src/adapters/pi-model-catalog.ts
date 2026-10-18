@@ -1,30 +1,15 @@
 import type { Model } from '@earendil-works/pi-ai';
 import { amazonBedrockProvider } from '@earendil-works/pi-ai/providers/amazon-bedrock';
 import type { PiModelDescriptor } from '../domain/session-runtime.js';
+import supportedModels from './pi-bedrock-models.json' with { type: 'json' };
 
-const converseModels: Readonly<Record<string, readonly string[]>> = {
-  'amazon.nova-micro-v1:0': ['none'],
-  'amazon.nova-lite-v1:0': ['none'],
-  'amazon.nova-pro-v1:0': ['none'],
-  'anthropic.claude-haiku-4-5-20251001-v1:0': ['minimal', 'low', 'medium', 'high'],
-  'anthropic.claude-sonnet-4-5-20250929-v1:0': ['minimal', 'low', 'medium', 'high'],
-  'anthropic.claude-sonnet-4-6': ['low', 'medium', 'high'],
-  'anthropic.claude-opus-4-5-20251101-v1:0': ['minimal', 'low', 'medium', 'high'],
-  'anthropic.claude-opus-4-6-v1': ['low', 'medium', 'high'],
-  'openai.gpt-oss-20b-1:0': ['low', 'medium', 'high'],
-  'openai.gpt-oss-120b-1:0': ['low', 'medium', 'high'],
-  'openai.gpt-5.4': ['low', 'medium', 'high'],
-};
-
-const profilePrefix = /^(?:us|eu|apac|au|ca|jp|in|global|us-gov)\./;
-const registry = amazonBedrockProvider().getModels();
-const gpt54Profiles = new Set(['us.openai.gpt-5.4', 'global.openai.gpt-5.4']);
+const converseModels = new Map(supportedModels.entries.flatMap(entry => entry.invocationIds.map(id => [id, entry] as const)));
+const registry = new Map(amazonBedrockProvider().getModels().map(model => [model.id, model]));
 
 export function piRegistryModel(id: string): Model<'bedrock-converse-stream'> {
-  const baseId = id.replace(profilePrefix, '');
-  const model = registry.find(entry => entry.id === (gpt54Profiles.has(id) ? baseId : id));
-  if (!Object.hasOwn(converseModels, baseId) || (baseId === 'openai.gpt-5.4' && !gpt54Profiles.has(id)) ||
-      !model || model.api !== 'bedrock-converse-stream') {
+  const supported = converseModels.get(id);
+  const model = supported && (registry.get(id) ?? registry.get(supported.registryId));
+  if (!model || model.api !== 'bedrock-converse-stream') {
     throw new Error(`Unsupported Pi Converse model: ${id}`);
   }
   return { ...model, id };
@@ -38,7 +23,7 @@ export function piCatalog(modelIds: readonly string[], region: string): PiModelD
     return {
       id, name: model.name, provider: 'amazon-bedrock', api: 'bedrock-converse-stream', region,
       input: [...model.input], contextWindow: model.contextWindow, maxTokens: model.maxTokens,
-      reasoning: [...converseModels[id.replace(profilePrefix, '')]!],
+      reasoning: [...converseModels.get(id)!.reasoning],
     };
   });
 }

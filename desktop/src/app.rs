@@ -2583,10 +2583,15 @@ impl ModelPicker {
             ui.colored_label(theme::ERROR, "This saved model is not available in this deployment. Choose another model to continue.");
         }
         if let Some(model) = choices.iter().find(|model| model.id == selected)
-            && !model.reasoning.is_empty()
+            && self.runtime == "pi"
         {
+            let efforts = if model.reasoning.is_empty() {
+                "model default only".into()
+            } else {
+                model.reasoning.join(", ")
+            };
             ui.label(
-                RichText::new(format!("Reasoning effort: {}", model.reasoning.join(", ")))
+                RichText::new(format!("Reasoning effort: {efforts}"))
                     .small()
                     .color(theme::MUTED),
             );

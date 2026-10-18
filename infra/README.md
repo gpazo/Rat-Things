@@ -120,17 +120,26 @@ role credentials to the agent process.
 
 The module supplies `PI_BEDROCK_MODEL_IDS_JSON` and
 `PI_BEDROCK_DEFAULT_MODEL` to the service and workers. The API intersects configured
-IDs with the reviewed Pi 1.3.0 Converse catalog in
-`src/adapters/pi-model-catalog.ts`. Unsupported IDs fail configuration. Catalog
+IDs with the Pi 1.3.0 Converse catalog in
+[`src/adapters/pi-bedrock-models.json`](../src/adapters/pi-bedrock-models.json).
+Each entry records exact AWS-documented invocation IDs, its pinned Pi registry
+descriptor, supported reasoning efforts, and the AWS model-card source.
+Unsupported IDs fail configuration. Catalog
 membership does not establish model access, region availability, or capacity.
 The deployment must have access to each configured model.
 
-The initial support set includes Nova Micro, Lite, and Pro v1, Claude Haiku 4.5,
-Sonnet 4.5 and 4.6, Opus 4.5 and 4.6, GPT OSS 20B and 120B with their `-1:0`
-identifiers, and the `us.openai.gpt-5.4` and `global.openai.gpt-5.4` inference
-profiles. Profile variants must exist in the pinned registry. Nova 2 explicit
-reasoning is not supported by this adapter. Registry labels alone do not admit
-additional models.
+The catalog includes supported Nova, Claude, DeepSeek V3, Llama, MiniMax,
+Mistral, Kimi, Nemotron, GPT, Qwen, Palmyra, Grok, and GLM models. Models that
+require inference profiles accept only the listed profile IDs. A documented
+alias can reuse the recorded descriptor for the same model; arbitrary profile
+prefixes and registry labels alone do not admit additional models.
+
+Reasoning choices reflect both Bedrock support and Pi's request adapter.
+Anthropic and OpenAI models expose only efforts that pass through without
+clamping. Other reasoning models, including Nova 2, use provider-default
+reasoning and reject explicit effort settings. Input modalities are limited to
+the pinned Pi descriptor's text and image support; audio and video are not
+accepted.
 
 ## Choose Session execution
 

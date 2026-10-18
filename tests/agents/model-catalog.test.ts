@@ -77,11 +77,11 @@ describe('Pi Bedrock catalog', () => {
 
   it('rejects registry labels that lack supported Converse inference and reasoning', async () => {
     const { piCatalog, piCatalogFromConfig, piRegistryModel } = await import('../../src/adapters/pi-model-catalog.js');
-    for (const id of ['openai.gpt-5.5', 'openai.gpt-5.4', 'google.gemma-4-31b', 'xai.grok-4.3', 'amazon.nova-2-lite-v1:0', 'unknown']) {
+    for (const id of ['openai.gpt-5.5', 'openai.gpt-5.4', 'google.gemma-4-31b', 'xai.grok-4.3', 'unknown']) {
       expect(() => piCatalog([id], 'us-west-2')).toThrow('Unsupported Pi Converse model');
     }
     expect(piRegistryModel('us.openai.gpt-5.4')).toMatchObject({ id: 'us.openai.gpt-5.4', api: 'bedrock-converse-stream' });
-    expect(piCatalog(['global.openai.gpt-5.4'], 'us-west-2')[0]).toMatchObject({ id: 'global.openai.gpt-5.4', reasoning: ['low', 'medium', 'high'] });
+    expect(piCatalog(['global.openai.gpt-5.4'], 'us-west-2')[0]).toMatchObject({ id: 'global.openai.gpt-5.4', reasoning: ['low', 'medium', 'high', 'xhigh'] });
     expect(piCatalogFromConfig(undefined, undefined)).toEqual([]);
     expect(() => piCatalogFromConfig('{}', 'us-west-2')).toThrow('JSON array');
     expect(() => piCatalog(['amazon.nova-micro-v1:0'], '')).toThrow('AWS_REGION');

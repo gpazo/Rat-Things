@@ -47,8 +47,10 @@ images, explicit function tools, MCP, and subagents. Self-hosted environments,
 web search, enabled programmatic tool calling, deferred function loading, tool
 search, and JSON-schema output are rejected. Pi accepts medium verbosity, the
 auto service tier, no reasoning summary, and each model's advertised reasoning
-efforts. Omitted reasoning uses the provider default. Unsupported settings fail
-before execution.
+efforts. Omitted or null reasoning effort uses the provider default. An empty
+`reasoning` list means that a model supports only that default; it does not
+advertise an off setting. Explicit efforts that the adapter would ignore or
+clamp are rejected before execution.
 
 The CLI uses the same metadata selector and preserves other JSON fields when
 applying flags:
