@@ -36,6 +36,7 @@ struct Editor {
     models_requested: bool,
     templates_requested: bool,
     saved_model: Option<String>,
+    saved_runtime: String,
     form_inputs: HashMap<String, String>,
     error: Option<String>,
 }
@@ -101,7 +102,7 @@ enum Effect {
 }
 
 enum Pending {
-    Models,
+    Models { runtime: String },
     Templates,
     List { generation: u64, append: bool },
     Detail { generation: u64 },
@@ -449,10 +450,16 @@ impl ConsoleApp {
         }
         self.models.error = None;
         self.models.refresh_requested = false;
-        match self.worker.submit(Task::Models, ctx) {
+        let runtime = self.models.runtime.clone();
+        match self.worker.submit(
+            Task::Models {
+                runtime: runtime.clone(),
+            },
+            ctx,
+        ) {
             Ok(id) => {
                 self.pending
-                    .insert(id, PendingRequest::new(Pending::Models));
+                    .insert(id, PendingRequest::new(Pending::Models { runtime }));
                 self.models.started = Some(Instant::now());
                 self.models.loading = true;
             }
@@ -517,9 +524,13 @@ impl ConsoleApp {
                 }
                 continue;
             }
-            if matches!(pending, Pending::Models) {
+            if let Pending::Models { runtime } = &pending {
                 self.models.loading = false;
                 self.models.started = None;
+                if runtime != &self.models.runtime {
+                    self.models.refresh_requested = true;
+                    continue;
+                }
                 match completion.result {
                     Ok(Data::Models(catalog)) => self.models.catalog = Some(catalog),
                     Err(error) => self.models.error = Some(error),
@@ -1406,6 +1417,10 @@ impl ConsoleApp {
                 });
             });
             ui.horizontal(|ui| {
+                match &snapshot.runtime {
+                    Ok(runtime) => { ui.label(RichText::new(format!("Runtime {}", runtime.runtime)).small().color(theme::MUTED)); }
+                    Err(error) => { ui.label(RichText::new("Runtime unavailable").small().color(theme::MUTED)).on_hover_text(error); }
+                }
                 if let Some(turn) = snapshot.turn() { ui.label(RichText::new(format!("Turn {}", turn.text("status").replace('_', " "))).small().color(theme::MUTED)); }
                 else { ui.label(RichText::new("Ready for input").small().color(theme::MUTED)); }
                 if active && ui.add_enabled(self.mutation_pending.is_none(), egui::Button::new("Cancel turn").small()).clicked() {
@@ -2026,6 +2041,22 @@ impl ConsoleApp {
             advanced: false,
             models_requested: false,
             templates_requested: false,
+            saved_runtime: initial
+                .pointer("/metadata/rat_things_runtime")
+                .and_then(Value::as_str)
+                .or_else(|| {
+                    if initial.get("agent_id").is_some() {
+                        self.selected
+                            .as_ref()
+                            .and_then(|agent| agent.fields.get("metadata"))
+                            .and_then(|metadata| metadata.get("rat_things_runtime"))
+                            .and_then(Value::as_str)
+                    } else {
+                        None
+                    }
+                })
+                .unwrap_or("codex")
+                .to_owned(),
             saved_model: initial
                 .get("model")
                 .and_then(Value::as_str)
@@ -2052,6 +2083,13 @@ impl ConsoleApp {
         let Some(mut editor) = self.editor.take() else {
             return;
         };
+        if let Ok(value) = serde_json::from_str::<Value>(&editor.draft) {
+            let runtime = selected_runtime(
+                &value,
+                inherited_runtime(editor.collection, &value, &editor.saved_runtime),
+            );
+            self.models.select_runtime(runtime, false);
+        }
         if !editor.models_requested
             && !editor.secret
             && matches!(editor.collection, Collection::Sessions | Collection::Agents)
@@ -2333,8 +2371,9 @@ fn set_field(value: &mut Value, path: &[&str], field: Value) {
     }
 }
 
-#[derive(Default)]
 struct ModelPicker {
+    runtime: String,
+    replace_incompatible: bool,
     catalog: Option<ModelCatalog>,
     error: Option<String>,
     loading: bool,
@@ -2342,7 +2381,99 @@ struct ModelPicker {
     refresh_requested: bool,
 }
 
+impl Default for ModelPicker {
+    fn default() -> Self {
+        Self {
+            runtime: "codex".into(),
+            replace_incompatible: false,
+            catalog: None,
+            error: None,
+            loading: false,
+            started: None,
+            refresh_requested: false,
+        }
+    }
+}
+
+fn inherited_runtime<'a>(collection: Collection, value: &Value, saved: &'a str) -> &'a str {
+    if collection == Collection::Agents && value.get("metadata").is_some() {
+        "codex"
+    } else {
+        saved
+    }
+}
+
+fn selected_runtime<'a>(value: &'a Value, inherited: &'a str) -> &'a str {
+    value
+        .pointer("/metadata/rat_things_runtime")
+        .and_then(Value::as_str)
+        .unwrap_or(inherited)
+}
+
 impl ModelPicker {
+    fn select_runtime(&mut self, runtime: &str, replace_incompatible: bool) {
+        if self.runtime != runtime {
+            self.runtime = runtime.to_owned();
+            self.catalog = None;
+            self.error = None;
+            self.replace_incompatible = replace_incompatible;
+            self.refresh_requested = true;
+        }
+    }
+
+    fn runtime_field(
+        &mut self,
+        ui: &mut Ui,
+        id: u64,
+        value: &mut Value,
+        inherited: &str,
+        saved_agent: bool,
+    ) -> bool {
+        let mut runtime = selected_runtime(value, inherited).to_owned();
+        let original = runtime.clone();
+        let label = ui.label(RichText::new("Runtime").strong());
+        if saved_agent {
+            ui.label(format!(
+                "{} · saved Agent",
+                match runtime.as_str() {
+                    "pi" => "Pi",
+                    "codex" => "Codex",
+                    _ => &runtime,
+                }
+            ));
+        } else {
+            let response = egui::ComboBox::from_id_salt(("runtime-picker", id))
+                .selected_text(match runtime.as_str() {
+                    "pi" => "Pi",
+                    "codex" => "Codex",
+                    _ => &runtime,
+                })
+                .show_ui(ui, |ui| {
+                    ui.selectable_value(&mut runtime, "codex".into(), "Codex");
+                    ui.selectable_value(&mut runtime, "pi".into(), "Pi");
+                })
+                .response
+                .labelled_by(label.id);
+            response.widget_info(|| {
+                egui::WidgetInfo::labeled(egui::WidgetType::ComboBox, true, "Runtime")
+            });
+        }
+        if runtime == "pi" {
+            ui.label(RichText::new("Pi uses Bedrock. Choose a managed environment or no environment. Function and MCP tools, text output, medium verbosity, auto tier, and no reasoning summary are supported. Runtime is fixed when the Session starts.").small().color(theme::MUTED));
+        }
+        if runtime != original {
+            set_field(
+                value,
+                &["metadata", "rat_things_runtime"],
+                runtime.clone().into(),
+            );
+            self.select_runtime(&runtime, true);
+            true
+        } else {
+            false
+        }
+    }
+
     fn field(
         &mut self,
         ui: &mut Ui,
@@ -2362,6 +2493,12 @@ impl ModelPicker {
             .as_ref()
             .map(|catalog| catalog.data.as_slice())
             .unwrap_or_default();
+        if self.replace_incompatible && self.catalog.is_some() {
+            if !choices.iter().any(|model| model.id == selected) {
+                selected.clear();
+            }
+            self.replace_incompatible = false;
+        }
         if allow_default
             && selected.is_empty()
             && let Some(default) = self
@@ -2445,6 +2582,15 @@ impl ModelPicker {
         } else if !selected.is_empty() && !choices.iter().any(|model| model.id == selected) {
             ui.colored_label(theme::ERROR, "This saved model is not available in this deployment. Choose another model to continue.");
         }
+        if let Some(model) = choices.iter().find(|model| model.id == selected)
+            && !model.reasoning.is_empty()
+        {
+            ui.label(
+                RichText::new(format!("Reasoning effort: {}", model.reasoning.join(", ")))
+                    .small()
+                    .color(theme::MUTED),
+            );
+        }
         if original != selected {
             set_field(value, path, selected.into());
             true
@@ -2459,26 +2605,124 @@ impl ModelPicker {
         secret: bool,
         value: &Value,
     ) -> Option<String> {
-        let path = match collection {
-            Collection::Agents if !secret => "/model",
-            Collection::Sessions if !secret && value.get("agent_id").is_none() => "/agent/model",
-            _ => return None,
-        };
+        if secret || !matches!(collection, Collection::Agents | Collection::Sessions) {
+            return None;
+        }
+        if !matches!(self.runtime.as_str(), "codex" | "pi") {
+            return Some("Runtime must be codex or pi.".into());
+        }
+        if collection == Collection::Sessions
+            && value.get("agent_id").is_some()
+            && self.runtime == "codex"
+        {
+            return None;
+        }
         if self.loading && self.catalog.is_none() {
             return Some("Wait for the available models to load.".into());
         }
         let Some(catalog) = &self.catalog else {
             return Some("Load the available models before continuing.".into());
         };
+        if self.runtime == "pi"
+            && let Some(error) =
+                pi_configuration_error(collection, value, catalog.capabilities.as_ref())
+        {
+            return Some(error);
+        }
+        if collection == Collection::Sessions && value.get("agent_id").is_some() {
+            return None;
+        }
+        let path = if collection == Collection::Agents {
+            "/model"
+        } else {
+            "/agent/model"
+        };
         let selected = value
             .pointer(path)
             .and_then(Value::as_str)
             .unwrap_or_default();
-        if !catalog.data.iter().any(|model| model.id == selected) {
+        let model = catalog.data.iter().find(|model| model.id == selected);
+        if self.runtime == "pi"
+            && let Some(effort) = value
+                .pointer(if collection == Collection::Agents {
+                    "/reasoning/effort"
+                } else {
+                    "/agent/reasoning/effort"
+                })
+                .and_then(Value::as_str)
+            && !model.is_some_and(|model| model.reasoning.iter().any(|allowed| allowed == effort))
+        {
+            return Some("The Pi model does not support this reasoning effort.".into());
+        }
+        if model.is_none() {
             return Some("Choose a model available in this deployment.".into());
         }
         None
     }
+}
+
+fn pi_configuration_error(
+    collection: Collection,
+    value: &Value,
+    capabilities: Option<&Value>,
+) -> Option<String> {
+    if let Some(environment) = value.pointer("/environment/type").and_then(Value::as_str)
+        && !capabilities
+            .and_then(|c| c.get("environments"))
+            .and_then(Value::as_array)
+            .is_some_and(|types| types.iter().any(|kind| kind == environment))
+    {
+        return Some("Pi supports only managed environments or no environment.".into());
+    }
+    let agent = if collection == Collection::Sessions {
+        value.get("agent")?
+    } else {
+        value
+    };
+    for (path, allowed, message) in [
+        (
+            "/text/verbosity",
+            json!("medium"),
+            "Pi supports only medium verbosity.",
+        ),
+        (
+            "/service_tier",
+            json!("auto"),
+            "Pi supports only the auto service tier.",
+        ),
+        (
+            "/reasoning/summary",
+            Value::Null,
+            "Pi does not support reasoning summaries.",
+        ),
+        (
+            "/text/format/type",
+            json!("text"),
+            "Pi supports only text output.",
+        ),
+    ] {
+        if agent.pointer(path).is_some_and(|v| v != &allowed) {
+            return Some(message.into());
+        }
+    }
+    if agent
+        .get("tools")
+        .and_then(Value::as_array)
+        .is_some_and(|tools| {
+            tools.iter().any(|tool| {
+                !(matches!(
+                    tool.get("type").and_then(Value::as_str),
+                    Some("function" | "mcp")
+                ) || (tool.get("type").and_then(Value::as_str)
+                    == Some("programmatic_tool_calling")
+                    && tool.get("enabled").and_then(Value::as_bool) == Some(false)))
+                    || tool.get("defer_loading").and_then(Value::as_bool) == Some(true)
+            })
+        })
+    {
+        return Some("Pi supports function and MCP tools without deferred loading.".into());
+    }
+    None
 }
 
 fn editor_form(
@@ -2520,6 +2764,15 @@ fn editor_form(
             if creating {
                 changed |= form_field(ui, id, value, &["input"], "Task", true, false);
             }
+            if creating {
+                changed |= models.runtime_field(
+                    ui,
+                    id,
+                    value,
+                    &editor.saved_runtime,
+                    value.get("agent_id").is_some(),
+                );
+            }
             if creating && value.get("agent_id").is_none() {
                 ui.columns(2, |columns| {
                     changed |= models.field(&mut columns[0], id, value, &["agent", "model"], true);
@@ -2554,7 +2807,15 @@ fn editor_form(
                 changed = true;
             }
             changed |= form_field(ui, id, value, &["name"], "Name", false, false);
-            changed |= models.field(ui, id, value, &["model"], creating);
+            let inherited = inherited_runtime(collection, value, &editor.saved_runtime);
+            changed |= models.runtime_field(ui, id, value, inherited, false);
+            changed |= models.field(
+                ui,
+                id,
+                value,
+                &["model"],
+                creating || models.replace_incompatible,
+            );
             changed |= form_field(
                 ui,
                 id,
@@ -2715,5 +2976,171 @@ fn zeroize_json(value: &mut Value) {
         Value::Array(items) => items.iter_mut().for_each(zeroize_json),
         Value::Object(fields) => fields.values_mut().for_each(zeroize_json),
         _ => {}
+    }
+}
+
+#[cfg(test)]
+mod runtime_tests {
+    use super::*;
+
+    fn catalog(ids: &[&str], default: &str) -> ModelCatalog {
+        serde_json::from_value(json!({ "data": ids.iter().map(|id| json!({"id":id,"reasoning":["low","medium","high"]})).collect::<Vec<_>>(), "default_model":default, "capabilities":{"environments":["none","openai_hosted"]} })).unwrap()
+    }
+
+    fn draw_model(picker: &mut ModelPicker, value: &mut Value) {
+        let context = egui::Context::default();
+        let mut output = context.run_ui(egui::RawInput::default(), |ui| {
+            picker.field(ui, 1, value, &["agent", "model"], true);
+        });
+        output.textures_delta.clear();
+    }
+
+    #[test]
+    fn runtime_switch_replaces_only_incompatible_models() {
+        let mut picker = ModelPicker::default();
+        let mut value = json!({"agent":{"model":"codex-model"},"metadata":{"name":"Retained"}});
+        picker.select_runtime("pi", true);
+        picker.catalog = Some(catalog(&["pi-default", "shared"], "pi-default"));
+        draw_model(&mut picker, &mut value);
+        assert_eq!(value["agent"]["model"], "pi-default");
+        assert_eq!(value["metadata"]["name"], "Retained");
+        picker.select_runtime("codex", true);
+        value["agent"]["model"] = "shared".into();
+        picker.catalog = Some(catalog(&["codex-model", "shared"], "codex-model"));
+        draw_model(&mut picker, &mut value);
+        assert_eq!(value["agent"]["model"], "shared");
+    }
+
+    #[test]
+    fn catalog_refresh_preserves_a_saved_model_and_reports_unavailable() {
+        let mut picker = ModelPicker::default();
+        picker.catalog = Some(catalog(&["new-default"], "new-default"));
+        let mut value = json!({"agent":{"model":"retired"}});
+        draw_model(&mut picker, &mut value);
+        assert_eq!(value["agent"]["model"], "retired");
+        assert_eq!(
+            picker
+                .validation_error(Collection::Sessions, false, &value)
+                .as_deref(),
+            Some("Choose a model available in this deployment.")
+        );
+    }
+
+    #[test]
+    fn saved_agent_runtime_is_inherited_and_pi_restrictions_are_visible() {
+        assert_eq!(
+            selected_runtime(
+                &json!({"agent_id":"agent_1","metadata":{"name":"Example"}}),
+                "pi"
+            ),
+            "pi"
+        );
+        assert_eq!(
+            selected_runtime(&json!({"metadata":{"rat_things_runtime":"codex"}}), "pi"),
+            "codex"
+        );
+        let mut picker = ModelPicker::default();
+        picker.select_runtime("pi", false);
+        picker.catalog = Some(catalog(&["pi-model"], "pi-model"));
+        assert_eq!(
+            picker
+                .validation_error(
+                    Collection::Sessions,
+                    false,
+                    &json!({"agent_id":"agent_1","environment":{"type":"self_hosted"}})
+                )
+                .as_deref(),
+            Some("Pi supports only managed environments or no environment.")
+        );
+        assert_eq!(
+            picker
+                .validation_error(
+                    Collection::Sessions,
+                    false,
+                    &json!({"agent":{"model":"pi-model","reasoning":{"effort":"xhigh"}}})
+                )
+                .as_deref(),
+            Some("The Pi model does not support this reasoning effort.")
+        );
+        assert_eq!(
+            picker
+                .validation_error(
+                    Collection::Sessions,
+                    false,
+                    &json!({"agent":{"model":"pi-model","text":{"format":{"type":"json_schema"}}}})
+                )
+                .as_deref(),
+            Some("Pi supports only text output.")
+        );
+        assert!(
+            picker
+                .validation_error(
+                    Collection::Sessions,
+                    false,
+                    &json!({"agent":{"model":"pi-model"},"environment":{"type":"none"}})
+                )
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn runtime_picker_preserves_metadata_and_selects_compatible_default() {
+        use egui_kittest::{Harness, kittest::Queryable};
+        let mut harness = Harness::new_ui_state(
+            |ui, state: &mut (ModelPicker, Value)| {
+                let (picker, value) = state;
+                picker.runtime_field(ui, 1, value, "codex", false);
+                if picker.catalog.is_none() {
+                    picker.catalog = Some(if picker.runtime == "pi" {
+                        catalog(&["pi-model"], "pi-model")
+                    } else {
+                        catalog(&["codex-model"], "codex-model")
+                    });
+                }
+                picker.field(ui, 1, value, &["agent", "model"], true);
+            },
+            (
+                ModelPicker::default(),
+                json!({"metadata":{"name":"Kept"},"agent":{"instructions":"Keep me"}}),
+            ),
+        );
+        harness
+            .get_by_role_and_label(egui::accesskit::Role::ComboBox, "Runtime")
+            .click();
+        harness.run();
+        harness.get_by_label("Pi").click();
+        harness.run();
+        assert_eq!(
+            harness.state().1["metadata"],
+            json!({"name":"Kept","rat_things_runtime":"pi"})
+        );
+        assert_eq!(
+            harness.state().1["agent"],
+            json!({"model":"pi-model","instructions":"Keep me"})
+        );
+    }
+
+    #[test]
+    fn clearing_agent_metadata_restores_default_runtime_for_future_sessions() {
+        assert_eq!(
+            inherited_runtime(Collection::Agents, &json!({"name":"Renamed"}), "pi"),
+            "pi"
+        );
+        assert_eq!(
+            inherited_runtime(Collection::Agents, &json!({"metadata":null}), "pi"),
+            "codex"
+        );
+        assert_eq!(
+            inherited_runtime(Collection::Agents, &json!({"metadata":{}}), "pi"),
+            "codex"
+        );
+        assert_eq!(
+            inherited_runtime(
+                Collection::Sessions,
+                &json!({"agent_id":"saved","metadata":{}}),
+                "pi"
+            ),
+            "pi"
+        );
     }
 }

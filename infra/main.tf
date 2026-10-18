@@ -61,6 +61,9 @@ module "agent_runner" {
   codex_chatgpt_model                      = var.codex_chatgpt_model
   codex_chatgpt_model_ids                  = var.codex_chatgpt_model_ids
   codex_bedrock_model_ids                  = var.codex_bedrock_model_ids
+  pi_bedrock_model_ids                     = var.pi_bedrock_model_ids
+  pi_bedrock_default_model                 = var.pi_bedrock_default_model
+  pi_bedrock_inference_resource_arns       = var.pi_bedrock_inference_resource_arns
   bedrock_api_key_secret_arn               = var.bedrock_api_key_secret_arn
   enable_microvm                           = var.enable_microvm
   ec2_session_workloads                    = var.ec2_session_workloads

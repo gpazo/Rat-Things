@@ -25,7 +25,9 @@ pub(crate) enum Task {
         key: String,
         value: Option<String>,
     },
-    Models,
+    Models {
+        runtime: String,
+    },
     Templates,
     SetSessionArchived {
         id: String,
@@ -355,7 +357,16 @@ impl Api {
             Task::Templates => self
                 .pages(Collection::Templates.path(), "desc", false, deadline)
                 .map(Data::Templates),
-            Task::Models => self.get("/api/v1/models", deadline).map(Data::Models),
+            Task::Models { runtime } => self
+                .get(
+                    &if runtime == "codex" {
+                        "/api/v1/models".to_owned()
+                    } else {
+                        format!("/api/v1/models?runtime={}", path_segment(&runtime))
+                    },
+                    deadline,
+                )
+                .map(Data::Models),
             Task::List { collection, after } => {
                 let mut url = self.url(collection.path())?;
                 url.query_pairs_mut()
@@ -390,6 +401,7 @@ impl Api {
             Task::Snapshot { id } => {
                 let path = Collection::Sessions.resource_path(&id);
                 Ok(Data::Snapshot(SessionSnapshot {
+                    runtime: self.get(&format!("{path}/runtime"), deadline),
                     session: self.get(&path, deadline)?,
                     items: self.pages(&format!("{path}/items"), "asc", false, deadline)?,
                     turns: self.pages(&format!("{path}/turns"), "desc", false, deadline)?,
@@ -542,5 +554,84 @@ mod tests {
         assert_eq!(safe_filename("C:\\private\\output.md"), "output.md");
         assert_eq!(safe_filename(".."), "artifact");
         assert_eq!(safe_filename("bad\0name.txt"), "badname.txt");
+    }
+
+    fn fixture(responses: Vec<(&'static str, Value)>) -> (Api, std::thread::JoinHandle<()>) {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let endpoint = format!("http://{}", listener.local_addr().unwrap());
+        let worker = std::thread::spawn(move || {
+            for (path, body) in responses {
+                let (mut stream, _) = listener.accept().unwrap();
+                let mut request = [0; 4096];
+                let size = stream.read(&mut request).unwrap();
+                assert!(
+                    String::from_utf8_lossy(&request[..size])
+                        .starts_with(&format!("GET {path} HTTP/1.1"))
+                );
+                let body = body.to_string();
+                write!(stream, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", body.len(), body).unwrap();
+            }
+        });
+        (Api::new(endpoint, "test-token".into()).unwrap(), worker)
+    }
+
+    #[test]
+    fn catalogs_filter_pi_and_keep_codex_request_unchanged() {
+        let catalog = json!({"data":[{"id":"test-model"}],"default_model":"test-model"});
+        let (api, worker) = fixture(vec![
+            ("/api/v1/models?runtime=pi", catalog.clone()),
+            ("/api/v1/models", catalog),
+        ]);
+        assert!(matches!(
+            api.execute(Task::Models {
+                runtime: "pi".into()
+            }),
+            Ok(Data::Models(_))
+        ));
+        assert!(matches!(
+            api.execute(Task::Models {
+                runtime: "codex".into()
+            }),
+            Ok(Data::Models(_))
+        ));
+        worker.join().unwrap();
+    }
+
+    #[test]
+    fn session_runtime_readback_ignores_editable_metadata() {
+        let page = json!({"data":[],"has_more":false});
+        let (api, worker) = fixture(vec![
+            (
+                "/api/v1/agents/sessions/session_1/runtime",
+                json!({"runtime":"pi","version":"1.3.0","model":"pi-model","catalog_digest":"digest"}),
+            ),
+            (
+                "/api/v1/agents/sessions/session_1",
+                json!({"id":"session_1","metadata":{"rat_things_runtime":"codex"}}),
+            ),
+            (
+                "/api/v1/agents/sessions/session_1/items?limit=100&order=asc",
+                page.clone(),
+            ),
+            (
+                "/api/v1/agents/sessions/session_1/turns?limit=100&order=desc",
+                page.clone(),
+            ),
+            (
+                "/api/v1/agents/sessions/session_1/artifacts?limit=100&order=asc",
+                page,
+            ),
+        ]);
+        let Ok(Data::Snapshot(snapshot)) = api.execute(Task::Snapshot {
+            id: "session_1".into(),
+        }) else {
+            panic!("expected session snapshot")
+        };
+        assert_eq!(snapshot.runtime.unwrap().runtime, "pi");
+        assert_eq!(
+            snapshot.session.fields["metadata"]["rat_things_runtime"],
+            "codex"
+        );
+        worker.join().unwrap();
     }
 }

@@ -660,3 +660,34 @@ variable "session_checkpoints_enabled" {
     error_message = "Session checkpoints require S3 Files persistent storage."
   }
 }
+
+variable "pi_bedrock_model_ids" {
+  description = "Exact approved Converse model or inference-profile IDs for Pi Sessions, independent of Codex authentication. Empty disables Pi."
+  type        = list(string)
+  default     = []
+  validation {
+    condition = length(distinct(var.pi_bedrock_model_ids)) == length(var.pi_bedrock_model_ids) && alltrue([
+      for model in var.pi_bedrock_model_ids : can(regex("^[a-z0-9][a-z0-9.:-]+$", model))
+    ])
+    error_message = "pi_bedrock_model_ids must contain unique exact model IDs without wildcards."
+  }
+}
+
+variable "pi_bedrock_default_model" {
+  description = "Optional Pi picker default. Must appear in pi_bedrock_model_ids."
+  type        = string
+  default     = null
+  nullable    = true
+}
+
+variable "pi_bedrock_inference_resource_arns" {
+  description = "Exact Bedrock resources Pi may invoke. Include foundation models in every destination region, inference profiles, and required default projects."
+  type        = list(string)
+  default     = []
+  validation {
+    condition = alltrue([
+      for arn in var.pi_bedrock_inference_resource_arns : can(regex("^arn:aws(-[a-z]+)*:bedrock:[a-z0-9-]+:[0-9]*:(foundation-model|inference-profile|application-inference-profile|project)/[A-Za-z0-9.:-]+$", arn))
+    ])
+    error_message = "pi_bedrock_inference_resource_arns must contain exact Bedrock resource ARNs without wildcards."
+  }
+}

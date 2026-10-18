@@ -356,3 +356,58 @@ run "ec2_workloads_require_enabled_backend" {
   }
   expect_failures = [check.ec2_session_workloads]
 }
+
+run "pi_with_chatgpt_codex" {
+  command = plan
+  module { source = "./modules/agent-runner" }
+  variables {
+    enable_microvm                     = false
+    enable_ec2_worker                  = true
+    codex_auth_mode                    = "chatgpt"
+    codex_auth_file_secret_arn         = "arn:aws:secretsmanager:us-west-2:123456789012:secret:codex"
+    codex_chatgpt_model_ids            = ["gpt-5.4"]
+    codex_chatgpt_model                = "gpt-5.4"
+    pi_bedrock_model_ids               = ["amazon.nova-micro-v1:0"]
+    pi_bedrock_default_model           = "amazon.nova-micro-v1:0"
+    pi_bedrock_inference_resource_arns = ["arn:aws:bedrock:us-west-2::foundation-model/amazon.nova-micro-v1:0"]
+  }
+  assert {
+    condition     = local.worker_environment.CODEX_AUTH_MODE == "chatgpt" && local.worker_environment.PI_BEDROCK_MODEL_IDS_JSON == jsonencode(["amazon.nova-micro-v1:0"]) && local.worker_environment.PI_BEDROCK_DEFAULT_MODEL == "amazon.nova-micro-v1:0"
+    error_message = "Pi worker catalog settings must be present independently of Codex authentication."
+  }
+  assert {
+    condition     = local.model_catalog_environment.AGENTS_DEFAULT_MODEL == "gpt-5.4" && local.lambda_common_environment.PI_BEDROCK_DEFAULT_MODEL == "amazon.nova-micro-v1:0"
+    error_message = "Pi configuration must not replace the Codex model catalog."
+  }
+  assert {
+    condition     = toset(one([for statement in data.aws_iam_policy_document.worker.statement : statement.actions if statement.sid == "PiConverseInference"])) == toset(["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream"]) && toset(one([for statement in data.aws_iam_policy_document.worker.statement : statement.resources if statement.sid == "PiConverseInference"])) == toset(var.pi_bedrock_inference_resource_arns)
+    error_message = "Pi must use Converse invocation permissions scoped to exact configured resources."
+  }
+  assert {
+    condition     = length([for statement in data.aws_iam_policy_document.worker.statement : statement if statement.sid == "PiBedrockShortTermToken"]) == 1 && length([for statement in data.aws_iam_policy_document.worker.statement : statement if statement.sid == "BedrockMantleShortTermToken"]) == 0
+    error_message = "Pi token permissions must not enable Codex Mantle permissions."
+  }
+}
+
+run "pi_requires_inference_resources" {
+  command = plan
+  module { source = "./modules/agent-runner" }
+  variables {
+    enable_microvm       = false
+    enable_ec2_worker    = true
+    pi_bedrock_model_ids = ["amazon.nova-micro-v1:0"]
+  }
+  expect_failures = [check.pi_bedrock_configuration]
+}
+
+run "pi_rejects_wildcard_inference_resources" {
+  command = plan
+  module { source = "./modules/agent-runner" }
+  variables {
+    enable_microvm                     = false
+    enable_ec2_worker                  = true
+    pi_bedrock_model_ids               = ["amazon.nova-micro-v1:0"]
+    pi_bedrock_inference_resource_arns = ["arn:aws:bedrock:*::foundation-model/*"]
+  }
+  expect_failures = [var.pi_bedrock_inference_resource_arns]
+}

@@ -171,3 +171,14 @@ check "ec2_session_workloads" {
     error_message = "ec2_session_workloads requires enable_ec2_worker = true."
   }
 }
+
+check "pi_bedrock_configuration" {
+  assert {
+    condition     = var.pi_bedrock_default_model == null ? true : contains(var.pi_bedrock_model_ids, var.pi_bedrock_default_model)
+    error_message = "pi_bedrock_default_model must appear in pi_bedrock_model_ids."
+  }
+  assert {
+    condition     = (length(var.pi_bedrock_model_ids) > 0) == (length(var.pi_bedrock_inference_resource_arns) > 0)
+    error_message = "Configure both pi_bedrock_model_ids and pi_bedrock_inference_resource_arns to enable Pi."
+  }
+}

@@ -239,6 +239,8 @@ pub(crate) fn name_session_request(value: &mut Value) {
 #[derive(Clone, Deserialize)]
 pub(crate) struct AvailableModel {
     pub id: String,
+    #[serde(default)]
+    pub reasoning: Vec<String>,
 }
 
 impl AvailableModel {
@@ -252,6 +254,13 @@ pub(crate) struct ModelCatalog {
     pub data: Vec<AvailableModel>,
     #[serde(default)]
     pub default_model: Option<String>,
+    #[serde(default)]
+    pub capabilities: Option<Value>,
+}
+
+#[derive(Clone, Deserialize)]
+pub(crate) struct RuntimeInfo {
+    pub runtime: String,
 }
 
 #[derive(Deserialize)]
@@ -263,6 +272,7 @@ pub(crate) struct Page {
 
 #[derive(Clone)]
 pub(crate) struct SessionSnapshot {
+    pub runtime: Result<RuntimeInfo, String>,
     pub session: Resource,
     pub items: Vec<Resource>,
     pub turns: Vec<Resource>,

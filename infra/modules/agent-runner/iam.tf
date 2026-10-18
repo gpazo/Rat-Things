@@ -792,6 +792,29 @@ data "aws_iam_policy_document" "worker" {
   }
 
   dynamic "statement" {
+    for_each = length(var.pi_bedrock_model_ids) > 0 ? [1] : []
+    content {
+      sid       = "PiBedrockShortTermToken"
+      actions   = ["bedrock:CallWithBearerToken"]
+      resources = ["*"]
+      condition {
+        test     = "StringEquals"
+        variable = "bedrock:bearerTokenType"
+        values   = ["SHORT_TERM"]
+      }
+    }
+  }
+
+  dynamic "statement" {
+    for_each = length(var.pi_bedrock_model_ids) > 0 ? [1] : []
+    content {
+      sid       = "PiConverseInference"
+      actions   = ["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream"]
+      resources = var.pi_bedrock_inference_resource_arns
+    }
+  }
+
+  dynamic "statement" {
     for_each = var.codex_auth_mode == "bedrock" && length(var.codex_bedrock_model_ids) > 0 ? [1] : []
     content {
       sid       = "BedrockMantleShortTermToken"

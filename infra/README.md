@@ -54,7 +54,7 @@ Packaging verifies the artifact and produces the Lambda ZIPs and `dist/microvm-s
 Terraform backend before sharing an environment. Pin a currently `AVAILABLE` managed base-image
 version rather than relying on an implicit latest version.
 
-Deployed Sessions use the native Codex harness and invoke the configured model when input
+Deployed Sessions use Codex by default and can select Pi when its Bedrock catalog is configured. Sessions invoke the configured model when input
 arrives. `npm run smoke:local` uses a deterministic mock without provisioning or model calls.
 See [development and deployment](../docs/development-and-deployment.md) for configuration.
 
@@ -94,6 +94,43 @@ For ChatGPT authentication, set `codex_chatgpt_model_ids` to the exact IDs verif
 deployment-owned workspace credential. An explicitly pinned `codex_chatgpt_model` supplies a
 singleton catalog when that list is empty. Without either setting, model discovery returns unavailable
 because the server cannot safely infer account availability from another Codex login.
+
+## Enable Pi inference
+
+Pi Sessions use Bedrock Converse independently of `codex_auth_mode`. Configure
+`pi_bedrock_model_ids` with exact supported model IDs and
+`pi_bedrock_inference_resource_arns` with the exact resources that the worker may
+invoke. Set `pi_bedrock_default_model` to advertise a picker default. It must be
+in the model list. An empty list disables Pi.
+
+```hcl
+pi_bedrock_model_ids     = ["amazon.nova-micro-v1:0"]
+pi_bedrock_default_model = "amazon.nova-micro-v1:0"
+pi_bedrock_inference_resource_arns = [
+  "arn:aws:bedrock:us-west-2::foundation-model/amazon.nova-micro-v1:0",
+]
+```
+
+For cross-region inference, include the inference profile ARN and foundation
+model ARNs in every destination region. Include the account's default project
+ARN when the model requires it. Wildcards are rejected. These grants authorize
+`bedrock:InvokeModel` and `bedrock:InvokeModelWithResponseStream`, plus short-term
+Bedrock bearer-token use. They do not change Codex Mantle grants or provide AWS
+role credentials to the agent process.
+
+The module supplies `PI_BEDROCK_MODEL_IDS_JSON` and
+`PI_BEDROCK_DEFAULT_MODEL` to the service and workers. The API intersects configured
+IDs with the reviewed Pi 1.3.0 Converse catalog in
+`src/adapters/pi-model-catalog.ts`. Unsupported IDs fail configuration. Catalog
+membership does not establish model access, region availability, or capacity.
+The deployment must have access to each configured model.
+
+The initial support set includes Nova Micro, Lite, and Pro v1, Claude Haiku 4.5,
+Sonnet 4.5 and 4.6, Opus 4.5 and 4.6, GPT OSS 20B and 120B with their `-1:0`
+identifiers, and the `us.openai.gpt-5.4` and `global.openai.gpt-5.4` inference
+profiles. Profile variants must exist in the pinned registry. Nova 2 explicit
+reasoning is not supported by this adapter. Registry labels alone do not admit
+additional models.
 
 ## Choose Session execution
 

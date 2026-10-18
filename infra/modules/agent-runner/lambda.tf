@@ -1,4 +1,13 @@
 locals {
+  pi_catalog_environment = merge(
+    length(var.pi_bedrock_model_ids) > 0 ? {
+      PI_BEDROCK_MODEL_IDS_JSON = jsonencode(var.pi_bedrock_model_ids)
+    } : {},
+    var.pi_bedrock_default_model != null ? {
+      PI_BEDROCK_DEFAULT_MODEL = var.pi_bedrock_default_model
+    } : {},
+  )
+
   model_catalog_environment = merge(
     length(local.model_catalog_model_ids) > 0 ? {
       AGENTS_MODEL_IDS_JSON = jsonencode(local.model_catalog_model_ids)
@@ -8,7 +17,7 @@ locals {
     } : {},
   )
 
-  lambda_common_environment = merge({
+  lambda_common_environment = merge(local.pi_catalog_environment, {
     SESSION_CHECKPOINTS_ENABLED         = tostring(var.session_checkpoints_enabled)
     ALLOWED_REPOSITORY_HOSTS            = join(",", var.allowed_repository_hosts)
     ALLOWED_SANDBOX_MODES               = join(",", var.allowed_sandbox_modes)

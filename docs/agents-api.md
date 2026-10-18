@@ -11,6 +11,59 @@ installed routes and pinned SDK types. This implementation is an engineering
 preview; matching resource types does not establish complete behavioral parity
 with OpenAI's hosted service.
 
+## Choose a Session runtime
+
+Codex is the default runtime. Select Pi with the existing SDK metadata field:
+
+```ts
+const session = await client.beta.agents.sessions.create({
+  metadata: { rat_things_runtime: 'pi' },
+  agent: { model: 'amazon.nova-micro-v1:0' },
+  environment: { type: 'none' },
+  input: 'Explain how this Session works.',
+});
+```
+
+The selector accepts `codex` or `pi`. An explicit Session selector takes priority
+over the saved Agent's selector. Otherwise the Session uses Codex. The server
+pins the runtime before preparing an environment. Metadata replacement or clearing
+does not change that pin. A conflicting update fails. Forks inherit the source
+runtime. Agent metadata changes apply to future Sessions.
+
+Read the pin with `GET /v1/agents/sessions/{session_id}/runtime`. The result
+contains `runtime` and the current `model`. Pi also returns `version` and
+`catalog_digest`. Runtime is separate from editable metadata and execution
+placement. Create a new Session to change runtime.
+
+`GET /v1/models` keeps the Codex model catalog. Add `?runtime=pi` to discover
+Pi models and supported environments, tools, and settings. Pi uses only Amazon
+Bedrock Converse models admitted by the deployment. A Session pins its approved
+catalog. Model updates must stay within that catalog and remain permitted by the
+current deployment. Each accepted Turn captures its selected model. The server
+never substitutes a different model.
+
+Pi supports no environment or a managed environment, text and model-supported
+images, explicit function tools, MCP, and subagents. Self-hosted environments,
+web search, enabled programmatic tool calling, deferred function loading, tool
+search, and JSON-schema output are rejected. Pi accepts medium verbosity, the
+auto service tier, no reasoning summary, and each model's advertised reasoning
+efforts. Omitted reasoning uses the provider default. Unsupported settings fail
+before execution.
+
+The CLI uses the same metadata selector and preserves other JSON fields when
+applying flags:
+
+```bash
+rat-things agents models --runtime pi
+rat-things sessions create --runtime pi --model amazon.nova-micro-v1:0 --input "Explain this Session"
+rat-things sessions runtime sess_123
+```
+
+`--runtime` and `--model` also apply to Agent creation and updates. Pi requires
+a durable Session; standalone `local --driver pi` is rejected. The desktop
+console places Runtime before Model and shows the pinned runtime for existing
+Sessions. A saved Agent supplies its runtime when starting a Session.
+
 ## Export traces to your own tools
 
 Rat Things captures structural trace information in its encrypted AWS storage.
@@ -153,7 +206,7 @@ can be changed through the Session update endpoint. Supplied objects and arrays
 replace the corresponding saved fields. The requested model identifier is passed
 to the configured provider without silently choosing another model.
 
-Session model updates validate the resolved reasoning effort against the
+Codex Session model updates validate the resolved reasoning effort against the
 installed API capability catalogue before saving. Service tiers use the API
 enum and are passed through to the provider; interactive Codex menu entries
 do not determine API tier availability. The provider enforces tier entitlement
@@ -164,7 +217,7 @@ identifier. Uncatalogued models cannot be selected through a Session update;
 operators must review the catalogue when adding model support. This check does
 not grant provider access or guarantee available capacity.
 
-The installed reasoning matrix is:
+The installed Codex reasoning matrix is:
 
 | Model | Accepted explicit reasoning efforts |
 | --- | --- |
