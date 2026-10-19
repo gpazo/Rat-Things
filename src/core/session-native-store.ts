@@ -17,6 +17,48 @@ export interface NativeLease {
 export function nativeDigest(change: NativeCommit): string { return createHash('sha256').update(canonicalJson(change)).digest('hex'); }
 const conflict = () => new AgentsApiError(409, 'Pi native ownership or head changed.', 'native_conflict');
 
+type NativeWrites = Parameters<AgentsStore['commit']>[0];
+export interface NativeReservation { first: number; last: number; count: number }
+export type NativeReservationDecision =
+  | { kind: 'return'; value: NativeReservation }
+  | { kind: 'write'; value: NativeReservation; writes: NativeWrites }
+  | { kind: 'reject'; error: Error };
+export type NativeCommitDecision =
+  | { kind: 'return'; head: NativeHead }
+  | { kind: 'read-existing' }
+  | { kind: 'write'; head: NativeHead; writes: NativeWrites }
+  | { kind: 'reject'; error: Error };
+
+const immutable = <T>(ownerId: string, id: string, value: T): AgentResource<T> => ({ ownerId, collection: 'session_native', id, createdAt: 0, revision: 1, value });
+
+export function planNativeReservation(current: AgentResource<StoredSessionRuntime>, ownerId: string, id: string, count: number, previous: NativeReservation | undefined): NativeReservationDecision {
+  if (previous) return previous.count === count ? { kind: 'return', value: previous } : { kind: 'reject', error: conflict() };
+  const first = (current.value.native?.highWater ?? 1) + 1;
+  const last = first + count - 1;
+  if (!Number.isSafeInteger(last)) return { kind: 'reject', error: new Error('ID space is exhausted') };
+  const value = { first, last, count };
+  return { kind: 'write', value, writes: [
+    { resource: immutable(ownerId, id, value), expectedRevision: 0 },
+    { resource: { ...current, revision: current.revision + 1, value: { ...current.value, native: { ...current.value.native, schema: 1, highWater: last } } }, expectedRevision: current.revision },
+  ] };
+}
+
+interface NativeCommitFacts { current: AgentResource<StoredSessionRuntime>; ownerId: string; id: string; change: NativeCommit; head: NativeHead }
+export function planNativeCommit(facts: NativeCommitFacts, existing: { kind: 'read'; value: NativeCommit | undefined }): Exclude<NativeCommitDecision, { kind: 'read-existing' }>;
+export function planNativeCommit(facts: NativeCommitFacts, existing: { kind: 'unread' }): NativeCommitDecision;
+export function planNativeCommit({ current, ownerId, id, change, head }: NativeCommitFacts,
+  existing: { kind: 'unread' } | { kind: 'read'; value: NativeCommit | undefined }): NativeCommitDecision {
+  const attached = current.value.native?.head ?? null;
+  if (canonicalJson(attached) === canonicalJson(head)) return { kind: 'return', head };
+  if (canonicalJson(attached) !== canonicalJson(change.parent)) return { kind: 'reject', error: conflict() };
+  if (existing.kind === 'unread') return { kind: 'read-existing' };
+  if (existing.value && nativeDigest(existing.value) !== head.digest) return { kind: 'reject', error: conflict() };
+  return { kind: 'write', head, writes: [
+    ...existing.value ? [] : [{ resource: immutable(ownerId, id, change), expectedRevision: 0 }],
+    { resource: { ...current, revision: current.revision + 1, value: { ...current.value, native: { schema: 1, highWater: Math.max(current.value.native?.highWater ?? 1, change.idHighWater), head } } }, expectedRevision: current.revision },
+  ] };
+}
+
 export function nativeLease(store: AgentsStore, ownerId: string, sessionId: string, runId: string, epoch: number): NativeLease {
   const resourceId = (type: string, id: string) => `${sessionId}:${type}:${id}`;
   const active = async () => {
@@ -24,7 +66,6 @@ export function nativeLease(store: AgentsStore, ownerId: string, sessionId: stri
     if (!current || current.value.closed || current.value.runId !== runId || (current.value.epoch ?? 0) !== epoch) throw conflict();
     return current;
   };
-  const immutable = <T>(id: string, value: T): AgentResource<T> => ({ ownerId, collection: 'session_native', id, createdAt: 0, revision: 1, value });
   let queue: Promise<unknown> = Promise.resolve();
   const serialized = <T>(effect: () => Promise<T>): Promise<T> => {
     const next = queue.then(effect);
@@ -53,21 +94,13 @@ export function nativeLease(store: AgentsStore, ownerId: string, sessionId: stri
       const id = resourceId('ids', `${runId}:${epoch}:${requestId}`);
       for (let attempt = 0; attempt < 4; attempt++) {
         const current = await active();
-        const previous = await store.get<{ first: number; last: number; count: number }>(ownerId, 'session_native', id);
-        if (previous) {
-          if (previous.value.count !== count) throw conflict();
-          return previous.value;
-        }
-        const first = (current.value.native?.highWater ?? 1) + 1;
-        const last = first + count - 1;
-        if (!Number.isSafeInteger(last)) throw new Error('ID space is exhausted');
-        const value = { first, last, count };
+        const previous = await store.get<NativeReservation>(ownerId, 'session_native', id);
+        const plan = planNativeReservation(current, ownerId, id, count, previous?.value);
+        if (plan.kind === 'reject') throw plan.error;
+        if (plan.kind === 'return') return plan.value;
         try {
-          await store.commit([
-            { resource: immutable(id, value), expectedRevision: 0 },
-            { resource: { ...current, revision: current.revision + 1, value: { ...current.value, native: { ...current.value.native, schema: 1, highWater: last } } }, expectedRevision: current.revision },
-          ]);
-          return value;
+          await store.commit(plan.writes);
+          return plan.value;
         } catch (error) { if (attempt === 3) throw error; }
       }
       throw conflict();
@@ -80,17 +113,16 @@ export function nativeLease(store: AgentsStore, ownerId: string, sessionId: stri
       const id = resourceId('commit', change.commitId);
       for (let attempt = 0; attempt < 4; attempt++) {
         const current = await active();
-        const attached = current.value.native?.head ?? null;
-        if (canonicalJson(attached) === canonicalJson(head)) return head;
-        if (canonicalJson(attached) !== canonicalJson(change.parent)) throw conflict();
-        const existing = await store.get<NativeCommit>(ownerId, 'session_native', id);
-        if (existing && nativeDigest(existing.value) !== digest) throw conflict();
+        let plan = planNativeCommit({ current, ownerId, id, change, head }, { kind: 'unread' });
+        if (plan.kind === 'read-existing') {
+          const existing = await store.get<NativeCommit>(ownerId, 'session_native', id);
+          plan = planNativeCommit({ current, ownerId, id, change, head }, { kind: 'read', value: existing?.value });
+        }
+        if (plan.kind === 'reject') throw plan.error;
+        if (plan.kind === 'return') return plan.head;
         try {
-          await store.commit([
-            ...existing ? [] : [{ resource: immutable(id, change), expectedRevision: 0 }],
-            { resource: { ...current, revision: current.revision + 1, value: { ...current.value, native: { schema: 1, highWater: Math.max(current.value.native?.highWater ?? 1, change.idHighWater), head } } }, expectedRevision: current.revision },
-          ]);
-          return head;
+          await store.commit(plan.writes);
+          return plan.head;
         } catch (error) { if (attempt === 3) throw error; }
       }
       throw conflict();
