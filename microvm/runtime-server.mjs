@@ -351,9 +351,7 @@ function startRun(run) {
     rejectControlWaiters(activeRun, new Error('agent runner exited'));
     activeRun = undefined;
     if (run.environment.DEFAULT_EXECUTION_BACKEND === 'ec2') { void shutdown('worker_exit'); }
-    // A checkpoint-enabled process owns a single workspace generation. Once it
-    // exits, replacement must use a new worker, including after failed handoff.
-    else if (!serviceTerminationRequested && (!run.persistentSession || run.environment.SESSION_CHECKPOINTS_ENABLED === 'true')) selfTerminate(run);
+    else if (!serviceTerminationRequested) selfTerminate(run);
   });
 }
 
