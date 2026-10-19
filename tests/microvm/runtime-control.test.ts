@@ -41,7 +41,10 @@ const actualProcess = process;
 let runnerChild: EventEmitter & {
   connected: boolean;
   pid: number;
+  exitCode?: number | null;
+  signalCode?: NodeJS.Signals | null;
   send(message: Record<string, unknown>, callback?: (error?: Error | null) => void): boolean;
+  kill?(signal: NodeJS.Signals): boolean;
 };
 
 const processProxy = new Proxy(actualProcess, {
@@ -64,6 +67,81 @@ afterAll(() => {
   vi.unstubAllGlobals();
   vi.unstubAllEnvs();
 });
+
+async function startRuntimeWithRunner() {
+  vi.resetModules();
+  ipc.removeAllListeners();
+  vi.stubEnv('AGENT_RUNNER_ENTRY', '/fixture/runner.mjs');
+  vi.stubEnv('AGENT_TERMINATOR_ENTRY', '/fixture/terminator.mjs');
+  vi.stubEnv('RUN_AGENT_UID', '10001');
+  vi.stubEnv('RUN_AGENT_GID', '10001');
+  vi.stubGlobal('process', processProxy);
+
+  runnerChild = Object.assign(new EventEmitter(), {
+    connected: true,
+    pid: 42,
+    exitCode: null,
+    signalCode: null,
+    kill(signal: NodeJS.Signals) {
+      queueMicrotask(() => {
+        runnerChild.signalCode = signal;
+        runnerChild.emit('exit', null, signal);
+      });
+      return true;
+    },
+    send(message: Record<string, unknown>, callback?: (error?: Error | null) => void) {
+      callback?.(null);
+      queueMicrotask(() => ipc.emit('message', message));
+      return true;
+    },
+  });
+  runtime.spawn.mockReset().mockReturnValue(runnerChild);
+  await import('../../microvm/runtime-server.mjs');
+  const handler = runtime.handler;
+  if (!handler) throw new Error('runtime HTTP handler was not installed');
+
+  const post = async (url: string, body: unknown) => {
+    const encoded = Buffer.from(JSON.stringify(body));
+    const request = Object.assign(Readable.from([encoded]), {
+      method: 'POST', url, headers: { 'content-length': String(encoded.length) },
+    });
+    const response = {
+      statusCode: 0,
+      headers: new Map<string, string>(),
+      setHeader(name: string, value: string) { this.headers.set(name, value); },
+      end(value: string) { this.body = value; },
+      body: '',
+    };
+    await handler(request, response);
+    return { status: response.statusCode, body: JSON.parse(response.body) as Record<string, unknown> };
+  };
+
+  const runId = 'worker-exit-run';
+  const hookPayload = {
+    version: 1,
+    runId,
+    executionGeneration: 'b'.repeat(64),
+    region: 'us-east-1',
+    timeoutSeconds: 60,
+    inputBucket: 'rat-things-inputs',
+    inputKey: 'runs/input.json',
+    runsTableName: 'rat-things-runs',
+    integrationsTableName: 'rat-things-integrations',
+    artifactBucket: 'rat-things-artifacts',
+    heartbeatIntervalMs: 1_000,
+    persistentSession: true,
+    allowedRepositoryHosts: 'github.com',
+    allowedSandboxModes: 'read-only',
+    defaultSandboxMode: 'read-only',
+    defaultAgentNetworkAccess: false,
+    allowAgentAwsCredentialChain: false,
+  };
+  const started = await post('/aws/lambda-microvms/runtime/v1/run', {
+    microvmId: 'microvm-worker-exit-test', runHookPayload: JSON.stringify(hookPayload),
+  });
+  expect(started.status).toBe(200);
+  return { post };
+}
 
 it('routes a response through the installed runner controller and waits for its acknowledgement', async () => {
   vi.stubEnv('AGENT_RUNNER_ENTRY', '/fixture/runner.mjs');
@@ -204,4 +282,32 @@ it('routes a response through the installed runner controller and waits for its 
   expect((await post(`/agent-runtime/v1/runs/${runId}/requests/codex-request-1/respond`, { result: codexResult })).status).toBe(202);
   expect((await post(`/agent-runtime/v1/runs/${runId}/requests/codex-request-1/respond`, { result: { success: true, output: 'different' } })).status).toBe(409);
   bridge.close();
+});
+
+it('self-terminates after a persistent-session runner exits without checkpoints', async () => {
+  await startRuntimeWithRunner();
+
+  expect(runtime.spawn).toHaveBeenCalledTimes(1);
+  runnerChild.emit('exit', 0, null);
+  expect(runtime.spawn).toHaveBeenNthCalledWith(
+    2,
+    process.execPath,
+    ['/fixture/terminator.mjs'],
+    expect.objectContaining({
+      cwd: '/opt/agent-runtime',
+      env: expect.objectContaining({ MICROVM_ID: 'microvm-worker-exit-test' }),
+      stdio: 'inherit',
+    }),
+  );
+  expect(runtime.spawn).toHaveBeenCalledTimes(2);
+});
+
+it('does not self-terminate after service-requested runner termination', async () => {
+  const { post } = await startRuntimeWithRunner();
+
+  expect(await post('/aws/lambda-microvms/runtime/v1/terminate', {})).toEqual({
+    status: 200,
+    body: { ok: true, operation: 'terminate' },
+  });
+  expect(runtime.spawn).toHaveBeenCalledTimes(1);
 });
