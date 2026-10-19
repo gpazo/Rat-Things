@@ -1,4 +1,3 @@
-import { Type } from 'typebox';
 import type { JsonValue } from '@earendil-works/chord';
 import type { NativeCommit, NativeHead, NativeImage } from '../../core/session-native-store.js';
 import { parseAgentsContract } from '../../domain/agents-api-validation.js';
@@ -131,7 +130,7 @@ function input(value: unknown) {
 }
 function effectTool(value: unknown): PiEffectTool {
   const data = object(value);
-  const fields = { ...data, name: string(data.name), description: string(data.description), parameters: Type.Unsafe(object(data.parameters)) };
+  const fields = { ...data, name: string(data.name), description: string(data.description), parameters: object(data.parameters) };
   if (data.kind === 'managed') return { ...fields, kind: 'managed' };
   if (data.kind === 'mcp') return { ...fields, kind: 'mcp', serverLabel: string(data.serverLabel), toolName: string(data.toolName) };
   throw invalid();
