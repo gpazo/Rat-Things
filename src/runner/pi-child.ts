@@ -1,7 +1,7 @@
 import { openPiStorage } from './pi/storage.js';
 import { createPiModels } from './pi/provider.js';
 import { openPiEngine, type PiEngine, type PiRootCheckpoint } from './pi/engine.js';
-import type { PiEffectTool, PiToolEffect } from './pi-effect-broker.js';
+import type { PiEffectTool, PiToolEffect } from './pi/protocol.js';
 import type { NativeLease, NativeImage, NativeHead } from '../core/session-native-store.js';
 import type { SessionLaunch, SessionReplayCommand } from '../domain/session-execution.js';
 import type { ToolExecutionResult } from '@earendil-works/pi-durable';

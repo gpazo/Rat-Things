@@ -68,7 +68,7 @@ export async function openPiEngine(options: PiEngineOptions): Promise<PiEngine> 
     links.sessionId = launch.sessionId;
     links.agentId = launch.turn?.agent_id ?? launch.agent.id ?? launch.sessionId;
     links.rootId = rootId;
-    links.effects = json(effectTools.map(({ name, kind, serverLabel, toolName }) => ({ name, kind, serverLabel, toolName })));
+    links.effects = json(effectTools.map(tool => tool.kind === 'mcp' ? { name: tool.name, kind: tool.kind, serverLabel: tool.serverLabel, toolName: tool.toolName } : { name: tool.name, kind: tool.kind }));
     await tx.doc(CommandsDoc);
     await tx.doc(FunctionsDoc);
     if (options.seed) {

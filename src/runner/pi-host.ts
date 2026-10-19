@@ -10,7 +10,8 @@ import type { SessionLaunch, SessionReplayCommand } from '../domain/session-exec
 import type { RunRequest } from '../domain/contracts.js';
 import { AgentsResourceConflictError } from '../domain/agents-api-validation.js';
 import { planCodexLaunch } from './agent-planning.js';
-import { createPiEffectBroker, type PiToolEffect } from './pi-effect-broker.js';
+import { createPiEffectBroker } from './pi-effect-broker.js';
+import type { PiToolEffect } from './pi/protocol.js';
 
 type HostPhase = 'initialize' | 'replay' | 'running' | 'checkpoint' | 'close';
 type HostOperation = 'load' | 'reserve' | 'commit' | 'projection' | 'token' | 'effect' | 'effect_cancel' | 'unsupported';

@@ -19,8 +19,8 @@ export type PiFunctionResult = { success: boolean; output?: unknown; error?: str
 export type PiFunctionCall = { taskId: number; conversationId: number; turnId: string; name: string; arguments: JsonValue; result?: JsonRepresentation<PiFunctionResult> };
 export type PiFunctions = { calls: Record<string, PiFunctionCall> };
 export const FunctionsDoc = defineDoc<PiFunctions>({ kind: 'rat.functions', version: 1, scope: 'session', initial: () => ({ calls: {} }) });
-export type PiEffectDescriptor = { name: string; kind: 'managed' | 'mcp'; serverLabel?: string; toolName?: string };
-export type PiEffectTool = { name: string; description: string; parameters: TSchema; kind: 'managed' | 'mcp'; serverLabel?: string; toolName?: string };
+export type PiEffectDescriptor = { name: string; kind: 'managed' } | { name: string; kind: 'mcp'; serverLabel?: string; toolName?: string };
+export type PiEffectTool = (Extract<PiEffectDescriptor, { kind: 'managed' }> | Required<Extract<PiEffectDescriptor, { kind: 'mcp' }>>) & { description: string; parameters: TSchema };
 export type PiToolEffect = { kind: 'managed' | 'mcp'; name: string; arguments: Record<string, JsonValue>; callId: string; taskId: number; conversationId: number };
 export type PiToolEffectHandler = (request: PiToolEffect, signal: AbortSignal) => Promise<ToolExecutionResult>;
 export type PiRootCheckpoint = { schema: 1; runtime: Extract<RuntimePin, { kind: 'pi' }>; model: string; reasoning: string | null; messages: Message[]; history: NativeTurnBinding[] };

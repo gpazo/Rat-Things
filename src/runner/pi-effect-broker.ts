@@ -2,7 +2,7 @@ import { randomUUID, createHash } from 'node:crypto';
 import { mkdtemp, chown, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { Type, type TSchema } from 'typebox';
+import { Type } from 'typebox';
 import AjvModule from 'ajv';
 import { CodexRpcClient } from '../adapters/codex-rpc.js';
 import type { NativeLease } from '../core/session-native-store.js';
@@ -12,10 +12,8 @@ import type { SessionMcpRuntime } from './session-mcp.js';
 import type { SessionEnvironmentCredentialsRuntime } from './session-environment-credentials.js';
 import { hostedCodexArguments, hostedProcessEnvironment } from './hosted-environment-planning.js';
 import type { ToolExecutionResult } from '@earendil-works/pi-durable';
-import type { JsonObject } from '@earendil-works/pi-durable';
+import type { PiEffectTool, PiToolEffect } from './pi/protocol.js';
 
-export interface PiEffectTool { name: string; description: string; parameters: TSchema; kind: 'managed' | 'mcp'; serverLabel?: string; toolName?: string }
-export interface PiToolEffect { kind: 'managed' | 'mcp'; name: string; arguments: JsonObject; callId: string; taskId: number; conversationId: number }
 const FILE_PROGRAM = `const fs=require('node:fs');const [op,path,data]=process.argv.slice(1);if(op==='read')process.stdout.write(fs.readFileSync(path,'utf8'));else if(op==='write'){fs.writeFileSync(path,data);console.log('Written');}else if(op==='list')console.log(JSON.stringify(fs.readdirSync(path,{withFileTypes:true}).map(e=>({name:e.name,directory:e.isDirectory()}))));else throw Error('Invalid file operation');`;
 const Ajv = AjvModule.default;
 

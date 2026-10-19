@@ -200,7 +200,7 @@ describe('Pi controls and durable graph', () => {
       };
       return harness;
     });
-    const engine = await f.open({ effectTools: [{ name: 'managed_read', description: 'Read', kind: 'mcp', parameters: Type.Object({}) }], effect: async () => { entered.resolve(); await release.promise; return { output: [{ type: 'text', text: 'read complete' }] }; } });
+    const engine = await f.open({ effectTools: [{ name: 'managed_read', description: 'Read', kind: 'mcp', serverLabel: 'remote', toolName: 'read', parameters: Type.Object({}) }], effect: async () => { entered.resolve(); await release.promise; return { output: [{ type: 'text', text: 'read complete' }] }; } });
     await engine.start(turn(), input('read')); engine.resume(); await entered.promise;
     await engine.cancel('turn_1');
     await until(() => engine.snapshot().turns[0]?.turn.status === 'cancelled');
