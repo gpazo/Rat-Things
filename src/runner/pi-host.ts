@@ -152,7 +152,7 @@ export async function executePiWorker(request: RunRequest, workspace: string, ti
       interrupt: async turnId => { await invoke('replay', { type: 'cancel', turnId }); },
       sessionItems: async () => snapshot?.turns.flatMap(turn => turn.items) ?? [],
       startSessionTurn: async (turn, input, settings) => { await invoke('replay', { type: 'start', turn, input, settings }); },
-      respondSessionTool: async (callId, result) => { await invoke('replay', { type: 'tool_result', callId, ...record(result) ? result : {} }); },
+      respondSessionTool: async (callId, result) => { await invoke('replay', piToolResultCommand(callId, result)); },
       ...(control.sessionRuntime?.checkpoint ? { checkpoint: async () => {
         const checkpoint = control.sessionRuntime!.checkpoint!;
         phase = 'checkpoint';
@@ -183,6 +183,11 @@ export async function executePiWorker(request: RunRequest, workspace: string, ti
   }
 }
 function record(value: unknown): value is Record<string, unknown> { return typeof value === 'object' && value !== null && !Array.isArray(value); }
+
+export function piToolResultCommand(callId: string, value: unknown): { type: 'tool_result'; callId: string; success: boolean; output: unknown } {
+  if (!record(value) || typeof value.success !== 'boolean') throw new Error('Invalid Pi function result');
+  return { type: 'tool_result', callId, success: value.success, output: value.output };
+}
 
 export function piChildEnvironment(): NodeJS.ProcessEnv {
   return { PATH: '/usr/local/bin:/usr/bin:/bin', HOME: '/tmp', LANG: 'C.UTF-8', AWS_EC2_METADATA_DISABLED: 'true', AWS_SHARED_CREDENTIALS_FILE: '/dev/null', AWS_CONFIG_FILE: '/dev/null' };

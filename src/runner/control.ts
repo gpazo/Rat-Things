@@ -175,6 +175,7 @@ export function createRunnerControlBridge(runId: string, admission = new Workspa
         type: 'turn-ready',
         turn: { threadId: next.threadId, turnId: next.turnId },
         session: Boolean(next.sessionItems),
+        responseAuthority: typeof next.respondSessionTool === 'function' ? 'runner-controller' : 'server-requests',
       });
     },
   };

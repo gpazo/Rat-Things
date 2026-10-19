@@ -82,7 +82,7 @@ it('routes a response through the installed runner controller and waits for its 
     },
   });
   runtime.spawn.mockReturnValue(runnerChild);
-  await import('../../microvm/runtime-server.mjs?response-control-test');
+  await import('../../microvm/runtime-server.mjs');
   const handler = runtime.handler;
   if (!handler) throw new Error('runtime HTTP handler was not installed');
 
@@ -173,14 +173,35 @@ it('routes a response through the installed runner controller and waits for its 
   ]);
   if (early) expect(early.status).toBe(202);
   expect(responseSettled).toBe(false);
-  acknowledge();
-  expect(await responsePromise).toMatchObject({ status: 202 });
-  expect(delivered).toEqual([{ callId: 'pi_call_15', result: { success: true, output: 'result' } }]);
-
   await bridge.hooks.onTurnStarted?.({
     threadId: 'codex-thread', turnId: 'turn-3',
     steer: async () => {}, interrupt: async () => {}, sessionItems: async () => [],
   });
+  acknowledge();
+  expect(await responsePromise).toMatchObject({ status: 202 });
+  expect(delivered).toEqual([{ callId: 'pi_call_15', result: { success: true, output: 'result' } }]);
   expect((await respond('pi_call_15')).status).toBe(409);
+
+  const rejectedController = {
+    threadId: 'pi-root', turnId: 'turn-4',
+    steer: async () => {}, interrupt: async () => {}, sessionItems: async () => [],
+    respondSessionTool: async () => { throw new Error('Unknown Pi function call'); },
+  };
+  await bridge.hooks.onTurnStarted?.(rejectedController);
+  expect((await respond('pi_call_unknown')).status).toBe(409);
+  await bridge.hooks.onTurnStarted?.({
+    threadId: 'codex-thread', turnId: 'turn-5',
+    steer: async () => {}, interrupt: async () => {}, sessionItems: async () => [],
+  });
+  expect((await respond('pi_call_unknown')).status).toBe(409);
+
+  const codexRequest = bridge.hooks.onServerRequest?.({
+    requestId: 'codex-request-1', method: 'item/tool/call', params: { tool: 'lookup' },
+  });
+  const codexResult = { success: true, output: 'codex-result' };
+  expect((await post(`/agent-runtime/v1/runs/${runId}/requests/codex-request-1/respond`, { result: codexResult })).status).toBe(202);
+  expect(await codexRequest).toEqual(codexResult);
+  expect((await post(`/agent-runtime/v1/runs/${runId}/requests/codex-request-1/respond`, { result: codexResult })).status).toBe(202);
+  expect((await post(`/agent-runtime/v1/runs/${runId}/requests/codex-request-1/respond`, { result: { success: true, output: 'different' } })).status).toBe(409);
   bridge.close();
 });

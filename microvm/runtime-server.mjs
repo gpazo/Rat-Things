@@ -326,6 +326,7 @@ function startRun(run) {
       commandWaiters: new Map(),
       nextSequence: 1,
       ready: false,
+      responseAuthority: 'server-requests',
     },
   };
   child.on('message', (message) => handleRunnerControlMessage(run.runId, message));
@@ -450,8 +451,10 @@ async function handleControlRequest(request, response, route) {
     case 'interrupt':
       await sendControlCommand(run, { type: 'interrupt', turnId: requiredString(body, 'turnId', 256) });
       break;
-    case 'respond':
-      if (!route.requestId || (!run.control.pendingRequests.has(route.requestId) && !run.control.respondedRequests.has(route.requestId))) {
+    case 'respond': {
+      const responseAuthority = run.control.responseAuthority;
+      if (!route.requestId || (responseAuthority !== 'runner-controller' &&
+        !run.control.pendingRequests.has(route.requestId) && !run.control.respondedRequests.has(route.requestId))) {
         throw new RuntimeConflict(`server request ${route.requestId ?? ''} is not pending`);
       }
       if (!Object.prototype.hasOwnProperty.call(body, 'result')) {
@@ -462,9 +465,12 @@ async function handleControlRequest(request, response, route) {
         requestId: route.requestId,
         result: body.result,
       });
-      run.control.pendingRequests.delete(route.requestId);
-      run.control.respondedRequests.add(route.requestId);
+      if (responseAuthority === 'server-requests') {
+        run.control.pendingRequests.delete(route.requestId);
+        run.control.respondedRequests.add(route.requestId);
+      }
       break;
+    }
     default:
       throw new InvalidHookRequest('control operation is invalid');
   }
@@ -512,6 +518,9 @@ function handleRunnerControlMessage(runId, message) {
       ) {
         run.control.ready = true;
         run.control.session = message.session === true;
+        run.control.responseAuthority = message.responseAuthority === 'runner-controller'
+          ? 'runner-controller'
+          : 'server-requests';
         run.control.turn = {
           threadId: message.turn.threadId.slice(0, 256),
           turnId: message.turn.turnId.slice(0, 256),
