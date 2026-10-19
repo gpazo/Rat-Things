@@ -1,6 +1,6 @@
 # Reproduce the Pi Durable recovery demo
 
-The website's `demos/pi-durable/` page is a recorded run. Its controls inspect
+The `recording/index.html` file contains a recorded run. Its controls inspect
 saved steps; they do not run the engine or provide the command simulator's
 verified replay, branching, or minimization.
 
@@ -15,7 +15,7 @@ output directory and run it:
 
 ```bash
 mkdir -p .runtime/pi-recovery-demo
-cp site/demos/pi-durable/run-source.txt .runtime/pi-recovery-demo/run.ts
+cp testing/pi-durable-demo/recording/run-source.txt .runtime/pi-recovery-demo/run.ts
 node --import tsx .runtime/pi-recovery-demo/run.ts
 ```
 
@@ -29,7 +29,11 @@ Worker IDs, commit UUIDs, timestamps, and the proof token change on each run.
 The scenario and assertions stay the same. Passing this scenario does not prove
 all failure schedules, AWS durability, or model behavior.
 
-The public page retains the original run's source commit and evidence. Refresh
+Open `testing/pi-durable-demo/recording/index.html` locally to inspect the saved
+steps. The viewer and its evidence stay with the test harness, outside the product
+website.
+
+The recording retains the original run's source commit and evidence. Refresh
 its recording deliberately; do not describe a local run as live Bedrock testing.
 For the controlled command scheduler, use the separate
 [time-travel harness](../time-travel/README.md).

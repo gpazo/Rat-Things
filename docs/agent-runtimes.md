@@ -90,4 +90,3 @@ Read [Session durability](conversations.md#how-durability-works) and
 - [Run Pi Durable on Bedrock](../guides/run-pi-durable-on-bedrock.md) configures the Pi catalog and creates a Session.
 - [Bring your Codex subscription](codex-subscription.md) describes the optional ChatGPT credential bridge.
 - [Deployment configuration](../infra/README.md#enable-pi-inference) describes Pi model IDs, inference resources, and IAM permissions.
-- [The recorded Pi recovery demo](https://gpazo.github.io/Rat-Things/demos/pi-durable/) shows worker replacement with scripted model replies and simulated storage.

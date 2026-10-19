@@ -39,7 +39,7 @@ on the original machine. Workspace recovery has separate checkpoint requirements
 
 Read [Codex and Pi Durable](docs/agent-runtimes.md) for shared features and runtime
 limits, or [run Pi Durable on Bedrock](guides/run-pi-durable-on-bedrock.md) to get started.
-The [recorded recovery demo](https://gpazo.github.io/Rat-Things/demos/pi-durable/)
+The [recorded recovery demo](testing/pi-durable-demo/README.md)
 shows a killed worker and a helper that finishes on its replacement, using scripted
 model replies and simulated host storage.
 

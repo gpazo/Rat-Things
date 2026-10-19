@@ -107,7 +107,6 @@ await writeFile(join(output, 'llms-full.txt'), renderLlmsFull(agentDocs));
 const generatedHtmlFiles = [
   join(output, 'index.html'),
   join(output, 'overview.html'),
-  join(output, 'demos', 'pi-durable', 'index.html'),
   join(docsOutput, 'index.html'),
   join(guidesOutput, 'index.html'),
 ];
@@ -734,7 +733,6 @@ function renderSitemap(documents, guides) {
   const urls = [
     '/',
     '/guides/',
-    '/demos/pi-durable/',
     ...guides.map((guide) => `/guides/${guide.slug}/`),
     '/docs/',
     ...documents.map((doc) => `/docs/${doc.slug}/`),
