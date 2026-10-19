@@ -11,13 +11,12 @@ import type { RunRequest } from '../domain/contracts.js';
 import { AgentsResourceConflictError } from '../domain/agents-api-validation.js';
 import { planCodexLaunch } from './agent-planning.js';
 import { createPiEffectBroker } from './pi-effect-broker.js';
-import type { PiToolEffect } from './pi/protocol.js';
+import { decodePiChildMessage, decodePiCommandResult, type PiCommandOperation, type PiCommandResults, type PiHostMessage, type PiHostOperation } from './pi/ipc.js';
 
 type HostPhase = 'initialize' | 'replay' | 'running' | 'checkpoint' | 'close';
-type HostOperation = 'load' | 'reserve' | 'commit' | 'projection' | 'token' | 'effect' | 'effect_cancel' | 'unsupported';
 type FailureClass = 'resource_conflict' | 'operation_failed';
 type HostDiagnostic =
-  | { event: 'pi_operation_failed'; operation: HostOperation; phase: HostPhase; failure: FailureClass }
+  | { event: 'pi_operation_failed'; operation: PiHostOperation; phase: HostPhase; failure: FailureClass }
   | { event: 'pi_child_exit'; phase: HostPhase; code: number | null; signal: NodeJS.Signals | null };
 
 function classifyHostFailure(error: unknown): FailureClass {
@@ -56,64 +55,60 @@ export async function executePiWorker(request: RunRequest, workspace: string, ti
   const effects = new Map<string, AbortController>();
   let openEffects!: () => void;
   const effectsReady = new Promise<void>(resolve => { openEffects = resolve; });
-  const send = (message: unknown) => { if (child.connected) child.send(message as Record<string, unknown>); };
-  const invoke = (method: string, value?: unknown) => new Promise<unknown>((resolve, reject) => {
+  const send = (message: PiHostMessage) => { if (child.connected) child.send(message); };
+  const invoke = <O extends PiCommandOperation>(operation: O) => new Promise<PiCommandResults[O['method']]>((resolve, reject) => {
     if (exited) return reject(new Error('Pi child is unavailable'));
-    const id = randomUUID(); pending.set(id, { resolve, reject }); send({ kind: 'command', id, method, value });
+    const id = randomUUID();
+    pending.set(id, { resolve: value => { try { resolve(decodePiCommandResult<O['method']>(operation.method, value)); } catch { reject(new Error('Invalid Pi command result')); } }, reject });
+    send({ kind: 'command', id, ...operation });
   });
   let finish!: () => void;
   let fail!: (error: Error) => void;
   const finished = new Promise<void>((resolve, reject) => { finish = resolve; fail = reject; });
   void finished.catch(() => {});
   const stopped = new Promise<void>(resolve => child.once('exit', () => resolve()));
-  child.on('message', message => {
-    if (!record(message)) { fail(new Error('Invalid Pi protocol')); child.kill('SIGKILL'); return; }
-    if (message.kind === 'result' && typeof message.id === 'string') {
+  child.on('message', raw => {
+    const message = decodePiChildMessage(raw);
+    if (message.kind === 'invalid') { fail(new Error('Invalid Pi protocol')); if (message.kill) child.kill('SIGKILL'); return; }
+    if (message.kind === 'invalid-request') {
+      writeHostDiagnostic({ event: 'pi_operation_failed', operation: message.operation, phase, failure: 'operation_failed' });
+      send({ kind: 'response', id: message.id, ok: false });
+      return;
+    }
+    if (message.kind === 'result' || message.kind === 'invalid-result') {
       const waiter = pending.get(message.id); pending.delete(message.id);
-      if (message.ok) waiter?.resolve(message.value); else waiter?.reject(new Error('Pi command failed'));
+      if (message.kind === 'result' && message.ok) waiter?.resolve(message.value); else waiter?.reject(new Error('Pi command failed'));
       return;
     }
     if (message.kind === 'finished') { finish(); return; }
-    if (message.kind !== 'request' || typeof message.id !== 'string') { fail(new Error('Invalid Pi protocol')); return; }
     const id = message.id;
     const operationPhase = phase;
-    let operation: HostOperation = 'unsupported';
+    const operation = message.method;
     void (async () => {
       let result: unknown;
       switch (message.method) {
-        case 'load': operation = 'load'; result = await dependencies.lease.load(); break;
+        case 'load': result = await dependencies.lease.load(); break;
         case 'reserve': {
-          operation = 'reserve';
-          if (!record(message.value) || typeof message.value.count !== 'number' || typeof message.value.requestId !== 'string') throw new Error('Invalid reservation');
           result = await dependencies.lease.reserveIds(message.value.count, message.value.requestId); break;
         }
         case 'commit': {
-          operation = 'commit';
-          const value = message.value;
-          if (!record(value) || value.schema !== 1 || typeof value.commitId !== 'string' || typeof value.seq !== 'number' || typeof value.idHighWater !== 'number' || !Array.isArray(value.writes)) throw new Error('Invalid native commit');
-          result = await dependencies.lease.commit(value as unknown as Parameters<NativeLease['commit']>[0]); break;
+          result = await dependencies.lease.commit(message.value); break;
         }
         case 'projection': {
-          operation = 'projection';
-          if (!record(message.value) || !record(message.value.snapshot) || typeof message.value.seq !== 'number') throw new Error('Invalid projection');
-          snapshot = message.value.snapshot as unknown as SessionRuntimeState;
+          snapshot = message.value.snapshot as SessionRuntimeState;
           if (snapshot.sessionId !== launch.sessionId || snapshot.agentId !== launch.agent.id) throw new Error('Invalid projection identity');
           await dependencies.changed(snapshot, message.value.seq); break;
         }
         case 'token':
-          operation = 'token';
           await effectsReady; signal?.throwIfAborted(); await dependencies.lease.assertActive(); result = await dependencies.token(); break;
         case 'effect': {
-          operation = 'effect';
           await effectsReady; signal?.throwIfAborted(); await dependencies.lease.assertActive();
-          if (!record(message.value) || typeof message.value.name !== 'string' || !record(message.value.arguments)) throw new Error('Invalid effect request');
           const abort = new AbortController(); effects.set(id, abort);
-          try { result = await broker.execute(message.value as unknown as PiToolEffect, abort.signal); }
+          try { result = await broker.execute(message.value, abort.signal); }
           finally { effects.delete(id); }
           break;
         }
-        case 'effect_cancel': operation = 'effect_cancel'; if (typeof message.value === 'string') effects.get(message.value)?.abort(); break;
-        default: throw new Error('Pi operation is outside the capability envelope');
+        case 'effect_cancel': effects.get(message.value)?.abort(); break;
       }
       send({ kind: 'response', id, ok: true, value: result });
     })().catch(error => {
@@ -139,31 +134,31 @@ export async function executePiWorker(request: RunRequest, workspace: string, ti
     const childLaunch: SessionLaunch = { runtime: launch.runtime, sessionId: launch.sessionId, turnId: launch.turnId, agent: launch.agent,
       environment: launch.environment, input: launch.input, ...(launch.turn ? { turn: launch.turn } : {}), ...(launch.piForkContext ? { piForkContext: launch.piForkContext } : {}) };
     phase = 'initialize';
-    await invoke('initialize', { launch: childLaunch, allowedModelIds: dependencies.allowedModelIds, tools: broker.tools, mode: control.sessionRuntime?.lifetime === 'host-managed' ? 'persistent' : 'bounded' });
+    await invoke({ method: 'initialize', value: { launch: childLaunch, allowedModelIds: dependencies.allowedModelIds, tools: broker.tools, mode: control.sessionRuntime?.lifetime === 'host-managed' ? 'persistent' : 'bounded' } });
     for (const command of launch.replay ?? (launch.turn ? [{ type: 'start', turn: launch.turn, input: launch.input } satisfies SessionReplayCommand] : [])) {
       phase = 'replay';
-      await invoke('replay', command);
+      await invoke({ method: 'replay', value: command });
     }
     ready = true;
     openEffects();
     phase = 'running';
-    await invoke('resume');
+    await invoke({ method: 'resume' });
     await control.onTurnStarted?.({ threadId: snapshot?.rootThreadId ?? 'pi-root', turnId: launch.turnId,
-      steer: async (_text, input, turnId, operationId) => { await invoke('replay', { type: 'steer', turnId, input, operationId: operationId ?? randomUUID() }); },
-      interrupt: async turnId => { await invoke('replay', { type: 'cancel', turnId }); },
+      steer: async (_text, input, turnId, operationId) => { if (turnId === undefined || input === undefined) throw new Error('Pi steering requires Turn input'); await invoke({ method: 'replay', value: { type: 'steer', turnId, input, operationId: operationId ?? randomUUID() } }); },
+      interrupt: async turnId => { if (turnId === undefined) throw new Error('Pi cancellation requires a Turn'); await invoke({ method: 'replay', value: { type: 'cancel', turnId } }); },
       sessionItems: async () => snapshot?.turns.flatMap(turn => turn.items) ?? [],
-      startSessionTurn: async (turn, input, settings) => { await invoke('replay', { type: 'start', turn, input, settings }); },
-      respondSessionTool: async (callId, result) => { await invoke('replay', piToolResultCommand(callId, result)); },
+      startSessionTurn: async (turn, input, settings) => { await invoke({ method: 'replay', value: { type: 'start', turn, input, ...(settings ? { settings } : {}) } }); },
+      respondSessionTool: async (callId, result) => { await invoke({ method: 'replay', value: piToolResultCommand(callId, result) }); },
       ...(control.sessionRuntime?.checkpoint ? { checkpoint: async () => {
         const checkpoint = control.sessionRuntime!.checkpoint!;
         phase = 'checkpoint';
         checkpointPromise = checkpointWorkspace({ ...checkpoint,
           inspectIdle: () => ({ idle: Boolean(snapshot && !snapshot.requiredActions.length && snapshot.turns.every(binding => ['completed', 'failed', 'cancelled'].includes(binding.turn.status))), threadIds: snapshot ? [snapshot.rootThreadId, ...snapshot.subagents.map(agent => agent.id)] : [] }),
           shutdownNative: async () => {
-            const context = await invoke('checkpoint');
+            const context = await invoke({ method: 'checkpoint' });
             await dependencies.saveForkContext?.(context);
             phase = 'close';
-            await invoke('close');
+            await invoke({ method: 'close' });
             await stopped;
             await broker.close();
             return { threadIds: snapshot ? [snapshot.rootThreadId, ...snapshot.subagents.map(agent => agent.id)] : [], flushed: true, forced: false };

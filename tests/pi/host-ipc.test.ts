@@ -16,6 +16,35 @@ import { executePiWorker } from '../../src/runner/pi-host.js';
 afterEach(() => { vi.restoreAllMocks(); vi.clearAllMocks(); });
 
 describe('Pi host IPC ordering', () => {
+  it('denies malformed requests before persistence, lease, token or broker effects', async () => {
+    const responses: Record<string, unknown>[] = [];
+    const methods = ['reserve', 'commit', 'projection', 'effect', 'effect_cancel', 'secret method'];
+    class Child extends EventEmitter {
+      public connected = true;
+      public send(message: Record<string, unknown>): void {
+        if (message.kind === 'response') { responses.push(message); return; }
+        if (message.method === 'initialize') methods.forEach((method, index) => this.emit('message', { kind: 'request', id: String(index), method, value: null }));
+        setImmediate(() => {
+          this.emit('message', { kind: 'result', id: message.id, ok: true });
+          if (message.method === 'resume') this.emit('message', { kind: 'finished' });
+        });
+      }
+      public kill(): boolean { this.connected = false; setImmediate(() => this.emit('exit', null, 'SIGTERM')); return true; }
+    }
+    fixture.fork.mockReturnValue(new Child());
+    const effect = vi.fn(); const assertActive = vi.fn(async () => {});
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const launch: SessionLaunch = { runtime: resolveRuntime({ rat_things_runtime: 'pi' }, null, piCatalog(['amazon.nova-micro-v1:0'], 'us-east-1')),
+      sessionId: 'session', turnId: 'turn', agent: sessionAgent({ model: 'amazon.nova-micro-v1:0' }, 'agent', 1), environment: { type: 'none' }, input: [] };
+    await executePiWorker({ metadata: {} } as RunRequest, '/tmp', 5000, { session: launch } as AgentDriverControl, {
+      allowedModelIds: [], lease: { assertActive, load: effect, reserveIds: effect, commit: effect }, token: effect, changed: effect,
+    });
+    expect(responses).toEqual(methods.map((_method, index) => ({ kind: 'response', id: String(index), ok: false })));
+    expect(assertActive).toHaveBeenCalledTimes(1);
+    expect(effect).not.toHaveBeenCalled();
+    expect(fixture.execute).not.toHaveBeenCalled();
+  });
+
   it('serves storage while token and effect requests wait for sequential replay', async () => {
     const trace: string[] = [];
     const responses: Record<string, unknown>[] = [];
