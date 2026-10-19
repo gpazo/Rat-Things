@@ -9,7 +9,7 @@ Discovery reports `approvals: false`. An unexpected native approval request fail
 ## The rule
 
 ```text
-authenticated owner and verified source binding
+authenticated owner and operator-configured source binding
         ∩ resolved Session tools and environment
         ∩ deployment capability ceiling
         ∩ execution-role IAM

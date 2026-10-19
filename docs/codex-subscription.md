@@ -94,7 +94,7 @@ in your shell. The quickstart cannot export those settings into its parent shell
 Then create a Session using an admitted model:
 
 ```bash
-rat-things sessions create --model YOUR_ADMITTED_MODEL \
+npm run rat-things -- sessions create --model YOUR_ADMITTED_MODEL \
   --input "Draft a release checklist and explain the rollback criteria."
 ```
 

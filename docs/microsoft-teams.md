@@ -154,7 +154,7 @@ destination; it is not guaranteed to be a reply to the original mention.
 ### Option B: exact delayed replies through a Teams bot
 
 Use this mode only after deploying an authenticated AWS-hosted Teams bot gateway. The gateway itself
-is not included yet; Rat Things currently provides and tests its internal delivery contract.
+is not included yet; Rat Things provides the internal delivery contract for connecting one.
 
 The Teams-facing implementation must:
 

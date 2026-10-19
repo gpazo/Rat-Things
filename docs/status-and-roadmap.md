@@ -22,7 +22,7 @@ identity, retention, network policy, and operational limits for the environment 
 | Execution | Private EC2 or MicroVM harness; saved Session history survives worker loss | [Agents execution](agents-api.md) |
 | Files and publications | Private retained bytes, immutable Session artifacts, and expiring file/site/video share grants | [Files](durable-files.md), [publishing](publications.md) |
 | Browser | Declared function/MCP integration and an optional Playwright MCP configuration | [Browser use](browser-computer-use.md) |
-| Channels | Signed GitHub, GitLab, Teams, and optional Slack ingress with separate result delivery | [Channels](channels.md) |
+| Channels | Authenticated GitHub, GitLab, Teams, and optional Slack ingress with separate result delivery | [Channels](channels.md) |
 | API authentication | AWS IAM issuance and owner-bound, scoped bearer tokens | [API permissions](agents-api.md#scoped-api-keys) |
 | Model authentication | Codex uses the configured ChatGPT bridge or Bedrock; Pi Durable uses approved Bedrock Converse models | [Runtime setup](agent-runtimes.md#start-with-the-appropriate-setup) |
 | Recovery | Queue repair, generation-fenced liveness, cancellation settlement, and per-destination delivery fences | [Runbook](runbook.md) |

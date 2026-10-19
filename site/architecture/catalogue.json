@@ -4,7 +4,7 @@
       "id": "ingress",
       "title": "Ingress",
       "subtitle": "Authenticated input",
-      "description": "The API derives resource ownership from identity. Signed provider events resolve an owned Session integration target.",
+      "description": "The API derives resource ownership from identity. Authenticated provider events resolve an owned Session integration target.",
       "facts": [
         "Owned resource or protocol error.",
         "Durable Session integration input receipt."
@@ -59,12 +59,12 @@
         },
         {
           "id": "webhooks",
-          "title": "Signed webhooks",
+          "title": "Authenticated webhooks",
           "subtitle": "Provider input to Sessions",
           "description": "Verifies provider authentication before parsing and resolves an owned Agent/environment binding.",
           "facts": [
             "Durable Session integration input receipt.",
-            "Invalid signatures fail before parsing; occurrence receipts prevent duplicate input."
+            "Invalid provider authentication fails before parsing; occurrence receipts prevent duplicate input."
           ],
           "sources": [
             {
@@ -77,10 +77,10 @@
             "Signed webhooks",
             "Provider input to Sessions"
           ],
-          "inputs": "Signed GitHub, GitLab, Slack or Teams event.",
+          "inputs": "Authenticated GitHub, GitLab, Slack or Teams event.",
           "outputs": "Durable Session integration input receipt.",
           "mechanics": "Verifies provider authentication before parsing and resolves an owned Agent/environment binding.",
-          "failure": "Invalid signatures fail before parsing; occurrence receipts prevent duplicate input."
+          "failure": "Invalid provider authentication fails before parsing; occurrence receipts prevent duplicate input."
         },
         {
           "id": "identity",
@@ -114,7 +114,7 @@
       ],
       "inputs": "Owned requests and saved state.",
       "outputs": "Durable progress within the admitted boundary.",
-      "mechanics": "The API derives resource ownership from identity. Signed provider events resolve an owned Session integration target.",
+      "mechanics": "The API derives resource ownership from identity. Authenticated provider events resolve an owned Session integration target.",
       "failure": "Conditional state and bounded failures retain evidence for recovery."
     },
     {
@@ -436,7 +436,7 @@
           "id": "models",
           "title": "Model access",
           "subtitle": "Configured provider",
-          "description": "Codex uses its configured ChatGPT or Bedrock provider. Pi Durable uses approved Bedrock Converse models. Trusted code supplies model authentication and keeps AWS role credentials out of the agent process.",
+          "description": "Codex uses its configured ChatGPT or Bedrock provider. Pi Durable uses approved Bedrock Converse models. Trusted code supplies model authentication. AWS role credentials stay outside the agent process by default; Codex supports explicit operator passthrough.",
           "facts": [
             "Authenticated model requests.",
             "Unsupported models or missing credentials fail without silently choosing another model."
@@ -458,7 +458,7 @@
           ],
           "inputs": "Agent model settings and credential references.",
           "outputs": "Authenticated model requests.",
-          "mechanics": "Codex uses its configured ChatGPT or Bedrock provider. Pi Durable uses approved Bedrock Converse models. Trusted code supplies model authentication and keeps AWS role credentials out of the agent process.",
+          "mechanics": "Codex uses its configured ChatGPT or Bedrock provider. Pi Durable uses approved Bedrock Converse models. Trusted code supplies model authentication. AWS role credentials stay outside the agent process by default; Codex supports explicit operator passthrough.",
           "failure": "Unsupported models or missing credentials fail without silently choosing another model."
         }
       ],
@@ -1747,11 +1747,11 @@
     },
     {
       "id": "webhook",
-      "title": "Signed webhook",
+      "title": "Authenticated webhook",
       "steps": [
         {
           "node": "webhooks",
-          "title": "Verify the provider signature",
+          "title": "Authenticate the provider request",
           "description": "Authenticate before parsing, then reserve the owned provider input receipt.",
           "state": "request",
           "handoff": {

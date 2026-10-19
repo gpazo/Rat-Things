@@ -520,7 +520,7 @@ RAT_THINGS_AGENTS_API_URL=DEPLOYMENT_BASE_URL AWS_REGION=DEPLOYMENT_REGION \
 
 ## Application integrations
 
-Signed provider events and schedules now submit canonical Session input. Provider
+Authenticated provider events and schedules submit canonical Session input. Provider
 authentication, delivery, connection installation and scheduling remain separate
 integration responsibilities. See [schedules and provider bindings](schedules.md).
 

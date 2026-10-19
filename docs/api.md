@@ -5,7 +5,7 @@ Vault, File, Skill and Artifact operations. The official SDK uses the deployment
 Agents endpoint, including live SSE. The control endpoint below owns IAM-authenticated
 integration installation, provider bindings, schedules and Session artifact publications.
 
-The deployment's `/openapi.json` is authoritative for installed routes. Signed
+The deployment's `/openapi.json` is authoritative for installed routes. Authenticated
 provider ingress resolves the binding creator as Session owner and retains the
 provider sender separately. See [provider bindings](schedules.md#provider-bindings).
 
@@ -59,7 +59,7 @@ Sessions belong to the authenticated creator of the matching source binding.
 | `POST /v1/integrations/source-bindings` | Required | Bind an operator-configured provider selector to an owned Agent and environment |
 | `GET /__share/{token}` | Bearer token | Redeem a publication grant for host-only CloudFront signed cookies |
 | `POST /webhooks/github` | Provider signature | Optional GitHub event ingress; verifies the raw body before normalization |
-| `POST /webhooks/gitlab` | Provider signature | Optional GitLab event ingress with signed-standard and legacy verification |
+| `POST /webhooks/gitlab` | Provider signature or legacy token | Optional GitLab event ingress with signed-standard and legacy verification |
 | `POST /webhooks/teams` | Provider signature | Optional Teams activity ingress with immediate acknowledgement |
 | `POST /webhooks/slack` | Provider signature | Optional Slack event ingress with timestamp/replay checks |
 

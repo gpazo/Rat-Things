@@ -194,9 +194,11 @@ argument. JSON credential files used by the CLI should be short-lived and protec
 
 ## Webhooks and outbound events
 
-Provider webhooks are separate from the control API. Each unauthenticated route verifies the exact
-provider signature before parsing or enqueueing. A host may place a reverse proxy in front, but it
-must preserve the raw signed body and required headers.
+Provider webhooks are separate from the control API. Each public provider route authenticates
+the request before parsing or enqueueing. Signed modes verify the exact raw body;
+GitLab also supports legacy token authentication, which does not sign the body or enforce
+freshness. A reverse proxy must preserve the raw body and required authentication headers.
+See [provider authentication](channels.md) for each mode.
 
 For application lifecycle notifications, register an owned endpoint through
 `POST /v1/webhooks` on the Agents API and verify each delivery with its signing secret.
@@ -224,7 +226,7 @@ terraform -chdir=infra apply
 export RAT_THINGS_API_URL="$(terraform -chdir=infra output -raw api_endpoint)"
 export RAT_THINGS_AGENTS_API_URL="$(terraform -chdir=infra output -raw agents_api_base_url)"
 export AWS_REGION="<deployment-region>"
-rat-things doctor --json
+npm run rat-things -- doctor --json
 ```
 
 `doctor` tests local prerequisites, public health/discovery, and an authenticated control request.

@@ -153,7 +153,7 @@ It never treats uncertainty as permission to terminate another worker. Confirmed
 loss can finish cancellation or record an execution failure; reconciliation does
 not blindly replay an agent's external side effects.
 
-Signed provider input resolves an owned Agent/environment binding and durable
+Authenticated provider input resolves an owned Agent/environment binding and durable
 Session input receipt. Schedules reserve occurrences before dispatch and retain
 overlap policy. Provider notification is a separate outbox operation based on a
 saved terminal root Turn. Delivery fences distinguish confirmed success,

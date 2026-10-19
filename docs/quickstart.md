@@ -38,6 +38,10 @@ not configured. Large uploads, long-lived SSE and executor connections need the
 
 ## Connect an installed deployment
 
+From a source checkout, run `npm ci` and invoke the CLI with `npm run rat-things --`.
+Examples elsewhere use the shorter `rat-things` command; to install that command
+on your PATH, run `npm run build && npm link` from the checkout.
+
 Set the Agents endpoint from `agents_api_base_url` and select an admitted model:
 
 ```bash

@@ -43,7 +43,7 @@ The console and canonical CLI groups use the same resource models.
 
 ## Integrations remain separate
 
-Signed provider events resolve an owned Agent binding and add input to a Session.
+Authenticated provider events resolve an owned Agent binding and add input to a Session.
 Schedules reference an Agent and environment, with their own occurrence identity,
 input template, overlap policy and delivery destinations. Provider delivery follows
 a terminal root Turn, including failure or cancellation, and has a separate retry queue group.

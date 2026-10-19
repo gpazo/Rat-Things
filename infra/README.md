@@ -9,7 +9,7 @@ provider and the AWS Cloud Control provider required for the MicroVM image resou
 
 ## What it creates
 
-- HTTP API Gateway with public signature-validated provider routes, public machine-readable
+- HTTP API Gateway with public provider-authenticated webhook routes, public machine-readable
   discovery/contracts, and IAM-authenticated owner-scoped control routes.
 - Lambda ingress, control, Agents API/token issuance, Agents outbox, dispatcher, reconciler,
   Session scheduling, connection-health, state-stream, and notification functions.

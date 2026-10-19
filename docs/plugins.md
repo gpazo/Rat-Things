@@ -402,8 +402,8 @@ and API keys remain supported through the manifest-driven credential-file flow.
 
 ## Source-bound permissions
 
-A verified webhook source selects an owned Agent, environment and optional delivery connection
-set only after provider signature verification:
+An authenticated webhook event selects an owned Agent, environment and optional delivery
+connection set through an operator-configured source binding:
 
 ```bash
 rat-things bind-source --file /secure/config/client-channel-binding.json

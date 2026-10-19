@@ -131,7 +131,7 @@
             <div class="section-label">Bring your own experience</div>
             <h2 id="use-title">Use it from<br>the interface you own.</h2>
           </div>
-          <p>Rat Things is a self-hosted AWS stack with no central Rat service. A CLI, your product, another agent, a schedule, or a signed provider event can use the same public API and durable Session model.</p>
+          <p>Rat Things is a self-hosted AWS stack with no central Rat service. A CLI, your product, another agent, a schedule, or an authenticated provider event can use the same public API and durable Session model.</p>
         </div>
 
         <div class="route-grid">
@@ -157,7 +157,7 @@
           <article class="route-card">
             <p class="card-kicker">Events and schedules</p>
             <h3>Automation without a UI</h3>
-            <p>Schedules select an owned Agent and environment. Signed provider events submit Session input through separate authenticated ingress.</p>
+            <p>Schedules select an owned Agent and environment. Provider events pass authentication before submitting Session input through their own ingress routes.</p>
             <code>cron(0 8 ? * MON-FRI *)</code>
           </article>
         </div>
@@ -258,7 +258,7 @@
           </div>
           <div class="extend-copy">
             <p>Linear, Slack, and Stripe are built-in examples of Rat's Integration Contract, not the boundary of the system. Add the OAuth or API services your deployment needs by declaring authentication, account identity, operations, schemas, and a fixed provider origin—then compile each reviewed adapter into the trusted host.</p>
-            <p>The connection manager, permission intersection, credential broker, agent tools, CLI, and desktop controls reuse that contract instead of inventing a new integration path.</p>
+            <p>The CLI and control API use that contract to install accounts, check connection health, and manage grants. Trusted tool implementations use the same credential broker and permission checks.</p>
             <a class="text-link" href="docs/plugins/#add-a-trusted-integration">Build a trusted integration <span aria-hidden="true">→</span></a>
           </div>
         </div>
@@ -268,7 +268,7 @@
           <li><span>02</span><strong>Verify</strong><p>Resolve the provider's real tenant and subject before a credential becomes an installed Connection.</p></li>
           <li><span>03</span><strong>Constrain</strong><p>Intersect provider authority, the persistent grant, the profile, and declared tools and resource constraints.</p></li>
           <li><span>04</span><strong>Expose</strong><p>Generate safe account setup, health, reconnect, “used by,” and agent-tool surfaces from the installed contract.</p></li>
-          <li><span>05</span><strong>Reuse</strong><p>Bind signed provider events and schedules to owned Agents and submit work through Sessions.</p></li>
+          <li><span>05</span><strong>Reuse</strong><p>Bind authenticated provider events and schedules to owned Agents and submit work through Sessions.</p></li>
         </ol>
         <p class="extend-note"><strong>Extensions are trusted host code.</strong> Rat does not load arbitrary provider packages inside the agent. Credentials stay in the host vault, provider calls use reviewed adapters, and the agent receives only admitted operation schemas.</p>
       </section>
@@ -340,7 +340,7 @@
           <article><span>03</span><h3>Declare browser tools</h3><p>Expose browser operations through functions or MCP, constrain their access, and retain selected screenshots and recordings as Session artifacts.</p></article>
           <article><span>04</span><h3>Continue Sessions</h3><p>Read Turns and Items, send follow-up input, submit function results, and continue work across clients.</p></article>
           <article><span>05</span><h3>Retain and share files</h3><p>Keep generated files privately, inspect them through owner-gated viewers, or create expiring external links.</p></article>
-          <article><span>06</span><h3>Use one Session model</h3><p>API calls, schedules and signed provider events use the same Agent, Session, Turn and Item primitives.</p></article>
+          <article><span>06</span><h3>Use one Session model</h3><p>API calls, schedules and authenticated provider events use the same Agent, Session, Turn and Item primitives.</p></article>
           <article><span>07</span><h3>Embed the API</h3><p>Discover OpenAPI, JSON Schemas, integration manifests, stable errors, and capability profiles from each deployment.</p></article>
           <article><span>08</span><h3>Choose Codex or Pi Durable</h3><p>Use Codex with your configured provider or Pi Durable with approved Bedrock models. Keep the same Session API, schedules, and result delivery.</p></article>
         </div>
@@ -359,10 +359,10 @@
         </div>
         <ul class="check-list">
           <li><span>✓</span><div><strong>Exact account authority</strong><p>Choose provider accounts and grants before launch. Keep provider credentials in the configured vault or trusted tool service.</p></div></li>
-          <li><span>✓</span><div><strong>One Session across clients</strong><p>The console, CLI and API read the same durable Turns and Items. Signed provider bindings add input and deliver saved results.</p></div></li>
+          <li><span>✓</span><div><strong>One Session across clients</strong><p>The console, CLI and API read the same durable Turns and Items. Provider bindings add input and deliver saved results.</p></div></li>
           <li><span>✓</span><div><strong>Runtime-aware recovery</strong><p>Pi recovers committed tasks and child relationships. Managed workspace recovery requires the runtime's configured storage and checkpoint path. Live processes require the original worker.</p></div></li>
           <li><span>✓</span><div><strong>Inspect work and retained files</strong><p>Read Session activity and saved Items, continue with new input, and download selected artifacts through the authenticated API.</p></div></li>
-          <li><span>✓</span><div><strong>Schedules and provider events</strong><p>Manual work, durable schedules, and signed provider events use the same Session lifecycle and saved-result delivery model.</p></div></li>
+          <li><span>✓</span><div><strong>Schedules and provider events</strong><p>Manual work, durable schedules, and authenticated provider events use the same Session lifecycle and saved-result delivery model.</p></div></li>
         </ul>
       </section>
 

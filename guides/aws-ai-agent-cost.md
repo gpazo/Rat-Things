@@ -91,9 +91,8 @@ For a small deployment, omit optional OAuth Connections, schedules and public sh
 needed. The dedicated EC2 Session backend still requires its private network and S3 Files. Set explicit retention, log, concurrency, and timeout limits. Tag every deployment and keep
 development stacks disposable.
 
-The quickstart's KMS key enters AWS's mandatory delayed-deletion state after teardown; the project
-distinguishes that tombstone from a live stack rather than claiming the resource vanishes
-immediately.
+Teardown schedules the quickstart's KMS key for deletion. The key remains visible until
+AWS's required waiting period ends.
 
 ## Current boundaries
 

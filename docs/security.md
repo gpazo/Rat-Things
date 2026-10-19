@@ -28,7 +28,7 @@ not make a shared or privileged executor safe.
 
 ```text
 API caller -> authenticated HTTPS API -> durable Session state and outbox
-Provider   -> signature verification -> owned source binding -> Session input
+Provider   -> provider authentication -> owned source binding -> Session input
                                                      |
                                                private dispatch
                                                      |

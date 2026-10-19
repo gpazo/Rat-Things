@@ -26,9 +26,12 @@ Codex is the default. Select Pi Durable with `--runtime pi` in the CLI or
 `metadata: { rat_things_runtime: 'pi' }` in an Agent or Session request.
 The runtime stays fixed for that Session. Model changes use its approved catalog.
 
+From a source checkout, run `npm ci` and [configure your deployment endpoint and AWS
+identity](docs/quickstart.md#connect-an-installed-deployment), then use:
+
 ```bash
-rat-things agents models --runtime pi
-rat-things sessions create --runtime pi --model YOUR_ADMITTED_BEDROCK_MODEL \
+npm run rat-things -- agents models --runtime pi
+npm run rat-things -- sessions create --runtime pi --model YOUR_ADMITTED_BEDROCK_MODEL \
   --input "Explain the task you can help with." --stream
 ```
 
@@ -97,7 +100,7 @@ the UI to real Sessions in your deployment.
 
 ## Provider events and schedules
 
-Signed GitHub, GitLab, Slack and Teams events resolve an operator-owned Agent
+Authenticated GitHub, GitLab, Slack and Teams events resolve an operator-owned Agent
 binding. Each event has a durable input receipt; Slack and Teams retain Session
 continuity within a sender's thread. Delivery follows root Turn completion and
 runs independently of Session execution.

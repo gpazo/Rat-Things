@@ -76,7 +76,7 @@
     "slack.md": "Start durable work from a Slack mention, continue in its thread, search or act through approved accounts, and understand current boundaries.",
     "linear.md": "Install a verified Linear workspace, expose bounded issue and comment operations, and run a Slack-to-Linear handoff.",
     "status-and-roadmap.md": "Understand the implemented systems, their current boundaries, and the next areas of development.",
-    "schedules.md": "Schedule owned Agents and bind signed provider events to durable Sessions.",
+    "schedules.md": "Schedule owned Agents and bind authenticated provider events to durable Sessions.",
     "session-fork-demo.md": "Compare two UI themes from a shared Session, discard one path, and continue the winner.",
     "agent-runtimes.md": "Choose Codex or Pi Durable, compare model access and tools, and understand worker recovery."
   }

@@ -100,7 +100,7 @@ test("supports mesh picking and does not mistake orbit dragging for selection", 
 
 for (const [flow, first] of [
   ["api", "Authenticate the request"],
-  ["webhook", "Verify the provider signature"],
+  ["webhook", "Authenticate the provider request"],
   ["thing", "Reserve a scheduled occurrence"],
 ] as const) {
   test(`walks the ${flow} flow from ingress to persisted result delivery`, async ({
