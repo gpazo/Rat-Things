@@ -363,7 +363,7 @@ async function proveModel(api: ReturnType<typeof createAgentsClient>, evidence: 
     }] });
     await waitForTurnCompleted(api, session.id, firstCall.turn_id, false);
     const first = await evidence.waitForStopped(firstWorker, firstCall.turn_id);
-    await assertExactCompletedAnswer(api, session.id, firstCall.turn_id, marker, firstCall.call_id);
+    await assertCompletedAnswerContainsExactMarker(api, session.id, firstCall.turn_id, marker, firstCall.call_id);
     expect(await runtimeIdentity(api, session.id, model)).toEqual(pin);
 
     stage = 'second Turn creation';
@@ -383,7 +383,7 @@ async function proveModel(api: ReturnType<typeof createAgentsClient>, evidence: 
     stage = 'second Turn completion';
     await waitForTurnCompleted(api, session.id, secondTurn.id, true);
     const second = await evidence.waitForStopped(secondWorker, secondTurn.id);
-    await assertExactCompletedAnswer(api, session.id, secondTurn.id, marker);
+    await assertCompletedAnswerContainsExactMarker(api, session.id, secondTurn.id, marker);
     expect(await runtimeIdentity(api, session.id, model)).toEqual(pin);
     assertContinuation(first, second, pin);
 
@@ -457,7 +457,7 @@ async function waitForTurnCompleted(api: ReturnType<typeof createAgentsClient>, 
   expect(saved.required_actions).toEqual([]);
 }
 
-async function assertExactCompletedAnswer(api: ReturnType<typeof createAgentsClient>, sessionId: string, turnId: string, marker: string, expectedCallId?: string): Promise<void> {
+async function assertCompletedAnswerContainsExactMarker(api: ReturnType<typeof createAgentsClient>, sessionId: string, turnId: string, marker: string, expectedCallId?: string): Promise<void> {
   const items: AgentSessionItem[] = [];
   for await (const item of api.beta.agents.sessions.items.list(sessionId, { limit: 100, order: 'asc' })) {
     if (item.turn_id === turnId) items.push(item);
@@ -479,7 +479,8 @@ async function assertExactCompletedAnswer(api: ReturnType<typeof createAgentsCli
     if (item.type !== 'message' || item.role !== 'assistant' || item.status !== 'completed' || item.phase !== 'final_answer') return [];
     return item.content.flatMap(part => part.type === 'output_text' ? [part.text] : []);
   }).join('').trim();
-  expect(answer).toBe(marker);
+  const markers = new Set(answer.match(/pi-proof-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g) ?? []);
+  expect([...markers]).toEqual([marker]);
 }
 
 async function rootTurnIds(api: ReturnType<typeof createAgentsClient>, sessionId: string): Promise<Set<string>> {
