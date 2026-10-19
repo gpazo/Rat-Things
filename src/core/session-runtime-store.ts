@@ -1,6 +1,8 @@
 import type { AgentsStore, AgentResource, AgentsClock } from './agents-ports.js';
 import type { SessionRuntimeState } from './session-runtime-planning.js';
-import { AgentsApiError } from '../domain/agents-api-validation.js';
+import { AgentsApiError, AgentsResourceConflictError } from '../domain/agents-api-validation.js';
+
+const MAX_NATIVE_PUBLICATION_ATTEMPTS = 10;
 
 export type StoredSessionRuntime = { snapshot?: SessionRuntimeState; epoch?: number; native?: { schema: 1; highWater: number; head?: import('./session-native-store.js').NativeHead }; projectionSeq?: number; attempt?: { phase?: 'reserved' | 'submitting'; ordinal: number; turnId: string; failures: number[]; dueAt: number }; recoveryExhausted?: boolean } & (
   | { runId: string; closed?: false }
@@ -22,10 +24,17 @@ export class SessionRuntimeStore {
     return true;
   }
   public async publishNative(ownerId: string, sessionId: string, runId: string, seq: number, snapshot: SessionRuntimeState): Promise<boolean> {
-    const current = await this.get(ownerId, sessionId);
-    if (!current || current.value.closed || current.value.runId !== runId || current.value.native?.head?.seq !== seq || (current.value.projectionSeq ?? -1) >= seq) return false;
-    await this.store.put({ ...current, revision: current.revision + 1, value: { ...current.value, snapshot, projectionSeq: seq } }, current.revision);
-    return true;
+    for (let attempt = 0; attempt < MAX_NATIVE_PUBLICATION_ATTEMPTS; attempt++) {
+      const current = await this.get(ownerId, sessionId);
+      if (!current || current.value.closed || current.value.runId !== runId || current.value.native?.head?.seq !== seq || (current.value.projectionSeq ?? -1) >= seq) return false;
+      try {
+        await this.store.put({ ...current, revision: current.revision + 1, value: { ...current.value, snapshot, projectionSeq: seq } }, current.revision);
+        return true;
+      } catch (error) {
+        if (!(error instanceof AgentsResourceConflictError) || attempt === MAX_NATIVE_PUBLICATION_ATTEMPTS - 1) throw error;
+      }
+    }
+    return false;
   }
   public async close(ownerId: string, sessionId: string): Promise<AgentResource<StoredSessionRuntime>> {
     for (let attempt = 0; attempt < 10; attempt++) {

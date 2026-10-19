@@ -1,5 +1,6 @@
 import http from 'node:http';
 import https from 'node:https';
+import http2 from 'node:http2';
 import { syncBuiltinESMExports } from 'node:module';
 
 const fixturePort = Number(process.env.PI_TEST_BEDROCK_PORT);
@@ -8,38 +9,19 @@ if (!Number.isInteger(fixturePort) || fixturePort < 1 || fixturePort > 65535) {
 }
 
 const bedrockHost = /^bedrock-runtime\.[a-z0-9-]+\.amazonaws\.com$/;
-const nodeHttpRequest = http.request;
+const nodeHttp2Connect = http2.connect;
+const blockedRequest = () => { throw new Error('Blocked non-fixture network request'); };
 
-function requestTarget(input, options) {
-  if (typeof input === 'string' || input instanceof URL) {
-    const url = new URL(input);
-    return { ...options, protocol: url.protocol, hostname: url.hostname, port: url.port ? Number(url.port) : undefined,
-      path: `${url.pathname}${url.search}` };
-  }
-  return { ...(input ?? {}), ...(options ?? {}) };
-}
-
-function guardedRequest(original, protocol) {
-  return function request(input, options, callback) {
-    if (typeof options === 'function') { callback = options; options = undefined; }
-    const target = requestTarget(input, options);
-    const host = String(target.hostname ?? target.host ?? '').replace(/:\d+$/, '');
-    const port = Number(target.port ?? (target.protocol === 'https:' ? 443 : 80));
-    const path = String(target.path ?? '/');
-    if (bedrockHost.test(host) && target.method === 'POST' && path.includes('/converse-stream')) {
-      return nodeHttpRequest.call(http, { ...target, protocol: 'http:', hostname: '127.0.0.1', host: '127.0.0.1', port: fixturePort,
-        path, agent: false, servername: undefined }, callback);
-    }
-    if (protocol === 'http:' && host === '127.0.0.1' && port === fixturePort) {
-      return original.call(protocol === 'https:' ? https : http, input, options, callback);
-    }
+http.request = blockedRequest;
+http.get = blockedRequest;
+https.request = blockedRequest;
+https.get = blockedRequest;
+http2.connect = function connect(authority, options, listener) {
+  const url = new URL(authority);
+  if (url.protocol !== 'https:' || !bedrockHost.test(url.hostname) || (url.port !== '' && url.port !== '443')) {
     throw new Error('Blocked non-fixture network request');
-  };
-}
-
-http.request = guardedRequest(http.request, 'http:');
-http.get = guardedRequest(http.get, 'http:');
-https.request = guardedRequest(https.request, 'https:');
-https.get = guardedRequest(https.get, 'https:');
+  }
+  return nodeHttp2Connect.call(http2, `http://127.0.0.1:${fixturePort}`, options, listener);
+};
 globalThis.fetch = async () => { throw new Error('Blocked non-fixture network request'); };
 syncBuiltinESMExports();

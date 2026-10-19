@@ -2,6 +2,8 @@ import { piRegistryModel } from '../../adapters/pi-model-catalog.js';
 export { piCatalog } from '../../adapters/pi-model-catalog.js';
 import { createModels, type CredentialStore, type Model, type Models } from '@earendil-works/pi-ai';
 import { amazonBedrockProvider } from '@earendil-works/pi-ai/providers/amazon-bedrock';
+import { bedrockProviderModule } from '@earendil-works/pi-ai/bedrock-provider';
+import { setBedrockProviderModule } from '@earendil-works/pi-ai/api/bedrock-converse-stream.lazy';
 import type { RuntimePin } from '../../domain/session-runtime.js';
 
 export function createPiModels(pin: Extract<RuntimePin, { kind: 'pi' }>, token: () => Promise<string>, allowedModelIds: readonly string[] = pin.catalog.map(model => model.id)): Models {
@@ -16,6 +18,7 @@ export function createPiModels(pin: Extract<RuntimePin, { kind: 'pi' }>, token: 
     list: async () => [{ providerId: 'amazon-bedrock', type: 'api_key' }], modify: denied, delete: denied,
   };
   const models = createModels({ credentials, authContext: { env: async () => undefined, fileExists: async () => false } });
+  setBedrockProviderModule(bedrockProviderModule);
   const provider = amazonBedrockProvider();
   const admitted: Model<'bedrock-converse-stream'>[] = pin.catalog.filter(descriptor => allowedModelIds.includes(descriptor.id)).map(descriptor => {
     const model = piRegistryModel(descriptor.id);

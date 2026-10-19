@@ -1,4 +1,4 @@
-import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
+import { createServer, type ServerHttp2Stream } from 'node:http2';
 import { fork } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
@@ -18,8 +18,9 @@ import { piChildEnvironment } from '../../src/runner/pi-host.js';
 
 const installedChild = '/opt/agent-runtime/pi-child.mjs';
 const builtChild = fileURLToPath(new URL('../../dist/pi-child.mjs', import.meta.url));
-const childPath = process.env.CODEX_REQUIRE_PARITY === 'true' && existsSync(installedChild) ? installedChild : builtChild;
-const canExerciseBundle = existsSync(childPath) && process.getuid?.() !== 0;
+const parityMode = process.env.CODEX_REQUIRE_PARITY === 'true';
+const childPath = parityMode ? installedChild : builtChild;
+const canExerciseBuiltBundle = existsSync(builtChild) && process.getuid?.() !== 0;
 const preload = fileURLToPath(new URL('./fixtures/deny-network-bedrock-fixture.mjs', import.meta.url));
 const modelId = 'amazon.nova-micro-v1:0';
 const input: AgentSessionInputMessageParam[] = [{ role: 'user', content: [{ type: 'input_text', text: 'Return the packaged inference marker.' }] }];
@@ -52,17 +53,6 @@ async function eventStream(): Promise<Buffer> {
   return Buffer.concat(chunks);
 }
 
-async function readBody(request: IncomingMessage): Promise<Buffer> {
-  const chunks: Buffer[] = [];
-  for await (const chunk of request) chunks.push(Buffer.from(chunk));
-  return Buffer.concat(chunks);
-}
-
-async function respond(response: ServerResponse, body: Buffer): Promise<void> {
-  response.writeHead(200, { 'content-type': 'application/vnd.amazon.eventstream', 'x-amzn-requestid': 'fixture-request' });
-  response.end(body);
-}
-
 async function until(predicate: () => boolean, timeoutMs = 10000): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   while (!predicate()) {
@@ -71,15 +61,23 @@ async function until(predicate: () => boolean, timeoutMs = 10000): Promise<void>
   }
 }
 
-it.skipIf(!canExerciseBundle)('runs first inference in the packaged Pi child without network access or ambient credentials', async () => {
+it.skipIf(!parityMode && !canExerciseBuiltBundle)('runs first inference in the packaged Pi child without network access or ambient credentials', async () => {
+  if (parityMode) {
+    expect(process.platform).toBe('linux');
+    expect(process.getuid?.()).toBe(10001);
+    expect(existsSync(installedChild)).toBe(true);
+  }
   const fixtureBytes = await eventStream();
   const requests: Array<{ path: string; body: string }> = [];
-  const server = createServer((request, response) => {
-    void (async () => {
-      const body = await readBody(request);
-      requests.push({ path: request.url ?? '', body: body.toString('utf8') });
-      await respond(response, fixtureBytes);
-    })().catch(() => response.destroy());
+  const server = createServer();
+  server.on('stream', (stream: ServerHttp2Stream, headers) => {
+    const chunks: Buffer[] = [];
+    stream.on('data', chunk => chunks.push(Buffer.from(chunk)));
+    stream.on('end', () => {
+      requests.push({ path: String(headers[':path'] ?? ''), body: Buffer.concat(chunks).toString('utf8') });
+      stream.respond({ ':status': 200, 'content-type': 'application/vnd.amazon.eventstream', 'x-amzn-requestid': 'fixture-request' });
+      stream.end(fixtureBytes);
+    });
   });
   await new Promise<void>((resolve, reject) => {
     server.once('error', reject);

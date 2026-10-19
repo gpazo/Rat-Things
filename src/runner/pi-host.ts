@@ -8,8 +8,24 @@ import type { NativeLease } from '../core/session-native-store.js';
 import type { SessionRuntimeState } from '../core/session-runtime-planning.js';
 import type { SessionLaunch, SessionReplayCommand } from '../domain/session-execution.js';
 import type { RunRequest } from '../domain/contracts.js';
+import { AgentsResourceConflictError } from '../domain/agents-api-validation.js';
 import { planCodexLaunch } from './agent-planning.js';
 import { createPiEffectBroker, type PiToolEffect } from './pi-effect-broker.js';
+
+type HostPhase = 'initialize' | 'replay' | 'running' | 'checkpoint' | 'close';
+type HostOperation = 'load' | 'reserve' | 'commit' | 'projection' | 'token' | 'effect' | 'effect_cancel' | 'unsupported';
+type FailureClass = 'resource_conflict' | 'operation_failed';
+type HostDiagnostic =
+  | { event: 'pi_operation_failed'; operation: HostOperation; phase: HostPhase; failure: FailureClass }
+  | { event: 'pi_child_exit'; phase: HostPhase; code: number | null; signal: NodeJS.Signals | null };
+
+function classifyHostFailure(error: unknown): FailureClass {
+  return error instanceof AgentsResourceConflictError ? 'resource_conflict' : 'operation_failed';
+}
+
+function writeHostDiagnostic(diagnostic: HostDiagnostic): void {
+  console.error(JSON.stringify(diagnostic));
+}
 
 export interface PiHostDependencies {
   lease: NativeLease;
@@ -32,6 +48,7 @@ export async function executePiWorker(request: RunRequest, workspace: string, ti
   });
   let exited = false;
   let ready = false;
+  let phase: HostPhase = 'initialize';
   let checkpointPromise: Promise<unknown> | undefined;
   let snapshot: SessionRuntimeState | undefined;
   const pending = new Map<string, { resolve(value: unknown): void; reject(error: Error): void }>();
@@ -58,28 +75,35 @@ export async function executePiWorker(request: RunRequest, workspace: string, ti
     if (message.kind === 'finished') { finish(); return; }
     if (message.kind !== 'request' || typeof message.id !== 'string') { fail(new Error('Invalid Pi protocol')); return; }
     const id = message.id;
+    const operationPhase = phase;
+    let operation: HostOperation = 'unsupported';
     void (async () => {
       let result: unknown;
       switch (message.method) {
-        case 'load': result = await dependencies.lease.load(); break;
+        case 'load': operation = 'load'; result = await dependencies.lease.load(); break;
         case 'reserve': {
+          operation = 'reserve';
           if (!record(message.value) || typeof message.value.count !== 'number' || typeof message.value.requestId !== 'string') throw new Error('Invalid reservation');
           result = await dependencies.lease.reserveIds(message.value.count, message.value.requestId); break;
         }
         case 'commit': {
+          operation = 'commit';
           const value = message.value;
           if (!record(value) || value.schema !== 1 || typeof value.commitId !== 'string' || typeof value.seq !== 'number' || typeof value.idHighWater !== 'number' || !Array.isArray(value.writes)) throw new Error('Invalid native commit');
           result = await dependencies.lease.commit(value as unknown as Parameters<NativeLease['commit']>[0]); break;
         }
         case 'projection': {
+          operation = 'projection';
           if (!record(message.value) || !record(message.value.snapshot) || typeof message.value.seq !== 'number') throw new Error('Invalid projection');
           snapshot = message.value.snapshot as unknown as SessionRuntimeState;
           if (snapshot.sessionId !== launch.sessionId || snapshot.agentId !== launch.agent.id) throw new Error('Invalid projection identity');
           await dependencies.changed(snapshot, message.value.seq); break;
         }
         case 'token':
+          operation = 'token';
           await effectsReady; signal?.throwIfAborted(); await dependencies.lease.assertActive(); result = await dependencies.token(); break;
         case 'effect': {
+          operation = 'effect';
           await effectsReady; signal?.throwIfAborted(); await dependencies.lease.assertActive();
           if (!record(message.value) || typeof message.value.name !== 'string' || !record(message.value.arguments)) throw new Error('Invalid effect request');
           const abort = new AbortController(); effects.set(id, abort);
@@ -87,15 +111,19 @@ export async function executePiWorker(request: RunRequest, workspace: string, ti
           finally { effects.delete(id); }
           break;
         }
-        case 'effect_cancel': if (typeof message.value === 'string') effects.get(message.value)?.abort(); break;
+        case 'effect_cancel': operation = 'effect_cancel'; if (typeof message.value === 'string') effects.get(message.value)?.abort(); break;
         default: throw new Error('Pi operation is outside the capability envelope');
       }
       send({ kind: 'response', id, ok: true, value: result });
-    })().catch(() => { send({ kind: 'response', id, ok: false }); });
+    })().catch(error => {
+      writeHostDiagnostic({ event: 'pi_operation_failed', operation, phase: operationPhase, failure: classifyHostFailure(error) });
+      send({ kind: 'response', id, ok: false });
+    });
   });
   child.once('error', () => fail(new Error('Pi child failed to start')));
-  child.once('exit', code => {
+  child.once('exit', (code, exitSignal) => {
     exited = true;
+    writeHostDiagnostic({ event: 'pi_child_exit', phase, code, signal: exitSignal });
     for (const waiter of pending.values()) waiter.reject(new Error('Pi child stopped'));
     pending.clear();
     for (const effect of effects.values()) effect.abort();
@@ -109,10 +137,15 @@ export async function executePiWorker(request: RunRequest, workspace: string, ti
     await dependencies.lease.assertActive();
     const childLaunch: SessionLaunch = { runtime: launch.runtime, sessionId: launch.sessionId, turnId: launch.turnId, agent: launch.agent,
       environment: launch.environment, input: launch.input, ...(launch.turn ? { turn: launch.turn } : {}), ...(launch.piForkContext ? { piForkContext: launch.piForkContext } : {}) };
+    phase = 'initialize';
     await invoke('initialize', { launch: childLaunch, allowedModelIds: dependencies.allowedModelIds, tools: broker.tools, mode: control.sessionRuntime?.lifetime === 'host-managed' ? 'persistent' : 'bounded' });
-    for (const command of launch.replay ?? (launch.turn ? [{ type: 'start', turn: launch.turn, input: launch.input } satisfies SessionReplayCommand] : [])) await invoke('replay', command);
+    for (const command of launch.replay ?? (launch.turn ? [{ type: 'start', turn: launch.turn, input: launch.input } satisfies SessionReplayCommand] : [])) {
+      phase = 'replay';
+      await invoke('replay', command);
+    }
     ready = true;
     openEffects();
+    phase = 'running';
     await invoke('resume');
     await control.onTurnStarted?.({ threadId: snapshot?.rootThreadId ?? 'pi-root', turnId: launch.turnId,
       steer: async (_text, input, turnId, operationId) => { await invoke('replay', { type: 'steer', turnId, input, operationId: operationId ?? randomUUID() }); },
@@ -122,11 +155,13 @@ export async function executePiWorker(request: RunRequest, workspace: string, ti
       respondSessionTool: async (callId, result) => { await invoke('replay', { type: 'tool_result', callId, ...record(result) ? result : {} }); },
       ...(control.sessionRuntime?.checkpoint ? { checkpoint: async () => {
         const checkpoint = control.sessionRuntime!.checkpoint!;
+        phase = 'checkpoint';
         checkpointPromise = checkpointWorkspace({ ...checkpoint,
           inspectIdle: () => ({ idle: Boolean(snapshot && !snapshot.requiredActions.length && snapshot.turns.every(binding => ['completed', 'failed', 'cancelled'].includes(binding.turn.status))), threadIds: snapshot ? [snapshot.rootThreadId, ...snapshot.subagents.map(agent => agent.id)] : [] }),
           shutdownNative: async () => {
             const context = await invoke('checkpoint');
             await dependencies.saveForkContext?.(context);
+            phase = 'close';
             await invoke('close');
             await stopped;
             await broker.close();
