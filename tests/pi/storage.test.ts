@@ -4,7 +4,7 @@ import { ROOT_CONVERSATION_ID } from '@earendil-works/pi-durable';
 import { BACKGROUND_CONTEXT as context } from '@earendil-works/chord/context';
 import { MemoryAgentsStore } from '../agents/fixtures.js';
 import { SessionRuntimeStore } from '../../src/core/session-runtime-store.js';
-import { nativeLease } from '../../src/core/session-native-store.js';
+import { nativeLease, nativeDigest, type NativeCommit } from '../../src/core/session-native-store.js';
 import { openPiStorage } from '../../src/runner/pi/storage.js';
 
 async function fixture() {
@@ -20,6 +20,53 @@ registerStorageConformance({ describe, expect, it }, 'Pi host storage conformanc
 });
 
 describe('host acknowledged native storage', () => {
+  const change: NativeCommit = { schema: 1, commitId: 'fixed-commit', parent: null, seq: 1, idHighWater: 7, writes: [{ type: 'conversation', value: { id: 1 } }] };
+
+  it('replays reservation receipts and rejects a reused identity with a different count', async () => {
+    const f = await fixture();
+    expect(await f.lease.reserveIds(3, 'fixed-request')).toEqual({ first: 2, last: 4, count: 3 });
+    expect(await f.lease.reserveIds(3, 'fixed-request')).toEqual({ first: 2, last: 4, count: 3 });
+    await expect(f.lease.reserveIds(2, 'fixed-request')).rejects.toThrow('ownership');
+    expect(await f.lease.reserveIds(1, 'next-request')).toEqual({ first: 5, last: 5, count: 1 });
+  });
+
+  it.each(['commit', 'reserve'] as const)('retries four failed %s writes with the same identity and propagates the last failure', async operation => {
+    const f = await fixture();
+    const failures = Array.from({ length: 4 }, (_, index) => new Error(`failure ${index + 1}`));
+    const writes: unknown[] = [];
+    f.store.commit = async changes => { writes.push(structuredClone(changes)); throw failures[writes.length - 1]; };
+    await expect(operation === 'commit' ? f.lease.commit(change) : f.lease.reserveIds(3, 'fixed-request')).rejects.toBe(failures[3]);
+    expect(writes).toHaveLength(4);
+    expect(writes).toEqual(Array.from({ length: 4 }, () => writes[0]));
+    expect((await f.lease.load()).commits).toEqual([]);
+  });
+
+  it('attaches an identical detached commit without rewriting it and preserves reserved high water', async () => {
+    const f = await fixture();
+    await f.lease.reserveIds(20, 'reservation');
+    await f.store.commit([{ resource: { ownerId: 'owner', collection: 'session_native', id: 'session:commit:fixed-commit', createdAt: 0, revision: 1, value: change }, expectedRevision: 0 }]);
+    const commit = f.store.commit.bind(f.store);
+    const writes: unknown[][] = [];
+    f.store.commit = async changes => { writes.push(structuredClone([...changes])); await commit(changes); };
+    const head = { seq: 1, commitId: 'fixed-commit', digest: nativeDigest(change) };
+    expect(await f.lease.commit(change)).toEqual(head);
+    expect(await f.lease.commit(change)).toEqual(head);
+    expect(writes).toHaveLength(1);
+    expect(writes[0]).toHaveLength(1);
+    expect(await f.lease.load()).toEqual({ head, highWater: 21, commits: [change] });
+  });
+
+  it('rejects a wrong parent before reading or writing a second immutable commit', async () => {
+    const f = await fixture();
+    await f.lease.commit(change);
+    const read = f.store.get.bind(f.store);
+    const reads: string[] = [];
+    f.store.get = async (...args) => { reads.push(`${args[1]}:${args[2]}`); return read(...args); };
+    f.store.commit = async () => { throw new Error('unexpected write'); };
+    await expect(f.lease.commit({ ...change, commitId: 'other' })).rejects.toThrow('ownership');
+    expect(reads).toEqual(['session_runtime:session']);
+  });
+
   it('abandons unused durable ID reservations across replacement', async () => {
     const f = await fixture();
     expect(await f.storage.mintId()).toBe(2);
