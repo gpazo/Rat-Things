@@ -14,7 +14,7 @@ public sharing. Return here when choosing a longer-lived installation shape.
 - Docker with Compose for LocalStack and Buildx for the patched Linux ARM64 runtime and image canaries.
 - A verified patched native artifact for packaging; build or import it using
   [`testing/README.md`](../testing/README.md#agents-api-native-compatibility-gate).
-- Terraform 1.5+ and AWS credentials for infrastructure work.
+- Terraform 1.15.8, matching CI, and AWS credentials for infrastructure work.
 - GitHub CLI authenticated for the one-command GitHub webhook path.
 - A Region and quota that support AWS Lambda MicroVMs, plus a currently `AVAILABLE` managed
   `al2023-1` base-image version.
@@ -88,8 +88,9 @@ cp infra/terraform.tfvars.example infra/terraform.tfvars
 ```
 
 Replace or remove all example secret ARNs and configure credentials for an admitted model.
-Use `npm run smoke:local` for an offline smoke test. Deployed Sessions use the native Codex
-harness and invoke the configured model when input arrives. Start with conservative capabilities:
+Use `npm run smoke:local` for an offline smoke test. Deployed Sessions run Codex or
+Pi Durable and invoke the configured model when input arrives. Codex is the default;
+Pi requires its own approved Bedrock catalog. Start with conservative capabilities:
 
 ```hcl
 environment                      = "dev"
@@ -190,7 +191,7 @@ CloudWatch Embedded Metric Format records queue delay and processing duration us
 Gateway metrics remain available through `enable_detailed_api_metrics=true`, but are off by default
 to avoid paying for idle route cardinality.
 
-A cold launch must boot the MicroVM and prepare storage before Codex initializes. A resumed
+A cold launch must boot the MicroVM and prepare storage before the selected runtime initializes. A resumed
 conversation can reuse mounted storage and native agent state. Diagnose these phases separately
 using the [startup runbook](runbook.md#slow-conversation-startup-or-codex-initialization).
 
@@ -223,10 +224,10 @@ execution without deploying or invoking a model.
 ## Configure model authentication
 
 Keep host AWS credentials separate from agent authority with
-`allow_agent_aws_credential_chain=false`. The default ChatGPT path reads a validated file-based
+`allow_agent_aws_credential_chain=false`. The default Codex ChatGPT path reads a validated file-based
 login from `codex_auth_file_secret_arn`; Bedrock uses the generated runtime role's model access.
 
-The deployed MicroVM path defaults to `CODEX_AUTH_MODE=chatgpt`. It resolves the auth-file secret
+The deployed Codex path defaults to `CODEX_AUTH_MODE=chatgpt`. It resolves the auth-file secret
 inside the trusted worker, writes a private runtime `auth.json`, runs Codex with the built-in OpenAI
 provider, persists validated refresh rotation, and removes the runtime file. Never bake the file
 into an image or place it in a Run, state record, log, or Terraform value. Same-UID agent code can
@@ -234,6 +235,14 @@ read it during execution, and persistent S3 Files may carry the temporary copy; 
 [credential lifecycle](codex-subscription.md#credential-risk-and-lifecycle) before enabling the bridge. Set
 `codex_auth_mode = "bedrock"` and an exact Bedrock model allowlist only when a deployment
 deliberately chooses that provider.
+
+Pi Durable uses Bedrock Converse independently of `codex_auth_mode`. Configure
+`pi_bedrock_model_ids`, `pi_bedrock_default_model`, and exact
+`pi_bedrock_inference_resource_arns`. The host mints short-term Bedrock tokens;
+the Pi process receives no execution-role credentials. Managed Pi environments
+also require S3 Files and Session checkpoints. Follow
+[Pi inference configuration](../infra/README.md#enable-pi-inference) and the
+[Pi setup guide](../guides/run-pi-durable-on-bedrock.md).
 
 Codex behavior and authentication change over time; verify the pinned CLI against the official
 [non-interactive guide](https://developers.openai.com/codex/noninteractive),
@@ -248,7 +257,7 @@ history plus CloudWatch correlation.
 
 For shadow observation, use `default_delivery_destinations="none"` where a binding does not
 set explicit destinations. This suppresses the default provider reply but does not prevent
-agent/model cost. Deployed Sessions use the native Codex harness; `mock` is a local test driver.
+agent/model cost. Deployed Sessions use Codex or Pi Durable; `mock` is a local test driver.
 
 Comments/notes require the configured non-empty trigger and outbound replies carry a runtime marker;
 the adapters ignore marked replies and provider-declared bot authors. These are loop guards, not

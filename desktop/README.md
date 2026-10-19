@@ -41,7 +41,11 @@ session. Search includes older pages. Command/Ctrl+N opens a new session in the 
 pane. A new-session draft is retained when you visit another session during the same
 app run. Common actions use forms: describe a task and model for a Session, save an Agent's instructions,
 configure environment packages and network access, or add a private credential.
-The Model picker loads the authenticated deployment catalog when the form opens.
+Choose Codex or Pi Durable in the Runtime picker before choosing a model. Codex
+is the default. Pi Durable lists the deployment's approved Bedrock models. A saved
+Agent supplies its runtime to a new Session; an existing Session keeps its pinned
+runtime. See [runtime capabilities](../docs/agent-runtimes.md).
+The Model picker loads the selected runtime's authenticated deployment catalog when the form opens.
 It shows exact model IDs, so the selection matches the model sent to the API.
 It selects an advertised default for a new draft and keeps existing selections.
 The Environment dropdown offers saved templates and No environment. Selecting a

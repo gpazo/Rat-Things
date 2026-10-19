@@ -306,9 +306,25 @@ attributing a delay to model inference.
 
 For a Codex initialization failure, retain the exact binary version and bounded app-server stderr,
 and distinguish a child-process error from a test or caller deadline. Investigate using isolated
-state directories. Durable Codex home includes SQLite state needed for native-thread restoration;
-do not delete it or move it to temporary storage as a troubleshooting shortcut. Slow initialization
-alone does not establish database corruption.
+state directories. Retain durable Codex journals; runtime-managed SQLite indexes and caches
+use per-worker temporary mounts and are rebuilt as needed. Do not delete Session state as a
+troubleshooting shortcut. Slow initialization alone does not establish database corruption.
+
+## Pi Durable recovery
+
+Read the Session's runtime with `rat-things sessions runtime SESSION_ID`, then
+inspect its saved Turns and Items. Pi preserves committed tasks and pending
+function-call identities. Recovery waits for confirmed termination of the prior
+worker and can stop after its bounded replacement budget is exhausted.
+
+If Pi model discovery is unavailable, check `pi_bedrock_model_ids` and the pinned
+catalog. For inference denial, check the exact resource grants and account access.
+Changing `codex_auth_mode` does not configure Pi. Managed Pi workspaces also need
+S3 Files and Session checkpoints. See [Pi configuration](../infra/README.md#enable-pi-inference).
+
+Do not resubmit a function result under a new call ID to force recovery. Retry the
+accepted result with the same identity and content. An interrupted unsafe external
+operation may already have happened; reconcile it with the destination before retrying.
 
 ## Secret rotation
 

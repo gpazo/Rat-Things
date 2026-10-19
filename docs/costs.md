@@ -25,10 +25,16 @@ turns that shutdown into instance termination.
 The HTTP/relay services and private-network resources can have a baseline cost
 even when no Session is active. Include the [load balancer](https://aws.amazon.com/elasticloadbalancing/pricing/),
 Fargate, NAT, logs and retained storage when estimating an idle deployment.
-S3 Files is required by the dedicated EC2 Session backend. It retains Codex home
-and workspace bytes; preserving a hosted workspace across replacement requires a
-committed checkpoint. Ordinary replacement resets the workspace while retained
-artifacts remain available.
+
+Pi Durable inference is billed through Amazon Bedrock. Codex model costs depend
+on the deployment's selected authentication and provider configuration. Choosing
+a different runtime does not remove worker, storage, or network charges.
+
+S3 Files is required by the dedicated EC2 Session backend and managed Pi environments.
+It retains workspace bytes and Codex journals where applicable. Pi's native task
+state uses the encrypted state store. Managed Pi recovery retains flushed files;
+Codex workspace handoff requires a committed checkpoint. Ordinary Codex replacement
+resets the workspace while retained artifacts remain available.
 
 ## Estimating a deployment
 

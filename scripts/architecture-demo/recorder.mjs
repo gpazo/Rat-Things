@@ -86,7 +86,7 @@ export async function beginRecording(browser, options = {}) {
       if(chapter.id==='execution') {
         await pause(2500);await rotation(false);await selectResource('Isolated workers');
         await pause(1400);await selectResource('Browser & tools');
-        await pause(1400);await selectResource('Codex runner');
+        await pause(1400);await selectResource('Agent runner');
       } else if(chapter.id==='control') {
         await pause(2700);await rotation(false);await selectResource('Run queue');
       } else if(chapter.id==='access') {

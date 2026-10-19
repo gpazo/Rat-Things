@@ -5,6 +5,11 @@ service, agent harness, session storage, encrypted files, credentials and isolat
 execution all remain in your AWS account. The configured model provider receives
 inference requests; OpenAI does not operate the Rat Things control plane.
 
+Each Session runs Codex or Pi Durable. Codex is the default; Pi Durable uses the
+deployment's approved Amazon Bedrock catalog. Both share the API, CLI, desktop,
+schedules, and provider bindings. The [runtime guide](agent-runtimes.md) explains
+selection, recovery, and supported capabilities.
+
 <figure class="doc-visual doc-visual-wide">
   <a href="product-overview.svg"><img src="product-overview.svg" alt="Your product, agent or event sends work to Rat Things in your AWS account and receives durable replies, files and URLs."></a>
   <figcaption><strong>Work and results stay in the backend you own.</strong></figcaption>

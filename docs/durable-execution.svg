@@ -45,13 +45,13 @@
   <line class="flow" x1="92" y1="295" x2="92" y2="398"/>
   <path class="arrow" d="M 83 391 L 92 405 L 101 391 Z"/>
 
-  <text class="boundary-label" x="145" y="391">Isolated Lambda MicroVM · Session harness</text>
+  <text class="boundary-label" x="145" y="391">Isolated AWS worker · Session runtime</text>
   <g data-node="primary">
     <circle class="number-ring" cx="92" cy="433" r="25"/>
     <text class="number" x="92" y="434">3</text>
     <rect class="node--run" x="145" y="402" width="555" height="126" rx="16"/>
     <text class="label" x="180" y="449">Execute a Turn</text>
-    <text class="detail" x="180" y="481">Native Codex runs with declared tools and resolved policy.</text>
+    <text class="detail" x="180" y="481">Codex or Pi Durable runs with declared tools and policy.</text>
     <text class="evidence" x="180" y="506">model · function tools · MCP · environment</text>
   </g>
 

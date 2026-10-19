@@ -7,6 +7,12 @@ storing a transcript alone does not make a lost worker recoverable.
 Rat Things uses the Agents API's Session, Turn and Item primitives. Its API,
 harness, compute and storage remain in the deployment's AWS account.
 
+These objects support both Codex and Pi Durable. Codex restores its native journal;
+Pi restores committed tasks, pending function calls, results, and child relationships.
+Rat Things stores that state outside the worker and blocks writes from replaced
+owners. The [runtime guide](../docs/agent-runtimes.md) separates conversation recovery
+from workspace recovery and external effects.
+
 ## Separate the state that must survive
 
 | State | Purpose | Rat Things boundary |
@@ -57,14 +63,14 @@ not permission to replay them.
 
 ## Recover from the strongest available state
 
-Prefer the saved native conversation checkpoint. Public Item history is a fallback
+For Codex, prefer the saved native conversation checkpoint. Public Item history is a fallback
 that can retain messages and completed tool results. Historical commands, MCP
 calls and child activity remain historical data; recovery must not execute them
 again merely to rebuild context.
 
 Neither fallback history nor copied files recreate live processes, sockets or
 hidden child state. A connected managed environment retains its process state
-between Turns. Ordinary managed replacement retains the environment ID and
+between Turns. Ordinary Codex managed replacement retains the environment ID and
 conversation, reapplies declared inputs, and discards previous sandbox files and
 processes. Reset events identify this replacement with a monotonic count.
 
@@ -74,12 +80,20 @@ the saved workspace, but does not revive processes or sockets. A missing or
 incompatible checkpoint is not a promise of restoration. Explicit expiry remains
 terminal, with saved history and artifacts available for retrieval.
 
+Pi Durable restores its committed task and conversation state. Pending function
+calls and child relationships keep their identities, including background children
+whose parent has finished. Managed Pi recovery requires S3 Files and checkpoints,
+retains flushed workspace files, and waits for verified termination of the old
+worker. It does not restore operating-system processes. An unsafe external tool
+call interrupted before its result was saved is not automatically repeated.
+
 ## Retain immutable output
 
 Managed output files under `/workspace/outputs` are captured before terminal Turn
 publication. Each artifact identifies its Turn and path and retains immutable
 bytes. A later Turn can create another artifact for the same path. Expiration of
-the environment does not remove saved artifacts; Session deletion does.
+the environment does not remove saved artifacts; Session deletion removes their
+API access. Retained bytes remain subject to the deployment's storage lifecycle.
 
 Self-hosted environment files remain under the operator's file/storage interface.
 They are not automatically published through the managed Session Artifacts API.

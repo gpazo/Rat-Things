@@ -6,6 +6,11 @@ costs come from resources that remain provisioned between Turns, such as HTTP se
 
 ## Account for connected workers and deployment capacity
 
+Rat Things runs Codex or Pi Durable on the same AWS worker backends. Pi model
+usage is billed through Bedrock. Codex uses the deployment's chosen ChatGPT bridge
+or Bedrock configuration. Include the selected model's cost separately from
+worker and storage costs. See [runtime choices](../docs/agent-runtimes.md).
+
 A Session can keep its harness and environment connected between Turns. Include
 that idle time in worker runtime. The dedicated EC2 backend requires S3 Files;
 its private network, encrypted EBS and instance lifetime all contribute to cost.

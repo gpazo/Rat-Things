@@ -9,7 +9,11 @@ patched Linux ARM64 Codex artifact described in the [contributor guide](../testi
 
 ## Automated setup
 
-The setup helper deploys the AWS backend, creates an Agent with the selected
+Rat Things supports [Codex and Pi Durable](agent-runtimes.md). For Pi Durable,
+follow [the Bedrock setup guide](../guides/run-pi-durable-on-bedrock.md), which
+configures the Terraform model catalog and creates a Pi Session.
+
+The automated setup helper uses Codex. It deploys the AWS backend, creates an Agent with the selected
 model, and completes two Turns in one Session. It checks the saved assistant
 Items, deletes the disposable Session to stop its harness, and leaves the Agent
 available for new work. Setup provisions AWS resources and invokes the model.
@@ -48,6 +52,11 @@ npm run rat-things -- sessions create --model "$RAT_THINGS_MODEL" \
 The CLI obtains an owner-scoped API key using the workstation's AWS identity.
 The identity must be allowed to invoke the deployment's token issuer. Model
 requests use the deployment's configured provider and credentials.
+
+To select Pi Durable on a configured deployment, first run
+`npm run rat-things -- agents models --runtime pi`, then add `--runtime pi` to
+`sessions create` with an admitted Bedrock model. The desktop offers the same
+choice in its Runtime picker.
 
 For reusable work, save an Agent request containing `model`, `name`,
 `instructions` and declared `tools`, then create it:

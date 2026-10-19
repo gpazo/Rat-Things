@@ -9,6 +9,11 @@ Use separate search and create tools and constrain creation to the approved team
 The current allowlist does not enforce call order or deduplication; add those checks
 in trusted host code when duplicate issues are unacceptable.
 
+Rat Things can run this workflow with Codex or Pi Durable. Select the runtime on
+the bound Agent and declare its function or MCP tools. Pi uses approved Bedrock
+models; account grants and result delivery remain host responsibilities. See
+[runtime capabilities](../docs/agent-runtimes.md).
+
 ## Define the outcome before choosing tools
 
 The useful outcome is not “connect Slack and Linear.” It is a traceable handoff:

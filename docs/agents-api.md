@@ -13,7 +13,9 @@ with OpenAI's hosted service.
 
 ## Choose a Session runtime
 
-Codex is the default runtime. Select Pi with the existing SDK metadata field:
+Rat Things integrates Codex and Pi Durable behind this API. Codex is the default.
+Read the [runtime comparison](agent-runtimes.md) for their shared behavior and
+limits. Select Pi Durable with the existing SDK metadata field:
 
 ```ts
 const session = await client.beta.agents.sessions.create({

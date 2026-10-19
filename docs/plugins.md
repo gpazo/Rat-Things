@@ -154,7 +154,7 @@ failure return retryable `503 integration_unavailable` rather than blaming the c
 
 ## 3. Inspect and maintain a connection
 
-The desktop Connections workspace and CLI expose the same safe management view:
+The CLI and authenticated control API expose the connection management view:
 
 ```bash
 rat-things connection show stripe-acme-shop
@@ -184,9 +184,9 @@ Session integration records and 1,000 schedules per request. It reports `complet
 more records remain beyond either limit.
 
 The optional display name is presentation only. Renaming does not change the stable alias or ID
-used by notification bindings, schedules and the CLI. The desktop details view also shows provider
-scopes, installed operation access/risk, health, and the “used by” projection before an operator
-changes or disconnects an account.
+used by notification bindings, schedules and the CLI. Review the connection's provider scopes
+and grant, its plugin's operation access/risk metadata, and the health and consumer responses
+before changing or disconnecting an account.
 
 The AWS reference deployment checks a rotating bounded slice of connections every 15 minutes and
 re-verifies only health older than 60 minutes by default. It uses a dedicated Lambda and IAM role,
@@ -196,7 +196,7 @@ never an agent Run, and stores only lifecycle, status/code, and timestamps. Tune
 `enable_connection_health_monitor`.
 
 These are authenticated control-plane operations. They are not dynamic integration tools and are
-never registered with Codex. A prompt, webpage, repository, or provider message therefore cannot
+never registered with the selected agent runtime. A prompt, webpage, repository, or provider message therefore cannot
 start OAuth, test or read a credential, rename/reconnect an account, change a grant, or install a
 new capability. Those changes require trusted UI/CLI/API management. Existing Sessions retain
 their declared tools and resolved Agent configuration; external revocation and provider policy
@@ -341,8 +341,7 @@ integration_oauth_app_secret_arns = {
 ```
 
 `GET /v1/integrations/plugins` reports `oauthInstallation.status` as `configured` or
-`host-required` and returns the exact callback URL. Start a connection from the desktop Connections
-page or the CLI:
+`host-required` and returns the exact callback URL. Start a connection from the CLI:
 
 ```bash
 rat-things connect slack --oauth --wait --access read-write --alias slack-work

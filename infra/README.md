@@ -37,6 +37,9 @@ they do not connect workers to an existing application VPC.
 
 ## Package, validate, and deploy
 
+Use Terraform 1.15.8, matching CI. The checkpoint validation refers to another
+variable and does not work with Terraform 1.5, despite the older declared minimum.
+
 ```bash
 npm ci
 npm run package
@@ -96,6 +99,11 @@ singleton catalog when that list is empty. Without either setting, model discove
 because the server cannot safely infer account availability from another Codex login.
 
 ## Enable Pi inference
+
+Pi Durable is integrated alongside Codex behind the same Session API. Select it
+with `metadata.rat_things_runtime = "pi"` or the CLI's `--runtime pi` flag.
+See the [runtime comparison](../docs/agent-runtimes.md) and
+[Pi setup guide](../guides/run-pi-durable-on-bedrock.md).
 
 Pi Sessions use Bedrock Converse independently of `codex_auth_mode`. Configure
 `pi_bedrock_model_ids` with exact supported model IDs and
@@ -239,8 +247,10 @@ arrive in the bounded `/run` payload; the worker retrieves the full request from
 The agent subprocess runs as UID/GID 10001. One-shot jobs call `TerminateMicrovm` when the runner
 exits. Session harnesses accept additional Turns through private authenticated control.
 The Session runtime journal saves conversation state. Optional S3 Files storage retains
-workspace and Codex home bytes. A committed checkpoint can be adopted when checkpointing
-is enabled; ordinary hosted replacement rebuilds the workspace. Native
+workspace and Codex home bytes where applicable. Codex can adopt a committed checkpoint
+when checkpointing is enabled; ordinary replacement rebuilds its workspace. Pi Durable
+restores native tasks from the state store, and its managed recovery retains flushed
+workspace files after verified termination. Native
 MicroVM suspend/resume preserves the existing machine's memory and disk.
 
 The current AWSCC schema requires non-empty `additional_os_capabilities`, and the service currently

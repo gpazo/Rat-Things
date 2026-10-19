@@ -12,7 +12,7 @@ and refreshes these credentials. Never supply a different owner in a request.
 Create an Agent with a model allowed by the deployment, instructions and explicit
 tools. Create a Session referencing that Agent, an environment and initial input.
 Set `metadata.rat_things_runtime` to `pi` on the Agent or Session to use the
-configured Pi Bedrock catalog. Omit it for Codex. Discover Pi's supported models
+configured Pi Durable Bedrock catalog. Omit it for Codex. Discover Pi's supported models
 and settings with `GET /v1/models?runtime=pi`. The Session runtime is fixed;
 read it with `GET /v1/agents/sessions/{session_id}/runtime`.
 Save the Session ID. Read Items for history and Turns for completion; subscribe to

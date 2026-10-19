@@ -8,23 +8,30 @@ runs the Dockerfile, starts the lifecycle server, and snapshots the initialized 
 
 The lifecycle server and trusted `runner.mjs` run as root because orchestration needs mount/process
 authority and the MicroVM execution role for DynamoDB, S3, and narrowly scoped Secrets Manager
-reads. The runner starts Codex as UID/GID 10001 with sanitized environments.
-Codex receives no execution-role credential-chain variables. Integration tokens remain transient inside the trusted runner and are
+reads. The runner starts the selected Codex or Pi Durable process as UID/GID 10001
+with a sanitized environment. Neither receives execution-role credential-chain variables.
+Integration tokens remain transient inside the trusted runner and are
 passed directly to a fixed-origin adapter only after the fixed provider/grant/profile/resource
 authorization succeeds.
 
 Never change the image entrypoint to the `agent` user: doing so breaks trusted orchestration. Never
-remove the Codex UID drop or pass the runner's credential environment to the child: doing
+remove the agent UID drop or pass the runner's credential environment to the child: doing
 so defeats the host/model separation inside the MicroVM.
 
 The `/run` hook accepts the service wrapper `{ microvmId, runHookPayload }`. The nested payload is
 versioned and contains only run IDs, S3/DynamoDB references, bounded configuration, and (optionally)
 a Secrets Manager ARN. Prompts and credential values are never hook payload fields. In default
-ChatGPT mode, trusted orchestration materializes a validated mode-`0600` `auth.json` inside
+Codex ChatGPT mode, trusted orchestration materializes a validated mode-`0600` `auth.json` inside
 `CODEX_HOME`, persists refresh rotation to the secret, and deletes the runtime copy. Codex and
 repository code share UID 10001 and can read the active file, so this is an explicitly accepted risk
 for trusted agents—not an untrusted-tenant boundary. A run reads its input from encrypted S3 after
 the MicroVM receives fresh run-time credentials.
+
+Pi Durable uses the bundled `pi-child.mjs` and approved Bedrock Converse models.
+The trusted host supplies short-term inference tokens and acknowledges native
+commits before the child applies them. Pi native state uses the Session state
+store; managed Pi workspace recovery requires S3 Files and Session checkpoints.
+See [agent runtimes](../docs/agent-runtimes.md) for selection and recovery boundaries.
 
 A Session harness remains available for additional Turns through authenticated
 control. With checkpointing enabled, any exit of that worker launches the separately
@@ -32,9 +39,10 @@ bundled `terminate-microvm.mjs`, including failed handoffs; replacement requires
 worker generation. Native state belongs to the Session runtime
 journal. When S3 Files is enabled, `sessionStorageKey` selects the same owner-and-Session
 hashed directory across replacements; `SESSION_STATE_ROOT` supplies its workspace
-and Codex home. Without a committed workspace handoff, hosted replacement resets the workspace and
-restores available conversation state. With checkpointing enabled, replacement can adopt
-a committed handoff before preparing the workspace. Keep the hash and filesystem root stable.
+and Codex home where applicable. Without a committed workspace handoff, Codex replacement
+resets the workspace and restores available conversation state. With checkpointing enabled,
+it can adopt a committed handoff before preparing the workspace. Pi managed recovery retains
+flushed workspace files after verified worker termination. Keep the hash and filesystem root stable.
 
 Lifecycle endpoints listen on port 8080 under
 `/aws/lambda-microvms/runtime/v1/{ready,validate,run,resume,suspend,terminate}`.
@@ -70,7 +78,7 @@ cannot retain compute indefinitely. It verifies deployment, launch template,
 Run, instance and generation, and leaves missing or active authority untouched.
 
 A cgroup eBPF connect policy denies UID 10001 access to TCP port 8080 when the destination is
-loopback, unspecified, or one of the guest's own IPv4/IPv6 interface addresses. That prevents Codex
+loopback, unspecified, or one of the guest's own IPv4/IPv6 interface addresses. That prevents the agent process
 from calling the lifecycle/control plane or mutating its own capability envelope while still
 allowing the root-owned Lambda loopback proxy and unrelated external services that happen to use
 port 8080. The policy is installed and verified before the listener starts and validated again at

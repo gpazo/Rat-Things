@@ -1,4 +1,4 @@
-# How to schedule recurring Codex tasks in AWS
+# How to schedule Codex or Pi Durable tasks in AWS
 
 Create an Agent with the model, instructions and tools needed for the task. Then
 create a schedule that references that Agent and its environment. Rat Things
@@ -6,6 +6,11 @@ stores the schedule in your AWS account and uses EventBridge Scheduler to submit
 an occurrence to the Session integration service.
 
 ## Define the work
+
+Choose the runtime on the saved Agent. Codex is the default. For Pi Durable,
+set `metadata: { "rat_things_runtime": "pi" }` in the Agent request and select
+an approved Bedrock model. The schedule uses that Agent's runtime when creating
+its Session. See [Pi setup](run-pi-durable-on-bedrock.md).
 
 Keep reusable behavior on the Agent and setup in an environment template. The
 schedule supplies the input, time expression, overlap policy and destinations:
@@ -45,13 +50,14 @@ before asynchronous submission. Retries use that receipt. A later schedule edit
 does not change already accepted input. The Agent itself is resolved and
 snapshotted when the Session is first prepared.
 
-`overlap: "skip"` suppresses a new occurrence while the previous Session is active
-or awaiting creation. `"allow"` permits concurrent Sessions. Pauses and stale
+`overlap: "skip"` suppresses a new occurrence while the previous Session is
+`in_progress` or awaiting creation. `"allow"` permits concurrent Sessions. Pauses and stale
 schedule generations reject new occurrences; already accepted work continues.
 
-Completed root Turns deliver saved output to configured destinations, independent
-of how long the harness remains alive. Durable delivery fences suppress duplicate
-replies after ambiguous provider outcomes.
+Terminal root Turns—including completion, failure and cancellation—deliver saved
+output to configured destinations, independent of how long the harness remains
+alive. Durable delivery fences suppress duplicate replies after ambiguous provider
+outcomes.
 
 The [schedule contract](../docs/schedules.md) describes supported expressions,
 input substitutions, ownership and provider bindings. The deployment fixes the

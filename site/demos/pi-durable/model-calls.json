@@ -1,0 +1,46 @@
+[
+  {
+    "worker": "worker-a",
+    "kind": "model",
+    "actor": "parent",
+    "toolResults": []
+  },
+  {
+    "worker": "worker-a",
+    "kind": "model",
+    "actor": "helper",
+    "toolResults": []
+  },
+  {
+    "worker": "worker-a",
+    "kind": "model",
+    "actor": "parent",
+    "toolResults": [
+      {
+        "name": "spawn_agent",
+        "content": [
+          {
+            "type": "text",
+            "text": "{\"agent_id\":\"pi_agent_17\"}"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "worker": "worker-b",
+    "kind": "model",
+    "actor": "helper",
+    "toolResults": [
+      {
+        "name": "lookup_proof_token",
+        "content": [
+          {
+            "type": "text",
+            "text": "d6fbe43d-f7af-4616-a515-ce6fff0c0d84"
+          }
+        ]
+      }
+    ]
+  }
+]

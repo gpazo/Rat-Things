@@ -1,5 +1,9 @@
 # Bring your Codex subscription to Rat Things
 
+This guide covers the Codex runtime's optional ChatGPT login bridge. Pi Durable
+uses Amazon Bedrock and does not need this login. See
+[Codex and Pi Durable](agent-runtimes.md) to choose a runtime.
+
 Bring the Codex access included with the ChatGPT plan already signed in on your computer. Rat Things
 uses it locally first, then lets you hand work to isolated cloud agents when a task needs more time,
 parallel workers, schedules, durable files, or connected services. The same ChatGPT/OpenAI path is
@@ -97,9 +101,9 @@ and their credentials. A notification connection does not grant agent tool acces
 
 The file bridge copies the validated ChatGPT-mode `auth.json` into AWS Secrets Manager. That file
 contains bearer access and identity tokens, an account identifier, and a renewable refresh token.
-It does not contain the ChatGPT password, MFA secret, or browser cookies, but possession can still
-be enough to impersonate the Codex login, consume subscription usage, and reach Codex-visible data
-or connectors. A short-lived access token does not remove this risk because the refresh token can
+Validation preserves unknown fields; protect the entire bundle rather than assuming
+other sensitive fields are absent. Possession can impersonate the Codex login,
+consume subscription usage, and reach Codex-visible data or connectors. A short-lived access token does not remove this risk because the refresh token can
 renew access.
 
 Use the bridge only when all of the following are acceptable:

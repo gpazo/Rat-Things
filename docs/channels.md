@@ -1,8 +1,9 @@
 # Channel adapters
 
 Channel integrations authenticate external events, resolve an owned Agent and environment through
-a source binding, and submit input to a Session. They share the same validation and native Codex
-harness as API-created Sessions. The bound Agent and environment define the execution capabilities.
+a source binding, and submit input to a Session. They share the same validation and
+Codex or Pi Durable runtime as API-created Sessions. The bound Agent and environment
+define the execution capabilities.
 
 Deployed Sessions use the configured model credentials and can incur model usage.
 

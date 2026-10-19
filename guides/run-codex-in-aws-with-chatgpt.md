@@ -1,5 +1,9 @@
 # How to run Codex in AWS with your ChatGPT subscription
 
+This guide covers Codex's ChatGPT bridge. Rat Things also integrates Pi Durable
+with Amazon Bedrock. Follow [the Pi setup guide](run-pi-durable-on-bedrock.md) for
+that runtime; it does not use your ChatGPT login.
+
 Codex supports signing in with ChatGPT for subscription access, and its CLI can keep that login in
 a local `auth.json` file. To use the same identity inside self-hosted AWS compute, Rat Things
 deliberately copies a validated file-backed login into AWS Secrets Manager, materializes it for

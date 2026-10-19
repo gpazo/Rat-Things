@@ -5,7 +5,12 @@
   </picture>
 </h1>
 
-Rat Things runs durable cloud agents in your AWS account. Its public execution
+Rat Things runs Codex and Pi Durable agents in your AWS account. Choose the runtime
+for each Session and use the same API, CLI, desktop console, schedules, and provider
+bindings. Pi Durable uses approved Amazon Bedrock models. Codex supports the
+deployment's ChatGPT credential bridge or Bedrock configuration.
+
+Its public execution
 contract follows the OpenAI Agents API: Agents, Sessions, Turns, Items,
 environments, environment templates, Files, Skills and Vaults. Your account owns
 the API service, harness, session state, execution environments and encrypted
@@ -15,10 +20,33 @@ This is an engineering preview. See [capabilities and boundaries](docs/status-an
 for implemented features and current limits, and [security](docs/security.md) before
 connecting sensitive accounts.
 
+## Choose Codex or Pi Durable
+
+Codex is the default. Select Pi Durable with `--runtime pi` in the CLI or
+`metadata: { rat_things_runtime: 'pi' }` in an Agent or Session request.
+The runtime stays fixed for that Session. Model changes use its approved catalog.
+
+```bash
+rat-things agents models --runtime pi
+rat-things sessions create --runtime pi --model YOUR_ADMITTED_BEDROCK_MODEL \
+  --input "Explain the task you can help with." --stream
+```
+
+Pi Durable saves conversations, pending tasks, and tool results. Rat Things adds
+isolated workers, encrypted storage, worker ownership checks, and durable subagent
+coordination. A replacement worker can recover committed work without depending
+on the original machine. Workspace recovery has separate checkpoint requirements.
+
+Read [Codex and Pi Durable](docs/agent-runtimes.md) for shared features and runtime
+limits, or [run Pi Durable on Bedrock](guides/run-pi-durable-on-bedrock.md) to get started.
+The [recorded recovery demo](https://gpazo.github.io/Rat-Things/demos/pi-durable/)
+shows a killed worker and a helper that finishes on its replacement, using scripted
+model replies and simulated host storage.
+
 ## Use the API
 
-Use the Terraform `agents_api_base_url` output and an AWS principal authorized to
-invoke the deployment's token issuer. The included transport obtains and refreshes
+After `npm ci && npm run build`, use the Terraform `agents_api_base_url` output
+and an AWS principal authorized to invoke the deployment's token issuer. The included transport obtains and refreshes
 a scoped bearer credential for the official OpenAI SDK:
 
 ```ts
@@ -31,6 +59,7 @@ const client = createAgentsClient({
 const agent = await client.beta.agents.create({
   model: process.env.AGENT_MODEL,
   instructions: 'Answer clearly and concisely.',
+  metadata: { rat_things_runtime: 'pi' },
 });
 const session = await client.beta.agents.sessions.create({
   agent_id: agent.id,
@@ -39,10 +68,12 @@ const session = await client.beta.agents.sessions.create({
 });
 ```
 
-Choose a model allowed by your deployment. Environment templates define managed
-workspace setup, network access, files and skills. The upstream `openai_hosted`
+This example selects Pi Durable. Omit its runtime metadata to use Codex, and choose
+a model allowed by that runtime's deployment catalog. Environment templates define
+managed workspace setup, network access, files, and runtime-supported capabilities.
+The upstream `openai_hosted`
 discriminator selects a managed environment running in **your AWS account**.
-Self-hosted executors connect through the private authenticated relay.
+Codex also supports self-hosted executors through the private authenticated relay.
 
 The [Agents API guide](docs/agents-api.md) covers authentication, resources,
 continuation, streaming, tools, files, environment connections and current limits.
@@ -99,7 +130,8 @@ Its private Node helper reuses the CLI authentication code. See [the desktop gui
 The CLI supports `agents`, `sessions`, `environments`, `files`, `vaults` and `schedules`.
 Use `npm run rat-things -- agents --help` for resource commands. Local execution,
 connection installation, diagnostics and deployment tooling remain available.
-Codex is pinned consistently in the npm dependency, MicroVM image and relay image.
+Codex and Pi Durable versions are pinned in the runtime build. Standalone local
+execution uses Codex or the mock driver; Pi Durable runs through durable Sessions.
 
 The reusable Terraform module is `infra/modules/agent-runner`; `infra/` is its
 root example. Build Lambda artifacts before validation. Lambda and MicroVM builds
@@ -108,9 +140,9 @@ use ARM64 (`linux/arm64`). Ordinary tests never provision a MicroVM.
 ## Boundaries
 
 The harness drops the agent process to a separate non-root UID inside a Lambda
-MicroVM or dedicated EC2 worker. Worker ingress is private. Provider signatures are checked before parsing, owners
-come from trusted identity, clone URLs are HTTPS and host-allowlisted, and state
-changes use conditional writes. Prompts and results live in encrypted S3; DynamoDB
+MicroVM or dedicated EC2 worker. Worker ingress is private. Provider requests are
+authenticated before parsing, owners come from trusted identity, clone URLs are
+HTTPS and host-allowlisted, and state changes use conditional writes. Prompts and results live in encrypted S3; DynamoDB
 holds indexes and references. Integration credentials remain behind host-side brokers.
 The optional [ChatGPT login bridge](docs/codex-subscription.md) exposes its runtime
 authentication file to the agent UID and requires trusted workloads.

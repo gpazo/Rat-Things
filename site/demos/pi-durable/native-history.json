@@ -1,0 +1,2602 @@
+{
+  "head": {
+    "seq": 33,
+    "commitId": "2b6e4f1f-3303-4d6d-8018-1b270b1118bf",
+    "digest": "6ae8ced8b93472ba6670fbde366d61905925a57c7d1ef394e9fd83f2f0849e1b"
+  },
+  "highWater": 513,
+  "commits": [
+    {
+      "schema": 1,
+      "commitId": "eb728f5a-68a3-496f-b2cb-8a7a31a2cf22",
+      "parent": null,
+      "seq": 1,
+      "idHighWater": 257,
+      "writes": [
+        {
+          "type": "conversation",
+          "value": {
+            "id": 1
+          }
+        },
+        {
+          "type": "document.create",
+          "record": {
+            "id": 2,
+            "kind": "pi.live",
+            "scope": {
+              "kind": "conversation",
+              "conversationId": 1
+            },
+            "history": "latest",
+            "fork": "initial"
+          },
+          "content": {
+            "version": 1,
+            "kind": "base",
+            "value": {}
+          }
+        },
+        {
+          "type": "document.create",
+          "record": {
+            "id": 3,
+            "kind": "pi.inbox",
+            "scope": {
+              "kind": "conversation",
+              "conversationId": 1
+            },
+            "history": "latest",
+            "fork": "initial"
+          },
+          "content": {
+            "version": 1,
+            "kind": "base",
+            "value": {
+              "items": []
+            }
+          }
+        },
+        {
+          "type": "document.create",
+          "record": {
+            "id": 4,
+            "kind": "pi.usage",
+            "scope": {
+              "kind": "conversation",
+              "conversationId": 1
+            },
+            "history": "latest",
+            "fork": "initial"
+          },
+          "content": {
+            "version": 1,
+            "kind": "base",
+            "value": {
+              "models": {},
+              "tools": {}
+            }
+          }
+        },
+        {
+          "type": "document.create",
+          "record": {
+            "id": 5,
+            "kind": "pi.provider",
+            "scope": {
+              "kind": "conversation",
+              "conversationId": 1
+            },
+            "history": "latest",
+            "fork": "initial"
+          },
+          "content": {
+            "version": 1,
+            "kind": "base",
+            "value": {
+              "sessionId": "01a1526d-adcc-759c-b7ba-b6ed0e0dfefe"
+            }
+          }
+        },
+        {
+          "type": "document.create",
+          "record": {
+            "id": 6,
+            "kind": "pi.agent",
+            "scope": {
+              "kind": "conversation",
+              "conversationId": 1
+            },
+            "history": "rewindable",
+            "fork": "asOf"
+          },
+          "content": {
+            "version": 1,
+            "kind": "base",
+            "value": {
+              "model": {
+                "provider": "amazon-bedrock",
+                "modelId": "scripted-demo-model"
+              },
+              "thinkingLevel": "off"
+            }
+          }
+        },
+        {
+          "type": "document.create",
+          "record": {
+            "id": 7,
+            "kind": "rat.links",
+            "scope": {
+              "kind": "session"
+            }
+          },
+          "content": {
+            "version": 1,
+            "kind": "base",
+            "value": {
+              "sessionId": "session_demo",
+              "agentId": "agent_demo",
+              "rootId": 1,
+              "effects": [],
+              "turns": {},
+              "children": {},
+              "inherited": []
+            }
+          }
+        },
+        {
+          "type": "document.create",
+          "record": {
+            "id": 8,
+            "kind": "rat.commands",
+            "scope": {
+              "kind": "session"
+            }
+          },
+          "content": {
+            "version": 1,
+            "kind": "base",
+            "value": {
+              "operations": {}
+            }
+          }
+        },
+        {
+          "type": "document.create",
+          "record": {
+            "id": 9,
+            "kind": "rat.functions",
+            "scope": {
+              "kind": "session"
+            }
+          },
+          "content": {
+            "version": 1,
+            "kind": "base",
+            "value": {
+              "calls": {}
+            }
+          }
+        }
+      ]
+    },
+    {
+      "schema": 1,
+      "commitId": "76860267-8782-4173-9561-20655902e062",
+      "parent": {
+        "seq": 1,
+        "commitId": "eb728f5a-68a3-496f-b2cb-8a7a31a2cf22",
+        "digest": "d0f263e559fc898837bdaaa7035bece9cafa1550fa41f88b66c0184ac008010c"
+      },
+      "seq": 2,
+      "idHighWater": 257,
+      "writes": [
+        {
+          "type": "entry",
+          "value": {
+            "kind": "pi.user",
+            "model": [
+              {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "Ask a helper to read the proof token, then finish your own turn."
+                  }
+                ],
+                "timestamp": 1792384282065
+              }
+            ],
+            "id": 10,
+            "conversationId": 1
+          }
+        },
+        {
+          "type": "submission",
+          "value": {
+            "conversationId": 1,
+            "requestId": "turn:turn_demo",
+            "type": "input",
+            "status": "placed",
+            "entry": 10,
+            "id": 11
+          }
+        },
+        {
+          "type": "task",
+          "value": {
+            "id": 12,
+            "conversationId": 1,
+            "kind": "pi.generation",
+            "version": 1,
+            "input": {},
+            "background": false,
+            "abortRequested": false,
+            "state": {
+              "status": "pending",
+              "checkpoint": {
+                "phase": "prepare",
+                "attempt": 1
+              }
+            }
+          }
+        },
+        {
+          "type": "document.change",
+          "id": 7,
+          "content": {
+            "version": 1,
+            "kind": "delta",
+            "ops": [
+              [
+                "s",
+                [
+                  "turns",
+                  "turn_demo"
+                ],
+                {
+                  "turn": {
+                    "id": "turn_demo",
+                    "session_id": "session_demo",
+                    "agent_id": "agent_demo",
+                    "subagent_id": null,
+                    "object": "agent.session.turn",
+                    "status": "queued",
+                    "created_at": 1,
+                    "started_at": null,
+                    "completed_at": null,
+                    "usage": null,
+                    "error": null
+                  },
+                  "conversationId": 1,
+                  "requestId": "turn:turn_demo",
+                  "submissionId": 11
+                }
+              ]
+            ]
+          }
+        },
+        {
+          "type": "document.change",
+          "id": 2,
+          "content": {
+            "version": 1,
+            "kind": "base",
+            "value": {
+              "run": {
+                "taskId": 12,
+                "inputs": [
+                  11
+                ]
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "schema": 1,
+      "commitId": "54d0d723-e8d7-4190-9dc1-98247b5c5200",
+      "parent": {
+        "seq": 2,
+        "commitId": "76860267-8782-4173-9561-20655902e062",
+        "digest": "fb404ff62d235b21bc36b85f9c04e12b247c7a33f9def0cd800af7bdba7d38a6"
+      },
+      "seq": 3,
+      "idHighWater": 257,
+      "writes": [
+        {
+          "type": "task",
+          "value": {
+            "id": 12,
+            "conversationId": 1,
+            "kind": "pi.generation",
+            "version": 1,
+            "input": {},
+            "background": false,
+            "abortRequested": false,
+            "state": {
+              "status": "running",
+              "checkpoint": {
+                "phase": "prepare",
+                "attempt": 1
+              }
+            },
+            "startedAt": 1792384282067
+          }
+        }
+      ]
+    },
+    {
+      "schema": 1,
+      "commitId": "ce979c34-dc96-4902-aa40-c3411269d3d8",
+      "parent": {
+        "seq": 3,
+        "commitId": "54d0d723-e8d7-4190-9dc1-98247b5c5200",
+        "digest": "210ada99c0191c601d59868b7b93a2f3ef67b0fd5be09190da5fb8784f322d9f"
+      },
+      "seq": 4,
+      "idHighWater": 257,
+      "writes": [
+        {
+          "type": "entry",
+          "value": {
+            "model": [
+              {
+                "role": "system",
+                "content": "",
+                "toolsAdded": [
+                  {
+                    "name": "lookup_proof_token",
+                    "description": "Read a proof token supplied by the host.",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {},
+                      "additionalProperties": false
+                    }
+                  },
+                  {
+                    "name": "spawn_agent",
+                    "description": "Start a durable background subagent. Its ID remains available across turns and recovery.",
+                    "parameters": {
+                      "type": "object",
+                      "required": [
+                        "message",
+                        "name"
+                      ],
+                      "properties": {
+                        "message": {
+                          "type": "string"
+                        },
+                        "name": {
+                          "type": "string"
+                        },
+                        "model": {
+                          "type": "string"
+                        },
+                        "reasoning_effort": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "const": "none"
+                            },
+                            {
+                              "type": "string",
+                              "const": "minimal"
+                            },
+                            {
+                              "type": "string",
+                              "const": "low"
+                            },
+                            {
+                              "type": "string",
+                              "const": "medium"
+                            },
+                            {
+                              "type": "string",
+                              "const": "high"
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "name": "send_input",
+                    "description": "Send a follow-up message to a durable subagent. Busy children queue the message.",
+                    "parameters": {
+                      "type": "object",
+                      "required": [
+                        "id",
+                        "message"
+                      ],
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "name": "wait_agent",
+                    "description": "Wait for the latest accepted Turn of each child and return its committed answer.",
+                    "parameters": {
+                      "type": "object",
+                      "required": [
+                        "ids"
+                      ],
+                      "properties": {
+                        "ids": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          },
+                          "minItems": 1
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "name": "close_agent",
+                    "description": "Close a durable child and cancel all of its remaining work.",
+                    "parameters": {
+                      "type": "object",
+                      "required": [
+                        "id"
+                      ],
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                ],
+                "timestamp": 1792384282069
+              }
+            ],
+            "kind": "pi.system",
+            "id": 13,
+            "conversationId": 1,
+            "byTaskId": 12
+          }
+        },
+        {
+          "type": "task",
+          "value": {
+            "id": 12,
+            "conversationId": 1,
+            "kind": "pi.generation",
+            "version": 1,
+            "input": {},
+            "background": false,
+            "abortRequested": false,
+            "state": {
+              "status": "running",
+              "checkpoint": {
+                "phase": "request",
+                "attempt": 1,
+                "model": {
+                  "provider": "amazon-bedrock",
+                  "modelId": "scripted-demo-model"
+                },
+                "thinkingLevel": "off",
+                "streamOptions": {},
+                "cutoff": 13
+              }
+            },
+            "startedAt": 1792384282067
+          }
+        }
+      ]
+    },
+    {
+      "schema": 1,
+      "commitId": "6d4cdde2-a947-4fbe-8461-85c6141c5594",
+      "parent": {
+        "seq": 4,
+        "commitId": "ce979c34-dc96-4902-aa40-c3411269d3d8",
+        "digest": "209a4e0e650c6e1e63ec1735962abb5a20824a49338efc07f7e86ed2acb444b4"
+      },
+      "seq": 5,
+      "idHighWater": 257,
+      "writes": [
+        {
+          "type": "document.change",
+          "id": 2,
+          "content": {
+            "version": 1,
+            "kind": "delta",
+            "ops": [
+              [
+                "s",
+                [
+                  "generation"
+                ],
+                {
+                  "attempt": 1
+                }
+              ]
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "schema": 1,
+      "commitId": "4698783b-c8ae-42d3-bb76-ac3fbeb2d990",
+      "parent": {
+        "seq": 5,
+        "commitId": "6d4cdde2-a947-4fbe-8461-85c6141c5594",
+        "digest": "3068608c14f90efdd9f50862953cb0cf70c1db22ee12cbf0b41ea3a378ecda6a"
+      },
+      "seq": 6,
+      "idHighWater": 257,
+      "writes": [
+        {
+          "type": "entry",
+          "value": {
+            "model": [
+              {
+                "role": "assistant",
+                "content": [
+                  {
+                    "type": "toolCall",
+                    "id": "spawn-demo",
+                    "name": "spawn_agent",
+                    "arguments": {
+                      "name": "researcher",
+                      "message": "Read the proof token."
+                    }
+                  }
+                ],
+                "api": "bedrock-converse-stream",
+                "provider": "amazon-bedrock",
+                "model": "scripted-demo-model",
+                "usage": {
+                  "input": 358,
+                  "output": 17,
+                  "cacheRead": 0,
+                  "cacheWrite": 358,
+                  "totalTokens": 733,
+                  "cost": {
+                    "input": 0,
+                    "output": 0,
+                    "cacheRead": 0,
+                    "cacheWrite": 0,
+                    "total": 0
+                  }
+                },
+                "stopReason": "toolUse",
+                "timestamp": 1792384282071,
+                "durationMs": 5
+              }
+            ],
+            "kind": "pi.assistant",
+            "id": 14,
+            "conversationId": 1,
+            "byTaskId": 12
+          }
+        },
+        {
+          "type": "task",
+          "value": {
+            "id": 12,
+            "conversationId": 1,
+            "kind": "pi.generation",
+            "version": 1,
+            "input": {},
+            "background": false,
+            "abortRequested": false,
+            "state": {
+              "status": "waiting",
+              "checkpoint": {
+                "phase": "tools",
+                "assistant": 14,
+                "tools": [
+                  15
+                ],
+                "pending": []
+              },
+              "on": [
+                15
+              ],
+              "policy": "allSettled"
+            },
+            "startedAt": 1792384282067
+          }
+        },
+        {
+          "type": "task",
+          "value": {
+            "id": 15,
+            "conversationId": 1,
+            "kind": "pi.tool",
+            "version": 2,
+            "input": {
+              "kind": "model",
+              "assistant": 14,
+              "callId": "spawn-demo"
+            },
+            "owner": 12,
+            "background": false,
+            "abortRequested": false,
+            "state": {
+              "status": "pending",
+              "checkpoint": {
+                "phase": "call"
+              }
+            }
+          }
+        },
+        {
+          "type": "document.change",
+          "id": 2,
+          "content": {
+            "version": 1,
+            "kind": "base",
+            "value": {
+              "run": {
+                "taskId": 12,
+                "inputs": [
+                  11
+                ]
+              },
+              "tools": [
+                {
+                  "callId": "spawn-demo",
+                  "name": "spawn_agent",
+                  "taskId": 15,
+                  "status": "pending"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "type": "document.change",
+          "id": 4,
+          "content": {
+            "version": 1,
+            "kind": "base",
+            "value": {
+              "models": {
+                "amazon-bedrock/scripted-demo-model": {
+                  "input": 358,
+                  "output": 17,
+                  "cacheRead": 0,
+                  "cacheWrite": 358,
+                  "totalTokens": 733,
+                  "cost": {
+                    "input": 0,
+                    "output": 0,
+                    "cacheRead": 0,
+                    "cacheWrite": 0,
+                    "total": 0
+                  }
+                }
+              },
+              "tools": {}
+            }
+          }
+        }
+      ]
+    },
+    {
+      "schema": 1,
+      "commitId": "8f3c56e1-9bec-4c52-acec-88f60b702fb5",
+      "parent": {
+        "seq": 6,
+        "commitId": "4698783b-c8ae-42d3-bb76-ac3fbeb2d990",
+        "digest": "aa5617d578fad40f46687b2edba706c397e9a10887e700089963890ed6e3112f"
+      },
+      "seq": 7,
+      "idHighWater": 257,
+      "writes": [
+        {
+          "type": "task",
+          "value": {
+            "id": 15,
+            "conversationId": 1,
+            "kind": "pi.tool",
+            "version": 2,
+            "input": {
+              "kind": "model",
+              "assistant": 14,
+              "callId": "spawn-demo"
+            },
+            "owner": 12,
+            "background": false,
+            "abortRequested": false,
+            "state": {
+              "status": "running",
+              "checkpoint": {
+                "phase": "call"
+              }
+            },
+            "startedAt": 1792384282077
+          }
+        }
+      ]
+    },
+    {
+      "schema": 1,
+      "commitId": "b30ac9cb-913e-4d0f-9c06-234319bae100",
+      "parent": {
+        "seq": 7,
+        "commitId": "8f3c56e1-9bec-4c52-acec-88f60b702fb5",
+        "digest": "36470f85bc6285f1551f3c4bbdcba8f617ce16691836a2ede55fbfbf71318e50"
+      },
+      "seq": 8,
+      "idHighWater": 257,
+      "writes": [
+        {
+          "type": "task",
+          "value": {
+            "id": 15,
+            "conversationId": 1,
+            "kind": "pi.tool",
+            "version": 2,
+            "input": {
+              "kind": "model",
+              "assistant": 14,
+              "callId": "spawn-demo"
+            },
+            "owner": 12,
+            "background": false,
+            "abortRequested": false,
+            "state": {
+              "status": "running",
+              "checkpoint": {
+                "phase": "execute",
+                "arguments": {
+                  "name": "researcher",
+                  "message": "Read the proof token."
+                },
+                "replay": "safe"
+              }
+            },
+            "startedAt": 1792384282077
+          }
+        },
+        {
+          "type": "document.change",
+          "id": 2,
+          "content": {
+            "version": 1,
+            "kind": "delta",
+            "ops": [
+              [
+                "s",
+                [
+                  "tools",
+                  0,
+                  "status"
+                ],
+                "running"
+              ]
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "schema": 1,
+      "commitId": "4d402af9-46c5-4743-b2d5-1adb14607598",
+      "parent": {
+        "seq": 8,
+        "commitId": "b30ac9cb-913e-4d0f-9c06-234319bae100",
+        "digest": "db61972b76b416c93f7505a0d4233d1e1eccef3513438eb1fef34a6d346d5557"
+      },
+      "seq": 9,
+      "idHighWater": 257,
+      "writes": [
+        {
+          "type": "conversation",
+          "value": {
+            "id": 17,
+            "owner": {
+              "conversationId": 1,
+              "taskId": 16
+            }
+          }
+        },
+        {
+          "type": "entry",
+          "value": {
+            "kind": "pi.user",
+            "model": [
+              {
+                "role": "user",
+                "content": "Read the proof token.",
+                "timestamp": 1792384282081
+              }
+            ],
+            "id": 23,
+            "conversationId": 17,
+            "byTaskId": 15
+          }
+        },
+        {
+          "type": "submission",
+          "value": {
+            "conversationId": 17,
+            "requestId": "spawn:15",
+            "type": "input",
+            "status": "placed",
+            "entry": 23,
+            "id": 24
+          }
+        },
+        {
+          "type": "task",
+          "value": {
+            "id": 16,
+            "conversationId": 1,
+            "kind": "rat.child",
+            "version": 1,
+            "input": {
+              "spawnTaskId": 15
+            },
+            "background": true,
+            "abortRequested": false,
+            "state": {
+              "status": "pending",
+              "checkpoint": {
+                "phase": "open"
+              }
+            }
+          }
+        },
+        {
+          "type": "task",
+          "value": {
+            "id": 25,
+            "conversationId": 17,
+            "kind": "pi.generation",
+            "version": 1,
+            "input": {},
+            "background": false,
+            "abortRequested": false,
+            "state": {
+              "status": "pending",
+              "checkpoint": {
+                "phase": "prepare",
+                "attempt": 1
+              }
+            }
+          }
+        },
+        {
+          "type": "document.change",
+          "id": 7,
+          "content": {
+            "version": 1,
+            "kind": "delta",
+            "ops": [
+              [
+                "s",
+                [
+                  "children",
+                  "pi_agent_17"
+                ],
+                {
+                  "id": "pi_agent_17",
+                  "conversationId": 17,
+                  "keeperId": 16,
+                  "spawnTaskId": 15,
+                  "parentId": "agent_demo",
+                  "parentTurnId": "turn_demo",
+                  "name": "researcher",
+                  "prompt": "Read the proof token.",
+                  "openedAt": 1792384282,
+                  "closing": false
+                }
+              ],
+              [
+                "s",
+                [
+                  "turns",
+                  "turn_pi_spawn:15"
+                ],
+                {
+                  "turn": {
+                    "id": "turn_pi_spawn:15",
+                    "object": "agent.session.turn",
+                    "session_id": "session_demo",
+                    "agent_id": "pi_agent_17",
+                    "subagent_id": "pi_agent_17",
+                    "status": "queued",
+                    "created_at": 1792384282,
+                    "started_at": null,
+                    "completed_at": null,
+                    "usage": null,
+                    "error": null
+                  },
+                  "conversationId": 17,
+                  "requestId": "spawn:15",
+                  "submissionId": 24,
+                  "parentTurnId": "turn_demo"
+                }
+              ]
+            ]
+          }
+        },
+        {
+          "type": "document.create",
+          "record": {
+            "id": 18,
+            "kind": "pi.live",
+            "scope": {
+              "kind": "conversation",
+              "conversationId": 17
+            },
+            "history": "latest",
+            "fork": "initial"
+          },
+          "content": {
+            "version": 1,
+            "kind": "base",
+            "value": {
+              "run": {
+                "taskId": 25,
+                "inputs": [
+                  24
+                ]
+              }
+            }
+          }
+        },
+        {
+          "type": "document.create",
+          "record": {
+            "id": 19,
+            "kind": "pi.inbox",
+            "scope": {
+              "kind": "conversation",
+              "conversationId": 17
+            },
+            "history": "latest",
+            "fork": "initial"
+          },
+          "content": {
+            "version": 1,
+            "kind": "base",
+            "value": {
+              "items": []
+            }
+          }
+        },
+        {
+          "type": "document.create",
+          "record": {
+            "id": 20,
+            "kind": "pi.usage",
+            "scope": {
+              "kind": "conversation",
+              "conversationId": 17
+            },
+            "history": "latest",
+            "fork": "initial"
+          },
+          "content": {
+            "version": 1,
+            "kind": "base",
+            "value": {
+              "models": {},
+              "tools": {}
+            }
+          }
+        },
+        {
+          "type": "document.create",
+          "record": {
+            "id": 21,
+            "kind": "pi.provider",
+            "scope": {
+              "kind": "conversation",
+              "conversationId": 17
+            },
+            "history": "latest",
+            "fork": "initial"
+          },
+          "content": {
+            "version": 1,
+            "kind": "base",
+            "value": {
+              "sessionId": "01a1526d-ade1-759c-b7ba-b6efe70500ca"
+            }
+          }
+        },
+        {
+          "type": "document.create",
+          "record": {
+            "id": 22,
+            "kind": "pi.agent",
+            "scope": {
+              "kind": "conversation",
+              "conversationId": 17
+            },
+            "history": "rewindable",
+            "fork": "asOf"
+          },
+          "content": {
+            "version": 1,
+            "kind": "base",
+            "value": {
+              "model": {
+                "provider": "amazon-bedrock",
+                "modelId": "scripted-demo-model"
+              },
+              "thinkingLevel": "off"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "schema": 1,
+      "commitId": "c80e9c60-3c91-402f-9576-138bcdc6d97d",
+      "parent": {
+        "seq": 9,
+        "commitId": "4d402af9-46c5-4743-b2d5-1adb14607598",
+        "digest": "c65365e521032882bfd95488ce45aeb8483d03bbd21b52bc8f397fd4f4a24694"
+      },
+      "seq": 10,
+      "idHighWater": 257,
+      "writes": [
+        {
+          "type": "task",
+          "value": {
+            "id": 16,
+            "conversationId": 1,
+            "kind": "rat.child",
+            "version": 1,
+            "input": {
+              "spawnTaskId": 15
+            },
+            "background": true,
+            "abortRequested": false,
+            "state": {
+              "status": "running",
+              "checkpoint": {
+                "phase": "open"
+              }
+            },
+            "startedAt": 1792384282082
+          }
+        },
+        {
+          "type": "task",
+          "value": {
+            "id": 25,
+            "conversationId": 17,
+            "kind": "pi.generation",
+            "version": 1,
+            "input": {},
+            "background": false,
+            "abortRequested": false,
+            "state": {
+              "status": "running",
+              "checkpoint": {
+                "phase": "prepare",
+                "attempt": 1
+              }
+            },
+            "startedAt": 1792384282082
+          }
+        }
+      ]
+    },
+    {
+      "schema": 1,
+      "commitId": "67a2147d-43a0-46b4-952f-cd071cf00e52",
+      "parent": {
+        "seq": 10,
+        "commitId": "c80e9c60-3c91-402f-9576-138bcdc6d97d",
+        "digest": "357c7882eecd5ffd0eb2c182c4c5a7e76bade24a2763d8f94085c8373cec9325"
+      },
+      "seq": 11,
+      "idHighWater": 257,
+      "writes": [
+        {
+          "type": "entry",
+          "value": {
+            "model": [
+              {
+                "role": "toolResult",
+                "toolCallId": "spawn-demo",
+                "toolName": "spawn_agent",
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "{\"agent_id\":\"pi_agent_17\"}"
+                  }
+                ],
+                "isError": false,
+                "durationMs": 2,
+                "timestamp": 1792384282083
+              }
+            ],
+            "data": {
+              "diagnostics": []
+            },
+            "kind": "pi.tool-result",
+            "id": 26,
+            "conversationId": 1,
+            "byTaskId": 15
+          }
+        },
+        {
+          "type": "task",
+          "value": {
+            "id": 15,
+            "conversationId": 1,
+            "kind": "pi.tool",
+            "version": 2,
+            "input": {
+              "kind": "model",
+              "assistant": 14,
+              "callId": "spawn-demo"
+            },
+            "owner": 12,
+            "background": false,
+            "abortRequested": false,
+            "state": {
+              "status": "terminal",
+              "outcome": {
+                "status": "completed",
+                "result": {
+                  "kind": "model",
+                  "entryId": 26
+                }
+              }
+            },
+            "startedAt": 1792384282077,
+            "endedAt": 1792384282084
+          }
+        },
+        {
+          "type": "document.change",
+          "id": 2,
+          "content": {
+            "version": 1,
+            "kind": "base",
+            "value": {
+              "run": {
+                "taskId": 12,
+                "inputs": [
+                  11
+                ]
+              },
+              "tools": [
+                {
+                  "callId": "spawn-demo",
+                  "name": "spawn_agent",
+                  "taskId": 15,
+                  "status": "done",
+                  "entry": 26
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "schema": 1,
+      "commitId": "c2b4f110-6297-4a37-a996-f8244f108dea",
+      "parent": {
+        "seq": 11,
+        "commitId": "67a2147d-43a0-46b4-952f-cd071cf00e52",
+        "digest": "fe2c3f2f045a9a604d48738dd97325c38bc50681fdb622917b3ab3f9c5d14f37"
+      },
+      "seq": 12,
+      "idHighWater": 257,
+      "writes": [
+        {
+          "type": "task",
+          "value": {
+            "id": 12,
+            "conversationId": 1,
+            "kind": "pi.generation",
+            "version": 1,
+            "input": {},
+            "background": false,
+            "abortRequested": false,
+            "state": {
+              "status": "running",
+              "checkpoint": {
+                "phase": "tools",
+                "assistant": 14,
+                "tools": [
+                  15
+                ],
+                "pending": []
+              }
+            },
+            "startedAt": 1792384282067
+          }
+        }
+      ]
+    },
+    {
+      "schema": 1,
+      "commitId": "3791fb31-c06a-4813-a38a-7624a51d42b9",
+      "parent": {
+        "seq": 12,
+        "commitId": "c2b4f110-6297-4a37-a996-f8244f108dea",
+        "digest": "319299477cfe5a9d6ef280847fb521dbb2b4f85c1aa7f27cfe6c60f12c54cdb3"
+      },
+      "seq": 13,
+      "idHighWater": 257,
+      "writes": [
+        {
+          "type": "entry",
+          "value": {
+            "model": [
+              {
+                "role": "system",
+                "content": "",
+                "toolsAdded": [
+                  {
+                    "name": "lookup_proof_token",
+                    "description": "Read a proof token supplied by the host.",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {},
+                      "additionalProperties": false
+                    }
+                  },
+                  {
+                    "name": "spawn_agent",
+                    "description": "Start a durable background subagent. Its ID remains available across turns and recovery.",
+                    "parameters": {
+                      "type": "object",
+                      "required": [
+                        "message",
+                        "name"
+                      ],
+                      "properties": {
+                        "message": {
+                          "type": "string"
+                        },
+                        "name": {
+                          "type": "string"
+                        },
+                        "model": {
+                          "type": "string"
+                        },
+                        "reasoning_effort": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "const": "none"
+                            },
+                            {
+                              "type": "string",
+                              "const": "minimal"
+                            },
+                            {
+                              "type": "string",
+                              "const": "low"
+                            },
+                            {
+                              "type": "string",
+                              "const": "medium"
+                            },
+                            {
+                              "type": "string",
+                              "const": "high"
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "name": "send_input",
+                    "description": "Send a follow-up message to a durable subagent. Busy children queue the message.",
+                    "parameters": {
+                      "type": "object",
+                      "required": [
+                        "id",
+                        "message"
+                      ],
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "name": "wait_agent",
+                    "description": "Wait for the latest accepted Turn of each child and return its committed answer.",
+                    "parameters": {
+                      "type": "object",
+                      "required": [
+                        "ids"
+                      ],
+                      "properties": {
+                        "ids": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          },
+                          "minItems": 1
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "name": "close_agent",
+                    "description": "Close a durable child and cancel all of its remaining work.",
+                    "parameters": {
+                      "type": "object",
+                      "required": [
+                        "id"
+                      ],
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                ],
+                "timestamp": 1792384282084
+              }
+            ],
+            "kind": "pi.system",
+            "id": 27,
+            "conversationId": 17,
+            "byTaskId": 25
+          }
+        },
+        {
+          "type": "task",
+          "value": {
+            "id": 25,
+            "conversationId": 17,
+            "kind": "pi.generation",
+            "version": 1,
+            "input": {},
+            "background": false,
+            "abortRequested": false,
+            "state": {
+              "status": "running",
+              "checkpoint": {
+                "phase": "request",
+                "attempt": 1,
+                "model": {
+                  "provider": "amazon-bedrock",
+                  "modelId": "scripted-demo-model"
+                },
+                "thinkingLevel": "off",
+                "streamOptions": {},
+                "cutoff": 27
+              }
+            },
+            "startedAt": 1792384282082
+          }
+        }
+      ]
+    },
+    {
+      "schema": 1,
+      "commitId": "3bf8e0f3-eda2-4635-945c-aa5677fb55e9",
+      "parent": {
+        "seq": 13,
+        "commitId": "3791fb31-c06a-4813-a38a-7624a51d42b9",
+        "digest": "df4f6286dbbff7f67c3f7136397da33dd10530ee48b2358ebfdc7e55deb6f94a"
+      },
+      "seq": 14,
+      "idHighWater": 257,
+      "writes": [
+        {
+          "type": "document.change",
+          "id": 18,
+          "content": {
+            "version": 1,
+            "kind": "delta",
+            "ops": [
+              [
+                "s",
+                [
+                  "generation"
+                ],
+                {
+                  "attempt": 1
+                }
+              ]
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "schema": 1,
+      "commitId": "966f3662-9f71-478f-b8b9-1fc8af308446",
+      "parent": {
+        "seq": 14,
+        "commitId": "3bf8e0f3-eda2-4635-945c-aa5677fb55e9",
+        "digest": "8a97d381c3fd6d9ee68aee6e60a8465ebb41e0d92bcc9738d429a159a1d42772"
+      },
+      "seq": 15,
+      "idHighWater": 257,
+      "writes": [
+        {
+          "type": "task",
+          "value": {
+            "id": 28,
+            "conversationId": 1,
+            "kind": "pi.generation",
+            "version": 1,
+            "input": {},
+            "background": false,
+            "abortRequested": false,
+            "state": {
+              "status": "pending",
+              "checkpoint": {
+                "phase": "prepare",
+                "attempt": 1
+              }
+            }
+          }
+        },
+        {
+          "type": "task",
+          "value": {
+            "id": 12,
+            "conversationId": 1,
+            "kind": "pi.generation",
+            "version": 1,
+            "input": {},
+            "background": false,
+            "abortRequested": false,
+            "state": {
+              "status": "terminal",
+              "outcome": {
+                "status": "completed",
+                "result": {
+                  "entryId": 14
+                }
+              }
+            },
+            "startedAt": 1792384282067,
+            "endedAt": 1792384282086
+          }
+        },
+        {
+          "type": "document.change",
+          "id": 2,
+          "content": {
+            "version": 1,
+            "kind": "base",
+            "value": {
+              "run": {
+                "taskId": 28,
+                "inputs": [
+                  11
+                ]
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "schema": 1,
+      "commitId": "468de5a2-df6b-48b0-8cee-edc3958f5bcc",
+      "parent": {
+        "seq": 15,
+        "commitId": "966f3662-9f71-478f-b8b9-1fc8af308446",
+        "digest": "dd7280f894897a0e6c6ab36fa6dc7ee4196d67fbbd53643dba3ff3a4c6264483"
+      },
+      "seq": 16,
+      "idHighWater": 257,
+      "writes": [
+        {
+          "type": "task",
+          "value": {
+            "id": 28,
+            "conversationId": 1,
+            "kind": "pi.generation",
+            "version": 1,
+            "input": {},
+            "background": false,
+            "abortRequested": false,
+            "state": {
+              "status": "running",
+              "checkpoint": {
+                "phase": "prepare",
+                "attempt": 1
+              }
+            },
+            "startedAt": 1792384282087
+          }
+        }
+      ]
+    },
+    {
+      "schema": 1,
+      "commitId": "6b926798-3dd7-4483-809d-bf473971782d",
+      "parent": {
+        "seq": 16,
+        "commitId": "468de5a2-df6b-48b0-8cee-edc3958f5bcc",
+        "digest": "2f53a4afa8860e47ccd1c8bc53096376d36ce04b53f6370472b64cdbb4598d8d"
+      },
+      "seq": 17,
+      "idHighWater": 257,
+      "writes": [
+        {
+          "type": "task",
+          "value": {
+            "id": 28,
+            "conversationId": 1,
+            "kind": "pi.generation",
+            "version": 1,
+            "input": {},
+            "background": false,
+            "abortRequested": false,
+            "state": {
+              "status": "running",
+              "checkpoint": {
+                "phase": "request",
+                "attempt": 1,
+                "model": {
+                  "provider": "amazon-bedrock",
+                  "modelId": "scripted-demo-model"
+                },
+                "thinkingLevel": "off",
+                "streamOptions": {},
+                "cutoff": 26
+              }
+            },
+            "startedAt": 1792384282087
+          }
+        }
+      ]
+    },
+    {
+      "schema": 1,
+      "commitId": "6a1dd124-10e7-4f8e-90f0-83767e217d37",
+      "parent": {
+        "seq": 17,
+        "commitId": "6b926798-3dd7-4483-809d-bf473971782d",
+        "digest": "53bb40186d1f3a285e44ba4ff28b06b81b2f1c695d8f1e9f5f4b5cb092294873"
+      },
+      "seq": 18,
+      "idHighWater": 257,
+      "writes": [
+        {
+          "type": "entry",
+          "value": {
+            "model": [
+              {
+                "role": "assistant",
+                "content": [
+                  {
+                    "type": "toolCall",
+                    "id": "lookup-demo",
+                    "name": "lookup_proof_token",
+                    "arguments": {}
+                  }
+                ],
+                "api": "bedrock-converse-stream",
+                "provider": "amazon-bedrock",
+                "model": "scripted-demo-model",
+                "usage": {
+                  "input": 347,
+                  "output": 6,
+                  "cacheRead": 0,
+                  "cacheWrite": 347,
+                  "totalTokens": 700,
+                  "cost": {
+                    "input": 0,
+                    "output": 0,
+                    "cacheRead": 0,
+                    "cacheWrite": 0,
+                    "total": 0
+                  }
+                },
+                "stopReason": "toolUse",
+                "timestamp": 1792384282087,
+                "durationMs": 1
+              }
+            ],
+            "kind": "pi.assistant",
+            "id": 29,
+            "conversationId": 17,
+            "byTaskId": 25
+          }
+        },
+        {
+          "type": "task",
+          "value": {
+            "id": 25,
+            "conversationId": 17,
+            "kind": "pi.generation",
+            "version": 1,
+            "input": {},
+            "background": false,
+            "abortRequested": false,
+            "state": {
+              "status": "waiting",
+              "checkpoint": {
+                "phase": "tools",
+                "assistant": 29,
+                "tools": [
+                  30
+                ],
+                "pending": []
+              },
+              "on": [
+                30
+              ],
+              "policy": "allSettled"
+            },
+            "startedAt": 1792384282082
+          }
+        },
+        {
+          "type": "task",
+          "value": {
+            "id": 30,
+            "conversationId": 17,
+            "kind": "pi.tool",
+            "version": 2,
+            "input": {
+              "kind": "model",
+              "assistant": 29,
+              "callId": "lookup-demo"
+            },
+            "owner": 25,
+            "background": false,
+            "abortRequested": false,
+            "state": {
+              "status": "pending",
+              "checkpoint": {
+                "phase": "call"
+              }
+            }
+          }
+        },
+        {
+          "type": "document.change",
+          "id": 18,
+          "content": {
+            "version": 1,
+            "kind": "base",
+            "value": {
+              "run": {
+                "taskId": 25,
+                "inputs": [
+                  24
+                ]
+              },
+              "tools": [
+                {
+                  "callId": "lookup-demo",
+                  "name": "lookup_proof_token",
+                  "taskId": 30,
+                  "status": "pending"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "type": "document.change",
+          "id": 20,
+          "content": {
+            "version": 1,
+            "kind": "base",
+            "value": {
+              "models": {
+                "amazon-bedrock/scripted-demo-model": {
+                  "input": 347,
+                  "output": 6,
+                  "cacheRead": 0,
+                  "cacheWrite": 347,
+                  "totalTokens": 700,
+                  "cost": {
+                    "input": 0,
+                    "output": 0,
+                    "cacheRead": 0,
+                    "cacheWrite": 0,
+                    "total": 0
+                  }
+                }
+              },
+              "tools": {}
+            }
+          }
+        }
+      ]
+    },
+    {
+      "schema": 1,
+      "commitId": "972bb38b-e679-490c-aad9-a0a2df0d5b69",
+      "parent": {
+        "seq": 18,
+        "commitId": "6a1dd124-10e7-4f8e-90f0-83767e217d37",
+        "digest": "c12b556a4adef981fa6979fb83a72023fd1e4e08eba09be9901c10c07ad4be33"
+      },
+      "seq": 19,
+      "idHighWater": 257,
+      "writes": [
+        {
+          "type": "task",
+          "value": {
+            "id": 30,
+            "conversationId": 17,
+            "kind": "pi.tool",
+            "version": 2,
+            "input": {
+              "kind": "model",
+              "assistant": 29,
+              "callId": "lookup-demo"
+            },
+            "owner": 25,
+            "background": false,
+            "abortRequested": false,
+            "state": {
+              "status": "running",
+              "checkpoint": {
+                "phase": "call"
+              }
+            },
+            "startedAt": 1792384282088
+          }
+        }
+      ]
+    },
+    {
+      "schema": 1,
+      "commitId": "c2044f5f-ea79-4f2e-a082-a5f629ec25d3",
+      "parent": {
+        "seq": 19,
+        "commitId": "972bb38b-e679-490c-aad9-a0a2df0d5b69",
+        "digest": "c5f473831ca59cc10b9112d17c4fb315abdae07c9ad7ab19162d189de3ebe2e4"
+      },
+      "seq": 20,
+      "idHighWater": 257,
+      "writes": [
+        {
+          "type": "document.change",
+          "id": 2,
+          "content": {
+            "version": 1,
+            "kind": "delta",
+            "ops": [
+              [
+                "s",
+                [
+                  "generation"
+                ],
+                {
+                  "attempt": 1
+                }
+              ]
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "schema": 1,
+      "commitId": "b7d6cc9a-ca8e-44b1-8471-389f983c649f",
+      "parent": {
+        "seq": 20,
+        "commitId": "c2044f5f-ea79-4f2e-a082-a5f629ec25d3",
+        "digest": "0fa0a1db01c7085a3f3e74cc1ccd6deba6187639f3527b1714b46e009f5847be"
+      },
+      "seq": 21,
+      "idHighWater": 257,
+      "writes": [
+        {
+          "type": "task",
+          "value": {
+            "id": 30,
+            "conversationId": 17,
+            "kind": "pi.tool",
+            "version": 2,
+            "input": {
+              "kind": "model",
+              "assistant": 29,
+              "callId": "lookup-demo"
+            },
+            "owner": 25,
+            "background": false,
+            "abortRequested": false,
+            "state": {
+              "status": "running",
+              "checkpoint": {
+                "phase": "execute",
+                "arguments": {},
+                "replay": "safe"
+              }
+            },
+            "startedAt": 1792384282088
+          }
+        },
+        {
+          "type": "document.change",
+          "id": 18,
+          "content": {
+            "version": 1,
+            "kind": "delta",
+            "ops": [
+              [
+                "s",
+                [
+                  "tools",
+                  0,
+                  "status"
+                ],
+                "running"
+              ]
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "schema": 1,
+      "commitId": "f29a6b98-4b1b-4df4-a527-a7837dc94624",
+      "parent": {
+        "seq": 21,
+        "commitId": "b7d6cc9a-ca8e-44b1-8471-389f983c649f",
+        "digest": "197013d021463a73e4a8d4fa5d8510b6062a4ddb035595226177de6acbe01d90"
+      },
+      "seq": 22,
+      "idHighWater": 257,
+      "writes": [
+        {
+          "type": "document.change",
+          "id": 9,
+          "content": {
+            "version": 1,
+            "kind": "delta",
+            "ops": [
+              [
+                "s",
+                [
+                  "calls",
+                  "pi_call_30"
+                ],
+                {
+                  "taskId": 30,
+                  "conversationId": 17,
+                  "turnId": "turn_pi_spawn:15",
+                  "name": "lookup_proof_token",
+                  "arguments": {}
+                }
+              ]
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "schema": 1,
+      "commitId": "7ce6e487-d5c8-4130-830d-370d0e52a96a",
+      "parent": {
+        "seq": 22,
+        "commitId": "f29a6b98-4b1b-4df4-a527-a7837dc94624",
+        "digest": "9fc40e9f9fa2d72f8e6437ac5f7cbdcbed6767042378141fb9e99fdb00066a76"
+      },
+      "seq": 23,
+      "idHighWater": 257,
+      "writes": [
+        {
+          "type": "entry",
+          "value": {
+            "model": [
+              {
+                "role": "assistant",
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "My part is done. The helper is still working."
+                  }
+                ],
+                "api": "bedrock-converse-stream",
+                "provider": "amazon-bedrock",
+                "model": "scripted-demo-model",
+                "usage": {
+                  "input": 32,
+                  "output": 12,
+                  "cacheRead": 358,
+                  "cacheWrite": 33,
+                  "totalTokens": 435,
+                  "cost": {
+                    "input": 0,
+                    "output": 0,
+                    "cacheRead": 0,
+                    "cacheWrite": 0,
+                    "total": 0
+                  }
+                },
+                "stopReason": "stop",
+                "timestamp": 1792384282089,
+                "durationMs": 3
+              }
+            ],
+            "kind": "pi.assistant",
+            "id": 31,
+            "conversationId": 1,
+            "byTaskId": 28
+          }
+        },
+        {
+          "type": "submission",
+          "value": {
+            "conversationId": 1,
+            "requestId": "turn:turn_demo",
+            "type": "input",
+            "status": "done",
+            "entry": 10,
+            "id": 11,
+            "answer": 31
+          }
+        },
+        {
+          "type": "task",
+          "value": {
+            "id": 28,
+            "conversationId": 1,
+            "kind": "pi.generation",
+            "version": 1,
+            "input": {},
+            "background": false,
+            "abortRequested": false,
+            "state": {
+              "status": "terminal",
+              "outcome": {
+                "status": "completed",
+                "result": {
+                  "entryId": 31
+                }
+              }
+            },
+            "startedAt": 1792384282087,
+            "endedAt": 1792384282092
+          }
+        },
+        {
+          "type": "document.change",
+          "id": 2,
+          "content": {
+            "version": 1,
+            "kind": "base",
+            "value": {}
+          }
+        },
+        {
+          "type": "document.change",
+          "id": 4,
+          "content": {
+            "version": 1,
+            "kind": "base",
+            "value": {
+              "models": {
+                "amazon-bedrock/scripted-demo-model": {
+                  "input": 390,
+                  "output": 29,
+                  "cacheRead": 358,
+                  "cacheWrite": 391,
+                  "totalTokens": 1168,
+                  "cost": {
+                    "input": 0,
+                    "output": 0,
+                    "cacheRead": 0,
+                    "cacheWrite": 0,
+                    "total": 0
+                  }
+                }
+              },
+              "tools": {}
+            }
+          }
+        }
+      ]
+    },
+    {
+      "schema": 1,
+      "commitId": "d29bab87-45e1-498c-b3d4-0f8891f0cb10",
+      "parent": {
+        "seq": 23,
+        "commitId": "7ce6e487-d5c8-4130-830d-370d0e52a96a",
+        "digest": "f162632fb0170705d07ec531e5d230742172bad8fbe248d541d2229cc0e1a0f9"
+      },
+      "seq": 24,
+      "idHighWater": 257,
+      "writes": [
+        {
+          "type": "task",
+          "value": {
+            "id": 16,
+            "conversationId": 1,
+            "kind": "rat.child",
+            "version": 1,
+            "input": {
+              "spawnTaskId": 15
+            },
+            "background": true,
+            "abortRequested": false,
+            "state": {
+              "status": "pending",
+              "checkpoint": {
+                "phase": "open"
+              }
+            },
+            "startedAt": 1792384282082
+          }
+        },
+        {
+          "type": "task",
+          "value": {
+            "id": 30,
+            "conversationId": 17,
+            "kind": "pi.tool",
+            "version": 2,
+            "input": {
+              "kind": "model",
+              "assistant": 29,
+              "callId": "lookup-demo"
+            },
+            "owner": 25,
+            "background": false,
+            "abortRequested": false,
+            "state": {
+              "status": "pending",
+              "checkpoint": {
+                "phase": "execute",
+                "arguments": {},
+                "replay": "safe"
+              }
+            },
+            "startedAt": 1792384282088
+          }
+        }
+      ]
+    },
+    {
+      "schema": 1,
+      "commitId": "c75e0844-8a7f-4b18-b7d7-d4459c56e7cf",
+      "parent": {
+        "seq": 24,
+        "commitId": "d29bab87-45e1-498c-b3d4-0f8891f0cb10",
+        "digest": "3d3c612eb2220e5c5bd00a38ed94f6c3603610d97ffc005efba58f91c0fe27c8"
+      },
+      "seq": 25,
+      "idHighWater": 257,
+      "writes": [
+        {
+          "type": "document.change",
+          "id": 9,
+          "content": {
+            "version": 1,
+            "kind": "delta",
+            "ops": [
+              [
+                "s",
+                [
+                  "calls",
+                  "pi_call_30",
+                  "result"
+                ],
+                {
+                  "success": true,
+                  "output": "d6fbe43d-f7af-4616-a515-ce6fff0c0d84"
+                }
+              ]
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "schema": 1,
+      "commitId": "debcb1b4-3a9d-44ee-b7b6-5a61031a0603",
+      "parent": {
+        "seq": 25,
+        "commitId": "c75e0844-8a7f-4b18-b7d7-d4459c56e7cf",
+        "digest": "af5bd984915c0e0fc34e6e734111407c7a3116d2c965b3753dea70e833a80be3"
+      },
+      "seq": 26,
+      "idHighWater": 257,
+      "writes": [
+        {
+          "type": "task",
+          "value": {
+            "id": 16,
+            "conversationId": 1,
+            "kind": "rat.child",
+            "version": 1,
+            "input": {
+              "spawnTaskId": 15
+            },
+            "background": true,
+            "abortRequested": false,
+            "state": {
+              "status": "running",
+              "checkpoint": {
+                "phase": "open"
+              }
+            },
+            "startedAt": 1792384282082
+          }
+        },
+        {
+          "type": "task",
+          "value": {
+            "id": 30,
+            "conversationId": 17,
+            "kind": "pi.tool",
+            "version": 2,
+            "input": {
+              "kind": "model",
+              "assistant": 29,
+              "callId": "lookup-demo"
+            },
+            "owner": 25,
+            "background": false,
+            "abortRequested": false,
+            "state": {
+              "status": "running",
+              "checkpoint": {
+                "phase": "execute",
+                "arguments": {},
+                "replay": "safe"
+              }
+            },
+            "startedAt": 1792384282088
+          }
+        }
+      ]
+    },
+    {
+      "schema": 1,
+      "commitId": "eea5bbbb-486d-4bff-8fb9-c9528a818a97",
+      "parent": {
+        "seq": 26,
+        "commitId": "debcb1b4-3a9d-44ee-b7b6-5a61031a0603",
+        "digest": "2a47fa44b590150ddacfc00499d0240a4dbc2e3eb075fcda07b7c01781113124"
+      },
+      "seq": 27,
+      "idHighWater": 513,
+      "writes": [
+        {
+          "type": "entry",
+          "value": {
+            "model": [
+              {
+                "role": "toolResult",
+                "toolCallId": "lookup-demo",
+                "toolName": "lookup_proof_token",
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "d6fbe43d-f7af-4616-a515-ce6fff0c0d84"
+                  }
+                ],
+                "isError": false,
+                "durationMs": 0,
+                "timestamp": 1792384282953
+              }
+            ],
+            "data": {
+              "diagnostics": []
+            },
+            "kind": "pi.tool-result",
+            "id": 258,
+            "conversationId": 17,
+            "byTaskId": 30
+          }
+        },
+        {
+          "type": "task",
+          "value": {
+            "id": 30,
+            "conversationId": 17,
+            "kind": "pi.tool",
+            "version": 2,
+            "input": {
+              "kind": "model",
+              "assistant": 29,
+              "callId": "lookup-demo"
+            },
+            "owner": 25,
+            "background": false,
+            "abortRequested": false,
+            "state": {
+              "status": "terminal",
+              "outcome": {
+                "status": "completed",
+                "result": {
+                  "kind": "model",
+                  "entryId": 258
+                }
+              }
+            },
+            "startedAt": 1792384282088,
+            "endedAt": 1792384282953
+          }
+        },
+        {
+          "type": "document.change",
+          "id": 18,
+          "content": {
+            "version": 1,
+            "kind": "base",
+            "value": {
+              "run": {
+                "taskId": 25,
+                "inputs": [
+                  24
+                ]
+              },
+              "tools": [
+                {
+                  "callId": "lookup-demo",
+                  "name": "lookup_proof_token",
+                  "taskId": 30,
+                  "status": "done",
+                  "entry": 258
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "schema": 1,
+      "commitId": "d641869f-8da3-4c65-b1ad-35de5248541c",
+      "parent": {
+        "seq": 27,
+        "commitId": "eea5bbbb-486d-4bff-8fb9-c9528a818a97",
+        "digest": "50d5ae775a4241336eb5d19d3c4dadf97d7a2be82265b3cd764c97c66eda3eb6"
+      },
+      "seq": 28,
+      "idHighWater": 513,
+      "writes": [
+        {
+          "type": "task",
+          "value": {
+            "id": 25,
+            "conversationId": 17,
+            "kind": "pi.generation",
+            "version": 1,
+            "input": {},
+            "background": false,
+            "abortRequested": false,
+            "state": {
+              "status": "running",
+              "checkpoint": {
+                "phase": "tools",
+                "assistant": 29,
+                "tools": [
+                  30
+                ],
+                "pending": []
+              }
+            },
+            "startedAt": 1792384282082
+          }
+        }
+      ]
+    },
+    {
+      "schema": 1,
+      "commitId": "36c50d71-b7f2-471d-8b20-631a5f5738c5",
+      "parent": {
+        "seq": 28,
+        "commitId": "d641869f-8da3-4c65-b1ad-35de5248541c",
+        "digest": "0ae82738f326ce64b394211fd080d53905e2e5c32b234dfd2a0dda37547a69f4"
+      },
+      "seq": 29,
+      "idHighWater": 513,
+      "writes": [
+        {
+          "type": "task",
+          "value": {
+            "id": 259,
+            "conversationId": 17,
+            "kind": "pi.generation",
+            "version": 1,
+            "input": {},
+            "background": false,
+            "abortRequested": false,
+            "state": {
+              "status": "pending",
+              "checkpoint": {
+                "phase": "prepare",
+                "attempt": 1
+              }
+            }
+          }
+        },
+        {
+          "type": "task",
+          "value": {
+            "id": 25,
+            "conversationId": 17,
+            "kind": "pi.generation",
+            "version": 1,
+            "input": {},
+            "background": false,
+            "abortRequested": false,
+            "state": {
+              "status": "terminal",
+              "outcome": {
+                "status": "completed",
+                "result": {
+                  "entryId": 29
+                }
+              }
+            },
+            "startedAt": 1792384282082,
+            "endedAt": 1792384282955
+          }
+        },
+        {
+          "type": "document.change",
+          "id": 18,
+          "content": {
+            "version": 1,
+            "kind": "base",
+            "value": {
+              "run": {
+                "taskId": 259,
+                "inputs": [
+                  24
+                ]
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "schema": 1,
+      "commitId": "29c9dc04-f641-445d-a76f-847eb12b4cb9",
+      "parent": {
+        "seq": 29,
+        "commitId": "36c50d71-b7f2-471d-8b20-631a5f5738c5",
+        "digest": "c5f48f2c31225dd686b1573b3a33546926eea80b5eefc734f5e082d1ee4d9d7b"
+      },
+      "seq": 30,
+      "idHighWater": 513,
+      "writes": [
+        {
+          "type": "task",
+          "value": {
+            "id": 259,
+            "conversationId": 17,
+            "kind": "pi.generation",
+            "version": 1,
+            "input": {},
+            "background": false,
+            "abortRequested": false,
+            "state": {
+              "status": "running",
+              "checkpoint": {
+                "phase": "prepare",
+                "attempt": 1
+              }
+            },
+            "startedAt": 1792384282956
+          }
+        }
+      ]
+    },
+    {
+      "schema": 1,
+      "commitId": "bbaf05c3-f7c7-4280-8bf0-5d91654f12f1",
+      "parent": {
+        "seq": 30,
+        "commitId": "29c9dc04-f641-445d-a76f-847eb12b4cb9",
+        "digest": "458e61d899311592c09e049be8ee008f43e338092e0497f709d3efa738e50678"
+      },
+      "seq": 31,
+      "idHighWater": 513,
+      "writes": [
+        {
+          "type": "task",
+          "value": {
+            "id": 259,
+            "conversationId": 17,
+            "kind": "pi.generation",
+            "version": 1,
+            "input": {},
+            "background": false,
+            "abortRequested": false,
+            "state": {
+              "status": "running",
+              "checkpoint": {
+                "phase": "request",
+                "attempt": 1,
+                "model": {
+                  "provider": "amazon-bedrock",
+                  "modelId": "scripted-demo-model"
+                },
+                "thinkingLevel": "off",
+                "streamOptions": {},
+                "cutoff": 258
+              }
+            },
+            "startedAt": 1792384282956
+          }
+        }
+      ]
+    },
+    {
+      "schema": 1,
+      "commitId": "f43dacf3-dcd4-4199-a97d-2f93e930f7b9",
+      "parent": {
+        "seq": 31,
+        "commitId": "bbaf05c3-f7c7-4280-8bf0-5d91654f12f1",
+        "digest": "49e5ab60d87a23e1a5d9c2fccf937ec231c3bb4b1dff3ebda8f0cbc922225fad"
+      },
+      "seq": 32,
+      "idHighWater": 513,
+      "writes": [
+        {
+          "type": "document.change",
+          "id": 18,
+          "content": {
+            "version": 1,
+            "kind": "delta",
+            "ops": [
+              [
+                "s",
+                [
+                  "generation"
+                ],
+                {
+                  "attempt": 1
+                }
+              ]
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "schema": 1,
+      "commitId": "2b6e4f1f-3303-4d6d-8018-1b270b1118bf",
+      "parent": {
+        "seq": 32,
+        "commitId": "f43dacf3-dcd4-4199-a97d-2f93e930f7b9",
+        "digest": "8d89eca7d2ef54e3af0e2221f8cf44385f823af1232fa8f99e92a230cd5ba93b"
+      },
+      "seq": 33,
+      "idHighWater": 513,
+      "writes": [
+        {
+          "type": "entry",
+          "value": {
+            "model": [
+              {
+                "role": "assistant",
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "Recovered token: d6fbe43d-f7af-4616-a515-ce6fff0c0d84"
+                  }
+                ],
+                "api": "bedrock-converse-stream",
+                "provider": "amazon-bedrock",
+                "model": "scripted-demo-model",
+                "usage": {
+                  "input": 372,
+                  "output": 14,
+                  "cacheRead": 0,
+                  "cacheWrite": 372,
+                  "totalTokens": 758,
+                  "cost": {
+                    "input": 0,
+                    "output": 0,
+                    "cacheRead": 0,
+                    "cacheWrite": 0,
+                    "total": 0
+                  }
+                },
+                "stopReason": "stop",
+                "timestamp": 1792384282959,
+                "durationMs": 6
+              }
+            ],
+            "kind": "pi.assistant",
+            "id": 260,
+            "conversationId": 17,
+            "byTaskId": 259
+          }
+        },
+        {
+          "type": "submission",
+          "value": {
+            "conversationId": 17,
+            "requestId": "spawn:15",
+            "type": "input",
+            "status": "done",
+            "entry": 23,
+            "id": 24,
+            "answer": 260
+          }
+        },
+        {
+          "type": "task",
+          "value": {
+            "id": 259,
+            "conversationId": 17,
+            "kind": "pi.generation",
+            "version": 1,
+            "input": {},
+            "background": false,
+            "abortRequested": false,
+            "state": {
+              "status": "terminal",
+              "outcome": {
+                "status": "completed",
+                "result": {
+                  "entryId": 260
+                }
+              }
+            },
+            "startedAt": 1792384282956,
+            "endedAt": 1792384282965
+          }
+        },
+        {
+          "type": "document.change",
+          "id": 18,
+          "content": {
+            "version": 1,
+            "kind": "base",
+            "value": {}
+          }
+        },
+        {
+          "type": "document.change",
+          "id": 20,
+          "content": {
+            "version": 1,
+            "kind": "base",
+            "value": {
+              "models": {
+                "amazon-bedrock/scripted-demo-model": {
+                  "input": 719,
+                  "output": 20,
+                  "cacheRead": 0,
+                  "cacheWrite": 719,
+                  "totalTokens": 1458,
+                  "cost": {
+                    "input": 0,
+                    "output": 0,
+                    "cacheRead": 0,
+                    "cacheWrite": 0,
+                    "total": 0
+                  }
+                }
+              },
+              "tools": {}
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

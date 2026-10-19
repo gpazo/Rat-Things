@@ -45,9 +45,9 @@ test("inspects, explodes and drills into actual implementation references", asyn
   await expect(page.locator("#detail-content")).toContainText("Lambda MicroVM workers");
   await page.screenshot({ path: "test-results/site/architecture-workers.png" });
   await page
-    .getByRole("button", { name: "Inspect Codex runner in 3D" })
+    .getByRole("button", { name: "Inspect Agent runner in 3D" })
     .click();
-  await expect(page.locator("#detail-title")).toHaveText("Codex runner");
+  await expect(page.locator("#detail-title")).toHaveText("Agent runner");
   await page
     .locator("#detail-content summary")
     .filter({ hasText: /^Implementation · \d+ sources?$/ })
@@ -369,15 +369,15 @@ test("reveals a searched resource in the model and restores its view through his
   await page.getByRole("checkbox", { name: "Labels", exact: true }).uncheck();
   await page
     .getByRole("searchbox", { name: "Find a resource" })
-    .fill("Codex runner");
+    .fill("Agent runner");
   await page.locator('.search-result[data-select="runner"]').click();
 
-  await expect(page.locator("#detail-title")).toHaveText("Codex runner");
+  await expect(page.locator("#detail-title")).toHaveText("Agent runner");
   await expect(page.locator("#scene-host")).toHaveAttribute("data-view", "isolated");
   await expect(page.getByRole("slider", { name: "Explode layers" })).toHaveValue("100");
   await expect(page.getByRole("checkbox", { name: "Labels", exact: true })).toBeChecked();
   await expect(runner).toBeVisible();
-  await expect(runner).toContainText("Codex runner");
+  await expect(runner).toContainText("Agent runner");
   await expect(page.locator("#search-results")).toBeHidden();
   await expect(page).toHaveURL(/node=runner/);
   await expect(page).toHaveURL(/inside=execution/);
@@ -390,13 +390,13 @@ test("reveals a searched resource in the model and restores its view through his
   await expect(runner).toBeHidden();
   await page.goForward();
   await expect(page).toHaveURL(resourceUrl);
-  await expect(page.locator("#detail-title")).toHaveText("Codex runner");
+  await expect(page.locator("#detail-title")).toHaveText("Agent runner");
   await expect(runner).toBeVisible();
   await page.reload();
   await expect(page.locator("#scene-host")).toHaveAttribute("data-view", "isolated");
   await expect(runner).toBeVisible();
   await runner.click();
-  await expect(page.locator("#detail-title")).toHaveText("Codex runner");
+  await expect(page.locator("#detail-title")).toHaveText("Agent runner");
 });
 
 test("advances Continue immediately and only advances on a timer when Play tour is chosen", async ({
@@ -479,7 +479,7 @@ test("full explosion gives every resource a readable and clickable inventory lab
     }
   }
   await page.locator('.component-label[data-node="runner"]').click();
-  await expect(page.locator("#detail-title")).toHaveText("Codex runner");
+  await expect(page.locator("#detail-title")).toHaveText("Agent runner");
   await page.screenshot({
     path: "test-results/site/architecture-inventory.png",
   });
@@ -721,7 +721,7 @@ test("reopens the same focused resource's details on mobile without leaving its 
   await page.getByRole("button", { name: "Browse systems" }).click();
   await page.locator('.system-row[data-select="execution"]').click();
   await page.getByRole("button", { name: "Look inside execution" }).click();
-  const runner = page.getByRole("button", { name: "Inspect Codex runner in 3D" });
+  const runner = page.getByRole("button", { name: "Inspect Agent runner in 3D" });
   await runner.click();
   await page.getByRole("button", { name: "Focus this resource" }).click();
   await expect(page.locator("#scene-host")).toHaveAttribute("data-view", "focused");
@@ -731,7 +731,7 @@ test("reopens the same focused resource's details on mobile without leaving its 
   for (let attempt = 0; attempt < 2; attempt++) {
     await runner.click();
     await expect(page.locator("#inspector")).toBeVisible();
-    await expect(page.locator("#detail-title")).toHaveText("Codex runner");
+    await expect(page.locator("#detail-title")).toHaveText("Agent runner");
     await expect(page.locator("#detail-title")).toBeFocused();
     await expect(page.locator("#scene-host")).toHaveAttribute("data-view", "focused");
     await expect(page.locator(".component-label:visible")).toHaveCount(1);
@@ -821,9 +821,9 @@ test("supports a mobile component journey without horizontal overflow", async ({
     "isolated",
   );
   await page
-    .getByRole("button", { name: "Inspect Codex runner in 3D" })
+    .getByRole("button", { name: "Inspect Agent runner in 3D" })
     .click();
-  await expect(page.locator("#detail-title")).toHaveText("Codex runner");
+  await expect(page.locator("#detail-title")).toHaveText("Agent runner");
   await page.getByRole("button", { name: "Close details" }).click();
   await page.getByRole("button", { name: "Assemble", exact: true }).click();
   expect(

@@ -1,0 +1,240 @@
+import assert from 'node:assert/strict';
+import { fork, execFileSync } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
+import { appendFile, writeFile } from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
+import { createModels, fauxProvider, fauxAssistantMessage, fauxToolCall, type FauxResponseStep } from '@earendil-works/pi-ai';
+import { MemoryAgentsStore } from '../../tests/agents/fixtures.js';
+import { SessionRuntimeStore } from '../../src/core/session-runtime-store.js';
+import { nativeLease, type NativeLease, type NativeCommit } from '../../src/core/session-native-store.js';
+import { sessionAgent } from '../../src/core/session-planning.js';
+import { resolveRuntime } from '../../src/domain/session-runtime.js';
+import type { SessionLaunch } from '../../src/domain/session-execution.js';
+import type { SessionRuntimeState } from '../../src/core/session-runtime-planning.js';
+import type { Turn } from '../../src/domain/agents-api.js';
+import { openPiStorage } from '../../src/runner/pi/storage.js';
+import { openPiEngine, type PiEngine } from '../../src/runner/pi/engine.js';
+
+const directory = fileURLToPath(new URL('.', import.meta.url));
+const rootPrompt = 'Ask a helper to read the proof token, then finish your own turn.';
+const childPrompt = 'Read the proof token.';
+const modelId = 'scripted-demo-model';
+const input = [{ role: 'user' as const, content: [{ type: 'input_text' as const, text: rootPrompt }] }];
+const turn: Turn = { id: 'turn_demo', session_id: 'session_demo', agent_id: 'agent_demo', subagent_id: null,
+  object: 'agent.session.turn', status: 'queued', created_at: 1, started_at: null, completed_at: null, usage: null, error: null };
+const pin = resolveRuntime({ rat_things_runtime: 'pi' }, null, [{ id: modelId, name: 'Scripted demo model', provider: 'amazon-bedrock',
+  api: 'bedrock-converse-stream', region: 'us-east-1', input: ['text'], contextWindow: 100000, maxTokens: 10000,
+  reasoning: ['none', 'minimal', 'low', 'medium', 'high'] }]);
+const launch: SessionLaunch = { runtime: pin, sessionId: 'session_demo', turnId: turn.id, turn, input, environment: { type: 'none' },
+  agent: sessionAgent({ model: modelId, multi_agent: { enabled: true, max_concurrent_subagents: 2 }, tools: [{ type: 'function',
+    name: 'lookup_proof_token', description: 'Read a proof token supplied by the host.', parameters: { type: 'object', properties: {}, additionalProperties: false }, defer_loading: false }] }, 'agent_demo', 1) };
+
+function messageText(content: unknown): string {
+  if (typeof content === 'string') return content;
+  return Array.isArray(content) ? content.flatMap(part => part?.type === 'text' ? [part.text] : []).join('\n') : '';
+}
+
+async function worker(): Promise<void> {
+  let next = 0;
+  const waiters = new Map<number, { resolve(value: any): void; reject(error: Error): void }>();
+  const request = (method: string, value?: unknown) => new Promise<any>((resolve, reject) => {
+    const id = ++next; waiters.set(id, { resolve, reject }); process.send!({ kind: 'request', id, method, value });
+  });
+  const lease: NativeLease = { load: () => request('load'), commit: value => request('commit', value),
+    reserveIds: (count, requestId) => request('reserve', { count, requestId }), assertActive: () => request('active') };
+  const faux = fauxProvider({ provider: 'amazon-bedrock', api: 'bedrock-converse-stream',
+    models: [{ id: modelId, reasoning: true, input: ['text'], contextWindow: 100000, maxTokens: 10000 }], tokensPerSecond: Infinity });
+  const route: FauxResponseStep = context => {
+    const user = [...context.messages].reverse().find(message => message.role === 'user');
+    const child = messageText(user?.content) === childPrompt;
+    const results = context.messages.filter(message => message.role === 'toolResult');
+    process.send!({ kind: 'model', actor: child ? 'helper' : 'parent', toolResults: results.map(result => ({ name: result.toolName, content: result.content })) });
+    if (child) {
+      const result = results.find(result => result.toolName === 'lookup_proof_token');
+      return result ? fauxAssistantMessage(`Recovered token: ${messageText(result.content)}`)
+        : fauxAssistantMessage(fauxToolCall('lookup_proof_token', {}, { id: 'lookup-demo' }), { stopReason: 'toolUse' });
+    }
+    return results.some(result => result.toolName === 'spawn_agent') ? fauxAssistantMessage('My part is done. The helper is still working.')
+      : fauxAssistantMessage(fauxToolCall('spawn_agent', { name: 'researcher', message: childPrompt }, { id: 'spawn-demo' }), { stopReason: 'toolUse' });
+  };
+  faux.setResponses(Array.from({ length: 20 }, () => route));
+  const models = createModels(); models.setProvider(faux.provider);
+  let engine: PiEngine;
+  let queue = Promise.resolve();
+  process.on('message', (message: any) => {
+    if (message.kind === 'response') {
+      const waiter = waiters.get(message.id); waiters.delete(message.id);
+      if (message.ok) waiter?.resolve(message.value); else waiter?.reject(new Error(message.error));
+      return;
+    }
+    if (message.kind !== 'command') return;
+    queue = queue.then(async () => {
+      try {
+        if (message.method === 'initialize') {
+          const image = await lease.load();
+          engine = await openPiEngine({ launch, models, storage: await openPiStorage(lease), nativeSeq: image.head?.seq ?? 0,
+            mode: 'bounded', effect: async () => { throw new Error('Unexpected external effect'); },
+            changed: (snapshot, seq) => { process.send!({ kind: 'snapshot', snapshot, seq }); } });
+        } else if (message.method === 'start') await engine.start(turn, input);
+        else if (message.method === 'resume') engine.resume();
+        else if (message.method === 'toolResult') await engine.toolResult(message.value.callId, message.value.result);
+        else if (message.method === 'finished') await engine.finished;
+        else if (message.method === 'close') await engine.close();
+        else throw new Error(`Unknown command ${message.method}`);
+        process.send!({ kind: 'result', id: message.id, ok: true, value: { snapshot: engine.snapshot(), seq: engine.nativeSeq } });
+        if (message.method === 'close') process.disconnect!();
+      } catch (error) { process.send!({ kind: 'result', id: message.id, ok: false, error: String(error) }); }
+    });
+  });
+}
+
+async function main(): Promise<void> {
+  const store = new MemoryAgentsStore();
+  const runtimes = new SessionRuntimeStore(store);
+  const events: any[] = [];
+  const models: any[] = [];
+  const projections: any[] = [];
+  const workers: ReturnType<typeof spawn>[] = [];
+  let lostCommit: string | undefined;
+  const commit = store.commit.bind(store);
+  store.commit = async writes => {
+    await commit(writes);
+    const native = writes.find(write => write.resource.collection === 'session_native' && write.resource.id.includes(':commit:'));
+    if (native && !lostCommit) {
+      lostCommit = (native.resource.value as NativeCommit).commitId;
+      throw new Error('Demo fault: the write succeeded but its reply was lost');
+    }
+  };
+  async function record(title: string, detail: string, worker: string, snapshot?: SessionRuntimeState, extra: Record<string, unknown> = {}) {
+    const runtime = await runtimes.get('owner_demo', launch.sessionId);
+    const event = { step: events.length + 1, title, detail, worker, epoch: runtime?.value.epoch,
+      seq: runtime?.value.native?.head?.seq ?? 0, snapshot, ...extra };
+    events.push(event);
+    console.log(`${event.step}. ${title}\n   ${detail}`);
+  }
+  function spawn(label: string, lease: NativeLease) {
+    const child = fork(fileURLToPath(import.meta.url), ['worker'], { execArgv: ['--import', 'tsx'],
+      env: { PATH: process.env.PATH, LANG: 'en_US.UTF-8' }, stdio: ['ignore', 'pipe', 'pipe', 'ipc'], serialization: 'json' });
+    let snapshot: SessionRuntimeState | undefined;
+    let next = 0;
+    let stopped = false;
+    let fatal: Error | undefined;
+    const waiters = new Map<number, { resolve(value: any): void; reject(error: Error): void }>();
+    child.stdout?.on('data', chunk => { void appendFile(`${directory}${label}.log`, chunk); });
+    child.stderr?.on('data', chunk => { void appendFile(`${directory}${label}.log`, chunk); });
+    const ended = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>(resolve => child.once('exit', (code, signal) => {
+      stopped = true; for (const waiter of waiters.values()) waiter.reject(new Error(`${label} stopped`)); waiters.clear(); resolve({ code, signal });
+    }));
+    child.on('error', error => { fatal = error; for (const waiter of waiters.values()) waiter.reject(error); waiters.clear(); });
+    child.on('message', (message: any) => {
+      if (message.kind === 'snapshot') { snapshot = message.snapshot; projections.push({ worker: label, seq: message.seq, snapshot }); return; }
+      if (message.kind === 'model') { models.push({ worker: label, ...message }); return; }
+      if (message.kind === 'result') {
+        const waiter = waiters.get(message.id); waiters.delete(message.id);
+        if (message.ok) { snapshot = message.value.snapshot; waiter?.resolve(message.value); }
+        else waiter?.reject(new Error(message.error));
+        return;
+      }
+      if (message.kind !== 'request') return;
+      void (async () => {
+        let value: unknown;
+        if (message.method === 'load') value = await lease.load();
+        else if (message.method === 'reserve') value = await lease.reserveIds(message.value.count, message.value.requestId);
+        else if (message.method === 'commit') value = await lease.commit(message.value);
+        else if (message.method === 'active') value = await lease.assertActive();
+        else throw new Error('Unexpected host method');
+        if (child.connected) child.send({ kind: 'response', id: message.id, ok: true, value });
+      })().catch(error => { if (child.connected) child.send({ kind: 'response', id: message.id, ok: false, error: String(error) }); });
+    });
+    const invoke = (method: string, value?: unknown) => new Promise<any>((resolve, reject) => {
+      if (stopped || fatal) return reject(fatal ?? new Error(`${label} stopped`));
+      const id = ++next; waiters.set(id, { resolve, reject }); child.send({ kind: 'command', id, method, value });
+    });
+    const waitFor = async (predicate: (value: SessionRuntimeState) => boolean) => {
+      const deadline = Date.now() + 10000;
+      while (!snapshot || !predicate(snapshot)) {
+        if (fatal || stopped || Date.now() > deadline) throw fatal ?? new Error(`${label} condition timed out or worker exited`);
+        await new Promise(resolve => setTimeout(resolve, 10));
+      }
+      return structuredClone(snapshot);
+    };
+    const handle = { label, child, invoke, waitFor, ended, get stopped() { return stopped; } };
+    workers.push(handle); return handle;
+  }
+  const timeout = setTimeout(() => { for (const w of workers) if (!w.stopped) w.child.kill('SIGKILL'); }, 45000);
+  try {
+    await runtimes.claim('owner_demo', launch.sessionId, 'worker_a', 1);
+    const firstLease = nativeLease(store, 'owner_demo', launch.sessionId, 'worker_a', 0);
+    const first = spawn('worker-a', firstLease);
+    await first.invoke('initialize');
+    assert.ok(lostCommit);
+    const initial = await firstLease.load();
+    assert.equal(initial.commits.filter(change => change.commitId === lostCommit).length, 1);
+    await record('A lost reply is recovered', 'The first save succeeded, but its reply was lost. Rat Things recovered the saved commit without creating a second copy.', first.label, undefined, { lostCommit });
+    await first.invoke('start'); await first.invoke('resume');
+    const pending = await first.waitFor(state => state.turns[0]?.turn.status === 'completed' && state.requiredActions.length === 1);
+    const child = pending.subagents[0]!;
+    const action = pending.requiredActions[0]!;
+    assert.equal(action.type, 'function_call');
+    if (action.type !== 'function_call') throw new Error('Expected function call');
+    const callId = action.call_id;
+    assert.equal(pending.turns[1]?.turn.status, 'waiting');
+    await record('The helper is still working', 'The parent finished. Its background helper is waiting for lookup_proof_token.', first.label, pending, { childId: child.id, callId });
+    first.child.kill('SIGKILL');
+    const stopped = await first.ended;
+    assert.equal(stopped.signal, 'SIGKILL');
+    await record('The worker is killed', 'The worker process was stopped with SIGKILL. No graceful shutdown ran. The host still holds its committed state.', first.label, pending, { pid: first.child.pid, exit: stopped });
+    const before = await firstLease.load();
+    await runtimes.claim('owner_demo', launch.sessionId, 'worker_b', 2, await runtimes.get('owner_demo', launch.sessionId));
+    await assert.rejects(() => firstLease.commit({ schema: 1, commitId: 'stale-worker-write', parent: before.head,
+      seq: (before.head?.seq ?? 0) + 1, idHighWater: before.highWater, writes: [] }), /ownership/);
+    await record('The old worker loses write access', 'A write using the old worker’s identity was rejected after ownership moved to the replacement.', 'worker-b', pending);
+    const secondLease = nativeLease(store, 'owner_demo', launch.sessionId, 'worker_b', 1);
+    const second = spawn('worker-b', secondLease);
+    assert.notEqual(first.child.pid, second.child.pid);
+    const restored = (await second.invoke('initialize')).snapshot as SessionRuntimeState;
+    assert.deepEqual(restored.subagents, pending.subagents);
+    assert.deepEqual(restored.requiredActions, pending.requiredActions);
+    await record('A new worker finds the same work', 'The helper and pending tool request have the same IDs. The completed parent does not need to run again.', second.label, restored, { pid: second.child.pid, childId: child.id, callId });
+    const token = randomUUID();
+    const result = { success: true, output: token };
+    await second.invoke('toolResult', { callId, result });
+    const accepted = await second.invoke('toolResult', { callId, result });
+    await assert.rejects(() => second.invoke('toolResult', { callId, result: { success: true, output: 'conflicting value' } }), /different content/);
+    await record('Repeated delivery is safe', 'The same tool result was delivered twice. Both deliveries were accepted; an attempt to change the saved value was rejected.', second.label, accepted.snapshot);
+    await second.invoke('resume');
+    const final = await second.waitFor(state => state.turns.length === 2 && state.turns.every(binding => binding.turn.status === 'completed'));
+    await second.invoke('finished');
+    const outputs = final.turns.flatMap(binding => binding.items.filter(item => item.type === 'function_call_output'));
+    assert.equal(outputs.length, 1);
+    assert.equal(outputs[0]!.call_id, callId);
+    assert.equal(outputs[0]!.output, token);
+    const answers = final.turns.flatMap(binding => binding.items.flatMap(item => item.type === 'message' && item.role === 'assistant'
+      ? item.content.flatMap(part => part.type === 'output_text' ? [part.text] : []) : []));
+    assert.ok(answers.some(answer => answer.includes(token)));
+    assert.equal(models.filter(event => event.actor === 'parent').length, 2);
+    assert.equal(models.filter(event => event.actor === 'helper').length, 2);
+    assert.equal(models.filter(event => event.worker === 'worker-b' && event.actor === 'parent').length, 0);
+    await record('The helper finishes on the new worker', 'The helper read the recovered tool result and finished. There is one saved tool output and the parent was not run again.', second.label, final, { token, answers });
+    await second.invoke('close');
+    assert.deepEqual(await second.ended, { code: 0, signal: null });
+    const image = await secondLease.load();
+    const summary = { passed: true, commit: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(), engine: 'Pi Durable 1.3.0',
+      scope: 'Real Pi Durable engine and Rat Things adapters in separate Node processes. Scripted model responses and a host-owned in-memory store. No AWS, Bedrock inference, or workspace recovery. The host survives the worker crash.',
+      checks: { lostReplyRecovered: true, realWorkerKilled: true, oldOwnerWriteRejected: true, helperIdentityPreserved: true,
+        pendingCallPreserved: true, repeatedResultDeduplicated: true, conflictingResultRejected: true, recoveredResultConsumed: true, parentNotRerun: true },
+      workerPids: workers.map(worker => ({ name: worker.label, pid: worker.child.pid })), modelCalls: models.length, nativeCommits: image.commits.length, token, events };
+    await writeFile(`${directory}summary.json`, JSON.stringify(summary, null, 2));
+    await writeFile(`${directory}native-history.json`, JSON.stringify(image, null, 2));
+    await writeFile(`${directory}projections.json`, JSON.stringify(projections, null, 2));
+    await writeFile(`${directory}model-calls.json`, JSON.stringify(models, null, 2));
+    console.log(`\nPASS: all ${Object.keys(summary.checks).length} checks passed.\nEvidence: ${directory}summary.json`);
+  } catch (error) {
+    await writeFile(`${directory}failure.json`, JSON.stringify({ error: String(error), events, projections, models }, null, 2)); throw error;
+  } finally {
+    clearTimeout(timeout);
+    for (const worker of workers) if (!worker.stopped) { worker.child.kill('SIGKILL'); await worker.ended; }
+  }
+}
+
+if (process.argv[2] === 'worker') await worker(); else await main();

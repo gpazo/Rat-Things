@@ -8,7 +8,7 @@ trustworthy. Rat Things owns the API, harness, state and workers in the operator
 
 A managed Session uses a dedicated worker VM. Workspaces and execution identities are isolated
 by owner and Session. The native sandbox is additional protection; the outer VM is the primary
-execution boundary. Trusted orchestration runs as root and launches Codex and repository commands
+execution boundary. Trusted orchestration runs as root and launches Codex or Pi Durable and repository commands
 as UID/GID 10001. Local CLI execution has a separate read-only/no-network default.
 
 The EC2 worker supports connected Session lifetime beyond Lambda MicroVM's maximum lifetime.
@@ -130,15 +130,21 @@ copy during cleanup. Only the approved secret reference crosses orchestration. A
 Session may retain the credential while its harness is active.
 
 Codex must read that file, so malicious same-UID code can steal its bearer and renewable refresh
-tokens. The bundle excludes the password and MFA secret but still permits account impersonation
-and Codex usage. Use the bridge only for trusted owner-operated workloads, and use account-session
+tokens. Possession can permit account impersonation and Codex usage. Validation
+preserves unknown fields, so protect the whole bundle rather than assuming other
+sensitive fields are absent. Use the bridge only for trusted owner-operated workloads, and use account-session
 revocation plus secret removal when a credential is compromised. Encrypted backing storage does
 not remove the active-process risk.
 
-Bedrock is an explicit provider choice. Trusted orchestration mints a bounded bearer token from
+Codex can also use Bedrock. Trusted orchestration mints a bounded bearer token from
 its AWS identity or reads the configured token secret. Keep `ALLOW_AGENT_AWS_CREDENTIAL_CHAIN`
 false unless exposing the entire role is intentional. The requested model identifier must retain
 its meaning; a substitute provider/model is not a compatibility repair.
+
+Pi Durable uses Bedrock Converse with the deployment's exact model and inference
+resource allowlists. The host mints short-term model tokens and keeps AWS role
+credentials out of the Pi process. Native commit writes require the active Run
+and ownership version, so a replaced worker cannot continue writing Session state.
 
 Keep model credentials out of image builds, test logs and diagnostic output. See
 [Codex subscription setup](codex-subscription.md) for the file bridge and its lifecycle.

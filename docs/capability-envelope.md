@@ -30,7 +30,9 @@ checks, broker rejections and blocked URLs have distinct errors, but none create
 that can widen the running agent's authority. Configure a new Session when additional authority
 is required.
 
-Codex starts with `approvalPolicy: "never"`. Command, file or permission approval requests are
+The same fixed authority applies to Codex and Pi Durable. Pi receives only admitted
+function, MCP, coordination, and managed-environment tools. Codex starts with
+`approvalPolicy: "never"`. Command, file or permission approval requests are
 protocol failures rather than requests for the guest to negotiate broader access.
 
 ## What `danger-full-access` means

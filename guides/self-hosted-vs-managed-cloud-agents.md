@@ -115,12 +115,14 @@ Ask each option what survives:
 6. How are ambiguous external writes reconciled?
 7. What are the retention, export, and deletion guarantees?
 
-Rat Things retains accepted Session input receipts and Turn outcomes and stores
-full content in encrypted S3. Conversation recovery uses native checkpoints or
-saved history. Workspace handoff requires opt-in checkpoint support and S3 Files;
-ordinary managed replacement resets sandbox files. Saved files do not recreate
-live processes. The [durable-state guide](durable-ai-agent-state.md) explains the
-layers and their failure cases.
+Rat Things runs Codex or Pi Durable behind the same Session API. It retains accepted
+input and Turn outcomes and stores full content in encrypted S3. Codex uses native
+journals for conversation recovery. Pi restores committed tasks, pending function
+calls, and child relationships. Managed Pi recovery retains flushed workspace files;
+Codex workspace handoff requires a committed checkpoint, while ordinary replacement
+resets sandbox files. Saved files do not recreate live processes. The
+[runtime comparison](../docs/agent-runtimes.md) and [durable-state guide](durable-ai-agent-state.md)
+explain these boundaries.
 
 ## Include the full operating cost
 

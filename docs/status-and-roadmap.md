@@ -12,6 +12,7 @@ identity, retention, network policy, and operational limits for the environment 
 
 | System | What it provides | Learn more |
 | --- | --- | --- |
+| Agent runtimes | Codex and Pi Durable behind the same API, CLI, desktop, schedules, and provider bindings | [Runtime comparison](agent-runtimes.md) |
 | Sessions and Turns | Owner-scoped input, ordered execution, cancellation and saved Items | [Agents API](agents-api.md) |
 | Agents and schedules | Reusable standard Agent configurations and AWS schedule inputs | [Agents](agents-api.md), [schedules](schedules.md) |
 | Connections | Provider-verified accounts, host-owned credentials, grants, and account-specific operations | [Integrations](plugins.md) |
@@ -23,7 +24,7 @@ identity, retention, network policy, and operational limits for the environment 
 | Browser | Declared function/MCP integration and an optional Playwright MCP configuration | [Browser use](browser-computer-use.md) |
 | Channels | Signed GitHub, GitLab, Teams, and optional Slack ingress with separate result delivery | [Channels](channels.md) |
 | API authentication | AWS IAM issuance and owner-bound, scoped bearer tokens | [API permissions](agents-api.md#scoped-api-keys) |
-| Model authentication | Operator-configured ChatGPT credential bridge or Bedrock access | [Credential lifecycle](codex-subscription.md#credential-risk-and-lifecycle) |
+| Model authentication | Codex uses the configured ChatGPT bridge or Bedrock; Pi Durable uses approved Bedrock Converse models | [Runtime setup](agent-runtimes.md#start-with-the-appropriate-setup) |
 | Recovery | Queue repair, generation-fenced liveness, cancellation settlement, and per-destination delivery fences | [Runbook](runbook.md) |
 
 ## Known gaps
@@ -40,7 +41,11 @@ identity, retention, network policy, and operational limits for the environment 
 - **Browser scope:** an ordinary Session has no browser provider. The optional provider must be
   installed in its execution environment. The console has no live browser viewer or takeover;
   authenticated browser-profile restoration is not a supported continuity guarantee.
-- **Memory and collaboration:** native Codex state and bounded replay are durable. Rat-specific
+- **Runtime differences:** Pi supports function tools, MCP, and durable subagents. Hosted skills
+  and plugins, self-hosted environments, JSON-schema output, and built-in web search are unsupported.
+  Model and reasoning settings must match the approved Pi catalog.
+- **Memory and collaboration:** Codex journals and Pi's committed task state support recovery.
+  Pi's child conversations and pending function calls retain their identities across replacement. Rat-specific
   semantic memory, fallback summaries, explicit agent handoffs, and shared-conversation membership
   are not implemented. Storage retention is finite and is separate from a backup policy.
 - **Capacity:** startup latency, quotas, concurrency, and cost depend on the deployment. There are

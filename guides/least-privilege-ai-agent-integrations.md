@@ -7,6 +7,10 @@ IAM, and network policy. The model should receive aliases and schemas—not raw 
 
 ## Separate identity from authority
 
+Rat Things applies these boundaries to both Codex and Pi Durable. A runtime change
+does not grant additional account access. Pi uses the approved Bedrock model catalog
+and admitted function or MCP tools. See [agent runtimes](../docs/agent-runtimes.md).
+
 An integration workflow involves several identities that are easy to collapse accidentally:
 
 - the authenticated Rat Things owner;
@@ -122,8 +126,10 @@ authority layer before it reads that secret and calls the reviewed adapter.
 
 The model can see bounded identity, health, scope, and operation metadata. It cannot test a
 credential, reconnect OAuth, rotate a token, rename an account, or change its persistent grant.
-Those are authenticated host operations. Changes cannot widen a running Session's
-snapshotted capabilities; revocation and narrower grants can still deny later calls.
+Those are authenticated host operations. Existing Sessions retain their declared
+capabilities. Connection status and grants are checked when an integration tool
+session is prepared; changing a stored grant does not update an already prepared
+tool session. Cancel active work when immediate containment is required.
 
 ## Treat “no approval prompt” as a design constraint
 

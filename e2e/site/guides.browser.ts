@@ -16,19 +16,19 @@ for (const width of [1440, 390]) {
     await expect(page).toHaveURL(/\/guides\/$/);
     await expect(page.locator('h1')).toContainText('Practical guides');
     const cards = page.locator('.guide-card');
-    await expect(cards).toHaveCount(8);
+    await expect(cards).toHaveCount(9);
     const paths = await cards.evaluateAll(nodes => nodes.map(node => (node as HTMLAnchorElement).pathname));
-    expect(new Set(paths).size).toBe(8);
+    expect(new Set(paths).size).toBe(9);
     await page.screenshot({path: `test-results/site/guides-index-${width}.png`});
 
     for (const [index, path] of paths.entries()) {
       await page.goto(path);
       await expect(page.locator('article h1')).toHaveCount(1);
-      await expect(page.locator('.guide-meta')).toContainText('Reviewed September 7, 2026');
+      await expect(page.locator('.guide-meta')).toContainText('Reviewed October 18, 2026');
       await expect(page.locator('.guide-related > a')).toHaveCount(2);
       const schema = JSON.parse(await page.locator('script[type="application/ld+json"]').textContent() ?? '{}');
       expect(schema.mainEntityOfPage).toBe(`https://gpazo.github.io/Rat-Things${path}`);
-      expect(schema.dateModified).toBe('2026-09-07');
+      expect(schema.dateModified).toBe('2026-10-18');
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
       if (width < 1180) {
         await page.locator('.guide-mobile-toc summary').click();

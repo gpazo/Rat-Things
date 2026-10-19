@@ -24,6 +24,13 @@ input, steering and function results. A private runtime journal connects the
 Session to its harness and saves observations so reconnect does not require a
 second public lifecycle.
 
+Codex and Pi Durable use this same Session lifecycle. Codex restores its native
+journals from configured durable storage. Pi Durable restores committed tasks,
+pending function calls, tool results, and child relationships through Rat Things'
+native state store. Recovery confirms the prior worker has stopped before giving
+a replacement ownership; old owners cannot continue writing. See
+[runtime durability](agent-runtimes.md#how-pi-durable-and-rat-things-work-together).
+
 Saved history and artifacts are independent of the lifetime of a MicroVM. The
 execution environment can expire or become unavailable; that does not remove
 already saved Items. An unavailable environment may prevent continued execution.

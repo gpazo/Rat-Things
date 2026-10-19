@@ -67,13 +67,15 @@ UID with a sanitized environment. A guest network policy prevents that UID from
 calling the root lifecycle/control listener. External control requires an
 AWS-issued, port-scoped proxy token.
 
-The native Codex App Server hosts the Session. An environment supplies its command
-and filesystem context:
+The Session pins either Codex App Server or Pi Durable as its runtime. Both use
+the same execution and storage ports. Pi Durable's native tasks and conversations
+are coordinated by the Rat Things adapter. An environment supplies command and
+filesystem context:
 
 - `none` supplies no command environment.
 - `openai_hosted` uses the upstream wire name for a managed environment provisioned
   by Rat Things in your AWS account.
-- `self_hosted` connects your prepared executor to the relay in your AWS account;
+- `self_hosted`, supported by Codex, connects your prepared executor to the relay in your AWS account;
   the harness and Session storage remain yours as well.
 
 Managed environments use `/workspace`, declared tools, prepared capabilities and
@@ -88,7 +90,14 @@ bounded summaries. Complete definitions, input, runtime snapshots and file conte
 live in encrypted S3. Secret values live in Secrets Manager; stored records contain
 references. The [durability guide](conversations.md) explains Session recovery.
 
-Optional S3 Files storage preserves native Codex journals across replacement workers.
+Pi Durable stores native commits through encrypted S3 and conditional DynamoDB
+records. A commit must be acknowledged before the worker applies it locally.
+Run identity and ownership version fence writes from replaced workers. Pending
+tool results and background children retain their identities during recovery.
+Managed Pi workspaces require S3 Files and checkpoints; environment `none` does not
+need a managed workspace. See [agent runtimes](agent-runtimes.md).
+
+For Codex, optional S3 Files storage preserves native journals across replacement workers.
 SQLite databases, including those used by setup commands, use a worker-local bind
 mount so concurrent agents do not share database locks through the network filesystem.
 A replacement worker rebuilds those databases while resuming the durable native thread.
@@ -182,7 +191,7 @@ loopback control listener. A conditional claim precedes execution; an ambiguous
 command is never automatically replayed.
 
 The trusted runner reads credentials and commits Session state as root. It starts
-Codex and repository commands as UID 10001. That identity cannot reach the control
+the selected Codex or Pi Durable process and repository commands as UID 10001. That identity cannot reach the control
 listener or EC2 instance metadata, and cannot read the root supervisor's process
 environment. The EC2 harness has no absolute execution timer; Session closure,
 execution authority loss or host loss ends it. Conditional heartbeats renew private

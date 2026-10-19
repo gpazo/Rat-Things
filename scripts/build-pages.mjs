@@ -107,6 +107,7 @@ await writeFile(join(output, 'llms-full.txt'), renderLlmsFull(agentDocs));
 const generatedHtmlFiles = [
   join(output, 'index.html'),
   join(output, 'overview.html'),
+  join(output, 'demos', 'pi-durable', 'index.html'),
   join(docsOutput, 'index.html'),
   join(guidesOutput, 'index.html'),
 ];
@@ -202,7 +203,7 @@ function renderLlmsIndex(groups, documents, guideGroups, guides) {
     const guide = guides.get(file);
     return `- [${guide.title}](${pagesUrl}/guides/${guide.slug}/): ${guide.description}`;
   }).join('\n')}`).join('\n\n');
-  return `# Rat Things\n\n> An independent AWS backend implementing the OpenAI Agents API. The host owns execution, harness and state. Engineering preview.\n\n## Agent quickstart\n\n1. Discover the deployment through \`/.well-known/rat-things\`.\n2. Use its OpenAPI and Agents schemas.\n3. Create an Agent and a Session with explicit tools and environment settings.\n4. Follow Turns, Items and live Session events.\n5. Use Vaults for credentials and schedules or signed provider bindings for recurring input.\n\nRead [Connect an agent](${pagesUrl}/docs/agents/) and [Agents API](${pagesUrl}/docs/agents-api/).\n\n${guideSections}\n\n${sections}\n\n## Machine-readable contracts\n\n- [OpenAPI](${pagesUrl}/openapi.json)\n- [Agents schemas](${pagesUrl}/schemas/agents-api.schema.json)\n- [Operational corpus](${pagesUrl}/llms-full.txt)\n- [Repository](${repositoryUrl})\n`;
+  return `# Rat Things\n\n> An AWS backend for Codex and Pi Durable implementing the OpenAI Agents API. Pi uses approved Bedrock models. The host owns execution and state. Engineering preview.\n\n## Agent quickstart\n\n1. Discover the deployment through \`/.well-known/rat-things\`.\n2. Use its OpenAPI and Agents schemas.\n3. Create an Agent and a Session with explicit tools and environment settings.\n4. Follow Turns, Items and live Session events.\n5. Use Vaults for credentials and schedules or signed provider bindings for recurring input.\n\nRead [Connect an agent](${pagesUrl}/docs/agents/) and [Agents API](${pagesUrl}/docs/agents-api/).\n\n${guideSections}\n\n${sections}\n\n## Machine-readable contracts\n\n- [OpenAPI](${pagesUrl}/openapi.json)\n- [Agents schemas](${pagesUrl}/schemas/agents-api.schema.json)\n- [Operational corpus](${pagesUrl}/llms-full.txt)\n- [Repository](${repositoryUrl})\n`;
 
 }
 
@@ -437,14 +438,14 @@ function renderGuidesHome(groups, documents) {
 
   return guidePageTemplate({
     title: 'Practical guides for durable cloud agents',
-    description: 'Direct answers for running Codex beyond a laptop, preserving agent state, limiting connected-account access, scheduling work, and choosing an AWS architecture.',
+    description: 'Run Codex or Pi Durable beyond a laptop, preserve agent state, connect accounts, schedule work, and choose an AWS architecture.',
     canonicalPath: '/guides/',
     assetPrefix: '../',
     main: `
       <main id="guides-main" class="guide-shell guide-home">
         <p class="docs-eyebrow">Rat Things field guides</p>
         <h1>Practical guides for<br>durable cloud agents.</h1>
-        <p class="guide-home-lede">Start with the problem and build the agent second. These guides give practical answers for long-running Codex work, durable state, connected accounts, schedules, and self-hosted AWS execution. Each separates the general design problem from one concrete Rat Things implementation.</p>
+        <p class="guide-home-lede">Start with the problem and build the agent second. These guides cover Codex and Pi Durable, Bedrock setup, durable state, connected accounts, schedules, and self-hosted AWS execution. Each separates the general design problem from one concrete Rat Things implementation.</p>
         <div class="guide-home-rule">
           <span>Direct answer</span><span>Tradeoffs</span><span>Working example</span><span>Measured evidence</span>
         </div>
@@ -594,7 +595,7 @@ function renderDocsHome(groups, documents) {
     </section>`).join('\n');
   return pageTemplate({
     title: 'Documentation',
-    description: 'Build and embed reusable cloud agents through a self-hosted OpenAPI backend with isolated Codex execution.',
+    description: 'Run Codex and Pi Durable through one API with isolated AWS execution, approved models, and durable Sessions.',
     canonicalPath: '/docs/',
     assetPrefix: '../',
     nav,
@@ -605,8 +606,8 @@ function renderDocsHome(groups, documents) {
         <p class="docs-home-lede">Start with a product overview, deploy to AWS, connect an agent to an existing deployment, or embed the API. Deeper operator and agent reference stays available when the task needs it.</p>
         <section class="docs-paths" data-doc-group aria-labelledby="docs-paths-title">
           <h2 id="docs-paths-title" class="docs-sr-only">Choose a documentation path</h2>
-          <a data-doc-link href="./codex-subscription/"><span>Try it locally</span><small>Use a trusted ChatGPT sign-in on your own device.</small></a>
-          <a data-doc-link href="./quickstart/"><span>Deploy the backend</span><small>Run the bounded AWS golden path and retain evidence.</small></a>
+          <a data-doc-link href="./agent-runtimes/"><span>Choose your runtime</span><small>Compare Codex and Pi Durable, model access, and tools.</small></a>
+          <a data-doc-link href="./quickstart/"><span>Deploy the backend</span><small>Configure AWS workers, storage, and model access.</small></a>
           <a data-doc-link href="./agents/"><span>Connect an agent</span><small>Discover an installed deployment from one URL.</small></a>
           <a data-doc-link href="./embedding/"><span>Embed Rat Things</span><small>Put the owner-scoped API behind your own product UX.</small></a>
         </section>
@@ -703,7 +704,7 @@ function pageTemplate({ title, description, canonicalPath, assetPrefix, nav, mai
       </main>
       ${toc}
     </div>
-    <footer class="docs-footer"><span>Durable Codex work, isolated execution, and browser-ready publications.</span><a href="${repositoryUrl}/issues">Help improve the docs</a></footer>
+    <footer class="docs-footer"><span>Codex and Pi Durable, isolated AWS execution, and saved results.</span><a href="${repositoryUrl}/issues">Help improve the docs</a></footer>
   </body>
 </html>`;
 }
@@ -733,6 +734,7 @@ function renderSitemap(documents, guides) {
   const urls = [
     '/',
     '/guides/',
+    '/demos/pi-durable/',
     ...guides.map((guide) => `/guides/${guide.slug}/`),
     '/docs/',
     ...documents.map((doc) => `/docs/${doc.slug}/`),

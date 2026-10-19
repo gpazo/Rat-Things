@@ -275,7 +275,7 @@
       "id": "execution",
       "title": "Execution",
       "subtitle": "Native harness in your AWS account",
-      "description": "The dispatcher launches an isolated EC2 or Lambda MicroVM worker in your AWS account. Its Codex harness executes Session Turns within a fixed capability envelope.",
+      "description": "The dispatcher launches an isolated EC2 or Lambda MicroVM worker in your AWS account. The Session selects Codex or Pi Durable, with tools and permissions fixed before launch.",
       "facts": [
         "Fenced launch and attached execution generation.",
         "Private worker identity and execution generation."
@@ -371,9 +371,9 @@
         },
         {
           "id": "runner",
-          "title": "Codex runner",
+          "title": "Agent runner",
           "subtitle": "Native Session harness",
-          "description": "Loads the owned Session launch, runs native Codex App Server, and journals Items, Turns and checkpoint state.",
+          "description": "Loads the owned Session launch and runs Codex App Server or Pi Durable. Rat Things saves Turns, Items, and native state independently of the worker.",
           "facts": [
             "Saved Session runtime state and managed output artifacts.",
             "Unexpected human-approval requests fail closed. Final writes are fenced by execution generation."
@@ -382,6 +382,14 @@
             {
               "file": "src/runner/main.ts",
               "anchor": "export async function runAgentWorker()"
+            },
+            {
+              "file": "src/runner/pi-host.ts",
+              "anchor": "export async function executePiWorker"
+            },
+            {
+              "file": "src/runner/pi/engine.ts",
+              "anchor": "export async function openPiEngine"
             }
           ],
           "resource": "runner",
@@ -389,11 +397,14 @@
             "Codex runner",
             "Native Session harness",
             "Codex App Server",
-            "native harness"
+            "native harness",
+            "Agent runner",
+            "Pi Durable",
+            "Pi runtime"
           ],
           "inputs": "Stored launch, declared tools and isolated environment.",
           "outputs": "Saved Session runtime state and managed output artifacts.",
-          "mechanics": "Loads the owned Session launch, runs native Codex App Server, and journals Items, Turns and checkpoint state.",
+          "mechanics": "Loads the owned Session launch and runs Codex App Server or Pi Durable. Rat Things saves Turns, Items, and native state independently of the worker.",
           "failure": "Unexpected human-approval requests fail closed. Final writes are fenced by execution generation."
         },
         {
@@ -425,7 +436,7 @@
           "id": "models",
           "title": "Model access",
           "subtitle": "Configured provider",
-          "description": "The harness uses the deployment model provider and the Agent model identifier. Authentication material is resolved by trusted code.",
+          "description": "Codex uses its configured ChatGPT or Bedrock provider. Pi Durable uses approved Bedrock Converse models. Trusted code supplies model authentication and keeps AWS role credentials out of the agent process.",
           "facts": [
             "Authenticated model requests.",
             "Unsupported models or missing credentials fail without silently choosing another model."
@@ -434,6 +445,10 @@
             {
               "file": "src/runner/codex-auth.ts",
               "anchor": "export function codexAuthMode"
+            },
+            {
+              "file": "src/runner/pi/provider.ts",
+              "anchor": "export function createPiModels"
             }
           ],
           "resource": "models",
@@ -443,7 +458,7 @@
           ],
           "inputs": "Agent model settings and credential references.",
           "outputs": "Authenticated model requests.",
-          "mechanics": "The harness uses the deployment model provider and the Agent model identifier. Authentication material is resolved by trusted code.",
+          "mechanics": "Codex uses its configured ChatGPT or Bedrock provider. Pi Durable uses approved Bedrock Converse models. Trusted code supplies model authentication and keeps AWS role credentials out of the agent process.",
           "failure": "Unsupported models or missing credentials fail without silently choosing another model."
         }
       ],
@@ -453,7 +468,7 @@
       ],
       "inputs": "Owned requests and saved state.",
       "outputs": "Durable progress within the admitted boundary.",
-      "mechanics": "The dispatcher launches an isolated EC2 or Lambda MicroVM worker in your AWS account. Its Codex harness executes Session Turns within a fixed capability envelope.",
+      "mechanics": "The dispatcher launches an isolated EC2 or Lambda MicroVM worker in your AWS account. The Session selects Codex or Pi Durable, with tools and permissions fixed before launch.",
       "failure": "Conditional state and bounded failures retain evidence for recovery."
     },
     {
@@ -685,15 +700,19 @@
           "id": "files",
           "title": "Session journals",
           "subtitle": "Durable native history",
-          "description": "Optional S3 Files preserves native journals under an owner-and-Session directory. SQLite indexes stay worker-local and are rebuilt during recovery.",
+          "description": "Codex journals use configured S3 Files storage. Pi native commits use encrypted S3 with DynamoDB ownership checks. Workspace files follow the selected runtime's storage and checkpoint rules.",
           "facts": [
             "Native conversation journals across replacement compute.",
-            "Hosted replacement reapplies declared inputs; arbitrary workspace files and processes are lost. Saved Artifacts survive independently."
+            "Pi recovers committed tasks and flushed managed workspace files after verified termination. Codex workspace handoff requires a committed checkpoint; ordinary replacement resets sandbox files. Neither runtime restores live processes."
           ],
           "sources": [
             {
               "file": "src/runner/main.ts",
               "anchor": "const durableStateRoot = process.env.SESSION_STATE_ROOT;"
+            },
+            {
+              "file": "src/core/session-native-store.ts",
+              "anchor": "export function nativeLease"
             }
           ],
           "resource": "files",
@@ -706,8 +725,8 @@
           ],
           "inputs": "Owned Session identity and mounted filesystem.",
           "outputs": "Native conversation journals across replacement compute.",
-          "mechanics": "Optional S3 Files preserves native journals under an owner-and-Session directory. SQLite indexes stay worker-local and are rebuilt during recovery.",
-          "failure": "Hosted replacement reapplies declared inputs; arbitrary workspace files and processes are lost. Saved Artifacts survive independently."
+          "mechanics": "Codex journals use configured S3 Files storage. Pi native commits use encrypted S3 with DynamoDB ownership checks. Workspace files follow the selected runtime's storage and checkpoint rules.",
+          "failure": "Pi recovers committed tasks and flushed managed workspace files after verified termination. Codex workspace handoff requires a committed checkpoint; ordinary replacement resets sandbox files. Neither runtime restores live processes."
         }
       ],
       "aliases": [
@@ -1364,7 +1383,7 @@
     },
     {
       "to": "files",
-      "label": "Workspace and Codex home",
+      "label": "Workspace and native journals",
       "kind": "data",
       "sources": [
         {
@@ -1673,12 +1692,12 @@
         {
           "node": "runner",
           "title": "Execute the Turn",
-          "description": "Native Codex runs with the resolved Agent configuration and declared tools.",
+          "description": "The selected Codex or Pi Durable runtime runs with the resolved Agent configuration and declared tools.",
           "state": "running",
           "handoff": {
             "from": "microvm",
             "to": "runner",
-            "payload": "Native Codex runs with the resolved Agent configuration and declared tools.",
+            "payload": "The selected Codex or Pi Durable runtime runs with the resolved Agent configuration and declared tools.",
             "kind": "request",
             "sources": [
               {
@@ -1827,12 +1846,12 @@
         {
           "node": "runner",
           "title": "Execute the Turn",
-          "description": "Native Codex runs with the resolved Agent configuration and declared tools.",
+          "description": "The selected Codex or Pi Durable runtime runs with the resolved Agent configuration and declared tools.",
           "state": "running",
           "handoff": {
             "from": "microvm",
             "to": "runner",
-            "payload": "Native Codex runs with the resolved Agent configuration and declared tools.",
+            "payload": "The selected Codex or Pi Durable runtime runs with the resolved Agent configuration and declared tools.",
             "kind": "request",
             "sources": [
               {
@@ -1981,12 +2000,12 @@
         {
           "node": "runner",
           "title": "Execute the Turn",
-          "description": "Native Codex runs with the resolved Agent configuration and declared tools.",
+          "description": "The selected Codex or Pi Durable runtime runs with the resolved Agent configuration and declared tools.",
           "state": "running",
           "handoff": {
             "from": "microvm",
             "to": "runner",
-            "payload": "Native Codex runs with the resolved Agent configuration and declared tools.",
+            "payload": "The selected Codex or Pi Durable runtime runs with the resolved Agent configuration and declared tools.",
             "kind": "request",
             "sources": [
               {
@@ -2173,12 +2192,12 @@
         {
           "node": "mailbox",
           "title": "Fence future Session input",
-          "description": "Commit deletion and close the runtime so later input cannot resurrect it.",
+          "description": "Mark the Session closing, close its runtime, then delete the Session record so later input cannot resurrect it.",
           "state": "cancelling",
           "handoff": {
             "from": "api",
             "to": "mailbox",
-            "payload": "Commit deletion and close the runtime so later input cannot resurrect it.",
+            "payload": "Mark the Session closing, close its runtime, then delete the Session record so later input cannot resurrect it.",
             "kind": "request",
             "sources": [
               {
@@ -2429,7 +2448,7 @@
     {
       "id": "durability",
       "title": "What survives a worker",
-      "description": "Saved Items and Artifacts live in encrypted storage; S3 Files optionally preserves native journals. Hosted replacement reapplies declared inputs and loses arbitrary workspace files and processes.",
+      "description": "Saved Items and Artifacts live in encrypted storage. Pi restores committed tasks and child relationships; Codex restores its native journals. Workspace recovery follows each runtime's storage and checkpoint rules. Live processes are not restored.",
       "sources": [
         {
           "file": "src/runner/main.ts",

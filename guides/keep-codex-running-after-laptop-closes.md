@@ -1,4 +1,4 @@
-# How to keep Codex running after you close your laptop
+# How to keep Codex or Pi Durable running after you close your laptop
 
 Run the agent on remote compute and retain its inputs and results outside your
 laptop. Rat Things runs the API, harness, storage and execution in your AWS account.
@@ -6,6 +6,10 @@ A Session identifies the work; Turns record each execution and Items retain its
 messages and tool activity.
 
 ## Choose where work runs
+
+Rat Things supports Codex and Pi Durable in durable Sessions. Codex is the default;
+Pi uses the deployment's approved Bedrock models. See
+[runtime setup and limits](../docs/agent-runtimes.md).
 
 A terminal multiplexer can survive closing a terminal on a machine that stays
 awake. A remote worker lets work continue when your laptop sleeps. Durable storage
@@ -30,6 +34,8 @@ npm run rat-things -- sessions create \
 ```
 
 This example uses `environment: {"type":"none"}` and needs no repository checkout.
+To use Pi Durable, add `--runtime pi` and select a model returned by
+`npm run rat-things -- agents models --runtime pi`.
 Save the returned Session ID before disconnecting. Later, replace `sess_example`
 with that ID to inspect and continue the work:
 
@@ -44,7 +50,8 @@ npm run rat-things -- sessions send sess_example \
 
 A repeated input with the same idempotency key and body reuses its accepted
 receipt. To work with commands and files, supply a standard Session creation JSON
-file with a managed or self-hosted environment using `--file request.json`.
+file with a managed environment using `--file request.json`. Codex also supports
+self-hosted environments; Pi does not.
 See [Agents API](../docs/agents-api.md) for those request shapes.
 
 ## Retain results and control authority
@@ -68,11 +75,17 @@ compute costs while waiting for another Turn.
 
 ## Current boundaries
 
-Native checkpoints support conversation recovery. Preserving the managed workspace
+Codex native checkpoints support conversation recovery. Preserving its managed workspace
 across a clean handoff requires S3 Files and `session_checkpoints_enabled`; ordinary
-replacement resets sandbox files. Neither path preserves background processes,
-sockets or unacknowledged external writes. See [Session durability](../docs/conversations.md#how-durability-works)
+replacement resets sandbox files. Neither path restores background processes or
+sockets. An unacknowledged external write requires separate reconciliation. See
+[Session durability](../docs/conversations.md#how-durability-works)
 and the [durable-state guide](durable-ai-agent-state.md).
+
+Pi Durable restores committed tasks, pending tool calls, and child relationships.
+Managed Pi workspaces require S3 Files and checkpoints, and retain flushed files
+after verified worker termination. A saved child agent can resume its task even
+though its old operating-system process no longer exists.
 
 ## Try the narrow path
 

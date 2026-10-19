@@ -1,0 +1,990 @@
+{
+  "passed": true,
+  "commit": "de56c2d00f5ddd66e50b9e5b2f7f48235883af52",
+  "engine": "Pi Durable 1.3.0",
+  "scope": "Real Pi Durable engine and Rat Things adapters in separate Node processes. Scripted model responses and a host-owned in-memory store. No AWS, Bedrock inference, or workspace recovery. The host survives the worker crash.",
+  "checks": {
+    "lostReplyRecovered": true,
+    "realWorkerKilled": true,
+    "oldOwnerWriteRejected": true,
+    "helperIdentityPreserved": true,
+    "pendingCallPreserved": true,
+    "repeatedResultDeduplicated": true,
+    "conflictingResultRejected": true,
+    "recoveredResultConsumed": true,
+    "parentNotRerun": true
+  },
+  "workerPids": [
+    {
+      "name": "worker-a",
+      "pid": 84870
+    },
+    {
+      "name": "worker-b",
+      "pid": 84879
+    }
+  ],
+  "modelCalls": 4,
+  "nativeCommits": 33,
+  "token": "d6fbe43d-f7af-4616-a515-ce6fff0c0d84",
+  "events": [
+    {
+      "step": 1,
+      "title": "A lost reply is recovered",
+      "detail": "The first save succeeded, but its reply was lost. Rat Things recovered the saved commit without creating a second copy.",
+      "worker": "worker-a",
+      "epoch": 0,
+      "seq": 1,
+      "lostCommit": "eb728f5a-68a3-496f-b2cb-8a7a31a2cf22"
+    },
+    {
+      "step": 2,
+      "title": "The helper is still working",
+      "detail": "The parent finished. Its background helper is waiting for lookup_proof_token.",
+      "worker": "worker-a",
+      "epoch": 0,
+      "seq": 23,
+      "snapshot": {
+        "sessionId": "session_demo",
+        "agentId": "agent_demo",
+        "rootThreadId": "pi_thread_1",
+        "turns": [
+          {
+            "threadId": "pi_thread_1",
+            "nativeTurnId": "pi_submission_11",
+            "turn": {
+              "id": "turn_demo",
+              "session_id": "session_demo",
+              "agent_id": "agent_demo",
+              "subagent_id": null,
+              "object": "agent.session.turn",
+              "status": "completed",
+              "created_at": 1,
+              "started_at": 1792384282,
+              "completed_at": 1792384282,
+              "usage": {
+                "input_tokens": 1139,
+                "output_tokens": 29,
+                "total_tokens": 1168,
+                "input_tokens_details": {
+                  "cached_tokens": 358
+                },
+                "output_tokens_details": {
+                  "reasoning_tokens": 0
+                }
+              },
+              "error": null
+            },
+            "items": [
+              {
+                "id": "pi_call_15",
+                "turn_id": "turn_demo",
+                "status": "completed",
+                "type": "create_subagent_call",
+                "agent_id": "agent_demo",
+                "content": [
+                  {
+                    "type": "output_text",
+                    "text": "Read the proof token."
+                  }
+                ],
+                "model": null,
+                "reasoning_effort": null
+              },
+              {
+                "id": "pi_message_1_1",
+                "type": "message",
+                "turn_id": "turn_demo",
+                "role": "assistant",
+                "phase": "final_answer",
+                "status": "completed",
+                "content": [
+                  {
+                    "type": "output_text",
+                    "text": "My part is done. The helper is still working."
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "threadId": "pi_agent_17",
+            "nativeTurnId": "pi_submission_24",
+            "turn": {
+              "id": "turn_pi_spawn:15",
+              "object": "agent.session.turn",
+              "session_id": "session_demo",
+              "agent_id": "pi_agent_17",
+              "subagent_id": "pi_agent_17",
+              "status": "waiting",
+              "created_at": 1792384282,
+              "started_at": 1792384282,
+              "completed_at": null,
+              "usage": {
+                "input_tokens": 694,
+                "output_tokens": 6,
+                "total_tokens": 700,
+                "input_tokens_details": {
+                  "cached_tokens": 0
+                },
+                "output_tokens_details": {
+                  "reasoning_tokens": 0
+                }
+              },
+              "error": null
+            },
+            "items": [
+              {
+                "id": "pi_entry_23_0",
+                "type": "message",
+                "turn_id": "turn_pi_spawn:15",
+                "role": "user",
+                "phase": null,
+                "status": "completed",
+                "content": [
+                  {
+                    "type": "input_text",
+                    "text": "Read the proof token."
+                  }
+                ]
+              },
+              {
+                "id": "pi_call_30",
+                "turn_id": "turn_pi_spawn:15",
+                "status": "in_progress",
+                "type": "function_call",
+                "call_id": "pi_call_30",
+                "name": "lookup_proof_token",
+                "arguments": {}
+              }
+            ],
+            "traceParentTurnId": "turn_demo"
+          }
+        ],
+        "requiredActions": [
+          {
+            "type": "function_call",
+            "call_id": "pi_call_30",
+            "turn_id": "turn_pi_spawn:15",
+            "name": "lookup_proof_token",
+            "arguments": {}
+          }
+        ],
+        "subagents": [
+          {
+            "id": "pi_agent_17",
+            "object": "agent.session.subagent",
+            "session_id": "session_demo",
+            "parent_agent_id": "agent_demo",
+            "name": "researcher",
+            "instructions": [
+              {
+                "type": "output_text",
+                "text": "Read the proof token."
+              }
+            ],
+            "opened_at": 1792384282,
+            "closed_at": null,
+            "status": "active"
+          }
+        ]
+      },
+      "childId": "pi_agent_17",
+      "callId": "pi_call_30"
+    },
+    {
+      "step": 3,
+      "title": "The worker is killed",
+      "detail": "The worker process was stopped with SIGKILL. No graceful shutdown ran. The host still holds its committed state.",
+      "worker": "worker-a",
+      "epoch": 0,
+      "seq": 23,
+      "snapshot": {
+        "sessionId": "session_demo",
+        "agentId": "agent_demo",
+        "rootThreadId": "pi_thread_1",
+        "turns": [
+          {
+            "threadId": "pi_thread_1",
+            "nativeTurnId": "pi_submission_11",
+            "turn": {
+              "id": "turn_demo",
+              "session_id": "session_demo",
+              "agent_id": "agent_demo",
+              "subagent_id": null,
+              "object": "agent.session.turn",
+              "status": "completed",
+              "created_at": 1,
+              "started_at": 1792384282,
+              "completed_at": 1792384282,
+              "usage": {
+                "input_tokens": 1139,
+                "output_tokens": 29,
+                "total_tokens": 1168,
+                "input_tokens_details": {
+                  "cached_tokens": 358
+                },
+                "output_tokens_details": {
+                  "reasoning_tokens": 0
+                }
+              },
+              "error": null
+            },
+            "items": [
+              {
+                "id": "pi_call_15",
+                "turn_id": "turn_demo",
+                "status": "completed",
+                "type": "create_subagent_call",
+                "agent_id": "agent_demo",
+                "content": [
+                  {
+                    "type": "output_text",
+                    "text": "Read the proof token."
+                  }
+                ],
+                "model": null,
+                "reasoning_effort": null
+              },
+              {
+                "id": "pi_message_1_1",
+                "type": "message",
+                "turn_id": "turn_demo",
+                "role": "assistant",
+                "phase": "final_answer",
+                "status": "completed",
+                "content": [
+                  {
+                    "type": "output_text",
+                    "text": "My part is done. The helper is still working."
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "threadId": "pi_agent_17",
+            "nativeTurnId": "pi_submission_24",
+            "turn": {
+              "id": "turn_pi_spawn:15",
+              "object": "agent.session.turn",
+              "session_id": "session_demo",
+              "agent_id": "pi_agent_17",
+              "subagent_id": "pi_agent_17",
+              "status": "waiting",
+              "created_at": 1792384282,
+              "started_at": 1792384282,
+              "completed_at": null,
+              "usage": {
+                "input_tokens": 694,
+                "output_tokens": 6,
+                "total_tokens": 700,
+                "input_tokens_details": {
+                  "cached_tokens": 0
+                },
+                "output_tokens_details": {
+                  "reasoning_tokens": 0
+                }
+              },
+              "error": null
+            },
+            "items": [
+              {
+                "id": "pi_entry_23_0",
+                "type": "message",
+                "turn_id": "turn_pi_spawn:15",
+                "role": "user",
+                "phase": null,
+                "status": "completed",
+                "content": [
+                  {
+                    "type": "input_text",
+                    "text": "Read the proof token."
+                  }
+                ]
+              },
+              {
+                "id": "pi_call_30",
+                "turn_id": "turn_pi_spawn:15",
+                "status": "in_progress",
+                "type": "function_call",
+                "call_id": "pi_call_30",
+                "name": "lookup_proof_token",
+                "arguments": {}
+              }
+            ],
+            "traceParentTurnId": "turn_demo"
+          }
+        ],
+        "requiredActions": [
+          {
+            "type": "function_call",
+            "call_id": "pi_call_30",
+            "turn_id": "turn_pi_spawn:15",
+            "name": "lookup_proof_token",
+            "arguments": {}
+          }
+        ],
+        "subagents": [
+          {
+            "id": "pi_agent_17",
+            "object": "agent.session.subagent",
+            "session_id": "session_demo",
+            "parent_agent_id": "agent_demo",
+            "name": "researcher",
+            "instructions": [
+              {
+                "type": "output_text",
+                "text": "Read the proof token."
+              }
+            ],
+            "opened_at": 1792384282,
+            "closed_at": null,
+            "status": "active"
+          }
+        ]
+      },
+      "pid": 84870,
+      "exit": {
+        "code": null,
+        "signal": "SIGKILL"
+      }
+    },
+    {
+      "step": 4,
+      "title": "The old worker loses write access",
+      "detail": "A write using the old worker’s identity was rejected after ownership moved to the replacement.",
+      "worker": "worker-b",
+      "epoch": 1,
+      "seq": 23,
+      "snapshot": {
+        "sessionId": "session_demo",
+        "agentId": "agent_demo",
+        "rootThreadId": "pi_thread_1",
+        "turns": [
+          {
+            "threadId": "pi_thread_1",
+            "nativeTurnId": "pi_submission_11",
+            "turn": {
+              "id": "turn_demo",
+              "session_id": "session_demo",
+              "agent_id": "agent_demo",
+              "subagent_id": null,
+              "object": "agent.session.turn",
+              "status": "completed",
+              "created_at": 1,
+              "started_at": 1792384282,
+              "completed_at": 1792384282,
+              "usage": {
+                "input_tokens": 1139,
+                "output_tokens": 29,
+                "total_tokens": 1168,
+                "input_tokens_details": {
+                  "cached_tokens": 358
+                },
+                "output_tokens_details": {
+                  "reasoning_tokens": 0
+                }
+              },
+              "error": null
+            },
+            "items": [
+              {
+                "id": "pi_call_15",
+                "turn_id": "turn_demo",
+                "status": "completed",
+                "type": "create_subagent_call",
+                "agent_id": "agent_demo",
+                "content": [
+                  {
+                    "type": "output_text",
+                    "text": "Read the proof token."
+                  }
+                ],
+                "model": null,
+                "reasoning_effort": null
+              },
+              {
+                "id": "pi_message_1_1",
+                "type": "message",
+                "turn_id": "turn_demo",
+                "role": "assistant",
+                "phase": "final_answer",
+                "status": "completed",
+                "content": [
+                  {
+                    "type": "output_text",
+                    "text": "My part is done. The helper is still working."
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "threadId": "pi_agent_17",
+            "nativeTurnId": "pi_submission_24",
+            "turn": {
+              "id": "turn_pi_spawn:15",
+              "object": "agent.session.turn",
+              "session_id": "session_demo",
+              "agent_id": "pi_agent_17",
+              "subagent_id": "pi_agent_17",
+              "status": "waiting",
+              "created_at": 1792384282,
+              "started_at": 1792384282,
+              "completed_at": null,
+              "usage": {
+                "input_tokens": 694,
+                "output_tokens": 6,
+                "total_tokens": 700,
+                "input_tokens_details": {
+                  "cached_tokens": 0
+                },
+                "output_tokens_details": {
+                  "reasoning_tokens": 0
+                }
+              },
+              "error": null
+            },
+            "items": [
+              {
+                "id": "pi_entry_23_0",
+                "type": "message",
+                "turn_id": "turn_pi_spawn:15",
+                "role": "user",
+                "phase": null,
+                "status": "completed",
+                "content": [
+                  {
+                    "type": "input_text",
+                    "text": "Read the proof token."
+                  }
+                ]
+              },
+              {
+                "id": "pi_call_30",
+                "turn_id": "turn_pi_spawn:15",
+                "status": "in_progress",
+                "type": "function_call",
+                "call_id": "pi_call_30",
+                "name": "lookup_proof_token",
+                "arguments": {}
+              }
+            ],
+            "traceParentTurnId": "turn_demo"
+          }
+        ],
+        "requiredActions": [
+          {
+            "type": "function_call",
+            "call_id": "pi_call_30",
+            "turn_id": "turn_pi_spawn:15",
+            "name": "lookup_proof_token",
+            "arguments": {}
+          }
+        ],
+        "subagents": [
+          {
+            "id": "pi_agent_17",
+            "object": "agent.session.subagent",
+            "session_id": "session_demo",
+            "parent_agent_id": "agent_demo",
+            "name": "researcher",
+            "instructions": [
+              {
+                "type": "output_text",
+                "text": "Read the proof token."
+              }
+            ],
+            "opened_at": 1792384282,
+            "closed_at": null,
+            "status": "active"
+          }
+        ]
+      }
+    },
+    {
+      "step": 5,
+      "title": "A new worker finds the same work",
+      "detail": "The helper and pending tool request have the same IDs. The completed parent does not need to run again.",
+      "worker": "worker-b",
+      "epoch": 1,
+      "seq": 24,
+      "snapshot": {
+        "sessionId": "session_demo",
+        "agentId": "agent_demo",
+        "rootThreadId": "pi_thread_1",
+        "turns": [
+          {
+            "threadId": "pi_thread_1",
+            "nativeTurnId": "pi_submission_11",
+            "turn": {
+              "id": "turn_demo",
+              "session_id": "session_demo",
+              "agent_id": "agent_demo",
+              "subagent_id": null,
+              "object": "agent.session.turn",
+              "status": "completed",
+              "created_at": 1,
+              "started_at": 1792384282,
+              "completed_at": 1792384282,
+              "usage": {
+                "input_tokens": 1139,
+                "output_tokens": 29,
+                "total_tokens": 1168,
+                "input_tokens_details": {
+                  "cached_tokens": 358
+                },
+                "output_tokens_details": {
+                  "reasoning_tokens": 0
+                }
+              },
+              "error": null
+            },
+            "items": [
+              {
+                "id": "pi_call_15",
+                "turn_id": "turn_demo",
+                "status": "completed",
+                "type": "create_subagent_call",
+                "agent_id": "agent_demo",
+                "content": [
+                  {
+                    "type": "output_text",
+                    "text": "Read the proof token."
+                  }
+                ],
+                "model": null,
+                "reasoning_effort": null
+              },
+              {
+                "id": "pi_message_1_1",
+                "type": "message",
+                "turn_id": "turn_demo",
+                "role": "assistant",
+                "phase": "final_answer",
+                "status": "completed",
+                "content": [
+                  {
+                    "type": "output_text",
+                    "text": "My part is done. The helper is still working."
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "threadId": "pi_agent_17",
+            "nativeTurnId": "pi_submission_24",
+            "turn": {
+              "id": "turn_pi_spawn:15",
+              "object": "agent.session.turn",
+              "session_id": "session_demo",
+              "agent_id": "pi_agent_17",
+              "subagent_id": "pi_agent_17",
+              "status": "waiting",
+              "created_at": 1792384282,
+              "started_at": 1792384282,
+              "completed_at": null,
+              "usage": {
+                "input_tokens": 694,
+                "output_tokens": 6,
+                "total_tokens": 700,
+                "input_tokens_details": {
+                  "cached_tokens": 0
+                },
+                "output_tokens_details": {
+                  "reasoning_tokens": 0
+                }
+              },
+              "error": null
+            },
+            "items": [
+              {
+                "id": "pi_entry_23_0",
+                "type": "message",
+                "turn_id": "turn_pi_spawn:15",
+                "role": "user",
+                "phase": null,
+                "status": "completed",
+                "content": [
+                  {
+                    "type": "input_text",
+                    "text": "Read the proof token."
+                  }
+                ]
+              },
+              {
+                "id": "pi_call_30",
+                "turn_id": "turn_pi_spawn:15",
+                "status": "in_progress",
+                "type": "function_call",
+                "call_id": "pi_call_30",
+                "name": "lookup_proof_token",
+                "arguments": {}
+              }
+            ],
+            "traceParentTurnId": "turn_demo"
+          }
+        ],
+        "requiredActions": [
+          {
+            "type": "function_call",
+            "call_id": "pi_call_30",
+            "turn_id": "turn_pi_spawn:15",
+            "name": "lookup_proof_token",
+            "arguments": {}
+          }
+        ],
+        "subagents": [
+          {
+            "id": "pi_agent_17",
+            "object": "agent.session.subagent",
+            "session_id": "session_demo",
+            "parent_agent_id": "agent_demo",
+            "name": "researcher",
+            "instructions": [
+              {
+                "type": "output_text",
+                "text": "Read the proof token."
+              }
+            ],
+            "opened_at": 1792384282,
+            "closed_at": null,
+            "status": "active"
+          }
+        ]
+      },
+      "pid": 84879,
+      "childId": "pi_agent_17",
+      "callId": "pi_call_30"
+    },
+    {
+      "step": 6,
+      "title": "Repeated delivery is safe",
+      "detail": "The same tool result was delivered twice. Both deliveries were accepted; an attempt to change the saved value was rejected.",
+      "worker": "worker-b",
+      "epoch": 1,
+      "seq": 25,
+      "snapshot": {
+        "sessionId": "session_demo",
+        "agentId": "agent_demo",
+        "rootThreadId": "pi_thread_1",
+        "turns": [
+          {
+            "threadId": "pi_thread_1",
+            "nativeTurnId": "pi_submission_11",
+            "turn": {
+              "id": "turn_demo",
+              "session_id": "session_demo",
+              "agent_id": "agent_demo",
+              "subagent_id": null,
+              "object": "agent.session.turn",
+              "status": "completed",
+              "created_at": 1,
+              "started_at": 1792384282,
+              "completed_at": 1792384282,
+              "usage": {
+                "input_tokens": 1139,
+                "output_tokens": 29,
+                "total_tokens": 1168,
+                "input_tokens_details": {
+                  "cached_tokens": 358
+                },
+                "output_tokens_details": {
+                  "reasoning_tokens": 0
+                }
+              },
+              "error": null
+            },
+            "items": [
+              {
+                "id": "pi_call_15",
+                "turn_id": "turn_demo",
+                "status": "completed",
+                "type": "create_subagent_call",
+                "agent_id": "agent_demo",
+                "content": [
+                  {
+                    "type": "output_text",
+                    "text": "Read the proof token."
+                  }
+                ],
+                "model": null,
+                "reasoning_effort": null
+              },
+              {
+                "id": "pi_message_1_1",
+                "type": "message",
+                "turn_id": "turn_demo",
+                "role": "assistant",
+                "phase": "final_answer",
+                "status": "completed",
+                "content": [
+                  {
+                    "type": "output_text",
+                    "text": "My part is done. The helper is still working."
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "threadId": "pi_agent_17",
+            "nativeTurnId": "pi_submission_24",
+            "turn": {
+              "id": "turn_pi_spawn:15",
+              "object": "agent.session.turn",
+              "session_id": "session_demo",
+              "agent_id": "pi_agent_17",
+              "subagent_id": "pi_agent_17",
+              "status": "in_progress",
+              "created_at": 1792384282,
+              "started_at": 1792384282,
+              "completed_at": null,
+              "usage": {
+                "input_tokens": 694,
+                "output_tokens": 6,
+                "total_tokens": 700,
+                "input_tokens_details": {
+                  "cached_tokens": 0
+                },
+                "output_tokens_details": {
+                  "reasoning_tokens": 0
+                }
+              },
+              "error": null
+            },
+            "items": [
+              {
+                "id": "pi_entry_23_0",
+                "type": "message",
+                "turn_id": "turn_pi_spawn:15",
+                "role": "user",
+                "phase": null,
+                "status": "completed",
+                "content": [
+                  {
+                    "type": "input_text",
+                    "text": "Read the proof token."
+                  }
+                ]
+              },
+              {
+                "id": "pi_call_30",
+                "turn_id": "turn_pi_spawn:15",
+                "status": "in_progress",
+                "type": "function_call",
+                "call_id": "pi_call_30",
+                "name": "lookup_proof_token",
+                "arguments": {}
+              },
+              {
+                "id": "pi_result_pi_call_30",
+                "type": "function_call_output",
+                "turn_id": "turn_pi_spawn:15",
+                "call_id": "pi_call_30",
+                "status": "completed",
+                "output": "d6fbe43d-f7af-4616-a515-ce6fff0c0d84",
+                "error": null
+              }
+            ],
+            "traceParentTurnId": "turn_demo"
+          }
+        ],
+        "requiredActions": [],
+        "subagents": [
+          {
+            "id": "pi_agent_17",
+            "object": "agent.session.subagent",
+            "session_id": "session_demo",
+            "parent_agent_id": "agent_demo",
+            "name": "researcher",
+            "instructions": [
+              {
+                "type": "output_text",
+                "text": "Read the proof token."
+              }
+            ],
+            "opened_at": 1792384282,
+            "closed_at": null,
+            "status": "active"
+          }
+        ]
+      }
+    },
+    {
+      "step": 7,
+      "title": "The helper finishes on the new worker",
+      "detail": "The helper read the recovered tool result and finished. There is one saved tool output and the parent was not run again.",
+      "worker": "worker-b",
+      "epoch": 1,
+      "seq": 33,
+      "snapshot": {
+        "sessionId": "session_demo",
+        "agentId": "agent_demo",
+        "rootThreadId": "pi_thread_1",
+        "turns": [
+          {
+            "threadId": "pi_thread_1",
+            "nativeTurnId": "pi_submission_11",
+            "turn": {
+              "id": "turn_demo",
+              "session_id": "session_demo",
+              "agent_id": "agent_demo",
+              "subagent_id": null,
+              "object": "agent.session.turn",
+              "status": "completed",
+              "created_at": 1,
+              "started_at": 1792384282,
+              "completed_at": 1792384282,
+              "usage": {
+                "input_tokens": 1139,
+                "output_tokens": 29,
+                "total_tokens": 1168,
+                "input_tokens_details": {
+                  "cached_tokens": 358
+                },
+                "output_tokens_details": {
+                  "reasoning_tokens": 0
+                }
+              },
+              "error": null
+            },
+            "items": [
+              {
+                "id": "pi_call_15",
+                "turn_id": "turn_demo",
+                "status": "completed",
+                "type": "create_subagent_call",
+                "agent_id": "agent_demo",
+                "content": [
+                  {
+                    "type": "output_text",
+                    "text": "Read the proof token."
+                  }
+                ],
+                "model": null,
+                "reasoning_effort": null
+              },
+              {
+                "id": "pi_message_1_1",
+                "type": "message",
+                "turn_id": "turn_demo",
+                "role": "assistant",
+                "phase": "final_answer",
+                "status": "completed",
+                "content": [
+                  {
+                    "type": "output_text",
+                    "text": "My part is done. The helper is still working."
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "threadId": "pi_agent_17",
+            "nativeTurnId": "pi_submission_24",
+            "turn": {
+              "id": "turn_pi_spawn:15",
+              "object": "agent.session.turn",
+              "session_id": "session_demo",
+              "agent_id": "pi_agent_17",
+              "subagent_id": "pi_agent_17",
+              "status": "completed",
+              "created_at": 1792384282,
+              "started_at": 1792384282,
+              "completed_at": 1792384282,
+              "usage": {
+                "input_tokens": 1438,
+                "output_tokens": 20,
+                "total_tokens": 1458,
+                "input_tokens_details": {
+                  "cached_tokens": 0
+                },
+                "output_tokens_details": {
+                  "reasoning_tokens": 0
+                }
+              },
+              "error": null
+            },
+            "items": [
+              {
+                "id": "pi_entry_23_0",
+                "type": "message",
+                "turn_id": "turn_pi_spawn:15",
+                "role": "user",
+                "phase": null,
+                "status": "completed",
+                "content": [
+                  {
+                    "type": "input_text",
+                    "text": "Read the proof token."
+                  }
+                ]
+              },
+              {
+                "id": "pi_call_30",
+                "turn_id": "turn_pi_spawn:15",
+                "status": "completed",
+                "type": "function_call",
+                "call_id": "pi_call_30",
+                "name": "lookup_proof_token",
+                "arguments": {}
+              },
+              {
+                "id": "pi_result_pi_call_30",
+                "type": "function_call_output",
+                "turn_id": "turn_pi_spawn:15",
+                "call_id": "pi_call_30",
+                "status": "completed",
+                "output": "d6fbe43d-f7af-4616-a515-ce6fff0c0d84",
+                "error": null
+              },
+              {
+                "id": "pi_message_17_1",
+                "type": "message",
+                "turn_id": "turn_pi_spawn:15",
+                "role": "assistant",
+                "phase": "final_answer",
+                "status": "completed",
+                "content": [
+                  {
+                    "type": "output_text",
+                    "text": "Recovered token: d6fbe43d-f7af-4616-a515-ce6fff0c0d84"
+                  }
+                ]
+              }
+            ],
+            "traceParentTurnId": "turn_demo"
+          }
+        ],
+        "requiredActions": [],
+        "subagents": [
+          {
+            "id": "pi_agent_17",
+            "object": "agent.session.subagent",
+            "session_id": "session_demo",
+            "parent_agent_id": "agent_demo",
+            "name": "researcher",
+            "instructions": [
+              {
+                "type": "output_text",
+                "text": "Read the proof token."
+              }
+            ],
+            "opened_at": 1792384282,
+            "closed_at": null,
+            "status": "active"
+          }
+        ]
+      },
+      "token": "d6fbe43d-f7af-4616-a515-ce6fff0c0d84",
+      "answers": [
+        "My part is done. The helper is still working.",
+        "Recovered token: d6fbe43d-f7af-4616-a515-ce6fff0c0d84"
+      ]
+    }
+  ]
+}

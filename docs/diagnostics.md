@@ -36,6 +36,12 @@ credential, or a particular Agent. The Codex binary/auth entries report configur
 they do not launch Codex or validate its login. Use the repository requirement of Node.js
 22.20+ even if the doctor Node check passes on an older major version.
 
+For Pi Durable, inspect `rat-things agents models --runtime pi` and
+`rat-things sessions runtime SESSION_ID`. These report the approved catalog and
+the Session's pinned runtime. A configured catalog does not establish successful
+inference. Use the [Pi recovery runbook](runbook.md#pi-durable-recovery) for model
+access and worker replacement failures.
+
 ## Debug an integration connection
 
 Start from discovery instead of guessing a provider's fields:

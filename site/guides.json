@@ -1,10 +1,11 @@
 {
   "groups": [
     {
-      "title": "Run Codex beyond your laptop",
+      "title": "Run Codex and Pi Durable beyond your laptop",
       "description": "Keep work running, durable, and repeatable after the local process ends.",
       "documents": [
         "keep-codex-running-after-laptop-closes.md",
+        "run-pi-durable-on-bedrock.md",
         "run-codex-in-aws-with-chatgpt.md",
         "durable-ai-agent-state.md",
         "schedule-codex-tasks-aws.md"
@@ -29,9 +30,9 @@
   ],
   "pages": {
     "keep-codex-running-after-laptop-closes.md": {
-      "description": "Learn what must move off your laptop, which state must persist, and how a self-hosted AWS handoff keeps Codex work running after disconnect.",
+      "description": "Keep Codex or Pi Durable work in an AWS Session, continue after disconnect, and understand what survives worker replacement.",
       "published": "2026-09-07",
-      "reviewed": "2026-09-07",
+      "reviewed": "2026-10-18",
       "related": [
         "durable-ai-agent-state.md",
         "run-codex-in-aws-with-chatgpt.md"
@@ -48,7 +49,7 @@
     "run-codex-in-aws-with-chatgpt.md": {
       "description": "Run Codex in isolated AWS compute using a deliberately bridged ChatGPT login, with the credential risks and teardown path made explicit.",
       "published": "2026-09-07",
-      "reviewed": "2026-09-07",
+      "reviewed": "2026-10-18",
       "related": [
         "keep-codex-running-after-laptop-closes.md",
         "least-privilege-ai-agent-integrations.md"
@@ -65,7 +66,7 @@
     "durable-ai-agent-state.md": {
       "description": "Preserve an agent conversation, workspace, files, and execution receipts when a process stops or replacement compute takes over.",
       "published": "2026-09-07",
-      "reviewed": "2026-09-07",
+      "reviewed": "2026-10-18",
       "related": [
         "keep-codex-running-after-laptop-closes.md",
         "schedule-codex-tasks-aws.md"
@@ -80,9 +81,9 @@
       }
     },
     "schedule-codex-tasks-aws.md": {
-      "description": "Schedule owned Agents in AWS with fixed capabilities, idempotent Session input and durable Turn results.",
+      "description": "Schedule Codex or Pi Durable Agents in AWS with fixed capabilities, saved input receipts, and durable Turn results.",
       "published": "2026-09-07",
-      "reviewed": "2026-09-07",
+      "reviewed": "2026-10-18",
       "related": [
         "least-privilege-ai-agent-integrations.md",
         "aws-ai-agent-cost.md"
@@ -99,7 +100,7 @@
     "least-privilege-ai-agent-integrations.md": {
       "description": "Give an AI agent bounded Slack or Linear operations by intersecting provider scopes, account grants, run policy, IAM, and network controls.",
       "published": "2026-09-07",
-      "reviewed": "2026-09-07",
+      "reviewed": "2026-10-18",
       "related": [
         "slack-to-linear-agent-workflow.md",
         "schedule-codex-tasks-aws.md"
@@ -116,7 +117,7 @@
     "slack-to-linear-agent-workflow.md": {
       "description": "Build a bounded Slack-to-Linear workflow, understand which permissions are enforced, and add host-side protection when duplicate issues are unacceptable.",
       "published": "2026-09-07",
-      "reviewed": "2026-09-07",
+      "reviewed": "2026-10-18",
       "related": [
         "least-privilege-ai-agent-integrations.md",
         "durable-ai-agent-state.md"
@@ -133,7 +134,7 @@
     "aws-ai-agent-cost.md": {
       "description": "Understand the model, active compute, snapshot, networking, storage, and idle costs behind a self-hosted AI agent running in AWS.",
       "published": "2026-09-07",
-      "reviewed": "2026-09-07",
+      "reviewed": "2026-10-18",
       "related": [
         "self-hosted-vs-managed-cloud-agents.md",
         "schedule-codex-tasks-aws.md"
@@ -150,7 +151,7 @@
     "self-hosted-vs-managed-cloud-agents.md": {
       "description": "Compare self-hosted and managed cloud agents by control plane, identity, credentials, isolation, durability, operations, and team burden.",
       "published": "2026-09-07",
-      "reviewed": "2026-09-07",
+      "reviewed": "2026-10-18",
       "related": [
         "aws-ai-agent-cost.md",
         "keep-codex-running-after-laptop-closes.md"
@@ -162,6 +163,23 @@
       "evidenceCta": {
         "label": "Review Rat Things security gates",
         "href": "../docs/security.md#production-security-gates"
+      }
+    },
+    "run-pi-durable-on-bedrock.md": {
+      "description": "Configure approved Bedrock models, select Pi Durable, and create a Session through the Rat Things CLI or desktop.",
+      "published": "2026-10-18",
+      "reviewed": "2026-10-18",
+      "related": [
+        "durable-ai-agent-state.md",
+        "schedule-codex-tasks-aws.md"
+      ],
+      "cta": {
+        "label": "Compare runtime capabilities",
+        "href": "../docs/agent-runtimes.md"
+      },
+      "evidenceCta": {
+        "label": "Read the runtime selection contract",
+        "href": "../docs/agents-api.md#choose-a-session-runtime"
       }
     }
   }

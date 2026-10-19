@@ -8,6 +8,11 @@ rate limits, destination authorization and output controls needed for untrusted 
 Every consumer follows the same [operating model](operating-model.md); this guide explains how a host
 turns those primitives into its own UX.
 
+Your product can offer Codex and Pi Durable through the same Session API. Set
+`metadata.rat_things_runtime` to `codex` or `pi` when creating an Agent or Session.
+Pi uses approved Bedrock models. Read the [runtime comparison](agent-runtimes.md)
+before exposing model, tool, or environment choices in your UI.
+
 The integration boundary is intentionally flexible and narrow:
 
 - the host authenticates people and services;
