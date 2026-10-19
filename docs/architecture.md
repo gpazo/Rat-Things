@@ -111,22 +111,25 @@ service.
 
 The opt-in `session_checkpoints_enabled` deployment setting adds a private host checkpoint
 protocol for idle managed Sessions with S3 Files. The host seals input and file admission,
-requires each loaded native thread to acknowledge persistence shutdown, closes the native
-process, stops remaining guest writers, drains the Session journal and strictly syncs storage.
+flushes and closes the selected runtime, stops remaining guest writers, drains the
+Session journal and strictly syncs storage. Codex requires each loaded native thread to
+acknowledge persistence shutdown. Pi closes its engine after saving the root context.
 Only then does it publish a single-use handoff. A replacement claims that handoff before any
-workspace preparation, verifies the setup and execution authority, and resumes the exact native
-thread. It retains workspace files and sandbox identity without replaying setup commands.
+workspace preparation, verifies the setup and execution authority, and restores the saved
+runtime state. It retains workspace files and sandbox identity without replaying setup commands.
 System packages are reinstalled on the new worker. Failed or ambiguous shutdown cannot publish
 a new handoff. Abandoned or consumed handoffs recover on durable input retry only after the exact
 previous execution is confirmed terminated. Automatic idle hibernation is a separate policy.
 
 Session forks build on explicit checkpointing. The source's Session admission lock and bounded
 snapshot lease prevent new work and deletion during copying. A trusted child worker copies only
-the workspace and root native rollout using directory handles without following symbolic links.
+the permitted workspace files using directory handles without following symbolic links.
 After syncing and publishing an immutable snapshot, it releases the source and creates a separate
 mutable child root. Child credentials are prepared under the child's identity, and vault and
-network policies may only narrow. Native `thread/fork` receives the captured Turn boundary and
-creates a new root identity. Lineage and private recovery Items belong to the child, so deleting
+network policies may only narrow. Codex also copies the root native rollout and uses
+`thread/fork` at the captured Turn boundary. Pi saves the root's model context and recovery
+history, then initializes a new conversation from that snapshot. Lineage and private recovery
+Items belong to the child, so deleting
 the source cannot remove the child's conversation context. Public child Items and Turns describe
 only work performed after the fork.
 
@@ -165,7 +168,7 @@ history.
 ## Authority
 
 Actor attribution, resource ownership, input source, output destination and
-credential subject remain distinct. Provider signatures are checked before payload
+credential subject remain distinct. Provider authentication is checked before payload
 parsing. Repository URLs use HTTPS and an allowlisted host. A notification
 connection does not grant the Agent access to that provider.
 
@@ -175,10 +178,8 @@ brokers check operation and resource authority before reading a credential. Ther
 is no pending human-approval state: an unexpected approval-shaped Codex request
 fails closed. See [security](security.md) and [capability boundaries](capability-envelope.md).
 
-The installed API remains an engineering preview. SDK type and route alignment
-alone do not establish complete behavioral compatibility or deployed AWS recovery
-coverage. Keep provisioning and model calls explicit when validating deployment
-behavior.
+Rat Things is an engineering preview. See the [API guide](agents-api.md) and
+[capabilities page](status-and-roadmap.md) for supported behavior and operational limits.
 
 ## Persistent worker isolation
 

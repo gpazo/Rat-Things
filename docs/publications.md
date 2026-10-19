@@ -103,7 +103,7 @@ sensitive browser capabilities.
 
 Add a new member to the versioned `PublicationSpec` tagged union and implement one
 `PublicationBuilder`. A builder receives catalog blobs and returns a directory plan or diagnostics;
-it does not import AWS clients, mint URLs, or write objects. Register it at composition time and add
-focused planning tests. The publication service owns storage and delivery.
+it does not import AWS clients, mint URLs, or write objects. Register it at composition time.
+The publication service owns storage and delivery.
 
 See [durable files](durable-files.md) for artifact limits, retention, and transfer behavior.

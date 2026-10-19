@@ -55,8 +55,8 @@ Sessions belong to the authenticated creator of the matching source binding.
 | `POST /v1/integrations/connections/{connectionId}/revoke` | Required | Revoke the connection and its credential |
 | `GET /v1/integrations/connection-sets` | Required | List reusable multi-account connection sets |
 | `POST /v1/integrations/connection-sets` | Required | Create a reusable multi-account connection set |
-| `GET /v1/integrations/source-bindings` | Required | List verified-source capability bindings |
-| `POST /v1/integrations/source-bindings` | Required | Bind a verified source selector to an owned Agent and environment |
+| `GET /v1/integrations/source-bindings` | Required | List the owner's provider source bindings |
+| `POST /v1/integrations/source-bindings` | Required | Bind an operator-configured provider selector to an owned Agent and environment |
 | `GET /__share/{token}` | Bearer token | Redeem a publication grant for host-only CloudFront signed cookies |
 | `POST /webhooks/github` | Provider signature | Optional GitHub event ingress; verifies the raw body before normalization |
 | `POST /webhooks/gitlab` | Provider signature | Optional GitLab event ingress with signed-standard and legacy verification |

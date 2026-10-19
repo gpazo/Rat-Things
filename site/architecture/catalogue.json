@@ -2470,7 +2470,7 @@
     {
       "id": "environment",
       "title": "Environment",
-      "description": "Choose no command environment, an AWS-managed workspace, or a self-hosted executor. The API, harness and Session storage remain in your AWS account.",
+      "description": "Choose no command environment or an AWS-managed workspace. Codex also supports a self-hosted executor. Pi managed workspaces require S3 Files and Session checkpoints. The API, harness and Session storage remain in your AWS account.",
       "sources": [
         {
           "file": "src/core/environment-service.ts",

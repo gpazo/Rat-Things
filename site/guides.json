@@ -161,8 +161,8 @@
         "href": "#a-decision-worksheet"
       },
       "evidenceCta": {
-        "label": "Review Rat Things security gates",
-        "href": "../docs/security.md#production-security-gates"
+        "label": "Review deployment responsibilities",
+        "href": "../docs/security.md#deployment-responsibilities"
       }
     },
     "run-pi-durable-on-bedrock.md": {

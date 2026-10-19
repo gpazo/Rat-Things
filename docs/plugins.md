@@ -428,21 +428,16 @@ and its Sessions; provider attribution does not grant ownership or embed a crede
 delegate arbitrary selectors to tenants. For Slack, prefer `slack-events`: it derives `teamId` from
 the verified OAuth Connection and atomically refuses a competing exact workspace claim.
 
-## Built-in and fixture integrations
+## Built-in integrations
 
 | Plugin | Operations | Availability |
 | --- | --- | --- |
 | Linear | Team/workflow discovery, issue search/get/create/update, comment create | Built in |
 | Slack | API test, message search/post, reaction add | Built in |
 | Stripe | Customer search, invoice list, refund create | Built in |
-| Fixture CRM | Record search/create with two permission-distinct accounts | Tests only |
 
 The HTTP adapters pin credential-free API base URLs, reject redirects and origin escapes, bound
-request/response bodies, and attach credentials only inside trusted code. Fixture CRM is compiled
-only when `INTEGRATION_PLUGIN_BASE_URLS` supplies its base URL. It exists to prove onboarding,
-verified identity, provider scopes, multiple accounts, autonomous read/write intersection,
-exactly-one fixture mutation, and secret non-disclosure without depending on a customer's
-third-party account.
+request/response bodies, and attach credentials only inside trusted code.
 
 ## Add a trusted integration
 
@@ -459,9 +454,8 @@ Integration plugins are trusted TypeScript adapters compiled into the deployment
    relative paths from validated inputs. Never let the model provide an origin.
 5. Register the adapter in `src/plugins/integrations/builtins.ts` and rebuild the affected Lambda
    packages and worker image.
-6. Add contract, simulation, LocalStack, and disposable live-AWS tests. Prove a read, an
-   autonomously admitted write, a denied credential/scope, account selection, and absence of secret
-   values.
+6. Follow the [integration contributor checks](../testing/README.md#integration-adapters)
+   before enabling the adapter in a deployment.
 
 Ingress signature parsing remains in `src/ingress`/`src/channels`; outbound result notification
 remains in `src/delivery`. Agent-callable integration operations belong here. The architecture check

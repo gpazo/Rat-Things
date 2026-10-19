@@ -66,12 +66,14 @@ networking, and selected capabilities before launch; Rat Things has no mid-Turn 
 
 ## Hand the same experience to AWS
 
-First deploy the cloud handoff from the device where Codex is signed in:
+First deploy the cloud handoff from the device where Codex is signed in. Replace
+`YOUR_ADMITTED_MODEL` with an exact model ID available to that Codex account:
 
 ```bash
 npm run quickstart:aws -- \
   --profile rat-things-sandbox \
-  --region us-west-2
+  --region us-west-2 \
+  --model YOUR_ADMITTED_MODEL
 ```
 
 The quickstart validates the local file-based ChatGPT login, shows the credential warning below,
@@ -82,11 +84,14 @@ deliberately explicit:
 npm run quickstart:aws -- \
   --profile rat-things-sandbox \
   --region us-west-2 \
+  --model YOUR_ADMITTED_MODEL \
   --yes \
   --accept-codex-credential-risk
 ```
 
-After deployment, create a Session using an admitted model:
+After deployment, [configure the CLI endpoint and AWS identity](quickstart.md#connect-an-installed-deployment)
+in your shell. The quickstart cannot export those settings into its parent shell.
+Then create a Session using an admitted model:
 
 ```bash
 rat-things sessions create --model YOUR_ADMITTED_MODEL \

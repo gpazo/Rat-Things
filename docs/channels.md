@@ -298,8 +298,7 @@ To enable it:
 3. Put the OAuth application's `client_id`/`client_secret` and the separate Slack signing secret in
    Secrets Manager. Configure their ARNs and enable the Slack webhook route; do not store an issued
    bot or user token in Terraform.
-4. Complete the Connections-page flow or
-   `rat-things connect slack --oauth --wait --access read-write --alias slack-work`.
+4. Run `rat-things connect slack --oauth --wait --access read-write --alias slack-work`.
 5. Run `rat-things slack-events slack-work --agent-id agent_example --json`. It derives the team selector
    from the verified Connection, creates one owner Connection Set/binding, and rejects a competing
    Connection for the same workspace. The service Connection remains write-capable for trusted

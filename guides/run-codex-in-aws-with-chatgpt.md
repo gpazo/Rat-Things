@@ -67,12 +67,15 @@ That initial local run is read-only and does not give shell commands network acc
 
 ## Deploy the bridge deliberately
 
-Use a disposable AWS sandbox account or isolated sandbox role for the first proof:
+Use a disposable AWS sandbox account or isolated sandbox role for your first
+deployment. Replace `YOUR_ADMITTED_MODEL` with an exact model ID available to your
+signed-in Codex account:
 
 ```bash
 npm run quickstart:aws -- \
   --profile rat-things-sandbox \
-  --region us-west-2
+  --region us-west-2 \
+  --model YOUR_ADMITTED_MODEL
 ```
 
 Before writing to AWS, the quickstart reports the selected account, Region, MicroVM image,
@@ -86,6 +89,7 @@ For an unattended setup, the acknowledgement cannot be implied by `--yes`:
 npm run quickstart:aws -- \
   --profile rat-things-sandbox \
   --region us-west-2 \
+  --model YOUR_ADMITTED_MODEL \
   --yes \
   --accept-codex-credential-risk
 ```

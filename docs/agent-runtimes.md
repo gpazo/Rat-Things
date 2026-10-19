@@ -14,8 +14,10 @@ console expose the same resources. Schedules and provider bindings can start wor
 from a saved Agent configured for either runtime.
 
 Rat Things resolves tools and permissions before launch. Both runtimes run under
-a separate non-root identity in isolated AWS compute. Integration credentials stay
-behind host-side brokers. An agent cannot expand its own access during a Turn.
+a separate non-root identity in isolated AWS compute. Built-in integration credentials
+and service-origin MCP credentials stay behind host-side brokers. Environment-origin
+MCP can expose its configured credentials to the environment process. An agent cannot
+expand its own access during a Turn; see the [credential boundaries](security.md).
 
 | Capability | Codex | Pi Durable |
 | --- | --- | --- |

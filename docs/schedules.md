@@ -32,14 +32,19 @@ Use the authenticated control endpoint:
 
 The `openai_hosted` discriminator is the upstream API spelling; this deployment
 runs that managed environment in your AWS account. A `none` environment is also
-available. Self-hosted executors must connect before the connection deadline.
+available. Codex supports self-hosted executors, which must connect before the
+connection deadline. Pi managed environments require S3 Files and Session checkpoints.
+
+Schedules inherit the Agent's runtime unless the schedule sets `"runtime": "codex"`
+or `"runtime": "pi"`. Each accepted occurrence pins its runtime choice for retries.
 
 Expressions use EventBridge `rate(...)`, `cron(...)` or `at(...)` syntax; `timezone`
 is an IANA time zone. Input templates recognize `{{scheduled_at}}` and `{{schedule_id}}`.
 The scheduled instant is normalized to UTC. Retries reuse the occurrence's saved configuration
 and Session ID. `overlap: "skip"` suppresses an occurrence while the previous
-Session is `in_progress` or awaiting creation; `"allow"` permits separate concurrent
-Sessions. Paused schedules and stale generations accept no new occurrences.
+Session is `in_progress` or awaiting creation. A Session in `requires_action` does
+not suppress the next occurrence. `"allow"` permits separate concurrent Sessions.
+Paused schedules and stale generations accept no new occurrences.
 Already accepted work continues with its saved configuration.
 
 The CLI uses the same contract:
@@ -52,7 +57,7 @@ rat-things schedules pause sched_example
 
 ## Provider bindings
 
-Provider adapters verify signatures before parsing or saving input. Create an
+Provider adapters authenticate requests before parsing or saving input. Create an
 owned Agent, then use `POST /v1/integrations/source-bindings` on the control endpoint:
 
 ```json

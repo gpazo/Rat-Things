@@ -130,8 +130,7 @@ OAuth is opt-in per installed plugin and does not require a central Rat service:
    Region. Do not put either value in Terraform state.
 4. Add `plugin-id = "SECRET_ARN"` to `integration_oauth_app_secret_arns`, apply again, and confirm
    `GET /v1/integrations/plugins` reports `oauthInstallation.status = configured`.
-5. Use the desktop Connections page or
-   `rat-things connect PLUGIN --oauth --wait --access read-only`. Omit `--wait` when another
+5. Run `rat-things connect PLUGIN --oauth --wait --access read-only`. Omit `--wait` when another
    operator will open the URL and the initiating shell should return immediately.
 
 For Slack, request bot scopes `app_mentions:read`, `chat:write`, and `reactions:write` plus user
@@ -169,11 +168,6 @@ or MicroVM access. Configure `enable_connection_health_monitor`,
 `connection_health_check_limit`, and `connection_health_check_concurrency` when provider limits or
 deployment size require a different cadence.
 
-The live-E2E deploy helper reloads saved runtime configuration before updating an existing
-deployment. OAuth app ARNs, webhook toggles/signing-secret paths, model selection and backend
-configuration survive a redeploy unless an explicit supported environment variable overrides them.
-Review the generated configuration before applying changes.
-
 MicroVM builds and runs without S3 Files use AWS-managed internet egress. MicroVM
 Sessions with S3 Files use the managed network connector, private subnet, service
 endpoints and NAT gateway. EC2 workers also require S3 Files. Persistent storage is
@@ -195,7 +189,7 @@ A cold launch must boot the MicroVM and prepare storage before the selected runt
 conversation can reuse mounted storage and native agent state. Diagnose these phases separately
 using the [startup runbook](runbook.md#slow-conversation-startup-or-codex-initialization).
 
-## Remote Session smoke test
+## Create your first remote Session
 
 Build the CLI and configure the Agents endpoint from Terraform output. This
 invokes the deployment's admitted model and provisions execution on demand.
@@ -204,14 +198,15 @@ invokes the deployment's admitted model and provisions execution on demand.
 npm run build
 export RAT_THINGS_AGENTS_API_URL="$(terraform -chdir=infra output -raw agents_api_base_url)"
 export AWS_REGION="<stack region>"
-npm run rat-things -- sessions create --model YOUR_ADMITTED_MODEL --input "Return the remote smoke-test marker"
+npm run rat-things -- sessions create --model YOUR_ADMITTED_MODEL --input "Draft a release checklist."
 npm run rat-things -- sessions turns sess_example
 npm run rat-things -- sessions items sess_example
 npm run rat-things -- sessions send sess_example --input "Continue the review."
 npm run rat-things -- sessions delete sess_example
 ```
 
-Session deletion closes its private harness; cancellation stops the current Turn
+Session deletion closes its private harness and removes API access to its history
+and artifacts. Export anything you need first. Cancellation stops the current Turn
 while preserving the Session. For command execution, provide a standard Session
 request with a managed environment and declared tools; see [Agents API](agents-api.md).
 

@@ -78,8 +78,10 @@ when containment is needed, then reconcile the provider's state.
 ## Generic input is different
 
 Function results and Session input can supply data needed to continue. They cannot modify the
-Session's resolved capability configuration. Pending native requests are tied to the active
-harness; durable Turns, Items and checkpoints preserve completed history across reconnection.
+Session's resolved capability configuration. Pi preserves committed pending function calls
+and their identities across worker replacement. Codex's pending native requests depend on
+the active harness. Durable Turns, Items and checkpoints preserve saved history according
+to each [runtime's recovery rules](agent-runtimes.md#conversation-state-and-workspace-files).
 
 Continue with [security](security.md), [integrations and grants](plugins.md), and
 [the Agents API](agents-api.md).

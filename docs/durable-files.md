@@ -48,8 +48,9 @@ immediate physical erasure of versioned storage. Keep a separate copy when work 
 outlive that retention window.
 
 Write deliverables with clear names, verify their contents, and keep tool access
-within the Agent's declared capabilities. Filesystem writes and browser/rendering
-tools require an environment and the appropriate declared tools.
+within the Agent's declared capabilities. Writing files inside a managed workspace
+requires a managed environment. Browser and rendering capabilities come from declared
+tools; a remote function or service-origin MCP tool can operate without that workspace.
 
 ## Sharing
 

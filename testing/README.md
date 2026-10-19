@@ -7,6 +7,18 @@ self-checking simulation and an interactive trace report. See the
 [command schedule harness](time-travel/README.md) for exploration, verified
 replay, inspection, branching, and minimization commands.
 
+## Integration adapters
+
+Use contract, simulation, LocalStack, and opt-in disposable AWS tests when adding
+a trusted integration. Cover reads, autonomously admitted writes, denied
+credentials and scopes, account selection, and absence of secret values in output.
+
+The Fixture CRM adapter uses synthetic accounts with different permissions. It is
+registered only when `INTEGRATION_PLUGIN_BASE_URLS` supplies a `fixture-crm` URL.
+Its scenarios exercise onboarding, provider identity and scopes, multiple accounts,
+permission intersection, duplicate-write handling, and secret non-disclosure without
+using a customer's third-party account. Keep it out of ordinary deployments.
+
 ## Agents API native compatibility gate
 
 `npm run test:agents:parity` runs the Agents suites with strict native interruption
@@ -168,6 +180,12 @@ not change their environment or contaminate JSON output. Install `jq` before
 running the shell fixtures.
 
 ## Worker infrastructure plans
+
+Release security checks should exercise cancellation, worker replacement, prompt
+injection, malicious repositories, SSRF, cross-owner access, and real provider payloads
+against the intended enforcement boundaries. Local conformance fixtures do not establish
+deployed IAM, guest isolation, network policy, or provider guarantees. Keep live AWS
+checks opt-in and use disposable resources.
 
 With Terraform 1.15.8 installed, run `npm run test:infra`. Mocked AWS providers exercise
 EC2-only and combined worker configurations, including S3 Files principals and MicroVM

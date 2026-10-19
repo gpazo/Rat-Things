@@ -154,6 +154,11 @@ prove command-process continuity.
 
 ### Deploy, test and remove fixtures
 
+The live-E2E deploy helper reloads saved runtime configuration before updating an
+existing deployment. OAuth app ARNs, webhook toggles and signing-secret paths, model
+selection, and backend configuration survive a redeploy unless a supported environment
+variable overrides them. Review the generated configuration before applying changes.
+
 ```bash
 AWS_E2E_REAL_CODEX=true npm run aws:e2e:deploy -- DEPLOYMENT_ID
 npm run aws:e2e:test -- DEPLOYMENT_ID

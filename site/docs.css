@@ -26,7 +26,7 @@ body { margin: 0; }
   -webkit-font-smoothing: antialiased;
 }
 
-.docs-body a { color: inherit; }
+.docs-body :where(a) { color: inherit; }
 .docs-body :focus-visible { outline: 2px solid var(--rt-accent); outline-offset: 3px; }
 .docs-body img { display: block; max-width: 100%; }
 .docs-body button, .docs-body input { font: inherit; }
@@ -39,8 +39,8 @@ body { margin: 0; }
   z-index: 100;
   padding: 0.7rem 1rem;
   border-radius: 8px;
-  background: var(--docs-strong);
-  color: #161718;
+  background: var(--rt-primary-fill);
+  color: var(--rt-primary-text);
   font-weight: 600;
   text-decoration: none;
 }
@@ -135,7 +135,7 @@ body { margin: 0; }
   text-decoration: none;
 }
 .docs-button:hover, .docs-button:focus-visible { border-color: var(--docs-strong); background: rgba(212, 213, 215, 0.08); }
-.docs-button-primary { background: var(--docs-strong); color: #161718; }
+.docs-button-primary { background: var(--rt-primary-fill); color: var(--rt-primary-text); }
 .docs-button-primary:hover, .docs-button-primary:focus-visible { background: #e5e6e8; color: #161718; }
 
 .docs-paths { display: grid; grid-template-columns: 1fr 1fr; gap: 0.8rem; margin: clamp(3rem, 7vw, 5rem) 0 0; }
@@ -298,7 +298,7 @@ body { margin: 0; }
 .guide-cta-row { display: flex; flex-wrap: wrap; gap: 0.7rem; margin-top: 1.5rem; }
 .guide-cta { display: inline-flex; align-items: center; gap: 0.7rem; padding: 0.75rem 0.9rem; border: 1px solid var(--docs-line-strong); border-radius: 9px; color: var(--docs-strong); font-size: 0.78rem; font-weight: 600; text-decoration: none; }
 .guide-cta:hover, .guide-cta:focus-visible { border-color: var(--docs-strong); }
-.guide-cta-primary { border-color: rgba(231, 232, 235, 0.5); background: var(--docs-strong); color: #18191a; }
+.guide-cta-primary { border-color: var(--rt-primary-fill); background: var(--rt-primary-fill); color: var(--rt-primary-text); }
 .guide-related { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.7rem; margin-top: 2rem; padding-top: 1.2rem; border-top: 1px solid var(--docs-line); }
 .guide-related h3 { grid-column: 1 / -1; margin: 0 0 0.2rem; color: var(--docs-muted); font: 600 0.72rem/1.4 var(--rt-mono); letter-spacing: 0; }
 .guide-related > a { display: flex; flex-direction: column; gap: 0.4rem; padding: 0.9rem; border: 1px solid var(--docs-line); border-radius: 9px; text-decoration: none; }

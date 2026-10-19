@@ -446,7 +446,7 @@ function renderGuidesHome(groups, documents) {
         <h1>Practical guides for<br>durable cloud agents.</h1>
         <p class="guide-home-lede">Start with the problem and build the agent second. These guides cover Codex and Pi Durable, Bedrock setup, durable state, connected accounts, schedules, and self-hosted AWS execution. Each separates the general design problem from one concrete Rat Things implementation.</p>
         <div class="guide-home-rule">
-          <span>Direct answer</span><span>Tradeoffs</span><span>Working example</span><span>Measured evidence</span>
+          <span>Direct answer</span><span>Tradeoffs</span><span>Working example</span><span>Current limits</span>
         </div>
         ${sections}
       </main>`,
@@ -472,8 +472,8 @@ function renderGuidePage({ guide, previous, next }) {
   const ctaHref = rewriteGuideHref(guide.cta.href, guide.file);
   const evidenceCtaHref = rewriteGuideHref(guide.evidenceCta.href, guide.file);
   const article = guide.rendered.replace(
-    '<h2 id="evidence-and-limitations">',
-    `<p class="guide-inline-action"><a href="${escapeHtml(ctaHref)}">${escapeHtml(guide.cta.label)} <span aria-hidden="true">→</span></a></p><h2 id="evidence-and-limitations">`,
+    '<h2 id="current-boundaries">',
+    `<p class="guide-inline-action"><a href="${escapeHtml(ctaHref)}">${escapeHtml(guide.cta.label)} <span aria-hidden="true">→</span></a></p><h2 id="current-boundaries">`,
   );
   const previousLink = previous
     ? `<a class="page-step page-step-previous" href="../${previous.slug}/"><small>Previous guide</small><span>${escapeHtml(previous.title)}</span></a>`
@@ -506,7 +506,7 @@ function renderGuidePage({ guide, previous, next }) {
             <article class="doc-article guide-article">${article}</article>
             <aside class="guide-next-actions" aria-labelledby="guide-next-actions-title">
               <p class="docs-card-kicker">Continue from here</p>
-              <h2 id="guide-next-actions-title">Apply the answer or inspect the proof.</h2>
+              <h2 id="guide-next-actions-title">Put this guide to work.</h2>
               <div class="guide-cta-row">
                 <a class="guide-cta guide-cta-primary" href="${escapeHtml(ctaHref)}">${escapeHtml(guide.cta.label)} <span aria-hidden="true">→</span></a>
                 <a class="guide-cta" href="${escapeHtml(evidenceCtaHref)}">${escapeHtml(guide.evidenceCta.label)} <span aria-hidden="true">→</span></a>
@@ -572,7 +572,7 @@ function guidePageTemplate({ title, description, canonicalPath, assetPrefix, mai
       </nav>
     </header>
     ${main}
-    <footer class="docs-footer"><span>Direct answers backed by the Rat Things implementation and live evidence.</span><a href="${repositoryUrl}/issues">Help improve a guide</a></footer>
+    <footer class="docs-footer"><span>Practical guides to setup, behavior, and operating limits.</span><a href="${repositoryUrl}/issues">Help improve a guide</a></footer>
   </body>
 </html>`;
 }

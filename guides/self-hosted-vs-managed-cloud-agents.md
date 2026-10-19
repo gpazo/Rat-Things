@@ -83,10 +83,9 @@ sanitized environment, root-owned lifecycle process, credential broker, browser 
 policy, and IAM/network controls add layers. Persistent conversation state lives
 outside the worker so saved history remains available after execution ends.
 
-This is an engineering design, not a blanket production claim. The project explicitly remains
-unsuitable for untrusted multi-tenant production until its listed security gates are complete. Read
-the [architecture](../docs/architecture.md#compute-and-environments) and [production security
-gates](../docs/security.md#production-security-gates).
+Rat Things remains an engineering preview and is not ready for untrusted multi-tenant
+production. Read the [architecture](../docs/architecture.md#compute-and-environments) and
+[deployment responsibilities](../docs/security.md#deployment-responsibilities).
 
 ## Decide how agents receive authority
 

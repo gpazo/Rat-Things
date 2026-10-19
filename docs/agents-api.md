@@ -391,9 +391,11 @@ Artifacts rather than relying on a live workspace indefinitely.
 Deployments that enable private Session checkpoints can release an idle managed worker and
 resume it on new compute while retaining workspace files and conversation history. A successful
 checkpoint does not rerun setup commands or increment the environment reset count. System
-packages are installed again because the operating system is new. Unexpected worker loss without
-a valid handoff still resets the workspace and reapplies its declared inputs. Checkpointing is
-host-controlled; there is no public checkpoint endpoint or automatic idle timer.
+packages are installed again because the operating system is new. Codex replacement without
+a valid handoff resets the workspace and reapplies its declared inputs. Pi managed recovery
+retains flushed workspace files and setup identity after confirmed termination of the prior
+worker. Neither runtime restores running processes. Checkpointing is host-controlled; there
+is no public checkpoint endpoint or automatic idle timer.
 
 ## Fork a Session
 

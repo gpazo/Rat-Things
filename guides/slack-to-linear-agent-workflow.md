@@ -131,9 +131,9 @@ The conversation input itself should have an idempotency key when a client may r
 That prevents duplicate accepted input for the same semantic request; it does not automatically make an
 external provider write exactly once.
 
-## Verify the effect, not the prose
+## Reconcile the result
 
-A successful agent answer is not proof that Linear changed correctly. Inspect:
+Saved tool calls and provider records show what happened. When checking a result, inspect:
 
 - the durable tool-call ledger and settled outcomes;
 - the account alias used for each operation;
@@ -141,10 +141,9 @@ A successful agent answer is not proof that Linear changed correctly. Inspect:
 - the returned Linear identifier and URL; and
 - a provider read-back of the issue.
 
-The acceptance target for the example is one Slack search, team discovery when necessary, one
-Linear search before any write, and zero or one issue creation. The available-operation policy does
-not guarantee that order or count, so fail the acceptance test if the ledger differs. If the write
-response is ambiguous, inspect Linear before repeating it.
+An operation allowlist limits which calls are available; it does not enforce their
+order or prevent repeated writes. Put duplicate-creation protection in the trusted
+tool implementation. If a write response is ambiguous, inspect Linear before repeating it.
 
 ## Current boundaries
 

@@ -189,10 +189,8 @@ still runs as UID 10001. Suspended memory and disk are sensitive Session state a
 to configured expiry and explicit teardown. Lambda MicroVM lifetime is bounded; select the EC2
 backend for connected-process requirements beyond that bound.
 
-## Production security gates
+## Deployment responsibilities
 
 Deployment review must cover IAM/pass-role scope, authorizer ownership, guest credential and
 metadata isolation, outbound network policy, replay/unknown-outcome handling, budget limits and
-artifact access. Test cancellation, worker replacement, prompt injection, malicious repositories,
-SSRF, cross-owner access and real provider payloads. Keep release provenance and secret rotation
-procedures current. Local conformance fixtures do not establish these deployed guarantees.
+artifact access. Keep release provenance and secret rotation procedures current.

@@ -10,12 +10,9 @@ Each inherits the same conversation and files, then develops its own design.
 <video controls playsinline preload="none" style="width:100%;border-radius:12px" poster="https://gpazo.github.io/Rat-Things/assets/session-fork-demo-poster.jpg?v=five-forks-42s" src="https://gpazo.github.io/Rat-Things/assets/session-fork-demo.mp4?v=five-forks-42s" aria-label="Session fork demo: evaluate five design directions and keep one"></video>
 
 [Watch or download the 42-second video](https://gpazo.github.io/Rat-Things/assets/session-fork-demo.mp4?v=five-forks-42s).
-The captioned video replays five live Session forks, using their actual generated
-HTML. Each design is reviewed on desktop and mobile for brief fit, hierarchy,
-mobile layout, and visual character. The comparison uses editorial judgments,
-with a strength and tradeoff for each option. After choosing a direction, the
-other four Sessions are discarded. The presentation removes wait times. The
-remaining Sessions were cleaned up after the recorded run.
+The video compares five generated designs, chooses one direction, and discards
+the other children. Waiting periods are shortened. Each fork remains independent,
+so continuing one does not change the others.
 
 Music: Claude Debussy, *Clair de lune*, performed by Laurens Goedhart
 ([source](https://commons.wikimedia.org/wiki/File:Clair_de_lune_(Claude_Debussy)_Suite_bergamasque.ogg)),

@@ -49,6 +49,7 @@ npm run rat-things -- sessions create --model "$RAT_THINGS_MODEL" \
   --input "Explain Agents, Sessions and Turns." --stream
 ```
 
+If you use a named AWS profile, also set `AWS_PROFILE` to that profile's name.
 The CLI obtains an owner-scoped API key using the workstation's AWS identity.
 The identity must be allowed to invoke the deployment's token issuer. Model
 requests use the deployment's configured provider and credentials.

@@ -86,10 +86,11 @@ The trusted root process resolves configured secrets. Agent subprocesses do not 
 MicroVM AWS credential chain unless `allow_agent_aws_credential_chain=true` is explicitly set. The
 default ChatGPT path reads the secret selected by `codex_auth_file_secret_arn`, validates its
 file-based login, writes a mode-`0600` runtime `auth.json`, persists validated refresh rotation, and
-removes the runtime copy after the turn. Never put the value in Terraform, an image, Run, state
-record, or log. Codex and repository code run under the same agent UID and can read that file while
-the turn is active, so this bridge is only for trusted owner-operated agents; theft of its renewable
-refresh token can impersonate the Codex login even though the file has no password or MFA secret.
+removes the runtime copy at execution cleanup. A connected Session can retain it between
+Turns. Never put the value in Terraform, an image, Run, state record, or log. Codex and
+repository code run under the same agent UID and can read the active file, so this bridge
+is only for trusted owner-operated agents. Theft of its renewable refresh token can
+impersonate the Codex login. Validation preserves unknown fields; protect the whole bundle.
 Optional Bedrock mode mints a short-term token from the execution role;
 `codex_bedrock_model_ids` restricts inference to exact model IDs.
 The Agents model catalog is operator-declared rather than inferred from Codex support metadata.

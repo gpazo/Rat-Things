@@ -9,7 +9,9 @@ runs the Dockerfile, starts the lifecycle server, and snapshots the initialized 
 The lifecycle server and trusted `runner.mjs` run as root because orchestration needs mount/process
 authority and the MicroVM execution role for DynamoDB, S3, and narrowly scoped Secrets Manager
 reads. The runner starts the selected Codex or Pi Durable process as UID/GID 10001
-with a sanitized environment. Neither receives execution-role credential-chain variables.
+with a sanitized environment. Codex receives no execution-role credential-chain variables
+by default; `ALLOW_AGENT_AWS_CREDENTIAL_CHAIN=true` explicitly exposes them. The Pi child
+uses a separate restricted environment and does not inherit those variables.
 Integration tokens remain transient inside the trusted runner and are
 passed directly to a fixed-origin adapter only after the fixed provider/grant/profile/resource
 authorization succeeds.

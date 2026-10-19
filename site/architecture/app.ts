@@ -208,7 +208,7 @@ function lookInside() {
 }
 
 function sources(node: { sources: SourceReference[] }) {
-  return `<details class="source-details"><summary>Implementation · ${node.sources.length} source${node.sources.length === 1 ? "" : "s"}</summary>${node.sources.map((source) => `<a class="source-link" href="${escape(source.url)}" target="_blank" rel="noreferrer">${escape(source.file)} ↗<span>Line ${source.line} · ${escape(source.anchor)}</span></a>`).join("")}<p class="source-note">Source anchors are checked at build time. Explanations are reviewed alongside code changes.</p></details>`;
+  return `<details class="source-details"><summary>Implementation · ${node.sources.length} source${node.sources.length === 1 ? "" : "s"}</summary>${node.sources.map((source) => `<a class="source-link" href="${escape(source.url)}" target="_blank" rel="noreferrer">${escape(source.file)} ↗<span>Line ${source.line} · ${escape(source.anchor)}</span></a>`).join("")}</details>`;
 }
 
 function endpointTitle(id: string) {
@@ -544,9 +544,9 @@ async function boot() {
     )
     .join("");
   $("provenance").textContent =
-    `${data.provenance.sourceCount} source files · ${data.provenance.revision.slice(0, 7)} · ${data.provenance.fingerprint.slice(0, 6)}`;
+    "Architecture overview · Engineering preview";
   $("provenance").title =
-    "Source revision and content fingerprint. Spatial schematic, not live deployment telemetry.";
+    "System architecture, not live deployment telemetry.";
   state = readLocation();
   render();
   restoreDetails();
