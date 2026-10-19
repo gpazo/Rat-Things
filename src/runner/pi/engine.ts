@@ -7,6 +7,7 @@ import type { SessionLaunch, SessionModelSettings } from '../../domain/session-e
 import { PI_REGISTRY, piModel, validateRuntimeAgent, type RuntimePin } from '../../domain/session-runtime.js';
 import { canonicalJson } from '../../domain/json.js';
 import { ChildKeeperTask, coordinationTools } from './coordination.js';
+import { planSteerReceipt, planSteerTarget, planCancelReceipt, planPiCancel, planPiRecoveryExhaustion, planPiRecoveryMarkers } from './controls.js';
 import { functionTools, resolvePiFunction } from './functions.js';
 import { applyPiCommit, piImageHasLiveTasks, projectPi, projectPiStorage, readPiImage, type PiCommittedImage } from './projection.js';
 import { CommandsDoc, FunctionsDoc, LinksDoc, PI_CONTEXT, admitPiInput, asConversationId, json, piInput, publicCallId, type PiEffectTool, type PiFunctionResult, type PiRootCheckpoint, type PiToolEffectHandler } from './protocol.js';
@@ -136,18 +137,13 @@ export async function openPiEngine(options: PiEngineOptions): Promise<PiEngine> 
         const live = await tx.doc(LiveDoc, asConversationId(link.conversationId));
         const commands = await tx.doc(CommandsDoc);
         const previous = commands.operations[key];
-        if (previous?.status === 'settled' || previous?.status === 'stale') return undefined;
+        if (planCancelReceipt(previous) === 'finished') return undefined;
         const inbox = await tx.doc(InboxDoc, asConversationId(link.conversationId));
-        const cancelled = inbox.items.filter(item => item.id === link.submissionId || link.steerIds?.includes(item.id));
-        for (const item of cancelled) tx.settleSubmission(item.id, { status: 'unanswered', reason: 'aborted' });
-        inbox.items = inbox.items.filter(item => !cancelled.some(cancelled => cancelled.id === item.id));
-        if (!live.run?.inputs.some(id => id === link.submissionId || link.steerIds?.includes(id))) {
-          commands.operations[key] = { kind: 'cancel', turnId, fingerprint: turnId, status: previous || cancelled.length ? 'settled' : 'stale' };
-          return undefined;
-        }
-        const taskId = live.run.taskId;
-        commands.operations[key] = { kind: 'cancel', turnId, fingerprint: turnId, status: 'accepted', taskId };
-        return { taskId, conversationId: asConversationId(link.conversationId) };
+        const plan = planPiCancel(link, live.run, previous, inbox.items, turnId);
+        for (const id of plan.cancelled) tx.settleSubmission(id, { status: 'unanswered', reason: 'aborted' });
+        inbox.items = plan.items;
+        commands.operations[key] = plan.command;
+        return plan.target === undefined ? undefined : { taskId: plan.target, conversationId: asConversationId(link.conversationId) };
       }, PI_CONTEXT);
       if (target === undefined) return;
       await harness.abortTask(target.taskId, PI_CONTEXT);
@@ -186,10 +182,7 @@ export async function openPiEngine(options: PiEngineOptions): Promise<PiEngine> 
       await harness.commit(async tx => {
         const commands = await tx.doc(CommandsDoc);
         const previous = commands.operations[commandId];
-        if (previous) {
-          if (previous.kind !== 'steer' || previous.fingerprint !== fingerprint) throw new Error('Pi operation ID already identifies a different command');
-          return;
-        }
+        if (planSteerReceipt(previous, fingerprint) === 'replayed') return;
         const links = await tx.doc(LinksDoc);
         const link = links.turns[turnId];
         if (!link) throw new Error('Unknown Pi Turn');
@@ -197,15 +190,13 @@ export async function openPiEngine(options: PiEngineOptions): Promise<PiEngine> 
         const live = await tx.doc(LiveDoc, conversationId);
         const agent = await tx.doc(AgentDoc, conversationId);
         assertInput(pin, agent.model?.modelId ?? launch.agent.model, input);
-        if (!live.run?.inputs.some(id => id === link.submissionId || link.steerIds?.includes(id))) {
-          commands.operations[commandId] = { kind: 'steer', turnId, status: 'stale', fingerprint };
-          return;
-        }
+        const plan = planSteerTarget(link, live.run, turnId, fingerprint);
+        if (plan.kind === 'stale') { commands.operations[commandId] = plan.command; return; }
         const inbox = await tx.doc(InboxDoc, conversationId);
         const submission = await tx.createSubmission({ conversationId, requestId: `steer:${operationId}`, type: 'input', status: 'queued' });
         inbox.items.push({ id: submission.id, mode: 'steer', content: json(content) });
         link.steerIds = [...link.steerIds ?? [], submission.id];
-        commands.operations[commandId] = { kind: 'steer', turnId, status: 'accepted', fingerprint, taskId: live.run.taskId, submissionId: submission.id };
+        commands.operations[commandId] = { ...plan.command, submissionId: submission.id };
       }, PI_CONTEXT);
     }),
     cancel: turnId => enqueue(() => cancelAccepted(turnId)),
@@ -244,7 +235,7 @@ function forkItem(item: AgentSessionItem): AgentSessionItem {
 }
 
 
-export async function abortPiRecovery(storage: Storage, launch: SessionLaunch, nativeSeq: number): Promise<{ snapshot: SessionRuntimeState; nativeSeq: number; hasLiveTasks: boolean }> {
+export async function abortPiRecovery(storage: Storage, launch: SessionLaunch, nativeSeq: number, now: () => number = Date.now): Promise<{ snapshot: SessionRuntimeState; nativeSeq: number; hasLiveTasks: boolean }> {
   const pin = launch.runtime;
   if (pin?.kind !== 'pi' || pin.engine !== '1.3.0' || pin.schema !== 1 || pin.registryDigest !== PI_REGISTRY) throw new Error('Pi 1.3.0 runtime pin is required');
   const registry = createRegistry();
@@ -256,21 +247,23 @@ export async function abortPiRecovery(storage: Storage, launch: SessionLaunch, n
     const value: unknown = Reflect.get(target, key);
     return typeof value === 'function' ? value.bind(target) : value;
   } });
-  const harness = await Harness.open(tracked, { models: createModels(), registry }, PI_CONTEXT);
+  const harness = await Harness.open(tracked, { models: createModels(), registry, now }, PI_CONTEXT);
   try {
     const links = await harness.snapshot(LinksDoc, PI_CONTEXT);
     if (links?.sessionId !== launch.sessionId) throw new Error('Pi storage belongs to a different Session');
     const before = await projectPiStorage(storage, launch, nativeSeq);
-    const affected = before.snapshot.turns.filter(binding => ['queued', 'in_progress', 'waiting'].includes(binding.turn.status)).map(binding => binding.turn.id);
     const inspection = await harness.inspect(PI_CONTEXT);
+    const plan = planPiRecoveryExhaustion(before.snapshot, inspection);
     await harness.commit(async tx => {
       const links = await tx.doc(LinksDoc);
-      for (const turnId of affected) links.turns[turnId]!.recoveryFailure ??= { message: 'Pi recovery attempts were exhausted.', at: Date.now() };
-      for (const child of Object.values(links.children)) if (child.closedAt === undefined) child.closing = true;
+      const timestamps = plan.affectedTurnIds.map(turnId => ({ turnId, at: links.turns[turnId]!.recoveryFailure?.at ?? now() }));
+      const markers = planPiRecoveryMarkers(links, timestamps);
+      for (const { turnId, failure } of markers.failures) links.turns[turnId]!.recoveryFailure = failure;
+      for (const id of markers.closingChildIds) links.children[id]!.closing = true;
     }, PI_CONTEXT);
-    for (const task of inspection.tasks) await harness.abortTask(task.record.id, PI_CONTEXT);
-    for (const submission of inspection.submissions) if (submission.status === 'queued') await harness.abortSubmission(submission.id, PI_CONTEXT);
-    for (const task of inspection.tasks) await harness.waitForTask(task.record.id, PI_CONTEXT);
+    for (const id of plan.abortTaskIds) await harness.abortTask(id, PI_CONTEXT);
+    for (const id of plan.abortSubmissionIds) await harness.abortSubmission(id, PI_CONTEXT);
+    for (const id of plan.abortTaskIds) await harness.waitForTask(id, PI_CONTEXT);
     const remaining = await harness.inspect(PI_CONTEXT);
     if (remaining.tasks.length || remaining.submissions.length) throw new Error('Pi recovery cleanup left unfinished native work');
     const result = await projectPiStorage(storage, launch, nativeSeq);
