@@ -1,6 +1,6 @@
 import type { AgentsStore, AgentResource } from '../../src/core/agents-ports.js';
 import type { AgentListParams } from '../../src/domain/agents-api.js';
-import { AgentsApiError } from '../../src/domain/agents-api-validation.js';
+import { AgentsApiError, AgentsResourceConflictError } from '../../src/domain/agents-api-validation.js';
 
 export class MemoryAgentsStore implements AgentsStore {
   public readonly resources = new Map<string, AgentResource<unknown>>();
@@ -30,7 +30,7 @@ export class MemoryAgentsStore implements AgentsStore {
   public async commit(writes: Array<{ resource: AgentResource<unknown>; expectedRevision: number }>): Promise<void> {
     for (const { resource, expectedRevision } of writes) {
       const current = this.resources.get(this.key(resource.ownerId, resource.collection, resource.id));
-      if ((current?.revision ?? 0) !== expectedRevision) throw new AgentsApiError(409, 'Resource changed concurrently.', 'conflict');
+      if ((current?.revision ?? 0) !== expectedRevision) throw new AgentsResourceConflictError();
     }
     for (const { resource } of writes) {
       this.resources.set(this.key(resource.ownerId, resource.collection, resource.id), structuredClone(resource));
@@ -39,9 +39,9 @@ export class MemoryAgentsStore implements AgentsStore {
 
   public async delete(resource: AgentResource<unknown>, writes: Array<{ resource: AgentResource<unknown>; expectedRevision: number }> = []): Promise<void> {
     const key = this.key(resource.ownerId, resource.collection, resource.id);
-    if (this.resources.get(key)?.revision !== resource.revision) throw new AgentsApiError(409, 'Resource changed concurrently.', 'conflict');
+    if (this.resources.get(key)?.revision !== resource.revision) throw new AgentsResourceConflictError();
     for (const { resource: next, expectedRevision } of writes) {
-      if ((this.resources.get(this.key(next.ownerId, next.collection, next.id))?.revision ?? 0) !== expectedRevision) throw new AgentsApiError(409, 'Resource changed concurrently.', 'conflict');
+      if ((this.resources.get(this.key(next.ownerId, next.collection, next.id))?.revision ?? 0) !== expectedRevision) throw new AgentsResourceConflictError();
     }
     for (const { resource: next } of writes) this.resources.set(this.key(next.ownerId, next.collection, next.id), structuredClone(next));
     this.resources.delete(key);
