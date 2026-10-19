@@ -107,6 +107,8 @@ describe('native Pi Session engine', () => {
     await first.close();
     const second = await f.open({ mode: 'bounded' });
     expect(second.snapshot().requiredActions).toEqual([action]);
+    await expect(second.toolResult('pi_call_unknown', { success: true, output: 'unknown' })).rejects.toThrow('Unknown Pi function call');
+    expect(second.snapshot().requiredActions).toEqual([action]);
     await second.toolResult(callId, { success: true, output: 'durable result' });
     await second.toolResult(callId, { success: true, output: 'durable result' });
     await expect(second.toolResult(callId, { success: true, output: 'different' })).rejects.toThrow('different content');
