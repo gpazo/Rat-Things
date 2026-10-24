@@ -1,5 +1,7 @@
 # Security and threat model
 
+For a concise introduction, read the [security overview](security-overview.md).
+
 ## Security posture
 
 Treat prompts, webhook fields, repositories, tool results and model output as untrusted.

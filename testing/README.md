@@ -26,7 +26,9 @@ assertions. A stock harness that rejects an interrupted child's follow-up at the
 configured limit fails this gate, even when the ordinary diagnostic suite passes.
 The fixture model servers are local and do not make paid model calls.
 
-The candidate native patch and exact upstream revision are in `runtime/codex/`.
+The ordered native patches and exact upstream revision are in `runtime/codex/`.
+See the [Codex runtime maintenance plan](../runtime/codex/README.md) for patch
+contracts, platform upgrade gates and rollback.
 Prepare or build them in a dedicated directory with sufficient free space:
 
 ```bash

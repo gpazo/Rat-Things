@@ -56,7 +56,9 @@
       "documents": [
         "api.md",
         "architecture.md",
+        "security-overview.md",
         "security.md",
+        "support.md",
         "status-and-roadmap.md"
       ]
     }
@@ -66,6 +68,8 @@
     "status-and-roadmap.md"
   ],
   "descriptions": {
+    "security-overview.md": "Review execution boundaries, permissions, secret handling, storage and current deployment limitations.",
+    "support.md": "Understand which support terms are agreed during the paid assessment and how operators apply verified updates.",
     "local-workspace.md": "Start a durable Session on your own computer, then connect AWS when your work needs more room.",
     "operating-model.md": "Understand the core objects, ownership boundary, permission model, and paths through Rat Things.",
     "quickstart.md": "Deploy the AWS backend and configure an Agent and Session.",
