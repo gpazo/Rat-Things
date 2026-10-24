@@ -155,7 +155,8 @@ fn run() -> Result<(), String> {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([1280.0, 850.0])
-            .with_min_inner_size([760.0, 560.0]),
+            .with_min_inner_size([760.0, 560.0])
+            .with_icon(rat_things_desktop::brand::app_icon()),
         renderer: eframe::Renderer::Glow,
         ..Default::default()
     };

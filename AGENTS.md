@@ -83,7 +83,7 @@ resulting behavior instead of an account of how the finding was discovered.
 ## Visual style
 
 [`BRAND.md`](BRAND.md) is the style guide for every visual surface: the desktop console, the
-GitHub Pages site, documentation pages, the 3D architecture explorer, SVG diagrams and Rat artwork.
+GitHub Pages site, documentation pages, the 3D architecture explorer, SVG diagrams, the brand marks and the app icon.
 Read it before changing any of them.
 
 - `desktop/src/theme.rs` is the reference palette; `site/brand.css` mirrors it as `--rt-*` tokens.
@@ -95,9 +95,10 @@ Read it before changing any of them.
   teal palettes must not return.
 - Inter at weights 400, 500 and 600; sentence case; no glows, radial gradients or tinted shadows.
   Primary buttons use the light fill with dark text.
-- Marks come from `scripts/build-brand-marks.mjs` into `assets/brand/` (the flat mark is also
-  `site/favicon.svg`). Change the generator, not the SVGs. Amber appears only inside the Rat
-  illustration.
+- Marks come from `scripts/build-brand-marks.mjs` into `assets/brand/` and `desktop/assets/brand/`
+  (the feature mark is also `site/favicon.svg`; the `.icns` is the app icon). Change the generator,
+  not its outputs. The mark is a Rat Thing from Snow Crash: a robotic guard dog with wolf lines and
+  radiator fins, never a rodent and never a specific breed.
 
 ## Verification
 

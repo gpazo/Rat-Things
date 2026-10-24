@@ -25,7 +25,7 @@ installed application rather than impersonating the workspace admin who grants c
 
 The adapter sends fixed GraphQL documents only to `https://api.linear.app/graphql`. The model
 cannot supply a query document, provider origin, OAuth scope, or credential. Linear provider
-authority, the persistent Rat grant, the capability profile, and declared tool operation/resource
+authority, the persistent Rat Things grant, the capability profile, and declared tool operation/resource
 narrowing must all admit a call before the host credential broker reads the token.
 
 ## Before you start
@@ -37,7 +37,7 @@ You need:
 - permission to create and read one AWS Secrets Manager secret in the stack Region; and
 - the same Terraform checkout and variables used for that deployment.
 
-Linear's current OAuth flow supports PKCE and rotating refresh tokens. Rat's callback already
+Linear's current OAuth flow supports PKCE and rotating refresh tokens. Rat Things' callback already
 implements one-time state, S256 PKCE, code exchange, refresh fencing, and identity-preserving
 reconnection. The provider details used here come from Linear's
 [OAuth 2.0 guide](https://linear.app/developers/oauth-2-0-authentication) and
@@ -66,7 +66,7 @@ In Linear, open **Workspace settings → API → OAuth applications**, then crea
 5. Save the application, then copy its client ID and client secret into a temporary
    owner-readable file.
 
-The compiled Rat manifest—not the CLI or browser—adds `actor=app`, `prompt=consent`, and scopes
+The compiled Rat Things manifest—not the CLI or browser—adds `actor=app`, `prompt=consent`, and scopes
 `read,write` to the authorization request. `read` is needed for workspace identity, teams, search,
 issues, and comments. `write` is provider authority for the three reviewed write operations; it
 does not expose arbitrary Linear mutations to the agent.
@@ -118,7 +118,7 @@ URL. A `host-required` status means the ARN map has not reached the control plan
 
 ## 5. Install the Linear workspace
 
-Start consent from the authenticated Rat owner that should own the Connection:
+Start consent from the authenticated Rat Things owner that should own the Connection:
 
 ```bash
 rat-things connect linear --oauth --wait \
@@ -130,7 +130,7 @@ The CLI opens a ten-minute authorization URL. A Linear workspace admin chooses t
 approves the app installation. Add `--no-browser` on a headless host and open the printed URL in a
 browser; omit `--wait` if the initiating shell should return immediately.
 
-After the callback, Rat queries Linear's `viewer` and `organization` fields before storing the
+After the callback, Rat Things queries Linear's `viewer` and `organization` fields before storing the
 issued token. The Connection label is derived from that response, and its stable workspace and app
 user IDs are recorded separately. Neither token nor secret value is returned.
 
@@ -143,7 +143,7 @@ rat-things connection consumers linear-work
 ```
 
 Check that the workspace label and provider scopes are expected, health is `healthy/verified`, and
-the Rat grant is `read-write`. Start with `--access read-only` instead when a workflow needs only
+the Rat Things grant is `read-write`. Start with `--access read-only` instead when a workflow needs only
 team discovery, search, and issue inspection.
 
 To reconnect an expired or revoked authorization without changing the alias, grant, or consumers:
@@ -152,7 +152,7 @@ To reconnect an expired or revoked authorization without changing the alias, gra
 rat-things connection reconnect linear-work --oauth --wait
 ```
 
-Rat accepts the replacement only if Linear resolves it to the same workspace and app-user IDs.
+Rat Things accepts the replacement only if Linear resolves it to the same workspace and app-user IDs.
 
 ## 7. Expose bounded operations to an Agent
 
@@ -184,13 +184,13 @@ rat-things connect linear --auth-scheme api-key \
 ```
 
 Linear personal keys are broad and do not report granular OAuth scopes. Prefer OAuth for a shared
-or long-lived deployment, and keep the Rat grant and declared tool operation list narrow either way.
+or long-lived deployment, and keep the Rat Things grant and declared tool operation list narrow either way.
 
 ## Current boundaries
 
-- Linear cannot yet start or continue a Rat conversation through mentions, issue delegation, or
+- Linear cannot yet start or continue a Rat Things conversation through mentions, issue delegation, or
   Agent Session prompts.
-- Rat does not emit Linear Agent Activities or use Linear's native agent-session progress UI.
+- Rat Things does not emit Linear Agent Activities or use Linear's native agent-session progress UI.
 - Issue deletion, archival, labels, projects, cycles, attachments, relations, and administrative
   operations are not installed.
 - Team discovery returns the first 100 teams. Search returns at most 20 issue summaries; issue

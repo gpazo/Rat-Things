@@ -10,14 +10,14 @@
     <meta property="og:title" content="The open-source backend for cloud agents.">
     <meta property="og:description" content="Codex and Pi Durable in your AWS account. One API for isolated workers, Bedrock models, durable Sessions, schedules, and connected tools.">
     <meta property="og:url" content="https://gpazo.github.io/Rat-Things/">
-    <meta property="og:image" content="https://gpazo.github.io/Rat-Things/assets/rat-things-og-v3.jpg">
+    <meta property="og:image" content="https://gpazo.github.io/Rat-Things/assets/brand/rat-things-og.png">
     <meta property="og:image:width" content="1200">
     <meta property="og:image:height" content="630">
-    <meta property="og:image:alt" content="Rat Things cybernetic guard dog with the words VM-level isolation at serverless scale.">
+    <meta property="og:image:alt" content="The Rat Things mark, a robotic guard dog with radiator fins, beside the words VM-level isolation at serverless scale.">
     <meta name="twitter:card" content="summary_large_image">
     <meta name="twitter:title" content="The open-source backend for cloud agents.">
     <meta name="twitter:description" content="Run Codex or Pi Durable on isolated AWS workers. Choose approved Bedrock models and keep agent state outside the worker.">
-    <meta name="twitter:image" content="https://gpazo.github.io/Rat-Things/assets/rat-things-og-v3.jpg">
+    <meta name="twitter:image" content="https://gpazo.github.io/Rat-Things/assets/brand/rat-things-og.png">
     <link rel="canonical" href="https://gpazo.github.io/Rat-Things/overview.html">
     <link rel="icon" href="favicon.svg" type="image/svg+xml">
     <link rel="apple-touch-icon" href="assets/brand/rat-things-mark-1024.png">
@@ -131,7 +131,7 @@
             <div class="section-label">Bring your own experience</div>
             <h2 id="use-title">Use it from<br>the interface you own.</h2>
           </div>
-          <p>Rat Things is a self-hosted AWS stack with no central Rat service. A CLI, your product, another agent, a schedule, or an authenticated provider event can use the same public API and durable Session model.</p>
+          <p>Rat Things is a self-hosted AWS stack with no central Rat Things service. A CLI, your product, another agent, a schedule, or an authenticated provider event can use the same public API and durable Session model.</p>
         </div>
 
         <div class="route-grid">
@@ -144,7 +144,7 @@
           <article class="route-card">
             <p class="card-kicker">Embedded product</p>
             <h3>Your UX, our primitives</h3>
-            <p>Keep customer identity and the provider app in your product or AWS account. The self-hosted Rat stack can run PKCE callbacks and refresh; credentials remain in your Secrets Manager.</p>
+            <p>Keep customer identity and the provider app in your product or AWS account. The self-hosted Rat Things stack can run PKCE callbacks and refresh; credentials remain in your Secrets Manager.</p>
             <code>POST /v1/agents</code>
           </article>
           <article class="route-card">
@@ -162,7 +162,7 @@
           </article>
         </div>
 
-        <p class="route-note">The host decides whether one deployment serves one person or many authenticated users. Rat derives an owner from each trusted principal and keeps Agents, Sessions, Vaults, and files within that boundary.</p>
+        <p class="route-note">The host decides whether one deployment serves one person or many authenticated users. Rat Things derives an owner from each trusted principal and keeps Agents, Sessions, Vaults, and files within that boundary.</p>
       </section>
 
       <section class="slack-section integration-section" id="integrations" aria-labelledby="integrations-title">
@@ -224,7 +224,7 @@
         </div>
 
         <div class="slack-use-grid integration-use-grid">
-          <article><span>01</span><h3>Install both accounts</h3><p>Connect Slack and Linear through deployment-owned OAuth. Rat verifies each provider identity and stores issued credentials in the host vault.</p></article>
+          <article><span>01</span><h3>Install both accounts</h3><p>Connect Slack and Linear through deployment-owned OAuth. Rat Things verifies each provider identity and stores issued credentials in the host vault.</p></article>
           <article><span>02</span><h3>Resolve a fixed envelope</h3><p>Select the Slack read and Linear read/write operations this Session needs. Provider scopes, grants, profiles, and resource limits all intersect.</p></article>
           <article><span>03</span><h3>Research before writing</h3><p>Search the source thread and existing issues first. The agent can create, update, or comment only through reviewed GraphQL documents.</p></article>
           <article><span>04</span><h3>Keep the work durable</h3><p>The Slack thread, Linear result, Turn and Item history, generated files, and saved runtime state remain traceable across clients and compute.</p></article>
@@ -257,7 +257,7 @@
             <h2 id="extend-title">One contract.<br>As many trusted integrations as you choose.</h2>
           </div>
           <div class="extend-copy">
-            <p>Linear, Slack, and Stripe are built-in examples of Rat's Integration Contract, not the boundary of the system. Add the OAuth or API services your deployment needs by declaring authentication, account identity, operations, schemas, and a fixed provider origin—then compile each reviewed adapter into the trusted host.</p>
+            <p>Linear, Slack, and Stripe are built-in examples of Rat Things' Integration Contract, not the boundary of the system. Add the OAuth or API services your deployment needs by declaring authentication, account identity, operations, schemas, and a fixed provider origin—then compile each reviewed adapter into the trusted host.</p>
             <p>The CLI and control API use that contract to install accounts, check connection health, and manage grants. Trusted tool implementations use the same credential broker and permission checks.</p>
             <a class="text-link" href="docs/plugins/#add-a-trusted-integration">Build a trusted integration <span aria-hidden="true">→</span></a>
           </div>
@@ -270,7 +270,7 @@
           <li><span>04</span><strong>Expose</strong><p>Generate safe account setup, health, reconnect, “used by,” and agent-tool surfaces from the installed contract.</p></li>
           <li><span>05</span><strong>Reuse</strong><p>Bind authenticated provider events and schedules to owned Agents and submit work through Sessions.</p></li>
         </ol>
-        <p class="extend-note"><strong>Extensions are trusted host code.</strong> Rat does not load arbitrary provider packages inside the agent. Credentials stay in the host vault, provider calls use reviewed adapters, and the agent receives only admitted operation schemas.</p>
+        <p class="extend-note"><strong>Extensions are trusted host code.</strong> Rat Things does not load arbitrary provider packages inside the agent. Credentials stay in the host vault, provider calls use reviewed adapters, and the agent receives only admitted operation schemas.</p>
       </section>
 
       <section class="console-section" id="console" aria-labelledby="console-title">
@@ -293,7 +293,7 @@
             <div class="section-label">How work survives</div>
             <h2 id="flow-title">The machine can stop.<br>The work continues.</h2>
           </div>
-          <p>Accepted input belongs to a durable Session Turn. Rat stores Items, artifacts, and runtime state outside compute. Pi can recover pending tasks and child agents on a replacement worker. Workspace recovery follows each runtime's checkpoint and storage rules; running processes are not restored.</p>
+          <p>Accepted input belongs to a durable Session Turn. Rat Things stores Items, artifacts, and runtime state outside compute. Pi can recover pending tasks and child agents on a replacement worker. Workspace recovery follows each runtime's checkpoint and storage rules; running processes are not restored.</p>
         </div>
         <ol class="flow">
           <li><span>01</span><strong>Authenticate</strong><p>Authenticate the caller or provider event, then resolve the owner from IAM or an operator-owned binding.</p></li>
@@ -311,7 +311,7 @@
             <h2 id="boundary-title">Autonomous inside.<br>Unavailable outside.</h2>
           </div>
           <div class="boundary-summary">
-            <p>Choose permissions before creating a Session. The agent can use what you allowed; everything else is unavailable. Rat never pauses to ask for more permission during a Turn.</p>
+            <p>Choose permissions before creating a Session. The agent can use what you allowed; everything else is unavailable. Rat Things never pauses to ask for more permission during a Turn.</p>
             <a class="text-link" href="docs/capability-envelope/">Read the complete capability contract <span aria-hidden="true">→</span></a>
           </div>
         </div>
@@ -394,7 +394,7 @@
             <h2 id="architecture-title">A small public contract.<br>Durable AWS internals.</h2>
           </div>
           <div class="heading-copy">
-            <p>Your product, another agent, a CLI, or a signed event submits work. Rat authenticates it, accepts a Session input, executes it in your AWS account, and retains the result.</p>
+            <p>Your product, another agent, a CLI, or a signed event submits work. Rat Things authenticates it, accepts a Session input, executes it in your AWS account, and retains the result.</p>
             <a class="text-link" href="docs/architecture/">Architecture guide <span aria-hidden="true">→</span></a>
           </div>
         </div>

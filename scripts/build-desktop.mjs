@@ -31,12 +31,14 @@ if (process.platform === 'darwin') {
   await replaceExecutable(process.execPath, `${bundle}/MacOS/node`);
   await chmod(`${bundle}/MacOS/node`, 0o755);
   await copyFile(resolve(root, 'dist/console-server.mjs'), `${bundle}/Resources/console-server.mjs`);
+  await copyFile(resolve(root, 'assets/brand/rat-things.icns'), `${bundle}/Resources/AppIcon.icns`);
   await writeFile(`${bundle}/Info.plist`, `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
 <key>CFBundleExecutable</key><string>${name}</string>
 <key>CFBundleIdentifier</key><string>dev.rat-things.console</string>
 <key>CFBundleName</key><string>Rat Things</string>
+<key>CFBundleIconFile</key><string>AppIcon</string>
 <key>CFBundleVersion</key><string>1</string>
 <key>CFBundleShortVersionString</key><string>0.1.0</string>
 <key>NSHighResolutionCapable</key><true/>

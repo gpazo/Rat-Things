@@ -45,7 +45,7 @@ identity, retention, network policy, and operational limits for the environment 
   and plugins, self-hosted environments, JSON-schema output, and built-in web search are unsupported.
   Model and reasoning settings must match the approved Pi catalog.
 - **Memory and collaboration:** Codex journals and Pi's committed task state support recovery.
-  Pi's child conversations and pending function calls retain their identities across replacement. Rat-specific
+  Pi's child conversations and pending function calls retain their identities across replacement. Rat Things-specific
   semantic memory, fallback summaries, explicit agent handoffs, and shared-conversation membership
   are not implemented. Storage retention is finite and is separate from a backup policy.
 - **Capacity:** startup latency, quotas, concurrency, and cost depend on the deployment. There are

@@ -49,7 +49,7 @@ Sessions belong to the authenticated creator of the matching source binding.
 | `PATCH /v1/integrations/connections/{connectionId}` | Required | Change the display name without changing the stable alias or provider identity |
 | `POST /v1/integrations/connections/{connectionId}/test` | Required | Host-side credential verification that returns bounded health and never exposes the credential |
 | `GET /v1/integrations/connections/{connectionId}/consumers` | Required | Derive owner-scoped Sessions, schedules, sets, and source bindings that select this account |
-| `POST /v1/integrations/connections/{connectionId}/grant` | Required | Replace the account's persistent Rat-side grant |
+| `POST /v1/integrations/connections/{connectionId}/grant` | Required | Replace the account's persistent Rat Things grant |
 | `POST /v1/integrations/connections/{connectionId}/credential` | Required | Verify and rotate a credential without changing provider account identity |
 | `POST /v1/integrations/connections/{connectionId}/oauth/reconnect` | Required | Start a short-lived OAuth reconnect bound to the existing connection, grant, and verified provider identity |
 | `POST /v1/integrations/connections/{connectionId}/revoke` | Required | Revoke the connection and its credential |

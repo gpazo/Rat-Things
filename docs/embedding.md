@@ -1,7 +1,7 @@
 # Embed and self-host Rat Things
 
 Rat Things is an open-source, headless backend for cloud agents. It can sit behind a small-business
-operator console, a CLI, another agent, or a SaaS product without requiring a Rat-operated control
+operator console, a CLI, another agent, or a SaaS product without requiring a Rat Things-operated control
 plane. The host decides whether its product serves one person or multiple authenticated users.
 Rat Things remains an engineering preview: owner isolation alone does not provide the budgets,
 rate limits, destination authorization and output controls needed for untrusted multi-tenant use.
@@ -16,9 +16,9 @@ before exposing model, tool, or environment choices in your UI.
 The integration boundary is intentionally flexible and narrow:
 
 - the host authenticates people and services;
-- Rat derives an owner from the trusted principal and scopes all control data to it;
+- Rat Things derives an owner from the trusted principal and scopes all control data to it;
 - the host supplies its own OAuth applications and consent UI;
-- Rat verifies provider credentials, derives account identity, stores them, and enforces grants; and
+- Rat Things verifies provider credentials, derives account identity, stores them, and enforces grants; and
 - every consumer uses the same documented API—there is no privileged console-only path.
 
 ## Discover a deployment
@@ -88,7 +88,7 @@ Build a UI that calls the API on behalf of its signed-in principal:
 1. show installed profiles and integration manifests;
 2. use the deployment's configured OAuth installation or collect only the manifest-declared
    credential fields through the host's own OAuth/API-key flow;
-3. submit the credential and let Rat verify and label the provider account;
+3. submit the credential and let Rat Things verify and label the provider account;
 4. group accounts into connection sets;
 5. create an Agent from the standard SDK request;
 6. create a Session with the desired environment and input; and
@@ -108,10 +108,10 @@ when the task needs them. The starting workflow is in
 
 ### Embedded product or SaaS
 
-Keep customer/product state in the host application. Store only Rat IDs needed to associate that
+Keep customer/product state in the host application. Store only Rat Things IDs needed to associate that
 state with connections, Agents and Sessions. The host can map every authenticated
 tenant or end user to a distinct principal, or intentionally map a group to a shared principal.
-Rat does not implement signup, organizations, seats, billing, or invitations and does not infer
+Rat Things does not implement signup, organizations, seats, billing, or invitations and does not infer
 them from request bodies.
 
 ### One integration UX for every consumer
@@ -122,15 +122,15 @@ machine:
 1. `GET /v1/integrations/plugins` and select a manifest.
 2. Select an authentication definition; when there is one, select it automatically.
 3. Collect exactly its declared fields. Secret fields must not be retained in browser state or logs.
-4. Ask for a Rat permission preset, defaulting to `read-only`.
+4. Ask for a Rat Things permission preset, defaulting to `read-only`.
 5. `POST /v1/integrations/connections` with the plugin, scheme, credential, and grant.
-6. Display Rat's verified label and generated alias. Never ask the user to type provider tenant IDs
+6. Display Rat Things' verified label and generated alias. Never ask the user to type provider tenant IDs
    or scopes.
 7. On `400 invalid_request`, keep the non-secret choices and ask for a corrected credential.
 
 That flow is intentionally form-generatable from the plugin catalog and suitable for an agent tool.
 The host may wrap it in polished OAuth consent, a terminal prompt, or its own product UI without
-changing the Rat API. See [Integration Contract v1](plugins.md#the-integration-contract-v1) for the
+changing the Rat Things API. See [Integration Contract v1](plugins.md#the-integration-contract-v1) for the
 exact request, multi-account model, and permission intersection.
 
 A typical server-side flow is:
@@ -139,28 +139,28 @@ A typical server-side flow is:
 host session/service identity
           |
           v
-backend-for-frontend or worker -- SigV4 --> Rat control API
+backend-for-frontend or worker -- SigV4 --> Rat Things control API
           |                                  |
           |                                  +--> owner-scoped metadata
           |                                  +--> encrypted definitions/credentials
           |                                  +--> isolated agent run
           v
-host database stores Rat IDs and product presentation state
+host database stores Rat Things IDs and product presentation state
 ```
 
 ## Identity contract
 
 The included AWS API Gateway adapter uses an IAM authorizer's `userArn`/`callerId`, then prefixes it
-into Rat's identity namespace. Callers cannot submit an `ownerId`. Local testing may set
+into Rat Things' identity namespace. Callers cannot submit an `ownerId`. Local testing may set
 `ALLOW_OWNER_HEADER=true`; production deployments must keep that escape hatch disabled. A
-host-owned backend can use its own customer authentication and SigV4-sign the downstream Rat call.
+host-owned backend can use its own customer authentication and SigV4-sign the downstream Rat Things call.
 
 The control handler has a JWT `sub` extraction hook for a separately maintained adapter; the
 included control endpoint uses AWS IAM. The separate Agents HTTP endpoint accepts owner-bound,
 scoped bearer credentials issued through IAM authentication. Use the
 [SDK transport](agents-api.md#connect) to obtain and refresh them. A shared backend IAM principal
-produces a shared Rat owner; authenticating different customers in the host application does not
-by itself create distinct Rat owners. Keep these identities distinct:
+produces a shared Rat Things owner; authenticating different customers in the host application does not
+by itself create distinct Rat Things owners. Keep these identities distinct:
 
 | Identity | Meaning |
 | --- | --- |
@@ -177,14 +177,14 @@ credential subject.
 
 Rat Things does not register a universal OAuth client. The host owns provider developer accounts,
 redirect URLs, consent copy, installed scopes, and provider-review obligations. It may complete the
-flow in its own backend and submit the resulting credential, or configure the self-hosted Rat
+flow in its own backend and submit the resulting credential, or configure the self-hosted Rat Things
 callback so the deployment performs one-time state/PKCE verification, code exchange, and refresh.
-In both paths Rat calls the plugin's fixed identity endpoint before storing anything and derives the
+In both paths Rat Things calls the plugin's fixed identity endpoint before storing anything and derives the
 label, tenant/subject identifiers, provider access, and reported scopes from that response. The
 host must not ask callers to assert those values. Application secrets and issued credentials remain
-in the host's AWS account; there is no Rat-operated central OAuth client.
+in the host's AWS account; there is no Rat Things-operated central OAuth client.
 
-Connection metadata records the provider authorization separately from the Rat grant. This permits
+Connection metadata records the provider authorization separately from the Rat Things grant. This permits
 a broad upstream token to be exposed as read-only for one account selection, while accurately
 showing when enforcement is broker-only because the provider has coarse scopes. Rotation and
 revocation remain explicit owner-authenticated operations.
@@ -214,7 +214,7 @@ history or a replacement for Session webhooks.
 
 The repository Terraform module installs the runtime into the operator's AWS account. It creates
 private encrypted data stores, queues, Lambda control functions, and optional MicroVM/publication
-resources. It does not create a central Rat account or phone home. Start with
+resources. It does not create a central Rat Things account or phone home. Start with
 [development and deployment](development-and-deployment.md), then run:
 
 ```bash

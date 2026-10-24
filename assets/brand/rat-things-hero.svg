@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 900" role="img" aria-label="Rat Things">
+  <svg x="823.87" y="150" width="626.13" height="640" viewBox="92.6 85.4 325 332.2"><defs>
+    <linearGradient id="hero-heat" x1="0" y1="404" x2="0" y2="98" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#828fff"/><stop offset="0.55" stop-color="#c3c9f8"/><stop offset="1" stop-color="#f7f8f8"/>
+    </linearGradient>
+    <clipPath id="hero-head"><path d="M222 66L286 166L350 172L394 196L452 226L476 246L462 262L408 270L378 298L338 322L310 334L344 404L146 404L160 322L150 214Z"/></clipPath>
+    <clipPath id="hero-face"><path d="M480 512L162.56 0H600V512Z"/></clipPath>
+    <mask id="hero-eye" maskUnits="userSpaceOnUse" x="0" y="0" width="512" height="512">
+      <rect width="512" height="512" fill="#fff"/><path d="M322 192L384 210L374 220L328 206Z" fill="#000"/>
+    </mask>
+  </defs>
+  <g transform="translate(256 256) scale(0.9) translate(-312 -240)">
+    <g clip-path="url(#hero-head)">
+      <g fill="url(#hero-heat)"><path d="M445 512L473 512L155.56 0L127.56 0Z"/><path d="M406.2 512L431 512L113.56 0L88.76 0Z"/><path d="M370.6 512L392.2 512L74.76 0L53.16 0Z"/><path d="M338.2 512L356.6 512L39.16 0L20.76 0Z"/><path d="M309 512L324.2 512L6.76 0L-8.44 0Z"/><path d="M283 512L295 512L-22.44 0L-34.44 0Z"/><path d="M260.2 512L269 512L-48.44 0L-57.24 0Z"/><path d="M240.6 512L246.2 512L-71.24 0L-76.84 0Z"/><path d="M221.6 512L226.6 512L-90.84 0L-95.84 0Z"/><path d="M202.6 512L207.6 512L-109.84 0L-114.84 0Z"/><path d="M183.6 512L188.6 512L-128.84 0L-133.84 0Z"/><path d="M164.6 512L169.6 512L-147.84 0L-152.84 0Z"/><path d="M145.6 512L150.6 512L-166.84 0L-171.84 0Z"/><path d="M126.6 512L131.6 512L-185.84 0L-190.84 0Z"/><path d="M107.6 512L112.6 512L-204.84 0L-209.84 0Z"/><path d="M88.6 512L93.6 512L-223.84 0L-228.84 0Z"/><path d="M69.6 512L74.6 512L-242.84 0L-247.84 0Z"/><path d="M50.6 512L55.6 512L-261.84 0L-266.84 0Z"/><path d="M31.6 512L36.6 512L-280.84 0L-285.84 0Z"/><path d="M12.6 512L17.6 512L-299.84 0L-304.84 0Z"/><path d="M-6.4 512L-1.4 512L-318.84 0L-323.84 0Z"/><path d="M-25.4 512L-20.4 512L-337.84 0L-342.84 0Z"/><path d="M-44.4 512L-39.4 512L-356.84 0L-361.84 0Z"/><path d="M-63.4 512L-58.4 512L-375.84 0L-380.84 0Z"/><path d="M-82.4 512L-77.4 512L-394.84 0L-399.84 0Z"/><path d="M-101.4 512L-96.4 512L-413.84 0L-418.84 0Z"/><path d="M-120.4 512L-115.4 512L-432.84 0L-437.84 0Z"/><path d="M-139.4 512L-134.4 512L-451.84 0L-456.84 0Z"/><path d="M-158.4 512L-153.4 512L-470.84 0L-475.84 0Z"/><path d="M-177.4 512L-172.4 512L-489.84 0L-494.84 0Z"/><path d="M-196.4 512L-191.4 512L-508.84 0L-513.84 0Z"/><path d="M-215.4 512L-210.4 512L-527.84 0L-532.84 0Z"/><path d="M-234.4 512L-229.4 512L-546.84 0L-551.84 0Z"/><path d="M-253.4 512L-248.4 512L-565.84 0L-570.84 0Z"/><path d="M-272.4 512L-267.4 512L-584.84 0L-589.84 0Z"/><path d="M-291.4 512L-286.4 512L-603.84 0L-608.84 0Z"/></g>
+      <g clip-path="url(#hero-face)"><path d="M222 66L286 166L350 172L394 196L452 226L476 246L462 262L408 270L378 298L338 322L310 334L344 404L146 404L160 322L150 214Z" fill="#f7f8f8" mask="url(#hero-eye)"/></g>
+    </g>
+  </g></svg>
+</svg>

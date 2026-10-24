@@ -9,6 +9,18 @@ The desktop theme in [`desktop/src/theme.rs`](desktop/src/theme.rs) is the refer
 implementation. Web surfaces read the same values from [`site/brand.css`](site/brand.css).
 Change a value in both places or in neither.
 
+## Name and reference
+
+**Rat Things** takes its name from the robotic dogs in *Snow Crash*. Use the full
+product name in prose, onboarding and interface copy. Do not shorten it to "Rat"
+or invent a separate mascot name.
+
+A Rat Thing is a cybernetic guard dog, not a rodent. In the novel the units are built from
+dogs (Fido, the one readers meet, was a pit bull), run on a radioisotope that never stops making
+heat, shed that heat through radiator fins, and wait in a hutch until they are needed. Draw on
+those traits without naming a breed: a lean, wolf-like head, machined planes, a sensor slot for an
+eye, and radiator fins. Do not draw rat ears, whiskers or a long, curling, naked tail.
+
 ## Principles
 
 - **Neutral first.** Surfaces, lines and text are grays. Color is the exception and must mean
@@ -53,7 +65,7 @@ Status colors are muted and appear only on status indicators, never as decoratio
 success `#a1bfa2`, warning `#dfbf84`, error `#ec9f9b`.
 
 Retired: the cyan (`#80e6ff`), amber (`#ffb13b`), mint (`#89edc8`), lime (`#b0e865`) and teal-tinted
-surfaces used by earlier pages. Do not reintroduce them.
+surfaces used by earlier pages, and the rat-tailed character illustration. Do not reintroduce them.
 
 Product mocks may use the depicted product's own colors where recognition depends on it — for
 example, Linear's mark in a Linear issue mock. Keep those inside the mock.
@@ -93,42 +105,55 @@ example, Linear's mark in a Linear issue mock. Keep those inside the mock.
 
 ## Logo
 
-The Rat Things mark is an **R whose leg becomes a rat's tail**. One geometry, generated on a
-512px grid, produces every version in [`assets/brand/`](assets/brand/):
+The Rat Things mark is **a Rat Thing's head in profile**: a robotic guard dog with wolf lines,
+facing right with its head lowered. Radiator fins rake back across the neck and taper toward the
+back; the heat of the isotope core rises through them from the base in the accent color. The face
+is one solid plate with a sensor slot for an eye. One geometry, generated on a 512px grid by
+[`scripts/build-brand-marks.mjs`](scripts/build-brand-marks.mjs), produces every version:
 
 | File | Use |
 | --- | --- |
-| `rat-things-mark.svg` | **Feature mark.** README, social cards, slides, app icons — anywhere the mark is 96px or larger |
-| `rat-things-mark-1024.png` | Feature mark as a bitmap for tools that cannot take SVG; also the site's touch icon |
-| `rat-things-mark-flat.svg` | **Flat mark.** Favicon and headers at 16–48px; copied to [`site/favicon.svg`](site/favicon.svg) |
-| `rat-things-lockup-dark.svg` / `-light.svg` | Feature mark beside the wordmark, for dark and light grounds |
-| `rat-things-glyph-light.svg` / `-dark.svg` | The R and tail alone in one ink, for embossing, print and single-color use |
-| `rat-things-social-preview.png` | 1280 × 640 card for the GitHub repository's social preview |
+| `assets/brand/rat-things-mark.svg` | **Feature mark.** The glyph on its graphite tile. Copied to [`site/favicon.svg`](site/favicon.svg) for every web header and favicon |
+| `assets/brand/rat-things-mark-1024.png` | Feature mark as a bitmap; the site's touch icon |
+| `assets/brand/rat-things.icns` | macOS app icon for both app bundles (the tile on Apple's icon grid) |
+| `desktop/assets/brand/app-icon-256.png` | The same icon as the console's window and Dock icon when it runs unbundled |
+| `desktop/assets/brand/glyph-96.png` | The heat glyph beside the product name in the console sidebar |
+| `assets/brand/rat-things-glyph-heat.svg` / `-heat-dark.svg` | The glyph alone with heat fins, for dark and light grounds |
+| `assets/brand/rat-things-lockup-dark.svg` / `-light.svg` | Heat glyph beside the wordmark, for dark and light grounds |
+| `assets/brand/rat-things-mark-flat.svg` | **Flat mark.** One `--rt-text` ink on an `--rt-bg` tile, where color is unavailable |
+| `assets/brand/rat-things-glyph-light.svg` / `-dark.svg` | The glyph in one ink, for embossing, print and single-color use |
+| `assets/brand/rat-things-hero.svg` | The glyph at display scale for the overview hero |
+| `assets/brand/rat-things-og.png` | 1200 × 630 Open Graph card for the website |
+| `assets/brand/rat-things-social-preview.png` | 1280 × 640 card for the GitHub repository's social preview |
 
-**Feature mark.** The R is a white-to-`#c3c9d4` vertical gradient. Its leg flows into the tail,
-which blends from the R's ink into `--rt-accent` and lightens toward the tip. It sits on a
-graphite tile (`#2c2c30` to `#121213`) with a top-lit rim, a soft indigo bloom behind the tail, and a
-neutral drop shadow under the glyph. This is the only place the brand uses gradients or a glow. Keep
-them inside the tile.
+**Construction.** The silhouette is a tall pointed ear, a brow that slopes into a long lowered
+snout, a clean jaw line with no mouth, and a neck cut flat at the base. A seam parallel to the fins
+divides the face plate from the fins. Fins lean back 0.62px per px of height, sit 14px apart and
+narrow from 28px beside the face to 5px at the back. The eye and the gaps between fins are cut out,
+so every version works on any ground.
 
-**Flat mark.** It is a single `--rt-text` ink on an `--rt-bg` tile with a `--rt-border-strong` outline. The
-stroke is heavier so the tail survives at 16px.
+**Heat.** On dark grounds the fins run from `--rt-accent` at the base through `#c3c9f8` to
+`--rt-text` at the top, and the face is `--rt-text`. On light grounds the fins run from
+`--rt-accent` to `#181819` and the face is `#181819`. The fins are what keep a Rat Thing running,
+and the accent marks "working". This is the only place the brand uses gradients. The feature
+tile adds a graphite gradient (`#2c2c30` to `#121213`) and a top-lit rim; keep both inside the tile.
 
-- Wordmark: "Rat Things" in Inter 600, sentence case, tracking `-0.02em`, beside the mark. The
+- Wordmark: "Rat Things" in Inter 600, sentence case, tracking `-0.02em`, beside the glyph. The
   lockups set it as outlines, so they render without Inter installed.
-- Don't recolor the R, move the accent off the tail, add effects outside the tile, or set the
-  wordmark in uppercase.
+- Don't mirror the glyph, recolor the face, move the heat off the fins, add a mouth or a tail, add
+  effects outside the tile, or set the wordmark in uppercase.
 - Leave clear space around the mark of at least a quarter of its width.
+- Run `node scripts/build-brand-marks.mjs` after changing the geometry. It writes the SVGs, the
+  favicon and, through Playwright's Chromium, every PNG and the `.icns` (which needs macOS
+  `iconutil`).
 
-## The Rat
+## Character artwork
 
-The cybernetic Rat illustration ([`assets/rat-things-hero.jpg`](assets/rat-things-hero.jpg)) is the
-brand's character. It is graded to monochrome so it sits inside the neutral system. The amber eye
-and core glow are kept on purpose: amber exists **only inside the Rat illustration** and is never
-used as a UI color. The social card is [`assets/rat-things-og-v3.jpg`](assets/rat-things-og-v3.jpg).
-
-When you regrade or recreate Rat artwork, keep the background neutral black and remove
-blue or cyan light.
+The mark is the brand's character. Pages that need display art, such as the overview hero, use
+the glyph at scale ([`assets/brand/rat-things-hero.svg`](assets/brand/rat-things-hero.svg)) rather
+than a separate illustration. New artwork follows the description under
+[Name and reference](#name-and-reference) and the heat colors above, on a neutral black ground
+with no blue, cyan or amber light.
 
 ## Diagrams
 

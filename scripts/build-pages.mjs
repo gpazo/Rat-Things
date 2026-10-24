@@ -20,8 +20,6 @@ const homepageAssetFiles = [
   'session-fork-demo-poster.jpg',
   'rat-things-architecture-demo.mp4',
   'rat-things-architecture-demo-poster.jpg',
-  'rat-things-hero.jpg',
-  'rat-things-og-v3.jpg',
 ];
 
 marked.setOptions({ gfm: true });
@@ -550,7 +548,7 @@ function guidePageTemplate({ title, description, canonicalPath, assetPrefix, mai
     <meta property="og:title" content="${escapeHtml(pageTitle)}">
     <meta property="og:description" content="${escapeHtml(description)}">
     <meta property="og:url" content="${pagesUrl}${canonicalPath}">
-    <meta property="og:image" content="${pagesUrl}/assets/rat-things-og-v3.jpg">
+    <meta property="og:image" content="${pagesUrl}/assets/brand/rat-things-og.png">
     ${article ? `<meta property="article:published_time" content="${escapeHtml(published)}">
     <meta property="article:modified_time" content="${escapeHtml(reviewed)}">` : ''}
     <meta name="twitter:card" content="summary_large_image">
@@ -672,7 +670,7 @@ function pageTemplate({ title, description, canonicalPath, assetPrefix, nav, mai
     <meta property="og:title" content="${escapeHtml(title)} — Rat Things documentation">
     <meta property="og:description" content="${escapeHtml(description)}">
     <meta property="og:url" content="${pagesUrl}${canonicalPath}">
-    <meta property="og:image" content="${pagesUrl}/assets/rat-things-og-v3.jpg">
+    <meta property="og:image" content="${pagesUrl}/assets/brand/rat-things-og.png">
     <meta name="twitter:card" content="summary_large_image">
     <link rel="canonical" href="${pagesUrl}${canonicalPath}">
     <link rel="icon" href="${assetPrefix}favicon.svg" type="image/svg+xml">

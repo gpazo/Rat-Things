@@ -121,7 +121,7 @@ Image creation can take several minutes.
 
 ### Enable a self-hosted OAuth provider
 
-OAuth is opt-in per installed plugin and does not require a central Rat service:
+OAuth is opt-in per installed plugin and does not require a central Rat Things service:
 
 1. Apply once with `integration_oauth_app_secret_arns = {}`.
 2. Read `terraform -chdir=infra output -raw oauth_callback_url` and register that exact HTTPS

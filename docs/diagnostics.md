@@ -79,20 +79,20 @@ Connection installation and maintenance have independently inspectable stages:
 | Provider verification unavailable | `503 integration_unavailable` | Preserve the form and retry with backoff; check egress, DNS/TLS, provider status, and throttling |
 | Persistence | `500` with a trace ID | Inspect control Lambda, Secrets Manager, DynamoDB, KMS, and provider reachability |
 
-A successful response should have Rat-derived `label`, `externalTenantId` and/or
+A successful response should have Rat Things-derived `label`, `externalTenantId` and/or
 `externalSubjectId`, and `authorization`. If those are wrong, fix the trusted plugin verifier; do
 not work around it by accepting caller-supplied metadata.
 
 For a connection that exists but exposes no expected tool, inspect in this order:
 
 1. provider `authorization.access`, `scopeModel`, and `scopes` from `rat-things connections`;
-2. the persistent Rat `grant` returned beside that connection;
+2. the persistent Rat Things `grant` returned beside that connection;
 3. the selected capability profile;
 4. the Run connection selection and any deny list; and
 5. the operation's required scopes and resource constraints.
 
 Inspect the declared tools and attached Vaults for an Agents Session. A broad
-provider key with a read-only Rat grant is expected; widening the key is not a fix for a broker
+provider key with a read-only Rat Things grant is expected; widening the key is not a fix for a broker
 denial. To rotate, use the same credential-only shape:
 
 ```bash

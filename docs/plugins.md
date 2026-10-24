@@ -12,7 +12,7 @@ This is the account-connection step in the [Rat Things operating model](operatin
 Built-in integrations use the same reviewed contract as services added in trusted host code:
 
 ```text
-discover integration -> supply credential -> verify provider account -> choose Rat access
+discover integration -> supply credential -> verify provider account -> choose Rat Things access
                      -> configure notification bindings or declared Session tools -> launch autonomously
 ```
 
@@ -21,10 +21,10 @@ discover integration -> supply credential -> verify provider account -> choose R
 | Object | Purpose | Secret material? |
 | --- | --- | --- |
 | Integration manifest | Describes authentication fields and typed operations; implemented by a trusted plugin | No |
-| Connection | One verified provider account for one Rat owner | No |
+| Connection | One verified provider account for one Rat Things owner | No |
 | Connection health | Bounded verification state and timestamps; never provider bodies | No |
 | Credential binding | Host-only pointer to the encrypted credential | Reference only |
-| Grant | Persistent Rat-side permission ceiling for one connection | No |
+| Grant | Persistent Rat Things permission ceiling for one connection | No |
 | Connection set | Reusable selection of accounts, including multiple accounts for one plugin | No |
 | Source binding / schedule | Selects an Agent, environment and notification destinations | No |
 
@@ -93,8 +93,8 @@ rat-things connections
 ```
 
 `connect` discovers the manifest, validates the exact field names, chooses the sole authentication
-scheme when unambiguous, and defaults the Rat grant to `read-only`. Use `--auth-scheme oauth2` when
-a plugin has several schemes. `--alias` is optional: Rat derives a readable alias from the verified
+scheme when unambiguous, and defaults the Rat Things grant to `read-only`. Use `--auth-scheme oauth2` when
+a plugin has several schemes. `--alias` is optional: Rat Things derives a readable alias from the verified
 provider label and adds `-2`, `-3`, and so on when needed.
 
 The equivalent API request is deliberately small:
@@ -166,7 +166,7 @@ rat-things connection reconnect stripe-acme-shop --credential-file /secure/tmp/s
 rat-things connection reconnect slack-work --oauth --wait
 ```
 
-`show` returns the verified Connection, its Rat-side grant, and bounded health metadata. A new or
+`show` returns the verified Connection, its Rat Things grant, and bounded health metadata. A new or
 untested account reports `unknown/not-tested`. `test` asks the trusted host-side credential broker
 to verify the stored credential against the fixed plugin and returns one of:
 
@@ -204,7 +204,7 @@ can still deny later calls. Cancel active work when immediate containment is req
 
 ## 4. Connect multiple accounts
 
-Run `connect` again for every account. Aliases are unique only within the Rat owner:
+Run `connect` again for every account. Aliases are unique only within the Rat Things owner:
 
 ```bash
 rat-things connect slack --auth-scheme oauth2 \
@@ -254,19 +254,19 @@ not grant execution tools. See [provider bindings](schedules.md#provider-binding
 
 Integration permissions follow the [capability envelope](capability-envelope.md): provider
 authorization, the persistent grant, the profile ceiling, and Session tool or local execution narrowing must all
-permit the operation. A full-access provider key can be exposed to Rat as read-only; a Rat grant
+permit the operation. A full-access provider key can be exposed to Rat Things as read-only; a Rat Things grant
 cannot widen a read-only provider token.
 
-| Rat preset | Eligible operation access |
+| Rat Things preset | Eligible operation access |
 | --- | --- |
 | `read-only` | `read` |
 | `read-write` | `read`, `write` |
 | `full` | `read`, `write`, `full` |
 | `custom` | IDs explicitly listed in `allowOperations` |
 
-Provider and Rat permission remain separate. When a provider reports granular scopes, both layers
+Provider and Rat Things permission remain separate. When a provider reports granular scopes, both layers
 enforce them. When an API key is broad or the provider does not expose scope metadata, the
-connection honestly records `coarse` or `unknown`; Rat still enforces its grant, but the provider
+connection honestly records `coarse` or `unknown`; Rat Things still enforces its grant, but the provider
 credential itself remains broad.
 
 For tighter control on a write-only account alias, replace the persistent grant:
@@ -306,7 +306,7 @@ rat-things rotate stripe-acme-shop --credential-file /secure/tmp/stripe-rotated.
 rat-things revoke stripe-old-account
 ```
 
-Rat verifies a rotated credential before replacing the stored value and rejects it if its provider
+Rat Things verifies a rotated credential before replacing the stored value and rejects it if its provider
 tenant or subject differs from the existing connection. Revocation marks the connection inactive
 and asks the vault to delete the credential. New integration tool sessions check that status before
 admission. Revocation cannot recall a credential already used by an in-flight provider request;
@@ -319,7 +319,7 @@ The raw rotation API request is `{"version":"1","credential":{...}}`.
 Rat Things includes an authorization-code/PKCE callback and automatic refresh lifecycle in each AWS
 deployment. It is still **bring your own OAuth application**: the operator registers the provider
 app, accepts any provider review, chooses the installed plugin scopes, and stores the app credential
-in that deployment's AWS Secrets Manager. Rat never operates a central OAuth client or receives the
+in that deployment's AWS Secrets Manager. Rat Things never operates a central OAuth client or receives the
 credential.
 
 The first apply can leave OAuth unconfigured. Read `terraform output -raw oauth_callback_url`,
@@ -361,8 +361,8 @@ rat-things connection reconnect slack-work --oauth --wait
 ```
 
 Reconnect state is bound server-side to the authenticated owner and existing connection ID. The
-callback preserves that connection's stable alias, Rat grant, schedules/source bindings, and
-provider scopes selected by the trusted plugin. Rat verifies the exchanged credential resolves to
+callback preserves that connection's stable alias, Rat Things grant, schedules/source bindings, and
+provider scopes selected by the trusted plugin. Rat Things verifies the exchanged credential resolves to
 the exact same provider tenant and subject before replacing the old secret. Choosing a different
 provider account fails closed and leaves the stored credential unchanged.
 
@@ -382,7 +382,7 @@ arguments. A provider that does not issue a refresh token requires reconnection 
 Slack uses two independently rotating OAuth token families in one owner-scoped credential. The bot
 token receives `app_mentions:read`, `chat:write`, and `reactions:write`; the delegated installing-user
 token receives `search:read`. Message search therefore sees only what that Slack user is allowed to
-see. Rat uses the user token only for `slack.messages.search` and the bot token for identity, posts,
+see. Rat Things uses the user token only for `slack.messages.search` and the bot token for identity, posts,
 replies, reactions, and source delivery. Each access/refresh/expiry family is refreshed separately;
 a response to one refresh is not required to repeat the other token family.
 

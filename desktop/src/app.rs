@@ -260,7 +260,17 @@ impl ConsoleApp {
                     .frame(egui::Frame::NONE)
                     .resizable(false)
                     .show(ui, |ui| self.navigation(ui));
-                ui.label(RichText::new("Rat Things").font(theme::semibold(14.0)));
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = 7.0;
+                    let glyph = crate::brand::glyph(ui.ctx());
+                    let height = 17.0;
+                    // Decorative: painted, not an accessible image, like the web mark's aria-hidden.
+                    let (_, rect) =
+                        ui.allocate_space(egui::vec2(height * glyph.aspect_ratio(), height));
+                    let uv = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0));
+                    ui.painter().image(glyph.id(), rect, uv, Color32::WHITE);
+                    ui.label(RichText::new("Rat Things").font(theme::semibold(14.0)));
+                });
                 ui.add_space(14.0);
                 self.resource_list(ui);
             });

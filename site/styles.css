@@ -94,7 +94,7 @@ nav a:hover, nav a:focus-visible { color: var(--strong); }
 .hero-art, .hero-scrim { position: absolute; inset: 0; }
 
 .hero-art {
-  background: url("../assets/rat-things-hero.jpg") center right / cover no-repeat;
+  background: url("../assets/brand/rat-things-hero.svg") center right / cover no-repeat;
   transform: scale(1.01);
 }
 
@@ -536,7 +536,7 @@ footer p { max-width: 600px; margin: 1rem 0 0; color: var(--muted); font-size: 0
 @media (max-width: 860px) {
   nav a:not(.nav-cta, .nav-docs) { display: none; }
   .hero { min-height: 900px; }
-  .hero-art { background-position: 63% center; opacity: 0.78; }
+  .hero-art { background-position: 63% center; opacity: 0.4; }
   .hero-scrim { background: linear-gradient(90deg, rgba(15, 16, 17, 0.96), rgba(15, 16, 17, 0.35)), linear-gradient(0deg, var(--bg) 0%, transparent 35%); }
   .hero-copy { padding-top: 11rem; }
   .hero-stats { grid-template-columns: 1fr 1fr; margin-top: 2rem; }
