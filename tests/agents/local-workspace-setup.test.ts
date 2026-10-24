@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, symlink } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect, it, vi } from 'vitest';
@@ -52,5 +52,25 @@ it('rejects missing, mismatched and linked setup receipts before effects', async
     await symlink(directory, linked);
     await expect(prepareLocalWorkspace({ directory: linked, intent: { kind: 'resume', identity }, prepare, synchronize })).rejects.toThrow('private');
     expect(prepare).not.toHaveBeenCalled();
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
+it.each([
+  ['create', { phase: 'complete', identity }, 'A new local workspace already has setup state.'],
+  ['create', { phase: 'started', identity: { prepared: true } }, 'A new local workspace already has setup state.'],
+  ['resume', { phase: 'started', identity }, 'Local setup was interrupted. Its effects are uncertain; start a new Session without replaying setup.'],
+  ['resume', { phase: 'unknown', identity }, 'Local setup was interrupted. Its effects are uncertain; start a new Session without replaying setup.'],
+  ['resume', { phase: 'complete', identity: { ...identity, setupDigest: 'b'.repeat(64) } }, 'The saved workspace does not match this Session. Retain its files and start a new Session.'],
+] as const)('preserves a rejected %s setup receipt without invoking effects: %j', async (kind, journal, message) => {
+  const directory = await mkdtemp(join(tmpdir(), 'rat-setup-contract-'));
+  const path = join(directory, 'setup.json');
+  const bytes = JSON.stringify(journal);
+  const prepare = vi.fn(async () => {}), synchronize = vi.fn(async () => {});
+  try {
+    await writeFile(path, bytes, { mode: 0o600 });
+    await expect(prepareLocalWorkspace({ directory, intent: { kind, identity }, prepare, synchronize })).rejects.toThrow(message);
+    expect(await readFile(path, 'utf8')).toBe(bytes);
+    expect(prepare).not.toHaveBeenCalled();
+    expect(synchronize).not.toHaveBeenCalled();
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
