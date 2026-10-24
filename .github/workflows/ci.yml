@@ -36,7 +36,7 @@ jobs:
         id: codex-runtime
         with:
           path: .runtime/codex/linux-arm64
-          key: codex-linux-arm64-${{ hashFiles('runtime/codex/**', '!runtime/codex/model-capabilities.json', 'scripts/build-codex-runtime.mjs', 'scripts/codex-runtime-targets.mjs') }}
+          key: codex-linux-arm64-${{ hashFiles('runtime/codex/**', '!runtime/codex/model-capabilities.json', '!runtime/codex/README.md', 'scripts/build-codex-runtime.mjs', 'scripts/codex-runtime-targets.mjs') }}
       - name: Build pinned Linux ARM64 runtime
         if: steps.codex-runtime.outputs.cache-hit != 'true'
         run: docker buildx build --platform linux/arm64 --file runtime/codex/Dockerfile --output type=local,dest=.runtime/codex/linux-arm64 .
@@ -94,7 +94,7 @@ jobs:
         id: codex-runtime
         with:
           path: .runtime/codex/linux-x64
-          key: codex-linux-x64-${{ hashFiles('runtime/codex/**', '!runtime/codex/model-capabilities.json', 'scripts/build-codex-runtime.mjs', 'scripts/codex-runtime-targets.mjs') }}
+          key: codex-linux-x64-${{ hashFiles('runtime/codex/**', '!runtime/codex/model-capabilities.json', '!runtime/codex/README.md', 'scripts/build-codex-runtime.mjs', 'scripts/codex-runtime-targets.mjs') }}
       - name: Build pinned Linux x64 runtime
         if: steps.codex-runtime.outputs.cache-hit != 'true'
         run: docker buildx build --platform linux/amd64 --file runtime/codex/Dockerfile --output type=local,dest=.runtime/codex/linux-x64 .
@@ -109,6 +109,17 @@ jobs:
         env:
           CODEX_CONFORMANCE_BINARY: ${{ github.workspace }}/.runtime/codex/linux-x64/runtime/bin/codex
         run: npx vitest run tests/pi/managed-effects.test.ts tests/runner/managed-sandbox.test.ts tests/agents/local-pi-transport.test.ts tests/agents/local-pi.test.ts --no-file-parallelism
+      - name: Archive verified Linux x64 runtime
+        run: tar -C .runtime/codex/linux-x64 -czf .runtime/codex/linux-x64.tar.gz artifact.json runtime
+      - name: Export verified Linux x64 runtime
+        uses: actions/upload-artifact@v4
+        with:
+          name: codex-linux-x64-${{ github.sha }}
+          path: .runtime/codex/linux-x64.tar.gz
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
 
   desktop:
     runs-on: macos-14
