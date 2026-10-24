@@ -38,7 +38,7 @@ describe('Pi managed effect boundary', () => {
       const long = broker.execute(effect('exec_command', { command: [process.execPath, '-e', `require('node:fs').writeFileSync(process.argv[1],'ready');setInterval(()=>{},1000)`, marker] }), signal.signal);
       for (let attempt = 0; attempt < 100 && !await access(marker).then(() => true, () => false); attempt++) await delay(20);
       expect(await access(marker).then(() => true, () => false)).toBe(true);
-      const short = await broker.execute(effect('exec_command', { command: [process.execPath, '-e', 'console.log("parallel-ok")'] }), new AbortController().signal);
+      const short = await broker.execute(effect('exec_command', { command: [process.execPath, '--no-warnings', '-e', 'console.log("parallel-ok")'] }), new AbortController().signal);
       expect(short.output).toEqual([{ type: 'text', text: 'parallel-ok\n' }]);
       signal.abort(); expect((await long).isError).toBe(true);
       const denied = await broker.execute(effect('write_file', { path: deniedPath, content: 'denied' }), new AbortController().signal);
@@ -54,7 +54,7 @@ describe('Pi managed effect boundary', () => {
       expect(temporary.output).toEqual([{ type: 'text', text: expect.stringContaining(`${workspace}/tool-temp-`) }]);
       await broker.execute(effect('exec_command', { command: [process.execPath, '-e', 'fetch(process.argv[1],{signal:AbortSignal.timeout(1000)}).catch(()=>{})', endpoint] }), new AbortController().signal);
       expect(connections).toBe(networkAccess === 'enabled' ? 2 : 1);
-      const environment = await broker.execute(effect('exec_command', { command: [process.execPath, '-e', 'console.log(JSON.stringify(Object.keys(process.env).filter(k=>/AWS_|TOKEN|SECRET|API_KEY/.test(k))))'] }), new AbortController().signal);
+      const environment = await broker.execute(effect('exec_command', { command: [process.execPath, '--no-warnings', '-e', 'console.log(JSON.stringify(Object.keys(process.env).filter(k=>/AWS_|TOKEN|SECRET|API_KEY/.test(k))))'] }), new AbortController().signal);
       expect(environment.output).toEqual([{ type: 'text', text: '["CODEX_API_KEY"]\n' }]);
       await expect(broker.execute(effect('undeclared', {}), new AbortController().signal)).rejects.toThrow('capability envelope');
     } finally { signal.abort(); await broker.close(); server.closeAllConnections(); server.close(); await rm(workspace, { recursive: true, force: true }); await rm(deniedRoot, { recursive: true, force: true }); }
