@@ -340,7 +340,7 @@ export function awsQuickstartTerraformConfig(
     ...(options.budgetAlert ? { budget_alert: {
       monthly_usd: options.budgetAlert.monthlyUsd, email_addresses: options.budgetAlert.emails,
     } } : {}),
-    default_sandbox_mode: 'read-only',
+    default_sandbox_mode: 'workspace-write',
     default_agent_network_access: false,
     allow_agent_aws_credential_chain: false,
     codex_auth_mode: options.auth,

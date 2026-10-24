@@ -11,7 +11,7 @@ environment = "dev"
 # Safe bring-up: package Lambda and MicroVM code, provision the control plane,
 # then configure model credentials and admission before submitting Session input.
 allowed_sandbox_modes            = ["read-only"]
-default_sandbox_mode             = "read-only"
+default_sandbox_mode             = "workspace-write"
 default_agent_network_access     = false
 allow_agent_aws_credential_chain = false
 

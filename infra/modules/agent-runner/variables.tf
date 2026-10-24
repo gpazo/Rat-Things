@@ -234,7 +234,7 @@ variable "allowed_sandbox_modes" {
 variable "default_sandbox_mode" {
   description = "Default inner agent sandbox. The Lambda MicroVM remains the outer isolation boundary."
   type        = string
-  default     = "read-only"
+  default     = "workspace-write"
 
   validation {
     condition     = contains(["read-only", "workspace-write", "danger-full-access"], var.default_sandbox_mode)

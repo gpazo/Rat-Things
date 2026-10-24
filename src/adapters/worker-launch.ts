@@ -62,7 +62,7 @@ export function runHookPayload(record: RunRecord, request: RunRequest, options: 
       traceId: record.runId,
       allowedRepositoryHosts: options.allowedRepositoryHosts,
       allowedSandboxModes: options.allowedSandboxModes,
-      defaultSandboxMode: options.defaultSandboxMode ?? 'read-only',
+      defaultSandboxMode: options.defaultSandboxMode ?? 'workspace-write',
       defaultAgentNetworkAccess: options.defaultAgentNetworkAccess ?? false,
       persistentSession: Boolean(record.agentsSession),
       ...(options.sessionCheckpointsEnabled ? { sessionCheckpointsEnabled: true } : {}),

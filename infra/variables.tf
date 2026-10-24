@@ -151,7 +151,7 @@ variable "allowed_sandbox_modes" {
 
 variable "default_sandbox_mode" {
   type    = string
-  default = "read-only"
+  default = "workspace-write"
 }
 
 variable "default_agent_network_access" {

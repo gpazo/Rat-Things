@@ -245,7 +245,7 @@ uses the deployment's VPC connector instead. A missing runtime connector fails b
 The dispatcher needs `lambda:PassNetworkConnector`; AWS documents no resource type or condition
 key for this action, so it remains isolated in a `Resource = "*"` statement.
 
-The default inner sandbox is `read-only`, the accepted modes are `read-only` and `workspace-write`,
+The default inner sandbox is `workspace-write`, the accepted modes are `read-only` and `workspace-write`,
 and agent tool networking defaults off. Managed environments retain workspace-only writes even
 when networking is explicitly enabled. Temporary files stay inside the workspace. Pi verifies
 sandbox enforcement before exposing managed tools; an unsupported or ignored profile fails startup.

@@ -109,7 +109,7 @@ describe('executor idempotency', () => {
       runId: record.runId,
       executionGeneration: expect.stringMatching(/^[a-f0-9]{64}$/),
       heartbeatIntervalMs: 15_000,
-      defaultSandboxMode: 'read-only', defaultAgentNetworkAccess: false,
+      defaultSandboxMode: 'workspace-write', defaultAgentNetworkAccess: false,
       traceId: record.runId,
       codexAuthFileSecretArn: 'arn:aws:secretsmanager:us-east-1:123456789012:secret:rat/codex',
     });

@@ -377,7 +377,7 @@ export function workerOptionsFromEnv(onStartupObservation?: (observation: Microv
       ...(process.env.MICROVM_VPC_NETWORK_CONNECTOR_ARN ? { networkConnectorArn: process.env.MICROVM_VPC_NETWORK_CONNECTOR_ARN } : {}),
       allowedRepositoryHosts: process.env.ALLOWED_REPOSITORY_HOSTS ?? 'github.com,gitlab.com',
       allowedSandboxModes: process.env.ALLOWED_SANDBOX_MODES ?? 'read-only,workspace-write',
-      defaultSandboxMode: process.env.DEFAULT_SANDBOX_MODE ?? 'read-only',
+      defaultSandboxMode: process.env.DEFAULT_SANDBOX_MODE ?? 'workspace-write',
       defaultAgentNetworkAccess: process.env.DEFAULT_AGENT_NETWORK_ACCESS === 'true',
       ...(process.env.DEFAULT_MODEL ? { defaultModel: process.env.DEFAULT_MODEL } : {}),
       ...(process.env.CODEX_AUTH_FILE_SECRET_ARN

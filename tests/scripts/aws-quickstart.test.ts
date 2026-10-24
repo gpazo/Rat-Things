@@ -45,7 +45,7 @@ describe('AWS quickstart', () => {
       codex_auth_mode: 'bedrock',
       codex_bedrock_model_ids: ['openai.gpt-5.6-terra'],
       runtime_https_egress_cidrs: [],
-      default_sandbox_mode: 'read-only',
+      default_sandbox_mode: 'workspace-write',
       default_agent_network_access: false,
       enable_s3_files: false,
       microvm_base_image_version: '7',

@@ -102,7 +102,7 @@ Pi requires its own approved Bedrock catalog. Start with conservative capabiliti
 environment                      = "dev"
 allow_agent_aws_credential_chain = false
 allowed_sandbox_modes            = ["read-only", "workspace-write"]
-default_sandbox_mode             = "read-only"
+default_sandbox_mode             = "workspace-write"
 default_agent_network_access     = false
 enable_microvm                   = true
 microvm_base_image_version       = "<available pinned version>"

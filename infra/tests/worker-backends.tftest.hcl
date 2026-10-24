@@ -97,7 +97,7 @@ run "offline_runtime_without_session_storage" {
     error_message = "Budget alerts must be optional and absent by default."
   }
   assert {
-    condition     = var.default_sandbox_mode == "read-only" && !var.default_agent_network_access && !contains(var.allowed_sandbox_modes, "danger-full-access")
+    condition     = var.default_sandbox_mode == "workspace-write" && !var.default_agent_network_access && !contains(var.allowed_sandbox_modes, "danger-full-access")
     error_message = "Fresh deployments must default to a filesystem sandbox and no agent networking."
   }
   assert {

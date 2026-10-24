@@ -7,14 +7,14 @@ afterEach(() => vi.unstubAllEnvs());
 const request: RunRequest = { version: '1', prompt: 'work' };
 
 describe('Codex launch planning', () => {
-  it('uses only supplied deployment values, with ChatGPT and a read-only sandbox as defaults', () => {
+  it('uses only supplied deployment values, with ChatGPT and a workspace-write sandbox as defaults', () => {
     vi.stubEnv('CODEX_AUTH_MODE', 'invalid');
     vi.stubEnv('CODEX_BINARY', '/ambient/binary');
     const plan = planCodexLaunch(request, '/workspace', 30_000, Object.freeze({}));
 
     expect(plan).toMatchObject({
       binary: 'codex', binaryArguments: ['-c', 'cli_auth_credentials_store=file', 'app-server'],
-      workspace: '/workspace', timeoutMs: 30_000, sandbox: 'read-only',
+      workspace: '/workspace', timeoutMs: 30_000, sandbox: 'workspace-write',
       modelProvider: 'openai', persistent: false, networkAccess: false,
     });
     expect(plan.environment).toEqual({ RAT_THINGS_ARTIFACT_DIR: '/workspace/.rat-things/artifacts' });
