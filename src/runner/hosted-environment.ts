@@ -28,6 +28,7 @@ export async function bindHostedWorkspace(workspace: string, visible = '/workspa
 
 export async function prepareHostedEnvironment(options: {
   launch: SessionLaunch; workspace: string; plan: CodexLaunchPlan;
+  executionWorkspace?: string;
   artifacts: Pick<ArtifactStore, 'getBytes'>; signal?: AbortSignal;
   stateDirectory: string; previouslyPrepared?: boolean;
   /** Trusted host receipt, supplied only after the durable single-use claim succeeds. */
@@ -113,7 +114,8 @@ export async function prepareHostedEnvironment(options: {
   ].map((command) => ({ command, cwd: '/workspace' }));
   commands.push(...(configuration.setup_commands ?? []).map((setup) => ({ command: ['bash', '-c', setup.command], cwd: setup.cwd ?? '/workspace' })));
   if (commands.length) {
-    const rpc = new CodexRpcClient({ startupPurpose: 'setup', binary: plan.binary, binaryArguments: hostedCodexArguments(plan.binaryArguments, launch.environment.network, Boolean(options.credentials), workspace), cwd: workspace,
+    const executionWorkspace = options.executionWorkspace ?? workspace;
+    const rpc = new CodexRpcClient({ startupPurpose: 'setup', binary: plan.binary, binaryArguments: hostedCodexArguments(plan.binaryArguments, launch.environment.network, Boolean(options.credentials), executionWorkspace), cwd: workspace,
       environment: { PATH: plan.environment.PATH, HOME: plan.environment.HOME, CODEX_HOME: plan.environment.CODEX_HOME,
         CODEX_SQLITE_HOME: plan.environment.CODEX_SQLITE_HOME, CODEX_API_KEY: 'setup-without-inference', ...options.credentials?.processEnvironment },
       ...(plan.identity ? { identity: plan.identity } : {}), ...(signal ? { signal } : {}),
@@ -121,7 +123,7 @@ export async function prepareHostedEnvironment(options: {
     try {
       await rpc.initialize();
       for (const [index, command] of commands.entries()) {
-        const execution = await rpc.call('command/exec', { ...command, env: { ...hostedProcessEnvironment(configuration.env ?? {}, plan.environment.PATH, workspace), ...options.credentials?.shellEnvironment },
+        const execution = await rpc.call('command/exec', { ...command, env: { ...hostedProcessEnvironment(configuration.env ?? {}, plan.environment.PATH, executionWorkspace), ...options.credentials?.shellEnvironment },
           permissionProfile: 'rat_managed', timeoutMs: 600_000, outputBytesCap: 64 * 1024,
         }, 610_000);
         if (typeof execution !== 'object' || execution === null || !('exitCode' in execution) || execution.exitCode !== 0) throw new Error(`Environment setup command ${index + 1} failed`);
