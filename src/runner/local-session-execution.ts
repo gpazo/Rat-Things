@@ -191,13 +191,10 @@ export class LocalSessionExecution implements SessionExecution {
     await this.writes;
     const current = await this.options.store.get<SessionRuntimeState>(owner, 'local_runtime', id);
     if (!current) return undefined;
-    const snapshot = current.value;
-    const recover = snapshot.requiredActions.length > 0 || snapshot.subagents.some(agent => agent.status !== 'closed')
-      || snapshot.turns.some(binding => !terminalTurn(binding.turn));
-    const value = recover ? stoppedSessionRuntime(snapshot, Math.floor(Date.now() / 1000)) : snapshot;
-    if (recover) await this.options.store.put({ ...current, revision: current.revision + 1, value }, current.revision);
-    this.snapshots.set(id, value);
-    return value;
+    const recovery = recoverStoppedSnapshot(current.value, Math.floor(Date.now() / 1000));
+    if (recovery.kind === 'persist') await this.options.store.put({ ...current, revision: current.revision + 1, value: recovery.snapshot }, current.revision);
+    this.snapshots.set(id, recovery.snapshot);
+    return recovery.snapshot;
   }
   private runtime(owner: string, session: AgentSession, history: AgentSessionItem[], previous: SessionRuntimeState | undefined) {
     const existing = this.runtimes.get(session.id);
@@ -254,6 +251,18 @@ export class LocalSessionExecution implements SessionExecution {
     const state = await this.options.store.get<SessionState>(owner, 'sessions', session);
     return Boolean(state?.value.closing || state?.value.turns.some(binding => binding.turn.id === turn && binding.cancelRequested));
   }
+}
+
+type StoppedRecovery =
+  | { kind: 'retain'; snapshot: SessionRuntimeState }
+  | { kind: 'persist'; snapshot: SessionRuntimeState };
+
+function recoverStoppedSnapshot(snapshot: SessionRuntimeState, now: number): StoppedRecovery {
+  const abandoned = snapshot.requiredActions.length > 0 || snapshot.subagents.some(agent => agent.status !== 'closed')
+    || snapshot.turns.some(binding => !terminalTurn(binding.turn));
+  return abandoned
+    ? { kind: 'persist', snapshot: stoppedSessionRuntime(snapshot, now) }
+    : { kind: 'retain', snapshot };
 }
 
 function cancelledTurn(turn: Turn): Turn {

@@ -12,7 +12,7 @@ import { hostedCodexArguments, hostedProcessEnvironment } from './hosted-environ
 import type { CodexLaunchPlan } from './agent-planning.js';
 import type { SessionState } from '../core/session-ports.js';
 import { requireSessionMutable } from '../core/session-fork-planning.js';
-import { localWorkspaceIdentity, sameLocalWorkspace, type LocalWorkspaceIdentity } from '../domain/local-workspace.js';
+import { localWorkspaceIdentity, sameLocalWorkspace, type LocalWorkspaceIntent } from '../domain/local-workspace.js';
 import { workspaceDigests } from '../domain/workspace-checkpoint.js';
 import { LocalRuntimeAdmissionError } from '../domain/local-native-admission.js';
 import type { LocalCodexHostProvider } from './local-codex.js';
@@ -122,17 +122,14 @@ export class LocalManagedEnvironment {
       await this.options.environments.managedStatus(entry.owner, entry.session.environment.id, id, 'connected');
     }).catch(() => {});
   }
-  private async disconnect(id: string) {
-    this.connections.delete(id);
-    await this.markDisconnected(id);
-  }
   private async markDisconnected(id: string) {
     const entry = this.sessions.get(id);
     if (entry?.session.environment.type === 'openai_hosted') await this.options.environments.managedStatus(entry.owner, entry.session.environment.id, id, 'disconnected');
   }
   private async retire<T>(id: string, operation: () => Promise<T>): Promise<T> {
+    this.connections.delete(id);
     let statusFailure: unknown;
-    try { await this.disconnect(id); } catch (error) { statusFailure = error; }
+    try { await this.markDisconnected(id); } catch (error) { statusFailure = error; }
     const result = await operation();
     this.sessions.delete(id);
     if (statusFailure) throw statusFailure;
@@ -152,10 +149,10 @@ export class LocalManagedEnvironment {
     const executorKey = environmentToken({ ownerId: owner, environmentId, role: 'executor' }, randomBytes(32).toString('hex'));
     const harnessKey = environmentToken({ ownerId: owner, environmentId, role: 'harness' }, randomBytes(32).toString('hex'));
     const launch = { sessionId: session.id, turnId: '', agent: session.agent, environment: session.environment, input: [], ...await this.options.environments.managedLaunch(owner, environmentId) };
-    const identity: LocalWorkspaceIdentity = prepared ? localWorkspaceIdentity(prepared.value)
-      : { version: 1, sessionId: session.id, generation: randomUUID(), setupDigest: workspaceDigests(launch).setupDigest };
-    if (!sameLocalWorkspace(identity, { ...identity, sessionId: session.id, setupDigest: workspaceDigests(launch).setupDigest })) throw new Error('Local workspace setup identity changed.');
-    return { workspace: { kind: prepared ? 'resume' : 'create', identity }, worker: { ownerId: owner, sessionId: session.id, environmentId, executorKey, harnessKey, launch } };
+    const workspace = workspaceClaim(prepared
+      ? { kind: 'resume', saved: prepared.value }
+      : { kind: 'create', generation: randomUUID() }, session.id, launch);
+    return { workspace, worker: { ownerId: owner, sessionId: session.id, environmentId, executorKey, harnessKey, launch } };
   }
   private async start(owner: string, session: AgentSession, request: LocalStartRequest): Promise<WorkerConnection> {
     let started = false;
@@ -178,6 +175,22 @@ export class LocalManagedEnvironment {
       throw admissionError(error);
     }
   }
+}
+
+type WorkspaceClaim =
+  | { kind: 'resume'; saved: unknown }
+  | { kind: 'create'; generation: string };
+
+function workspaceClaim(claim: WorkspaceClaim, sessionId: string, launch: Parameters<typeof workspaceDigests>[0]): LocalWorkspaceIntent {
+  if (claim.kind === 'create') {
+    const setupDigest = workspaceDigests(launch).setupDigest;
+    return { kind: 'create', identity: { version: 1, sessionId, generation: claim.generation, setupDigest } };
+  }
+
+  const identity = localWorkspaceIdentity(claim.saved);
+  const setupDigest = workspaceDigests(launch).setupDigest;
+  if (!sameLocalWorkspace(identity, { ...identity, sessionId, setupDigest })) throw new Error('Local workspace setup identity changed.');
+  return { kind: 'resume', identity };
 }
 
 function admissionError(error: unknown) {
