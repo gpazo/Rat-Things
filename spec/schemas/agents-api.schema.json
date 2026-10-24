@@ -348,6 +348,12 @@
         },
         "CredentialList": {
           "$ref": "#/definitions/CredentialListParams"
+        },
+        "SessionImport": {
+          "$ref": "#/definitions/SessionImport"
+        },
+        "SessionImportCapabilities": {
+          "$ref": "#/definitions/SessionImportCapabilities"
         }
       },
       "required": [
@@ -405,7 +411,9 @@
         "CredentialDeleted",
         "CredentialCreate",
         "CredentialUpdate",
-        "CredentialList"
+        "CredentialList",
+        "SessionImport",
+        "SessionImportCapabilities"
       ],
       "additionalProperties": false,
       "description": "Schema-generation roots. None of these types copy or rename upstream fields."
@@ -9507,6 +9515,66 @@
           "description": "Filter by one status or a list, such as `status=active` or `status[]=active&status[]=archived`. Both statuses are included by default."
         }
       },
+      "additionalProperties": false
+    },
+    "SessionImport": {
+      "type": "object",
+      "properties": {
+        "version": {
+          "type": "number",
+          "const": 1
+        },
+        "transfer_id": {
+          "type": "string"
+        },
+        "source_session_id": {
+          "type": "string"
+        },
+        "session": {
+          "$ref": "#/definitions/SessionCreateParams"
+        },
+        "history": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/AgentSessionItem"
+          }
+        }
+      },
+      "required": [
+        "version",
+        "transfer_id",
+        "source_session_id",
+        "session",
+        "history"
+      ],
+      "additionalProperties": false,
+      "description": "Portable application state. No provider credentials, runtime IDs or active operations."
+    },
+    "SessionImportCapabilities": {
+      "type": "object",
+      "properties": {
+        "version": {
+          "type": "number",
+          "const": 1
+        },
+        "max_history_bytes": {
+          "type": "number"
+        },
+        "credentials": {
+          "type": "string",
+          "const": "destination"
+        },
+        "execution": {
+          "type": "string",
+          "const": "on_next_message"
+        }
+      },
+      "required": [
+        "version",
+        "max_history_bytes",
+        "credentials",
+        "execution"
+      ],
       "additionalProperties": false
     }
   },

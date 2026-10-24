@@ -40,6 +40,24 @@ export function createModelCatalog(config: { readonly modelIds: unknown; readonl
   };
 }
 
+/** Parse the destination's bounded discovery response without retaining remote fields. */
+export function modelCatalogFromResponse(value: unknown): ModelCatalog | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const input = value as Record<string, unknown>;
+  if (input.object !== 'list' || !Array.isArray(input.data) || !input.data.length || input.data.length > 1000) return undefined;
+  const data: ModelCatalogEntry[] = [];
+  for (const item of input.data) {
+    if (!item || typeof item !== 'object' || Array.isArray(item) || item.object !== 'model'
+      || !validModelId(item.id) || item.id.length > 512) return undefined;
+    if (item.display_name !== undefined && (typeof item.display_name !== 'string' || item.display_name.length > 256
+      || /[\u0000-\u001f\u007f]/.test(item.display_name))) return undefined;
+    data.push({ id: item.id, object: 'model', ...(item.display_name === undefined ? {} : { display_name: item.display_name }) });
+  }
+  if (new Set(data.map(item => item.id)).size !== data.length) return undefined;
+  if (input.default_model !== undefined && (!validModelId(input.default_model) || !data.some(item => item.id === input.default_model))) return undefined;
+  return { object: 'list', data, ...(input.default_model === undefined ? {} : { default_model: input.default_model }) };
+}
+
 function validModelId(value: unknown): value is string {
   return typeof value === 'string' && value.length > 0 && value.trim() === value && !/[\u0000-\u001f\u007f]/.test(value);
 }

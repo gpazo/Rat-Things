@@ -1,0 +1,83 @@
+{
+  "repository": "https://github.com/aws/aws-sdk-js-v3",
+  "tag": "v3.1150.0",
+  "tagObjectSha1": "2c2b35cee20d1cf53289dc106fdbe05b94e8ba4c",
+  "tagSigned": false,
+  "commit": "4c9a334a79b631cc110fb3a1d67695b4c07baf46",
+  "releaseUrl": "https://github.com/aws/aws-sdk-js-v3/releases/tag/v3.1150.0",
+  "releasePublishedAt": "2026-10-12T18:36:57Z",
+  "releasePackageList": {
+    "assetUrl": "https://github.com/aws/aws-sdk-js-v3/releases/download/v3.1150.0/assets-3.1150.0.zip",
+    "assetBytes": 5326,
+    "assetSha256": "971921bfe57beac0de08fb7d1c875a523f0efad40aff03fc41e191efcf4eb2f8",
+    "path": "updated-packages.md",
+    "bytes": 67453,
+    "sha256": "e679f109e24fd4ea1b8e9898442b1cd3abcbb330578d1d9c491505062060b5fe"
+  },
+  "license": {
+    "file": "LICENSE",
+    "sourcePath": "LICENSE",
+    "bytes": 11352,
+    "sha256": "edea91454b811f127fbdea3d86f378f6719bd372ed440abf82b232f6fca06c3d",
+    "gitBlobSha1": "0322cba2eac898acb5c8577a20657e7a74af55a4",
+    "treeBlobHashMatches": true
+  },
+  "limitations": [
+    "No npm gitHead or dist.attestations field was present in the exact-version metadata retrieved from registry.npmjs.org.",
+    "The source correspondence is publisher release/version evidence, not a cryptographic npm tarball-to-commit build attestation.",
+    "No npm tarballs were downloaded or package build outputs reproduced. Existing installed package metadata and README were compared read-only. The publisher release asset was downloaded in memory to inspect updated-packages.md.",
+    "NOTICE absence is established for the root, packages-internal ancestor, and the complete trees of the three packages. It is not a whole-monorepo or all-source-comment audit.",
+    "The root package.json is a private development workspace with license UNLICENSED. Each of these three published package.json files declares Apache-2.0, and CONTRIBUTING.md states that the SDK is released under the Apache license.",
+    "The nested-clients published repository.directory names packages/nested-clients; the release list and publisher Git tree locate this version under packages-internal/nested-clients."
+  ],
+  "packages": [
+    {
+      "packagePath": "node_modules/@aws-sdk/credential-provider-http",
+      "name": "@aws-sdk/credential-provider-http",
+      "version": "3.972.76",
+      "integrity": "sha512-pnKdh0Br7OJPj+7qKjzgTfDTFW0RhEMKXNDR2jv9CAM4oHuG/4z3hRh8KtutLfpmItuRtDbKBmwWkDqHwwAWXw==",
+      "resolved": "https://registry.npmjs.org/@aws-sdk/credential-provider-http/-/credential-provider-http-3.972.76.tgz",
+      "registryMetadataUrl": "https://registry.npmjs.org/@aws-sdk/credential-provider-http/3.972.76",
+      "sourcePackageDirectory": "packages-internal/credential-provider-http",
+      "sourcePackageTreeSha1": "92557e0dc6040a26bf344d245e35c1d1c68134cf",
+      "publishedReleaseListLine": "* [@aws-sdk/credential-provider-http@3.972.76](https://github.com/aws/aws-sdk-js-v3/blob/v3.1150.0/packages-internal/credential-provider-http/CHANGELOG.md)",
+      "sourceChangelogHeading": "# 3.972.76 (2026-10-12)",
+      "installedPackageJsonSha256": "c79b69a2e9dba1f267d2605065dd0668a1e30bfaeeede5032f1f90767c1b36dc",
+      "installedPackageJsonEqualsSourceAfterRemovingWorkspaceDependencyPrefixes": true,
+      "installedReadmeEqualsSourceBytes": true,
+      "sourceLicenseNoticeFilenameMatches": []
+    },
+    {
+      "packagePath": "node_modules/@aws-sdk/credential-provider-login",
+      "name": "@aws-sdk/credential-provider-login",
+      "version": "3.972.81",
+      "integrity": "sha512-CeQHSbE2CnVdaHIJ/NayRaCecIER+Pm9faUPkmRATO54rCoMTEPSbVieGHzEwvm1dZM2HIs6qQZCznhayNTWJQ==",
+      "resolved": "https://registry.npmjs.org/@aws-sdk/credential-provider-login/-/credential-provider-login-3.972.81.tgz",
+      "registryMetadataUrl": "https://registry.npmjs.org/@aws-sdk/credential-provider-login/3.972.81",
+      "sourcePackageDirectory": "packages-internal/credential-provider-login",
+      "sourcePackageTreeSha1": "1cc1b168b248bccfdab774e93f09a0e213f893cb",
+      "publishedReleaseListLine": "* [@aws-sdk/credential-provider-login@3.972.81](https://github.com/aws/aws-sdk-js-v3/blob/v3.1150.0/packages-internal/credential-provider-login/CHANGELOG.md)",
+      "sourceChangelogHeading": "# 3.972.81 (2026-10-12)",
+      "installedPackageJsonSha256": "64f70b3dfc1ae18643b25157322aa4b38c4e02a47fbba95d08d7f421f5152b80",
+      "installedPackageJsonEqualsSourceAfterRemovingWorkspaceDependencyPrefixes": true,
+      "installedReadmeEqualsSourceBytes": true,
+      "sourceLicenseNoticeFilenameMatches": []
+    },
+    {
+      "packagePath": "node_modules/@aws-sdk/nested-clients",
+      "name": "@aws-sdk/nested-clients",
+      "version": "3.997.48",
+      "integrity": "sha512-B01jdXJtAW/XOiUzGdI2mz67WyEHbGEc9X6Euzw3bjLAa+txTqdZDER4X2FsIEcXzV2ABqudVZ5thali8tCCzQ==",
+      "resolved": "https://registry.npmjs.org/@aws-sdk/nested-clients/-/nested-clients-3.997.48.tgz",
+      "registryMetadataUrl": "https://registry.npmjs.org/@aws-sdk/nested-clients/3.997.48",
+      "sourcePackageDirectory": "packages-internal/nested-clients",
+      "sourcePackageTreeSha1": "e151b61c68dc13d900dcbfaa636af580d3edbd16",
+      "publishedReleaseListLine": "* [@aws-sdk/nested-clients@3.997.48](https://github.com/aws/aws-sdk-js-v3/blob/v3.1150.0/packages-internal/nested-clients/CHANGELOG.md)",
+      "sourceChangelogHeading": "# 3.997.48 (2026-10-12)",
+      "installedPackageJsonSha256": "3566438b4ebec512260cc6f52aa35e8bea3a67ba6f807bf8ef67dba647919dea",
+      "installedPackageJsonEqualsSourceAfterRemovingWorkspaceDependencyPrefixes": true,
+      "installedReadmeEqualsSourceBytes": true,
+      "sourceLicenseNoticeFilenameMatches": []
+    }
+  ]
+}

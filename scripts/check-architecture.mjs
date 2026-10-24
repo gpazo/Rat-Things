@@ -1,8 +1,9 @@
 import { readdir, readFile } from 'node:fs/promises';
-import { dirname, relative, resolve, sep } from 'node:path';
+import { dirname, isAbsolute, relative, resolve, sep } from 'node:path';
 import process from 'node:process';
 
 const root = resolve('src');
+const testing = resolve('testing');
 const rules = new Map([
   ['domain', new Set(['adapters', 'app', 'channels', 'credentials', 'delivery', 'execution', 'ingress', 'lambdas', 'plugins', 'runner'])],
   ['core', new Set(['adapters', 'app', 'delivery', 'execution', 'ingress', 'lambdas', 'plugins', 'runner'])],
@@ -21,13 +22,15 @@ const violations = [];
 for (const file of await sourceFiles(root)) {
   const sourceArea = area(file);
   const forbidden = rules.get(sourceArea);
-  if (!forbidden) continue;
   const text = await readFile(file, 'utf8');
   for (const specifier of importSpecifiers(text)) {
-    if (!specifier.startsWith('.')) continue;
+    if (!specifier.startsWith('.') && !isAbsolute(specifier)) continue;
     const target = resolve(dirname(file), specifier.replace(/\.js$/, '.ts'));
+    if (target === testing || target.startsWith(`${testing}${sep}`)) {
+      violations.push(`${relative(process.cwd(), file)} must not import ${specifier} (testing)`);
+    }
     const targetArea = area(target);
-    if (forbidden.has(targetArea)) {
+    if (forbidden?.has(targetArea)) {
       violations.push(`${relative(process.cwd(), file)} must not import ${specifier} (${targetArea})`);
     }
   }
@@ -56,6 +59,6 @@ function area(file) {
 }
 
 function importSpecifiers(source) {
-  const pattern = /(?:import|export)\s+(?:type\s+)?(?:[^'";]*?\s+from\s+)?['"]([^'"]+)['"]/g;
+  const pattern = /(?:\b(?:import|export)\s+(?:type\s+)?(?:[^'";]*?\s+from\s+)?|\b(?:import|require)\s*\(\s*)['"]([^'"]+)['"]/g;
   return [...source.matchAll(pattern)].map((match) => match[1]).filter(Boolean);
 }

@@ -1,0 +1,91 @@
+{
+  "@openai/codex-darwin-arm64": {
+    "name": "@openai/codex",
+    "version": "0.154.0-darwin-arm64",
+    "resolved": "https://registry.npmjs.org/@openai/codex/-/codex-0.154.0-darwin-arm64.tgz",
+    "integrity": "sha512-HP/vJCH/t2hB9Kg6hotN9UglClJ6/z584fal5lEP14C9gNAgAQS4/kTQC7l5V+BA3TqwDPwINSjul28cX8AYXg==",
+    "descriptor": {
+      "layoutVersion": 1,
+      "version": "0.154.0",
+      "target": "aarch64-apple-darwin",
+      "variant": "codex",
+      "entrypoint": "bin/codex",
+      "resourcesDir": "codex-resources",
+      "pathDir": "codex-path"
+    },
+    "files": [
+      {
+        "path": "bin/codex",
+        "sha256": "4f85982624b3898c8991cb80c0981b2aa71070e3537046c9a95950318a95afcc",
+        "executable": true
+      },
+      {
+        "path": "bin/codex-code-mode-host",
+        "sha256": "426d73aaeb2aeef45e98b5add99e8ef9594a31673d281489bb2cb06b38c27423",
+        "executable": true
+      },
+      {
+        "path": "codex-package.json",
+        "sha256": "6bace96c38debc466a94cd71d48464df1b1dc27a4ac75d8cebbcb2b6a3a6540c",
+        "executable": false
+      },
+      {
+        "path": "codex-path/rg",
+        "sha256": "6bbb665c5a40785e74c7ccf1c2e606efa7e70b09540c1e00787c3f88827e668d",
+        "executable": true
+      },
+      {
+        "path": "codex-resources/zsh/bin/zsh",
+        "sha256": "25649b16e12a7b1b26686a9553d8a141866ee445319fddb5263d57784f0fd10b",
+        "executable": true
+      }
+    ]
+  },
+  "@openai/codex-linux-arm64": {
+    "name": "@openai/codex",
+    "version": "0.154.0-linux-arm64",
+    "resolved": "https://registry.npmjs.org/@openai/codex/-/codex-0.154.0-linux-arm64.tgz",
+    "integrity": "sha512-KmTCB6ST484zeYlPpKP/K5P/gRaYmt6TihVD+zotoe6O9q0JSBP+FYvCz4A/zZXR7xDOHURTSjHp0sD8wWS0YQ==",
+    "descriptor": {
+      "layoutVersion": 1,
+      "version": "0.154.0",
+      "target": "aarch64-unknown-linux-musl",
+      "variant": "codex",
+      "entrypoint": "bin/codex",
+      "resourcesDir": "codex-resources",
+      "pathDir": "codex-path"
+    },
+    "files": [
+      {
+        "path": "bin/codex",
+        "sha256": "9b7c1c7abdc26fc3c4f47c77656a8e9121def5483dbae830ef1ee561758448a9",
+        "executable": true
+      },
+      {
+        "path": "bin/codex-code-mode-host",
+        "sha256": "f31e1c5ffbbca7884aff2f0f8795d3da197f4aafb114033a399dfc17a5119031",
+        "executable": true
+      },
+      {
+        "path": "codex-package.json",
+        "sha256": "abfae2ff248420c32f531f3ba0cb83ea27bb9ba9355872658b591e1939a60288",
+        "executable": false
+      },
+      {
+        "path": "codex-path/rg",
+        "sha256": "e36d0eb52e70696bdf1781392722e05a21bb91d3b7b762ef5ec20e5df2ec687b",
+        "executable": true
+      },
+      {
+        "path": "codex-resources/bwrap",
+        "sha256": "58bd88f39d02a0b5ac553c2f334edfff1ec74afb9b8f4233dfc5b69225038f92",
+        "executable": true
+      },
+      {
+        "path": "codex-resources/zsh/bin/zsh",
+        "sha256": "7feeacd883e1dc749847936948c378653c80a69ec4a9542f0f126b411882c179",
+        "executable": true
+      }
+    ]
+  }
+}

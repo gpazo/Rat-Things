@@ -645,11 +645,12 @@ function renderDocsHome(groups, documents) {
       <div class="docs-home">
         <p class="docs-eyebrow">Rat Things documentation</p>
         <h1>Choose the path<br>you need.</h1>
-        <p class="docs-home-lede">Start with a product overview, deploy to AWS, connect an agent to an existing deployment, or embed the API. Deeper operator and agent reference stays available when the task needs it.</p>
+        <p class="docs-home-lede">Give your first task a home on this computer. Add an AWS workspace when you need more room, or use the same API in your own product. The deeper reference is here when you need it.</p>
         <section class="docs-paths" data-doc-group aria-labelledby="docs-paths-title">
           <h2 id="docs-paths-title" class="docs-sr-only">Choose a documentation path</h2>
+          <a data-doc-link href="./local-workspace/"><span>Start on this computer</span><small>Open the desktop and keep your first conversation. No AWS account needed.</small></a>
+          <a data-doc-link href="./quickstart/"><span>Give your work more room</span><small>Set up your AWS workspace and connect the same desktop.</small></a>
           <a data-doc-link href="./agent-runtimes/"><span>Choose your runtime</span><small>Compare Codex and Pi Durable, model access, and tools.</small></a>
-          <a data-doc-link href="./quickstart/"><span>Deploy the backend</span><small>Configure AWS workers, storage, and model access.</small></a>
           <a data-doc-link href="./agents/"><span>Connect an agent</span><small>Discover an installed deployment from one URL.</small></a>
           <a data-doc-link href="./embedding/"><span>Embed Rat Things</span><small>Put the owner-scoped API behind your own product UX.</small></a>
         </section>

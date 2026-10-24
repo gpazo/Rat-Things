@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
 import { FileService } from '../../src/core/file-service.js';
 import { AgentService } from '../../src/core/agent-service.js';
 import { runAgentsCli } from '../../src/agents-cli.js';
@@ -16,6 +17,64 @@ vi.mock('../../src/agents-client.js', () => ({ createAgentsClient: transport.cre
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllEnvs(); });
 
 describe('standard Files CLI', () => {
+  it.each([
+    [['files', 'list'], '/v1/files'],
+    [['agents', 'list'], '/v1/agents'],
+    [['sessions', 'list'], '/v1/agents/sessions'],
+    [['sessions', 'items', 'sess_fixture'], '/v1/agents/sessions/sess_fixture/items'],
+    [['sessions', 'turns', 'sess_fixture'], '/v1/agents/sessions/sess_fixture/turns'],
+    [['sessions', 'artifacts', 'sess_fixture'], '/v1/agents/sessions/sess_fixture/artifacts'],
+    [['environments', 'templates', 'list'], '/v1/agents/environments/templates'],
+    [['vaults', 'list'], '/v1/vaults'],
+    [['vaults', 'credentials', 'list', 'vault_fixture'], '/v1/vaults/vault_fixture/credentials'],
+  ] as const)('prints the API page without SDK request metadata for %s', async (args, path) => {
+    const page = { object: 'list', data: [{ id: 'resource_next' }], has_more: true, first_id: 'resource_next', last_id: 'resource_next' };
+    const requests: URL[] = [];
+    transport.create.mockReturnValue(new OpenAI({ apiKey: 'fixture', baseURL: 'https://fixture.invalid/v1', maxRetries: 0, fetch: async (input, init) => {
+      const request = new Request(input, init); requests.push(new URL(request.url));
+      expect(request.headers.get('OpenAI-Beta')).toBe(path === '/v1/files' ? null : 'agents=v1');
+      return Response.json(page);
+    } }));
+    vi.stubEnv('RAT_THINGS_AGENTS_API_URL', 'https://fixture.invalid/v1');
+    vi.stubEnv('AWS_REGION', 'us-west-2');
+    const output = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
+    await runAgentsCli([...args, '--limit', '1', '--after', 'resource_previous', '--order', 'asc']);
+    expect(output).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(String(output.mock.calls[0]![0]))).toEqual(page);
+    expect(requests).toHaveLength(1);
+    expect(requests[0]!.pathname).toBe(path);
+    expect(Object.fromEntries(requests[0]!.searchParams)).toEqual({ limit: '1', after: 'resource_previous', order: 'asc' });
+  });
+
+  it('keeps the SDK response-body deadline for a stalled list', async () => {
+    let stream: ReadableStreamDefaultController<Uint8Array> | undefined;
+    transport.create.mockReturnValue(new OpenAI({ apiKey: 'fixture', baseURL: 'https://fixture.invalid/v1', timeout: 15, maxRetries: 0,
+      fetch: async () => new Response(new ReadableStream<Uint8Array>({ start(controller) { stream = controller; } }),
+        { headers: { 'content-type': 'application/json' } }) }));
+    vi.stubEnv('RAT_THINGS_AGENTS_API_URL', 'https://fixture.invalid/v1');
+    vi.stubEnv('AWS_REGION', 'us-west-2');
+    const output = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
+    const result = runAgentsCli(['sessions', 'items', 'sess_fixture']).then(() => 'completed', (error: unknown) => error instanceof OpenAI.APIConnectionTimeoutError ? 'timed_out' : 'unknown');
+    try {
+      expect(await Promise.race([result, delay(100).then(() => 'pending')])).toBe('timed_out');
+      expect(output).not.toHaveBeenCalled();
+    } finally {
+      try { stream?.enqueue(new TextEncoder().encode('{"object":"list","data":[],"has_more":false}')); stream?.close(); } catch {}
+      await result;
+    }
+  });
+
+  it.each(['.', '..'])('rejects relative resource ID %s before sending a list request', async id => {
+    const fetch = vi.fn(async () => Response.json({ object: 'list', data: [], has_more: false }));
+    transport.create.mockReturnValue(new OpenAI({ apiKey: 'fixture', baseURL: 'https://fixture.invalid/v1', maxRetries: 0, fetch }));
+    vi.stubEnv('RAT_THINGS_AGENTS_API_URL', 'https://fixture.invalid/v1');
+    vi.stubEnv('AWS_REGION', 'us-west-2');
+    for (const args of [['sessions', 'items', id], ['sessions', 'turns', id], ['sessions', 'artifacts', id], ['vaults', 'credentials', 'list', id]]) {
+      await expect(runAgentsCli(args)).rejects.toThrow('relative path');
+    }
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
   it('exports every Session trace page as an OTLP payload to a local file', async () => {
     const requests: URL[] = [];
     transport.create.mockReturnValue(new OpenAI({ apiKey: 'fixture', baseURL: 'https://fixture.invalid/v1', maxRetries: 0, fetch: async (input, init) => {

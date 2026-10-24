@@ -113,7 +113,9 @@ export function projectSessionItems(turnId: string, events: unknown[], fallbackT
     } else if (item.type === 'webSearch') {
       items.set(id, { id, type: 'web_search_call', turn_id: turnId, status: done ? 'completed' : 'in_progress', action: searchAction(item.action) });
     } else if (item.type === 'commandExecution' && typeof item.command === 'string') {
-      items.set(id, { id, type: 'command_execution', turn_id: turnId, command: item.command, cwd: stringOrNull(item.cwd), duration_ms: numberOrNull(item.durationMs), exit_code: numberOrNull(item.exitCode), output: stringOrNull(item.aggregatedOutput), status: callStatus(item.status, done) });
+      const previous = items.get(id);
+      const output = stringOrNull(item.aggregatedOutput) ?? (previous?.type === 'command_execution' ? previous.output : null);
+      items.set(id, { id, type: 'command_execution', turn_id: turnId, command: item.command, cwd: stringOrNull(item.cwd), duration_ms: numberOrNull(item.durationMs), exit_code: numberOrNull(item.exitCode), output, status: callStatus(item.status, done) });
     } else if (item.type === 'mcpToolCall' && typeof item.tool === 'string' && typeof item.server === 'string') {
       items.set(id, { id, type: 'mcp_call', turn_id: turnId, name: item.tool, server_label: item.server, arguments: item.arguments ?? null, output: item.result ?? null, error: item.error ?? null, status: callStatus(item.status, done) });
     }

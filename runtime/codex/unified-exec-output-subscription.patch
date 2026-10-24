@@ -1,0 +1,160 @@
+diff --git a/codex-rs/core/src/unified_exec/async_watcher_tests.rs b/codex-rs/core/src/unified_exec/async_watcher_tests.rs
+index bffc5cf..29e3d8b 100644
+--- a/codex-rs/core/src/unified_exec/async_watcher_tests.rs
++++ b/codex-rs/core/src/unified_exec/async_watcher_tests.rs
+@@ -33,6 +33,16 @@ struct StreamingOutputHarness {
+ }
+ 
+ async fn streaming_output_harness() -> anyhow::Result<StreamingOutputHarness> {
++    let harness = unstarted_streaming_output_harness().await?;
++    start_streaming_output(
++        &harness.process,
++        &harness.context,
++        Arc::clone(&harness.transcript),
++    );
++    Ok(harness)
++}
++
++async fn unstarted_streaming_output_harness() -> anyhow::Result<StreamingOutputHarness> {
+     let (writer_tx, _writer_rx) = tokio::sync::mpsc::channel::<Vec<u8>>(1);
+     let (stdout_tx, stdout_rx) = tokio::sync::broadcast::channel::<Vec<u8>>(8);
+     let (exit_tx, exit_rx) = tokio::sync::oneshot::channel::<i32>();
+@@ -59,8 +69,6 @@ async fn streaming_output_harness() -> anyhow::Result<StreamingOutputHarness> {
+         "streaming-output-test".to_string(),
+     );
+     let transcript = Arc::new(tokio::sync::Mutex::new(HeadTailBuffer::default()));
+-    start_streaming_output(&process, &context, Arc::clone(&transcript));
+-
+     Ok(StreamingOutputHarness {
+         process,
+         stdout_tx,
+@@ -71,6 +79,89 @@ async fn streaming_output_harness() -> anyhow::Result<StreamingOutputHarness> {
+     })
+ }
+ 
++#[tokio::test]
++async fn exit_watcher_preserves_output_emitted_before_streaming_starts() -> anyhow::Result<()> {
++    let StreamingOutputHarness {
++        process,
++        stdout_tx,
++        exit_tx,
++        transcript,
++        context,
++        rx_event,
++    } = unstarted_streaming_output_harness().await?;
++    let output_handles = process.output_handles();
++    let early_output_buffered = output_handles.output_notify.notified();
++    tokio::pin!(early_output_buffered);
++    early_output_buffered.as_mut().enable();
++
++    stdout_tx
++        .send(b"EARLY-OUTPUT-MARKER\n".to_vec())
++        .expect("send early output");
++    early_output_buffered.await;
++    let tool_output = std::mem::take(&mut *output_handles.output_buffer.lock().await);
++    assert_eq!(tool_output.to_bytes(), b"EARLY-OUTPUT-MARKER\n");
++
++    start_streaming_output(&process, &context, Arc::clone(&transcript));
++    let cwd = context
++        .step_context
++        .environments
++        .primary()
++        .expect("primary environment")
++        .cwd()
++        .clone();
++    spawn_exit_watcher(
++        Arc::clone(&process),
++        Arc::clone(&context.session),
++        Arc::clone(&context.step_context.turn),
++        context.call_id.clone(),
++        vec!["proof".to_string()],
++        cwd,
++        /*process_id*/ 123,
++        /*plugin_attribution*/ None,
++        transcript,
++        Instant::now(),
++        /*network_denial_monitor*/ None,
++        /*plugin_metrics_sidecar*/ None,
++    );
++    drop(context);
++
++    stdout_tx
++        .send(b"LATE-OUTPUT-MARKER\n".to_vec())
++        .expect("send late output");
++    drop(stdout_tx);
++    exit_tx.send(0).expect("send exit");
++
++    let mut streamed_output = Vec::new();
++    let mut completions = Vec::new();
++    while let Ok(event) = rx_event.recv().await {
++        match event.msg {
++            EventMsg::ExecCommandOutputDelta(delta) => streamed_output.extend(delta.chunk),
++            EventMsg::ItemCompleted(completed) => {
++                let TurnItem::CommandExecution(item) = completed.item else {
++                    panic!("expected CommandExecution");
++                };
++                completions.push((item.status, item.exit_code, item.aggregated_output));
++            }
++            EventMsg::ExecCommandEnd(_) => {}
++            event => panic!("unexpected event: {event:?}"),
++        }
++    }
++    assert_eq!(
++        completions,
++        vec![(
++            CommandExecutionStatus::Completed,
++            Some(0),
++            Some("EARLY-OUTPUT-MARKER\nLATE-OUTPUT-MARKER\n".to_string()),
++        )]
++    );
++    assert_eq!(
++        streamed_output,
++        b"EARLY-OUTPUT-MARKER\nLATE-OUTPUT-MARKER\n"
++    );
++
++    Ok(())
++}
++
+ #[tokio::test]
+ async fn streaming_output_preserves_multibyte_characters_across_chunks() -> anyhow::Result<()> {
+     let StreamingOutputHarness {
+diff --git a/codex-rs/core/src/unified_exec/process.rs b/codex-rs/core/src/unified_exec/process.rs
+index 81946e4..49dd1ec 100644
+--- a/codex-rs/core/src/unified_exec/process.rs
++++ b/codex-rs/core/src/unified_exec/process.rs
+@@ -90,6 +90,7 @@ enum ProcessHandle {
+ pub(crate) struct UnifiedExecProcess {
+     process_handle: ProcessHandle,
+     output_tx: broadcast::Sender<Vec<u8>>,
++    output_rx: std::sync::Mutex<Option<broadcast::Receiver<Vec<u8>>>>,
+     output: OutputHandles,
+     output_drained: Arc<Notify>,
+     interaction_lock: Arc<Mutex<()>>,
+@@ -125,12 +126,13 @@ impl UnifiedExecProcess {
+             cancellation_token: CancellationToken::new(),
+         };
+         let output_drained = Arc::new(Notify::new());
+-        let (output_tx, _) = broadcast::channel(64);
++        let (output_tx, output_rx) = broadcast::channel(64);
+         let (state_tx, state_rx) = watch::channel(ProcessState::default());
+ 
+         Self {
+             process_handle,
+             output_tx,
++            output_rx: std::sync::Mutex::new(Some(output_rx)),
+             output,
+             output_drained,
+             interaction_lock: Arc::new(Mutex::new(())),
+@@ -173,7 +175,11 @@ impl UnifiedExecProcess {
+     }
+ 
+     pub(super) fn output_receiver(&self) -> tokio::sync::broadcast::Receiver<Vec<u8>> {
+-        self.output_tx.subscribe()
++        self.output_rx
++            .lock()
++            .expect("unified exec output receiver lock poisoned")
++            .take()
++            .expect("unified exec output receiver already taken")
+     }
+ 
+     pub(super) fn cancellation_token(&self) -> CancellationToken {

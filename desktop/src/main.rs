@@ -1,4 +1,5 @@
 use std::io::{BufRead, BufReader, Read};
+#[cfg(not(feature = "installed-runtime"))]
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::sync::mpsc;
@@ -7,16 +8,26 @@ use std::time::{Duration, Instant};
 use rat_things_desktop::ConsoleApp;
 use serde::Deserialize;
 
-struct Signer(Child);
+struct Signer {
+    child: Child,
+    ready: bool,
+}
 impl Drop for Signer {
     fn drop(&mut self) {
-        drop(self.0.stdin.take());
-        let _ = self.0.kill();
-        let _ = self.0.wait();
+        drop(self.child.stdin.take());
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while self.child.try_wait().ok().flatten().is_none() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        if !self.ready {
+            let _ = self.child.kill();
+            let _ = self.child.wait();
+        }
     }
 }
 
-fn start_signer() -> Result<(Signer, String, String), String> {
+#[cfg(not(feature = "installed-runtime"))]
+fn signer_command() -> Result<Command, String> {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .unwrap()
@@ -43,9 +54,6 @@ fn start_signer() -> Result<(Signer, String, String), String> {
             "Console signer is missing. Run npm run build from a Rat Things checkout.".into(),
         );
     }
-    let mut random = [0u8; 32];
-    getrandom::fill(&mut random).map_err(|_| "Could not generate a private console token")?;
-    let token: String = random.iter().map(|byte| format!("{byte:02x}")).collect();
     let bundled_node = executable_dir.join(if cfg!(windows) { "node.exe" } else { "node" });
     let node = std::env::var_os("RAT_THINGS_CONSOLE_NODE").unwrap_or_else(|| {
         if bundled_node.is_file() {
@@ -55,14 +63,51 @@ fn start_signer() -> Result<(Signer, String, String), String> {
         }
     });
     let mut command = Command::new(node);
+    let bundled_codex = executable_dir.join("../Resources/codex-runtime/bin/codex");
+    if std::env::var_os("CODEX_BINARY").is_none() && bundled_codex.is_file() {
+        command.env("CODEX_BINARY", bundled_codex);
+        let mut paths = vec![executable_dir.join("../Resources/codex-runtime/codex-path")];
+        paths.extend(std::env::split_paths(
+            &std::env::var_os("PATH").unwrap_or_default(),
+        ));
+        command.env(
+            "PATH",
+            std::env::join_paths(paths).map_err(|error| error.to_string())?,
+        );
+    }
     if server
         .extension()
         .is_some_and(|extension| extension == "ts")
     {
         command.args(["--import", "tsx"]).current_dir(&root);
     }
+    command.arg(server);
+    Ok(command)
+}
+
+#[cfg(feature = "installed-runtime")]
+fn signer_command() -> Result<Command, String> {
+    use rat_things_desktop::installed_launch::{Script, plan, verify_bundle};
+    let launch = plan(
+        &std::env::current_exe().map_err(|error| error.to_string())?,
+        Script::Console,
+        std::env::vars_os(),
+    )?;
+    verify_bundle(&launch.bundle)?;
+    let mut command = Command::new(launch.node);
     command
-        .arg(server)
+        .arg(launch.script)
+        .env_clear()
+        .envs(launch.environment);
+    Ok(command)
+}
+
+fn start_signer() -> Result<(Signer, String, String), String> {
+    let mut command = signer_command()?;
+    let mut random = [0u8; 32];
+    getrandom::fill(&mut random).map_err(|_| "Could not generate a private console token")?;
+    let token: String = random.iter().map(|byte| format!("{byte:02x}")).collect();
+    command
         .env("RAT_THINGS_CONSOLE_TOKEN", &token)
         .env("RAT_THINGS_CONSOLE_LAUNCHER", "1")
         .env(
@@ -72,13 +117,14 @@ fn start_signer() -> Result<(Signer, String, String), String> {
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::inherit());
-    let mut signer = Signer(
-        command
+    let mut signer = Signer {
+        child: command
             .spawn()
             .map_err(|error| format!("Could not start console signer: {error}"))?,
-    );
+        ready: false,
+    };
     let stdout = signer
-        .0
+        .child
         .stdout
         .take()
         .ok_or("Console signer stdout is missing")?;
@@ -108,6 +154,7 @@ fn start_signer() -> Result<(Signer, String, String), String> {
     let port = receiver
         .recv_timeout(Duration::from_secs(10))
         .map_err(|_| "Console signer did not start within 10 seconds".to_string())??;
+    signer.ready = true;
     Ok((signer, format!("http://127.0.0.1:{port}"), token))
 }
 
@@ -123,7 +170,7 @@ impl eframe::App for Desktop {
         ui.ctx().request_repaint_after(Duration::from_secs(1));
         if self.check_at.elapsed() > Duration::from_secs(1) {
             self.check_at = Instant::now();
-            if let Ok(Some(_)) = self.signer.0.try_wait() {
+            if let Ok(Some(_)) = self.signer.child.try_wait() {
                 self.error = Some(
                     "The authentication helper stopped. Close and reopen the console to reconnect."
                         .into(),

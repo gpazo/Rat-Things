@@ -1,6 +1,6 @@
 import { iamApiPrincipal } from '../domain/api-permissions.js';
 import { Readable } from 'node:stream';
-import { pipeline } from 'node:stream/promises';
+import { finished, pipeline } from 'node:stream/promises';
 import type { APIGatewayProxyEventV2 } from 'aws-lambda';
 import { getAgentsApiServices, getApiTokenService } from '../app/composition.js';
 import { AgentsApiError } from '../domain/agents-api-validation.js';
@@ -38,7 +38,13 @@ export const handler = typeof lambdaRuntime?.streamifyResponse !== 'function' ? 
   const stream = lambdaRuntime.HttpResponseStream.from(output, { statusCode: response.status, headers });
   try {
     if (response.body) await pipeline(Readable.fromWeb(response.body as import('node:stream/web').ReadableStream<Uint8Array>), stream);
-    else stream.end();
+    else {
+      const completion = finished(stream, { readable: false });
+      // AWS emits HTTP metadata on the first write, including a zero-byte write.
+      stream.write(Buffer.alloc(0));
+      stream.end();
+      await completion;
+    }
   } finally { clearTimeout(timer); abort.abort(); }
 });
 

@@ -37,8 +37,20 @@ they do not connect workers to an existing application VPC.
 
 ## Package, validate, and deploy
 
-Use Terraform 1.15.8, matching CI. The checkpoint validation refers to another
-variable and does not work with Terraform 1.5, despite the older declared minimum.
+Use Terraform 1.16.6, pinned in `.terraform-version` and matching CI and the LocalStack
+container. The module requires Terraform 1.9 or newer within the 1.x series because
+checkpoint validation refers to another input variable.
+
+On macOS, use the official HashiCorp Homebrew tap:
+
+```bash
+brew tap hashicorp/tap
+brew install hashicorp/tap/terraform
+terraform version
+```
+
+For an existing installation, use `brew upgrade hashicorp/tap/terraform`. Version
+managers that support `.terraform-version` can select the repository's exact pin.
 
 ```bash
 npm ci

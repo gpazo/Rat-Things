@@ -1,5 +1,10 @@
 # AWS and Agents quickstart
 
+New to Rat Things? [Start on this computer](local-workspace.md) for durable
+conversations without an AWS account. Return here when you need managed computers,
+provider integrations, or work that runs while your computer is off. The desktop
+and resource APIs stay familiar when you connect your AWS workspace.
+
 Rat Things keeps its API, harness, session state and execution in your AWS account.
 Use the [deployment guide](development-and-deployment.md) to configure the Terraform
 module, model credentials, ARM64 runtime image and Agents HTTP service. Package

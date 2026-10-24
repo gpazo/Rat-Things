@@ -34,7 +34,7 @@ services:
       start_period: 3s
 
   terraform-init:
-    image: "${TERRAFORM_IMAGE:-hashicorp/terraform:1.12.2}"
+    image: "${TERRAFORM_IMAGE:-hashicorp/terraform:1.16.6}"
     depends_on:
       localstack:
         condition: service_healthy

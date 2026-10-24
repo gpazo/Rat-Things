@@ -2,7 +2,8 @@
 
 A Session owns multi-turn agent work. Its Agent configuration is snapshotted at
 creation; Turns record execution, and Items retain messages and tool activity.
-The API, harness and storage run in the deployment's AWS account.
+The API, harness and storage run in your selected workspace: on
+[this computer](local-workspace.md) or in your AWS account.
 
 ```bash
 rat-things sessions create --agent-id agent_example --input "Review the proposal."
@@ -18,7 +19,7 @@ new input or cancellation through Session events.
 
 ## How durability works
 
-DynamoDB holds owner-scoped resource revisions and conditional-write fences;
+In AWS, DynamoDB holds owner-scoped resource revisions and conditional-write fences;
 encrypted S3 holds full state and content. A durable Session outbox orders accepted
 input, steering and function results. A private runtime journal connects the
 Session to its harness and saves observations so reconnect does not require a
@@ -30,6 +31,11 @@ pending function calls, tool results, and child relationships through Rat Things
 native state store. Recovery confirms the prior worker has stopped before giving
 a replacement ownership; old owners cannot continue writing. See
 [runtime durability](agent-runtimes.md#how-pi-durable-and-rat-things-work-together).
+The local workspace uses the same Session service and outbox with an encrypted
+SQLite resource store. Its native harness journal retains saved Items across
+restarts. A Turn interrupted by a stopped local service is marked failed instead
+of being replayed; new input continues the Session. Local and AWS workspaces keep
+separate histories.
 
 Saved history and artifacts are independent of the lifetime of a MicroVM. The
 execution environment can expire or become unavailable; that does not remove

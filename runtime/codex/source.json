@@ -7,6 +7,9 @@
     "interrupt-barrier.patch",
     "api-model-settings.patch",
     "api-turn-errors.patch",
-    "checkpoint-shutdown.patch"
+    "checkpoint-shutdown.patch",
+    "step-settings-test-import.patch",
+    "unified-exec-output-subscription.patch",
+    "chatgpt-service-tier.patch"
   ]
 }

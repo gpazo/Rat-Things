@@ -14,7 +14,9 @@ public sharing. Return here when choosing a longer-lived installation shape.
 - Docker with Compose for LocalStack and Buildx for the patched Linux ARM64 runtime and image canaries.
 - A verified patched native artifact for packaging; build or import it using
   [`testing/README.md`](../testing/README.md#agents-api-native-compatibility-gate).
-- Terraform 1.15.8, matching CI, and AWS credentials for infrastructure work.
+- Terraform 1.16.6, matching `.terraform-version`, CI and the LocalStack container,
+  and AWS credentials for infrastructure work. The module requires Terraform 1.9+
+  within the 1.x series; see [installation](../infra/README.md#package-validate-and-deploy).
 - GitHub CLI authenticated for the one-command GitHub webhook path.
 - A Region and quota that support AWS Lambda MicroVMs, plus a currently `AVAILABLE` managed
   `al2023-1` base-image version.
@@ -29,6 +31,10 @@ NAT gateway and, when MicroVM is enabled, a network connector. These optional se
 add standing costs even without active Sessions.
 
 ## Local workflow
+
+For local workspace development with real model requests, use your ChatGPT subscription through
+`npm run rat-things -- login`, then follow [local workspaces](local-workspace.md). This signs in to
+Rat Things' private Codex home. An OpenAI API key is not a prerequisite for local development.
 
 ```bash
 npm ci

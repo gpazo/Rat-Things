@@ -5,20 +5,49 @@
   </picture>
 </h1>
 
-Rat Things runs Codex and Pi Durable agents in your AWS account. Choose the runtime
-for each Session and use the same API, CLI, desktop console, schedules, and provider
-bindings. Pi Durable uses approved Amazon Bedrock models. Codex supports the
-deployment's ChatGPT credential bridge or Bedrock configuration.
+Rat Things gives your agents a home on your computer and in your AWS account.
+Start with your ChatGPT subscription and a local Linux workspace. Copy a finished
+Session into AWS when you need more capacity or work that continues while your computer sleeps.
+AWS supports Codex and Pi Durable through the same API, CLI, desktop console,
+schedules, and provider bindings. Pi Durable uses approved Amazon Bedrock models.
+Codex uses the deployment's ChatGPT credential bridge or Bedrock configuration.
 
 Its public execution
 contract follows the OpenAI Agents API: Agents, Sessions, Turns, Items,
 environments, environment templates, Files, Skills and Vaults. Your account owns
 the API service, harness, session state, execution environments and encrypted
-storage. Model requests use the provider configured by your deployment.
+storage in cloud mode. Local Sessions use a private service and encrypted resource
+storage on your disk. Model requests use your configured provider in either mode.
 
 This is an engineering preview. See [capabilities and boundaries](docs/status-and-roadmap.md)
 for implemented features and current limits, and [security](docs/security.md) before
 connecting sensitive accounts.
+
+## Start at home
+
+```bash
+npm ci
+npm run rat-things -- login
+npm run console:build
+npm run console:serve
+```
+
+The desktop opens **This computer** when no cloud endpoint is configured. Pick a
+small task, choose a model, and start a Session. Your conversation is there when
+you return. Building the desktop requires Rust 1.95 or newer.
+
+Prefer a terminal? Run `npm run rat-things -- serve`, then use the same
+`sessions create`, `sessions send` and `sessions items` commands. Local Sessions
+support conversations, function tools and web search. Apple silicon Macs can also
+run isolated Linux workers with a supported local VM and `runtime setup`. Vaults
+and provider integrations remain cloud capabilities. Local inference uses Codex
+with your ChatGPT subscription.
+
+Follow the [local workspace guide](docs/local-workspace.md) for setup, persistence,
+capacity and the path into AWS. The desktop's workspace menu connects to an existing
+AWS deployment without changing the Session interface. **Review Session copy**
+prepares a separate, resumable transfer of history, settings and workspace files.
+
 
 ## Choose Codex or Pi Durable
 
@@ -46,7 +75,7 @@ The [recorded recovery demo](testing/pi-durable-demo/README.md)
 shows a killed worker and a helper that finishes on its replacement, using scripted
 model replies and simulated host storage.
 
-## Use the API
+## Use the cloud API
 
 After `npm ci && npm run build`, use the Terraform `agents_api_base_url` output
 and an AWS principal authorized to invoke the deployment's token issuer. The included transport obtains and refreshes
@@ -113,13 +142,13 @@ Connections retain provider installation, OAuth refresh, grant narrowing and
 notification access. Agent-facing tools are explicitly declared on Agents;
 notification credentials do not silently add tools.
 
-## Work locally
+## Develop Rat Things
 
 ```bash
 npm ci
 npm run smoke:local
 npm run console:build
-RAT_THINGS_AGENTS_API_URL=https://your-api.example/v1 AWS_REGION=us-west-2 npm run console:serve
+npm run console:serve
 ```
 
 For the full repository checks, run `npm run check`. It includes Lambda packaging

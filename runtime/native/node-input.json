@@ -1,0 +1,18 @@
+{
+  "version": "22.23.4",
+  "target": "aarch64-apple-darwin",
+  "url": "https://nodejs.org/dist/v22.23.4/node-v22.23.4-darwin-arm64.tar.gz",
+  "archiveSha256": "c9e1dbc748b33ed2d14f42445191ecaf14c56259c7a9a26d0042c49ec2b66428",
+  "checksumsURL": "https://nodejs.org/dist/v22.23.4/SHASUMS256.txt",
+  "checksumsSha256": "c90c3f1478fda8308b22cc1a1b0dc536169196444e67ee8b5c582fd351d02bce",
+  "files": {
+    "bin/node": {
+      "sha256": "2cc28a1880d0774616959f2210ee739bffa6ac695c887e8988a496a21271f6c0",
+      "bytes": 113002944
+    },
+    "LICENSE": {
+      "sha256": "c738ae413cf561f174e34f6961f8ca458aae2369a73640dda6234c629b98bcc4",
+      "bytes": 145485
+    }
+  }
+}

@@ -37,7 +37,7 @@ export class SessionService {
     this.ids = options.ids ?? { next: (prefix) => `${prefix}_${randomUUID().replaceAll('-', '')}` };
   }
 
-  public async create(ownerId: string, raw: unknown, integrationId?: string, runtimePin?: import('../domain/session-runtime.js').RuntimePin): Promise<AgentSession> {
+  public async create(ownerId: string, raw: unknown, integrationId?: string, runtimePin?: import('../domain/session-runtime.js').RuntimePin, restored?: Pick<SessionState, 'importedHistory' | 'importedFrom'>): Promise<AgentSession> {
     // Only trusted integration code supplies this identity; it is never an HTTP parameter.
     if (integrationId) {
       const previous = await this.options.store.get<SessionState>(ownerId, 'sessions', integrationId);
@@ -46,7 +46,7 @@ export class SessionService {
     const input = parseAgentsContract('SessionCreate', raw);
     validateAgentMetadata(input.metadata);
     const messages = initialMessages(input.input);
-    if (input.environment.type === 'none' && !messages.length) invalid('Sessions without an environment require initial input', 'input');
+    if (input.environment.type === 'none' && !messages.length && !restored?.importedHistory?.length) invalid('Sessions without an environment require initial input', 'input');
     const id = integrationId ?? this.ids.next('sess');
     let preparation = integrationId ? (await this.options.store.get<SessionPreparation>(ownerId, 'session_preparations', id))?.value : undefined;
     if (!preparation) {
@@ -82,7 +82,7 @@ export class SessionService {
       environment, error: null, metadata: input.metadata ?? {}, status: 'idle',
       required_actions: [], usage: null, vault_ids: vaultIds,
     };
-    const empty: SessionState = { session, runtime: preparation.runtime ?? CODEX_RUNTIME, placement: preparation.placement ?? 'microvm', turns: [], receipts: {}, deletedArtifacts: [] };
+    const empty: SessionState = { session, runtime: preparation.runtime ?? CODEX_RUNTIME, placement: preparation.placement ?? 'microvm', turns: [], receipts: {}, deletedArtifacts: [], ...restored };
     const events: AgentSessionInputParam[] = messages.length ? [{ type: 'agent.session.input.message', input: messages }] : [];
     const state = events.length ? this.plan(empty, { session, turns: [] }, events, 'initial') : empty;
     try {
@@ -98,6 +98,55 @@ export class SessionService {
       return committed.value.session;
     }
     return (await this.observe(ownerId, state)).session;
+  }
+
+  /** Import is idempotent and idle. A later ordinary message admits new execution. */
+  public async import(ownerId: string, raw: unknown): Promise<AgentSession> {
+    const input = parseAgentsContract('SessionImport', raw);
+    if (input.version !== 1 || !/^[a-f0-9-]{36}$/.test(input.transfer_id) || !/^sess_[a-zA-Z0-9_-]+$/.test(input.source_session_id)) invalid('Invalid transfer identity');
+    if (input.history.length > 10_000 || Buffer.byteLength(JSON.stringify(input.history)) > 2 * 1024 * 1024) invalid('Transfer history exceeds 2 MiB');
+    if (initialMessages(input.session.input).length || input.session.agent_id || input.session.vault_ids?.length || input.session.environment.type === 'self_hosted') invalid('Transfers require inline settings, destination credentials and no initial input');
+    if (input.session.agent?.tools?.some(tool => !['function', 'web_search', 'programmatic_tool_calling', 'tool_search'].includes(tool.type))) invalid('Reconnect credential-backed tools at the destination before using them');
+    const digest = hash(canonicalJson(input));
+    const id = `sess_${hash(canonicalJson([ownerId, input.transfer_id])).slice(0, 32)}`;
+    const prior = await this.options.store.get<{ digest: string }>(ownerId, 'session_imports', id);
+    if (prior && prior.value.digest !== digest) throw new AgentsApiError(409, 'This transfer ID already belongs to different content.', 'idempotency_conflict');
+    if (!prior) {
+      try { await this.options.store.put({ ownerId, id, collection: 'session_imports', createdAt: this.clock.now(), revision: 1, value: { digest } }, 0); }
+      catch (error) {
+        const winner = await this.options.store.get<{ digest: string }>(ownerId, 'session_imports', id);
+        if (!winner || winner.value.digest !== digest) throw error;
+      }
+    }
+    return this.create(ownerId, { ...input.session, input: undefined, stream: false }, id, undefined, {
+      importedHistory: input.history, importedFrom: { sessionId: input.source_session_id, transferId: input.transfer_id },
+    });
+  }
+
+  public async snapshotForTransfer<T>(ownerId: string, id: string, readWorkspace: (session: AgentSession) => Promise<T>) {
+    await this.completeReadyTurns(ownerId, id);
+    const resource = await this.required(ownerId, id);
+    requireSessionMutable(resource.value, this.clock.now());
+    const observation = await this.observe(ownerId, resource.value);
+    if (observation.session.status !== 'idle' || observation.session.required_actions.length) throw new AgentsApiError(409, 'Wait for the Session to finish before transferring it.', 'session_busy');
+    if ((await this.options.execution.environment?.(ownerId, observation.session))?.status === 'pending') throw new AgentsApiError(409, 'Wait for environment setup to finish before transferring it.', 'session_busy');
+    const lockId = randomUUID();
+    await this.replace(resource, { ...resource.value, forkLock: { id: lockId, expiresAt: this.clock.now() + 300 } });
+    try {
+      const history = [...resource.value.fork?.history ?? [], ...await this.allItems(ownerId, resource.value)];
+      // Stop writers before reading workspace content; never snapshot a live agent.
+      await this.options.execution.close?.(ownerId, observation.session);
+      const workspace = await readWorkspace(observation.session);
+      const current = await this.required(ownerId, id);
+      if (current.value.forkLock?.id !== lockId || current.value.forkLock.expiresAt <= this.clock.now()) throw new AgentsApiError(409, 'The transfer snapshot expired. Retry.', 'session_busy');
+      return { session: observation.session, history, workspace };
+    } finally {
+      const current = await this.options.store.get<SessionState>(ownerId, 'sessions', id);
+      if (current?.value.forkLock?.id === lockId) {
+        const { forkLock: _lock, ...value } = current.value;
+        await this.replace(current, value);
+      }
+    }
   }
 
   public async traces(ownerId: string, id: string, raw: unknown = {}) {
@@ -376,7 +425,7 @@ export class SessionService {
   /** Called by the durable outbox consumer. Every command is retryable with the same identity. */
   public async dispatch(ownerId: string, id: string): Promise<void> {
     let resource = await this.options.store.get<SessionState>(ownerId, 'sessions', id);
-    if (!resource || resource.value.closing) return;
+    if (!resource || resource.value.closing || resource.value.forkLock && resource.value.forkLock.expiresAt > this.clock.now()) return;
     this.requireRuntimeAllowed(resource.value.runtime ?? CODEX_RUNTIME, resource.value.session.agent);
     await this.options.execution.initialize?.(ownerId, resource.value.session, resource.value.placement ?? 'microvm');
     for (const [key, receipt] of Object.entries(resource.value.receipts)) {
@@ -425,6 +474,7 @@ export class SessionService {
         for (const command of receipt.commands) if (command.type === 'start') await this.options.execution.cancel(ownerId, resource.value.session, command.turnId);
         return;
       }
+      if (current.value.closing) return;
       resource = current;
       resource = await this.replace(resource, {
         ...resource.value,
@@ -596,9 +646,9 @@ export class SessionService {
   }
 
   private async allItems(ownerId: string, state: SessionState) {
-    return (await Promise.all(state.turns.map(async (binding) => orderedTurnItems(
+    return [...state.importedHistory ?? [], ...(await Promise.all(state.turns.map(async (binding) => orderedTurnItems(
       state, binding, binding.savedItems ?? await this.options.execution.items(ownerId, state.session, binding.turn.id),
-    )))).flat();
+    )))).flat()];
   }
 
   private async required(ownerId: string, id: string) {

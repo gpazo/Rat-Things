@@ -15,6 +15,9 @@ Change a value in both places or in neither.
 product name in prose, onboarding and interface copy. Do not shorten it to "Rat"
 or invent a separate mascot name.
 
+Use that robotic-dog reference for future character design. Keep the existing
+product nouns — Agent, Session, Turn, Item and Vault — for their defined concepts.
+
 A Rat Thing is a cybernetic guard dog, not a rodent. In the novel the units are built from
 dogs (Fido, the one readers meet, was a pit bull), run on a radioisotope that never stops making
 heat, shed that heat through radiator fins, and wait in a hutch until they are needed. Draw on
@@ -35,6 +38,16 @@ eye, and radiator fins. Do not draw rat ears, whiskers or a long, curling, naked
 ## Voice
 
 Plain and specific. Say what the system does in the reader's terms, then stop.
+
+Welcome people with small, approachable tasks. The character is a helpful robotic companion;
+warmth comes from language, generous empty-state spacing and useful suggestions.
+"A little help, right at home" belongs in a welcome screen. Status messages still
+say precisely what happened. Avoid jokes in errors, invented infrastructure names,
+or playfulness that hides where work runs and what it costs.
+
+Lead onboarding with **This computer**. Present AWS as room to grow, with the same
+Sessions and familiar controls. Explain current boundaries beside the choice;
+never make a workspace switch sound like a completed migration.
 
 - Headings make a short claim: "The machine can stop. The work continues."
 - Kickers name the topic, not a slogan: "How work survives", "Authority is decided before launch".

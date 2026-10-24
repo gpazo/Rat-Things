@@ -70,7 +70,13 @@
     "console:check": "cargo fmt --manifest-path desktop/Cargo.toml --check && cargo clippy --locked --manifest-path desktop/Cargo.toml --all-targets -- -D warnings && cargo test --locked --manifest-path desktop/Cargo.toml",
     "test:e2e:browser": "cargo test --locked --manifest-path desktop/Cargo.toml --test browser_e2e -- --ignored --test-threads=1",
     "demo:fork": "tsx testing/fork-demo/server.ts",
-    "sim:commands": "tsx testing/time-travel/cli.ts"
+    "sim:commands": "tsx testing/time-travel/cli.ts",
+    "runtime:local:build": "node scripts/build-local-runtime.mjs",
+    "test:e2e:local-runtime": "tsx testing/local-runtime/smoke.ts",
+    "runtime:native:prepare": "tsx testing/local-runtime/native-vm/worker/prepare.ts",
+    "test:e2e:native-worker": "RAT_NATIVE_VM_PROOF=1 tsx testing/local-runtime/smoke.ts",
+    "test:e2e:native-reliability": "tsx testing/local-runtime/native-vm/worker/reliability.ts",
+    "test:e2e:local-subscription": "tsx testing/local-runtime/subscription.ts"
   },
   "dependencies": {
     "@aws-crypto/sha256-js": "5.2.0",

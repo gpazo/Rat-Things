@@ -5,6 +5,7 @@ use std::time::Instant;
 
 #[derive(Default)]
 pub(crate) struct EnvironmentPicker {
+    pub local: bool,
     pub templates: Option<Vec<Resource>>,
     pub started: Option<Instant>,
     pub error: Option<String>,
@@ -28,7 +29,11 @@ impl EnvironmentPicker {
                 .map(Resource::title)
                 .unwrap_or(id)
         } else {
-            "Custom environment (Advanced JSON)"
+            if self.local {
+                "Linux on this computer"
+            } else {
+                "Custom environment (Advanced JSON)"
+            }
         };
         let label = ui
             .horizontal(|ui| {
@@ -61,6 +66,16 @@ impl EnvironmentPicker {
                 ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
                 if ui.selectable_label(is_none, "No environment").clicked() {
                     choice = Some(None);
+                }
+                if self.local
+                    && ui
+                        .selectable_label(
+                            !is_none && template_id.is_none(),
+                            "Linux on this computer",
+                        )
+                        .clicked()
+                {
+                    choice = Some(Some(String::new()));
                 }
                 for template in templates {
                     if ui
@@ -122,7 +137,13 @@ impl EnvironmentPicker {
                     } else {
                         json!({"type":"openai_hosted"})
                     };
-                next["environment_template_id"] = id.into();
+                if id.is_empty() {
+                    next.as_object_mut()
+                        .unwrap()
+                        .remove("environment_template_id");
+                } else {
+                    next["environment_template_id"] = id.into();
+                }
                 next
             }
         };

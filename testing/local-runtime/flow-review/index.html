@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Rat Things · Local workspace flow review</title>
+  <link rel="stylesheet" href="/brand.css"><link rel="stylesheet" href="/review.css">
+</head>
+<body>
+  <header class="review-bar"><span>Flow review · Simulated data and actions</span><label>Preview a moment <select id="moment" aria-label="Preview a moment"></select></label></header>
+  <div class="shell">
+    <aside><a class="brand" href="#welcome"><img src="/mark.svg" width="30" height="30" alt="">Rat Things</a>
+      <div class="workspace"><span class="status-dot"></span><span id="workspace-name">This computer</span><small>Your workspace</small></div>
+      <nav aria-label="Workspace"><button data-go="home">Sessions <span>1</span></button><button data-go="resources">Workspace settings</button><button data-go="cloud">Continue in AWS <span>↗</span></button></nav>
+      <div class="aside-bottom"><img src="/rat.jpg" alt="The Rat Things companion"><p>A little room to do<br>something useful.</p></div>
+    </aside>
+    <main id="main" tabindex="-1"></main>
+  </div>
+  <script type="module" src="/review.js"></script>
+</body>
+</html>

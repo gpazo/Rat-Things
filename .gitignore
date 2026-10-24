@@ -6,6 +6,8 @@ coverage/
 playwright-report/
 test-results/
 *.tsbuildinfo
+__pycache__/
+*.pyc
 *.log
 *.log.*
 npm-debug.log*

@@ -1476,3 +1476,873 @@ fn session_workspace_search_pin_rename_undo_and_draft_navigation() {
     click(&mut reopened, "Actions");
     visible(&mut reopened, "Unpin session");
 }
+
+#[test]
+fn local_workspace_welcome_starters_and_failed_cloud_connection() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+    let directory = tempfile::tempdir().unwrap();
+    let token = format!(
+        "{}{}",
+        uuid::Uuid::new_v4().simple(),
+        uuid::Uuid::new_v4().simple()
+    );
+    let proxy = Server::spawn(
+        root,
+        "scripts/console-server.ts",
+        &[
+            ("RAT_THINGS_AGENTS_API_URL", ""),
+            ("RAT_THINGS_API_URL", ""),
+            ("RAT_THINGS_LOCAL_DIR", directory.path().to_str().unwrap()),
+            ("RAT_THINGS_MODEL", "local-fixture"),
+            ("RAT_THINGS_CONSOLE_PORT", "0"),
+            ("RAT_THINGS_CONSOLE_TOKEN", &token),
+            ("RAT_THINGS_CONSOLE_LAUNCHER", "1"),
+        ],
+    );
+    let mut app = Harness::builder()
+        .with_size(Vec2::new(1280.0, 850.0))
+        .build_eframe(|_| ConsoleApp::new(proxy.url.clone(), token.clone()).unwrap());
+    visible(&mut app, "A little help, right at home.");
+    let output = root.join("test-results/native-console");
+    std::fs::create_dir_all(&output).unwrap();
+    app.render()
+        .unwrap()
+        .save(output.join("local-welcome.png"))
+        .unwrap();
+    click(&mut app, "This computer");
+    visible(&mut app, "A home for your work");
+    app.render()
+        .unwrap()
+        .save(output.join("local-workspace.png"))
+        .unwrap();
+    fill(&mut app, "Agents API URL", "http://insecure.example/v1");
+    until(&mut app, "local setup request to finish", |app| {
+        !app.get_by_role_and_label(Role::Button, "Check setup")
+            .accesskit_node()
+            .is_disabled()
+    });
+    click(&mut app, "Connect AWS workspace");
+    contains(&mut app, "Your current workspace is still selected.");
+    click(&mut app, "Done");
+    visible(&mut app, "A little help, right at home.");
+    click(&mut app, "Untangle an idea");
+    contains(&mut app, "Help me turn a rough idea");
+    choose_model(&mut app, "local-fixture");
+    assert_eq!(model_draft(&mut app)["agent"]["model"], "local-fixture");
+    assert_eq!(model_draft(&mut app)["environment"]["type"], "none");
+    assert!(
+        app.query_by_role_and_label(Role::Button, "Templates")
+            .is_some()
+    );
+    assert!(
+        app.query_by_role_and_label(Role::Button, "Vaults")
+            .is_none()
+    );
+    drop(app);
+    drop(proxy);
+    assert!(directory.path().join("agents.sqlite").is_file());
+    assert!(!directory.path().join("connection.json").exists());
+}
+
+#[test]
+fn workspace_switch_preserves_current_work_during_slow_failure_and_recovers() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+    let server = Server::spawn(
+        root,
+        "testing/native-console/server.ts",
+        &[("RAT_THINGS_WORKSPACE_FIXTURE", "1")],
+    );
+    let client = Client::new();
+    let control = |body: Value| {
+        client
+            .post(format!("{}/__test/reads", server.url))
+            .json(&body)
+            .send()
+            .unwrap()
+            .error_for_status()
+            .unwrap();
+    };
+    let mut app = Harness::builder()
+        .with_size(Vec2::new(1280.0, 850.0))
+        .build_eframe(|_| ConsoleApp::new(server.url.clone(), "a".repeat(64)).unwrap());
+    visible(&mut app, "A little help, right at home.");
+    click(&mut app, "This computer");
+    fill(&mut app, "Agents API URL", "https://workspace.example/v1");
+    visible(&mut app, "Ready · Linux VM is running.");
+    control(json!({"hold": true}));
+    click(&mut app, "Connect AWS workspace");
+    // The first pending frame keeps the current workspace and has no loading flash.
+    assert!(
+        app.query_by_label("Connecting to your workspace…")
+            .is_none()
+    );
+    assert!(
+        app.get_by_role_and_label(Role::Button, "Done")
+            .accesskit_node()
+            .is_disabled()
+    );
+    visible(&mut app, "Connecting to your workspace…");
+    assert!(
+        app.query_by_label("A little help, right at home.")
+            .is_some()
+    );
+    app.key_press_modifiers(Modifiers::COMMAND, Key::N);
+    tick(&mut app);
+    assert!(
+        app.query_by_label("Task").is_none(),
+        "navigation cannot launch a draft during the switch"
+    );
+    control(json!({"fail": true}));
+    contains(&mut app, "your current workspace is still selected.");
+    assert_eq!(
+        app.get_by_label("Agents API URL").value().as_deref(),
+        Some("https://workspace.example/v1")
+    );
+    control(json!({}));
+    click(&mut app, "Connect AWS workspace");
+    visible(&mut app, "Your AWS workspace");
+    visible(&mut app, "What are we working on?");
+    click(&mut app, "Your AWS workspace");
+    click(&mut app, "Use this computer");
+    visible(&mut app, "A little help, right at home.");
+    click(&mut app, "Untangle an idea");
+    visible(&mut app, "Task");
+    let draft = app.get_by_label("Task").value();
+    click(&mut app, "This computer");
+    assert!(
+        app.get_by_role_and_label(Role::Button, "Connect AWS workspace")
+            .accesskit_node()
+            .is_disabled()
+    );
+    click(&mut app, "Done");
+    assert_eq!(app.get_by_label("Task").value(), draft);
+}
+
+#[test]
+fn local_setup_retains_inputs_through_slow_failure_and_retry() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+    let server = Server::spawn(
+        root,
+        "testing/native-console/server.ts",
+        &[("RAT_THINGS_WORKSPACE_FIXTURE", "1")],
+    );
+    let client = Client::new();
+    let control = |body: Value| {
+        client
+            .post(format!("{}/__test/local", server.url))
+            .json(&body)
+            .send()
+            .unwrap()
+            .error_for_status()
+            .unwrap();
+    };
+    let mut app = Harness::builder()
+        .with_size(Vec2::new(1280.0, 850.0))
+        .build_eframe(|_| ConsoleApp::new(server.url.clone(), "a".repeat(64)).unwrap());
+    visible(&mut app, "A little help, right at home.");
+    control(json!({"hold": true}));
+    let first_frame = std::time::Instant::now();
+    app.get_by_role_and_label(Role::Button, "This computer")
+        .click();
+    app.run_steps(1);
+    // Under parallel rendering a frame can itself exceed the feedback delay.
+    // A fast frame must have no flash; elapsed slow frames may show feedback.
+    if first_frame.elapsed() < Duration::from_millis(300) {
+        assert!(app.query_by_label("Checking your workspace…").is_none());
+    }
+    fill(&mut app, "Agents API URL", "https://retained.example/v1");
+    visible(&mut app, "Checking your workspace…");
+    control(json!({"fail": true}));
+    contains(&mut app, "Local setup check failed");
+    assert_eq!(
+        app.get_by_label("Agents API URL").value().as_deref(),
+        Some("https://retained.example/v1")
+    );
+    control(json!({}));
+    click(&mut app, "Check setup");
+    visible(&mut app, "Ready · Linux VM is running.");
+    contains(&mut app, "fixture@example.test");
+    control(json!({"runtime_fail": true}));
+    click(&mut app, "Check setup");
+    contains(&mut app, "Local runtime status is unavailable.");
+    contains(&mut app, "fixture@example.test");
+    control(json!({"account_fail": true}));
+    click(&mut app, "Check setup");
+    contains(&mut app, "ChatGPT account status is unavailable.");
+    visible(&mut app, "Ready · Linux VM is running.");
+    control(json!({}));
+    click(&mut app, "Check setup");
+    contains(&mut app, "fixture@example.test");
+    let output = root.join("test-results/native-console");
+    std::fs::create_dir_all(&output).unwrap();
+    app.render()
+        .unwrap()
+        .save(output.join("local-setup-ready.png"))
+        .unwrap();
+    click(&mut app, "Done");
+    visible(&mut app, "A little help, right at home.");
+}
+
+struct WorkspaceFixture {
+    server: Server,
+    client: Client,
+}
+
+impl WorkspaceFixture {
+    fn new(control: Value) -> Self {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+        let fixture = Self {
+            server: Server::spawn(
+                root,
+                "testing/native-console/server.ts",
+                &[("RAT_THINGS_WORKSPACE_FIXTURE", "1")],
+            ),
+            client: Client::new(),
+        };
+        fixture.control(control);
+        fixture
+    }
+
+    fn control(&self, body: Value) {
+        self.client
+            .post(format!("{}/__test/local", self.server.url))
+            .json(&body)
+            .send()
+            .unwrap()
+            .error_for_status()
+            .unwrap();
+    }
+
+    fn state(&self) -> Value {
+        self.client
+            .get(format!("{}/__test/state", self.server.url))
+            .send()
+            .unwrap()
+            .error_for_status()
+            .unwrap()
+            .json()
+            .unwrap()
+    }
+
+    fn requests(&self, path: &str) -> Vec<Value> {
+        self.state()["received"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|request| request["path"] == path)
+            .cloned()
+            .collect()
+    }
+
+    fn copy_control(&self, body: Value) {
+        self.client
+            .post(format!("{}/__test/copies", self.server.url))
+            .json(&body)
+            .send()
+            .unwrap()
+            .error_for_status()
+            .unwrap();
+    }
+
+    fn copy_source(&self) -> Value {
+        self.client
+            .post(format!("{}/api/v1/agents/sessions", self.server.url))
+            .json(&json!({"agent":{"model":"fixture-model"},
+                "environment":{"type":"openai_hosted"}, "metadata":{"name":"Copy source"}}))
+            .send()
+            .unwrap()
+            .error_for_status()
+            .unwrap()
+            .json()
+            .unwrap()
+    }
+
+    fn app(&self) -> App {
+        let mut app = Harness::builder()
+            .with_size(Vec2::new(1280.0, 850.0))
+            .build_eframe(|_| ConsoleApp::new(self.server.url.clone(), "a".repeat(64)).unwrap());
+        enabled(&mut app, "This computer");
+        click(&mut app, "This computer");
+        app
+    }
+}
+
+fn enabled(app: &mut App, label: &str) {
+    until(app, label, |app| {
+        app.query_by_role_and_label(Role::Button, label)
+            .is_some_and(|button| !button.accesskit_node().is_disabled())
+    });
+}
+
+#[test]
+fn native_setup_retries_uncertain_requests_and_stops_polling_at_restart() {
+    let f = WorkspaceFixture::new(json!({"native":true, "signed_in":false, "change_hold":true}));
+    let mut app = f.app();
+    enabled(&mut app, "Set up this computer");
+    assert!(app.query_by_label("Copy runtime setup command").is_none());
+    let setup_bounds = std::cell::Cell::new(
+        app.get_by_role_and_label(Role::Button, "Set up this computer")
+            .rect(),
+    );
+    until(&mut app, "setup button to settle", |app| {
+        let bounds = app
+            .get_by_role_and_label(Role::Button, "Set up this computer")
+            .rect();
+        setup_bounds.replace(bounds) == bounds
+    });
+    let first_frame = std::time::Instant::now();
+    app.get_by_role_and_label(Role::Button, "Set up this computer")
+        .click();
+    app.run_steps(1);
+    if first_frame.elapsed() < Duration::from_millis(300) {
+        assert!(app.query_by_label("Starting setup…").is_none());
+    }
+    visible(&mut app, "Starting setup…");
+    f.control(json!({"drop_change_response":true}));
+    enabled(&mut app, "Retry setup request");
+    assert!(
+        app.query_by_role_and_label(Role::Button, "Dismiss")
+            .is_none()
+    );
+    let first = f.requests("/api/v1/workspace/runtime/setup");
+    assert_eq!(first.len(), 1);
+    let first_id = first[0]["body"]["id"].clone();
+    assert_eq!(first[0]["body"].as_object().unwrap().len(), 1);
+    click(&mut app, "Retry setup request");
+    visible(&mut app, "Setup queued");
+    let retried = f.requests("/api/v1/workspace/runtime/setup");
+    assert_eq!(retried.len(), 2);
+    assert_eq!(retried[1]["body"]["id"], first_id);
+    assert_eq!(f.state()["runtimeChanges"].as_array().unwrap().len(), 1);
+    f.control(json!({"change_state":{"status":"working", "phase":"verifying"}}));
+    visible(&mut app, "Setup · Verifying the runtime");
+    f.control(json!({"change_poll_fail":true}));
+    contains(&mut app, "Runtime progress is temporarily unavailable.");
+    visible(&mut app, "Setup · Verifying the runtime");
+    f.control(json!({"change_state":{"status":"failed", "failure":"probe"}}));
+    enabled(&mut app, "Retry setup");
+    click(&mut app, "Retry setup");
+    visible(&mut app, "Setup queued");
+    let restarted = f.requests("/api/v1/workspace/runtime/setup");
+    assert_eq!(restarted.len(), 3);
+    let next_id = restarted[2]["body"]["id"].as_str().unwrap();
+    assert_ne!(next_id, first_id.as_str().unwrap());
+    f.control(json!({"change_state":{"status":"awaiting_restart"}}));
+    visible(&mut app, "Setup is ready to finish.");
+    contains(&mut app, "Quit and reopen Rat Things to finish.");
+    assert!(
+        app.query_by_role_and_label(Role::Button, "Restart")
+            .is_none()
+    );
+    let change_path = format!("/api/v1/workspace/runtime/changes/{next_id}");
+    let polls = f.requests(&change_path).len();
+    std::thread::sleep(Duration::from_millis(2200));
+    tick(&mut app);
+    assert_eq!(f.requests(&change_path).len(), polls);
+    assert_eq!(f.requests("/api/v1/workspace/runtime/setup").len(), 3);
+}
+
+#[test]
+fn rejected_native_setup_can_be_dismissed_without_retrying_another_owners_work() {
+    let f = WorkspaceFixture::new(json!({"native":true, "signed_in":false}));
+    let owner_id = uuid::Uuid::new_v4().to_string();
+    f.client
+        .post(format!("{}/api/v1/workspace/runtime/setup", f.server.url))
+        .json(&json!({"id": owner_id}))
+        .send()
+        .unwrap()
+        .error_for_status()
+        .unwrap();
+    let mut app = f.app();
+    enabled(&mut app, "Set up this computer");
+    click(&mut app, "Set up this computer");
+    visible(&mut app, "Setup was not started.");
+    contains(&mut app, "A runtime change is already active.");
+    enabled(&mut app, "Dismiss");
+    click(&mut app, "Dismiss");
+    fill(&mut app, "Agents API URL", "https://workspace.example/v1");
+    enabled(&mut app, "Connect AWS workspace");
+    click(&mut app, "Connect AWS workspace");
+    visible(&mut app, "What are we working on?");
+    let state = f.state();
+    assert_eq!(state["runtimeChanges"].as_array().unwrap().len(), 1);
+    assert_eq!(state["runtimeChanges"][0]["id"], owner_id);
+    assert_eq!(f.requests("/api/v1/workspace/runtime/setup").len(), 2);
+}
+
+#[test]
+fn server_failure_after_native_acceptance_keeps_the_id_and_cannot_be_dismissed() {
+    let f = WorkspaceFixture::new(
+        json!({"native":true, "signed_in":false, "fail_change_response":true}),
+    );
+    let mut app = f.app();
+    enabled(&mut app, "Set up this computer");
+    click(&mut app, "Set up this computer");
+    enabled(&mut app, "Retry setup request");
+    assert!(
+        app.query_by_role_and_label(Role::Button, "Dismiss")
+            .is_none()
+    );
+    fill(&mut app, "Agents API URL", "https://workspace.example/v1");
+    assert!(
+        app.get_by_role_and_label(Role::Button, "Connect AWS workspace")
+            .accesskit_node()
+            .is_disabled()
+    );
+    let first = f.requests("/api/v1/workspace/runtime/setup")[0]["body"]["id"].clone();
+    click(&mut app, "Retry setup request");
+    visible(&mut app, "Setup queued");
+    let requests = f.requests("/api/v1/workspace/runtime/setup");
+    assert_eq!(requests.len(), 2);
+    assert_eq!(requests[1]["body"]["id"], first);
+    assert_eq!(f.state()["runtimeChanges"].as_array().unwrap().len(), 1);
+}
+
+#[test]
+fn native_progress_continues_while_account_and_login_requests_are_held() {
+    let f = WorkspaceFixture::new(
+        json!({"native":true, "signed_in":false, "account_hold":true, "login_hold":true,
+        "installation":{"state":"ready", "active":"runtime-current", "previous":"runtime-previous"}}),
+    );
+    let mut app = f.app();
+    enabled(&mut app, "Sign in with ChatGPT");
+    click(&mut app, "Sign in with ChatGPT");
+    visible(&mut app, "Updating ChatGPT sign-in…");
+    click(&mut app, "Update this computer");
+    visible(&mut app, "Setup queued");
+    f.control(json!({"account_hold":true, "login_hold":true, "change_state":{"status":"working", "phase":"probing"}}));
+    visible(&mut app, "Setup · Testing the Linux workspace");
+    assert!(
+        app.query_by_label("ChatGPT connected · fixture@example.test")
+            .is_none()
+    );
+    visible(&mut app, "Updating ChatGPT sign-in…");
+    f.control(
+        json!({"account_hold":true, "login_hold":true, "change_state":{"status":"complete"}}),
+    );
+    visible(&mut app, "This computer is ready.");
+    assert_eq!(f.requests("/api/v1/workspace/runtime/setup").len(), 1);
+    f.control(json!({"signed_in":true}));
+    contains(&mut app, "ChatGPT connected · fixture@example.test");
+}
+
+#[test]
+fn chatgpt_sign_in_retries_one_flow_and_cancels_only_its_saved_id() {
+    let f = WorkspaceFixture::new(
+        json!({"native":true, "signed_in":false, "drop_login_response":true,
+        "installation":{"state":"ready", "active":"runtime-current"}}),
+    );
+    let mut app = f.app();
+    enabled(&mut app, "Sign in with ChatGPT");
+    click(&mut app, "Sign in with ChatGPT");
+    enabled(&mut app, "Retry sign-in");
+    let first_id = f.state()["loginFlow"]["id"].clone();
+    click(&mut app, "Retry sign-in");
+    contains(&mut app, "Finish signing in in your browser.");
+    let requests = f.requests("/api/v1/workspace/subscription/login");
+    assert_eq!(requests.len(), 2);
+    assert!(
+        requests
+            .iter()
+            .all(|request| request["body"]["id"] == first_id
+                && request["body"].as_object().unwrap().len() == 1)
+    );
+    click(&mut app, "Cancel sign-in");
+    enabled(&mut app, "Sign in with ChatGPT");
+    assert!(f.state()["loginFlow"].is_null());
+    let cancelled = f.requests(&format!(
+        "/api/v1/workspace/subscription/login/{}",
+        first_id.as_str().unwrap()
+    ));
+    assert_eq!(cancelled.len(), 1);
+    assert_eq!(cancelled[0]["method"], "DELETE");
+    click(&mut app, "Sign in with ChatGPT");
+    contains(&mut app, "Finish signing in in your browser.");
+    assert_ne!(f.state()["loginFlow"]["id"], first_id);
+    f.control(json!({"signed_in":true}));
+    contains(&mut app, "ChatGPT connected · fixture@example.test");
+    assert!(app.query_by_label("Cancel sign-in").is_none());
+}
+
+#[test]
+fn rollback_uses_its_own_action_and_development_keeps_the_setup_command() {
+    let f = WorkspaceFixture::new(json!({"native":true,
+        "installation":{"state":"ready", "active":"runtime-current", "previous":"runtime-previous"}}));
+    let mut app = f.app();
+    enabled(&mut app, "Use previous runtime");
+    click(&mut app, "Use previous runtime");
+    visible(&mut app, "Rollback queued");
+    f.control(json!({"change_state":{"status":"working", "phase":"selecting"}}));
+    visible(&mut app, "Rollback · Selecting the runtime");
+    f.control(json!({"change_state":{"status":"complete"}}));
+    visible(&mut app, "The previous runtime is ready.");
+    assert_eq!(f.requests("/api/v1/workspace/runtime/rollback").len(), 1);
+    assert!(f.requests("/api/v1/workspace/runtime/setup").is_empty());
+    let development = WorkspaceFixture::new(json!({}));
+    let mut app = development.app();
+    enabled(&mut app, "Copy runtime setup command");
+    assert!(
+        app.query_by_role_and_label(Role::Button, "Set up this computer")
+            .is_none()
+    );
+    assert!(
+        app.query_by_role_and_label(Role::Button, "Use previous runtime")
+            .is_none()
+    );
+}
+
+fn open_copy_source(f: &WorkspaceFixture) -> App {
+    let mut app = f.app();
+    visible(&mut app, "Ready · Linux VM is running.");
+    contains(&mut app, "ChatGPT connected");
+    click(&mut app, "Done");
+    until(&mut app, "workspace window to close", |app| {
+        app.query_by_label("A home for your work").is_none()
+    });
+    click(&mut app, "Copy source");
+    click(&mut app, "This computer");
+    visible(&mut app, "Local model: fixture-model");
+    fill(&mut app, "Agents API URL", "https://copy-first.example/v1");
+    fill(&mut app, "AWS region", "us-west-2");
+    app
+}
+
+fn copy_posts(state: &Value) -> Vec<Value> {
+    state["copies"]["requests"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|request| request["method"] == "POST")
+        .cloned()
+        .collect()
+}
+
+fn assert_copy_review_disabled(app: &App) {
+    assert!(
+        app.get_by_role_and_label(Role::Button, "Review Session copy")
+            .accesskit_node()
+            .is_disabled()
+    );
+}
+
+fn copy_screenshot(app: &mut App, name: &str) {
+    let directory = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .join("test-results/native-console");
+    std::fs::create_dir_all(&directory).unwrap();
+    app.remove_cursor();
+    app.run_steps(3);
+    app.render().unwrap().save(directory.join(name)).unwrap();
+}
+
+#[test]
+fn native_copy_requires_a_destination_model_and_recovers_the_saved_review_after_restart() {
+    let f = WorkspaceFixture::new(json!({"native":true,
+        "installation":{"state":"ready", "active":"runtime-current"}}));
+    let source = f.copy_source();
+    let mut app = open_copy_source(&f);
+    assert_copy_review_disabled(&app);
+    click(&mut app, "Load AWS models");
+    visible(
+        &mut app,
+        "Choose the model that will continue this Session in AWS.",
+    );
+    // The destination default is fixture-fast, but the absent source model requires an explicit choice.
+    assert_copy_review_disabled(&app);
+    assert!(f.state()["copies"]["plans"].as_array().unwrap().is_empty());
+    choose_model(&mut app, "fixture-fast");
+    enabled(&mut app, "Review Session copy");
+    click(&mut app, "Review Session copy");
+    enabled(&mut app, "Copy to AWS");
+    visible(&mut app, "Copy status: Ready");
+    app.get_by_role_and_label(Role::Button, "Copy to AWS")
+        .scroll_to_me();
+    tick(&mut app);
+    copy_screenshot(&mut app, "session-copy-reviewed-1280x850.png");
+    app.set_size(Vec2::new(900.0, 650.0));
+    tick(&mut app);
+    app.get_by_role_and_label(Role::Button, "Copy to AWS")
+        .scroll_to_me();
+    tick(&mut app);
+    copy_screenshot(&mut app, "session-copy-reviewed-900x650.png");
+    app.set_size(Vec2::new(1280.0, 850.0));
+    tick(&mut app);
+    let ready = f.state();
+    let plan = ready["copies"]["plans"][0].clone();
+    let id = plan["id"].as_str().unwrap();
+    let execute_path = format!("/api/v1/workspace/transfers/{id}");
+    assert_eq!(plan["source_session_id"], source["id"]);
+    assert_eq!(plan["source_model"], "fixture-model");
+    assert_eq!(plan["model"], "fixture-fast");
+    assert_eq!(
+        plan["destination"],
+        json!({"baseURL":"https://copy-first.example/v1", "region":"us-west-2"})
+    );
+    assert_eq!(plan["files"], 1);
+    assert!(
+        copy_posts(&ready).is_empty(),
+        "Review must not upload or import"
+    );
+    assert!(
+        f.requests(&execute_path)
+            .iter()
+            .all(|request| request["method"] == "GET")
+    );
+    assert!(ready["executionStarts"].as_array().unwrap().is_empty());
+
+    // Editing the next draft must neither erase nor rewrite the existing review.
+    f.copy_control(json!({"models":["fixture-model", "fixture-fast"]}));
+    fill(&mut app, "Agents API URL", "https://copy-second.example/v1");
+    fill(&mut app, "AWS region", "eu-west-1");
+    click(&mut app, "Load AWS models");
+    visible(&mut app, "AWS model: fixture-model");
+    visible(
+        &mut app,
+        "Your edits apply to a new copy. This saved copy keeps the destination and model shown here.",
+    );
+    visible(&mut app, "AWS model: fixture-fast");
+    enabled(&mut app, "Copy to AWS");
+    assert_eq!(f.state()["copies"]["plans"][0], plan);
+    assert!(copy_posts(&f.state()).is_empty());
+    assert_eq!(
+        f.requests("/api/v1/workspace/transfers")
+            .iter()
+            .filter(|request| request["method"] == "POST")
+            .count(),
+        1
+    );
+
+    // The real destination import commits, then its injected transport loses the response.
+    f.copy_control(json!({"lose_import_response":true}));
+    click(&mut app, "Copy to AWS");
+    enabled(&mut app, "Retry transfer");
+    assert_eq!(
+        f.state()["copies"]["destinationSessions"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+    drop(app);
+    f.copy_control(json!({"restart":true}));
+    let mut reopened = f.app();
+    enabled(&mut reopened, "Open saved copy");
+    assert!(
+        reopened
+            .query_by_role_and_label(Role::Button, "Retry transfer")
+            .is_none()
+    );
+    click(&mut reopened, "Open saved copy");
+    enabled(&mut reopened, "Retry transfer");
+    visible(&mut reopened, "AWS model: fixture-fast");
+    visible(&mut reopened, "AWS region: us-west-2");
+    assert_eq!(
+        f.requests(&execute_path)
+            .iter()
+            .filter(|request| request["method"] == "POST")
+            .count(),
+        1
+    );
+    click(&mut reopened, "Retry transfer");
+    visible(&mut reopened, "Copy status: Complete");
+    reopened
+        .get_by_role_and_label(Role::Button, "Open cloud Session")
+        .scroll_to_me();
+    tick(&mut reopened);
+    copy_screenshot(&mut reopened, "session-copy-complete-1280x850.png");
+    assert!(
+        reopened
+            .query_all_by_label_contains("Interrupted or failed")
+            .next()
+            .is_none()
+    );
+    let state = f.state();
+    let requests = copy_posts(&state);
+    let uploads: Vec<_> = requests
+        .iter()
+        .filter(|request| request["url"].as_str().unwrap().ends_with("/files"))
+        .collect();
+    let imports: Vec<_> = requests
+        .iter()
+        .filter(|request| request["url"].as_str().unwrap().ends_with("/import"))
+        .collect();
+    assert_eq!(uploads.len(), 1, "Retry reuses the uploaded snapshot");
+    assert_eq!(imports.len(), 2);
+    assert!(imports.iter().all(|request| request["url"] == "https://copy-first.example/v1/agents/sessions/import"));
+    assert_eq!(imports[0]["body"], imports[1]["body"]);
+    assert_eq!(imports[1]["body"]["transfer_id"], id);
+    assert_eq!(
+        imports[1]["body"]["session"]["agent"]["model"],
+        "fixture-fast"
+    );
+    assert_eq!(state["copies"]["snapshots"], json!([source["id"]]));
+    assert_eq!(
+        state["copies"]["destinationSessions"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+    assert_eq!(state["copies"]["destinationSessions"][0]["status"], "idle");
+    assert_eq!(
+        state["sessionCount"], 1,
+        "The local source remains available"
+    );
+    assert!(state["executionStarts"].as_array().unwrap().is_empty());
+    assert_eq!(
+        f.requests(&execute_path)
+            .iter()
+            .filter(|request| request["method"] == "POST")
+            .count(),
+        2
+    );
+}
+
+#[test]
+fn native_copy_controls_wait_for_a_workspace_switch_to_finish() {
+    let f = WorkspaceFixture::new(json!({"native":true,
+        "installation":{"state":"ready", "active":"runtime-current"}}));
+    f.copy_source();
+    let mut app = open_copy_source(&f);
+    click(&mut app, "Load AWS models");
+    visible(
+        &mut app,
+        "Choose the model that will continue this Session in AWS.",
+    );
+    choose_model(&mut app, "fixture-fast");
+    click(&mut app, "Review Session copy");
+    enabled(&mut app, "Copy to AWS");
+    enabled(&mut app, "Open saved copy");
+    let before = f.state()["received"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|request| {
+            request["path"]
+                .as_str()
+                .unwrap()
+                .starts_with("/api/v1/workspace/transfers")
+        })
+        .count();
+    f.client
+        .post(format!("{}/__test/reads", f.server.url))
+        .json(&json!({"hold":true}))
+        .send()
+        .unwrap()
+        .error_for_status()
+        .unwrap();
+    enabled(&mut app, "Connect AWS workspace");
+    click(&mut app, "Connect AWS workspace");
+    visible(&mut app, "Connecting to your workspace…");
+    for label in [
+        "Copy to AWS",
+        "Review Session copy",
+        "Refresh models",
+        "Reload saved copies",
+        "Open saved copy",
+    ] {
+        assert!(
+            app.get_by_role_and_label(Role::Button, label)
+                .accesskit_node()
+                .is_disabled(),
+            "{label}"
+        );
+    }
+    let after = f.state()["received"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|request| {
+            request["path"]
+                .as_str()
+                .unwrap()
+                .starts_with("/api/v1/workspace/transfers")
+        })
+        .count();
+    assert_eq!(after, before);
+    f.client
+        .post(format!("{}/__test/reads", f.server.url))
+        .json(&json!({"fail":true}))
+        .send()
+        .unwrap()
+        .error_for_status()
+        .unwrap();
+    contains(&mut app, "your current workspace is still selected.");
+    enabled(&mut app, "Copy to AWS");
+    assert!(copy_posts(&f.state()).is_empty());
+}
+
+#[test]
+fn native_copy_ignores_old_models_and_keeps_polling_after_the_window_closes() {
+    let f = WorkspaceFixture::new(json!({"native":true,
+        "installation":{"state":"ready", "active":"runtime-current"}}));
+    f.copy_source();
+    let mut app = open_copy_source(&f);
+    f.copy_control(json!({"hold_models":"https://copy-first.example/v1"}));
+    click(&mut app, "Load AWS models");
+    until(&mut app, "held first catalog request", |_| {
+        f.state()["copies"]["models"].as_array().unwrap().len() == 1
+    });
+    visible(&mut app, "Loading available models…");
+    assert_copy_review_disabled(&app);
+    f.copy_control(json!({"models":["fixture-model"]}));
+    fill(&mut app, "Agents API URL", "https://copy-second.example/v1");
+    click(&mut app, "Load AWS models");
+    visible(&mut app, "AWS model: fixture-model");
+    f.copy_control(json!({"release_models":"https://copy-first.example/v1"}));
+    until(&mut app, "old response delivered", |_| {
+        f.state()["copies"]["models"][0]["complete"] == true
+    });
+    for _ in 0..5 {
+        tick(&mut app);
+    }
+    visible(&mut app, "AWS model: fixture-model");
+    enabled(&mut app, "Review Session copy");
+    click(&mut app, "Review Session copy");
+    enabled(&mut app, "Copy to AWS");
+    let id = f.state()["copies"]["plans"][0]["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let path = format!("/api/v1/workspace/transfers/{id}");
+    f.copy_control(json!({"upload_hold":true, "lose_execute_response":true}));
+    click(&mut app, "Copy to AWS");
+    visible(&mut app, "Checking whether the copy started…");
+    assert!(
+        app.get_by_role_and_label(Role::Button, "Connect AWS workspace")
+            .accesskit_node()
+            .is_disabled()
+    );
+    visible(&mut app, "Copy status: Uploading");
+    assert!(
+        app.get_by_role_and_label(Role::Button, "Connect AWS workspace")
+            .accesskit_node()
+            .is_disabled()
+    );
+    click(&mut app, "Done");
+    assert!(app.query_by_label("A home for your work").is_none());
+    let polls = f
+        .requests(&path)
+        .iter()
+        .filter(|request| request["method"] == "GET")
+        .count();
+    until(
+        &mut app,
+        "copy polling while workspace window is closed",
+        |_| {
+            f.requests(&path)
+                .iter()
+                .filter(|request| request["method"] == "GET")
+                .count()
+                > polls
+        },
+    );
+    f.copy_control(json!({"upload_hold":false}));
+    until(&mut app, "real import completion", |_| {
+        f.state()["copies"]["plans"][0]["status"] == "complete"
+    });
+    click(&mut app, "This computer");
+    visible(&mut app, "Copy status: Complete");
+    assert!(f.state()["executionStarts"].as_array().unwrap().is_empty());
+}

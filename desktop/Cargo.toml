@@ -6,6 +6,14 @@ rust-version = "1.95"
 license = "MIT"
 default-run = "rat-things-desktop"
 
+[features]
+installed-runtime = []
+
+[[bin]]
+name = "rat-things"
+path = "src/cli.rs"
+required-features = ["installed-runtime"]
+
 [dependencies]
 eframe = { version = "=0.36.2", default-features = false, features = ["accesskit", "links", "glow", "default_fonts", "wayland", "x11"] }
 egui = "=0.36.2"

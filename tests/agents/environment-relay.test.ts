@@ -66,18 +66,19 @@ describe('self-hosted execution relay', () => {
     const temporary = await mkdtemp(join(tmpdir(), 'rat-executor-conformance-'));
     const children: ChildProcessWithoutNullStreams[] = [];
     let address = '';
-    const relay = createEnvironmentRelay({ environments: f.environments, publicURL: () => address });
+    const environment = await f.environments.prepare('alice', 'sess_1', { type: 'self_hosted', workspace_directory: temporary });
+    if (environment.type === 'none') throw new Error('Expected a self-hosted environment');
+    const relay = createEnvironmentRelay({ environments: f.environments, publicURL: () => address, healthEnvironmentId: environment.id });
     relay.server.listen(0, '127.0.0.1');
     await once(relay.server, 'listening');
     const bound = relay.server.address();
     if (!bound || typeof bound === 'string') throw new Error('Relay did not bind');
     address = `http://127.0.0.1:${bound.port}`;
     try {
-      const environment = await f.environments.prepare('alice', 'sess_1', { type: 'self_hosted', workspace_directory: temporary });
-      if (environment.type === 'none') throw new Error('Expected a self-hosted environment');
+      expect((await fetch(`${address}/health`)).status).toBe(503);
       const credentials = f.secrets.get(environment.id)!;
       const env = { PATH: process.env.PATH, HOME: temporary, CODEX_HOME: temporary, RUST_LOG: 'error', CODEX_API_KEY: credentials.executor };
-      const executor = spawn((process.env.CODEX_CONFORMANCE_BINARY ?? resolve('node_modules/.bin/codex')), ['exec-server', '--remote', address, '--environment-id', environment.id], { env });
+      const executor = spawn((process.env.CODEX_CONFORMANCE_BINARY ?? resolve('node_modules/.bin/codex')), ['exec-server', '--remote', address, '--environment-id', environment.id], { env, detached: true });
       children.push(executor);
       // Consume diagnostics so a child cannot block on an unread pipe. Never print connection keys.
       let diagnostic = '';
@@ -89,6 +90,7 @@ describe('self-hosted execution relay', () => {
         await delay(50);
       }
       expect((await f.environments.retrieve('alice', environment.id)).status).toBe('connected');
+      expect((await fetch(`${address}/health`)).status).toBe(200);
       const fileOperation = { registryURL: address, environmentId: environment.id, harnessKey: credentials.harness, workspace: temporary, binary: (process.env.CODEX_CONFORMANCE_BINARY ?? resolve('node_modules/.bin/codex')) };
       expect(await codexEnvironmentFiles({ ...fileOperation, operation: { operation: 'write', path: '/workspace/answer.bin', data: 'AP+A' } })).toEqual({ path: '/workspace/answer.bin', size_bytes: 3 });
       expect(await codexEnvironmentFiles({ ...fileOperation, operation: { operation: 'list', path: '/workspace' } })).toEqual(expect.arrayContaining([{ path: '/workspace/answer.bin', size_bytes: 3 }]));
@@ -139,6 +141,10 @@ describe('self-hosted execution relay', () => {
         { type: 'message', role: 'assistant', phase: 'final_answer', content: [{ type: 'output_text', text: 'Previous answer' }] },
       ] });
       rpc.close();
+      process.kill(-executor.pid!, 'SIGSTOP');
+      try { expect((await fetch(`${address}/health`, { signal: AbortSignal.timeout(4000) })).status).toBe(503); }
+      finally { process.kill(-executor.pid!, 'SIGCONT'); }
+      expect((await fetch(`${address}/health`)).status).toBe(200);
     } finally {
       for (const child of children) {
         child.stdin.destroy();
@@ -151,5 +157,5 @@ describe('self-hosted execution relay', () => {
       await relay.close();
       await rm(temporary, { recursive: true, force: true });
     }
-  }, 20_000);
+  }, 30_000);
 });

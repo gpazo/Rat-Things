@@ -50,6 +50,7 @@ COPY pi-child.mjs /opt/agent-runtime/pi-child.mjs
 COPY runner.mjs /opt/agent-runtime/runner.mjs
 COPY terminate-microvm.mjs /opt/agent-runtime/terminate-microvm.mjs
 COPY runtime-server.mjs /opt/agent-runtime/runtime-server.mjs
+COPY native-startup-probe.py /opt/agent-runtime/native-startup-probe.py
 COPY runtime-network-policy.mjs /opt/agent-runtime/runtime-network-policy.mjs
 COPY --from=network-policy-builder /tmp/runtime-network-policy.bpf.o /opt/agent-runtime/runtime-network-policy.bpf.o
 COPY runtime-process-policy.mjs /opt/agent-runtime/runtime-process-policy.mjs
@@ -62,6 +63,7 @@ RUN chown root:root \
       /opt/agent-runtime/runner.mjs \
       /opt/agent-runtime/terminate-microvm.mjs \
       /opt/agent-runtime/runtime-server.mjs \
+      /opt/agent-runtime/native-startup-probe.py \
       /opt/agent-runtime/runtime-network-policy.mjs \
       /opt/agent-runtime/runtime-network-policy.bpf.o \
       /opt/agent-runtime/runtime-process-policy.mjs \
@@ -72,6 +74,7 @@ RUN chown root:root \
       /opt/agent-runtime/runner.mjs \
       /opt/agent-runtime/terminate-microvm.mjs \
       /opt/agent-runtime/runtime-server.mjs \
+      /opt/agent-runtime/native-startup-probe.py \
       /opt/agent-runtime/runtime-network-policy.mjs \
       /opt/agent-runtime/runtime-network-policy.bpf.o \
       /opt/agent-runtime/runtime-process-policy.mjs \

@@ -1,0 +1,80 @@
+{
+  "schemaVersion": 1,
+  "packages": [
+    {
+      "name": "@aws-sdk/credential-provider-http",
+      "version": "3.972.76",
+      "integrity": "sha512-pnKdh0Br7OJPj+7qKjzgTfDTFW0RhEMKXNDR2jv9CAM4oHuG/4z3hRh8KtutLfpmItuRtDbKBmwWkDqHwwAWXw==",
+      "packagePath": "node_modules/@aws-sdk/credential-provider-http",
+      "surfaces": [
+        "app"
+      ],
+      "files": [
+        {
+          "path": "runtime/notices/aws-sdk-js-v3/LICENSE",
+          "kind": "license",
+          "sha256": "edea91454b811f127fbdea3d86f378f6719bd372ed440abf82b232f6fca06c3d",
+          "bytes": 11352,
+          "source": {
+            "repository": "https://github.com/aws/aws-sdk-js-v3",
+            "commit": "4c9a334a79b631cc110fb3a1d67695b4c07baf46",
+            "path": "LICENSE"
+          }
+        }
+      ]
+    },
+    {
+      "name": "@aws-sdk/credential-provider-login",
+      "version": "3.972.81",
+      "integrity": "sha512-CeQHSbE2CnVdaHIJ/NayRaCecIER+Pm9faUPkmRATO54rCoMTEPSbVieGHzEwvm1dZM2HIs6qQZCznhayNTWJQ==",
+      "packagePath": "node_modules/@aws-sdk/credential-provider-login",
+      "surfaces": [
+        "app"
+      ],
+      "files": [
+        {
+          "path": "runtime/notices/aws-sdk-js-v3/LICENSE",
+          "kind": "license",
+          "sha256": "edea91454b811f127fbdea3d86f378f6719bd372ed440abf82b232f6fca06c3d",
+          "bytes": 11352,
+          "source": {
+            "repository": "https://github.com/aws/aws-sdk-js-v3",
+            "commit": "4c9a334a79b631cc110fb3a1d67695b4c07baf46",
+            "path": "LICENSE"
+          }
+        }
+      ]
+    },
+    {
+      "name": "@aws-sdk/nested-clients",
+      "version": "3.997.48",
+      "integrity": "sha512-B01jdXJtAW/XOiUzGdI2mz67WyEHbGEc9X6Euzw3bjLAa+txTqdZDER4X2FsIEcXzV2ABqudVZ5thali8tCCzQ==",
+      "packagePath": "node_modules/@aws-sdk/nested-clients",
+      "surfaces": [
+        "app"
+      ],
+      "files": [
+        {
+          "path": "runtime/notices/aws-sdk-js-v3/LICENSE",
+          "kind": "license",
+          "sha256": "edea91454b811f127fbdea3d86f378f6719bd372ed440abf82b232f6fca06c3d",
+          "bytes": 11352,
+          "source": {
+            "repository": "https://github.com/aws/aws-sdk-js-v3",
+            "commit": "4c9a334a79b631cc110fb3a1d67695b4c07baf46",
+            "path": "LICENSE"
+          }
+        }
+      ]
+    }
+  ],
+  "evidence": [
+    {
+      "path": "runtime/notices/aws-sdk-js-v3/provenance.json",
+      "surfaces": [
+        "app"
+      ],
+      "sha256": "683285957908c700fc6a90cbd1bbeed92dd6f9fe8207592ea7172f19e17b44c7"
+    }
+  ]
+}

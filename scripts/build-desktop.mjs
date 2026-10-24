@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { chmod, copyFile, mkdir, rename, rm, writeFile } from 'node:fs/promises';
+import { chmod, copyFile, cp, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -31,7 +31,22 @@ if (process.platform === 'darwin') {
   await replaceExecutable(process.execPath, `${bundle}/MacOS/node`);
   await chmod(`${bundle}/MacOS/node`, 0o755);
   await copyFile(resolve(root, 'dist/console-server.mjs'), `${bundle}/Resources/console-server.mjs`);
+  await copyFile(resolve(root, 'THIRD_PARTY_NOTICES.md'), `${bundle}/Resources/THIRD_PARTY_NOTICES.md`);
   await copyFile(resolve(root, 'assets/brand/rat-things.icns'), `${bundle}/Resources/AppIcon.icns`);
+  const target = `${process.arch === 'arm64' ? 'aarch64' : 'x86_64'}-apple-darwin`;
+  const runtime = resolve(root, `node_modules/@openai/codex-darwin-${process.arch}/vendor/${target}`);
+  const descriptor = JSON.parse(await readFile(`${runtime}/codex-package.json`, 'utf8'));
+  const source = JSON.parse(await readFile(resolve(root, 'runtime/codex/source.json'), 'utf8'));
+  if (descriptor.version !== source.upstreamVersion || descriptor.target !== target) throw new Error('The bundled host Codex must match the pinned runtime version');
+  await rm(`${bundle}/MacOS/codex-runtime`, { recursive: true, force: true });
+  await rm(`${bundle}/Resources/codex-runtime`, { recursive: true, force: true });
+  await cp(runtime, `${bundle}/Resources/codex-runtime`, { recursive: true });
+  await cp(resolve(root, 'runtime/codex/licenses'), `${bundle}/Resources/codex-licenses`, { recursive: true });
+  for (const executable of ['bin/codex', 'bin/codex-code-mode-host', 'codex-path/rg', 'codex-resources/zsh/bin/zsh']) {
+    const signature = spawnSync('codesign', ['--force', '--sign', '-', `${bundle}/Resources/codex-runtime/${executable}`], { stdio: 'inherit' });
+    if (signature.error) throw signature.error;
+    if (signature.status !== 0) process.exit(signature.status ?? 1);
+  }
   await writeFile(`${bundle}/Info.plist`, `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>

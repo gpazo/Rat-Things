@@ -1,6 +1,6 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { createServer } from 'node:http';
-import { randomBytes } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -61,12 +61,127 @@ it('isolates native signer instances, rejects browser access, and exits on paren
     await expect.poll(() => first.child.exitCode).toBe(0);
     expect(first.output.stdout()).not.toContain(first.token);
     expect(first.output.stderr()).not.toContain(first.token);
+    second.child.kill('SIGTERM');
+    await expect.poll(() => second.child.exitCode).toBe(0);
   } finally {
     for (const child of children) { child.stdin?.end(); if (child.exitCode === null) child.kill(); }
     for (const server of [upstream, foreign]) {
       server.closeAllConnections();
       await new Promise<void>(resolveClose => server.close(() => resolveClose()));
     }
+  }
+}, 30_000);
+
+it.each(['ready', 'pending', 'rejected', 'rejected-replay', 'missing-id', 'late-rejection', 'late-cancel'] as const)('cleans up only its own borrowed-service sign-in on exit (%s)', async mode => {
+  const directory = await mkdtemp(join(tmpdir(), 'rat-console-login-'));
+  const serviceToken = randomBytes(32).toString('hex');
+  const consoleToken = randomBytes(32).toString('hex');
+  const loginId = randomUUID();
+  const otherLoginId = randomUUID();
+  let activeId: string | undefined = mode === 'rejected' ? otherLoginId : undefined;
+  let started = false;
+  let releaseSubmission = () => {};
+  const submissionGate = new Promise<void>(resolveGate => { releaseSubmission = resolveGate; });
+  const cancellations: string[] = [];
+  const upstream = createServer((request, response) => {
+    if (request.headers.authorization !== `Bearer ${serviceToken}`) { response.writeHead(401).end(); return; }
+    if (request.url === '/v1/workspace') { response.end('{}'); return; }
+    if (request.method === 'DELETE') {
+      const id = request.url!.split('/').at(-1)!;
+      cancellations.push(id);
+      if (activeId === id) activeId = undefined;
+      if (mode === 'late-cancel' && cancellations.length === 1) {
+        void submissionGate.then(() => response.writeHead(204).end()); return;
+      }
+      response.writeHead(204).end(); return;
+    }
+    void (async () => {
+      const chunks: Buffer[] = [];
+      for await (const chunk of request) chunks.push(Buffer.from(chunk));
+      const input = JSON.parse(Buffer.concat(chunks).toString()) as { id: string; invalid?: boolean };
+      started = true;
+      if (input.invalid) {
+        if (mode === 'late-rejection') await submissionGate;
+        response.writeHead(400).end('{}'); return;
+      }
+      if (activeId && activeId !== input.id) { response.writeHead(409).end('{}'); return; }
+      if (mode === 'pending') await submissionGate;
+      activeId = input.id;
+      response.end(JSON.stringify({ id: input.id, auth_url: 'https://auth.openai.com/example' }));
+    })().catch(() => response.writeHead(500).end());
+  });
+  let child: ChildProcess | undefined;
+  try {
+    await new Promise<void>(resolveListen => upstream.listen(0, '127.0.0.1', resolveListen));
+    const address = upstream.address();
+    if (!address || typeof address === 'string') throw new Error('Fixture did not bind.');
+    const baseURL = `http://127.0.0.1:${address.port}/v1`;
+    await writeFile(join(directory, 'connection.json'), JSON.stringify({ baseURL, token: serviceToken }), { mode: 0o600 });
+    const env: NodeJS.ProcessEnv = { ...process.env, RAT_THINGS_LOCAL_DIR: directory, RAT_THINGS_CONSOLE_TOKEN: consoleToken,
+      RAT_THINGS_CONSOLE_PORT: '0', RAT_THINGS_CONSOLE_LAUNCHER: '1' };
+    for (const key of ['RAT_THINGS_AGENTS_API_URL', 'AGENTS_API_BASE_URL', 'RAT_THINGS_API_URL', 'AGENT_RUNTIME_API_URL', 'AGENT_RUNTIME_UNSIGNED']) delete env[key];
+    child = spawn(process.execPath, ['--import', 'tsx', 'scripts/console-server.ts'], { env, stdio: ['pipe', 'pipe', 'pipe'] });
+    const output = capture(child);
+    await expect.poll(output.stdout, { timeout: 10_000 }).toMatch(/^\{"port":\d+\}\n$/);
+    const { port: consolePort } = JSON.parse(output.stdout()) as { port: number };
+    const login = fetch(`http://127.0.0.1:${consolePort}/api/v1/workspace/subscription/login`, {
+      method: 'POST', headers: { authorization: `Bearer ${consoleToken}`, 'x-rat-console-request': '1', 'content-type': 'application/json' },
+      body: JSON.stringify(mode === 'missing-id' ? {} : { id: loginId, ...(mode === 'late-rejection' ? { invalid: true } : {}) }),
+    }).then(response => response.status, () => 0);
+    if (mode === 'missing-id') {
+      expect(await login).toBe(400);
+      expect(started).toBe(false);
+    } else {
+      await expect.poll(() => started).toBe(true);
+      if (mode === 'late-rejection') {
+        const accepted = await fetch(`http://127.0.0.1:${consolePort}/api/v1/workspace/subscription/login`, {
+          method: 'POST', headers: { authorization: `Bearer ${consoleToken}`, 'x-rat-console-request': '1', 'content-type': 'application/json' },
+          body: JSON.stringify({ id: loginId }),
+        });
+        expect(accepted.status).toBe(200); await accepted.body?.cancel();
+        releaseSubmission(); expect(await login).toBe(400);
+      } else if (mode !== 'pending') expect(await login).toBe(mode === 'rejected' ? 409 : 200);
+    }
+    if (mode === 'rejected-replay') {
+      const replay = await fetch(`http://127.0.0.1:${consolePort}/api/v1/workspace/subscription/login`, {
+        method: 'POST', headers: { authorization: `Bearer ${consoleToken}`, 'x-rat-console-request': '1', 'content-type': 'application/json' },
+        body: JSON.stringify({ id: loginId, invalid: true }),
+      });
+      expect(replay.status).toBe(400);
+      await replay.body?.cancel();
+    }
+    if (mode === 'late-cancel') {
+      const cancellation = fetch(`http://127.0.0.1:${consolePort}/api/v1/workspace/subscription/login/${loginId}`, {
+        method: 'DELETE', headers: { authorization: `Bearer ${consoleToken}`, 'x-rat-console-request': '1' },
+      });
+      await expect.poll(() => cancellations.length).toBe(1);
+      const restarted = await fetch(`http://127.0.0.1:${consolePort}/api/v1/workspace/subscription/login`, {
+        method: 'POST', headers: { authorization: `Bearer ${consoleToken}`, 'x-rat-console-request': '1', 'content-type': 'application/json' },
+        body: JSON.stringify({ id: loginId }),
+      });
+      expect(restarted.status).toBe(200); await restarted.body?.cancel();
+      releaseSubmission(); expect((await cancellation).status).toBe(204);
+    }
+    child.stdin!.end();
+    if (mode === 'pending') {
+      expect(await login).toBe(0);
+      expect(cancellations).toEqual([]);
+      releaseSubmission();
+    }
+    await expect.poll(() => child!.exitCode, { timeout: 10_000 }).toBe(0);
+    expect(cancellations).toEqual(mode === 'rejected' || mode === 'missing-id' ? [] : mode === 'late-cancel' ? [loginId, loginId] : [loginId]);
+    expect(activeId).toBe(mode === 'rejected' ? otherLoginId : undefined);
+    expect((await fetch(`${baseURL}/workspace`, { headers: { authorization: `Bearer ${serviceToken}` } })).status).toBe(200);
+    expect(output.stderr()).toBe('');
+    expect(output.stdout()).not.toContain(serviceToken);
+    expect(output.stdout()).not.toContain(consoleToken);
+  } finally {
+    releaseSubmission();
+    child?.stdin?.end();
+    if (child?.exitCode === null) child.kill();
+    upstream.closeAllConnections();
+    await new Promise<void>(resolveClose => upstream.close(() => resolveClose()));
+    await rm(directory, { recursive: true, force: true });
   }
 }, 30_000);
 

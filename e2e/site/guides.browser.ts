@@ -64,7 +64,7 @@ test('website entry points and discovery files include the guides', async ({page
 
 test('the homepage and architecture are readable without JavaScript', async ({request}) => {
   const home = await (await request.get('/')).text();
-  expect(home).toContain('The open-source backend for cloud agents.');
+  expect(home).toContain('Small beginnings.<br>Room to grow.');
   expect(home).toContain('href="architecture/"');
   const architecture = await (await request.get('/architecture/')).text();
   expect(architecture).toContain('class="architecture-outline"');
@@ -76,5 +76,5 @@ test('the homepage and architecture are readable without JavaScript', async ({re
 test('the former overview address redirects to the homepage', async ({page}) => {
   await page.goto('/overview.html');
   await expect(page).toHaveURL(/\/$/);
-  await expect(page.getByRole('heading', {name: 'The open-source backend for cloud agents.'})).toBeVisible();
+  await expect(page.getByRole('heading', {name: 'Small beginnings. Room to grow.'})).toBeVisible();
 });

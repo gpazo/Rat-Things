@@ -20,6 +20,16 @@ const JSON_LIMIT: u64 = 16 * 1024 * 1024;
 const PAGE_LIMIT: usize = 1_000;
 
 pub(crate) enum Task {
+    Local {
+        path: String,
+        body: Option<Value>,
+    },
+    CancelLocalLogin {
+        id: uuid::Uuid,
+    },
+    Workspace {
+        connection: Option<Value>,
+    },
     UpdateSessionMetadata {
         id: String,
         key: String,
@@ -65,6 +75,12 @@ pub(crate) enum Task {
 }
 
 pub(crate) enum Data {
+    Local(Value),
+    LocalRejected {
+        status: reqwest::StatusCode,
+        message: String,
+    },
+    Workspace(Value),
     Models(ModelCatalog),
     Templates(Vec<Resource>),
     Page(Page),
@@ -88,6 +104,7 @@ struct Job {
 
 pub(crate) struct Worker {
     jobs: SyncSender<Job>,
+    runtime_jobs: SyncSender<Job>,
     pub completions: Receiver<Completion>,
     next_id: u64,
 }
@@ -96,11 +113,15 @@ impl Worker {
     pub fn new(endpoint: String, token: String) -> Result<Self, String> {
         let api = Arc::new(Api::new(endpoint, token)?);
         let (jobs, incoming) = mpsc::sync_channel::<Job>(4);
+        let (runtime_jobs, runtime_incoming) = mpsc::sync_channel::<Job>(2);
         let (completed, completions) = mpsc::channel();
         let incoming = Arc::new(Mutex::new(incoming));
-        for index in 0..2 {
+        let runtime_incoming = Arc::new(Mutex::new(runtime_incoming));
+        for (index, incoming) in [Arc::clone(&incoming), incoming, runtime_incoming]
+            .into_iter()
+            .enumerate()
+        {
             let api = Arc::clone(&api);
-            let incoming = Arc::clone(&incoming);
             let completed = completed.clone();
             std::thread::Builder::new()
                 .name(format!("console-http-{index}"))
@@ -120,6 +141,7 @@ impl Worker {
         }
         Ok(Self {
             jobs,
+            runtime_jobs,
             completions,
             next_id: 0,
         })
@@ -128,13 +150,20 @@ impl Worker {
     pub fn submit(&mut self, task: Task, ctx: &egui::Context) -> Result<u64, String> {
         self.next_id += 1;
         let id = self.next_id;
-        self.jobs
-            .try_send(Job {
-                id,
-                task,
-                repaint: ctx.clone(),
-            })
-            .map_err(|_| "Requests are busy. Please try again shortly.".to_owned())?;
+        let jobs = if matches!(&task, Task::Local { path, .. }
+            if path == "/api/v1/workspace/runtime"
+                || path.starts_with("/api/v1/workspace/runtime/"))
+        {
+            &self.runtime_jobs
+        } else {
+            &self.jobs
+        };
+        jobs.try_send(Job {
+            id,
+            task,
+            repaint: ctx.clone(),
+        })
+        .map_err(|_| "Requests are busy. Please try again shortly.".to_owned())?;
         Ok(id)
     }
 }
@@ -143,6 +172,26 @@ struct Api {
     endpoint: Url,
     token: Zeroizing<String>,
     client: Client,
+}
+
+struct RequestFailure {
+    status: Option<reqwest::StatusCode>,
+    message: String,
+}
+
+impl From<String> for RequestFailure {
+    fn from(message: String) -> Self {
+        Self {
+            status: None,
+            message,
+        }
+    }
+}
+
+impl From<&str> for RequestFailure {
+    fn from(message: &str) -> Self {
+        message.to_owned().into()
+    }
 }
 
 impl Api {
@@ -199,6 +248,38 @@ impl Api {
         secret: bool,
         deadline: Instant,
     ) -> Result<Value, String> {
+        self.request_result(path, method, body, key, secret, deadline)
+            .map_err(|failure| failure.message)
+    }
+
+    fn local_request(
+        &self,
+        path: &str,
+        method: Method,
+        body: Option<Zeroizing<String>>,
+        deadline: Instant,
+    ) -> Result<Data, String> {
+        match self.request_result(path, method, body, None, false, deadline) {
+            Ok(value) => Ok(Data::Local(value)),
+            Err(RequestFailure {
+                status: Some(status),
+                message,
+            }) if status.is_client_error() && status != reqwest::StatusCode::REQUEST_TIMEOUT => {
+                Ok(Data::LocalRejected { status, message })
+            }
+            Err(failure) => Err(failure.message),
+        }
+    }
+
+    fn request_result(
+        &self,
+        path: &str,
+        method: Method,
+        body: Option<Zeroizing<String>>,
+        key: Option<&str>,
+        secret: bool,
+        deadline: Instant,
+    ) -> Result<Value, RequestFailure> {
         let remaining = deadline
             .checked_duration_since(Instant::now())
             .ok_or("The request timed out. Try refreshing.")?;
@@ -227,6 +308,10 @@ impl Api {
         }
         let response = request.send().map_err(request_error)?;
         let status = response.status();
+        let failure = |message: String| RequestFailure {
+            status: Some(status),
+            message,
+        };
         if status.as_u16() == 204 {
             return Ok(Value::Null);
         }
@@ -234,23 +319,30 @@ impl Api {
         response
             .take(JSON_LIMIT + 1)
             .read_to_end(&mut bytes)
-            .map_err(|_| "Could not read the server response".to_owned())?;
+            .map_err(|_| failure("Could not read the server response".to_owned()))?;
         if bytes.len() as u64 > JSON_LIMIT {
-            return Err("The server response exceeds the console size limit".into());
+            return Err(failure(
+                "The server response exceeds the console size limit".into(),
+            ));
         }
-        let value: Value = serde_json::from_slice(&bytes)
-            .map_err(|_| format!("The server returned an invalid response ({status})"))?;
+        let value: Value = serde_json::from_slice(&bytes).map_err(|_| {
+            failure(format!(
+                "The server returned an invalid response ({status})"
+            ))
+        })?;
         if !status.is_success() {
             if secret {
-                return Err(format!(
+                return Err(failure(format!(
                     "Credential request failed ({status}). Your draft is preserved."
-                ));
+                )));
             }
-            return Err(value
-                .pointer("/error/message")
-                .and_then(Value::as_str)
-                .map(ToOwned::to_owned)
-                .unwrap_or_else(|| format!("Request failed ({status})")));
+            return Err(failure(
+                value
+                    .pointer("/error/message")
+                    .and_then(Value::as_str)
+                    .map(ToOwned::to_owned)
+                    .unwrap_or_else(|| format!("Request failed ({status})")),
+            ));
         }
         Ok(value)
     }
@@ -345,6 +437,36 @@ impl Api {
     fn execute(&self, task: Task) -> Result<Data, String> {
         let deadline = Instant::now() + REQUEST_DEADLINE;
         match task {
+            Task::Local { path, body } => self.local_request(
+                &path,
+                if body.is_some() {
+                    Method::POST
+                } else {
+                    Method::GET
+                },
+                body.map(|value| Zeroizing::new(value.to_string())),
+                deadline,
+            ),
+            Task::CancelLocalLogin { id } => self.local_request(
+                &format!("/api/v1/workspace/subscription/login/{id}"),
+                Method::DELETE,
+                None,
+                deadline,
+            ),
+            Task::Workspace { connection } => self
+                .request(
+                    "/api/v1/workspace",
+                    if connection.is_some() {
+                        Method::POST
+                    } else {
+                        Method::GET
+                    },
+                    connection.map(|value| Zeroizing::new(value.to_string())),
+                    None,
+                    false,
+                    deadline,
+                )
+                .map(Data::Workspace),
             Task::SetSessionArchived { id, archived } => self.update_session_metadata(
                 &id,
                 SESSION_ARCHIVED_KEY,
@@ -533,6 +655,80 @@ impl Read for SecretBody {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn local_failures_preserve_rejection_status_without_accepting_error_bodies() {
+        for (status, body) in [
+            (
+                409,
+                r#"{"error":{"message":"Another request owns setup."}}"#,
+            ),
+            (403, "invalid json"),
+            (408, r#"{"error":{"message":"Response unavailable."}}"#),
+            (503, r#"{"error":{"message":"Response unavailable."}}"#),
+        ] {
+            let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            let endpoint = format!("http://{}", listener.local_addr().unwrap());
+            let server = std::thread::spawn(move || {
+                let (mut stream, _) = listener.accept().unwrap();
+                stream
+                    .set_read_timeout(Some(Duration::from_secs(5)))
+                    .unwrap();
+                let mut request = Vec::new();
+                let mut byte = [0];
+                while !request.ends_with(b"\r\n\r\n") {
+                    stream.read_exact(&mut byte).unwrap();
+                    request.push(byte[0]);
+                    assert!(request.len() < 16_384);
+                }
+                write!(stream, "HTTP/1.1 {status} Fixture\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).unwrap();
+            });
+            let result = Api::new(endpoint, "fixture".into())
+                .unwrap()
+                .execute(Task::Local {
+                    path: "/api/v1/workspace/runtime".into(),
+                    body: None,
+                });
+            match result {
+                Ok(Data::LocalRejected {
+                    status: actual,
+                    message,
+                }) => {
+                    assert!(status < 500);
+                    assert_eq!(actual.as_u16(), status);
+                    assert!(!message.is_empty());
+                }
+                Err(message) => {
+                    assert!(matches!(status, 408 | 503));
+                    assert_eq!(message, "Response unavailable.");
+                }
+                _ => panic!("An HTTP error must not become a successful local response"),
+            }
+            server.join().unwrap();
+        }
+    }
+
+    #[test]
+    fn runtime_submission_rejects_a_full_reserved_queue_without_enqueuing() {
+        let (jobs, _incoming) = mpsc::sync_channel(4);
+        let (runtime_jobs, runtime_incoming) = mpsc::sync_channel(2);
+        let (_completed, completions) = mpsc::channel();
+        let mut worker = Worker {
+            jobs,
+            runtime_jobs,
+            completions,
+            next_id: 0,
+        };
+        let ctx = egui::Context::default();
+        let task = || Task::Local {
+            path: "/api/v1/workspace/runtime/setup".into(),
+            body: Some(json!({"id": uuid::Uuid::new_v4().to_string()})),
+        };
+        assert!(worker.submit(task(), &ctx).is_ok());
+        assert!(worker.submit(task(), &ctx).is_ok());
+        assert!(worker.submit(task(), &ctx).is_err());
+        assert_eq!(runtime_incoming.try_iter().count(), 2);
+    }
 
     #[test]
     fn rejects_upstream_destinations_at_construction() {

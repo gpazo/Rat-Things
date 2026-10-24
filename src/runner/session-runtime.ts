@@ -51,7 +51,7 @@ export class SessionRuntime {
     this.finished = new Promise<void>((resolve) => { this.finish = resolve; });
     const request = options.request;
     const args: ConstructorParameters<typeof CodexRpcClient>[0] = {
-      binary: request.binary, cwd: request.workspace, environment: request.environment,
+      startupPurpose: 'session', binary: request.binary, cwd: request.workspace, environment: request.environment,
       ...(request.binaryArguments ? { binaryArguments: request.binaryArguments } : {}),
       ...(request.identity ? { identity: request.identity } : {}), ...(request.signal ? { signal: request.signal } : {}),
       onEvent: (event) => this.event(event), onServerRequest: (event) => this.serverRequest(event), onClose: () => this.disconnected(),

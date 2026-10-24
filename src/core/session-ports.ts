@@ -21,6 +21,8 @@ export interface SessionTurnBinding {
 
 export interface SessionState {
   runtime?: import('../domain/session-runtime.js').RuntimePin;
+  importedHistory?: AgentSessionItem[];
+  importedFrom?: { sessionId: string; transferId: string };
   fork?: import('../domain/session-fork.js').SessionFork;
   forkLock?: { id: string; expiresAt: number };
   closing?: boolean;

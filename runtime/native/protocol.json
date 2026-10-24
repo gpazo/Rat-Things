@@ -1,0 +1,10 @@
+{
+  "hostTarget": "aarch64-apple-darwin",
+  "guestTarget": "aarch64-unknown-linux-gnu",
+  "appProtocol": 1,
+  "controllerProtocol": 1,
+  "workerProtocol": 1,
+  "workspaceFormat": 1,
+  "accountStateFormat": 1,
+  "profileSchema": 1
+}

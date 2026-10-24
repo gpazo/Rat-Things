@@ -143,6 +143,10 @@ async function routeVault(request: Request, ownerId: string, parts: string[], va
 async function routeSession(request: Request, principal: ApiPrincipal, parts: string[], sessions: SessionService | undefined, requestId?: string, streaming = true): Promise<Response> {
   const ownerId = principal.ownerId;
   if (!sessions) throw new AgentsApiError(503, 'Session service is unavailable.', 'service_unavailable');
+  if (parts.length === 1 && parts[0] === 'import') {
+    if (request.method === 'GET') return json(200, { version: 1, max_history_bytes: 2 * 1024 * 1024, credentials: 'destination', execution: 'on_next_message' }, requestId);
+    if (request.method === 'POST') return json(200, await sessions.import(ownerId, await requestBody(request)), requestId);
+  }
   const [id, collection, childId, operation] = parts;
   const method = request.method;
   const query = () => queryParameters(new URL(request.url).searchParams, { nullableLimit: collection === 'artifacts', nullableAfter: collection === 'artifacts' });

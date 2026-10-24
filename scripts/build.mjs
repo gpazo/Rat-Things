@@ -1,4 +1,4 @@
-import { rm } from 'node:fs/promises';
+import { copyFile, rm } from 'node:fs/promises';
 import { build } from 'esbuild';
 
 const lambdaEntries = {
@@ -32,8 +32,11 @@ await Promise.all([
   bundle('src/runner/terminate-microvm.ts', 'dist/terminate-microvm.mjs'),
   bundle('src/cli.ts', 'dist/cli.mjs'),
   bundle('src/agents-client.ts', 'dist/agents-client.mjs'),
+  bundle('src/local-workspace.ts', 'dist/local-workspace.mjs'),
   bundle('scripts/console-server.ts', 'dist/console-server.mjs'),
 ]);
+
+await copyFile('THIRD_PARTY_NOTICES.md', 'dist/THIRD_PARTY_NOTICES.md');
 
 
 async function bundle(entry, outfile, options = {}) {

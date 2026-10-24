@@ -187,7 +187,8 @@ against the intended enforcement boundaries. Local conformance fixtures do not e
 deployed IAM, guest isolation, network policy, or provider guarantees. Keep live AWS
 checks opt-in and use disposable resources.
 
-With Terraform 1.15.8 installed, run `npm run test:infra`. Mocked AWS providers exercise
+With Terraform 1.16.6 installed (matching `.terraform-version` and CI), run
+`npm run test:infra`. Mocked AWS providers exercise
 EC2-only and combined worker configurations, including S3 Files principals and MicroVM
 network connector selection. These tests do not contact AWS or provision resources.
 Real IAM enforcement and mount behavior remain part of the opt-in AWS canaries.

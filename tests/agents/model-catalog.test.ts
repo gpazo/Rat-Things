@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { AgentService } from '../../src/core/agent-service.js';
-import { createModelCatalog, modelCatalogFromConfig } from '../../src/core/model-catalog.js';
+import { createModelCatalog, modelCatalogFromConfig, modelCatalogFromResponse } from '../../src/core/model-catalog.js';
 import type { ApiScope } from '../../src/domain/api-permissions.js';
 import { routeAgentsRequest } from '../../src/lambdas/agents-router.js';
 import { MemoryAgentsStore } from './fixtures.js';
@@ -87,4 +87,25 @@ describe('Pi Bedrock catalog', () => {
     expect(() => piCatalog(['amazon.nova-micro-v1:0'], '')).toThrow('AWS_REGION');
     expect(() => piCatalog(['amazon.nova-micro-v1:0', 'amazon.nova-micro-v1:0'], 'us-west-2')).toThrow('duplicates');
   });
+});
+
+it('preserves exact destination choices and discards unrelated response fields', () => {
+  const source = { object: 'list', data: [{ id: 'provider/model', object: 'model', display_name: 'Model', private: 'discard' },
+    { id: 'other', object: 'model' }], default_model: 'other', extra: 'discard' };
+  expect(modelCatalogFromResponse(source)).toEqual({ object: 'list', data: [{ id: 'provider/model', object: 'model', display_name: 'Model' },
+    { id: 'other', object: 'model' }], default_model: 'other' });
+  expect(source.data[0]?.private).toBe('discard');
+});
+
+it('rejects unusable destination catalogs without repairing or selecting their IDs', () => {
+  const model = { id: 'exact', object: 'model' };
+  for (const value of [null, [], {}, { object: 'wrong', data: [model] }, { object: 'list', data: [] },
+    ...[null, {}, { ...model, object: 'wrong' }, { ...model, id: '' }, { ...model, id: ' padded ' },
+      { ...model, id: 'control\n' }, { ...model, id: 'x'.repeat(513) }, { ...model, display_name: 1 },
+      { ...model, display_name: 'x'.repeat(257) }, { ...model, display_name: 'bad\u007f' }]
+      .map(item => ({ object: 'list', data: [item] })),
+    { object: 'list', data: [model, model] }, { object: 'list', data: [model], default_model: 'missing' },
+    { object: 'list', data: [model], default_model: null },
+    { object: 'list', data: Array.from({ length: 1001 }, (_, index) => ({ ...model, id: `m${index}` })) },
+  ]) expect(modelCatalogFromResponse(value)).toBeUndefined();
 });

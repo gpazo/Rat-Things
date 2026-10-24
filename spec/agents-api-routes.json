@@ -370,5 +370,17 @@
     "/v1/agents/sessions/{session_id}/runtime",
     null,
     "SessionRuntime"
+  ],
+  [
+    "GET",
+    "/v1/agents/sessions/import",
+    null,
+    "SessionImportCapabilities"
+  ],
+  [
+    "POST",
+    "/v1/agents/sessions/import",
+    "SessionImport",
+    "Session"
   ]
 ]

@@ -165,7 +165,7 @@ test("serves under the GitHub Pages prefix and links back to the overview homepa
   await expect(page).toHaveURL(/\/Rat-Things\/$/);
   await expect(
     page.getByRole("heading", {
-      name: "The open-source backend for cloud agents.",
+      name: "Small beginnings. Room to grow.",
     }),
   ).toBeVisible();
   await page

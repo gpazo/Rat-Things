@@ -98,6 +98,21 @@ explicitly to the provider; `RAT_BROWSER_EXECUTABLE` can choose another installe
 binary. Normal `console:check` leaves this browser-dependent test ignored; CI
 installs Chromium and runs it explicitly.
 
+## Local workspace onboarding
+
+The local onboarding journey launches the production helper with a temporary
+SQLite workspace and an explicit fixture model catalog. It checks the welcome
+screen, starter drafts, local environment limits and failure to connect an invalid
+AWS endpoint. A separate helper-protocol fixture holds connection responses to
+check the first pending frame, delayed feedback, failure, recovery and draft
+preservation. It never connects to AWS.
+
+`tests/agents/local-workspace.test.ts` exercises the production local server, store,
+SDK and native Codex harness against a deterministic Responses fixture. Run it with
+`npx vitest run tests/agents/local-workspace.test.ts`. It covers streaming, reopening
+saved history, capacity queuing, token rotation and interruption without replay;
+it does not make paid model requests.
+
 ## Opted-in AWS probe
 
 `console_live` is an ignored test. The deployment harness can invoke it with:

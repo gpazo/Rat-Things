@@ -2,6 +2,9 @@ import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import { once } from 'node:events';
 import { setTimeout as delay } from 'node:timers/promises';
+import { observeCodexInitialization, type CodexStartupPurpose } from './codex-startup-diagnostic.js';
+
+let nextProcessOrdinal = 0;
 
 export interface CodexRpcEvent { method: string; params: Record<string, unknown>; requestId?: string | number }
 
@@ -18,9 +21,15 @@ export class CodexRpcClient {
   private readonly child: ChildProcessWithoutNullStreams;
   private readonly reader;
   private nextId = 0;
-  private readonly waiting = new Map<number, { resolve(value: unknown): void; reject(error: Error): void; timer: ReturnType<typeof setTimeout> }>();
+  private readonly waiting = new Map<number, { resolve(value: unknown): void; reject(error: Error): void; timer: ReturnType<typeof setTimeout>; stopStartupProbe?: () => void }>();
   private closed = false;
-  public constructor(options: { binary: string; binaryArguments?: string[]; cwd: string; environment: NodeJS.ProcessEnv; identity?: { uid: number; gid: number }; signal?: AbortSignal; onEvent?: (event: CodexRpcEvent) => void; onServerRequest?: (event: CodexRpcEvent & { requestId: string | number }) => Promise<unknown>; onClose?: () => void }) {
+  private closing: Promise<void> | undefined;
+  private readonly spawnedAt = performance.now();
+  private readonly processOrdinal = ++nextProcessOrdinal;
+  private firstOutputAt: number | undefined;
+  private readonly startupPurpose: CodexStartupPurpose | undefined;
+  public constructor(options: { binary: string; startupPurpose?: CodexStartupPurpose; binaryArguments?: string[]; cwd: string; environment: NodeJS.ProcessEnv; identity?: { uid: number; gid: number }; signal?: AbortSignal; onEvent?: (event: CodexRpcEvent) => void; onServerRequest?: (event: CodexRpcEvent & { requestId: string | number }) => Promise<unknown>; onClose?: () => void }) {
+    this.startupPurpose = options.startupPurpose;
     this.child = spawn(options.binary, options.binaryArguments ?? ['app-server'], { cwd: options.cwd, env: options.environment, ...options.identity });
     // Report only fixed diagnostic categories, never native stderr (which may
     // include prompts, credentials, paths or provider payloads).
@@ -36,6 +45,7 @@ export class CodexRpcClient {
       }
     });
     this.reader = createInterface({ input: this.child.stdout });
+    this.child.stdout.once('data', () => { this.firstOutputAt = performance.now(); });
     this.reader.on('line', (line) => {
       let value: Record<string, unknown>;
       try { value = JSON.parse(line) as Record<string, unknown>; } catch { return; }
@@ -55,17 +65,20 @@ export class CodexRpcClient {
       }
       const pending = typeof value.id === 'number' ? this.waiting.get(value.id) : undefined;
       if (!pending) return;
-      clearTimeout(pending.timer); this.waiting.delete(value.id as number);
+      clearTimeout(pending.timer); pending.stopStartupProbe?.(); this.waiting.delete(value.id as number);
       if (value.error) pending.reject(new CodexRpcError(value.error));
       else pending.resolve(value.result);
     });
     let notified = false;
     const fail = () => {
       this.closed = true;
-      for (const pending of this.waiting.values()) { clearTimeout(pending.timer); pending.reject(new Error('Executor protocol connection closed')); }
+      for (const pending of this.waiting.values()) { clearTimeout(pending.timer); pending.stopStartupProbe?.(); pending.reject(new Error('Executor protocol connection closed')); }
       this.waiting.clear();
       if (!notified) { notified = true; options.onClose?.(); }
     };
+    // A missing/exited executable can close stdin before its process error is delivered.
+    // Treat a broken pipe as a failed RPC connection, never an uncaught host exception.
+    this.child.stdin.on('error', fail);
     this.child.once('error', () => { console.error(JSON.stringify({ message: 'Native harness process failed to start' })); fail(); });
     this.child.once('exit', (code, signal) => {
       if (!this.closed) console.error(JSON.stringify({ message: 'Native harness process exited unexpectedly', code, signal }));
@@ -90,21 +103,32 @@ export class CodexRpcClient {
     return new Promise((resolve, reject) => {
       const id = ++this.nextId;
       const timer = setTimeout(() => {
+        this.waiting.get(id)?.stopStartupProbe?.();
         this.waiting.delete(id);
         // Methods are host-owned; omit parameters and native output from diagnostics.
         console.error(JSON.stringify({ message: 'Native harness request timed out', method: /^[A-Za-z][A-Za-z0-9/]{0,100}$/.test(method) ? method : 'unknown' }));
         reject(new Error('Executor protocol request timed out'));
       }, timeoutMs);
-      this.waiting.set(id, { resolve, reject, timer });
+      const pending: { resolve(value: unknown): void; reject(error: Error): void; timer: ReturnType<typeof setTimeout>; stopStartupProbe?: () => void } = { resolve, reject, timer };
+      this.waiting.set(id, pending);
+      if (method === 'initialize' && this.startupPurpose) pending.stopStartupProbe = observeCodexInitialization({
+        child: this.child, purpose: this.startupPurpose, ordinal: this.processOrdinal, spawnedAt: this.spawnedAt,
+        firstOutputAt: () => this.firstOutputAt, pending: () => !this.closed && this.waiting.get(id) === pending,
+      });
       this.child.stdin.write(`${JSON.stringify({ id, method, params })}\n`);
     });
   }
 
-  public async close(): Promise<void> {
-    if (this.closed) { this.reader.close(); return; }
+  public close(): Promise<void> {
+    this.closing ??= this.closeProcess();
+    return this.closing;
+  }
+
+  private async closeProcess(): Promise<void> {
     this.closed = true;
-    for (const pending of this.waiting.values()) { clearTimeout(pending.timer); pending.reject(new Error('Executor protocol client closed')); }
+    for (const pending of this.waiting.values()) { clearTimeout(pending.timer); pending.stopStartupProbe?.(); pending.reject(new Error('Executor protocol client closed')); }
     this.waiting.clear(); this.reader.close(); this.child.stdin.destroy();
+    if (!this.child.pid || this.child.exitCode !== null || this.child.signalCode !== null) return;
     const exited = once(this.child, 'exit').catch(() => {});
     this.child.kill('SIGTERM');
     await Promise.race([exited, delay(1000)]);

@@ -30,6 +30,28 @@ function fixture() {
 }
 
 describe('native Item updates projected into public events', () => {
+  it('preserves streamed command output when completion omits the aggregate', () => {
+    const f = fixture();
+    const item = { id: 'command', type: 'commandExecution', command: 'work', cwd: '/workspace' };
+    f.emit('item/started', { item });
+    f.emit('item/commandExecution/outputDelta', { itemId: item.id, delta: 'first\n' });
+    f.emit('item/commandExecution/outputDelta', { itemId: item.id, delta: 'second\n' });
+    f.emit('item/completed', { item: { ...item, status: 'completed', exitCode: 0, aggregatedOutput: null } });
+    expect(f.snapshot().items[0]).toMatchObject({ status: 'completed', exit_code: 0, output: 'first\nsecond\n' });
+  });
+
+  it('retains command output across a sparse terminal snapshot without duplicating it', () => {
+    const f = fixture();
+    const item = { id: 'command', type: 'commandExecution', command: 'work', cwd: '/workspace', status: 'completed', exitCode: 0 };
+    f.emit('item/completed', { item: { ...item, aggregatedOutput: 'verified output\n' } });
+    const terminal = { turn: { id: 'native', status: 'completed', items: [{ ...item, aggregatedOutput: null }] } };
+    f.emit('turn/completed', terminal);
+    f.emit('turn/completed', terminal);
+    expect(f.snapshot().items[0]).toMatchObject({ status: 'completed', output: 'verified output\n' });
+    f.emit('item/completed', { item: { ...item, aggregatedOutput: '' } });
+    expect(f.snapshot().items[0]).toMatchObject({ output: '' });
+  });
+
   it.each(['completed', 'failed'] as const)('retains MCP and command output/error correspondence on %s', status => {
     const f = fixture();
     f.emit('item/completed', { item: { id: 'mcp', type: 'mcpToolCall', server: 'docs', tool: 'lookup', arguments: { query: 'x' }, result: status === 'completed' ? { text: 'result' } : null, error: status === 'failed' ? { message: 'denied' } : null, status } });

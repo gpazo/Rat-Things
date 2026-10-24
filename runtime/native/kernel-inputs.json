@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "release": "6.18.52-0-virt",
+  "architecture": "aarch64",
+  "vmlinuz": {
+    "url": "https://dl-cdn.alpinelinux.org/alpine/v3.24/releases/aarch64/netboot-3.24.2/vmlinuz-virt",
+    "sha256": "e45e1f6083d1ed45db6647b422e32b6ae6dc54de7b8190b7b97744fb293412e3",
+    "maximumBytes": 33554432
+  },
+  "modloop": {
+    "url": "https://dl-cdn.alpinelinux.org/alpine/v3.24/releases/aarch64/netboot-3.24.2/modloop-virt",
+    "sha256": "32a189d5e4ae4417cf65bfcc91d2cc8ffdf5957fbbc1f055b037861c595b7328",
+    "maximumBytes": 33554432
+  },
+  "image": {
+    "sha256": "e698a107e4d04117db1a7b0daee99bdae5f0647fba2af50f3cd020a666950ab9",
+    "maximumBytes": 67108864
+  },
+  "requiredModules": ["virtio_pci", "virtio_blk", "virtio_rng", "vmw_vsock_virtio_transport", "ext4"],
+  "sourceMaterial": {
+    "status": "required-before-distribution",
+    "recipe": "https://raw.githubusercontent.com/alpinelinux/aports/v3.24.2/main/linux-lts/APKBUILD",
+    "required": ["immutable aports commit", "matching configuration", "source archives", "Alpine patches", "license text"]
+  }
+}

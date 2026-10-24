@@ -26,6 +26,8 @@ import {
 import { codexAuthMode, localCodexAuthMode } from './runner/codex-auth.js';
 import { sessionPublicationRequest } from './core/session-publication-planning.js';
 import { runAgentsCli } from './agents-cli.js';
+import { runWorkspaceCli } from './workspace-cli.js';
+import { installedNativeOptions, installedPaths, installedRuntime } from './app/local-installed.js';
 
 interface Arguments {
   command: string;
@@ -37,6 +39,7 @@ interface Arguments {
 
 const commands = new Set([
   'local',
+  'serve',
   'schedules',
   'console',
   'plugins',
@@ -95,6 +98,8 @@ const valueOptions = new Set([
   'credential-file',
   'credential-secret-arn',
   'driver',
+  'data-dir',
+  'max-sessions',
   'file',
   'limit',
   'model',
@@ -147,6 +152,7 @@ const simpleApiCommands: Record<string, SimpleApiCommand> = {
 };
 
 async function main(): Promise<void> {
+  if (await runWorkspaceCli(process.argv.slice(2))) return;
   if (await runAgentsCli(process.argv.slice(2))) return;
   const args = parseArguments(normalizeArguments(process.argv.slice(2)));
   if (args.values.has('api-url')) {
@@ -170,6 +176,9 @@ async function main(): Promise<void> {
       return;
     case 'local':
       await local(args);
+      return;
+    case 'serve':
+      await serveLocal(args);
       return;
     case 'console':
       await openConsole(args);
@@ -313,7 +322,6 @@ async function local(args: Arguments): Promise<void> {
 async function openConsole(args: Arguments): Promise<void> {
   validateCommandOptions(args, { flags: ['no-wait'], values: ['port'] });
   const base = process.env.RAT_THINGS_AGENTS_API_URL ?? process.env.RAT_THINGS_API_URL;
-  if (!base) throw new Error('RAT_THINGS_AGENTS_API_URL is required to open the signed console');
   const port = Number(args.values.get('port') ?? '0');
   if (!Number.isInteger(port) || (port !== 0 && port < 1_024) || port > 65_535) {
     throw new Error('--port must be 0 or an integer from 1024 through 65535');
@@ -321,19 +329,22 @@ async function openConsole(args: Arguments): Promise<void> {
   const cliDirectory = dirname(fileURLToPath(import.meta.url));
   const sourceRoot = dirname(cliDirectory);
   const suffix = process.platform === 'win32' ? '.exe' : '';
-  const candidates = process.env.RAT_THINGS_CONSOLE_BIN ? [resolve(process.env.RAT_THINGS_CONSOLE_BIN)] : [
+  const candidates = installedRuntime ? [installedPaths(import.meta.url, process.execPath).desktop]
+    : process.env.RAT_THINGS_CONSOLE_BIN ? [resolve(process.env.RAT_THINGS_CONSOLE_BIN)] : [
     join(cliDirectory, `rat-things-desktop${suffix}`),
     join(sourceRoot, 'desktop', 'target', 'release', `rat-things-desktop${suffix}`),
     join(sourceRoot, 'desktop', 'target', 'debug', `rat-things-desktop${suffix}`),
   ];
   const executable = candidates.find(path => existsSync(path));
-  if (!executable) throw new Error('The native console is not built. Run npm run console:build from a Rat Things checkout.');
+  if (!executable) throw new Error(installedRuntime ? 'The installed Rat Things app is incomplete.'
+    : 'The native console is not built. Run npm run console:build from a Rat Things checkout.');
   const bundledServer = join(cliDirectory, 'console-server.mjs');
   const server = existsSync(bundledServer) ? bundledServer : join(sourceRoot, 'scripts', 'console-server.ts');
   const detached = args.flags.has('no-wait');
   const child = spawn(executable, [], {
-    env: { ...process.env, RAT_THINGS_AGENTS_API_URL: base, RAT_THINGS_CONSOLE_SERVER: server,
-      RAT_THINGS_CONSOLE_NODE: process.execPath, RAT_THINGS_CONSOLE_PORT: String(port), RAT_THINGS_CONSOLE_LAUNCHER: '1' },
+    env: { ...process.env, ...(base ? { RAT_THINGS_AGENTS_API_URL: base } : {}),
+      ...(!installedRuntime ? { RAT_THINGS_CONSOLE_SERVER: server, RAT_THINGS_CONSOLE_NODE: process.execPath } : {}),
+      RAT_THINGS_CONSOLE_PORT: String(port), RAT_THINGS_CONSOLE_LAUNCHER: '1' },
     stdio: ['ignore', 'pipe', detached ? 'ignore' : 'inherit'], detached,
   });
   const stop = () => { if (!child.killed) child.kill('SIGTERM'); };
@@ -354,6 +365,22 @@ async function openConsole(args: Arguments): Promise<void> {
     });
   } catch (error) { stop(); throw error; }
   finally { process.off('SIGINT', stop); process.off('SIGTERM', stop); }
+}
+
+async function serveLocal(args: Arguments): Promise<void> {
+  validateCommandOptions(args, { flags: [], values: ['data-dir', 'port', 'model', 'max-sessions'] });
+  const port = Number(args.values.get('port') ?? '0');
+  if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error('--port must be an integer from 0 through 65535');
+  const { startLocalServer } = await import('./local-server.js');
+  const directory = args.values.get('data-dir');
+  const model = args.values.get('model') ?? process.env.RAT_THINGS_MODEL;
+  const server = await startLocalServer({ ...await installedNativeOptions(), port, ...(directory ? { directory: resolve(directory) } : {}),
+    ...(model ? { model } : {}), maxSessions: Number(args.values.get('max-sessions') ?? '2') });
+  process.stdout.write(`Your local workspace is ready at ${server.baseURL}\nSaved on this computer: ${server.directory}\nUse rat-things sessions or open the desktop. Model requests use your configured provider.\n`);
+  await new Promise<void>(resolvePromise => {
+    const stop = () => { void server.close().then(resolvePromise); };
+    process.once('SIGINT', stop); process.once('SIGTERM', stop);
+  });
 }
 
 async function waitForNativeConsole(child: ReturnType<typeof spawn>): Promise<void> {
@@ -1252,11 +1279,13 @@ function help(showAll: boolean): void {
   process.stdout.write('  rat-things files create|list|get|delete|content [ID]\n');
   process.stdout.write('  rat-things publications create --session SESSION_ID --file REQUEST.json\n');
   process.stdout.write('  rat-things schedules list|get|create|update|delete|pause|resume [ID] [--file REQUEST.json]\n');
-  process.stdout.write('  rat-things console\n  rat-things doctor\n');
+  process.stdout.write('  rat-things console\n  rat-things serve [--model MODEL] [--data-dir PATH] [--max-sessions 2]\n  rat-things doctor\n');
+  process.stdout.write('  rat-things login\n  rat-things runtime doctor|setup [--dry-run] [--json]\n');
+  process.stdout.write('  rat-things transfer plan SESSION_ID --api-url URL --region REGION [--model DESTINATION_MODEL]\n  rat-things transfer run|status TRANSFER_ID\n');
   process.stdout.write('  Pi runs in durable Sessions. Use sessions create --runtime pi --model MODEL --input TEXT.\n');
   process.stdout.write('  rat-things local [--driver codex|mock] [--model MODEL] "Work on this computer" [--trace-output trace.otlp.json]\n');
-  process.stdout.write('\nUnqualified prompts run locally. Use sessions for durable work in AWS.\n');
-  process.stdout.write('Set RAT_THINGS_AGENTS_API_URL for standard resources; RAT_THINGS_API_URL for publications, schedules, and connections.\n');
+  process.stdout.write('\nUnqualified prompts run locally. Use sessions for durable work on this computer or in AWS.\n');
+  process.stdout.write('Open console or start serve for local Sessions. Set RAT_THINGS_AGENTS_API_URL and AWS_REGION to use AWS; RAT_THINGS_API_URL selects the cloud control API.\n');
   if (!showAll) return;
   process.stdout.write(`\nIntegrations\n\n`);
   process.stdout.write(`  rat-things plugins\n`);

@@ -17,18 +17,32 @@ file dialog uses the desktop portal on Linux.
 ```sh
 npm ci
 npm run console:build
-RAT_THINGS_AGENTS_API_URL=https://your-api.example/v1 AWS_REGION=us-west-2 \
-  npm run console:serve
+npm run rat-things -- login
+npm run console:serve
 ```
 
-`rat-things console` opens the native window. It uses your AWS credential chain,
-including `AWS_PROFILE`. `--no-wait` detaches after the window opens. The optional
+`rat-things console` opens **This computer** when no API endpoint is configured.
+It starts a private local service or connects to an existing `rat-things serve`
+process. Local Agents and Sessions survive app restarts. The local service supports
+conversations and managed Linux workspaces on Apple silicon Macs. The workspace
+menu checks runtime setup, opens ChatGPT sign-in, and prepares Session copies to AWS.
+Local inference uses your Codex/ChatGPT subscription. See [local workspaces](../docs/local-workspace.md).
+
+Use the workspace menu to connect to an existing AWS endpoint and region, or set
+`RAT_THINGS_AGENTS_API_URL` and `AWS_REGION` before launch. Cloud access uses your
+AWS credential chain, including `AWS_PROFILE`. Switching checks access first and
+leaves existing Sessions in their original workspace. The selection lasts for the
+current launch; the environment variables select AWS on subsequent launches.
+
+`--no-wait` detaches after the window opens. The optional
 `--port` chooses the private helper's preferred port; occupied ports fall back to
 a free port. By default each launch uses a free port.
 
 `npm run console:build` builds the JavaScript distribution and a release desktop
 binary in `dist/`. On macOS it also creates `dist/Rat Things.app` with its Node helper
-runtime. Launch through the CLI to inherit your API endpoint, region and profile.
+and pinned native Codex runtime, so ChatGPT sign-in does not depend on a global
+Codex installation. Launch through the CLI to inherit your model configuration, API endpoint,
+region and profile.
 Local macOS bundles use an ad-hoc signature; they are not notarized for distribution.
 Lambda packaging remains independent of desktop builds.
 Run the desktop build again after `npm run build`, which replaces `dist/`.
@@ -48,7 +62,8 @@ runtime. See [runtime capabilities](../docs/agent-runtimes.md).
 The Model picker loads the selected runtime's authenticated deployment catalog when the form opens.
 It shows exact model IDs, so the selection matches the model sent to the API.
 It selects an advertised default for a new draft and keeps existing selections.
-The Environment dropdown offers saved templates and No environment. Selecting a
+The Environment dropdown offers saved templates and No environment, plus Linux on
+this computer in a local workspace. Selecting a
 hosted template sends its ID to the API, which applies its configuration and
 permitted inline overrides. You can also choose Start session from a template's
 detail page. The session labels managed environments as Rat Things managed and

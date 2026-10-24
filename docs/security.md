@@ -6,7 +6,7 @@ Treat prompts, webhook fields, repositories, tool results and model output as un
 A valid provider signature authenticates the delivery; it does not make its author or content
 trustworthy. Rat Things owns the API, harness, state and workers in the operator's AWS account.
 
-A managed Session uses a dedicated worker VM. Workspaces and execution identities are isolated
+An AWS managed Session uses a dedicated worker VM. Workspaces and execution identities are isolated
 by owner and Session. The native sandbox is additional protection; the outer VM is the primary
 execution boundary. Trusted orchestration runs as root and launches Codex or Pi Durable and repository commands
 as UID/GID 10001. Local CLI execution has a separate read-only/no-network default.
@@ -15,6 +15,30 @@ The EC2 worker supports connected Session lifetime beyond Lambda MicroVM's maxim
 Both backends must preserve the same ownership, process and credential boundaries. Self-hosted
 executor connections also require an operator-controlled sandbox; transport encryption does
 not make a shared or privileged executor safe.
+
+## Local workspaces
+
+The local desktop has a different placement boundary: Codex inference and ChatGPT
+sign-in stay on the host, while managed commands run as UID 10001 in a Session-owned
+container inside a local Linux VM. The container engine and its VM are trusted host
+components. The worker mounts only its named workspace volume, receives scoped
+executor transport credentials, and has no host folder, Docker socket, AWS
+credential chain or subscription login mounted. Only an authenticated loopback
+transport is published. Native permissions enforce the admitted workspace and
+network policy; approval requests fail closed. This first local backend supports
+Apple silicon Macs and does not claim that a bare container on a Linux host supplies
+the same outer VM boundary.
+
+The host harness uses a private Rat Things Codex home for sign-in and thread
+history. It does not inherit the user's personal Codex configuration. Host plugins,
+apps and hooks are disabled, and unexpected host MCP configuration prevents a
+Session from starting. Subscription login material stays in that private home.
+
+Session copying locks an idle source while stopping writers and taking a bounded
+workspace snapshot. Its encrypted local receipt supports retry. The destination
+principal owns the imported Session and supplies its own model connection. Login
+files outside the workspace are never part of the transfer. Workspace files and
+explicit environment values are user content and are copied as reviewed.
 
 ## Protected assets
 

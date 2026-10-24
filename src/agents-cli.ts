@@ -3,6 +3,7 @@ import { createReadStream } from 'node:fs';
 import { writeFile } from 'node:fs/promises';
 import { readFile } from 'node:fs/promises';
 import { parseArgs } from 'node:util';
+import { installedServiceIdentity } from './app/local-installed.js';
 
 /** CLI inputs and outputs use the upstream resource shapes without a second request language. */
 export async function runAgentsCli(argv: string[]): Promise<boolean> {
@@ -17,7 +18,7 @@ export async function runAgentsCli(argv: string[]): Promise<boolean> {
   } });
   const [operation = 'list', id, childId, nestedId] = positionals;
   if (values.help) {
-    process.stdout.write('rat-things agents create|list|get|update|delete|models [ID] [--file request.json]\nrat-things sessions create|list|get|update|delete|fork|lineage|runtime|send|cancel|items|turns|artifacts|events|traces [ID]\nrat-things environments get|connect ENVIRONMENT_ID\nrat-things environments templates create|list|get|update|delete [ID] [--file request.json]\nrat-things vaults create|list|get|delete [ID] [--file request.json]\nrat-things sessions artifacts SESSION_ID [ARTIFACT_ID]\nrat-things sessions artifact-content|artifact-delete SESSION_ID ARTIFACT_ID [--output PATH]\nrat-things files create --file PATH [--purpose user_data]\nrat-things files list|get|delete|content [ID] [--output PATH]\nUse --api-url with agents_api_base_url and --region with the deployment AWS region.\nSession creation accepts --runtime codex|pi --model MODEL --input TEXT, --agent-id ID, --stream, or a standard JSON request file. Runtime is fixed for each Session. Pi uses Bedrock and supports none or managed environments, function and MCP tools, text output, medium verbosity, auto tier, and no reasoning summary. Use agents models --runtime pi to discover supported models and settings, and sessions runtime ID to read the pinned runtime.\n');
+    process.stdout.write('rat-things agents create|list|get|update|delete|models [ID] [--file request.json]\nrat-things sessions create|list|get|update|delete|fork|lineage|runtime|send|cancel|items|turns|artifacts|events|traces [ID]\nrat-things environments get|connect ENVIRONMENT_ID\nrat-things environments templates create|list|get|update|delete [ID] [--file request.json]\nrat-things vaults create|list|get|delete [ID] [--file request.json]\nrat-things sessions artifacts SESSION_ID [ARTIFACT_ID]\nrat-things sessions artifact-content|artifact-delete SESSION_ID ARTIFACT_ID [--output PATH]\nrat-things files create --file PATH [--purpose user_data]\nrat-things files list|get|delete|content [ID] [--output PATH]\nStart rat-things serve or console for local Sessions. For AWS, use --api-url with agents_api_base_url and --region with the deployment AWS region.\nSession creation accepts --runtime codex|pi --model MODEL --input TEXT, --agent-id ID, --stream, or a standard JSON request file. Runtime is fixed for each Session. Pi uses Bedrock and supports none or managed environments, function and MCP tools, text output, medium verbosity, auto tier, and no reasoning summary. Use agents models --runtime pi to discover supported models and settings, and sessions runtime ID to read the pinned runtime.\n');
     return true;
   }
   if (values.runtime !== undefined && !['codex', 'pi'].includes(values.runtime)) throw new Error('--runtime must be codex or pi');
@@ -26,17 +27,26 @@ export async function runAgentsCli(argv: string[]): Promise<boolean> {
   if (values.runtime !== undefined && !definitionFlags && !(group === 'agents' && operation === 'models')) throw new Error('--runtime applies only to agents or sessions create and update, or agents models');
   const baseURL = values['api-url'] ?? process.env.RAT_THINGS_AGENTS_API_URL ?? process.env.RAT_THINGS_API_URL;
   const region = values.region ?? process.env.AWS_REGION ?? process.env.AWS_DEFAULT_REGION;
-  if (!baseURL || !region) throw new Error('Set RAT_THINGS_AGENTS_API_URL and AWS_REGION, or use --api-url and --region');
+  if (baseURL && !region) throw new Error('Set AWS_REGION, or use --region for the cloud workspace');
   const [{ createAgentsClient }, { parseAgentsContract }] = await Promise.all([
     import('./agents-client.js'), import('./domain/agents-api-validation.js'),
   ]);
-  const endpoint = baseURL.replace(/\/$/, '');
-  const client = createAgentsClient({ baseURL: endpoint.endsWith('/v1') ? endpoint : `${endpoint}/v1`, region });
+  const endpoint = baseURL?.replace(/\/$/, '');
+  const { createLocalAgentsClient, readLocalConnection } = await import('./local-workspace.js');
+  const client = endpoint ? createAgentsClient({ baseURL: endpoint.endsWith('/v1') ? endpoint : `${endpoint}/v1`, region: region! })
+    : createLocalAgentsClient(await readLocalConnection(undefined, installedServiceIdentity));
   const agents = client.beta.agents;
   const body: unknown = values.file && group !== 'files' ? JSON.parse(await readFile(values.file, 'utf8')) : {};
   const query = { ...(values.after ? { after: values.after } : {}), ...(values.limit ? { limit: Number(values.limit) } : {}), ...(values.order ? { order: values.order } : {}) };
   const requiredId = () => { if (!id) throw new Error(`${group} ${operation} requires an ID`); return id; };
   const json = (value: unknown) => { process.stdout.write(`${JSON.stringify(value, null, 2)}\n`); };
+  const jsonPage = async (path: string, pageQuery: object) => {
+    json(await client.get(path, { query: pageQuery, ...(path === '/files' ? {} : { headers: { 'OpenAI-Beta': 'agents=v1' } }) }));
+  };
+  const pathId = (value: string) => {
+    if (value === '.' || value === '..') throw new Error('A resource ID cannot be a relative path.');
+    return encodeURIComponent(value);
+  };
   const saveContent = async (load: () => Promise<Response>) => {
     if (!values.output) throw new Error('Use --output PATH to save file content');
     const content = await load();
@@ -47,14 +57,14 @@ export async function runAgentsCli(argv: string[]): Promise<boolean> {
       if (!values.file) throw new Error('files create requires --file PATH');
       const input = parseAgentsContract('UploadedFileCreate', { purpose: values.purpose ?? 'user_data' });
       json(await client.files.create({ ...input, file: createReadStream(values.file) }));
-    } else if (operation === 'list') json(await client.files.list(parseAgentsContract('UploadedFileList', { ...query, ...(values.purpose ? { purpose: values.purpose } : {}) })));
+    } else if (operation === 'list') await jsonPage('/files', parseAgentsContract('UploadedFileList', { ...query, ...(values.purpose ? { purpose: values.purpose } : {}) }));
     else if (operation === 'get') json(await client.files.retrieve(requiredId()));
     else if (operation === 'delete') json(await client.files.delete(requiredId()));
     else if (operation === 'content') await saveContent(() => client.files.content(requiredId()));
     else throw new Error(`Unknown files operation: ${operation}`);
   } else if (group === 'agents') {
     if (operation === 'create') json(await agents.create(parseAgentsContract('AgentCreate', mergeAgentFlags(body, values, false))));
-    else if (operation === 'list') json(await agents.list(parseAgentsContract('AgentList', query)));
+    else if (operation === 'list') await jsonPage('/agents', parseAgentsContract('AgentList', query));
     else if (operation === 'get') json(await agents.retrieve(requiredId()));
     else if (operation === 'update') json(await agents.update(requiredId(), parseAgentsContract('AgentUpdate', mergeAgentFlags(body, values, false))));
     else if (operation === 'delete') json(await agents.delete(requiredId()));
@@ -68,7 +78,7 @@ export async function runAgentsCli(argv: string[]): Promise<boolean> {
       });
       if (input.stream) for await (const event of await agents.sessions.create({ ...input, stream: true })) json(event);
       else json(await agents.sessions.create({ ...input, stream: false }));
-    } else if (operation === 'list') json(await agents.sessions.list(parseAgentsContract('SessionList', { ...query, ...(values['agent-id'] ? { agent_id: values['agent-id'] } : {}) })));
+    } else if (operation === 'list') await jsonPage('/agents/sessions', parseAgentsContract('SessionList', { ...query, ...(values['agent-id'] ? { agent_id: values['agent-id'] } : {}) }));
     else if (operation === 'get') json(await agents.sessions.retrieve(requiredId()));
     else if (operation === 'fork') json(await client.post(`/agents/sessions/${encodeURIComponent(requiredId())}/fork`, { body }));
     else if (operation === 'runtime') json(await client.get(`/agents/sessions/${encodeURIComponent(requiredId())}/runtime`));
@@ -81,9 +91,14 @@ export async function runAgentsCli(argv: string[]): Promise<boolean> {
       if (values.output) await writeFile(values.output, JSON.stringify(await exportSessionTraces(page => sessionTracePage(client, sessionId, page), traceQuery), null, 2) + '\n', { mode: 0o600 });
       else json(await sessionTracePage(client, sessionId, traceQuery));
     }
-    else if (operation === 'items') json(await agents.sessions.items.list(requiredId(), parseAgentsContract('ItemList', query)));
-    else if (operation === 'turns') json(childId ? await agents.sessions.turns.retrieve(childId, { session_id: requiredId() }) : await agents.sessions.turns.list(requiredId(), parseAgentsContract('TurnList', query)));
-    else if (operation === 'artifacts') json(childId ? await agents.sessions.artifacts.retrieve(childId, { session_id: requiredId() }) : await agents.sessions.artifacts.list(requiredId(), parseAgentsContract('ArtifactList', query)));
+    else if (operation === 'items') await jsonPage(`/agents/sessions/${pathId(requiredId())}/items`, parseAgentsContract('ItemList', query));
+    else if (operation === 'turns') {
+      if (childId) json(await agents.sessions.turns.retrieve(childId, { session_id: requiredId() }));
+      else await jsonPage(`/agents/sessions/${pathId(requiredId())}/turns`, parseAgentsContract('TurnList', query));
+    } else if (operation === 'artifacts') {
+      if (childId) json(await agents.sessions.artifacts.retrieve(childId, { session_id: requiredId() }));
+      else await jsonPage(`/agents/sessions/${pathId(requiredId())}/artifacts`, parseAgentsContract('ArtifactList', query));
+    }
     else if (operation === 'artifact-content' || operation === 'artifact-delete') {
       if (!childId) throw new Error(`${operation} requires SESSION_ID ARTIFACT_ID`);
       const params = { session_id: requiredId() };
@@ -109,7 +124,7 @@ export async function runAgentsCli(argv: string[]): Promise<boolean> {
     } else if (operation === 'templates') {
       const templates = agents.environments.templates;
       if (id === 'create') json(await templates.create(parseAgentsContract('EnvironmentTemplateCreate', body)));
-      else if (id === 'list' || !id) json(await templates.list(parseAgentsContract('EnvironmentTemplateList', query)));
+      else if (id === 'list' || !id) await jsonPage('/agents/environments/templates', parseAgentsContract('EnvironmentTemplateList', query));
       else if (id === 'get' && childId) json(await templates.retrieve(childId));
       else if (id === 'update' && childId) json(await templates.update(childId, parseAgentsContract('EnvironmentTemplateUpdate', body)));
       else if (id === 'delete' && childId) json(await templates.delete(childId));
@@ -117,13 +132,13 @@ export async function runAgentsCli(argv: string[]): Promise<boolean> {
     } else throw new Error(`Unknown environments operation: ${operation}`);
   } else {
     if (operation === 'create') json(await agents.vaults.create(parseAgentsContract('VaultCreate', body)));
-    else if (operation === 'list') json(await agents.vaults.list(parseAgentsContract('VaultList', query)));
+    else if (operation === 'list') await jsonPage('/vaults', parseAgentsContract('VaultList', query));
     else if (operation === 'get') json(await agents.vaults.retrieve(requiredId()));
     else if (operation === 'delete') json(await agents.vaults.delete(requiredId()));
     else if (operation === 'credentials' && childId) {
       const credentials = agents.vaults.credentials;
       if (id === 'create') json(await credentials.create(childId, parseAgentsContract('CredentialCreate', body)));
-      else if (id === 'list') json(await credentials.list(childId, parseAgentsContract('CredentialList', query)));
+      else if (id === 'list') await jsonPage(`/vaults/${pathId(childId)}/credentials`, parseAgentsContract('CredentialList', query));
       else if (id === 'get' && nestedId) json(await credentials.retrieve(nestedId, { vault_id: childId }));
       else if (id === 'update' && nestedId) json(await credentials.update(nestedId, { vault_id: childId, ...parseAgentsContract('CredentialUpdate', body) }));
       else if (id === 'delete' && nestedId) json(await credentials.delete(nestedId, { vault_id: childId }));

@@ -1,0 +1,12 @@
+diff --git a/codex-rs/core/src/session/step_settings_tests.rs b/codex-rs/core/src/session/step_settings_tests.rs
+index ba04038..eeb4763 100644
+--- a/codex-rs/core/src/session/step_settings_tests.rs
++++ b/codex-rs/core/src/session/step_settings_tests.rs
+@@ -11,6 +11,7 @@ use codex_features::Feature;
+ use codex_models_manager::manager::StaticModelsManager;
+ use codex_models_manager::model_info::model_info_from_slug;
+ use codex_protocol::config_types::ModeKind;
++use codex_protocol::config_types::ServiceTier;
+ use codex_protocol::config_types::Settings;
+ use codex_protocol::models::BaseInstructionsProvenance;
+ use codex_protocol::models::PermissionProfile;

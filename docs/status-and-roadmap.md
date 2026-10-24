@@ -1,7 +1,8 @@
 # Capabilities and boundaries
 
-Rat Things accepts work into a durable control plane and runs agents in isolated AWS workers
-using dedicated EC2 instances or Lambda MicroVMs. Start with the [operating model](operating-model.md) for the core objects and the
+Rat Things keeps durable conversations on your computer and runs managed agents in
+isolated AWS workers using dedicated EC2 instances or Lambda MicroVMs. Start with
+the [local workspace guide](local-workspace.md) to try it, the [operating model](operating-model.md) for the core objects and the
 [architecture](architecture.md) for their implementation.
 
 ## Current maturity
@@ -13,6 +14,7 @@ identity, retention, network policy, and operational limits for the environment 
 | System | What it provides | Learn more |
 | --- | --- | --- |
 | Agent runtimes | Codex and Pi Durable behind the same API, CLI, desktop, schedules, and provider bindings | [Runtime comparison](agent-runtimes.md) |
+| Local workspace | Private loopback API, durable local Agents and Sessions, Codex/ChatGPT subscription harness, local Linux workers on Apple silicon Macs, resumable Session copying into AWS | [Start at home](local-workspace.md) |
 | Sessions and Turns | Owner-scoped input, ordered execution, cancellation and saved Items | [Agents API](agents-api.md) |
 | Agents and schedules | Reusable standard Agent configurations and AWS schedule inputs | [Agents](agents-api.md), [schedules](schedules.md) |
 | Connections | Provider-verified accounts, host-owned credentials, grants, and account-specific operations | [Integrations](plugins.md) |
@@ -28,6 +30,12 @@ identity, retention, network policy, and operational limits for the environment 
 | Recovery | Queue repair, generation-fenced liveness, cancellation settlement, and per-destination delivery fences | [Runbook](runbook.md) |
 
 ## Known gaps
+
+- **Local execution:** Linux workers currently require an Apple silicon Mac and a
+  supported VM-backed container engine. Local Vaults, uploaded Files, plugins,
+  MCP, schedules and webhooks remain unavailable. Session copying moves idle application
+  state into an existing AWS deployment; it does not migrate running processes or
+  subscription credentials. Codex/ChatGPT is the first local subscription provider.
 
 - **Multi-tenant operation:** destination authorization, output redaction, per-owner budgets and
   rate limits, and independent security review remain incomplete. The control API's ownership
@@ -56,7 +64,13 @@ identity, retention, network policy, and operational limits for the environment 
 
 ## Roadmap
 
-The next system improvements center on four areas:
+Local-first development comes next: an isolated local computer backend behind the
+existing environment ports; readiness and capacity reporting; resumable setup; and
+an explicit, verifiable transfer of Session context and files into AWS. Keep one
+API and one desktop workflow across these backends. Local operation should remain
+a complete choice for people whose hardware is sufficient.
+
+The cloud system improvements center on four areas:
 
 1. Add usage budgets, per-owner limits, destination authorization, and output controls around the
    existing fixed capability envelope.

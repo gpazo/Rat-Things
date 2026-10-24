@@ -21,8 +21,9 @@ interface Ticket { registration: Registration; role: 'executor' | 'harness'; exp
 /** A rendezvous transport. The executor and harness perform end-to-end Noise authentication. */
 export function createEnvironmentRelay(options: {
   environments: Pick<EnvironmentService, 'authenticate' | 'connection'>;
-  publicURL: () => string;
+  publicURL: (role?: 'executor' | 'harness') => string;
   now?: () => number;
+  healthEnvironmentId?: string;
   files?: (identity: EnvironmentIdentity, key: string, operation: EnvironmentFileOperation, signal: AbortSignal) => Promise<unknown>;
 }) {
   const now = options.now ?? Date.now;
@@ -31,6 +32,7 @@ export function createEnvironmentRelay(options: {
   const sockets = new WebSocketServer({ noServer: true, maxPayload: 256 * 1024, perMessageDeflate: false });
   const alive = new WeakMap<WebSocket, boolean>();
   let fileOperations = 0;
+  let healthProbe: Promise<boolean> | undefined;
   const server = createServer((request, response) => {
     void route(request, response).catch((error: unknown) => {
       const status = error instanceof AgentsApiError ? error.status : 500;
@@ -41,7 +43,7 @@ export function createEnvironmentRelay(options: {
   function ticketURL(registration: Registration, role: Ticket['role']): string {
     const ticket = randomBytes(32).toString('base64url');
     tickets.set(ticket, { registration, role, expires: now() + (role === 'executor' ? 3_600_000 : 60_000) });
-    const url = new URL('/relay', options.publicURL());
+    const url = new URL('/relay', options.publicURL(role));
     url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
     url.searchParams.set('ticket', ticket);
     return url.href;
@@ -49,7 +51,10 @@ export function createEnvironmentRelay(options: {
 
   async function route(request: IncomingMessage, response: ServerResponse) {
     const url = new URL(request.url ?? '/', 'http://relay.invalid');
-    if (request.method === 'GET' && url.pathname === '/health') { reply(response, 200, { status: 'ok' }); return; }
+    if (request.method === 'GET' && url.pathname === '/health') {
+      const ready = !options.healthEnvironmentId || await (healthProbe ??= probeExecutor(registrations.get(options.healthEnvironmentId)?.executor).finally(() => { healthProbe = undefined; }));
+      reply(response, ready ? 200 : 503, { status: ready ? 'ok' : 'unavailable' }); return;
+    }
     const route = /^\/cloud\/environment\/(env_[a-zA-Z0-9]+)\/(register|connect|validate|files)$/.exec(url.pathname);
     if (!route || request.method !== 'POST') throw new AgentsApiError(404, 'Route not found.');
     const environmentId = route[1]!;
@@ -164,6 +169,19 @@ export function createEnvironmentRelay(options: {
     sockets.close();
     await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
   } };
+}
+
+function probeExecutor(peer: WebSocket | undefined): Promise<boolean> {
+  if (peer?.readyState !== WebSocket.OPEN) return Promise.resolve(false);
+  return new Promise(resolve => {
+    const nonce = randomBytes(16);
+    const finish = (ready: boolean) => { clearTimeout(timer); peer.off('pong', pong); peer.off('close', closed); resolve(ready); };
+    const pong = (data: Buffer) => { if (data.equals(nonce)) finish(true); };
+    const closed = () => finish(false);
+    const timer = setTimeout(closed, 2000);
+    peer.on('pong', pong); peer.once('close', closed);
+    peer.ping(nonce, undefined, error => { if (error) finish(false); });
+  });
 }
 
 function disconnect(registration: Registration) {

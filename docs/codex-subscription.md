@@ -22,6 +22,17 @@ public/open-source repository CI from that account-auth workflow. See
 
 ## Fastest local path
 
+For durable Sessions and isolated Linux workspaces, start with the
+[local workspace guide](local-workspace.md). The desktop's **Sign in with ChatGPT**
+button uses Codex's account login flow in a private Rat Things Codex home. Sign in
+once for Rat Things using that button or `npm run rat-things -- login`; the
+existing personal Codex configuration is not inherited. The Linux executor never
+receives that login. **Review Session copy** transfers application state to an
+existing AWS deployment and uses its configured credentials; it does not invoke
+the separate credential bridge described below.
+
+For the standalone command-line runner below, use your existing Codex home and
+`codex:login`. This runner is separate from the durable local workspace service.
 Requirements: Node.js 22.20+, npm, Git, and a ChatGPT account with Codex.
 
 ```bash

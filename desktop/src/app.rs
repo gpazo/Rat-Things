@@ -1,15 +1,18 @@
 use crate::{
     api::{Data, Task, Worker, artifact_path},
     environment_picker::EnvironmentPicker,
-    markdown::safe_markdown,
+    markdown::Markdown,
     model::{
         Collection, ModelCatalog, Resource, SessionSnapshot, name_session_request, path_segment,
         pretty, prompt_title, string,
     },
+    session_copy::{
+        CopyDraft, CopyReview, CopySource, CopyStatus, DestinationInput, TransferPlan, saved_copies,
+    },
     theme,
 };
 use egui::{Color32, RichText, TextEdit, Ui};
-use egui_commonmark::{CommonMarkCache, CommonMarkViewer};
+use egui_commonmark::CommonMarkCache;
 use reqwest::Method;
 use serde_json::{Value, json};
 use std::{
@@ -23,6 +26,270 @@ pub(crate) const LOADING_FEEDBACK_DELAY: Duration = Duration::from_millis(300);
 
 const SNAPSHOT_INTERVAL: Duration = Duration::from_millis(750);
 const IDLE_SNAPSHOT_INTERVAL: Duration = Duration::from_secs(15);
+const LOCAL_REFRESH_INTERVAL: Duration = Duration::from_secs(2);
+
+#[derive(Default)]
+struct LocalRequest {
+    pending: Option<u64>,
+    error: Option<String>,
+}
+
+struct LocalRead {
+    value: Option<Value>,
+    request: LocalRequest,
+    next_refresh: Instant,
+}
+
+impl Default for LocalRead {
+    fn default() -> Self {
+        Self {
+            value: None,
+            request: LocalRequest::default(),
+            next_refresh: Instant::now(),
+        }
+    }
+}
+
+impl LocalRead {
+    fn finish(&mut self, result: Result<Value, String>) {
+        self.request.pending = None;
+        self.next_refresh = Instant::now() + LOCAL_REFRESH_INTERVAL;
+        match result {
+            Ok(value) => {
+                self.value = Some(value);
+                self.request.error = None;
+            }
+            Err(error) => self.request.error = Some(error),
+        }
+    }
+
+    fn due(&self, now: Instant) -> bool {
+        self.request.pending.is_none() && now >= self.next_refresh
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum RuntimeAction {
+    Setup,
+    Rollback,
+}
+
+impl RuntimeAction {
+    fn path(self) -> &'static str {
+        match self {
+            Self::Setup => "/api/v1/workspace/runtime/setup",
+            Self::Rollback => "/api/v1/workspace/runtime/rollback",
+        }
+    }
+
+    fn name(self) -> &'static str {
+        match self {
+            Self::Setup => "Setup",
+            Self::Rollback => "Rollback",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum RuntimePhase {
+    Checking,
+    Recovering,
+    Copying,
+    Verifying,
+    Probing,
+    Selecting,
+}
+
+impl RuntimePhase {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Checking => "Checking this computer",
+            Self::Recovering => "Preparing the existing runtime",
+            Self::Copying => "Copying the runtime",
+            Self::Verifying => "Verifying the runtime",
+            Self::Probing => "Testing the Linux workspace",
+            Self::Selecting => "Selecting the runtime",
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, serde::Deserialize)]
+#[serde(tag = "status", rename_all = "snake_case")]
+enum RuntimeChangeState {
+    Queued,
+    Working { phase: RuntimePhase },
+    Complete,
+    AwaitingRestart,
+    Failed { failure: String },
+}
+
+impl RuntimeChangeState {
+    fn is_active(&self) -> bool {
+        matches!(self, Self::Queued | Self::Working { .. })
+    }
+}
+
+#[derive(serde::Deserialize)]
+struct RuntimeChangeResponse {
+    id: String,
+    action: RuntimeAction,
+    #[serde(flatten)]
+    state: RuntimeChangeState,
+}
+
+#[derive(Debug, PartialEq)]
+enum RuntimeChangeProgress {
+    Submitting,
+    Unconfirmed,
+    NotAccepted,
+    Accepted(RuntimeChangeState),
+}
+
+struct RuntimeChange {
+    id: uuid::Uuid,
+    action: RuntimeAction,
+    progress: RuntimeChangeProgress,
+    request: LocalRequest,
+    next_refresh: Instant,
+}
+
+impl RuntimeChange {
+    fn new(action: RuntimeAction) -> Self {
+        Self {
+            id: uuid::Uuid::new_v4(),
+            action,
+            progress: RuntimeChangeProgress::NotAccepted,
+            request: LocalRequest::default(),
+            next_refresh: Instant::now(),
+        }
+    }
+
+    fn is_active(&self) -> bool {
+        match &self.progress {
+            RuntimeChangeProgress::Submitting | RuntimeChangeProgress::Unconfirmed => true,
+            RuntimeChangeProgress::NotAccepted => false,
+            RuntimeChangeProgress::Accepted(state) => state.is_active(),
+        }
+    }
+
+    fn submission_sent(&mut self) {
+        if self.progress == RuntimeChangeProgress::NotAccepted {
+            self.progress = RuntimeChangeProgress::Submitting;
+        }
+    }
+
+    fn reject_submission(&mut self) {
+        if self.progress == RuntimeChangeProgress::Submitting {
+            self.progress = RuntimeChangeProgress::NotAccepted;
+        }
+    }
+
+    fn poll_due(&self, now: Instant) -> bool {
+        self.request.pending.is_none()
+            && now >= self.next_refresh
+            && matches!(&self.progress,
+                RuntimeChangeProgress::Accepted(state) if state.is_active())
+    }
+
+    fn finish(&mut self, result: Result<Value, String>) {
+        self.request.pending = None;
+        self.next_refresh = Instant::now() + LOCAL_REFRESH_INTERVAL;
+        let result = result.and_then(|value| {
+            let response: RuntimeChangeResponse = serde_json::from_value(value)
+                .map_err(|_| "The runtime change response is invalid.".to_owned())?;
+            if uuid::Uuid::parse_str(&response.id).ok() != Some(self.id)
+                || response.action != self.action
+            {
+                return Err("The runtime change response belongs to another request.".into());
+            }
+            Ok(response.state)
+        });
+        match result {
+            Ok(state) => {
+                self.progress = RuntimeChangeProgress::Accepted(state);
+                self.request.error = None;
+            }
+            Err(error) => {
+                if self.progress == RuntimeChangeProgress::Submitting {
+                    self.progress = RuntimeChangeProgress::Unconfirmed;
+                }
+                self.request.error = Some(error);
+            }
+        }
+    }
+}
+
+struct LoginFlow {
+    id: uuid::Uuid,
+    url: Option<String>,
+    request: LocalRequest,
+}
+
+impl Default for LoginFlow {
+    fn default() -> Self {
+        Self {
+            id: uuid::Uuid::new_v4(),
+            url: None,
+            request: LocalRequest::default(),
+        }
+    }
+}
+
+impl LoginFlow {
+    fn finish(&mut self, result: Result<Value, String>) -> Option<String> {
+        self.request.pending = None;
+        let result = result.and_then(|value| {
+            let url = value["url"]
+                .as_str()
+                .and_then(|url| reqwest::Url::parse(url).ok());
+            let Some(url) = url.filter(|url| {
+                url.scheme() == "https"
+                    && url.host_str() == Some("auth.openai.com")
+                    && url.username().is_empty()
+                    && url.password().is_none()
+                    && url.port().is_none_or(|port| port == 443)
+            }) else {
+                return Err("The ChatGPT sign-in response is invalid.".to_owned());
+            };
+            if value["id"]
+                .as_str()
+                .and_then(|id| uuid::Uuid::parse_str(id).ok())
+                != Some(self.id)
+            {
+                return Err("The ChatGPT sign-in response belongs to another request.".into());
+            }
+            Ok(url.to_string())
+        });
+        match result {
+            Ok(url) => {
+                self.url = Some(url.clone());
+                self.request.error = None;
+                Some(url)
+            }
+            Err(error) => {
+                self.request.error = Some(error);
+                None
+            }
+        }
+    }
+}
+
+enum LocalOperation {
+    RuntimeStatus,
+    RuntimeChange(uuid::Uuid),
+    Account,
+    Login(uuid::Uuid),
+    CancelLogin(uuid::Uuid),
+}
+
+enum CopyOperation {
+    Models,
+    Review(CopyReview),
+    Plan { id: uuid::Uuid, execute: bool },
+    List { older: bool },
+}
 
 struct Editor {
     id: u64,
@@ -102,12 +369,31 @@ enum Effect {
 }
 
 enum Pending {
-    Models { runtime: String },
+    Copy(CopyOperation),
+    Local {
+        generation: u64,
+        operation: LocalOperation,
+    },
+    Workspace {
+        switching: bool,
+    },
+    Models {
+        runtime: String,
+    },
     Templates,
-    List { generation: u64, append: bool },
-    Detail { generation: u64 },
-    Snapshot { generation: u64 },
-    Credentials { generation: u64 },
+    List {
+        generation: u64,
+        append: bool,
+    },
+    Detail {
+        generation: u64,
+    },
+    Snapshot {
+        generation: u64,
+    },
+    Credentials {
+        generation: u64,
+    },
     Mutation(Effect),
     Download,
 }
@@ -131,6 +417,28 @@ impl PendingRequest {
 }
 
 pub struct ConsoleApp {
+    local_generation: u64,
+    runtime: LocalRead,
+    runtime_change: Option<RuntimeChange>,
+    account: LocalRead,
+    login: Option<LoginFlow>,
+    transfer_request: LocalRequest,
+    transfer: Option<TransferPlan>,
+    transfer_refresh: Instant,
+    transfer_needs_refresh: bool,
+    transfer_uncertain: bool,
+    copy_draft: CopyDraft,
+    saved_copies: Vec<TransferPlan>,
+    saved_copies_request: LocalRequest,
+    saved_copies_loaded: bool,
+    saved_copies_after: Option<uuid::Uuid>,
+    workspace: Option<Value>,
+    workspace_open: bool,
+    workspace_pending: Option<u64>,
+    workspace_error: Option<String>,
+    cloud_endpoint: String,
+    cloud_region: String,
+    cloud_session_to_open: Option<String>,
     worker: Worker,
     models: ModelPicker,
     environments: EnvironmentPicker,
@@ -165,7 +473,7 @@ pub struct ConsoleApp {
     session_titles: HashMap<String, String>,
     tool_drafts: HashMap<(String, String), ToolDraft>,
     markdown_cache: CommonMarkCache,
-    rendered_markdown: HashMap<String, (String, String)>,
+    rendered_markdown: HashMap<String, (String, Markdown)>,
     error: Option<String>,
     notice: Option<String>,
     initialized: bool,
@@ -174,6 +482,28 @@ pub struct ConsoleApp {
 impl ConsoleApp {
     pub fn new(endpoint: String, token: String) -> Result<Self, String> {
         Ok(Self {
+            local_generation: 0,
+            runtime: LocalRead::default(),
+            runtime_change: None,
+            account: LocalRead::default(),
+            login: None,
+            transfer_request: LocalRequest::default(),
+            transfer: None,
+            transfer_refresh: Instant::now(),
+            transfer_needs_refresh: false,
+            transfer_uncertain: false,
+            copy_draft: CopyDraft::default(),
+            saved_copies: Vec::new(),
+            saved_copies_request: LocalRequest::default(),
+            saved_copies_loaded: false,
+            saved_copies_after: None,
+            workspace: None,
+            workspace_open: false,
+            workspace_pending: None,
+            workspace_error: None,
+            cloud_endpoint: String::new(),
+            cloud_region: "us-west-2".into(),
+            cloud_session_to_open: None,
             worker: Worker::new(endpoint, token)?,
             models: ModelPicker::default(),
             environments: EnvironmentPicker::default(),
@@ -221,12 +551,19 @@ impl ConsoleApp {
             theme::apply(&ctx);
             self.initialized = true;
             self.refresh_list(false, &ctx);
+            self.workspace_pending = self.submit(
+                Task::Workspace { connection: None },
+                Pending::Workspace { switching: false },
+                &ctx,
+            );
             // Egui installs the new font families at the start of the next pass.
             ctx.request_repaint();
             return;
         }
         self.receive(&ctx);
+        self.poll_local(&ctx);
         if self.collection == Collection::Sessions
+            && !self.workspace_open
             && self.selected_id.is_some()
             && self.snapshot_pending.is_none()
             && Instant::now() >= self.next_refresh
@@ -241,6 +578,7 @@ impl ConsoleApp {
         if self.editor.as_ref().is_none_or(|editor| {
             editor.collection == Collection::Sessions && editor.select_id.is_none()
         }) && self.rename.is_none()
+            && !self.workspace_open
         {
             if ctx.input_mut(|input| input.consume_key(egui::Modifiers::COMMAND, egui::Key::K)) {
                 self.focus_search = true;
@@ -271,8 +609,25 @@ impl ConsoleApp {
                     ui.painter().image(glyph.id(), rect, uv, Color32::WHITE);
                     ui.label(RichText::new("Rat Things").font(theme::semibold(14.0)));
                 });
-                ui.add_space(14.0);
-                self.resource_list(ui);
+                let name = self
+                    .workspace
+                    .as_ref()
+                    .map(|value| string(value, "name"))
+                    .unwrap_or_else(|| "Workspace connection".into());
+                let workspace_button = ui.add_sized(
+                    [ui.available_width(), 30.0],
+                    egui::Button::new(&name).right_text("⌄"),
+                );
+                workspace_button.widget_info(|| {
+                    egui::WidgetInfo::labeled(egui::WidgetType::Button, true, &name)
+                });
+                if workspace_button.clicked() {
+                    self.workspace_open = true;
+                }
+                ui.add_space(10.0);
+                ui.add_enabled_ui(self.workspace_pending.is_none(), |ui| {
+                    self.resource_list(ui)
+                });
             });
         egui::CentralPanel::default()
             .frame(egui::Frame::new().fill(theme::BACKGROUND).inner_margin(24))
@@ -295,6 +650,7 @@ impl ConsoleApp {
         self.editor_window(ui, false);
         self.rename_window(&ctx);
         self.delete_window(&ctx);
+        self.workspace_window(&ctx);
         if self.error.is_some() || self.notice.is_some() {
             egui::Area::new(egui::Id::new("notifications"))
                 .order(egui::Order::Foreground)
@@ -500,6 +856,7 @@ impl ConsoleApp {
             };
             let pending = pending.operation;
             let current = match &pending {
+                Pending::Local { generation, .. } => *generation == self.local_generation,
                 Pending::List { generation, .. } => *generation == self.list_generation,
                 Pending::Detail { generation }
                 | Pending::Snapshot { generation }
@@ -520,6 +877,44 @@ impl ConsoleApp {
                 self.mutation_pending = None;
             }
             if !current {
+                continue;
+            }
+            if let Pending::Copy(operation) = pending {
+                self.receive_copy(completion.id, operation, completion.result);
+                continue;
+            }
+            if let Pending::Local { operation, .. } = pending {
+                self.receive_local(operation, completion.result, ctx);
+                continue;
+            }
+            if let Pending::Workspace { switching } = pending {
+                self.workspace_pending = None;
+                match completion.result {
+                    Ok(Data::Workspace(workspace)) => {
+                        if string(&workspace, "kind") == "cloud" {
+                            self.cloud_endpoint = string(&workspace, "endpoint");
+                            if !string(&workspace, "region").is_empty() {
+                                self.cloud_region = string(&workspace, "region");
+                            }
+                        }
+                        self.workspace = Some(workspace);
+                        self.environments.local = self.is_local();
+                        self.workspace_error = None;
+                        if switching {
+                            let target = self.cloud_session_to_open.take();
+                            self.reset_workspace(ctx);
+                            self.workspace_open = false;
+                            if let Some(id) = target {
+                                self.select(id, ctx);
+                            }
+                        }
+                    }
+                    Err(error) => self.workspace_error = Some(error),
+                    _ => {
+                        self.workspace_error =
+                            Some("Could not read the workspace connection.".into())
+                    }
+                }
                 continue;
             }
             if matches!(pending, Pending::Templates) {
@@ -794,6 +1189,9 @@ impl ConsoleApp {
         ui.add_space(12.0);
         ui.label(RichText::new("Workspace").small().color(theme::MUTED));
         for collection in Collection::ALL {
+            if self.is_local() && matches!(collection, Collection::Vaults) {
+                continue;
+            }
             let selected = self.collection == collection;
             let response = ui.add_sized(
                 [ui.available_width(), 28.0],
@@ -1362,8 +1760,12 @@ impl ConsoleApp {
     fn welcome(&mut self, ui: &mut Ui) {
         let (heading, subtitle, action) = match self.collection {
             Collection::Sessions => (
-                "What are we working on?",
-                "Start a conversation with an agent. Your work and results stay together here.",
+                if self.is_local() {
+                    "A little help, right at home."
+                } else {
+                    "What are we working on?"
+                },
+                "One small task is a good start. Your conversations and results have a home here.",
                 "Create a session",
             ),
             Collection::Agents => (
@@ -1382,16 +1784,1071 @@ impl ConsoleApp {
                 "Create a vault",
             ),
         };
-        ui.add_space((ui.available_height() * 0.25).max(30.0));
+        ui.add_space((ui.available_height() * 0.16).max(24.0));
         ui.vertical_centered(|ui| {
-            ui.label(RichText::new(heading).font(theme::semibold(22.0)));
+            ui.label(RichText::new(heading).font(theme::semibold(28.0)));
             ui.add_space(10.0);
             ui.add(egui::Label::new(RichText::new(subtitle).color(theme::MUTED)).wrap());
             ui.add_space(22.0);
             if ui.add(theme::primary_button(action)).clicked() {
                 self.new_resource(self.collection, None);
             }
+            if self.collection == Collection::Sessions {
+                ui.add_space(24.0);
+                for (label, prompt) in [
+                    ("Untangle an idea", "Help me turn a rough idea into a small, practical plan. Start by asking what I have in mind."),
+                    ("Make a little headway", "Help me break a task I have been putting off into a first step I can finish today."),
+                    ("Learn something together", "Help me understand a topic with a concrete example. Ask me what I want to learn."),
+                ] {
+                    if ui.add_sized([300.0, 36.0], egui::Button::new(label)).clicked() {
+                        self.new_resource(Collection::Sessions, None);
+                        if let Some(editor) = &mut self.editor
+                            && let Ok(mut draft) = serde_json::from_str::<Value>(&editor.draft)
+                            && draft["input"].as_str().is_none_or(str::is_empty)
+                        {
+                            draft["input"] = prompt.into();
+                            *editor.draft = pretty(&draft);
+                        }
+                    }
+                    ui.add_space(6.0);
+                }
+                ui.add_space(20.0);
+                ui.label(RichText::new(if self.is_local() {
+                    "Saved on this computer. Model requests go to your provider."
+                } else {
+                    "Your AWS workspace keeps working while this app is closed."
+                }).small().color(theme::MUTED));
+                if self.is_local() && ui.link("Need more room? Connect your AWS workspace").clicked() {
+                    self.workspace_open = true;
+                }
+            }
         });
+    }
+
+    fn is_local(&self) -> bool {
+        self.workspace
+            .as_ref()
+            .is_some_and(|value| string(value, "kind") == "local")
+    }
+
+    fn reset_workspace(&mut self, ctx: &egui::Context) {
+        self.local_generation += 1;
+        self.runtime = LocalRead::default();
+        self.runtime_change = None;
+        self.account = LocalRead::default();
+        self.login = None;
+        self.transfer_request = LocalRequest::default();
+        self.transfer_needs_refresh = self.transfer.is_some();
+        self.copy_draft = CopyDraft::default();
+        self.saved_copies.clear();
+        self.saved_copies_request = LocalRequest::default();
+        self.saved_copies_loaded = false;
+        self.saved_copies_after = None;
+        self.list_generation += 1;
+        self.selection_generation += 1;
+        self.pending.clear();
+        self.list_pending = None;
+        self.detail_pending = None;
+        self.snapshot_pending = None;
+        self.mutation_pending = None;
+        self.collection = Collection::Sessions;
+        self.resources.clear();
+        self.session_index.clear();
+        self.after = None;
+        self.selected_id = None;
+        self.selected = None;
+        self.snapshot = None;
+        self.credentials.clear();
+        self.archived_sessions = false;
+        self.search.clear();
+        self.rename = None;
+        self.archive_undo = None;
+        self.models = ModelPicker::default();
+        self.environments = EnvironmentPicker::default();
+        self.environments.local = self.is_local();
+        self.markdown_cache = CommonMarkCache::default();
+        self.rendered_markdown.clear();
+        self.error = None;
+        self.notice = None;
+        self.refresh_list(false, ctx);
+    }
+
+    fn workspace_window(&mut self, ctx: &egui::Context) {
+        if !self.workspace_open {
+            return;
+        }
+        let can_switch = self.pending.values().all(|request| {
+            matches!(
+                request.operation,
+                Pending::Local {
+                    operation: LocalOperation::RuntimeStatus | LocalOperation::Account,
+                    ..
+                }
+            )
+        }) && !self.transfer_active()
+            && self.editor.is_none()
+            && self.session_editor.is_none()
+            && self.login.is_none()
+            && self
+                .runtime_change
+                .as_ref()
+                .is_none_or(|change| !change.is_active());
+        egui::Modal::new(egui::Id::new("workspace-connection")).show(ctx, |ui| {
+            ui.set_width(440.0_f32.min((ctx.content_rect().width() - 48.0).max(240.0)));
+            ui.heading("A home for your work");
+            ui.add_space(8.0);
+            egui::ScrollArea::vertical().max_height((ctx.content_rect().height() - 130.0).max(180.0)).show(ui, |ui| {
+            ui.label("Start on this computer. Add your AWS workspace when you need more room or work that stays on.");
+            ui.add_space(18.0);
+            theme::card().show(ui, |ui| {
+                ui.label(RichText::new("This computer").font(theme::semibold(15.0)));
+                ui.label("Your ChatGPT subscription, with a Linux workspace on this computer.");
+                ui.label(RichText::new("The local service and VM must stay open. Your Codex login stays on this computer.").small().color(theme::MUTED));
+                if ui.add_enabled(can_switch && !self.is_local(), theme::primary_button("Use this computer")).clicked() {
+                    self.connect_workspace(json!({"kind": "local"}), ctx);
+                }
+                if self.is_local() {
+                    ui.label("You are home.");
+                    self.runtime_controls(ui, ctx);
+                    ui.add_space(10.0);
+                    self.account_controls(ui, ctx);
+                }
+            });
+            ui.add_space(12.0);
+            theme::card().show(ui, |ui| {
+                ui.label(RichText::new("Your AWS workspace").font(theme::semibold(15.0)));
+                ui.label("The same Sessions and tools, with managed computers and cloud storage.");
+                let endpoint_label = ui.label("Agents API URL");
+                ui.add(TextEdit::singleline(&mut self.cloud_endpoint).hint_text("https://your-api.example/v1").desired_width(f32::INFINITY))
+                    .labelled_by(endpoint_label.id)
+                    .widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::TextEdit, true, "Agents API URL"));
+                let region_label = ui.label("AWS region");
+                ui.add(TextEdit::singleline(&mut self.cloud_region).desired_width(f32::INFINITY))
+                    .labelled_by(region_label.id)
+                    .widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::TextEdit, true, "AWS region"));
+                ui.label(RichText::new("Uses your AWS credential chain. Connecting does not deploy resources or move local history.").small().color(theme::MUTED));
+                if ui.add_enabled(can_switch && !self.cloud_endpoint.trim().is_empty(), theme::primary_button("Connect AWS workspace")).clicked() {
+                    self.connect_workspace(json!({"kind": "cloud", "endpoint": self.cloud_endpoint.trim(), "region": self.cloud_region.trim()}), ctx);
+                }
+                if let Some(error) = &self.workspace_error { ui.label(error); }
+                ui.hyperlink_to("Set up your AWS workspace", "https://gpazo.github.io/Rat-Things/docs/quickstart/");
+                if self.is_local() {
+                    ui.add_space(10.0);
+                    ui.label("Copy a finished Session, its history and workspace to AWS. Environment variables stay local. Configure credentials and environment values separately in AWS.");
+                    ui.add_enabled_ui(self.workspace_pending.is_none(), |ui| self.copy_controls(ui, ctx, can_switch));
+                }
+            });
+            ui.add_space(12.0);
+            if self.editor.is_some() || self.session_editor.is_some() {
+                ui.label("Close the open form before switching workspaces. Your draft stays available until you close it.");
+            }
+            if self.login.is_some() {
+                ui.label("Finish or cancel sign-in before switching workspaces.");
+            } else if self.runtime_change.as_ref().is_some_and(RuntimeChange::is_active) {
+                ui.label("Finish setup before switching workspaces.");
+            } else if self.transfer_active() {
+                ui.label("Finish the Session copy before switching workspaces. You can close this window while it continues.");
+            }
+            if self.loading_is_slow(self.transfer_request.pending) { ui.horizontal(|ui| { ui.spinner(); ui.label("Checking the Session copy…"); }); }
+            if self.loading_is_slow(self.workspace_pending) {
+                ui.horizontal(|ui| { ui.spinner(); ui.label("Connecting to your workspace…"); });
+            }
+            });
+            if ui.add_enabled(self.workspace_pending.is_none(), egui::Button::new("Done")).clicked() {
+                self.workspace_open = false;
+            }
+        });
+    }
+
+    fn connect_workspace(&mut self, connection: Value, ctx: &egui::Context) {
+        self.cloud_session_to_open = None;
+        self.workspace_error = None;
+        self.workspace_pending = self.submit(
+            Task::Workspace {
+                connection: Some(connection),
+            },
+            Pending::Workspace { switching: true },
+            ctx,
+        );
+    }
+
+    fn copy_controls(&mut self, ui: &mut Ui, ctx: &egui::Context, can_switch: bool) {
+        let source = self
+            .selected
+            .as_ref()
+            .filter(|resource| {
+                self.collection == Collection::Sessions
+                    && self.selected_id.as_deref() == Some(resource.id.as_str())
+            })
+            .map(|resource| CopySource {
+                id: resource.id.clone(),
+                model: string(&resource.fields["agent"], "model"),
+            })
+            .filter(|source| !source.model.is_empty());
+        self.copy_draft.sync(
+            source,
+            DestinationInput {
+                endpoint: self.cloud_endpoint.trim().into(),
+                region: self.cloud_region.trim().into(),
+            },
+        );
+        if let Some(source) = &self.copy_draft.source {
+            ui.label(format!("Local model: {}", source.model));
+        } else {
+            ui.label("Open a local Session to review a new copy.");
+        }
+        if self.copy_draft.catalog.is_none() {
+            let label = if self.copy_draft.error.is_some() {
+                "Retry AWS models"
+            } else {
+                "Load AWS models"
+            };
+            if ui
+                .add_enabled(
+                    self.copy_draft.pending.is_none() && !self.cloud_endpoint.trim().is_empty(),
+                    egui::Button::new(label),
+                )
+                .clicked()
+            {
+                self.load_destination_models(ctx);
+            }
+        }
+        let mut picker = ModelPicker {
+            catalog: self.copy_draft.catalog.clone(),
+            error: self.copy_draft.error.clone(),
+            loading: self.copy_draft.pending.is_some(),
+            started: self
+                .copy_draft
+                .pending
+                .and_then(|id| self.pending.get(&id).map(|request| request.started)),
+            refresh_requested: false,
+            ..Default::default()
+        };
+        if picker.catalog.is_some() || picker.loading {
+            let mut selected = json!({"model": self.copy_draft.model});
+            if picker.field(ui, u64::MAX, &mut selected, &["model"], false) {
+                self.copy_draft.model = string(&selected, "model");
+            }
+            if picker.refresh_requested {
+                self.load_destination_models(ctx);
+            }
+        }
+        if let Some(error) = &self.copy_draft.error {
+            ui.label(error);
+        }
+        if !self.copy_draft.model.is_empty() {
+            ui.label(format!("AWS model: {}", self.copy_draft.model));
+        } else if self.copy_draft.catalog.is_some() {
+            ui.label("Choose the model that will continue this Session in AWS.");
+        }
+        let review = self.copy_draft.review();
+        if ui
+            .add_enabled(
+                !self.transfer_active() && review.is_some(),
+                egui::Button::new("Review Session copy"),
+            )
+            .clicked()
+            && let Some(review) = review
+        {
+            self.review_copy(review, ctx);
+        }
+        if let Some(error) = &self.transfer_request.error {
+            ui.label(error);
+        }
+        if self.transfer_uncertain {
+            ui.label("Checking whether the copy started…");
+        }
+        if let Some(plan) = self.transfer.clone() {
+            ui.add_space(12.0);
+            theme::card().show(ui, |ui| {
+                ui.label(RichText::new("Saved copy").strong());
+                ui.label(format!("Copy status: {}", plan.status.label()));
+                ui.label(format!("Source Session: {}", plan.source_session_id));
+                ui.label(format!("Local model: {}", plan.source_model.as_deref().unwrap_or("Unavailable")));
+                ui.label(format!("AWS model: {}", plan.model.as_deref().unwrap_or("Unavailable")));
+                ui.label(&plan.destination.base_url);
+                ui.label(format!("AWS region: {}", plan.destination.region));
+                ui.label(format!("{} files · {} bytes · {} history items", plan.files, plan.bytes, plan.history_items));
+                if plan.status.active() { ui.label(format!("{} of {} parts uploaded", plan.uploaded_parts, plan.total_parts)); }
+                if self.copy_draft.review().is_some_and(|review| !plan.matches_review(&review)) {
+                    ui.label("Your edits apply to a new copy. This saved copy keeps the destination and model shown here.");
+                }
+                if let Some(error) = &plan.error { ui.label(error); }
+                if matches!(plan.status, CopyStatus::Ready | CopyStatus::Failed) {
+                    if !plan.can_execute() { ui.label("Update the local service to review this copy's model settings."); }
+                    if ui.add_enabled(!self.transfer_active() && plan.can_execute(),
+                        theme::primary_button(if plan.status == CopyStatus::Ready { "Copy to AWS" } else { "Retry transfer" })).clicked() {
+                        self.read_or_execute_copy(plan.id, true, ctx);
+                    }
+                }
+                if plan.status == CopyStatus::Complete && let Some(session) = &plan.destination_session_id {
+                    ui.label(format!("Cloud Session: {session}"));
+                    if ui.add_enabled(can_switch, theme::primary_button("Open cloud Session")).clicked() {
+                        self.connect_workspace(json!({"kind":"cloud", "endpoint":plan.destination.base_url, "region":plan.destination.region}), ctx);
+                        self.cloud_session_to_open = Some(session.clone());
+                    }
+                    if ui.button("Copy cloud Session ID").clicked() { ctx.copy_text(session.clone()); }
+                }
+            });
+        }
+        ui.add_space(12.0);
+        ui.horizontal(|ui| {
+            ui.label(RichText::new("Saved copies").strong());
+            if ui
+                .add_enabled(
+                    self.saved_copies_request.pending.is_none(),
+                    egui::Button::new("Reload saved copies").small(),
+                )
+                .clicked()
+            {
+                self.load_saved_copies(false, ctx);
+            }
+        });
+        ui.label(
+            RichText::new("Reopen a saved copy to check it or retry after an interruption.")
+                .small()
+                .color(theme::MUTED),
+        );
+        if let Some(error) = &self.saved_copies_request.error {
+            ui.label(error);
+        }
+        if self.loading_is_slow(self.saved_copies_request.pending) {
+            ui.spinner();
+        }
+        if self.saved_copies_loaded && self.saved_copies.is_empty() {
+            ui.label("No saved copies yet.");
+        }
+        for plan in self.saved_copies.clone() {
+            ui.separator();
+            ui.label(format!(
+                "{} · {}",
+                plan.source_session_id,
+                plan.status.label()
+            ));
+            ui.label(format!(
+                "{} · {}",
+                plan.model.as_deref().unwrap_or("Model unavailable"),
+                plan.destination.region
+            ));
+            ui.label(RichText::new(&plan.destination.base_url).small());
+            ui.push_id(plan.id, |ui| {
+                if ui
+                    .add_enabled(
+                        !self.transfer_active(),
+                        egui::Button::new("Open saved copy"),
+                    )
+                    .clicked()
+                {
+                    self.read_or_execute_copy(plan.id, false, ctx);
+                }
+            });
+        }
+        if self.saved_copies_after.is_some()
+            && ui
+                .add_enabled(
+                    self.saved_copies_request.pending.is_none(),
+                    egui::Button::new("Older saved copies"),
+                )
+                .clicked()
+        {
+            self.load_saved_copies(true, ctx);
+        }
+    }
+
+    fn receive_local(
+        &mut self,
+        operation: LocalOperation,
+        result: Result<Data, String>,
+        ctx: &egui::Context,
+    ) {
+        let rejected = matches!(&result,
+            Ok(Data::LocalRejected { status, .. }) if status.is_client_error());
+        let result = result.and_then(|data| match data {
+            Data::Local(value) => Ok(value),
+            Data::LocalRejected { message, .. } => Err(message),
+            _ => Err("The local workspace response is invalid.".into()),
+        });
+        match operation {
+            LocalOperation::RuntimeStatus => self.runtime.finish(result.and_then(|value| {
+                if value["ready"].is_boolean() && value["checks"].is_array() {
+                    Ok(value)
+                } else {
+                    Err("The runtime status response is invalid.".into())
+                }
+            })),
+            LocalOperation::RuntimeChange(id) => {
+                if let Some(change) = self
+                    .runtime_change
+                    .as_mut()
+                    .filter(|change| change.id == id)
+                {
+                    if rejected {
+                        change.reject_submission();
+                    }
+                    change.finish(result);
+                    if !change.is_active() {
+                        self.runtime.next_refresh = Instant::now();
+                    }
+                }
+            }
+            LocalOperation::Account => {
+                self.account.finish(result.and_then(|value| {
+                    if value["signed_in"].is_boolean() {
+                        Ok(value)
+                    } else {
+                        Err("The ChatGPT account response is invalid.".into())
+                    }
+                }));
+                if self
+                    .account
+                    .value
+                    .as_ref()
+                    .is_some_and(|value| value["signed_in"] == true)
+                    && self.account.request.error.is_none()
+                {
+                    self.login = None;
+                }
+            }
+            LocalOperation::Login(id) => {
+                if let Some(login) = self.login.as_mut().filter(|login| login.id == id)
+                    && let Some(url) = login.finish(result)
+                {
+                    ctx.open_url(egui::OpenUrl::new_tab(url));
+                    self.account.next_refresh = Instant::now();
+                }
+            }
+            LocalOperation::CancelLogin(id) => {
+                if let Some(login) = self.login.as_mut().filter(|login| login.id == id) {
+                    login.request.pending = None;
+                    match result {
+                        Ok(_) => {
+                            self.login = None;
+                            self.account.next_refresh = Instant::now();
+                        }
+                        Err(error) => login.request.error = Some(error),
+                    }
+                }
+            }
+        }
+    }
+
+    fn receive_copy(&mut self, id: u64, operation: CopyOperation, result: Result<Data, String>) {
+        let rejected = matches!(&result, Ok(Data::LocalRejected { status, .. })
+            if status.is_client_error() && status.as_u16() != 408);
+        let result = result.and_then(|data| match data {
+            Data::Local(value) => Ok(value),
+            Data::LocalRejected { status, .. }
+                if matches!(
+                    operation,
+                    CopyOperation::Models | CopyOperation::List { .. }
+                ) && matches!(status.as_u16(), 404 | 405) =>
+            {
+                Err("Update the local service to load AWS models and saved copies.".into())
+            }
+            Data::LocalRejected { message, .. } => Err(message),
+            _ => Err("The local workspace response is invalid.".into()),
+        });
+        match operation {
+            CopyOperation::Models => self.copy_draft.finish(id, result),
+            CopyOperation::List { older } => {
+                if self.saved_copies_request.pending != Some(id) {
+                    return;
+                }
+                self.saved_copies_request.pending = None;
+                match result.and_then(saved_copies) {
+                    Ok((plans, after)) => {
+                        if older && after.is_some() && after == self.saved_copies_after {
+                            self.saved_copies_request.error =
+                                Some("The saved copies page did not advance.".into());
+                            return;
+                        }
+                        self.saved_copies = plans;
+                        self.saved_copies_after = after;
+                        self.saved_copies_loaded = true;
+                        self.saved_copies_request.error = None;
+                    }
+                    Err(error) => self.saved_copies_request.error = Some(error),
+                }
+            }
+            operation => {
+                if self.transfer_request.pending != Some(id) {
+                    return;
+                }
+                self.transfer_request.pending = None;
+                let plan = result.and_then(|value| {
+                    let expected = match &operation { CopyOperation::Plan { id, .. } => Some(*id), _ => None };
+                    let plan = TransferPlan::parse(value, expected)?;
+                    if let CopyOperation::Review(review) = &operation
+                        && !plan.matches_review(review) {
+                        return Err("The saved copy differs from the requested review. Reload saved copies to inspect it.".into());
+                    }
+                    Ok(plan)
+                });
+                match plan {
+                    Ok(plan) => {
+                        if let Some(saved) = self
+                            .saved_copies
+                            .iter_mut()
+                            .find(|saved| saved.id == plan.id)
+                        {
+                            *saved = plan.clone();
+                        }
+                        self.transfer = Some(plan);
+                        self.transfer_request.error = None;
+                        self.transfer_needs_refresh = false;
+                        self.transfer_uncertain = false;
+                        self.transfer_refresh = Instant::now() + LOCAL_REFRESH_INTERVAL;
+                        if matches!(operation, CopyOperation::Review(_)) {
+                            self.saved_copies_loaded = false;
+                        }
+                    }
+                    Err(error) => {
+                        self.transfer_request.error = Some(error);
+                        self.transfer_refresh = Instant::now() + LOCAL_REFRESH_INTERVAL;
+                        if !rejected
+                            && matches!(operation, CopyOperation::Plan { execute: true, .. })
+                        {
+                            self.transfer_uncertain = true;
+                            self.transfer_needs_refresh = true;
+                        }
+                        if matches!(operation, CopyOperation::Review(_)) {
+                            self.saved_copies_loaded = false;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fn local_request(
+        &mut self,
+        operation: LocalOperation,
+        task: Task,
+        ctx: &egui::Context,
+    ) -> LocalRequest {
+        match self.worker.submit(task, ctx) {
+            Ok(id) => {
+                self.pending.insert(
+                    id,
+                    PendingRequest::new(Pending::Local {
+                        generation: self.local_generation,
+                        operation,
+                    }),
+                );
+                LocalRequest {
+                    pending: Some(id),
+                    error: None,
+                }
+            }
+            Err(error) => LocalRequest {
+                pending: None,
+                error: Some(error),
+            },
+        }
+    }
+
+    fn refresh_runtime(&mut self, ctx: &egui::Context) {
+        if self.runtime.request.pending.is_none() {
+            self.runtime.request = self.local_request(
+                LocalOperation::RuntimeStatus,
+                Task::Local {
+                    path: "/api/v1/workspace/runtime".into(),
+                    body: None,
+                },
+                ctx,
+            );
+            self.runtime.next_refresh = Instant::now() + LOCAL_REFRESH_INTERVAL;
+        }
+    }
+
+    fn refresh_account(&mut self, ctx: &egui::Context) {
+        if self.account.request.pending.is_none() {
+            self.account.request = self.local_request(
+                LocalOperation::Account,
+                Task::Local {
+                    path: "/api/v1/workspace/subscription".into(),
+                    body: None,
+                },
+                ctx,
+            );
+            self.account.next_refresh = Instant::now() + LOCAL_REFRESH_INTERVAL;
+        }
+    }
+
+    fn start_runtime_change(&mut self, action: RuntimeAction, ctx: &egui::Context) {
+        if self
+            .runtime_change
+            .as_ref()
+            .is_none_or(|change| !change.is_active())
+        {
+            self.runtime_change = Some(RuntimeChange::new(action));
+        }
+        let Some(change) = self.runtime_change.as_ref().filter(|change| {
+            change.action == action
+                && matches!(
+                    change.progress,
+                    RuntimeChangeProgress::NotAccepted | RuntimeChangeProgress::Unconfirmed
+                )
+                && change.request.pending.is_none()
+        }) else {
+            return;
+        };
+        let id = change.id;
+        let request = self.local_request(
+            LocalOperation::RuntimeChange(id),
+            Task::Local {
+                path: action.path().into(),
+                body: Some(json!({"id": id.to_string()})),
+            },
+            ctx,
+        );
+        let change = self.runtime_change.as_mut().unwrap();
+        if request.pending.is_some() {
+            change.submission_sent();
+        }
+        change.request = request;
+    }
+
+    fn refresh_runtime_change(&mut self, ctx: &egui::Context) {
+        let Some(change) = self.runtime_change.as_ref().filter(|change| {
+            change.request.pending.is_none()
+                && matches!(&change.progress,
+                    RuntimeChangeProgress::Accepted(state) if state.is_active())
+        }) else {
+            return;
+        };
+        let id = change.id;
+        let request = self.local_request(
+            LocalOperation::RuntimeChange(id),
+            Task::Local {
+                path: format!("/api/v1/workspace/runtime/changes/{id}"),
+                body: None,
+            },
+            ctx,
+        );
+        let change = self.runtime_change.as_mut().unwrap();
+        change.request = request;
+        change.next_refresh = Instant::now() + LOCAL_REFRESH_INTERVAL;
+    }
+
+    fn sign_in(&mut self, ctx: &egui::Context) {
+        let login = self.login.get_or_insert_with(LoginFlow::default);
+        if login.request.pending.is_some() {
+            return;
+        }
+        let id = login.id;
+        let request = self.local_request(
+            LocalOperation::Login(id),
+            Task::Local {
+                path: "/api/v1/workspace/subscription/login".into(),
+                body: Some(json!({"id": id.to_string()})),
+            },
+            ctx,
+        );
+        self.login.as_mut().unwrap().request = request;
+    }
+
+    fn cancel_sign_in(&mut self, ctx: &egui::Context) {
+        let Some(login) = self
+            .login
+            .as_ref()
+            .filter(|login| login.request.pending.is_none())
+        else {
+            return;
+        };
+        let id = login.id;
+        let request = self.local_request(
+            LocalOperation::CancelLogin(id),
+            Task::CancelLocalLogin { id },
+            ctx,
+        );
+        self.login.as_mut().unwrap().request = request;
+    }
+
+    fn copy_request(
+        &mut self,
+        operation: CopyOperation,
+        path: String,
+        body: Option<Value>,
+        ctx: &egui::Context,
+    ) -> LocalRequest {
+        if !self.is_local() || self.workspace_pending.is_some() {
+            return LocalRequest {
+                pending: None,
+                error: Some(
+                    "Return to this computer and finish connecting before checking a Session copy."
+                        .into(),
+                ),
+            };
+        }
+        match self.worker.submit(Task::Local { path, body }, ctx) {
+            Ok(id) => {
+                self.pending
+                    .insert(id, PendingRequest::new(Pending::Copy(operation)));
+                LocalRequest {
+                    pending: Some(id),
+                    error: None,
+                }
+            }
+            Err(error) => LocalRequest {
+                pending: None,
+                error: Some(error),
+            },
+        }
+    }
+
+    fn transfer_active(&self) -> bool {
+        self.transfer_uncertain
+            || self.transfer_request.pending.is_some()
+            || self
+                .transfer
+                .as_ref()
+                .is_some_and(|plan| plan.status.active())
+    }
+
+    fn load_destination_models(&mut self, ctx: &egui::Context) {
+        let request = self.copy_request(CopyOperation::Models, "/api/v1/workspace/transfers/models".into(),
+            Some(json!({"endpoint": self.copy_draft.destination.endpoint, "region": self.copy_draft.destination.region})), ctx);
+        self.copy_draft.pending = request.pending;
+        self.copy_draft.error = request.error;
+    }
+
+    fn review_copy(&mut self, review: CopyReview, ctx: &egui::Context) {
+        let body = json!({"session_id": review.source.id, "endpoint": review.destination.base_url,
+            "region": review.destination.region, "model": review.model});
+        self.transfer_request = self.copy_request(
+            CopyOperation::Review(review),
+            "/api/v1/workspace/transfers".into(),
+            Some(body),
+            ctx,
+        );
+    }
+
+    fn read_or_execute_copy(&mut self, id: uuid::Uuid, execute: bool, ctx: &egui::Context) {
+        self.transfer_request = self.copy_request(
+            CopyOperation::Plan { id, execute },
+            format!("/api/v1/workspace/transfers/{id}"),
+            execute.then(|| json!({})),
+            ctx,
+        );
+    }
+
+    fn load_saved_copies(&mut self, older: bool, ctx: &egui::Context) {
+        let path = match self.saved_copies_after.filter(|_| older) {
+            Some(after) => format!("/api/v1/workspace/transfers?limit=20&after={after}"),
+            None => "/api/v1/workspace/transfers?limit=20".into(),
+        };
+        self.saved_copies_request =
+            self.copy_request(CopyOperation::List { older }, path, None, ctx);
+    }
+
+    fn account_available(&self) -> bool {
+        self.runtime
+            .value
+            .as_ref()
+            .is_some_and(|runtime| runtime["installation"].is_null() || runtime["ready"] == true)
+    }
+
+    fn poll_local(&mut self, ctx: &egui::Context) {
+        if !self.is_local() || self.workspace_pending.is_some() {
+            return;
+        }
+        let now = Instant::now();
+        let runtime_active = self
+            .runtime_change
+            .as_ref()
+            .is_some_and(RuntimeChange::is_active);
+        if (self.workspace_open || runtime_active) && self.runtime.due(now) {
+            self.refresh_runtime(ctx);
+        }
+        if self
+            .runtime_change
+            .as_ref()
+            .is_some_and(|change| change.poll_due(now))
+        {
+            self.refresh_runtime_change(ctx);
+        }
+        if (self.workspace_open || self.login.is_some())
+            && self.account_available()
+            && self.account.due(now)
+        {
+            self.refresh_account(ctx);
+        }
+        if self.transfer_request.pending.is_none()
+            && let Some(transfer) = &self.transfer
+            && (transfer.status.active()
+                || self.transfer_uncertain
+                || self.workspace_open && self.transfer_needs_refresh)
+            && now >= self.transfer_refresh
+        {
+            self.read_or_execute_copy(transfer.id, false, ctx);
+        }
+        if self.workspace_open
+            && !self.saved_copies_loaded
+            && self.saved_copies_request.pending.is_none()
+            && self.saved_copies_request.error.is_none()
+        {
+            self.load_saved_copies(false, ctx);
+        }
+        if self.workspace_open || runtime_active || self.login.is_some() || self.transfer_active() {
+            ctx.request_repaint_after(LOCAL_REFRESH_INTERVAL);
+        }
+    }
+
+    fn runtime_controls(&mut self, ui: &mut Ui, ctx: &egui::Context) {
+        let installation = self
+            .runtime
+            .value
+            .as_ref()
+            .and_then(|status| status.get("installation"))
+            .filter(|installation| installation.is_object())
+            .cloned();
+        if let Some(installation) = installation {
+            let restart = installation["pending"].is_string()
+                || self.runtime_change.as_ref().is_some_and(|change| {
+                    matches!(
+                        change.progress,
+                        RuntimeChangeProgress::Accepted(RuntimeChangeState::AwaitingRestart)
+                    )
+                });
+            if let Some(change) = &self.runtime_change {
+                let message = match &change.progress {
+                    RuntimeChangeProgress::Submitting | RuntimeChangeProgress::Unconfirmed => {
+                        format!("Starting {}…", change.action.name().to_lowercase())
+                    }
+                    RuntimeChangeProgress::NotAccepted => {
+                        format!("{} was not started.", change.action.name())
+                    }
+                    RuntimeChangeProgress::Accepted(RuntimeChangeState::Queued) => {
+                        format!("{} queued", change.action.name())
+                    }
+                    RuntimeChangeProgress::Accepted(RuntimeChangeState::Working { phase }) => {
+                        format!("{} · {}", change.action.name(), phase.label())
+                    }
+                    RuntimeChangeProgress::Accepted(RuntimeChangeState::Complete) => {
+                        if change.action == RuntimeAction::Rollback {
+                            "The previous runtime is ready.".into()
+                        } else {
+                            "This computer is ready.".into()
+                        }
+                    }
+                    RuntimeChangeProgress::Accepted(RuntimeChangeState::AwaitingRestart) => {
+                        format!("{} is ready to finish.", change.action.name())
+                    }
+                    RuntimeChangeProgress::Accepted(RuntimeChangeState::Failed { failure }) => {
+                        format!(
+                            "{} failed. {}",
+                            change.action.name(),
+                            runtime_failure_message(failure)
+                        )
+                    }
+                };
+                let show_progress = matches!(&change.progress,
+                    RuntimeChangeProgress::Accepted(state) if state.is_active())
+                    || self.loading_is_slow(change.request.pending);
+                if !matches!(
+                    change.progress,
+                    RuntimeChangeProgress::Submitting | RuntimeChangeProgress::Unconfirmed
+                ) || show_progress
+                {
+                    ui.horizontal_wrapped(|ui| {
+                        if show_progress {
+                            ui.spinner();
+                        }
+                        ui.label(message);
+                    });
+                }
+                if let Some(error) = &change.request.error {
+                    ui.label(error);
+                }
+            } else if string(&installation, "state") == "checking" {
+                ui.label("Checking this computer…");
+            } else if string(&installation, "state") == "stopping" {
+                ui.label("The local runtime is stopping.");
+            }
+            if self
+                .runtime_change
+                .as_ref()
+                .is_some_and(|change| change.progress == RuntimeChangeProgress::NotAccepted)
+                && ui.button("Dismiss").clicked()
+            {
+                self.runtime_change = None;
+            }
+            if restart {
+                ui.label("Quit and reopen Rat Things to finish. Existing work keeps its current runtime until you close the app.");
+            } else {
+                let active = self
+                    .runtime_change
+                    .as_ref()
+                    .is_some_and(RuntimeChange::is_active);
+                let available = !matches!(
+                    string(&installation, "state").as_str(),
+                    "checking" | "stopping"
+                );
+                let retry = self.runtime_change.as_ref().and_then(|change| {
+                    if change.request.pending.is_none()
+                        && matches!(
+                            change.progress,
+                            RuntimeChangeProgress::Unconfirmed
+                                | RuntimeChangeProgress::NotAccepted
+                                | RuntimeChangeProgress::Accepted(
+                                    RuntimeChangeState::Failed { .. }
+                                )
+                        )
+                    {
+                        Some((
+                            change.action,
+                            change.progress == RuntimeChangeProgress::Unconfirmed,
+                        ))
+                    } else {
+                        None
+                    }
+                });
+                if let Some((action, uncertain)) = retry {
+                    let label = match (action, uncertain) {
+                        (RuntimeAction::Setup, true) => "Retry setup request",
+                        (RuntimeAction::Setup, false) => "Retry setup",
+                        (RuntimeAction::Rollback, true) => "Retry rollback request",
+                        (RuntimeAction::Rollback, false) => "Retry rollback",
+                    };
+                    if ui
+                        .add_enabled(available, theme::primary_button(label))
+                        .clicked()
+                    {
+                        self.start_runtime_change(action, ctx);
+                    }
+                } else if !active {
+                    let label = if installation["active"].is_string() {
+                        "Update this computer"
+                    } else {
+                        "Set up this computer"
+                    };
+                    if ui
+                        .add_enabled(available, theme::primary_button(label))
+                        .clicked()
+                    {
+                        self.start_runtime_change(RuntimeAction::Setup, ctx);
+                    }
+                }
+                if !active
+                    && installation["previous"].is_string()
+                    && ui
+                        .add_enabled(available, egui::Button::new("Use previous runtime"))
+                        .clicked()
+                {
+                    self.start_runtime_change(RuntimeAction::Rollback, ctx);
+                }
+            }
+        } else if self.runtime.value.is_some() && ui.button("Copy runtime setup command").clicked()
+        {
+            ctx.copy_text("npm run rat-things -- runtime setup".into());
+        }
+        if let Some(status) = &self.runtime.value
+            && let Some(checks) = status["checks"].as_array()
+        {
+            for check in checks {
+                ui.label(format!(
+                    "{} · {}",
+                    if check["ready"] == true {
+                        "Ready"
+                    } else {
+                        "Needs setup"
+                    },
+                    string(check, "message")
+                ));
+                if check["ready"] != true
+                    && let Some(action) = check["action"].as_str()
+                {
+                    ui.label(RichText::new(action).small().color(theme::MUTED));
+                }
+            }
+        }
+        if let Some(error) = &self.runtime.request.error {
+            ui.label(error);
+        }
+    }
+
+    fn account_controls(&mut self, ui: &mut Ui, ctx: &egui::Context) {
+        if !self.account_available() && self.runtime.value.is_some() {
+            ui.label("Set up this computer before signing in with ChatGPT.");
+        }
+        if let Some(account) = &self.account.value {
+            ui.label(if account["signed_in"] == true {
+                format!("ChatGPT connected · {}", string(account, "email"))
+            } else {
+                "Connect your ChatGPT subscription".into()
+            });
+        }
+        if let Some(login) = &self.login {
+            if let Some(url) = &login.url {
+                ui.label("Finish signing in in your browser. This window will update when your account is connected.");
+                if ui.button("Open sign-in page").clicked() {
+                    ctx.open_url(egui::OpenUrl::new_tab(url));
+                }
+            }
+            if let Some(error) = &login.request.error {
+                ui.label(error);
+            }
+            let pending = login.request.pending;
+            let can_retry = login.url.is_none();
+            ui.horizontal(|ui| {
+                if can_retry
+                    && ui
+                        .add_enabled(pending.is_none(), theme::primary_button("Retry sign-in"))
+                        .clicked()
+                {
+                    self.sign_in(ctx);
+                }
+                if ui
+                    .add_enabled(pending.is_none(), egui::Button::new("Cancel sign-in"))
+                    .clicked()
+                {
+                    self.cancel_sign_in(ctx);
+                }
+            });
+            if self.loading_is_slow(pending) {
+                ui.horizontal(|ui| {
+                    ui.spinner();
+                    ui.label("Updating ChatGPT sign-in…");
+                });
+            }
+        } else if !self
+            .account
+            .value
+            .as_ref()
+            .is_some_and(|account| account["signed_in"] == true)
+            && ui
+                .add_enabled(
+                    self.account_available(),
+                    egui::Button::new("Sign in with ChatGPT"),
+                )
+                .clicked()
+        {
+            self.sign_in(ctx);
+        }
+        if let Some(error) = &self.account.request.error {
+            ui.label(error);
+        }
+        if ui
+            .add_enabled(
+                self.runtime.request.pending.is_none() && self.account.request.pending.is_none(),
+                egui::Button::new("Check setup"),
+            )
+            .clicked()
+        {
+            self.refresh_runtime(ctx);
+            if self.account_available() {
+                self.refresh_account(ctx);
+            }
+        }
+        if self.loading_is_slow(self.runtime.request.pending)
+            || self.loading_is_slow(self.account.request.pending)
+        {
+            ui.horizontal(|ui| {
+                ui.spinner();
+                ui.label("Checking your workspace…");
+            });
+        }
     }
 
     fn session(&mut self, ui: &mut Ui, snapshot: &SessionSnapshot) {
@@ -1641,9 +3098,13 @@ impl ConsoleApp {
                 kind
             };
             ui.add_space(4.0);
-            egui::CollapsingHeader::new(RichText::new(title).small().color(theme::MUTED))
-                .id_salt(&item.id)
-                .show(ui, |ui| json_view(ui, &item.value()));
+            egui::CollapsingHeader::new(
+                RichText::new(transcript_item_summary(&title))
+                    .small()
+                    .color(theme::MUTED),
+            )
+            .id_salt(&item.id)
+            .show(ui, |ui| json_view(ui, &item.value()));
             ui.add_space(4.0);
             return;
         }
@@ -1737,14 +3198,12 @@ impl ConsoleApp {
                                             let cached =
                                                 self.rendered_markdown.entry(key).or_default();
                                             if cached.0 != source {
-                                                *cached = (source.clone(), safe_markdown(&source));
+                                                *cached = (source.clone(), Markdown::new(&source));
                                             }
                                             ui.scope(|ui| {
                                                 ui.style_mut().interaction.selectable_labels =
                                                     false;
-                                                CommonMarkViewer::new()
-                                                    .explicit_image_uri_scheme(true)
-                                                    .show(ui, &mut self.markdown_cache, &cached.1);
+                                                cached.1.show(ui, &mut self.markdown_cache);
                                             });
                                         }
                                         "input_text" => {
@@ -2981,6 +4440,16 @@ fn form_error(collection: Collection, secret: bool, value: &Value) -> Option<Str
         .map(|(_, label)| format!("Enter a {} to continue.", label.to_lowercase()))
 }
 
+fn transcript_item_summary(value: &str) -> String {
+    let value = value.trim();
+    let first_line = value.lines().next().unwrap_or_default();
+    let mut summary: String = first_line.chars().take(120).collect();
+    if summary.len() < value.len() {
+        summary.push_str(" …");
+    }
+    summary
+}
+
 fn json_view(ui: &mut Ui, value: &Value) {
     ui.add(egui::Label::new(RichText::new(pretty(value)).monospace().size(12.0)).wrap());
 }
@@ -3159,5 +4628,386 @@ mod runtime_tests {
             ),
             "pi"
         );
+    }
+}
+
+fn runtime_failure_message(failure: &str) -> &'static str {
+    match failure {
+        "busy" => "The runtime is in use. Wait for current work to finish, then retry.",
+        "no_previous" => "There is no previous runtime to restore.",
+        "bounds" => "Setup exceeded a storage or file limit. Check available space, then retry.",
+        "signature" | "verifier_unavailable" | "manifest" | "inventory" | "version_collision" => {
+            "The included runtime could not be verified. Reinstall Rat Things, then retry."
+        }
+        "compatibility" => "The included runtime is not compatible with this computer.",
+        "probe" => "The Linux workspace did not start successfully. Retry setup.",
+        "interrupted" | "not_started" => {
+            "Setup was interrupted. Retry when this computer is ready."
+        }
+        "lease_lost" => {
+            "The local service no longer owns this workspace. Quit and reopen Rat Things."
+        }
+        _ => "The runtime could not be prepared. Check this computer and retry.",
+    }
+}
+
+#[cfg(test)]
+mod local_tests {
+    use super::*;
+
+    fn copy_plan(id: uuid::Uuid, status: &str) -> Value {
+        json!({"id":id.to_string(), "source_session_id":"sess_source",
+            "source_model":"local", "model":"cloud", "destination":{"baseURL":"https://cloud.example/v1","region":"us-west-2"},
+            "status":status, "files":1, "bytes":100, "history_items":2, "uploaded_parts":0, "total_parts":1,
+            "destination_session_id":null, "error":null})
+    }
+
+    #[test]
+    fn uncertain_copy_execution_reconciles_without_replacing_its_saved_identity() {
+        let mut app = ConsoleApp::new("http://127.0.0.1:1".into(), "fixture".into()).unwrap();
+        let id = uuid::Uuid::new_v4();
+        app.transfer = Some(TransferPlan::parse(copy_plan(id, "ready"), None).unwrap());
+        app.saved_copies = vec![TransferPlan::parse(copy_plan(id, "failed"), None).unwrap()];
+        app.transfer_request.pending = Some(10);
+        // A stale read must not clear the newer execute request.
+        app.receive_copy(
+            9,
+            CopyOperation::Plan { id, execute: false },
+            Ok(Data::Local(copy_plan(id, "ready"))),
+        );
+        assert_eq!(app.transfer_request.pending, Some(10));
+        app.receive_copy(
+            10,
+            CopyOperation::Plan { id, execute: true },
+            Err("Response lost".into()),
+        );
+        assert!(app.transfer_active());
+        assert!(app.transfer_uncertain);
+        assert!(app.transfer_needs_refresh);
+        assert_eq!(app.transfer.as_ref().unwrap().id, id);
+        assert!(app.transfer.as_ref().unwrap().status == CopyStatus::Ready);
+        app.transfer_request.pending = Some(11);
+        app.receive_copy(
+            11,
+            CopyOperation::Plan { id, execute: false },
+            Err("Read temporarily unavailable".into()),
+        );
+        assert!(app.transfer_uncertain);
+        app.transfer_request.pending = Some(11);
+        app.receive_copy(
+            11,
+            CopyOperation::Plan { id, execute: false },
+            Ok(Data::LocalRejected {
+                status: reqwest::StatusCode::NOT_FOUND,
+                message: "Receipt unavailable".into(),
+            }),
+        );
+        assert!(app.transfer_uncertain);
+        app.transfer_request.pending = Some(11);
+        app.receive_copy(
+            11,
+            CopyOperation::Plan { id, execute: false },
+            Ok(Data::Local(copy_plan(uuid::Uuid::new_v4(), "ready"))),
+        );
+        assert!(app.transfer_uncertain);
+        assert_eq!(app.transfer.as_ref().unwrap().id, id);
+        app.transfer_request.pending = Some(12);
+        app.receive_copy(
+            12,
+            CopyOperation::Plan { id, execute: false },
+            Ok(Data::Local(copy_plan(id, "ready"))),
+        );
+        assert!(!app.transfer_active());
+        assert!(!app.transfer_uncertain);
+        assert!(!app.transfer_needs_refresh);
+        assert!(app.transfer_request.error.is_none());
+        assert!(app.saved_copies[0].status == CopyStatus::Ready);
+    }
+
+    #[test]
+    fn a_definitive_copy_rejection_does_not_introduce_uncertainty() {
+        let mut app = ConsoleApp::new("http://127.0.0.1:1".into(), "fixture".into()).unwrap();
+        let id = uuid::Uuid::new_v4();
+        app.transfer = Some(TransferPlan::parse(copy_plan(id, "ready"), None).unwrap());
+        for status in [400, 403, 404, 405, 409] {
+            app.transfer_request.pending = Some(10);
+            app.receive_copy(
+                10,
+                CopyOperation::Plan { id, execute: true },
+                Ok(Data::LocalRejected {
+                    status: reqwest::StatusCode::from_u16(status).unwrap(),
+                    message: "Rejected".into(),
+                }),
+            );
+            assert!(!app.transfer_uncertain);
+            assert!(!app.transfer_active());
+        }
+        for status in [408, 502] {
+            app.transfer_uncertain = false;
+            app.transfer_request.pending = Some(11);
+            app.receive_copy(
+                11,
+                CopyOperation::Plan { id, execute: true },
+                Ok(Data::LocalRejected {
+                    status: reqwest::StatusCode::from_u16(status).unwrap(),
+                    message: "Response unavailable".into(),
+                }),
+            );
+            assert!(app.transfer_uncertain);
+        }
+        app.transfer_request.pending = Some(12);
+        app.receive_copy(
+            12,
+            CopyOperation::Plan { id, execute: true },
+            Ok(Data::LocalRejected {
+                status: reqwest::StatusCode::NOT_FOUND,
+                message: "Receipt unavailable".into(),
+            }),
+        );
+        assert!(
+            app.transfer_uncertain,
+            "A later rejection cannot disprove prior acceptance"
+        );
+    }
+
+    #[test]
+    fn saved_copy_paging_keeps_one_page_and_preserves_the_selected_plan() {
+        let mut app = ConsoleApp::new("http://127.0.0.1:1".into(), "fixture".into()).unwrap();
+        let selected = uuid::Uuid::new_v4();
+        app.transfer = Some(TransferPlan::parse(copy_plan(selected, "ready"), None).unwrap());
+        for page in 0..8 {
+            let plans: Vec<_> = (0..20)
+                .map(|_| copy_plan(uuid::Uuid::new_v4(), "ready"))
+                .collect();
+            let last = plans.last().unwrap()["id"].clone();
+            app.saved_copies_request.pending = Some(page);
+            app.receive_copy(
+                page,
+                CopyOperation::List { older: page > 0 },
+                Ok(Data::Local(
+                    json!({"object":"list", "data":plans, "has_more":true, "last_id":last}),
+                )),
+            );
+            assert_eq!(app.saved_copies.len(), 20);
+            assert_eq!(app.transfer.as_ref().unwrap().id, selected);
+            assert_eq!(
+                app.saved_copies_after.unwrap().to_string(),
+                last.as_str().unwrap()
+            );
+        }
+    }
+
+    #[test]
+    fn copy_submissions_require_a_stable_local_workspace() {
+        let mut app = ConsoleApp::new("http://127.0.0.1:1".into(), "fixture".into()).unwrap();
+        let ctx = egui::Context::default();
+        for switching in [false, true] {
+            app.workspace = Some(json!({"kind": if switching { "local" } else { "cloud" }}));
+            app.workspace_pending = switching.then_some(5);
+            let request = app.copy_request(
+                CopyOperation::Models,
+                "/api/v1/workspace/transfers/models".into(),
+                Some(json!({})),
+                &ctx,
+            );
+            assert!(request.pending.is_none());
+            assert!(request.error.is_some());
+            assert!(app.pending.is_empty());
+        }
+    }
+
+    #[test]
+    fn completed_review_remains_bound_to_its_original_draft() {
+        let mut app = ConsoleApp::new("http://127.0.0.1:1".into(), "fixture".into()).unwrap();
+        let id = uuid::Uuid::new_v4();
+        let plan = TransferPlan::parse(copy_plan(id, "ready"), None).unwrap();
+        let review = CopyReview {
+            source: CopySource {
+                id: plan.source_session_id.clone(),
+                model: "local".into(),
+            },
+            destination: plan.destination.clone(),
+            model: "cloud".into(),
+        };
+        app.transfer_request.pending = Some(10);
+        app.copy_draft.destination = DestinationInput {
+            endpoint: "https://changed.example/v1".into(),
+            region: "eu-west-1".into(),
+        };
+        app.copy_draft.model = "changed".into();
+        app.receive_copy(
+            10,
+            CopyOperation::Review(review),
+            Ok(Data::Local(copy_plan(id, "ready"))),
+        );
+        assert_eq!(app.transfer.as_ref().unwrap().id, id);
+        assert_eq!(
+            app.transfer.as_ref().unwrap().destination.base_url,
+            "https://cloud.example/v1"
+        );
+        assert_eq!(
+            app.transfer.as_ref().unwrap().model.as_deref(),
+            Some("cloud")
+        );
+        assert_eq!(app.copy_draft.model, "changed");
+    }
+
+    #[test]
+    fn runtime_status_keeps_the_last_successful_data_after_transient_errors() {
+        let mut runtime = LocalRead::default();
+        let status = json!({"ready": true, "checks": []});
+        runtime.finish(Ok(status.clone()));
+        runtime.finish(Err("temporarily unavailable".into()));
+        assert_eq!(runtime.value, Some(status));
+        assert_eq!(
+            runtime.request.error.as_deref(),
+            Some("temporarily unavailable")
+        );
+        assert!(!runtime.due(Instant::now()));
+        assert!(runtime.due(Instant::now() + LOCAL_REFRESH_INTERVAL));
+    }
+
+    #[test]
+    fn runtime_changes_poll_only_after_acceptance_and_until_a_terminal_result() {
+        let mut change = RuntimeChange::new(RuntimeAction::Setup);
+        let later = Instant::now() + Duration::from_secs(60);
+        assert!(!change.poll_due(later));
+        for state in [
+            json!({"status":"queued"}),
+            json!({"status":"working", "phase":"copying"}),
+        ] {
+            let mut response = json!({"id": change.id.to_string(), "action":"setup"});
+            response
+                .as_object_mut()
+                .unwrap()
+                .extend(state.as_object().unwrap().clone());
+            change.finish(Ok(response));
+            assert!(change.poll_due(later));
+        }
+        change.finish(Err("temporary polling error".into()));
+        assert_eq!(
+            change.progress,
+            RuntimeChangeProgress::Accepted(RuntimeChangeState::Working {
+                phase: RuntimePhase::Copying
+            })
+        );
+        assert!(change.poll_due(later));
+        for state in ["complete", "awaiting_restart", "failed"] {
+            change.finish(Ok(json!({"id": change.id.to_string(), "action":"setup", "status":state, "failure":"probe"})));
+            assert!(!change.poll_due(later));
+            assert!(!change.is_active());
+        }
+    }
+
+    #[test]
+    fn runtime_changes_ignore_receipts_for_other_requests_and_keep_retry_identity() {
+        let mut change = RuntimeChange::new(RuntimeAction::Rollback);
+        let id = change.id;
+        change.submission_sent();
+        change.finish(Err("response lost".into()));
+        assert_eq!(change.id, id);
+        assert_eq!(change.progress, RuntimeChangeProgress::Unconfirmed);
+        change.finish(Ok(json!({"id": uuid::Uuid::new_v4().to_string(), "action":"rollback", "status":"complete"})));
+        assert_eq!(change.progress, RuntimeChangeProgress::Unconfirmed);
+        change.finish(Ok(
+            json!({"id": id.to_string(), "action":"setup", "status":"complete"}),
+        ));
+        assert_eq!(change.progress, RuntimeChangeProgress::Unconfirmed);
+        change.finish(Ok(json!({"id": id.to_string(), "action":"rollback", "status":"failed", "failure":"probe"})));
+        let retry = RuntimeChange::new(change.action);
+        assert_ne!(retry.id, id);
+    }
+
+    #[test]
+    fn retry_rejection_cannot_erase_an_earlier_uncertain_submission() {
+        let mut change = RuntimeChange::new(RuntimeAction::Setup);
+        change.submission_sent();
+        change.finish(Err("Response lost after possible acceptance.".into()));
+        let id = change.id;
+        change.reject_submission();
+        change.finish(Err("Retry was rejected.".into()));
+        assert_eq!(change.id, id);
+        assert_eq!(change.progress, RuntimeChangeProgress::Unconfirmed);
+        assert!(change.is_active());
+        assert!(!change.poll_due(Instant::now() + Duration::from_secs(60)));
+
+        let mut unsubmitted = RuntimeChange::new(RuntimeAction::Setup);
+        unsubmitted.reject_submission();
+        assert_eq!(unsubmitted.progress, RuntimeChangeProgress::NotAccepted);
+        assert!(!unsubmitted.is_active());
+    }
+
+    #[test]
+    fn local_rejection_retires_only_a_submission_without_an_accepted_receipt() {
+        let mut app = ConsoleApp::new("http://127.0.0.1:1".into(), "fixture".into()).unwrap();
+        let ctx = egui::Context::default();
+        app.runtime_change = Some(RuntimeChange::new(RuntimeAction::Setup));
+        app.runtime_change.as_mut().unwrap().submission_sent();
+        let id = app.runtime_change.as_ref().unwrap().id;
+        app.receive_local(
+            LocalOperation::RuntimeChange(id),
+            Ok(Data::LocalRejected {
+                status: reqwest::StatusCode::CONFLICT,
+                message: "Another request owns setup.".into(),
+            }),
+            &ctx,
+        );
+        let change = app.runtime_change.as_ref().unwrap();
+        assert_eq!(change.progress, RuntimeChangeProgress::NotAccepted);
+        assert!(!change.is_active());
+        assert_eq!(
+            change.request.error.as_deref(),
+            Some("Another request owns setup.")
+        );
+
+        app.runtime_change = Some(RuntimeChange::new(RuntimeAction::Setup));
+        let id = app.runtime_change.as_ref().unwrap().id;
+        app.receive_local(
+            LocalOperation::RuntimeChange(id),
+            Ok(Data::Local(
+                json!({"id": id.to_string(), "action":"setup", "status":"queued"}),
+            )),
+            &ctx,
+        );
+        app.receive_local(
+            LocalOperation::RuntimeChange(id),
+            Ok(Data::LocalRejected {
+                status: reqwest::StatusCode::NOT_FOUND,
+                message: "Receipt unavailable.".into(),
+            }),
+            &ctx,
+        );
+        let change = app.runtime_change.as_ref().unwrap();
+        assert_eq!(
+            change.progress,
+            RuntimeChangeProgress::Accepted(RuntimeChangeState::Queued)
+        );
+        assert!(change.is_active());
+        assert!(change.poll_due(Instant::now() + Duration::from_secs(60)));
+    }
+
+    #[test]
+    fn login_retry_keeps_its_id_and_opens_only_the_matching_auth_url() {
+        let mut login = LoginFlow::default();
+        let id = login.id;
+        assert!(login.finish(Err("response lost".into())).is_none());
+        assert_eq!(login.id, id);
+        for response in [
+            json!({"id": uuid::Uuid::new_v4().to_string(), "url":"https://auth.openai.com/login"}),
+            json!({"id": id.to_string(), "url":"https://example.test/login"}),
+            json!({"id": id.to_string(), "url":"http://auth.openai.com/login"}),
+        ] {
+            assert!(login.finish(Ok(response)).is_none());
+            assert!(login.url.is_none());
+        }
+        assert_eq!(
+            login
+                .finish(Ok(
+                    json!({"id": id.to_string(), "url":"https://auth.openai.com/login"})
+                ))
+                .as_deref(),
+            Some("https://auth.openai.com/login")
+        );
+        assert!(login.request.error.is_none());
     }
 }

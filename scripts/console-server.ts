@@ -6,14 +6,28 @@ import { timingSafeEqual } from 'node:crypto';
 import { isPrivateArtifactUrl } from '../src/adapters/publication-client.js';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
+import { connectLocalWorkspace, createLocalAgentsFetch, type LocalConnection, type LocalWorkspaceConnection } from '../src/local-workspace.js';
+import { installedNativeOptions, installedServiceIdentity } from '../src/app/local-installed.js';
+import { createAgentsFetch } from '../src/agents-client.js';
 
 const host = '127.0.0.1';
 let port = boundedPort(process.env.RAT_THINGS_CONSOLE_PORT ?? '4174');
 const accessToken = process.env.RAT_THINGS_CONSOLE_TOKEN;
 if (!accessToken || !/^[a-f0-9]{64}$/.test(accessToken)) throw new Error('The native console requires a private launch token');
 delete process.env.RAT_THINGS_CONSOLE_TOKEN;
-const upstreamBase = requiredApiUrl();
+let localWorkspace: LocalWorkspaceConnection | undefined;
+let localConnection: LocalConnection | undefined;
+let upstreamBase = '';
+let workspaceKind: 'local' | 'cloud' = 'cloud';
+let unsignedFixture = process.env.AGENT_RUNTIME_UNSIGNED === 'true';
+let region = process.env.AWS_REGION ?? '';
 let authenticatedFetch: typeof fetch | undefined;
+const localLogins = new Map<string, { connection: LocalConnection }>();
+const loginSubmissions = new Set<Promise<Response>>();
+let stopping = false;
+const configured = process.env.RAT_THINGS_AGENTS_API_URL ?? process.env.AGENTS_API_BASE_URL ?? process.env.RAT_THINGS_API_URL ?? process.env.AGENT_RUNTIME_API_URL;
+if (configured) upstreamBase = requiredApiUrl();
+else await useLocal();
 
 const server = createServer((request, response) => {
   void handle(request, response).catch(() => {
@@ -42,7 +56,31 @@ server.on('listening', () => {
 });
 server.listen(port, host);
 process.stdin.resume();
-process.stdin.on('end', () => { server.closeAllConnections(); server.close(); });
+const shutdown = () => {
+  if (stopping) return;
+  stopping = true;
+  process.stdin.destroy();
+  server.closeAllConnections(); server.close();
+  void (async () => {
+    await Promise.allSettled([...loginSubmissions]);
+    try {
+      const cancellations = await Promise.allSettled([...localLogins].map(async ([id, { connection }]) => {
+        const response = await createLocalAgentsFetch(connection)(`${connection.baseURL}/workspace/subscription/login/${id}`, {
+          method: 'DELETE', signal: AbortSignal.timeout(10_000),
+        });
+        await response.body?.cancel();
+        if (!response.ok) throw new Error('Sign-in cleanup did not complete.');
+      }));
+      if (cancellations.some(result => result.status === 'rejected')) throw new Error('Sign-in cleanup did not complete.');
+    } finally { await localWorkspace?.close(); }
+  })().catch(() => {
+    process.stderr.write('The local workspace could not confirm shutdown. Its runtime data is retained for recovery.\n');
+    process.exitCode = 1;
+  });
+};
+process.stdin.on('end', shutdown);
+process.once('SIGTERM', shutdown);
+process.once('SIGINT', shutdown);
 
 async function handle(request: IncomingMessage, response: ServerResponse): Promise<void> {
   if (!validHost(request.headers.host)) return json(response, 403, error('forbidden', 'invalid host'));
@@ -51,7 +89,51 @@ async function handle(request: IncomingMessage, response: ServerResponse): Promi
   }
   const requestUrl = new URL(request.url ?? '/', `http://${host}:${port}`);
   if (!requestUrl.pathname.startsWith('/api/v1/')) return json(response, 404, error('not_found', 'console route not found'));
+  if (requestUrl.pathname === '/api/v1/workspace') {
+    if (request.method === 'GET') return json(response, 200, workspaceInfo());
+    if (request.method !== 'POST' || request.headers['x-rat-console-request'] !== '1') return json(response, 403, error('forbidden', 'missing console request marker'));
+    try {
+      const input = JSON.parse(await requestBody(request) ?? '{}') as Record<string, unknown>;
+      if (input.kind === 'local') await useLocal();
+      else if (input.kind === 'cloud') {
+        if (typeof input.endpoint !== 'string' || typeof input.region !== 'string' || !/^[a-z]{2}(?:-[a-z]+)+-\d+$/.test(input.region)) throw new Error('Enter the Agents API URL and AWS region.');
+        const url = new URL(input.endpoint);
+        if (url.protocol !== 'https:' || url.username || url.password || url.search || url.hash || !['/', '/v1', '/v1/'].includes(url.pathname)) throw new Error('Use an HTTPS Agents API URL ending in /v1.');
+        const transport = createAgentsFetch({ baseURL: `${url.origin}/v1`, region: input.region });
+        const checked = await transport(`${url.origin}/v1/models`, { signal: AbortSignal.timeout(15_000) });
+        if (!checked.ok) throw new Error('Could not connect. Check your AWS identity, region and model catalog.');
+        await checked.body?.cancel();
+        if (stopping) throw new Error('The console is stopping.');
+        upstreamBase = url.origin; region = input.region; authenticatedFetch = transport; workspaceKind = 'cloud'; unsignedFixture = false;
+      } else throw new Error('Choose this computer or your AWS workspace.');
+      return json(response, 200, workspaceInfo());
+    } catch {
+      return json(response, 400, error('workspace_connection_failed', 'Could not connect. Check the endpoint, AWS credentials and region. Your current workspace is still selected.'));
+    }
+  }
   await proxy(request, response, requestUrl);
+}
+
+function workspaceInfo() {
+  return { kind: workspaceKind, name: workspaceKind === 'local' ? 'This computer' : 'Your AWS workspace',
+    endpoint: `${upstreamBase}/v1`, region, local_available: true };
+}
+
+async function useLocal() {
+  if (stopping) throw new Error('The console is stopping.');
+  const workspace = await connectLocalWorkspace({ requiredService: installedServiceIdentity, start: async () => {
+    const { startLocalServer } = await import('../src/local-server.js');
+    return startLocalServer({ ...await installedNativeOptions(), ...(process.env.RAT_THINGS_MODEL ? { model: process.env.RAT_THINGS_MODEL } : {}) });
+  } });
+  if (stopping) {
+    await workspace.close();
+    throw new Error('The console is stopping.');
+  }
+  if (workspace.owned || !localWorkspace?.owned) localWorkspace = workspace;
+  localConnection = workspace.connection;
+  upstreamBase = new URL(localConnection.baseURL).origin;
+  authenticatedFetch = createLocalAgentsFetch(localConnection);
+  workspaceKind = 'local';
 }
 
 async function proxy(
@@ -72,7 +154,23 @@ async function proxy(
     return json(response, 403, error('forbidden', 'the console proxy exposes only /v1 control routes'));
   }
   const url = new URL(`${upstreamPath}${requestUrl.search}`, `${upstreamBase.replace(/\/$/, '')}/`);
+  const requestConnection = workspaceKind === 'local' ? localConnection : undefined;
+  let transport = fetch;
+  if (workspaceKind === 'local' || !unsignedFixture) {
+    const awsRegion = region || regionFromHostname(url.hostname);
+    if (!authenticatedFetch && !awsRegion) throw new Error('AWS_REGION is required to sign console control API requests');
+    authenticatedFetch ??= createAgentsFetch({ baseURL: `${url.origin}/v1`, region: awsRegion! });
+    transport = authenticatedFetch;
+  }
   const body = mutation ? await requestBody(request) : undefined;
+  let loginId: string | undefined;
+  if (requestConnection && method === 'POST' && upstreamPath === '/v1/workspace/subscription/login') {
+    const input: unknown = JSON.parse(body ?? '{}');
+    if (input && typeof input === 'object' && 'id' in input && typeof input.id === 'string'
+      && /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(input.id)) loginId = input.id;
+    if (!loginId) return json(response, 400, error('invalid_login_id', 'A sign-in request ID is required.'));
+    if (stopping) throw new Error('The console is stopping.');
+  }
   const unsignedHeaders: Record<string, string> = {
     host: url.host,
     accept: 'application/json',
@@ -85,24 +183,32 @@ async function proxy(
       ? { 'x-runtime-owner': process.env.RAT_THINGS_LOCAL_OWNER }
       : {}),
   };
-  let transport = fetch;
-  if (process.env.AGENT_RUNTIME_UNSIGNED !== 'true') {
-    const region = process.env.AWS_REGION ?? regionFromHostname(url.hostname);
-    if (!region) throw new Error('AWS_REGION is required to sign console control API requests');
-    const { createAgentsFetch } = await import('../src/agents-client.js');
-    authenticatedFetch ??= createAgentsFetch({ baseURL: `${url.origin}/v1`, region });
-    transport = authenticatedFetch;
-  }
   const contentRequest = upstreamPath.endsWith('/content');
   const abort = new AbortController();
   response.once('close', () => abort.abort());
-  let upstream = await transport(url, {
+  const alreadyTracked = loginId !== undefined && localLogins.has(loginId);
+  const loginRecord = loginId && requestConnection ? { connection: requestConnection } : undefined;
+  const cancelledId = requestConnection && method === 'DELETE'
+    ? /^\/v1\/workspace\/subscription\/login\/([a-f0-9-]{36})$/.exec(upstreamPath)?.[1] : undefined;
+  const cancelledRecord = cancelledId ? localLogins.get(cancelledId) : undefined;
+  const submission = transport(url, {
     method,
     headers: unsignedHeaders,
     ...(body ? { body } : {}),
     redirect: contentRequest ? 'manual' : 'error',
-    signal: AbortSignal.any([abort.signal, AbortSignal.timeout(upstreamPath.endsWith('/events') ? 900_000 : 30_000)]),
+    signal: loginId ? AbortSignal.timeout(30_000)
+      : AbortSignal.any([abort.signal, AbortSignal.timeout(upstreamPath.endsWith('/events') ? 900_000 : 30_000)]),
   });
+  if (loginId && loginRecord) {
+    localLogins.set(loginId, loginRecord);
+    loginSubmissions.add(submission);
+  }
+  let upstream: Response;
+  try { upstream = await submission; }
+  finally { loginSubmissions.delete(submission); }
+  if (loginId && !alreadyTracked && localLogins.get(loginId) === loginRecord
+    && upstream.status >= 400 && upstream.status < 500 && upstream.status !== 408) localLogins.delete(loginId);
+  if (cancelledId && upstream.ok && localLogins.get(cancelledId) === cancelledRecord) localLogins.delete(cancelledId);
   if (contentRequest && isRedirect(upstream.status)) {
     const location = upstream.headers.get('location');
     if (!location) throw new Error('artifact content redirect did not include a location');
