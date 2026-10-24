@@ -3,6 +3,7 @@ import { mkdtemp, chown, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Type } from 'typebox';
+import { PI_MANAGED_TOOLS, parsePiManagedOperation, piManagedCommand } from './pi-managed-tools.js';
 import AjvModule from 'ajv';
 import { CodexRpcClient } from '../adapters/codex-rpc.js';
 import type { NativeLease } from '../core/session-native-store.js';
@@ -15,10 +16,9 @@ import type { ToolExecutionResult } from '@earendil-works/pi-durable';
 import type { PiEffectTool, PiToolEffect } from './pi/protocol.js';
 import { verifyManagedSandbox } from './managed-sandbox.js';
 
-const FILE_PROGRAM = `const fs=require('node:fs');const [op,path,data]=process.argv.slice(1);if(op==='read')process.stdout.write(fs.readFileSync(path,'utf8'));else if(op==='write'){fs.writeFileSync(path,data);console.log('Written');}else if(op==='list')console.log(JSON.stringify(fs.readdirSync(path,{withFileTypes:true}).map(e=>({name:e.name,directory:e.isDirectory()}))));else throw Error('Invalid file operation');`;
 const Ajv = AjvModule.default;
 
-export async function createPiEffectBroker(options: { launch: SessionLaunch; plan: CodexLaunchPlan; lease: NativeLease; mcp?: SessionMcpRuntime; credentials?: SessionEnvironmentCredentialsRuntime; signal?: AbortSignal; flushWorkspace?: () => Promise<void> }) {
+export async function createPiEffectBroker(options: { launch: SessionLaunch; plan: CodexLaunchPlan; lease: Pick<NativeLease, 'assertActive'>; mcp?: SessionMcpRuntime; credentials?: SessionEnvironmentCredentialsRuntime; signal?: AbortSignal; flushWorkspace?: () => Promise<void> }) {
   const { launch, plan } = options;
   if (launch.environment.type === 'self_hosted') throw new Error('Pi does not support self-hosted environments');
   const managed = launch.environment.type === 'openai_hosted';
@@ -31,10 +31,10 @@ export async function createPiEffectBroker(options: { launch: SessionLaunch; pla
     ...(plan.identity ? { identity: plan.identity } : {}), ...(options.signal ? { signal: options.signal } : {}),
     onServerRequest: async () => { throw new Error('Host approval is unavailable'); },
   });
-  const tools: PiEffectTool[] = managed ? [
-    { kind: 'managed', name: 'exec_command', description: 'Run an argument array in the managed workspace.', parameters: Type.Object({ command: Type.Array(Type.String({ minLength: 1 }), { minItems: 1, maxItems: 100 }), cwd: Type.Optional(Type.String()) }, { additionalProperties: false }) },
-    ...(['read_file', 'write_file', 'list_files'] as const).map(name => ({ kind: 'managed' as const, name, description: `${name.replaceAll('_', ' ')} in the managed environment.`, parameters: Type.Object({ path: Type.String({ minLength: 1 }), ...(name === 'write_file' ? { content: Type.String({ maxLength: 1024 * 1024 }) } : {}) }, { additionalProperties: false }) })),
-  ] : [];
+  const tools: PiEffectTool[] = managed ? [...PI_MANAGED_TOOLS] : [];
+  const shutdown = new AbortController();
+  const active = new Set<Promise<unknown>>();
+  let closed: Promise<void> | undefined;
   const mcpTools = new Map<string, { server: string; tool: string }>();
   let threadId: string | undefined;
   try {
@@ -68,6 +68,7 @@ export async function createPiEffectBroker(options: { launch: SessionLaunch; pla
       execute: async (request: PiToolEffect, signal: AbortSignal): Promise<ToolExecutionResult> => {
         await options.lease.assertActive();
         signal.throwIfAborted();
+        shutdown.signal.throwIfAborted();
         const declared = validators.get(request.name);
         if (!declared || declared.kind !== request.kind || !declared.validate(request.arguments)) throw new Error('Tool is outside the admitted capability envelope');
         if (request.kind === 'mcp') {
@@ -83,23 +84,53 @@ export async function createPiEffectBroker(options: { launch: SessionLaunch; pla
           }), isError: response.isError === true };
         }
         if (!managed) throw new Error('Managed tools require an environment');
-        const args = request.arguments;
-        const command = request.name === 'exec_command' ? args.command as string[] : [process.execPath, '-e', FILE_PROGRAM,
-          request.name === 'read_file' ? 'read' : request.name === 'write_file' ? 'write' : 'list', String(args.path), String(args.content ?? '')];
+        const command = piManagedCommand(parsePiManagedOperation(request), process.execPath, plan.workspace);
         const processId = `pi-${randomUUID()}`;
-        const cancel = () => { void rpc.call('command/exec/terminate', { processId }).catch(() => {}); };
-        signal.addEventListener('abort', cancel, { once: true });
-        try {
-          const response = await rpc.call('command/exec', { command, processId, cwd: typeof args.cwd === 'string' ? args.cwd : plan.workspace,
-            env: { ...hostedProcessEnvironment(launch.hostedConfiguration?.env ?? {}, plan.environment.PATH, plan.workspace), ...options.credentials?.shellEnvironment },
-            permissionProfile: 'rat_managed', timeoutMs: 120_000, outputBytesCap: 128 * 1024 }, 125_000);
-          if (!record(response)) throw new Error('Invalid managed command response');
-          await options.flushWorkspace?.();
-          return { output: [{ type: 'text', text: `${String(response.stdout ?? '')}${String(response.stderr ?? '')}` }], isError: response.exitCode !== 0 };
-        } finally { signal.removeEventListener('abort', cancel); }
+        const invocation = AbortSignal.any([signal, shutdown.signal]);
+        invocation.throwIfAborted();
+        const execution = rpc.call('command/exec', { ...command, processId,
+          env: { ...hostedProcessEnvironment(launch.hostedConfiguration?.env ?? {}, plan.environment.PATH, plan.workspace), ...options.credentials?.shellEnvironment },
+          permissionProfile: 'rat_managed', timeoutMs: 120_000, outputBytesCap: 128 * 1024 }, 125_000);
+        let cancellation: Promise<unknown> | undefined;
+        let rejectCancelled!: (error: unknown) => void;
+        const failedCancellation = new Promise<never>((_resolve, reject) => { rejectCancelled = reject; });
+        const cancel = () => {
+          cancellation ??= bounded(Promise.all([rpc.call('command/exec/terminate', { processId }, 5000), execution]), 5000);
+          void cancellation.catch(rejectCancelled);
+        };
+        invocation.addEventListener('abort', cancel, { once: true });
+        if (invocation.aborted) cancel();
+        const settled = (async () => {
+          try {
+            const response = await Promise.race([execution, failedCancellation]);
+            await cancellation;
+            if (!record(response)) throw new Error('Invalid managed command response');
+            await options.flushWorkspace?.();
+            return { output: [{ type: 'text' as const, text: `${String(response.stdout ?? '')}${String(response.stderr ?? '')}` }], isError: response.exitCode !== 0 };
+          } catch (error) { shutdown.abort(error); throw error; }
+          finally { invocation.removeEventListener('abort', cancel); }
+        })();
+        active.add(settled);
+        try { return await settled; } finally { active.delete(settled); }
       },
-      close: async () => { await rpc.close(); await rm(home, { recursive: true, force: true }); },
+      close: () => closed ??= (async () => {
+        shutdown.abort();
+        try { await bounded(Promise.all([...active]), 6000); }
+        finally { await bounded(rpc.close(), 5000); await rm(home, { recursive: true, force: true }); }
+      })(),
     };
-  } catch (error) { await rpc.close(); await rm(home, { recursive: true, force: true }); throw error; }
+  } catch (error) {
+    try { await bounded(rpc.close(), 5000); }
+    catch (cleanup) { throw new AggregateError([error, cleanup], 'Pi executor open and cleanup failed'); }
+    finally { await rm(home, { recursive: true, force: true }); }
+    throw error;
+  }
 }
 function record(value: unknown): value is Record<string, unknown> { return typeof value === 'object' && value !== null && !Array.isArray(value); }
+
+async function bounded<T>(operation: Promise<T>, milliseconds: number): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+  try { return await Promise.race([operation, new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => reject(new Error('Managed command cleanup could not be confirmed')), milliseconds);
+  })]); } finally { clearTimeout(timer); }
+}

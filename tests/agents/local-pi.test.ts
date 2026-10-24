@@ -24,7 +24,7 @@ it('runs local Pi through HTTP and SQLite, recovers a pending function after res
     let client = createLocalAgentsClient(await readLocalConnection(directory));
     const discovery = await fetch(`${server.baseURL}/models?runtime=pi`, { headers: { authorization: `Bearer ${server.token}` } });
     expect(discovery.status).toBe(200);
-    expect(await discovery.json()).toMatchObject({ runtime: 'pi', capabilities: { environments: ['none'], tools: ['function'] } });
+    expect(await discovery.json()).toMatchObject({ runtime: 'pi', capabilities: { environments: ['none', 'openai_hosted'], tools: ['function'] } });
     const session = await client.beta.agents.sessions.create({ metadata: { rat_things_runtime: 'pi' },
       agent: { model: 'fixture', reasoning: { effort: 'medium' }, multi_agent: { enabled: false }, tools: [{ type: 'function', name: 'lookup', description: 'Lookup',
         parameters: { type: 'object', properties: { query: { type: 'string' } }, required: ['query'] } }] }, environment: { type: 'none' }, input: 'Remember the acorn and look it up.' });

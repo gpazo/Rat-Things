@@ -22,6 +22,10 @@ export function localExecutionRouter(store: AgentsStore, codex: LocalHarness['ex
     artifacts: async (owner, session, turn) => (await selected(owner, session)).artifacts(owner, session, turn),
     artifactContent: async (owner, session, artifact) => (await selected(owner, session)).artifactContent(owner, session, artifact),
     close: async (owner, session) => (await selected(owner, session)).close?.(owner, session),
-    shutdown: async () => { await Promise.all([codex.shutdown(), pi.shutdown()]); },
+    shutdown: async () => {
+      const failures: unknown[] = [];
+      for (const execution of [pi, codex]) { try { await execution.shutdown(); } catch (error) { failures.push(error); } }
+      if (failures.length) throw new AggregateError(failures, 'Local execution shutdown failed');
+    },
   } satisfies SessionExecution & { shutdown(): Promise<void> };
 }

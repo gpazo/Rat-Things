@@ -15,13 +15,16 @@ import { requireSessionMutable } from '../core/session-fork-planning.js';
 import { localWorkspaceIdentity, sameLocalWorkspace, type LocalWorkspaceIntent } from '../domain/local-workspace.js';
 import { workspaceDigests } from '../domain/workspace-checkpoint.js';
 import { LocalRuntimeAdmissionError } from '../domain/local-native-admission.js';
+import { openLocalPiEffects } from './local-pi-effects.js';
+import type { NativeLease } from '../core/session-native-store.js';
 import type { LocalCodexHostProvider } from './local-codex.js';
 
-interface WorkerConnection { url: string; harnessKey: string }
+interface WorkerConnection { url: string; harnessKey: string; generation: string }
 
 /** The model harness stays on the host; only the executor runs in the Linux VM. */
 export class LocalManagedEnvironment {
   private readonly connections = new Map<string, Promise<WorkerConnection>>();
+  private readonly poisoned = new Set<string>();
   private readonly sessions = new Map<string, { owner: string; session: AgentSession }>();
   private readonly operations = new Map<string, Promise<unknown>>();
   private readonly heartbeat: NodeJS.Timeout;
@@ -60,8 +63,25 @@ export class LocalManagedEnvironment {
   public async initialize(owner: string, session: AgentSession) { if (session.environment.type === 'openai_hosted') await this.ensure(owner, session); }
   public async admitTurn(session: AgentSession) {
     if (session.environment.type !== 'openai_hosted') return;
+    if (this.poisoned.has(session.id)) throw new Error('Local worker cleanup is unconfirmed');
     try { await this.options.runtime.admitTurn(session.id); }
     catch (error) { throw admissionError(error); }
+  }
+  public async openPiEffects(owner: string, session: AgentSession, lease: Pick<NativeLease, 'assertActive'>, run: { runId: string; epoch: number }) {
+    const connection = await this.ensure(owner, session);
+    await this.admitTurn(session);
+    if (session.environment.type !== 'openai_hosted') throw new Error('Expected managed Pi environment');
+    // Opening runs outside the lifecycle queue because failed-open cleanup must enter it.
+    return openLocalPiEffects({ sessionId: session.id, environmentId: session.environment.id,
+      generation: connection.generation, connection, host: this.options.hostCodex(), lease, ...run,
+      stopWorker: () => {
+        this.poisoned.add(session.id);
+        return this.serialize(session.id, async () => {
+          await this.retire(session.id, () => this.options.runtime.stop(session.id));
+          this.poisoned.delete(session.id);
+        });
+      },
+    });
   }
   public async files(owner: string, sessionId: string, operation: EnvironmentFileOperation) {
     const resource = await this.options.store.get<SessionState>(owner, 'sessions', sessionId);
@@ -106,6 +126,7 @@ export class LocalManagedEnvironment {
     return this.serialize(session.id, () => this.ensureWorker(owner, session));
   }
   private async ensureWorker(owner: string, session: AgentSession) {
+    if (this.poisoned.has(session.id)) throw new Error('Local worker cleanup is unconfirmed');
     const existing = this.connections.get(session.id);
     if (existing && await this.options.runtime.running(session.id)) return existing;
     if (this.connections.size - Number(this.connections.has(session.id)) >= this.options.maxSessions) throw new AgentsApiError(503, 'All local worker slots are in use. Close an idle Session to free a slot.', 'local_capacity');
@@ -166,7 +187,7 @@ export class LocalManagedEnvironment {
       });
       started = true;
       await this.options.environments.managedReady(owner, request.worker.environmentId, session.id, { id: request.workspace.identity.generation, replaced: false });
-      return { url, harnessKey: request.worker.harnessKey };
+      return { url, harnessKey: request.worker.harnessKey, generation: request.workspace.identity.generation };
     } catch (error) {
       if (started) {
         try { await this.retire(session.id, () => this.options.runtime.stop(session.id)); }

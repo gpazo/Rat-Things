@@ -57,12 +57,12 @@ export function createLocalServices(options: {
     managed = new LocalManagedEnvironment({ store, runtime, environments, maxSessions, hostCodex });
     const account = new LocalSubscription(options.directory, hostCodex);
     const codex = createCodexLocalHarness({ store, directory: options.directory, maxSessions, managed, model: options.model, hostCodex, account, execution: options.execution?.(store, managed) });
-    const pi = new LocalPiExecution({ store, maxSessions, models: options.pi?.models ?? (pin => createLocalPiModels(pin, () => account.accessToken())) });
+    const pi = new LocalPiExecution({ store, maxSessions, managed, models: options.pi?.models ?? (pin => createLocalPiModels(pin, () => account.accessToken())) });
     harness = { ...codex, execution: localExecutionRouter(store, codex.execution, pi) };
   }
   catch (error) { store.close(true); throw error; }
   const { execution, account: subscription } = harness;
-  const sessions = new SessionService({ store, agents, execution, streamIntervalMs: 100, piCatalog,
+  const sessions = new SessionService({ store, agents, execution, streamIntervalMs: 100, piCatalog, piManagedStorage: true,
     rateLimit: new OwnerRateLimiter(store, ownerRateLimits(process.env.OWNER_RATE_LIMITS_JSON)) });
   const transfers = new LocalTransferService({ store, sessions, environments, owner: LOCAL_OWNER, snapshot: id => managed.snapshot(id) });
   let stopped = false;
@@ -99,7 +99,7 @@ export function createLocalServices(options: {
     harness: harness.id,
     models: () => harness.models(),
     piModels: createPiModelCatalog(piCatalog, piCatalog.find(model => model.id === (options.model ?? 'gpt-6-luna'))?.id ?? piCatalog[0]?.id,
-      { ...PI_CAPABILITIES, environments: ['none'], managed_environment_requires: [], tools: ['function'] }),
+      { ...PI_CAPABILITIES, environments: ['none', 'openai_hosted'], managed_environment_requires: [], tools: ['function'] }),
     start: () => native?.start(),
     runtimeReady: () => !native || native.ready(),
     runtimeStatus: () => native ? Promise.resolve(native.status()) : runtime.status(),

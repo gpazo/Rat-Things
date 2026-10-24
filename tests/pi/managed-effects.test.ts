@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { mkdtemp, rm, access, symlink } from 'node:fs/promises';
+import { mkdtemp, rm, access, symlink, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { createServer } from 'node:http';
@@ -35,12 +35,16 @@ describe('Pi managed effect boundary', () => {
     const signal = new AbortController();
     try {
       const marker = join(workspace, 'started');
-      const long = broker.execute(effect('exec_command', { command: [process.execPath, '-e', `require('node:fs').writeFileSync(process.argv[1],'ready');setInterval(()=>{},1000)`, marker] }), signal.signal);
+      const child = `const fs=require('node:fs');const path=process.argv[1];fs.writeFileSync(path,'ready');setInterval(()=>fs.appendFileSync(path,'.'),20);setTimeout(()=>process.exit(0),3000);`;
+      const parent = `require('node:child_process').spawn(process.execPath,['-e',process.argv[1],process.argv[2]],{stdio:'inherit'});setInterval(()=>{},1000);`;
+      const long = broker.execute(effect('exec_command', { command: [process.execPath, '-e', parent, child, marker] }), signal.signal);
       for (let attempt = 0; attempt < 100 && !await access(marker).then(() => true, () => false); attempt++) await delay(20);
       expect(await access(marker).then(() => true, () => false)).toBe(true);
       const short = await broker.execute(effect('exec_command', { command: [process.execPath, '--no-warnings', '-e', 'console.log("parallel-ok")'] }), new AbortController().signal);
       expect(short.output).toEqual([{ type: 'text', text: 'parallel-ok\n' }]);
       signal.abort(); expect((await long).isError).toBe(true);
+      const stopped = await readFile(marker, 'utf8'); await delay(100);
+      expect(await readFile(marker, 'utf8')).toBe(stopped);
       const denied = await broker.execute(effect('write_file', { path: deniedPath, content: 'denied' }), new AbortController().signal);
       expect(denied.isError).toBe(true); expect(await access(deniedPath).then(() => true, () => false)).toBe(false);
       const direct = await broker.execute(effect('exec_command', { command: [process.execPath, '-e', "require('node:fs').writeFileSync(process.argv[1], 'escaped')", deniedPath] }), new AbortController().signal);
