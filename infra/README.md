@@ -240,16 +240,39 @@ Prepared boot checks the cached image architecture and exact repository digest. 
 mismatched image terminates the dedicated worker. Bump the component version when its commands
 change. Bump the recipe version when the parent AMI, component version, or worker digest changes.
 
-AWS-managed `INTERNET_EGRESS` gives a MicroVM outbound internet access by default. The dispatcher
-therefore needs `lambda:PassNetworkConnector`; AWS currently documents no resource type or condition
-key for this action, so it is isolated in its own `Resource = "*"` statement on the dispatcher role.
-Re-check that limitation as the service matures.
+Image builds use AWS-managed `INTERNET_EGRESS`. Every runtime launch, including one-shot jobs,
+uses the deployment's VPC connector instead. A missing runtime connector fails before launch.
+The dispatcher needs `lambda:PassNetworkConnector`; AWS documents no resource type or condition
+key for this action, so it remains isolated in a `Resource = "*"` statement.
 
-The module permits `read-only`, `workspace-write`, and `danger-full-access` by default; its default
-inner sandbox is `danger-full-access`, and agent network access defaults on. Those broad inner
-defaults rely on the outer MicroVM, IAM, integration broker, and network policy as the security
-boundary. The supplied `terraform.tfvars.example` explicitly narrows initial execution to
-read-only/no-network. Review and set these values deliberately for every real deployment.
+The default inner sandbox is `read-only`, the accepted modes are `read-only` and `workspace-write`,
+and agent tool networking defaults off. Managed environments retain workspace-only writes even
+when networking is explicitly enabled. Temporary files stay inside the workspace. Pi verifies
+sandbox enforcement before exposing managed tools; an unsupported or ignored profile fails startup.
+The outer VM and separate agent UID remain independent isolation boundaries.
+
+Runtime egress permits HTTPS to private AWS API endpoints, the S3 and DynamoDB gateway endpoints,
+and NFS to the Session mount target. There is no default internet route. PrivateLink endpoints have
+recurring AWS charges; review the Terraform plan and regional pricing before installing. Optional
+relay endpoints use the same private-service approach, with the load balancer limited to its task
+port. Inbound service HTTPS remains available.
+
+To reach repositories, package registries, external MCP servers, OAuth providers or ChatGPT,
+configure `runtime_https_egress_cidrs` with their reviewed IPv4 destination ranges. Only TCP 443 is
+permitted; unrestricted CIDRs are rejected. This also provisions the workers' NAT route. Keep ranges
+current as providers change addresses. The environment's hostname allowlist must separately admit
+each tool destination; an agent cannot widen the deployment's network policy. Bedrock inference and
+AWS orchestration use private endpoints without an internet exception. System package installation
+and optional AMI builds also require reachable repositories; prepare dependencies in the image when
+running without public destinations.
+
+Execution admission is limited per authenticated owner, across API instances and restarts.
+`owner_rate_limits` defaults to 60 new Sessions, forks, input messages, or standalone jobs
+per UTC minute. Configure `default` and an `owners` map to set operator-managed overrides;
+zero blocks new admissions for that owner. Existing operation IDs remain idempotent.
+Cancellation and reads remain available when the limit is exhausted. Rejections return
+HTTP 429 with `Retry-After`. A storage failure denies new work instead of skipping the limit.
+Rate limits do not impose a dollar spending cap.
 
 ## MicroVM lifecycle
 

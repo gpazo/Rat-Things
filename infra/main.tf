@@ -1,6 +1,8 @@
 module "agent_runner" {
   session_checkpoints_enabled = var.session_checkpoints_enabled
   source                      = "./modules/agent-runner"
+  owner_rate_limits           = var.owner_rate_limits
+  runtime_https_egress_cidrs  = var.runtime_https_egress_cidrs
 
   name_prefix                              = var.name_prefix
   environment                              = var.environment

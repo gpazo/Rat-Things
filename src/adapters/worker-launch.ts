@@ -30,6 +30,8 @@ export interface MicrovmExecutorOptions {
   heartbeatIntervalMs?: number;
   sessionCheckpointsEnabled?: boolean;
   onStartupObservation?: (observation: MicrovmStartupObservation) => void;
+  /** Runtime connector is independent of persistent storage and applies to every job. */
+  networkConnectorArn?: string;
   s3Files?: {
     networkConnectorArn?: string;
     fileSystemId: string;
@@ -60,8 +62,8 @@ export function runHookPayload(record: RunRecord, request: RunRequest, options: 
       traceId: record.runId,
       allowedRepositoryHosts: options.allowedRepositoryHosts,
       allowedSandboxModes: options.allowedSandboxModes,
-      defaultSandboxMode: options.defaultSandboxMode ?? 'danger-full-access',
-      defaultAgentNetworkAccess: options.defaultAgentNetworkAccess ?? true,
+      defaultSandboxMode: options.defaultSandboxMode ?? 'read-only',
+      defaultAgentNetworkAccess: options.defaultAgentNetworkAccess ?? false,
       persistentSession: Boolean(record.agentsSession),
       ...(options.sessionCheckpointsEnabled ? { sessionCheckpointsEnabled: true } : {}),
       ...((record.agentsSession) && options.s3Files ? {

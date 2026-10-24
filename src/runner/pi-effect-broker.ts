@@ -13,6 +13,7 @@ import type { SessionEnvironmentCredentialsRuntime } from './session-environment
 import { hostedCodexArguments, hostedProcessEnvironment } from './hosted-environment-planning.js';
 import type { ToolExecutionResult } from '@earendil-works/pi-durable';
 import type { PiEffectTool, PiToolEffect } from './pi/protocol.js';
+import { verifyManagedSandbox } from './managed-sandbox.js';
 
 const FILE_PROGRAM = `const fs=require('node:fs');const [op,path,data]=process.argv.slice(1);if(op==='read')process.stdout.write(fs.readFileSync(path,'utf8'));else if(op==='write'){fs.writeFileSync(path,data);console.log('Written');}else if(op==='list')console.log(JSON.stringify(fs.readdirSync(path,{withFileTypes:true}).map(e=>({name:e.name,directory:e.isDirectory()}))));else throw Error('Invalid file operation');`;
 const Ajv = AjvModule.default;
@@ -24,7 +25,7 @@ export async function createPiEffectBroker(options: { launch: SessionLaunch; pla
   const home = await mkdtemp(join(tmpdir(), 'rat-pi-executor-'));
   if (plan.identity) await chown(home, plan.identity.uid, plan.identity.gid);
   const rpc = new CodexRpcClient({ binary: plan.binary, cwd: home,
-    binaryArguments: managed ? hostedCodexArguments(['-c', 'features.plugins=false', 'app-server'], launch.environment.type === 'openai_hosted' ? launch.environment.network : { access: 'disabled', allowed_domains: [] }, Boolean(options.credentials)) : ['-c', 'features.plugins=false', 'app-server'],
+    binaryArguments: managed ? hostedCodexArguments(['-c', 'features.plugins=false', 'app-server'], launch.environment.type === 'openai_hosted' ? launch.environment.network : { access: 'disabled', allowed_domains: [] }, Boolean(options.credentials), plan.workspace) : ['-c', 'features.plugins=false', 'app-server'],
     environment: { PATH: plan.environment.PATH, HOME: home, CODEX_HOME: home, CODEX_API_KEY: 'pi-tool-executor-no-inference',
       ...options.mcp?.environment, ...options.credentials?.processEnvironment },
     ...(plan.identity ? { identity: plan.identity } : {}), ...(options.signal ? { signal: options.signal } : {}),
@@ -38,6 +39,7 @@ export async function createPiEffectBroker(options: { launch: SessionLaunch; pla
   let threadId: string | undefined;
   try {
     await rpc.initialize();
+    if (managed) await verifyManagedSandbox({ call: rpc.call.bind(rpc), workspace: plan.workspace, home, ...(plan.identity ? { identity: plan.identity } : {}) });
     if (launch.agent.tools.some(tool => tool.type === 'mcp')) {
       const result = await rpc.call('thread/start', { cwd: managed ? plan.workspace : home, ephemeral: true, approvalPolicy: 'never',
         ...(managed ? { permissions: 'rat_managed', environments: [{ environmentId: 'local', cwd: plan.workspace }] } : { sandbox: 'read-only', environments: [] }),
@@ -89,7 +91,7 @@ export async function createPiEffectBroker(options: { launch: SessionLaunch; pla
         signal.addEventListener('abort', cancel, { once: true });
         try {
           const response = await rpc.call('command/exec', { command, processId, cwd: typeof args.cwd === 'string' ? args.cwd : plan.workspace,
-            env: { ...hostedProcessEnvironment(launch.hostedConfiguration?.env ?? {}, plan.environment.PATH), ...options.credentials?.shellEnvironment },
+            env: { ...hostedProcessEnvironment(launch.hostedConfiguration?.env ?? {}, plan.environment.PATH, plan.workspace), ...options.credentials?.shellEnvironment },
             permissionProfile: 'rat_managed', timeoutMs: 120_000, outputBytesCap: 128 * 1024 }, 125_000);
           if (!record(response)) throw new Error('Invalid managed command response');
           await options.flushWorkspace?.();

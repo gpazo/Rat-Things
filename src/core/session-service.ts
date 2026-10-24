@@ -17,6 +17,7 @@ import { planSessionFork, requireSessionMutable } from './session-fork-planning.
 import type { SessionFork } from '../domain/session-fork.js';
 
 export interface SessionServiceOptions {
+  rateLimit?: import('./owner-rate-limiter.js').OwnerRateLimit;
   piManagedStorage?: boolean;
   store: AgentsStore;
   agents: Pick<AgentService, 'retrieve'>;
@@ -48,6 +49,7 @@ export class SessionService {
     const messages = initialMessages(input.input);
     if (input.environment.type === 'none' && !messages.length && !restored?.importedHistory?.length) invalid('Sessions without an environment require initial input', 'input');
     const id = integrationId ?? this.ids.next('sess');
+    await this.options.rateLimit?.admit(ownerId, `session:${id}`);
     let preparation = integrationId ? (await this.options.store.get<SessionPreparation>(ownerId, 'session_preparations', id))?.value : undefined;
     if (!preparation) {
       const saved = input.agent_id ? await this.options.agents.retrieve(ownerId, input.agent_id) : undefined;
@@ -199,6 +201,7 @@ export class SessionService {
     if (!this.options.execution.prepareFork) throw new AgentsApiError(503, 'Session forks are not configured.', 'fork_unavailable');
     const now = this.clock.now();
     const id = this.ids.next('sess');
+    await this.options.rateLimit?.admit(ownerId, `session:${id}`);
     const placement = resource.value.placement ?? 'microvm';
     await this.replace(resource, { ...resource.value, forkLock: { id, expiresAt: now + 300 } });
     let fork: SessionFork | undefined;
@@ -389,6 +392,8 @@ export class SessionService {
       const items = await this.allItems(ownerId, resource.value);
       const anchors = Object.fromEntries(resource.value.turns.map(({ turn }) => [turn.id, items.filter((item) => item.turn_id === turn.id).at(-1)?.id ?? null]));
       const planned = this.plan(resource.value, observation, events, key, anchors);
+      const messages = events.filter(event => event.type === 'agent.session.input.message').length;
+      if (messages) await this.options.rateLimit?.admit(ownerId, `input:${id}:${key}`, messages);
       try { await this.replace(resource, planned); break; }
       catch (error) {
         // Background dispatch/history writes share this revision. Re-read and

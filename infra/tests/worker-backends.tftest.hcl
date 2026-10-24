@@ -86,6 +86,51 @@ variables {
   github_notify_token_secret_arn = "arn:aws:secretsmanager:us-west-2:123456789012:secret:test-delivery"
 }
 
+run "offline_runtime_without_session_storage" {
+  command = apply
+  module { source = "./modules/agent-runner" }
+  variables {
+    enable_s3_files = false
+  }
+  assert {
+    condition     = var.default_sandbox_mode == "read-only" && !var.default_agent_network_access && !contains(var.allowed_sandbox_modes, "danger-full-access")
+    error_message = "Fresh deployments must default to a filesystem sandbox and no agent networking."
+  }
+  assert {
+    condition     = length(awscc_lambda_network_connector.s3_files) == 1 && local.worker_environment.MICROVM_VPC_NETWORK_CONNECTOR_ARN == awscc_lambda_network_connector.s3_files[0].arn
+    error_message = "One-shot MicroVM jobs need an explicit runtime connector even without Session storage."
+  }
+  assert {
+    condition     = length(aws_nat_gateway.s3_files) == 0 && length(aws_route_table.s3_files_private[0].route) == 0 && alltrue([for rule in aws_security_group.s3_files_client[0].egress : length(coalesce(rule.cidr_blocks, [])) == 0 && rule.protocol == "tcp" && rule.from_port == 443 && rule.to_port == 443])
+    error_message = "Default workers must have no internet route or unrestricted egress grant."
+  }
+  assert {
+    condition     = aws_vpc_endpoint.worker_api["bedrock-runtime"].private_dns_enabled && length(aws_security_group.s3_files_client[0].egress) == 2
+    error_message = "Private inference, artifacts and durable state must remain reachable."
+  }
+}
+
+run "explicit_runtime_https_destinations" {
+  command = plan
+  module { source = "./modules/agent-runner" }
+  variables {
+    runtime_https_egress_cidrs = ["203.0.113.0/24"]
+  }
+  assert {
+    condition     = length(aws_nat_gateway.s3_files) == 1 && anytrue([for rule in aws_security_group.s3_files_client[0].egress : contains(coalesce(rule.cidr_blocks, []), "203.0.113.0/24") && rule.from_port == 443 && rule.to_port == 443])
+    error_message = "Public exceptions must be explicit HTTPS destinations."
+  }
+}
+
+run "reject_open_runtime_egress" {
+  command = plan
+  module { source = "./modules/agent-runner" }
+  variables {
+    runtime_https_egress_cidrs = ["0.0.0.0/0"]
+  }
+  expect_failures = [var.runtime_https_egress_cidrs]
+}
+
 run "ec2_only_storage" {
   command = apply
   module { source = "./modules/agent-runner" }

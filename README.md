@@ -5,19 +5,14 @@
   </picture>
 </h1>
 
-Rat Things gives your agents a home on your computer and in your AWS account.
-Start with your ChatGPT subscription and a local Linux workspace. Copy a finished
-Session into AWS when you need more capacity or work that continues while your computer sleeps.
-AWS supports Codex and Pi Durable through the same API, CLI, desktop console,
-schedules, and provider bindings. Pi Durable uses approved Amazon Bedrock models.
-Codex uses the deployment's ChatGPT credential bridge or Bedrock configuration.
+Rat Things runs AI agents on your computer or in your AWS account. It saves their
+conversations and work so you can return later, continue after a worker stops, or
+run tasks on a schedule. Use the Rust desktop app, CLI, or OpenAI-compatible Agents API.
 
-Its public execution
-contract follows the OpenAI Agents API: Agents, Sessions, Turns, Items,
-environments, environment templates, Files, Skills and Vaults. Your account owns
-the API service, harness, session state, execution environments and encrypted
-storage in cloud mode. Local Sessions use a private service and encrypted resource
-storage on your disk. Model requests use your configured provider in either mode.
+Start locally with Codex and your ChatGPT subscription. AWS runs Codex or Pi Durable
+in isolated Linux workers, with encrypted storage and explicitly configured tools.
+Pi uses Amazon Bedrock. AWS compute and model usage are billed separately from your
+subscription.
 
 This is an engineering preview. See [capabilities and boundaries](docs/status-and-roadmap.md)
 for implemented features and current limits, and [security](docs/security.md) before
@@ -48,6 +43,25 @@ capacity and the path into AWS. The desktop's workspace menu connects to an exis
 AWS deployment without changing the Session interface. **Review Session copy**
 prepares a separate, resumable transfer of history, settings and workspace files.
 
+
+## Install in AWS
+
+From a clone, with Node.js 22.20+, Terraform 1.16+, AWS CLI credentials, and Docker
+able to build Linux ARM64 images:
+
+```bash
+npm run quickstart:aws
+```
+
+The command installs dependencies, validates or builds the pinned worker runtime,
+checks your AWS identity and model access, and asks before deploying. It uses
+Bedrock, private AWS endpoints, and no public runtime egress by default. It then
+verifies two Turns and removes the test Session. The deployment remains available.
+Private endpoints and other AWS resources incur charges while the deployment exists.
+
+Use `npm run quickstart:aws -- --dry-run` to inspect the configuration and
+`npm run quickstart:aws -- destroy` to remove it. See the
+[AWS quickstart](docs/quickstart.md) for profiles, models, and public HTTPS exceptions.
 
 ## Choose Codex or Pi Durable
 

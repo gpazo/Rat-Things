@@ -119,7 +119,7 @@ export async function runAgentWorker(): Promise<void> {
     const request = parseRunRequest(rawRequest, {
       allowedRepositoryHosts: csv(process.env.ALLOWED_REPOSITORY_HOSTS ?? 'github.com,gitlab.com'),
       allowedSandboxModes: sandboxModes(
-        process.env.ALLOWED_SANDBOX_MODES ?? 'read-only,workspace-write,danger-full-access',
+        process.env.ALLOWED_SANDBOX_MODES ?? 'read-only,workspace-write',
       ),
     });
     const profile = resolveAgentProfile(

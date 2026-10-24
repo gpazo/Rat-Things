@@ -1,5 +1,7 @@
 import { join } from 'node:path';
 import { AgentService } from '../core/agent-service.js';
+import { OwnerRateLimiter } from '../core/owner-rate-limiter.js';
+import { ownerRateLimits } from './owner-rate-limits.js';
 import { SessionService } from '../core/session-service.js';
 import type { SessionState } from '../core/session-ports.js';
 import { EnvironmentTemplateService } from '../core/environment-template-service.js';
@@ -50,7 +52,8 @@ export function createLocalServices(options: {
   }
   catch (error) { store.close(true); throw error; }
   const { execution, account: subscription } = harness;
-  const sessions = new SessionService({ store, agents, execution, streamIntervalMs: 100 });
+  const sessions = new SessionService({ store, agents, execution, streamIntervalMs: 100,
+    rateLimit: new OwnerRateLimiter(store, ownerRateLimits(process.env.OWNER_RATE_LIMITS_JSON)) });
   const transfers = new LocalTransferService({ store, sessions, environments, owner: LOCAL_OWNER, snapshot: id => managed.snapshot(id) });
   let stopped = false;
   let closed: Promise<void> | undefined;

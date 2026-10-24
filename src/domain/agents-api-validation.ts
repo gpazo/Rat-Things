@@ -8,6 +8,7 @@ export class AgentsApiError extends Error {
     message: string,
     public readonly code: string | null = null,
     public readonly param: string | null = null,
+    public readonly retryAfterSeconds?: number,
   ) {
     super(message);
     this.name = 'AgentsApiError';

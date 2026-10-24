@@ -24,13 +24,21 @@ Items, deletes the disposable Session to stop its harness, and leaves the Agent
 available for new work. Setup provisions AWS resources and invokes the model.
 
 ```bash
-npm run quickstart:aws -- --model YOUR_ADMITTED_MODEL
+npm run quickstart:aws
 ```
 
-For ChatGPT authentication, setup requires explicit consent before copying the
-device's renewable Codex credentials into your AWS Secrets Manager. `--model`
-selects a model admitted by that credential and deployment. Use `--auth bedrock`
-with a configured Bedrock model for AWS model authentication instead.
+The default uses paid Bedrock inference through private AWS endpoints. Use `--model`
+to select another admitted model, and `--profile` or `--region` to select your AWS
+identity and location. The helper installs pinned Node dependencies and builds a
+missing worker artifact with ARM64-capable Docker. The initial build can take time;
+a valid artifact supplied through `CODEX_RUNTIME_ARTIFACT` is reused.
+
+PrivateLink endpoints, compute, storage and model usage incur AWS charges separately
+from your subscription. Runtime internet access is denied by default. To use ChatGPT
+on AWS, select `--auth chatgpt --model YOUR_ADMITTED_MODEL` and supply reviewed provider
+IPv4 destinations with `--https-egress-cidrs`. Credential copying still requires
+explicit consent. Other external services also need configured HTTPS destinations;
+see [runtime egress](../infra/README.md).
 
 `--dry-run` describes setup without deploying. Existing-deployment status,
 credential synchronization and teardown commands retain the deployment's saved

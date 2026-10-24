@@ -18,7 +18,7 @@ describe('AWS quickstart', () => {
     })).rejects.toMatchObject({ code: 1, stderr: expect.stringContaining('Agents quickstart requires Codex') });
   });
   it('requires an explicit admitted model for ChatGPT while keeping recovery independent', () => {
-    expect(() => quickstartModel(parseAwsQuickstartOptions([]))).toThrow('Select an admitted model');
+    expect(() => quickstartModel(parseAwsQuickstartOptions(['--auth', 'chatgpt', '--https-egress-cidrs', '203.0.113.0/24']))).toThrow('Select an admitted model');
     expect(quickstartModel(parseAwsQuickstartOptions(['--model', 'configured-model']))).toBe('configured-model');
     expect(quickstartModel(parseAwsQuickstartOptions(['--auth', 'bedrock']))).toBe('openai.gpt-5.6-terra');
   });
@@ -30,20 +30,21 @@ describe('AWS quickstart', () => {
     expect(() => assertSupportedNodeVersion('24.1.0')).not.toThrow();
   });
 
-  it('defaults to a real Codex deployment through a connected ChatGPT workspace', () => {
+  it('defaults to private Bedrock inference with no public egress', () => {
     const options = parseAwsQuickstartOptions([]);
     expect(options).toMatchObject({
       command: 'setup',
       driver: 'codex',
-      auth: 'chatgpt',
+      auth: 'bedrock',
       region: 'us-west-2',
       environment: 'quickstart',
       codexAuthFile: expect.stringMatching(/\/\.codex\/auth\.json$/),
       acceptCodexCredentialRisk: false,
     });
     expect(awsQuickstartTerraformConfig(options, '7')).toMatchObject({
-      codex_auth_mode: 'chatgpt',
-      codex_bedrock_model_ids: [],
+      codex_auth_mode: 'bedrock',
+      codex_bedrock_model_ids: ['openai.gpt-5.6-terra'],
+      runtime_https_egress_cidrs: [],
       default_sandbox_mode: 'read-only',
       default_agent_network_access: false,
       enable_s3_files: false,
@@ -55,6 +56,7 @@ describe('AWS quickstart', () => {
   it('accepts deliberate file-credential consent and an existing secret ARN', () => {
     const secretArn = 'arn:aws:secretsmanager:us-west-2:123456789012:secret:rat/codex-auth';
     const options = parseAwsQuickstartOptions([
+      '--auth', 'chatgpt', '--https-egress-cidrs', '203.0.113.0/24',
       '--codex-auth-file',
       './fixtures/auth.json',
       '--codex-auth-secret-arn',
@@ -92,8 +94,9 @@ describe('AWS quickstart', () => {
     ])).toThrow('--codex-auth-secret-arn must be a Secrets Manager ARN');
   });
 
-  it('allows ChatGPT by default or a deliberate Bedrock model in every MicroVM Region', () => {
+  it('allows explicit ChatGPT destinations or a deliberate Bedrock model in every MicroVM Region', () => {
     expect(parseAwsQuickstartOptions([
+      '--auth', 'chatgpt', '--https-egress-cidrs', '203.0.113.0/24',
       '--region',
       'eu-west-1',
     ])).toMatchObject({ region: 'eu-west-1', driver: 'codex', auth: 'chatgpt' });
@@ -116,6 +119,13 @@ describe('AWS quickstart', () => {
       '--driver',
       'mock',
     ])).toMatchObject({ region: 'ap-northeast-1', driver: 'mock' });
+  });
+
+  it('requires explicit public destinations for ChatGPT and rejects open or malformed egress', () => {
+    expect(() => parseAwsQuickstartOptions(['--auth', 'chatgpt'])).toThrow('requires --https-egress-cidrs');
+    for (const cidr of ['0.0.0.0/0', '::/0', 'invalid', '203.0.113.1/33']) {
+      expect(() => parseAwsQuickstartOptions(['--https-egress-cidrs', cidr])).toThrow('IPv4 CIDRs');
+    }
   });
 
   it('uses stored deployment context rather than rejecting recovery from the shell Region', () => {
