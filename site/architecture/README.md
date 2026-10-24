@@ -1,9 +1,10 @@
 # Rat Things architecture explorer
 
-The homepage is a Three.js spatial schematic of the implementation. It is a
-teaching and inspection surface, not a deployment inventory or live Run console.
-The previous homepage remains at `overview.html`; documentation and the existing
-GitHub Pages release continue to use `scripts/build-pages.mjs` and `dist-pages`.
+The explorer at `/architecture/` is a Three.js spatial schematic of the implementation. It is a
+teaching and inspection surface, not a deployment inventory or live Run console. The product
+overview (`site/index.html`) is the homepage; `overview.html` redirects to it for older links.
+`scripts/build-pages.mjs` builds both into `dist-pages` and renders the catalogue as a text
+outline below the explorer, so the architecture is readable without JavaScript or WebGL.
 
 ## Develop and validate
 

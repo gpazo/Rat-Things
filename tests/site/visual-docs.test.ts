@@ -54,7 +54,7 @@ describe('visual documentation', () => {
   });
 
   it('uses the focused product SVG instead of the old raster C4 overview on the homepage', async () => {
-    const homepage = await readFile('site/overview.html', 'utf8');
+    const homepage = await readFile('site/index.html', 'utf8');
     expect(homepage).toContain('../docs/product-overview.svg');
     expect(homepage).toContain('Agents and Sessions');
     expect(homepage).toContain('Permission intersection');

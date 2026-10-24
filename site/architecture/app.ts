@@ -808,6 +808,6 @@ async function boot() {
 
 boot().catch((error) => {
   $("scene-status").innerHTML =
-    `${escape(error instanceof Error ? error.message : "The architecture could not be loaded.")}<br><a href="docs/architecture/">Read the architecture documentation ↗</a><br><button class="inspect-action" id="retry-load">Retry loading</button>`;
+    `${escape(error instanceof Error ? error.message : "The architecture could not be loaded.")}<br><a href="../docs/architecture/">Read the architecture documentation ↗</a><br><button class="inspect-action" id="retry-load">Retry loading</button>`;
   $("retry-load").addEventListener("click", () => location.reload());
 });

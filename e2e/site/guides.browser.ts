@@ -49,7 +49,7 @@ for (const width of [1440, 390]) {
 }
 
 test('website entry points and discovery files include the guides', async ({page, request}) => {
-  for (const path of ['/', '/overview.html']) {
+  for (const path of ['/', '/architecture/']) {
     await page.goto(path);
     await expect(page.locator('header').getByRole('link', {name: 'Guides', exact: true})).toBeVisible();
   }
@@ -60,4 +60,21 @@ test('website entry points and discovery files include the guides', async ({page
     expect(body).toContain('/guides/durable-ai-agent-state/');
     expect(body).not.toContain('codex-pilot-count');
   }
+});
+
+test('the homepage and architecture are readable without JavaScript', async ({request}) => {
+  const home = await (await request.get('/')).text();
+  expect(home).toContain('The open-source backend for cloud agents.');
+  expect(home).toContain('href="architecture/"');
+  const architecture = await (await request.get('/architecture/')).text();
+  expect(architecture).toContain('class="architecture-outline"');
+  for (const system of ['Ingress', 'Execution', 'Delivery']) expect(architecture).toContain(`<h3>${system} <span>`);
+  const sitemap = await (await request.get('/sitemap.xml')).text();
+  expect(sitemap).toContain('/Rat-Things/architecture/</loc>');
+});
+
+test('the former overview address redirects to the homepage', async ({page}) => {
+  await page.goto('/overview.html');
+  await expect(page).toHaveURL(/\/$/);
+  await expect(page.getByRole('heading', {name: 'The open-source backend for cloud agents.'})).toBeVisible();
 });

@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
-async function ready(page: Page, path = "/") {
+async function ready(page: Page, path = "/architecture/") {
   await page.goto(path);
   await expect(page.locator("#explorer")).toHaveAttribute("data-ready", "true");
   await expect(page.locator('canvas[data-renderer="webgl"]')).toBeVisible();
@@ -135,7 +135,7 @@ for (const [flow, first] of [
 test("supports keyboard explosion, labels, deep links and browser back", async ({
   page,
 }) => {
-  await ready(page, "/#node=execution&inside=execution&explode=100");
+  await ready(page, "/architecture/#node=execution&inside=execution&explode=100");
   await expect(page.locator("#detail-title")).toHaveText("Execution");
   const slider = page.getByRole("slider", { name: "Explode layers" });
   await slider.focus();
@@ -157,12 +157,12 @@ test("supports keyboard explosion, labels, deep links and browser back", async (
   );
 });
 
-test("serves under the GitHub Pages prefix and keeps overview and docs reachable", async ({
+test("serves under the GitHub Pages prefix and links back to the overview homepage", async ({
   page,
 }) => {
-  await ready(page, "/Rat-Things/");
+  await ready(page, "/Rat-Things/architecture/");
   await page.getByRole("link", { name: "Overview", exact: true }).click();
-  await expect(page).toHaveURL(/\/Rat-Things\/overview.html$/);
+  await expect(page).toHaveURL(/\/Rat-Things\/$/);
   await expect(
     page.getByRole("heading", {
       name: "The open-source backend for cloud agents.",
@@ -190,7 +190,7 @@ test("remains explorable without WebGL and offers a retry", async ({
       return Reflect.apply(original, this, [context, ...args]);
     } as typeof original;
   });
-  await page.goto("/");
+  await page.goto("/architecture/");
   await expect(
     page.getByText("The 3D view is unavailable in this browser.", {
       exact: false,
@@ -617,7 +617,7 @@ test("stops GPU drawing when a focused resource is idle and redraws after zoom",
       };
     }
   });
-  await ready(page, "/#node=runner&inside=execution&focus=runner&explode=100");
+  await ready(page, "/architecture/#node=runner&inside=execution&focus=runner&explode=100");
   await expect(page.locator("#scene-host")).toHaveAttribute(
     "data-view",
     "focused",
@@ -668,9 +668,9 @@ test("keeps the active resource name and handoff understandable on mobile", asyn
   const handoff = (await page.locator("#step-handoff").boundingBox())!;
   expect(handoff.x).toBeGreaterThanOrEqual(0);
   expect(handoff.x + handoff.width).toBeLessThanOrEqual(390);
-  await page.screenshot({
+  // The text outline below makes the page very tall on phones; capture the explorer itself.
+  await page.locator("#explorer").screenshot({
     path: "test-results/site/architecture-mobile-handoff.png",
-    fullPage: true,
   });
 });
 
@@ -752,7 +752,7 @@ test("handles a failed catalogue load without an endless loading state", async (
   await page.route("**/architecture/data.json", (route) =>
     route.fulfill({ status: 503, body: "Unavailable" }),
   );
-  await page.goto("/");
+  await page.goto("/architecture/");
   await expect(
     page.getByRole("button", { name: "Retry loading" }),
   ).toBeVisible();
@@ -831,8 +831,8 @@ test("supports a mobile component journey without horizontal overflow", async ({
       () => document.documentElement.scrollWidth <= window.innerWidth,
     ),
   ).toBe(true);
-  await page.screenshot({
+  // The text outline below makes the page very tall on phones; capture the explorer itself.
+  await page.locator("#explorer").screenshot({
     path: "test-results/site/architecture-mobile.png",
-    fullPage: true,
   });
 });

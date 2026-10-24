@@ -32,6 +32,7 @@ for (const file of ['app.ts', 'scene.ts', 'resources.ts', 'resource-manifest.jso
   await rm(join(output, 'architecture', file), { force: true });
 }
 await normalizeCopiedSitePaths();
+await renderArchitectureOutline();
 await cp('spec/openapi.json', join(output, 'openapi.json'));
 await cp('spec/schemas', join(output, 'schemas'), { recursive: true });
 await cp('examples', join(output, 'examples'), { recursive: true });
@@ -105,6 +106,7 @@ await writeFile(join(output, 'llms-full.txt'), renderLlmsFull(agentDocs));
 const generatedHtmlFiles = [
   join(output, 'index.html'),
   join(output, 'overview.html'),
+  join(output, 'architecture', 'index.html'),
   join(docsOutput, 'index.html'),
   join(guidesOutput, 'index.html'),
 ];
@@ -138,8 +140,51 @@ await writeFile(join(output, 'sitemap.xml'), renderSitemap(orderedDocs, orderedG
 await validateGeneratedLinks(generatedHtmlFiles);
 process.stdout.write(`built ${output} with ${orderedDocs.length} documentation pages and ${orderedGuides.length} guides\n`);
 
+// The explorer draws its model with JavaScript. Render the same catalogue as text so readers
+// without WebGL, search engines and agent scrapers get the architecture from the HTML itself.
+async function renderArchitectureOutline() {
+  const pagePath = join(output, 'architecture', 'index.html');
+  const data = JSON.parse(await readFile(join(output, 'architecture', 'data.json'), 'utf8'));
+  const names = new Map(data.systems.flatMap((system) => [
+    [system.id, system.title],
+    ...system.components.map((component) => [component.id, component.title]),
+  ]));
+  const systems = data.systems.map((system) => `
+        <section class="outline-system" id="outline-${escapeHtml(system.id)}">
+          <h3>${escapeHtml(system.title)} <span>${escapeHtml(system.subtitle)}</span></h3>
+          <p>${escapeHtml(system.description)}</p>
+          <dl>${system.components.map((component) => `
+            <dt>${escapeHtml(component.title)}</dt>
+            <dd>${escapeHtml(component.description)}</dd>`).join('')}
+          </dl>
+        </section>`).join('');
+  const journeys = data.journeys.map((journey) => `
+        <section class="outline-journey">
+          <h3>${escapeHtml(journey.title)}</h3>
+          <ol>${journey.steps.map((step) => `
+            <li><strong>${escapeHtml(step.title)}</strong> <span>${escapeHtml(names.get(step.node) ?? step.node)}</span> ${escapeHtml(step.description)}</li>`).join('')}
+          </ol>
+        </section>`).join('');
+  const outline = `<section class="architecture-outline" aria-labelledby="outline-title">
+      <div class="outline-intro">
+        <p class="small-label">The architecture in text</p>
+        <h2 id="outline-title">${data.systems.length} systems, ${data.systems.reduce((sum, system) => sum + system.components.length, 0)} components.</h2>
+        <p>The same source-backed model the 3D view draws: each system, what its components do, and how a request moves through them. Read the <a href="../docs/architecture/">architecture guide</a> for the full design.</p>
+      </div>
+      <h2 class="outline-heading">Systems</h2>
+      <div class="outline-systems">${systems}
+      </div>
+      <h2 class="outline-heading">Request paths</h2>
+      <div class="outline-journeys">${journeys}
+      </div>
+    </section>`;
+  const page = await readFile(pagePath, 'utf8');
+  if (!page.includes('<!-- architecture-outline -->')) throw new Error('architecture page is missing its outline placeholder');
+  await writeFile(pagePath, page.replace('<!-- architecture-outline -->', outline));
+}
+
 async function normalizeCopiedSitePaths() {
-  for (const filename of ['index.html', 'overview.html']) {
+  for (const filename of ['index.html']) {
     const homepagePath = join(output, filename);
     const homepage = (await readFile(homepagePath, 'utf8'))
       .replaceAll('../assets/', 'assets/')
@@ -200,7 +245,7 @@ function renderLlmsIndex(groups, documents, guideGroups, guides) {
     const guide = guides.get(file);
     return `- [${guide.title}](${pagesUrl}/guides/${guide.slug}/): ${guide.description}`;
   }).join('\n')}`).join('\n\n');
-  return `# Rat Things\n\n> An AWS backend for Codex and Pi Durable implementing the OpenAI Agents API. Pi uses approved Bedrock models. The host owns execution and state. Engineering preview.\n\n## Agent quickstart\n\n1. Discover the deployment through \`/.well-known/rat-things\`.\n2. Use its OpenAPI and Agents schemas.\n3. Create an Agent and a Session with explicit tools and environment settings.\n4. Follow Turns, Items and live Session events.\n5. Use Vaults for credentials and schedules or provider bindings for recurring input.\n\nRead [Connect an agent](${pagesUrl}/docs/agents/) and [Agents API](${pagesUrl}/docs/agents-api/).\n\n${guideSections}\n\n${sections}\n\n## Machine-readable contracts\n\n- [OpenAPI](${pagesUrl}/openapi.json)\n- [Agents schemas](${pagesUrl}/schemas/agents-api.schema.json)\n- [Operational corpus](${pagesUrl}/llms-full.txt)\n- [Repository](${repositoryUrl})\n`;
+  return `# Rat Things\n\n> An AWS backend for Codex and Pi Durable implementing the OpenAI Agents API. Pi uses approved Bedrock models. The host owns execution and state. Engineering preview.\n\n## Agent quickstart\n\n1. Discover the deployment through \`/.well-known/rat-things\`.\n2. Use its OpenAPI and Agents schemas.\n3. Create an Agent and a Session with explicit tools and environment settings.\n4. Follow Turns, Items and live Session events.\n5. Use Vaults for credentials and schedules or provider bindings for recurring input.\n\nRead [Connect an agent](${pagesUrl}/docs/agents/) and [Agents API](${pagesUrl}/docs/agents-api/). The [architecture page](${pagesUrl}/architecture/) outlines every system and request path.\n\n${guideSections}\n\n${sections}\n\n## Machine-readable contracts\n\n- [OpenAPI](${pagesUrl}/openapi.json)\n- [Agents schemas](${pagesUrl}/schemas/agents-api.schema.json)\n- [Operational corpus](${pagesUrl}/llms-full.txt)\n- [Repository](${repositoryUrl})\n`;
 
 }
 
@@ -730,6 +775,7 @@ function renderDocumentationNav(groups, documents, currentFile, prefix) {
 function renderSitemap(documents, guides) {
   const urls = [
     '/',
+    '/architecture/',
     '/guides/',
     ...guides.map((guide) => `/guides/${guide.slug}/`),
     '/docs/',

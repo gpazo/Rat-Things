@@ -1,0 +1,330 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Inside Rat Things — Interactive system architecture</title>
+    <meta
+      name="description"
+      content="Explore the Rat Things architecture in 3D. Follow a request through isolated Codex or Pi Durable execution, approved model access, durable storage, and result delivery."
+    />
+    <meta name="theme-color" content="#181819" />
+    <meta property="og:type" content="website" />
+    <meta
+      property="og:title"
+      content="Inside Rat Things — Interactive system architecture"
+    />
+    <meta
+      property="og:description"
+      content="An explorable, source-backed map of the self-hosted agent cloud."
+    />
+    <meta
+      property="og:image"
+      content="https://gpazo.github.io/Rat-Things/assets/brand/rat-things-og.png"
+    />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta
+      name="twitter:image"
+      content="https://gpazo.github.io/Rat-Things/assets/brand/rat-things-og.png"
+    />
+    <link rel="canonical" href="https://gpazo.github.io/Rat-Things/architecture/" />
+    <link rel="icon" href="../favicon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="../assets/brand/rat-things-mark-1024.png" />
+    <link rel="stylesheet" href="../brand.css" />
+    <link rel="stylesheet" href="styles.css" />
+    <script type="module" src="app.js"></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#systems">Skip to systems</a>
+    <header class="site-header">
+      <a class="brand" href="../" aria-label="Rat Things home"
+        ><span class="brand-mark" aria-hidden="true"></span>Rat Things<span class="brand-divider"></span
+        ><span class="header-section">Architecture</span></a
+      >
+      <nav aria-label="Website">
+        <a href="../">Overview</a
+        ><a href="../guides/">Guides</a
+        ><a href="../docs/">Documentation <span aria-hidden="true">↗</span></a
+        ><a
+          class="github-link"
+          href="https://github.com/gpazo/Rat-Things"
+          target="_blank"
+          rel="noreferrer"
+          >GitHub <span aria-hidden="true">↗</span></a
+        >
+      </nav>
+    </header>
+    <main class="explorer" id="explorer">
+      <section class="intro" aria-labelledby="page-title">
+        <div>
+          <p class="eyebrow">
+            <span class="status-dot"></span> The self-hosted agent cloud
+          </p>
+          <h1 id="page-title">A system you can see through.</h1>
+          <p class="intro-copy">
+            Create a Session. Run Turns in your AWS account. Retain and deliver the results.
+          </p>
+        </div>
+        <div class="intro-actions">
+          <button data-action="start" class="start-task">
+            Follow one task <span>→</span></button
+          ><button data-action="concepts" class="basics-button">
+            The basics <span>?</span>
+          </button>
+        </div>
+        <div class="intro-meta">
+          <span class="edition">INTERACTIVE ARCHITECTURE <span>01</span></span>
+          <p>
+            Built from the implementation<span class="preview-tag"
+              >Engineering preview</span
+            >
+          </p>
+        </div>
+      </section>
+      <div class="workspace">
+        <aside
+          class="systems-panel panel"
+          aria-label="Systems"
+          id="systems"
+          tabindex="-1"
+        >
+          <div class="panel-heading">
+            <h2>Systems</h2>
+            <span class="count" id="system-count">8</span
+            ><button
+              class="icon-button mobile-only"
+              aria-label="Close systems"
+              id="close-systems"
+            >
+              ×
+            </button>
+          </div>
+          <button class="all-systems" id="all-systems" aria-pressed="true">
+            <span aria-hidden="true">▧</span> Full architecture
+            <span aria-hidden="true">↗</span>
+          </button>
+          <label class="search-label" for="resource-search"
+            >Find a resource</label
+          >
+          <input
+            id="resource-search"
+            class="resource-search"
+            type="search"
+            placeholder="Search names or services…"
+            autocomplete="off"
+          />
+          <span id="search-status" class="sr-only" role="status"></span>
+          <div id="search-results" hidden></div>
+          <label class="search-label" for="focused-view"
+            >Explore a question</label
+          >
+          <select id="focused-view" aria-label="Focused view"></select>
+          <div id="system-list"></div>
+          <div class="systems-foot">
+            <span class="small-label">OUTSIDE THIS MODEL</span>
+            <div id="external-context"></div>
+            <span class="small-label">THE REQUEST PATH</span>
+            <div class="path-key"><i></i> Ingress → execution → delivery</div>
+            <p>Storage, access and recovery support the entire lifecycle.</p>
+          </div>
+          <a class="understand-link" href="../docs/architecture/"
+            >Read the architecture <span aria-hidden="true">↗</span></a
+          >
+        </aside>
+        <section class="stage" aria-label="Architecture model">
+          <div class="stage-top">
+            <div class="breadcrumb" id="breadcrumb">
+              Rat Things <span>/</span> Whole system
+            </div>
+            <span class="stage-mode" id="stage-mode">ASSEMBLED VIEW</span
+            ><button id="open-systems" class="mobile-only stage-systems">
+              Browse systems
+            </button>
+          </div>
+          <div class="scene-host" id="scene-host">
+            <p class="scene-loading" id="scene-status" role="status">
+              Assembling the architecture…
+            </p>
+          </div>
+          <div class="stage-annotation">
+            <span class="status-dot"></span
+            ><span id="model-caption">8 connected systems</span
+            ><span class="annotation-divider">/</span
+            ><span>Spatial schematic</span>
+          </div>
+          <div class="view-controls" role="group" aria-label="Camera controls">
+            <button
+              class="icon-button"
+              id="zoom-in"
+              aria-label="Zoom in"
+              title="Zoom in"
+            >
+              +</button
+            ><button
+              class="icon-button"
+              id="zoom-out"
+              aria-label="Zoom out"
+              title="Zoom out"
+            >
+              −</button
+            ><span class="divider"></span
+            ><button
+              class="icon-button"
+              id="rotate"
+              aria-label="Auto rotate"
+              aria-pressed="false"
+              title="Auto rotate"
+            >
+              ⟳</button
+            ><button
+              class="icon-button"
+              id="reset-camera"
+              aria-label="Reset camera"
+              title="Reset camera"
+            >
+              ⌖
+            </button>
+          </div>
+          <p class="orbit-hint">
+            DRAG TO ORBIT <span>·</span> SCROLL TO ZOOM <span>·</span> CLICK TO
+            INSPECT
+          </p>
+          <div class="explosion-dock">
+            <button
+              id="assemble"
+              class="dock-button"
+              title="Reassemble the full system"
+            >
+              <span aria-hidden="true">▣</span><span>Assemble</span>
+            </button>
+            <div class="explosion-control">
+              <div>
+                <label for="explosion">Explode layers</label
+                ><output id="explosion-value" for="explosion">0%</output>
+              </div>
+              <input
+                id="explosion"
+                type="range"
+                min="0"
+                max="100"
+                value="0"
+                aria-label="Explode layers"
+              />
+            </div>
+            <button
+              id="explode-all"
+              class="dock-button"
+              title="Separate the layers"
+            >
+              <span aria-hidden="true">⌗</span><span>Explode</span>
+            </button>
+            <span class="divider"></span
+            ><label class="labels-control"
+              ><input type="checkbox" id="labels" checked /><span
+                >Labels</span
+              ></label
+            >
+          </div>
+        </section>
+        <aside
+          class="inspector panel"
+          aria-label="System details"
+          id="inspector"
+        >
+          <div id="detail-content"></div>
+        </aside>
+      </div>
+      <section class="journey-panel" aria-label="Request walkthrough">
+        <div class="journey-picker">
+          <label class="small-label" for="journey">Follow a Session</label
+          ><select id="journey" aria-label="Request entry point">
+            <option value="api">API request</option>
+            <option value="webhook">Authenticated webhook</option>
+            <option value="thing">Scheduled Agent</option>
+</select
+          ><span class="simulation-note"
+            >Illustrated flow · no live execution</span
+          >
+        </div>
+        <div class="journey-main">
+          <div class="journey-title">
+            <span id="step-position">Ready to trace</span>
+            <h2 id="step-title">From request to result.</h2>
+            <span id="run-state" class="run-state">REQUEST</span>
+          </div>
+          <p id="step-description">
+            Walk through a request and see each system take its part.
+          </p>
+          <div id="step-handoff" class="step-handoff" hidden></div>
+          <div class="step-inspection">
+            <button id="inspect-step" hidden>Inspect step ↗</button
+            ><button id="resume-step" hidden>Return to step ↩</button>
+          </div>
+          <div
+            class="step-track"
+            id="step-track"
+            aria-label="Walkthrough steps"
+          ></div>
+        </div>
+        <div class="journey-actions">
+          <button
+            class="icon-button"
+            id="previous-step"
+            aria-label="Previous step"
+            disabled
+          >
+            ←</button
+          ><button id="play" class="play-button">
+            <span aria-hidden="true">→</span><span>Trace a Session</span></button
+          ><button class="icon-button" id="next-step" aria-label="Next step">
+            →
+          </button>
+          <button
+            id="autoplay"
+            class="autoplay-button"
+            aria-pressed="false"
+            title="Advance automatically every 7 seconds"
+          >
+            <span aria-hidden="true">▶</span> Play tour
+          </button>
+        </div>
+      </section>
+      <footer class="explorer-footer">
+        <span id="provenance">Architecture overview · Engineering preview</span
+        ><span
+          >Autonomous within a fixed boundary.
+          <a href="../docs/capability-envelope/">Explore the rules ↗</a></span
+        >
+      </footer>
+    </main>
+    <!-- architecture-outline -->
+    <dialog id="concepts-dialog" aria-labelledby="concepts-title">
+      <div class="concepts-heading">
+        <div>
+          <span class="small-label">A SHORT FIELD GUIDE</span>
+          <h2 id="concepts-title">The pieces, in plain language.</h2>
+        </div>
+        <button
+          id="close-concepts"
+          class="icon-button"
+          aria-label="Close field guide"
+        >
+          ×
+        </button>
+      </div>
+      <p class="concepts-intro">
+        This is a logical map of the code. Resource shapes help you tell roles
+        apart. Positions and lines are illustrative; they are not a physical
+        network diagram or live telemetry.
+      </p>
+      <div id="concept-list"></div>
+    </dialog>
+    <noscript
+      ><div class="no-script">
+        The 3D explorer needs JavaScript. You can read the complete
+        <a href="../docs/architecture/">system architecture</a> or the
+        <a href="../">product overview</a>.
+      </div></noscript
+    >
+  </body>
+</html>

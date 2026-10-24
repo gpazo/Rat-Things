@@ -2058,3 +2058,104 @@ select {
     bottom: 122px;
   }
 }
+
+/* Text outline of the model, below the explorer and in the static HTML. */
+.architecture-outline {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 72px 32px 96px;
+  border-top: 1px solid var(--line);
+  line-height: 1.6;
+}
+.architecture-outline a {
+  color: var(--rt-accent);
+}
+.outline-intro {
+  max-width: 720px;
+  margin-bottom: 48px;
+}
+.outline-intro h2 {
+  margin: 6px 0 12px;
+  font-size: clamp(1.9rem, 4vw, 2.6rem);
+  font-weight: 600;
+  line-height: 1.1;
+  letter-spacing: -0.025em;
+}
+.outline-intro p:last-child {
+  margin: 0;
+  color: var(--rt-text-secondary);
+}
+.outline-heading {
+  margin: 0 0 16px;
+  font-size: 1.1rem;
+  font-weight: 600;
+}
+.outline-systems,
+.outline-journeys {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 12px;
+  margin-bottom: 48px;
+}
+.outline-system,
+.outline-journey {
+  padding: 20px;
+  background: var(--rt-card);
+  border: 1px solid var(--line);
+  border-radius: var(--rt-radius);
+}
+.outline-system h3,
+.outline-journey h3 {
+  margin: 0 0 8px;
+  font-size: 1rem;
+  font-weight: 600;
+}
+.outline-system h3 span {
+  margin-left: 6px;
+  color: var(--muted);
+  font-weight: 400;
+}
+.outline-system p {
+  margin: 0 0 14px;
+  color: var(--rt-text-secondary);
+  font-size: 0.9rem;
+}
+.outline-system dl {
+  margin: 0;
+  font-size: 0.85rem;
+}
+.outline-system dt {
+  font-weight: 500;
+}
+.outline-system dd {
+  margin: 2px 0 10px;
+  color: var(--muted);
+}
+.outline-journey ol {
+  margin: 0;
+  padding-left: 1.2em;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+.outline-journey li {
+  margin-bottom: 8px;
+}
+.outline-journey strong {
+  color: var(--text);
+  font-weight: 500;
+}
+.outline-journey li span {
+  color: var(--rt-text-secondary);
+}
+.outline-journey li span::after {
+  content: " ·";
+}
+@media (max-width: 800px) {
+  .architecture-outline {
+    padding: 56px 16px 72px;
+  }
+  .outline-systems,
+  .outline-journeys {
+    grid-template-columns: 1fr;
+  }
+}
