@@ -93,6 +93,10 @@ run "offline_runtime_without_session_storage" {
     enable_s3_files = false
   }
   assert {
+    condition     = length(aws_budgets_budget.account_monthly) == 0 && output.budget_alert_name == null
+    error_message = "Budget alerts must be optional and absent by default."
+  }
+  assert {
     condition     = var.default_sandbox_mode == "read-only" && !var.default_agent_network_access && !contains(var.allowed_sandbox_modes, "danger-full-access")
     error_message = "Fresh deployments must default to a filesystem sandbox and no agent networking."
   }
@@ -508,4 +512,77 @@ run "pi_rejects_wildcard_inference_resources" {
     pi_bedrock_inference_resource_arns = ["arn:aws:bedrock:*::foundation-model/*"]
   }
   expect_failures = [var.pi_bedrock_inference_resource_arns]
+}
+
+run "optional_account_budget_alert" {
+  command = plan
+  module { source = "./modules/agent-runner" }
+  variables {
+    budget_alert = { monthly_usd = 19.99, email_addresses = ["owner@example.com"] }
+  }
+  assert {
+    condition = (
+      length(aws_budgets_budget.account_monthly) == 1 &&
+      aws_budgets_budget.account_monthly[0].limit_amount == "19.99" &&
+      aws_budgets_budget.account_monthly[0].limit_unit == "USD" &&
+      aws_budgets_budget.account_monthly[0].budget_type == "COST" &&
+      aws_budgets_budget.account_monthly[0].time_unit == "MONTHLY"
+    )
+    error_message = "An opted-in alert must track the configured monthly dollar amount."
+  }
+  assert {
+    condition = (
+      length(aws_budgets_budget.account_monthly[0].cost_filter) == 1 &&
+      tolist(aws_budgets_budget.account_monthly[0].cost_filter)[0].name == "LinkedAccount" &&
+      toset(tolist(aws_budgets_budget.account_monthly[0].cost_filter)[0].values) == toset(["123456789012"])
+    )
+    error_message = "The budget must cover the selected AWS account across regions, without excluding untagged costs."
+  }
+  assert {
+    condition = (
+      length(aws_budgets_budget.account_monthly[0].notification) == 1 &&
+      alltrue([for alert in aws_budgets_budget.account_monthly[0].notification :
+        alert.comparison_operator == "GREATER_THAN" && alert.notification_type == "ACTUAL" &&
+        alert.threshold_type == "PERCENTAGE" && alert.threshold == 100 &&
+        alert.subscriber_email_addresses == toset(["owner@example.com"])
+      ])
+    )
+    error_message = "Actual spending above the budget must email only the configured recipients."
+  }
+}
+
+run "budget_rejects_zero" {
+  command = plan
+  module { source = "./modules/agent-runner" }
+  variables {
+    budget_alert = { monthly_usd = 0, email_addresses = ["owner@example.com"] }
+  }
+  expect_failures = [var.budget_alert]
+}
+
+run "budget_rejects_fractional_cents" {
+  command = plan
+  module { source = "./modules/agent-runner" }
+  variables {
+    budget_alert = { monthly_usd = 19.999, email_addresses = ["owner@example.com"] }
+  }
+  expect_failures = [var.budget_alert]
+}
+
+run "budget_requires_recipients" {
+  command = plan
+  module { source = "./modules/agent-runner" }
+  variables {
+    budget_alert = { monthly_usd = 50, email_addresses = [] }
+  }
+  expect_failures = [var.budget_alert]
+}
+
+run "budget_rejects_invalid_email" {
+  command = plan
+  module { source = "./modules/agent-runner" }
+  variables {
+    budget_alert = { monthly_usd = 50, email_addresses = ["not-an-email"] }
+  }
+  expect_failures = [var.budget_alert]
 }

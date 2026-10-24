@@ -2,6 +2,7 @@ module "agent_runner" {
   session_checkpoints_enabled = var.session_checkpoints_enabled
   source                      = "./modules/agent-runner"
   owner_rate_limits           = var.owner_rate_limits
+  budget_alert                = var.budget_alert
   runtime_https_egress_cidrs  = var.runtime_https_egress_cidrs
 
   name_prefix                              = var.name_prefix

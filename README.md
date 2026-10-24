@@ -59,6 +59,16 @@ Bedrock, private AWS endpoints, and no public runtime egress by default. It then
 verifies two Turns and removes the test Session. The deployment remains available.
 Private endpoints and other AWS resources incur charges while the deployment exists.
 
+Optionally add a monthly AWS account spending alert before deploying:
+
+```bash
+npm run quickstart:aws -- --budget-usd 50 --budget-alert-emails you@example.com
+```
+
+Replace the example amount and address. The alert covers the selected AWS account,
+including its other workloads. It emails when reported monthly costs exceed the
+amount; it does not stop spending. Omit both options to skip it.
+
 Use `npm run quickstart:aws -- --dry-run` to inspect the configuration and
 `npm run quickstart:aws -- destroy` to remove it. See the
 [AWS quickstart](docs/quickstart.md) for profiles, models, and public HTTPS exceptions.

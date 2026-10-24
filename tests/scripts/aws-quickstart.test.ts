@@ -51,6 +51,43 @@ describe('AWS quickstart', () => {
       microvm_base_image_version: '7',
       force_destroy_data: true,
     });
+    expect(options.budgetAlert).toBeUndefined();
+    expect(awsQuickstartTerraformConfig(options, '7')).not.toHaveProperty('budget_alert');
+  });
+
+  it('configures an optional monthly USD email alert before deployment', () => {
+    const options = parseAwsQuickstartOptions(['--budget-usd', '19.99', '--budget-alert-emails', 'owner@example.com, team@example.com,owner@example.com']);
+    expect(options.budgetAlert).toEqual({ monthlyUsd: 19.99, emails: ['owner@example.com', 'team@example.com'] });
+    expect(awsQuickstartTerraformConfig(options, '7')).toMatchObject({
+      budget_alert: { monthly_usd: 19.99, email_addresses: ['owner@example.com', 'team@example.com'] },
+    });
+  });
+
+  it('rejects incomplete or invalid alerts before any AWS calls', () => {
+    expect(() => parseAwsQuickstartOptions(['--budget-usd', '50'])).toThrow('require both');
+    expect(() => parseAwsQuickstartOptions(['--budget-alert-emails', 'owner@example.com'])).toThrow('require both');
+    for (const amount of ['0', '-1', 'NaN', 'Infinity', '1e2', '0.001', '1.001', '1000000001', '1 USD']) {
+      expect(() => parseAwsQuickstartOptions(['--budget-usd', amount, '--budget-alert-emails', 'owner@example.com'])).toThrow('monthly USD amount');
+    }
+    for (const emails of ['owner', 'owner@example.com,', 'a b@example.com', 'a@b@example.com', 'a@b.com\nBcc:x@y.com', Array.from({ length: 11 }, (_, i) => `owner${i}@example.com`).join(',')]) {
+      expect(() => parseAwsQuickstartOptions(['--budget-usd', '50', '--budget-alert-emails', emails])).toThrow('1-10');
+    }
+  });
+
+  it('accepts cent amounts and ten recipients without requiring an alert for other commands', () => {
+    const emails = Array.from({ length: 10 }, (_, i) => `owner${i}@example.com`);
+    expect(parseAwsQuickstartOptions(['--budget-usd', '0.01', '--budget-alert-emails', emails.join(',')]).budgetAlert).toEqual({ monthlyUsd: 0.01, emails });
+    for (const command of ['preflight', 'status', 'sync-auth', 'destroy']) {
+      expect(parseAwsQuickstartOptions([command]).budgetAlert).toBeUndefined();
+    }
+  });
+
+  it('previews a configured alert without AWS credentials or deployment tools', async () => {
+    const { stdout } = await promisify(execFile)(process.execPath, ['--import', 'tsx', 'scripts/aws-quickstart.ts',
+      '--dry-run', '--json', '--budget-usd', '50', '--budget-alert-emails', 'owner@example.com'], { env: { PATH: '' } });
+    expect(JSON.parse(stdout)).toMatchObject({ changesExternalState: false,
+      terraform: { budget_alert: { monthly_usd: 50, email_addresses: ['owner@example.com'] } },
+    });
   });
 
   it('accepts deliberate file-credential consent and an existing secret ARN', () => {

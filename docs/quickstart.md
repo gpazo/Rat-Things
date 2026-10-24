@@ -49,6 +49,25 @@ The helper uses the Lambda URL transport when a dedicated Agents HTTP service is
 not configured. Large uploads, long-lived SSE and executor connections need the
 [public transport deployment](agents-api.md#deploy-the-public-transport).
 
+### Optional spending alert
+
+Before deploying, you can choose a monthly dollar amount and email recipients:
+
+```bash
+npm run quickstart:aws -- --budget-usd 50 --budget-alert-emails you@example.com
+```
+
+Replace the example amount and address. Supply both options or omit both; alerts
+are disabled by default. `--budget-alert-emails` accepts up to ten comma-separated
+addresses. Add `--dry-run` to review the configuration without AWS changes.
+
+This creates an AWS Budgets email alert when reported actual monthly costs exceed
+the amount in USD. It includes all services and regions in the selected AWS account,
+including other workloads. It does not allocate shared costs to Rat Things owners,
+block execution or affect your local ChatGPT subscription. AWS billing data and
+notifications are delayed, so spending can exceed the amount before an alert arrives.
+See [costs and budget alerts](costs.md#optional-budget-alerts) for the scope and Terraform setup.
+
 ## Connect an installed deployment
 
 From a source checkout, run `npm ci` and invoke the CLI with `npm run rat-things --`.

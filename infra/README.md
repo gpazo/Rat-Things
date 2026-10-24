@@ -29,11 +29,11 @@ The module creates an ECR repository for the HTTP/relay image. Setting
 cluster, load balancer, CloudFront relay distribution and transport VPC. EC2 workers and
 their AMI pipeline are separate opt-ins.
 
-Without S3 Files or dedicated transport, MicroVM builds and runs use AWS-managed
-networking and need no customer VPC. Enabling S3 Files creates a dedicated VPC, private
-and public subnets, NAT gateway and service endpoints. A Lambda MicroVM network connector
-is added when that backend is enabled. These resources mount persistent Session storage;
-they do not connect workers to an existing application VPC.
+MicroVM runs use a runtime VPC connector and private AWS endpoints even without
+S3 Files. Public runtime HTTPS egress requires explicit destination CIDRs; only
+that opt-in creates a NAT route. Image builds use separate AWS-managed networking.
+S3 Files adds persistent Session storage to the runtime network. These resources
+do not connect workers to an existing application VPC.
 
 ## Package, validate, and deploy
 
@@ -273,6 +273,31 @@ zero blocks new admissions for that owner. Existing operation IDs remain idempot
 Cancellation and reads remain available when the limit is exhausted. Rejections return
 HTTP 429 with `Retry-After`. A storage failure denies new work instead of skipping the limit.
 Rate limits do not impose a dollar spending cap.
+
+## Optional budget alert
+
+Set this before applying if you want a monthly AWS account spending email:
+
+```hcl
+budget_alert = {
+  monthly_usd     = 50
+  email_addresses = ["you@example.com"]
+}
+```
+
+Replace the example amount and address. The default is `null`, which creates no
+budget. When enabled, the module creates an AWS Budgets `COST` budget in USD with
+one actual-spend notification above 100% of the monthly amount. It filters to the
+deployment's AWS account across all regions and services, including other workloads
+and costs already incurred in the current month. Shared costs are not split by
+Rat Things owner. No budget action or execution denial is configured.
+
+The deployment identity needs permission to manage AWS Budgets and its email
+notifications. The `budget_alert_name` output identifies the budget; setting the
+input back to `null` or destroying the stack removes it. The AWS quickstart exposes
+the same option through `--budget-usd` and `--budget-alert-emails`. Local subscription
+use requires neither AWS nor a budget. See [costs](../docs/costs.md#optional-budget-alerts)
+for delayed billing data and alert scope.
 
 ## MicroVM lifecycle
 

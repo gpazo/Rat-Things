@@ -55,6 +55,7 @@ export interface AwsQuickstartOptions {
   auth: 'chatgpt' | 'bedrock';
   model?: string;
   httpsEgressCidrs: string[];
+  budgetAlert?: { monthlyUsd: number; emails: string[] };
   codexAuthFile: string;
   codexAuthSecretArn?: string;
   profile?: string;
@@ -93,6 +94,7 @@ interface QuickstartResult {
   driver: 'codex' | 'mock';
   auth: 'chatgpt' | 'bedrock';
   model?: string;
+  budgetAlert?: AwsQuickstartOptions['budgetAlert'];
   codexAuthSecret?: QuickstartCodexAuthSecret;
   baseImageVersion: string;
   source: {
@@ -163,6 +165,7 @@ interface QuickstartSetupContext {
   driver: 'codex' | 'mock';
   auth: 'chatgpt' | 'bedrock';
   model?: string;
+  budgetAlert?: AwsQuickstartOptions['budgetAlert'];
   codexAuthSecret?: QuickstartCodexAuthSecret;
   baseImageVersion: string;
   startedAt: string;
@@ -231,6 +234,8 @@ export function parseAwsQuickstartOptions(argv: string[]): AwsQuickstartOptions 
     'codex-auth-secret-arn',
     'microvm-base-image-version',
     'https-egress-cidrs',
+    'budget-usd',
+    'budget-alert-emails',
   ]);
   for (const name of values.keys()) {
     if (!known.has(name)) throw new Error(`unknown option --${name}`);
@@ -277,6 +282,22 @@ export function parseAwsQuickstartOptions(argv: string[]): AwsQuickstartOptions 
   if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,31}$/.test(environment)) {
     throw new Error('--environment must contain 1-32 letters, numbers, underscores, or hyphens');
   }
+  const amount = values.get('budget-usd');
+  const recipients = values.get('budget-alert-emails');
+  if ((amount === undefined) !== (recipients === undefined)) {
+    throw new Error('Optional AWS budget alerts require both --budget-usd and --budget-alert-emails');
+  }
+  let budgetAlert: AwsQuickstartOptions['budgetAlert'];
+  if (amount !== undefined && recipients !== undefined) {
+    if (!/^\d+(?:\.\d{1,2})?$/.test(amount) || Number(amount) <= 0 || Number(amount) > 1_000_000_000) {
+      throw new Error('--budget-usd must be a monthly USD amount from 0.01 to 1000000000 with at most two decimal places');
+    }
+    const emails = [...new Set(recipients.split(',').map(value => value.trim()))];
+    if (emails.length > 10 || emails.some(email => email.length > 254 || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email))) {
+      throw new Error('--budget-alert-emails requires 1-10 comma-separated email addresses');
+    }
+    budgetAlert = { monthlyUsd: Number(amount), emails };
+  }
   return {
     command,
     region,
@@ -284,6 +305,7 @@ export function parseAwsQuickstartOptions(argv: string[]): AwsQuickstartOptions 
     driver,
     auth,
     httpsEgressCidrs,
+    ...(budgetAlert ? { budgetAlert } : {}),
     ...(model ? { model } : {}),
     codexAuthFile: resolve(
       values.get('codex-auth-file')
@@ -315,6 +337,9 @@ export function awsQuickstartTerraformConfig(
     enable_point_in_time_recovery: false,
     enable_detailed_api_metrics: false,
     runtime_https_egress_cidrs: options.httpsEgressCidrs,
+    ...(options.budgetAlert ? { budget_alert: {
+      monthly_usd: options.budgetAlert.monthlyUsd, email_addresses: options.budgetAlert.emails,
+    } } : {}),
     default_sandbox_mode: 'read-only',
     default_agent_network_access: false,
     allow_agent_aws_credential_chain: false,
@@ -482,6 +507,9 @@ async function setup(options: AwsQuickstartOptions): Promise<void> {
         : `real Codex via paid Bedrock model ${options.model}`
       : 'deterministic mock (infrastructure proof only, not a model)'}`,
     'Scope:       one Agent and two Turns in a disposable Session; private AWS endpoints; no tools, OAuth or sharing',
+    options.budgetAlert
+      ? `Budget:      email ${options.budgetAlert.emails.join(', ')} when this AWS account's monthly costs exceed $${options.budgetAlert.monthlyUsd.toFixed(2)} USD; delayed alert, no spending cap`
+      : 'Budget:      optional AWS spending alert not configured',
     'State:       .runtime/aws-quickstart/terraform.tfstate',
     'Debug log:   .runtime/aws-quickstart/quickstart.log',
     '',
@@ -507,6 +535,7 @@ async function setup(options: AwsQuickstartOptions): Promise<void> {
     driver: options.driver,
     auth: options.auth,
     ...(options.driver === 'codex' && options.model ? { model: options.model } : {}),
+    ...(options.budgetAlert ? { budgetAlert: options.budgetAlert } : {}),
     ...(plannedCodexAuthSecret ? { codexAuthSecret: plannedCodexAuthSecret } : {}),
     baseImageVersion,
     startedAt,
@@ -585,6 +614,7 @@ async function setup(options: AwsQuickstartOptions): Promise<void> {
     driver: options.driver,
     auth: options.auth,
     ...(options.driver === 'codex' && options.model ? { model: options.model } : {}),
+    ...(options.budgetAlert ? { budgetAlert: options.budgetAlert } : {}),
     ...(codexAuthSecret ? { codexAuthSecret } : {}),
     baseImageVersion,
     source: {
@@ -1352,6 +1382,8 @@ function printHelp(): void {
   process.stdout.write(`  --codex-auth-secret-arn ARN         use an existing operator-managed auth-file secret\n`);
   process.stdout.write(`  --accept-codex-credential-risk      required with --yes for file-based ChatGPT auth\n`);
   process.stdout.write(`  --https-egress-cidrs CIDRS          optional comma-separated provider IPv4 destinations\n`);
+  process.stdout.write(`  --budget-usd AMOUNT                 optional monthly AWS account alert in USD; does not stop spending\n`);
+  process.stdout.write(`  --budget-alert-emails EMAILS        required with --budget-usd; 1-10 comma-separated addresses\n`);
   process.stdout.write(`  --model MODEL                       required for ChatGPT; Bedrock default: openai.gpt-5.6-terra\n`);
   process.stdout.write(`  --microvm-base-image-version VALUE  override automatic discovery\n`);
   process.stdout.write(`  --dry-run                            make no external changes\n`);

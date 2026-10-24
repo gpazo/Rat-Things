@@ -96,6 +96,11 @@ output "publication_delivery" {
   description = "Isolated file, site, and video publication delivery outputs."
   value       = module.agent_runner.publication_delivery
 }
+output "budget_alert_name" {
+  description = "Optional AWS account monthly cost alert name, or null when disabled."
+  value       = module.agent_runner.budget_alert_name
+}
+
 output "agents_api_base_url" {
   value = module.agent_runner.agents_api_base_url
 }

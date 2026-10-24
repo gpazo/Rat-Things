@@ -11,6 +11,29 @@ variable "aws_profile" {
   nullable    = true
 }
 
+variable "budget_alert" {
+  description = "Optional monthly USD alert for all costs in this AWS account. Null disables it. Alerts are delayed and never stop execution."
+  type = object({
+    monthly_usd     = number
+    email_addresses = set(string)
+  })
+  default = null
+
+  validation {
+    condition = var.budget_alert == null ? true : try(
+      var.budget_alert.monthly_usd >= 0.01 &&
+      var.budget_alert.monthly_usd <= 1000000000 &&
+      floor(var.budget_alert.monthly_usd * 100) == var.budget_alert.monthly_usd * 100 &&
+      length(var.budget_alert.email_addresses) >= 1 &&
+      length(var.budget_alert.email_addresses) <= 10 &&
+      alltrue([for email in var.budget_alert.email_addresses :
+        length(email) <= 254 && can(regex("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$", email))
+      ]), false
+    )
+    error_message = "budget_alert requires a monthly USD amount from 0.01 to 1000000000 with at most two decimal places, and 1-10 valid email addresses."
+  }
+}
+
 variable "name_prefix" {
   type    = string
   default = "rat-things"
