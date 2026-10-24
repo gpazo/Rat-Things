@@ -1,9 +1,10 @@
-import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
+import { execFile, spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import { constants, createReadStream } from 'node:fs';
-import { lstat, mkdir, mkdtemp, open, readFile, rm, statfs, writeFile } from 'node:fs/promises';
-import { basename, isAbsolute, join } from 'node:path';
+import { lstat, mkdir, mkdtemp, open, readFile, readdir, rm, statfs, writeFile } from 'node:fs/promises';
+import { basename, dirname, isAbsolute, join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
+import { promisify } from 'node:util';
 import type { LocalRuntime, LocalStartRequest, LocalWorkerConfiguration } from '../core/local-runtime-ports.js';
 import type { PinnedNativeRelease } from '../core/native-installation-ports.js';
 import type { LocalRuntimeStatus } from '../domain/local-runtime.js';
@@ -11,12 +12,13 @@ import { localWorkspaceIdentity, sameLocalWorkspace, type LocalWorkspaceIdentity
 import { archiveWorkspace, type PortableFile } from '../domain/workspace-transfer.js';
 import { LocalRuntimeLifecycle } from './local-runtime-lifecycle.js';
 import { readNativeHostFacts } from './local-native-host.js';
-import { LocalRuntimeAdmissionError, nativeAdmission, type NativeHostFacts, type NativeResources } from '../domain/local-native-admission.js';
+import { LocalRuntimeAdmissionError, nativeAdmission, linuxKvmAdmission, type NativeHostFacts, type NativeResources } from '../domain/local-native-admission.js';
 import { localWorkspaceSetupTimeoutMs } from '../domain/local-workspace-setup.js';
 
 export type NativeRuntimeSource =
   | { readonly kind: 'trusted-release'; readonly release: PinnedNativeRelease }
-  | { readonly kind: 'development-assets'; readonly directory: string };
+  | { readonly kind: 'development-assets'; readonly directory: string }
+  | { readonly kind: 'linux-kvm-development'; readonly directory: string };
 export type NativeRuntimeSourceProvider = () => NativeRuntimeSource | Promise<NativeRuntimeSource>;
 interface NativeRuntimeFile { readonly path: string; readonly sha256: string }
 interface NativeRuntimeImage {
@@ -25,6 +27,7 @@ interface NativeRuntimeImage {
   readonly helper: NativeRuntimeFile;
   readonly kernel: NativeRuntimeFile;
   readonly initrd: NativeRuntimeFile;
+  readonly dependencies?: readonly NativeRuntimeFile[];
 }
 interface Pending { resolve(value: unknown): void; reject(error: Error): void; timer: NodeJS.Timeout }
 interface BootRecord { sessionId: string; mode: string; controlReadyMs: number; cpuCount: number; memoryMiB: number }
@@ -46,7 +49,7 @@ export interface NativeRuntimeDependencies {
 }
 export interface NativeRuntimeOptions {
   readonly cpuCount?: 1;
-  readonly developmentStorage?: 'native-proof';
+  readonly developmentStorage?: 'native-proof' | 'linux-kvm-workspaces';
   readonly dependencies?: NativeRuntimeDependencies;
 }
 type Reservation = { sessionId: string; kind: 'pending'; operation: 'worker' | 'snapshot' | 'probe' } | { sessionId: string; kind: 'running' };
@@ -183,8 +186,50 @@ function developmentImage(directory: string, value: unknown): NativeRuntimeImage
     kernel: file('Image', manifest.kernelSha256), helper: file('rat-native-worker', manifest.helperSha256) };
 }
 
+function linuxDevelopmentImage(directory: string, value: unknown): NativeRuntimeImage {
+  if (process.platform !== 'linux' || process.arch !== 'x64') throw new Error('Linux KVM assets require an x86-64 Linux host');
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Invalid Linux KVM image manifest');
+  const manifest = value as Record<string, unknown>;
+  if (manifest.version !== 1 || manifest.target !== 'x86_64-unknown-linux-gnu' || !Array.isArray(manifest.files)
+    || manifest.files.length > 20000) throw new Error('Invalid Linux KVM image manifest');
+  const file = (name: string, sha256: unknown): NativeRuntimeFile => {
+    if (typeof sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(sha256)) throw new Error('Invalid Linux KVM image digest');
+    return { path: join(directory, name), sha256 };
+  };
+  const paths = new Set<string>();
+  const dependencies = manifest.files.map((entry: unknown) => {
+    if (!entry || typeof entry !== 'object') throw new Error('Invalid Linux KVM dependency');
+    const item = entry as Record<string, unknown>;
+    if (typeof item.path !== 'string' || !item.path.startsWith('qemu/') || item.path.length > 4096 || item.path.includes('\\')
+      || item.path.includes('\0') || item.path.split('/').some(part => part === '..' || part === '.' || part === '') || paths.has(item.path)) {
+      throw new Error('Invalid Linux KVM dependency path');
+    }
+    paths.add(item.path);
+    return file(item.path, item.sha256);
+  });
+  if (!paths.has('qemu/usr/bin/qemu-system-x86_64')) throw new Error('Linux KVM image has no pinned QEMU executable');
+  const initrd = file('worker-initramfs.gz', manifest.initrdSha256);
+  return { provenance: 'linux-kvm-development', id: initrd.sha256, initrd,
+    kernel: file('Image', manifest.kernelSha256), helper: file('rat-linux-worker', manifest.helperSha256), dependencies };
+}
+
+const imageAdmission = (image: Pick<NativeRuntimeImage, 'provenance'>) => image.provenance === 'linux-kvm-development' ? linuxKvmAdmission : nativeAdmission;
+
+async function linuxImageFiles(directory: string): Promise<string[]> {
+  if (!(await lstat(directory)).isDirectory()) throw new Error('Linux KVM asset directories cannot be symlinks');
+  const files: string[] = [];
+  for (const entry of await readdir(directory, { withFileTypes: true })) {
+    const path = join(directory, entry.name);
+    if (entry.isDirectory()) files.push(...await linuxImageFiles(path));
+    else if (entry.isFile()) files.push(path);
+    else throw new Error('Linux KVM assets cannot contain symlinks or special files');
+  }
+  return files;
+}
+
 export class LocalNativeRuntime implements LocalRuntime {
   private readonly machines = new Map<string, NativeMachine>();
+  private readonly unallocated = new Set<string>();
   private reservation: Reservation | undefined;
   private readonly exited = new WeakSet<NativeMachine>();
   private readonly lifecycle = new LocalRuntimeLifecycle();
@@ -192,7 +237,7 @@ export class LocalNativeRuntime implements LocalRuntime {
   private readonly disposable = new WeakSet<NativeMachine>();
   private readonly cpuCount: 1;
   private readonly dependencies: NativeRuntimeDependencies;
-  private readonly workspaceRoot: 'native-workspaces' | 'native-proof';
+  private readonly workspaceRoot: 'native-workspaces' | 'native-proof' | 'linux-kvm-workspaces';
   readonly boots: BootRecord[] = [];
   constructor(private readonly directory: string, private readonly source: NativeRuntimeSourceProvider, options: NativeRuntimeOptions = {}) {
     this.cpuCount = options.cpuCount ?? 1;
@@ -202,24 +247,42 @@ export class LocalNativeRuntime implements LocalRuntime {
 
   async status(): Promise<LocalRuntimeStatus> {
     const image = await this.verifyImage();
-    const admission = nativeAdmission({ ...await this.capacityFacts(image.helper.path), requestedCPUCount: this.cpuCount,
+    const admission = imageAdmission(image)({ ...await this.capacityFacts(image.helper.path), requestedCPUCount: this.cpuCount,
       slotAvailable: this.reservation === undefined, requiredDiskBytes: workspaceBytes });
-    return { ready: admission.kind !== 'unsupported', engine: 'unknown', platform: 'linux/arm64', image: `${image.provenance === 'trusted-release' ? 'native' : 'native-proof'}:${image.id}`,
+    return { ready: admission.kind !== 'unsupported', engine: 'unknown', platform: image.provenance === 'linux-kvm-development' ? 'linux/amd64' : 'linux/arm64',
+      image: `${image.provenance === 'trusted-release' ? 'native' : image.provenance === 'linux-kvm-development' ? 'linux-kvm-development' : 'native-proof'}:${image.id}`,
       native: { configuredCapacity: this.dependencies.configuredCapacity ?? 1, effectiveCapacity: admission.effectiveCapacity,
         occupied: this.reservation !== undefined, admission },
-      checks: [{ id: 'image', ready: true, message: image.provenance === 'trusted-release' ? 'Verified native runtime image' : 'Verified opt-in native worker proof image' },
+      checks: [{ id: 'image', ready: true, message: image.provenance === 'trusted-release' ? 'Verified native runtime image' : image.provenance === 'linux-kvm-development' ? 'Locally built Linux KVM development image. File integrity checked.' : 'Verified opt-in native worker proof image' },
         { id: 'host', ready: admission.kind !== 'unsupported', message: admission.kind === 'unsupported' ? admission.message : 'One native VM, one CPU and 2 GiB of guest memory.' }] };
   }
 
   private async image(): Promise<NativeRuntimeImage> {
     const source = await this.source();
-    return source.kind === 'trusted-release' ? trustedReleaseImage(source.release)
-      : developmentImage(source.directory, JSON.parse(await readFile(join(source.directory, 'manifest.json'), 'utf8')));
+    if (source.kind === 'trusted-release') return trustedReleaseImage(source.release);
+    const manifest = JSON.parse(await readFile(join(source.directory, 'manifest.json'), 'utf8'));
+    return source.kind === 'linux-kvm-development' ? linuxDevelopmentImage(source.directory, manifest) : developmentImage(source.directory, manifest);
   }
 
   private async verifyImage(candidate?: NativeRuntimeImage, signal?: AbortSignal) {
     const image = candidate ?? await this.image();
-    for (const file of [image.initrd, image.kernel, image.helper]) {
+    if (image.provenance === 'linux-kvm-development') {
+      const declared = image.dependencies!.map(file => file.path).sort();
+      const actual = (await linuxImageFiles(join(dirname(image.helper.path), 'qemu'))).sort();
+      if (JSON.stringify(actual) !== JSON.stringify(declared)) throw new Error('Linux KVM dependency inventory has missing or unlisted files');
+      const kernel = await open(image.kernel.path, constants.O_RDONLY | constants.O_NOFOLLOW);
+      try {
+        const bytes = Buffer.alloc(0x238);
+        const read = await kernel.read(bytes, 0, bytes.length, 0);
+        if (read.bytesRead !== bytes.length || bytes.readUInt16LE(0x1fe) !== 0xaa55 || bytes.toString('ascii', 0x202, 0x206) !== 'HdrS'
+          || !(bytes.readUInt16LE(0x236) & 1)) throw new Error('Linux KVM requires an x86-64 Linux boot image');
+      } finally { await kernel.close(); }
+    }
+    for (const file of [image.initrd, image.kernel, image.helper, ...image.dependencies ?? []]) {
+      if (image.provenance === 'linux-kvm-development') {
+        const state = await lstat(file.path);
+        if (!state.isFile() || state.mode & 0o022) throw new Error('Linux KVM assets must be regular files without group or other write permission');
+      }
       if (await hashFile(file.path, signal) !== file.sha256) throw new Error('Native runtime image integrity check failed');
     }
     return image;
@@ -241,7 +304,9 @@ export class LocalNativeRuntime implements LocalRuntime {
     const reading = this.capacityFacts(image.helper.path);
     const facts = await (signal ? cancelledCheck(reading, signal) : reading);
     signal?.throwIfAborted();
-    const admission = nativeAdmission({ ...facts, requestedCPUCount: this.cpuCount, requiredDiskBytes: workspaceBytes,
+    const requiredDiskBytes = workspaceBytes + (image.provenance === 'linux-kvm-development' ? (await lstat(image.initrd.path)).size + 1024 ** 2 : 0);
+    const admission = imageAdmission(image)({ ...facts, requestedCPUCount: this.cpuCount, requiredDiskBytes,
+      existingAllocation: this.machines.get(sessionId)?.alive() === true,
       slotAvailable: !this.reservation || this.reservation.sessionId === sessionId && this.reservation.kind === 'running' });
     if (admission.kind !== 'admitted') throw new LocalRuntimeAdmissionError(admission);
     this.reservation = { sessionId, kind: 'pending', operation };
@@ -418,7 +483,15 @@ export class LocalNativeRuntime implements LocalRuntime {
     const sessionId = request.worker.sessionId;
     if (localWorkspaceIdentity(request.workspace.identity).sessionId !== sessionId) throw new Error('Workspace claim does not match Session');
     this.workspaceDirectory(sessionId);
-    const { image, resources } = await this.reserve(sessionId, 'worker');
+    this.unallocated.delete(sessionId);
+    const { image, resources } = await this.reserve(sessionId, 'worker').catch(async error => {
+      // Only a rejected fresh reservation proves that this runtime never called
+      // the durable claim or allocated storage. Absence after restart proves neither.
+      if (request.workspace.kind === 'create' && !this.machines.has(sessionId) && await this.workspaceAbsent(sessionId)) {
+        this.unallocated.add(sessionId);
+      }
+      throw error;
+    });
     try {
       await commitWorkspaceClaim();
       const binding = await this.diskBinding(sessionId, request.workspace);
@@ -436,14 +509,47 @@ export class LocalNativeRuntime implements LocalRuntime {
 
   admitTurn(sessionId: string): Promise<void> { return this.lifecycle.run(sessionId, async () => {
     const source = await this.source();
-    const helper = source.kind === 'trusted-release' ? source.release.helperPath : join(source.directory, 'rat-native-worker');
+    const helper = source.kind === 'trusted-release' ? source.release.helperPath : join(source.directory, source.kind === 'linux-kvm-development' ? 'rat-linux-worker' : 'rat-native-worker');
     const facts = await this.capacityFacts(helper);
-    const admission = nativeAdmission({ ...facts, requestedCPUCount: this.cpuCount, requiredDiskBytes: 0,
+    const admission = imageAdmission({ provenance: source.kind })({ ...facts, requestedCPUCount: this.cpuCount, requiredDiskBytes: 0, existingAllocation: true,
       slotAvailable: this.reservation?.sessionId === sessionId && this.reservation.kind === 'running' });
     if (admission.kind !== 'admitted') throw new LocalRuntimeAdmissionError(admission);
+    if (!await this.workerRunning(sessionId)) throw new Error('The isolated native worker is unavailable');
   }); }
 
-  stop(sessionId: string) { return this.lifecycle.run(sessionId, () => this.stopWorker(sessionId)); }
+  stop(sessionId: string) { return this.lifecycle.run(sessionId, async () => {
+    if (this.machines.has(sessionId)) await this.stopWorker(sessionId);
+    else await this.confirmColdStop(sessionId);
+  }); }
+  private async confirmColdStop(sessionId: string) {
+    if (this.unallocated.has(sessionId)) {
+      if (await this.workspaceAbsent(sessionId)) return;
+      this.unallocated.delete(sessionId);
+    }
+    const source = await this.source();
+    if (source.kind !== 'linux-kvm-development') return;
+    const image = await this.verifyImage();
+    const binding = await this.diskBinding(sessionId);
+    const disk = join(this.workspaceDirectory(sessionId), 'workspace.raw');
+    const configuration = JSON.stringify({ disk, device: binding.device, inode: binding.inode, filesystemUUID: binding.filesystemUUID });
+    const deadline = Date.now() + 3000;
+    for (;;) {
+      const result = await promisify(execFile)(image.helper.path, ['--workspace-idle', configuration], { env: {}, timeout: 1000, maxBuffer: 4096, encoding: 'utf8' });
+      const state = JSON.parse(result.stdout) as { stopped?: unknown };
+      if (state.stopped === true) return;
+      if (state.stopped !== false || Date.now() >= deadline) throw new Error('Native predecessor cleanup could not be confirmed');
+      await delay(100);
+    }
+  }
+  private async workspaceAbsent(sessionId: string): Promise<boolean> {
+    const workspace = this.workspaceDirectory(sessionId);
+    try {
+      const root = await lstat(join(this.directory, this.workspaceRoot));
+      if (!root.isDirectory() || root.isSymbolicLink()) throw new Error('Invalid native workspace root');
+    } catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return true; throw error; }
+    try { await lstat(workspace); return false; }
+    catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return true; throw error; }
+  }
   private async stopWorker(sessionId: string) {
     const vm = this.machines.get(sessionId);
     if (!vm) return;
@@ -460,7 +566,7 @@ export class LocalNativeRuntime implements LocalRuntime {
   private async workerRunning(sessionId: string) {
     const vm = this.machines.get(sessionId);
     if (!vm?.alive()) return false;
-    try { return (await vm.control({ operation: 'health' }, 5000) as { ready?: boolean }).ready === true; }
+    try { return ready(await vm.control({ operation: 'health' }, 5000)) && vm.alive(); }
     catch { return false; }
   }
 

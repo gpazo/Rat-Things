@@ -40,26 +40,31 @@ reply(r.id,{});
   const executor = spawn(binary, ['exec-server', '--remote', address, '--environment-id', 'env_fixture'], {
     env: { PATH: process.env.PATH, HOME: home, CODEX_HOME: home, CODEX_API_KEY: 'fixture-executor' }, detached: true,
   });
-  executor.stdout.resume(); executor.stderr.resume();
-  const rpc = new CodexRpcClient({ binary, binaryArguments: isolatedCodexArguments(['app-server']), cwd: home,
-    environment: { PATH: process.env.PATH, HOME: home, CODEX_HOME: home, CODEX_API_KEY: 'unused-fixture', CODEX_EXEC_SERVER_NOISE_REGISTRY_URL: address,
-      CODEX_EXEC_SERVER_NOISE_ENVIRONMENT_ID: 'env_fixture', CODEX_EXEC_SERVER_NOISE_AUTH_TOKEN: 'fixture-harness' } });
+  let executorErrors = '';
+  executor.stdout.resume(); executor.stderr.setEncoding('utf8');
+  executor.stderr.on('data', (chunk: string) => { executorErrors = (executorErrors + chunk).slice(-4096); });
+  let rpc: CodexRpcClient | undefined;
   try {
     await expect.poll(() => connected, { timeout: 5000 }).toBe(true);
     await expect.poll(async () => (await fetch(`${address}/health`)).status, { timeout: 5000 }).toBe(200);
+    rpc = new CodexRpcClient({ binary, binaryArguments: isolatedCodexArguments(['app-server']), cwd: home,
+      environment: { PATH: process.env.PATH, HOME: home, CODEX_HOME: home, CODEX_API_KEY: 'unused-fixture', CODEX_EXEC_SERVER_NOISE_REGISTRY_URL: address,
+        CODEX_EXEC_SERVER_NOISE_ENVIRONMENT_ID: 'env_fixture', CODEX_EXEC_SERVER_NOISE_AUTH_TOKEN: 'fixture-harness' } });
     await rpc.initialize();
-    await expect.poll(() => rpc.call('environment/status', { environmentId: 'remote' }), { timeout: 5000 }).toMatchObject({ status: 'ready' });
+    await expect.poll(() => rpc!.call('environment/status', { environmentId: 'remote' }), { timeout: 5000 }).toMatchObject({ status: 'ready' });
     const start = await rpc.call('thread/start', { cwd: home, environments: [{ environmentId: 'remote', cwd: home }], ephemeral: true,
       approvalPolicy: 'never', sandbox: 'danger-full-access', selectedCapabilityRoots: [], config: { mcp_servers: { fixture: {
         command: process.execPath, args: [fixture], cwd: home, environment_id: 'remote', required: true, enabled_tools: ['bridge'], default_tools_approval_mode: 'approve',
       } } } }) as { thread: { id: string } };
-    const call = (operation: string) => rpc.call('mcpServer/tool/call', { threadId: start.thread.id, server: 'fixture', tool: 'bridge', arguments: { operation, id: 'one' } }, 5000);
+    const call = (operation: string) => rpc!.call('mcpServer/tool/call', { threadId: start.thread.id, server: 'fixture', tool: 'bridge', arguments: { operation, id: 'one' } }, 5000);
     const pending = call('wait');
     await expect.poll(() => call('status')).toMatchObject({ content: [{ text: '1' }] });
     expect(await call('cancel')).toMatchObject({ content: [{ text: 'cancelled' }] });
     expect(await pending).toMatchObject({ content: [{ text: 'stopped' }] });
+  } catch (error) {
+    throw new Error(`Remote MCP fixture failed; executor exit=${executor.exitCode}, signal=${executor.signalCode}, connected=${connected}; stderr=${executorErrors}`, { cause: error });
   } finally {
-    await rpc.close();
+    await rpc?.close();
     if (executor.pid) { try { process.kill(-executor.pid, 'SIGTERM'); } catch {} }
     await Promise.race([once(executor, 'exit'), delay(1000)]);
     if (executor.pid) { try { process.kill(-executor.pid, 'SIGKILL'); } catch {} }

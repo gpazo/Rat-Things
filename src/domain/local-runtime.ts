@@ -36,11 +36,6 @@ export function workerPlatform(architecture: string | undefined): WorkerPlatform
   return undefined;
 }
 
-/**
- * Workers run `danger-full-access` inside their container, so each host needs a boundary below it.
- * Apple silicon Macs are the supported platform; the others stay preview until their boundary,
- * packaging and recovery are verified.
- */
 export function localIsolation(input: { platform: string; engine: LocalEngine; runtimes: string[]; workerPlatform: WorkerPlatform | undefined }): LocalIsolation | LocalRuntimeIssue {
   const { platform, engine } = input;
   if (engine === 'podman') return { message: 'Podman is not supported yet.', action: 'Use Docker Desktop, Colima or OrbStack.' };
@@ -72,7 +67,7 @@ export function planWorkerImageInstall(input: { platform: WorkerPlatform | undef
     if (!PINNED_IMAGE.test(reference)) throw new Error(`Invalid worker image reference for ${input.platform}`);
     return { kind: 'pull', reference };
   }
-  if (input.checkout && input.platform === 'linux/arm64') return { kind: 'build' };
+  if (input.checkout) return { kind: 'build' };
   return { kind: 'unavailable', message: `No published Rat Things worker image exists for ${input.platform} yet.` };
 }
 

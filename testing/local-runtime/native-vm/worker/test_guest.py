@@ -30,7 +30,7 @@ class NativeGuestTests(unittest.TestCase):
             os.symlink("original", Path(source, "symbolic"))
             output = io.BytesIO()
             load(GUEST.with_name("archive-root.py")).archive(str(source), output)
-            subprocess.run(["tar", "-xf", "-", "-C", str(target)], input=output.getvalue(), check=True, capture_output=True)
+            subprocess.run(["cpio", "-idm"], cwd=target, input=output.getvalue(), check=True, capture_output=True)
             self.assertEqual(Path(target, "alias").read_text(), "executable payload")
             self.assertEqual(Path(target, "original").stat().st_ino, Path(target, "alias").stat().st_ino)
             self.assertEqual(Path(target, "original").stat().st_mode & 0o777, 0o755)

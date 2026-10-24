@@ -9,6 +9,7 @@ import type { LocalManagedEnvironment } from '../../src/runner/local-managed-env
 import type { LocalRuntime, LocalStartRequest } from '../../src/core/local-runtime-ports.js';
 import type { PiModelDescriptor } from '../../src/domain/session-runtime.js';
 import { PI_MANAGED_TOOLS } from '../../src/runner/pi-managed-tools.js';
+import { AgentsApiError } from '../../src/domain/agents-api-validation.js';
 
 const bridge = vi.hoisted(() => ({ open: vi.fn() }));
 vi.mock('../../src/runner/local-pi-effects.js', () => ({ openLocalPiEffects: bridge.open }));
@@ -104,13 +105,60 @@ it('cancels a durable function after restart without admitting another worker tu
   } finally { await recovered.cleanup(); }
 });
 
-it.each([undefined, 'Start coding.'])('does not admit Pi inference or ready state when worker sandbox verification fails (%s)', async input => {
+it('does not publish ready state for an empty Session when worker sandbox verification fails', async () => {
   const f = await fixture();
   vi.mocked(f.runtime.start).mockImplementation(async (_request, commit) => { await commit(); throw new Error('Local worker failed during sandbox.'); });
   try {
-    const session = await f.create(input);
+    const session = await f.create();
     await expect(f.services.sessions.dispatch(LOCAL_OWNER, session.id)).rejects.toThrow('sandbox');
     expect((await f.managed.state(LOCAL_OWNER, session))?.status).not.toBe('connected');
     expect(f.faux.state.callCount).toBe(0); expect(bridge.open).not.toHaveBeenCalled();
   } finally { await f.cleanup(); }
 });
+
+it('settles a refused initial Turn only after worker cleanup, without retrying startup or inference', async () => {
+  const f = await fixture(); f.services.stop();
+  vi.mocked(f.runtime.start).mockImplementation(async (_request, commit) => { await commit(); throw new Error('Local worker failed during setup.'); });
+  let stopped!: () => void;
+  vi.mocked(f.runtime.stop).mockImplementationOnce(() => new Promise<void>(resolve => { stopped = resolve; }));
+  try {
+    const session = await f.create('Start coding.');
+    const dispatching = f.services.sessions.dispatch(LOCAL_OWNER, session.id);
+    await expect.poll(() => f.runtime.stop).toHaveBeenCalledOnce();
+    expect((await f.services.sessions.turns(LOCAL_OWNER, session.id)).data[0]?.status).toBe('queued');
+    expect(f.faux.state.callCount).toBe(0); expect(bridge.open).not.toHaveBeenCalled();
+    stopped(); await dispatching;
+    expect((await f.services.sessions.turns(LOCAL_OWNER, session.id)).data[0]).toMatchObject({ status: 'failed', error: { code: 'connection_failed' } });
+    expect((await f.managed.state(LOCAL_OWNER, session))?.status).toBe('disconnected');
+    await f.services.sessions.completeReadyTurns(LOCAL_OWNER, session.id);
+    await f.services.sessions.dispatch(LOCAL_OWNER, session.id);
+    await f.services.sessions.dispatch(LOCAL_OWNER, session.id);
+    expect(f.runtime.start).toHaveBeenCalledOnce();
+    expect(f.faux.state.callCount).toBe(0); expect(bridge.open).not.toHaveBeenCalled();
+
+    vi.mocked(f.runtime.start).mockImplementation(async (_request, commit) => { await commit(); return 'http://127.0.0.1:3211'; });
+    bridge.open.mockResolvedValue({ tools: PI_MANAGED_TOOLS, execute: async () => { throw new Error('Unexpected effect'); }, close: async () => {} });
+    f.faux.setResponses([fauxAssistantMessage('Runtime recovered.')]);
+    await f.services.sessions.events(LOCAL_OWNER, session.id, { events: [{ type: 'agent.session.input.message', input: [{ role: 'user', content: [{ type: 'input_text', text: 'Retry after repairing the runtime.' }] }] }] });
+    await f.services.sessions.dispatch(LOCAL_OWNER, session.id);
+    await expect.poll(async () => (await f.services.sessions.turns(LOCAL_OWNER, session.id)).data.map(turn => turn.status).sort()).toEqual(['completed', 'failed']);
+    expect(f.runtime.start).toHaveBeenCalledTimes(2);
+    expect(f.faux.state.callCount).toBe(1);
+  } finally { stopped?.(); await f.cleanup(); }
+});
+
+it.each(['local_capacity', 'local_memory_pressure', 'local_disk_capacity', 'local_runtime_starting', 'local_runtime_unavailable'])(
+  'keeps temporary %s startup failure queued and retryable', async code => {
+    const f = await fixture(); f.services.stop();
+    vi.mocked(f.runtime.start).mockRejectedValue(new AgentsApiError(503, 'Temporary runtime wait', code));
+    try {
+      const session = await f.create('Start when ready.');
+      await expect(f.services.sessions.dispatch(LOCAL_OWNER, session.id)).rejects.toMatchObject({ code });
+      await expect(f.services.sessions.dispatch(LOCAL_OWNER, session.id)).rejects.toMatchObject({ code });
+      expect((await f.services.sessions.turns(LOCAL_OWNER, session.id)).data[0]?.status).toBe('queued');
+      expect(f.runtime.start).toHaveBeenCalledTimes(2);
+      expect(f.runtime.stop).not.toHaveBeenCalled();
+      expect(f.faux.state.callCount).toBe(0); expect(bridge.open).not.toHaveBeenCalled();
+    } finally { await f.cleanup(); }
+  },
+);

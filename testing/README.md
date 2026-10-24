@@ -55,6 +55,26 @@ executables, including the code-mode host and bundled bwrap. The image has no st
 runtime fallback. `npm run package` and therefore `npm run check` require this
 artifact. Run the image canary after each accepted artifact or runner change.
 
+For an x86 Linux local worker, build the same patched source against the Amazon
+Linux 2023 baseline. Keep this artifact separate from the ARM64 cloud artifact:
+
+```bash
+docker buildx build --platform linux/amd64 --file runtime/codex/Dockerfile \
+  --output type=local,dest=.runtime/codex/linux-x64 .
+npm run runtime:local:build
+```
+
+The local image builder selects the artifact for the connected engine's
+architecture and verifies its provenance and executable headers. Lambda
+packaging continues to require the ARM64 artifact. An x86 image alone does not
+establish a supported isolation backend. Run the actual worker sandbox and
+recovery checks before using it for agent execution.
+
+For the opt-in Linux KVM development backend, follow the
+[image preparation and acceptance instructions](local-runtime/linux-kvm/README.md).
+This path uses an unsigned local image generation and is separate from the signed
+macOS runtime and ARM64 cloud packaging.
+
 After building the worker image, exercise that exact packaged runtime as UID
 10001, including programmatic tools, deferred tools, interruption and admission:
 
@@ -68,9 +88,9 @@ different worker image. The container enables namespaces for bubblewrap; native
 processes remain unprivileged and receive no model credentials.
 
 Local readiness also requires `npm run check`, `npm run smoke:local`,
-[native console checks](native-console/README.md), LocalStack and the ARM64 image canary below. Keep unresolved behavioral
-differences in `plans/agents-api-conformance.md` open until they are addressed;
-this native gate does not certify all API behavior or live AWS wiring.
+[native console checks](native-console/README.md), LocalStack and the ARM64 image canary below.
+The native gate covers worker behavior; API compatibility and live AWS wiring require their
+respective harnesses.
 
 This harness is adapted from the historical `testing/` stack in
 `indubitably-serverless` (`2504e63b`). It keeps the useful topology—Docker Compose,

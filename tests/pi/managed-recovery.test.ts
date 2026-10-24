@@ -1,6 +1,6 @@
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { expect, it, vi } from 'vitest';
 import { EnvironmentService } from '../../src/core/environment-service.js';
 import { EnvironmentTemplateService } from '../../src/core/environment-template-service.js';
@@ -29,7 +29,7 @@ it('preserves a Pi workspace and setup identity only after verified termination,
     await handoffs.bind('owner', environment.id, { runId: 'source', generation: 'generation' });
     const workspace = join(root, 'workspace'); await mkdir(workspace);
     const launch: SessionLaunch = { sessionId: 'session', turnId: 'turn', runtime, agent: sessionAgent({ model: 'fixture' }, 'agent', 1), environment, input: [], ...await environments.managedLaunch('owner', environment.id) };
-    const plan = planCodexLaunch({ version: '1', prompt: '' }, workspace, 1000, {});
+    const plan = planCodexLaunch({ version: '1', prompt: '' }, workspace, 1000, { CODEX_BINARY: process.env.CODEX_CONFORMANCE_BINARY ?? resolve('node_modules/.bin/codex'), PATH: process.env.PATH });
     const first = await prepareHostedEnvironment({ launch, workspace, plan, artifacts: { getBytes: async () => new Uint8Array() }, stateDirectory: join(root, 'host-one') });
     await environments.managedReady('owner', environment.id, 'source', first.sandbox!, { sandboxId: first.sandbox!.id, ...workspaceDigests(launch) });
     await writeFile(join(workspace, 'input.txt'), 'changed by tool'); await writeFile(join(workspace, 'tool-result.txt'), 'durable result');

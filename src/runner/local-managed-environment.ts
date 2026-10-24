@@ -71,16 +71,16 @@ export class LocalManagedEnvironment {
     const connection = await this.ensure(owner, session);
     await this.admitTurn(session);
     if (session.environment.type !== 'openai_hosted') throw new Error('Expected managed Pi environment');
-    // Opening runs outside the lifecycle queue because failed-open cleanup must enter it.
     return openLocalPiEffects({ sessionId: session.id, environmentId: session.environment.id,
       generation: connection.generation, connection, host: this.options.hostCodex(), lease, ...run,
-      stopWorker: () => {
-        this.poisoned.add(session.id);
-        return this.serialize(session.id, async () => {
-          await this.retire(session.id, () => this.options.runtime.stop(session.id));
-          this.poisoned.delete(session.id);
-        });
-      },
+      stopWorker: () => this.retireFailedWorker(session.id),
+    });
+  }
+  private retireFailedWorker(sessionId: string) {
+    this.poisoned.add(sessionId);
+    return this.serialize(sessionId, async () => {
+      await this.retire(sessionId, () => this.options.runtime.stop(sessionId));
+      this.poisoned.delete(sessionId);
     });
   }
   public async files(owner: string, sessionId: string, operation: EnvironmentFileOperation) {

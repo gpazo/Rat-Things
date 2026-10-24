@@ -87,5 +87,52 @@
         "executable": true
       }
     ]
+  },
+  "@openai/codex-linux-x64": {
+    "name": "@openai/codex",
+    "version": "0.154.0-linux-x64",
+    "resolved": "https://registry.npmjs.org/@openai/codex/-/codex-0.154.0-linux-x64.tgz",
+    "integrity": "sha512-a4FI3A8sGtwGrOqltrPbrS2hajrHQG591EwmRfiRoLMb10VxdBtUGW4gu6IJVYENiYGA7k3P4jlRHEoCZU/s9Q==",
+    "descriptor": {
+      "layoutVersion": 1,
+      "version": "0.154.0",
+      "target": "x86_64-unknown-linux-musl",
+      "variant": "codex",
+      "entrypoint": "bin/codex",
+      "resourcesDir": "codex-resources",
+      "pathDir": "codex-path"
+    },
+    "files": [
+      {
+        "path": "bin/codex",
+        "sha256": "3188814c35471432d4123203e0eb38e5bddc60226e3d7ddf0e59e649ea140022",
+        "executable": true
+      },
+      {
+        "path": "bin/codex-code-mode-host",
+        "sha256": "0c57be435e73b70d9106c850d751cd259a7f04da958a453d7ef59090d82b70f1",
+        "executable": true
+      },
+      {
+        "path": "codex-package.json",
+        "sha256": "b039964d28d57b2a7e929ee9986303582501c7cc9787f6c018b6d3c7b35c87d7",
+        "executable": false
+      },
+      {
+        "path": "codex-path/rg",
+        "sha256": "e62198eb19b136b88c330af83647b5a962cb99b6b1f066758568f12de1974849",
+        "executable": true
+      },
+      {
+        "path": "codex-resources/bwrap",
+        "sha256": "01fb705f067bd5365b63d8ad2323a61c8d007733ca5e649437e086f3fb9935d8",
+        "executable": true
+      },
+      {
+        "path": "codex-resources/zsh/bin/zsh",
+        "sha256": "67faaaa89242c4a332e16e508a1977cffc24bf7fca31d4411cdfd101f3831ef3",
+        "executable": true
+      }
+    ]
   }
 }

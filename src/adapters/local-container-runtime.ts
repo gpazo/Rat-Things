@@ -1,5 +1,6 @@
 import { execFile, spawn } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { constants, existsSync } from 'node:fs';
+import { open } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { promisify } from 'node:util';
 import { createInterface } from 'node:readline';
@@ -78,8 +79,8 @@ export class LocalContainerRuntime implements LocalRuntime {
   private endpoint: string | undefined;
   private platform: WorkerPlatform = 'linux/arm64';
   private isolation: LocalIsolation | undefined;
-  private command(args: string[]) { if (!this.endpoint) throw new Error('Local engine has not been selected'); return command(args, this.endpoint); }
-  public constructor(private readonly workspaceId: string) {}
+  private command(args: string[], endpoint = this.endpoint) { if (!endpoint) throw new Error('Local engine has not been selected'); return command(args, endpoint); }
+  public constructor(private readonly workspaceId: string, private readonly endpointFile?: string) {}
 
   public status() { return localRuntimeStatus(); }
 
@@ -110,7 +111,10 @@ export class LocalContainerRuntime implements LocalRuntime {
     if (identity.sessionId !== sessionId) throw new Error('Workspace claim does not match Session');
     const status = await this.status();
     if (!status.ready) throw new Error(status.checks.filter(check => !check.ready).map(check => `${check.message} ${check.action ?? ''}`).join(' '));
+    const recorded = await this.recordedEndpoint();
+    if (recorded && recorded !== status.endpoint) throw new Error('The original local container engine changed. Restore its endpoint before reopening this workspace.');
     if (this.endpoint && this.endpoint !== status.endpoint) throw new Error('The local container engine changed. Restart the local workspace to select it.');
+    await this.recordEndpoint(status.endpoint);
     this.adopt(status);
     const { name, volume } = localWorkerNames(this.workspaceId, sessionId);
     const stateVolume = `${volume}-state`;
@@ -137,7 +141,7 @@ export class LocalContainerRuntime implements LocalRuntime {
       '--mount', `type=volume,source=${volume},target=/workspace`, '--mount', `type=volume,source=${stateVolume},target=/var/lib/rat-things/workspace`, '--publish', '127.0.0.1::3211', image]);
     const child = spawn('docker', ['--host', this.endpoint!, 'start', '--attach', '--interactive', name], { env: pinnedEnvironment(), stdio: ['pipe', 'pipe', 'pipe'], shell: false });
     let diagnostic = '';
-    child.stderr.on('data', (chunk: Buffer) => { const match = chunk.toString().match(/Local worker failed during (configuration|workspace|setup|transport|executor)\./); if (match) diagnostic = match[0]; });
+    child.stderr.on('data', (chunk: Buffer) => { const match = chunk.toString().match(/Local worker failed during (configuration|workspace|setup|sandbox|transport|executor)\./); if (match) diagnostic = match[0]; });
     const lines = createInterface({ input: child.stdout });
     let timer: NodeJS.Timeout | undefined;
     const ready = new Promise<void>((resolve, reject) => {
@@ -172,9 +176,15 @@ export class LocalContainerRuntime implements LocalRuntime {
     } finally { clearTimeout(timer); lines.close(); child.stdout.resume(); }
   }
 
-  public async admitTurn(_sessionId: string): Promise<void> {}
+  public admitTurn(sessionId: string): Promise<void> { return this.lifecycle.run(sessionId, async () => {
+    if (!await this.workerRunning(sessionId)) throw new Error('The isolated local worker is unavailable');
+  }); }
 
-  public stop(sessionId: string) { return this.lifecycle.run(sessionId, async () => { if (this.endpoint) await this.removeContainer(localWorkerNames(this.workspaceId, sessionId).name); }); }
+  public stop(sessionId: string) { return this.lifecycle.run(sessionId, async () => {
+    const endpoint = this.endpoint ?? await this.recordedEndpoint();
+    if (!endpoint) throw new Error('Cannot confirm local worker cleanup without a recorded original local engine');
+    await this.removeContainer(localWorkerNames(this.workspaceId, sessionId).name, endpoint);
+  }); }
   public snapshot(sessionId: string): Promise<PortableFile[]> { return this.lifecycle.run(sessionId, () => this.snapshotWorker(sessionId)); }
   private async snapshotWorker(sessionId: string): Promise<PortableFile[]> {
     const { name, volume } = localWorkerNames(this.workspaceId, sessionId);
@@ -199,7 +209,9 @@ export class LocalContainerRuntime implements LocalRuntime {
     try {
       const data = JSON.parse(await this.command(['inspect', localWorkerNames(this.workspaceId, sessionId).name]))[0];
       const port = data.NetworkSettings?.Ports?.['3211/tcp']?.[0];
-      if (!data.State?.Running || port?.HostIp !== '127.0.0.1' || !/^\d+$/.test(port.HostPort)) return false;
+      if (!data.State?.Running || data.Config?.Labels?.['rat-things.workspace'] !== this.workspaceId || data.Config?.Labels?.['rat-things.session'] !== sessionId
+        || this.isolation?.runtime && data.HostConfig?.Runtime !== this.isolation.runtime
+        || port?.HostIp !== '127.0.0.1' || !/^\d+$/.test(port.HostPort)) return false;
       const response = await fetch(`http://127.0.0.1:${port.HostPort}/health`, { signal: AbortSignal.timeout(4000) });
       await response.body?.cancel();
       return response.ok;
@@ -209,7 +221,40 @@ export class LocalContainerRuntime implements LocalRuntime {
     if (this.endpoint) return;
     const status = await this.status();
     if (!status.ready || !status.endpoint) throw new Error('Local runtime is unavailable');
+    const recorded = await this.recordedEndpoint();
+    if (recorded && recorded !== status.endpoint) throw new Error('The original local container engine changed. Restore its endpoint before reopening this workspace.');
     this.adopt(status);
+  }
+  private async recordedEndpoint(): Promise<string | undefined> {
+    if (!this.endpointFile) return undefined;
+    const file = await open(this.endpointFile, constants.O_RDONLY | constants.O_NOFOLLOW).catch((error: NodeJS.ErrnoException) => {
+      if (error.code === 'ENOENT') return undefined;
+      throw error;
+    });
+    if (!file) return undefined;
+    try {
+      const state = await file.stat();
+      if (!state.isFile() || state.nlink !== 1 || state.size > 4096 || process.platform !== 'win32' && (state.uid !== process.getuid?.() || state.mode & 0o077)) {
+        throw new Error('Invalid local engine receipt');
+      }
+      const receipt = JSON.parse(await file.readFile('utf8')) as { version?: unknown; workspaceId?: unknown; endpoint?: unknown };
+      if (receipt.version !== 1 || receipt.workspaceId !== this.workspaceId || typeof receipt.endpoint !== 'string'
+        || !localEngineEndpoint(receipt.endpoint, process.platform)) throw new Error('Invalid local engine receipt');
+      return receipt.endpoint;
+    } finally { await file.close(); }
+  }
+  private async recordEndpoint(endpoint: string | undefined) {
+    if (!endpoint || !localEngineEndpoint(endpoint, process.platform)) throw new Error('A local engine endpoint is required');
+    if (!this.endpointFile) return;
+    const file = await open(this.endpointFile, 'wx', 0o600).catch((error: NodeJS.ErrnoException) => {
+      if (error.code === 'EEXIST') return undefined;
+      throw error;
+    });
+    if (file) {
+      try { await file.writeFile(JSON.stringify({ version: 1, workspaceId: this.workspaceId, endpoint })); await file.sync(); }
+      finally { await file.close(); }
+    }
+    if (await this.recordedEndpoint() !== endpoint) throw new Error('The original local container engine changed. Restore its endpoint before reopening this workspace.');
   }
   private adopt(status: LocalRuntimeStatus) {
     this.endpoint = status.endpoint;
@@ -225,13 +270,13 @@ export class LocalContainerRuntime implements LocalRuntime {
     const data = JSON.parse(await this.command(['volume', 'inspect', name]))[0];
     if (data.Labels?.['rat-things.workspace'] !== this.workspaceId) throw new Error('Local workspace volume ownership does not match');
   }
-  private async removeContainer(name: string) {
-    const found = await this.command(['container', 'ls', '--all', '--filter', `name=^/${name}$`, '--format', '{{.Names}}']);
+  private async removeContainer(name: string, endpoint = this.endpoint) {
+    const found = await this.command(['container', 'ls', '--all', '--filter', `name=^/${name}$`, '--format', '{{.Names}}'], endpoint);
     if (!found) { this.active.delete(name); return; }
     if (found !== name) throw new Error('Local worker identity does not match.');
-    const data = JSON.parse(await this.command(['inspect', name]))[0];
+    const data = JSON.parse(await this.command(['inspect', name], endpoint))[0];
     if (data.Config?.Labels?.['rat-things.workspace'] !== this.workspaceId) throw new Error('Local worker ownership does not match.');
-    await this.command(['rm', '--force', name]);
+    await this.command(['rm', '--force', name], endpoint);
     this.active.delete(name);
   }
 }

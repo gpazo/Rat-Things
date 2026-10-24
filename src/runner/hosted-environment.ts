@@ -13,6 +13,7 @@ import type { SessionEnvironmentCredentialsRuntime } from './session-environment
 import type { ManagedSandboxGeneration } from '../core/managed-environment-planning.js';
 import { resetPersistentWorkspace } from './workspace.js';
 import { workspaceDigests, type WorkspaceCheckpoint } from '../domain/workspace-checkpoint.js';
+import { verifyManagedExecutor } from './managed-executor-verification.js';
 
 /** Map a private persistent directory to the standard workspace path before guest code starts. */
 export async function bindHostedWorkspace(workspace: string, visible = '/workspace'): Promise<void> {
@@ -39,7 +40,8 @@ export async function prepareHostedEnvironment(options: {
   afterWorkspaceReset?: () => Promise<void>;
 }): Promise<{ launch: SessionLaunch; sandbox?: ManagedSandboxGeneration }> {
   const { launch, workspace, plan, artifacts, signal } = options;
-  if (launch.environment.type !== 'openai_hosted' || !launch.hostedConfiguration) return { launch };
+  if (launch.environment.type !== 'openai_hosted') return { launch };
+  if (!launch.hostedConfiguration) throw new Error('Managed environment configuration is missing');
   const configuration = launch.hostedConfiguration;
   const adopted = options.adoptedCheckpoint;
   const recovered = launch.runtime?.kind === 'pi' ? launch.piWorkspace : undefined;
@@ -76,6 +78,8 @@ export async function prepareHostedEnvironment(options: {
   if (markerState && (!markerState.isFile() || markerState.isSymbolicLink() || markerState.uid !== stateDirectory.uid || (markerState.mode & 0o077) !== 0 || markerState.nlink !== 1)) throw new Error('Managed setup state is invalid');
   const previous = markerState ? hostedSetupMarker(await readFile(marker, 'utf8')) : undefined;
   if (adopted && previous && previous.sandbox.id !== adopted.sandboxId) throw new Error('Local sandbox does not match the adopted checkpoint');
+  await verifyManagedExecutor({ plan, workspace: options.executionWorkspace ?? workspace, network: launch.environment.network,
+    credentialProxy: Boolean(options.credentials), ...(signal ? { signal } : {}) });
   if (previous?.digest === digest) return { launch: result, sandbox: previous.sandbox };
   if (previous !== undefined) throw new Error('A managed environment cannot change its setup configuration');
   const sandbox: ManagedSandboxGeneration = adopted || recovered ? { id: (adopted ?? recovered)!.sandboxId, replaced: false } : { id: randomUUID(), replaced: options.previouslyPrepared ?? false };

@@ -14,7 +14,7 @@ identity, retention, network policy, and operational limits for the environment 
 | System | What it provides | Learn more |
 | --- | --- | --- |
 | Agent runtimes | Codex and Pi Durable behind the same API, CLI, desktop, schedules, and provider bindings | [Runtime comparison](agent-runtimes.md) |
-| Local workspace | Private loopback API, durable local Agents and Sessions, Codex and Pi Durable with ChatGPT subscriptions, local Linux workers on Apple silicon Macs, resumable Session copying into AWS | [Start at home](local-workspace.md) |
+| Local workspace | Private loopback API, durable local Agents and Sessions, Codex and Pi Durable with ChatGPT subscriptions and managed Linux workspaces, resumable Session copying into AWS | [Start at home](local-workspace.md) |
 | Sessions and Turns | Owner-scoped input, ordered execution, cancellation and saved Items | [Agents API](agents-api.md) |
 | Agents and schedules | Reusable standard Agent configurations and AWS schedule inputs | [Agents](agents-api.md), [schedules](schedules.md) |
 | Connections | Provider-verified accounts, host-owned credentials, grants, and account-specific operations | [Integrations](plugins.md) |
@@ -31,14 +31,16 @@ identity, retention, network policy, and operational limits for the environment 
 
 ## Known gaps
 
-- **Local execution:** Linux workers currently require an Apple silicon Mac and a
-  supported VM-backed container engine. Local Vaults, uploaded Files, plugins,
+- **Local execution:** The supported local container setup uses an Apple silicon Mac
+  and a VM-backed engine. Linux x86-64 has an explicit KVM development setup from
+  source; it has no signed desktop installation flow. Local Vaults, uploaded Files, plugins,
   MCP, schedules and webhooks remain unavailable. Session copying moves idle application
   state into an existing AWS deployment; it does not migrate running processes or
   subscription credentials. Codex/ChatGPT is the first local subscription provider.
 
-- **Multi-tenant operation:** destination authorization, output redaction, per-owner budgets and
-  rate limits, and independent security review remain incomplete. The control API's ownership
+- **Multi-tenant operation:** destination authorization, output redaction, per-owner spending
+  attribution, and independent security review remain incomplete. Per-owner execution
+  rate limits and optional account-wide AWS spending alerts are available. The control API's ownership
   checks do not replace these controls. See the [security model](security.md).
 - **Credential isolation:** the ChatGPT file bridge exposes reusable account credentials to code
   running as the agent UID. Use it only with trusted agents and accounts. Generic source bindings

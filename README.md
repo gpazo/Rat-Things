@@ -8,6 +8,8 @@
 Rat Things runs AI agents on your computer or in your AWS account. It saves their
 conversations and work so you can return later, continue after a worker stops, or
 run tasks on a schedule. Use the Rust desktop app, CLI, or OpenAI-compatible Agents API.
+It is for developers building coding agents and services that need saved work,
+isolated execution, and control over their infrastructure.
 
 Start locally with Codex or Pi Durable and your ChatGPT subscription. AWS runs either runtime
 in isolated Linux workers, with encrypted storage and explicitly configured tools.
@@ -17,6 +19,21 @@ subscription.
 This is an engineering preview. See [capabilities and boundaries](docs/status-and-roadmap.md)
 for implemented features and current limits, and [security](docs/security.md) before
 connecting sensitive accounts.
+
+```mermaid
+%%{init: {'theme': 'base', 'themeVariables': {'primaryColor': '#202022', 'primaryTextColor': '#f7f8f8', 'primaryBorderColor': '#3e3e44', 'lineColor': '#8a8f98', 'fontFamily': 'Inter, sans-serif'}}}%%
+flowchart LR
+    Clients[Desktop, CLI, or your application] --> API[Session API]
+    API --> Runtime[Codex or Pi Durable]
+    Runtime --> Model[Model provider]
+    Runtime --> Worker[Isolated Linux worker]
+    Worker --> Files[Session workspace files]
+    API --> State[Durable history and task state]
+    Runtime --> State
+```
+
+Local execution uses private storage on your computer. AWS execution uses workers
+and encrypted storage in your account. The model provider is a separate service.
 
 ## Start at home
 
@@ -33,10 +50,12 @@ you return. Building the desktop requires Rust 1.95 or newer.
 
 Prefer a terminal? Run `npm run rat-things -- serve`, then use the same
 `sessions create`, `sessions send` and `sessions items` commands. Local Sessions
-support conversations, function tools and web search. Apple silicon Macs can also
-run isolated Linux workers with a supported local VM and `runtime setup`. Vaults
-and provider integrations remain cloud capabilities. Local Codex and Pi Durable
-use your ChatGPT subscription; local Pi uses No environment and application functions.
+support conversations and function tools; Codex also supports web search. Codex and
+Pi Durable can use isolated Linux workspaces with a supported local VM and `runtime setup`.
+Apple silicon Macs use a VM-backed container engine. An explicit
+[Linux x86-64 KVM development setup](testing/local-runtime/linux-kvm/README.md) is
+available from source. Vaults and provider integrations remain cloud capabilities.
+Local Codex and Pi Durable use your ChatGPT subscription.
 
 Follow the [local workspace guide](docs/local-workspace.md) for setup, persistence,
 capacity and the path into AWS. The desktop's workspace menu connects to an existing

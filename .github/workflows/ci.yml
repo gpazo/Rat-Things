@@ -36,7 +36,7 @@ jobs:
         id: codex-runtime
         with:
           path: .runtime/codex/linux-arm64
-          key: codex-linux-arm64-${{ hashFiles('runtime/codex/**', '!runtime/codex/model-capabilities.json', 'scripts/build-codex-runtime.mjs') }}
+          key: codex-linux-arm64-${{ hashFiles('runtime/codex/**', '!runtime/codex/model-capabilities.json', 'scripts/build-codex-runtime.mjs', 'scripts/codex-runtime-targets.mjs') }}
       - name: Build pinned Linux ARM64 runtime
         if: steps.codex-runtime.outputs.cache-hit != 'true'
         run: docker buildx build --platform linux/arm64 --file runtime/codex/Dockerfile --output type=local,dest=.runtime/codex/linux-arm64 .
@@ -72,6 +72,43 @@ jobs:
         with:
           name: architecture-browser-results
           path: test-results/site
+
+  linux-x64:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-node@v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Verify x86 sandbox enforcement with the pinned upstream runtime
+        run: npx vitest run tests/pi/managed-effects.test.ts tests/runner/managed-sandbox.test.ts tests/simulation/linux-kvm-helper.test.ts tests/simulation/native-vm-prototype.test.ts --no-file-parallelism
+      - name: Reserve native build space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
+          available=$(df -Pk . | awk 'NR == 2 {print $4}')
+          test "$available" -ge 20971520
+      - uses: actions/cache/restore@v4
+        id: codex-runtime
+        with:
+          path: .runtime/codex/linux-x64
+          key: codex-linux-x64-${{ hashFiles('runtime/codex/**', '!runtime/codex/model-capabilities.json', 'scripts/build-codex-runtime.mjs', 'scripts/codex-runtime-targets.mjs') }}
+      - name: Build pinned Linux x64 runtime
+        if: steps.codex-runtime.outputs.cache-hit != 'true'
+        run: docker buildx build --platform linux/amd64 --file runtime/codex/Dockerfile --output type=local,dest=.runtime/codex/linux-x64 .
+      - uses: actions/cache/save@v4
+        if: steps.codex-runtime.outputs.cache-hit != 'true'
+        with:
+          path: .runtime/codex/linux-x64
+          key: ${{ steps.codex-runtime.outputs.cache-primary-key }}
+      - name: Validate x64 artifact provenance
+        run: node --input-type=module -e "import { validateCodexRuntimeArtifact } from './scripts/codex-runtime-artifact.mjs'; await validateCodexRuntimeArtifact('.runtime/codex/linux-x64', { expectedTarget:'x86_64-unknown-linux-gnu' });"
+      - name: Verify patched x86 sandbox and local Pi transport
+        env:
+          CODEX_CONFORMANCE_BINARY: ${{ github.workspace }}/.runtime/codex/linux-x64/runtime/bin/codex
+        run: npx vitest run tests/pi/managed-effects.test.ts tests/runner/managed-sandbox.test.ts tests/agents/local-pi-transport.test.ts tests/agents/local-pi.test.ts --no-file-parallelism
 
   desktop:
     runs-on: macos-14

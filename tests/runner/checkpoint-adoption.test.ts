@@ -1,6 +1,6 @@
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { expect, it, vi } from 'vitest';
 import { prepareHostedEnvironment } from '../../src/runner/hosted-environment.js';
@@ -22,9 +22,10 @@ it('preserves modified workspace inputs and skips setup when a trusted checkpoin
     const launch = { sessionId: 'session', turnId: 'turn', input: [], environment, hostedConfiguration: configuration, agent: sessionAgent({ model: 'fixture' }, 'agent', 1) };
     const checkpoint: WorkspaceCheckpoint = { id: 'checkpoint', sandboxId: randomUUID(), ...workspaceDigests(launch), source: { runId: 'old-run', generation: 'old-generation' },
       rootThreadId: 'root', lastRootTurnId: 'api-turn', lastNativeTurnId: 'native-turn', reason: 'hibernate', createdAt: 1 };
-    const plan = planCodexLaunch({ version: '1', prompt: '', agent: { sandbox: 'workspace-write', capabilities: { networkAccess: false } } }, workspace, 1000, { CODEX_AUTH_MODE: 'chatgpt' });
+    const plan = planCodexLaunch({ version: '1', prompt: '', agent: { sandbox: 'workspace-write', capabilities: { networkAccess: false } } }, workspace, 1000, {
+      CODEX_AUTH_MODE: 'chatgpt', CODEX_BINARY: process.env.CODEX_CONFORMANCE_BINARY ?? resolve('node_modules/.bin/codex'), PATH: process.env.PATH });
     const reset = vi.fn(async () => {});
-    const options = { launch, workspace, plan: { ...plan, binary: '/not-a-real-native-binary' }, artifacts: { getBytes: async () => new Uint8Array() },
+    const options = { launch, workspace, plan, artifacts: { getBytes: async () => new Uint8Array() },
       stateDirectory: join(root, 'new-host'), previouslyPrepared: true, adoptedCheckpoint: checkpoint, afterWorkspaceReset: reset };
     const prepared = await prepareHostedEnvironment(options);
     expect(prepared.sandbox).toEqual({ id: checkpoint.sandboxId, replaced: false });

@@ -4,7 +4,7 @@ import OpenAI, { toFile } from 'openai';
 import { zipSync } from 'fflate';
 import { mkdtemp, mkdir, readFile, writeFile, rm, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { FileService } from '../../src/core/file-service.js';
 import { SkillService } from '../../src/core/skill-service.js';
 import { EnvironmentService } from '../../src/core/environment-service.js';
@@ -83,7 +83,8 @@ describe('uploaded files, skills, and managed setup', () => {
     const workspace = join(root, 'workspace');
     await mkdir(workspace);
     const launch = { ...setup, sessionId: 'session', turnId: 'bootstrap', input: [], environment, agent: sessionAgent({ model: 'fixture' }, 'agent', 1) };
-    const plan = planCodexLaunch({ version: '1', prompt: '', agent: { sandbox: 'workspace-write', capabilities: { networkAccess: false } } }, workspace, 1000, { CODEX_AUTH_MODE: 'chatgpt' });
+    const plan = planCodexLaunch({ version: '1', prompt: '', agent: { sandbox: 'workspace-write', capabilities: { networkAccess: false } } }, workspace, 1000, {
+      CODEX_AUTH_MODE: 'chatgpt', CODEX_BINARY: process.env.CODEX_CONFORMANCE_BINARY ?? resolve('node_modules/.bin/codex'), PATH: process.env.PATH });
     try {
       const prepared = await prepareHostedEnvironment({ launch, workspace, plan, artifacts: f.artifacts, stateDirectory: join(root, 'host') });
       expect(prepared.launch.environment).toMatchObject({ capability_directories: ['/workspace/.capabilities/skills/report-reader'] });

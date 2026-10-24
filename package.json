@@ -74,6 +74,7 @@
     "runtime:local:build": "node scripts/build-local-runtime.mjs",
     "test:e2e:local-runtime": "tsx testing/local-runtime/smoke.ts",
     "runtime:native:prepare": "tsx testing/local-runtime/native-vm/worker/prepare.ts",
+    "runtime:linux-kvm:prepare": "tsx testing/local-runtime/linux-kvm/prepare.ts",
     "test:e2e:native-worker": "RAT_NATIVE_VM_PROOF=1 tsx testing/local-runtime/smoke.ts",
     "test:e2e:native-reliability": "tsx testing/local-runtime/native-vm/worker/reliability.ts",
     "test:e2e:local-subscription": "tsx testing/local-runtime/subscription.ts"

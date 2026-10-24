@@ -24,19 +24,20 @@ it('rejects missing native inputs before replacing any existing Lambda archive',
   expect(await readFile(archive, 'utf8')).toBe('previous archive');
 });
 
-async function fixture(platform: keyof typeof targets = 'linux') {
+async function fixture(platform: keyof typeof targets = 'linux', arch: 'arm64' | 'x64' = 'arm64') {
   const directory = await mkdtemp(join(tmpdir(), 'rat-runtime-artifact-')); directories.push(directory);
   const source = JSON.parse(await readFile('runtime/codex/source.json', 'utf8')) as { repository: string; revision: string; upstreamVersion: string; patches: string[] };
   const policy = JSON.parse(await readFile('runtime/codex/artifact-policy.json', 'utf8')) as { patchedTree: string };
   const patches = await Promise.all(source.patches.map(async name => ({ name, sha256: digest(await readFile(join('runtime/codex', name))) })));
   const executable = Buffer.alloc(64);
+  const nativeTarget = arch === 'x64' ? 'x86_64-unknown-linux-gnu' : targets[platform];
   if (platform === 'linux') {
     executable.write('7f454c46', 'hex'); executable[4] = 2; executable[5] = 1; executable[6] = 1;
-    executable.writeUInt16LE(2, 16); executable.writeUInt16LE(183, 18); executable.writeUInt32LE(1, 20); executable.writeUInt16LE(64, 52);
+    executable.writeUInt16LE(2, 16); executable.writeUInt16LE(arch === 'x64' ? 62 : 183, 18); executable.writeUInt32LE(1, 20); executable.writeUInt16LE(64, 52);
   } else {
     executable.writeUInt32LE(0xfeedfacf, 0); executable.writeUInt32LE(0x100000c, 4); executable.writeUInt32LE(2, 12);
   }
-  const packageName = `@openai/codex-${platform}-arm64`;
+  const packageName = `@openai/codex-${platform}-${arch}`;
   const packages = JSON.parse(await readFile('runtime/codex/companion-packages.json', 'utf8'));
   const pinned = packages[packageName];
   const files: { path: string; sha256: string }[] = [];
@@ -44,7 +45,7 @@ async function fixture(platform: keyof typeof targets = 'linux') {
     const bytes = file.path === 'codex-package.json' ? Buffer.from(JSON.stringify(pinned.descriptor, null, 2) + '\n') : executable;
     file.sha256 = digest(bytes);
     const runtimeBytes = file.path === 'codex-package.json'
-      ? Buffer.from(JSON.stringify({ ...pinned.descriptor, target: targets[platform] }, null, 2) + '\n') : bytes;
+      ? Buffer.from(JSON.stringify({ ...pinned.descriptor, target: nativeTarget }, null, 2) + '\n') : bytes;
     const path = join(directory, 'runtime', file.path);
     await mkdir(dirname(path), { recursive: true });
     await writeFile(path, runtimeBytes, { mode: file.executable ? 0o755 : 0o644 });
@@ -52,9 +53,9 @@ async function fixture(platform: keyof typeof targets = 'linux') {
   }
   const companionInventoryPath = join(directory, 'companions.json');
   await writeFile(companionInventoryPath, JSON.stringify(packages));
-  const manifest = { source: { ...source, patches }, platform, arch: 'arm64', sha256: digest(executable), files,
-    upstreamPackage: { name: packageName, version: `${source.upstreamVersion}-${platform}-arm64` },
-    build: { nativeTarget: targets[platform], patchedTree: policy.patchedTree, profile: 'release', debug: 'none', incremental: false, locked: true, jobs: 1 } };
+  const manifest = { source: { ...source, patches }, platform, arch: arch as string, sha256: digest(executable), files,
+    upstreamPackage: { name: packageName, version: `${source.upstreamVersion}-${platform}-${arch}` },
+    build: { nativeTarget, patchedTree: policy.patchedTree, profile: 'release', debug: 'none', incremental: false, locked: true, jobs: 1 } };
   const save = () => writeFile(join(directory, 'artifact.json'), JSON.stringify(manifest));
   const replaceFile = async (path: string, bytes: Uint8Array) => {
     await writeFile(join(directory, 'runtime', path), bytes);
@@ -62,7 +63,7 @@ async function fixture(platform: keyof typeof targets = 'linux') {
     if (path === 'bin/codex') manifest.sha256 = digest(bytes);
     await save();
   };
-  const options = { expectedTarget: targets[platform], companionInventoryPath };
+  const options = { expectedTarget: nativeTarget, companionInventoryPath };
   const validate = () => validateCodexRuntimeArtifact(directory, options);
   await save();
   return { directory, executable, manifest, save, replaceFile, options, validate };
@@ -89,6 +90,15 @@ it('keeps the packaging wrapper Linux-only and includes original provenance', as
   ]);
   const host = await fixture('darwin');
   await expect(codexRuntimeEntries(host.directory, host.options)).rejects.toThrow('build provenance');
+});
+
+it('admits Linux x64 explicitly while keeping Lambda packaging ARM64', async () => {
+  const f = await fixture('linux', 'x64');
+  await expect(f.validate()).resolves.toMatchObject({ manifest: { platform: 'linux', arch: 'x64' } });
+  await expect(codexRuntimeEntries(f.directory, f.options)).rejects.toThrow('build provenance');
+  const otherArch = Buffer.from(f.executable); otherArch.writeUInt16LE(183, 18);
+  await f.replaceFile('bin/codex', otherArch);
+  await expect(f.validate()).rejects.toThrow('not linux X64');
 });
 
 it('requires an explicit supported target', async () => {

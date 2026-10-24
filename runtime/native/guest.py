@@ -1,9 +1,11 @@
 import fcntl
 import http.client
+import hmac
 import json
 import os
 import signal
 import socket
+import stat
 import struct
 import subprocess
 import sys
@@ -15,6 +17,21 @@ worker = None
 control_lock = threading.Lock()
 relay_slots = threading.BoundedSemaphore(64)
 readonly = False
+control_token = None
+
+
+def load_control_token(command_line):
+    if "rat.control=token" not in command_line.split():
+        return None
+    descriptor = os.open("/etc/rat-things/control-token", os.O_RDONLY | os.O_NOFOLLOW)
+    with os.fdopen(descriptor) as source:
+        info = os.fstat(source.fileno())
+        if not stat.S_ISREG(info.st_mode) or info.st_uid != 0 or info.st_gid != 0 or stat.S_IMODE(info.st_mode) != 0o400:
+            raise ValueError("Invalid control token permissions")
+        token = source.read(65)
+    if len(token) != 64 or any(character not in "0123456789abcdef" for character in token):
+        raise ValueError("Invalid control token")
+    return token
 
 
 def stop_worker(process):
@@ -50,11 +67,18 @@ def handle_control(connection):
     with connection, control_lock:
         connection.settimeout(90)
         reader = connection.makefile("rb")
+        authenticated = control_token is None
         try:
             line = reader.readline(MAX_REQUEST + 1)
             if len(line) > MAX_REQUEST or not line.endswith(b"\n"):
                 raise ValueError("Invalid control frame")
             request = json.loads(line)
+            if control_token is not None and (not isinstance(request.get("controlToken"), str)
+                    or not hmac.compare_digest(request["controlToken"], control_token)):
+                connection.sendall(b'{"error":"Guest control authentication failed"}\n')
+                reader.close()
+                return
+            authenticated = True
             timeout_ms = request.get("timeoutMs", 90_000)
             if type(timeout_ms) is not int or not 1 <= timeout_ms <= 9007199254740991:
                 raise ValueError("Invalid control deadline")
@@ -103,7 +127,8 @@ def handle_control(connection):
             response = {"result": result}
         except Exception as error:
             print("RAT_NATIVE_CONTROL_FAILED " + type(error).__name__, flush=True)
-            worker = stop_worker(worker)
+            if authenticated:
+                worker = stop_worker(worker)
             response = {"error": "Native guest control operation failed"}
         connection.sendall(json.dumps(response, separators=(",", ":")).encode() + b"\n")
         reader.close()
@@ -155,7 +180,9 @@ def serve(port, handler):
 
 
 if __name__ == "__main__":
-    readonly = "rat.workspace=readonly" in open("/proc/cmdline").read().split()
+    command_line = open("/proc/cmdline").read()
+    control_token = load_control_token(command_line)
+    readonly = "rat.workspace=readonly" in command_line.split()
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as loopback:
         fcntl.ioctl(loopback, 0x8914, struct.pack("16sh", b"lo", 0x49))
     threading.Thread(target=serve, args=(7000, handle_relay), daemon=True).start()

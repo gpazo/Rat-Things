@@ -48,6 +48,8 @@ export class LocalPiExecution implements SessionExecution {
       const state = await this.options.store.get<SessionState>(owner, 'sessions', session.id);
       // Undispatched commands must be replayed before the engine can resume inference.
       if (!state || state.value.closing || Object.values(state.value.receipts).some(receipt => !receipt.dispatched)) return;
+      const lastTurn = state.value.turns.at(-1)?.turn;
+      if (lastTurn && await this.options.store.get<Turn>(owner, 'local_turn_attempts', lastTurn.id)) return;
       if (initialize) await this.options.managed?.initialize(owner, session);
       const saved = await this.journal.get(owner, session.id);
       if (saved?.value.native?.head && !saved.value.closed && (saved.value.projectionSeq !== saved.value.native.head.seq
@@ -60,8 +62,21 @@ export class LocalPiExecution implements SessionExecution {
   }
   public start(owner: string, session: AgentSession, binding: SessionTurnBinding) {
     return this.lifecycle.run(session.id, async () => {
-      const engine = await this.engine(owner, session);
-      await this.options.managed?.admitTurn(session);
+      if (await this.options.store.get<Turn>(owner, 'local_turn_attempts', binding.turn.id)) return;
+      let engine: PiEngine;
+      try {
+        engine = await this.engine(owner, session);
+        await this.options.managed?.admitTurn(session);
+      } catch (error) {
+        if (retryableStartup(error)) throw error;
+        await this.retire(session.id);
+        if (session.environment.type !== 'none') await this.options.managed?.close(session);
+        // A refused worker must be stopped before a failed attempt is observable.
+        // Keep this receipt outside native history: no engine Turn was started.
+        await this.options.store.put({ ownerId: owner, collection: 'local_turn_attempts', id: binding.turn.id,
+          createdAt: binding.turn.created_at, revision: 1, value: failedStartupTurn(binding.turn) }, 0);
+        return;
+      }
       await engine.start(binding.turn, binding.input, binding.modelSettings);
       const state = await this.options.store.get<SessionState>(owner, 'sessions', session.id);
       if (state?.value.turns.find(turn => turn.turn.id === binding.turn.id)?.cancelRequested) await engine.cancel(binding.turn.id);
@@ -108,6 +123,8 @@ export class LocalPiExecution implements SessionExecution {
     });
   }
   public async observe(owner: string, session: AgentSession, turn: Turn) {
+    const refused = await this.options.store.get<Turn>(owner, 'local_turn_attempts', turn.id);
+    if (refused) return { turn: refused.value, requiredActions: [] };
     const snapshot = await this.snapshot(owner, session.id);
     return { turn: snapshot?.turns.find(binding => binding.turn.id === turn.id)?.turn ?? turn, requiredActions: snapshot?.requiredActions ?? [] };
   }
@@ -182,6 +199,15 @@ export class LocalPiExecution implements SessionExecution {
       throw error;
     }
   }
+}
+
+function failedStartupTurn(turn: Turn): Turn {
+  return { ...turn, status: 'failed', completed_at: Math.floor(Date.now() / 1000),
+    error: { code: 'connection_failed', message: 'The isolated Pi worker could not start. Check the local runtime, then send a new message to continue.' } };
+}
+
+function retryableStartup(error: unknown): boolean {
+  return error instanceof AgentsApiError && (error.status === 503 || error.code === 'conflict' || error.code === 'native_conflict');
 }
 
 async function boundedClose(operation: Promise<void>): Promise<void> {

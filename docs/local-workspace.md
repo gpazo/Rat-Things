@@ -41,8 +41,11 @@ saved conversation. If the service stops during a Codex Turn, the Turn is marked
 send a new message to continue.
 
 Select **Pi** in the Runtime picker to use Pi Durable with the same private ChatGPT
-sign-in. Choose **No environment**. Local Pi supports application functions and
-subagents; host files, commands, MCP, and Vault credentials are not exposed as tools.
+sign-in. Choose **No environment** for conversations and application functions, or
+**Linux on this computer** for a managed coding workspace. Pi supports subagents
+and, with a managed workspace, file reads, writes, listings, and argument-array
+commands. These tools run inside the worker. Host files, MCP, and Vault credentials
+are not exposed as tools.
 Pi saves native tasks and pending function calls in the encrypted local SQLite store.
 After a service restart, it resumes unfinished model work and retains completed
 function results. An interrupted model request can be retried. Cloud Pi continues
@@ -57,11 +60,15 @@ active worker. Conversations with **No environment** do not require a VM.
 Windows and Linux with Docker Desktop, Intel Macs, and native Linux Docker with the
 gVisor `runsc` runtime are in preview. Set `RAT_THINGS_PREVIEW_PLATFORMS=1` to try
 them. Native Linux Docker without gVisor is refused, because the worker would share
-the host kernel. No worker image is published for x86-64 yet.
+the host kernel. A source checkout can build the patched Linux x86-64 worker.
+The [KVM development setup](../testing/local-runtime/linux-kvm/README.md) uses a
+dedicated VM on Linux x86-64 when `/dev/kvm` and vsock are available. It requires
+an explicit asset path and is separate from the signed macOS installer. A gVisor
+installation that cannot enforce the inner sandbox is refused.
 
 `runtime setup` downloads a published, digest-pinned worker image when one exists
 for your platform. Otherwise it builds the image from a checkout. Build the checked
-Linux ARM64 Codex artifact described in [the contributor harness](../testing/README.md),
+Linux Codex artifact for your engine's architecture described in [the contributor harness](../testing/README.md),
 then install the worker image:
 
 ```bash
@@ -91,7 +98,9 @@ Rat Things environment; the connected API endpoint determines where it runs:
 
 The worker has its own persistent workspace volume. Rat Things mounts no host
 folders, login files, AWS credentials or container-engine socket into it. Commands
-run as UID 10001. The host runs the Codex harness and talks to the worker through
+run as UID 10001. Before becoming ready, every worker checks that the managed
+permission profile permits workspace writes and denies writes outside it. Agent
+network access defaults to disabled. The host runs inference and talks to the worker through
 Codex's authenticated, encrypted executor protocol over a loopback-only transport.
 Packages, inline files, inline skills and network policy use the same
 configuration contract as AWS. Setup runs once for a workspace; restarting a
@@ -153,8 +162,9 @@ use the local API. Request bodies are limited to 1 MiB.
 | --- | --- | --- |
 | Agents, Sessions, Turns, Items and streaming | Available | Available |
 | Saved history and follow-up Turns | Local disk | Cloud storage |
-| Declared function tools and web search | Available | Available |
-| Linux workspaces, package setup and inline capabilities | Apple silicon Mac + local VM | Available |
+| Declared function tools | Available | Available |
+| Built-in web search | Codex only | Codex where configured |
+| Linux workspaces, package setup and inline capabilities | Apple silicon Mac + local VM; Linux x86-64 KVM development setup | Available |
 | Vaults, uploaded Files, plugins, MCP, schedules and provider webhooks | Not yet available | Available when configured |
 | Continue while this computer is off | No | Yes |
 | Copy an idle local Session into AWS | History, configuration and bounded workspace snapshot | Import supported |

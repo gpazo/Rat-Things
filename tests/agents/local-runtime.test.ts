@@ -41,7 +41,7 @@ it('installs a digest-pinned published image before falling back to a checkout b
   expect(planWorkerImageInstall({ platform: 'linux/amd64', manifest: published, checkout: false })).toEqual({ kind: 'pull', reference: published.images['linux/amd64'] });
   expect(planWorkerImageInstall({ platform: 'linux/arm64', manifest: published, checkout: true })).toEqual({ kind: 'build' });
   expect(planWorkerImageInstall({ platform: 'linux/arm64', manifest: published, checkout: false })).toMatchObject({ kind: 'unavailable' });
-  expect(planWorkerImageInstall({ platform: 'linux/amd64', manifest: { version: 1, images: {} }, checkout: true })).toMatchObject({ kind: 'unavailable' });
+  expect(planWorkerImageInstall({ platform: 'linux/amd64', manifest: { version: 1, images: {} }, checkout: true })).toEqual({ kind: 'build' });
   expect(planWorkerImageInstall({ platform: undefined, manifest: published, checkout: true })).toMatchObject({ kind: 'unavailable' });
   for (const reference of ['ghcr.io/example/worker:latest', `example/worker:1@${digest}`, `worker@${digest}`, `ghcr.io/Example/worker@${digest}`]) {
     expect(() => planWorkerImageInstall({ platform: 'linux/arm64', manifest: { version: 1, images: { 'linux/arm64': reference } }, checkout: true })).toThrow();
@@ -51,6 +51,6 @@ it('installs a digest-pinned published image before falling back to a checkout b
 it('discovers local Pi capabilities alongside the default Codex harness', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'rat-harness-'));
   const services = createLocalServices({ directory });
-  try { expect(services.harness).toBe('codex'); expect(services.piModels).toMatchObject({ runtime: 'pi', capabilities: { environments: ['none'] } }); }
+  try { expect(services.harness).toBe('codex'); expect(services.piModels).toMatchObject({ runtime: 'pi', capabilities: { environments: ['none', 'openai_hosted'] } }); }
   finally { await services.close(); await rm(directory, { recursive: true, force: true }); }
 });
