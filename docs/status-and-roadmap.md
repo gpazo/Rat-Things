@@ -14,7 +14,7 @@ identity, retention, network policy, and operational limits for the environment 
 | System | What it provides | Learn more |
 | --- | --- | --- |
 | Agent runtimes | Codex and Pi Durable behind the same API, CLI, desktop, schedules, and provider bindings | [Runtime comparison](agent-runtimes.md) |
-| Local workspace | Private loopback API, durable local Agents and Sessions, Codex/ChatGPT subscription harness, local Linux workers on Apple silicon Macs, resumable Session copying into AWS | [Start at home](local-workspace.md) |
+| Local workspace | Private loopback API, durable local Agents and Sessions, Codex and Pi Durable with ChatGPT subscriptions, local Linux workers on Apple silicon Macs, resumable Session copying into AWS | [Start at home](local-workspace.md) |
 | Sessions and Turns | Owner-scoped input, ordered execution, cancellation and saved Items | [Agents API](agents-api.md) |
 | Agents and schedules | Reusable standard Agent configurations and AWS schedule inputs | [Agents](agents-api.md), [schedules](schedules.md) |
 | Connections | Provider-verified accounts, host-owned credentials, grants, and account-specific operations | [Integrations](plugins.md) |
@@ -26,7 +26,7 @@ identity, retention, network policy, and operational limits for the environment 
 | Browser | Declared function/MCP integration and an optional Playwright MCP configuration | [Browser use](browser-computer-use.md) |
 | Channels | Authenticated GitHub, GitLab, Teams, and optional Slack ingress with separate result delivery | [Channels](channels.md) |
 | API authentication | AWS IAM issuance and owner-bound, scoped bearer tokens | [API permissions](agents-api.md#scoped-api-keys) |
-| Model authentication | Codex uses the configured ChatGPT bridge or Bedrock; Pi Durable uses approved Bedrock Converse models | [Runtime setup](agent-runtimes.md#start-with-the-appropriate-setup) |
+| Model authentication | Codex uses the configured ChatGPT bridge or Bedrock; Pi Durable uses local ChatGPT subscriptions or approved Bedrock Converse models on AWS | [Runtime setup](agent-runtimes.md#start-with-the-appropriate-setup) |
 | Recovery | Queue repair, generation-fenced liveness, cancellation settlement, and per-destination delivery fences | [Runbook](runbook.md) |
 
 ## Known gaps

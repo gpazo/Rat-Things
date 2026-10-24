@@ -48,8 +48,9 @@ it('installs a digest-pinned published image before falling back to a checkout b
   }
 });
 
-it('selects a harness before opening the workspace store', async () => {
+it('discovers local Pi capabilities alongside the default Codex harness', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'rat-harness-'));
-  try { expect(() => createLocalServices({ directory, harness: 'pi' })).toThrow(/pi harness/); }
-  finally { await rm(directory, { recursive: true, force: true }); }
+  const services = createLocalServices({ directory });
+  try { expect(services.harness).toBe('codex'); expect(services.piModels).toMatchObject({ runtime: 'pi', capabilities: { environments: ['none'] } }); }
+  finally { await services.close(); await rm(directory, { recursive: true, force: true }); }
 });

@@ -26,7 +26,7 @@ It starts a private local service or connects to an existing `rat-things serve`
 process. Local Agents and Sessions survive app restarts. The local service supports
 conversations and managed Linux workspaces on Apple silicon Macs. The workspace
 menu checks runtime setup, opens ChatGPT sign-in, and prepares Session copies to AWS.
-Local inference uses your Codex/ChatGPT subscription. See [local workspaces](../docs/local-workspace.md).
+Local Codex and Pi inference use your ChatGPT subscription. See [local workspaces](../docs/local-workspace.md).
 
 Use the workspace menu to connect to an existing AWS endpoint and region, or set
 `RAT_THINGS_AGENTS_API_URL` and `AWS_REGION` before launch. Cloud access uses your
@@ -56,7 +56,7 @@ pane. A new-session draft is retained when you visit another session during the 
 app run. Common actions use forms: describe a task and model for a Session, save an Agent's instructions,
 configure environment packages and network access, or add a private credential.
 Choose Codex or Pi Durable in the Runtime picker before choosing a model. Codex
-is the default. Pi Durable lists the deployment's approved Bedrock models. A saved
+is the default. Pi Durable lists subscription models locally and approved Bedrock models on AWS. A saved
 Agent supplies its runtime to a new Session; an existing Session keeps its pinned
 runtime. See [runtime capabilities](../docs/agent-runtimes.md).
 The Model picker loads the selected runtime's authenticated deployment catalog when the form opens.

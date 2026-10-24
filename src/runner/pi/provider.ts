@@ -7,6 +7,7 @@ import { setBedrockProviderModule } from '@earendil-works/pi-ai/api/bedrock-conv
 import type { RuntimePin } from '../../domain/session-runtime.js';
 
 export function createPiModels(pin: Extract<RuntimePin, { kind: 'pi' }>, token: () => Promise<string>, allowedModelIds: readonly string[] = pin.catalog.map(model => model.id)): Models {
+  if (pin.catalog.some(model => model.provider !== 'amazon-bedrock')) throw new Error('AWS Pi permits only Amazon Bedrock models');
   const denied = async (): Promise<never> => { throw new Error('Pi credentials are host-owned and read-only'); };
   const credentials: CredentialStore = {
     read: async provider => {
@@ -27,7 +28,7 @@ export function createPiModels(pin: Extract<RuntimePin, { kind: 'pi' }>, token: 
   const selected = (id: string) => {
     const model = admitted.find(entry => entry.id === id);
     const descriptor = pin.catalog.find(entry => entry.id === id);
-    if (!model || !descriptor) throw new Error('Pi model is outside the pinned catalog');
+    if (!model || !descriptor || descriptor.provider !== 'amazon-bedrock') throw new Error('Pi model is outside the pinned catalog');
     return { model, region: descriptor.region };
   };
   models.setProvider({ ...provider, getModels: () => admitted, getAllModels: () => admitted,

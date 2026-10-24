@@ -67,10 +67,10 @@ resource "aws_security_group" "environment_relay_origin" {
     cidr_blocks = ["0.0.0.0/0"]
   }
   egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
+    protocol    = "tcp"
+    from_port   = 8080
+    to_port     = 8080
+    cidr_blocks = [aws_vpc.environment_relay[0].cidr_block]
   }
   tags = local.tags
 }
@@ -80,16 +80,31 @@ resource "aws_security_group" "environment_relay_task" {
   name   = "${local.name}-relay-task"
   vpc_id = aws_vpc.environment_relay[0].id
   ingress {
+    protocol        = "tcp"
     from_port       = 8080
     to_port         = 8080
-    protocol        = "tcp"
     security_groups = [aws_security_group.environment_relay_origin[0].id]
   }
   egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
+    protocol        = "tcp"
+    from_port       = 443
+    to_port         = 443
+    security_groups = [aws_security_group.relay_endpoints[0].id]
+  }
+  egress {
+    protocol        = "tcp"
+    from_port       = 443
+    to_port         = 443
+    prefix_list_ids = [for endpoint in aws_vpc_endpoint.relay_storage : endpoint.prefix_list_id]
+  }
+  dynamic "egress" {
+    for_each = var.runtime_https_egress_cidrs
+    content {
+      protocol    = "tcp"
+      from_port   = 443
+      to_port     = 443
+      cidr_blocks = [egress.value]
+    }
   }
   tags = local.tags
 }

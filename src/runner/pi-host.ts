@@ -38,7 +38,8 @@ export interface PiHostDependencies {
 export async function executePiWorker(request: RunRequest, workspace: string, timeoutMs: number, control: AgentDriverControl, dependencies: PiHostDependencies, signal?: AbortSignal): Promise<AgentExecution> {
   const launch = control.session;
   if (!launch || launch.runtime?.kind !== 'pi') throw new Error('Pi requires a pinned Agents Session');
-  const plan = planCodexLaunch(request, workspace, timeoutMs, process.env);
+  // The host stores bytes under its private state root; tools see the verified bind mount.
+  const plan = planCodexLaunch(request, launch.environment.type === 'openai_hosted' ? '/workspace' : workspace, timeoutMs, process.env);
   if (!plan.identity) throw new Error('Pi requires a separate non-root process identity');
   const broker = await createPiEffectBroker({ launch, plan, lease: dependencies.lease, ...(launch.environment.type === 'openai_hosted' ? { flushWorkspace: () => syncWorkspaceStorage(workspace) } : {}), ...(control.sessionMcp ? { mcp: control.sessionMcp } : {}), ...(control.sessionEnvironmentCredentials ? { credentials: control.sessionEnvironmentCredentials } : {}), ...(signal ? { signal } : {}) });
   const child = fork(fileURLToPath(new URL('./pi-child.mjs', import.meta.url)), [], {

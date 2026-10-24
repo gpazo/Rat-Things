@@ -4,6 +4,8 @@ import { spawn, spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { access, appendFile, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
+import { isIP } from 'node:net';
+import { ensureWorkerRuntime } from './ensure-worker-runtime.mjs';
 import { dirname, join, resolve } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -52,6 +54,8 @@ export interface AwsQuickstartOptions {
   driver: 'codex' | 'mock';
   auth: 'chatgpt' | 'bedrock';
   model?: string;
+  httpsEgressCidrs: string[];
+  budgetAlert?: { monthlyUsd: number; emails: string[] };
   codexAuthFile: string;
   codexAuthSecretArn?: string;
   profile?: string;
@@ -90,6 +94,7 @@ interface QuickstartResult {
   driver: 'codex' | 'mock';
   auth: 'chatgpt' | 'bedrock';
   model?: string;
+  budgetAlert?: AwsQuickstartOptions['budgetAlert'];
   codexAuthSecret?: QuickstartCodexAuthSecret;
   baseImageVersion: string;
   source: {
@@ -160,6 +165,7 @@ interface QuickstartSetupContext {
   driver: 'codex' | 'mock';
   auth: 'chatgpt' | 'bedrock';
   model?: string;
+  budgetAlert?: AwsQuickstartOptions['budgetAlert'];
   codexAuthSecret?: QuickstartCodexAuthSecret;
   baseImageVersion: string;
   startedAt: string;
@@ -227,6 +233,9 @@ export function parseAwsQuickstartOptions(argv: string[]): AwsQuickstartOptions 
     'codex-auth-file',
     'codex-auth-secret-arn',
     'microvm-base-image-version',
+    'https-egress-cidrs',
+    'budget-usd',
+    'budget-alert-emails',
   ]);
   for (const name of values.keys()) {
     if (!known.has(name)) throw new Error(`unknown option --${name}`);
@@ -234,7 +243,7 @@ export function parseAwsQuickstartOptions(argv: string[]): AwsQuickstartOptions 
 
   const driver = values.get('driver') ?? 'codex';
   if (driver !== 'codex' && driver !== 'mock') throw new Error('--driver must be codex or mock');
-  const auth = values.get('auth') ?? 'chatgpt';
+  const auth = values.get('auth') ?? 'bedrock';
   if (auth !== 'chatgpt' && auth !== 'bedrock') throw new Error('--auth must be chatgpt or bedrock');
   const model = values.get('model') ?? (auth === 'bedrock' ? defaultBedrockModel : undefined);
   if (model !== undefined && (!model || /[\r\n]/.test(model))) {
@@ -266,9 +275,28 @@ export function parseAwsQuickstartOptions(argv: string[]): AwsQuickstartOptions 
       'use us-east-1, us-east-2, or us-west-2',
     );
   }
+  const httpsEgressCidrs = values.get('https-egress-cidrs')?.split(',').map(value => value.trim()) ?? [];
+  if (httpsEgressCidrs.some(value => { const [ip, prefix, extra] = value.split('/'); return !ip || isIP(ip) !== 4 || extra !== undefined || !prefix || !/^\d+$/.test(prefix) || Number(prefix) < 8 || Number(prefix) > 32; })) throw new Error('--https-egress-cidrs requires IPv4 CIDRs (/8 to /32)');
+  if (validatesExecutionRegion && auth === 'chatgpt' && !httpsEgressCidrs.length) throw new Error('ChatGPT on AWS requires --https-egress-cidrs with reviewed provider destinations. Use Bedrock for private AWS inference.');
   const environment = values.get('environment') ?? 'quickstart';
   if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,31}$/.test(environment)) {
     throw new Error('--environment must contain 1-32 letters, numbers, underscores, or hyphens');
+  }
+  const amount = values.get('budget-usd');
+  const recipients = values.get('budget-alert-emails');
+  if ((amount === undefined) !== (recipients === undefined)) {
+    throw new Error('Optional AWS budget alerts require both --budget-usd and --budget-alert-emails');
+  }
+  let budgetAlert: AwsQuickstartOptions['budgetAlert'];
+  if (amount !== undefined && recipients !== undefined) {
+    if (!/^\d+(?:\.\d{1,2})?$/.test(amount) || Number(amount) <= 0 || Number(amount) > 1_000_000_000) {
+      throw new Error('--budget-usd must be a monthly USD amount from 0.01 to 1000000000 with at most two decimal places');
+    }
+    const emails = [...new Set(recipients.split(',').map(value => value.trim()))];
+    if (emails.length > 10 || emails.some(email => email.length > 254 || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email))) {
+      throw new Error('--budget-alert-emails requires 1-10 comma-separated email addresses');
+    }
+    budgetAlert = { monthlyUsd: Number(amount), emails };
   }
   return {
     command,
@@ -276,6 +304,8 @@ export function parseAwsQuickstartOptions(argv: string[]): AwsQuickstartOptions 
     environment,
     driver,
     auth,
+    httpsEgressCidrs,
+    ...(budgetAlert ? { budgetAlert } : {}),
     ...(model ? { model } : {}),
     codexAuthFile: resolve(
       values.get('codex-auth-file')
@@ -306,6 +336,10 @@ export function awsQuickstartTerraformConfig(
     force_destroy_data: true,
     enable_point_in_time_recovery: false,
     enable_detailed_api_metrics: false,
+    runtime_https_egress_cidrs: options.httpsEgressCidrs,
+    ...(options.budgetAlert ? { budget_alert: {
+      monthly_usd: options.budgetAlert.monthlyUsd, email_addresses: options.budgetAlert.emails,
+    } } : {}),
     default_sandbox_mode: 'read-only',
     default_agent_network_access: false,
     allow_agent_aws_credential_chain: false,
@@ -454,6 +488,10 @@ async function setup(options: AwsQuickstartOptions): Promise<void> {
   const readiness = await preflight(options);
   progress('      ready');
   const env = commandEnvironment(options);
+  progress('      verify or build the pinned ARM64 worker runtime');
+  env.CODEX_RUNTIME_ARTIFACT = await ensureWorkerRuntime({ root: projectRoot, artifact: process.env.CODEX_RUNTIME_ARTIFACT,
+    run: (name: string, args: string[]) => loggedCommand(name, args, { env }),
+  });
   const baseImageVersion = readiness.microvm.baseImageVersion;
   const started = journeyStartedAt();
   const startedAt = new Date(started).toISOString();
@@ -468,7 +506,10 @@ async function setup(options: AwsQuickstartOptions): Promise<void> {
         ? 'real Codex via this device\'s file-based ChatGPT login'
         : `real Codex via paid Bedrock model ${options.model}`
       : 'deterministic mock (infrastructure proof only, not a model)'}`,
-    'Scope:       one Agent and two Turns in a disposable Session; no tools, OAuth, VPC/NAT or sharing',
+    'Scope:       one Agent and two Turns in a disposable Session; private AWS endpoints; no tools, OAuth or sharing',
+    options.budgetAlert
+      ? `Budget:      email ${options.budgetAlert.emails.join(', ')} when this AWS account's monthly costs exceed $${options.budgetAlert.monthlyUsd.toFixed(2)} USD; delayed alert, no spending cap`
+      : 'Budget:      optional AWS spending alert not configured',
     'State:       .runtime/aws-quickstart/terraform.tfstate',
     'Debug log:   .runtime/aws-quickstart/quickstart.log',
     '',
@@ -494,6 +535,7 @@ async function setup(options: AwsQuickstartOptions): Promise<void> {
     driver: options.driver,
     auth: options.auth,
     ...(options.driver === 'codex' && options.model ? { model: options.model } : {}),
+    ...(options.budgetAlert ? { budgetAlert: options.budgetAlert } : {}),
     ...(plannedCodexAuthSecret ? { codexAuthSecret: plannedCodexAuthSecret } : {}),
     baseImageVersion,
     startedAt,
@@ -572,6 +614,7 @@ async function setup(options: AwsQuickstartOptions): Promise<void> {
     driver: options.driver,
     auth: options.auth,
     ...(options.driver === 'codex' && options.model ? { model: options.model } : {}),
+    ...(options.budgetAlert ? { budgetAlert: options.budgetAlert } : {}),
     ...(codexAuthSecret ? { codexAuthSecret } : {}),
     baseImageVersion,
     source: {
@@ -1317,27 +1360,30 @@ function printValue(value: unknown, json: boolean): void {
 function printHelp(): void {
   process.stdout.write(`Rat Things AWS quickstart\n\n`);
 
-  process.stdout.write(`  npm run quickstart:aws -- --model MODEL\n`);
+  process.stdout.write(`  npm run quickstart:aws\n`);
   process.stdout.write(`  npm run quickstart:aws -- preflight\n`);
   process.stdout.write(`  npm run quickstart:aws -- status\n`);
   process.stdout.write(`  npm run quickstart:aws -- sync-auth\n`);
   process.stdout.write(`  npm run quickstart:aws -- destroy\n\n`);
   process.stdout.write(`A fresh clone installs pinned dependencies automatically. Preflight creates or modifies no AWS resources.\n`);
-  process.stdout.write(`The default cloud path copies this device's file-based ChatGPT login into Secrets Manager.\n`);
-  process.stdout.write(`Setup shows an account-risk warning and requires explicit consent before copying it.\n`);
+  process.stdout.write(`The default cloud path uses paid Bedrock inference and private AWS endpoints.\n`);
+  process.stdout.write(`Explicit ChatGPT setup requires provider HTTPS destinations and consent before copying credentials.\n`);
   process.stdout.write(`Status and destroy automatically reuse the setup Region and named profile.\n`);
   process.stdout.write(`sync-auth copies the current local login after you sign in again; destroy removes quickstart-managed copies.\n`);
-  process.stdout.write(`Amazon Bedrock is available only when selected with --auth bedrock.\n`);
+  process.stdout.write(`A missing worker artifact is built with ARM64-capable Docker before any AWS changes.\n`);
   process.stdout.write(`Setup uses real Codex; smoke:local provides deterministic local mock execution.\n\n`);
   process.stdout.write(`Options:\n`);
   process.stdout.write(`  --region REGION                     default: AWS_REGION or us-west-2\n`);
   process.stdout.write(`  --profile PROFILE                   AWS shared-credentials profile\n`);
   process.stdout.write(`  --environment NAME                  default: quickstart\n`);
   process.stdout.write(`  --driver codex                      default: codex\n`);
-  process.stdout.write(`  --auth chatgpt|bedrock              default: chatgpt\n`);
+  process.stdout.write(`  --auth chatgpt|bedrock              default: bedrock\n`);
   process.stdout.write(`  --codex-auth-file PATH              default: CODEX_HOME/auth.json or ~/.codex/auth.json\n`);
   process.stdout.write(`  --codex-auth-secret-arn ARN         use an existing operator-managed auth-file secret\n`);
   process.stdout.write(`  --accept-codex-credential-risk      required with --yes for file-based ChatGPT auth\n`);
+  process.stdout.write(`  --https-egress-cidrs CIDRS          optional comma-separated provider IPv4 destinations\n`);
+  process.stdout.write(`  --budget-usd AMOUNT                 optional monthly AWS account alert in USD; does not stop spending\n`);
+  process.stdout.write(`  --budget-alert-emails EMAILS        required with --budget-usd; 1-10 comma-separated addresses\n`);
   process.stdout.write(`  --model MODEL                       required for ChatGPT; Bedrock default: openai.gpt-5.6-terra\n`);
   process.stdout.write(`  --microvm-base-image-version VALUE  override automatic discovery\n`);
   process.stdout.write(`  --dry-run                            make no external changes\n`);

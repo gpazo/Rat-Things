@@ -18,7 +18,7 @@ describe('AWS quickstart', () => {
     })).rejects.toMatchObject({ code: 1, stderr: expect.stringContaining('Agents quickstart requires Codex') });
   });
   it('requires an explicit admitted model for ChatGPT while keeping recovery independent', () => {
-    expect(() => quickstartModel(parseAwsQuickstartOptions([]))).toThrow('Select an admitted model');
+    expect(() => quickstartModel(parseAwsQuickstartOptions(['--auth', 'chatgpt', '--https-egress-cidrs', '203.0.113.0/24']))).toThrow('Select an admitted model');
     expect(quickstartModel(parseAwsQuickstartOptions(['--model', 'configured-model']))).toBe('configured-model');
     expect(quickstartModel(parseAwsQuickstartOptions(['--auth', 'bedrock']))).toBe('openai.gpt-5.6-terra');
   });
@@ -30,31 +30,70 @@ describe('AWS quickstart', () => {
     expect(() => assertSupportedNodeVersion('24.1.0')).not.toThrow();
   });
 
-  it('defaults to a real Codex deployment through a connected ChatGPT workspace', () => {
+  it('defaults to private Bedrock inference with no public egress', () => {
     const options = parseAwsQuickstartOptions([]);
     expect(options).toMatchObject({
       command: 'setup',
       driver: 'codex',
-      auth: 'chatgpt',
+      auth: 'bedrock',
       region: 'us-west-2',
       environment: 'quickstart',
       codexAuthFile: expect.stringMatching(/\/\.codex\/auth\.json$/),
       acceptCodexCredentialRisk: false,
     });
     expect(awsQuickstartTerraformConfig(options, '7')).toMatchObject({
-      codex_auth_mode: 'chatgpt',
-      codex_bedrock_model_ids: [],
+      codex_auth_mode: 'bedrock',
+      codex_bedrock_model_ids: ['openai.gpt-5.6-terra'],
+      runtime_https_egress_cidrs: [],
       default_sandbox_mode: 'read-only',
       default_agent_network_access: false,
       enable_s3_files: false,
       microvm_base_image_version: '7',
       force_destroy_data: true,
     });
+    expect(options.budgetAlert).toBeUndefined();
+    expect(awsQuickstartTerraformConfig(options, '7')).not.toHaveProperty('budget_alert');
+  });
+
+  it('configures an optional monthly USD email alert before deployment', () => {
+    const options = parseAwsQuickstartOptions(['--budget-usd', '19.99', '--budget-alert-emails', 'owner@example.com, team@example.com,owner@example.com']);
+    expect(options.budgetAlert).toEqual({ monthlyUsd: 19.99, emails: ['owner@example.com', 'team@example.com'] });
+    expect(awsQuickstartTerraformConfig(options, '7')).toMatchObject({
+      budget_alert: { monthly_usd: 19.99, email_addresses: ['owner@example.com', 'team@example.com'] },
+    });
+  });
+
+  it('rejects incomplete or invalid alerts before any AWS calls', () => {
+    expect(() => parseAwsQuickstartOptions(['--budget-usd', '50'])).toThrow('require both');
+    expect(() => parseAwsQuickstartOptions(['--budget-alert-emails', 'owner@example.com'])).toThrow('require both');
+    for (const amount of ['0', '-1', 'NaN', 'Infinity', '1e2', '0.001', '1.001', '1000000001', '1 USD']) {
+      expect(() => parseAwsQuickstartOptions(['--budget-usd', amount, '--budget-alert-emails', 'owner@example.com'])).toThrow('monthly USD amount');
+    }
+    for (const emails of ['owner', 'owner@example.com,', 'a b@example.com', 'a@b@example.com', 'a@b.com\nBcc:x@y.com', Array.from({ length: 11 }, (_, i) => `owner${i}@example.com`).join(',')]) {
+      expect(() => parseAwsQuickstartOptions(['--budget-usd', '50', '--budget-alert-emails', emails])).toThrow('1-10');
+    }
+  });
+
+  it('accepts cent amounts and ten recipients without requiring an alert for other commands', () => {
+    const emails = Array.from({ length: 10 }, (_, i) => `owner${i}@example.com`);
+    expect(parseAwsQuickstartOptions(['--budget-usd', '0.01', '--budget-alert-emails', emails.join(',')]).budgetAlert).toEqual({ monthlyUsd: 0.01, emails });
+    for (const command of ['preflight', 'status', 'sync-auth', 'destroy']) {
+      expect(parseAwsQuickstartOptions([command]).budgetAlert).toBeUndefined();
+    }
+  });
+
+  it('previews a configured alert without AWS credentials or deployment tools', async () => {
+    const { stdout } = await promisify(execFile)(process.execPath, ['--import', 'tsx', 'scripts/aws-quickstart.ts',
+      '--dry-run', '--json', '--budget-usd', '50', '--budget-alert-emails', 'owner@example.com'], { env: { PATH: '' } });
+    expect(JSON.parse(stdout)).toMatchObject({ changesExternalState: false,
+      terraform: { budget_alert: { monthly_usd: 50, email_addresses: ['owner@example.com'] } },
+    });
   });
 
   it('accepts deliberate file-credential consent and an existing secret ARN', () => {
     const secretArn = 'arn:aws:secretsmanager:us-west-2:123456789012:secret:rat/codex-auth';
     const options = parseAwsQuickstartOptions([
+      '--auth', 'chatgpt', '--https-egress-cidrs', '203.0.113.0/24',
       '--codex-auth-file',
       './fixtures/auth.json',
       '--codex-auth-secret-arn',
@@ -92,8 +131,9 @@ describe('AWS quickstart', () => {
     ])).toThrow('--codex-auth-secret-arn must be a Secrets Manager ARN');
   });
 
-  it('allows ChatGPT by default or a deliberate Bedrock model in every MicroVM Region', () => {
+  it('allows explicit ChatGPT destinations or a deliberate Bedrock model in every MicroVM Region', () => {
     expect(parseAwsQuickstartOptions([
+      '--auth', 'chatgpt', '--https-egress-cidrs', '203.0.113.0/24',
       '--region',
       'eu-west-1',
     ])).toMatchObject({ region: 'eu-west-1', driver: 'codex', auth: 'chatgpt' });
@@ -116,6 +156,13 @@ describe('AWS quickstart', () => {
       '--driver',
       'mock',
     ])).toMatchObject({ region: 'ap-northeast-1', driver: 'mock' });
+  });
+
+  it('requires explicit public destinations for ChatGPT and rejects open or malformed egress', () => {
+    expect(() => parseAwsQuickstartOptions(['--auth', 'chatgpt'])).toThrow('requires --https-egress-cidrs');
+    for (const cidr of ['0.0.0.0/0', '::/0', 'invalid', '203.0.113.1/33']) {
+      expect(() => parseAwsQuickstartOptions(['--https-egress-cidrs', cidr])).toThrow('IPv4 CIDRs');
+    }
   });
 
   it('uses stored deployment context rather than rejecting recovery from the shell Region', () => {

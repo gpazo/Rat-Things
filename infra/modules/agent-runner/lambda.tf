@@ -18,6 +18,7 @@ locals {
   )
 
   lambda_common_environment = merge(local.pi_catalog_environment, {
+    OWNER_RATE_LIMITS_JSON              = jsonencode(var.owner_rate_limits)
     SESSION_CHECKPOINTS_ENABLED         = tostring(var.session_checkpoints_enabled)
     S3_FILES_ENABLED                    = tostring(var.enable_s3_files)
     ALLOWED_REPOSITORY_HOSTS            = join(",", var.allowed_repository_hosts)
@@ -74,7 +75,7 @@ locals {
     S3_FILES_ACCESS_POINT_ID = aws_s3files_access_point.conversation_state[0].id
     S3_FILES_FILE_SYSTEM_ID  = aws_s3files_file_system.conversation_state[0].id
     S3_FILES_MOUNT_TARGET_IP = aws_s3files_mount_target.conversation_state[0].ipv4_address
-    } : {}, var.enable_s3_files && var.enable_microvm ? {
+    } : {}, var.enable_microvm ? {
     MICROVM_VPC_NETWORK_CONNECTOR_ARN = awscc_lambda_network_connector.s3_files[0].arn
   } : {})
 

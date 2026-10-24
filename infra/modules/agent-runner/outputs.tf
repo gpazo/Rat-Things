@@ -184,6 +184,11 @@ output "environment_relay_origin_dns_name" {
   value = local.environment_relay_enabled ? aws_lb.environment_relay[0].dns_name : null
 }
 
+output "budget_alert_name" {
+  description = "Optional AWS account monthly cost alert name, or null when disabled."
+  value       = try(aws_budgets_budget.account_monthly[0].name, null)
+}
+
 output "agents_observer_network" {
   description = "Network coordinates for an operator-owned API validation client."
   value = local.environment_relay_enabled ? {

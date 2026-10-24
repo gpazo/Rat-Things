@@ -64,7 +64,8 @@ export function errorResponse(
   error: unknown,
   traceId?: string,
 ): APIGatewayProxyStructuredResultV2 {
-  if (error instanceof AgentsApiError) return response(error.status, { error: { type: error.type, code: error.code, message: error.message, param: error.param } });
+  if (error instanceof AgentsApiError) return response(error.status, { error: { type: error.type, code: error.code, message: error.message, param: error.param } },
+    error.retryAfterSeconds === undefined ? {} : { 'retry-after': String(Math.max(1, Math.ceil(error.retryAfterSeconds))) });
   const requestError =
     error instanceof ValidationError ||
     error instanceof IntegrationProviderUnavailableError ||

@@ -65,8 +65,8 @@ export class MicrovmRunExecutor implements RunExecutor {
   private async launch(record: RunRecord, request: RunRequest): Promise<ExecutionReference> {
     const timeout = request.execution?.timeoutSeconds ?? 900;
     const persistent = Boolean(record.agentsSession);
-    const connector = persistent && this.options.s3Files ? this.options.s3Files.networkConnectorArn : undefined;
-    if (persistent && this.options.s3Files && !connector) throw new Error('MicroVM Session storage requires a network connector.');
+    const connector = this.options.networkConnectorArn ?? this.options.s3Files?.networkConnectorArn;
+    if (!connector) throw new Error('MicroVM execution requires an explicit runtime network connector.');
     const [imageArn, imageVersion] = await Promise.all([
       this.parameter('image'),
       this.parameter('version'),
@@ -374,10 +374,11 @@ export function workerOptionsFromEnv(onStartupObservation?: (observation: Microv
       artifactBucket: requiredEnv('ARTIFACT_BUCKET'),
       eventBusName: requiredEnv('EVENT_BUS_NAME'),
       region,
+      ...(process.env.MICROVM_VPC_NETWORK_CONNECTOR_ARN ? { networkConnectorArn: process.env.MICROVM_VPC_NETWORK_CONNECTOR_ARN } : {}),
       allowedRepositoryHosts: process.env.ALLOWED_REPOSITORY_HOSTS ?? 'github.com,gitlab.com',
       allowedSandboxModes: process.env.ALLOWED_SANDBOX_MODES ?? 'read-only,workspace-write',
-      defaultSandboxMode: process.env.DEFAULT_SANDBOX_MODE ?? 'danger-full-access',
-      defaultAgentNetworkAccess: process.env.DEFAULT_AGENT_NETWORK_ACCESS !== 'false',
+      defaultSandboxMode: process.env.DEFAULT_SANDBOX_MODE ?? 'read-only',
+      defaultAgentNetworkAccess: process.env.DEFAULT_AGENT_NETWORK_ACCESS === 'true',
       ...(process.env.DEFAULT_MODEL ? { defaultModel: process.env.DEFAULT_MODEL } : {}),
       ...(process.env.CODEX_AUTH_FILE_SECRET_ARN
         ? { codexAuthFileSecretArn: process.env.CODEX_AUTH_FILE_SECRET_ARN }

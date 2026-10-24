@@ -37,7 +37,9 @@ require('node:readline').createInterface({input:process.stdin}).on('line',line=>
       expect(JSON.parse(output.trim().split('\n').at(-1)!)).toMatchObject({ signed_in: true, account_type: 'chatgpt' });
       expect(statSync(join(root, 'codex')).mode & 0o777).toBe(0o700);
     } finally { rmSync(root, { recursive: true, force: true }); }
-  });
+  // Several private RPC processes start during login; the subprocess owns the
+  // 30-second deadline. Leave room for that deadline and fixture cleanup.
+  }, 35_000);
 
   it('captures OTLP locally without AWS or a collector and omits prompt content', () => {
     const root = mkdtempSync(join(tmpdir(), 'rat-local-trace-'));

@@ -7,6 +7,7 @@ import { expect, it } from 'vitest';
 import { SessionRuntime } from '../../src/runner/session-runtime.js';
 import { planSessionLaunch } from '../../src/runner/session-launch-planning.js';
 import { planCodexLaunch } from '../../src/runner/agent-planning.js';
+import { hostedCodexArguments, hostedProcessEnvironment } from '../../src/runner/hosted-environment-planning.js';
 import { sessionAgent } from '../../src/core/session-planning.js';
 import type { Turn } from '../../src/domain/agents-api.js';
 
@@ -47,10 +48,11 @@ it('keeps an environment command process alive across completed root Turns', asy
   });
   const runtime = new SessionRuntime({ sessionId: 'sess_process', agentId: 'agent_process', request: {
     ...planned, binary: process.env.CODEX_CONFORMANCE_BINARY ?? resolve('node_modules/.bin/codex'),
+    binaryArguments: hostedCodexArguments(['app-server'], { access: 'enabled', allowed_domains: [] }, false, home),
     workspace: home, executionWorkspace: home, environments: [{ environmentId: 'local', cwd: home }],
     environment: { PATH: process.env.PATH, HOME: home, CODEX_HOME: home }, timeoutMs: 20000, persistent: true,
     prompt: '', sandbox: 'read-only', model: 'gpt-5.4', modelProvider: 'fixture', networkAccess: true,
-    sessionConfig: { ...planned.sessionConfig, 'model_providers.fixture': { name: 'local fixture',
+    sessionConfig: { ...planned.sessionConfig, shell_environment_policy: { inherit: 'core', set: hostedProcessEnvironment({}, process.env.PATH, home) }, 'model_providers.fixture': { name: 'local fixture',
       base_url: `http://127.0.0.1:${address.port}`, wire_api: 'responses', requires_openai_auth: false, supports_websockets: false } },
   } });
   const turn = (id: string): Turn => ({ id, object: 'agent.session.turn', session_id: 'sess_process', agent_id: 'agent_process', subagent_id: null,
@@ -65,7 +67,7 @@ it('keeps an environment command process alive across completed root Turns', asy
   };
   try {
     await runtime.initialize(); await complete('turn_one');
-    const started = JSON.parse(await readFile(startedPath, 'utf8'));
+    const started = JSON.parse(await readFile(startedPath, 'utf8').catch(error => { throw new Error(JSON.stringify(requests), { cause: error }); }));
     await delay(1000); await complete('turn_two');
     expect(JSON.parse(await readFile(resultPath, 'utf8'))).toEqual(started);
     expect(calls).toBe(4);

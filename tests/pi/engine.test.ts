@@ -343,7 +343,7 @@ describe('Pi coordination replay', () => {
     const f = await fixture([answer('Allowed')]);
     const engine = await f.open({ mode: 'bounded' });
     const seq = engine.nativeSeq;
-    await expect(engine.start(turn(), input('bad'), { model: 'not-pinned', service_tier: 'auto', reasoning: { effort: 'medium' } })).rejects.toThrow('approved Pi Bedrock catalog');
+    await expect(engine.start(turn(), input('bad'), { model: 'not-pinned', service_tier: 'auto', reasoning: { effort: 'medium' } })).rejects.toThrow('approved Pi catalog');
     await expect(engine.start(turn(), input('bad'), { model: 'test-model', service_tier: 'priority', reasoning: { effort: 'medium' } })).rejects.toThrow('auto service tier');
     expect(engine.nativeSeq).toBe(seq);
     expect(f.faux.state.callCount).toBe(0);

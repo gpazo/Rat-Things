@@ -13,7 +13,7 @@ charges. Delete Sessions when their environments and harnesses are no longer nee
 | Session worker | Dedicated EC2 instance runtime and encrypted EBS, or the selected Lambda MicroVM runtime and image storage |
 | HTTP and relay | Fargate service capacity, load balancer hours and traffic, and relay distribution traffic |
 | Durable state | Encrypted S3 objects, S3 Files workspace storage, DynamoDB operations and retention |
-| Network | NAT gateway and public IPv4 hours, processed bytes and data transfer |
+| Network | PrivateLink endpoint hours and data, optional NAT gateway and public IPv4 hours, and data transfer |
 | Control and delivery | Lambda requests and duration, queues, scheduling, webhooks, logs, secrets and KMS operations |
 
 The dedicated EC2 backend has host-managed lifetime. It is not billed only while
@@ -24,9 +24,10 @@ turns that shutdown into instance termination.
 
 The HTTP/relay services and private-network resources can have a baseline cost
 even when no Session is active. Include the [load balancer](https://aws.amazon.com/elasticloadbalancing/pricing/),
-Fargate, NAT, logs and retained storage when estimating an idle deployment.
+Fargate, PrivateLink, optional NAT, logs and retained storage when estimating an idle deployment.
 
-Pi Durable inference is billed through Amazon Bedrock. Codex model costs depend
+Pi Durable inference on AWS is billed through Amazon Bedrock; local Pi uses your
+ChatGPT subscription. Codex model costs depend
 on the deployment's selected authentication and provider configuration. Choosing
 a different runtime does not remove worker, storage, or network charges.
 
@@ -50,7 +51,7 @@ of metric dimensions; use logs and durable records for individual investigations
 
 ## Operating controls
 
-- Set deployment budgets and allocation tags before broad use.
+- Optionally configure spending alerts before AWS deployment and use allocation tags for reporting.
 - Bound admitted concurrency, tool access and output sizes.
 - Delete disposable Sessions and verify their workers terminate.
 - Review retained artifacts, image versions, logs and stored data independently.
@@ -60,3 +61,23 @@ of metric dimensions; use logs and durable records for individual investigations
 Deleting a Session does not remove unrelated deployment infrastructure or model
 credentials. Destroying a disposable deployment is a separate operation. Retained
 production tables and files require an explicit retention decision.
+
+## Optional budget alerts
+
+AWS setup can create a monthly USD spending alert. It is disabled by default and
+never required for local or AWS use. Set `--budget-usd` and `--budget-alert-emails`
+in the [quickstart](quickstart.md#optional-spending-alert), or configure
+[`budget_alert` in Terraform](../infra/README.md#optional-budget-alert).
+
+The alert emails the configured recipients when actual costs reported for the
+selected AWS account exceed the monthly amount. It covers all services and regions
+in that account, including unrelated workloads, Bedrock inference and infrastructure.
+Costs from before installation in the same month also count. Resource tags are not
+required. Shared costs are not allocated to individual Rat Things owners; per-owner
+admission rate limits remain a separate control.
+
+Alerts do not stop work, shut down resources or cap charges. Billing data can arrive
+late and AWS Budgets updates periodically, so notification may follow overspending.
+See [AWS Budgets timing and behavior](https://docs.aws.amazon.com/cost-management/latest/userguide/budgets-managing-costs.html).
+Subscription fees and model charges billed directly by other providers are outside
+this AWS account alert. Destroying the stack also removes its alert.

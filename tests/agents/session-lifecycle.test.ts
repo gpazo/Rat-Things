@@ -1,6 +1,7 @@
 import { iamApiPrincipal } from '../../src/domain/api-permissions.js';
 import OpenAI from 'openai';
 import { describe, expect, it, vi } from 'vitest';
+import { OwnerRateLimiter } from '../../src/core/owner-rate-limiter.js';
 import { AgentService } from '../../src/core/agent-service.js';
 import { SessionService } from '../../src/core/session-service.js';
 import { SessionToolService } from '../../src/core/session-tool-service.js';
@@ -11,7 +12,7 @@ import { AgentsApiError, parseAgentsContract } from '../../src/domain/agents-api
 import { routeAgentsRequest } from '../../src/lambdas/agents-router.js';
 import { MemoryAgentsStore } from './fixtures.js';
 
-function fixture() {
+function fixture(rateLimit?: number) {
   const store = new MemoryAgentsStore();
   const calls: Array<{ type: string; turnId: string; input?: unknown }> = [];
   const observations = new Map<string, SessionTurnObservation>();
@@ -43,7 +44,7 @@ function fixture() {
     artifactContent: async () => new ReadableStream({ start(controller) { controller.close(); } }),
   };
   const agents = new AgentService({ store });
-  const sessions = new SessionService({ store, agents, execution, streamIntervalMs: 1 });
+  const sessions = new SessionService({ store, agents, execution, streamIntervalMs: 1, ...(rateLimit !== undefined ? { rateLimit: new OwnerRateLimiter(store, () => rateLimit) } : {}) });
   const client = (owner: string) => new OpenAI({
     apiKey: 'test', baseURL: 'https://rat.invalid/v1', maxRetries: 0,
     fetch: (input, init) => routeAgentsRequest(new Request(input, init), iamApiPrincipal(owner), { agents, sessions }),
@@ -52,6 +53,33 @@ function fixture() {
 }
 
 describe('Agents API session lifecycle through the OpenAI SDK', () => {
+  it('keeps input retries and cancellation available after the owner reaches its limit', async () => {
+    const f = fixture(2);
+    const session = await f.api.sessions.create({ agent: { model: 'test' }, environment: { type: 'none' }, input: 'Begin' });
+    await f.sessions.dispatch('alice', session.id);
+    const event = { events: [{ type: 'agent.session.input.message' as const, input: [{ role: 'user' as const, content: [{ type: 'input_text' as const, text: 'Continue' }] }] }] };
+    const headers = { 'Idempotency-Key': 'same-input' };
+    await f.api.sessions.events.create(session.id, event, { headers });
+    await f.api.sessions.events.create(session.id, event, { headers });
+    await expect(f.api.sessions.events.create(session.id, event)).rejects.toMatchObject({ status: 429 });
+    await f.api.sessions.events.create(session.id, { events: [{ type: 'agent.session.input.cancel' }] });
+    await f.sessions.dispatch('alice', session.id);
+    expect(f.calls.filter(call => call.type === 'cancel')).toHaveLength(1);
+  });
+
+  it('rejects exhausted owners before environment effects and returns Retry-After', async () => {
+    const f = fixture(1);
+    const prepare = vi.spyOn(f.execution, 'prepare');
+    const input = { agent: { model: 'test' }, environment: { type: 'none' as const }, input: 'Begin' };
+    await f.api.sessions.create(input);
+    const denied = await routeAgentsRequest(new Request('https://rat.invalid/v1/agents/sessions', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(input) }), iamApiPrincipal('alice'), { agents: f.agents, sessions: f.sessions });
+    expect(denied.status).toBe(429);
+    expect(Number(denied.headers.get('retry-after'))).toBeGreaterThan(0);
+    expect(prepare).toHaveBeenCalledTimes(1);
+    await f.other.sessions.create(input);
+    expect(prepare).toHaveBeenCalledTimes(2);
+  });
+
   it('rejects unsupported resolved model settings without persisting metadata or settings', async () => {
     const f = fixture();
     const session = await f.api.sessions.create({ agent: { model: 'gpt-6-astra', reasoning: { effort: 'max' } }, environment: { type: 'none' }, input: 'Start' });

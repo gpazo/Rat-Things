@@ -70,6 +70,8 @@ import { SecretsSessionTools } from '../adapters/secrets-session-tools.js';
 import { RelayEnvironmentFiles } from '../adapters/relay-environment-files.js';
 import { SecretsEnvironmentCredentials } from '../adapters/secrets-environment-credentials.js';
 import { DynamoAgentsStore } from '../adapters/dynamo-agents-store.js';
+import { OwnerRateLimiter } from '../core/owner-rate-limiter.js';
+import { ownerRateLimits } from './owner-rate-limits.js';
 import { SessionEventStore } from '../core/session-event-store.js';
 import { WebhookService } from '../core/webhook-service.js';
 import { SecretsWebhooks } from '../adapters/secrets-webhooks.js';
@@ -159,6 +161,7 @@ export function getAgentsApiServices() {
     }),
     get sessions(): SessionService {
       agentsSessionService ??= new SessionService({
+        rateLimit: new OwnerRateLimiter(store, ownerRateLimits(process.env.OWNER_RATE_LIMITS_JSON)),
         store, agents: this.agents, piCatalog, piManagedStorage: process.env.SESSION_CHECKPOINTS_ENABLED === 'true' && process.env.S3_FILES_ENABLED === 'true',
         execution: new RunSessionExecution({
           store, repairPi: piProjectionRepair(store), abortPi: piProjectionRepair(store, 'abort'),
@@ -187,13 +190,14 @@ export function getRunService(enableExecutionControl = false): RunService {
   if (!enableExecutionControl && submissionService) return submissionService;
   const base = getBaseServices();
   const service = new RunService({
+    rateLimit: new OwnerRateLimiter(new DynamoAgentsStore(base.clients.dynamodb, requiredEnv('AGENTS_TABLE_NAME'), base.definitions), ownerRateLimits(process.env.OWNER_RATE_LIMITS_JSON)),
     store: base.store,
     artifacts: base.artifacts,
     queue: base.queue,
     executions: enableExecutionControl ? createExecutorRegistryFromEnv() : noExecutions,
     allowedRepositoryHosts: csv(process.env.ALLOWED_REPOSITORY_HOSTS ?? 'github.com,gitlab.com'),
     allowedSandboxModes: sandboxModes(
-      process.env.ALLOWED_SANDBOX_MODES ?? 'read-only,workspace-write,danger-full-access',
+      process.env.ALLOWED_SANDBOX_MODES ?? 'read-only,workspace-write',
     ),
     retentionSeconds: Number(process.env.RUN_RETENTION_SECONDS ?? 2_592_000),
   });

@@ -31,6 +31,7 @@ const DEFAULT_RETENTION_SECONDS = 30 * 24 * 60 * 60;
 const defaultIds: IdGenerator = { random: () => randomUUID(), deterministic: deterministicRunId };
 
 export interface RunServiceOptions {
+  rateLimit?: import('./owner-rate-limiter.js').OwnerRateLimit;
   store: RunStore;
   artifacts: Pick<ArtifactStore, 'putJson' | 'getStream'>;
   queue: RunQueue;
@@ -81,6 +82,7 @@ export class RunService {
       }
     }
 
+    if (!submit.agentsSession) await this.options.rateLimit?.admit(ownerId, `run:${runId}`);
     const input = await this.options.artifacts.putJson(
       runInputKey(ownerId, runId, requestHash),
       request,

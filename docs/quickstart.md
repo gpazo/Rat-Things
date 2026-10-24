@@ -24,13 +24,21 @@ Items, deletes the disposable Session to stop its harness, and leaves the Agent
 available for new work. Setup provisions AWS resources and invokes the model.
 
 ```bash
-npm run quickstart:aws -- --model YOUR_ADMITTED_MODEL
+npm run quickstart:aws
 ```
 
-For ChatGPT authentication, setup requires explicit consent before copying the
-device's renewable Codex credentials into your AWS Secrets Manager. `--model`
-selects a model admitted by that credential and deployment. Use `--auth bedrock`
-with a configured Bedrock model for AWS model authentication instead.
+The default uses paid Bedrock inference through private AWS endpoints. Use `--model`
+to select another admitted model, and `--profile` or `--region` to select your AWS
+identity and location. The helper installs pinned Node dependencies and builds a
+missing worker artifact with ARM64-capable Docker. The initial build can take time;
+a valid artifact supplied through `CODEX_RUNTIME_ARTIFACT` is reused.
+
+PrivateLink endpoints, compute, storage and model usage incur AWS charges separately
+from your subscription. Runtime internet access is denied by default. To use ChatGPT
+on AWS, select `--auth chatgpt --model YOUR_ADMITTED_MODEL` and supply reviewed provider
+IPv4 destinations with `--https-egress-cidrs`. Credential copying still requires
+explicit consent. Other external services also need configured HTTPS destinations;
+see [runtime egress](../infra/README.md).
 
 `--dry-run` describes setup without deploying. Existing-deployment status,
 credential synchronization and teardown commands retain the deployment's saved
@@ -40,6 +48,25 @@ a mock driver cannot prove an Agents deployment.
 The helper uses the Lambda URL transport when a dedicated Agents HTTP service is
 not configured. Large uploads, long-lived SSE and executor connections need the
 [public transport deployment](agents-api.md#deploy-the-public-transport).
+
+### Optional spending alert
+
+Before deploying, you can choose a monthly dollar amount and email recipients:
+
+```bash
+npm run quickstart:aws -- --budget-usd 50 --budget-alert-emails you@example.com
+```
+
+Replace the example amount and address. Supply both options or omit both; alerts
+are disabled by default. `--budget-alert-emails` accepts up to ten comma-separated
+addresses. Add `--dry-run` to review the configuration without AWS changes.
+
+This creates an AWS Budgets email alert when reported actual monthly costs exceed
+the amount in USD. It includes all services and regions in the selected AWS account,
+including other workloads. It does not allocate shared costs to Rat Things owners,
+block execution or affect your local ChatGPT subscription. AWS billing data and
+notifications are delayed, so spending can exceed the amount before an alert arrives.
+See [costs and budget alerts](costs.md#optional-budget-alerts) for the scope and Terraform setup.
 
 ## Connect an installed deployment
 
