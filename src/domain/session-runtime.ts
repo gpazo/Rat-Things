@@ -4,17 +4,15 @@ import { invalid } from './agents-api-validation.js';
 import { canonicalJson } from './json.js';
 
 export type SessionRuntime = 'codex' | 'pi';
-export interface PiModelDescriptor {
+export type PiModelDescriptor = {
   id: string;
   name: string;
-  provider: 'amazon-bedrock';
-  api: 'bedrock-converse-stream';
-  region: string;
   input: readonly ('text' | 'image')[];
   contextWindow: number;
   maxTokens: number;
   reasoning: readonly string[];
-}
+} & ({ provider: 'amazon-bedrock'; api: 'bedrock-converse-stream'; region: string }
+  | { provider: 'openai-codex'; api: 'openai-codex-responses' });
 export type RuntimePin = { kind: 'codex' } | {
   kind: 'pi'; engine: '1.3.0'; schema: 1; registryDigest: string;
   catalogDigest: string; catalog: readonly PiModelDescriptor[];
@@ -31,7 +29,7 @@ export function runtimeSelector(metadata: Agent['metadata'] | undefined | null):
 
 export function resolveRuntime(metadata: Agent['metadata'] | undefined | null, saved: Agent['metadata'] | undefined | null, catalog: readonly PiModelDescriptor[]): RuntimePin {
   if ((runtimeSelector(metadata) ?? runtimeSelector(saved) ?? 'codex') === 'codex') return CODEX_RUNTIME;
-  if (!catalog.length) invalid('Pi Bedrock models are not configured for this deployment', 'metadata.rat_things_runtime');
+  if (!catalog.length) invalid('Pi models are not configured for this workspace', 'metadata.rat_things_runtime');
   return { kind: 'pi', engine: '1.3.0', schema: 1, registryDigest: PI_REGISTRY,
     catalogDigest: createHash('sha256').update(canonicalJson(catalog)).digest('hex'), catalog: structuredClone(catalog) };
 }
@@ -43,7 +41,7 @@ export function assertRuntimeUnchanged(pin: RuntimePin, metadata: Agent['metadat
 
 export function piModel(pin: Extract<RuntimePin, { kind: 'pi' }>, model: string): PiModelDescriptor {
   const descriptor = pin.catalog.find(entry => entry.id === model);
-  if (!descriptor) invalid('Model is not in this Session’s approved Pi Bedrock catalog', 'agent.model');
+  if (!descriptor) invalid('Model is not in this Session’s approved Pi catalog', 'agent.model');
   return descriptor;
 }
 

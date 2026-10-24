@@ -4,8 +4,8 @@ Rat Things integrates two agent runtimes behind the same Session API. A runtime
 runs the model and tools. Rat Things owns the surrounding AWS workers, saved state,
 permissions, input delivery, and results.
 
-Codex is the default. Pi Durable is available when the deployment has an approved
-Bedrock model catalog. Choosing Pi does not require a ChatGPT login.
+Codex is the default. Local Pi Durable uses the workspace's private ChatGPT sign-in.
+On AWS, Pi requires an approved Bedrock model catalog and does not require a ChatGPT login.
 
 ## One platform, two runtimes
 
@@ -21,7 +21,7 @@ expand its own access during a Turn; see the [credential boundaries](security.md
 
 | Capability | Codex | Pi Durable |
 | --- | --- | --- |
-| Model access | Deployment-configured ChatGPT bridge or Bedrock | Approved Amazon Bedrock Converse models |
+| Model access | Deployment-configured ChatGPT bridge or Bedrock | Local ChatGPT subscription; approved Amazon Bedrock Converse models on AWS |
 | Session selection | Default or `rat_things_runtime: 'codex'` | `rat_things_runtime: 'pi'` |
 | Function tools, MCP, and subagents | Supported | Supported |
 | Environments | None, managed, or self-hosted | None or managed; managed requires S3 Files and checkpoints |
@@ -56,6 +56,10 @@ and the complete settings restrictions.
 and tool tasks, conversations, and storage interfaces. Rat Things connects that
 engine to its AWS state store and execution lifecycle. It also implements durable
 subagent coordination on top of Pi's task and conversation support.
+
+Local Pi uses the same native commit format with encrypted SQLite storage and a
+single local-service lease. It supports No environment, application functions, and
+subagents. The workspace's model catalog reports these local capabilities.
 
 The worker waits for the host to acknowledge a native commit before applying it
 locally. Native state is stored through encrypted S3 with DynamoDB ownership and

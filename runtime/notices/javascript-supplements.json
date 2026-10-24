@@ -66,6 +66,72 @@
           }
         }
       ]
+    },
+    {
+      "name": "@earendil-works/chord",
+      "version": "1.3.0",
+      "integrity": "sha512-qqYhjALZ193atpBzmmS+M5pHQoiI4Aynetc1jXpv+5O2crXH3Y8wbFEy33orU2nmFrlw1U36rsdgUjaW4b3m/w==",
+      "packagePath": "node_modules/@earendil-works/chord",
+      "surfaces": [
+        "app"
+      ],
+      "files": [
+        {
+          "path": "runtime/notices/pi/LICENSE",
+          "kind": "license",
+          "sha256": "0457f5bcec3b3b211605dfb5d1a49042fd638f3686a410fe099c24a25af13c48",
+          "bytes": 1069,
+          "source": {
+            "repository": "https://github.com/earendil-works/pi",
+            "commit": "71023aec1546d6d677a65669c5665c0927ce0dd0",
+            "path": "LICENSE"
+          }
+        }
+      ]
+    },
+    {
+      "name": "@earendil-works/pi-ai",
+      "version": "1.3.0",
+      "integrity": "sha512-KaBI8x7q7sPoFUXICNGD9efHzDG+oRNwVvkA9jdIsSQWH1RjFssOlEGsbLtewUPPgCrvmz0l2KTgSLXTyj3acw==",
+      "packagePath": "node_modules/@earendil-works/pi-ai",
+      "surfaces": [
+        "app"
+      ],
+      "files": [
+        {
+          "path": "runtime/notices/pi/LICENSE",
+          "kind": "license",
+          "sha256": "0457f5bcec3b3b211605dfb5d1a49042fd638f3686a410fe099c24a25af13c48",
+          "bytes": 1069,
+          "source": {
+            "repository": "https://github.com/earendil-works/pi",
+            "commit": "71023aec1546d6d677a65669c5665c0927ce0dd0",
+            "path": "LICENSE"
+          }
+        }
+      ]
+    },
+    {
+      "name": "@earendil-works/pi-durable",
+      "version": "1.3.0",
+      "integrity": "sha512-2aD0xead1LH0BBwUBxex28in/PpUJEwyaEiW/nLoTFUcZ/lDYEl6LHX6mGZKJG8tUHzERwJyysDgy0ruidt84w==",
+      "packagePath": "node_modules/@earendil-works/pi-durable",
+      "surfaces": [
+        "app"
+      ],
+      "files": [
+        {
+          "path": "runtime/notices/pi/LICENSE",
+          "kind": "license",
+          "sha256": "0457f5bcec3b3b211605dfb5d1a49042fd638f3686a410fe099c24a25af13c48",
+          "bytes": 1069,
+          "source": {
+            "repository": "https://github.com/earendil-works/pi",
+            "commit": "71023aec1546d6d677a65669c5665c0927ce0dd0",
+            "path": "LICENSE"
+          }
+        }
+      ]
     }
   ],
   "evidence": [
@@ -75,6 +141,13 @@
         "app"
       ],
       "sha256": "683285957908c700fc6a90cbd1bbeed92dd6f9fe8207592ea7172f19e17b44c7"
+    },
+    {
+      "path": "runtime/notices/pi/provenance.json",
+      "sha256": "ffa457d5031c82182d71aff5097437ac762e29c76b1b900c657145fe96a692c3",
+      "surfaces": [
+        "app"
+      ]
     }
   ]
 }

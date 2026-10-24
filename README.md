@@ -9,9 +9,9 @@ Rat Things runs AI agents on your computer or in your AWS account. It saves thei
 conversations and work so you can return later, continue after a worker stops, or
 run tasks on a schedule. Use the Rust desktop app, CLI, or OpenAI-compatible Agents API.
 
-Start locally with Codex and your ChatGPT subscription. AWS runs Codex or Pi Durable
+Start locally with Codex or Pi Durable and your ChatGPT subscription. AWS runs either runtime
 in isolated Linux workers, with encrypted storage and explicitly configured tools.
-Pi uses Amazon Bedrock. AWS compute and model usage are billed separately from your
+On AWS, Pi uses Amazon Bedrock. AWS compute and model usage are billed separately from your
 subscription.
 
 This is an engineering preview. See [capabilities and boundaries](docs/status-and-roadmap.md)

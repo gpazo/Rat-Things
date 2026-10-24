@@ -1,0 +1,47 @@
+{
+  "repository": "https://github.com/earendil-works/pi",
+  "tag": "v1.3.0",
+  "commit": "71023aec1546d6d677a65669c5665c0927ce0dd0",
+  "license": {
+    "sourcePath": "LICENSE",
+    "gitBlobSha1": "b0a8e9b81083294360c69b4ec45d3d39a2b28197",
+    "bytes": 1069,
+    "sha256": "0457f5bcec3b3b211605dfb5d1a49042fd638f3686a410fe099c24a25af13c48"
+  },
+  "packages": [
+    {
+      "name": "@earendil-works/chord",
+      "version": "1.3.0",
+      "packagePath": "node_modules/@earendil-works/chord",
+      "integrity": "sha512-qqYhjALZ193atpBzmmS+M5pHQoiI4Aynetc1jXpv+5O2crXH3Y8wbFEy33orU2nmFrlw1U36rsdgUjaW4b3m/w==",
+      "sourcePackagePath": "packages/chord/package.json",
+      "sourcePackageBlobSha1": "8c75665377a54867bd567ad81256912a84ea0b6c",
+      "sourcePackageSha256": "1cfccb1c93b8e96d1be4ae8a19b4f10e545b9d3e0b9f005b199c3722da0512f8",
+      "sourceLicenseNoticeFilenameMatches": []
+    },
+    {
+      "name": "@earendil-works/pi-ai",
+      "version": "1.3.0",
+      "packagePath": "node_modules/@earendil-works/pi-ai",
+      "integrity": "sha512-KaBI8x7q7sPoFUXICNGD9efHzDG+oRNwVvkA9jdIsSQWH1RjFssOlEGsbLtewUPPgCrvmz0l2KTgSLXTyj3acw==",
+      "sourcePackagePath": "packages/ai/package.json",
+      "sourcePackageBlobSha1": "07f546f9708a8d58dfb97b8b16a6fe769129afc6",
+      "sourcePackageSha256": "4e9ed07b06a91d844485874c251f312b610d015a4a4fd32c78cde58a7862a3f1",
+      "sourceLicenseNoticeFilenameMatches": []
+    },
+    {
+      "name": "@earendil-works/pi-durable",
+      "version": "1.3.0",
+      "packagePath": "node_modules/@earendil-works/pi-durable",
+      "integrity": "sha512-2aD0xead1LH0BBwUBxex28in/PpUJEwyaEiW/nLoTFUcZ/lDYEl6LHX6mGZKJG8tUHzERwJyysDgy0ruidt84w==",
+      "sourcePackagePath": "packages/durable/package.json",
+      "sourcePackageBlobSha1": "c158d2d3290022f0ca92c34b2ffd2f8e89fb8243",
+      "sourcePackageSha256": "7877411c036932f74af4226563ff37f121013a9f69d4f9ceb55f5cdbcf6e5c54",
+      "sourceLicenseNoticeFilenameMatches": []
+    }
+  ],
+  "limitations": [
+    "Publisher tag and matching package names, versions and MIT declarations establish source correspondence, not a cryptographic npm build attestation.",
+    "The published packages omit their own license payload. The root MIT text is retained unchanged. The source package trees contain no separate legal-notice filenames."
+  ]
+}

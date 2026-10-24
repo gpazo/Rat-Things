@@ -3928,7 +3928,7 @@ impl ModelPicker {
             });
         }
         if runtime == "pi" {
-            ui.label(RichText::new("Pi uses Bedrock. Choose a managed environment or no environment. Function and MCP tools, text output, medium verbosity, auto tier, and no reasoning summary are supported. Runtime is fixed when the Session starts.").small().color(theme::MUTED));
+            ui.label(RichText::new("Pi Durable uses your ChatGPT subscription locally and Bedrock on AWS. Available tools and environments depend on the workspace. Runtime is fixed when the Session starts.").small().color(theme::MUTED));
         }
         if runtime != original {
             set_field(
@@ -4146,7 +4146,7 @@ fn pi_configuration_error(
             .and_then(Value::as_array)
             .is_some_and(|types| types.iter().any(|kind| kind == environment))
     {
-        return Some("Pi supports only managed environments or no environment.".into());
+        return Some("This workspace does not support that environment with Pi. Choose an available environment or No environment.".into());
     }
     let agent = if collection == Collection::Sessions {
         value.get("agent")?
@@ -4184,17 +4184,27 @@ fn pi_configuration_error(
         .and_then(Value::as_array)
         .is_some_and(|tools| {
             tools.iter().any(|tool| {
-                !(matches!(
-                    tool.get("type").and_then(Value::as_str),
-                    Some("function" | "mcp")
-                ) || (tool.get("type").and_then(Value::as_str)
-                    == Some("programmatic_tool_calling")
-                    && tool.get("enabled").and_then(Value::as_bool) == Some(false)))
+                let supported = capabilities
+                    .and_then(|c| c.get("tools"))
+                    .and_then(Value::as_array)
+                    .map(|allowed| allowed.iter().any(|kind| Some(kind) == tool.get("type")))
+                    .unwrap_or_else(|| {
+                        matches!(
+                            tool.get("type").and_then(Value::as_str),
+                            Some("function" | "mcp")
+                        )
+                    });
+                !(supported
+                    || (tool.get("type").and_then(Value::as_str)
+                        == Some("programmatic_tool_calling")
+                        && tool.get("enabled").and_then(Value::as_bool) == Some(false)))
                     || tool.get("defer_loading").and_then(Value::as_bool) == Some(true)
             })
         })
     {
-        return Some("Pi supports function and MCP tools without deferred loading.".into());
+        return Some(
+            "Choose Pi tools supported by this workspace, without deferred loading.".into(),
+        );
     }
     None
 }
@@ -4536,7 +4546,9 @@ mod runtime_tests {
                     &json!({"agent_id":"agent_1","environment":{"type":"self_hosted"}})
                 )
                 .as_deref(),
-            Some("Pi supports only managed environments or no environment.")
+            Some(
+                "This workspace does not support that environment with Pi. Choose an available environment or No environment."
+            )
         );
         assert_eq!(
             picker

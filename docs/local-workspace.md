@@ -5,7 +5,7 @@ Turns and conversation history locally, using the same API and desktop app as an
 AWS workspace. You do not need AWS, Docker or Terraform for local conversations.
 
 Local means the API, harness and saved conversation run on your computer. Model
-requests use your ChatGPT subscription through Codex; this is not offline model inference.
+requests use your ChatGPT subscription with either Codex or Pi Durable; this is not offline model inference.
 Codex handles sign-in and refresh on the host. Subscription credentials never enter
 the local Linux worker. Codex/ChatGPT is the first supported subscription provider.
 Sign in once for Rat Things, even if you already use Codex. Rat Things keeps a separate
@@ -37,8 +37,16 @@ use **Refresh models**. `RAT_THINGS_MODEL` can select one exact model ID for the
 local catalog; that model still needs to be available to your credentials.
 
 Send a follow-up in the same Session. Close and reopen the desktop to find the
-saved conversation. If the service stops during a Turn, the Turn is marked failed;
-send a new message to continue. A crash never silently repeats an accepted Turn.
+saved conversation. If the service stops during a Codex Turn, the Turn is marked failed;
+send a new message to continue.
+
+Select **Pi** in the Runtime picker to use Pi Durable with the same private ChatGPT
+sign-in. Choose **No environment**. Local Pi supports application functions and
+subagents; host files, commands, MCP, and Vault credentials are not exposed as tools.
+Pi saves native tasks and pending function calls in the encrypted local SQLite store.
+After a service restart, it resumes unfinished model work and retains completed
+function results. An interrupted model request can be retried. Cloud Pi continues
+to use the deployment's separately configured Bedrock catalog.
 
 ## Give your Session a Linux workspace
 

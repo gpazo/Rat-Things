@@ -16,6 +16,7 @@ export async function startLocalServer(options: {
   runtime?: Parameters<typeof createLocalServices>[0]['runtime'];
   hostCodex?: Parameters<typeof createLocalServices>[0]['hostCodex'];
   native?: Parameters<typeof createLocalServices>[0]['native'];
+  pi?: Parameters<typeof createLocalServices>[0]['pi'];
 } = {}) {
   const services = createLocalServices({ ...options, directory: options.directory ?? localWorkspaceDirectory() });
   const service = localServiceIdentity(options.native?.requirements);
@@ -54,7 +55,7 @@ export async function startLocalServer(options: {
         if (url.pathname === '/v1/workspace' && method === 'GET') {
           response = Response.json({ kind: 'local', name: 'This computer', directory: services.directory,
             service,
-            max_sessions: services.maxSessions, environment: 'managed_local', model_execution: 'subscription', harness: services.harness,
+            max_sessions: services.maxSessions, environment: 'managed_local', model_execution: 'subscription', harness: services.harness, harnesses: ['codex', 'pi'],
             capabilities: ['agents', 'sessions', 'streaming', 'function_tools', 'web_search', 'managed_environments', 'subscription_login'] });
         } else if (url.pathname === '/v1/workspace/health' && method === 'GET') {
           const [subscription, runtime] = await Promise.all([
@@ -96,7 +97,7 @@ export async function startLocalServer(options: {
           const id = url.pathname.split('/').at(-1)!;
           response = Response.json(method === 'GET' ? await services.transfers.retrieve(id) : await services.transfers.execute(id));
         } else {
-          const models = url.pathname === '/v1/models' ? await services.models() : undefined;
+          const models = url.pathname === '/v1/models' && url.searchParams.get('runtime') !== 'pi' ? await services.models() : undefined;
           response = await routeAgentsRequest(request, iamApiPrincipal(LOCAL_OWNER), { ...services, models });
         }
         const responseHeaders: Record<string, string> = { 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' };

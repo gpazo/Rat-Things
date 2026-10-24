@@ -20,6 +20,11 @@ checks and their limits. This is publisher version/source correspondence; it is
 not a cryptographic build attestation for the npm tarballs. The full original
 SDK license includes the AWS copyright notice.
 
+The Pi supplement retains the root MIT text for the three 1.3.0 packages whose
+published archives omit it. Its provenance binds the lock identities to matching
+package names, versions, and license declarations at the publisher's immutable
+release commit. This is source correspondence, not an npm build attestation.
+
 Generated numeric filenames avoid deriving output paths from package names. The
 index retains each package identity, original path, byte count, hash and explicit
 reference relationship. Builders recheck input bytes and directory membership
