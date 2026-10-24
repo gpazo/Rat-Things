@@ -35,8 +35,8 @@ Prefer a terminal? Run `npm run rat-things -- serve`, then use the same
 `sessions create`, `sessions send` and `sessions items` commands. Local Sessions
 support conversations, function tools and web search. Apple silicon Macs can also
 run isolated Linux workers with a supported local VM and `runtime setup`. Vaults
-and provider integrations remain cloud capabilities. Local inference uses Codex
-with your ChatGPT subscription.
+and provider integrations remain cloud capabilities. Local Codex and Pi Durable
+use your ChatGPT subscription; local Pi uses No environment and application functions.
 
 Follow the [local workspace guide](docs/local-workspace.md) for setup, persistence,
 capacity and the path into AWS. The desktop's workspace menu connects to an existing

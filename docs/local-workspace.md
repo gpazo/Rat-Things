@@ -7,7 +7,7 @@ AWS workspace. You do not need AWS, Docker or Terraform for local conversations.
 Local means the API, harness and saved conversation run on your computer. Model
 requests use your ChatGPT subscription with either Codex or Pi Durable; this is not offline model inference.
 Codex handles sign-in and refresh on the host. Subscription credentials never enter
-the local Linux worker. Codex/ChatGPT is the first supported subscription provider.
+the local Linux worker. ChatGPT is the supported local subscription provider.
 Sign in once for Rat Things, even if you already use Codex. Rat Things keeps a separate
 Codex home so your personal tools, plugins and hooks do not enter a Session.
 
