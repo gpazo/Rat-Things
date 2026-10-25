@@ -61,7 +61,10 @@ it.each(['ready', 'close', 'cancel'])('stops and poisons the worker when %s ackn
     if (failure === 'ready') await expect(f.open()).rejects.toThrow('bridge response');
     else {
       const client = await f.open();
-      if (failure === 'close') await expect(client.close()).rejects.toThrow('bridge response');
+      if (failure === 'close') {
+        await expect(Promise.all([client.close(), client.close()])).resolves.toEqual([undefined, undefined]);
+        await client.close();
+      }
       else {
         const abort = new AbortController(); const pending = client.execute(effect, abort.signal);
         const rejected = expect(pending).rejects.toThrow();
@@ -70,6 +73,18 @@ it.each(['ready', 'close', 'cancel'])('stops and poisons the worker when %s ackn
       }
       await expect(client.execute(effect, new AbortController().signal)).rejects.toThrow('unavailable');
     }
+    expect(f.stopWorker).toHaveBeenCalledOnce();
+  } finally { await rm(f.directory, { recursive: true, force: true }); }
+});
+
+it('keeps cleanup failed when the fallback cannot confirm worker shutdown', async () => {
+  const f = await fixture('close');
+  f.stopWorker.mockRejectedValue(new Error('Worker shutdown unconfirmed'));
+  const client = await f.open();
+  try {
+    await expect(client.close()).rejects.toThrow('Pi bridge close and cleanup failed');
+    await expect(client.close()).rejects.toThrow('Pi bridge close and cleanup failed');
+    await expect(client.execute(effect, new AbortController().signal)).rejects.toThrow('unavailable');
     expect(f.stopWorker).toHaveBeenCalledOnce();
   } finally { await rm(f.directory, { recursive: true, force: true }); }
 });

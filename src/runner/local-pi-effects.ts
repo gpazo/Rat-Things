@@ -106,7 +106,6 @@ export async function openLocalPiEffects(options: {
         await rm(home, { recursive: true, force: true });
       } catch (error) {
         try { await poison(); } catch (cleanup) { throw new AggregateError([error, cleanup], 'Pi bridge close and cleanup failed'); }
-        throw error;
       }
     })(),
   };
