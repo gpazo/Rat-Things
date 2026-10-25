@@ -108,7 +108,8 @@ jobs:
       - name: Verify patched x86 sandbox and local Pi transport
         env:
           CODEX_CONFORMANCE_BINARY: ${{ github.workspace }}/.runtime/codex/linux-x64/runtime/bin/codex
-        run: npx vitest run tests/pi/managed-effects.test.ts tests/runner/managed-sandbox.test.ts tests/agents/local-pi-transport.test.ts tests/agents/local-pi.test.ts --no-file-parallelism
+          CODEX_REQUIRE_PARITY: 'true'
+        run: npx vitest run tests/pi/managed-effects.test.ts tests/pi/managed-subprocess.test.ts tests/runner/managed-sandbox.test.ts tests/agents/local-pi-transport.test.ts tests/agents/local-pi.test.ts --no-file-parallelism
       - name: Archive verified Linux x64 runtime
         run: tar -C .runtime/codex/linux-x64 -czf .runtime/codex/linux-x64.tar.gz artifact.json runtime
       - name: Export verified Linux x64 runtime

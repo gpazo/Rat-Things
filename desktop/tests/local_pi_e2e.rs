@@ -425,7 +425,7 @@ fn saved_pi_agent_runs_managed_tools_and_restores_in_rust_console() {
         "/agents/sessions/{}",
         created.session.as_ref().unwrap()
     ));
-    assert_eq!(session["agent_id"].as_str(), created.agent.as_deref());
+    assert_eq!(session["agent"]["id"].as_str(), created.agent.as_deref());
     assert_eq!(session["environment"]["type"], "openai_hosted");
     assert_eq!(session["environment"]["network"]["access"], "disabled");
     let environment = session["environment"]["id"].as_str().unwrap().to_owned();

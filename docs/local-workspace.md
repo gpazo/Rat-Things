@@ -109,6 +109,13 @@ the workspace files and start a new Session. Rat Things does not replay setup
 when it cannot confirm which effects already happened. Local Vaults, plugins and MCP tools are not yet
 supported. Local browser automation is not bundled in this image.
 
+Cancelling a managed Codex Turn stops its entire dedicated worker, including
+background commands and subagents, before reporting cancellation. The workspace
+and conversation remain saved. Send a new message to reopen the worker and
+continue; environment file operations are unavailable while it is disconnected.
+If worker shutdown cannot be confirmed, new work remains blocked until cleanup
+succeeds.
+
 ## Keep the service running separately
 
 A desktop-owned service stops when the app closes. Run the service separately if
@@ -133,7 +140,9 @@ Two native Session harnesses can run at once by default; additional work stays
 queued. Idle harnesses release their slots after 30 seconds. Use
 `serve --max-sessions 4` to change the limit, or `--data-dir PATH` for a separate
 workspace. Set `RAT_THINGS_LOCAL_DIR` to that path in clients too. The limit bounds both harnesses and Linux workers; it does not change subscription
-quotas. Each Linux worker has a 2 GiB memory limit and a two-CPU quota. An environment
+quotas. Container workers have a 2 GiB memory limit and a two-CPU quota. The Linux
+KVM development worker admits one VM with one CPU, 2 GiB of guest memory and a
+3 GiB host memory budget, subject to host capacity checks. An environment
 created without a Turn retains its slot until used or the Session is deleted.
 
 ## Use the same API from code

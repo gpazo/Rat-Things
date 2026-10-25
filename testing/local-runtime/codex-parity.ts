@@ -16,6 +16,7 @@ import type { AgentSession, Turn } from '../../src/domain/agents-api.js';
 import type { PiModelDescriptor } from '../../src/domain/session-runtime.js';
 import { hashFile } from './linux-kvm/prepare.js';
 import { sandboxRefusalVariant } from './linux-kvm/sandbox-refusal.js';
+import { nodeSubprocessStdioProbe, restrictedNetworkSocketProbe } from './subprocess-fixtures.js';
 
 const { values } = parseArgs({ options: { directory: { type: 'string' }, 'timeout-seconds': { type: 'string', default: '300' }, help: { type: 'boolean' } } });
 if (values.help) {
@@ -151,14 +152,28 @@ try {
   await launch(normalProfile);
   const outsidePath = `/home/agent/rat-codex-outside-${nonce}`, escapedPath = `/home/agent/rat-codex-symlink-${nonce}`;
   const content = `Real Codex remote workspace ${nonce}\n`;
-  const isolation = `const fs=require('node:fs');(async()=>{const owner=fs.statSync('/home/agent');const denied=path=>{try{fs.writeFileSync(path,'escaped');return false}catch(e){return ['EACCES','EPERM','EROFS'].includes(e.code)}};fs.writeFileSync('/workspace/codex-parity.txt',${JSON.stringify(content)});const directDenied=denied(${JSON.stringify(outsidePath)});fs.symlinkSync('/home/agent','/workspace/outside-link');const symlinkDenied=denied('/workspace/outside-link/rat-codex-symlink-${nonce}');fs.unlinkSync('/workspace/outside-link');const network=[];for(const url of ['http://127.0.0.1:3211/health','http://169.254.169.254/']){try{await fetch(url,{signal:AbortSignal.timeout(1500)});network.push(false)}catch{network.push(true)}}let tokenReadable=false;try{fs.readFileSync('/etc/rat-things/control-token');tokenReadable=true}catch{};const result={uid:process.getuid(),platform:process.platform,outsideOwner:owner.uid,outsideOwnerWritable:Boolean(owner.mode&0o200),content:fs.readFileSync('/workspace/codex-parity.txt','utf8'),listed:fs.readdirSync('/workspace').includes('codex-parity.txt'),directDenied,symlinkDenied,outsideExists:fs.existsSync(${JSON.stringify(outsidePath)})||fs.existsSync(${JSON.stringify(escapedPath)}),hostDirectory:fs.existsSync(${JSON.stringify(directory)}),hostHome:fs.existsSync(${JSON.stringify(homedir())}),auth:fs.existsSync('/home/agent/.codex/auth.json'),socket:['/var/run/docker.sock','/run/docker.sock',${JSON.stringify(`/run/user/${process.getuid?.() ?? 0}/rat-things-parity-docker.sock`)}].some(path=>fs.existsSync(path)),ambientSecret:Object.values(process.env).includes(${JSON.stringify(sentinel)}),sensitiveNames:Object.keys(process.env).filter(key=>['RAT_CODEX_PARITY_SECRET','OPENAI_API_KEY','AWS_ACCESS_KEY_ID','AWS_SECRET_ACCESS_KEY','AWS_SESSION_TOKEN','CODEX_EXEC_SERVER_NOISE_AUTH_TOKEN','CODEX_API_KEY'].includes(key)),tokenReadable,networkBlocked:network};fs.appendFileSync('/workspace/effect-count','once\\n');console.log('RAT_CODEX_PROOF:'+JSON.stringify(result))})().catch(error=>{console.error(error.code);process.exitCode=1});`;
-  phase = 'Codex command confinement'; queued = { id: 'confinement', program: isolation };
+  // Restricted Codex networking permits socket(AF_UNIX) only. Require EPERM;
+  // a missing Python/AF_VSOCK implementation must fail instead of counting as denial.
+  // Python exits successfully only after checking the exact permission error.
+  const vsockProgram = `import errno, socket
+try:
+    endpoint = socket.socket(socket.AF_VSOCK, socket.SOCK_STREAM)
+except PermissionError as error:
+    if error.errno != errno.EPERM:
+        raise
+else:
+    endpoint.close()
+    raise RuntimeError("AF_VSOCK socket was allowed")
+`;
+  const isolation = `const fs=require('node:fs');(async()=>{const owner=fs.statSync('/home/agent');const denied=path=>{try{fs.writeFileSync(path,'escaped');return false}catch(e){return ['EACCES','EPERM','EROFS'].includes(e.code)}};fs.writeFileSync('/workspace/codex-parity.txt',${JSON.stringify(content)});const directDenied=denied(${JSON.stringify(outsidePath)});fs.symlinkSync('/home/agent','/workspace/outside-link');const symlinkDenied=denied('/workspace/outside-link/rat-codex-symlink-${nonce}');fs.unlinkSync('/workspace/outside-link');const network=[];for(const url of ['http://127.0.0.1:3211/health','http://169.254.169.254/']){try{await fetch(url,{signal:AbortSignal.timeout(1500)});network.push(false)}catch{network.push(true)}}require('node:child_process').execFileSync('python3',['-c',${JSON.stringify(vsockProgram)}],{stdio:'inherit',timeout:5000});const vsockDenied='EPERM';let tokenReadable=false;try{fs.readFileSync('/etc/rat-things/control-token');tokenReadable=true}catch{};const result={uid:process.getuid(),platform:process.platform,outsideOwner:owner.uid,outsideOwnerWritable:Boolean(owner.mode&0o200),content:fs.readFileSync('/workspace/codex-parity.txt','utf8'),listed:fs.readdirSync('/workspace').includes('codex-parity.txt'),directDenied,symlinkDenied,outsideExists:fs.existsSync(${JSON.stringify(outsidePath)})||fs.existsSync(${JSON.stringify(escapedPath)}),hostDirectory:fs.existsSync(${JSON.stringify(directory)}),hostHome:fs.existsSync(${JSON.stringify(homedir())}),auth:fs.existsSync('/home/agent/.codex/auth.json'),socket:['/var/run/docker.sock','/run/docker.sock',${JSON.stringify(`/run/user/${process.getuid?.() ?? 0}/rat-things-parity-docker.sock`)}].some(path=>fs.existsSync(path)),ambientSecret:Object.values(process.env).includes(${JSON.stringify(sentinel)}),sensitiveNames:Object.keys(process.env).filter(key=>['RAT_CODEX_PARITY_SECRET','OPENAI_API_KEY','AWS_ACCESS_KEY_ID','AWS_SECRET_ACCESS_KEY','AWS_SESSION_TOKEN','CODEX_EXEC_SERVER_NOISE_AUTH_TOKEN','CODEX_API_KEY'].includes(key)),tokenReadable,networkBlocked:network,vsockDenied};fs.appendFileSync('/workspace/effect-count','once\\n');console.log('RAT_CODEX_PROOF:'+JSON.stringify(result))})().catch(error=>{console.error(error.code);process.exitCode=1});`;
+  const subprocessChecks = `const child=require('node:child_process');const assert=require('node:assert/strict');assert.equal(child.execFileSync(process.execPath,['-e',${JSON.stringify(nodeSubprocessStdioProbe)}],{encoding:'utf8',timeout:10000}),${JSON.stringify('local-subprocess-stdio-ok\n')});assert.equal(child.execFileSync('python3',['-c',${JSON.stringify(restrictedNetworkSocketProbe)}],{encoding:'utf8',timeout:10000}),${JSON.stringify('local-socket-only-ok\n')});`;
+  phase = 'Codex command confinement'; queued = { id: 'confinement', program: subprocessChecks + isolation };
   session = await client!.beta.agents.sessions.create({ agent: { model: modelId, multi_agent: { enabled: false } }, environment: { type: 'openai_hosted',
     setup_commands: [{ command: 'node /workspace/setup-proof.cjs' }], files: [{ type: 'inline', path: '/workspace/setup-proof.cjs', data: Buffer.from("require('node:fs').appendFileSync('/workspace/setup-count','once\\n')").toString('base64') }] }, input: 'Deterministic fixture: run the real remote command confinement checks.' });
   assert(session.environment.type === 'openai_hosted'); assert.equal(session.environment.network.access, 'disabled');
   const first = await terminal([], 'completed');
   assert.deepEqual(proof('confinement'), { uid: 10001, platform: 'linux', outsideOwner: 10001, outsideOwnerWritable: true, content, listed: true,
-    directDenied: true, symlinkDenied: true, outsideExists: false, hostDirectory: false, hostHome: false, auth: false, socket: false, ambientSecret: false, sensitiveNames: [], tokenReadable: false, networkBlocked: [true, true] });
+    directDenied: true, symlinkDenied: true, outsideExists: false, hostDirectory: false, hostHome: false, auth: false, socket: false, ambientSecret: false, sensitiveNames: [], tokenReadable: false, networkBlocked: [true, true], vsockDenied: 'EPERM' });
   assert((await files()).some(file => file.path === '/workspace/codex-parity.txt' && file.size_bytes === Buffer.byteLength(content)));
 
   phase = 'Codex cancellation and descendants'; cancellation = true;
@@ -172,7 +187,8 @@ try {
   await client!.beta.agents.sessions.events.create(session.id, { events: [{ type: 'agent.session.input.cancel' }] });
   const cancelled = await terminal([first.id], 'cancelled'); cancellation = false;
   await delay(Math.max(0, lateDelayMs + 2000 - (Date.now() - cancelledAt)));
-  assert(!(await files()).some(file => file.path === '/workspace/cancel-too-late'), 'Cancelled command descendant wrote after cancellation');
+  const stoppedRuntime = await client!.get<{ native: { occupied: boolean } }>('/workspace/runtime');
+  assert.equal(stoppedRuntime.native.occupied, false, 'Cancellation must release the entire worker');
 
   phase = 'Codex service restart'; const callsBefore = requests.length;
   await server!.close(); server = undefined; client = undefined;

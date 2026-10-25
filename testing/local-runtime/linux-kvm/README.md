@@ -5,6 +5,11 @@ an unsigned development image, not a production installer. The worker boots a
 real Linux kernel under KVM with no network interface. Model inference and
 credentials stay in the local service; agent effects run inside the VM.
 
+The initramfs uses [ramfs](https://www.kernel.org/doc/html/latest/filesystems/ramfs-rootfs-initramfs.html)
+so the complete toolchain can unpack beyond the default
+half-RAM limit of `tmpfs`. Guest memory remains fixed at 2 GiB inside a 3 GiB host
+cgroup; changing the root filesystem does not increase those limits.
+
 Preparation requires an x86-64 Linux host, a local Docker Unix socket, Node.js,
 Python, GNU tar with zstd support, `ldd`, `gpg`, `gpgv`, and the Arch Linux package signing
 keyring at `/usr/share/pacman/keyrings/archlinux.gpg`. Running the worker also

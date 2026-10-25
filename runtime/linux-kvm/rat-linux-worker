@@ -330,11 +330,12 @@ def run(configuration):
         if configuration["workspace"] != "readonly":
             read_disk = os.open("/proc/self/fd/" + str(disk), os.O_RDONLY | os.O_CLOEXEC)
             disk_arguments += ["-add-fd", "fd=" + str(read_disk) + ",set=1,opaque=workspace-read"]
+        # The complete toolchain can exceed tmpfs's default half-RAM rootfs limit.
         arguments = [str(loader), "--inhibit-cache", "--library-path", str(assets / "qemu/usr/lib"), str(qemu),
                      "-L", str(assets / "qemu/usr/share/qemu"), "-accel", "kvm", "-machine", "q35",
                      "-cpu", "host", "-m", "2048M", "-smp", "1", "-nodefaults", "-no-user-config", "-display", "none",
                      "-monitor", "none", "-serial", "stdio", "-nic", "none", "-no-reboot", "-kernel", configuration["kernel"],
-                     "-initrd", "/proc/self/fd/" + str(initrd), "-append", "console=ttyS0 quiet panic=-1 rat.control=token rat.workspace=" + configuration["workspace"] + " rat.filesystem=" + configuration["filesystemUUID"],
+                     "-initrd", "/proc/self/fd/" + str(initrd), "-append", "console=ttyS0 quiet panic=-1 rootfstype=ramfs rat.control=token rat.workspace=" + configuration["workspace"] + " rat.filesystem=" + configuration["filesystemUUID"],
                      *disk_arguments,
                      "-blockdev", json.dumps({"driver": "file", "filename": "/dev/fdset/1", "node-name": "disk-file", "locking": "off", "read-only": configuration["workspace"] == "readonly"}),
                      "-blockdev", json.dumps({"driver": "raw", "file": "disk-file", "node-name": "workspace", "read-only": configuration["workspace"] == "readonly"}),

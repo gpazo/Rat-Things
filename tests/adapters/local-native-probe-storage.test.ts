@@ -2,7 +2,8 @@ import { randomUUID } from 'node:crypto';
 import { chmod, lstat, mkdir, mkdtemp, open, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { expect, it } from 'vitest';
+import { setTimeout as delay } from 'node:timers/promises';
+import { expect, it, vi } from 'vitest';
 import { LocalNativeProbeStorage } from '../../src/adapters/local-native-probe-storage.js';
 
 async function fixture(body: string, deadlineMs = 1000) {
@@ -11,7 +12,7 @@ async function fixture(body: string, deadlineMs = 1000) {
   const probe = join(probes, `probe-${randomUUID()}`); await mkdir(probe, { mode: 0o700 });
   const executable = join(directory, 'recovery');
   const evidence = join(directory, 'calls');
-  await writeFile(executable, `#!${process.execPath}\nconst fs = require('node:fs');\nfs.appendFileSync(${JSON.stringify(evidence)}, JSON.stringify({args:process.argv.slice(2),env:process.env})+'\\n');\n${body}\n`, { mode: 0o700 });
+  await writeFile(executable, `#!${process.execPath}\nconst fs = require('node:fs');\nfs.appendFileSync(${JSON.stringify(evidence)}, JSON.stringify({pid:process.pid,args:process.argv.slice(2),env:process.env})+'\\n');\n${body}\n`, { mode: 0o700 });
   const storage = new LocalNativeProbeStorage({ trustedExecutable: executable, deadlineMs });
   return { directory, probes, probe, executable, evidence, storage,
     close: () => rm(directory, { recursive: true, force: true }) };
@@ -78,8 +79,39 @@ it('refuses a recovery helper inside the candidate bundle or writable by other u
 
 it('kills and reaps a timed-out recovery helper before rejecting', async () => {
   const test = await fixture(`setInterval(()=>{},1000);`, 50);
+  let pid: number | undefined;
+  let disposal: Promise<void> | undefined;
+  // Keep process startup and exit real, but do not spend the timeout budget
+  // waiting for Node to start under load. Only advance it after the helper is live.
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'performance'] });
   try {
-    await expect(test.storage.dispose(test.probe)).rejects.toThrow('timed out');
+    disposal = test.storage.dispose(test.probe);
+    void disposal.catch(() => {});
+    const readyDeadline = Date.now() + 3000;
+    while (pid === undefined && Date.now() < readyDeadline) {
+      try {
+        const evidence = (await readFile(test.evidence, 'utf8')).trim();
+        if (evidence) pid = JSON.parse(evidence).pid as number;
+      } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
+      if (pid === undefined) await delay(10);
+    }
+    expect(pid, 'recovery helper did not report readiness').toBeTypeOf('number');
+    expect(() => process.kill(pid!, 0)).not.toThrow();
+    let settled = false;
+    void disposal.finally(() => { settled = true; }).catch(() => {});
+    await vi.advanceTimersByTimeAsync(49);
+    expect(settled).toBe(false);
+    expect(() => process.kill(pid!, 0)).not.toThrow();
+    await vi.advanceTimersByTimeAsync(1);
+    await expect(disposal).rejects.toThrow('timed out');
+    expect(() => process.kill(pid!, 0)).toThrowError(expect.objectContaining({ code: 'ESRCH' }));
+    pid = undefined;
     expect((await readFile(test.evidence, 'utf8')).trim().split('\n')).toHaveLength(1);
-  } finally { await test.close(); }
+  } finally {
+    await vi.advanceTimersByTimeAsync(50);
+    vi.useRealTimers();
+    if (pid !== undefined) { try { process.kill(pid, 'SIGKILL'); } catch {} }
+    await disposal?.catch(() => {});
+    await test.close();
+  }
 });

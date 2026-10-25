@@ -99,8 +99,21 @@ export class LocalManagedEnvironment {
     if (session.environment.type === 'none') return undefined;
     return this.options.environments.state(owner, session.environment.id);
   }
-  public close(session: AgentSession) {
-    return this.serialize(session.id, () => this.retire(session.id, () => this.options.runtime.stop(session.id)));
+  public close(owner: string, session: AgentSession) {
+    return this.serialize(session.id, async () => {
+      // Every backend commits this durable claim before allocating a workspace or booting.
+      // An early Session deletion can arrive before any worker has been requested.
+      const prepared = await this.options.store.get(owner, 'local_prepared', session.id);
+      if (!prepared) {
+        if (this.connections.has(session.id) || this.sessions.has(session.id) || this.poisoned.has(session.id)) {
+          throw new Error('Local workspace claim is missing');
+        }
+        return;
+      }
+      this.poisoned.add(session.id);
+      await this.retire(session.id, () => this.options.runtime.stop(session.id));
+      this.poisoned.delete(session.id);
+    });
   }
   public shutdown() {
     this.closed ??= (async () => {

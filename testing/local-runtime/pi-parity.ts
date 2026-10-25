@@ -10,6 +10,7 @@ import { startLocalServer } from '../../src/local-server.js';
 import { createLocalAgentsClient, readLocalConnection } from '../../src/local-workspace.js';
 import type { PiModelDescriptor } from '../../src/domain/session-runtime.js';
 import type { AgentSession, Turn } from '../../src/domain/agents-api.js';
+import { nodeSubprocessStdioProbe, restrictedNetworkSocketProbe } from './subprocess-fixtures.js';
 
 const { values } = parseArgs({ options: { directory: { type: 'string' }, 'timeout-seconds': { type: 'string', default: '300' }, help: { type: 'boolean' } } });
 if (values.help) {
@@ -89,8 +90,8 @@ function verify(cases: readonly EffectCase[]) {
     const result = matching[0]!.result;
     assert(result, `${test.label}: model continuation did not receive the actual tool result`);
     assert.equal(result.toolName, test.name, `${test.label}: tool identity`);
-    assert.equal(result.isError, test.expected === 'denied', `${test.label}: expected ${test.expected}`);
     const text = result.content.flatMap(part => part.type === 'text' ? [part.text] : []).join('\n');
+    assert.equal(result.isError, test.expected === 'denied', `${test.label}: expected ${test.expected}${result.isError ? `; ${safeError(new Error(text))}` : ''}`);
     test.verify?.(text);
     assertions.push({ label: test.label, tool: test.name, result: test.expected, outputSha256: digest(text), outputBytes: Buffer.byteLength(text) });
   }
@@ -155,19 +156,34 @@ function safeError(error: unknown): string {
 try {
   await start();
   const literal = ['space in argument', '$HOME', '$(touch /workspace/injected)', '; touch /workspace/injected'];
-  const safetyProgram = `const fs=require('node:fs');(async()=>{const outside=fs.statSync('/home/agent');const endpoints=['http://127.0.0.1:3211/health','http://169.254.169.254/'];const blocked=[];for(const endpoint of endpoints){try{await fetch(endpoint,{signal:AbortSignal.timeout(1500)});blocked.push(false)}catch{blocked.push(true)}}console.log(JSON.stringify({uid:process.getuid(),platform:process.platform,outsideOwner:outside.uid,outsideOwnerWritable:Boolean(outside.mode&0o200),hostDirectory:fs.existsSync(${JSON.stringify(directory)}),hostHome:fs.existsSync(${JSON.stringify(homedir())}),auth:fs.existsSync('/home/agent/.codex/auth.json'),socket:['/var/run/docker.sock','/run/docker.sock',${JSON.stringify(`/run/user/${process.getuid?.() ?? 0}/docker.sock`)}].some(path=>fs.existsSync(path)),ambientSecret:Object.values(process.env).includes(${JSON.stringify(sentinel)}),sensitiveNames:Object.keys(process.env).filter(key=>['RAT_PI_PARITY_SECRET','OPENAI_API_KEY','AWS_ACCESS_KEY_ID','AWS_SECRET_ACCESS_KEY','AWS_SESSION_TOKEN','CODEX_EXEC_SERVER_NOISE_AUTH_TOKEN'].includes(key)),networkBlocked:blocked,outsideFile:fs.existsSync(${JSON.stringify(deniedPath)}),injectedFile:fs.existsSync('/workspace/injected')}))})().catch(()=>{process.exitCode=1});`;
+  // Restricted Codex networking permits socket(AF_UNIX) only. Require EPERM;
+  // a missing Python/AF_VSOCK implementation must fail instead of counting as denial.
+  // Python exits successfully only after checking the exact permission error.
+  const vsockProgram = `import errno, socket
+try:
+    endpoint = socket.socket(socket.AF_VSOCK, socket.SOCK_STREAM)
+except PermissionError as error:
+    if error.errno != errno.EPERM:
+        raise
+else:
+    endpoint.close()
+    raise RuntimeError("AF_VSOCK socket was allowed")
+`;
+  const safetyProgram = `const fs=require('node:fs');(async()=>{const outside=fs.statSync('/home/agent');const endpoints=['http://127.0.0.1:3211/health','http://169.254.169.254/'];const blocked=[];for(const endpoint of endpoints){try{await fetch(endpoint,{signal:AbortSignal.timeout(1500)});blocked.push(false)}catch{blocked.push(true)}}require('node:child_process').execFileSync('python3',['-c',${JSON.stringify(vsockProgram)}],{stdio:'inherit',timeout:5000});const vsockDenied='EPERM';let tokenReadable=false;try{fs.readFileSync('/etc/rat-things/control-token');tokenReadable=true}catch{};console.log(JSON.stringify({uid:process.getuid(),platform:process.platform,outsideOwner:outside.uid,outsideOwnerWritable:Boolean(outside.mode&0o200),hostDirectory:fs.existsSync(${JSON.stringify(directory)}),hostHome:fs.existsSync(${JSON.stringify(homedir())}),auth:fs.existsSync('/home/agent/.codex/auth.json'),socket:['/var/run/docker.sock','/run/docker.sock',${JSON.stringify(`/run/user/${process.getuid?.() ?? 0}/docker.sock`)}].some(path=>fs.existsSync(path)),ambientSecret:Object.values(process.env).includes(${JSON.stringify(sentinel)}),sensitiveNames:Object.keys(process.env).filter(key=>['RAT_PI_PARITY_SECRET','OPENAI_API_KEY','AWS_ACCESS_KEY_ID','AWS_SECRET_ACCESS_KEY','AWS_SESSION_TOKEN','CODEX_EXEC_SERVER_NOISE_AUTH_TOKEN'].includes(key)),networkBlocked:blocked,vsockDenied,tokenReadable,outsideFile:fs.existsSync(${JSON.stringify(deniedPath)}),injectedFile:fs.existsSync('/workspace/injected')}))})().catch(error=>{console.error(error.name,error.code,error.message);process.exitCode=1});`;
   const basic: EffectCase[] = [
     { label: 'managed write', name: 'write_file', arguments: { path: proofPath, content: proofText }, expected: 'success' },
     { label: 'managed read', name: 'read_file', arguments: { path: proofPath }, expected: 'success', verify: text => assert.equal(text, proofText) },
     { label: 'managed listing', name: 'list_files', arguments: { path: '/workspace' }, expected: 'success', verify: text => assert(JSON.parse(text).some((entry: { name: string }) => entry.name === 'parity.txt')) },
     { label: 'literal argv execution', name: 'exec_command', arguments: { command: ['node', '-e', 'console.log(JSON.stringify(process.argv.slice(1)))', ...literal] }, expected: 'success', verify: text => assert.deepEqual(JSON.parse(text), literal) },
+    { label: 'captured subprocess input and output', name: 'exec_command', arguments: command(nodeSubprocessStdioProbe), expected: 'success', verify: text => assert.equal(text, 'local-subprocess-stdio-ok\n') },
+    { label: 'local socket metadata preserves network denial', name: 'exec_command', arguments: { command: ['python3', '-c', restrictedNetworkSocketProbe] }, expected: 'success', verify: text => assert.equal(text, 'local-socket-only-ok\n') },
     { label: 'same-UID outside write denied', name: 'write_file', arguments: { path: deniedPath, content: 'must not exist' }, expected: 'denied' },
     { label: 'direct outside command denied', name: 'exec_command', arguments: command(`require('node:fs').writeFileSync(${JSON.stringify(deniedPath)},'must not exist')`), expected: 'denied' },
     { label: 'workspace symlink creation', name: 'exec_command', arguments: command(`require('node:fs').symlinkSync('/home/agent',${JSON.stringify(link)})`), expected: 'success' },
     { label: 'symlink write denied', name: 'write_file', arguments: { path: `${link}/parity-denied-${nonce}`, content: 'must not exist' }, expected: 'denied' },
     { label: 'guest isolation and default network denial', name: 'exec_command', arguments: command(safetyProgram), expected: 'success', verify: text => assert.deepEqual(JSON.parse(text), {
       uid: 10001, platform: 'linux', outsideOwner: 10001, outsideOwnerWritable: true, hostDirectory: false, hostHome: false, auth: false, socket: false, ambientSecret: false,
-      sensitiveNames: [], networkBlocked: [true, true], outsideFile: false, injectedFile: false,
+      sensitiveNames: [], networkBlocked: [true, true], vsockDenied: 'EPERM', tokenReadable: false, outsideFile: false, injectedFile: false,
     }) },
   ];
   phase = 'managed tools and confinement';

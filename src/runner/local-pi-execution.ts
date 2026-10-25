@@ -70,7 +70,7 @@ export class LocalPiExecution implements SessionExecution {
       } catch (error) {
         if (retryableStartup(error)) throw error;
         await this.retire(session.id);
-        if (session.environment.type !== 'none') await this.options.managed?.close(session);
+        if (session.environment.type !== 'none') await this.options.managed?.close(owner, session);
         // A refused worker must be stopped before a failed attempt is observable.
         // Keep this receipt outside native history: no engine Turn was started.
         await this.options.store.put({ ownerId: owner, collection: 'local_turn_attempts', id: binding.turn.id,
@@ -95,7 +95,7 @@ export class LocalPiExecution implements SessionExecution {
     return this.lifecycle.run(session.id, async () => {
       if (!this.runtimes.has(session.id) && !(await this.journal.get(owner, session.id))?.value.native?.head) return;
       if (!this.runtimes.has(session.id)) {
-        if (session.environment.type !== 'none') await this.options.managed?.close(session);
+        if (session.environment.type !== 'none') await this.options.managed?.close(owner, session);
         const runtime = await this.open(owner, session, 'cancel');
         try {
           if (runtime.engine.snapshot().turns.some(binding => binding.turn.id === turn && !terminalTurn(binding.turn))) {
@@ -136,7 +136,7 @@ export class LocalPiExecution implements SessionExecution {
   public close(owner: string, session: AgentSession) {
     return this.lifecycle.run(session.id, async () => {
       try { await this.retire(session.id); }
-      finally { if (session.environment.type !== 'none') await this.options.managed?.close(session); }
+      finally { if (session.environment.type !== 'none') await this.options.managed?.close(owner, session); }
       await this.journal.close(owner, session.id);
     });
   }

@@ -18,6 +18,7 @@ import { LocalRuntimeLifecycle } from '../adapters/local-runtime-lifecycle.js';
 export class LocalSessionExecution implements SessionExecution {
   private readonly runtimes = new Map<string, Promise<SessionRuntime>>();
   private readonly snapshots = new Map<string, SessionRuntimeState>();
+  private readonly cancellations = new Map<string, { turnId: string; runtime: SessionRuntime }>();
   private writes: Promise<void> = Promise.resolve();
   private closing = false;
   private readonly lifecycle = new LocalRuntimeLifecycle();
@@ -59,6 +60,7 @@ export class LocalSessionExecution implements SessionExecution {
   private async startTurn(owner: string, session: AgentSession, binding: SessionTurnBinding, history: AgentSessionItem[]) {
     const attempt = await this.options.store.get<Turn>(owner, 'local_turn_attempts', binding.turn.id);
     if (attempt) return;
+    if (this.cancellations.has(session.id)) throw new AgentsApiError(503, 'The previous local worker has not confirmed shutdown.', 'local_runtime_stopping');
     if (!this.runtimes.has(session.id) && this.runtimes.size >= this.options.maxSessions) {
       throw new AgentsApiError(503, 'All local Session slots are busy. Work stays queued until a slot is free.', 'local_capacity');
     }
@@ -70,7 +72,7 @@ export class LocalSessionExecution implements SessionExecution {
       await this.writes;
       await this.options.managed?.admitTurn(session);
     } catch (error) {
-      if (created || !resourceWait(error)) await this.closeSession(session);
+      if (created || !resourceWait(error)) await this.closeSession(owner, session);
       if (resourceWait(error)) throw error;
       await this.options.store.put({ ownerId: owner, collection: 'local_turn_attempts', id: binding.turn.id,
         createdAt: binding.turn.created_at, revision: 1, value: failedTurn(binding.turn) }, 0);
@@ -86,11 +88,11 @@ export class LocalSessionExecution implements SessionExecution {
         cancelled = true;
       }
     } catch (error) {
-      await this.closeSession(session);
+      await this.closeSession(owner, session);
       throw error;
     }
     if (cancelled) {
-      if (created) await this.closeSession(session);
+      if (created) await this.closeSession(owner, session);
       return;
     }
     try {
@@ -98,7 +100,7 @@ export class LocalSessionExecution implements SessionExecution {
       await this.writes;
     } catch {
       try { await this.failAttempt(owner, binding.turn); }
-      finally { await this.closeSession(session); }
+      finally { await this.closeSession(owner, session); }
     }
   }
 
@@ -108,14 +110,42 @@ export class LocalSessionExecution implements SessionExecution {
   }
   public cancel(owner: string, session: AgentSession, turn: string) {
     return this.lifecycle.run(session.id, async () => {
+      const pending = this.cancellations.get(session.id);
+      if (pending) {
+        if (pending.turnId === turn) await this.cancelManaged(owner, session, turn, pending.runtime);
+        return;
+      }
       const runtime = await this.runtimes.get(session.id);
-      if (runtime?.snapshot().turns.some(binding => binding.turn.id === turn)) await runtime.cancel(turn);
+      const binding = runtime?.snapshot().turns.find(binding => binding.turn.id === turn);
+      if (runtime && binding) {
+        if (terminalTurn(binding.turn)) return;
+        if (session.environment.type === 'openai_hosted' && this.options.managed) await this.cancelManaged(owner, session, turn, runtime);
+        else await runtime.cancel(turn);
+      }
       else {
         const attempt = await this.options.store.get<Turn>(owner, 'local_turn_attempts', turn);
-        if (attempt) await this.failAttempt(owner, attempt.value, 'cancelled');
+        if (attempt && !terminalTurn(attempt.value)) {
+          if (session.environment.type !== 'none') await this.options.managed?.close(owner, session);
+          await this.failAttempt(owner, attempt.value, 'cancelled');
+        }
       }
       await this.writes;
     });
+  }
+  private async cancelManaged(owner: string, session: AgentSession, turnId: string, runtime: SessionRuntime) {
+    // Native interruption leaves background terminals alive. Do not publish its
+    // terminal event until the dedicated worker and every descendant have stopped.
+    this.cancellations.set(session.id, { turnId, runtime });
+    const interrupted = runtime.cancel(turnId).catch(() => {});
+    const cleanup = await Promise.allSettled([this.options.managed!.close(owner, session), runtime.close()]);
+    await interrupted;
+    const failures = cleanup.flatMap(result => result.status === 'rejected' ? [result.reason] : []);
+    if (failures.length) throw new AggregateError(failures, 'Local cancellation could not confirm worker shutdown');
+    const snapshot = cancelledRuntime(runtime.snapshot(), turnId, Math.floor(Date.now() / 1000));
+    await this.saveSnapshot(owner, session, snapshot);
+    await this.failAttempt(owner, snapshot.turns.find(binding => binding.turn.id === turnId)!.turn, 'cancelled');
+    this.runtimes.delete(session.id);
+    this.cancellations.delete(session.id);
   }
   public async toolResult(_owner: string, session: AgentSession, event: Parameters<SessionExecution['toolResult']>[2]) {
     await (await this.live(session.id)).toolResult(event);
@@ -154,15 +184,17 @@ export class LocalSessionExecution implements SessionExecution {
   }
   public async artifacts() { return []; }
   public async artifactContent(): Promise<ReadableStream<Uint8Array>> { throw new AgentsApiError(404, 'Artifact not found.', 'resource_not_found'); }
-  public close(_owner: string, session: AgentSession) {
-    return this.lifecycle.run(session.id, () => this.closeSession(session));
+  public close(owner: string, session: AgentSession) {
+    return this.lifecycle.run(session.id, () => this.closeSession(owner, session));
   }
-  private async closeSession(session: AgentSession) {
+  private async closeSession(owner: string, session: AgentSession) {
+    const cancelling = this.cancellations.get(session.id);
+    if (cancelling) { await this.cancelManaged(owner, session, cancelling.turnId, cancelling.runtime); return; }
     const pending = this.runtimes.get(session.id);
     const runtime = await pending?.catch(() => undefined);
     if (this.runtimes.get(session.id) === pending) this.runtimes.delete(session.id);
     try { await runtime?.close(); }
-    finally { if (session.environment.type !== 'none') await this.options.managed?.close(session); }
+    finally { if (session.environment.type !== 'none') await this.options.managed?.close(owner, session); }
     await this.writes;
   }
   public shutdown() {
@@ -221,26 +253,29 @@ export class LocalSessionExecution implements SessionExecution {
       client: localCodexClient,
       request: this.options.request?.(request) ?? request, idleTimeoutMs: 30_000, ...(previous ? { previous } : {}),
       changed: snapshot => {
-        this.snapshots.set(session.id, snapshot);
-        this.writes = this.writes.then(async () => {
-          const current = await this.options.store.get(owner, 'local_runtime', session.id);
-          await this.options.store.put({ ownerId: owner, collection: 'local_runtime', id: session.id,
-            createdAt: current?.createdAt ?? session.created_at, revision: (current?.revision ?? 0) + 1, value: snapshot }, current?.revision ?? 0);
-        });
-        void this.writes.catch(() => runtime.close());
+        if (!this.cancellations.has(session.id)) void this.saveSnapshot(owner, session, snapshot).catch(() => runtime.close());
       },
     });
     void runtime.finished.then(() => {
       if (this.closing) return;
       return this.lifecycle.run(session.id, async () => {
-        if (this.runtimes.get(session.id) !== pending) return;
+        if (this.runtimes.get(session.id) !== pending || this.cancellations.has(session.id)) return;
         this.runtimes.delete(session.id);
-        await this.options.managed?.close(session);
+        await this.options.managed?.close(owner, session);
       });
     }).catch(() => {});
     const pending = this.runtimes.get(session.id);
     try { await runtime.initialize(); await this.writes; return runtime; }
     catch (error) { await runtime.close(); throw error; }
+  }
+  private saveSnapshot(owner: string, session: AgentSession, snapshot: SessionRuntimeState) {
+    this.snapshots.set(session.id, snapshot);
+    this.writes = this.writes.then(async () => {
+      const current = await this.options.store.get(owner, 'local_runtime', session.id);
+      await this.options.store.put({ ownerId: owner, collection: 'local_runtime', id: session.id,
+        createdAt: current?.createdAt ?? session.created_at, revision: (current?.revision ?? 0) + 1, value: snapshot }, current?.revision ?? 0);
+    });
+    return this.writes;
   }
   private async failAttempt(owner: string, turn: Turn, status: 'failed' | 'cancelled' = 'failed') {
     const current = await this.options.store.get<Turn>(owner, 'local_turn_attempts', turn.id);
@@ -256,6 +291,12 @@ export class LocalSessionExecution implements SessionExecution {
 type StoppedRecovery =
   | { kind: 'retain'; snapshot: SessionRuntimeState }
   | { kind: 'persist'; snapshot: SessionRuntimeState };
+
+function cancelledRuntime(snapshot: SessionRuntimeState, turnId: string, now: number): SessionRuntimeState {
+  const stopped = stoppedSessionRuntime(snapshot, now);
+  return { ...stopped, turns: stopped.turns.map(binding => binding.turn.id !== turnId ? binding
+    : { ...binding, turn: { ...binding.turn, status: 'cancelled', completed_at: now, error: null } }) };
+}
 
 function recoverStoppedSnapshot(snapshot: SessionRuntimeState, now: number): StoppedRecovery {
   const abandoned = snapshot.requiredActions.length > 0 || snapshot.subagents.some(agent => agent.status !== 'closed')

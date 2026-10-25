@@ -10,6 +10,7 @@
     "checkpoint-shutdown.patch",
     "step-settings-test-import.patch",
     "unified-exec-output-subscription.patch",
-    "chatgpt-service-tier.patch"
+    "chatgpt-service-tier.patch",
+    "local-subprocess-stdio.patch"
   ]
 }
