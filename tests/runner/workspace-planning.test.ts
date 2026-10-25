@@ -114,7 +114,7 @@ describe('workspace patch command planning', () => {
     const stage = workspacePatchCommand('/workspace', 'stage', environment, identity);
     const diff = workspacePatchCommand('/workspace', 'diff', environment, identity);
     expect(stage.args).toEqual(['-C', '/workspace', 'add', '--intent-to-add', '--all', '--', '.', ':(exclude).rat-things/**']);
-    expect(diff.args).toEqual(['-C', '/workspace', 'diff', '--binary', 'refs/agent-runtime/base', '--', '.', ':(exclude).rat-things/**']);
+    expect(diff.args).toEqual(['-C', '/workspace', 'diff', '--binary', '--src-prefix=a/', '--dst-prefix=b/', 'refs/agent-runtime/base', '--', '.', ':(exclude).rat-things/**']);
     expect(stage.options).toEqual({
       cwd: '/workspace', env: { PATH: '/bin', HOME: '/agent' }, timeoutMs: 30_000,
       maxStdoutBytes: 64 * 1024, maxStderrBytes: 256 * 1024, uid: 10001, gid: 10002,
