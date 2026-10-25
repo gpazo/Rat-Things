@@ -1,6 +1,6 @@
 import { execFile, spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
-import { mkdir, chown } from 'node:fs/promises';
+import { mkdir, chown, writeFile } from 'node:fs/promises';
 import { timingSafeEqual } from 'node:crypto';
 import { promisify } from 'node:util';
 import { createEnvironmentRelay } from '../adapters/environment-relay.js';
@@ -11,6 +11,8 @@ import { prepareHostedEnvironment } from './hosted-environment.js';
 import { planCodexLaunch } from './agent-planning.js';
 import { prepareLocalWorkspace } from './local-workspace-setup.js';
 import { localWorkspaceIdentity } from '../domain/local-workspace.js';
+import { LOCAL_PI_POLICY_PATH, localPiEffectPolicy } from './local-pi-effect-policy.js';
+import { runLocalPiEffectWorker, verifyLocalManagedSandbox } from './local-pi-effect-worker.js';
 
 let phase = 'configuration';
 async function main() {
@@ -37,6 +39,16 @@ async function main() {
       artifacts: { getBytes: async () => { throw new Error('Stored inputs must be materialized before local launch'); } },
     }); },
     synchronize: async () => { await promisify(execFile)('sync', ['-f', '/workspace'], { timeout: 30_000 }); },
+  });
+  if (input.launch.environment.type !== 'openai_hosted') throw new Error('Expected a managed worker policy');
+  await mkdir('/run/rat-things', { mode: 0o755, recursive: true });
+  await writeFile(LOCAL_PI_POLICY_PATH, JSON.stringify(localPiEffectPolicy({ version: 1, sessionId: input.sessionId,
+    environmentId: input.environmentId, generation: identity.generation, network: input.launch.environment.network,
+    environment: input.launch.hostedConfiguration?.env ?? {} })), { mode: 0o644, flag: 'wx' });
+  phase = 'sandbox';
+  await promisify(execFile)(process.execPath, ['/opt/rat-things/local-worker.mjs', '--verify-managed'], {
+    uid: 10001, gid: 10001, cwd: '/workspace', timeout: 20000, maxBuffer: 4096,
+    env: { PATH: '/usr/local/bin:/usr/bin:/bin', HOME: '/home/agent', CODEX_HOME: '/home/agent/.codex' },
   });
   phase = 'transport';
   const relay = createEnvironmentRelay({
@@ -67,4 +79,5 @@ async function main() {
   executor.once('error', () => { void stop(1); }); executor.once('exit', () => { void stop(1); });
 }
 
-void main().catch(() => { process.stderr.write(`Local worker failed during ${phase}.\n`); process.exitCode = 1; });
+void (process.argv[2] === '--pi-effects' ? runLocalPiEffectWorker(process.argv.slice(3))
+  : process.argv[2] === '--verify-managed' ? verifyLocalManagedSandbox() : main()).catch(() => { process.stderr.write(`Local worker failed during ${phase}.\n`); process.exitCode = 1; });

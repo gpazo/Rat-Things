@@ -14,7 +14,7 @@ identity, retention, network policy, and operational limits for the environment 
 | System | What it provides | Learn more |
 | --- | --- | --- |
 | Agent runtimes | Codex and Pi Durable behind the same API, CLI, desktop, schedules, and provider bindings | [Runtime comparison](agent-runtimes.md) |
-| Local workspace | Private loopback API, durable local Agents and Sessions, Codex/ChatGPT subscription harness, local Linux workers on Apple silicon Macs, resumable Session copying into AWS | [Start at home](local-workspace.md) |
+| Local workspace | Private loopback API, durable local Agents and Sessions, Codex and Pi Durable with ChatGPT subscriptions and managed Linux workspaces, resumable Session copying into AWS | [Start at home](local-workspace.md) |
 | Sessions and Turns | Owner-scoped input, ordered execution, cancellation and saved Items | [Agents API](agents-api.md) |
 | Agents and schedules | Reusable standard Agent configurations and AWS schedule inputs | [Agents](agents-api.md), [schedules](schedules.md) |
 | Connections | Provider-verified accounts, host-owned credentials, grants, and account-specific operations | [Integrations](plugins.md) |
@@ -26,19 +26,21 @@ identity, retention, network policy, and operational limits for the environment 
 | Browser | Declared function/MCP integration and an optional Playwright MCP configuration | [Browser use](browser-computer-use.md) |
 | Channels | Authenticated GitHub, GitLab, Teams, and optional Slack ingress with separate result delivery | [Channels](channels.md) |
 | API authentication | AWS IAM issuance and owner-bound, scoped bearer tokens | [API permissions](agents-api.md#scoped-api-keys) |
-| Model authentication | Codex uses the configured ChatGPT bridge or Bedrock; Pi Durable uses approved Bedrock Converse models | [Runtime setup](agent-runtimes.md#start-with-the-appropriate-setup) |
+| Model authentication | Codex uses the configured ChatGPT bridge or Bedrock; Pi Durable uses local ChatGPT subscriptions or approved Bedrock Converse models on AWS | [Runtime setup](agent-runtimes.md#start-with-the-appropriate-setup) |
 | Recovery | Queue repair, generation-fenced liveness, cancellation settlement, and per-destination delivery fences | [Runbook](runbook.md) |
 
 ## Known gaps
 
-- **Local execution:** Linux workers currently require an Apple silicon Mac and a
-  supported VM-backed container engine. Local Vaults, uploaded Files, plugins,
+- **Local execution:** The supported local container setup uses an Apple silicon Mac
+  and a VM-backed engine. Linux x86-64 has an explicit KVM development setup from
+  source; it has no signed desktop installation flow. Local Vaults, uploaded Files, plugins,
   MCP, schedules and webhooks remain unavailable. Session copying moves idle application
   state into an existing AWS deployment; it does not migrate running processes or
   subscription credentials. Codex/ChatGPT is the first local subscription provider.
 
-- **Multi-tenant operation:** destination authorization, output redaction, per-owner budgets and
-  rate limits, and independent security review remain incomplete. The control API's ownership
+- **Multi-tenant operation:** destination authorization, output redaction, per-owner spending
+  attribution, and independent security review remain incomplete. Per-owner execution
+  rate limits and optional account-wide AWS spending alerts are available. The control API's ownership
   checks do not replace these controls. See the [security model](security.md).
 - **Credential isolation:** the ChatGPT file bridge exposes reusable account credentials to code
   running as the agent UID. Use it only with trusted agents and accounts. Generic source bindings
@@ -64,16 +66,16 @@ identity, retention, network policy, and operational limits for the environment 
 
 ## Roadmap
 
-Local-first development comes next: an isolated local computer backend behind the
-existing environment ports; readiness and capacity reporting; resumable setup; and
-an explicit, verifiable transfer of Session context and files into AWS. Keep one
-API and one desktop workflow across these backends. Local operation should remain
-a complete choice for people whose hardware is sufficient.
+Local work now includes isolated Linux workspaces, readiness and capacity reporting,
+resumable setup, and transfer of idle Session context and files into AWS. The next
+steps are a signed Linux installation flow and the missing local capabilities listed
+above. Keep one API and one desktop workflow across these backends so local operation
+remains a complete choice for people whose hardware is sufficient.
 
 The cloud system improvements center on four areas:
 
-1. Add usage budgets, per-owner limits, destination authorization, and output controls around the
-   existing fixed capability envelope.
+1. Extend the existing per-owner admission limits and optional account spending alerts
+   with per-owner cost attribution, destination authorization, and output controls.
 2. Extend host-owned provider integrations and define a contributor SDK before expanding the
    connector catalog.
 3. Improve browser credential isolation, interaction coverage, and recording finalization without

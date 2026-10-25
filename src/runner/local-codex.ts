@@ -36,7 +36,7 @@ export function planLocalCodexEnvironment(directory: string, environment: Readon
 
 /** Disable host integrations before app-server startup, including background plugin synchronization. */
 export function localCodexArguments(args: string[]): string[] {
-  return ['-c', 'forced_login_method="chatgpt"', ...isolatedCodexArguments(args)];
+  return ['-c', 'forced_login_method="chatgpt"', '-c', 'cli_auth_credentials_store="file"', ...isolatedCodexArguments(args)];
 }
 
 /** Reject ambient MCP configuration before any thread can start a host tool process. */

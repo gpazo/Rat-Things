@@ -1,11 +1,13 @@
 import { lstat, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import type { CodexRpcClient, CodexRpcEvent } from '../../src/adapters/codex-rpc.js';
 import { AgentService } from '../../src/core/agent-service.js';
 import { EnvironmentService } from '../../src/core/environment-service.js';
 import { EnvironmentTemplateService } from '../../src/core/environment-template-service.js';
 import { SessionService } from '../../src/core/session-service.js';
 import type { SessionState } from '../../src/core/session-ports.js';
+import type { SessionRuntimeState } from '../../src/core/session-runtime-planning.js';
 import type { Turn } from '../../src/domain/agents-api.js';
 import { LocalManagedEnvironment } from '../../src/runner/local-managed-environment.js';
 import { LocalSessionExecution } from '../../src/runner/local-session-execution.js';
@@ -13,23 +15,26 @@ import { developmentLocalCodexHost } from '../../src/runner/local-codex.js';
 import { MemoryAgentsStore } from './fixtures.js';
 import { gate, nativeFixture, type FixtureMachine } from '../simulation/native-runtime-fixtures.js';
 
-const rpc = vi.hoisted(() => ({ clients: [] as Array<{ initialize: ReturnType<typeof vi.fn>; close: ReturnType<typeof vi.fn> }>,
+const rpc = vi.hoisted(() => ({ clients: [] as Array<{ initialize: ReturnType<typeof vi.fn>; close: ReturnType<typeof vi.fn>; emit(event: CodexRpcEvent): void }>,
   calls: [] as string[], initialize: undefined as (() => Promise<void>) | undefined,
-  turn: undefined as (() => Promise<void>) | undefined }));
+  turn: undefined as (() => Promise<void>) | undefined,
+  interrupt: undefined as (() => Promise<void>) | undefined }));
 vi.mock('../../src/runner/local-codex.js', async original => ({ ...await original<typeof import('../../src/runner/local-codex.js')>(),
-  localCodexClient: () => {
+  localCodexClient: (options: ConstructorParameters<typeof CodexRpcClient>[0]) => {
     const index = rpc.clients.length;
     const client = { initialize: vi.fn(async () => { await rpc.initialize?.(); }), close: vi.fn(async () => {}),
+      emit: (event: CodexRpcEvent) => options.onEvent?.(event),
       call: async (method: string) => {
         rpc.calls.push(method);
         if (method === 'turn/start') { await rpc.turn?.(); return { turn: { id: `native_turn_${rpc.calls.length}` } }; }
+        if (method === 'turn/interrupt') await rpc.interrupt?.();
         if (method === 'thread/start' || method === 'thread/resume') return { thread: { id: `thread_${index}` } };
         return {};
       } };
     rpc.clients.push(client);
     return client;
   } }));
-beforeEach(() => { rpc.clients.length = 0; rpc.calls.length = 0; rpc.initialize = undefined; rpc.turn = undefined; });
+beforeEach(() => { rpc.clients.length = 0; rpc.calls.length = 0; rpc.initialize = undefined; rpc.turn = undefined; rpc.interrupt = undefined; });
 afterEach(() => vi.restoreAllMocks());
 
 async function services() {
@@ -373,6 +378,69 @@ it('delivers cancellation after an accepted native Turn returns its binding', as
     expect(rpc.calls.filter(method => method === 'turn/interrupt')).toHaveLength(1);
     expect(turnStarts()).toBe(1);
   } finally { paused.release(); await starting?.catch(() => {}); await cancelling?.catch(() => {}); await fixture.close(); }
+});
+
+it('waits for managed descendant shutdown before publishing cancellation and reopens the retained workspace', async () => {
+  const fixture = await services();
+  const stopped = gate();
+  let cancelling: Promise<void> | undefined;
+  try {
+    const { session, binding } = await fixture.create();
+    await fixture.execution.start('owner', session, binding);
+    const claim = await fixture.claim(session.id);
+    const snapshot = (await fixture.store.get<SessionRuntimeState>('owner', 'local_runtime', session.id))!.value;
+    const native = snapshot.turns[0]!;
+    const machine = fixture.machines[0]!;
+    machine.beforeStop = () => stopped.promise;
+    rpc.interrupt = async () => { rpc.clients[0]!.emit({ method: 'turn/completed', params: {
+      threadId: native.threadId, turn: { id: native.nativeTurnId, status: 'interrupted' },
+    } }); };
+    let settled = false;
+    cancelling = fixture.execution.cancel('owner', session, binding.turn.id).then(() => { settled = true; });
+    await vi.waitFor(() => expect(machine.stop).toHaveBeenCalledOnce());
+    expect(settled).toBe(false);
+    expect(machine.alive()).toBe(true);
+    expect((await fixture.execution.observe('owner', session, binding.turn)).turn.status).toBe(binding.turn.status);
+    expect((await fixture.store.get<SessionRuntimeState>('owner', 'local_runtime', session.id))!.value.turns[0]!.turn.status).toBe(binding.turn.status);
+    stopped.release(); await cancelling;
+    expect(machine.alive()).toBe(false);
+    expect(rpc.clients[0]!.close).toHaveBeenCalled();
+    expect((await fixture.execution.observe('owner', session, binding.turn)).turn.status).toBe('cancelled');
+    expect((await fixture.attempt(binding.turn.id))!.value.status).toBe('cancelled');
+    const next = { ...binding, turn: { ...binding.turn, id: 'turn_after_cancel' } };
+    await fixture.execution.start('owner', session, next);
+    expect(turnStarts()).toBe(2);
+    expect(await fixture.claim(session.id)).toEqual(claim);
+    expect(fixture.machines[1]!.configuration.workspace).toBe('existing');
+    await fixture.execution.cancel('owner', session, binding.turn.id);
+    expect(fixture.machines[1]!.alive()).toBe(true);
+    expect(fixture.machines[1]!.stop).not.toHaveBeenCalled();
+    expect(rpc.calls.filter(method => method === 'turn/interrupt')).toHaveLength(1);
+  } finally { stopped.release(); await cancelling?.catch(() => {}); await fixture.close(); }
+});
+
+it('keeps managed cancellation nonterminal and refuses new work until failed worker cleanup is confirmed', async () => {
+  const fixture = await services();
+  try {
+    const { session, binding } = await fixture.create();
+    await fixture.execution.start('owner', session, binding);
+    const machine = fixture.machines[0]!;
+    machine.unconfirmedStopError = new Error('Fixture worker shutdown unconfirmed');
+    await expect(fixture.execution.cancel('owner', session, binding.turn.id)).rejects.toThrow('could not confirm worker shutdown');
+    expect(machine.alive()).toBe(true);
+    expect((await fixture.execution.observe('owner', session, binding.turn)).turn.status).toBe(binding.turn.status);
+    const next = { ...binding, turn: { ...binding.turn, id: 'turn_during_failed_cancel' } };
+    await expect(fixture.execution.start('owner', session, next)).rejects.toMatchObject({ code: 'local_runtime_stopping' });
+    expect(await fixture.attempt(next.turn.id)).toBeUndefined();
+    expect(turnStarts()).toBe(1);
+    machine.unconfirmedStopError = undefined;
+    await fixture.execution.cancel('owner', session, binding.turn.id);
+    expect(machine.alive()).toBe(false);
+    expect((await fixture.execution.observe('owner', session, binding.turn)).turn.status).toBe('cancelled');
+    await fixture.execution.start('owner', session, next);
+    expect(turnStarts()).toBe(2);
+    expect(fixture.maximumLive()).toBe(1);
+  } finally { await fixture.close(); }
 });
 
 it('honors cancellation persisted during the awaited receipt write before issuing native work', async () => {

@@ -2,8 +2,10 @@
 
 import { spawn, spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { access, appendFile, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { access, appendFile, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
+import { isIP } from 'node:net';
+import { ensureWorkerRuntime } from './ensure-worker-runtime.mjs';
 import { dirname, join, resolve } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -32,6 +34,7 @@ const configPath = join(quickstartRoot, 'quickstart.tfvars.json');
 const statePath = join(quickstartRoot, 'terraform.tfstate');
 const metadataPath = join(quickstartRoot, 'result.json');
 const contextPath = join(quickstartRoot, 'context.json');
+const teardownPath = join(quickstartRoot, 'teardown.json');
 const debugLogPath = join(quickstartRoot, 'quickstart.log');
 const terraformDataDir = join(quickstartRoot, 'terraform-data');
 const terraformPluginCache = join(projectRoot, '.runtime', 'terraform-plugin-cache');
@@ -52,6 +55,8 @@ export interface AwsQuickstartOptions {
   driver: 'codex' | 'mock';
   auth: 'chatgpt' | 'bedrock';
   model?: string;
+  httpsEgressCidrs: string[];
+  budgetAlert?: { monthlyUsd: number; emails: string[] };
   codexAuthFile: string;
   codexAuthSecretArn?: string;
   profile?: string;
@@ -90,6 +95,7 @@ interface QuickstartResult {
   driver: 'codex' | 'mock';
   auth: 'chatgpt' | 'bedrock';
   model?: string;
+  budgetAlert?: AwsQuickstartOptions['budgetAlert'];
   codexAuthSecret?: QuickstartCodexAuthSecret;
   baseImageVersion: string;
   source: {
@@ -160,6 +166,7 @@ interface QuickstartSetupContext {
   driver: 'codex' | 'mock';
   auth: 'chatgpt' | 'bedrock';
   model?: string;
+  budgetAlert?: AwsQuickstartOptions['budgetAlert'];
   codexAuthSecret?: QuickstartCodexAuthSecret;
   baseImageVersion: string;
   startedAt: string;
@@ -188,6 +195,17 @@ interface QuickstartRecoveredDestroy {
 }
 
 type QuickstartMetadata = QuickstartResult | QuickstartRecoveredDestroy;
+
+interface QuickstartTeardownTargets {
+  imageArn?: string;
+  kmsKeyId?: string;
+}
+
+interface QuickstartTeardownCheckpoint {
+  version: 1;
+  deployment: Pick<QuickstartSetupContext, 'startedAt' | 'region' | 'environment'>;
+  targets: QuickstartTeardownTargets;
+}
 
 export interface QuickstartAwsContext {
   region: string;
@@ -227,6 +245,9 @@ export function parseAwsQuickstartOptions(argv: string[]): AwsQuickstartOptions 
     'codex-auth-file',
     'codex-auth-secret-arn',
     'microvm-base-image-version',
+    'https-egress-cidrs',
+    'budget-usd',
+    'budget-alert-emails',
   ]);
   for (const name of values.keys()) {
     if (!known.has(name)) throw new Error(`unknown option --${name}`);
@@ -234,7 +255,7 @@ export function parseAwsQuickstartOptions(argv: string[]): AwsQuickstartOptions 
 
   const driver = values.get('driver') ?? 'codex';
   if (driver !== 'codex' && driver !== 'mock') throw new Error('--driver must be codex or mock');
-  const auth = values.get('auth') ?? 'chatgpt';
+  const auth = values.get('auth') ?? 'bedrock';
   if (auth !== 'chatgpt' && auth !== 'bedrock') throw new Error('--auth must be chatgpt or bedrock');
   const model = values.get('model') ?? (auth === 'bedrock' ? defaultBedrockModel : undefined);
   if (model !== undefined && (!model || /[\r\n]/.test(model))) {
@@ -266,9 +287,28 @@ export function parseAwsQuickstartOptions(argv: string[]): AwsQuickstartOptions 
       'use us-east-1, us-east-2, or us-west-2',
     );
   }
+  const httpsEgressCidrs = values.get('https-egress-cidrs')?.split(',').map(value => value.trim()) ?? [];
+  if (httpsEgressCidrs.some(value => { const [ip, prefix, extra] = value.split('/'); return !ip || isIP(ip) !== 4 || extra !== undefined || !prefix || !/^\d+$/.test(prefix) || Number(prefix) < 8 || Number(prefix) > 32; })) throw new Error('--https-egress-cidrs requires IPv4 CIDRs (/8 to /32)');
+  if (validatesExecutionRegion && auth === 'chatgpt' && !httpsEgressCidrs.length) throw new Error('ChatGPT on AWS requires --https-egress-cidrs with reviewed provider destinations. Use Bedrock for private AWS inference.');
   const environment = values.get('environment') ?? 'quickstart';
   if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,31}$/.test(environment)) {
     throw new Error('--environment must contain 1-32 letters, numbers, underscores, or hyphens');
+  }
+  const amount = values.get('budget-usd');
+  const recipients = values.get('budget-alert-emails');
+  if ((amount === undefined) !== (recipients === undefined)) {
+    throw new Error('Optional AWS budget alerts require both --budget-usd and --budget-alert-emails');
+  }
+  let budgetAlert: AwsQuickstartOptions['budgetAlert'];
+  if (amount !== undefined && recipients !== undefined) {
+    if (!/^\d+(?:\.\d{1,2})?$/.test(amount) || Number(amount) <= 0 || Number(amount) > 1_000_000_000) {
+      throw new Error('--budget-usd must be a monthly USD amount from 0.01 to 1000000000 with at most two decimal places');
+    }
+    const emails = [...new Set(recipients.split(',').map(value => value.trim()))];
+    if (emails.length > 10 || emails.some(email => email.length > 254 || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email))) {
+      throw new Error('--budget-alert-emails requires 1-10 comma-separated email addresses');
+    }
+    budgetAlert = { monthlyUsd: Number(amount), emails };
   }
   return {
     command,
@@ -276,6 +316,8 @@ export function parseAwsQuickstartOptions(argv: string[]): AwsQuickstartOptions 
     environment,
     driver,
     auth,
+    httpsEgressCidrs,
+    ...(budgetAlert ? { budgetAlert } : {}),
     ...(model ? { model } : {}),
     codexAuthFile: resolve(
       values.get('codex-auth-file')
@@ -306,7 +348,11 @@ export function awsQuickstartTerraformConfig(
     force_destroy_data: true,
     enable_point_in_time_recovery: false,
     enable_detailed_api_metrics: false,
-    default_sandbox_mode: 'read-only',
+    runtime_https_egress_cidrs: options.httpsEgressCidrs,
+    ...(options.budgetAlert ? { budget_alert: {
+      monthly_usd: options.budgetAlert.monthlyUsd, email_addresses: options.budgetAlert.emails,
+    } } : {}),
+    default_sandbox_mode: 'workspace-write',
     default_agent_network_access: false,
     allow_agent_aws_credential_chain: false,
     codex_auth_mode: options.auth,
@@ -441,7 +487,7 @@ async function setup(options: AwsQuickstartOptions): Promise<void> {
   if (existingMetadata?.status === 'ready') {
     throw new Error('an AWS quickstart deployment is already ready; run status or destroy before starting again');
   }
-  if (!existingMetadata && (await fileExists(contextPath) || await fileExists(statePath))) {
+  if (!existingMetadata && (await fileExists(contextPath) || await fileExists(statePath) || await fileExists(teardownPath))) {
     throw new Error('an interrupted or orphaned AWS quickstart exists; run status, then destroy before starting again');
   }
 
@@ -454,6 +500,10 @@ async function setup(options: AwsQuickstartOptions): Promise<void> {
   const readiness = await preflight(options);
   progress('      ready');
   const env = commandEnvironment(options);
+  progress('      verify or build the pinned ARM64 worker runtime');
+  env.CODEX_RUNTIME_ARTIFACT = await ensureWorkerRuntime({ root: projectRoot, artifact: process.env.CODEX_RUNTIME_ARTIFACT,
+    run: (name: string, args: string[]) => loggedCommand(name, args, { env }),
+  });
   const baseImageVersion = readiness.microvm.baseImageVersion;
   const started = journeyStartedAt();
   const startedAt = new Date(started).toISOString();
@@ -468,7 +518,10 @@ async function setup(options: AwsQuickstartOptions): Promise<void> {
         ? 'real Codex via this device\'s file-based ChatGPT login'
         : `real Codex via paid Bedrock model ${options.model}`
       : 'deterministic mock (infrastructure proof only, not a model)'}`,
-    'Scope:       one Agent and two Turns in a disposable Session; no tools, OAuth, VPC/NAT or sharing',
+    'Scope:       one Agent and two Turns in a disposable Session; private AWS endpoints; no tools, OAuth or sharing',
+    options.budgetAlert
+      ? `Budget:      email ${options.budgetAlert.emails.join(', ')} when this AWS account's monthly costs exceed $${options.budgetAlert.monthlyUsd.toFixed(2)} USD; delayed alert, no spending cap`
+      : 'Budget:      optional AWS spending alert not configured',
     'State:       .runtime/aws-quickstart/terraform.tfstate',
     'Debug log:   .runtime/aws-quickstart/quickstart.log',
     '',
@@ -476,6 +529,7 @@ async function setup(options: AwsQuickstartOptions): Promise<void> {
   await confirmCodexCredentialRisk(options);
   await confirm(options.yes, 'Deploy this disposable quickstart stack?');
 
+  await rm(teardownPath, { force: true });
   await rm(metadataPath, { force: true });
   const plannedCodexAuthSecret = options.driver === 'codex' && options.auth === 'chatgpt'
     ? options.codexAuthSecretArn
@@ -494,6 +548,7 @@ async function setup(options: AwsQuickstartOptions): Promise<void> {
     driver: options.driver,
     auth: options.auth,
     ...(options.driver === 'codex' && options.model ? { model: options.model } : {}),
+    ...(options.budgetAlert ? { budgetAlert: options.budgetAlert } : {}),
     ...(plannedCodexAuthSecret ? { codexAuthSecret: plannedCodexAuthSecret } : {}),
     baseImageVersion,
     startedAt,
@@ -572,6 +627,7 @@ async function setup(options: AwsQuickstartOptions): Promise<void> {
     driver: options.driver,
     auth: options.auth,
     ...(options.driver === 'codex' && options.model ? { model: options.model } : {}),
+    ...(options.budgetAlert ? { budgetAlert: options.budgetAlert } : {}),
     ...(codexAuthSecret ? { codexAuthSecret } : {}),
     baseImageVersion,
     source: {
@@ -679,9 +735,10 @@ async function destroy(options: AwsQuickstartOptions): Promise<void> {
   const awsContext = resolveQuickstartAwsContext(options, stored);
   const env = commandEnvironment(awsContext);
   const terraformEnv = terraformEnvironment(env);
+  const savedTeardown = await readTeardownCheckpointOptional();
   if (!await fileExists(statePath)) {
-    if (metadata) {
-      throw new Error('the completed quickstart result exists but its Terraform state is missing; refusing unverified teardown');
+    if (metadata || savedTeardown !== undefined) {
+      throw new Error('the quickstart result or teardown checkpoint exists but its Terraform state is missing; refusing unverified teardown');
     }
     const credentialSecretDeleted = await deleteManagedCodexAuthSecret(stored, awsContext);
     const destroyed = recoveredQuickstartDestroyEvidence(
@@ -696,11 +753,13 @@ async function destroy(options: AwsQuickstartOptions): Promise<void> {
     return;
   }
   await loggedCommand('terraform', ['-chdir=infra', 'init', '-input=false'], { env: terraformEnv });
-  const kmsKeyId = terraformKmsKeyIdOptional(env);
-  const imageArn = terraformMicrovmImageArnOptional(env);
+  const state = JSON.parse(capture('terraform', ['-chdir=infra', 'show', '-json', statePath], { env: terraformEnv })) as unknown;
+  const checkpoint = selectQuickstartTeardown(stored, terraformTeardownTargets(state), savedTeardown);
+  const { kmsKeyId, imageArn } = checkpoint.targets;
   if (metadata && (!kmsKeyId || !imageArn)) {
     throw new Error('the completed quickstart state is missing its MicroVM image or KMS key');
   }
+  await writeTeardownCheckpoint(checkpoint);
   progress('[1/3] Terminate quickstart MicroVMs');
   if (imageArn) {
     const termination = await loggedCommand(
@@ -710,7 +769,7 @@ async function destroy(options: AwsQuickstartOptions): Promise<void> {
     );
     if (termination.stdout.trim()) progress(`      ${termination.stdout.trim()}`);
   } else {
-    progress('      no deployed image output; setup stopped before agent execution');
+    progress('      no deployed image in state; setup stopped before agent execution');
   }
   progress('[2/3] Destroy the quickstart AWS backend');
   await loggedCommand('terraform', [
@@ -938,8 +997,9 @@ async function fileExists(path: string): Promise<boolean> {
   try {
     await access(path);
     return true;
-  } catch {
-    return false;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false;
+    throw error;
   }
 }
 
@@ -1113,6 +1173,7 @@ function command(name: string, args: string[], options: CommandOptions = {}): Co
     cwd: projectRoot,
     env: options.env ?? process.env,
     encoding: 'utf8',
+    maxBuffer: 16 * 1024 * 1024,
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   if (result.error) throw result.error;
@@ -1202,57 +1263,114 @@ function terraformStateEntryCount(env: NodeJS.ProcessEnv): number {
   return terraformStateAddresses(env).length;
 }
 
-function terraformKmsKeyIdOptional(env: NodeJS.ProcessEnv): string | undefined {
-  const shown = command('terraform', [
-    '-chdir=infra',
-    'show',
-    '-json',
-    statePath,
-  ], { env: terraformEnvironment(env), allowFailure: true });
-  if (shown.status !== 0) return undefined;
-  let state: {
-    values?: { root_module?: TerraformStateModule };
-  };
-  try {
-    state = JSON.parse(shown.stdout) as typeof state;
-  } catch {
-    return undefined;
+function terraformTeardownTargets(state: unknown): QuickstartTeardownTargets {
+  const shown = teardownObject(state, 'Terraform state');
+  if (shown.values === undefined) {
+    requiredString(shown.format_version, 'Terraform returned an invalid state document');
+    return {};
   }
-  const resources = state.values?.root_module ? terraformModuleResources(state.values.root_module) : [];
-  const kms = resources.find((resource) => resource.type === 'aws_kms_key');
-  const keyId = kms?.values?.key_id ?? kms?.values?.id;
-  return typeof keyId === 'string' && keyId ? keyId : undefined;
+  const values = teardownObject(shown.values, 'Terraform state values');
+  const resources = values.root_module === undefined ? [] : terraformModuleResources(values.root_module);
+  const managed = resources.filter(resource => resource.mode === 'managed');
+  const imageArn = uniqueTeardownTarget(managed
+    .filter(resource => resource.type === 'awscc_lambda_microvm_image')
+    .map(resource => {
+      const attributes = teardownObject(resource.values, 'MicroVM image state values');
+      return requiredString(attributes.image_arn ?? attributes.id, 'Terraform MicroVM image state is missing its identifier');
+    }), 'MicroVM image');
+  const kmsKeyId = uniqueTeardownTarget(managed
+    .filter(resource => resource.type === 'aws_kms_key')
+    .map(resource => {
+      const attributes = teardownObject(resource.values, 'KMS key state values');
+      return requiredString(attributes.key_id ?? attributes.id, 'Terraform KMS key state is missing its identifier');
+    }), 'KMS key');
+  return { ...(imageArn ? { imageArn } : {}), ...(kmsKeyId ? { kmsKeyId } : {}) };
 }
 
-function terraformMicrovmImageArnOptional(env: NodeJS.ProcessEnv): string | undefined {
-  const output = command('terraform', [
-    '-chdir=infra',
-    'output',
-    `-state=${statePath}`,
-    '-json',
-    'microvm',
-  ], { env: terraformEnvironment(env), allowFailure: true });
-  if (output.status !== 0) return undefined;
-  try {
-    const imageArn = (JSON.parse(output.stdout) as { image_arn?: unknown }).image_arn;
-    return typeof imageArn === 'string' && imageArn ? imageArn : undefined;
-  } catch {
-    return undefined;
+function terraformModuleResources(module: unknown): Record<string, unknown>[] {
+  const value = teardownObject(module, 'Terraform state module');
+  const resources = value.resources ?? [];
+  const children = value.child_modules ?? [];
+  if (!Array.isArray(resources) || !Array.isArray(children)) {
+    throw new Error('Terraform returned an invalid state module');
   }
-}
-
-interface TerraformStateModule {
-  resources?: Array<{ type?: unknown; values?: Record<string, unknown> }>;
-  child_modules?: TerraformStateModule[];
-}
-
-function terraformModuleResources(
-  module: TerraformStateModule,
-): Array<{ type?: unknown; values?: Record<string, unknown> }> {
   return [
-    ...(module.resources ?? []),
-    ...(module.child_modules ?? []).flatMap(terraformModuleResources),
+    ...resources.map(resource => {
+      const record = teardownObject(resource, 'Terraform state resource');
+      if (record.mode !== 'managed' && record.mode !== 'data') {
+        throw new Error('Terraform returned a resource without a valid mode');
+      }
+      return record;
+    }),
+    ...children.flatMap(terraformModuleResources),
   ];
+}
+
+function teardownObject(value: unknown, label: string): Record<string, unknown> {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new Error(`${label} must be an object`);
+  }
+  return value as Record<string, unknown>;
+}
+
+function uniqueTeardownTarget(values: unknown[], label: string): string | undefined {
+  const identifiers = values.filter(value => value !== undefined).map(value => {
+    const identifier = requiredString(value, `invalid ${label} teardown identifier`);
+    if (/\s/.test(identifier)) throw new Error(`invalid ${label} teardown identifier`);
+    return identifier;
+  });
+  if (new Set(identifiers).size > 1) throw new Error(`conflicting ${label} teardown identifiers`);
+  return identifiers[0];
+}
+
+function selectQuickstartTeardown(
+  stored: QuickstartTeardownCheckpoint['deployment'],
+  current: QuickstartTeardownTargets,
+  saved?: unknown,
+): QuickstartTeardownCheckpoint {
+  const deployment = {
+    startedAt: requiredString(stored.startedAt, 'quickstart deployment is missing its start time'),
+    region: requiredString(stored.region, 'quickstart deployment is missing its Region'),
+    environment: requiredString(stored.environment, 'quickstart deployment is missing its environment'),
+  };
+  let previous: Record<string, unknown> = {};
+  if (saved !== undefined) {
+    const checkpoint = teardownObject(saved, 'quickstart teardown checkpoint');
+    if (checkpoint.version !== 1) throw new Error('unsupported quickstart teardown checkpoint version');
+    const scope = teardownObject(checkpoint.deployment, 'quickstart teardown deployment');
+    for (const field of ['startedAt', 'region', 'environment'] as const) {
+      if (scope[field] !== deployment[field]) {
+        throw new Error(`quickstart teardown checkpoint belongs to a different deployment (${field})`);
+      }
+    }
+    previous = teardownObject(checkpoint.targets, 'quickstart teardown targets');
+  }
+  const imageArn = uniqueTeardownTarget([current.imageArn, previous.imageArn], 'MicroVM image');
+  const kmsKeyId = uniqueTeardownTarget([current.kmsKeyId, previous.kmsKeyId], 'KMS key');
+  return {
+    version: 1,
+    deployment,
+    targets: { ...(imageArn ? { imageArn } : {}), ...(kmsKeyId ? { kmsKeyId } : {}) },
+  };
+}
+
+async function readTeardownCheckpointOptional(): Promise<unknown> {
+  try {
+    return JSON.parse(await readFile(teardownPath, 'utf8')) as unknown;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
+    throw new Error(`could not read the quickstart teardown checkpoint: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
+async function writeTeardownCheckpoint(checkpoint: QuickstartTeardownCheckpoint): Promise<void> {
+  const temporaryPath = `${teardownPath}.${randomUUID()}.tmp`;
+  try {
+    await writeFile(temporaryPath, `${JSON.stringify(checkpoint, null, 2)}\n`, { mode: 0o600, flag: 'wx' });
+    await rename(temporaryPath, teardownPath);
+  } finally {
+    await rm(temporaryPath, { force: true });
+  }
 }
 
 async function microvmTeardownStatus(
@@ -1317,27 +1435,30 @@ function printValue(value: unknown, json: boolean): void {
 function printHelp(): void {
   process.stdout.write(`Rat Things AWS quickstart\n\n`);
 
-  process.stdout.write(`  npm run quickstart:aws -- --model MODEL\n`);
+  process.stdout.write(`  npm run quickstart:aws\n`);
   process.stdout.write(`  npm run quickstart:aws -- preflight\n`);
   process.stdout.write(`  npm run quickstart:aws -- status\n`);
   process.stdout.write(`  npm run quickstart:aws -- sync-auth\n`);
   process.stdout.write(`  npm run quickstart:aws -- destroy\n\n`);
   process.stdout.write(`A fresh clone installs pinned dependencies automatically. Preflight creates or modifies no AWS resources.\n`);
-  process.stdout.write(`The default cloud path copies this device's file-based ChatGPT login into Secrets Manager.\n`);
-  process.stdout.write(`Setup shows an account-risk warning and requires explicit consent before copying it.\n`);
+  process.stdout.write(`The default cloud path uses paid Bedrock inference and private AWS endpoints.\n`);
+  process.stdout.write(`Explicit ChatGPT setup requires provider HTTPS destinations and consent before copying credentials.\n`);
   process.stdout.write(`Status and destroy automatically reuse the setup Region and named profile.\n`);
   process.stdout.write(`sync-auth copies the current local login after you sign in again; destroy removes quickstart-managed copies.\n`);
-  process.stdout.write(`Amazon Bedrock is available only when selected with --auth bedrock.\n`);
+  process.stdout.write(`A missing worker artifact is built with ARM64-capable Docker before any AWS changes.\n`);
   process.stdout.write(`Setup uses real Codex; smoke:local provides deterministic local mock execution.\n\n`);
   process.stdout.write(`Options:\n`);
   process.stdout.write(`  --region REGION                     default: AWS_REGION or us-west-2\n`);
   process.stdout.write(`  --profile PROFILE                   AWS shared-credentials profile\n`);
   process.stdout.write(`  --environment NAME                  default: quickstart\n`);
   process.stdout.write(`  --driver codex                      default: codex\n`);
-  process.stdout.write(`  --auth chatgpt|bedrock              default: chatgpt\n`);
+  process.stdout.write(`  --auth chatgpt|bedrock              default: bedrock\n`);
   process.stdout.write(`  --codex-auth-file PATH              default: CODEX_HOME/auth.json or ~/.codex/auth.json\n`);
   process.stdout.write(`  --codex-auth-secret-arn ARN         use an existing operator-managed auth-file secret\n`);
   process.stdout.write(`  --accept-codex-credential-risk      required with --yes for file-based ChatGPT auth\n`);
+  process.stdout.write(`  --https-egress-cidrs CIDRS          optional comma-separated provider IPv4 destinations\n`);
+  process.stdout.write(`  --budget-usd AMOUNT                 optional monthly AWS account alert in USD; does not stop spending\n`);
+  process.stdout.write(`  --budget-alert-emails EMAILS        required with --budget-usd; 1-10 comma-separated addresses\n`);
   process.stdout.write(`  --model MODEL                       required for ChatGPT; Bedrock default: openai.gpt-5.6-terra\n`);
   process.stdout.write(`  --microvm-base-image-version VALUE  override automatic discovery\n`);
   process.stdout.write(`  --dry-run                            make no external changes\n`);

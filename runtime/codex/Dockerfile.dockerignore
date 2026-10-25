@@ -4,3 +4,4 @@
 !runtime/codex/**
 !scripts/
 !scripts/build-codex-runtime.mjs
+!scripts/codex-runtime-targets.mjs

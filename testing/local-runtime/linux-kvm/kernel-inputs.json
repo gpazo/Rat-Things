@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "release": "6.18.52-0-virt",
+  "architecture": "x86_64",
+  "vmlinuz": {
+    "url": "https://dl-cdn.alpinelinux.org/alpine/v3.24/releases/x86_64/netboot-3.24.2/vmlinuz-virt",
+    "sha256": "40f620bc8c93d952e57dd8dfc0f94fca1759d192a4fc4a260705d50ca378559c",
+    "maximumBytes": 33554432
+  },
+  "modloop": {
+    "url": "https://dl-cdn.alpinelinux.org/alpine/v3.24/releases/x86_64/netboot-3.24.2/modloop-virt",
+    "sha256": "1e7a3eea707d2ecb3d0502f97fb4dc4dcbac1fe06075e24ae19bfdf4343bb1cf",
+    "maximumBytes": 33554432
+  },
+  "configuration": {
+    "url": "https://dl-cdn.alpinelinux.org/alpine/v3.24/releases/x86_64/netboot-3.24.2/config-6.18.52-0-virt",
+    "sha256": "9220365aace72c511a2f7ec57d52dc2a40988486fd9d0e7b728a39f4fbd177d2",
+    "maximumBytes": 1048576
+  },
+  "requiredModules": ["virtio_pci", "virtio_blk", "virtio_rng", "vmw_vsock_virtio_transport", "ext4"],
+  "sourceMaterial": {
+    "status": "development-only",
+    "authentication": "Alpine HTTPS release inputs with pinned hashes; not a signed distribution"
+  }
+}

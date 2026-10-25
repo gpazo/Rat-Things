@@ -140,6 +140,14 @@ describe('vault and environment template contracts', () => {
     await expect(f.api.environments.templates.retrieve(template.id)).rejects.toMatchObject({ status: 404 });
   });
 
+  it('defaults templates to no network and prevents sessions from widening an implicit policy', async () => {
+    const f = fixture();
+    const template = await f.api.environments.templates.create({ name: 'Offline' });
+    expect(template.network).toEqual({ access: 'disabled', allowed_domains: [] });
+    await expect(f.templates.resolve('alice', template.id, { network: { access: 'enabled' } })).rejects.toMatchObject({ status: 400 });
+    await expect(f.templates.resolve('alice', template.id, { network: { access: 'restricted', allowed_domains: ['example.com'] } })).rejects.toMatchObject({ status: 400 });
+  });
+
   it('rejects traversal and invalid base64 before creating a template', async () => {
     const f = fixture();
     for (const path of ['/workspace/../secret', '/etc/passwd', '/workspace/sub/../../secret']) await expect(f.api.environments.templates.create({ files: [{ type: 'inline', path, data: '' }] })).rejects.toMatchObject({ status: 400 });

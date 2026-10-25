@@ -233,6 +233,17 @@ class PackageInventoryTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "source, or license"):
             load("package-inventory.py").packages("example\t0\t1\t1\taarch64\t(none)\tMIT\n")
 
+    def test_target_architecture_is_explicit_and_cannot_mix_rpms(self):
+        inventory = load("package-inventory.py")
+        row = "example\t0\t1\t1\tx86_64\texample.src.rpm\tMIT\n"
+        self.assertEqual(inventory.packages(row, "x86_64")[0]["architecture"], "x86_64")
+        with self.assertRaisesRegex(ValueError, "architecture"):
+            inventory.packages(row, "aarch64")
+        with self.assertRaisesRegex(ValueError, "architecture"):
+            inventory.packages(row.replace("x86_64", "aarch64"), "x86_64")
+        with self.assertRaisesRegex(ValueError, "architecture"):
+            inventory.packages(row, "unknown")
+
     def test_rejects_new_installed_packages_without_cached_rpm_bytes(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary, "root")

@@ -13,7 +13,9 @@ export interface ModelCatalog {
   readonly data: readonly ModelCatalogEntry[];
   readonly default_model?: string;
   readonly runtime?: 'pi';
-  readonly capabilities?: typeof PI_CAPABILITIES;
+  readonly capabilities?: Omit<typeof PI_CAPABILITIES, 'environments' | 'managed_environment_requires' | 'tools'> & {
+    environments: readonly string[]; managed_environment_requires: readonly string[]; tools: readonly string[];
+  };
 }
 
 export function modelCatalogFromConfig(modelIdsJson: string | undefined, defaultModel?: string): ModelCatalog | undefined {
@@ -78,11 +80,11 @@ export const PI_CAPABILITIES = {
   reasoning_summary: [null],
 } as const;
 
-export function createPiModelCatalog(catalog: readonly PiModelDescriptor[], defaultModel?: string): ModelCatalog | undefined {
+export function createPiModelCatalog(catalog: readonly PiModelDescriptor[], defaultModel?: string, capabilities: ModelCatalog['capabilities'] = PI_CAPABILITIES): ModelCatalog | undefined {
   const base = createModelCatalog({ modelIds: catalog.map(model => model.id), ...(defaultModel === undefined ? {} : { defaultModel }) });
   if (!base) return undefined;
   return {
-    ...base, runtime: 'pi', capabilities: PI_CAPABILITIES,
+    ...base, runtime: 'pi', capabilities,
     data: catalog.map(model => ({ id: model.id, object: 'model', display_name: model.name, input: model.input, reasoning: model.reasoning })),
   };
 }

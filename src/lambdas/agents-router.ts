@@ -237,9 +237,11 @@ function eventStream(events: (signal: AbortSignal) => AsyncIterable<import('../d
 
 export function agentsErrorResponse(error: unknown, requestId?: string): Response {
   const known = error instanceof AgentsApiError ? error : new AgentsApiError(500, 'Internal server error.', 'internal_error');
-  return json(known.status, {
+  const response = json(known.status, {
     error: { message: known.message, type: known.type, param: known.param, code: known.code },
   }, requestId);
+  if (known.retryAfterSeconds !== undefined) response.headers.set('retry-after', String(Math.max(1, Math.ceil(known.retryAfterSeconds))));
+  return response;
 }
 
 export function json(status: number, value: unknown, requestId?: string): Response {

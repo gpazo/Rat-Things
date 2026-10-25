@@ -76,6 +76,22 @@ it('is inert until requested and uses the pinned helper and fixed authenticated 
   } finally { await test.close(); }
 });
 
+it.each(['unhealthy', 'exited-during-health'] as const)('refuses turn admission when the worker is %s', async failure => {
+  const test = await fixture(); const request = startRequest();
+  try {
+    await test.runtime.start(request, async () => {});
+    const machine = test.machines[0]!;
+    machine.control.mockImplementation(async operation => {
+      if (operation.operation === 'health') {
+        if (failure === 'exited-during-health') machine.kill();
+        return { ready: failure === 'exited-during-health' };
+      }
+      return { ready: true };
+    });
+    await expect(test.runtime.admitTurn(request.worker.sessionId)).rejects.toThrow('isolated native worker is unavailable');
+  } finally { await test.close(); }
+});
+
 it('passes the full sequential setup budget on create and only root restoration on resume', async () => {
   const test = await fixture();
   const request = startRequest();

@@ -17,10 +17,10 @@ const hosted = (access: 'enabled' | 'disabled' | 'restricted'): AgentSession['en
 describe('Session Run planning', () => {
   it.each<[AgentSession['environment'], string, boolean]>([
     [{ type: 'none' }, 'read-only', false],
-    [{ type: 'self_hosted', id: 'env', workspace_directory: '/workspace', capability_directories: [], remote_url: 'https://relay.example/env' }, 'danger-full-access', true],
+    [{ type: 'self_hosted', id: 'env', workspace_directory: '/workspace', capability_directories: [], remote_url: 'https://relay.example/env' }, 'workspace-write', true],
     ...(['disabled', 'restricted', 'enabled'] as const).map<[AgentSession['environment'], string, boolean]>(access => [
       hosted(access),
-      access === 'enabled' ? 'danger-full-access' : 'workspace-write', access === 'enabled',
+      'workspace-write', access === 'enabled',
     ]),
   ])('preserves the capability envelope for %j', (environment, sandbox, networkAccess) => {
     const value = { ...session, environment };

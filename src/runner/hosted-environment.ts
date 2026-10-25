@@ -13,6 +13,7 @@ import type { SessionEnvironmentCredentialsRuntime } from './session-environment
 import type { ManagedSandboxGeneration } from '../core/managed-environment-planning.js';
 import { resetPersistentWorkspace } from './workspace.js';
 import { workspaceDigests, type WorkspaceCheckpoint } from '../domain/workspace-checkpoint.js';
+import { verifyManagedExecutor } from './managed-executor-verification.js';
 
 /** Map a private persistent directory to the standard workspace path before guest code starts. */
 export async function bindHostedWorkspace(workspace: string, visible = '/workspace'): Promise<void> {
@@ -28,6 +29,7 @@ export async function bindHostedWorkspace(workspace: string, visible = '/workspa
 
 export async function prepareHostedEnvironment(options: {
   launch: SessionLaunch; workspace: string; plan: CodexLaunchPlan;
+  executionWorkspace?: string;
   artifacts: Pick<ArtifactStore, 'getBytes'>; signal?: AbortSignal;
   stateDirectory: string; previouslyPrepared?: boolean;
   /** Trusted host receipt, supplied only after the durable single-use claim succeeds. */
@@ -38,7 +40,8 @@ export async function prepareHostedEnvironment(options: {
   afterWorkspaceReset?: () => Promise<void>;
 }): Promise<{ launch: SessionLaunch; sandbox?: ManagedSandboxGeneration }> {
   const { launch, workspace, plan, artifacts, signal } = options;
-  if (launch.environment.type !== 'openai_hosted' || !launch.hostedConfiguration) return { launch };
+  if (launch.environment.type !== 'openai_hosted') return { launch };
+  if (!launch.hostedConfiguration) throw new Error('Managed environment configuration is missing');
   const configuration = launch.hostedConfiguration;
   const adopted = options.adoptedCheckpoint;
   const recovered = launch.runtime?.kind === 'pi' ? launch.piWorkspace : undefined;
@@ -75,6 +78,8 @@ export async function prepareHostedEnvironment(options: {
   if (markerState && (!markerState.isFile() || markerState.isSymbolicLink() || markerState.uid !== stateDirectory.uid || (markerState.mode & 0o077) !== 0 || markerState.nlink !== 1)) throw new Error('Managed setup state is invalid');
   const previous = markerState ? hostedSetupMarker(await readFile(marker, 'utf8')) : undefined;
   if (adopted && previous && previous.sandbox.id !== adopted.sandboxId) throw new Error('Local sandbox does not match the adopted checkpoint');
+  await verifyManagedExecutor({ plan, workspace: options.executionWorkspace ?? workspace, network: launch.environment.network,
+    credentialProxy: Boolean(options.credentials), ...(signal ? { signal } : {}) });
   if (previous?.digest === digest) return { launch: result, sandbox: previous.sandbox };
   if (previous !== undefined) throw new Error('A managed environment cannot change its setup configuration');
   const sandbox: ManagedSandboxGeneration = adopted || recovered ? { id: (adopted ?? recovered)!.sandboxId, replaced: false } : { id: randomUUID(), replaced: options.previouslyPrepared ?? false };
@@ -113,7 +118,8 @@ export async function prepareHostedEnvironment(options: {
   ].map((command) => ({ command, cwd: '/workspace' }));
   commands.push(...(configuration.setup_commands ?? []).map((setup) => ({ command: ['bash', '-c', setup.command], cwd: setup.cwd ?? '/workspace' })));
   if (commands.length) {
-    const rpc = new CodexRpcClient({ startupPurpose: 'setup', binary: plan.binary, binaryArguments: hostedCodexArguments(plan.binaryArguments, launch.environment.network, Boolean(options.credentials)), cwd: workspace,
+    const executionWorkspace = options.executionWorkspace ?? workspace;
+    const rpc = new CodexRpcClient({ startupPurpose: 'setup', binary: plan.binary, binaryArguments: hostedCodexArguments(plan.binaryArguments, launch.environment.network, Boolean(options.credentials), executionWorkspace), cwd: workspace,
       environment: { PATH: plan.environment.PATH, HOME: plan.environment.HOME, CODEX_HOME: plan.environment.CODEX_HOME,
         CODEX_SQLITE_HOME: plan.environment.CODEX_SQLITE_HOME, CODEX_API_KEY: 'setup-without-inference', ...options.credentials?.processEnvironment },
       ...(plan.identity ? { identity: plan.identity } : {}), ...(signal ? { signal } : {}),
@@ -121,7 +127,7 @@ export async function prepareHostedEnvironment(options: {
     try {
       await rpc.initialize();
       for (const [index, command] of commands.entries()) {
-        const execution = await rpc.call('command/exec', { ...command, env: { ...hostedProcessEnvironment(configuration.env ?? {}, plan.environment.PATH), ...options.credentials?.shellEnvironment },
+        const execution = await rpc.call('command/exec', { ...command, env: { ...hostedProcessEnvironment(configuration.env ?? {}, plan.environment.PATH, executionWorkspace), ...options.credentials?.shellEnvironment },
           permissionProfile: 'rat_managed', timeoutMs: 600_000, outputBytesCap: 64 * 1024,
         }, 610_000);
         if (typeof execution !== 'object' || execution === null || !('exitCode' in execution) || execution.exitCode !== 0) throw new Error(`Environment setup command ${index + 1} failed`);

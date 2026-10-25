@@ -50,7 +50,7 @@ it('prepares EC2 Session mounts without a Lambda connector and rejects that conf
   const sendSsm = vi.fn();
   const microvm = new MicrovmRunExecutor({ send: sendMicrovm } as unknown as LambdaMicrovmsClient,
     { send: sendSsm } as unknown as SSMClient, options);
-  await expect(microvm.start(sessionRecord, request, 'trace')).rejects.toThrow('requires a network connector');
+  await expect(microvm.start(sessionRecord, request, 'trace')).rejects.toThrow('requires an explicit runtime network connector');
   expect(sendMicrovm).not.toHaveBeenCalled();
   expect(sendSsm).not.toHaveBeenCalled();
 });
@@ -70,6 +70,7 @@ describe('executor idempotency', () => {
       { send: sendMicrovm } as unknown as LambdaMicrovmsClient,
       { send: sendSsm } as unknown as SSMClient,
       {
+        networkConnectorArn: 'arn:aws:lambda:us-east-1:account:network-connector:nc-1',
         imageParameterName: 'image',
         imageVersionParameterName: 'version',
         executionRoleArn: 'arn:aws:iam::account:role/runtime',
@@ -108,9 +109,11 @@ describe('executor idempotency', () => {
       runId: record.runId,
       executionGeneration: expect.stringMatching(/^[a-f0-9]{64}$/),
       heartbeatIntervalMs: 15_000,
+      defaultSandboxMode: 'workspace-write', defaultAgentNetworkAccess: false,
       traceId: record.runId,
       codexAuthFileSecretArn: 'arn:aws:secretsmanager:us-east-1:123456789012:secret:rat/codex',
     });
+    expect(sendMicrovm.mock.calls[0]?.[0].input.egressNetworkConnectors).toEqual(['arn:aws:lambda:us-east-1:account:network-connector:nc-1']);
     expect(sendMicrovm.mock.calls[0]?.[0].input.ingressNetworkConnectors).toEqual([
       'arn:aws:lambda:us-east-1:aws:network-connector:aws-network-connector:ALL_INGRESS',
     ]);
@@ -125,6 +128,7 @@ describe('executor idempotency', () => {
       { send: sendMicrovm } as unknown as LambdaMicrovmsClient,
       { send: sendSsm } as unknown as SSMClient,
       {
+        networkConnectorArn: 'arn:aws:lambda:us-east-1:account:network-connector:nc-1',
         imageParameterName: 'image',
         imageVersionParameterName: 'version',
         executionRoleArn: 'arn:aws:iam::account:role/runtime',

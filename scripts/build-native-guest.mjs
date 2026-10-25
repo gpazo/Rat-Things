@@ -81,7 +81,7 @@ async function nativeGuest(options) {
   const npmLock = JSON.parse(npmLockBytes.toString('utf8'));
   if (npmLock.packages?.['node_modules/esbuild']?.version !== esbuildVersion) throw new Error('Native worker bundling requires the locked esbuild version.');
   await readInput(join(root, 'package.json'), 'package.json');
-  for (const name of ['build-native-guest.mjs', 'native-guest-inputs.mjs', 'native-build-files.mjs', 'codex-runtime-artifact.mjs', 'javascript-notices.mjs', 'native-guest-archive.mjs']) await readInput(join(root, 'scripts', name), `scripts/${name}`);
+  for (const name of ['build-native-guest.mjs', 'native-guest-inputs.mjs', 'native-build-files.mjs', 'codex-runtime-artifact.mjs', 'codex-runtime-targets.mjs', 'javascript-notices.mjs', 'native-guest-archive.mjs']) await readInput(join(root, 'scripts', name), `scripts/${name}`);
   await mkdir(dirname(output), { recursive: true });
   const realParent = await realpath(dirname(output));
   if (realParent === join(root, 'dist') || realParent.startsWith(join(root, 'dist') + '/')) throw new Error('Native guest output resolves inside dist.');

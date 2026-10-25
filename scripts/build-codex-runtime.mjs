@@ -5,6 +5,7 @@ import { dirname, join, resolve, relative } from 'node:path';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
+import { codexRuntimeTargets } from './codex-runtime-targets.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const definition = join(root, 'runtime/codex');
@@ -14,9 +15,8 @@ const buildRoot = process.argv[2] && resolve(process.argv[2]);
 const prepareOnly = process.argv[3] === '--prepare-only';
 if (!buildRoot || process.argv.length > 4 || process.argv[3] && !prepareOnly) throw new Error('Usage: node scripts/build-codex-runtime.mjs BUILD_DIRECTORY [--prepare-only]');
 // Resolve host compatibility before creating a build directory or fetching source.
-const triples = { 'darwin-arm64': 'aarch64-apple-darwin', 'linux-arm64': 'aarch64-unknown-linux-musl' };
-const triple = triples[`${process.platform}-${process.arch}`];
-if (!prepareOnly && !triple) throw new Error('The worker runtime build supports ARM64 macOS and Linux. Use the Linux ARM64 Docker builder for the worker artifact.');
+const targetDefinition = codexRuntimeTargets[`${process.platform}-${process.arch}`];
+if (!prepareOnly && !targetDefinition) throw new Error('The worker runtime build supports ARM64 macOS and ARM64 or x64 Linux. Use the matching Linux Docker builder for worker artifacts.');
 await mkdir(buildRoot, { recursive: true });
 const marker = join(buildRoot, 'rat-codex-source.json');
 const identity = JSON.stringify({ ...source, patches: await Promise.all(source.patches.map(async (name) => ({ name, sha256: createHash('sha256').update(await readFile(join(definition, name))).digest('hex') }))) });
@@ -59,11 +59,11 @@ if (!prepareOnly) {
   const build = { profile: 'release', debug: 'none', incremental: false, locked: true, jobs };
   // Keep the exact upstream package's companion host and resources. Patching the
   // CLI alone silently disables code mode when its sibling executable is absent.
-  const packageName = `@openai/codex-${process.platform}-arm64`;
+  const packageName = targetDefinition.packageName;
   const packagePath = createRequire(import.meta.url).resolve(`${packageName}/package.json`);
   const upstreamPackage = JSON.parse(await readFile(packagePath, 'utf8'));
-  if (upstreamPackage.version !== `${source.upstreamVersion}-${process.platform}-arm64`) throw new Error('Install the exact pinned Codex companion package before building.');
-  const vendor = join(dirname(packagePath), 'vendor', triple);
+  if (upstreamPackage.version !== `${source.upstreamVersion}-${process.platform}-${process.arch}`) throw new Error('Install the exact pinned Codex companion package before building.');
+  const vendor = join(dirname(packagePath), 'vendor', targetDefinition.vendorTarget);
   const vendorFiles = await files(vendor);
   const bwrap = vendorFiles.find((path) => path.endsWith('/bwrap'));
   if (process.platform === 'linux' && !bwrap) throw new Error('The pinned Linux runtime has no bundled bwrap.');
@@ -75,7 +75,7 @@ if (!prepareOnly) {
   if (await verifySourceTree() !== patchedTree) throw new Error('Native source changed during compilation.');
   const { stdout: compilerVersion } = await promisify(execFile)('rustc', ['-vV'], { cwd: join(checkout, 'codex-rs') });
   const nativeTarget = compilerVersion.split('\n').find(line => line.startsWith('host: '))?.slice(6);
-  if (!nativeTarget) throw new Error('Could not identify the native compiler target.');
+  if (nativeTarget !== targetDefinition.nativeTarget) throw new Error('Native compiler target does not match the requested runtime.');
   const runtime = join(buildRoot, 'runtime');
   await cp(vendor, runtime, { recursive: true });
   const descriptorPath = join(runtime, 'codex-package.json');

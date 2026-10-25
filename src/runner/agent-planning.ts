@@ -109,7 +109,7 @@ function agentEnvironment(workspace: string, environment: Readonly<NodeJS.Proces
 }
 
 function defaultSandboxMode(configured: string | undefined): 'read-only' | 'workspace-write' | 'danger-full-access' {
-  const value = configured ?? 'read-only';
+  const value = configured ?? 'workspace-write';
   if (!['read-only', 'workspace-write', 'danger-full-access'].includes(value)) {
     throw new Error('DEFAULT_SANDBOX_MODE is invalid');
   }

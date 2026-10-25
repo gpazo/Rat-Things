@@ -12,13 +12,14 @@ import { LocalSubscription } from './local-subscription.js';
 export function createCodexLocalHarness(options: {
   store: AgentsStore; directory: string; maxSessions: number; managed: LocalManagedEnvironment; model?: string | undefined;
   execution?: LocalSessionExecution | undefined;
+  account?: LocalSubscription;
   hostCodex?: LocalCodexHostProvider;
 }): LocalHarness {
   const hostCodex = options.hostCodex ?? developmentLocalCodexHost(options.directory);
   let pending: Promise<ModelCatalog | undefined> | undefined;
   let models = options.model ? createModelCatalog({ modelIds: [options.model], defaultModel: options.model }) : undefined;
   if (options.model && !models) throw new Error('Invalid local model ID.');
-  const account = new LocalSubscription(options.directory, hostCodex);
+  const account = options.account ?? new LocalSubscription(options.directory, hostCodex);
   return {
     id: 'codex',
     account,

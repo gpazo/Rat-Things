@@ -1,10 +1,17 @@
 aws_region  = "us-west-2"
 environment = "dev"
 
+# Optional monthly AWS account spending alert. Omit to disable. Alerts do not cap
+# spending and cover all workloads in this AWS account, not individual owners.
+# budget_alert = {
+#   monthly_usd     = 50
+#   email_addresses = ["you@example.com"]
+# }
+
 # Safe bring-up: package Lambda and MicroVM code, provision the control plane,
 # then configure model credentials and admission before submitting Session input.
 allowed_sandbox_modes            = ["read-only"]
-default_sandbox_mode             = "read-only"
+default_sandbox_mode             = "workspace-write"
 default_agent_network_access     = false
 allow_agent_aws_credential_chain = false
 
@@ -90,7 +97,7 @@ microvm_base_image_version  = "1"
 
 # Retained workspace and Codex home storage. Hosted replacement rebuilds the
 # workspace; native MicroVM resume preserves the existing machine's state.
-# This provisions a dedicated VPC, subnets and a NAT gateway.
+# Uses the private runtime VPC; NAT requires explicit public HTTPS destinations.
 enable_s3_files = true
 # s3_files_vpc_cidr = "10.242.0.0/24"
 

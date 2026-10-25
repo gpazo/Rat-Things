@@ -10,7 +10,7 @@ pub fn app_icon() -> egui::IconData {
 
 /// The glyph beside the product name, uploaded once per context.
 pub(crate) fn glyph(ctx: &egui::Context) -> egui::TextureHandle {
-    let id = egui::Id::new("rat-things-glyph");
+    let id = egui::Id::unique("rat-things-glyph");
     if let Some(texture) = ctx.data(|data| data.get_temp::<egui::TextureHandle>(id)) {
         return texture;
     }

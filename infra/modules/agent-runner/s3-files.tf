@@ -1,7 +1,7 @@
 # Session workspaces and native Codex state use these resources.
 # Keep the historical resource names and /conversations access-point root stable.
 data "aws_availability_zones" "s3_files" {
-  count = var.enable_s3_files ? 1 : 0
+  count = local.worker_network_enabled ? 1 : 0
 
   state = "available"
 }
@@ -177,7 +177,7 @@ resource "aws_s3files_file_system_policy" "conversation_state" {
 }
 
 resource "aws_vpc" "s3_files" {
-  count = var.enable_s3_files ? 1 : 0
+  count = local.worker_network_enabled ? 1 : 0
 
   cidr_block           = var.s3_files_vpc_cidr
   enable_dns_hostnames = true
@@ -187,14 +187,14 @@ resource "aws_vpc" "s3_files" {
 }
 
 resource "aws_internet_gateway" "s3_files" {
-  count = var.enable_s3_files ? 1 : 0
+  count = local.worker_internet_routes ? 1 : 0
 
   vpc_id = aws_vpc.s3_files[0].id
   tags   = merge(local.tags, { Name = "${local.name}-s3-files" })
 }
 
 resource "aws_subnet" "s3_files_public" {
-  count = var.enable_s3_files ? 1 : 0
+  count = local.worker_internet_routes ? 1 : 0
 
   vpc_id                  = aws_vpc.s3_files[0].id
   availability_zone       = data.aws_availability_zones.s3_files[0].names[0]
@@ -205,7 +205,7 @@ resource "aws_subnet" "s3_files_public" {
 }
 
 resource "aws_subnet" "s3_files_private" {
-  count = var.enable_s3_files ? 1 : 0
+  count = local.worker_network_enabled ? 1 : 0
 
   vpc_id            = aws_vpc.s3_files[0].id
   availability_zone = data.aws_availability_zones.s3_files[0].names[0]
@@ -215,7 +215,7 @@ resource "aws_subnet" "s3_files_private" {
 }
 
 resource "aws_eip" "s3_files_nat" {
-  count = var.enable_s3_files ? 1 : 0
+  count = local.worker_internet_routes ? 1 : 0
 
   domain = "vpc"
   tags   = merge(local.tags, { Name = "${local.name}-s3-files-nat" })
@@ -224,7 +224,7 @@ resource "aws_eip" "s3_files_nat" {
 }
 
 resource "aws_nat_gateway" "s3_files" {
-  count = var.enable_s3_files ? 1 : 0
+  count = local.worker_internet_routes ? 1 : 0
 
   allocation_id = aws_eip.s3_files_nat[0].id
   subnet_id     = aws_subnet.s3_files_public[0].id
@@ -234,7 +234,7 @@ resource "aws_nat_gateway" "s3_files" {
 }
 
 resource "aws_route_table" "s3_files_public" {
-  count = var.enable_s3_files ? 1 : 0
+  count = local.worker_internet_routes ? 1 : 0
 
   vpc_id = aws_vpc.s3_files[0].id
 
@@ -247,34 +247,37 @@ resource "aws_route_table" "s3_files_public" {
 }
 
 resource "aws_route_table_association" "s3_files_public" {
-  count = var.enable_s3_files ? 1 : 0
+  count = local.worker_internet_routes ? 1 : 0
 
   subnet_id      = aws_subnet.s3_files_public[0].id
   route_table_id = aws_route_table.s3_files_public[0].id
 }
 
 resource "aws_route_table" "s3_files_private" {
-  count = var.enable_s3_files ? 1 : 0
+  count = local.worker_network_enabled ? 1 : 0
 
   vpc_id = aws_vpc.s3_files[0].id
 
-  route {
-    cidr_block     = "0.0.0.0/0"
-    nat_gateway_id = aws_nat_gateway.s3_files[0].id
+  dynamic "route" {
+    for_each = local.worker_internet_routes ? [1] : []
+    content {
+      cidr_block     = "0.0.0.0/0"
+      nat_gateway_id = aws_nat_gateway.s3_files[0].id
+    }
   }
 
   tags = merge(local.tags, { Name = "${local.name}-s3-files-private" })
 }
 
 resource "aws_route_table_association" "s3_files_private" {
-  count = var.enable_s3_files ? 1 : 0
+  count = local.worker_network_enabled ? 1 : 0
 
   subnet_id      = aws_subnet.s3_files_private[0].id
   route_table_id = aws_route_table.s3_files_private[0].id
 }
 
 resource "aws_vpc_endpoint" "s3_files_s3" {
-  count = var.enable_s3_files ? 1 : 0
+  count = local.worker_network_enabled ? 1 : 0
 
   vpc_id            = aws_vpc.s3_files[0].id
   service_name      = "com.amazonaws.${data.aws_region.current.region}.s3"
@@ -285,7 +288,7 @@ resource "aws_vpc_endpoint" "s3_files_s3" {
 }
 
 resource "aws_vpc_endpoint" "s3_files_dynamodb" {
-  count = var.enable_s3_files ? 1 : 0
+  count = local.worker_network_enabled ? 1 : 0
 
   vpc_id            = aws_vpc.s3_files[0].id
   service_name      = "com.amazonaws.${data.aws_region.current.region}.dynamodb"
@@ -296,18 +299,46 @@ resource "aws_vpc_endpoint" "s3_files_dynamodb" {
 }
 
 resource "aws_security_group" "s3_files_client" {
-  count = var.enable_s3_files ? 1 : 0
+  count = local.worker_network_enabled ? 1 : 0
 
   name        = "${local.name}-s3-files-client"
   description = "Lambda MicroVM clients mounting the Session state file system"
   vpc_id      = aws_vpc.s3_files[0].id
 
+
   egress {
-    description = "Runtime AWS APIs, repositories, model providers, and NFS mount target"
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
+    description     = "Private AWS APIs"
+    protocol        = "tcp"
+    from_port       = 443
+    to_port         = 443
+    security_groups = [aws_security_group.worker_endpoints[0].id]
+  }
+  egress {
+    description     = "S3 and DynamoDB gateway endpoints"
+    protocol        = "tcp"
+    from_port       = 443
+    to_port         = 443
+    prefix_list_ids = [aws_vpc_endpoint.s3_files_s3[0].prefix_list_id, aws_vpc_endpoint.s3_files_dynamodb[0].prefix_list_id]
+  }
+  dynamic "egress" {
+    for_each = var.enable_s3_files ? [1] : []
+    content {
+      description     = "Session filesystem"
+      protocol        = "tcp"
+      from_port       = 2049
+      to_port         = 2049
+      security_groups = [aws_security_group.s3_files_mount[0].id]
+    }
+  }
+  dynamic "egress" {
+    for_each = var.runtime_https_egress_cidrs
+    content {
+      description = "Operator-approved HTTPS destination"
+      protocol    = "tcp"
+      from_port   = 443
+      to_port     = 443
+      cidr_blocks = [egress.value]
+    }
   }
 
   tags = merge(local.tags, { Name = "${local.name}-s3-files-client" })
@@ -320,14 +351,14 @@ resource "aws_security_group" "s3_files_mount" {
   description = "NFS ingress from Lambda MicroVM Session runners"
   vpc_id      = aws_vpc.s3_files[0].id
 
-  ingress {
-    description     = "NFS from MicroVM network connector"
-    from_port       = 2049
-    to_port         = 2049
-    protocol        = "tcp"
-    security_groups = [aws_security_group.s3_files_client[0].id]
-  }
 
+  ingress {
+    description = "NFS from the private worker subnet"
+    protocol    = "tcp"
+    from_port   = 2049
+    to_port     = 2049
+    cidr_blocks = [aws_subnet.s3_files_private[0].cidr_block]
+  }
   tags = merge(local.tags, { Name = "${local.name}-s3-files-mount" })
 }
 
@@ -342,7 +373,7 @@ resource "aws_s3files_mount_target" "conversation_state" {
 }
 
 data "aws_iam_policy_document" "network_connector_assume" {
-  count = var.enable_s3_files && var.enable_microvm ? 1 : 0
+  count = var.enable_microvm ? 1 : 0
 
   statement {
     actions = ["sts:AssumeRole"]
@@ -354,7 +385,7 @@ data "aws_iam_policy_document" "network_connector_assume" {
 }
 
 resource "aws_iam_role" "network_connector" {
-  count = var.enable_s3_files && var.enable_microvm ? 1 : 0
+  count = var.enable_microvm ? 1 : 0
 
   name               = "${local.name}-network-connector"
   assume_role_policy = data.aws_iam_policy_document.network_connector_assume[0].json
@@ -362,14 +393,14 @@ resource "aws_iam_role" "network_connector" {
 }
 
 resource "aws_iam_role_policy_attachment" "network_connector" {
-  count = var.enable_s3_files && var.enable_microvm ? 1 : 0
+  count = var.enable_microvm ? 1 : 0
 
   role       = aws_iam_role.network_connector[0].name
   policy_arn = "arn:${data.aws_partition.current.partition}:iam::aws:policy/AWSLambdaNetworkConnectorOperatorPolicy"
 }
 
 resource "awscc_lambda_network_connector" "s3_files" {
-  count = var.enable_s3_files && var.enable_microvm ? 1 : 0
+  count = var.enable_microvm ? 1 : 0
 
   name          = "${local.name}-s3-files"
   operator_role = aws_iam_role.network_connector[0].arn

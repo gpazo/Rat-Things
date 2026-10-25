@@ -85,7 +85,7 @@ export function workspacePatchCommand(
   return {
     args: phase === 'stage'
       ? ['-C', workspace, 'add', '--intent-to-add', '--all', ...pathspec]
-      : ['-C', workspace, 'diff', '--binary', 'refs/agent-runtime/base', ...pathspec],
+      : ['-C', workspace, 'diff', '--binary', '--src-prefix=a/', '--dst-prefix=b/', 'refs/agent-runtime/base', ...pathspec],
     options: {
       cwd: workspace,
       env: { PATH: environment.PATH, HOME: environment.HOME },

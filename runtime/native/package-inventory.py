@@ -17,7 +17,9 @@ def command(arguments):
     return subprocess.run(arguments, check=True, capture_output=True, text=True, timeout=120).stdout
 
 
-def packages(text):
+def packages(text, architecture="aarch64"):
+    if architecture not in ("aarch64", "x86_64"):
+        raise ValueError("Unsupported RPM target architecture")
     result = []
     for line in text.splitlines():
         values = line.split("\t")
@@ -25,7 +27,7 @@ def packages(text):
             continue
         if len(values) != len(PACKAGE_FIELDS) or any(not value or value == "(none)" for value in values):
             raise ValueError("Incomplete installed RPM identity, source, or license")
-        if not values[1].isdigit() or values[4] not in ("aarch64", "noarch"):
+        if not values[1].isdigit() or values[4] not in (architecture, "noarch"):
             raise ValueError("Unexpected installed RPM epoch or architecture")
         result.append(dict(zip(PACKAGE_FIELDS, values)))
     result.sort(key=lambda item: tuple(item[field] for field in PACKAGE_FIELDS))
@@ -81,7 +83,7 @@ def fingerprints(armor):
     return sorted(set(result))
 
 
-def collect(root, destination, run=command, before_packages=()):
+def collect(root, destination, run=command, before_packages=(), architecture="aarch64"):
     root, destination = Path(root), Path(destination)
     destination.mkdir(parents=True, exist_ok=False)
 
@@ -101,7 +103,7 @@ def collect(root, destination, run=command, before_packages=()):
         raise ValueError("Persistent latest RPM repository selection is forbidden")
     if not configurations or not keys or not any(path.name == "repomd.xml" for path in metadata):
         raise ValueError("RPM repository configuration, signing keys, or metadata are missing")
-    installed = packages(run(["rpm", "-qa", "--queryformat", QUERY]))
+    installed = packages(run(["rpm", "-qa", "--queryformat", QUERY]), architecture)
     trust = run(["rpm", "-q", "gpg-pubkey", "--queryformat", "%{DESCRIPTION}\n"])
     key_fingerprints = fingerprints(trust)
     (destination / "imported-rpm-keys.asc").write_text(trust)
@@ -112,7 +114,7 @@ def collect(root, destination, run=command, before_packages=()):
         if not signature_lines or any(not line.endswith(": OK") for line in signature_lines) or any(
                 marker in verification for marker in ("NOT OK", "NOKEY", "NOTTRUSTED")):
             raise ValueError("Cached RPM signature verification failed")
-        identity = packages(run(["rpm", "-qp", "--queryformat", QUERY, str(path)]))
+        identity = packages(run(["rpm", "-qp", "--queryformat", QUERY, str(path)]), architecture)
         if len(identity) != 1 or identity[0] not in installed:
             raise ValueError("Cached RPM does not match the installed package inventory")
         checksum = hashlib.sha256()
@@ -132,13 +134,14 @@ def collect(root, destination, run=command, before_packages=()):
 
 
 if __name__ == "__main__":
+    architecture = command(["rpm", "--eval", "%{_arch}"]).strip()
     if len(sys.argv) == 3 and sys.argv[1] == "snapshot":
         destination = Path(sys.argv[2])
         destination.parent.mkdir(parents=True, exist_ok=True)
-        destination.write_text(json.dumps({"packages": packages(command(["rpm", "-qa", "--queryformat", QUERY]))}, indent=2) + "\n")
+        destination.write_text(json.dumps({"packages": packages(command(["rpm", "-qa", "--queryformat", QUERY]), architecture)}, indent=2) + "\n")
     else:
         parser = argparse.ArgumentParser()
         parser.add_argument("destination")
         parser.add_argument("--before", required=True)
         arguments = parser.parse_args()
-        collect("/", arguments.destination, before_packages=json.loads(Path(arguments.before).read_text())["packages"])
+        collect("/", arguments.destination, before_packages=json.loads(Path(arguments.before).read_text())["packages"], architecture=architecture)

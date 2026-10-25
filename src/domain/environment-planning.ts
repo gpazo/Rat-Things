@@ -39,7 +39,7 @@ export function templateConfiguration(input: TemplateCreateParams | TemplateUpda
 /** An inline session can narrow a template's network envelope, never widen it. */
 export function resolveHostedEnvironment(template: TemplateCreateParams | undefined, inline: HostedEnvironmentConfiguration): HostedEnvironmentConfiguration {
   const configured = templateConfiguration(inline, template);
-  const inherited = template?.network;
+  const inherited = template ? template.network ?? { access: 'disabled' as const } : undefined;
   if (inherited && inherited.access !== 'enabled' && inline.network !== undefined) {
     const requested = inline.network;
     if (!requested || requested.access === 'enabled' || (inherited.access === 'disabled' && requested.access !== 'disabled')) invalid('Session network access cannot broaden the template policy', 'environment.network');
@@ -54,7 +54,7 @@ export function publicTemplate(input: TemplateCreateParams, identity: Pick<Envir
   return {
     ...identity, object: 'agent.environment.template', name: input.name ?? null,
     capability_directories: input.capability_directories ?? [],
-    network: { access: input.network?.access ?? 'enabled', allowed_domains: input.network?.allowed_domains ?? [] },
+    network: { access: input.network?.access ?? 'disabled', allowed_domains: input.network?.allowed_domains ?? [] },
     packages: { npm: input.packages?.npm ?? [], python: input.packages?.python ?? [], system: input.packages?.system ?? [] },
     files: (input.files ?? []).map((file) => file.type === 'file_id' ? { type: file.type, path: file.path, file_id: file.file_id } : { type: file.type, path: file.path, size_bytes: decodeBase64(file.data, 'files.data').byteLength }),
     plugins: (input.plugins ?? []).map(({ type, name, description }) => ({ type, name, description })),

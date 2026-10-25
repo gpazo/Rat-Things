@@ -119,7 +119,7 @@ export async function runAgentWorker(): Promise<void> {
     const request = parseRunRequest(rawRequest, {
       allowedRepositoryHosts: csv(process.env.ALLOWED_REPOSITORY_HOSTS ?? 'github.com,gitlab.com'),
       allowedSandboxModes: sandboxModes(
-        process.env.ALLOWED_SANDBOX_MODES ?? 'read-only,workspace-write,danger-full-access',
+        process.env.ALLOWED_SANDBOX_MODES ?? 'read-only,workspace-write',
       ),
     });
     const profile = resolveAgentProfile(
@@ -220,7 +220,7 @@ export async function runAgentWorker(): Promise<void> {
         // A first fork can die midway through copying, before managedReady saves
         // a sandbox identity. Its partial files still require an ordinary reset.
         const interruptedFork = !launch.fork && Boolean(await agentsStore.get(sessionOwner, 'fork_adoptions', launch.sessionId));
-        const prepared = await prepareHostedEnvironment({ launch, workspace, plan, artifacts, signal: abort.signal, stateDirectory: '/tmp/rat-hosted-state',
+        const prepared = await prepareHostedEnvironment({ launch, workspace, executionWorkspace: '/workspace', plan, artifacts, signal: abort.signal, stateDirectory: '/tmp/rat-hosted-state',
           ...(adoptedCheckpoint ? { adoptedCheckpoint } : {}),
           ...(launch.fork ? { forkSetupDigest: launch.fork.checkpoint.setupDigest } : {}),
           previouslyPrepared: await environments.managedPrepared(sessionOwner, environmentId, runId) || Boolean(runtime.value.snapshot) || interruptedFork,

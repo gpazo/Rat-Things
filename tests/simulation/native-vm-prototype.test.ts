@@ -25,7 +25,7 @@ describe('native worker proof cleanup', () => {
     } finally { await fixture.close(); }
   });
 
-  it.runIf(process.platform === 'darwin')('preserves guest filesystem links and reaps live or exited workers', async () => {
+  it.runIf(process.platform === 'darwin' || process.platform === 'linux')('preserves guest filesystem links and reaps live or exited workers', async () => {
     await expect(promisify(execFile)('python3', ['testing/local-runtime/native-vm/worker/test_guest.py'], { timeout: 15_000 })).resolves.toMatchObject({ stdout: '' });
   });
 });

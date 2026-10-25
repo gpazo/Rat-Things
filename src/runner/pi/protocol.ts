@@ -23,6 +23,11 @@ export type PiEffectDescriptor = { name: string; kind: 'managed' } | { name: str
 export type PiEffectTool = (Extract<PiEffectDescriptor, { kind: 'managed' }> | Required<Extract<PiEffectDescriptor, { kind: 'mcp' }>>) & { description: string; parameters: TSchema };
 export type PiToolEffect = { kind: 'managed' | 'mcp'; name: string; arguments: Record<string, JsonValue>; callId: string; taskId: number; conversationId: number };
 export type PiToolEffectHandler = (request: PiToolEffect, signal: AbortSignal) => Promise<ToolExecutionResult>;
+export interface PiEffects {
+  readonly tools: readonly PiEffectTool[];
+  readonly execute: PiToolEffectHandler;
+  close(): Promise<void>;
+}
 export type PiRootCheckpoint = { schema: 1; runtime: Extract<RuntimePin, { kind: 'pi' }>; model: string; reasoning: string | null; messages: Message[]; history: NativeTurnBinding[] };
 
 export function piInput(input: readonly AgentSessionInputMessageParam[]): UserMessage['content'] {

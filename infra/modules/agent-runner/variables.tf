@@ -1,3 +1,26 @@
+variable "budget_alert" {
+  description = "Optional monthly USD alert for all costs in this AWS account. Null disables it. Alerts are delayed and never stop execution."
+  type = object({
+    monthly_usd     = number
+    email_addresses = set(string)
+  })
+  default = null
+
+  validation {
+    condition = var.budget_alert == null ? true : try(
+      var.budget_alert.monthly_usd >= 0.01 &&
+      var.budget_alert.monthly_usd <= 1000000000 &&
+      floor(var.budget_alert.monthly_usd * 100) == var.budget_alert.monthly_usd * 100 &&
+      length(var.budget_alert.email_addresses) >= 1 &&
+      length(var.budget_alert.email_addresses) <= 10 &&
+      alltrue([for email in var.budget_alert.email_addresses :
+        length(email) <= 254 && can(regex("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$", email))
+      ]), false
+    )
+    error_message = "budget_alert requires a monthly USD amount from 0.01 to 1000000000 with at most two decimal places, and 1-10 valid email addresses."
+  }
+}
+
 variable "name_prefix" {
   description = "Lowercase prefix applied to named resources."
   type        = string
@@ -198,7 +221,7 @@ variable "allowed_repository_hosts" {
 variable "allowed_sandbox_modes" {
   description = "Inner agent sandbox modes accepted inside the outer Lambda MicroVM isolation boundary."
   type        = list(string)
-  default     = ["read-only", "workspace-write", "danger-full-access"]
+  default     = ["read-only", "workspace-write"]
 
   validation {
     condition = length(var.allowed_sandbox_modes) > 0 && alltrue([
@@ -211,7 +234,7 @@ variable "allowed_sandbox_modes" {
 variable "default_sandbox_mode" {
   description = "Default inner agent sandbox. The Lambda MicroVM remains the outer isolation boundary."
   type        = string
-  default     = "danger-full-access"
+  default     = "workspace-write"
 
   validation {
     condition     = contains(["read-only", "workspace-write", "danger-full-access"], var.default_sandbox_mode)
@@ -222,7 +245,7 @@ variable "default_sandbox_mode" {
 variable "default_agent_network_access" {
   description = "Allow network access for remote agents by default; individual requests and source profiles can narrow it."
   type        = bool
-  default     = true
+  default     = false
 }
 
 variable "allow_agent_aws_credential_chain" {
@@ -689,5 +712,25 @@ variable "pi_bedrock_inference_resource_arns" {
       for arn in var.pi_bedrock_inference_resource_arns : can(regex("^arn:aws(-[a-z]+)*:bedrock:[a-z0-9-]+:[0-9]*:(foundation-model|inference-profile|application-inference-profile|project)/[A-Za-z0-9.:-]+$", arn))
     ])
     error_message = "pi_bedrock_inference_resource_arns must contain exact Bedrock resource ARNs without wildcards."
+  }
+}
+
+variable "runtime_https_egress_cidrs" {
+  description = "Explicit IPv4 destinations for runtime HTTPS beyond private AWS endpoints. Empty denies internet egress."
+  type        = set(string)
+  default     = []
+  validation {
+    condition     = alltrue([for cidr in var.runtime_https_egress_cidrs : can(cidrnetmask(cidr)) && try(tonumber(split("/", cidr)[1]) >= 8, false)])
+    error_message = "Runtime HTTPS destinations must be specific IPv4 CIDRs (/8 or narrower); unrestricted internet egress is not accepted."
+  }
+}
+
+variable "owner_rate_limits" {
+  description = "Execution admissions per UTC minute. Owner overrides are operator-controlled; zero blocks new work."
+  type        = object({ default = optional(number, 60), owners = optional(map(number), {}) })
+  default     = {}
+  validation {
+    condition     = alltrue([for value in concat([var.owner_rate_limits.default], values(var.owner_rate_limits.owners)) : value >= 0 && floor(value) == value])
+    error_message = "Owner rate limits must be nonnegative integers."
   }
 }

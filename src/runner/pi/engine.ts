@@ -218,11 +218,12 @@ export async function openPiEngine(options: PiEngineOptions): Promise<PiEngine> 
 function agentChange(pin: Extract<RuntimePin, { kind: 'pi' }>, launch: SessionLaunch, settings: SessionModelSettings | undefined, models: Models): AgentChange {
   const agent = { ...launch.agent, ...settings, reasoning: { ...launch.agent.reasoning, ...settings?.reasoning } };
   validateRuntimeAgent(pin, agent);
-  const model = models.getModel('amazon-bedrock', agent.model);
-  if (!model || model.api !== 'bedrock-converse-stream') throw new Error('Pinned Pi Bedrock model is unavailable');
+  const descriptor = piModel(pin, agent.model);
+  const model = models.getModel(descriptor.provider, agent.model);
+  if (!model || model.api !== descriptor.api) throw new Error('Pinned Pi model is unavailable');
   const effort = agent.reasoning.effort;
   const thinkingLevel: ModelThinkingLevel = effort === null || effort === 'none' ? 'off' : effort as ModelThinkingLevel;
-  return { model: { provider: 'amazon-bedrock', modelId: agent.model }, thinkingLevel, instructions: agent.instructions };
+  return { model: { provider: descriptor.provider, modelId: agent.model }, thinkingLevel, instructions: agent.instructions };
 }
 function assertInput(pin: Extract<RuntimePin, { kind: 'pi' }>, model: string, input: readonly AgentSessionInputMessageParam[]): void {
   if (!piModel(pin, model).input.includes('image') && input.some(message => message.content.some(part => part.type === 'input_image'))) throw new Error('Pi model does not support image input');

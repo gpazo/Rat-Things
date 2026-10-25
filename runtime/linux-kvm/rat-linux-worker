@@ -1,0 +1,425 @@
+#!/usr/bin/python3
+import ctypes
+import fcntl
+import gzip
+import json
+import os
+from pathlib import Path
+import platform
+import re
+import secrets
+import select
+import shutil
+import signal
+import socket
+import stat
+import subprocess
+import sys
+import threading
+import time
+
+MAX_REQUEST = 8 * 1024 ** 2
+MAX_RESPONSE = 150 * 1024 ** 2
+MEMORY_MAX = 3 * 1024 ** 3
+WORKSPACE_BYTES = 256 * 1024 ** 2
+SERIAL_MAX = 1024 ** 2
+output_lock = threading.Lock()
+
+
+def emit(value):
+    with output_lock:
+        print(json.dumps(value, separators=(",", ":")), flush=True)
+
+
+def host_facts():
+    memory = {}
+    with open("/proc/meminfo") as source:
+        for line in source:
+            name, value = line.split(":", 1)
+            memory[name] = int(value.split()[0]) * 1024
+    supported = platform.machine() == "x86_64" and Path("/usr/bin/busctl").is_file()
+    try:
+        with open("/dev/kvm", "rb+") as kvm:
+            supported = supported and fcntl.ioctl(kvm, 0xAE00, 0) == 12
+            vm = fcntl.ioctl(kvm, 0xAE01, 0)
+            os.close(vm)
+        with open("/dev/vhost-vsock", "rb+"):
+            pass
+        with socket.socket(socket.AF_VSOCK, socket.SOCK_STREAM):
+            pass
+    except OSError:
+        supported = False
+    total = memory.get("MemTotal", 0)
+    available = memory.get("MemAvailable", 0)
+    reserve = max(4 * 1024 ** 3, total // 2)
+    return {"supported": supported, "architecture": "x64" if platform.machine() == "x86_64" else platform.machine(),
+            "physicalMemoryBytes": total, "minimumCPUCount": 1, "maximumCPUCount": os.cpu_count() or 1,
+            "minimumMemoryBytes": 512 * 1024 ** 2, "maximumMemoryBytes": total,
+            "availableMemoryBytes": available, "memoryPressure": 1 if available >= reserve else 4}
+
+
+def validate_configuration(value):
+    expected = {"kernel", "initrd", "disk", "serialLog", "workspace", "cpuCount", "memoryMiB", "device", "inode", "filesystemUUID"}
+    if not isinstance(value, dict) or set(value) != expected:
+        raise ValueError("Invalid boot configuration")
+    if type(value["cpuCount"]) is not int or type(value["memoryMiB"]) is not int or value["cpuCount"] != 1 or value["memoryMiB"] != 2048 or value["workspace"] not in {"fresh", "existing", "readonly"}:
+        raise ValueError("Unsupported VM resources")
+    for key in ("kernel", "initrd", "disk", "serialLog"):
+        if not isinstance(value[key], str) or not os.path.isabs(value[key]) or "\0" in value[key]:
+            raise ValueError("Invalid boot path")
+    validate_workspace_identity(value)
+    return value
+
+
+def validate_workspace_identity(value):
+    if not isinstance(value, dict) or not isinstance(value.get("disk"), str) or not os.path.isabs(value["disk"]) or "\0" in value["disk"]:
+        raise ValueError("Invalid workspace path")
+    if any(not isinstance(value.get(key), str) or not re.fullmatch(r"[0-9]+", value[key]) for key in ("device", "inode")):
+        raise ValueError("Invalid disk identity")
+    if not isinstance(value.get("filesystemUUID"), str) or not re.fullmatch(r"[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}", value["filesystemUUID"]):
+        raise ValueError("Invalid filesystem identity")
+    return value
+
+
+def lock_disk(configuration):
+    descriptor = os.open(configuration["disk"], (os.O_RDONLY if configuration["workspace"] == "readonly" else os.O_RDWR) | os.O_NOFOLLOW | os.O_CLOEXEC)
+    try:
+        actual = os.fstat(descriptor)
+        named = os.stat(configuration["disk"], follow_symlinks=False)
+        if not stat.S_ISREG(actual.st_mode) or actual.st_nlink != 1 or actual.st_size != WORKSPACE_BYTES or (
+                str(actual.st_dev), str(actual.st_ino)) != (configuration["device"], configuration["inode"]) or (
+                actual.st_dev, actual.st_ino) != (named.st_dev, named.st_ino):
+            raise ValueError("Workspace disk identity changed")
+        fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        named = os.stat(configuration["disk"], follow_symlinks=False)
+        if (actual.st_dev, actual.st_ino) != (named.st_dev, named.st_ino) or named.st_nlink != 1:
+            raise ValueError("Workspace disk identity changed while locking")
+        return descriptor
+    except BaseException:
+        os.close(descriptor)
+        raise
+
+
+def workspace_idle(value):
+    validate_workspace_identity(value)
+    if set(value) != {"disk", "device", "inode", "filesystemUUID"}:
+        raise ValueError("Invalid workspace identity")
+    try:
+        descriptor = lock_disk({**value, "workspace": "readonly"})
+    except BlockingIOError:
+        emit({"stopped": False})
+        return
+    try:
+        emit({"stopped": True})
+    finally:
+        os.close(descriptor)
+
+
+def require_controller():
+    poll = select.poll()
+    poll.register(sys.stdin.fileno(), select.POLLHUP | select.POLLRDHUP)
+    if poll.poll(0):
+        raise RuntimeError("NativeMachine controller disconnected")
+
+
+def bound_resources():
+    unit = "rat-things-kvm-" + secrets.token_hex(12) + ".scope"
+    runtime = Path("/run/user") / str(os.getuid())
+    if runtime.stat().st_uid != os.getuid():
+        raise RuntimeError("Invalid user runtime directory")
+    environment = {"PATH": "/usr/bin:/bin", "XDG_RUNTIME_DIR": str(runtime), "DBUS_SESSION_BUS_ADDRESS": "unix:path=" + str(runtime / "bus")}
+    subprocess.run(["/usr/bin/busctl", "--user", "call", "org.freedesktop.systemd1", "/org/freedesktop/systemd1",
+                    "org.freedesktop.systemd1.Manager", "StartTransientUnit", "ssa(sv)a(sa(sv))", unit, "fail", "5",
+                    "PIDs", "au", "1", str(os.getpid()), "MemoryMax", "t", str(MEMORY_MAX),
+                    "MemorySwapMax", "t", "0",
+                    "CPUQuotaPerSecUSec", "t", "1000000", "TasksMax", "t", "256", "0"],
+                   env=environment, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, check=True, timeout=5)
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline:
+        groups = Path("/proc/self/cgroup").read_text().splitlines()
+        relative = next((line[3:] for line in groups if line.startswith("0::")), "")
+        if relative.endswith("/" + unit):
+            group = Path("/sys/fs/cgroup") / relative.lstrip("/")
+            quota, period = (group / "cpu.max").read_text().split()
+            if (group / "memory.max").read_text().strip() != str(MEMORY_MAX) or (group / "memory.swap.max").read_text().strip() != "0" or (
+                    group / "pids.max").read_text().strip() != "256" or quota == "max" or int(quota) > int(period):
+                raise RuntimeError("VM resource bounds were not enforced")
+            return
+        time.sleep(.02)
+    raise RuntimeError("VM resource scope did not start")
+
+
+def token_overlay(token):
+    entries = [("etc/rat-things", stat.S_IFDIR | 0o700, b""),
+               ("etc/rat-things/control-token", stat.S_IFREG | 0o400, token.encode()),
+               ("TRAILER!!!", 0, b"")]
+    result = bytearray()
+    for inode, (name, mode, data) in enumerate(entries, 1000000):
+        name = name.encode() + b"\0"
+        fields = [inode, mode, 0, 0, 1, 0, len(data), 0, 0, 0, 0, len(name), 0]
+        header = b"070701" + b"".join(f"{value:08x}".encode() for value in fields) + name
+        result.extend(header + b"\0" * (-len(header) % 4) + data + b"\0" * (-len(data) % 4))
+    return gzip.compress(bytes(result), mtime=0)
+
+
+def boot_initrd(source_path, token):
+    descriptor = os.memfd_create("rat-things-boot-initrd", os.MFD_CLOEXEC | os.MFD_ALLOW_SEALING)
+    try:
+        os.fchmod(descriptor, 0o600)
+        with open(source_path, "rb") as source, os.fdopen(os.dup(descriptor), "wb") as destination:
+            shutil.copyfileobj(source, destination)
+            destination.write(token_overlay(token))
+        os.lseek(descriptor, 0, os.SEEK_SET)
+        fcntl.fcntl(descriptor, fcntl.F_ADD_SEALS, fcntl.F_SEAL_WRITE | fcntl.F_SEAL_GROW | fcntl.F_SEAL_SHRINK | fcntl.F_SEAL_SEAL)
+        return descriptor
+    except BaseException:
+        os.close(descriptor)
+        raise
+
+
+def parent_death(parent, death_signal=signal.SIGKILL):
+    if ctypes.CDLL(None, use_errno=True).prctl(1, death_signal, 0, 0, 0) != 0 or os.getppid() != parent:
+        os._exit(127)
+
+
+def supervise_qemu(parent, descriptors, arguments):
+    stopping = False
+
+    def stop(_signal, _frame):
+        nonlocal stopping
+        stopping = True
+
+    signal.signal(signal.SIGTERM, stop)
+    signal.signal(signal.SIGINT, stop)
+    parent_death(parent, signal.SIGTERM)
+    process = None
+    try:
+        if stopping:
+            return 1
+        supervisor = os.getpid()
+        process = subprocess.Popen(arguments, stdin=subprocess.DEVNULL, stdout=sys.stdout, stderr=sys.stderr,
+                                   pass_fds=descriptors, start_new_session=True, preexec_fn=lambda: parent_death(supervisor))
+        while not stopping:
+            try:
+                return process.wait(timeout=.1)
+            except subprocess.TimeoutExpired:
+                pass
+        return 0
+    finally:
+        if process is not None:
+            if process.poll() is None:
+                process.terminate()
+                try:
+                    process.wait(timeout=3)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+            # An unkillable QEMU keeps this supervisor, its disk lock and the
+            # NativeMachine stderr pipe alive. Never report an uncertain exit.
+            process.wait()
+
+
+def connect_guest(cid, port, timeout):
+    connection = socket.socket(socket.AF_VSOCK, socket.SOCK_STREAM)
+    try:
+        connection.settimeout(timeout)
+        connection.connect((cid, port))
+        return connection
+    except BaseException:
+        connection.close()
+        raise
+
+
+def control_guest(cid, token, request):
+    timeout = min(max(request.get("timeoutMs", 90000) / 1000, 1), threading.TIMEOUT_MAX)
+    with connect_guest(cid, 7001, timeout) as connection:
+        connection.sendall(json.dumps({**request, "controlToken": token}, separators=(",", ":")).encode() + b"\n")
+        with connection.makefile("rb") as reader:
+            line = reader.readline(MAX_RESPONSE + 1)
+        if len(line) > MAX_RESPONSE or not line.endswith(b"\n"):
+            raise ValueError("Invalid guest response")
+        response = json.loads(line)
+        if not isinstance(response, dict) or set(response) not in ({"result"}, {"error"}):
+            raise ValueError("Invalid guest response")
+        return response
+
+
+def copy_stream(source, destination):
+    try:
+        while True:
+            data = source.recv(65536)
+            if not data:
+                break
+            destination.sendall(data)
+    except OSError:
+        pass
+    finally:
+        try:
+            destination.shutdown(socket.SHUT_WR)
+        except OSError:
+            pass
+
+
+def serve_relay(listener, cid, stopped):
+    slots = threading.BoundedSemaphore(64)
+
+    def bridge(connection):
+        try:
+            with connection, connect_guest(cid, 7000, 120) as target:
+                connection.settimeout(120)
+                outbound = threading.Thread(target=copy_stream, args=(connection, target), daemon=True)
+                outbound.start()
+                copy_stream(target, connection)
+                outbound.join(timeout=125)
+        except OSError:
+            connection.close()
+        finally:
+            slots.release()
+
+    listener.settimeout(.2)
+    while not stopped.is_set():
+        try:
+            connection, _ = listener.accept()
+        except socket.timeout:
+            continue
+        except OSError:
+            break
+        if slots.acquire(blocking=False):
+            threading.Thread(target=bridge, args=(connection,), daemon=True).start()
+        else:
+            connection.close()
+
+
+def serial_output(stream, descriptor):
+    remaining = SERIAL_MAX
+    with stream, os.fdopen(descriptor, "wb") as output:
+        while True:
+            data = stream.read1(65536)
+            if not data:
+                return
+            if remaining:
+                output.write(data[:remaining])
+                output.flush()
+                remaining = max(0, remaining - len(data))
+
+
+def run(configuration):
+    assets = Path(__file__).resolve().parent
+    qemu = assets / "qemu/usr/bin/qemu-system-x86_64"
+    loader = assets / "qemu/usr/lib/ld-linux-x86-64.so.2"
+    if not qemu.is_file() or not loader.is_file() or not host_facts()["supported"]:
+        raise RuntimeError("Linux KVM runtime is unavailable")
+    bound_resources()
+    require_controller()
+    disk = lock_disk(configuration)
+    read_disk = None
+    supervisor = None
+    listener = None
+    initrd = None
+    stopped = threading.Event()
+    try:
+        token = secrets.token_hex(32)
+        initrd = boot_initrd(configuration["initrd"], token)
+        serial = os.open(configuration["serialLog"], os.O_WRONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+        if not stat.S_ISREG(os.fstat(serial).st_mode):
+            os.close(serial)
+            raise ValueError("Invalid serial log")
+        cid = secrets.randbelow(2 ** 31 - 3) + 3
+        # QEMU also opens its backing file read-only while inspecting it. fdsets
+        # select by access mode, so a writable disk needs both pinned handles.
+        disk_arguments = ["-add-fd", "fd=" + str(disk) + ",set=1,opaque=workspace"]
+        if configuration["workspace"] != "readonly":
+            read_disk = os.open("/proc/self/fd/" + str(disk), os.O_RDONLY | os.O_CLOEXEC)
+            disk_arguments += ["-add-fd", "fd=" + str(read_disk) + ",set=1,opaque=workspace-read"]
+        # The complete toolchain can exceed tmpfs's default half-RAM rootfs limit.
+        arguments = [str(loader), "--inhibit-cache", "--library-path", str(assets / "qemu/usr/lib"), str(qemu),
+                     "-L", str(assets / "qemu/usr/share/qemu"), "-accel", "kvm", "-machine", "q35",
+                     "-cpu", "host", "-m", "2048M", "-smp", "1", "-nodefaults", "-no-user-config", "-display", "none",
+                     "-monitor", "none", "-serial", "stdio", "-nic", "none", "-no-reboot", "-kernel", configuration["kernel"],
+                     "-initrd", "/proc/self/fd/" + str(initrd), "-append", "console=ttyS0 quiet panic=-1 rootfstype=ramfs rat.control=token rat.workspace=" + configuration["workspace"] + " rat.filesystem=" + configuration["filesystemUUID"],
+                     *disk_arguments,
+                     "-blockdev", json.dumps({"driver": "file", "filename": "/dev/fdset/1", "node-name": "disk-file", "locking": "off", "read-only": configuration["workspace"] == "readonly"}),
+                     "-blockdev", json.dumps({"driver": "raw", "file": "disk-file", "node-name": "workspace", "read-only": configuration["workspace"] == "readonly"}),
+                     "-device", "virtio-blk-pci,drive=workspace", "-device", "virtio-rng-pci", "-device", "vhost-vsock-pci,guest-cid=" + str(cid)]
+        environment = {"PATH": "/usr/bin:/bin", "LD_LIBRARY_PATH": str(assets / "qemu/usr/lib"),
+                       "QEMU_MODULE_DIR": str(assets / "qemu/usr/lib/qemu")}
+        parent = os.getpid()
+        try:
+            descriptors = (disk, initrd) if read_disk is None else (disk, read_disk, initrd)
+            supervisor = subprocess.Popen(["/usr/bin/python3", str(assets / "rat-linux-worker"), "--supervise-qemu",
+                                        str(parent), json.dumps(descriptors), json.dumps(arguments)],
+                                       env=environment, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=sys.stderr,
+                                       pass_fds=descriptors, start_new_session=True)
+        except BaseException:
+            os.close(serial)
+            raise
+        threading.Thread(target=serial_output, args=(supervisor.stdout, serial), daemon=True).start()
+        listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        listener.bind(("127.0.0.1", 0))
+        listener.listen(64)
+        threading.Thread(target=serve_relay, args=(listener, cid, stopped), daemon=True).start()
+
+        def vm_exit():
+            supervisor.wait()
+            if not stopped.is_set():
+                os.kill(os.getpid(), signal.SIGTERM)
+
+        threading.Thread(target=vm_exit, daemon=True).start()
+        emit({"status": "started", "relayPort": listener.getsockname()[1]})
+        while not stopped.is_set():
+            line = sys.stdin.buffer.readline(MAX_REQUEST + 1)
+            if not line:
+                break
+            if len(line) > MAX_REQUEST or not line.endswith(b"\n"):
+                raise ValueError("Invalid control frame")
+            request = json.loads(line)
+            if not isinstance(request, dict) or type(request.get("id")) is not int or type(request.get("timeoutMs", 90000)) is not int or not 0 < request.get("timeoutMs", 90000) <= 9007199254740991:
+                raise ValueError("Invalid control request")
+            try:
+                response = control_guest(cid, token, request)
+            except (OSError, ValueError):
+                response = {"error": "Linux guest control is unavailable"}
+            emit({**response, "id": request["id"]})
+            if request.get("operation") == "stop" and "error" not in response:
+                break
+    finally:
+        stopped.set()
+        if listener is not None:
+            listener.close()
+        if supervisor is not None:
+            if supervisor.poll() is None:
+                supervisor.terminate()
+            supervisor.wait()
+        os.close(disk)
+        if read_disk is not None:
+            os.close(read_disk)
+        if initrd is not None:
+            os.close(initrd)
+
+
+def interrupted(_signal, _frame):
+    raise SystemExit(1)
+
+
+if __name__ == "__main__":
+    signal.signal(signal.SIGTERM, interrupted)
+    signal.signal(signal.SIGINT, interrupted)
+    try:
+        if len(sys.argv) == 5 and sys.argv[1] == "--supervise-qemu":
+            sys.exit(supervise_qemu(int(sys.argv[2]), tuple(json.loads(sys.argv[3])), json.loads(sys.argv[4])))
+        elif len(sys.argv) == 3 and sys.argv[1] == "--workspace-idle":
+            workspace_idle(json.loads(sys.argv[2]))
+        elif sys.argv[1:] == ["--host-facts"]:
+            emit(host_facts())
+        elif len(sys.argv) == 2:
+            parent_death(os.getppid(), signal.SIGTERM)
+            require_controller()
+            with open(sys.argv[1]) as source:
+                configuration = validate_configuration(json.load(source))
+            run(configuration)
+            emit({"status": "stopped"})
+        else:
+            raise ValueError("Invalid helper arguments")
+    except Exception as error:
+        print("Linux KVM helper failed: " + type(error).__name__, file=sys.stderr, flush=True)
+        emit({"status": "failed"})
+        sys.exit(1)

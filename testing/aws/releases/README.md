@@ -25,9 +25,8 @@ outbox consumer/filter until pending cleanup work has drained. Older producers
 without the preparation fence must not be restored while expirable unfinished
 preparations exist. Inspect and resolve those records first.
 
-`plans/agents-api-audit-2026-09-13.md` records validation scope and remaining
-limitations. Ignored rollout backups and fixture reports are under
-`.runtime/aws-validation/`; copy them with the machine handoff if needed. The
-native runtime artifact remains a separate build input. Existing Lambda MicroVM
-and S3 Files configuration is unchanged. The resumed state reconciliation and
-live results are in `plans/aws-live-resume-2026-09-14.md`.
+Ignored rollout backups and fixture reports are under `.runtime/aws-validation/`.
+These may contain private runtime inputs and presigned URLs; transfer them privately
+when needed for a machine handoff. The native runtime artifact remains a separate
+build input. Compare the saved inputs and actual resource state before a new rollout;
+this historical handoff does not establish the current deployment status.

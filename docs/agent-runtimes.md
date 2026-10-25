@@ -4,8 +4,8 @@ Rat Things integrates two agent runtimes behind the same Session API. A runtime
 runs the model and tools. Rat Things owns the surrounding AWS workers, saved state,
 permissions, input delivery, and results.
 
-Codex is the default. Pi Durable is available when the deployment has an approved
-Bedrock model catalog. Choosing Pi does not require a ChatGPT login.
+Codex is the default. Local Pi Durable uses the workspace's private ChatGPT sign-in.
+On AWS, Pi requires an approved Bedrock model catalog and does not require a ChatGPT login.
 
 ## One platform, two runtimes
 
@@ -21,10 +21,10 @@ expand its own access during a Turn; see the [credential boundaries](security.md
 
 | Capability | Codex | Pi Durable |
 | --- | --- | --- |
-| Model access | Deployment-configured ChatGPT bridge or Bedrock | Approved Amazon Bedrock Converse models |
+| Model access | Deployment-configured ChatGPT bridge or Bedrock | Local ChatGPT subscription; approved Amazon Bedrock Converse models on AWS |
 | Session selection | Default or `rat_things_runtime: 'codex'` | `rat_things_runtime: 'pi'` |
 | Function tools, MCP, and subagents | Supported | Supported |
-| Environments | None, managed, or self-hosted | None or managed; managed requires S3 Files and checkpoints |
+| Environments | None, managed, or self-hosted | None or managed; AWS managed execution requires S3 Files and checkpoints |
 | Standalone local execution | Supported | Uses durable Sessions |
 | Hosted skills and plugins | Supported where configured | Unsupported |
 | JSON-schema output, deferred functions, and built-in web search | Supported where configured | Unsupported |
@@ -57,6 +57,19 @@ and tool tasks, conversations, and storage interfaces. Rat Things connects that
 engine to its AWS state store and execution lifecycle. It also implements durable
 subagent coordination on top of Pi's task and conversation support.
 
+Local Pi uses the same native commit format with encrypted SQLite storage and a
+single local-service lease. It supports application functions, subagents, and managed
+Linux workspaces. **No environment** supplies conversation tools without file or
+command execution. A managed workspace supplies `read_file`, `write_file`,
+`list_files`, and argument-array `exec_command` through the isolated worker.
+Local MCP, Vaults, and Pi built-in web search remain unavailable.
+
+Both local runtimes require the worker to prove that its inner sandbox allows
+workspace writes and denies writes outside it before becoming ready. Pi inference
+and its journal remain on the host; its file and command tools run as the worker's
+non-root user over the authenticated executor connection. Cancellation waits for
+command termination. Unconfirmed cleanup makes the worker unavailable.
+
 The worker waits for the host to acknowledge a native commit before applying it
 locally. Native state is stored through encrypted S3 with DynamoDB ownership and
 revision checks. Recovery gives a replacement worker a new ownership version.
@@ -75,9 +88,13 @@ an external service does not prove that its write failed.
 
 Pi's native commits preserve agent state separately from workspace files. A Session
 with environment `none` can use function and MCP tools without a managed workspace.
-Managed Pi environments require both S3 Files and `session_checkpoints_enabled`.
+On AWS, managed Pi environments require both S3 Files and `session_checkpoints_enabled`.
 They retain flushed workspace files and setup identity after verified worker
 termination. A successful tool result is committed after its workspace flush.
+Local managed Sessions instead retain their private worker disk or volume and
+encrypted host journal. Restarting the local service keeps their workspace identity
+and pending application-function calls. Files are separate from native task commits;
+an interrupted unsafe effect is not automatically repeated.
 
 Codex preserves native journals through its configured durable home. Its workspace
 handoff also requires an available committed checkpoint. Ordinary replacement can

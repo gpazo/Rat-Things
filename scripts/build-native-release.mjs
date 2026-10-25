@@ -265,7 +265,7 @@ export async function assembleNativeRelease(options, { repositoryRoot = root, ru
     sources.push({ path: label, bytes: result.bytes, sha256: result.sha256 });
     return result;
   };
-  const builderSources = ['scripts/build-native-release.mjs', 'scripts/codex-runtime-artifact.mjs', 'scripts/native-guest-inputs.mjs', 'scripts/javascript-notices.mjs', 'scripts/native-build-files.mjs', 'scripts/native-guest-archive.mjs'];
+  const builderSources = ['scripts/build-native-release.mjs', 'scripts/codex-runtime-artifact.mjs', 'scripts/codex-runtime-targets.mjs', 'scripts/native-guest-inputs.mjs', 'scripts/javascript-notices.mjs', 'scripts/native-build-files.mjs', 'scripts/native-guest-archive.mjs'];
   for (const path of builderSources) await readInput(join(root, path), path);
   const originalHost = await readInput(join(hostArtifact, 'artifact.json'), 'host/artifact.json');
   const sourceDefinition = JSON.parse((await readInput(join(definitionRoot, 'source.json'), 'definition/source.json')).data);

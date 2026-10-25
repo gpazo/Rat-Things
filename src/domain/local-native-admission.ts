@@ -5,6 +5,7 @@ export interface NativeHostFacts {
   supported: boolean;
   architecture: string;
   physicalMemoryBytes: number;
+  availableMemoryBytes?: number;
   minimumCPUCount: number;
   maximumCPUCount: number;
   minimumMemoryBytes: number;
@@ -17,6 +18,10 @@ export type NativeAdmission =
   | { kind: 'wait'; effectiveCapacity: 1; code: 'local_capacity' | 'local_memory_pressure' | 'local_disk_capacity'; message: string }
   | { kind: 'unsupported'; effectiveCapacity: 0; code: 'local_native_unsupported'; message: string };
 export type NativeAdmissionRefusal = Exclude<NativeAdmission, { kind: 'admitted' }>;
+export interface NativeAdmissionInput {
+  facts: NativeHostFacts; requestedCPUCount: number; slotAvailable: boolean; availableDiskBytes: number; requiredDiskBytes: number;
+  existingAllocation?: boolean;
+}
 
 export class LocalRuntimeAdmissionError extends Error {
   constructor(readonly decision: NativeAdmissionRefusal) { super(decision.message); }
@@ -42,12 +47,11 @@ export function nativeHostFacts(input: unknown): NativeHostFacts {
   };
   return { supported: value.supported, architecture: value.architecture,
     physicalMemoryBytes: integer('physicalMemoryBytes'), minimumCPUCount: integer('minimumCPUCount'), maximumCPUCount: integer('maximumCPUCount'),
+    ...(value.availableMemoryBytes === undefined ? {} : { availableMemoryBytes: integer('availableMemoryBytes') }),
     minimumMemoryBytes: integer('minimumMemoryBytes'), maximumMemoryBytes: integer('maximumMemoryBytes'), memoryPressure: nativeMemoryPressure(value.memoryPressure) };
 }
 
-export function nativeAdmission(input: {
-  facts: NativeHostFacts; requestedCPUCount: number; slotAvailable: boolean; availableDiskBytes: number; requiredDiskBytes: number;
-}): NativeAdmission {
+export function nativeAdmission(input: NativeAdmissionInput): NativeAdmission {
   const { facts } = input;
   const memoryBytes = 2 * GiB;
   const hostReserveBytes = Math.max(4 * GiB, facts.physicalMemoryBytes / 2);
@@ -65,5 +69,25 @@ export function nativeAdmission(input: {
   if (!input.slotAvailable) return { kind: 'wait', effectiveCapacity: 1, code: 'local_capacity', message: 'The native worker slot is in use. Work stays queued until it is free.' };
   if (input.availableDiskBytes < input.requiredDiskBytes) return { kind: 'wait', effectiveCapacity: 1, code: 'local_disk_capacity',
     message: `Native work needs ${input.requiredDiskBytes} bytes on the profile filesystem; ${input.availableDiskBytes} bytes are available.` };
+  return { kind: 'admitted', effectiveCapacity: 1, resources: { cpuCount: 1, memoryMiB: 2048, budgetBytes: 3 * GiB, hostReserveBytes } };
+}
+
+export function linuxKvmAdmission(input: NativeAdmissionInput): NativeAdmission {
+  const { facts } = input;
+  const hostReserveBytes = Math.max(4 * GiB, facts.physicalMemoryBytes / 2);
+  if (!facts.supported || facts.architecture !== 'x64' || input.requestedCPUCount !== 1
+    || facts.minimumCPUCount > 1 || facts.maximumCPUCount < 1
+    || facts.minimumMemoryBytes > 2 * GiB || facts.maximumMemoryBytes < 2 * GiB
+    || facts.physicalMemoryBytes < 8 * GiB || facts.physicalMemoryBytes - hostReserveBytes < 3 * GiB) {
+    return { kind: 'unsupported', effectiveCapacity: 0, code: 'local_native_unsupported',
+      message: 'Linux development workers require x86-64 KVM, private VM sockets, user resource controls and at least 8 GiB of host memory.' };
+  }
+  if (facts.memoryPressure === 'unknown' || facts.memoryPressure === 'critical'
+    || facts.availableMemoryBytes !== undefined && facts.availableMemoryBytes < hostReserveBytes + (input.existingAllocation ? 0 : 3 * GiB)) return {
+    kind: 'wait', effectiveCapacity: 1, code: 'local_memory_pressure', message: 'Linux work is queued while available host memory cannot safely accommodate a worker.',
+  };
+  if (!input.slotAvailable) return { kind: 'wait', effectiveCapacity: 1, code: 'local_capacity', message: 'The Linux worker slot is in use. Work stays queued until it is free.' };
+  if (input.availableDiskBytes < input.requiredDiskBytes) return { kind: 'wait', effectiveCapacity: 1, code: 'local_disk_capacity',
+    message: `Linux work needs ${input.requiredDiskBytes} bytes on the profile filesystem; ${input.availableDiskBytes} bytes are available.` };
   return { kind: 'admitted', effectiveCapacity: 1, resources: { cpuCount: 1, memoryMiB: 2048, budgetBytes: 3 * GiB, hostReserveBytes } };
 }

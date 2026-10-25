@@ -1,5 +1,7 @@
 # Security and threat model
 
+For a concise introduction, read the [security overview](security-overview.md).
+
 ## Security posture
 
 Treat prompts, webhook fields, repositories, tool results and model output as untrusted.
@@ -9,7 +11,8 @@ trustworthy. Rat Things owns the API, harness, state and workers in the operator
 An AWS managed Session uses a dedicated worker VM. Workspaces and execution identities are isolated
 by owner and Session. The native sandbox is additional protection; the outer VM is the primary
 execution boundary. Trusted orchestration runs as root and launches Codex or Pi Durable and repository commands
-as UID/GID 10001. Local CLI execution has a separate read-only/no-network default.
+as UID/GID 10001. The worker sandbox defaults to workspace-only writes with agent networking off.
+The host-side local harness retains its separate read-only/no-network policy.
 
 The EC2 worker supports connected Session lifetime beyond Lambda MicroVM's maximum lifetime.
 Both backends must preserve the same ownership, process and credential boundaries. Self-hosted

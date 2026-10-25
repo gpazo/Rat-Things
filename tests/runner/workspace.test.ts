@@ -10,7 +10,7 @@ afterEach(() => {
 });
 
 describe('ephemeral workspace', () => {
-  it('creates an empty baseline and captures untracked files in the patch', async () => {
+  it.each(['diff.mnemonicPrefix', 'diff.noprefix'])('captures untracked files with standard patch prefixes despite %s', async (setting) => {
     const root = await mkdtemp(join(tmpdir(), 'agent-runtime-workspace-'));
     const workspace = join(root, 'run-1');
     vi.stubEnv('WORKSPACE_ROOT', root);
@@ -20,6 +20,7 @@ describe('ephemeral workspace', () => {
 
     try {
       await prepareWorkspace(undefined, workspace, credentials);
+      await writeFile(join(workspace, '.git/config'), `${await readFile(join(workspace, '.git/config'), 'utf8')}\n[diff]\n\t${setting.split('.')[1]} = true\n`);
       await writeFile(join(workspace, 'result.txt'), 'created by agent\n');
       await mkdir(join(workspace, '.rat-things/artifacts'), { recursive: true });
       await writeFile(join(workspace, '.rat-things/artifacts/screenshot.png'), 'not-a-real-image');

@@ -148,7 +148,11 @@ it('claims identity before boot and resumes the same generation after failure an
     expect(configurations[1]!.worker.executorKey).not.toBe(configurations[1]!.worker.harnessKey);
     ready(); await retry;
     expect(await store.get(LOCAL_OWNER, 'local_prepared', session.id)).toBeDefined();
-    await managed.close(session);
+    vi.mocked(backend.stop).mockRejectedValueOnce(new Error('Stop unconfirmed'));
+    await expect(managed.close(LOCAL_OWNER, session)).rejects.toThrow('Stop unconfirmed');
+    await expect(managed.initialize(LOCAL_OWNER, session)).rejects.toThrow('Local worker cleanup is unconfirmed');
+    expect(configurations).toHaveLength(2);
+    await managed.close(LOCAL_OWNER, session);
     const restart = managed.initialize(LOCAL_OWNER, session);
     await vi.waitFor(() => expect(configurations).toHaveLength(3));
     expect(configurations[2]!.workspace).toEqual(configurations[1]!.workspace);
@@ -161,9 +165,10 @@ it('claims identity before boot and resumes the same generation after failure an
     ready(); await reconnect;
     const statusWrite = vi.spyOn(services.environments, 'managedStatus').mockRejectedValue(new Error('Status unavailable'));
     vi.mocked(backend.stop).mockClear();
-    await expect(managed.close(session)).rejects.toThrow('Status unavailable');
+    await expect(managed.close(LOCAL_OWNER, session)).rejects.toThrow('Status unavailable');
     expect(backend.stop).toHaveBeenCalledExactlyOnceWith(session.id);
     statusWrite.mockRestore();
+    await managed.close(LOCAL_OWNER, session);
     const saved = (await store.get(LOCAL_OWNER, 'local_prepared', session.id))!;
     await store.put({ ...saved, revision: saved.revision + 1, value: { prepared: true } }, saved.revision);
     vi.mocked(backend.stop).mockClear();
@@ -217,7 +222,11 @@ it('leaves workspace and attachment metadata untouched when a runtime refuses ad
     const session = { id: 'sess_refused', object: 'agent.session' as const, agent: { ...agent, tools: [] },
       environment: await managed.prepare(LOCAL_OWNER, 'sess_refused', { type: 'openai_hosted' }), created_at: 1, last_active_at: 1,
       error: null, metadata: {}, status: 'idle' as const, required_actions: [], usage: null, vault_ids: [] };
+    await managed.close(LOCAL_OWNER, session);
+    expect(backend.start).not.toHaveBeenCalled();
+    expect(backend.stop).not.toHaveBeenCalled();
     for (let attempt = 0; attempt < 2; attempt++) await expect(managed.initialize(LOCAL_OWNER, session)).rejects.toThrow('Admission refused');
+    await managed.close(LOCAL_OWNER, session);
     expect(await store.get(LOCAL_OWNER, 'local_prepared', session.id)).toBeUndefined();
     expect(attach).not.toHaveBeenCalled();
     expect(writeStatus).not.toHaveBeenCalled();

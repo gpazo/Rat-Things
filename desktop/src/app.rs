@@ -310,7 +310,7 @@ struct Editor {
 
 impl Editor {
     fn widget_id(&self) -> egui::Id {
-        egui::Id::new(("configuration-json", self.id))
+        egui::Id::unique(("configuration-json", self.id))
     }
     fn clear(&mut self, ctx: &egui::Context) {
         self.draft.zeroize();
@@ -325,7 +325,7 @@ impl Editor {
                 "Server URL",
                 "Secret value",
             ] {
-                data.remove::<egui::text_edit::TextEditState>(egui::Id::new((
+                data.remove::<egui::text_edit::TextEditState>(egui::Id::unique((
                     "form-field",
                     self.id,
                     label,
@@ -618,9 +618,8 @@ impl ConsoleApp {
                     [ui.available_width(), 30.0],
                     egui::Button::new(&name).right_text("⌄"),
                 );
-                workspace_button.widget_info(|| {
-                    egui::WidgetInfo::labeled(egui::WidgetType::Button, true, &name)
-                });
+                workspace_button
+                    .widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, &name));
                 if workspace_button.clicked() {
                     self.workspace_open = true;
                 }
@@ -652,7 +651,7 @@ impl ConsoleApp {
         self.delete_window(&ctx);
         self.workspace_window(&ctx);
         if self.error.is_some() || self.notice.is_some() {
-            egui::Area::new(egui::Id::new("notifications"))
+            egui::Area::new(egui::Id::unique("notifications"))
                 .order(egui::Order::Foreground)
                 .anchor(egui::Align2::RIGHT_TOP, egui::vec2(-24.0, 62.0))
                 .show(&ctx, |ui| {
@@ -1206,12 +1205,7 @@ impl ConsoleApp {
                 .stroke(egui::Stroke::NONE),
             );
             response.widget_info(|| {
-                egui::WidgetInfo::selected(
-                    egui::WidgetType::Button,
-                    true,
-                    selected,
-                    collection.title(),
-                )
+                egui::WidgetInfo::selected(egui::Role::Button, true, selected, collection.title())
             });
             if response.clicked() {
                 self.navigate(collection, ui.ctx());
@@ -1258,8 +1252,7 @@ impl ConsoleApp {
             .frame_when_inactive(false)
             .stroke(egui::Stroke::NONE),
         );
-        create
-            .widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, &new_label));
+        create.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, &new_label));
         if create.clicked() {
             self.new_resource(self.collection, None);
         }
@@ -1273,7 +1266,7 @@ impl ConsoleApp {
                 .desired_width(f32::INFINITY),
         );
         search.widget_info(|| {
-            egui::WidgetInfo::labeled(egui::WidgetType::TextEdit, true, "Search sessions")
+            egui::WidgetInfo::labeled(egui::Role::TextInput, true, "Search sessions")
         });
         if self.focus_search {
             search.request_focus();
@@ -1329,7 +1322,7 @@ impl ConsoleApp {
                     }
                 });
                 menu.response.widget_info(|| {
-                    egui::WidgetInfo::labeled(egui::WidgetType::Button, true, "List options")
+                    egui::WidgetInfo::labeled(egui::Role::Button, true, "List options")
                 });
             });
         });
@@ -1419,7 +1412,7 @@ impl ConsoleApp {
                             format!("{title}\n{subtitle}")
                         });
                     response.widget_info(|| {
-                        egui::WidgetInfo::selected(egui::WidgetType::Button, true, selected, &title)
+                        egui::WidgetInfo::selected(egui::Role::Button, true, selected, &title)
                     });
                     if self.collection == Collection::Sessions {
                         response.context_menu(|ui| {
@@ -1554,14 +1547,14 @@ impl ConsoleApp {
         };
         let mut save = false;
         let mut close = false;
-        egui::Modal::new(egui::Id::new("rename-session")).show(ctx, |ui| {
+        egui::Modal::new(egui::Id::unique("rename-session")).show(ctx, |ui| {
             ui.heading("Rename session");
             if let Some(error) = &self.error {
                 ui.colored_label(theme::ERROR, error);
             }
             let response = ui.add(TextEdit::singleline(&mut name).desired_width(320.0));
             response.widget_info(|| {
-                egui::WidgetInfo::labeled(egui::WidgetType::TextEdit, true, "Session name")
+                egui::WidgetInfo::labeled(egui::Role::TextInput, true, "Session name")
             });
             ui.horizontal(|ui| {
                 close = ui.button("Cancel rename").clicked();
@@ -1893,7 +1886,7 @@ impl ConsoleApp {
                 .runtime_change
                 .as_ref()
                 .is_none_or(|change| !change.is_active());
-        egui::Modal::new(egui::Id::new("workspace-connection")).show(ctx, |ui| {
+        egui::Modal::new(egui::Id::unique("workspace-connection")).show(ctx, |ui| {
             ui.set_width(440.0_f32.min((ctx.content_rect().width() - 48.0).max(240.0)));
             ui.heading("A home for your work");
             ui.add_space(8.0);
@@ -1921,11 +1914,11 @@ impl ConsoleApp {
                 let endpoint_label = ui.label("Agents API URL");
                 ui.add(TextEdit::singleline(&mut self.cloud_endpoint).hint_text("https://your-api.example/v1").desired_width(f32::INFINITY))
                     .labelled_by(endpoint_label.id)
-                    .widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::TextEdit, true, "Agents API URL"));
+                    .widget_info(|| egui::WidgetInfo::labeled(egui::Role::TextInput, true, "Agents API URL"));
                 let region_label = ui.label("AWS region");
                 ui.add(TextEdit::singleline(&mut self.cloud_region).desired_width(f32::INFINITY))
                     .labelled_by(region_label.id)
-                    .widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::TextEdit, true, "AWS region"));
+                    .widget_info(|| egui::WidgetInfo::labeled(egui::Role::TextInput, true, "AWS region"));
                 ui.label(RichText::new("Uses your AWS credential chain. Connecting does not deploy resources or move local history.").small().color(theme::MUTED));
                 if ui.add_enabled(can_switch && !self.cloud_endpoint.trim().is_empty(), theme::primary_button("Connect AWS workspace")).clicked() {
                     self.connect_workspace(json!({"kind": "cloud", "endpoint": self.cloud_endpoint.trim(), "region": self.cloud_region.trim()}), ctx);
@@ -2868,7 +2861,7 @@ impl ConsoleApp {
                 let response = egui::ScrollArea::vertical().id_salt(("composer-scroll", &session_id)).max_height(160.0).show(ui, |ui| {
                     ui.add(TextEdit::multiline(message).id_salt(("message", &session_id)).frame(egui::Frame::NONE).desired_rows(1).desired_width(f32::INFINITY).hint_text(if active { "Add a direction for the agent…" } else { "Ask a follow-up, or start the next step…" }))
                 }).inner;
-                response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::TextEdit, true, "Message"));
+                response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::TextInput, true, "Message"));
                 let shortcut = response.has_focus() && ui.input(|input| input.modifiers.command && input.key_pressed(egui::Key::Enter));
                 let message = message.clone();
                 ui.add_space(8.0);
@@ -3003,7 +2996,7 @@ impl ConsoleApp {
                                             let response = ui.button("Save");
                                             response.widget_info(|| {
                                                 egui::WidgetInfo::labeled(
-                                                    egui::WidgetType::Button,
+                                                    egui::Role::Button,
                                                     true,
                                                     format!(
                                                         "Save {}",
@@ -3255,7 +3248,7 @@ impl ConsoleApp {
             let label_text = format!("Result for {name}");
             let label = ui.label(&label_text);
             let response = ui.add(TextEdit::multiline(&mut draft.text).id_salt((&call_id, "tool-output")).desired_rows(2).desired_width(f32::INFINITY)).labelled_by(label.id);
-            response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::TextEdit, true, &label_text));
+            response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::TextInput, true, &label_text));
             ui.checkbox(&mut draft.failed, "Report as failed");
             if ui.add_enabled(self.mutation_pending.is_none(), egui::Button::new("Send tool result")).clicked() {
                 let mut event = json!({"type": "agent.session.input.tool_result", "turn_id": action["turn_id"], "call_id": call_id, "success": !draft.failed});
@@ -3610,7 +3603,7 @@ impl ConsoleApp {
                         let center = egui::pos2(response.rect.left() + 10.0, response.rect.center().y);
                         let offsets = if editor.advanced { [(-4.0, -2.0), (4.0, -2.0), (0.0, 3.0)] } else { [(-2.0, -4.0), (-2.0, 4.0), (3.0, 0.0)] };
                         ui.painter().add(egui::Shape::convex_polygon(offsets.into_iter().map(|(x, y)| center + egui::vec2(x, y)).collect(), theme::MUTED, egui::Stroke::NONE));
-                        response.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, !busy, editor.advanced, "Advanced JSON"));
+                        response.widget_info(|| egui::WidgetInfo::selected(egui::Role::Button, !busy, editor.advanced, "Advanced JSON"));
                         if response.clicked() { editor.advanced = !editor.advanced; editor.form_inputs.clear(); }
                         ui.label(RichText::new("Edit all fields").small().color(theme::MUTED));
                     });
@@ -3619,7 +3612,7 @@ impl ConsoleApp {
                         let label = ui.label("Configuration JSON");
                         let widget_id = editor.widget_id();
                         let response = ui.add(TextEdit::multiline(&mut *editor.draft).id(widget_id).font(egui::TextStyle::Monospace).desired_rows(12).desired_width(f32::INFINITY).code_editor()).labelled_by(label.id);
-                        response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::TextEdit, !busy, "Configuration JSON"));
+                        response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::TextInput, !busy, "Configuration JSON"));
                         if editor.secret && let Some(mut state) = egui::text_edit::TextEditState::load(ctx, response.id) { state.clear_undoer(); state.store(ctx, response.id); }
                     }
                 });
@@ -3651,7 +3644,7 @@ impl ConsoleApp {
         if inline {
             contents(parent);
         } else {
-            egui::Modal::new(egui::Id::new("resource-editor"))
+            egui::Modal::new(egui::Id::unique("resource-editor"))
                 .frame(theme::card().inner_margin(24).corner_radius(8))
                 .show(ctx, contents);
         }
@@ -3729,7 +3722,7 @@ impl ConsoleApp {
             return;
         };
         let mut close = false;
-        egui::Modal::new(egui::Id::new("delete-resource")).show(ctx, |ui| {
+        egui::Modal::new(egui::Id::unique("delete-resource")).show(ctx, |ui| {
             ui.set_width(380.0);
             ui.heading(format!("Delete {}?", collection.singular()));
             ui.label(&title);
@@ -3790,7 +3783,7 @@ fn form_field(
         .unwrap_or_default()
         .to_owned();
     let label_response = ui.label(RichText::new(label).strong());
-    let widget_id = egui::Id::new(("form-field", id, label));
+    let widget_id = egui::Id::unique(("form-field", id, label));
     let edit = if multiline {
         TextEdit::multiline(&mut field).desired_rows(3)
     } else {
@@ -3813,7 +3806,7 @@ fn form_field(
                 .margin(egui::vec2(10.0, 7.0)),
         )
         .labelled_by(label_response.id);
-    response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::TextEdit, true, label));
+    response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::TextInput, true, label));
     if secret && let Some(mut state) = egui::text_edit::TextEditState::load(ui.ctx(), response.id) {
         state.clear_undoer();
         state.store(ui.ctx(), response.id);
@@ -3923,12 +3916,11 @@ impl ModelPicker {
                 })
                 .response
                 .labelled_by(label.id);
-            response.widget_info(|| {
-                egui::WidgetInfo::labeled(egui::WidgetType::ComboBox, true, "Runtime")
-            });
+            response
+                .widget_info(|| egui::WidgetInfo::labeled(egui::Role::ComboBox, true, "Runtime"));
         }
         if runtime == "pi" {
-            ui.label(RichText::new("Pi uses Bedrock. Choose a managed environment or no environment. Function and MCP tools, text output, medium verbosity, auto tier, and no reasoning summary are supported. Runtime is fixed when the Session starts.").small().color(theme::MUTED));
+            ui.label(RichText::new("Pi Durable uses your ChatGPT subscription locally and Bedrock on AWS. Available tools and environments depend on the workspace. Runtime is fixed when the Session starts.").small().color(theme::MUTED));
         }
         if runtime != original {
             set_field(
@@ -4025,9 +4017,7 @@ impl ModelPicker {
             })
             .inner
             .labelled_by(label.id);
-        response.widget_info(|| {
-            egui::WidgetInfo::labeled(egui::WidgetType::ComboBox, enabled, "Model")
-        });
+        response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::ComboBox, enabled, "Model"));
         if self.loading
             && self
                 .started
@@ -4146,7 +4136,7 @@ fn pi_configuration_error(
             .and_then(Value::as_array)
             .is_some_and(|types| types.iter().any(|kind| kind == environment))
     {
-        return Some("Pi supports only managed environments or no environment.".into());
+        return Some("This workspace does not support that environment with Pi. Choose an available environment or No environment.".into());
     }
     let agent = if collection == Collection::Sessions {
         value.get("agent")?
@@ -4184,17 +4174,27 @@ fn pi_configuration_error(
         .and_then(Value::as_array)
         .is_some_and(|tools| {
             tools.iter().any(|tool| {
-                !(matches!(
-                    tool.get("type").and_then(Value::as_str),
-                    Some("function" | "mcp")
-                ) || (tool.get("type").and_then(Value::as_str)
-                    == Some("programmatic_tool_calling")
-                    && tool.get("enabled").and_then(Value::as_bool) == Some(false)))
+                let supported = capabilities
+                    .and_then(|c| c.get("tools"))
+                    .and_then(Value::as_array)
+                    .map(|allowed| allowed.iter().any(|kind| Some(kind) == tool.get("type")))
+                    .unwrap_or_else(|| {
+                        matches!(
+                            tool.get("type").and_then(Value::as_str),
+                            Some("function" | "mcp")
+                        )
+                    });
+                !(supported
+                    || (tool.get("type").and_then(Value::as_str)
+                        == Some("programmatic_tool_calling")
+                        && tool.get("enabled").and_then(Value::as_bool) == Some(false)))
                     || tool.get("defer_loading").and_then(Value::as_bool) == Some(true)
             })
         })
     {
-        return Some("Pi supports function and MCP tools without deferred loading.".into());
+        return Some(
+            "Choose Pi tools supported by this workspace, without deferred loading.".into(),
+        );
     }
     None
 }
@@ -4395,7 +4395,7 @@ fn list_field(
                 .margin(egui::vec2(10.0, 7.0)),
         )
         .labelled_by(label_response.id);
-    response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::TextEdit, true, label));
+    response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::TextInput, true, label));
     if response.changed() {
         set_field(
             value,
@@ -4536,7 +4536,9 @@ mod runtime_tests {
                     &json!({"agent_id":"agent_1","environment":{"type":"self_hosted"}})
                 )
                 .as_deref(),
-            Some("Pi supports only managed environments or no environment.")
+            Some(
+                "This workspace does not support that environment with Pi. Choose an available environment or No environment."
+            )
         );
         assert_eq!(
             picker

@@ -4,14 +4,11 @@ import { createHash } from 'node:crypto';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { isDeepStrictEqual } from 'node:util';
+import { codexRuntimeTargets } from './codex-runtime-targets.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const definition = join(root, 'runtime/codex');
 const digest = bytes => createHash('sha256').update(bytes).digest('hex');
-const targets = {
-  'aarch64-apple-darwin': { platform: 'darwin', packageName: '@openai/codex-darwin-arm64' },
-  'aarch64-unknown-linux-gnu': { platform: 'linux', packageName: '@openai/codex-linux-arm64' },
-};
 const validPath = path => typeof path === 'string' && path.length > 0 && !path.startsWith('/')
   && !path.includes('\\') && !path.includes('\0') && !path.split('/').some(part => part === '..' || part === '.' || part === '');
 const readJson = async path => JSON.parse(await readFile(path, 'utf8'));
@@ -37,7 +34,7 @@ export async function validateCodexRuntimeArtifact(artifactRoot, {
   packageLockPath = join(root, 'package-lock.json'),
   companionInventoryPath = join(definition, 'companion-packages.json'),
 } = {}) {
-  const target = targets[expectedTarget];
+  const target = Object.values(codexRuntimeTargets).find(target => target.nativeTarget === expectedTarget);
   if (!target) throw new Error('An explicit supported Codex runtime target is required.');
   const manifestPath = join(artifactRoot, 'artifact.json');
   const manifest = JSON.parse((await readRegularFile(manifestPath)).toString('utf8'));
@@ -54,7 +51,7 @@ export async function validateCodexRuntimeArtifact(artifactRoot, {
     expectedPatchedTree = policy.patchedTree;
   }
   if (!/^[a-f0-9]{40}$/.test(expectedPatchedTree ?? '')
-    || manifest.platform !== target.platform || manifest.arch !== 'arm64'
+    || manifest.platform !== target.platform || manifest.arch !== target.arch
     || manifest.build?.nativeTarget !== expectedTarget || manifest.build.patchedTree !== expectedPatchedTree
     || manifest.build.profile !== 'release' || manifest.build.debug !== 'none'
     || manifest.build.incremental !== false || manifest.build.locked !== true
@@ -67,7 +64,7 @@ export async function validateCodexRuntimeArtifact(artifactRoot, {
   if (!packageLock || !companions || companions.name !== packageLock.name
     || companions.version !== packageLock.version || companions.resolved !== packageLock.resolved
     || companions.integrity !== packageLock.integrity || !/^sha512-[A-Za-z0-9+/]{86}==$/.test(companions.integrity)
-    || packageLock.version !== `${source.upstreamVersion}-${target.platform}-arm64`
+    || packageLock.version !== `${source.upstreamVersion}-${target.platform}-${target.arch}`
     || !isDeepStrictEqual(manifest.upstreamPackage, { name: target.packageName, version: packageLock.version })) {
     throw new Error('Codex runtime companions do not match the pinned npm package.');
   }
@@ -99,7 +96,7 @@ export async function validateCodexRuntimeArtifact(artifactRoot, {
       throw new Error(`Codex runtime companion differs from the pinned npm package: ${path}`);
     }
     if (path === 'bin/codex' || companion.executable) {
-      if (!isExecutable(bytes, target.platform)) throw new Error(`Codex runtime executable is not ${target.platform} ARM64: ${path}`);
+      if (!isExecutable(bytes, target)) throw new Error(`Codex runtime executable is not ${target.platform} ${target.arch.toUpperCase()}: ${path}`);
       if (!((await lstat(filename)).mode & 0o111)) throw new Error(`Codex runtime executable permission is missing: ${path}`);
     }
     files.push({ path, source: filename, sha256: file.sha256, mode: companion.executable ? 0o755 : 0o444 });
@@ -162,11 +159,11 @@ async function readRegularFile(path) {
   } finally { await handle.close(); }
 }
 
-function isExecutable(bytes, platform) {
-  if (platform === 'darwin') return bytes.length >= 32 && bytes.readUInt32LE(0) === 0xfeedfacf
+function isExecutable(bytes, target) {
+  if (target.platform === 'darwin') return bytes.length >= 32 && bytes.readUInt32LE(0) === 0xfeedfacf
     && bytes.readUInt32LE(4) === 0x100000c && bytes.readUInt32LE(12) === 2;
   return bytes.length >= 64 && bytes.subarray(0, 4).toString('hex') === '7f454c46'
     && bytes[4] === 2 && bytes[5] === 1 && bytes[6] === 1
-    && [2, 3].includes(bytes.readUInt16LE(16)) && bytes.readUInt16LE(18) === 183
+    && [2, 3].includes(bytes.readUInt16LE(16)) && bytes.readUInt16LE(18) === target.elfMachine
     && bytes.readUInt32LE(20) === 1 && bytes.readUInt16LE(52) === 64;
 }
