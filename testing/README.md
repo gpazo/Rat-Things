@@ -222,6 +222,31 @@ These tests incur AWS and model costs. Source the intended disposable deployment
 proofs also require `AWS_E2E_LONG_RUNNING_AGENT_ID` selecting an Agent admitted by
 `AWS_E2E_EC2_SESSION_WORKLOADS_JSON`; see [backend placement](#backend-placement-in-aws-tests).
 
+To check guest egress on a disposable default quickstart deployment, read
+`.runtime/aws-quickstart/result.json`. Set `RAT_THINGS_AGENTS_API_URL` to its
+`agentsApiUrl`, `AWS_REGION` to its `region`, and `AWS_E2E_CODEX_MODEL_ID` to its
+`model`. If setup used a named profile, set `AWS_PROFILE` to its `profile`. Run:
+
+```bash
+AWS_E2E=true AWS_E2E_EGRESS_PROOF=true AWS_E2E_REAL_CODEX=true \
+  npx vitest run tests/aws/runtime-egress.test.ts
+```
+
+The test requires `RAT_THINGS_AGENTS_API_URL`, `AWS_REGION`, and access from the
+test machine to `1.1.1.1:443`. It creates an Agent, a small uploaded file, and two
+hosted Sessions. The first omits the network policy and requires effective
+`disabled` access. The second enables guest networking and requires verified TLS
+to a private IPv4 address for the regional Bedrock runtime endpoint. Both must
+fail to connect to the public numeric TCP canary, which the test machine checks
+before and after the guest probes. Each Turn has a 420-second deadline.
+
+The proof requires the exact managed command, guest UID, uploaded file and source
+hashes, and an artifact that remains unchanged after its live workspace file is
+overwritten. It does not require S3 Files mounts. It writes bounded receipts and
+resource IDs to `test-results/aws-hardening-validation/`, then deletes its Sessions,
+Agent, and upload even on failure. Run it explicitly after deployment; the default
+quickstart does not run these canaries.
+
 The hosted credential proof uses the existing deployment-owned integration fixture.
 After deploying the candidate and loading its runtime environment, set
 `AWS_E2E_CREDENTIAL_PROOF=true` with `AWS_E2E=true` and `AWS_E2E_REAL_CODEX=true`,
