@@ -17,7 +17,7 @@ function fixture(networkAccess: EgressProbeSpec['networkAccess'] = 'enabled') {
     object: 'agent.session.turn', created_at: 1, started_at: 1, completed_at: 2, status: 'completed', error: null, usage: null };
   const receipt: EgressReceipt = { schema: 1, marker: expected.marker, uid: 10001, euid: 10001, input_sha256: expected.inputSha256,
     program_sha256: createHash('sha256').update(egressProbeProgram(expected)).digest('hex'),
-    public_tcp: { host: '1.1.1.1', port: 443, connected: false, error: 'TimeoutError:None' },
+    public_tcp: { host: '1.1.1.1', port: 443, connected: false, error: networkAccess === 'enabled' ? 'TimeoutError:None' : 'PermissionError:1' },
     bedrock: { host: expected.bedrockHost, port: 443, resolved_ipv4: networkAccess === 'enabled' ? ['10.0.1.5'] : [],
       address: networkAccess === 'enabled' ? '10.0.1.5' : null, tcp_connected: networkAccess === 'enabled', tls_connected: networkAccess === 'enabled',
       tls_version: networkAccess === 'enabled' ? 'TLSv1.3' : null, error: networkAccess === 'enabled' ? null : 'gaierror:-3' } };
@@ -47,6 +47,18 @@ describe('runtime egress receipt selection', () => {
       commandId: value.command.id, artifactId: value.artifact.id, receipt: value.receipt });
     expect(value).toEqual(before);
   });
+
+  it('accepts Linux EACCES as an explicit denial for the default network policy', () => {
+    const value = changedReceipt(receipt => { receipt.public_tcp.error = 'PermissionError:13'; }, 'disabled');
+    expect(egressTurnEvidence(value).receipt).toEqual(value.receipt);
+  });
+
+  it.each(['TimeoutError:None', 'ConnectionRefusedError:111', 'gaierror:-3'])(
+    'rejects default public error %s despite matching output and artifact', error => {
+      const value = changedReceipt(receipt => { receipt.public_tcp.error = error; }, 'disabled');
+      expect(() => egressTurnEvidence(value)).toThrow();
+    },
+  );
 
   it('accepts the captured Codex bash command shape and rejects appended shell work', () => {
     expect(isEgressProbeCommand("/bin/bash -lc 'python3 /workspace/egress-probe.py'")).toBe(true);
@@ -102,8 +114,8 @@ describe('runtime egress receipt selection', () => {
     expect(() => egressTurnEvidence(changedReceipt(mutate))).toThrow();
   });
 
-  it('requires private denial for the default policy and validates the reported effective policy', () => {
-    expect(() => egressTurnEvidence(changedReceipt(receipt => { receipt.bedrock.tcp_connected = true; }, 'disabled'))).toThrow('deny the private probe');
+  it('requires an unsuccessful private probe for the default policy and validates the reported effective policy', () => {
+    expect(() => egressTurnEvidence(changedReceipt(receipt => { receipt.bedrock.tcp_connected = true; }, 'disabled'))).toThrow();
     const value = fixture('disabled');
     value.expected.networkAccess = 'enabled';
     expect(() => egressTurnEvidence(value)).toThrow('Effective network policy');

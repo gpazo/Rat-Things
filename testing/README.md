@@ -237,8 +237,10 @@ test machine to `1.1.1.1:443`. It creates an Agent, a small uploaded file, and t
 hosted Sessions. The first omits the network policy and requires effective
 `disabled` access. The second enables guest networking and requires verified TLS
 to a private IPv4 address for the regional Bedrock runtime endpoint. Both must
-fail to connect to the public numeric TCP canary, which the test machine checks
-before and after the guest probes. Each Turn has a 420-second deadline.
+fail to connect to the public numeric TCP canary. The default policy must return
+an explicit socket permission error; a timeout cannot prove sandbox enforcement.
+The test machine checks the public canary before and after the guest probes.
+Each Turn has a 420-second deadline.
 
 The proof requires the exact managed command, guest UID, uploaded file and source
 hashes, and an artifact that remains unchanged after its live workspace file is

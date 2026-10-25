@@ -145,9 +145,11 @@ export function egressTurnEvidence(input: {
     assert(receipt.bedrock.tls_version?.startsWith('TLSv'), 'Bedrock must negotiate TLS');
     assert.equal(receipt.bedrock.error, null);
   } else {
-    assert.equal(receipt.bedrock.tcp_connected, false, 'Default guest network policy must deny the private probe');
+    assert(receipt.public_tcp.error === 'PermissionError:1' || receipt.public_tcp.error === 'PermissionError:13',
+      'Default guest network policy must explicitly deny the public numeric TCP probe');
+    assert.equal(receipt.bedrock.tcp_connected, false, 'Default guest private probe must not establish TCP');
     assert.equal(receipt.bedrock.tls_connected, false);
-    assert(receipt.bedrock.error, 'Private denial must include its probe error');
+    assert(receipt.bedrock.error, 'Unsuccessful private probe must include its error');
   }
   return { sessionId: session.id, environmentId: environment.id, turnId: turn.id,
     commandId: command.id, command: command.command, commandOutput: command.output,

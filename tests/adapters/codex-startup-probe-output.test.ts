@@ -13,7 +13,7 @@ const sanitize = (value: unknown) => sanitizeProbeOutput(Buffer.from(JSON.string
 it('runs the inert Python proc fixtures through the normal test suite', async () => {
   await expect(promisify(execFile)('python3', ['-B', '-I', '-S', 'testing/microvm/test_startup_probe.py'], { timeout: 15_000 }))
     .resolves.toMatchObject({ stdout: '' });
-});
+}, 20_000);
 
 it('accepts the actual Python encoder output from inert proc fixtures', async () => {
   const program = `
@@ -33,7 +33,7 @@ finally:
   const result = sanitizeProbeOutput(Buffer.from(stdout));
   expect(result).toEqual(JSON.parse(stdout));
   expect(result?.threads).toMatchObject([{ role: 'launcher' }, { role: 'codex_main', state_stable: true, waits: ['file_backed_fault', 'instruction_fault', 'page_cache', 'page_fault'] }]);
-});
+}, 20_000);
 
 it('retains fixed v2 roles, mixed contexts and both state comparison results', () => {
   expect(sanitize(observation)).toEqual(observation);
