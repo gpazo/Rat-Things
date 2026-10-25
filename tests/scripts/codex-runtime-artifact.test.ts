@@ -42,7 +42,13 @@ async function fixture(platform: keyof typeof targets = 'linux', arch: 'arm64' |
   const pinned = packages[packageName];
   const files: { path: string; sha256: string }[] = [];
   for (const file of pinned.files) {
-    const bytes = file.path === 'codex-package.json' ? Buffer.from(JSON.stringify(pinned.descriptor, null, 2) + '\n') : executable;
+    const nativeBytes = Buffer.from(executable);
+    if (/\.(?:so|dylib)(?:\.|$)/.test(file.path)) {
+      if (platform === 'darwin') nativeBytes.writeUInt32LE(6, 12); // MH_DYLIB
+      else nativeBytes.writeUInt16LE(3, 16); // ET_DYN
+    }
+    const bytes = file.path === 'codex-package.json' ? Buffer.from(JSON.stringify(pinned.descriptor, null, 2) + '\n')
+      : file.executable ? nativeBytes : Buffer.from('fixture data');
     file.sha256 = digest(bytes);
     const runtimeBytes = file.path === 'codex-package.json'
       ? Buffer.from(JSON.stringify({ ...pinned.descriptor, target: nativeTarget }, null, 2) + '\n') : bytes;
@@ -66,16 +72,15 @@ async function fixture(platform: keyof typeof targets = 'linux', arch: 'arm64' |
   const options = { expectedTarget: nativeTarget, companionInventoryPath };
   const validate = () => validateCodexRuntimeArtifact(directory, options);
   await save();
-  return { directory, executable, manifest, save, replaceFile, options, validate };
+  return { directory, executable, manifest, save, replaceFile, options, validate, pinned };
 }
 
 it.each(['linux', 'darwin'] as const)('admits a complete %s release and returns only verified runtime files', async platform => {
   const f = await fixture(platform);
   const admitted = await f.validate();
-  expect(admitted.files.map(file => file.path)).toEqual([
-    'bin/codex', 'bin/codex-code-mode-host', 'codex-package.json', 'codex-path/rg',
-    ...(platform === 'linux' ? ['codex-resources/bwrap'] : []), 'codex-resources/zsh/bin/zsh',
-  ]);
+  expect(admitted.files.map(file => file.path)).toEqual(f.pinned.files.map((file: { path: string }) => file.path));
+  expect(admitted.files.map(file => file.path)).toContain('codex-resources/voice/bin/codex-voice-host');
+  expect(admitted.files.find(file => file.path === 'codex-resources/voice/runtime.json')!.mode).toBe(0o444);
   expect(admitted.files.find(file => file.path === 'bin/codex')!.mode).toBe(0o755);
   expect(admitted.files.find(file => file.path === 'codex-package.json')!.mode).toBe(0o444);
 });
@@ -84,8 +89,7 @@ it('keeps the packaging wrapper Linux-only and includes original provenance', as
   const f = await fixture();
   const entries = await codexRuntimeEntries(f.directory, f.options);
   expect(entries.map(entry => entry.target)).toEqual([
-    'codex-runtime/bin/codex', 'codex-runtime/bin/codex-code-mode-host', 'codex-runtime/codex-package.json',
-    'codex-runtime/codex-path/rg', 'codex-runtime/codex-resources/bwrap', 'codex-runtime/codex-resources/zsh/bin/zsh',
+    ...f.pinned.files.map((file: { path: string }) => `codex-runtime/${file.path}`),
     'codex-runtime/artifact.json',
   ]);
   const host = await fixture('darwin');
@@ -175,14 +179,14 @@ it('binds the checked companion inventory to the npm tarball integrity', async (
 it('rejects a changed companion even if its declared checksum is changed too', async () => {
   const f = await fixture();
   const executable = Buffer.from(f.executable); executable[63] = 1;
-  await f.replaceFile('codex-resources/zsh/bin/zsh', executable);
+  await f.replaceFile('codex-resources/voice/bin/codex-voice-host', executable);
   await expect(f.validate()).rejects.toThrow('companion differs');
 });
 
 it.each(['linux', 'darwin'] as const)('rejects missing %s companions', async platform => {
   const f = await fixture(platform);
-  f.manifest.files = f.manifest.files.filter(file => file.path !== 'codex-resources/zsh/bin/zsh'); await f.save();
-  await rm(join(f.directory, 'runtime/codex-resources/zsh'), { recursive: true });
+  f.manifest.files = f.manifest.files.filter(file => file.path !== 'codex-resources/voice/bin/codex-voice-host'); await f.save();
+  await rm(join(f.directory, 'runtime/codex-resources/voice/bin/codex-voice-host'));
   await expect(f.validate()).rejects.toThrow('companions are incomplete');
 });
 

@@ -126,7 +126,7 @@ export class LocalNativeService {
       const release = status.selected;
       const companionRoot = join(release.bundlePath, 'Contents/Resources/codex');
       const environment = Object.freeze({ ...this.environment, CODEX_BINARY: release.hostCodexPath,
-        PATH: [join(companionRoot, 'codex-path'), join(companionRoot, 'codex-resources/zsh/bin'), '/usr/bin', '/bin', '/usr/sbin', '/sbin'].join(':') });
+        PATH: [join(companionRoot, 'codex-path'), '/usr/bin', '/bin', '/usr/sbin', '/sbin'].join(':') });
       this.state = { kind: 'ready', release, host: Object.freeze({ binary: release.hostCodexPath, environment }) };
     } else this.state = { kind: status.change.kind === 'failed' ? 'failed' : 'needs_setup' };
   }

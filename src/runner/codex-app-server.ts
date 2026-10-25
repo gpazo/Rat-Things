@@ -511,7 +511,7 @@ export function sandboxPolicyFor(
 }
 
 function appServerConfig(request: CodexAppServerRequest): Record<string, unknown> {
-  const config: Record<string, unknown> = { ...request.sessionConfig };
+  const config: Record<string, unknown> = { ...request.sessionConfig, ...environmentToolConfig(request.environments) };
   if (request.onServerRequest && !request.sessionConfig) {
     config['features.default_mode_request_user_input'] = true;
   }
@@ -527,6 +527,10 @@ function appServerConfig(request: CodexAppServerRequest): Record<string, unknown
     ]));
   }
   return Object.keys(config).length > 0 ? { config } : {};
+}
+
+export function environmentToolConfig(environments: CodexAppServerRequest['environments']): Record<string, boolean> {
+  return environments?.length === 0 ? { 'features.shell_tool': false, 'features.view_image': false } : {};
 }
 
 interface SkillInput {

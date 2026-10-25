@@ -2,6 +2,8 @@ import { spawnSync } from 'node:child_process';
 import { chmod, copyFile, cp, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import hostCodePolicy from '../runtime/native/host-code-policy.json' with { type: 'json' };
+import companionPackages from '../runtime/codex/companion-packages.json' with { type: 'json' };
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 async function replaceExecutable(source, destination) {
@@ -42,7 +44,13 @@ if (process.platform === 'darwin') {
   await rm(`${bundle}/Resources/codex-runtime`, { recursive: true, force: true });
   await cp(runtime, `${bundle}/Resources/codex-runtime`, { recursive: true });
   await cp(resolve(root, 'runtime/codex/licenses'), `${bundle}/Resources/codex-licenses`, { recursive: true });
-  for (const executable of ['bin/codex', 'bin/codex-code-mode-host', 'codex-path/rg', 'codex-resources/zsh/bin/zsh']) {
+  const companions = companionPackages[`@openai/codex-darwin-${process.arch}`];
+  if (!companions) throw new Error('The bundled host Codex requires a reviewed companion inventory');
+  for (const file of companions.files) {
+    await chmod(`${bundle}/Resources/codex-runtime/${file.path}`, file.executable ? 0o755 : 0o444);
+  }
+  for (const policy of hostCodePolicy.filter(policy => policy.role !== 'vm-helper')) {
+    const executable = policy.path.slice('Contents/Resources/codex/'.length);
     const signature = spawnSync('codesign', ['--force', '--sign', '-', `${bundle}/Resources/codex-runtime/${executable}`], { stdio: 'inherit' });
     if (signature.error) throw signature.error;
     if (signature.status !== 0) process.exit(signature.status ?? 1);

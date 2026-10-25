@@ -15,7 +15,7 @@ python3 testing/local-runtime/native-signatures/fixtures.py \
 npx vitest run tests/adapters/local-native-verifier.test.ts --no-cache
 ```
 
-Read the final JSON line for the result. `evidence/latest-run.txt` names the directory containing `results.json` and `commands.json`. Every accepted fixture must return the exact manifest bytes and all five executable paths.
+Read the final JSON line for the result. `evidence/latest-run.txt` names the directory containing `results.json` and `commands.json`. Every accepted fixture must return the exact manifest bytes and every path in the fixed host code policy.
 
 The suite preserves the complete Codex package at `Contents/Resources/codex`. Its descriptor stays beside `bin`, `codex-path`, and `codex-resources`. The VM helper stays at `Contents/Helpers/rat-native-worker`. The outer `Runtime.bundle` uses `CFBundlePackageType=BNDL` without `CFBundleExecutable`.
 

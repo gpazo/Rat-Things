@@ -2,7 +2,7 @@ import type { AgentSessionInputMessageParam, AgentSessionInputParam, Turn } from
 import { CodexRpcClient, CodexRpcError, type CodexRpcEvent } from '../adapters/codex-rpc.js';
 import { bindSessionTurn, initialSessionRuntime, reduceSessionRuntime, resolveSessionFunction, rootTurnBusy, stoppedSessionRuntime, type SessionRuntimeState } from '../core/session-runtime-planning.js';
 import type { CodexAppServerRequest } from './codex-app-server.js';
-import { sandboxPolicyFor } from './codex-app-server.js';
+import { environmentToolConfig, sandboxPolicyFor } from './codex-app-server.js';
 import type { SessionModelSettings } from '../domain/session-execution.js';
 import { checkpointWorkspace, type WorkspaceHandoffPorts } from './workspace-handoff.js';
 
@@ -28,6 +28,7 @@ export class SessionRuntime {
   private closed = false;
   private expired = false;
   private checkpointing = false;
+  private checkpointActivity = false;
   private checkpointFailure: unknown;
   private idleTimer: ReturnType<typeof setTimeout> | undefined;
   private lifetimeTimer: ReturnType<typeof setTimeout> | undefined;
@@ -71,8 +72,14 @@ export class SessionRuntime {
     if (!ports || !this.state || this.closed || this.checkpointing) throw new Error('Session checkpoint is unavailable');
     // Set synchronously so a native disconnect cannot finish the Run during shutdown.
     this.checkpointing = true;
+    this.checkpointActivity = false;
     let transitionStarted = false;
     let threadIds: string[] = [];
+    const rootThreadId = this.state.rootThreadId;
+    const assertQuiescent = () => {
+      if (this.checkpointActivity || this.requests.size || this.state!.requiredActions.length
+        || this.state!.turns.some(binding => !terminal(binding.turn))) throw new Error('Native activity changed during checkpoint shutdown');
+    };
     try {
       return await checkpointWorkspace({ ...ports,
         inspectIdle: async () => {
@@ -80,46 +87,40 @@ export class SessionRuntime {
             && !this.state!.requiredActions.length && !this.state!.turns.some(binding => !terminal(binding.turn));
           // Empty native threads may never materialize a rollout. Reject these before
           // beginning shutdown so we cannot publish an unresumable checkpoint.
-          if (idle) await this.checkPersistedHistory(this.state!.rootThreadId);
-          return { idle, threadIds: [this.state!.rootThreadId] };
+          if (idle) {
+            threadIds = await this.loadedCheckpointThreads();
+            if (!threadIds.includes(rootThreadId)) throw new Error('Root thread is not loaded');
+            for (const threadId of threadIds) await this.checkPersistedHistory(threadId);
+            assertQuiescent();
+          }
+          return { idle, threadIds };
         },
         begin: async () => {
           transitionStarted = true;
           clearTimeout(this.idleTimer); clearTimeout(this.lifetimeTimer);
+          assertQuiescent();
           await ports.begin();
         },
         shutdownNative: async () => {
-          const loaded = async () => {
-            const ids: string[] = [];
-            let cursor: string | undefined;
-            const cursors = new Set<string>();
-            do {
-              const page = await this.rpc.call('thread/loaded/list', { limit: 100, ...(cursor ? { cursor } : {}) });
-              if (!record(page) || !Array.isArray(page.data) || page.data.some(id => typeof id !== 'string') || ids.length + page.data.length > 1000
-                || page.nextCursor != null && typeof page.nextCursor !== 'string') throw new Error('Invalid native thread list');
-              ids.push(...page.data as string[]);
-              cursor = page.nextCursor as string | undefined;
-              if (cursor && cursors.has(cursor)) throw new Error('Native thread pagination repeated');
-              if (cursor) cursors.add(cursor);
-            } while (cursor);
-            return [...new Set(ids)];
-          };
-          threadIds = await loaded();
-          if (!threadIds.includes(this.state!.rootThreadId)) throw new Error('Root thread is not loaded');
-          // Stop descendants before the root so parent shutdown cannot hide a failed child flush.
-          for (const threadId of [...threadIds.filter(id => id !== this.state!.rootThreadId), this.state!.rootThreadId]) {
-            const result = await this.rpc.call('thread/checkpoint', { threadId }, 35_000);
-            if (!record(result) || result.threadId !== threadId || result.flushed !== true) throw new Error('Native thread checkpoint was not acknowledged');
-            await this.checkPersistedHistory(threadId);
-          }
-          if ((await loaded()).some(id => !threadIds.includes(id))) throw new Error('Native threads changed during checkpoint shutdown');
+          assertQuiescent();
+          // One tree shutdown can also stop siblings and parents. The native bridge
+          // must validate the complete idle set before it stops any of those writers.
+          const result = await this.rpc.call('thread/checkpoint', { threadId: rootThreadId, expectedThreadIds: threadIds }, 35_000);
+          if (!record(result) || result.threadId !== rootThreadId || result.flushed !== true
+            || !sameThreadIds(checkpointThreadIds(result.threadIds), threadIds)) throw new Error('Native thread checkpoint was not acknowledged');
+          assertQuiescent();
+          for (const threadId of threadIds) await this.checkPersistedHistory(threadId);
+          // Successful shutdown may unregister captured threads. Their exact flush
+          // acknowledgement and readable histories remain required; new IDs do not.
+          if ((await this.loadedCheckpointThreads()).some(id => !threadIds.includes(id))) throw new Error('Native threads changed during checkpoint shutdown');
+          assertQuiescent();
           if (!this.rpc.closeCheckpoint) throw new Error('Native checkpoint shutdown is unsupported');
           await this.rpc.closeCheckpoint();
           this.disconnected();
-          // Every loaded thread was checked above; the outer barrier identifies the root.
-          return { threadIds: [this.state!.rootThreadId], flushed: true, forced: false };
+          assertQuiescent();
+          return { threadIds, flushed: true, forced: false };
         },
-        commit: () => ports.commit(this.snapshot()),
+        commit: () => { assertQuiescent(); return ports.commit(this.snapshot()); },
         settle: () => {},
       });
     } catch (error) { if (transitionStarted) this.checkpointFailure = error; throw error; }
@@ -128,6 +129,20 @@ export class SessionRuntime {
       this.checkpointing = false;
       if (this.closed) this.finish();
     }
+  }
+
+  private async loadedCheckpointThreads(): Promise<string[]> {
+    let ids: string[] = [];
+    let cursor: string | undefined;
+    const cursors = new Set<string>();
+    do {
+      const page = checkpointThreadPage(await this.rpc.call('thread/loaded/list', { limit: 100, ...(cursor ? { cursor } : {}) }));
+      ids = checkpointThreadIds([...ids, ...page.ids]);
+      cursor = page.nextCursor;
+      if (cursor && cursors.has(cursor)) throw new Error('Native thread pagination repeated');
+      if (cursor) cursors.add(cursor);
+    } while (cursor);
+    return ids;
   }
 
   private async checkPersistedHistory(threadId: string): Promise<void> {
@@ -149,7 +164,7 @@ export class SessionRuntime {
       serviceTier: request.serviceTier,
       environments: request.environments,
       dynamicTools: request.dynamicTools,
-      config: { ...request.sessionConfig, web_search: request.webSearch ?? 'disabled',
+      config: { ...request.sessionConfig, ...environmentToolConfig(request.environments), web_search: request.webSearch ?? 'disabled',
         'features.default_mode_request_user_input': false, 'tools.experimental_request_user_input.enabled': false,
         'orchestrator.skills.enabled': false, 'skills.bundled.enabled': false, 'features.goals': false },
     };
@@ -318,6 +333,7 @@ export class SessionRuntime {
   }
 
   private event(event: CodexRpcEvent): void {
+    if (this.checkpointing && checkpointHasActivity(event)) this.checkpointActivity = true;
     if (!this.state) { this.earlyEvents.push(event); return; }
     const nativeTurn = record(event.params.turn) ? event.params.turn.id : event.params.turnId;
     // Hydration notifications can arrive after thread/fork returns, even while
@@ -369,6 +385,7 @@ export class SessionRuntime {
   }
 
   private async serverRequest(event: CodexRpcEvent & { requestId: string | number }): Promise<unknown> {
+    if (this.checkpointing) { this.checkpointActivity = true; throw new Error('Native interaction is unavailable during checkpoint shutdown'); }
     if (event.method === 'currentTime/read') return { currentTimeAt: this.now() };
     if (!this.declaredFunction(event)) {
       // Approval-shaped requests fail closed; a guest never widens its own envelope.
@@ -413,6 +430,33 @@ export class SessionRuntime {
     // explicit host idle policy may shorten that lifetime; stream disconnects do not.
     else if (!this.idleTimer && this.options.idleTimeoutMs !== undefined) { this.idleTimer = setTimeout(() => { this.expired = true; void this.close(); }, this.options.idleTimeoutMs); this.idleTimer.unref(); }
   }
+}
+
+function checkpointThreadIds(value: unknown): string[] {
+  if (!Array.isArray(value) || value.length > 1000
+    || value.some(id => typeof id !== 'string' || !id.length || id.length > 256 || id.trim() !== id)
+    || new Set(value).size !== value.length) throw new Error('Invalid native checkpoint thread identities');
+  return [...value] as string[];
+}
+
+function sameThreadIds(actual: readonly string[], expected: readonly string[]): boolean {
+  return actual.length === expected.length && expected.every(id => actual.includes(id));
+}
+
+function checkpointThreadPage(value: unknown): { ids: string[]; nextCursor?: string } {
+  if (!record(value)) throw new Error('Invalid native thread list');
+  const ids = checkpointThreadIds(value.data);
+  const cursor = value.nextCursor;
+  if (ids.length > 100 || cursor != null && (typeof cursor !== 'string' || !cursor.length || cursor.length > 256 || !ids.length)) {
+    throw new Error('Invalid native thread pagination');
+  }
+  return { ids, ...(typeof cursor === 'string' ? { nextCursor: cursor } : {}) };
+}
+
+function checkpointHasActivity(event: CodexRpcEvent): boolean {
+  return event.requestId !== undefined || event.method.startsWith('item/')
+    || ['thread/started', 'turn/started', 'turn/completed', 'rawResponseItem/completed', 'rawResponse/completed', 'error'].includes(event.method)
+    || event.method === 'thread/status/changed' && record(event.params.status) && event.params.status.type === 'active';
 }
 
 function nativeInput(input: AgentSessionInputMessageParam[]) { return input.flatMap((message) => message.content.map((part) => part.type === 'input_text' ? { type: 'text', text: part.text } : { type: 'image', url: part.image_url })); }

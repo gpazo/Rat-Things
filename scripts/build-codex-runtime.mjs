@@ -98,8 +98,9 @@ async function verifySourceTree() {
   try {
     await git(['read-tree', source.revision], env);
     for (const patch of source.patches) await git(['apply', '--cached', join(definition, patch)], env);
-    const expected = await git(['diff', '--no-ext-diff', '--binary', '--cached', source.revision], env);
-    const actual = await git(['diff', '--no-ext-diff', '--binary', source.revision]);
+    const diff = ['diff', '--no-ext-diff', '--binary', '--src-prefix=a/', '--dst-prefix=b/'];
+    const expected = await git([...diff, '--cached', source.revision], env);
+    const actual = await git([...diff, source.revision]);
     const extra = await git(['ls-files', '--others', '--exclude-standard']);
     if (actual !== expected || extra.trim()) throw new Error('Native checkout contains changes beyond the pinned patches. Use a clean dedicated build directory.');
     return (await git(['write-tree'], env)).trim();

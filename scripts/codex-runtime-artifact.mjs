@@ -96,7 +96,9 @@ export async function validateCodexRuntimeArtifact(artifactRoot, {
       throw new Error(`Codex runtime companion differs from the pinned npm package: ${path}`);
     }
     if (path === 'bin/codex' || companion.executable) {
-      if (!isExecutable(bytes, target)) throw new Error(`Codex runtime executable is not ${target.platform} ${target.arch.toUpperCase()}: ${path}`);
+      // Only the rebuilt entrypoint can differ from the trusted package bytes.
+      // Companions include shared libraries and data with executable file modes.
+      if (path === 'bin/codex' && !isExecutable(bytes, target)) throw new Error(`Codex runtime executable is not ${target.platform} ${target.arch.toUpperCase()}: ${path}`);
       if (!((await lstat(filename)).mode & 0o111)) throw new Error(`Codex runtime executable permission is missing: ${path}`);
     }
     files.push({ path, source: filename, sha256: file.sha256, mode: companion.executable ? 0o755 : 0o444 });

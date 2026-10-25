@@ -105,11 +105,13 @@ jobs:
           key: ${{ steps.codex-runtime.outputs.cache-primary-key }}
       - name: Validate x64 artifact provenance
         run: node --input-type=module -e "import { validateCodexRuntimeArtifact } from './scripts/codex-runtime-artifact.mjs'; await validateCodexRuntimeArtifact('.runtime/codex/linux-x64', { expectedTarget:'x86_64-unknown-linux-gnu' });"
-      - name: Verify patched x86 sandbox and local Pi transport
+      - name: Verify x64 native contracts, checkpoints and Pi sandbox
         env:
           CODEX_CONFORMANCE_BINARY: ${{ github.workspace }}/.runtime/codex/linux-x64/runtime/bin/codex
           CODEX_REQUIRE_PARITY: 'true'
-        run: npx vitest run tests/pi/managed-effects.test.ts tests/pi/managed-subprocess.test.ts tests/runner/managed-sandbox.test.ts tests/agents/local-pi-transport.test.ts tests/agents/local-pi.test.ts --no-file-parallelism
+        run: |
+          npm run test:agents:parity
+          npx vitest run tests/runner/managed-sandbox.test.ts --no-file-parallelism
       - name: Archive verified Linux x64 runtime
         run: tar -C .runtime/codex/linux-x64 -czf .runtime/codex/linux-x64.tar.gz artifact.json runtime
       - name: Export verified Linux x64 runtime

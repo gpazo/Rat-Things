@@ -13,6 +13,8 @@ const cases: Array<{ code: string; expected: NonNullable<Turn['error']>['code'];
   { code: 'insufficient_quota', expected: 'usage_limit_exceeded' },
   { code: 'cyber_policy', expected: 'cyber_policy' },
   { code: 'rate_limit_exceeded', expected: 'rate_limit_exceeded' },
+  { code: 'slow_down', expected: 'rate_limit_exceeded' },
+  { code: 'slow_down', expected: 'rate_limit_exceeded', status: 503 },
   { code: 'server_is_overloaded', expected: 'server_overloaded' },
   { code: 'rate_limit_exceeded', expected: 'rate_limit_exceeded', status: 429 },
   { code: 'server_error', expected: 'server_error', status: 500 },

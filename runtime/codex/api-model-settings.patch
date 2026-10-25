@@ -1,8 +1,31 @@
+diff --git a/codex-rs/core/src/client.rs b/codex-rs/core/src/client.rs
+index 815ab10..a756599 100644
+--- a/codex-rs/core/src/client.rs
++++ b/codex-rs/core/src/client.rs
+@@ -1092,17 +1092,7 @@ impl ModelClient {
+             &prompt.output_schema,
+             prompt.output_schema_strict,
+         );
+-        let service_tier = model_info
+-            .service_tier_for_request(service_tier)
+-            .filter(|tier| {
+-                // Bedrock requires an advertised tier, including for flex, which the
+-                // generic OpenAI resolver permits without catalog support.
+-                !self.state.provider.info().is_amazon_bedrock()
+-                    || model_info
+-                        .service_tiers
+-                        .iter()
+-                        .any(|supported| supported.id == *tier)
+-            });
++        let service_tier = model_info.service_tier_for_request(service_tier);
+         if !include_internal {
+             for item in &mut input {
+                 item.clear_tool_result_metadata();
 diff --git a/codex-rs/core/src/config/config_tests.rs b/codex-rs/core/src/config/config_tests.rs
-index a093aaf..900c7d2 100644
+index c45fb2b..bc61204 100644
 --- a/codex-rs/core/src/config/config_tests.rs
 +++ b/codex-rs/core/src/config/config_tests.rs
-@@ -9839,7 +9839,7 @@ async fn default_service_tier_override_uses_default_request_value() -> std::io::
+@@ -10317,7 +10317,7 @@ async fn default_service_tier_override_uses_default_request_value() -> std::io::
  }
  
  #[tokio::test]
@@ -11,7 +34,7 @@ index a093aaf..900c7d2 100644
      let fixture = create_test_fixture()?;
  
      let config = Config::load_from_base_config_with_overrides(
-@@ -9853,10 +9853,7 @@ async fn legacy_fast_service_tier_override_uses_priority_request_value() -> std:
+@@ -10331,10 +10331,7 @@ async fn legacy_fast_service_tier_override_uses_priority_request_value() -> std:
      )
      .await?;
  
@@ -23,7 +46,7 @@ index a093aaf..900c7d2 100644
      Ok(())
  }
  
-@@ -9909,7 +9906,7 @@ async fn config_toml_service_tier_accepts_arbitrary_string() -> std::io::Result<
+@@ -10387,7 +10384,7 @@ async fn config_toml_service_tier_accepts_arbitrary_string() -> std::io::Result<
  }
  
  #[tokio::test]
@@ -32,7 +55,7 @@ index a093aaf..900c7d2 100644
      let mut fixture = create_test_fixture()?;
      fixture.cfg.service_tier = Some("fast".to_string());
      let cwd = fixture.cwd_path();
-@@ -9925,10 +9922,7 @@ async fn config_toml_legacy_fast_service_tier_uses_priority_request_value() -> s
+@@ -10403,10 +10400,7 @@ async fn config_toml_legacy_fast_service_tier_uses_priority_request_value() -> s
      )
      .await?;
  
@@ -45,10 +68,10 @@ index a093aaf..900c7d2 100644
  }
  
 diff --git a/codex-rs/core/src/config/mod.rs b/codex-rs/core/src/config/mod.rs
-index ebda977..9ac707b 100644
+index 3f6c1cc..cdce709 100644
 --- a/codex-rs/core/src/config/mod.rs
 +++ b/codex-rs/core/src/config/mod.rs
-@@ -102,7 +102,6 @@ use codex_protocol::config_types::Personality;
+@@ -104,7 +104,6 @@ use codex_protocol::config_types::Personality;
  use codex_protocol::config_types::ReasoningSummary;
  use codex_protocol::config_types::SERVICE_TIER_DEFAULT_REQUEST_VALUE;
  use codex_protocol::config_types::SandboxMode;
@@ -56,7 +79,7 @@ index ebda977..9ac707b 100644
  use codex_protocol::config_types::ShellEnvironmentPolicy;
  use codex_protocol::config_types::TrustLevel;
  use codex_protocol::config_types::Verbosity;
-@@ -3884,15 +3883,6 @@ impl Config {
+@@ -4127,17 +4126,8 @@ impl Config {
              Some(None) => Some(SERVICE_TIER_DEFAULT_REQUEST_VALUE.to_string()),
              None => cfg.service_tier,
          };
@@ -66,44 +89,50 @@ index ebda977..9ac707b 100644
 -                    .enabled(Feature::FastMode)
 -                    .then(|| ServiceTier::Fast.request_value().to_string()),
 -                Some(ServiceTier::Flex) => Some(ServiceTier::Flex.request_value().to_string()),
+-                None if service_tier == "ultrafast" => features
+-                    .enabled(Feature::UltrafastMode)
+-                    .then_some(service_tier),
 -                None => Some(service_tier),
 -            }
--        });
++        let service_tier = service_tier.filter(|service_tier| {
++            service_tier != "ultrafast" || features.enabled(Feature::UltrafastMode)
+         });
  
          let compact_prompt = compact_prompt.or(cfg.compact_prompt).and_then(|value| {
-             let trimmed = value.trim();
 diff --git a/codex-rs/core/src/session/mod.rs b/codex-rs/core/src/session/mod.rs
-index 8ffc144..8485d20 100644
+index 96cfaa1..e436ec0 100644
 --- a/codex-rs/core/src/session/mod.rs
 +++ b/codex-rs/core/src/session/mod.rs
-@@ -986,6 +986,14 @@ fn get_service_tier(
-     fast_mode_enabled: bool,
+@@ -117,7 +117,6 @@ use codex_protocol::capabilities::SelectedCapabilityRoot;
+ use codex_protocol::config_types::ApprovalsReviewer;
+ use codex_protocol::config_types::AutoCompactTokenLimitScope;
+ use codex_protocol::config_types::SERVICE_TIER_DEFAULT_REQUEST_VALUE;
+-use codex_protocol::config_types::ServiceTier;
+ use codex_protocol::config_types::WebSearchMode;
+ use codex_protocol::dynamic_tools::DynamicToolResponse;
+ use codex_protocol::dynamic_tools::DynamicToolSpec;
+@@ -1206,7 +1205,7 @@ pub(crate) fn get_service_tier(
      model_info: &ModelInfo,
  ) -> Option<String> {
-+    // The API provider, rather than the interactive model catalogue, decides
-+    // whether an explicit routing choice is supported. Never silently downgrade it.
-+    if configured_service_tier
-+        .as_deref()
-+        .is_some_and(|tier| codex_protocol::config_types::AGENTS_API_SERVICE_TIERS.contains(&tier))
-+    {
-+        return configured_service_tier;
-+    }
-     if !fast_mode_enabled {
-         return None;
+     let service_tier = configured_service_tier?;
+-    if service_tier == ServiceTier::Flex.request_value() {
++    if codex_protocol::config_types::AGENTS_API_SERVICE_TIERS.contains(&service_tier.as_str()) {
+         return Some(service_tier);
      }
-@@ -1002,6 +1010,7 @@ fn unsupported_service_tier_warning(
+     if features.service_tier_enabled(&service_tier)
+@@ -1225,6 +1224,7 @@ fn unsupported_service_tier_warning(
  ) -> Option<String> {
      let service_tier = configured_service_tier.filter(|service_tier| {
-         fast_mode_enabled
+         features.service_tier_enabled(service_tier)
 +            && !codex_protocol::config_types::AGENTS_API_SERVICE_TIERS.contains(service_tier)
              && *service_tier != SERVICE_TIER_DEFAULT_REQUEST_VALUE
              && !model_info.supports_service_tier(service_tier)
      })?;
 diff --git a/codex-rs/core/src/session/step_settings.rs b/codex-rs/core/src/session/step_settings.rs
-index 49502e8..af1bee7 100644
+index b66fb19..0c53160 100644
 --- a/codex-rs/core/src/session/step_settings.rs
 +++ b/codex-rs/core/src/session/step_settings.rs
-@@ -12,7 +12,6 @@ use codex_protocol::config_types::CollaborationMode;
+@@ -13,7 +13,6 @@ use codex_protocol::config_types::CollaborationMode;
  use codex_protocol::config_types::Personality;
  use codex_protocol::config_types::ReasoningSummary;
  use codex_protocol::config_types::SERVICE_TIER_DEFAULT_REQUEST_VALUE;
@@ -111,7 +140,7 @@ index 49502e8..af1bee7 100644
  use codex_protocol::openai_models::ModelInfo;
  use codex_protocol::openai_models::ReasoningEffort;
  use codex_protocol::protocol::AskForApproval;
-@@ -275,13 +274,8 @@ impl StepSettings {
+@@ -267,13 +266,8 @@ impl StepSettings {
              next.reasoning_summary = Some(summary);
          }
          if let Some(service_tier) = update.service_tier.clone() {
@@ -126,51 +155,69 @@ index 49502e8..af1bee7 100644
                  None => SERVICE_TIER_DEFAULT_REQUEST_VALUE.to_string(),
              });
          }
+diff --git a/codex-rs/core/src/session/step_settings_tests.rs b/codex-rs/core/src/session/step_settings_tests.rs
+index 86b8ac1..c8963f4 100644
+--- a/codex-rs/core/src/session/step_settings_tests.rs
++++ b/codex-rs/core/src/session/step_settings_tests.rs
+@@ -341,7 +341,7 @@ fn sparse_patch_uses_the_settings_version_being_updated() {
+         .apply(&tier_update, &constraints)
+         .expect("a previously prepared sparse update should apply");
+     let expected = StepSettings {
+-        service_tier: Some(ServiceTier::Fast.request_value().to_string()),
++        service_tier: Some("fast".to_string()),
+         ..latest
+     };
+     assert_eq!(updated, expected);
 diff --git a/codex-rs/core/src/session/tests.rs b/codex-rs/core/src/session/tests.rs
-index 116e450..2c1d33a 100644
+index 7bd3a38..327dad3 100644
 --- a/codex-rs/core/src/session/tests.rs
 +++ b/codex-rs/core/src/session/tests.rs
-@@ -5096,71 +5096,36 @@ fn get_service_tier_does_not_default_when_model_has_no_default() {
+@@ -5105,60 +5105,36 @@ fn get_service_tier_drops_unsupported_configured_tier_when_fast_mode_enabled() {
  }
  
  #[test]
--fn get_service_tier_drops_unsupported_configured_tier_when_fast_mode_enabled() {
--    let model_info = model_with_default_service_tier(Some(ServiceTier::Fast.request_value()));
--
--    assert_eq!(
--        get_service_tier(
--            Some("unsupported".to_string()),
--            /*fast_mode_enabled*/ true,
--            &model_info,
--        ),
--        None
--    );
--    assert_eq!(
--        get_service_tier(
--            Some(ServiceTier::Flex.request_value().to_string()),
--            /*fast_mode_enabled*/ true,
--            &model_info,
--        ),
--        None
--    );
--    assert_eq!(
--        get_service_tier(
--            Some(SERVICE_TIER_DEFAULT_REQUEST_VALUE.to_string()),
--            /*fast_mode_enabled*/ true,
--            &model_info,
--        ),
--        Some(SERVICE_TIER_DEFAULT_REQUEST_VALUE.to_string())
--    );
--}
--
+-fn get_service_tier_preserves_flex_without_catalog_support_or_fast_mode() {
++fn get_service_tier_preserves_explicit_api_choices_without_catalog_or_ui_support() {
+     let model_info = model_with_default_service_tier(/*default_service_tier*/ None);
+     for fast_mode_enabled in [false, true] {
+         let mut features = codex_features::Features::with_defaults();
+         features.set_enabled(Feature::FastMode, fast_mode_enabled);
++        for tier in codex_protocol::config_types::AGENTS_API_SERVICE_TIERS {
++            assert_eq!(
++                get_service_tier(Some(tier.to_string()), &features, &model_info),
++                Some(tier.to_string())
++            );
++            assert_eq!(
++                unsupported_service_tier_warning(Some(tier), &features, &model_info),
++                None
++            );
++        }
++        assert_eq!(
++            get_service_tier(Some("unsupported".to_string()), &features, &model_info),
++            None
++        );
+         assert_eq!(
+             get_service_tier(
+-                Some(ServiceTier::Flex.request_value().to_string()),
++                /*configured_service_tier*/ None,
+                 &features,
+-                &model_info,
++                &model_info
+             ),
+-            Some(ServiceTier::Flex.request_value().to_string())
++            None
+         );
+     }
+ }
+ 
 -#[test]
--fn get_service_tier_ignores_configured_tier_when_fast_mode_disabled() {
+-fn get_service_tier_ignores_non_flex_tiers_when_fast_mode_disabled() {
 -    let model_info = model_with_default_service_tier(Some(ServiceTier::Fast.request_value()));
 -
 -    assert_eq!(
 -        get_service_tier(
 -            Some(ServiceTier::Fast.request_value().to_string()),
--            /*fast_mode_enabled*/ false,
+-            &codex_features::Features::default(),
 -            &model_info,
 -        ),
 -        None
@@ -178,7 +225,7 @@ index 116e450..2c1d33a 100644
 -    assert_eq!(
 -        get_service_tier(
 -            Some(SERVICE_TIER_DEFAULT_REQUEST_VALUE.to_string()),
--            /*fast_mode_enabled*/ false,
+-            &codex_features::Features::default(),
 -            &model_info,
 -        ),
 -        None
@@ -186,7 +233,7 @@ index 116e450..2c1d33a 100644
 -    assert_eq!(
 -        get_service_tier(
 -            Some("unsupported".to_string()),
--            /*fast_mode_enabled*/ false,
+-            &codex_features::Features::default(),
 -            &model_info,
 -        ),
 -        None
@@ -194,45 +241,17 @@ index 116e450..2c1d33a 100644
 -    assert_eq!(
 -        get_service_tier(
 -            /*configured_service_tier*/ None,
--            /*fast_mode_enabled*/ false,
+-            &codex_features::Features::default(),
 -            &model_info,
 -        ),
 -        None
 -    );
-+fn get_service_tier_preserves_explicit_api_choices_without_catalog_or_ui_support() {
-+    let model_info = model_with_default_service_tier(/*default_service_tier*/ None);
-+    for fast_mode_enabled in [false, true] {
-+        for tier in codex_protocol::config_types::AGENTS_API_SERVICE_TIERS {
-+            assert_eq!(
-+                get_service_tier(Some(tier.to_string()), fast_mode_enabled, &model_info),
-+                Some(tier.to_string())
-+            );
-+            assert_eq!(
-+                unsupported_service_tier_warning(Some(tier), fast_mode_enabled, &model_info),
-+                None
-+            );
-+        }
-+        assert_eq!(
-+            get_service_tier(
-+                Some("unsupported".to_string()),
-+                fast_mode_enabled,
-+                &model_info
-+            ),
-+            None
-+        );
-+        assert_eq!(
-+            get_service_tier(
-+                /*configured_service_tier*/ None,
-+                fast_mode_enabled,
-+                &model_info
-+            ),
-+            None
-+        );
-+    }
- }
- 
+-}
+-
  #[tokio::test]
-@@ -5187,7 +5152,7 @@ async fn session_settings_null_service_tier_update_uses_default_service_tier() {
+ async fn session_settings_null_service_tier_update_uses_default_service_tier() {
+     let session_configuration = make_session_configuration_for_tests().await;
+@@ -5183,7 +5159,7 @@ async fn session_settings_null_service_tier_update_uses_default_service_tier() {
  }
  
  #[tokio::test]
@@ -241,7 +260,7 @@ index 116e450..2c1d33a 100644
      let session_configuration = make_session_configuration_for_tests().await;
  
      let updated = session_configuration
-@@ -5203,10 +5168,7 @@ async fn session_settings_legacy_fast_service_tier_update_uses_priority_request_
+@@ -5199,10 +5175,7 @@ async fn session_settings_legacy_fast_service_tier_update_uses_priority_request_
          )
          .expect("legacy fast service tier update should apply");
  
@@ -253,11 +272,92 @@ index 116e450..2c1d33a 100644
  }
  
  pub(crate) async fn make_session_configuration_for_tests() -> SessionConfiguration {
+diff --git a/codex-rs/core/tests/suite/bedrock_service_tier_tests.rs b/codex-rs/core/tests/suite/bedrock_service_tier_tests.rs
+index 8537b9b..3b71d3e 100644
+--- a/codex-rs/core/tests/suite/bedrock_service_tier_tests.rs
++++ b/codex-rs/core/tests/suite/bedrock_service_tier_tests.rs
+@@ -64,7 +64,7 @@ async fn bedrock_ultrafast_can_be_configured_and_toggled(
+             .collect::<Vec<_>>(),
+         vec![
+             Some(serde_json::json!("ultrafast")),
+-            None,
++            Some(serde_json::json!("default")),
+             Some(serde_json::json!("ultrafast"))
+         ]
+     );
+@@ -80,12 +80,12 @@ async fn bedrock_ultrafast_can_be_configured_and_toggled(
+ #[test_case::test_case(AMAZON_BEDROCK_RUNTIME_PROVIDER_ID, "global.openai.gpt-6-sol", &["custom-tier"], Some("custom-tier"), Some("custom-tier"); "runtime custom tier")]
+ #[test_case::test_case(AMAZON_BEDROCK_PROVIDER_ID, "openai.gpt-6-astra", &[], Some("ultrafast"), None; "mantle empty tiers")]
+ #[test_case::test_case(AMAZON_BEDROCK_RUNTIME_PROVIDER_ID, "global.openai.gpt-6-astra", &[], Some("ultrafast"), None; "runtime empty tiers")]
+-#[test_case::test_case(AMAZON_BEDROCK_PROVIDER_ID, "openai.gpt-6-astra", &["ultrafast"], Some("priority"), None; "mantle unadvertised tier")]
+-#[test_case::test_case(AMAZON_BEDROCK_RUNTIME_PROVIDER_ID, "global.openai.gpt-6-astra", &["ultrafast"], Some("flex"), None; "runtime unadvertised tier")]
++#[test_case::test_case(AMAZON_BEDROCK_PROVIDER_ID, "openai.gpt-6-astra", &["ultrafast"], Some("priority"), Some("priority"); "mantle explicit API tier")]
++#[test_case::test_case(AMAZON_BEDROCK_RUNTIME_PROVIDER_ID, "global.openai.gpt-6-astra", &["ultrafast"], Some("flex"), Some("flex"); "runtime explicit API tier")]
+ #[test_case::test_case(AMAZON_BEDROCK_PROVIDER_ID, "openai.gpt-6-astra", &["ultrafast"], None, None; "mantle core requires explicit selection")]
+ #[test_case::test_case(AMAZON_BEDROCK_RUNTIME_PROVIDER_ID, "global.openai.gpt-6-astra", &["ultrafast"], None, None; "runtime core requires explicit selection")]
+ #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+-async fn bedrock_custom_catalog_controls_service_tiers(
++async fn bedrock_custom_catalog_controls_additional_service_tiers(
+     provider_id: &'static str,
+     model: &'static str,
+     advertised_tiers: &'static [&'static str],
+diff --git a/codex-rs/core/tests/suite/subagent_service_tier.rs b/codex-rs/core/tests/suite/subagent_service_tier.rs
+index 74d5592..2af9f80 100644
+--- a/codex-rs/core/tests/suite/subagent_service_tier.rs
++++ b/codex-rs/core/tests/suite/subagent_service_tier.rs
+@@ -157,8 +157,8 @@ async fn root_service_tier_change_updates_existing_subagent(
+ ) -> Result<()> {
+     let server = start_mock_server().await;
+     let initial_service_tier_owned = initial_service_tier.map(str::to_string);
+-    let updated_request_service_tier = updated_service_tier
+-        .filter(|service_tier| *service_tier != SERVICE_TIER_DEFAULT_REQUEST_VALUE);
++    let updated_request_service_tier =
++        Some(updated_service_tier.unwrap_or(SERVICE_TIER_DEFAULT_REQUEST_VALUE));
+     let mut builder = test_codex()
+         .with_model("gpt-5.6-sol")
+         .with_config(move |config| {
+@@ -389,7 +389,7 @@ async fn evicted_role_subagent_uses_root_service_tier_after_reload() -> Result<(
+         }]))
+         .await?;
+     wait_for_turn_complete(&reloaded_thread).await;
+-    assert_request_service_tier(&reloaded_request, /*expected*/ None);
++    assert_request_service_tier(&reloaded_request, Some(SERVICE_TIER_DEFAULT_REQUEST_VALUE));
+     reloaded_thread.shutdown_and_wait().await?;
+     test.codex.shutdown_and_wait().await?;
+ 
+diff --git a/codex-rs/model-provider/src/amazon_bedrock/catalog.rs b/codex-rs/model-provider/src/amazon_bedrock/catalog.rs
+index f160286..643e8da 100644
+--- a/codex-rs/model-provider/src/amazon_bedrock/catalog.rs
++++ b/codex-rs/model-provider/src/amazon_bedrock/catalog.rs
+@@ -402,7 +402,7 @@ mod tests {
+     }
+ 
+     #[test]
+-    fn bedrock_models_do_not_enable_priority_or_explicit_default_tiers() {
++    fn bedrock_models_preserve_explicit_provider_tiers_without_catalog_defaults() {
+         let catalog = static_model_catalog();
+ 
+         for model in catalog.models {
+@@ -410,12 +410,12 @@ mod tests {
+             assert_eq!(model.default_service_tier, None);
+             assert_eq!(
+                 model.service_tier_for_request(Some("priority".to_string())),
+-                None
++                Some("priority".to_string())
+             );
+             assert_eq!(
+                 model
+                     .service_tier_for_request(Some(SERVICE_TIER_DEFAULT_REQUEST_VALUE.to_string())),
+-                None
++                Some(SERVICE_TIER_DEFAULT_REQUEST_VALUE.to_string())
+             );
+         }
+     }
 diff --git a/codex-rs/protocol/src/config_types.rs b/codex-rs/protocol/src/config_types.rs
-index b5ac448..4bdaa7d 100644
+index 87ffe6d..38b86d3 100644
 --- a/codex-rs/protocol/src/config_types.rs
 +++ b/codex-rs/protocol/src/config_types.rs
-@@ -535,6 +535,9 @@ pub enum ServiceTier {
+@@ -536,6 +536,9 @@ pub enum ServiceTier {
  /// selected no service tier, so model catalog defaults should not apply.
  pub const SERVICE_TIER_DEFAULT_REQUEST_VALUE: &str = "default";
  
@@ -268,10 +368,18 @@ index b5ac448..4bdaa7d 100644
      pub const fn request_value(self) -> &'static str {
          match self {
 diff --git a/codex-rs/protocol/src/openai_models.rs b/codex-rs/protocol/src/openai_models.rs
-index 8c021b1..ef0632d 100644
+index d3d3dd8..5e174b7 100644
 --- a/codex-rs/protocol/src/openai_models.rs
 +++ b/codex-rs/protocol/src/openai_models.rs
-@@ -923,8 +923,8 @@ impl ModelInfo {
+@@ -27,7 +27,6 @@ use tracing::warn;
+ use ts_rs::TS;
+ 
+ use crate::config_types::ReasoningSummary;
+-use crate::config_types::SERVICE_TIER_DEFAULT_REQUEST_VALUE;
+ use crate::config_types::ServiceTier;
+ use crate::config_types::Verbosity;
+ use crate::protocol::MultiAgentVersion;
+@@ -1016,8 +1015,8 @@ impl ModelInfo {
  
      pub fn service_tier_for_request(&self, service_tier: Option<String>) -> Option<String> {
          service_tier.filter(|service_tier| {
@@ -282,7 +390,15 @@ index 8c021b1..ef0632d 100644
          })
      }
  }
-@@ -2050,7 +2050,7 @@ mod tests {
+@@ -1051,6 +1050,7 @@ impl ModelPreset {
+ #[cfg(test)]
+ mod tests {
+     use super::*;
++    use crate::config_types::SERVICE_TIER_DEFAULT_REQUEST_VALUE;
+     use pretty_assertions::assert_eq;
+     use serde_json::from_str;
+     use serde_json::to_string;
+@@ -1975,7 +1975,7 @@ mod tests {
      }
  
      #[test]
@@ -291,7 +407,7 @@ index 8c021b1..ef0632d 100644
          let model = ModelInfo {
              default_service_tier: Some(ServiceTier::Fast.request_value().to_string()),
              service_tiers: vec![ModelServiceTier {
-@@ -2063,7 +2063,7 @@ mod tests {
+@@ -1988,7 +1988,7 @@ mod tests {
  
          assert_eq!(
              model.service_tier_for_request(Some(SERVICE_TIER_DEFAULT_REQUEST_VALUE.to_string())),
@@ -300,7 +416,7 @@ index 8c021b1..ef0632d 100644
          );
      }
  
-@@ -2087,6 +2087,12 @@ mod tests {
+@@ -2025,6 +2025,12 @@ mod tests {
              model.service_tier_for_request(Some("unsupported".to_string())),
              None
          );

@@ -1,52 +1,60 @@
 diff --git a/codex-rs/app-server-protocol/src/protocol/v2/shared.rs b/codex-rs/app-server-protocol/src/protocol/v2/shared.rs
-index b5a68a0..e6d174b 100644
+index 65c7db5..3e3f4ef 100644
 --- a/codex-rs/app-server-protocol/src/protocol/v2/shared.rs
 +++ b/codex-rs/app-server-protocol/src/protocol/v2/shared.rs
-@@ -78,6 +78,8 @@ pub enum CodexErrorInfo {
+@@ -77,6 +77,8 @@ pub enum CodexErrorInfo {
      ContextWindowExceeded,
      SessionBudgetExceeded,
      UsageLimitExceeded,
 +    CreditBalanceExhausted,
 +    RequestTimeout,
      RateLimitExceeded,
+     FlexUnavailable,
      ServerOverloaded,
-     CyberPolicy,
-@@ -126,6 +128,8 @@ impl From<CoreCodexErrorInfo> for CodexErrorInfo {
+@@ -152,6 +154,8 @@ impl From<CoreCodexErrorInfo> for CodexErrorInfo {
              CoreCodexErrorInfo::ContextWindowExceeded => CodexErrorInfo::ContextWindowExceeded,
              CoreCodexErrorInfo::SessionBudgetExceeded => CodexErrorInfo::SessionBudgetExceeded,
              CoreCodexErrorInfo::UsageLimitExceeded => CodexErrorInfo::UsageLimitExceeded,
 +            CoreCodexErrorInfo::CreditBalanceExhausted => CodexErrorInfo::CreditBalanceExhausted,
 +            CoreCodexErrorInfo::RequestTimeout => CodexErrorInfo::RequestTimeout,
              CoreCodexErrorInfo::RateLimitExceeded => CodexErrorInfo::RateLimitExceeded,
+             CoreCodexErrorInfo::FlexUnavailable => CodexErrorInfo::FlexUnavailable,
              CoreCodexErrorInfo::ServerOverloaded => CodexErrorInfo::ServerOverloaded,
-             CoreCodexErrorInfo::CyberPolicy => CodexErrorInfo::CyberPolicy,
 diff --git a/codex-rs/cli/src/doctor.rs b/codex-rs/cli/src/doctor.rs
-index e42fa9b..5f0a722 100644
+index 10d1cef..cb024f7 100644
 --- a/codex-rs/cli/src/doctor.rs
 +++ b/codex-rs/cli/src/doctor.rs
-@@ -2364,6 +2364,7 @@ fn websocket_error_detail(err: &ApiError) -> String {
-         ApiError::Stream(message) => format!("handshake stream error: {message}"),
-         ApiError::ContextWindowExceeded
+@@ -2442,6 +2442,7 @@ fn websocket_error_detail(err: &ApiError) -> String {
+         | ApiError::ResponseIncomplete(_)
+         | ApiError::ContextWindowExceeded
          | ApiError::QuotaExceeded
 +        | ApiError::CreditBalanceExhausted
          | ApiError::UsageNotIncluded
          | ApiError::Retryable { .. }
          | ApiError::RateLimitExceeded { .. }
 diff --git a/codex-rs/codex-api/src/api_bridge.rs b/codex-rs/codex-api/src/api_bridge.rs
-index e8d7c47..1b33d11 100644
+index 98d8d17..fc131d4 100644
 --- a/codex-rs/codex-api/src/api_bridge.rs
 +++ b/codex-rs/codex-api/src/api_bridge.rs
-@@ -22,6 +22,7 @@ pub fn map_api_error(err: ApiError) -> CodexErr {
+@@ -32,6 +32,7 @@ pub fn map_api_error(err: ApiError) -> CodexErr {
+         | ApiError::ResponseIncomplete(_)
+         | ApiError::ContextWindowExceeded
+         | ApiError::QuotaExceeded
++        | ApiError::CreditBalanceExhausted
+         | ApiError::UsageNotIncluded
+         | ApiError::FlexUnavailable
+         | ApiError::RateLimit(_)
+@@ -52,6 +53,7 @@ fn map_api_error_details(err: ApiError) -> CodexErr {
      match err {
          ApiError::ContextWindowExceeded => CodexErr::ContextWindowExceeded,
          ApiError::QuotaExceeded => CodexErr::QuotaExceeded,
 +        ApiError::CreditBalanceExhausted => CodexErr::CreditBalanceExhausted,
          ApiError::UsageNotIncluded => CodexErr::UsageNotIncluded,
-         ApiError::Retryable { message, delay } => {
-             let error = CodexErr::Stream(message);
-@@ -40,6 +41,9 @@ pub fn map_api_error(err: ApiError) -> CodexErr {
-         ApiError::Stream(msg) => CodexErr::Stream(msg),
-         ApiError::ServerOverloaded => CodexErr::ServerOverloaded,
+         ApiError::Retryable { message, .. } => CodexErr::Stream(message),
+         ApiError::RateLimitExceeded { message, .. } => {
+@@ -65,6 +67,9 @@ fn map_api_error_details(err: ApiError) -> CodexErr {
+         ApiError::ServerOverloaded { .. } => CodexErr::ServerOverloaded,
+         ApiError::FlexUnavailable => CodexErr::new(CodexErrorDetails::FlexUnavailable),
          ApiError::Api { status, message } => {
 +            if let Some(error) = typed_error_body(&message) {
 +                return error;
@@ -54,20 +62,20 @@ index e8d7c47..1b33d11 100644
              let user_message = api_error_user_message(status, &message);
              CodexErr::UnexpectedStatus(UnexpectedResponseError {
                  status,
-@@ -71,6 +75,9 @@ pub fn map_api_error(err: ApiError) -> CodexErr {
-                 body,
+@@ -101,6 +106,9 @@ fn map_api_error_details(err: ApiError) -> CodexErr {
+                 ..
              } => {
                  let body_text = body.unwrap_or_default();
 +                if let Some(error) = typed_error_body(&body_text) {
 +                    return error;
 +                }
-
+ 
                  if status == http::StatusCode::SERVICE_UNAVAILABLE
                      && let Ok(value) = serde_json::from_str::<serde_json::Value>(&body_text)
-@@ -196,6 +203,24 @@ pub fn map_api_error(err: ApiError) -> CodexErr {
+@@ -276,6 +284,22 @@ fn map_api_error_details(err: ApiError) -> CodexErr {
      }
  }
-
+ 
 +// Typed failures take precedence over a transport status without retaining the
 +// provider body in the resulting error.
 +fn typed_error_body(body: &str) -> Option<CodexErr> {
@@ -78,9 +86,7 @@ index e8d7c47..1b33d11 100644
 +        "session_budget_exceeded" => Some(CodexErr::SessionBudgetExceeded),
 +        "insufficient_quota" | "usage_limit_exceeded" => Some(CodexErr::QuotaExceeded),
 +        "server_error" => Some(CodexErr::InternalServerError),
-+        "server_overloaded" | "server_is_overloaded" | "slow_down" => {
-+            Some(CodexErr::ServerOverloaded)
-+        }
++        "server_overloaded" | "server_is_overloaded" => Some(CodexErr::ServerOverloaded),
 +        "request_timeout" => Some(CodexErr::RequestTimeout),
 +        _ => None,
 +    }
@@ -90,10 +96,21 @@ index e8d7c47..1b33d11 100644
  const REQUEST_ID_HEADER: &str = "x-request-id";
  const OAI_REQUEST_ID_HEADER: &str = "x-oai-request-id";
 diff --git a/codex-rs/codex-api/src/api_bridge_tests.rs b/codex-rs/codex-api/src/api_bridge_tests.rs
-index 666dea8..a2df4c3 100644
+index c5504e2..17df58a 100644
 --- a/codex-rs/codex-api/src/api_bridge_tests.rs
 +++ b/codex-rs/codex-api/src/api_bridge_tests.rs
-@@ -521,3 +521,67 @@ fn map_api_error_extracts_identity_auth_details_from_headers() {
+@@ -511,7 +511,9 @@ fn map_api_error_distinguishes_http_quota_errors_from_rate_limits() {
+         serde_json::json!({"type": "rate_limit_error", "code": "rate_limit_exceeded"}),
+         serde_json::json!({"type": "rate_limit_error", "code": "slow_down"}),
+     ] {
+-        let expected = if error["type"] == "rate_limit_error" {
++        let expected = if error["code"] == "credit_balance_exhausted" {
++            CodexErrorInfo::CreditBalanceExhausted
++        } else if error["type"] == "rate_limit_error" {
+             CodexErrorInfo::ResponseTooManyFailedAttempts {
+                 http_status_code: Some(429),
+             }
+@@ -776,3 +778,69 @@ fn map_api_error_extracts_identity_auth_details_from_headers() {
      );
      assert_eq!(err.identity_error_code.as_deref(), Some("token_expired"));
  }
@@ -109,6 +126,7 @@ index 666dea8..a2df4c3 100644
 +            message: body.to_string(),
 +        },
 +        ApiError::Transport(TransportError::Http {
++            retry_after: None,
 +            status: http::StatusCode::TOO_MANY_REQUESTS,
 +            url: None,
 +            headers: None,
@@ -120,7 +138,7 @@ index 666dea8..a2df4c3 100644
 +            mapped.to_codex_protocol_error(),
 +            CodexErrorInfo::CreditBalanceExhausted
 +        );
-+        assert!(!mapped.is_retryable());
++        assert!(mapped.retry_delay(1).is_none());
 +        assert_eq!(mapped.to_string(), "API credit balance exhausted.");
 +    }
 +}
@@ -149,6 +167,7 @@ index 666dea8..a2df4c3 100644
 +                message: body.clone(),
 +            },
 +            ApiError::Transport(TransportError::Http {
++                retry_after: None,
 +                status: http::StatusCode::BAD_REQUEST,
 +                url: None,
 +                headers: None,
@@ -162,10 +181,10 @@ index 666dea8..a2df4c3 100644
 +    }
 +}
 diff --git a/codex-rs/codex-api/src/error.rs b/codex-rs/codex-api/src/error.rs
-index d1d83cf..1030d81 100644
+index ad54b72..035f8d9 100644
 --- a/codex-rs/codex-api/src/error.rs
 +++ b/codex-rs/codex-api/src/error.rs
-@@ -17,6 +17,8 @@ pub enum ApiError {
+@@ -23,6 +23,8 @@ pub enum ApiError {
      ContextWindowExceeded,
      #[error("quota exceeded")]
      QuotaExceeded,
@@ -175,38 +194,13 @@ index d1d83cf..1030d81 100644
      UsageNotIncluded,
      #[error("retryable error: {message}")]
 diff --git a/codex-rs/codex-api/src/sse/responses.rs b/codex-rs/codex-api/src/sse/responses.rs
-index e4f5f04..126005d 100644
+index 34d5511..925f720 100644
 --- a/codex-rs/codex-api/src/sse/responses.rs
 +++ b/codex-rs/codex-api/src/sse/responses.rs
-@@ -420,7 +420,23 @@ pub fn process_responses_event(
-                 if let Some(error) = resp_val.get("error")
-                     && let Ok(error) = serde_json::from_value::<Error>(error.clone())
-                 {
--                    if is_context_window_error(&error) {
-+                    if error.code.as_deref() == Some("credit_balance_exhausted") {
-+                        response_error = ApiError::CreditBalanceExhausted;
-+                    } else if matches!(
-+                        error.code.as_deref(),
-+                        Some(
-+                            "server_error"
-+                                | "request_timeout"
-+                                | "session_budget_exceeded"
-+                                | "usage_limit_exceeded"
-+                                | "server_overloaded"
-+                        )
-+                    ) {
-+                        response_error = ApiError::Api {
-+                            status: http::StatusCode::INTERNAL_SERVER_ERROR,
-+                            message: serde_json::json!({"error": {"code": error.code}}).to_string(),
-+                        };
-+                    } else if is_context_window_error(&error) {
-                         response_error = ApiError::ContextWindowExceeded;
-                     } else if is_quota_exceeded_error(&error) {
-                         response_error = ApiError::QuotaExceeded;
-@@ -1181,6 +1197,15 @@ mod tests {
+@@ -1180,6 +1180,15 @@ mod tests {
          assert_matches!(events[0], Err(ApiError::ContextWindowExceeded));
      }
-
+ 
 +    #[tokio::test]
 +    async fn credit_balance_exhausted_error_is_fatal() {
 +        let raw = r#"{"type":"response.failed","response":{"id":"credit_failure","error":{"code":"credit_balance_exhausted","message":"No API credits remain."}}}"#;
@@ -219,13 +213,78 @@ index e4f5f04..126005d 100644
      #[tokio::test]
      async fn quota_exceeded_error_is_fatal() {
          let raw_error = r#"{"type":"response.failed","sequence_number":3,"response":{"id":"resp_fatal_quota","object":"response","created_at":1759771626,"status":"failed","background":false,"error":{"code":"insufficient_quota","message":"You exceeded your current quota, please check your plan and billing details. For more information on this error, read the docs: https://platform.openai.com/docs/guides/error-codes/api-errors."},"incomplete_details":null}}"#;
+diff --git a/codex-rs/codex-api/src/sse/responses_error.rs b/codex-rs/codex-api/src/sse/responses_error.rs
+index 890f45a..8e40aac 100644
+--- a/codex-rs/codex-api/src/sse/responses_error.rs
++++ b/codex-rs/codex-api/src/sse/responses_error.rs
+@@ -46,9 +46,19 @@ pub(super) fn parse_failed_response(response: Option<Value>) -> ApiError {
+ 
+     match error.code.as_deref() {
+         Some("context_length_exceeded") => ApiError::ContextWindowExceeded,
++        Some("credit_balance_exhausted") => ApiError::CreditBalanceExhausted,
++        Some(
++            "server_error"
++            | "request_timeout"
++            | "session_budget_exceeded"
++            | "usage_limit_exceeded"
++            | "server_overloaded",
++        ) => ApiError::Api {
++            status: http::StatusCode::INTERNAL_SERVER_ERROR,
++            message: serde_json::json!({"error": {"code": error.code}}).to_string(),
++        },
+         Some(
+             "insufficient_quota"
+-            | "credit_balance_exhausted"
+             | "organization_spend_limit_exceeded"
+             | "project_spend_limit_exceeded",
+         ) => ApiError::QuotaExceeded,
+diff --git a/codex-rs/core/tests/suite/quota_exceeded.rs b/codex-rs/core/tests/suite/quota_exceeded.rs
+index 852fe5a..c02a7ea 100644
+--- a/codex-rs/core/tests/suite/quota_exceeded.rs
++++ b/codex-rs/core/tests/suite/quota_exceeded.rs
+@@ -51,6 +51,18 @@ async fn quota_exceeded_emits_single_error_event(code: &str) -> Result<()> {
+         }]))
+         .await?;
+ 
++    let (expected_message, expected_error) = if code == "credit_balance_exhausted" {
++        (
++            "API credit balance exhausted.",
++            CodexErrorInfo::CreditBalanceExhausted,
++        )
++    } else {
++        (
++            "Quota exceeded. Check your plan and billing details.",
++            CodexErrorInfo::UsageLimitExceeded,
++        )
++    };
++
+     let mut error_events = 0;
+ 
+     loop {
+@@ -59,14 +71,8 @@ async fn quota_exceeded_emits_single_error_event(code: &str) -> Result<()> {
+         match event {
+             EventMsg::Error(err) => {
+                 error_events += 1;
+-                assert_eq!(
+-                    err.message,
+-                    "Quota exceeded. Check your plan and billing details."
+-                );
+-                assert_eq!(
+-                    err.codex_error_info,
+-                    Some(CodexErrorInfo::UsageLimitExceeded)
+-                );
++                assert_eq!(err.message, expected_message);
++                assert_eq!(err.codex_error_info, Some(expected_error.clone()));
+             }
+             EventMsg::TurnComplete(_) => break,
+             _ => {}
 diff --git a/codex-rs/ext/goal/src/extension.rs b/codex-rs/ext/goal/src/extension.rs
-index 8984899..633b99d 100644
+index bdc7535..5c55d3a 100644
 --- a/codex-rs/ext/goal/src/extension.rs
 +++ b/codex-rs/ext/goal/src/extension.rs
-@@ -365,7 +365,9 @@ where
+@@ -427,7 +427,9 @@ where
              };
-
+ 
              let reason = match input.error {
 -                CodexErrorInfo::UsageLimitExceeded => ActiveGoalStopReason::UsageLimit,
 +                CodexErrorInfo::UsageLimitExceeded | CodexErrorInfo::CreditBalanceExhausted => {
@@ -234,35 +293,94 @@ index 8984899..633b99d 100644
                  // The turn has ended because the error was non-retryable or its
                  // retries were exhausted. Block the goal to prevent automatic
                  // continuation from looping and consuming tokens, as can happen
+diff --git a/codex-rs/ext/guardian-reviewer/src/retry.rs b/codex-rs/ext/guardian-reviewer/src/retry.rs
+index 5740cda..e63643b 100644
+--- a/codex-rs/ext/guardian-reviewer/src/retry.rs
++++ b/codex-rs/ext/guardian-reviewer/src/retry.rs
+@@ -180,6 +180,7 @@ fn should_retry_guardian_review(outcome: &GuardianReviewOutcome) -> bool {
+             ..
+         }) => match error {
+             CodexErrorInfo::RateLimitExceeded
++            | CodexErrorInfo::RequestTimeout
+             | CodexErrorInfo::FlexUnavailable
+             | CodexErrorInfo::ServerOverloaded
+             | CodexErrorInfo::InternalServerError => true,
+@@ -192,6 +193,7 @@ fn should_retry_guardian_review(outcome: &GuardianReviewOutcome) -> bool {
+             CodexErrorInfo::ContextWindowExceeded
+             | CodexErrorInfo::SessionBudgetExceeded
+             | CodexErrorInfo::UsageLimitExceeded
++            | CodexErrorInfo::CreditBalanceExhausted
+             | CodexErrorInfo::CyberPolicy
+             | CodexErrorInfo::BioPolicy
+             | CodexErrorInfo::MisalignmentPolicyViolation
+diff --git a/codex-rs/ext/guardian-reviewer/src/retry_tests.rs b/codex-rs/ext/guardian-reviewer/src/retry_tests.rs
+index c33aaff..47809bc 100644
+--- a/codex-rs/ext/guardian-reviewer/src/retry_tests.rs
++++ b/codex-rs/ext/guardian-reviewer/src/retry_tests.rs
+@@ -47,6 +47,7 @@ fn guardian_review_retry_only_retries_recoverable_errors() {
+     let transient_error_info = [
+         CodexErrorInfo::ServerOverloaded,
+         CodexErrorInfo::FlexUnavailable,
++        CodexErrorInfo::RequestTimeout,
+         CodexErrorInfo::HttpConnectionFailed {
+             http_status_code: Some(502),
+         },
+@@ -71,6 +72,13 @@ fn guardian_review_retry_only_retries_recoverable_errors() {
+         })
+         .collect::<Vec<_>>();
+     outcomes.extend([
++        (
++            GuardianReviewOutcome::Error(GuardianReviewError::session_with_error_info(
++                anyhow::anyhow!("credit balance exhausted"),
++                CodexErrorInfo::CreditBalanceExhausted,
++            )),
++            false,
++        ),
+         (GuardianReviewOutcome::Completed(assessment), false),
+         (
+             GuardianReviewOutcome::Error(GuardianReviewError::StaleAuthorization),
 diff --git a/codex-rs/ext/guardian-v2/src/async_scorer/metrics.rs b/codex-rs/ext/guardian-v2/src/async_scorer/metrics.rs
-index 9b60a47..4058215 100644
+index 3b7b12c..7356d2d 100644
 --- a/codex-rs/ext/guardian-v2/src/async_scorer/metrics.rs
 +++ b/codex-rs/ext/guardian-v2/src/async_scorer/metrics.rs
-@@ -43,6 +43,7 @@ pub(super) fn sampler_failure_reason(error: &LunaSamplerError) -> &'static str {
-             ApiError::Stream(_) => "stream_error",
+@@ -50,6 +50,7 @@ pub(super) fn sampler_failure_reason(error: &LunaSamplerError) -> &'static str {
+             ApiError::ResponseIncomplete(_) => "incomplete_response",
              ApiError::ContextWindowExceeded => "context_window_exceeded",
              ApiError::QuotaExceeded => "quota_exceeded",
 +            ApiError::CreditBalanceExhausted => "credit_balance_exhausted",
              ApiError::UsageNotIncluded => "usage_not_included",
              ApiError::Retryable { .. } => "retryable_api_error",
              ApiError::RateLimitExceeded { .. } | ApiError::RateLimit(_) => "rate_limit",
-diff --git a/codex-rs/ext/guardian-v2/src/async_scorer/sampler.rs b/codex-rs/ext/guardian-v2/src/async_scorer/sampler.rs
-index 993e2d4..1f68eb6 100644
---- a/codex-rs/ext/guardian-v2/src/async_scorer/sampler.rs
-+++ b/codex-rs/ext/guardian-v2/src/async_scorer/sampler.rs
-@@ -240,6 +240,7 @@ impl LunaSampler {
-                 ApiError::Transport(TransportError::Build(_))
+diff --git a/codex-rs/ext/guardian-v2/src/async_scorer/sampler/execution.rs b/codex-rs/ext/guardian-v2/src/async_scorer/sampler/execution.rs
+index 0fc65ad..85da41c 100644
+--- a/codex-rs/ext/guardian-v2/src/async_scorer/sampler/execution.rs
++++ b/codex-rs/ext/guardian-v2/src/async_scorer/sampler/execution.rs
+@@ -184,6 +184,7 @@ impl SamplingExecution {
                  | ApiError::ContextWindowExceeded
+                 | ApiError::ResponseIncomplete(_)
                  | ApiError::QuotaExceeded
 +                | ApiError::CreditBalanceExhausted
                  | ApiError::UsageNotIncluded
                  | ApiError::RateLimit(_)
                  | ApiError::InvalidRequest { .. }
+diff --git a/codex-rs/protocol/src/codex_error_info.rs b/codex-rs/protocol/src/codex_error_info.rs
+index 10928a4..a3bea0c 100644
+--- a/codex-rs/protocol/src/codex_error_info.rs
++++ b/codex-rs/protocol/src/codex_error_info.rs
+@@ -20,6 +20,8 @@ enum CodexErrorInfoWire {
+     ContextWindowExceeded,
+     SessionBudgetExceeded,
+     UsageLimitExceeded,
++    CreditBalanceExhausted,
++    RequestTimeout,
+     RateLimitExceeded,
+     FlexUnavailable,
+     ServerOverloaded,
 diff --git a/codex-rs/protocol/src/error.rs b/codex-rs/protocol/src/error.rs
-index be0192f..f0f8ea9 100644
+index 50c32e3..5c271f5 100644
 --- a/codex-rs/protocol/src/error.rs
 +++ b/codex-rs/protocol/src/error.rs
-@@ -147,6 +147,8 @@ pub enum CodexErrorDetails {
+@@ -180,6 +180,8 @@ pub enum CodexErrorDetails {
      ConnectionFailed(ConnectionFailedError),
      #[error("Quota exceeded. Check your plan and billing details.")]
      QuotaExceeded,
@@ -271,7 +389,7 @@ index be0192f..f0f8ea9 100644
      #[error(
          "To use Codex with your ChatGPT plan, upgrade to Plus: https://chatgpt.com/explore/plus."
      )]
-@@ -321,6 +323,7 @@ impl CodexErr {
+@@ -359,6 +361,7 @@ impl CodexErr {
          Interrupted,
          ServerOverloaded,
          QuotaExceeded,
@@ -279,15 +397,15 @@ index be0192f..f0f8ea9 100644
          UsageNotIncluded,
          InternalServerError,
          InternalAgentDied,
-@@ -377,6 +380,7 @@ impl CodexErr {
+@@ -419,6 +422,7 @@ impl CodexErr {
              | CodexErrorDetails::Fatal(_)
              | CodexErrorDetails::UsageNotIncluded
              | CodexErrorDetails::QuotaExceeded
 +            | CodexErrorDetails::CreditBalanceExhausted
              | CodexErrorDetails::InvalidImageRequest()
              | CodexErrorDetails::InvalidRequest(_)
-             | CodexErrorDetails::ToolCollision(_)
-@@ -431,6 +435,7 @@ impl CodexErr {
+             | CodexErrorDetails::ResponseIncomplete(_)
+@@ -491,6 +495,7 @@ impl CodexErr {
      pub fn to_codex_protocol_error(&self) -> CodexErrorInfo {
          match &self.details {
              CodexErrorDetails::ContextWindowExceeded => CodexErrorInfo::ContextWindowExceeded,
@@ -295,7 +413,7 @@ index be0192f..f0f8ea9 100644
              CodexErrorDetails::SessionBudgetExceeded => CodexErrorInfo::SessionBudgetExceeded,
              CodexErrorDetails::RateLimitExceeded(_) => CodexErrorInfo::RateLimitExceeded,
              CodexErrorDetails::UsageLimitReached(_)
-@@ -452,6 +457,15 @@ impl CodexErr {
+@@ -517,6 +522,15 @@ impl CodexErr {
                      http_status_code: self.http_status_code_value(),
                  }
              }
@@ -312,33 +430,33 @@ index be0192f..f0f8ea9 100644
              CodexErrorDetails::SessionConfiguredNotFirstEvent
              | CodexErrorDetails::InternalServerError
 diff --git a/codex-rs/protocol/src/protocol.rs b/codex-rs/protocol/src/protocol.rs
-index 66e4315..1eb4740 100644
+index dc5c2a3..95b7154 100644
 --- a/codex-rs/protocol/src/protocol.rs
 +++ b/codex-rs/protocol/src/protocol.rs
-@@ -1852,6 +1852,8 @@ pub enum CodexErrorInfo {
+@@ -1971,6 +1971,8 @@ pub enum CodexErrorInfo {
      ContextWindowExceeded,
      SessionBudgetExceeded,
      UsageLimitExceeded,
 +    CreditBalanceExhausted,
 +    RequestTimeout,
      RateLimitExceeded,
+     FlexUnavailable,
      ServerOverloaded,
-     CyberPolicy,
-@@ -1892,6 +1894,8 @@ impl CodexErrorInfo {
+@@ -2016,6 +2018,8 @@ impl CodexErrorInfo {
              Self::ContextWindowExceeded
              | Self::SessionBudgetExceeded
              | Self::UsageLimitExceeded
 +            | Self::CreditBalanceExhausted
 +            | Self::RequestTimeout
              | Self::RateLimitExceeded
+             | Self::FlexUnavailable
              | Self::ServerOverloaded
-             | Self::CyberPolicy
 diff --git a/codex-rs/response-debug-context/src/lib.rs b/codex-rs/response-debug-context/src/lib.rs
-index 42825a7..9fb0553 100644
+index 97f4024..5f07c4a 100644
 --- a/codex-rs/response-debug-context/src/lib.rs
 +++ b/codex-rs/response-debug-context/src/lib.rs
-@@ -78,6 +78,7 @@ pub fn telemetry_api_error_message(error: &ApiError) -> String {
-         ApiError::Stream(err) => err.to_string(),
+@@ -81,6 +81,7 @@ pub fn telemetry_api_error_message(error: &ApiError) -> String {
+         ApiError::ResponseIncomplete(_) => "incomplete response".to_string(),
          ApiError::ContextWindowExceeded => "context window exceeded".to_string(),
          ApiError::QuotaExceeded => "quota exceeded".to_string(),
 +        ApiError::CreditBalanceExhausted => "credit balance exhausted".to_string(),

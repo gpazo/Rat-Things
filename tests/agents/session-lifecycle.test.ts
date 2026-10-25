@@ -89,7 +89,7 @@ describe('Agents API session lifecycle through the OpenAI SDK', () => {
     expect(unchanged.metadata).toEqual({});
     await expect(f.api.sessions.update(session.id, { agent: { model: 'unknown' } })).rejects.toMatchObject({ status: 400 });
     expect((await f.api.sessions.update(session.id, { agent: { model: 'gpt-5.4-mini-2026-03-17', reasoning: { effort: 'none' }, service_tier: 'priority' } })).agent).toMatchObject({ model: 'gpt-5.4-mini-2026-03-17', reasoning: { effort: 'none' }, service_tier: 'priority' });
-    expect((await f.api.sessions.update(session.id, { agent: { model: 'openai.gpt-5.4', reasoning: { effort: null } } })).agent.reasoning.effort).toBe('medium');
+    expect((await f.api.sessions.update(session.id, { agent: { model: 'openai.gpt-6-sol', reasoning: { effort: null } } })).agent.reasoning.effort).toBe('medium');
   });
 
   it('serves owner-scoped traces, validates cursors and preserves captured steps after runtime removal', async () => {

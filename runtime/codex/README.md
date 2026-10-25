@@ -7,11 +7,21 @@ patch applies cleanly.
 
 ## What is pinned
 
+The runtime is built from the full upstream Codex 0.164.0 source, with the explicit
+patches below. The stock executable is not interchangeable: Rat Things requires
+confirmed checkpoint persistence, exact provider settings and typed failures,
+ordered interruption and output, and sandboxed Node subprocess support.
+
+Reasoning defaults follow this release's model catalogue. A model absent from that
+catalogue has a null default, leaving the choice to the provider; an explicit
+saved effort is preserved. Model capabilities remain separately validated.
+
 [source.json](source.json) selects the upstream repository, exact commit, release
 version and ordered patches. [companion-packages.json](companion-packages.json)
 locks each platform's npm package identity, tarball integrity, descriptor and file
 hashes against [package-lock.json](../../package-lock.json). The compiled executable
-travels with its matching code-mode host, `rg`, `zsh` and Linux `bwrap` resources.
+travels with its matching code-mode and voice hosts, shared libraries, `rg`,
+licenses and Linux `bwrap` resources. Bundling voice resources does not enable voice.
 Replacing only `bin/codex` from an unrelated release is not an upgrade.
 
 [artifact-policy.json](artifact-policy.json) binds the source and ordered patch
@@ -34,11 +44,10 @@ integration checks. Building the executable does not run those Rust tests.
 | [release-lock.patch](release-lock.patch) | Align workspace package versions in `Cargo.lock` with the pinned release so `cargo build --locked` succeeds without rewriting the lock. | The locked build and exact-tree audit; no separate runtime behavior change. |
 | [interrupt-barrier.patch](interrupt-barrier.patch) | Await child task interruption before acknowledging it, so a follow-up on that child does not race the previous execution guard at the concurrency limit. | Strict interruption/follow-up cases in [native-session.test.ts](../../tests/agents/native-session.test.ts), plus nested limit checks in [native-admission.test.ts](../../tests/agents/native-admission.test.ts). |
 | [api-model-settings.patch](api-model-settings.patch) | Preserve explicit `auto`, `default`, `flex`, `priority` and `fast` service tiers through config and Turn updates; the provider decides support without a silent catalog/UI downgrade. | Patched config, Session and protocol service-tier unit tests; [native-session-settings.test.ts](../../tests/agents/native-session-settings.test.ts) checks outgoing requests across Turns. |
+| [chatgpt-service-tier.patch](chatgpt-service-tier.patch) | Omit `auto`/`default` for ChatGPT authentication while preserving other explicit tiers and API-key/Bedrock request values across HTTP and WebSocket setup and continuation. | Patched `responses_service_tier_*` Rust tests cover these transports/auth modes, including repeated Turns. They use local fixtures, not a live provider. |
 | [api-turn-errors.patch](api-turn-errors.patch) | Preserve typed provider failures across HTTP and SSE, including credit exhaustion and timeouts; keep private diagnostics out of normalized errors and credit exhaustion non-retryable. | Patched API bridge/SSE unit tests; [native-turn-errors.test.ts](../../tests/agents/native-turn-errors.test.ts) checks public categories, private-message removal and request count. |
-| [checkpoint-shutdown.patch](checkpoint-shutdown.patch) | Add private `thread/checkpoint`: require an idle durable thread and acknowledge successful persistence shutdown, with a bounded wait. The host must seal admission first. | [session-checkpoint.test.ts](../../tests/runner/session-checkpoint.test.ts) checks orchestration with an RPC fixture. The opt-in [AWS checkpoint proof](../../tests/aws/session-checkpoint.test.ts) exercises actual worker replacement and native history; the fixture alone does not prove a durable flush. |
-| [step-settings-test-import.patch](step-settings-test-import.patch) | Restore the `ServiceTier` import needed by the upstream step-settings tests after the settings patch removes the production import. | Compile and run the affected `codex-core` unit tests; this is a test-build fix. |
-| [unified-exec-output-subscription.patch](unified-exec-output-subscription.patch) | Subscribe when the process output channel is created, retaining early output until the streaming consumer takes its receiver. | Patched Rust test `exit_watcher_preserves_output_emitted_before_streaming_starts` checks both streamed bytes and completed command output. |
-| [chatgpt-service-tier.patch](chatgpt-service-tier.patch) | Omit `auto`/`default` for ChatGPT authentication while preserving other explicit tiers and API-key/Bedrock request values across HTTP, WebSocket and compaction requests. | Patched `responses_service_tier_*` Rust tests cover these transports/auth modes, including repeated Turns and WebSocket continuation. They use local fixtures, not a live provider. |
+| [checkpoint-shutdown.patch](checkpoint-shutdown.patch) | Add private `thread/checkpoint` for an exact set of idle durable threads. Use upstream shutdown handles to drain descendants, internal work and persistence before acknowledging the set. The host seals admission, verifies history and waits for process exit before publishing. | Patched `checkpoint_idle_threads_*` core integration tests cover tree shutdown, identity validation, busy rejection and persistence failure; [native-checkpoint.test.ts](../../tests/agents/native-checkpoint.test.ts) exercises the compiled bridge and resume; [session-checkpoint.test.ts](../../tests/runner/session-checkpoint.test.ts) checks host orchestration. The opt-in [AWS checkpoint proof](../../tests/aws/session-checkpoint.test.ts) is still required for actual worker replacement. |
+| [unified-exec-output-subscription.patch](unified-exec-output-subscription.patch) | Subscribe when the process output channel is created, retaining early output until the streaming consumer takes its receiver. Upstream retains the completed transcript; streaming still needs the early receiver. | Patched Rust test `streamed_and_completed_output_preserve_bytes_before_subscription` checks both streamed bytes and completed command output with and without late output. |
 | [local-subprocess-stdio.patch](local-subprocess-stdio.patch) | Permit the local socket metadata and write-half-close that Node subprocess pipes require under disabled networking. Keep connection operations, non-Unix socket creation, other socket options and other shutdown modes denied. | Patched `restricted_network_supports_node_subprocess_stdio` and `restricted_network_socket_metadata_does_not_enable_connections` tests; [managed-subprocess.test.ts](../../tests/pi/managed-subprocess.test.ts) checks the compiled artifact in strict Linux parity, and both KVM harnesses exercise the guest. |
 
 ## Upgrade one candidate at a time

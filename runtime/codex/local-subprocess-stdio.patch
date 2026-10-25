@@ -1,7 +1,8 @@
-diff --git a/codex-rs/linux-sandbox/src/landlock.rs b/codex-rs/linux-sandbox/src/landlock.rs
---- a/codex-rs/linux-sandbox/src/landlock.rs
-+++ b/codex-rs/linux-sandbox/src/landlock.rs
-@@ -191,8 +191,6 @@
+diff --git a/codex-rs/linux-sandbox/src/seccomp.rs b/codex-rs/linux-sandbox/src/seccomp.rs
+index 67cc724..5c21c3c 100644
+--- a/codex-rs/linux-sandbox/src/seccomp.rs
++++ b/codex-rs/linux-sandbox/src/seccomp.rs
+@@ -208,8 +208,6 @@ fn install_network_seccomp_filter_on_current_thread(
              deny_syscall(&mut rules, libc::SYS_bind);
              deny_syscall(&mut rules, libc::SYS_listen);
              deny_syscall(&mut rules, libc::SYS_getpeername);
@@ -10,7 +11,7 @@ diff --git a/codex-rs/linux-sandbox/src/landlock.rs b/codex-rs/linux-sandbox/src
              deny_syscall(&mut rules, libc::SYS_sendto);
              deny_syscall(&mut rules, libc::SYS_sendmmsg);
              // NOTE: allowing recvfrom allows some tools like: `cargo clippy`
-@@ -200,7 +198,39 @@
+@@ -217,7 +215,39 @@ fn install_network_seccomp_filter_on_current_thread(
              // management.
              // deny_syscall(&mut rules, libc::SYS_recvfrom);
              deny_syscall(&mut rules, libc::SYS_recvmmsg);
@@ -51,13 +52,14 @@ diff --git a/codex-rs/linux-sandbox/src/landlock.rs b/codex-rs/linux-sandbox/src
              deny_syscall(&mut rules, libc::SYS_setsockopt);
  
              // For `socket` we allow AF_UNIX (arg0 == AF_UNIX) and deny
-diff --git a/codex-rs/linux-sandbox/tests/suite/landlock.rs b/codex-rs/linux-sandbox/tests/suite/landlock.rs
---- a/codex-rs/linux-sandbox/tests/suite/landlock.rs
-+++ b/codex-rs/linux-sandbox/tests/suite/landlock.rs
-@@ -1258,3 +1258,84 @@
-     // all images ship bash, so we guard against 127 as well.
-     assert_network_blocked(&["bash", "-c", "echo hi > /dev/tcp/127.0.0.1/80"]).await;
- }
+diff --git a/codex-rs/linux-sandbox/tests/suite/sandbox.rs b/codex-rs/linux-sandbox/tests/suite/sandbox.rs
+index e0167df..b718dd6 100644
+--- a/codex-rs/linux-sandbox/tests/suite/sandbox.rs
++++ b/codex-rs/linux-sandbox/tests/suite/sandbox.rs
+@@ -1572,3 +1572,84 @@ async fn sandbox_blocks_dev_tcp_redirection() {
+ 
+ #[path = "daemon_sockets_tests.rs"]
+ mod daemon_sockets_tests;
 +
 +// These compatibility regressions require Node and Python, and intentionally do
 +// not accept a missing interpreter or unavailable sandbox as a passing result.

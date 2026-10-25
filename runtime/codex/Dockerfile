@@ -10,7 +10,7 @@ RUN dnf install -y gcc gcc-c++ make cmake clang pkgconfig libcap-devel perl-core
     && dnf clean all && rm -rf /var/cache/dnf
 RUN dnf install -y openssl-devel && dnf clean all && rm -rf /var/cache/dnf
 RUN curl --fail --location --silent --show-error https://sh.rustup.rs --output /tmp/rustup.sh \
-    && sh /tmp/rustup.sh -y --profile minimal --default-toolchain 1.95.0 --no-modify-path \
+    && sh /tmp/rustup.sh -y --profile minimal --default-toolchain 1.99.1 --no-modify-path \
     && rm /tmp/rustup.sh
 ENV PATH=/root/.cargo/bin:$PATH CARGO_BUILD_JOBS=1
 WORKDIR /rat
@@ -22,7 +22,8 @@ RUN npm install --omit=dev --no-audit --no-fund \
 RUN --mount=type=cache,target=/build,id=rat-codex-${TARGETARCH}-build \
     --mount=type=cache,target=/root/.cargo/registry,id=rat-codex-${TARGETARCH}-registry \
     --mount=type=cache,target=/root/.cargo/git,id=rat-codex-${TARGETARCH}-git \
-    node scripts/build-codex-runtime.mjs /build \
-    && mkdir /out && cp -a /build/runtime /out/runtime && cp /build/artifact.json /out/artifact.json
+    build_directory="/build/$(sha256sum runtime/codex/source.json runtime/codex/*.patch runtime/codex/Dockerfile scripts/build-codex-runtime.mjs | sha256sum | cut -d ' ' -f1)" \
+    && node scripts/build-codex-runtime.mjs "$build_directory" \
+    && mkdir /out && cp -a "$build_directory/runtime" /out/runtime && cp "$build_directory/artifact.json" /out/artifact.json
 FROM scratch AS artifact
 COPY --from=build /out/ /

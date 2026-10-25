@@ -1,27 +1,33 @@
 diff --git a/codex-rs/app-server-protocol/src/protocol/common.rs b/codex-rs/app-server-protocol/src/protocol/common.rs
+index b183d6a..008d1f3 100644
 --- a/codex-rs/app-server-protocol/src/protocol/common.rs
 +++ b/codex-rs/app-server-protocol/src/protocol/common.rs
-@@ -820,6 +820,11 @@
-         params: v2::ThreadLoadedListParams,
+@@ -868,6 +868,11 @@ client_request_definitions! {
          serialization: None,
          response: v2::ThreadLoadedListResponse,
-+    },
+     },
 +    ThreadCheckpoint => "thread/checkpoint" {
 +        params: v2::ThreadCheckpointParams,
 +        serialization: thread_id(params.thread_id),
 +        response: v2::ThreadCheckpointResponse,
-     },
++    },
      ThreadRead => "thread/read" {
          params: v2::ThreadReadParams,
+         serialization: thread_id(params.thread_id),
 diff --git a/codex-rs/app-server-protocol/src/protocol/v2/thread.rs b/codex-rs/app-server-protocol/src/protocol/v2/thread.rs
+index a7a7623..1fdd5a5 100644
 --- a/codex-rs/app-server-protocol/src/protocol/v2/thread.rs
 +++ b/codex-rs/app-server-protocol/src/protocol/v2/thread.rs
-@@ -1664,6 +1664,21 @@
- #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS)]
- #[serde(rename_all = "camelCase")]
- #[ts(export_to = "v2/")]
+@@ -1705,6 +1705,23 @@ pub enum ThreadActiveFlag {
+     WaitingOnUserInput,
+ }
+ 
++#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS)]
++#[serde(rename_all = "camelCase")]
++#[ts(export_to = "v2/")]
 +pub struct ThreadCheckpointParams {
 +    pub thread_id: String,
++    pub expected_thread_ids: Vec<String>,
 +}
 +
 +#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS)]
@@ -29,19 +35,18 @@ diff --git a/codex-rs/app-server-protocol/src/protocol/v2/thread.rs b/codex-rs/a
 +#[ts(export_to = "v2/")]
 +pub struct ThreadCheckpointResponse {
 +    pub thread_id: String,
++    pub thread_ids: Vec<String>,
 +    pub flushed: bool,
 +}
 +
-+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS)]
-+#[serde(rename_all = "camelCase")]
-+#[ts(export_to = "v2/")]
- pub struct ThreadReadParams {
-     pub thread_id: String,
-     /// When true, include turns and their items from rollout history.
+ #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS)]
+ #[serde(rename_all = "camelCase")]
+ #[ts(export_to = "v2/")]
 diff --git a/codex-rs/app-server/src/message_processor.rs b/codex-rs/app-server/src/message_processor.rs
+index e1e5a7a..c84d6b2 100644
 --- a/codex-rs/app-server/src/message_processor.rs
 +++ b/codex-rs/app-server/src/message_processor.rs
-@@ -1359,6 +1359,9 @@
+@@ -1547,6 +1547,9 @@ impl MessageProcessor {
              ClientRequest::ThreadLoadedList { params, .. } => {
                  self.thread_processor.thread_loaded_list(params).await
              }
@@ -52,110 +57,342 @@ diff --git a/codex-rs/app-server/src/message_processor.rs b/codex-rs/app-server/
                  self.thread_processor.thread_read(&request_id, params).await
              }
 diff --git a/codex-rs/app-server/src/request_processors/thread_processor.rs b/codex-rs/app-server/src/request_processors/thread_processor.rs
+index 4d104e2..9199094 100644
 --- a/codex-rs/app-server/src/request_processors/thread_processor.rs
 +++ b/codex-rs/app-server/src/request_processors/thread_processor.rs
-@@ -529,6 +529,22 @@
-         )
-         .await
+@@ -560,6 +560,43 @@ impl ThreadRequestProcessor {
          .map(|()| None)
-+    }
-+
-+    /// Private host handoff primitive; callers must seal admission on every thread.
+     }
+ 
++    /// Private host handoff primitive. The host must seal admission on every thread.
 +    pub(crate) async fn thread_checkpoint(
 +        &self,
 +        params: codex_app_server_protocol::ThreadCheckpointParams,
 +    ) -> Result<Option<ClientResponsePayload>, JSONRPCErrorError> {
-+        let (_, thread) = self.load_thread(&params.thread_id).await?;
-+        tokio::time::timeout(Duration::from_secs(30), thread.checkpoint_shutdown())
-+            .await
-+            .map_err(|_| internal_error("checkpoint shutdown timed out"))?
-+            .map_err(|_| internal_error("checkpoint shutdown was not durably acknowledged"))?;
-+        Ok(Some(codex_app_server_protocol::ThreadCheckpointResponse {
-+            thread_id: params.thread_id,
-+            flushed: true,
-+        }.into()))
-     }
- 
-     pub(crate) async fn thread_unsubscribe(
-diff --git a/codex-rs/core/src/session/session.rs b/codex-rs/core/src/session/session.rs
---- a/codex-rs/core/src/session/session.rs
-+++ b/codex-rs/core/src/session/session.rs
-@@ -41,6 +41,8 @@
- ///
- /// A session has at most 1 running task at a time, and can be interrupted by user input.
- pub(crate) struct Session {
-+    /// Set only by successful persistence shutdown, before loop termination.
-+    pub(crate) checkpoint_shutdown_succeeded: std::sync::atomic::AtomicBool,
-     pub(crate) thread_id: ThreadId,
-     pub(crate) installation_id: String,
-     pub(super) tx_event: Sender<Event>,
-@@ -1501,6 +1503,7 @@
-             };
-             let (mcp_prewarm_tx, mcp_prewarm_rx) = async_channel::bounded(1);
-             let sess = Arc::new(Session {
-+                checkpoint_shutdown_succeeded: std::sync::atomic::AtomicBool::new(false),
-                 thread_id,
-                 installation_id,
-                 tx_event: tx_event.clone(),
-diff --git a/codex-rs/core/src/session/tests.rs b/codex-rs/core/src/session/tests.rs
---- a/codex-rs/core/src/session/tests.rs
-+++ b/codex-rs/core/src/session/tests.rs
-@@ -6575,6 +6575,7 @@
-     };
- 
-     let session = Session {
-+        checkpoint_shutdown_succeeded: std::sync::atomic::AtomicBool::new(false),
-         thread_id,
-         installation_id: "11111111-1111-4111-8111-111111111111".to_string(),
-         tx_event,
-@@ -8882,6 +8883,7 @@
-     };
- 
-     let session = Arc::new(Session {
-+        checkpoint_shutdown_succeeded: std::sync::atomic::AtomicBool::new(false),
-         thread_id,
-         installation_id: "11111111-1111-4111-8111-111111111111".to_string(),
-         tx_event,
-diff --git a/codex-rs/core/src/session/handlers.rs b/codex-rs/core/src/session/handlers.rs
---- a/codex-rs/core/src/session/handlers.rs
-+++ b/codex-rs/core/src/session/handlers.rs
-@@ -460,9 +460,14 @@
- 
-     // Gracefully flush and shutdown thread persistence on session end so tests
-     // that inspect durable state do not race with the background writer.
--    if let Some(live_thread) = sess.live_thread()
--        && let Err(e) = live_thread.shutdown().await
--    {
-+    let checkpoint_shutdown_result = match sess.live_thread() {
-+        Some(live_thread) => live_thread.shutdown().await,
-+        None => Ok(()),
-+    };
-+    sess.checkpoint_shutdown_succeeded.store(
-+        sess.live_thread().is_some() && checkpoint_shutdown_result.is_ok(), std::sync::atomic::Ordering::Release,
-+    );
-+    if let Err(e) = checkpoint_shutdown_result {
-         warn!("failed to shutdown thread persistence: {e}");
-         let event = Event {
-             id: sub_id.clone(),
-diff --git a/codex-rs/core/src/codex_thread.rs b/codex-rs/core/src/codex_thread.rs
---- a/codex-rs/core/src/codex_thread.rs
-+++ b/codex-rs/core/src/codex_thread.rs
-@@ -233,6 +233,18 @@
-         &self.session.services.thread_extension_data
-     }
- 
-+    /// A normal ShutdownComplete notification does not imply persistence succeeded.
-+    pub async fn checkpoint_shutdown(&self) -> CodexResult<()> {
-+        if self.session.active_turn.lock().await.is_some() || self.session.live_thread().is_none() {
-+            return Err(CodexErr::UnsupportedOperation("checkpoint requires an idle durable thread".to_string()));
++        let root = ThreadId::from_string(&params.thread_id)
++            .map_err(|_| invalid_request("invalid checkpoint thread id"))?;
++        if params.expected_thread_ids.is_empty() || params.expected_thread_ids.len() > 1000 {
++            return Err(invalid_request(
++                "checkpoint requires 1 to 1000 expected threads",
++            ));
 +        }
-+        self.shutdown_and_wait().await?;
-+        if !self.session.checkpoint_shutdown_succeeded.load(std::sync::atomic::Ordering::Acquire) {
-+            return Err(CodexErr::Fatal("checkpoint persistence shutdown failed".to_string()));
-+        }
-+        Ok(())
++        let expected = params
++            .expected_thread_ids
++            .iter()
++            .map(|id| {
++                ThreadId::from_string(id)
++                    .map_err(|_| invalid_request("invalid expected checkpoint thread id"))
++            })
++            .collect::<Result<Vec<_>, _>>()?;
++        let thread_ids = tokio::time::timeout(
++            Duration::from_secs(30),
++            self.thread_manager.checkpoint_idle_threads(root, expected),
++        )
++        .await
++        .map_err(|_| internal_error("checkpoint shutdown timed out"))?
++        .map_err(|_| internal_error("checkpoint shutdown was not durably acknowledged"))?;
++        Ok(Some(
++            codex_app_server_protocol::ThreadCheckpointResponse {
++                thread_id: params.thread_id,
++                thread_ids: thread_ids.into_iter().map(|id| id.to_string()).collect(),
++                flushed: true,
++            }
++            .into(),
++        ))
 +    }
 +
-     pub async fn shutdown_and_wait(&self) -> CodexResult<()> {
-         self.io.shutdown_and_wait().await
-     }
+     pub(crate) async fn thread_unsubscribe(
+         &self,
+         request_id: &ConnectionRequestId,
+diff --git a/codex-rs/core/src/thread_manager/shutdown.rs b/codex-rs/core/src/thread_manager/shutdown.rs
+index e622f41..088c650 100644
+--- a/codex-rs/core/src/thread_manager/shutdown.rs
++++ b/codex-rs/core/src/thread_manager/shutdown.rs
+@@ -6,6 +6,8 @@ use codex_protocol::ThreadId;
+ use codex_protocol::error::CodexErr;
+ use codex_protocol::error::Result as CodexResult;
+ use codex_thread_store::ThreadStoreError;
++use std::collections::HashMap;
++use std::collections::HashSet;
+ use std::fmt;
+ use std::sync::Arc;
+ use uuid::Uuid;
+@@ -129,6 +131,78 @@ impl AgentTreeShutdown {
+ }
+ 
+ impl ThreadManager {
++    /// Checkpoints the exact visible set after host-side admission has been sealed.
++    /// Upstream tree shutdown accounts for internal sessions and admitted startup work.
++    pub async fn checkpoint_idle_threads(
++        &self,
++        root: ThreadId,
++        expected: Vec<ThreadId>,
++    ) -> CodexResult<Vec<ThreadId>> {
++        let expected_set: HashSet<_> = expected.iter().copied().collect();
++        if expected.is_empty()
++            || expected.len() > 1000
++            || expected_set.len() != expected.len()
++            || !expected_set.contains(&root)
++        {
++            return Err(CodexErr::InvalidRequest(
++                "checkpoint requires a unique bounded thread set containing the root".to_owned(),
++            ));
++        }
++        let captured: HashMap<_, _> = self
++            .state
++            .threads
++            .read()
++            .await
++            .iter()
++            .filter(|(_, thread)| !thread.session_source.is_internal())
++            .map(|(id, thread)| (*id, Arc::clone(thread)))
++            .collect();
++        if captured.len() != expected_set.len()
++            || captured.keys().any(|id| !expected_set.contains(id))
++        {
++            return Err(CodexErr::InvalidRequest(
++                "checkpoint thread set does not match loaded threads".to_owned(),
++            ));
++        }
++        for thread in captured.values() {
++            if thread.session.active_turn.lock().await.is_some()
++                || thread.session.live_thread().is_none()
++            {
++                return Err(CodexErr::InvalidRequest(
++                    "checkpoint requires idle durable threads".to_owned(),
++                ));
++            }
++        }
++        // Retain exact lifetimes because tree shutdown can remove a child from the registry.
++        let shutdowns: Vec<_> = captured
++            .values()
++            .map(|thread| AgentTreeShutdown {
++                state: thread
++                    .session
++                    .services
++                    .local_agent_runtime
++                    .request_shutdown(),
++            })
++            .collect();
++        for shutdown in shutdowns {
++            shutdown.wait_detailed().await.map_err(|_| {
++                CodexErr::Fatal("checkpoint persistence shutdown failed".to_owned())
++            })?;
++        }
++        let loaded = self.state.threads.read().await;
++        if loaded.iter().any(|(id, thread)| {
++            !thread.session_source.is_internal()
++                && !captured
++                    .get(id)
++                    .is_some_and(|before| Arc::ptr_eq(before, thread))
++        }) {
++            return Err(CodexErr::InvalidRequest(
++                "checkpoint thread set changed during shutdown".to_owned(),
++            ));
++        }
++        Ok(expected)
++    }
++
+     /// Unloads this exact idle MAv2 child using the manager's local controller backend,
+     /// preserving mail and environments for reloading. Host controllers own their eviction
+     /// and recovery; managers configured with a host controller factory are rejected.
+diff --git a/codex-rs/core/tests/suite/agent_execution.rs b/codex-rs/core/tests/suite/agent_execution.rs
+index cf80fc3..03117df 100644
+--- a/codex-rs/core/tests/suite/agent_execution.rs
++++ b/codex-rs/core/tests/suite/agent_execution.rs
+@@ -978,5 +978,195 @@ async fn tree_shutdown_reports_persistence_writer_failure() -> Result<()> {
+     Ok(())
+ }
+ 
++#[tokio::test]
++async fn checkpoint_idle_threads_waits_for_all_roots_children_and_internal_sessions() -> Result<()>
++{
++    use codex_core::StartThreadOptions;
++    use codex_protocol::protocol::InternalSessionSource;
++    use codex_protocol::protocol::SessionSource;
++
++    let server = start_mock_server().await;
++    mount_root_collaboration_call(
++        &server,
++        FIRST_PROMPT,
++        "first-call",
++        "spawn_agent",
++        json!({"message": FIRST_TASK, "task_name": "first", "fork_turns": "none"}),
++    )
++    .await;
++    mount_completed_worker(&server, FIRST_TASK, "first-call").await;
++    let test = test_codex()
++        .with_model("gpt-5.6-sol")
++        .with_config(|config| {
++            config.features.enable(Feature::Collab).unwrap();
++            config.features.enable(Feature::MultiAgentV2).unwrap();
++        })
++        .build_with_auto_env(&server)
++        .await?;
++    test.submit_turn(FIRST_PROMPT).await?;
++    let root = test.session_configured.thread_id;
++    let worker_id = test
++        .thread_manager
++        .list_thread_ids()
++        .await
++        .into_iter()
++        .find(|id| *id != root)
++        .expect("spawned worker");
++    let worker = test.thread_manager.get_thread(worker_id).await?;
++    wait_for_event(&worker, |event| matches!(event, EventMsg::TurnComplete(_))).await;
++    let internal = test
++        .thread_manager
++        .spawn_internal_session(
++            root,
++            StartThreadOptions {
++                session_source: Some(SessionSource::Internal(InternalSessionSource::Guardian)),
++                ..StartThreadOptions::new(test.config.clone())
++            },
++        )
++        .await?;
++    let other = test
++        .thread_manager
++        .start_thread(test.start_thread_options().await)
++        .await?;
++    let expected = vec![root, worker_id, other.thread_id];
++    let result = tokio::time::timeout(
++        Duration::from_secs(10),
++        test.thread_manager
++            .checkpoint_idle_threads(root, expected.clone()),
++    )
++    .await??;
++    assert_eq!(result, expected);
++    for thread in [&test.codex, &worker, &internal.thread, &other.thread] {
++        assert!(thread.wait_until_terminated().now_or_never().is_some());
++    }
++    Ok(())
++}
++
++#[tokio::test]
++async fn checkpoint_idle_threads_rejects_invalid_expected_sets_without_stopping_threads()
++-> Result<()> {
++    use codex_protocol::ThreadId;
++
++    let server = start_mock_server().await;
++    let test = test_codex().build_with_auto_env(&server).await?;
++    let root = test.session_configured.thread_id;
++    let other = test
++        .thread_manager
++        .start_thread(test.start_thread_options().await)
++        .await?;
++    let cases = vec![
++        vec![],
++        vec![root, root, other.thread_id],
++        vec![other.thread_id],
++        vec![root],
++        vec![root, other.thread_id, ThreadId::new()],
++        std::iter::once(root)
++            .chain((0..1000).map(|_| ThreadId::new()))
++            .collect(),
++    ];
++    for expected in cases {
++        test.thread_manager
++            .checkpoint_idle_threads(root, expected)
++            .await
++            .expect_err("invalid expected set must fail");
++        assert!(test.codex.wait_until_terminated().now_or_never().is_none());
++        assert!(
++            other
++                .thread
++                .wait_until_terminated()
++                .now_or_never()
++                .is_none()
++        );
++    }
++    tokio::time::timeout(
++        Duration::from_secs(10),
++        test.thread_manager
++            .checkpoint_idle_threads(root, vec![root, other.thread_id]),
++    )
++    .await??;
++    Ok(())
++}
++
++#[tokio::test]
++async fn checkpoint_idle_threads_rejects_busy_child_before_stopping_any_thread() -> Result<()> {
++    use core_test_support::responses::mount_response_once_match;
++    use wiremock::ResponseTemplate;
++
++    let server = start_mock_server().await;
++    mount_root_collaboration_call(
++        &server,
++        FIRST_PROMPT,
++        "first-call",
++        "spawn_agent",
++        json!({"message": FIRST_TASK, "task_name": "first", "fork_turns": "none"}),
++    )
++    .await;
++    mount_response_once_match(
++        &server,
++        |request: &wiremock::Request| {
++            body_contains(request, FIRST_TASK) && !has_function_call_output(request, "first-call")
++        },
++        ResponseTemplate::new(200)
++            .insert_header("content-type", "text/event-stream")
++            .set_body_string(sse(vec![
++                ev_response_created("busy-worker"),
++                ev_completed("busy-worker"),
++            ]))
++            .set_delay(Duration::from_secs(60)),
++    )
++    .await;
++    let test = test_codex()
++        .with_model("gpt-5.6-sol")
++        .with_config(|config| {
++            config.features.enable(Feature::Collab).unwrap();
++            config.features.enable(Feature::MultiAgentV2).unwrap();
++        })
++        .build_with_auto_env(&server)
++        .await?;
++    test.submit_turn(FIRST_PROMPT).await?;
++    let root = test.session_configured.thread_id;
++    let worker_id = test
++        .thread_manager
++        .list_thread_ids()
++        .await
++        .into_iter()
++        .find(|id| *id != root)
++        .expect("spawned worker");
++    let worker = test.thread_manager.get_thread(worker_id).await?;
++    wait_for_event(&worker, |event| matches!(event, EventMsg::TurnStarted(_))).await;
++    test.thread_manager
++        .checkpoint_idle_threads(root, vec![root, worker_id])
++        .await
++        .expect_err("busy child must prevent checkpoint");
++    assert!(test.codex.wait_until_terminated().now_or_never().is_none());
++    assert!(worker.wait_until_terminated().now_or_never().is_none());
++    let shutdown = test
++        .thread_manager
++        .request_agent_tree_shutdown(root)
++        .await?;
++    tokio::time::timeout(Duration::from_secs(10), shutdown.wait_detailed()).await??;
++    Ok(())
++}
++
++#[tokio::test]
++async fn checkpoint_idle_threads_propagates_real_persistence_writer_failure() -> Result<()> {
++    let server = start_mock_server().await;
++    let test = test_codex().build_with_auto_env(&server).await?;
++    let root = test.session_configured.thread_id;
++    test.thread_store.shutdown_thread(root).await?;
++    let error = tokio::time::timeout(
++        Duration::from_secs(10),
++        test.thread_manager
++            .checkpoint_idle_threads(root, vec![root]),
++    )
++    .await?
++    .expect_err("failed persistence writer must prevent checkpoint acknowledgment");
++    assert!(
++        matches!(error.details(), codex_protocol::error::CodexErrorDetails::Fatal(message)
++        if message == "checkpoint persistence shutdown failed")
++    );
++    Ok(())
++}
++
+ #[path = "agent_mailbox.rs"]
+ mod agent_mailbox;

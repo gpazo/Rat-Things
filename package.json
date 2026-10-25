@@ -112,7 +112,7 @@
   "devDependencies": {
     "@aws-sdk/client-dynamodb-streams": "3.1088.0",
     "@aws-sdk/client-ecs": "3.1088.0",
-    "@openai/codex": "0.154.0",
+    "@openai/codex": "0.164.0",
     "@playwright/mcp": "0.0.83",
     "@playwright/test": "1.62.1",
     "@types/archiver": "7.0.0",

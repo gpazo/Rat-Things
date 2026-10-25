@@ -1,10 +1,10 @@
 diff --git a/codex-rs/core/src/client.rs b/codex-rs/core/src/client.rs
-index a813022..aa95792 100644
+index a756599..30c71df 100644
 --- a/codex-rs/core/src/client.rs
 +++ b/codex-rs/core/src/client.rs
-@@ -183,6 +183,13 @@ pub(crate) struct CompactConversationRequestSettings {
-     pub(crate) service_tier: Option<String>,
- }
+@@ -182,6 +182,13 @@ const MEMORIES_SUMMARIZE_ENDPOINT: &str = "/memories/trace_summarize";
+ pub(crate) const WEBSOCKET_CONNECT_TIMEOUT: Duration =
+     Duration::from_millis(DEFAULT_WEBSOCKET_CONNECT_TIMEOUT_MS);
  
 +fn service_tier_for_auth(service_tier: Option<String>, auth: Option<&CodexAuth>) -> Option<String> {
 +    service_tier.filter(|tier| {
@@ -16,64 +16,47 @@ index a813022..aa95792 100644
  fn session_telemetry_for_request(
      session_telemetry: &SessionTelemetry,
      request: &ResponsesApiRequest,
-@@ -610,6 +617,7 @@ impl ModelClient {
-             settings.effort,
-             settings.summary,
-             settings.service_tier,
-+            client_setup.auth.as_ref(),
-             responses_metadata,
-         )?;
-         let ResponsesApiRequest {
-@@ -888,6 +896,7 @@ impl ModelClient {
-         }
-     }
- 
-+    #[allow(clippy::too_many_arguments)]
-     fn build_responses_request(
-         &self,
-         prompt: &Prompt,
-@@ -895,6 +904,7 @@ impl ModelClient {
-         effort: Option<ReasoningEffortConfig>,
-         summary: ReasoningSummaryConfig,
-         service_tier: Option<String>,
-+        auth: Option<&CodexAuth>,
-         responses_metadata: &CodexResponsesMetadata,
-     ) -> Result<ResponsesApiRequest> {
-         let mut input = prompt.get_formatted_input_for_request(model_info.use_responses_lite);
-@@ -974,7 +984,8 @@ impl ModelClient {
-             prompt.output_schema_strict,
-         );
-         let prompt_cache_key = Some(self.prompt_cache_key(responses_metadata));
--        let service_tier = model_info.service_tier_for_request(service_tier);
-+        let service_tier =
-+            service_tier_for_auth(model_info.service_tier_for_request(service_tier), auth);
-         let request = ResponsesApiRequest {
-             model: model_info.slug.clone(),
-             instructions,
-@@ -1612,6 +1623,7 @@ impl ModelClientSession {
+@@ -1624,9 +1631,11 @@ impl ModelClientSession {
+                 client_setup.auth.as_ref(),
+                 &responses_headers,
+                 &model_info.slug,
+-                model_info
+-                    .service_tier_for_request(service_tier.clone())
+-                    .as_deref(),
++                service_tier_for_auth(
++                    model_info.service_tier_for_request(service_tier.clone()),
++                    client_setup.auth.as_ref(),
++                )
++                .as_deref(),
+             );
+             match self
+                 .websocket_connection(WebsocketConnectParams {
+@@ -1857,7 +1866,7 @@ impl ResponsesHttpExecutor<'_> {
+                 model_info,
                  effort.clone(),
                  summary,
-                 service_tier.clone(),
-+                client_setup.auth.as_ref(),
+-                service_tier.clone(),
++                service_tier_for_auth(service_tier.clone(), client_setup.auth.as_ref()),
                  responses_metadata,
+                 include_internal,
              )?;
-             self.client.set_guardian_metadata(
-@@ -1761,6 +1773,7 @@ impl ModelClientSession {
+@@ -2033,7 +2042,7 @@ impl ModelClientSession {
+                 model_info,
                  effort.clone(),
                  summary,
-                 service_tier.clone(),
-+                client_setup.auth.as_ref(),
+-                service_tier.clone(),
++                service_tier_for_auth(service_tier.clone(), client_setup.auth.as_ref()),
                  responses_metadata,
+                 include_internal,
              )?;
-             if endpoint == ResponsesEndpoint::Guardian {
 diff --git a/codex-rs/core/src/client_tests.rs b/codex-rs/core/src/client_tests.rs
-index 348d169..97d4781 100644
+index f929e2c..2d6ab8a 100644
 --- a/codex-rs/core/src/client_tests.rs
 +++ b/codex-rs/core/src/client_tests.rs
-@@ -63,6 +63,11 @@ use codex_rollout_trace::RawTraceEventPayload;
- use codex_rollout_trace::RolloutTrace;
- use codex_rollout_trace::TraceWriter;
- use codex_rollout_trace::replay_bundle;
+@@ -75,6 +75,11 @@ use codex_rollout_trace::replay_bundle;
+ use codex_tools::JsonSchema;
+ use codex_tools::ResponsesApiTool;
+ use codex_tools::ToolSpec;
 +use core_test_support::responses::ev_completed;
 +use core_test_support::responses::ev_response_created;
 +use core_test_support::responses::mount_sse_sequence;
@@ -82,18 +65,21 @@ index 348d169..97d4781 100644
  use futures::StreamExt;
  use pretty_assertions::assert_eq;
  use serde_json::json;
-@@ -306,6 +311,7 @@ fn responses_lite_prefix_ids_track_thread_and_payload() -> anyhow::Result<()> {
-             /*effort*/ None,
-             codex_protocol::config_types::ReasoningSummary::None,
-             /*service_tier*/ None,
-+            /*auth*/ None,
-             &test_responses_metadata_for_client(
-                 client,
-                 /*turn_id*/ None,
-@@ -366,6 +372,284 @@ fn test_session_telemetry() -> SessionTelemetry {
-     )
+@@ -1226,6 +1231,220 @@ fn websocket_continuation_reset_reason_survives_failed_reconnect_and_turn_bounda
+     }
  }
  
++fn external_chatgpt_service_tier_auth() -> CodexAuth {
++    let claims = json!({"https://api.openai.com/auth": {"chatgpt_user_id": "user-123"}});
++    let payload = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(claims.to_string());
++    CodexAuth::from_external_chatgpt_tokens(
++        &format!("header.{payload}.signature"),
++        "account-123",
++        Some("pro"),
++    )
++    .expect("test auth")
++}
++
 +const REQUEST_SERVICE_TIERS: [Option<&str>; 8] = [
 +    None,
 +    Some("priority"),
@@ -135,12 +121,18 @@ index 348d169..97d4781 100644
 +        "test_originator".to_string(),
 +        /*model_verbosity*/ None,
 +        /*content_item_kinds_enabled*/ true,
++        /*reasoning_effort_override_enabled*/ false,
 +        /*enable_request_compression*/ false,
 +        /*include_timing_metrics*/ false,
 +        /*beta_features_header*/ None,
 +        /*concurrent_reasoning_summaries_enabled*/ false,
++        /*output_token_replay_enabled*/ false,
 +        /*attestation_provider*/ None,
 +        HttpClientFactory::new(OutboundProxyPolicy::ReqwestDefault),
++        codex_model_provider::WorkspaceRoutingContext::new(
++            "https://chatgpt.com/backend-api".into(),
++        ),
++        Vec::new(),
 +    )
 +}
 +
@@ -149,6 +141,8 @@ index 348d169..97d4781 100644
 +    let mut prompt = Prompt::default();
 +    for (index, service_tier) in REQUEST_SERVICE_TIERS.into_iter().enumerate() {
 +        prompt.input.push(ResponseItem::Message {
++            status: None,
++            encrypted_content: None,
 +            id: None,
 +            role: "user".to_string(),
 +            content: vec![ContentItem::InputText {
@@ -189,7 +183,7 @@ index 348d169..97d4781 100644
 +}
 +
 +#[test_case::test_case(Some(CodexAuth::create_dummy_chatgpt_auth_for_testing()), CHATGPT_SERVICE_TIERS; "chatgpt")]
-+#[test_case::test_case(Some(CodexAuth::from_external_chatgpt_tokens(TEST_CHATGPT_ID_TOKEN, "account-123", Some("pro")).expect("test auth")), CHATGPT_SERVICE_TIERS; "external_chatgpt")]
++#[test_case::test_case(Some(external_chatgpt_service_tier_auth()), CHATGPT_SERVICE_TIERS; "external_chatgpt")]
 +#[test_case::test_case(Some(CodexAuth::from_api_key("test-api-key")), REQUEST_SERVICE_TIERS; "api_key")]
 +#[test_case::test_case(None, REQUEST_SERVICE_TIERS; "provider_auth")]
 +#[tokio::test]
@@ -229,7 +223,7 @@ index 348d169..97d4781 100644
 +}
 +
 +#[test_case::test_case(Some(CodexAuth::create_dummy_chatgpt_auth_for_testing()), CHATGPT_SERVICE_TIERS; "chatgpt")]
-+#[test_case::test_case(Some(CodexAuth::from_external_chatgpt_tokens(TEST_CHATGPT_ID_TOKEN, "account-123", Some("pro")).expect("test auth")), CHATGPT_SERVICE_TIERS; "external_chatgpt")]
++#[test_case::test_case(Some(external_chatgpt_service_tier_auth()), CHATGPT_SERVICE_TIERS; "external_chatgpt")]
 +#[test_case::test_case(Some(CodexAuth::from_api_key("test-api-key")), REQUEST_SERVICE_TIERS; "api_key")]
 +#[test_case::test_case(None, REQUEST_SERVICE_TIERS; "provider_auth")]
 +#[tokio::test]
@@ -275,111 +269,20 @@ index 348d169..97d4781 100644
 +    Ok(())
 +}
 +
-+#[test_case::test_case(Some(CodexAuth::create_dummy_chatgpt_auth_for_testing()), CHATGPT_SERVICE_TIERS; "chatgpt")]
-+#[test_case::test_case(Some(CodexAuth::from_api_key("test-api-key")), REQUEST_SERVICE_TIERS; "api_key")]
-+#[tokio::test]
-+async fn responses_service_tier_compact_uses_auth_contract(
-+    auth: Option<CodexAuth>,
-+    expected_tiers: [Option<&str>; 8],
-+) -> anyhow::Result<()> {
-+    let server = MockServer::start().await;
-+    Mock::given(method("POST"))
-+        .and(path("/v1/responses/compact"))
-+        .respond_with(ResponseTemplate::new(/*status*/ 200).set_body_json(json!({ "output": [] })))
-+        .expect(/*requests*/ 8)
-+        .mount(&server)
-+        .await;
-+    let client = service_tier_test_client(
-+        format!("{}/v1", server.uri()),
-+        auth,
-+        /*supports_websockets*/ false,
-+    );
-+    let prompt = Prompt {
-+        input: vec![ResponseItem::Message {
-+            id: None,
-+            role: "user".to_string(),
-+            content: vec![ContentItem::InputText {
-+                text: "compact this".to_string(),
-+            }],
-+            phase: None,
-+            internal_chat_message_metadata_passthrough: None,
-+        }],
-+        ..Default::default()
-+    };
-+    for service_tier in REQUEST_SERVICE_TIERS {
-+        client
-+            .compact_conversation_history(
-+                &prompt,
-+                &test_model_info(),
-+                /*turn_state*/ None,
-+                CompactConversationRequestSettings {
-+                    effort: None,
-+                    summary: codex_protocol::config_types::ReasoningSummary::None,
-+                    service_tier: service_tier.map(str::to_string),
-+                },
-+                &test_session_telemetry(),
-+                &CompactionTraceContext::disabled(),
-+                &test_responses_metadata_for_client(
-+                    &client,
-+                    /*turn_id*/ None,
-+                    format!("{}:0", client.state.thread_id),
-+                    /*parent_thread_id*/ None,
-+                    TestCodexResponsesRequestKind::Turn,
-+                ),
-+            )
-+            .await?;
-+    }
-+    let requests = server.received_requests().await.expect("compact requests");
-+    assert_eq!(requests.len(), expected_tiers.len());
-+    for (request, expected_tier) in requests.iter().zip(expected_tiers) {
-+        let body: serde_json::Value = request.body_json()?;
-+        assert_eq!(
-+            body.get("service_tier"),
-+            expected_tier.map(serde_json::Value::from).as_ref(),
-+        );
-+    }
-+    Ok(())
-+}
-+
 +#[test]
-+fn responses_service_tier_preserves_bedrock_request_values() -> anyhow::Result<()> {
-+    let client = test_model_client(SessionSource::Cli);
++fn service_tier_auth_filter_preserves_bedrock_request_values() {
 +    let auth = CodexAuth::BedrockApiKey(codex_login::auth::BedrockApiKeyAuth {
 +        api_key: "test-bedrock-key".to_string(),
 +        region: "us-west-2".to_string(),
 +    });
 +    for service_tier in REQUEST_SERVICE_TIERS {
-+        let request = client.build_responses_request(
-+            &Prompt::default(),
-+            &test_model_info(),
-+            /*effort*/ None,
-+            codex_protocol::config_types::ReasoningSummary::None,
-+            service_tier.map(str::to_string),
-+            Some(&auth),
-+            &test_responses_metadata_for_client(
-+                &client,
-+                /*turn_id*/ None,
-+                format!("{}:0", client.state.thread_id),
-+                /*parent_thread_id*/ None,
-+                TestCodexResponsesRequestKind::Turn,
-+            ),
-+        )?;
 +        assert_eq!(
-+            serde_json::to_value(request)?.get("service_tier"),
-+            service_tier.map(serde_json::Value::from).as_ref(),
++            super::service_tier_for_auth(service_tier.map(str::to_string), Some(&auth)),
++            service_tier.map(str::to_string),
 +        );
 +    }
-+    Ok(())
 +}
 +
  fn spawned_session_source() -> SessionSource {
      SessionSource::SubAgent(SubAgentSource::ThreadSpawn {
          parent_thread_id: ThreadId::new(),
-@@ -389,6 +673,7 @@ fn reasoning_effort_in_request(
-             Some(effort),
-             codex_protocol::config_types::ReasoningSummary::None,
-             /*service_tier*/ None,
-+            /*auth*/ None,
-             &test_responses_metadata_for_client(
-                 &client,
-                 /*turn_id*/ None,

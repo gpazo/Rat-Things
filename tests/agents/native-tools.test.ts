@@ -59,7 +59,9 @@ it.each((['fixture', 'amazon-bedrock'] as const).flatMap(provider => (['programm
   const home = await mkdtemp(join(tmpdir(), 'rat-native-tools-'));
   const tokenFile = join(home, 'fixture-token');
   await writeFile(tokenFile, 'local-test-token', { mode: 0o600 });
-  const model = provider === 'amazon-bedrock' ? 'openai.gpt-5.6-terra' : 'gpt-5.4';
+  // This fixture exercises native web/tool search and optional code mode. The
+  // active gpt-5.5 catalogue entry supports these together; code-mode-only models do not.
+  const model = provider === 'amazon-bedrock' ? 'openai.gpt-5.6-terra' : 'gpt-5.5';
   const planned = planSessionLaunch(planCodexLaunch({ version: '1', prompt: '', agent: { sandbox: 'read-only', capabilities: { webSearch: 'cached' } } }, home, 20_000, {}), {
     sessionId: 'sess_tools', turnId: 'turn_tools', input: [], environment: { type: 'none' },
     agent: sessionAgent({ model, reasoning: { effort: 'high', summary: 'concise' }, service_tier: 'priority',

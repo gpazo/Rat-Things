@@ -2,7 +2,8 @@ import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { constants } from 'node:fs';
 import { chmod, lstat, mkdir, open, readdir, realpath, writeFile } from 'node:fs/promises';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, join, posix, resolve } from 'node:path';
+import hostCodePolicy from '../runtime/native/host-code-policy.json' with { type: 'json' };
 import { fileURLToPath } from 'node:url';
 import { isDeepStrictEqual, promisify } from 'node:util';
 import { validateCodexRuntimeArtifact } from './codex-runtime-artifact.mjs';
@@ -26,13 +27,7 @@ const signaturePaths = ['CodeDirectory', 'CodeRequirements', 'CodeResources', 'C
 const limits = { entries: 4096, fileBytes: 768 * 1024 ** 2, totalBytes: 2 * 1024 ** 3, manifestBytes: 128 * 1024 };
 const guestArtifacts = ['Image', 'worker-initramfs.gz', 'archive-inventory.json', 'worker-dependencies.json', 'worker-notices.json', 'worker-metafile.json', 'worker-build.json', 'build.log'];
 const jitEntitlements = ['com.apple.security.cs.allow-jit', 'com.apple.security.cs.allow-unsigned-executable-memory'];
-export const nativeExecutablePolicy = Object.freeze([
-  { path: 'Contents/Resources/codex/bin/codex', role: 'host-codex', identifier: 'dev.rat-things.runtime.codex', entitlements: 'jit' },
-  { path: 'Contents/Resources/codex/bin/codex-code-mode-host', role: 'host-companion', identifier: 'dev.rat-things.runtime.code-mode-host', entitlements: 'jit' },
-  { path: 'Contents/Resources/codex/codex-path/rg', role: 'host-companion', identifier: 'dev.rat-things.runtime.ripgrep' },
-  { path: 'Contents/Resources/codex/codex-resources/zsh/bin/zsh', role: 'host-companion', identifier: 'dev.rat-things.runtime.zsh' },
-  { path: 'Contents/Helpers/rat-native-worker', role: 'vm-helper', identifier: 'dev.rat-things.runtime.vm-helper', entitlements: 'virtualization' },
-]);
+export const nativeExecutablePolicy = Object.freeze(hostCodePolicy.map(policy => Object.freeze(policy)));
 const executables = new Map(nativeExecutablePolicy.map(value => [value.path, value]));
 
 export function parseNativeReleaseOptions(args) {
@@ -59,12 +54,14 @@ function maximumVersion(versions) {
   }).at(-1);
 }
 
-export function inspectMachO(bytes) {
+export function inspectMachO(bytes, policy = { machOType: 2 }) {
   if (bytes.length < 32 || bytes.readUInt32LE(0) !== 0xfeedfacf || bytes.readUInt32LE(4) !== 0x100000c
-    || bytes.readUInt32LE(12) !== 2) throw new Error('Expected a thin ARM64 Mach-O executable.');
+    || ![2, 6].includes(policy.machOType) || bytes.readUInt32LE(12) !== policy.machOType) {
+    throw new Error('Expected a thin ARM64 Mach-O matching the fixed host code policy.');
+  }
   const count = bytes.readUInt32LE(16); const end = 32 + bytes.readUInt32LE(20);
   if (!count || count > 4096 || end > bytes.length) throw new Error('Mach-O load commands exceed their bounds.');
-  const versions = []; const libraries = [];
+  const versions = []; const libraries = []; const rpaths = [];
   let offset = 32;
   for (let index = 0; index < count; index++) {
     if (offset + 8 > end) throw new Error('Truncated Mach-O load command.');
@@ -76,17 +73,29 @@ export function inspectMachO(bytes) {
     } else if (command === 0x24) {
       if (size < 16) throw new Error('Invalid macOS deployment command.');
       versions.push(version(bytes.readUInt32LE(offset + 8)));
-    } else if ([0xc, 0x80000018, 0x8000001f, 0x20, 0x80000023].includes(command)) {
-      if (size < 24) throw new Error('Invalid linked library command.');
+    } else if ([0xc, 0x80000018, 0x8000001f, 0x20, 0x80000023, 0x8000001c].includes(command)) {
+      const minimum = command === 0x8000001c ? 12 : 24;
+      if (size < minimum) throw new Error('Invalid linked library command.');
       const start = offset + bytes.readUInt32LE(offset + 8); const terminator = bytes.indexOf(0, start);
-      if (start < offset + 24 || start >= offset + size || terminator < start || terminator >= offset + size) throw new Error('Invalid linked library name.');
+      if (start < offset + minimum || start >= offset + size || terminator < start || terminator >= offset + size) throw new Error('Invalid linked library name.');
       const library = bytes.toString('utf8', start, terminator);
-      if (!library.startsWith('/usr/lib/') && !library.startsWith('/System/Library/')) throw new Error(`Runtime executable requires an unbundled library: ${library}.`);
-      libraries.push(library);
+      if (command === 0x8000001c) rpaths.push(library);
+      else libraries.push(library);
     }
     offset += size;
   }
   if (offset !== end || !versions.length || versions.some(value => Number(value.split('.')[0]) < 11)) throw new Error('Missing or inconsistent macOS deployment commands.');
+  if (!isDeepStrictEqual(rpaths, policy.rpaths ?? [])) throw new Error('Mach-O search paths differ from the fixed host code policy.');
+  for (const library of libraries) {
+    const system = (library.startsWith('/usr/lib/') || library.startsWith('/System/Library/')) && posix.normalize(library) === library;
+    const local = name => policy.path && name.startsWith('@loader_path/')
+      ? posix.normalize(posix.join(posix.dirname(policy.path), name.slice('@loader_path/'.length))) : undefined;
+    const candidates = library.startsWith('@rpath/')
+      ? rpaths.map(path => local(`${path}/${library.slice('@rpath/'.length)}`)) : [local(library)];
+    if (!system && !candidates.some(path => executables.get(path)?.machOType === 6)) {
+      throw new Error(`Runtime code requires an unbundled library: ${library}.`);
+    }
+  }
   return { minimumMacOS: maximumVersion(versions), libraries };
 }
 
@@ -265,7 +274,7 @@ export async function assembleNativeRelease(options, { repositoryRoot = root, ru
     sources.push({ path: label, bytes: result.bytes, sha256: result.sha256 });
     return result;
   };
-  const builderSources = ['scripts/build-native-release.mjs', 'scripts/codex-runtime-artifact.mjs', 'scripts/codex-runtime-targets.mjs', 'scripts/native-guest-inputs.mjs', 'scripts/javascript-notices.mjs', 'scripts/native-build-files.mjs', 'scripts/native-guest-archive.mjs'];
+  const builderSources = ['runtime/native/host-code-policy.json', 'scripts/build-native-release.mjs', 'scripts/codex-runtime-artifact.mjs', 'scripts/codex-runtime-targets.mjs', 'scripts/native-guest-inputs.mjs', 'scripts/javascript-notices.mjs', 'scripts/native-build-files.mjs', 'scripts/native-guest-archive.mjs'];
   for (const path of builderSources) await readInput(join(root, path), path);
   const originalHost = await readInput(join(hostArtifact, 'artifact.json'), 'host/artifact.json');
   const sourceDefinition = JSON.parse((await readInput(join(definitionRoot, 'source.json'), 'definition/source.json')).data);
@@ -335,7 +344,7 @@ export async function assembleNativeRelease(options, { repositoryRoot = root, ru
       const copied = await checkedFile(file.source, { expected: file, destination: join(bundle, path), mode: file.mode, capture: executables.has(path) });
       tracked.set(file.source, { bytes: copied.bytes, sha256: copied.sha256 });
       if (!executables.has(path)) staged.set(path, { bytes: copied.bytes, sha256: copied.sha256 });
-      if (executables.has(path)) { machOs.push({ path, ...inspectMachO(copied.data) }); unsigned.push({ path, bytes: copied.bytes, sha256: copied.sha256 }); }
+      if (executables.has(path)) { machOs.push({ path, ...inspectMachO(copied.data, executables.get(path)) }); unsigned.push({ path, bytes: copied.bytes, sha256: copied.sha256 }); }
     }
     for (const name of ['Image', 'worker-initramfs.gz']) {
       const path = `Contents/Resources/linux/${name}`; expectedPaths.push(path);
@@ -365,7 +374,7 @@ export async function assembleNativeRelease(options, { repositoryRoot = root, ru
       await run('/usr/bin/codesign', ['--verify', '--strict', '--all-architectures', '--test-requirement', `=${requirement(policy.identifier)}`, filename]);
       const signed = await checkedFile(filename, { capture: true });
       const { path: _path, ...deployment } = machOs.find(value => value.path === policy.path);
-      if (!isDeepStrictEqual(inspectMachO(signed.data), deployment)) throw new Error('Signing changed executable deployment requirements.');
+      if (!isDeepStrictEqual(inspectMachO(signed.data, policy), deployment)) throw new Error('Signing changed executable deployment requirements.');
       const signedMetadata = await run('/usr/bin/codesign', ['--display', '--verbose=4', '--entitlements', ':-', filename]);
       staged.set(policy.path, { bytes: signed.bytes, sha256: signed.sha256 });
       signatures.push({ path: policy.path, identifier: policy.identifier, prior, arguments: args, signedMetadata, signed: { bytes: signed.bytes, sha256: signed.sha256 } });
