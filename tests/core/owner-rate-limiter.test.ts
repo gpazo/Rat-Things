@@ -49,3 +49,21 @@ it('takes per-owner limits only from validated operator configuration', () => {
     expect(() => ownerRateLimits(input)).toThrow();
   }
 });
+
+it('preserves absent defaults, zero limits and literal owner names', () => {
+  for (const input of [undefined, '', '{}', '{"default":null}']) {
+    expect(ownerRateLimits(input)('alice')).toBe(60);
+  }
+  const limits = ownerRateLimits('{"default":0,"owners":{"alice":12,"__proto__":3,"constructor":4}}');
+  expect(['alice', '__proto__', 'constructor', 'bob'].map(limits)).toEqual([12, 3, 4, 0]);
+  expect(ownerRateLimits('{"default":9007199254740991}')('alice')).toBe(Number.MAX_SAFE_INTEGER);
+});
+
+it('distinguishes invalid configuration shapes from invalid counts', () => {
+  for (const input of ['[]', 'false', '{"owners":null}', '{"owners":[]}', '{"owners":true}']) {
+    expect(() => ownerRateLimits(input)).toThrow('Invalid OWNER_RATE_LIMITS_JSON');
+  }
+  for (const input of ['{"default":false}', '{"default":9007199254740992}', '{"owners":{"alice":null}}', '{"owners":{"alice":"0"}}']) {
+    expect(() => ownerRateLimits(input)).toThrow('Owner rate limits must be nonnegative integers');
+  }
+});
