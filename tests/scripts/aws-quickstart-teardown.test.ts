@@ -101,7 +101,7 @@ async function fixture(completed = true) {
       if (action === 'init') process.exit(0);
       if (action === 'show') {
         if (control.showFailure) { console.error('state read unavailable'); process.exit(1); }
-        console.log(readFileSync(join(local, 'terraform.tfstate'), 'utf8')); process.exit(0);
+        writeFileSync(1, readFileSync(join(local, 'terraform.tfstate'))); process.exit(0);
       }
       if (action === 'destroy') {
         if (control.destroyFailure) { console.error('destroy failed'); process.exit(1); }
@@ -156,6 +156,41 @@ async function fixture(completed = true) {
 }
 
 describe('AWS quickstart teardown recovery', () => {
+  it('destroys a deployment whose state exceeds the default subprocess capture limit', async () => {
+    const f = await fixture();
+    const privateValue = `private-state-value-${'x'.repeat(2 * 1024 * 1024)}`;
+    await f.write('terraform.tfstate', {
+      ...deployedState,
+      values: { ...deployedState.values, outputs: { private_value: { sensitive: true, value: privateValue } } },
+    });
+    const result = await f.run();
+    expect(result.code, result.stderr).toBe(0);
+    expect(JSON.parse(result.stdout)).toMatchObject({ status: 'destroyed' });
+    expect(await f.read('teardown.json')).toEqual(checkpoint);
+    expect(await f.read('terraform.tfstate')).toEqual(emptyState);
+    expect(result.stdout + result.stderr + await readFile(join(f.local, 'quickstart.log'), 'utf8'))
+      .not.toContain('private-state-value-');
+  });
+
+  it('refuses state beyond the capture budget before destructive work', async () => {
+    const f = await fixture();
+    await f.write('terraform.tfstate', {
+      ...deployedState,
+      values: { ...deployedState.values, outputs: { private_value: {
+        sensitive: true, value: `private-state-value-${'x'.repeat(20 * 1024 * 1024)}`,
+      } } },
+    });
+    const result = await f.run();
+    expect(result.code, result.stderr).toBe(1);
+    expect(result.stderr).toContain('ENOBUFS');
+    expect(await f.read('result.json')).toMatchObject({ status: 'ready' });
+    expect((await f.trace()).map(event => event.action)).not.toContain('terminate-microvms');
+    expect((await f.trace()).map(event => event.action)).not.toContain('destroy');
+    expect(await readdir(f.local)).not.toContain('teardown.json');
+    expect(result.stdout + result.stderr + await readFile(join(f.local, 'quickstart.log'), 'utf8'))
+      .not.toContain('private-state-value-');
+  });
+
   it.each(['kmsFailure', 'microvmFailure'])('retries with saved targets after destroy empties state and %s interrupts verification', async failure => {
     const f = await fixture();
     await f.control({ [failure]: true });

@@ -1173,6 +1173,7 @@ function command(name: string, args: string[], options: CommandOptions = {}): Co
     cwd: projectRoot,
     env: options.env ?? process.env,
     encoding: 'utf8',
+    maxBuffer: 16 * 1024 * 1024,
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   if (result.error) throw result.error;
