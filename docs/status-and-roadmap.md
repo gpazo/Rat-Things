@@ -66,16 +66,16 @@ identity, retention, network policy, and operational limits for the environment 
 
 ## Roadmap
 
-Local-first development comes next: an isolated local computer backend behind the
-existing environment ports; readiness and capacity reporting; resumable setup; and
-an explicit, verifiable transfer of Session context and files into AWS. Keep one
-API and one desktop workflow across these backends. Local operation should remain
-a complete choice for people whose hardware is sufficient.
+Local work now includes isolated Linux workspaces, readiness and capacity reporting,
+resumable setup, and transfer of idle Session context and files into AWS. The next
+steps are a signed Linux installation flow and the missing local capabilities listed
+above. Keep one API and one desktop workflow across these backends so local operation
+remains a complete choice for people whose hardware is sufficient.
 
 The cloud system improvements center on four areas:
 
-1. Add usage budgets, per-owner limits, destination authorization, and output controls around the
-   existing fixed capability envelope.
+1. Extend the existing per-owner admission limits and optional account spending alerts
+   with per-owner cost attribution, destination authorization, and output controls.
 2. Extend host-owned provider integrations and define a contributor SDK before expanding the
    connector catalog.
 3. Improve browser credential isolation, interaction coverage, and recording finalization without
