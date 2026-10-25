@@ -2,7 +2,7 @@
 
 import { spawn, spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { access, appendFile, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { access, appendFile, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { isIP } from 'node:net';
 import { ensureWorkerRuntime } from './ensure-worker-runtime.mjs';
@@ -34,6 +34,7 @@ const configPath = join(quickstartRoot, 'quickstart.tfvars.json');
 const statePath = join(quickstartRoot, 'terraform.tfstate');
 const metadataPath = join(quickstartRoot, 'result.json');
 const contextPath = join(quickstartRoot, 'context.json');
+const teardownPath = join(quickstartRoot, 'teardown.json');
 const debugLogPath = join(quickstartRoot, 'quickstart.log');
 const terraformDataDir = join(quickstartRoot, 'terraform-data');
 const terraformPluginCache = join(projectRoot, '.runtime', 'terraform-plugin-cache');
@@ -194,6 +195,17 @@ interface QuickstartRecoveredDestroy {
 }
 
 type QuickstartMetadata = QuickstartResult | QuickstartRecoveredDestroy;
+
+interface QuickstartTeardownTargets {
+  imageArn?: string;
+  kmsKeyId?: string;
+}
+
+interface QuickstartTeardownCheckpoint {
+  version: 1;
+  deployment: Pick<QuickstartSetupContext, 'startedAt' | 'region' | 'environment'>;
+  targets: QuickstartTeardownTargets;
+}
 
 export interface QuickstartAwsContext {
   region: string;
@@ -475,7 +487,7 @@ async function setup(options: AwsQuickstartOptions): Promise<void> {
   if (existingMetadata?.status === 'ready') {
     throw new Error('an AWS quickstart deployment is already ready; run status or destroy before starting again');
   }
-  if (!existingMetadata && (await fileExists(contextPath) || await fileExists(statePath))) {
+  if (!existingMetadata && (await fileExists(contextPath) || await fileExists(statePath) || await fileExists(teardownPath))) {
     throw new Error('an interrupted or orphaned AWS quickstart exists; run status, then destroy before starting again');
   }
 
@@ -517,6 +529,7 @@ async function setup(options: AwsQuickstartOptions): Promise<void> {
   await confirmCodexCredentialRisk(options);
   await confirm(options.yes, 'Deploy this disposable quickstart stack?');
 
+  await rm(teardownPath, { force: true });
   await rm(metadataPath, { force: true });
   const plannedCodexAuthSecret = options.driver === 'codex' && options.auth === 'chatgpt'
     ? options.codexAuthSecretArn
@@ -722,9 +735,10 @@ async function destroy(options: AwsQuickstartOptions): Promise<void> {
   const awsContext = resolveQuickstartAwsContext(options, stored);
   const env = commandEnvironment(awsContext);
   const terraformEnv = terraformEnvironment(env);
+  const savedTeardown = await readTeardownCheckpointOptional();
   if (!await fileExists(statePath)) {
-    if (metadata) {
-      throw new Error('the completed quickstart result exists but its Terraform state is missing; refusing unverified teardown');
+    if (metadata || savedTeardown !== undefined) {
+      throw new Error('the quickstart result or teardown checkpoint exists but its Terraform state is missing; refusing unverified teardown');
     }
     const credentialSecretDeleted = await deleteManagedCodexAuthSecret(stored, awsContext);
     const destroyed = recoveredQuickstartDestroyEvidence(
@@ -739,11 +753,13 @@ async function destroy(options: AwsQuickstartOptions): Promise<void> {
     return;
   }
   await loggedCommand('terraform', ['-chdir=infra', 'init', '-input=false'], { env: terraformEnv });
-  const kmsKeyId = terraformKmsKeyIdOptional(env);
-  const imageArn = terraformMicrovmImageArnOptional(env);
+  const state = JSON.parse(capture('terraform', ['-chdir=infra', 'show', '-json', statePath], { env: terraformEnv })) as unknown;
+  const checkpoint = selectQuickstartTeardown(stored, terraformTeardownTargets(state), savedTeardown);
+  const { kmsKeyId, imageArn } = checkpoint.targets;
   if (metadata && (!kmsKeyId || !imageArn)) {
     throw new Error('the completed quickstart state is missing its MicroVM image or KMS key');
   }
+  await writeTeardownCheckpoint(checkpoint);
   progress('[1/3] Terminate quickstart MicroVMs');
   if (imageArn) {
     const termination = await loggedCommand(
@@ -753,7 +769,7 @@ async function destroy(options: AwsQuickstartOptions): Promise<void> {
     );
     if (termination.stdout.trim()) progress(`      ${termination.stdout.trim()}`);
   } else {
-    progress('      no deployed image output; setup stopped before agent execution');
+    progress('      no deployed image in state; setup stopped before agent execution');
   }
   progress('[2/3] Destroy the quickstart AWS backend');
   await loggedCommand('terraform', [
@@ -981,8 +997,9 @@ async function fileExists(path: string): Promise<boolean> {
   try {
     await access(path);
     return true;
-  } catch {
-    return false;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false;
+    throw error;
   }
 }
 
@@ -1245,57 +1262,114 @@ function terraformStateEntryCount(env: NodeJS.ProcessEnv): number {
   return terraformStateAddresses(env).length;
 }
 
-function terraformKmsKeyIdOptional(env: NodeJS.ProcessEnv): string | undefined {
-  const shown = command('terraform', [
-    '-chdir=infra',
-    'show',
-    '-json',
-    statePath,
-  ], { env: terraformEnvironment(env), allowFailure: true });
-  if (shown.status !== 0) return undefined;
-  let state: {
-    values?: { root_module?: TerraformStateModule };
-  };
-  try {
-    state = JSON.parse(shown.stdout) as typeof state;
-  } catch {
-    return undefined;
+function terraformTeardownTargets(state: unknown): QuickstartTeardownTargets {
+  const shown = teardownObject(state, 'Terraform state');
+  if (shown.values === undefined) {
+    requiredString(shown.format_version, 'Terraform returned an invalid state document');
+    return {};
   }
-  const resources = state.values?.root_module ? terraformModuleResources(state.values.root_module) : [];
-  const kms = resources.find((resource) => resource.type === 'aws_kms_key');
-  const keyId = kms?.values?.key_id ?? kms?.values?.id;
-  return typeof keyId === 'string' && keyId ? keyId : undefined;
+  const values = teardownObject(shown.values, 'Terraform state values');
+  const resources = values.root_module === undefined ? [] : terraformModuleResources(values.root_module);
+  const managed = resources.filter(resource => resource.mode === 'managed');
+  const imageArn = uniqueTeardownTarget(managed
+    .filter(resource => resource.type === 'awscc_lambda_microvm_image')
+    .map(resource => {
+      const attributes = teardownObject(resource.values, 'MicroVM image state values');
+      return requiredString(attributes.image_arn ?? attributes.id, 'Terraform MicroVM image state is missing its identifier');
+    }), 'MicroVM image');
+  const kmsKeyId = uniqueTeardownTarget(managed
+    .filter(resource => resource.type === 'aws_kms_key')
+    .map(resource => {
+      const attributes = teardownObject(resource.values, 'KMS key state values');
+      return requiredString(attributes.key_id ?? attributes.id, 'Terraform KMS key state is missing its identifier');
+    }), 'KMS key');
+  return { ...(imageArn ? { imageArn } : {}), ...(kmsKeyId ? { kmsKeyId } : {}) };
 }
 
-function terraformMicrovmImageArnOptional(env: NodeJS.ProcessEnv): string | undefined {
-  const output = command('terraform', [
-    '-chdir=infra',
-    'output',
-    `-state=${statePath}`,
-    '-json',
-    'microvm',
-  ], { env: terraformEnvironment(env), allowFailure: true });
-  if (output.status !== 0) return undefined;
-  try {
-    const imageArn = (JSON.parse(output.stdout) as { image_arn?: unknown }).image_arn;
-    return typeof imageArn === 'string' && imageArn ? imageArn : undefined;
-  } catch {
-    return undefined;
+function terraformModuleResources(module: unknown): Record<string, unknown>[] {
+  const value = teardownObject(module, 'Terraform state module');
+  const resources = value.resources ?? [];
+  const children = value.child_modules ?? [];
+  if (!Array.isArray(resources) || !Array.isArray(children)) {
+    throw new Error('Terraform returned an invalid state module');
   }
-}
-
-interface TerraformStateModule {
-  resources?: Array<{ type?: unknown; values?: Record<string, unknown> }>;
-  child_modules?: TerraformStateModule[];
-}
-
-function terraformModuleResources(
-  module: TerraformStateModule,
-): Array<{ type?: unknown; values?: Record<string, unknown> }> {
   return [
-    ...(module.resources ?? []),
-    ...(module.child_modules ?? []).flatMap(terraformModuleResources),
+    ...resources.map(resource => {
+      const record = teardownObject(resource, 'Terraform state resource');
+      if (record.mode !== 'managed' && record.mode !== 'data') {
+        throw new Error('Terraform returned a resource without a valid mode');
+      }
+      return record;
+    }),
+    ...children.flatMap(terraformModuleResources),
   ];
+}
+
+function teardownObject(value: unknown, label: string): Record<string, unknown> {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new Error(`${label} must be an object`);
+  }
+  return value as Record<string, unknown>;
+}
+
+function uniqueTeardownTarget(values: unknown[], label: string): string | undefined {
+  const identifiers = values.filter(value => value !== undefined).map(value => {
+    const identifier = requiredString(value, `invalid ${label} teardown identifier`);
+    if (/\s/.test(identifier)) throw new Error(`invalid ${label} teardown identifier`);
+    return identifier;
+  });
+  if (new Set(identifiers).size > 1) throw new Error(`conflicting ${label} teardown identifiers`);
+  return identifiers[0];
+}
+
+function selectQuickstartTeardown(
+  stored: QuickstartTeardownCheckpoint['deployment'],
+  current: QuickstartTeardownTargets,
+  saved?: unknown,
+): QuickstartTeardownCheckpoint {
+  const deployment = {
+    startedAt: requiredString(stored.startedAt, 'quickstart deployment is missing its start time'),
+    region: requiredString(stored.region, 'quickstart deployment is missing its Region'),
+    environment: requiredString(stored.environment, 'quickstart deployment is missing its environment'),
+  };
+  let previous: Record<string, unknown> = {};
+  if (saved !== undefined) {
+    const checkpoint = teardownObject(saved, 'quickstart teardown checkpoint');
+    if (checkpoint.version !== 1) throw new Error('unsupported quickstart teardown checkpoint version');
+    const scope = teardownObject(checkpoint.deployment, 'quickstart teardown deployment');
+    for (const field of ['startedAt', 'region', 'environment'] as const) {
+      if (scope[field] !== deployment[field]) {
+        throw new Error(`quickstart teardown checkpoint belongs to a different deployment (${field})`);
+      }
+    }
+    previous = teardownObject(checkpoint.targets, 'quickstart teardown targets');
+  }
+  const imageArn = uniqueTeardownTarget([current.imageArn, previous.imageArn], 'MicroVM image');
+  const kmsKeyId = uniqueTeardownTarget([current.kmsKeyId, previous.kmsKeyId], 'KMS key');
+  return {
+    version: 1,
+    deployment,
+    targets: { ...(imageArn ? { imageArn } : {}), ...(kmsKeyId ? { kmsKeyId } : {}) },
+  };
+}
+
+async function readTeardownCheckpointOptional(): Promise<unknown> {
+  try {
+    return JSON.parse(await readFile(teardownPath, 'utf8')) as unknown;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
+    throw new Error(`could not read the quickstart teardown checkpoint: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
+async function writeTeardownCheckpoint(checkpoint: QuickstartTeardownCheckpoint): Promise<void> {
+  const temporaryPath = `${teardownPath}.${randomUUID()}.tmp`;
+  try {
+    await writeFile(temporaryPath, `${JSON.stringify(checkpoint, null, 2)}\n`, { mode: 0o600, flag: 'wx' });
+    await rename(temporaryPath, teardownPath);
+  } finally {
+    await rm(temporaryPath, { force: true });
+  }
 }
 
 async function microvmTeardownStatus(

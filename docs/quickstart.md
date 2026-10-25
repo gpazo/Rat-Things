@@ -31,7 +31,8 @@ The default uses paid Bedrock inference through private AWS endpoints. Use `--mo
 to select another admitted model, and `--profile` or `--region` to select your AWS
 identity and location. The helper installs pinned Node dependencies and builds a
 missing worker artifact with ARM64-capable Docker. The initial build can take time;
-a valid artifact supplied through `CODEX_RUNTIME_ARTIFACT` is reused.
+later runs reuse the completed build after validating it against the pinned source.
+A valid artifact supplied through `CODEX_RUNTIME_ARTIFACT` is also reused.
 
 PrivateLink endpoints, compute, storage and model usage incur AWS charges separately
 from your subscription. Runtime internet access is denied by default. To use ChatGPT
@@ -44,6 +45,12 @@ see [runtime egress](../infra/README.md).
 credential synchronization and teardown commands retain the deployment's saved
 AWS identity. The local deterministic smoke test is `npm run smoke:local`;
 a mock driver cannot prove an Agents deployment.
+
+Run `npm run quickstart:aws -- destroy` to remove the deployment. Keep
+`.runtime/aws-quickstart/` until teardown succeeds. The helper saves the MicroVM
+image and encryption-key identifiers before deletion, so you can rerun the same
+command if cleanup or verification is interrupted. Teardown checks for empty
+Terraform state, no active MicroVMs, and a disabled KMS key pending deletion.
 
 The helper uses the Lambda URL transport when a dedicated Agents HTTP service is
 not configured. Large uploads, long-lived SSE and executor connections need the
