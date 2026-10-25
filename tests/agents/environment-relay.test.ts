@@ -12,6 +12,7 @@ import { createEnvironmentRelay } from '../../src/adapters/environment-relay.js'
 import { EnvironmentService } from '../../src/core/environment-service.js';
 import { environmentToken, type EnvironmentCredentials } from '../../src/credentials/environment.js';
 import { parseAgentsContract } from '../../src/domain/agents-api-validation.js';
+import { isolatedCodexArguments } from '../../src/domain/local-codex-arguments.js';
 import { MemoryAgentsStore } from './fixtures.js';
 
 function fixture(clock?: { now(): number }) {
@@ -112,7 +113,7 @@ describe('self-hosted execution relay', () => {
       await symlink(join(temporary, 'answer.bin'), join(temporary, 'link.bin'));
       await expect(codexEnvironmentFiles({ ...fileOperation, operation: { operation: 'write', path: '/workspace/link.bin', data: '' } })).rejects.toThrow();
       expect(await readFile(join(temporary, 'answer.bin'))).toEqual(Buffer.from([0, 255, 128]));
-      const harness = spawn((process.env.CODEX_CONFORMANCE_BINARY ?? resolve('node_modules/.bin/codex')), ['app-server'], { env: {
+      const harness = spawn((process.env.CODEX_CONFORMANCE_BINARY ?? resolve('node_modules/.bin/codex')), isolatedCodexArguments(['app-server']), { env: {
         ...env, CODEX_API_KEY: 'unused-for-this-test',
         CODEX_EXEC_SERVER_NOISE_REGISTRY_URL: address,
         CODEX_EXEC_SERVER_NOISE_ENVIRONMENT_ID: environment.id,
@@ -140,6 +141,7 @@ describe('self-hosted execution relay', () => {
         { type: 'function_call_output', call_id: 'call_saved', output: '' },
         { type: 'message', role: 'assistant', phase: 'final_answer', content: [{ type: 'output_text', text: 'Previous answer' }] },
       ] });
+      await expect(readFile(join(temporary, '.tmp/plugins.sync.lock'))).rejects.toMatchObject({ code: 'ENOENT' });
       rpc.close();
       process.kill(-executor.pid!, 'SIGSTOP');
       try { expect((await fetch(`${address}/health`, { signal: AbortSignal.timeout(4000) })).status).toBe(503); }
