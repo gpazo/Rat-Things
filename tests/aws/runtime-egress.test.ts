@@ -121,7 +121,7 @@ async function completedRootTurn(client: ReturnType<typeof createAgentsClient>, 
     if (turn?.status === 'completed') return turn;
     if (turn?.status === 'failed' || turn?.status === 'cancelled') throw new Error(`Egress Turn ${turn.id} ended ${turn.status} (${turn.error?.code})`);
     const session = await client.beta.agents.sessions.retrieve(sessionId, { signal });
-    assert(session.status !== 'failed' && session.status !== 'requires_action', `Egress Session ${sessionId} ended ${session.status}`);
+    assert(session.status !== 'failed' && session.status !== 'requires_action', `Egress Session ${sessionId} ended ${session.status}; required actions: ${session.required_actions.map(action => action.type).join(', ') || 'none'}`);
     await delay(Math.min(2000, Math.max(1, deadline - Date.now())), undefined, { signal });
   }
   throw new Error(`Egress Session ${sessionId} exceeded the 420-second Turn deadline`);

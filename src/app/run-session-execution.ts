@@ -285,7 +285,7 @@ export class RunSessionExecution implements SessionExecution {
     if (run?.agentsSession?.turnId !== turn.id && run) return { turn, requiredActions: [] };
     if (!run) {
       const environment = await this.environment(ownerId, session);
-      return { turn, requiredActions: environment && environment.status !== 'connected' ? [{ type: 'environment_connection', environment_id: environment.id }] : [] };
+      return { turn, requiredActions: environment?.type === 'self_hosted' && environment.status !== 'connected' ? [{ type: 'environment_connection', environment_id: environment.id }] : [] };
     }
     const snapshot = run.status === 'running' && run.execution
       ? await this.options.interaction.events({ runId: run.runId, execution: run.execution }, 0, 100)

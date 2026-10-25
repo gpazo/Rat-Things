@@ -5,8 +5,9 @@ import { RunSessionExecution } from '../../src/app/run-session-execution.js';
 import { SessionRuntimeStore } from '../../src/core/session-runtime-store.js';
 import { initialSessionRuntime } from '../../src/core/session-runtime-planning.js';
 import { sessionAgent } from '../../src/core/session-planning.js';
-import { EnvironmentService } from '../../src/core/environment-service.js';
+import { EnvironmentService, type StoredEnvironment } from '../../src/core/environment-service.js';
 import { EnvironmentTemplateService } from '../../src/core/environment-template-service.js';
+import { NotFoundError } from '../../src/core/errors.js';
 import { AgentsApiError } from '../../src/domain/agents-api-validation.js';
 import type { AgentSession, Turn } from '../../src/domain/agents-api.js';
 import type { RunRecord } from '../../src/domain/contracts.js';
@@ -35,17 +36,18 @@ async function fixture(placement?: SessionPlacementPolicy) {
   const interrupt = vi.fn(async () => {});
   const events = vi.fn(async () => ({ runId: run.runId, active: true, ready: true, oldestSequence: 0, nextSequence: 0, events: [], pendingRequests: [] }));
   const runtime = new SessionRuntimeStore(store); await runtime.claim('alice', session.id, run.runId, now);
+  const getRun = vi.fn(async () => run);
   const cancel = vi.fn(async () => run);
   const putJson = vi.fn(async (key: string) => ({ bucket: 'private', key, sha256: 'fixture' }));
   const execution = new RunSessionExecution({ store, environments, ...(placement ? { placement } : {}),
-    runs: { get: async () => run, idFor: () => 'unused', cancel, submit },
+    runs: { get: getRun, idFor: () => 'unused', cancel, submit },
     interaction: { startSessionTurn: start, events, steer, interrupt, respond: async () => {} },
     artifacts: { getJson: async () => { throw new Error('Unexpected object read'); }, putJson, getBytes: async () => new Uint8Array(), getStream: async () => { throw new Error('Unexpected stream'); } },
     vaults: { requireVaults: async () => {} }, tools: { prepare: async () => {}, launch: async () => [], close: async () => {} },
   });
   if (environment.type !== 'self_hosted') throw new Error('Unexpected environment');
   const connect = () => environments.connection({ ownerId: 'alice', environmentId: environment.id, role: 'executor' }, `connection_${now}`, true);
-  return { execution, session, turn, run, submit, cancel, putJson, start, steer, interrupt, events, runtime, environments, connect, store, clock: { now: () => now }, now: (time: number) => { now = time; } };
+  return { execution, session, turn, run, getRun, submit, cancel, putJson, start, steer, interrupt, events, runtime, environments, connect, store, clock: { now: () => now }, now: (time: number) => { now = time; } };
 }
 
 describe('persistent harness input admission', () => {
@@ -250,6 +252,46 @@ describe('persistent harness input admission', () => {
   });
 });
 
+
+describe('Session observation before the first Run', () => {
+  it.each([
+    ['openai_hosted', 'pending', 'in_progress'],
+    ['openai_hosted', 'disconnected', 'in_progress'],
+    ['openai_hosted', 'connected', 'in_progress'],
+    ['openai_hosted', 'failed', 'failed'],
+    ['self_hosted', 'pending', 'requires_action'],
+    ['self_hosted', 'disconnected', 'requires_action'],
+    ['self_hosted', 'connected', 'in_progress'],
+  ] as const)('reports a %s environment that is %s as %s', async (type, status, sessionStatus) => {
+    const f = await fixture();
+    await f.store.delete((await f.runtime.get('alice', f.session.id))!);
+    f.getRun.mockRejectedValue(new NotFoundError('Run not created yet'));
+    if (type === 'openai_hosted') f.session.environment = await f.environments.prepare('alice', f.session.id, { type });
+    if (f.session.environment.type === 'none') throw new Error('Expected an execution environment');
+    const environment = (await f.store.get<StoredEnvironment>('alice', 'environments', f.session.environment.id))!;
+    await f.store.put({ ...environment, revision: environment.revision + 1,
+      value: { ...environment.value, status, connectedUntil: 145 },
+    }, environment.revision);
+    await f.store.put({ id: f.session.id, ownerId: 'alice', collection: 'sessions', createdAt: 100, revision: 1,
+      value: { session: f.session, turns: [{ turn: f.turn, input: [] }], receipts: {}, deletedArtifacts: [] },
+    }, 0);
+    const sessions = new SessionService({ store: f.store, agents: new AgentService({ store: f.store }), execution: f.execution, clock: f.clock });
+
+    const snapshot = await sessions.streamSnapshot('alice', f.session.id);
+
+    expect(snapshot.session).toMatchObject({
+      status: sessionStatus,
+      required_actions: sessionStatus === 'requires_action' ? [{ type: 'environment_connection', environment_id: environment.id }] : [],
+      error: status === 'failed' ? 'The execution environment is unavailable. Create a new session.' : null,
+    });
+    expect(snapshot.environment).toMatchObject({ type, status,
+      error: status === 'failed' ? { code: 'environment_unavailable' } : null,
+    });
+    expect(snapshot.turns).toEqual([f.turn]);
+    expect(f.getRun).toHaveBeenCalled();
+    expect(f.events).not.toHaveBeenCalled();
+  });
+});
 
 describe('saved Session placement', () => {
   it.each(['microvm', 'ec2'] as const)('submits a replacement on the saved %s backend', async backend => {
