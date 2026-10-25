@@ -92,9 +92,8 @@ impl EnvironmentPicker {
             })
             .response
             .labelled_by(label.id);
-        response.widget_info(|| {
-            egui::WidgetInfo::labeled(egui::WidgetType::ComboBox, true, "Environment")
-        });
+        response
+            .widget_info(|| egui::WidgetInfo::labeled(egui::Role::ComboBox, true, "Environment"));
         if self
             .started
             .is_some_and(|started| started.elapsed() >= LOADING_FEEDBACK_DELAY)

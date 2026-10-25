@@ -146,7 +146,7 @@ fn show_blocks(ui: &mut egui::Ui, cache: &mut CommonMarkCache, blocks: &[Block])
                         if let Some(checked) = item.checked {
                             response.widget_info(|| {
                                 egui::WidgetInfo::selected(
-                                    egui::WidgetType::Checkbox,
+                                    egui::Role::CheckBox,
                                     false,
                                     checked,
                                     &item.label,

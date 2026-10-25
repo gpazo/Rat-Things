@@ -179,7 +179,7 @@ impl eframe::App for Desktop {
         }
         self.app.show(ui);
         if let Some(error) = &self.error {
-            egui::Modal::new(egui::Id::new("signer_failed")).show(ui.ctx(), |ui| {
+            egui::Modal::new(egui::Id::unique("signer_failed")).show(ui.ctx(), |ui| {
                 ui.heading("Connection stopped");
                 ui.label(error);
                 if ui.button("Close console").clicked() {
