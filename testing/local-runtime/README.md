@@ -205,5 +205,5 @@ checks that retry returns the same destination without uploading again. A new cl
 then verifies transferred hashes and setup output. The harness does not provision or destroy
 the endpoint; use the scoped AWS E2E scripts when testing a disposable stack.
 
-The planned Pi Durable adapter has the same requirement from its first live local prototype.
-Its upstream Cloudflare example's API-key configuration is not the Rat Things development setup.
+Local Pi Durable uses the same private Rat Things subscription login. Its live Rust console
+journey is documented in [the desktop test guide](../../desktop/tests/README.md).
