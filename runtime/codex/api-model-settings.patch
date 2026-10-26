@@ -455,3 +455,106 @@ index be73c65..baeebae 100644
  
      config.model = Some("gpt-5.5".to_string());
      apply_spawn_agent_service_tier(root.thread.session.as_ref(), &mut config)
+diff --git a/codex-rs/core/tests/suite/model_switching.rs b/codex-rs/core/tests/suite/model_switching.rs
+--- a/codex-rs/core/tests/suite/model_switching.rs
++++ b/codex-rs/core/tests/suite/model_switching.rs
+@@ -632,7 +632,7 @@
+     let second_body = requests[1].body_json();
+ 
+     assert_eq!(first_body["service_tier"].as_str(), Some("priority"));
+-    assert_eq!(second_body.get("service_tier"), None);
++    assert_eq!(second_body["service_tier"].as_str(), Some("default"));
+ 
+     Ok(())
+ }
+@@ -676,7 +676,7 @@
+ }
+ 
+ #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+-async fn unsupported_service_tier_is_omitted_from_http_turn() -> Result<()> {
++async fn unadvertised_api_service_tier_is_preserved_in_http_turn() -> Result<()> {
+     skip_if_no_network!(Ok(()));
+ 
+     let server = start_mock_server().await;
+@@ -703,13 +703,13 @@
+ 
+     let request = resp_mock.single_request();
+     let body = request.body_json();
+-    assert_eq!(body.get("service_tier"), None);
++    assert_eq!(body["service_tier"].as_str(), Some("priority"));
+ 
+     Ok(())
+ }
+ 
+ #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+-async fn unsupported_configured_service_tier_warns_at_session_start() -> Result<()> {
++async fn unsupported_configured_non_api_service_tier_warns_at_session_start() -> Result<()> {
+     skip_if_no_network!(Ok(()));
+ 
+     let server = start_mock_server().await;
+@@ -723,7 +723,11 @@
+     let mut builder = test_codex()
+         .with_model(model_slug)
+         .with_config(move |config| {
+-            config.service_tier = Some(ServiceTier::Fast.request_value().to_string());
++            config
++                .features
++                .enable(Feature::FastMode)
++                .expect("test config should allow feature update");
++            config.service_tier = Some("custom-unadvertised".to_string());
+             config.model_catalog = Some(ModelsResponse {
+                 models: vec![model],
+             });
+@@ -743,13 +747,13 @@
+     };
+     assert_eq!(
+         warning.message,
+-        "Configured service tier `priority` is not advertised as supported for model `test-no-tier-model` and will be omitted from requests."
++        "Configured service tier `custom-unadvertised` is not advertised as supported for model `test-no-tier-model` and will be omitted from requests."
+     );
+     Ok(())
+ }
+ 
+ #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+-async fn default_service_tier_override_is_omitted_from_http_turn() -> Result<()> {
++async fn explicit_default_service_tier_is_sent_on_api_key_http_turn() -> Result<()> {
+     skip_if_no_network!(Ok(()));
+ 
+     let server = start_mock_server().await;
+@@ -782,13 +786,13 @@
+ 
+     let request = resp_mock.single_request();
+     let body = request.body_json();
+-    assert_eq!(body.get("service_tier"), None);
++    assert_eq!(body["service_tier"].as_str(), Some("default"));
+ 
+     Ok(())
+ }
+ 
+ #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+-async fn null_service_tier_override_is_omitted_from_http_turn_with_catalog_default() -> Result<()> {
++async fn null_service_tier_override_sends_api_default_instead_of_catalog_default() -> Result<()> {
+     skip_if_no_network!(Ok(()));
+ 
+     let server = start_mock_server().await;
+@@ -821,7 +825,7 @@
+ 
+     let request = resp_mock.single_request();
+     let body = request.body_json();
+-    assert_eq!(body.get("service_tier"), None);
++    assert_eq!(body["service_tier"].as_str(), Some("default"));
+ 
+     Ok(())
+ }
+diff --git a/codex-rs/core/tests/suite/agent_websocket.rs b/codex-rs/core/tests/suite/agent_websocket.rs
+--- a/codex-rs/core/tests/suite/agent_websocket.rs
++++ b/codex-rs/core/tests/suite/agent_websocket.rs
+@@ -716,7 +716,7 @@
+     );
+ 
+     assert_eq!(second_turn["type"].as_str(), Some("response.create"));
+-    assert_eq!(second_turn.get("service_tier"), None);
++    assert_eq!(second_turn["service_tier"].as_str(), Some("default"));
+     assert_eq!(second_turn.get("previous_response_id"), None);
+     assert!(
+         second_turn
