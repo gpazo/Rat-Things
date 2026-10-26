@@ -412,7 +412,7 @@ fn saved_pi_agent_runs_managed_tools_and_restores_in_rust_console() {
         &mut app,
         "Task",
         &format!(
-            "Perform this exact managed workspace verification using all four tools: (1) write_file path {file} with content {first}; (2) read_file that path and confirm its exact content; (3) list_files /workspace and locate that file; (4) exec_command with command array [\"node\",\"-e\",\"console.log('RUST_UI_WORKER '+process.getuid()+' '+process.platform)\"] and confirm it prints RUST_UI_WORKER 10001 linux. Then respond with exactly {first}."
+            "Perform this exact managed workspace verification using all four tools: (1) write_file path {file} with content {first}; (2) read_file that path and confirm its exact content; (3) list_files /workspace and locate that file; (4) exec_command with command array [\"node\",\"--disable-warning=UNDICI-EHPA\",\"-e\",\"console.log('RUST_UI_WORKER '+process.getuid()+' '+process.platform)\"] and confirm it prints RUST_UI_WORKER 10001 linux. Then respond with exactly {first}."
         ),
     );
     capture(&mut app, &evidence, "managed-session-form.png");
@@ -471,7 +471,7 @@ fn saved_pi_agent_runs_managed_tools_and_restores_in_rust_console() {
     });
     let guest_command = require_operation(
         &first_commands,
-        &json!({"command":["node","-e","console.log('RUST_UI_WORKER '+process.getuid()+' '+process.platform)"]}),
+        &json!({"command":["node","--disable-warning=UNDICI-EHPA","-e","console.log('RUST_UI_WORKER '+process.getuid()+' '+process.platform)"]}),
         |text| text.trim() == "RUST_UI_WORKER 10001 linux",
     );
     show_command(&mut app, guest_command);
@@ -499,7 +499,7 @@ fn saved_pi_agent_runs_managed_tools_and_restores_in_rust_console() {
         &mut app,
         "Message",
         &format!(
-            "Continue this same Session. Use read_file on {file} to confirm the existing content is {first}. Then use write_file to replace its content with exactly {second}, use read_file again to verify it, and use exec_command with command array [\"node\",\"-e\",\"console.log('RUST_UI_CONTINUED '+process.getuid())\"]. Respond with exactly {second}."
+            "Continue this same Session. Use read_file on {file} to confirm the existing content is {first}. Then use write_file to replace its content with exactly {second}, use read_file again to verify it, and use exec_command with command array [\"node\",\"--disable-warning=UNDICI-EHPA\",\"-e\",\"console.log('RUST_UI_CONTINUED '+process.getuid())\"]. Respond with exactly {second}."
         ),
     );
     click(&mut app, "Send");
@@ -541,7 +541,7 @@ fn saved_pi_agent_runs_managed_tools_and_restores_in_rust_console() {
     });
     let continued_command = require_operation(
         &continued_commands,
-        &json!({"command":["node","-e","console.log('RUST_UI_CONTINUED '+process.getuid())"]}),
+        &json!({"command":["node","--disable-warning=UNDICI-EHPA","-e","console.log('RUST_UI_CONTINUED '+process.getuid())"]}),
         |text| text.trim() == "RUST_UI_CONTINUED 10001",
     );
     show_command(&mut app, continued_command);

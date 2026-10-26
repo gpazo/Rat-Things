@@ -3,7 +3,7 @@ import { mkdtemp, chown, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Type } from 'typebox';
-import { PI_MANAGED_TOOLS, parsePiManagedOperation, piManagedCommand } from './pi-managed-tools.js';
+import { PI_MANAGED_TOOLS, parsePiManagedOperation, piManagedCommand, piManagedResult } from './pi-managed-tools.js';
 import AjvModule from 'ajv';
 import { CodexRpcClient } from '../adapters/codex-rpc.js';
 import type { NativeLease } from '../core/session-native-store.js';
@@ -88,7 +88,8 @@ export async function createPiEffectBroker(options: { launch: SessionLaunch; pla
           }), isError: response.isError === true };
         }
         if (!managed) throw new Error('Managed tools require an environment');
-        const command = piManagedCommand(parsePiManagedOperation(request), process.execPath, plan.workspace);
+        const operation = parsePiManagedOperation(request);
+        const command = piManagedCommand(operation, process.execPath, plan.workspace);
         const processId = `pi-${randomUUID()}`;
         const invocation = AbortSignal.any([signal, shutdown.signal]);
         invocation.throwIfAborted();
@@ -108,9 +109,10 @@ export async function createPiEffectBroker(options: { launch: SessionLaunch; pla
           try {
             const response = await Promise.race([execution, failedCancellation]);
             await cancellation;
-            if (!record(response)) throw new Error('Invalid managed command response');
+            if (!record(response) || typeof response.stdout !== 'string' || typeof response.stderr !== 'string'
+              || typeof response.exitCode !== 'number' || !Number.isInteger(response.exitCode)) throw new Error('Invalid managed command response');
             await options.flushWorkspace?.();
-            return { output: [{ type: 'text' as const, text: `${String(response.stdout ?? '')}${String(response.stderr ?? '')}` }], isError: response.exitCode !== 0 };
+            return piManagedResult(operation, { stdout: response.stdout, stderr: response.stderr, exitCode: response.exitCode });
           } catch (error) { shutdown.abort(error); throw error; }
           finally { invocation.removeEventListener('abort', cancel); }
         })();
