@@ -429,3 +429,29 @@ index d3d3dd8..5e174b7 100644
          assert_eq!(model.service_tier_for_request(/*service_tier*/ None), None);
      }
  }
+diff --git a/codex-rs/core/src/tools/handlers/multi_agents_tests.rs b/codex-rs/core/src/tools/handlers/multi_agents_tests.rs
+index be73c65..baeebae 100644
+--- a/codex-rs/core/src/tools/handlers/multi_agents_tests.rs
++++ b/codex-rs/core/src/tools/handlers/multi_agents_tests.rs
+@@ -516,7 +516,7 @@ fn service_tier_test_catalog() -> codex_protocol::openai_models::ModelsResponse
+ }
+ 
+ #[tokio::test]
+-async fn spawn_agent_service_tier_uses_root_preference_when_root_model_cannot_support_it() {
++async fn spawn_agent_service_tier_preserves_explicit_root_preference_not_advertised_by_catalog() {
+     let (_session, turn) = make_session_and_context().await;
+     let mut config = (*turn.config).clone();
+     config.model = Some("test-model-without-fast".to_string());
+@@ -527,7 +527,11 @@ async fn spawn_agent_service_tier_uses_root_preference_when_root_model_cannot_su
+         .start_thread(StartThreadOptions::new(config.clone()))
+         .await
+         .expect("root thread should start");
+-    assert_eq!(root.thread.config_snapshot().await.service_tier, None);
++    // Explicit API tier choices survive omission from the local model catalog.
++    assert_eq!(
++        root.thread.config_snapshot().await.service_tier,
++        Some(ServiceTier::Fast.request_value().to_string())
++    );
+ 
+     config.model = Some("gpt-5.5".to_string());
+     apply_spawn_agent_service_tier(root.thread.session.as_ref(), &mut config)
