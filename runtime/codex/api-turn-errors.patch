@@ -377,7 +377,7 @@ index 10928a4..a3bea0c 100644
      FlexUnavailable,
      ServerOverloaded,
 diff --git a/codex-rs/protocol/src/error.rs b/codex-rs/protocol/src/error.rs
-index 50c32e3..5c271f5 100644
+index 50c32e3..2811d69 100644
 --- a/codex-rs/protocol/src/error.rs
 +++ b/codex-rs/protocol/src/error.rs
 @@ -180,6 +180,8 @@ pub enum CodexErrorDetails {
@@ -413,13 +413,10 @@ index 50c32e3..5c271f5 100644
              CodexErrorDetails::SessionBudgetExceeded => CodexErrorInfo::SessionBudgetExceeded,
              CodexErrorDetails::RateLimitExceeded(_) => CodexErrorInfo::RateLimitExceeded,
              CodexErrorDetails::UsageLimitReached(_)
-@@ -517,6 +522,15 @@ impl CodexErr {
+@@ -517,6 +522,12 @@ impl CodexErr {
                      http_status_code: self.http_status_code_value(),
                  }
              }
-+            CodexErrorDetails::UnexpectedStatus(error) => CodexErrorInfo::HttpConnectionFailed {
-+                http_status_code: Some(error.status.as_u16()),
-+            },
 +            CodexErrorDetails::InvalidRequest(_) | CodexErrorDetails::InvalidImageRequest() => {
 +                CodexErrorInfo::BadRequest
 +            }

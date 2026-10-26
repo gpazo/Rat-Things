@@ -110,7 +110,7 @@ jobs:
           CODEX_CONFORMANCE_BINARY: ${{ github.workspace }}/.runtime/codex/linux-x64/runtime/bin/codex
           CODEX_REQUIRE_PARITY: 'true'
         run: |
-          npm run test:agents:parity
+          npm run test:agents:parity:host
           npx vitest run tests/runner/managed-sandbox.test.ts --no-file-parallelism
       - name: Archive verified Linux x64 runtime
         run: tar -C .runtime/codex/linux-x64 -czf .runtime/codex/linux-x64.tar.gz artifact.json runtime

@@ -46,9 +46,10 @@ integration checks. Building the executable does not run those Rust tests.
 | [api-model-settings.patch](api-model-settings.patch) | Preserve explicit `auto`, `default`, `flex`, `priority` and `fast` service tiers through config and Turn updates; the provider decides support without a silent catalog/UI downgrade. | Patched config, Session and protocol service-tier unit tests; [native-session-settings.test.ts](../../tests/agents/native-session-settings.test.ts) checks outgoing requests across Turns. |
 | [chatgpt-service-tier.patch](chatgpt-service-tier.patch) | Omit `auto`/`default` for ChatGPT authentication while preserving other explicit tiers and API-key/Bedrock request values across HTTP and WebSocket setup and continuation. | Patched `responses_service_tier_*` Rust tests cover these transports/auth modes, including repeated Turns. They use local fixtures, not a live provider. |
 | [api-turn-errors.patch](api-turn-errors.patch) | Preserve typed provider failures across HTTP and SSE, including credit exhaustion and timeouts; keep private diagnostics out of normalized errors and credit exhaustion non-retryable. | Patched API bridge/SSE unit tests; [native-turn-errors.test.ts](../../tests/agents/native-turn-errors.test.ts) checks public categories, private-message removal and request count. |
-| [checkpoint-shutdown.patch](checkpoint-shutdown.patch) | Add private `thread/checkpoint` for an exact set of idle durable threads. Use upstream shutdown handles to drain descendants, internal work and persistence before acknowledging the set. The host seals admission, verifies history and waits for process exit before publishing. | Patched `checkpoint_idle_threads_*` core integration tests cover tree shutdown, identity validation, busy rejection and persistence failure; [native-checkpoint.test.ts](../../tests/agents/native-checkpoint.test.ts) exercises the compiled bridge and resume; [session-checkpoint.test.ts](../../tests/runner/session-checkpoint.test.ts) checks host orchestration. The opt-in [AWS checkpoint proof](../../tests/aws/session-checkpoint.test.ts) is still required for actual worker replacement. |
+| [checkpoint-shutdown.patch](checkpoint-shutdown.patch) | Add private `thread/checkpoint` for an exact set of idle durable threads, requiring `experimentalApi` during initialization. Use upstream shutdown handles to drain descendants, internal work and persistence before acknowledging the set. The host seals admission, verifies history and waits for process exit before publishing. | Patched `checkpoint_idle_threads_*` core integration tests cover tree shutdown, identity validation, busy rejection and persistence failure; [native-checkpoint.test.ts](../../tests/agents/native-checkpoint.test.ts) exercises capability rejection, the compiled bridge and resume; [session-checkpoint.test.ts](../../tests/runner/session-checkpoint.test.ts) checks host orchestration. The opt-in [AWS checkpoint proof](../../tests/aws/session-checkpoint.test.ts) is still required for actual worker replacement. |
 | [unified-exec-output-subscription.patch](unified-exec-output-subscription.patch) | Subscribe when the process output channel is created, retaining early output until the streaming consumer takes its receiver. Upstream retains the completed transcript; streaming still needs the early receiver. | Patched Rust test `streamed_and_completed_output_preserve_bytes_before_subscription` checks both streamed bytes and completed command output with and without late output. |
 | [local-subprocess-stdio.patch](local-subprocess-stdio.patch) | Permit the local socket metadata and write-half-close that Node subprocess pipes require under disabled networking. Keep connection operations, non-Unix socket creation, other socket options and other shutdown modes denied. | Patched `restricted_network_supports_node_subprocess_stdio` and `restricted_network_socket_metadata_does_not_enable_connections` tests; [managed-subprocess.test.ts](../../tests/pi/managed-subprocess.test.ts) checks the compiled artifact in strict Linux parity, and both KVM harnesses exercise the guest. |
+| [protocol-exports.patch](protocol-exports.patch) | Regenerate upstream's embedded JSON and TypeScript exports after protocol changes. Both exports include the added error categories; only experimental exports include the private checkpoint method and types. | Upstream `schema_fixtures_tests` and `precomputed_exports_tests` compare generated and embedded data; [native-protocol-exports.test.ts](../../tests/agents/native-protocol-exports.test.ts) checks the actual CLI exports in both modes. This patch contains generated data only. |
 
 ## Upgrade one candidate at a time
 
@@ -62,6 +63,7 @@ integration checks. Building the executable does not run those Rust tests.
    Refresh [model-defaults.json](model-defaults.json) from the pinned upstream
    catalog and review [model-capabilities.json](model-capabilities.json) against
    actual API behavior. The builder verifies the defaults' source hash and values.
+   Regenerate the protocol exports after all type changes, as described below.
 3. Use a new build directory for the candidate. Run `npm run codex:build --
    /absolute/path/to/new-build --prepare-only`, inspect the resulting source diff,
    and derive the expected patched tree from those reviewed inputs. Update
@@ -70,7 +72,9 @@ integration checks. Building the executable does not run those Rust tests.
 4. Compile and run the affected upstream Rust test modules, including the tests
    named above. Then build and validate each platform below. Use the exact candidate
    executable for `CODEX_CONFORMANCE_BINARY`; keep strict parity enabled through
-   `npm run test:agents:parity`. A fixture pass establishes the exercised protocol
+   `npm run test:agents:parity:host` on the host. The worker-image harness runs
+   `npm run test:agents:parity` and additionally verifies the installed Pi child
+   under worker UID 10001. A fixture pass establishes the exercised protocol
    behavior, not live authentication or VM isolation.
 5. Run `npm run check` with the matching ARM64 packaging artifact, the worker-image
    gates and the relevant local acceptance harnesses. Record artifact identities,
@@ -94,6 +98,30 @@ do not count that job as macOS runtime acceptance. Caches save compilation work 
 never replace artifact validation or semantic tests. For checkpoint changes, include the
 explicitly opted-in AWS checkpoint proof before claiming cloud handoff acceptance;
 ordinary checks must not provision AWS resources.
+
+### Regenerate protocol exports
+
+The production CLI reads compressed, precomputed exports. Changing Rust protocol
+types alone leaves `generate-json-schema` and `generate-ts` stale. In the reviewed
+upstream checkout, apply all behavior patches first and run its schema writer from
+`codex-rs/` for both variants:
+
+```bash
+for experimental in 0 1; do
+  CODEX_APP_SERVER_SCHEMA_ROOT="$PWD/app-server-protocol/schema" \
+  CODEX_APP_SERVER_SCHEMA_EXPERIMENTAL="$experimental" \
+    cargo test --locked -p codex-app-server-protocol --lib \
+      schema_fixtures_tests::write_schema_fixtures_from_env \
+      -- --exact --ignored --test-threads=1
+done
+cargo test --locked -p codex-app-server-protocol --lib schema_fixtures_tests
+cargo test --locked -p codex-app-server-protocol --lib precomputed_exports_tests
+```
+
+Review the textual schema changes and capture the generated fixtures and both
+compressed bundles with `git diff --binary` in `protocol-exports.patch`. Keep it
+last in `source.json`. Refresh the source/tree policy and rebuild the executable;
+the CLI export tests must use that rebuilt artifact.
 
 ## Upstream, drop or roll back
 

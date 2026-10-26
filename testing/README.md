@@ -21,10 +21,13 @@ using a customer's third-party account. Keep it out of ordinary deployments.
 
 ## Agents API native compatibility gate
 
-`npm run test:agents:parity` runs the Agents suites with strict native interruption
+`npm run test:agents:parity:host` runs the Agents suites with strict native interruption
 assertions. A stock harness that rejects an interrupted child's follow-up at the
 configured limit fails this gate, even when the ordinary diagnostic suite passes.
 The fixture model servers are local and do not make paid model calls.
+The worker-image harness runs `npm run test:agents:parity`, which also verifies
+the installed Pi child at `/opt/agent-runtime/pi-child.mjs` under worker UID 10001.
+That packaging check requires the image; host parity excludes only that test.
 
 The ordered native patches and exact upstream revision are in `runtime/codex/`.
 See the [Codex runtime maintenance plan](../runtime/codex/README.md) for patch
@@ -34,7 +37,7 @@ Prepare or build them in a dedicated directory with sufficient free space:
 ```bash
 npm run codex:build -- /path/to/empty/build-directory --prepare-only
 npm run codex:build -- /path/to/empty/build-directory
-CODEX_CONFORMANCE_BINARY=/path/to/empty/build-directory/runtime/bin/codex npm run test:agents:parity
+CODEX_CONFORMANCE_BINARY=/path/to/empty/build-directory/runtime/bin/codex npm run test:agents:parity:host
 ```
 
 The builder never resets an existing checkout. It records the upstream commit,

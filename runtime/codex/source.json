@@ -10,6 +10,7 @@
     "api-turn-errors.patch",
     "checkpoint-shutdown.patch",
     "unified-exec-output-subscription.patch",
-    "local-subprocess-stdio.patch"
+    "local-subprocess-stdio.patch",
+    "protocol-exports.patch"
   ]
 }

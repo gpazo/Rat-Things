@@ -20,6 +20,7 @@
     "test:watch": "vitest",
     "codex:build": "node scripts/build-codex-runtime.mjs",
     "test:agents:parity": "CODEX_REQUIRE_PARITY=true vitest run tests/agents tests/pi --no-file-parallelism",
+    "test:agents:parity:host": "npm run test:agents:parity -- --exclude tests/pi/packaged-child.test.ts",
     "localstack:up": "./testing/bootstrap.sh",
     "localstack:status": "./testing/bootstrap.sh --status",
     "localstack:down": "./testing/bootstrap.sh --down",

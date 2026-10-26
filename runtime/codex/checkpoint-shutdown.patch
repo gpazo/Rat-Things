@@ -1,11 +1,12 @@
 diff --git a/codex-rs/app-server-protocol/src/protocol/common.rs b/codex-rs/app-server-protocol/src/protocol/common.rs
-index b183d6a..008d1f3 100644
+index b183d6a..e9a898c 100644
 --- a/codex-rs/app-server-protocol/src/protocol/common.rs
 +++ b/codex-rs/app-server-protocol/src/protocol/common.rs
-@@ -868,6 +868,11 @@ client_request_definitions! {
+@@ -868,6 +868,12 @@ client_request_definitions! {
          serialization: None,
          response: v2::ThreadLoadedListResponse,
      },
++    #[experimental("thread/checkpoint")]
 +    ThreadCheckpoint => "thread/checkpoint" {
 +        params: v2::ThreadCheckpointParams,
 +        serialization: thread_id(params.thread_id),

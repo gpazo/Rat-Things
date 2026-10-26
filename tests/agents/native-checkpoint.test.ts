@@ -1,4 +1,5 @@
 import { createServer, type ServerResponse } from 'node:http';
+import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -11,6 +12,7 @@ import type { Turn } from '../../src/domain/agents-api.js';
 import type { WorkspaceCheckpoint } from '../../src/domain/workspace-checkpoint.js';
 import { SessionRuntime, type SessionCheckpointOptions } from '../../src/runner/session-runtime.js';
 import { WorkspaceAdmission } from '../../src/runner/workspace-handoff.js';
+import { rpcClient } from './codex-protocol.js';
 
 // The private checkpoint bridge exists only in the repository's parity artifact.
 // Model traffic stays on loopback; no credentials or AWS resources are used.
@@ -19,6 +21,39 @@ const binary = process.env.CODEX_CONFORMANCE_BINARY ?? resolve('node_modules/.bi
 const sessionId = 'native_checkpoint_session';
 const agentId = 'native_checkpoint_agent';
 type ModelRequest = { input: Array<{ type?: string; recipient?: string; role?: string; content?: unknown }> };
+
+native.each(['false', 'omitted'])('requires experimental capability when it is %s before entering the checkpoint handler', async capability => {
+  const home = await mkdtemp(join(tmpdir(), 'rat-native-checkpoint-capability-'));
+  const child = spawn(binary, ['app-server'], { cwd: home, env: { PATH: process.env.PATH, HOME: home, CODEX_HOME: home } });
+  child.stderr.resume();
+  const rpc = rpcClient(child);
+  try {
+    await rpc.call('initialize', { clientInfo: { name: 'rat-checkpoint-capability-test', version: '1' },
+      ...(capability === 'false' ? { capabilities: { experimentalApi: false } } : {}) });
+    child.stdin.write(`${JSON.stringify({ method: 'initialized' })}\n`);
+    const threadId = '00000000-0000-4000-8000-000000000001';
+    let failure: unknown;
+    try { await rpc.call('thread/checkpoint', { threadId, expectedThreadIds: [threadId] }); }
+    catch (error) {
+      if (!(error instanceof Error)) throw error;
+      failure = JSON.parse(error.message) as unknown;
+    }
+    expect(failure).toMatchObject({ code: -32600, message: 'thread/checkpoint requires experimentalApi capability' });
+    // An unloaded but syntactically valid identity distinguishes capability
+    // rejection from a handler that ran and rejected the native thread lookup.
+    expect(await rpc.call('thread/loaded/list', {})).toMatchObject({ data: [] });
+  } finally {
+    const exited = child.exitCode === null && child.signalCode === null ? once(child, 'close').catch(() => {}) : undefined;
+    rpc.close(); child.stdin.destroy();
+    if (exited) {
+      child.kill('SIGTERM');
+      await Promise.race([exited, delay(1000)]);
+      if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
+      await exited;
+    }
+    await rm(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  }
+}, 15_000);
 
 native.each([{ paginated: false }, { paginated: true }])('checkpoints real root and child histories and continues them in a fresh process (paginated=$paginated)', async ({ paginated }) => {
   const fixture = await checkpointFixture({ paginated });
@@ -154,7 +189,7 @@ async function checkpointFixture(options: { paginated: boolean; holdChild?: bool
     const runtime = new SessionRuntime({ sessionId, agentId, lifetime: 'host-managed', checkpoint: checkpointPorts,
       ...(previous ? { previous, requiredResumeThreadId: previous.rootThreadId } : {}),
       request: { binary, workspace: home, environment: { PATH: process.env.PATH, HOME: home, CODEX_HOME: home },
-        timeoutMs: 45_000, persistent: true, prompt: '', sandbox: 'read-only', networkAccess: false, environments: [], model: 'gpt-5.4', modelProvider: 'fixture',
+        timeoutMs: 45_000, persistent: true, prompt: '', sandbox: 'read-only', networkAccess: false, environments: [], model: 'gpt-5.5', modelProvider: 'fixture',
         sessionConfig: { 'model_providers.fixture': { name: 'local checkpoint fixture', base_url: `http://127.0.0.1:${address.port}`,
           wire_api: 'responses', requires_openai_auth: false, supports_websockets: false, request_max_retries: 0, stream_max_retries: 0 },
         'features.multi_agent': true, 'features.multi_agent_v2': { enabled: true, max_concurrent_threads_per_session: 2 },
