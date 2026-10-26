@@ -3,16 +3,19 @@ export const nodeSubprocessStdioProbe = String.raw`
 const assert = require('node:assert/strict');
 const { spawnSync, spawn } = require('node:child_process');
 const child = "let input='';process.stdin.setEncoding('utf8');process.stdin.on('data',chunk=>input+=chunk);process.stdin.on('end',()=>{process.stdout.write('out:'+input);process.stderr.write('err:'+input)});";
-const sync = spawnSync(process.execPath, ['-e', child], { input: 'sync', encoding: 'utf8', timeout: 3000 });
+// Newer Node 22 releases announce their environment proxy on stderr at startup.
+// Exclude that known warning while still asserting every byte from the child.
+const nodeArgs = program => ['--disable-warning=UNDICI-EHPA', '-e', program];
+const sync = spawnSync(process.execPath, nodeArgs(child), { input: 'sync', encoding: 'utf8', timeout: 3000 });
 assert.equal(sync.error, undefined);
 assert.equal(sync.status, 0);
 assert.equal(sync.stdout, 'out:sync');
 assert.equal(sync.stderr, 'err:sync');
-const failed = spawnSync(process.execPath, ['-e', "console.error('intentional-failure');process.exitCode=7"], { encoding: 'utf8', timeout: 3000 });
+const failed = spawnSync(process.execPath, nodeArgs("console.error('intentional-failure');process.exitCode=7"), { encoding: 'utf8', timeout: 3000 });
 assert.equal(failed.error, undefined);
 assert.equal(failed.status, 7);
 assert.equal(failed.stderr, 'intentional-failure\n');
-const asyncChild = spawn(process.execPath, ['-e', child]);
+const asyncChild = spawn(process.execPath, nodeArgs(child));
 let stdout = '', stderr = '';
 asyncChild.stdout.on('data', chunk => stdout += chunk);
 asyncChild.stderr.on('data', chunk => stderr += chunk);

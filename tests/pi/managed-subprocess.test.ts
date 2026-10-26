@@ -14,7 +14,7 @@ import { nodeSubprocessStdioProbe, restrictedNetworkSocketProbe } from '../../te
 // requires an explicitly selected executable; missing prerequisites never pass.
 describe.skipIf(process.platform !== 'linux' || process.env.CODEX_REQUIRE_PARITY !== 'true')('official managed subprocess compatibility', () => {
   it.each([
-    { name: 'captures Node subprocess stdin/stdout/stderr and preserves failures', command: [process.execPath, '-e', nodeSubprocessStdioProbe], output: 'local-subprocess-stdio-ok\n' },
+    { name: 'captures Node subprocess stdin/stdout/stderr and preserves failures', command: [process.execPath, '--disable-warning=UNDICI-EHPA', '-e', nodeSubprocessStdioProbe], output: 'local-subprocess-stdio-ok\n' },
     { name: 'permits anonymous socketpairs while denying external and named socket connections', command: ['python3', '-c', restrictedNetworkSocketProbe], output: 'local-socket-only-ok\n' },
   ])('$name', async ({ command, output }) => {
     const binary = process.env.CODEX_CONFORMANCE_BINARY;
