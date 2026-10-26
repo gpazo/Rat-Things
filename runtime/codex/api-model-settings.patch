@@ -272,6 +272,104 @@ index 7bd3a38..327dad3 100644
  }
  
  pub(crate) async fn make_session_configuration_for_tests() -> SessionConfiguration {
+diff --git a/codex-rs/core/src/tools/handlers/multi_agents_tests.rs b/codex-rs/core/src/tools/handlers/multi_agents_tests.rs
+index be73c65..baeebae 100644
+--- a/codex-rs/core/src/tools/handlers/multi_agents_tests.rs
++++ b/codex-rs/core/src/tools/handlers/multi_agents_tests.rs
+@@ -516,7 +516,7 @@ fn service_tier_test_catalog() -> codex_protocol::openai_models::ModelsResponse
+ }
+ 
+ #[tokio::test]
+-async fn spawn_agent_service_tier_uses_root_preference_when_root_model_cannot_support_it() {
++async fn spawn_agent_service_tier_preserves_explicit_root_preference_not_advertised_by_catalog() {
+     let (_session, turn) = make_session_and_context().await;
+     let mut config = (*turn.config).clone();
+     config.model = Some("test-model-without-fast".to_string());
+@@ -527,7 +527,11 @@ async fn spawn_agent_service_tier_uses_root_preference_when_root_model_cannot_su
+         .start_thread(StartThreadOptions::new(config.clone()))
+         .await
+         .expect("root thread should start");
+-    assert_eq!(root.thread.config_snapshot().await.service_tier, None);
++    // Explicit API tier choices survive omission from the local model catalog.
++    assert_eq!(
++        root.thread.config_snapshot().await.service_tier,
++        Some(ServiceTier::Fast.request_value().to_string())
++    );
+ 
+     config.model = Some("gpt-5.5".to_string());
+     apply_spawn_agent_service_tier(root.thread.session.as_ref(), &mut config)
+diff --git a/codex-rs/core/tests/suite/agent_websocket.rs b/codex-rs/core/tests/suite/agent_websocket.rs
+index 6304ffe..004a06d 100644
+--- a/codex-rs/core/tests/suite/agent_websocket.rs
++++ b/codex-rs/core/tests/suite/agent_websocket.rs
+@@ -27,15 +27,16 @@ use std::time::Duration;
+ 
+ const WS_V2_BETA_HEADER_VALUE: &str = "responses_websockets=2026-02-06";
+ 
+-#[test_case::test_case("priority", true, false; "fast mode enabled")]
+-#[test_case::test_case("priority", false, true; "fast mode disabled")]
+-#[test_case::test_case("ultrafast", false, true; "ultrafast mode enabled")]
+-#[test_case::test_case("ultrafast", true, false; "ultrafast mode disabled")]
++#[test_case::test_case("priority", true, false, Some("priority"); "fast mode enabled")]
++#[test_case::test_case("priority", false, true, Some("priority"); "explicit priority survives disabled fast mode")]
++#[test_case::test_case("ultrafast", false, true, Some("ultrafast"); "ultrafast mode enabled")]
++#[test_case::test_case("ultrafast", true, false, None; "ultrafast mode disabled")]
+ #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+ async fn spawned_agent_prewarm_handshake_inherits_effective_root_service_tier(
+     tier: &'static str,
+     fast_mode_enabled: bool,
+     ultrafast_mode_enabled: bool,
++    expected_tier: Option<&'static str>,
+ ) -> Result<()> {
+     skip_if_no_network!(Ok(()));
+ 
+@@ -67,11 +68,6 @@ async fn spawned_agent_prewarm_handshake_inherits_effective_root_service_tier(
+         ],
+     ])
+     .await;
+-    let tier_enabled = if tier == "ultrafast" {
+-        ultrafast_mode_enabled
+-    } else {
+-        fast_mode_enabled
+-    };
+     let test = test_codex()
+         .with_model("gpt-5.4")
+         .with_auth(CodexAuth::create_dummy_chatgpt_auth_for_testing())
+@@ -134,10 +130,9 @@ async fn spawned_agent_prewarm_handshake_inherits_effective_root_service_tier(
+         "child startup should connect before its first turn"
+     );
+     let handshakes = server.handshakes();
+-    let expected_hint = if tier_enabled {
+-        format!("model=gpt-5.4;tier={tier}")
+-    } else {
+-        "model=gpt-5.4".to_string()
++    let expected_hint = match expected_tier {
++        Some(tier) => format!("model=gpt-5.4;tier={tier}"),
++        None => "model=gpt-5.4".to_string(),
+     };
+     assert_eq!(
+         handshakes[1].header(X_CODEX_ROUTING_HINT_HEADER),
+@@ -150,10 +145,7 @@ async fn spawned_agent_prewarm_handshake_inherits_effective_root_service_tier(
+     .await?
+     .body_json();
+     assert_eq!(child_warmup["generate"], false);
+-    assert_eq!(
+-        child_warmup["service_tier"].as_str(),
+-        tier_enabled.then_some(tier)
+-    );
++    assert_eq!(child_warmup["service_tier"].as_str(), expected_tier);
+     assert_eq!(server.handshakes().len(), 2);
+     child.shutdown_and_wait().await?;
+     test.codex.shutdown_and_wait().await?;
+@@ -716,7 +708,7 @@ async fn websocket_v2_next_turn_uses_updated_service_tier() -> Result<()> {
+     );
+ 
+     assert_eq!(second_turn["type"].as_str(), Some("response.create"));
+-    assert_eq!(second_turn.get("service_tier"), None);
++    assert_eq!(second_turn["service_tier"].as_str(), Some("default"));
+     assert_eq!(second_turn.get("previous_response_id"), None);
+     assert!(
+         second_turn
 diff --git a/codex-rs/core/tests/suite/bedrock_service_tier_tests.rs b/codex-rs/core/tests/suite/bedrock_service_tier_tests.rs
 index 8537b9b..3b71d3e 100644
 --- a/codex-rs/core/tests/suite/bedrock_service_tier_tests.rs
@@ -301,6 +399,98 @@ index 8537b9b..3b71d3e 100644
      provider_id: &'static str,
      model: &'static str,
      advertised_tiers: &'static [&'static str],
+diff --git a/codex-rs/core/tests/suite/model_switching.rs b/codex-rs/core/tests/suite/model_switching.rs
+index 2fe59dd..7a66c32 100644
+--- a/codex-rs/core/tests/suite/model_switching.rs
++++ b/codex-rs/core/tests/suite/model_switching.rs
+@@ -632,7 +632,7 @@ async fn service_tier_change_is_applied_on_next_http_turn() -> Result<()> {
+     let second_body = requests[1].body_json();
+ 
+     assert_eq!(first_body["service_tier"].as_str(), Some("priority"));
+-    assert_eq!(second_body.get("service_tier"), None);
++    assert_eq!(second_body["service_tier"].as_str(), Some("default"));
+ 
+     Ok(())
+ }
+@@ -676,7 +676,7 @@ async fn flex_service_tier_is_applied_to_http_turn() -> Result<()> {
+ }
+ 
+ #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+-async fn unsupported_service_tier_is_omitted_from_http_turn() -> Result<()> {
++async fn unadvertised_api_service_tier_is_preserved_in_http_turn() -> Result<()> {
+     skip_if_no_network!(Ok(()));
+ 
+     let server = start_mock_server().await;
+@@ -703,13 +703,13 @@ async fn unsupported_service_tier_is_omitted_from_http_turn() -> Result<()> {
+ 
+     let request = resp_mock.single_request();
+     let body = request.body_json();
+-    assert_eq!(body.get("service_tier"), None);
++    assert_eq!(body["service_tier"].as_str(), Some("priority"));
+ 
+     Ok(())
+ }
+ 
+ #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+-async fn unsupported_configured_service_tier_warns_at_session_start() -> Result<()> {
++async fn unsupported_configured_non_api_service_tier_warns_at_session_start() -> Result<()> {
+     skip_if_no_network!(Ok(()));
+ 
+     let server = start_mock_server().await;
+@@ -723,7 +723,11 @@ async fn unsupported_configured_service_tier_warns_at_session_start() -> Result<
+     let mut builder = test_codex()
+         .with_model(model_slug)
+         .with_config(move |config| {
+-            config.service_tier = Some(ServiceTier::Fast.request_value().to_string());
++            config
++                .features
++                .enable(Feature::FastMode)
++                .expect("test config should allow feature update");
++            config.service_tier = Some("custom-unadvertised".to_string());
+             config.model_catalog = Some(ModelsResponse {
+                 models: vec![model],
+             });
+@@ -743,13 +747,13 @@ async fn unsupported_configured_service_tier_warns_at_session_start() -> Result<
+     };
+     assert_eq!(
+         warning.message,
+-        "Configured service tier `priority` is not advertised as supported for model `test-no-tier-model` and will be omitted from requests."
++        "Configured service tier `custom-unadvertised` is not advertised as supported for model `test-no-tier-model` and will be omitted from requests."
+     );
+     Ok(())
+ }
+ 
+ #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+-async fn default_service_tier_override_is_omitted_from_http_turn() -> Result<()> {
++async fn explicit_default_service_tier_is_sent_on_api_key_http_turn() -> Result<()> {
+     skip_if_no_network!(Ok(()));
+ 
+     let server = start_mock_server().await;
+@@ -782,13 +786,13 @@ async fn default_service_tier_override_is_omitted_from_http_turn() -> Result<()>
+ 
+     let request = resp_mock.single_request();
+     let body = request.body_json();
+-    assert_eq!(body.get("service_tier"), None);
++    assert_eq!(body["service_tier"].as_str(), Some("default"));
+ 
+     Ok(())
+ }
+ 
+ #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+-async fn null_service_tier_override_is_omitted_from_http_turn_with_catalog_default() -> Result<()> {
++async fn null_service_tier_override_sends_api_default_instead_of_catalog_default() -> Result<()> {
+     skip_if_no_network!(Ok(()));
+ 
+     let server = start_mock_server().await;
+@@ -821,7 +825,7 @@ async fn null_service_tier_override_is_omitted_from_http_turn_with_catalog_defau
+ 
+     let request = resp_mock.single_request();
+     let body = request.body_json();
+-    assert_eq!(body.get("service_tier"), None);
++    assert_eq!(body["service_tier"].as_str(), Some("default"));
+ 
+     Ok(())
+ }
 diff --git a/codex-rs/core/tests/suite/subagent_service_tier.rs b/codex-rs/core/tests/suite/subagent_service_tier.rs
 index 74d5592..2af9f80 100644
 --- a/codex-rs/core/tests/suite/subagent_service_tier.rs
@@ -429,132 +619,3 @@ index d3d3dd8..5e174b7 100644
          assert_eq!(model.service_tier_for_request(/*service_tier*/ None), None);
      }
  }
-diff --git a/codex-rs/core/src/tools/handlers/multi_agents_tests.rs b/codex-rs/core/src/tools/handlers/multi_agents_tests.rs
-index be73c65..baeebae 100644
---- a/codex-rs/core/src/tools/handlers/multi_agents_tests.rs
-+++ b/codex-rs/core/src/tools/handlers/multi_agents_tests.rs
-@@ -516,7 +516,7 @@ fn service_tier_test_catalog() -> codex_protocol::openai_models::ModelsResponse
- }
- 
- #[tokio::test]
--async fn spawn_agent_service_tier_uses_root_preference_when_root_model_cannot_support_it() {
-+async fn spawn_agent_service_tier_preserves_explicit_root_preference_not_advertised_by_catalog() {
-     let (_session, turn) = make_session_and_context().await;
-     let mut config = (*turn.config).clone();
-     config.model = Some("test-model-without-fast".to_string());
-@@ -527,7 +527,11 @@ async fn spawn_agent_service_tier_uses_root_preference_when_root_model_cannot_su
-         .start_thread(StartThreadOptions::new(config.clone()))
-         .await
-         .expect("root thread should start");
--    assert_eq!(root.thread.config_snapshot().await.service_tier, None);
-+    // Explicit API tier choices survive omission from the local model catalog.
-+    assert_eq!(
-+        root.thread.config_snapshot().await.service_tier,
-+        Some(ServiceTier::Fast.request_value().to_string())
-+    );
- 
-     config.model = Some("gpt-5.5".to_string());
-     apply_spawn_agent_service_tier(root.thread.session.as_ref(), &mut config)
-diff --git a/codex-rs/core/tests/suite/model_switching.rs b/codex-rs/core/tests/suite/model_switching.rs
---- a/codex-rs/core/tests/suite/model_switching.rs
-+++ b/codex-rs/core/tests/suite/model_switching.rs
-@@ -632,7 +632,7 @@
-     let second_body = requests[1].body_json();
- 
-     assert_eq!(first_body["service_tier"].as_str(), Some("priority"));
--    assert_eq!(second_body.get("service_tier"), None);
-+    assert_eq!(second_body["service_tier"].as_str(), Some("default"));
- 
-     Ok(())
- }
-@@ -676,7 +676,7 @@
- }
- 
- #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
--async fn unsupported_service_tier_is_omitted_from_http_turn() -> Result<()> {
-+async fn unadvertised_api_service_tier_is_preserved_in_http_turn() -> Result<()> {
-     skip_if_no_network!(Ok(()));
- 
-     let server = start_mock_server().await;
-@@ -703,13 +703,13 @@
- 
-     let request = resp_mock.single_request();
-     let body = request.body_json();
--    assert_eq!(body.get("service_tier"), None);
-+    assert_eq!(body["service_tier"].as_str(), Some("priority"));
- 
-     Ok(())
- }
- 
- #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
--async fn unsupported_configured_service_tier_warns_at_session_start() -> Result<()> {
-+async fn unsupported_configured_non_api_service_tier_warns_at_session_start() -> Result<()> {
-     skip_if_no_network!(Ok(()));
- 
-     let server = start_mock_server().await;
-@@ -723,7 +723,11 @@
-     let mut builder = test_codex()
-         .with_model(model_slug)
-         .with_config(move |config| {
--            config.service_tier = Some(ServiceTier::Fast.request_value().to_string());
-+            config
-+                .features
-+                .enable(Feature::FastMode)
-+                .expect("test config should allow feature update");
-+            config.service_tier = Some("custom-unadvertised".to_string());
-             config.model_catalog = Some(ModelsResponse {
-                 models: vec![model],
-             });
-@@ -743,13 +747,13 @@
-     };
-     assert_eq!(
-         warning.message,
--        "Configured service tier `priority` is not advertised as supported for model `test-no-tier-model` and will be omitted from requests."
-+        "Configured service tier `custom-unadvertised` is not advertised as supported for model `test-no-tier-model` and will be omitted from requests."
-     );
-     Ok(())
- }
- 
- #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
--async fn default_service_tier_override_is_omitted_from_http_turn() -> Result<()> {
-+async fn explicit_default_service_tier_is_sent_on_api_key_http_turn() -> Result<()> {
-     skip_if_no_network!(Ok(()));
- 
-     let server = start_mock_server().await;
-@@ -782,13 +786,13 @@
- 
-     let request = resp_mock.single_request();
-     let body = request.body_json();
--    assert_eq!(body.get("service_tier"), None);
-+    assert_eq!(body["service_tier"].as_str(), Some("default"));
- 
-     Ok(())
- }
- 
- #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
--async fn null_service_tier_override_is_omitted_from_http_turn_with_catalog_default() -> Result<()> {
-+async fn null_service_tier_override_sends_api_default_instead_of_catalog_default() -> Result<()> {
-     skip_if_no_network!(Ok(()));
- 
-     let server = start_mock_server().await;
-@@ -821,7 +825,7 @@
- 
-     let request = resp_mock.single_request();
-     let body = request.body_json();
--    assert_eq!(body.get("service_tier"), None);
-+    assert_eq!(body["service_tier"].as_str(), Some("default"));
- 
-     Ok(())
- }
-diff --git a/codex-rs/core/tests/suite/agent_websocket.rs b/codex-rs/core/tests/suite/agent_websocket.rs
---- a/codex-rs/core/tests/suite/agent_websocket.rs
-+++ b/codex-rs/core/tests/suite/agent_websocket.rs
-@@ -716,7 +716,7 @@
-     );
- 
-     assert_eq!(second_turn["type"].as_str(), Some("response.create"));
--    assert_eq!(second_turn.get("service_tier"), None);
-+    assert_eq!(second_turn["service_tier"].as_str(), Some("default"));
-     assert_eq!(second_turn.get("previous_response_id"), None);
-     assert!(
-         second_turn
