@@ -49,6 +49,7 @@ it('keeps an environment command process alive across completed root Turns', asy
   const runtime = new SessionRuntime({ sessionId: 'sess_process', agentId: 'agent_process', request: {
     ...planned, binary: process.env.CODEX_CONFORMANCE_BINARY ?? resolve('node_modules/.bin/codex'),
     binaryArguments: hostedCodexArguments(['app-server'], { access: 'enabled', allowed_domains: [] }, false, home),
+    managedPolicy: { workspace: home, network: { access: 'enabled', allowed_domains: [] }, credentialProxy: false },
     workspace: home, executionWorkspace: home, environments: [{ environmentId: 'local', cwd: home }],
     environment: { PATH: process.env.PATH, HOME: home, CODEX_HOME: home }, timeoutMs: 20000, persistent: true,
     prompt: '', sandbox: 'read-only', model: 'gpt-5.4', modelProvider: 'fixture', networkAccess: true,

@@ -14,16 +14,6 @@ jobs:
     timeout-minutes: 240
     steps:
       - uses: actions/checkout@v7.0.1
-      - name: Reserve native build space
-        run: |
-          # These preinstalled SDKs are unused by this job. All Rust build tools
-          # come from the pinned container, and Node/Terraform are installed below.
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
-          available=$(df -Pk . | awk 'NR == 2 {print $4}')
-          if [ "$available" -lt 20971520 ]; then
-            echo "Native builds need 20 GiB free. Set RAT_NATIVE_RUNNER to an ARM64 runner with more disk."
-            exit 1
-          fi
       - uses: actions/setup-node@v7.0.0
         with:
           node-version: 22
@@ -36,12 +26,10 @@ jobs:
         id: codex-runtime
         with:
           path: .runtime/codex/linux-arm64
-          key: codex-linux-arm64-${{ hashFiles('runtime/codex/**', '!runtime/codex/model-capabilities.json', '!runtime/codex/README.md', 'scripts/build-codex-runtime.mjs', 'scripts/codex-runtime-targets.mjs') }}
-      - name: Build pinned Linux ARM64 runtime
+          key: official-codex-linux-arm64-${{ hashFiles('runtime/codex/source.json', 'runtime/codex/companion-packages.json', 'package-lock.json', 'scripts/build-codex-runtime.mjs', 'scripts/codex-runtime-artifact.mjs', 'scripts/codex-runtime-targets.mjs') }}
+      - name: Package official Linux ARM64 runtime
         if: steps.codex-runtime.outputs.cache-hit != 'true'
-        run: docker buildx build --platform linux/arm64 --file runtime/codex/Dockerfile --output type=local,dest=.runtime/codex/linux-arm64 .
-      # Cache a completed compilation even if a later acceptance check fails.
-      # Restoring this cache never skips package, checksum or native image tests.
+        run: node scripts/build-codex-runtime.mjs .runtime/codex/linux-arm64
       - uses: actions/cache/save@v4
         if: steps.codex-runtime.outputs.cache-hit != 'true'
         with:
@@ -85,26 +73,21 @@ jobs:
       - run: npm ci
       - name: Verify x86 sandbox enforcement with the pinned upstream runtime
         run: npx vitest run tests/pi/managed-effects.test.ts tests/runner/managed-sandbox.test.ts tests/simulation/linux-kvm-helper.test.ts tests/simulation/native-vm-prototype.test.ts --no-file-parallelism
-      - name: Reserve native build space
-        run: |
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
-          available=$(df -Pk . | awk 'NR == 2 {print $4}')
-          test "$available" -ge 20971520
       - uses: actions/cache/restore@v4
         id: codex-runtime
         with:
           path: .runtime/codex/linux-x64
-          key: codex-linux-x64-${{ hashFiles('runtime/codex/**', '!runtime/codex/model-capabilities.json', '!runtime/codex/README.md', 'scripts/build-codex-runtime.mjs', 'scripts/codex-runtime-targets.mjs') }}
-      - name: Build pinned Linux x64 runtime
+          key: official-codex-linux-x64-${{ hashFiles('runtime/codex/source.json', 'runtime/codex/companion-packages.json', 'package-lock.json', 'scripts/build-codex-runtime.mjs', 'scripts/codex-runtime-artifact.mjs', 'scripts/codex-runtime-targets.mjs') }}
+      - name: Package official Linux x64 runtime
         if: steps.codex-runtime.outputs.cache-hit != 'true'
-        run: docker buildx build --platform linux/amd64 --file runtime/codex/Dockerfile --output type=local,dest=.runtime/codex/linux-x64 .
+        run: node scripts/build-codex-runtime.mjs .runtime/codex/linux-x64
       - uses: actions/cache/save@v4
         if: steps.codex-runtime.outputs.cache-hit != 'true'
         with:
           path: .runtime/codex/linux-x64
           key: ${{ steps.codex-runtime.outputs.cache-primary-key }}
       - name: Validate x64 artifact provenance
-        run: node --input-type=module -e "import { validateCodexRuntimeArtifact } from './scripts/codex-runtime-artifact.mjs'; await validateCodexRuntimeArtifact('.runtime/codex/linux-x64', { expectedTarget:'x86_64-unknown-linux-gnu' });"
+        run: node --input-type=module -e "import { validateCodexRuntimeArtifact } from './scripts/codex-runtime-artifact.mjs'; await validateCodexRuntimeArtifact('.runtime/codex/linux-x64', { expectedTarget:'x86_64-unknown-linux-musl' });"
       - name: Verify x64 native contracts, checkpoints and Pi sandbox
         env:
           CODEX_CONFORMANCE_BINARY: ${{ github.workspace }}/.runtime/codex/linux-x64/runtime/bin/codex
@@ -112,6 +95,13 @@ jobs:
         run: |
           npm run test:agents:parity:host
           npx vitest run tests/runner/managed-sandbox.test.ts --no-file-parallelism
+      - name: Verify x64 isolated cold recovery
+        env:
+          CODEX_RUNTIME_ARTIFACT: ${{ github.workspace }}/.runtime/codex/linux-x64
+        run: |
+          npm run runtime:local:build
+          docker buildx build --platform linux/amd64 --load --file testing/native-parity.Dockerfile --build-arg WORKER_IMAGE=rat-things-local:1 --tag rat-things-native-parity:x64 .
+          docker run --rm --platform linux/amd64 --privileged --init --user 0 --env CODEX_COLD_NATIVE_E2E=true --entrypoint npx rat-things-native-parity:x64 --no-install vitest run tests/runner/codex-cold-verification.test.ts --no-file-parallelism
       - name: Archive verified Linux x64 runtime
         run: tar -C .runtime/codex/linux-x64 -czf .runtime/codex/linux-x64.tar.gz artifact.json runtime
       - name: Export verified Linux x64 runtime

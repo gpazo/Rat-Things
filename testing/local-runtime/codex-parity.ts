@@ -20,7 +20,7 @@ import { nodeSubprocessStdioProbe, restrictedNetworkSocketProbe } from './subpro
 
 const { values } = parseArgs({ options: { directory: { type: 'string' }, 'timeout-seconds': { type: 'string', default: '300' }, help: { type: 'boolean' } } });
 if (values.help) {
-  console.log('Usage: CODEX_BINARY=/absolute/patched/codex RAT_THINGS_LINUX_KVM_RUNTIME=/absolute/assets npx tsx testing/local-runtime/codex-parity.ts [--directory EVIDENCE_ROOT] [--timeout-seconds 300]\nReal KVM worker and patched host Codex with a local Responses fixture; includes broken-sandbox refusal for Codex and Pi. No live inference.');
+  console.log('Usage: CODEX_BINARY=/absolute/official/codex RAT_THINGS_LINUX_KVM_RUNTIME=/absolute/assets npx tsx testing/local-runtime/codex-parity.ts [--directory EVIDENCE_ROOT] [--timeout-seconds 300]\nReal KVM worker and official host Codex with a local Responses fixture; includes broken-sandbox refusal for Codex and Pi. No live inference.');
   process.exit(0);
 }
 const timeoutMs = Number(values['timeout-seconds']) * 1000;
@@ -146,9 +146,9 @@ function safeError(error: unknown) { let text = error instanceof Error ? `${erro
 
 try {
   assert(sourceAssets && isAbsolute(sourceAssets), 'Set RAT_THINGS_LINUX_KVM_RUNTIME to the real prepared Linux KVM assets');
-  assert(binary && isAbsolute(binary), 'Set CODEX_BINARY to the actual patched host Codex executable');
-  const artifact = await validateCodexRuntimeArtifact(resolve(process.env.CODEX_RUNTIME_ARTIFACT ?? '.runtime/codex/linux-x64'), { expectedTarget: 'x86_64-unknown-linux-gnu' });
-  assert.equal(await hashFile(binary), artifact.manifest.sha256, 'Host binary must match the admitted patched x64 artifact');
+  assert(binary && isAbsolute(binary), 'Set CODEX_BINARY to the actual official host Codex executable');
+  const artifact = await validateCodexRuntimeArtifact(resolve(process.env.CODEX_RUNTIME_ARTIFACT ?? '.runtime/codex/linux-x64'), { expectedTarget: 'x86_64-unknown-linux-musl' });
+  assert.equal(await hashFile(binary), artifact.manifest.sha256, 'Host binary must match the admitted official x64 artifact');
   await launch(normalProfile);
   const outsidePath = `/home/agent/rat-codex-outside-${nonce}`, escapedPath = `/home/agent/rat-codex-symlink-${nonce}`;
   const content = `Real Codex remote workspace ${nonce}\n`;
@@ -229,7 +229,7 @@ finally {
   if (previousSecret === undefined) delete process.env.RAT_CODEX_PARITY_SECRET; else process.env.RAT_CODEX_PARITY_SECRET = previousSecret;
   const passed = completed && failure === undefined && cleanupErrors.length === 0;
   const evidence = join(directory, 'evidence.json');
-  await writeFile(evidence, JSON.stringify({ version: 1, status: passed ? 'passed' : 'failed', fixture: 'deterministic local Responses fixture; real patched host Codex and KVM worker',
+  await writeFile(evidence, JSON.stringify({ version: 1, status: passed ? 'passed' : 'failed', fixture: 'deterministic local Responses fixture; real official host Codex and KVM worker',
     coverage: 'HTTP Session, remote commands, confinement, cancellation, graceful restart, and shared startup refusal; no Rust UI or live inference claim',
     phase, runtimeObservations, turns, proofs, restartCalls, refusals, modelCalls: requests.length, piModelCalls: faux.state.callCount,
     ...(failure === undefined ? {} : { failure: safeError(failure) }), cleanupErrors }, null, 2) + '\n', { mode: 0o600 });

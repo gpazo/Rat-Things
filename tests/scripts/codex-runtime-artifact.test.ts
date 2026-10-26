@@ -10,7 +10,7 @@ import { codexRuntimeEntries, validateCodexRuntimeArtifact } from '../../scripts
 const directories: string[] = [];
 afterEach(async () => { await Promise.all(directories.splice(0).map(path => rm(path, { recursive: true, force: true }))); });
 const digest = (bytes: Uint8Array | string) => createHash('sha256').update(bytes).digest('hex');
-const targets = { linux: 'aarch64-unknown-linux-gnu', darwin: 'aarch64-apple-darwin' };
+const targets = { linux: 'aarch64-unknown-linux-musl', darwin: 'aarch64-apple-darwin' };
 
 it('rejects missing native inputs before replacing any existing Lambda archive', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'rat-package-preflight-')); directories.push(directory);
@@ -20,17 +20,15 @@ it('rejects missing native inputs before replacing any existing Lambda archive',
   await writeFile(archive, 'previous archive');
   await expect(promisify(execFile)(process.execPath, [resolve('scripts/package-lambdas.mjs')], {
     cwd: directory, env: { ...process.env, CODEX_RUNTIME_ARTIFACT: join(directory, 'missing') }, timeout: 5000,
-  })).rejects.toThrow('Build the Linux ARM64 Codex runtime first');
+  })).rejects.toThrow('Prepare the official Linux ARM64 Codex runtime first');
   expect(await readFile(archive, 'utf8')).toBe('previous archive');
 });
 
 async function fixture(platform: keyof typeof targets = 'linux', arch: 'arm64' | 'x64' = 'arm64') {
   const directory = await mkdtemp(join(tmpdir(), 'rat-runtime-artifact-')); directories.push(directory);
-  const source = JSON.parse(await readFile('runtime/codex/source.json', 'utf8')) as { repository: string; revision: string; upstreamVersion: string; patches: string[] };
-  const policy = JSON.parse(await readFile('runtime/codex/artifact-policy.json', 'utf8')) as { patchedTree: string };
-  const patches = await Promise.all(source.patches.map(async name => ({ name, sha256: digest(await readFile(join('runtime/codex', name))) })));
+  const source = JSON.parse(await readFile('runtime/codex/source.json', 'utf8')) as { repository: string; revision: string; upstreamVersion: string };
   const executable = Buffer.alloc(64);
-  const nativeTarget = arch === 'x64' ? 'x86_64-unknown-linux-gnu' : targets[platform];
+  const nativeTarget = arch === 'x64' ? 'x86_64-unknown-linux-musl' : targets[platform];
   if (platform === 'linux') {
     executable.write('7f454c46', 'hex'); executable[4] = 2; executable[5] = 1; executable[6] = 1;
     executable.writeUInt16LE(2, 16); executable.writeUInt16LE(arch === 'x64' ? 62 : 183, 18); executable.writeUInt32LE(1, 20); executable.writeUInt16LE(64, 52);
@@ -50,8 +48,7 @@ async function fixture(platform: keyof typeof targets = 'linux', arch: 'arm64' |
     const bytes = file.path === 'codex-package.json' ? Buffer.from(JSON.stringify(pinned.descriptor, null, 2) + '\n')
       : file.executable ? nativeBytes : Buffer.from('fixture data');
     file.sha256 = digest(bytes);
-    const runtimeBytes = file.path === 'codex-package.json'
-      ? Buffer.from(JSON.stringify({ ...pinned.descriptor, target: nativeTarget }, null, 2) + '\n') : bytes;
+    const runtimeBytes = bytes;
     const path = join(directory, 'runtime', file.path);
     await mkdir(dirname(path), { recursive: true });
     await writeFile(path, runtimeBytes, { mode: file.executable ? 0o755 : 0o644 });
@@ -59,9 +56,9 @@ async function fixture(platform: keyof typeof targets = 'linux', arch: 'arm64' |
   }
   const companionInventoryPath = join(directory, 'companions.json');
   await writeFile(companionInventoryPath, JSON.stringify(packages));
-  const manifest = { source: { ...source, patches }, platform, arch: arch as string, sha256: digest(executable), files,
+  const manifest = { source, platform, arch: arch as string, sha256: digest(executable), files,
     upstreamPackage: { name: packageName, version: `${source.upstreamVersion}-${platform}-${arch}` },
-    build: { nativeTarget, patchedTree: policy.patchedTree, profile: 'release', debug: 'none', incremental: false, locked: true, jobs: 1 } };
+    distribution: { kind: 'official-npm', target: nativeTarget, integrity: pinned.integrity } };
   const save = () => writeFile(join(directory, 'artifact.json'), JSON.stringify(manifest));
   const replaceFile = async (path: string, bytes: Uint8Array) => {
     await writeFile(join(directory, 'runtime', path), bytes);
@@ -93,13 +90,13 @@ it('keeps the packaging wrapper Linux-only and includes original provenance', as
     'codex-runtime/artifact.json',
   ]);
   const host = await fixture('darwin');
-  await expect(codexRuntimeEntries(host.directory, host.options)).rejects.toThrow('build provenance');
+  await expect(codexRuntimeEntries(host.directory, host.options)).rejects.toThrow('distribution provenance');
 });
 
 it('admits Linux x64 explicitly while keeping Lambda packaging ARM64', async () => {
   const f = await fixture('linux', 'x64');
   await expect(f.validate()).resolves.toMatchObject({ manifest: { platform: 'linux', arch: 'x64' } });
-  await expect(codexRuntimeEntries(f.directory, f.options)).rejects.toThrow('build provenance');
+  await expect(codexRuntimeEntries(f.directory, f.options)).rejects.toThrow('distribution provenance');
   const otherArch = Buffer.from(f.executable); otherArch.writeUInt16LE(183, 18);
   await f.replaceFile('bin/codex', otherArch);
   await expect(f.validate()).rejects.toThrow('not linux X64');
@@ -108,57 +105,62 @@ it('admits Linux x64 explicitly while keeping Lambda packaging ARM64', async () 
 it('requires an explicit supported target', async () => {
   const f = await fixture();
   await expect(validateCodexRuntimeArtifact(f.directory)).rejects.toThrow('explicit supported');
-  await expect(validateCodexRuntimeArtifact(f.directory, { ...f.options, expectedTarget: 'aarch64-unknown-linux-musl' })).rejects.toThrow('explicit supported');
+  await expect(validateCodexRuntimeArtifact(f.directory, { ...f.options, expectedTarget: 'aarch64-unknown-linux-gnu' })).rejects.toThrow('explicit supported');
 });
 
 it.each([
-  ['profile', 'debug'], ['debug', 'full'], ['incremental', true], ['locked', false],
-  ['jobs', 0], ['jobs', -1], ['jobs', 1.5], ['jobs', '1'], ['jobs', null],
-  ['patchedTree', 'a'.repeat(40)], ['patchedTree', ''], ['nativeTarget', 'aarch64-unknown-linux-musl'],
-] as const)('rejects incompatible release provenance %s=%s', async (key, value) => {
+  ['kind', 'custom-build'], ['target', 'aarch64-unknown-linux-gnu'], ['integrity', 'sha512-untrusted'],
+] as const)('rejects incompatible official distribution %s=%s', async (key, value) => {
   const f = await fixture();
-  Object.assign(f.manifest.build, { [key]: value }); await f.save();
-  await expect(f.validate()).rejects.toThrow('build provenance');
+  Object.assign(f.manifest.distribution, { [key]: value }); await f.save();
+  await expect(f.validate()).rejects.toThrow('distribution provenance');
 });
 
-it.each(['profile', 'debug', 'incremental', 'locked', 'jobs', 'patchedTree', 'nativeTarget'])('rejects missing build evidence %s', async key => {
+it.each(['kind', 'target', 'integrity'])('rejects missing official distribution evidence %s', async key => {
   const f = await fixture();
-  Reflect.deleteProperty(f.manifest.build, key); await f.save();
-  await expect(f.validate()).rejects.toThrow('build provenance');
+  Reflect.deleteProperty(f.manifest.distribution, key); await f.save();
+  await expect(f.validate()).rejects.toThrow('distribution provenance');
+});
+
+it('rejects a custom build even when it declares matching official files', async () => {
+  const f = await fixture();
+  Object.assign(f.manifest, { build: { profile: 'release' } }); await f.save();
+  await expect(f.validate()).rejects.toThrow('distribution provenance');
 });
 
 it('rejects incorrect platform and architecture', async () => {
   const f = await fixture();
   f.manifest.arch = 'x64'; await f.save();
-  await expect(f.validate()).rejects.toThrow('build provenance');
+  await expect(f.validate()).rejects.toThrow('distribution provenance');
   f.manifest.arch = 'arm64'; f.manifest.platform = 'darwin'; await f.save();
-  await expect(f.validate()).rejects.toThrow('build provenance');
+  await expect(f.validate()).rejects.toThrow('distribution provenance');
 });
 
-it('requires exact source identity and ordered patch hashes', async () => {
+it('requires the exact unmodified source identity', async () => {
   const f = await fixture();
   const original = structuredClone(f.manifest.source);
   f.manifest.source.revision = 'unrelated'; await f.save();
-  await expect(f.validate()).rejects.toThrow('pinned source');
-  f.manifest.source = structuredClone(original); f.manifest.source.patches.reverse(); await f.save();
-  await expect(f.validate()).rejects.toThrow('ordered patches');
-  f.manifest.source = structuredClone(original); f.manifest.source.patches[0]!.sha256 = '0'.repeat(64); await f.save();
-  await expect(f.validate()).rejects.toThrow('ordered patches');
+  await expect(f.validate()).rejects.toThrow('pinned unmodified upstream source');
+  f.manifest.source = original;
+  Object.assign(f.manifest.source, { patches: [] }); await f.save();
+  await expect(f.validate()).rejects.toThrow('pinned unmodified upstream source');
 });
 
-it('admits a staged definition only with its independently supplied expected tree', async () => {
+it('rejects a staged definition containing patches even if its manifest agrees', async () => {
   const f = await fixture();
   const definitionRoot = join(f.directory, 'definition');
-  await cp('runtime/codex', definitionRoot, { recursive: true });
-  const source = JSON.parse(await readFile(join(definitionRoot, 'source.json'), 'utf8'));
-  source.patches.push('staged.patch');
-  await writeFile(join(definitionRoot, 'source.json'), JSON.stringify(source));
-  await writeFile(join(definitionRoot, 'staged.patch'), 'staged patch bytes');
-  f.manifest.source.patches.push({ name: 'staged.patch', sha256: digest('staged patch bytes') });
-  f.manifest.build.patchedTree = 'f'.repeat(40); await f.save();
-  await expect(validateCodexRuntimeArtifact(f.directory, { ...f.options, definitionRoot })).rejects.toThrow('artifact policy');
-  await expect(validateCodexRuntimeArtifact(f.directory, { ...f.options, definitionRoot, expectedPatchedTree: 'f'.repeat(40) })).resolves.toMatchObject({ manifest: f.manifest });
-  await expect(validateCodexRuntimeArtifact(f.directory, { ...f.options, definitionRoot, expectedPatchedTree: 'e'.repeat(40) })).rejects.toThrow('build provenance');
+  await mkdir(definitionRoot);
+  const patched = { ...f.manifest.source, patches: ['fixture.patch'] };
+  await writeFile(join(definitionRoot, 'source.json'), JSON.stringify(patched));
+  Object.assign(f.manifest.source, patched); await f.save();
+  await expect(validateCodexRuntimeArtifact(f.directory, { ...f.options, definitionRoot })).rejects.toThrow('pinned unmodified upstream source');
+});
+
+it('rejects a patched binary even if its manifest hashes are updated', async () => {
+  const f = await fixture();
+  const modified = Buffer.from(f.executable); modified[63] = 1;
+  await f.replaceFile('bin/codex', modified);
+  await expect(f.validate()).rejects.toThrow('differs from the official npm package');
 });
 
 it.each(['name', 'version'] as const)('rejects mismatched upstream package %s', async field => {
@@ -180,7 +182,7 @@ it('rejects a changed companion even if its declared checksum is changed too', a
   const f = await fixture();
   const executable = Buffer.from(f.executable); executable[63] = 1;
   await f.replaceFile('codex-resources/voice/bin/codex-voice-host', executable);
-  await expect(f.validate()).rejects.toThrow('companion differs');
+  await expect(f.validate()).rejects.toThrow('differs from the official npm package');
 });
 
 it.each(['linux', 'darwin'] as const)('rejects missing %s companions', async platform => {
@@ -190,13 +192,13 @@ it.each(['linux', 'darwin'] as const)('rejects missing %s companions', async pla
   await expect(f.validate()).rejects.toThrow('companions are incomplete');
 });
 
-it('rejects descriptor fields outside the permitted Linux target adjustment', async () => {
+it('rejects descriptor changes including the Linux target', async () => {
   const f = await fixture();
   const path = 'codex-package.json';
   const descriptor = JSON.parse(await readFile(join(f.directory, 'runtime', path), 'utf8'));
   await f.replaceFile(path, Buffer.from(JSON.stringify({ ...descriptor, extra: 'untrusted' }, null, 2) + '\n'));
   await expect(f.validate()).rejects.toThrow('package descriptor');
-  await f.replaceFile(path, Buffer.from(JSON.stringify({ ...descriptor, target: 'aarch64-unknown-linux-musl' }, null, 2) + '\n'));
+  await f.replaceFile(path, Buffer.from(JSON.stringify({ ...descriptor, target: 'aarch64-unknown-linux-gnu' }, null, 2) + '\n'));
   await expect(f.validate()).rejects.toThrow('package descriptor');
 });
 

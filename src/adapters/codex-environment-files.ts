@@ -5,6 +5,8 @@ import { CodexRpcClient } from './codex-rpc.js';
 import environmentFileWorkerSource from './environment-file-worker-source.json' with { type: 'json' };
 import { isolatedCodexArguments } from '../domain/local-codex-arguments.js';
 import type { EnvironmentFileOperation } from '../core/environment-file-ports.js';
+import type { ManagedCodexPolicy } from '../domain/codex-managed-policy.js';
+import { verifyManagedCodexPolicy } from './codex-managed-policy.js';
 
 export class EnvironmentFilesCleanupUnconfirmedError extends Error {}
 
@@ -13,7 +15,7 @@ export async function codexEnvironmentFiles(options: {
   registryURL?: string; environmentId?: string; harnessKey?: string; workspace: string;
   operation: EnvironmentFileOperation | readonly EnvironmentFileOperation[];
   binary?: string; signal?: AbortSignal;
-  managed?: { binaryArguments: string[] };
+  managed?: { binaryArguments: string[]; policy: ManagedCodexPolicy };
   environment?: Readonly<NodeJS.ProcessEnv>;
   temporaryHomeParent?: string;
   identity?: { uid: number; gid: number };
@@ -33,6 +35,7 @@ export async function codexEnvironmentFiles(options: {
   }, ...(options.signal ? { signal: options.signal } : {}), ...(options.identity ? { identity: options.identity } : {}) });
   try {
     await rpc.initialize();
+    if (options.managed) await verifyManagedCodexPolicy({ call: rpc.call.bind(rpc), policy: options.managed.policy });
     const started = await rpc.call('thread/start', {
       cwd: options.workspace, environments: [{ environmentId: remote ? 'remote' : 'local', cwd: options.workspace }], ephemeral: true,
       approvalPolicy: 'never', ...(options.managed ? { permissions: 'rat_managed' } : { sandbox: 'danger-full-access' }), selectedCapabilityRoots: [],

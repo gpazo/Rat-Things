@@ -15,6 +15,7 @@ import { hostedCodexArguments, hostedProcessEnvironment } from './hosted-environ
 import type { ToolExecutionResult } from '@earendil-works/pi-durable';
 import type { PiEffectTool, PiToolEffect } from './pi/protocol.js';
 import { verifyManagedSandbox } from './managed-sandbox.js';
+import { verifyManagedCodexPolicy } from '../adapters/codex-managed-policy.js';
 
 const Ajv = AjvModule.default;
 
@@ -39,6 +40,9 @@ export async function createPiEffectBroker(options: { launch: SessionLaunch; pla
   let threadId: string | undefined;
   try {
     await rpc.initialize();
+    if (launch.environment.type === 'openai_hosted') await verifyManagedCodexPolicy({ call: rpc.call.bind(rpc), policy: {
+      workspace: plan.workspace, network: launch.environment.network, credentialProxy: Boolean(options.credentials),
+    } });
     if (managed) await verifyManagedSandbox({ call: rpc.call.bind(rpc), workspace: plan.workspace, home, ...(plan.identity ? { identity: plan.identity } : {}) });
     if (launch.agent.tools.some(tool => tool.type === 'mcp')) {
       const result = await rpc.call('thread/start', { cwd: managed ? plan.workspace : home, ephemeral: true, approvalPolicy: 'never',

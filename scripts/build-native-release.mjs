@@ -26,9 +26,9 @@ const manifestPath = 'Contents/Resources/runtime-manifest.json';
 const signaturePaths = ['CodeDirectory', 'CodeRequirements', 'CodeResources', 'CodeSignature'].map(path => `Contents/_CodeSignature/${path}`);
 const limits = { entries: 4096, fileBytes: 768 * 1024 ** 2, totalBytes: 2 * 1024 ** 3, manifestBytes: 128 * 1024 };
 const guestArtifacts = ['Image', 'worker-initramfs.gz', 'archive-inventory.json', 'worker-dependencies.json', 'worker-notices.json', 'worker-metafile.json', 'worker-build.json', 'build.log'];
-const jitEntitlements = ['com.apple.security.cs.allow-jit', 'com.apple.security.cs.allow-unsigned-executable-memory'];
 export const nativeExecutablePolicy = Object.freeze(hostCodePolicy.map(policy => Object.freeze(policy)));
 const executables = new Map(nativeExecutablePolicy.map(value => [value.path, value]));
+const upstreamSignerBlocker = 'Native macOS upstream-signer admission requires design and on-Mac validation';
 
 export function parseNativeReleaseOptions(args) {
   const options = {};
@@ -112,6 +112,10 @@ export function nativeCompatibility(protocol, machOs) {
 }
 
 export function signingArguments(identity, policy, filename, entitlementPaths) {
+  if (!isDeepStrictEqual(policy, nativeExecutablePolicy.find(value => value.role === 'vm-helper'))
+    && !isDeepStrictEqual(policy, { identifier: 'dev.rat-things.runtime' })) {
+    throw new Error('Only the Rat Things VM helper and outer bundle may be signed.');
+  }
   return ['--force', '--sign', identity, '--identifier', policy.identifier, '--options', 'runtime', '--timestamp',
     ...(policy.entitlements ? ['--entitlements', entitlementPaths[policy.entitlements]] : []), filename];
 }
@@ -229,9 +233,8 @@ async function guestEvidence(directory, readInput, host, companions) {
   if (inputs.codexArtifactSha256 !== (await checkedFile(join(directory, 'evidence/codex-artifact.json'))).sha256
     || !isDeepStrictEqual(artifact.source, host.source) || artifact.platform !== 'linux' || artifact.arch !== 'arm64'
     || !isDeepStrictEqual(artifact.upstreamPackage, { name: '@openai/codex-linux-arm64', version: companions.version })
-    || artifact.build?.patchedTree !== host.build.patchedTree || artifact.build.profile !== 'release' || artifact.build.debug !== 'none'
-    || artifact.build.incremental !== false || artifact.build.locked !== true || !Number.isSafeInteger(artifact.build.jobs) || artifact.build.jobs < 1
-    || artifact.build.nativeTarget !== 'aarch64-unknown-linux-gnu') throw new Error('Guest Codex evidence differs from the admitted release definition.');
+    || 'build' in artifact || artifact.sha256 !== companions.files.find(file => file.path === 'bin/codex')?.sha256
+    || !isDeepStrictEqual(artifact.distribution, { kind: 'official-npm', target: 'aarch64-unknown-linux-musl', integrity: companions.integrity })) throw new Error('Guest Codex evidence differs from the admitted release definition.');
   const archive = await readJson('archive-inventory.json');
   if (archive.format !== 'newc' || archive.sourceDateEpoch !== inputs.sourceDateEpoch || !Array.isArray(archive.entries)
     || archive.entries.length > 100_000 || !Number.isSafeInteger(archive.uncompressedBytes) || archive.uncompressedBytes > 1400 * 1024 ** 2
@@ -253,8 +256,7 @@ async function guestEvidence(directory, readInput, host, companions) {
   }
   for (const file of manifestFiles) {
     const member = members.find(entry => entry.path === `opt/codex-runtime/${file.path}`); const companion = companions.files.find(entry => entry.path === file.path);
-    const descriptor = { ...companions.descriptor, target: 'aarch64-unknown-linux-gnu' };
-    const expected = file.path === 'bin/codex' ? artifact.sha256 : file.path === 'codex-package.json' ? digest(jsonBytes(descriptor)) : companion.sha256;
+    const expected = companion.sha256;
     if (file.sha256 !== expected || !hashPattern.test(file.sha256) || member.sha256 !== file.sha256
       || member.mode !== (0o100000 | (companion.executable ? 0o755 : 0o444))) throw new Error(`Guest Codex member differs from the admitted package: ${file.path}.`);
   }
@@ -263,7 +265,14 @@ async function guestEvidence(directory, readInput, host, companions) {
 }
 
 const infoPlist = version => `<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0"><dict><key>CFBundleIdentifier</key><string>dev.rat-things.runtime</string><key>CFBundlePackageType</key><string>BNDL</string><key>CFBundleVersion</key><string>${version}</string></dict></plist>\n`;
-const entitlementPlist = keys => `<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0"><dict>${keys.map(key => `<key>${key}</key><true/>`).join('')}</dict></plist>\n`;
+function requireOfficialPayload(inventory, files) {
+  for (const file of files) {
+    const path = `Contents/Resources/codex/${file.path}`;
+    if (inventory.find(value => value.path === path)?.sha256 !== file.sha256) {
+      throw new Error(`Official Codex payload changed during native assembly: ${file.path}.`);
+    }
+  }
+}
 
 export async function assembleNativeRelease(options, { repositoryRoot = root, run = async (command, args) => execute(command, args, { timeout: 180_000, maxBuffer: 4 * 1024 ** 2 }) } = {}) {
   const { hostArtifact, guestOutput, definitionRoot, output, identity } = options;
@@ -277,12 +286,7 @@ export async function assembleNativeRelease(options, { repositoryRoot = root, ru
   const builderSources = ['runtime/native/host-code-policy.json', 'scripts/build-native-release.mjs', 'scripts/codex-runtime-artifact.mjs', 'scripts/codex-runtime-targets.mjs', 'scripts/native-guest-inputs.mjs', 'scripts/javascript-notices.mjs', 'scripts/native-build-files.mjs', 'scripts/native-guest-archive.mjs'];
   for (const path of builderSources) await readInput(join(root, path), path);
   const originalHost = await readInput(join(hostArtifact, 'artifact.json'), 'host/artifact.json');
-  const sourceDefinition = JSON.parse((await readInput(join(definitionRoot, 'source.json'), 'definition/source.json')).data);
-  await readInput(join(definitionRoot, 'artifact-policy.json'), 'definition/artifact-policy.json');
-  for (const path of sourceDefinition.patches) {
-    if (!safePath(path)) throw new Error('Invalid trusted patch path.');
-    await readInput(join(definitionRoot, path), `definition/${path}`);
-  }
+  await readInput(join(definitionRoot, 'source.json'), 'definition/source.json');
   const companionInventoryPath = join(repositoryRoot, 'runtime/codex/companion-packages.json');
   const companions = JSON.parse((await readInput(companionInventoryPath, 'runtime/codex/companion-packages.json')).data);
   await readInput(join(repositoryRoot, 'package-lock.json'), 'package-lock.json');
@@ -323,7 +327,7 @@ export async function assembleNativeRelease(options, { repositoryRoot = root, ru
   };
   try {
     await write(join(evidence, 'host-artifact.json'), originalHost.data);
-    for (const path of ['source.json', 'artifact-policy.json', ...sourceDefinition.patches]) {
+    for (const path of ['source.json']) {
       await checkedFile(join(definitionRoot, path), { expected: tracked.get(join(definitionRoot, path)), destination: join(evidence, 'definition', path) });
     }
     for (const path of ['package-lock.json', 'runtime/codex/companion-packages.json']) {
@@ -337,14 +341,13 @@ export async function assembleNativeRelease(options, { repositoryRoot = root, ru
     }
     await write(join(evidence, 'native-inputs/main.swift'), helperSource.data);
     await write(join(evidence, 'native-inputs/entitlements.plist'), helperEntitlements.data);
-    await write(join(evidence, 'native-inputs/jit-entitlements.plist'), entitlementPlist(jitEntitlements));
-    const machOs = []; const unsigned = [];
+    const machOs = []; const originalExecutables = [];
     for (const file of host.files) {
       const path = `Contents/Resources/codex/${file.path}`; expectedPaths.push(path);
       const copied = await checkedFile(file.source, { expected: file, destination: join(bundle, path), mode: file.mode, capture: executables.has(path) });
       tracked.set(file.source, { bytes: copied.bytes, sha256: copied.sha256 });
-      if (!executables.has(path)) staged.set(path, { bytes: copied.bytes, sha256: copied.sha256 });
-      if (executables.has(path)) { machOs.push({ path, ...inspectMachO(copied.data, executables.get(path)) }); unsigned.push({ path, bytes: copied.bytes, sha256: copied.sha256 }); }
+      staged.set(path, { bytes: copied.bytes, sha256: copied.sha256 });
+      if (executables.has(path)) { machOs.push({ path, ...inspectMachO(copied.data, executables.get(path)) }); originalExecutables.push({ path, bytes: copied.bytes, sha256: copied.sha256 }); }
     }
     for (const name of ['Image', 'worker-initramfs.gz']) {
       const path = `Contents/Resources/linux/${name}`; expectedPaths.push(path);
@@ -362,13 +365,21 @@ export async function assembleNativeRelease(options, { repositoryRoot = root, ru
     await mkdir(dirname(join(bundle, helperPath)), { recursive: true });
     await run('/usr/bin/xcrun', compileArguments); await chmod(join(bundle, helperPath), 0o755); expectedPaths.push(helperPath);
     const helper = await checkedFile(join(bundle, helperPath), { capture: true });
-    machOs.push({ path: helperPath, ...inspectMachO(helper.data) }); unsigned.push({ path: helperPath, bytes: helper.bytes, sha256: helper.sha256 });
+    machOs.push({ path: helperPath, ...inspectMachO(helper.data) }); originalExecutables.push({ path: helperPath, bytes: helper.bytes, sha256: helper.sha256 });
     const compatibility = nativeCompatibility(protocol, machOs);
-    const entitlements = { jit: join(evidence, 'native-inputs/jit-entitlements.plist'), virtualization: join(evidence, 'native-inputs/entitlements.plist') };
-    const signatures = [];
+    const entitlements = { virtualization: join(evidence, 'native-inputs/entitlements.plist') };
+    const signatures = []; const preservedSignatures = []; const mappings = [];
     for (const policy of nativeExecutablePolicy) {
       const filename = join(bundle, policy.path);
       const prior = await run('/usr/bin/codesign', ['--display', '--verbose=4', '--entitlements', ':-', filename]).then(result => ({ status: 0, ...result }), error => ({ status: error.code, stdout: error.stdout, stderr: error.stderr }));
+      const original = originalExecutables.find(file => file.path === policy.path);
+      if (policy.role !== 'vm-helper') {
+        const packaged = await checkedFile(filename, { expected: original });
+        preservedSignatures.push({ path: policy.path, metadata: prior });
+        mappings.push({ path: policy.path, kind: 'official-unmodified', input: original, packaged,
+          signature: { action: 'preserved', signerAdmission: 'pending' } });
+        continue;
+      }
       const args = signingArguments(identity, policy, filename, entitlements);
       await run('/usr/bin/codesign', args);
       await run('/usr/bin/codesign', ['--verify', '--strict', '--all-architectures', '--test-requirement', `=${requirement(policy.identifier)}`, filename]);
@@ -378,25 +389,24 @@ export async function assembleNativeRelease(options, { repositoryRoot = root, ru
       const signedMetadata = await run('/usr/bin/codesign', ['--display', '--verbose=4', '--entitlements', ':-', filename]);
       staged.set(policy.path, { bytes: signed.bytes, sha256: signed.sha256 });
       signatures.push({ path: policy.path, identifier: policy.identifier, prior, arguments: args, signedMetadata, signed: { bytes: signed.bytes, sha256: signed.sha256 } });
+      mappings.push({ path: policy.path, kind: 'rat-things-signed', input: original,
+        packaged: { bytes: signed.bytes, sha256: signed.sha256 }, identifier: policy.identifier, entitlements: ['com.apple.security.virtualization'] });
     }
-    const mappings = signatures.map(value => ({ path: value.path, unsigned: unsigned.find(file => file.path === value.path), signed: value.signed,
-      identifier: value.identifier, entitlements: nativeExecutablePolicy.find(policy => policy.path === value.path).entitlements === 'jit' ? jitEntitlements
-        : value.path === helperPath ? ['com.apple.security.virtualization'] : [] }));
     const blockers = [...new Set([...guest.build.outstandingDistributionInputs.filter(value => value !== 'signed runtime assembly and installed acceptance'),
-      'Complete host and guest Codex linked dependency sources and companion notices', 'Installed runtime and application acceptance', 'Notarization and Gatekeeper distribution assessment'])];
+      upstreamSignerBlocker, 'Complete host and guest Codex linked dependency sources and companion notices', 'Installed runtime and application acceptance', 'Notarization and Gatekeeper distribution assessment'])];
     await resource('Contents/Info.plist', infoPlist('1'));
     for (const notice of notices) await resource(`Contents/Resources/notices/codex-${notice.name}`, notice.data);
     await resource('Contents/Resources/notices/rat-things-LICENSE', firstParty.data);
-    await resource('Contents/Resources/notices/NOTICE.txt', `Rat Things native runtime candidate\n\nThis bundle contains modified OpenAI Codex ${host.manifest.source.upstreamVersion}.\nThe source revision and ordered patches are recorded in provenance.json.\nOpenAI Codex LICENSE and NOTICE are included beside this file.\nThe guest retains its packaged license files inside the initramfs.\n\nThis signed candidate is not cleared for public distribution.\nOutstanding distribution inputs:\n${blockers.map(value => `- ${value}`).join('\n')}\n`);
+    await resource('Contents/Resources/notices/NOTICE.txt', `Rat Things native runtime candidate\n\nThis bundle preserves the official OpenAI Codex ${host.manifest.source.upstreamVersion} release bytes and original signatures.\nOnly the Rat Things VM helper and outer bundle are signed during assembly.\nOfficial input hashes, preserved signatures and helper signing are recorded in provenance.json.\nOpenAI Codex LICENSE and NOTICE are included beside this file.\nThe guest retains its packaged license files inside the initramfs.\n\nThis signed candidate is not cleared for public distribution.\nOutstanding distribution inputs:\n${blockers.map(value => `- ${value}`).join('\n')}\n`);
     await resource('Contents/Resources/provenance.json', jsonBytes({ schemaVersion: 1, distributionReady: false, reproducibility: 'not-established',
-      source: host.manifest.source, build: { host: host.manifest.build, guest: guest.artifact.build },
-      unsignedInputs: { hostArtifactSha256: originalHost.sha256, guestArtifactSha256: guest.inputs.codexArtifactSha256, guestLockSha256: guest.build.lockSha256,
+      source: host.manifest.source, distribution: { host: host.manifest.distribution, guest: guest.artifact.distribution },
+      inputs: { hostArtifactSha256: originalHost.sha256, guestArtifactSha256: guest.inputs.codexArtifactSha256, guestLockSha256: guest.build.lockSha256,
         guestInputsSha256: guest.build.inputsSha256, nativeSourceSha256: helperSource.sha256, nativeEntitlementsSha256: helperEntitlements.sha256, protocolSha256: protocolInput.sha256 },
       definitionInputs: ordered(sources.filter(value => value.path.startsWith('definition/'))), assemblerSources: ordered(sources.filter(value => builderSources.includes(value.path))),
       helperBuild: { swift: toolchain.swift, sdkVersion: toolchain.sdkVersion, sdkBuild: toolchain.sdkBuild, deploymentTarget },
       executables: mappings, deployment: machOs, outstandingDistributionInputs: blockers }));
     await resource('Contents/Resources/component-inventory.json', jsonBytes({ schemaVersion: 1, distributionReady: false,
-      codex: { source: host.manifest.source, patchedTree: host.manifest.build.patchedTree, license: 'Apache-2.0', notice: 'notices/codex-NOTICE',
+      codex: { source: host.manifest.source, distribution: 'official-npm', license: 'Apache-2.0', notice: 'notices/codex-NOTICE',
         host: { package: host.manifest.upstreamPackage, files: mappings.filter(value => value.path !== helperPath) },
         guest: { package: guest.artifact.upstreamPackage, archive: 'linux/worker-initramfs.gz', files: guest.artifact.files.map(file => ({ ...file, path: `opt/codex-runtime/${file.path}` })) },
         companions: Object.values(companions).map(value => ({ name: value.name, version: value.version, origin: value.resolved, integrity: value.integrity,
@@ -408,21 +418,23 @@ export async function assembleNativeRelease(options, { repositoryRoot = root, ru
         notices: { index: 'opt/rat-things/notices/javascript/index.json', sha256: guest.inputs.javascriptNoticesSha256 } },
       nativeHelper: { source: 'runtime/native/main.swift', sha256: helperSource.sha256, license: 'MIT', notice: 'notices/rat-things-LICENSE' }, outstandingDistributionInputs: blockers }));
     const beforeManifest = await nativeBundleInventory(bundle);
+    requireOfficialPayload(beforeManifest, host.files);
     if (staged.size !== expectedPaths.length || beforeManifest.some(file =>
       !isDeepStrictEqual(staged.get(file.path), { bytes: file.bytes, sha256: file.sha256 }))) {
       throw new Error('Staged runtime payload changed before manifest creation.');
     }
-    const manifest = nativeManifest(`${host.manifest.source.upstreamVersion}-native-${host.manifest.build.patchedTree.slice(0, 12)}`, compatibility, beforeManifest, expectedPaths);
+    const manifest = nativeManifest(`${host.manifest.source.upstreamVersion}-native-${host.manifest.sha256.slice(0, 12)}`, compatibility, beforeManifest, expectedPaths);
     await write(join(bundle, manifestPath), manifest.bytes);
     for (const [filename, expected] of tracked) await checkedFile(filename, { expected });
     await validateCodexRuntimeArtifact(hostArtifact, admissionOptions);
     await write(join(evidence, 'input-inventory.json'), jsonBytes(ordered(sources)));
-    await write(join(evidence, 'signing.json'), jsonBytes({ identity, team: 'PB8NAVKU57', toolchain, compileArguments, signatures }));
+    await write(join(evidence, 'signing.json'), jsonBytes({ identity, team: 'PB8NAVKU57', toolchain, compileArguments, signatures, preservedSignatures }));
     await chmod(join(bundle, 'Contents/Info.plist'), 0o644);
     await run('/usr/bin/codesign', signingArguments(identity, { identifier: 'dev.rat-things.runtime' }, bundle, entitlements));
     await chmod(join(bundle, 'Contents/Info.plist'), 0o444);
     await run('/usr/bin/codesign', ['--verify', '--deep', '--strict', '--all-architectures', '--test-requirement', `=${requirement('dev.rat-things.runtime')}`, bundle]);
     const finalInventory = await nativeBundleInventory(bundle);
+    requireOfficialPayload(finalInventory, host.files);
     if (!samePaths(finalInventory.map(file => file.path), [...expectedPaths, manifestPath, ...signaturePaths])
       || !isDeepStrictEqual(finalInventory.filter(file => expectedPaths.includes(file.path)), beforeManifest)
       || (await checkedFile(join(bundle, manifestPath))).sha256 !== manifest.releaseId) throw new Error('Outer signing changed the payload or generated unexpected signature files.');

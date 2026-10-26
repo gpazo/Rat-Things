@@ -10,15 +10,15 @@ import { planCodexLaunch } from '../../src/runner/agent-planning.js';
 import { createPiEffectBroker } from '../../src/runner/pi-effect-broker.js';
 import { nodeSubprocessStdioProbe, restrictedNetworkSocketProbe } from '../../testing/local-runtime/subprocess-fixtures.js';
 
-// Stock and non-Linux runs skip the patched artifact contract. Strict parity
+// Non-strict and non-Linux runs skip the installed runtime contract. Strict parity
 // requires an explicitly selected executable; missing prerequisites never pass.
-describe.skipIf(process.platform !== 'linux' || process.env.CODEX_REQUIRE_PARITY !== 'true')('patched managed subprocess compatibility', () => {
+describe.skipIf(process.platform !== 'linux' || process.env.CODEX_REQUIRE_PARITY !== 'true')('official managed subprocess compatibility', () => {
   it.each([
     { name: 'captures Node subprocess stdin/stdout/stderr and preserves failures', command: [process.execPath, '-e', nodeSubprocessStdioProbe], output: 'local-subprocess-stdio-ok\n' },
-    { name: 'permits local socket metadata while denying network and socket mutation', command: ['python3', '-c', restrictedNetworkSocketProbe], output: 'local-socket-only-ok\n' },
+    { name: 'permits anonymous socketpairs while denying external and named socket connections', command: ['python3', '-c', restrictedNetworkSocketProbe], output: 'local-socket-only-ok\n' },
   ])('$name', async ({ command, output }) => {
     const binary = process.env.CODEX_CONFORMANCE_BINARY;
-    if (!binary) throw new Error('Strict subprocess parity requires CODEX_CONFORMANCE_BINARY to select the patched artifact');
+    if (!binary) throw new Error('Strict subprocess parity requires CODEX_CONFORMANCE_BINARY to select the official executable');
     await access(binary, constants.X_OK);
     const workspace = await mkdtemp(join(tmpdir(), 'rat-managed-subprocess-'));
     let broker: Awaited<ReturnType<typeof createPiEffectBroker>> | undefined;

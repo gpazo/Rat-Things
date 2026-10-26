@@ -1,3 +1,4 @@
+import type { NativeCheckpointEvidence } from './native-checkpoint.js';
 import type { SessionLaunch } from './session-execution.js';
 import { canonicalJson, sha256Hex } from './json.js';
 
@@ -8,6 +9,7 @@ export interface WorkspaceCompatibility { sandboxId: string; setupDigest: string
 export interface WorkspaceCheckpoint extends WorkspaceCompatibility {
   id: string;
   piContextId?: string;
+  nativeDurability?: NativeCheckpointEvidence;
   source: WorkspaceExecution;
   rootThreadId: string;
   lastRootTurnId: string | null;

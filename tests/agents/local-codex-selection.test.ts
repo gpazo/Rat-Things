@@ -6,6 +6,7 @@ import { createLocalServices, LOCAL_OWNER } from '../../src/app/local-compositio
 import type { LocalRuntime } from '../../src/core/local-runtime-ports.js';
 import { AgentsApiError } from '../../src/domain/agents-api-validation.js';
 import { developmentLocalCodexHost } from '../../src/runner/local-codex.js';
+import { managedCodexConfiguration } from '../../src/domain/codex-managed-policy.js';
 
 afterEach(() => vi.unstubAllEnvs());
 
@@ -28,7 +29,12 @@ lines.on('line', line => {
   fs.appendFileSync(${JSON.stringify(log)}, JSON.stringify({ method: request.method, binary: process.argv[1], path: process.env.PATH }) + '\\n');
   if (request.id === undefined) return;
   let result = {};
-  if (request.method === 'config/read') result = { config: {} };
+  if (request.method === 'config/read') result = ${JSON.stringify({
+    config: managedCodexConfiguration({ workspace: '/workspace', network: { access: 'disabled', allowed_domains: [] }, credentialProxy: false }),
+    layers: [{ name: { type: 'sessionFlags' }, config: {} },
+      ...['user', 'system'].map(type => ({ name: { type, file: join(directory, type, 'config.toml') }, config: {} }))],
+  })};
+  if (request.method === 'configRequirements/read') result = { requirements: null };
   if (request.method === 'account/read') result = { account: null };
   if (request.method === 'model/list') result = { data: [{ id: 'fixture-model', isDefault: true }] };
   if (request.method === 'thread/start' || request.method === 'thread/resume') result = { thread: { id: 'fixture-thread' } };

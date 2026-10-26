@@ -10,7 +10,7 @@ Use the [deployment guide](development-and-deployment.md) to configure the Terra
 module, model credentials, ARM64 runtime image and Agents HTTP service. Package
 Lambda artifacts before Terraform validation or deployment. Deployment creates
 AWS resources; ordinary local checks do not provision MicroVMs. Packaging requires the
-patched Linux ARM64 Codex artifact described in the [contributor guide](../testing/README.md#agents-api-native-compatibility-gate). Do not substitute the stock npm binary.
+official Linux ARM64 Codex artifact described in the [contributor guide](../testing/README.md#agents-api-native-compatibility-gate). Keep its verified manifest and complete companion files together.
 
 ## Automated setup
 

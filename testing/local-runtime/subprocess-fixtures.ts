@@ -1,4 +1,4 @@
-/** Exact programs shared with the pinned Codex local-subprocess-stdio regression tests. */
+/** Programs exercising subprocess behavior in the official Codex sandbox. */
 export const nodeSubprocessStdioProbe = String.raw`
 const assert = require('node:assert/strict');
 const { spawnSync, spawn } = require('node:child_process');
@@ -27,9 +27,9 @@ asyncChild.on('close', code => {
 asyncChild.stdin.end('async');
 `;
 
-/** Require precise syscall denials; missing Python, socket families, or sandbox support fail. */
+/** Proxy isolation permits local metadata; actual egress and named Unix sockets remain denied. */
 export const restrictedNetworkSocketProbe = String.raw`
-import errno, os, socket
+import errno, os, socket, urllib.request, urllib.error
 
 def denied(operation):
     try:
@@ -46,23 +46,29 @@ os.write(left.fileno(), b'local')
 assert os.read(right.fileno(), 5) == b'local'
 left.shutdown(socket.SHUT_WR)
 assert os.read(right.fileno(), 1) == b''
-# Each mismatching field independently denies, including both mismatching.
-denied(lambda: right.getsockopt(socket.IPPROTO_TCP, socket.SO_TYPE))
-denied(lambda: right.getsockopt(socket.SOL_SOCKET, socket.SO_ERROR))
-denied(lambda: right.getsockopt(socket.IPPROTO_TCP, socket.SO_ERROR))
-denied(lambda: right.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 65536))
-denied(lambda: right.getpeername())
-denied(lambda: right.shutdown(socket.SHUT_RD))
-denied(lambda: right.shutdown(socket.SHUT_RDWR))
 left.close()
 right.close()
-for family in (socket.AF_INET, socket.AF_INET6, socket.AF_VSOCK, socket.AF_NETLINK):
+for family in (socket.AF_UNIX, socket.AF_VSOCK, socket.AF_NETLINK):
     denied(lambda: socket.socket(family, socket.SOCK_STREAM))
+for family in (socket.AF_INET, socket.AF_INET6, socket.AF_VSOCK, socket.AF_NETLINK):
     denied(lambda: socket.socketpair(family, socket.SOCK_STREAM))
-with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as endpoint:
-    denied(lambda: endpoint.bind('/tmp/rat-network-denied'))
-    denied(lambda: endpoint.connect('/tmp/rat-network-denied'))
-    denied(lambda: endpoint.listen(1))
-    denied(lambda: endpoint.accept())
+with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as endpoint:
+    endpoint.settimeout(1)
+    try:
+        endpoint.connect(('192.0.2.1', 443))
+    except OSError:
+        pass
+    else:
+        raise AssertionError('direct external connection was allowed')
+proxy = os.environ.get('HTTP_PROXY')
+assert proxy, 'managed proxy was not installed'
+opener = urllib.request.build_opener(urllib.request.ProxyHandler({'http': proxy}))
+try:
+    opener.open('http://example.invalid/', timeout=2)
+except urllib.error.HTTPError as error:
+    assert error.code == 403, error.code
+    assert b'"reason":"not_allowed"' in error.read()
+else:
+    raise AssertionError('proxy egress was allowed')
 print('local-socket-only-ok')
 `;

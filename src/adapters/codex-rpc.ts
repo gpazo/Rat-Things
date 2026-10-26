@@ -23,6 +23,7 @@ export class CodexRpcClient {
   private nextId = 0;
   private readonly waiting = new Map<number, { resolve(value: unknown): void; reject(error: Error): void; timer: ReturnType<typeof setTimeout>; stopStartupProbe?: () => void }>();
   private closed = false;
+  private checkpointDiagnosticFailure = false;
   private closing: Promise<void> | undefined;
   private readonly spawnedAt = performance.now();
   private readonly processOrdinal = ++nextProcessOrdinal;
@@ -39,6 +40,7 @@ export class CodexRpcClient {
       const category = /database is locked|database is busy|SQLITE_BUSY|SQLITE_LOCKED/i.test(line) ? 'sqlite_contention'
         : /disk I\/O error|SQLITE_IOERR/i.test(line) ? 'sqlite_io'
         : /pool timed out while waiting for an open connection/i.test(line) ? 'sqlite_pool_timeout' : undefined;
+      if (category === 'sqlite_io' || /failed to (?:flush|persist|shutdown (?:the )?thread store)|error flushing (?:rollout|thread)/i.test(line)) this.checkpointDiagnosticFailure = true;
       if (category && !reported.has(category)) {
         reported.add(category);
         console.error(JSON.stringify({ message: 'Native harness storage diagnostic', category }));
@@ -48,8 +50,8 @@ export class CodexRpcClient {
     this.child.stdout.once('data', () => { this.firstOutputAt = performance.now(); });
     this.reader.on('line', (line) => {
       let value: Record<string, unknown>;
-      try { value = JSON.parse(line) as Record<string, unknown>; } catch { return; }
-      if (!record(value)) return;
+      try { value = JSON.parse(line) as Record<string, unknown>; } catch { this.checkpointDiagnosticFailure = true; return; }
+      if (!record(value)) { this.checkpointDiagnosticFailure = true; return; }
       if (typeof value.method === 'string') {
         const event: CodexRpcEvent = { method: value.method, params: record(value.params) ? value.params : {}, ...(typeof value.id === 'string' || typeof value.id === 'number' ? { requestId: value.id } : {}) };
         try { options.onEvent?.(event); } catch { void this.close(); return; }
@@ -82,9 +84,9 @@ export class CodexRpcClient {
     this.child.once('error', () => { console.error(JSON.stringify({ message: 'Native harness process failed to start' })); fail(); });
     this.child.once('exit', (code, signal) => {
       if (!this.closed) console.error(JSON.stringify({ message: 'Native harness process exited unexpectedly', code, signal }));
-      errors.close();
       fail();
     });
+    this.child.once('close', () => errors.close());
     if (options.signal) {
       const abort = () => { void this.close(); };
       options.signal.addEventListener('abort', abort, { once: true });
@@ -135,17 +137,18 @@ export class CodexRpcClient {
     if (this.child.exitCode === null && this.child.signalCode === null) { this.child.kill('SIGKILL'); await exited; }
   }
 
-  /** After every thread acknowledged persistence, require a clean process exit as well. */
+  /** Ordinary EOF with drained protocol output; this is not a persistence acknowledgement. */
   public async closeCheckpoint(): Promise<void> {
-    if (this.closed) throw new Error('Native process closed before checkpoint acknowledgement');
+    if (this.closed) throw new Error('Native process closed before checkpoint EOF');
     this.closed = true;
-    const exited = once(this.child, 'exit');
+    const exited = once(this.child, 'close');
     this.child.stdin.end();
     let timer: ReturnType<typeof setTimeout> | undefined;
     const timeout = new Promise<never>((_resolve, reject) => { timer = setTimeout(() => reject(new Error('Native checkpoint exit timed out')), 30_000); });
     try {
       const [code, signal] = await Promise.race([exited, timeout]);
       if (code !== 0 || signal) throw new Error('Native checkpoint exit was not clean');
+      if (this.checkpointDiagnosticFailure) throw new Error('Native checkpoint observed a storage or protocol failure');
     } catch (error) {
       if (this.child.exitCode === null && this.child.signalCode === null) { this.child.kill('SIGKILL'); await exited.catch(() => {}); }
       throw error;

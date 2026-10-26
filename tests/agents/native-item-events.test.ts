@@ -27,12 +27,15 @@ it.each([false, true])('retains native Item boundaries with interruption=%s', as
     { type: 'response.output_item.done', output_index: 2, item: message('answer_fixture', 'final_answer', 'Done') },
     { type: 'response.completed', response: { id: 'response_fixture' } },
   ];
+  let requests = 0;
   const server = createServer(async (request, response) => {
     for await (const _chunk of request) { /* Drain the fixture request. */ }
     if (!request.url?.endsWith('/responses')) { response.writeHead(404).end(); return; }
+    requests++;
+    const holdOpen = interrupted && requests === 1;
     response.writeHead(200, { 'content-type': 'text/event-stream' });
-    const body = (interrupted ? wireEvents.slice(0, 7) : wireEvents).map(event => `data: ${JSON.stringify(event)}\n\n`).join('');
-    if (interrupted) response.write(body);
+    const body = (holdOpen ? wireEvents.slice(0, 7) : wireEvents).map(event => `data: ${JSON.stringify(event)}\n\n`).join('');
+    if (holdOpen) response.write(body);
     else response.end(body);
   });
   server.listen(0, '127.0.0.1'); await once(server, 'listening');
@@ -55,6 +58,8 @@ it.each([false, true])('retains native Item boundaries with interruption=%s', as
     if (interrupted) {
       for (let attempt = 0; attempt < 1_000 && !runtime.snapshot().turns[0]?.items.some(item => item.type === 'message' && item.content.some(part => part.type === 'output_text' && part.text === 'Working')); attempt++) await delay(10);
       await runtime.cancel('turn');
+      // Awaited cancellation includes projection of the terminal public state.
+      expect(runtime.snapshot().turns[0]?.turn.status).toBe('cancelled');
     }
     const status = interrupted ? 'cancelled' : 'completed';
     for (let attempt = 0; attempt < 1_000 && runtime.snapshot().turns[0]?.turn.status !== status; attempt++) await delay(10);
@@ -81,6 +86,16 @@ it.each([false, true])('retains native Item boundaries with interruption=%s', as
     expect(done[1]).toMatchObject({ item: { phase: 'commentary' } });
     if (!interrupted) expect(done[2]).toMatchObject({ item: { phase: 'final_answer' } });
     expect(events.indexOf(done.at(-1)!)).toBeLessThan(events.findIndex(event => event.type === `agent.session.turn.${status}`));
+    if (interrupted) {
+      const thread = runtime.snapshot().rootThreadId;
+      await runtime.start({ id: 'followup', object: 'agent.session.turn', session_id: 'session', agent_id: 'agent', subagent_id: null,
+        status: 'queued', created_at: 2, started_at: null, completed_at: null, error: null, usage: null },
+      [{ role: 'user', content: [{ type: 'input_text', text: 'Continue after the acknowledged cancellation.' }] }]);
+      await expect.poll(() => runtime.snapshot().turns[1]?.turn.status, { timeout: 10_000, interval: 10 }).toBe('completed');
+      expect(runtime.snapshot().rootThreadId).toBe(thread);
+      expect(runtime.snapshot().turns.map(binding => binding.turn.status)).toEqual(['cancelled', 'completed']);
+      expect(requests).toBe(2);
+    }
   } finally {
     await runtime.close(); server.closeAllConnections();
     await new Promise<void>(resolve => server.close(() => resolve()));

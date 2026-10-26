@@ -34,10 +34,25 @@ describe('native Item updates projected into public events', () => {
     const f = fixture();
     const item = { id: 'command', type: 'commandExecution', command: 'work', cwd: '/workspace' };
     f.emit('item/started', { item });
-    f.emit('item/commandExecution/outputDelta', { itemId: item.id, delta: 'first\n' });
-    f.emit('item/commandExecution/outputDelta', { itemId: item.id, delta: 'second\n' });
-    f.emit('item/completed', { item: { ...item, status: 'completed', exitCode: 0, aggregatedOutput: null } });
+    expect(f.emit('item/commandExecution/outputDelta', { itemId: item.id, delta: 'first\n' })).toEqual([]);
+    expect(f.emit('item/commandExecution/outputDelta', { itemId: item.id, delta: 'second\n' })).toEqual([]);
+    const events = f.emit('item/completed', { item: { ...item, status: 'completed', exitCode: 0, aggregatedOutput: null } });
+    expect(events[0]).toMatchObject({ type: 'agent.output.command_execution_output.delta', delta: 'first\nsecond\n' });
     expect(f.snapshot().items[0]).toMatchObject({ status: 'completed', exit_code: 0, output: 'first\nsecond\n' });
+  });
+
+  it('publishes the canonical completed command output once when live output missed its prefix', () => {
+    const f = fixture();
+    const item = { id: 'command', type: 'commandExecution', command: 'work', cwd: '/workspace' };
+    f.emit('item/started', { item });
+    expect(f.emit('item/commandExecution/outputDelta', { itemId: item.id, delta: 'late\n' })).toEqual([]);
+    expect(f.snapshot().items[0]).toMatchObject({ status: 'in_progress', output: 'late\n' });
+    const terminal = { item: { ...item, status: 'completed', exitCode: 0, aggregatedOutput: 'early\nlate\n' } };
+    const events = f.emit('item/completed', terminal);
+    expect(events.map(event => event.type)).toEqual(['agent.output.command_execution_output.delta', 'agent.session.turn.item.done']);
+    expect(events[0]).toMatchObject({ delta: 'early\nlate\n' });
+    expect(f.emit('item/completed', terminal)).toEqual([]);
+    expect(f.snapshot().items[0]).toMatchObject({ output: 'early\nlate\n' });
   });
 
   it('retains command output across a sparse terminal snapshot without duplicating it', () => {

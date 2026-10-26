@@ -302,9 +302,9 @@ function startRun(run) {
     storagePreparationDurationMs = Date.now() - preparationStartedAt;
     run.environment.SESSION_STATE_ROOT = stateRoot;
     run.environment.CODEX_HOME = join(stateRoot, 'codex-home');
-    // SQLite WAL/connection locks stay on this worker's local filesystem.
-    // Native rollouts remain durable in CODEX_HOME and rebuild the indexes
-    // when a replacement worker resumes the saved thread.
+    // Ordinary runs bind this directory to worker-local storage. Checkpoint
+    // mode retains the databases and WAL beside the native home; paginated
+    // history cannot be reconstructed from legacy rollout files alone.
     run.environment.CODEX_SQLITE_HOME = join(stateRoot, 'codex-home', 'sqlite');
     run.environment.BROWSER_PROFILE_ROOT = join(stateRoot, 'codex-home', 'browser-profile');
     run.environment.WORKSPACE_ROOT = stateRoot;

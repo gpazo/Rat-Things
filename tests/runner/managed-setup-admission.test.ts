@@ -6,6 +6,7 @@ import { prepareHostedEnvironment } from '../../src/runner/hosted-environment.js
 import { planCodexLaunch } from '../../src/runner/agent-planning.js';
 import { publicTemplate } from '../../src/domain/environment-planning.js';
 import { sessionAgent } from '../../src/core/session-planning.js';
+import { managedCodexConfiguration } from '../../src/domain/codex-managed-policy.js';
 
 it('refuses an unenforced executor before materializing input, running setup, or publishing readiness', async () => {
   const root = await mkdtemp(join(tmpdir(), 'rat-setup-admission-'));
@@ -23,6 +24,12 @@ createInterface({input:process.stdin}).on('line', line => {
   appendFileSync(${JSON.stringify(invocations)},JSON.stringify(request.method)+'\\n');
   const reply=result=>process.stdout.write(JSON.stringify({id:request.id,result})+'\\n');
   if(request.method==='initialize')return reply({userAgent:'unconfined-test-executor'});
+  if(request.method==='config/read')return reply(${JSON.stringify({
+    config: managedCodexConfiguration({ workspace, network: { access: 'disabled', allowed_domains: [] }, credentialProxy: false }),
+    layers: [{ name: { type: 'sessionFlags' }, config: {} },
+      ...['user', 'system'].map(type => ({ name: { type, file: join(root, type, 'config.toml') }, config: {} }))],
+  })});
+  if(request.method==='configRequirements/read')return reply({requirements:null});
   if(request.method==='command/exec')return execFile(request.params.command[0],request.params.command.slice(1),{cwd:request.params.cwd},(error,stdout,stderr)=>reply({exitCode:error?.code??0,stdout,stderr}));
   throw new Error('Unexpected inference or native operation');
 });
@@ -36,7 +43,7 @@ createInterface({input:process.stdin}).on('line', line => {
   try {
     await expect(prepareHostedEnvironment({ launch, workspace, plan, stateDirectory, artifacts: { getBytes: async () => { throw new Error('Unexpected artifact read'); } } }))
       .rejects.toThrow('Refusing to expose execution tools');
-    expect((await readFile(invocations, 'utf8')).trim().split('\n').map(line => JSON.parse(line))).toEqual(['initialize', 'command/exec']);
+    expect((await readFile(invocations, 'utf8')).trim().split('\n').map(line => JSON.parse(line))).toEqual(['initialize', 'config/read', 'configRequirements/read', 'command/exec']);
     expect(await readdir(workspace)).toEqual([]);
     expect(await readdir(stateDirectory)).toEqual([]);
   } finally { await rm(root, { recursive: true, force: true }); }

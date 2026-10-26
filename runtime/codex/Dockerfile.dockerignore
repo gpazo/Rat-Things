@@ -1,7 +1,9 @@
 **
+!package-lock.json
 !runtime/
 !runtime/codex/
 !runtime/codex/**
 !scripts/
 !scripts/build-codex-runtime.mjs
 !scripts/codex-runtime-targets.mjs
+!scripts/codex-runtime-artifact.mjs

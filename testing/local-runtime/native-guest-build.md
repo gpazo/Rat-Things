@@ -1,7 +1,7 @@
 # Build a maintained native guest
 
-Build the Linux ARM64 Codex release artifact first. The artifact must match the
-source definition, patched tree policy, and complete companion inventory accepted
+Package the official Linux ARM64 Codex release first. The artifact must match the
+source definition, npm lock and complete official file inventory accepted
 by `scripts/codex-runtime-artifact.mjs`.
 
 Capture an initial package candidate into a new directory outside `dist`.
@@ -14,8 +14,8 @@ node scripts/build-native-guest.mjs record-candidate \
 ```
 
 Use `--definition-root /absolute/path/to/runtime/codex` when the checked source
-definition is staged separately. That directory must include `source.json`, the
-ordered patches, and `artifact-policy.json`. Use `--kernel-input-directory PATH`
+definition is staged separately. That directory must include `source.json`.
+Use `--kernel-input-directory PATH`
 to supply `vmlinuz-virt` and `modloop-virt` explicitly. Their locked checksums still
 apply. Otherwise the builder downloads the two URLs in
 `runtime/native/kernel-inputs.json`.

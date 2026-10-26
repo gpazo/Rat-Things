@@ -8,7 +8,7 @@ import { expect, it } from 'vitest';
 import { SessionRuntime } from '../../src/runner/session-runtime.js';
 import type { Turn } from '../../src/domain/agents-api.js';
 
-const cases: Array<{ code: string; expected: NonNullable<Turn['error']>['code']; status?: number; patched?: boolean }> = [
+const cases: Array<{ code: string; expected: NonNullable<Turn['error']>['code']; status?: number; native?: unknown }> = [
   { code: 'context_length_exceeded', expected: 'context_length_exceeded' },
   { code: 'insufficient_quota', expected: 'usage_limit_exceeded' },
   { code: 'cyber_policy', expected: 'cyber_policy' },
@@ -18,21 +18,23 @@ const cases: Array<{ code: string; expected: NonNullable<Turn['error']>['code'];
   { code: 'server_is_overloaded', expected: 'server_overloaded' },
   { code: 'rate_limit_exceeded', expected: 'rate_limit_exceeded', status: 429 },
   { code: 'server_error', expected: 'server_error', status: 500 },
-  { code: 'credit_balance_exhausted', expected: 'credit_balance_exhausted', patched: true },
-  { code: 'credit_balance_exhausted', expected: 'credit_balance_exhausted', status: 402, patched: true },
-  { code: 'invalid_api_key', expected: 'authentication_error', status: 401, patched: true },
-  { code: 'model_not_found', expected: 'resource_not_found', status: 404, patched: true },
-  { code: 'invalid_request_error', expected: 'invalid_request', status: 400, patched: true },
-  { code: 'context_length_exceeded', expected: 'context_length_exceeded', status: 400, patched: true },
-  { code: 'insufficient_quota', expected: 'usage_limit_exceeded', status: 429, patched: true },
-  { code: 'access_denied', expected: 'authentication_error', status: 403, patched: true },
-  { code: 'service_unavailable', expected: 'server_overloaded', status: 503, patched: true },
-  { code: 'timeout', expected: 'request_timeout', status: 408, patched: true },
-  { code: 'gateway_timeout', expected: 'request_timeout', status: 504, patched: true },
+  // Stock Codex deliberately collapses detailed quota causes into usageLimitExceeded.
+  { code: 'credit_balance_exhausted', expected: 'usage_limit_exceeded', native: 'usageLimitExceeded' },
+  { code: 'credit_balance_exhausted', expected: 'internal_error', status: 402, native: { httpConnectionFailed: { httpStatusCode: 402 } } },
+  { code: 'invalid_api_key', expected: 'authentication_error', status: 401 },
+  { code: 'model_not_found', expected: 'resource_not_found', status: 404 },
+  { code: 'invalid_request_error', expected: 'internal_error', status: 400, native: 'other' },
+  { code: 'context_length_exceeded', expected: 'internal_error', status: 400, native: 'other' },
+  { code: 'insufficient_quota', expected: 'usage_limit_exceeded', status: 429 },
+  { code: 'access_denied', expected: 'authentication_error', status: 403 },
+  { code: 'service_unavailable', expected: 'server_overloaded', status: 503 },
+  { code: 'timeout', expected: 'request_timeout', status: 408 },
+  { code: 'gateway_timeout', expected: 'request_timeout', status: 504 },
+  // Unknown provider aliases remain opaque; do not parse diagnostics for their names.
   ...(['server_error', 'request_timeout', 'session_budget_exceeded', 'usage_limit_exceeded', 'server_overloaded'] as const)
-    .map(code => ({ code, expected: code, patched: true })),
+    .map(code => ({ code, expected: 'internal_error' as const, native: 'other' })),
 ];
-for (const scenario of cases) it.skipIf(scenario.patched && process.env.CODEX_REQUIRE_PARITY !== 'true')(`preserves provider failure ${scenario.code} over ${scenario.status ?? 'SSE'}`, async () => {
+for (const scenario of cases) it(`projects official provider failure ${scenario.code} over ${scenario.status ?? 'SSE'} without inventing detail`, async () => {
   let requests = 0;
   const nativeErrors: unknown[] = [];
   const server = createServer(async (request, response) => {
@@ -50,7 +52,7 @@ for (const scenario of cases) it.skipIf(scenario.patched && process.env.CODEX_RE
   const runtime = new SessionRuntime({ sessionId: 'session', agentId: 'agent', request: {
     binary: process.env.CODEX_CONFORMANCE_BINARY ?? resolve('node_modules/.bin/codex'), workspace: home,
     environment: { PATH: process.env.PATH, HOME: home, CODEX_HOME: home }, timeoutMs: 15_000,
-    prompt: '', persistent: true, sandbox: 'read-only', networkAccess: false, environments: [], model: 'gpt-5.4', modelProvider: 'fixture',
+    prompt: '', persistent: true, sandbox: 'read-only', networkAccess: false, environments: [], model: 'gpt-5.5', modelProvider: 'fixture',
     onEvent: event => { if (event.method === 'error' || event.method === 'turn/completed') nativeErrors.push(event); },
     sessionConfig: { 'model_providers.fixture': { name: 'local fixture', base_url: `http://127.0.0.1:${address.port}`, wire_api: 'responses', requires_openai_auth: false, supports_websockets: false, stream_max_retries: 0, request_max_retries: 0 } },
   } });
@@ -63,6 +65,10 @@ for (const scenario of cases) it.skipIf(scenario.patched && process.env.CODEX_RE
     const turn = runtime.snapshot().turns[0]?.turn;
     expect(turn, JSON.stringify(nativeErrors)).toMatchObject({ status: 'failed', error: { code: scenario.expected } });
     expect(turn?.error?.message).not.toContain('PRIVATE_PROVIDER_DIAGNOSTIC');
+    if (scenario.native !== undefined) expect(nativeErrors).toContainEqual(expect.objectContaining({
+      method: 'turn/completed', params: expect.objectContaining({ turn: expect.objectContaining({ error: expect.objectContaining({ codexErrorInfo: scenario.native }) }) }),
+    }));
+    // These fixtures explicitly disable native retries; this is not a retry-policy assertion.
     expect(requests).toBe(1);
   } finally {
     await runtime.close(); server.closeAllConnections();

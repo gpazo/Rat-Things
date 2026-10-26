@@ -64,7 +64,9 @@ it.each((['fixture', 'amazon-bedrock'] as const).flatMap(provider => (['programm
   const model = provider === 'amazon-bedrock' ? 'openai.gpt-5.6-terra' : 'gpt-5.5';
   const planned = planSessionLaunch(planCodexLaunch({ version: '1', prompt: '', agent: { sandbox: 'read-only', capabilities: { webSearch: 'cached' } } }, home, 20_000, {}), {
     sessionId: 'sess_tools', turnId: 'turn_tools', input: [], environment: { type: 'none' },
-    agent: sessionAgent({ model, reasoning: { effort: 'high', summary: 'concise' }, service_tier: 'priority',
+    // Tool conformance uses standard execution on both providers. Explicit tier
+    // admission and cross-Turn resets are covered by native-session-settings.
+    agent: sessionAgent({ model, reasoning: { effort: 'high', summary: 'concise' }, service_tier: 'auto',
       text: { verbosity: 'low', format: { type: 'json_schema', schema: { type: 'object', properties: { answer: { type: 'string' } }, required: ['answer'], additionalProperties: false } } }, tools: [
       { type: 'web_search', mode: 'cached', context_size: 'low', allowed_domains: ['example.com'], location: { country: 'US', city: 'Seattle' } },
       mode === 'programmatic' ? { type: 'programmatic_tool_calling', enabled: true } : { type: 'tool_search' },
@@ -102,9 +104,10 @@ it.each((['fixture', 'amazon-bedrock'] as const).flatMap(provider => (['programm
       expect(JSON.stringify(requests[1]?.input)).toContain('tool_search_output');
       expect(JSON.stringify(requests[1]?.input)).toContain('lookup');
     }
-    expect(requests[0]).toMatchObject({ model, ...(provider === 'fixture' || process.env.CODEX_REQUIRE_PARITY === 'true' ? { service_tier: 'priority' } : {}), reasoning: { effort: 'high', summary: 'concise' }, text: {
+    expect(requests[0]).toMatchObject({ model, reasoning: { effort: 'high', summary: 'concise' }, text: {
       verbosity: 'low', format: { type: 'json_schema', schema: { type: 'object', required: ['answer'] } },
     } });
+    for (const request of requests) expect(request).not.toHaveProperty('service_tier');
     expect(requests[0]?.tools).toEqual(expect.arrayContaining([expect.objectContaining({ type: 'web_search', external_web_access: false,
       search_context_size: 'low', filters: { allowed_domains: ['example.com'] }, user_location: expect.objectContaining({ country: 'US', city: 'Seattle' }),
     })]));

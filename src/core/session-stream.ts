@@ -62,9 +62,10 @@ export function planSessionStream(previous: SessionStreamSnapshot | undefined, c
       });
     } else if (output_index !== null && item.type !== 'message' && item.type !== 'function_call_output' && 'status' in item) {
       if (item.type === 'command_execution') {
-        const before = old?.type === 'command_execution' ? old.output ?? '' : '';
+        // Native live output can miss an early chunk. Only the completed aggregate
+        // can produce an ordered append-only stream without replacing prior text.
         const output = item.output ?? '';
-        if (output !== before && output.startsWith(before)) events.push({ type: 'agent.output.command_execution_output.delta', session_id, turn_id: item.turn_id, item_id: item.id, output_index, delta: output.slice(before.length) });
+        if (output && itemFinished(item) && !itemFinished(old)) events.push({ type: 'agent.output.command_execution_output.delta', session_id, turn_id: item.turn_id, item_id: item.id, output_index, delta: output });
       }
       if (item.type === 'reasoning') {
         item.summary.forEach((part, summary_index) => {

@@ -22,32 +22,40 @@ const messages: Record<TurnError['code'], string> = {
 };
 const nativeCodes: Record<string, TurnError['code']> = {
   contextWindowExceeded: 'context_length_exceeded', sessionBudgetExceeded: 'session_budget_exceeded',
-  usageLimitExceeded: 'usage_limit_exceeded', creditBalanceExhausted: 'credit_balance_exhausted',
-  rateLimitExceeded: 'rate_limit_exceeded', serverOverloaded: 'server_overloaded',
-  requestTimeout: 'request_timeout',
+  usageLimitExceeded: 'usage_limit_exceeded',
+  rateLimitExceeded: 'rate_limit_exceeded', serverOverloaded: 'server_overloaded', flexUnavailable: 'server_overloaded',
   cyberPolicy: 'cyber_policy', misalignmentPolicyViolation: 'cyber_policy',
   internalServerError: 'server_error', unauthorized: 'authentication_error', badRequest: 'invalid_request',
-  sandboxError: 'sandbox_error', executorVersionIncompatible: 'executor_version_incompatible',
+  sandboxError: 'sandbox_error',
   activeTurnNotSteerable: 'active_turn_not_steerable',
 };
 
-/** Preserve typed failures without exposing provider bodies, headers or host diagnostics. */
+/** Preserve official typed failures without inferring precision from private diagnostics. */
 export function sessionTurnError(value: unknown, previous?: TurnError | null): TurnError {
   const error = record(value) ? value : {};
   const info = error.codexErrorInfo;
-  const variant = typeof info === 'string' ? info : record(info) ? Object.keys(info)[0] : undefined;
+  const variant = typeof info === 'string' ? info : record(info) && Object.keys(info).length === 1 ? Object.keys(info)[0] : undefined;
   const details = record(info) && variant && record(info[variant]) ? info[variant] : undefined;
   const status = details?.httpStatusCode;
   const publicCode = typeof error.code === 'string' && Object.hasOwn(messages, error.code) ? error.code as TurnError['code'] : undefined;
   const nativeCode = variant && Object.hasOwn(nativeCodes, variant) ? nativeCodes[variant] : undefined;
   const transportCode = variant && ['httpConnectionFailed', 'responseStreamConnectionFailed', 'responseStreamDisconnected', 'responseTooManyFailedAttempts'].includes(variant)
-    ? status === 401 || status === 403 ? 'authentication_error' : status === 404 ? 'resource_not_found'
-      : status === 408 || status === 504 ? 'request_timeout' : status === 429 ? 'rate_limit_exceeded'
-      : status === 503 ? 'server_overloaded' : typeof status === 'number' && status >= 500 ? 'server_error'
-      : typeof status === 'number' && status >= 400 ? 'invalid_request' : 'connection_failed'
+    ? nativeHttpError(status)
     : undefined;
-  const code = publicCode ?? nativeCode ?? transportCode;
-  return code ? { code, message: messages[code] } : previous ?? { code: 'internal_error', message: messages.internal_error };
+  const code = publicCode ?? nativeCode ?? transportCode ?? previous?.code ?? 'internal_error';
+  return { code, message: messages[code] };
+}
+
+function nativeHttpError(status: unknown): TurnError['code'] {
+  if (typeof status !== 'number' || !Number.isInteger(status) || status < 400 || status > 599) return 'connection_failed';
+  if (status === 401 || status === 403) return 'authentication_error';
+  // Payment Required cannot distinguish credits, billing setup or another policy.
+  if (status === 402) return 'internal_error';
+  if (status === 404) return 'resource_not_found';
+  if (status === 408 || status === 504) return 'request_timeout';
+  if (status === 429) return 'rate_limit_exceeded';
+  if (status === 503) return 'server_overloaded';
+  return status >= 500 ? 'server_error' : 'invalid_request';
 }
 
 function record(value: unknown): value is Record<string, unknown> { return typeof value === 'object' && value !== null && !Array.isArray(value); }

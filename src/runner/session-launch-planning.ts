@@ -6,6 +6,7 @@ import { sessionRecoveryItems } from './session-recovery-planning.js';
 import type { SessionMcpRuntime } from './session-mcp.js';
 import { hostedCodexArguments, hostedProcessEnvironment } from './hosted-environment-planning.js';
 import type { SessionEnvironmentCredentialsRuntime } from './session-environment-credentials.js';
+import { nativeServiceTier } from '../domain/session-model-validation.js';
 
 /** Translate public agent settings once, without changing the requested model or widening authority. */
 export function planSessionLaunch(base: CodexLaunchPlan, launch: SessionLaunch, environmentToken?: string, mcp?: Pick<SessionMcpRuntime, 'servers' | 'environment'>, credentials?: Pick<SessionEnvironmentCredentialsRuntime, 'processEnvironment' | 'shellEnvironment'>): Partial<CodexAppServerRequest> {
@@ -23,7 +24,7 @@ export function planSessionLaunch(base: CodexLaunchPlan, launch: SessionLaunch, 
     ...(launch.history?.length ? { recoveryItems: sessionRecoveryItems(launch.history) } : {}),
     model: agent.model,
     developerInstructions: agent.instructions,
-    serviceTier: agent.service_tier,
+    serviceTier: nativeServiceTier(agent.service_tier),
     ...(agent.reasoning.effort !== null ? { reasoningEffort: agent.reasoning.effort } : {}),
     ...(agent.reasoning.summary !== null ? { reasoningSummary: agent.reasoning.summary } : {}),
     ...(agent.text.format.type === 'json_schema' ? { outputSchema: agent.text.format.schema as Record<string, unknown> } : {}),
@@ -31,6 +32,7 @@ export function planSessionLaunch(base: CodexLaunchPlan, launch: SessionLaunch, 
     ...(launch.environment.type === 'none' ? { environments: [] } : {}),
     ...(launch.environment.type === 'openai_hosted' ? {
       permissions: 'rat_managed',
+      managedPolicy: { workspace: '/workspace', network: launch.environment.network, credentialProxy: Boolean(credentials) },
       binaryArguments: hostedCodexArguments(base.binaryArguments, launch.environment.network, Boolean(credentials)),
       environments: [{ environmentId: 'local', cwd: '/workspace' }], executionWorkspace: '/workspace',
       // Keep credential placeholders in the app-server process environment as a

@@ -298,6 +298,11 @@ for await (const event of await client.beta.agents.sessions.events.stream(sessio
 
 SSE is a live stream. Recover missed work from saved Items and Turns; reconnecting
 does not replay an event log. Disconnecting a stream does not cancel execution.
+
+Command-output deltas arrive once the command finishes, immediately before its
+completed Item. This keeps their text in the order reported by the native
+executor's completed aggregate, including its output limit and any omission
+marker. Assistant text and reasoning summaries continue to stream as they arrive.
 Function tool results must identify the pending call and Turn. Successful results
 provide `output`; failed results provide `error`. Human approval requests are not
 part of the runtime: the deployment admits a fixed capability envelope before
@@ -396,6 +401,24 @@ a valid handoff resets the workspace and reapplies its declared inputs. Pi manag
 retains flushed workspace files and setup identity after confirmed termination of the prior
 worker. Neither runtime restores running processes. Checkpointing is host-controlled; there
 is no public checkpoint endpoint or automatic idle timer.
+
+Codex checkpoints require successful completed Turns. Before publication, the
+host stops native writers, flushes the Session journal, synchronizes storage and
+opens a disposable copy with the official Codex binary. Root and child thread
+identities and complete public native history must survive a fresh-process
+resume. Verification has no network or credentials and cannot run model work or
+tools. Extra coordination details omitted by Codex's public history remain in
+the host journal. This does not verify Codex's hidden mailbox state.
+
+Codex cold checkpoints currently support the built-in OpenAI provider and custom
+Responses API providers. Bedrock, Ollama and LM Studio are refused before the
+running process stops because their cold recovery has not been validated. This
+restriction does not prevent ordinary Sessions or Pi Durable execution.
+
+Checkpointing refuses unsupported startup integrations, external native storage,
+failed or interrupted native history, and unverifiable saved state. An ordinary
+process exit alone cannot publish a checkpoint. These limits also apply when
+forking requires a new Codex checkpoint.
 
 ## Fork a Session
 

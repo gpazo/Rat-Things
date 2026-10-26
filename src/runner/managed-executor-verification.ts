@@ -6,6 +6,7 @@ import type { SessionLaunch } from '../domain/session-execution.js';
 import type { CodexLaunchPlan } from './agent-planning.js';
 import { hostedCodexArguments } from './hosted-environment-planning.js';
 import { verifyManagedSandbox } from './managed-sandbox.js';
+import { verifyManagedCodexPolicy } from '../adapters/codex-managed-policy.js';
 
 export async function verifyManagedExecutor(options: {
   plan: CodexLaunchPlan; workspace: string;
@@ -24,6 +25,7 @@ export async function verifyManagedExecutor(options: {
       onServerRequest: async () => { throw new Error('Sandbox verification cannot request approval'); },
     });
     await rpc.initialize();
+    await verifyManagedCodexPolicy({ call: rpc.call.bind(rpc), policy: { workspace: options.workspace, network: options.network, credentialProxy: options.credentialProxy } });
     await verifyManagedSandbox({ call: rpc.call.bind(rpc), workspace: options.workspace, home, ...(plan.identity ? { identity: plan.identity } : {}) });
   } finally {
     try { await rpc?.close(); } finally { await rm(home, { recursive: true, force: true }); }

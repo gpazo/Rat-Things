@@ -14,8 +14,9 @@ published release cadence. Operators apply updates through the existing
 [local runtime setup](local-workspace.md#give-your-session-a-linux-workspace).
 
 An update should identify the reviewed repository revision and the matching
-complete runtime artifacts for the target platform. Codex source, ordered patches,
-companion packages and file inventories are pinned together. Keep the artifact
+complete runtime artifacts for the target platform. The official Codex release,
+companion packages and file inventories are pinned together; Rat Things does not
+patch the Codex executable. Keep the artifact
 manifest with its runtime directory; replacing only the Codex executable with an
 unrelated upstream release is not a supported upgrade. Artifact verification
 checks identity and file integrity; it does not establish a signature or prove

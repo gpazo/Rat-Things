@@ -40,10 +40,10 @@ npm run test:e2e:localstack
 
 Terraform requires packaged Lambda artifacts:
 
-Packaging also requires the patched Linux ARM64 Codex artifact. Build it with
+Packaging also requires the official, unmodified Linux ARM64 Codex artifact. Package it with
 `runtime/codex/Dockerfile` or select an exported artifact with
 `CODEX_RUNTIME_ARTIFACT`; see `testing/README.md`. `npm run check` includes packaging
-and validates this artifact. CI caches it by source, patch and builder identity.
+and validates this artifact. CI caches it by official package and packager identity.
 
 ```bash
 npm run package

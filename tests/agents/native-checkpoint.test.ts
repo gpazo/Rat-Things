@@ -1,7 +1,6 @@
 import { createServer, type ServerResponse } from 'node:http';
-import { spawn } from 'node:child_process';
 import { once } from 'node:events';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { cp, mkdtemp, rename, rm, readFile, readdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -12,48 +11,17 @@ import type { Turn } from '../../src/domain/agents-api.js';
 import type { WorkspaceCheckpoint } from '../../src/domain/workspace-checkpoint.js';
 import { SessionRuntime, type SessionCheckpointOptions } from '../../src/runner/session-runtime.js';
 import { WorkspaceAdmission } from '../../src/runner/workspace-handoff.js';
-import { rpcClient } from './codex-protocol.js';
+import { assertNativeHistory, nativeCheckpointEvidence } from '../../src/domain/native-checkpoint.js';
+import { syncWorkspaceStorage } from '../../src/runner/workspace-sync.js';
+import { createHash } from 'node:crypto';
 
-// The private checkpoint bridge exists only in the repository's parity artifact.
-// Model traffic stays on loopback; no credentials or AWS resources are used.
+// Uses the official unmodified binary. Model traffic stays on loopback.
+// Host-only copies prove native continuation; the privileged guest test covers isolation.
 const native = it.skipIf(process.env.CODEX_REQUIRE_PARITY !== 'true');
 const binary = process.env.CODEX_CONFORMANCE_BINARY ?? resolve('node_modules/.bin/codex');
 const sessionId = 'native_checkpoint_session';
 const agentId = 'native_checkpoint_agent';
 type ModelRequest = { input: Array<{ type?: string; recipient?: string; role?: string; content?: unknown }> };
-
-native.each(['false', 'omitted'])('requires experimental capability when it is %s before entering the checkpoint handler', async capability => {
-  const home = await mkdtemp(join(tmpdir(), 'rat-native-checkpoint-capability-'));
-  const child = spawn(binary, ['app-server'], { cwd: home, env: { PATH: process.env.PATH, HOME: home, CODEX_HOME: home } });
-  child.stderr.resume();
-  const rpc = rpcClient(child);
-  try {
-    await rpc.call('initialize', { clientInfo: { name: 'rat-checkpoint-capability-test', version: '1' },
-      ...(capability === 'false' ? { capabilities: { experimentalApi: false } } : {}) });
-    child.stdin.write(`${JSON.stringify({ method: 'initialized' })}\n`);
-    const threadId = '00000000-0000-4000-8000-000000000001';
-    let failure: unknown;
-    try { await rpc.call('thread/checkpoint', { threadId, expectedThreadIds: [threadId] }); }
-    catch (error) {
-      if (!(error instanceof Error)) throw error;
-      failure = JSON.parse(error.message) as unknown;
-    }
-    expect(failure).toMatchObject({ code: -32600, message: 'thread/checkpoint requires experimentalApi capability' });
-    // An unloaded but syntactically valid identity distinguishes capability
-    // rejection from a handler that ran and rejected the native thread lookup.
-    expect(await rpc.call('thread/loaded/list', {})).toMatchObject({ data: [] });
-  } finally {
-    const exited = child.exitCode === null && child.signalCode === null ? once(child, 'close').catch(() => {}) : undefined;
-    rpc.close(); child.stdin.destroy();
-    if (exited) {
-      child.kill('SIGTERM');
-      await Promise.race([exited, delay(1000)]);
-      if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
-      await exited;
-    }
-    await rm(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
-  }
-}, 15_000);
 
 native.each([{ paginated: false }, { paginated: true }])('checkpoints real root and child histories and continues them in a fresh process (paginated=$paginated)', async ({ paginated }) => {
   const fixture = await checkpointFixture({ paginated });
@@ -74,10 +42,11 @@ native.each([{ paginated: false }, { paginated: true }])('checkpoints real root 
     await source.finished;
     source.assertSuccessfulShutdown();
     expect(checkpoint.rootThreadId).toBe(before.rootThreadId);
+    expect(checkpoint.nativeDurability?.historyModes).toEqual(paginated ? ['paginated'] : ['legacy', 'paginated']);
     expect(fixture.acknowledgedIds).toEqual([expectedIds]);
     // These host ports record ordering; this proves native journal handoff, not
     // an AWS filesystem snapshot, host journal implementation or worker replacement.
-    expect(fixture.order).toEqual(['begin', 'native-ack', 'native-exit', 'writers', 'journal', 'storage-sync', 'commit']);
+    expect(fixture.order).toEqual(['begin', 'native-exit', 'writers', 'journal', 'storage-sync', 'cold-verified', 'commit']);
     await expect(fixture.clients[0]!.call('thread/loaded/list', {})).rejects.toThrow('unavailable');
 
     const successor = fixture.create(before);
@@ -109,7 +78,7 @@ native.each([{ paginated: false }, { paginated: true }])('checkpoints real root 
   } finally { await fixture.close(); }
 }, 60_000);
 
-native('rejects an incomplete thread set and a busy child without shutting down either thread', async () => {
+native('rejects a busy child without shutting down either thread', async () => {
   const fixture = await checkpointFixture({ paginated: false, holdChild: true });
   try {
     const runtime = fixture.create();
@@ -123,8 +92,8 @@ native('rejects an incomplete thread set and a busy child without shutting down 
     }, 'busy child with idle root');
     const childId = runtime.snapshot().subagents[0]!.id;
     const rpc = fixture.clients[0]!;
-    await expect(rpc.call('thread/checkpoint', { threadId: rootId, expectedThreadIds: [rootId] })).rejects.toThrow();
-    await expect(rpc.call('thread/checkpoint', { threadId: rootId, expectedThreadIds: [rootId, childId] })).rejects.toThrow();
+    await expect(runtime.checkpoint()).rejects.toThrow('active turns');
+    expect(fixture.order).toEqual([]);
     const loaded = await rpc.call('thread/loaded/list', { limit: 100 }) as { data: string[] };
     expect([...loaded.data].sort()).toEqual([rootId, childId].sort());
     expect(runtime.snapshot().turns.find(binding => binding.threadId === childId)?.turn.status).toBe('in_progress');
@@ -138,6 +107,7 @@ native('rejects an incomplete thread set and a busy child without shutting down 
 }, 45_000);
 
 async function checkpointFixture(options: { paginated: boolean; holdChild?: boolean }) {
+  const historyMode = options.paginated ? 'paginated' : 'legacy';
   const home = await mkdtemp(join(tmpdir(), 'rat-native-checkpoint-'));
   const rootRequests: ModelRequest[] = [];
   const childRequests: ModelRequest[] = [];
@@ -175,13 +145,53 @@ async function checkpointFixture(options: { paginated: boolean; holdChild?: bool
   const create = (previous?: SessionRuntimeState) => {
     const checkpointPorts: SessionCheckpointOptions = {
       admission: new WorkspaceAdmission(),
+      prepareNativeVerification: async () => ({
+        close: async () => {},
+        verify: async manifest => {
+          const copyRoot = await mkdtemp(join(tmpdir(), 'rat-cold-checkpoint-copy-'));
+          const candidate = join(copyRoot, 'candidate');
+          const parked = join(copyRoot, 'original');
+          const count = rootRequests.length + childRequests.length;
+          await cp(home, candidate, { recursive: true });
+          const digest = await fileDigest(candidate);
+          await rename(home, parked);
+          let verifier: CodexRpcClient | undefined;
+          let activity = false;
+          try {
+            await cp(candidate, home, { recursive: true });
+            verifier = new CodexRpcClient({ binary, cwd: home, environment: { PATH: process.env.PATH, HOME: home, CODEX_HOME: home },
+              onEvent: event => { if (event.requestId !== undefined || /^(turn\/(started|completed)|item\/|error$)/.test(event.method)) activity = true; } });
+            await verifier.initialize();
+            for (const expected of manifest.threads) {
+              const result = await verifier.call('thread/read', { threadId: expected.id, includeTurns: true }) as { thread: unknown };
+              assertNativeHistory(expected, result.thread, String(expected.id));
+            }
+            for (const expected of manifest.threads) {
+              await verifier.call('thread/resume', { threadId: expected.id, deferGoalContinuation: true,
+                ...(expected.id === manifest.rootThreadId ? { config: { 'model_providers.fixture': providerConfig(address.port), 'features.multi_agent': true, 'features.multi_agent_v2': true, 'features.goals': false } } : {}) });
+              const result = await verifier.call('thread/read', { threadId: expected.id, includeTurns: true }) as { thread: unknown };
+              assertNativeHistory(expected, result.thread, manifest.rootThreadId);
+            }
+            await verifier.closeCheckpoint();
+            expect(activity).toBe(false);
+            expect(rootRequests.length + childRequests.length).toBe(count);
+            expect(await fileDigest(candidate)).toBe(digest);
+            acknowledgedIds.push(manifest.threads.map(thread => String(thread.id)).sort());
+            order.push('cold-verified');
+            return nativeCheckpointEvidence(manifest);
+          } finally {
+            await verifier?.close(); await rm(home, { recursive: true, force: true }); await rename(parked, home);
+            await rm(copyRoot, { recursive: true, force: true });
+          }
+        },
+      }),
       begin: async () => { order.push('begin'); },
       stopRemainingWriters: async () => { order.push('writers'); },
       flushJournal: async () => { order.push('journal'); },
-      syncStorage: async () => { order.push('storage-sync'); },
-      commit: async state => {
+      syncStorage: async () => { await syncWorkspaceStorage(home); order.push('storage-sync'); },
+      commit: async (state, nativeDurability) => {
         order.push('commit');
-        return { id: 'native-checkpoint', source: { runId: 'native-source', generation: 'generation' }, sandboxId: 'native-sandbox',
+        return { ...(nativeDurability ? { nativeDurability } : {}), id: 'native-checkpoint', source: { runId: 'native-source', generation: 'generation' }, sandboxId: 'native-sandbox',
           setupDigest: 'a'.repeat(64), policyDigest: 'b'.repeat(64), rootThreadId: state.rootThreadId,
           lastRootTurnId: state.turns.filter(binding => binding.turn.subagent_id === null).at(-1)?.turn.id ?? null,
           lastNativeTurnId: state.turns.filter(binding => binding.turn.subagent_id === null).at(-1)?.nativeTurnId ?? null,
@@ -196,7 +206,7 @@ async function checkpointFixture(options: { paginated: boolean; holdChild?: bool
         sessionConfig: { 'model_providers.fixture': { name: 'local checkpoint fixture', base_url: `http://127.0.0.1:${address.port}`,
           wire_api: 'responses', requires_openai_auth: false, supports_websockets: false, request_max_retries: 0, stream_max_retries: 0 },
         'features.multi_agent': true, 'features.multi_agent_v2': { enabled: true, max_concurrent_threads_per_session: 2 },
-        'features.paginated_threads': options.paginated },
+        'features.goals': false },
       },
       client: options => {
         const rpc = new CodexRpcClient({ ...options, onEvent: event => {
@@ -212,12 +222,8 @@ async function checkpointFixture(options: { paginated: boolean; holdChild?: bool
         // Observe the real subprocess transport; never substitute RPC results.
         return { initialize: () => rpc.initialize(), close: () => rpc.close(),
           call: async (method, params, timeout) => {
-            const result = await rpc.call(method, params, timeout);
-            if (method === 'thread/checkpoint') {
-              order.push('native-ack');
-              acknowledgedIds.push([...(result as { threadIds: string[] }).threadIds].sort());
-            }
-            return result;
+            if (method === 'thread/checkpoint') throw new Error('Private checkpoint RPC is forbidden');
+            return rpc.call(method, method === 'thread/start' ? { ...(params as object), historyMode } : params, timeout);
           },
           closeCheckpoint: async () => { await rpc.closeCheckpoint(); order.push('native-exit'); },
         };
@@ -265,4 +271,14 @@ function input(text: string): import('../../src/domain/agents-api.js').AgentSess
 async function until(predicate: () => boolean, description: string): Promise<void> {
   for (let attempt = 0; attempt < 1_500; attempt++) { if (predicate()) return; await delay(10); }
   throw new Error(`Timed out waiting for ${description}`);
+}
+
+function providerConfig(port: number) { return { name: 'local checkpoint fixture', base_url: `http://127.0.0.1:${port}`, wire_api: 'responses', requires_openai_auth: false, supports_websockets: false, request_max_retries: 0, stream_max_retries: 0 }; }
+async function fileDigest(root: string): Promise<string> {
+  const hash = createHash('sha256');
+  const visit = async (directory: string): Promise<void> => { for (const entry of (await readdir(directory, { withFileTypes: true })).sort((a, b) => a.name.localeCompare(b.name))) {
+    const path = join(directory, entry.name); hash.update(path.slice(root.length));
+    if (entry.isDirectory()) await visit(path); else if (entry.isFile()) hash.update(await readFile(path)); else throw new Error('Unexpected fixture file');
+  } };
+  await visit(root); return hash.digest('hex');
 }

@@ -14,6 +14,13 @@ execution boundary. Trusted orchestration runs as root and launches Codex or Pi 
 as UID/GID 10001. The worker sandbox defaults to workspace-only writes with agent networking off.
 The host-side local harness retains its separate read-only/no-network policy.
 
+Managed execution verifies the official Codex process's effective permission
+profile before exposing tools. Unexpected merged grants, unknown policy files or
+incomplete policy inspection prevent startup. Agent networking off uses a network
+namespace and a proxy with no allowed destinations. Local socket metadata and
+anonymous socketpairs remain available for subprocess I/O; external connections
+and named Unix socket access remain denied.
+
 The EC2 worker supports connected Session lifetime beyond Lambda MicroVM's maximum lifetime.
 Both backends must preserve the same ownership, process and credential boundaries. Self-hosted
 executor connections also require an operator-controlled sandbox; transport encryption does
@@ -91,7 +98,7 @@ from actor attribution. No caller-provided URL or credential may establish owner
 | Superseded worker write | Immutable execution generation, backend identity and conditional state changes | Lost process memory cannot be recreated from public Items alone |
 | Artifact disclosure | Private encrypted objects, owner checks, saved Turn/path identity and explicit publication grants | Publication URLs are bearer credentials; provider copies have independent retention |
 | Resource exhaustion | Bounded requests, pagination, queues and deployment concurrency controls | Configure tenant budgets, API throttles and provider-event abuse limits |
-| Supply-chain compromise | Locked packages, pinned source/base image, recorded patches and artifact digests | Review build provenance and scan/sign release artifacts |
+| Supply-chain compromise | Locked packages, pinned source/base image, official package integrity and complete artifact digests | Review build provenance and scan/sign release artifacts |
 
 ## Fixed capability-envelope security model
 
@@ -200,6 +207,13 @@ Workspace paths are anchored beneath the configured root. A replacement worker m
 the same owner/Session storage under its fenced execution identity. Native checkpoints preserve
 harness history; public-item recovery preserves historical facts without replaying tool effects.
 Neither recovery path promises survival of a process whose VM has been destroyed.
+
+Codex checkpoint publication requires a successful cold resume of copied native
+history after all writers stop and storage is synchronized. A separate verifier
+runs without credentials or network access; it cannot modify the saved candidate.
+Evidence covers root and child identities, public native history, and the flushed
+host journal. It does not inspect hidden Codex mailbox state or preserve running
+commands. Unsupported startup integrations or unverifiable state prevent handoff.
 
 The EC2 supervisor requires the outer dedicated VM for its privileged mount/network setup. The
 agent does not receive the Docker socket or host control configuration. Metadata and the local

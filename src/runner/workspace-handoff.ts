@@ -1,3 +1,5 @@
+import type { NativeCheckpointEvidence } from '../domain/native-checkpoint.js';
+import { sameNativeThreadIds } from '../domain/native-checkpoint.js';
 import type { WorkspaceCheckpoint } from '../domain/workspace-checkpoint.js';
 
 /** Shared by native starts, tool responses and file operations when the host enables handoff. */
@@ -35,11 +37,12 @@ export interface WorkspaceHandoffPorts {
   admission: WorkspaceAdmission;
   inspectIdle(): { idle: boolean; threadIds: string[] } | Promise<{ idle: boolean; threadIds: string[] }>;
   begin(): Promise<void>;
-  shutdownNative(): Promise<NativeCheckpointAcknowledgement>;
+  shutdownNative(): Promise<NativeCheckpointAcknowledgement | { kind: 'codex-eof'; threadIds: string[] }>;
+  verifyNative?(): Promise<NativeCheckpointEvidence>;
   stopRemainingWriters(): Promise<void>;
   flushJournal(): Promise<void>;
   syncStorage(): Promise<void>;
-  commit(): Promise<WorkspaceCheckpoint>;
+  commit(evidence?: NativeCheckpointEvidence): Promise<WorkspaceCheckpoint>;
   /** Must retain an already committed checkpoint if the commit acknowledgement was lost. */
   abort(): Promise<void>;
   /** Runtime completion must be held until this is called, including on failure. */
@@ -58,13 +61,15 @@ export async function checkpointWorkspace(ports: WorkspaceHandoffPorts): Promise
     await ports.begin();
     nativeStarted = true;
     const acknowledgement = await ports.shutdownNative();
-    if (!acknowledgement.flushed || acknowledgement.forced || acknowledgement.threadIds.length !== idle.threadIds.length
-      || new Set(acknowledgement.threadIds).size !== idle.threadIds.length
-      || idle.threadIds.some(id => !acknowledgement.threadIds.includes(id))) throw new Error('Native shutdown did not acknowledge every thread flush');
+    const cold = 'kind' in acknowledgement && acknowledgement.kind === 'codex-eof';
+    if (!sameNativeThreadIds(acknowledgement.threadIds, idle.threadIds) || (!cold && (!('flushed' in acknowledgement) || acknowledgement.flushed !== true || acknowledgement.forced !== false || 'kind' in acknowledgement))) throw new Error('Native shutdown did not acknowledge every thread flush');
+    if (cold && !ports.verifyNative) throw new Error('Cold native verification is unavailable');
     await ports.stopRemainingWriters();
     await ports.flushJournal();
     await ports.syncStorage();
-    return await ports.commit();
+    const evidence = cold ? await ports.verifyNative!() : undefined;
+    if (cold && (!evidence || evidence.kind !== 'codex-cold-native' || !Array.isArray(evidence.threadIds) || !sameNativeThreadIds(evidence.threadIds, idle.threadIds) || !/^[a-f0-9]{64}$/.test(evidence.historyDigest) || !/^[a-f0-9]{64}$/.test(evidence.hostJournalDigest) || !Array.isArray(evidence.historyModes) || !evidence.historyModes.length || evidence.historyModes.some(mode => !['legacy', 'paginated'].includes(mode)))) throw new Error('Cold native verification evidence is invalid');
+    return await ports.commit(evidence);
   } catch (error) {
     if (beginAttempted) {
       // If this fails, the durable lease/tombstone remains recoverable only after

@@ -1,6 +1,6 @@
 # Native Rat Things worker proof
 
-This opt-in Apple silicon experiment runs the real Rat Things worker and patched Codex
+This opt-in Apple silicon experiment runs the real Rat Things worker and official Codex
 executor inside a Linux VM created by Apple's Virtualization framework. It uses
 the same `LocalRuntime` port, Session service, environment relay and remote file
 protocol as the container path. The production runtime factory does not select

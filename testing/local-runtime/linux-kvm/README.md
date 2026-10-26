@@ -17,7 +17,7 @@ requires usable `/dev/kvm`, `/dev/vhost-vsock`, a user systemd manager, and enou
 memory for the runtime's admission checks. The preparation command does not
 change host permissions or install host packages.
 
-First build the patched Linux x64 Codex artifact and local worker image using the
+First package the official Linux x64 Codex artifact and local worker image using the
 [contributor instructions](../../README.md). Set `DOCKER_HOST` to the local
 engine socket and unset `DOCKER_CONTEXT` when selecting an endpoint explicitly.
 Only the immutable image ID resolved at the start of preparation is used. Every
@@ -64,20 +64,20 @@ harnesses. Both use the actual default KVM runtime and preserve evidence in a
 new `run-...` directory:
 
 ```bash
-CODEX_BINARY=/absolute/path/to/patched-artifact/runtime/bin/codex \
+CODEX_BINARY=/absolute/path/to/official-artifact/runtime/bin/codex \
 RAT_THINGS_LINUX_KVM_RUNTIME=/absolute/path/to/image-HASH \
   npx tsx testing/local-runtime/pi-parity.ts \
   --directory test-results/local-pi-parity
 
-CODEX_BINARY=/absolute/path/to/patched-artifact/runtime/bin/codex \
-CODEX_RUNTIME_ARTIFACT=/absolute/path/to/patched-artifact \
+CODEX_BINARY=/absolute/path/to/official-artifact/runtime/bin/codex \
+CODEX_RUNTIME_ARTIFACT=/absolute/path/to/official-artifact \
 RAT_THINGS_LINUX_KVM_RUNTIME=/absolute/path/to/image-HASH \
   npx tsx testing/local-runtime/codex-parity.ts \
   --directory test-results/local-codex-parity
 ```
 
 The Pi harness uses a deterministic fixture model. The Codex harness uses a
-loopback Responses fixture and verifies the host executable against the patched
+loopback Responses fixture and verifies the host executable against the official
 artifact. Both exercise managed file and command effects, same-UID writes outside
 the workspace, symlink escape denial, disabled command networking, cancellation
 of command descendants, and a new Turn after restarting the local service. Pi

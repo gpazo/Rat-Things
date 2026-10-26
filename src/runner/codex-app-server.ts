@@ -9,6 +9,8 @@ import type { SandboxMode } from '../domain/contracts.js';
 import { emitMetric } from '../core/metrics.js';
 import type { AgentSessionInputMessageParam, AgentSessionItem } from '../domain/agents-api.js';
 import { projectSessionItems } from '../core/session-run-projection.js';
+import type { ManagedCodexPolicy } from '../domain/codex-managed-policy.js';
+import { verifyManagedCodexPolicy } from '../adapters/codex-managed-policy.js';
 
 const CODEX_INVALID_REQUEST = -32600;
 const MISSING_ROLLOUT_MESSAGE = 'no rollout found for thread id ';
@@ -59,6 +61,7 @@ export interface CodexAppServerRequest {
   prompt: string;
   sandbox: SandboxMode;
   permissions?: string;
+  managedPolicy?: ManagedCodexPolicy;
   persistent: boolean;
   modelProvider: string;
   model?: string;
@@ -334,11 +337,14 @@ export async function runCodexAppServer(
         version: process.env.npm_package_version ?? '0.1.0',
       },
       capabilities: {
-        experimentalApi: Boolean(request.captureTraces || request.sessionConfig || request.dynamicTools?.length),
+        experimentalApi: Boolean(request.managedPolicy || request.captureTraces || request.sessionConfig || request.dynamicTools?.length),
         requestAttestation: false,
       },
     });
     notify('initialized');
+    if (request.permissions === 'rat_managed' && !request.managedPolicy) throw new Error('Managed executor policy intent is missing');
+    if (request.managedPolicy && request.permissions !== 'rat_managed') throw new Error('Managed executor permission profile is not selected');
+    if (request.managedPolicy) await verifyManagedCodexPolicy({ call, policy: request.managedPolicy });
 
     const skillInputs = request.skills?.length
       ? await resolveSkillInputs(call, request.workspace, request.skills)
@@ -350,7 +356,7 @@ export async function runCodexAppServer(
       // Never ask for a mid-Run human authorization decision.
       approvalPolicy: 'never',
       approvalsReviewer: 'user',
-      sandbox: request.sandbox,
+      ...(request.permissions ? { permissions: request.permissions } : { sandbox: request.sandbox }),
       modelProvider: request.modelProvider,
       ...(request.model ? { model: request.model } : {}),
       ...(request.personality ? { personality: request.personality } : {}),
@@ -416,7 +422,7 @@ export async function runCodexAppServer(
       cwd: executionWorkspace,
       approvalPolicy: 'never',
       approvalsReviewer: 'user',
-      sandboxPolicy: sandboxPolicyFor(request.sandbox, executionWorkspace, request.networkAccess),
+      ...(request.permissions ? { permissions: request.permissions } : { sandboxPolicy: sandboxPolicyFor(request.sandbox, executionWorkspace, request.networkAccess) }),
       ...(request.model ? { model: request.model } : {}),
       ...(request.reasoningEffort ? { effort: request.reasoningEffort } : {}),
       ...(request.reasoningSummary ? { summary: request.reasoningSummary } : {}),
@@ -515,7 +521,7 @@ function appServerConfig(request: CodexAppServerRequest): Record<string, unknown
   if (request.onServerRequest && !request.sessionConfig) {
     config['features.default_mode_request_user_input'] = true;
   }
-  if (request.sandbox === 'workspace-write') {
+  if (!request.permissions && request.sandbox === 'workspace-write') {
     config.sandbox_workspace_write = { network_access: request.networkAccess };
   }
   if (request.webSearch) config.web_search = request.webSearch;

@@ -1,16 +1,5 @@
 {
   "repository": "https://github.com/openai/codex.git",
   "revision": "6aaac694803004a63c6f393d153c96d22521a6b9",
-  "upstreamVersion": "0.164.0",
-  "patches": [
-    "release-lock.patch",
-    "interrupt-barrier.patch",
-    "api-model-settings.patch",
-    "chatgpt-service-tier.patch",
-    "api-turn-errors.patch",
-    "checkpoint-shutdown.patch",
-    "unified-exec-output-subscription.patch",
-    "local-subprocess-stdio.patch",
-    "protocol-exports.patch"
-  ]
+  "upstreamVersion": "0.164.0"
 }
