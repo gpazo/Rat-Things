@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { expect, it } from 'vitest';
-import { CodexRpcClient } from '../../src/adapters/codex-rpc.js';
+import { CodexRpcClient, type CodexRpcEvent } from '../../src/adapters/codex-rpc.js';
 import type { SessionRuntimeState } from '../../src/core/session-runtime-planning.js';
 import type { Turn } from '../../src/domain/agents-api.js';
 import type { WorkspaceCheckpoint } from '../../src/domain/workspace-checkpoint.js';
@@ -63,7 +63,8 @@ native.each([{ paginated: false }, { paginated: true }])('checkpoints real root 
     await source.start(turn('first'), input('ROOT_INPUT_MARKER: delegate the fixture task.'));
     await until(() => {
       const state = source.snapshot();
-      return state.subagents.length === 1 && state.turns.length === 2 && state.turns.every(binding => binding.turn.status === 'completed');
+      return state.subagents.length === 1 && state.turns.length === 2 && state.turns.every(binding => binding.turn.status === 'completed')
+        && state.subagents.every(child => fixture.completedChildActivities.has(`${state.rootThreadId}:${child.id}`));
     }, 'root and child completion');
     const before = source.snapshot();
     const childId = before.subagents[0]!.id;
@@ -128,7 +129,8 @@ native('rejects an incomplete thread set and a busy child without shutting down 
     expect([...loaded.data].sort()).toEqual([rootId, childId].sort());
     expect(runtime.snapshot().turns.find(binding => binding.threadId === childId)?.turn.status).toBe('in_progress');
     fixture.releaseChild();
-    await until(() => runtime.snapshot().turns.every(binding => binding.turn.status === 'completed'), 'child completion after refused shutdown');
+    await until(() => runtime.snapshot().turns.every(binding => binding.turn.status === 'completed')
+      && fixture.completedChildActivities.has(`${rootId}:${childId}`), 'child completion after refused shutdown');
     await expect(runtime.checkpoint()).resolves.toMatchObject({ rootThreadId: rootId });
     expect(fixture.acknowledgedIds).toEqual([[rootId, childId].sort()]);
     expect(fixture.order.at(-1)).toBe('commit');
@@ -143,6 +145,7 @@ async function checkpointFixture(options: { paginated: boolean; holdChild?: bool
   const acknowledgedIds: string[][] = [];
   const clients: CodexRpcClient[] = [];
   const runtimes: SessionRuntime[] = [];
+  const completedChildActivities = new Set<string>();
   let releaseChild = () => {};
   const server = createServer(async (request, response) => {
     try {
@@ -196,7 +199,15 @@ async function checkpointFixture(options: { paginated: boolean; holdChild?: bool
         'features.paginated_threads': options.paginated },
       },
       client: options => {
-        const rpc = new CodexRpcClient(options);
+        const rpc = new CodexRpcClient({ ...options, onEvent: event => {
+          // A child's turn/completed can precede the parent's final subAgentActivity
+          // item/completed. Starting checkpoint between them correctly fails closed.
+          // Wait for that real notification rather than assuming terminal Turns
+          // imply that every native writer/event has settled.
+          const activity = completedChildActivity(event);
+          if (activity) completedChildActivities.add(activity);
+          options.onEvent?.(event);
+        } });
         clients.push(rpc);
         // Observe the real subprocess transport; never substitute RPC results.
         return { initialize: () => rpc.initialize(), close: () => rpc.close(),
@@ -214,7 +225,7 @@ async function checkpointFixture(options: { paginated: boolean; holdChild?: bool
     });
     runtimes.push(runtime); return runtime;
   };
-  return { create, clients, rootRequests, childRequests, order, acknowledgedIds, releaseChild: () => releaseChild(),
+  return { create, clients, rootRequests, childRequests, order, acknowledgedIds, completedChildActivities, releaseChild: () => releaseChild(),
     close: async () => {
       releaseChild();
       for (const runtime of runtimes) await runtime.close();
@@ -222,6 +233,14 @@ async function checkpointFixture(options: { paginated: boolean; holdChild?: bool
       await rm(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     },
   };
+}
+
+function completedChildActivity(event: CodexRpcEvent): string | undefined {
+  const { threadId, item } = event.params;
+  if (event.method !== 'item/completed' || typeof threadId !== 'string' || !item || typeof item !== 'object'
+    || !('type' in item) || item.type !== 'subAgentActivity' || !('kind' in item) || item.kind !== 'completed'
+    || !('agentThreadId' in item) || typeof item.agentThreadId !== 'string') return undefined;
+  return `${threadId}:${item.agentThreadId}`;
 }
 
 function completeResponse(response: ServerResponse, id: string, item: unknown): void {
