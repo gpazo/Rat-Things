@@ -27,7 +27,7 @@ export function managedCodexConfiguration(policy: ManagedCodexPolicy) {
 
 /** Validate the merged public configuration, not merely the flags we requested. */
 export function managedCodexPolicyMatches(value: unknown, requirements: unknown, policy: ManagedCodexPolicy): boolean {
-  if (!record(value) || !record(value.config) || !record(requirements) || requirements.requirements !== null) return false;
+  if (!record(value) || !record(value.config) || !managedCodexRequirementsSafe(requirements)) return false;
   const config = value.config;
   const expected = managedCodexConfiguration(policy);
   return config.approval_policy === expected.approval_policy
@@ -35,6 +35,34 @@ export function managedCodexPolicyMatches(value: unknown, requirements: unknown,
     && record(config.permissions) && equivalent(config.permissions.rat_managed, expected.permissions.rat_managed)
     && record(config.features) && equivalent(config.features.network_proxy, expected.features.network_proxy)
     && equivalent(config.projects, expected.projects);
+}
+
+// These public 0.164 requirements can affect execution, startup or persistence.
+// Absence is understood; an active requirement needs its own policy review.
+const inactiveRequirementFields = new Set([
+  'modelProvider', 'modelProviders', 'cliAuthCredentialsStore', 'chatgptBaseUrl',
+  'additionalDeveloperInstructions', 'allowedApprovalPolicies', 'allowedApprovalsReviewers',
+  'allowedSandboxModes', 'allowedWindowsSandboxImplementations', 'allowedPermissionProfiles',
+  'defaultPermissions', 'allowedWebSearchModes', 'allowManagedHooksOnly', 'allowBrowserAndComputerUse',
+  'allowAppshots', 'allowRemoteControl', 'computerUse', 'browserUse', 'inAppBrowser',
+  'featureRequirements', 'hooks', 'enforceResidency', 'network', 'application', 'autoReview',
+  'models', 'sqliteHome', 'logDir', 'modelCatalogJson', 'checkForUpdateOnStartup', 'allowLoginShell', 'feedback',
+]);
+
+/** Authentication restrictions do not grant execution authority or change the selected profile. */
+export function managedCodexRequirementsSafe(value: unknown): boolean {
+  if (!record(value) || !Object.hasOwn(value, 'requirements')) return false;
+  if (Object.keys(value).some(key => key !== 'requirements' && key !== 'supportsIndependentSpeedModes')) return false;
+  if (value.supportsIndependentSpeedModes != null && typeof value.supportsIndependentSpeedModes !== 'boolean') return false;
+  if (value.requirements === null) return true;
+  if (!record(value.requirements)) return false;
+  return Object.entries(value.requirements).every(([key, restriction]) => {
+    if (key !== 'allowedLoginMethods') return inactiveRequirementFields.has(key) && restriction === null;
+    // Upstream permits an empty list (no login), and serializes known methods in lowercase.
+    return restriction === null || Array.isArray(restriction)
+      && restriction.every(method => method === 'api' || method === 'chatgpt')
+      && new Set(restriction).size === restriction.length;
+  });
 }
 
 function equivalent(actual: unknown, expected: unknown): boolean {

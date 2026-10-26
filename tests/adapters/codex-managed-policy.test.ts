@@ -1,6 +1,6 @@
 import { expect, it } from 'vitest';
 import { verifyManagedCodexPolicy } from '../../src/adapters/codex-managed-policy.js';
-import { managedCodexConfiguration, managedCodexPolicyMatches, type ManagedCodexPolicy } from '../../src/domain/codex-managed-policy.js';
+import { managedCodexConfiguration, managedCodexPolicyMatches, managedCodexRequirementsSafe, type ManagedCodexPolicy } from '../../src/domain/codex-managed-policy.js';
 
 const policy: ManagedCodexPolicy = { workspace: '/workspace', network: { access: 'disabled', allowed_domains: [] }, credentialProxy: false };
 
@@ -12,7 +12,38 @@ it('keeps no-egress intent independent from the upstream proxy-enabled bit', () 
 });
 
 it.each([
+  null, {}, { allowedLoginMethods: null }, { allowedLoginMethods: [] },
+  { allowedLoginMethods: ['api'] }, { allowedLoginMethods: ['chatgpt'] }, { allowedLoginMethods: ['api', 'chatgpt'] },
+  { allowedLoginMethods: ['chatgpt'], network: null, allowedPermissionProfiles: null, modelProvider: null, hooks: null },
+])('accepts absent execution requirements and authentication-only restrictions: %j', requirements => {
+  const response = { supportsIndependentSpeedModes: true, requirements };
+  expect(managedCodexRequirementsSafe(response)).toBe(true);
+  expect(managedCodexPolicyMatches({ config: managedCodexConfiguration(policy) }, response, policy)).toBe(true);
+});
+
+it.each([
+  { allowedLoginMethods: 'chatgpt' }, { allowedLoginMethods: ['saml'] }, { allowedLoginMethods: ['Chatgpt'] },
+  { allowedLoginMethods: ['chatgpt', 'chatgpt'] }, { allowedLoginMethods: [null] },
+  { allowedLoginMethods: ['chatgpt'], network: { allowedDomains: ['example.com'] } },
+  { allowedLoginMethods: ['chatgpt'], allowedPermissionProfiles: {} },
+  { allowedLoginMethods: ['chatgpt'], allowLoginShell: false },
+  { allowedLoginMethods: ['chatgpt'], unknownAuthority: null },
+  { allowedLoginMethods: ['chatgpt'], unknownAuthority: true },
+])('rejects malformed authentication or additional requirements: %j', requirements => {
+  expect(managedCodexRequirementsSafe({ requirements })).toBe(false);
+  expect(managedCodexPolicyMatches({ config: managedCodexConfiguration(policy) }, { requirements }, policy)).toBe(false);
+});
+
+it.each([{}, { requirements: [] }, { requirements: null, supportsIndependentSpeedModes: 'true' }, { requirements: null, unknownAuthority: null }])(
+  'rejects an unknown or malformed requirements response: %j', response => {
+    expect(managedCodexRequirementsSafe(response)).toBe(false);
+  },
+);
+
+it.each([
   { name: 'managed requirements', requirements: { requirements: { network: { allowedDomains: ['example.com'] } } } },
+  { name: 'authentication mixed with execution requirements', requirements: { requirements: { allowedLoginMethods: ['chatgpt'], network: { allowedDomains: ['example.com'] } } } },
+  { name: 'authentication mixed with unknown requirements', requirements: { requirements: { allowedLoginMethods: ['chatgpt'], unknownAuthority: null } } },
   { name: 'missing requirements response', requirements: {} },
   { name: 'missing policy-layer inventory' },
   { name: 'unknown effective grants', extend: { permissions: { rat_managed: { filesystem: { '/': 'write' } } } } },

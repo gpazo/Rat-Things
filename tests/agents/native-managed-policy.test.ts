@@ -6,6 +6,7 @@ import { CodexRpcClient } from '../../src/adapters/codex-rpc.js';
 import { verifyManagedCodexPolicy } from '../../src/adapters/codex-managed-policy.js';
 import { hostedCodexArguments } from '../../src/runner/hosted-environment-planning.js';
 import type { ManagedCodexPolicy } from '../../src/domain/codex-managed-policy.js';
+import { localCodexArguments } from '../../src/runner/local-codex.js';
 
 it.each(['clean', 'restricted-uppercase', 'untrusted-project', 'inherited-domain', 'inherited-filesystem', 'inherited-credential-broker', 'private-rules'] as const)(
   'checks the actual official executor policy before tools: %s', async mode => {
@@ -39,3 +40,26 @@ it.each(['clean', 'restricted-uppercase', 'untrusted-project', 'inherited-domain
       else await expect(verified).rejects.toThrow('Refusing to expose execution tools');
     } finally { await rpc.close(); await rm(root, { recursive: true, force: true }); }
   }, 15_000);
+
+it.each(['chatgpt', 'api'] as const)('accepts the official %s login restriction with a separate guest workspace', async login => {
+  const root = await mkdtemp(join(tmpdir(), 'rat-native-remote-policy-'));
+  const home = join(root, 'home');
+  // The host harness has no guest workspace mounted locally. Policy verification
+  // must preserve its remote path rather than substituting the host process cwd.
+  const workspace = join(root, 'absent-guest-workspace');
+  await mkdir(home);
+  const policy: ManagedCodexPolicy = { workspace, network: { access: 'disabled', allowed_domains: [] }, credentialProxy: false };
+  const arguments_ = hostedCodexArguments(localCodexArguments(['app-server']), policy.network, false, workspace);
+  // Keep the final override last: the production local arguments intentionally force ChatGPT.
+  if (login === 'api') arguments_.splice(arguments_.length - 1, 0, '-c', 'forced_login_method="api"');
+  const rpc = new CodexRpcClient({ binary: process.env.CODEX_CONFORMANCE_BINARY ?? resolve('node_modules/.bin/codex'),
+    cwd: home, binaryArguments: arguments_, environment: { PATH: process.env.PATH, HOME: home, CODEX_HOME: home },
+    onServerRequest: async () => { throw new Error('Unexpected approval'); },
+  });
+  try {
+    await rpc.initialize();
+    const requirements = await rpc.call('configRequirements/read', {});
+    expect(requirements).toMatchObject({ requirements: { allowedLoginMethods: [login] } });
+    await expect(verifyManagedCodexPolicy({ call: rpc.call.bind(rpc), policy })).resolves.toBeUndefined();
+  } finally { await rpc.close(); await rm(root, { recursive: true, force: true }); }
+}, 15_000);
