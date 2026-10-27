@@ -1,6 +1,6 @@
 {
-  "revision": "6b9826e3aa83b1a5947db50f4332cb9c65f1b340",
-  "sourceSha256": "f3b8104396daf6381bed9d7c4b154a8664f9b5089b44b01a9d54f421566ec9a7",
+  "revision": "6aaac694803004a63c6f393d153c96d22521a6b9",
+  "sourceSha256": "943ca7fe1d19ed019054158303f0dbbd80b3bef43b3aa425a71aa7cb3fb52c2b",
   "models": {
     "gpt-6-astra": {
       "reasoning": [
@@ -112,6 +112,35 @@
         "medium",
         "high",
         "xhigh"
+      ]
+    },
+    "gpt-6.1-sol": {
+      "reasoning": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max",
+        "ultra"
+      ]
+    },
+    "gpt-6-sol": {
+      "reasoning": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max",
+        "ultra"
+      ]
+    },
+    "gpt-6-luna": {
+      "reasoning": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
       ]
     }
   },

@@ -56,6 +56,7 @@ import { planCodexLaunch } from './agent-planning.js';
 import { codexEnvironmentFiles } from '../adapters/codex-environment-files.js';
 import type { EnvironmentFileOperations } from '../core/environment-file-ports.js';
 import { WorkspaceHandoffService } from '../core/workspace-handoff-service.js';
+import { prepareCodexColdVerification } from './codex-cold-verification.js';
 import { WorkspaceAdmission } from './workspace-handoff.js';
 import { workspaceDigests, type WorkspaceCheckpoint } from '../domain/workspace-checkpoint.js';
 import { canonicalJson, sha256Hex } from '../domain/json.js';
@@ -229,7 +230,7 @@ export async function runAgentWorker(): Promise<void> {
         });
         launch = prepared.launch;
         if (!prepared.sandbox) throw new Error('Managed sandbox generation is missing');
-        environmentFiles = { execute: async (_environmentId, _reference, operation) => { const result = await codexEnvironmentFiles({ workspace: '/workspace', operation, binary: plan.binary, ...(launch.runtime?.kind === 'pi' && launch.environment.type === 'openai_hosted' ? { managed: { binaryArguments: hostedCodexArguments(['-c', 'features.plugins=false', 'app-server'], launch.environment.network) } } : {}), ...(plan.identity ? { identity: plan.identity } : {}), signal: abort.signal }); if (launch.runtime?.kind === 'pi') await syncWorkspaceStorage(workspace); return result; } };
+        environmentFiles = { execute: async (_environmentId, _reference, operation) => { const result = await codexEnvironmentFiles({ workspace: '/workspace', operation, binary: plan.binary, ...(launch.runtime?.kind === 'pi' && launch.environment.type === 'openai_hosted' ? { managed: { binaryArguments: hostedCodexArguments(['-c', 'features.plugins=false', 'app-server'], launch.environment.network), policy: { workspace: '/workspace', network: launch.environment.network, credentialProxy: false } } } : {}), ...(plan.identity ? { identity: plan.identity } : {}), signal: abort.signal }); if (launch.runtime?.kind === 'pi') await syncWorkspaceStorage(workspace); return result; } };
         runnerControl?.setEnvironmentFiles((operation) => environmentFiles!.execute(environmentId, '', operation as import('../core/environment-file-ports.js').EnvironmentFileOperation));
         managedReady = true;
         if (launch.runtime?.kind === 'pi') await syncWorkspaceStorage(workspace);
@@ -258,6 +259,7 @@ export async function runAgentWorker(): Promise<void> {
           };
           checkpointOptions = {
             admission,
+            prepareNativeVerification: (request, manifest) => prepareCodexColdVerification({ request, manifest, stateRoot: durableStateRoot! }),
             begin: async () => {
               checkpointAttempted = true;
               await managedHeartbeat?.stop();
@@ -267,10 +269,10 @@ export async function runAgentWorker(): Promise<void> {
             stopRemainingWriters: stopWriters,
             flushJournal: async () => { await sessionJournal!.flush(); await stopWriters(); },
             syncStorage: () => syncWorkspaceStorage(durableStateRoot!),
-            commit: async state => {
+            commit: async (state, nativeDurability) => {
               if (abort.signal.aborted || state.requiredActions.length || state.turns.some(binding => !['completed', 'failed', 'cancelled'].includes(binding.turn.status))) throw new Error('Session changed during checkpoint shutdown');
               const root = state.turns.filter(binding => binding.turn.subagent_id === null).at(-1);
-              const checkpoint: WorkspaceCheckpoint = { id: checkpointId, ...(piContextId ? { piContextId } : {}), source, sandboxId: prepared.sandbox!.id, ...digests, authorityDigest,
+              const checkpoint: WorkspaceCheckpoint = { ...(nativeDurability ? { nativeDurability } : {}), id: checkpointId, ...(piContextId ? { piContextId } : {}), source, sandboxId: prepared.sandbox!.id, ...digests, authorityDigest,
                 rootThreadId: state.rootThreadId, lastRootTurnId: root?.turn.id ?? null, lastNativeTurnId: root?.nativeTurnId ?? null,
                 reason: 'hibernate', createdAt: Math.floor(Date.now() / 1000) };
               await handoffs.commit(sessionOwner, environmentId, checkpoint);

@@ -28,6 +28,8 @@ function fixture(lifetime?: 'bounded' | 'host-managed') {
         initialize: async () => {},
         call: async (method, params) => {
           calls.push({ method, params });
+          if (method === 'config/read') return { config: { model_provider: 'openai' } };
+          if (method === 'model/list') return { data: [{ id: 'gpt-6-astra', model: 'gpt-6-astra', serviceTiers: [{ id: 'priority' }] }], nextCursor: null };
           if (method === 'thread/start') return { thread: { id: 'root' } };
           if (method === 'turn/start') {
             const id = `native-${++counter}`;
@@ -70,12 +72,57 @@ describe('persistent native session runtime', () => {
     try {
       await f.runtime.initialize();
       await f.runtime.start(rootTurn('first'), message);
+      expect(f.calls.some(({ method }) => method === 'model/list')).toBe(false);
       f.emit({ method: 'turn/completed', params: { threadId: 'root', turn: { id: 'native-1', status: 'completed' } } });
       await f.controller().startSessionTurn!(rootTurn('second'), message, { model: 'gpt-6-astra', reasoning: { effort: 'low' }, service_tier: 'priority' });
       const starts = f.calls.filter(({ method }) => method === 'turn/start');
       expect(starts[0]!.params).toMatchObject({ model: 'fixture' });
       expect(starts[1]!.params).toMatchObject({ model: 'gpt-6-astra', effort: 'low', serviceTier: 'priority' });
+      expect(f.calls.filter(({ method }) => method === 'config/read' || method === 'model/list')).toEqual([
+        { method: 'config/read', params: { includeLayers: false } },
+        { method: 'model/list', params: { includeHidden: true, limit: 100 } },
+      ]);
       expect(f.calls.filter(({ method }) => method === 'thread/start')).toHaveLength(1);
+    } finally { await f.runtime.close(); }
+  });
+
+  it('shares a pending tier admission for the same Turn while rejecting a different Turn', async () => {
+    const f = fixture();
+    let release!: () => void; const blocked = new Promise<void>(resolve => { release = resolve; });
+    let entered!: () => void; const waiting = new Promise<void>(resolve => { entered = resolve; });
+    let first: Promise<void> | undefined;
+    try {
+      await f.runtime.initialize();
+      const call = f.rpc().call.bind(f.rpc());
+      vi.spyOn(f.rpc(), 'call').mockImplementation(async (method, params) => {
+        if (method === 'model/list') { entered(); await blocked; }
+        return call(method, params);
+      });
+      const settings = { model: 'gpt-6-astra', reasoning: { effort: 'low' as const }, service_tier: 'priority' as const };
+      first = f.runtime.start(rootTurn('first'), message, settings);
+      await waiting;
+      const duplicate = f.runtime.start(rootTurn('first'), message, settings);
+      void duplicate.catch(() => {});
+      expect(duplicate).toBe(first);
+      await expect(f.runtime.start(rootTurn('second'), message, settings)).rejects.toThrow('already has an active turn');
+      expect(f.calls.filter(({ method }) => method === 'turn/start')).toEqual([]);
+      release();
+      await Promise.all([first, duplicate]);
+      expect(f.calls.filter(({ method }) => method === 'model/list')).toHaveLength(1);
+      expect(f.calls.filter(({ method }) => method === 'turn/start')).toHaveLength(1);
+    } finally { release(); await first?.catch(() => {}); await f.runtime.close(); }
+  });
+
+  it('allows a corrected tier retry after unsupported admission without a native attempt', async () => {
+    const f = fixture();
+    try {
+      await f.runtime.initialize();
+      await expect(f.runtime.start(rootTurn('first'), message, { model: 'unknown-model', reasoning: { effort: 'low' }, service_tier: 'priority' }))
+        .rejects.toMatchObject({ code: 'invalid_request', param: 'agent.service_tier' });
+      expect(f.calls.filter(({ method }) => method === 'turn/start')).toEqual([]);
+      expect(f.closed()).toBe(false);
+      await f.runtime.start(rootTurn('first'), message, { model: 'gpt-6-astra', reasoning: { effort: 'low' }, service_tier: 'priority' });
+      expect(f.calls.filter(({ method }) => method === 'turn/start')).toHaveLength(1);
     } finally { await f.runtime.close(); }
   });
   it.each([false, true])('retries a follow-up rejected before native admission, with start pending=%s', async (pending) => {
@@ -148,7 +195,21 @@ describe('persistent native session runtime', () => {
       await expect(f.controller().interrupt()).rejects.toThrow('intended Session Turn');
       expect(f.calls.filter(({ method }) => method === 'turn/interrupt' || method === 'turn/steer')).toEqual([]);
       await f.controller().steer('Current input', message, 'second');
-      await f.controller().interrupt('second');
+      let settled = false;
+      const interrupted = f.controller().interrupt('second').then(() => { settled = true; });
+      // The fake RPC acknowledges immediately, but the public state must settle first.
+      await new Promise<void>(resolve => setImmediate(resolve));
+      expect(settled).toBe(false);
+      expect(f.runtime.snapshot().turns[1]?.turn.status).toBe('in_progress');
+      await expect(f.runtime.start(rootTurn('third'), message)).rejects.toThrow('already has an active turn');
+      f.emit({ method: 'turn/completed', params: { threadId: 'root', turn: { id: 'native-1', status: 'completed' } } });
+      await new Promise<void>(resolve => setImmediate(resolve));
+      expect(settled).toBe(false);
+      f.emit({ method: 'turn/completed', params: { threadId: 'root', turn: { id: 'native-2', status: 'interrupted' } } });
+      await interrupted;
+      expect(settled).toBe(true);
+      expect(f.runtime.snapshot().turns[1]?.turn.status).toBe('cancelled');
+      await f.runtime.start(rootTurn('third'), message);
       expect(f.calls.filter(({ method }) => method === 'turn/interrupt' || method === 'turn/steer')).toEqual([
         { method: 'turn/steer', params: { threadId: 'root', expectedTurnId: 'native-2', input: [{ type: 'text', text: 'Work' }] } },
         { method: 'turn/interrupt', params: { threadId: 'root', turnId: 'native-2' } },

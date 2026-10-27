@@ -51,3 +51,12 @@ it('does not treat a process already closed by normal cancellation as checkpoint
   await client.close();
   await expect(client.closeCheckpoint()).rejects.toThrow('before checkpoint');
 });
+
+it.each(['storage', 'protocol'])('rejects late %s failure even when ordinary EOF exits zero', async kind => {
+  const source = `const reader = require('readline').createInterface({ input: process.stdin });
+    reader.on('line', line => { const value = JSON.parse(line); if (value.id) process.stdout.write(JSON.stringify({ id: value.id, result: {} }) + '\\n'); });
+    reader.on('close', () => { ${kind === 'storage' ? "process.stderr.write('failed to flush native thread store\\n');" : "process.stdout.write('malformed protocol output\\n');"} });`;
+  const client = new CodexRpcClient({ binary: process.execPath, binaryArguments: ['-e', source], cwd: process.cwd(), environment: {} });
+  try { await client.initialize(); await expect(client.closeCheckpoint()).rejects.toThrow('storage or protocol'); }
+  finally { await client.close(); }
+});

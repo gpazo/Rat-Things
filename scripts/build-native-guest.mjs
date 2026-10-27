@@ -71,9 +71,8 @@ async function nativeGuest(options) {
   const definitionRoot = resolve(options.definitionRoot ?? join(root, 'runtime/codex'));
   const artifactRoot = resolve(options.guestArtifact);
   const artifactBytes = await readInput(join(artifactRoot, 'artifact.json'));
-  const artifact = await validateCodexRuntimeArtifact(artifactRoot, { expectedTarget: 'aarch64-unknown-linux-gnu', definitionRoot });
-  const sourceDefinition = JSON.parse(await readInput(join(definitionRoot, 'source.json'), 'codex-definition/source.json'));
-  for (const name of ['artifact-policy.json', ...sourceDefinition.patches]) await readInput(join(definitionRoot, name), `codex-definition/${name}`);
+  const artifact = await validateCodexRuntimeArtifact(artifactRoot, { expectedTarget: 'aarch64-unknown-linux-musl', definitionRoot });
+  await readInput(join(definitionRoot, 'source.json'), 'codex-definition/source.json');
   await readInput(join(root, 'runtime/codex/companion-packages.json'), 'runtime/codex/companion-packages.json');
   const kernelBytes = await readInput(join(root, 'runtime/native/kernel-inputs.json'), 'runtime/native/kernel-inputs.json');
   const kernelInputs = JSON.parse(kernelBytes.toString('utf8'));

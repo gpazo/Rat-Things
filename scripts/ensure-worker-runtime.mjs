@@ -7,7 +7,7 @@ import { validateCodexRuntimeArtifact } from './codex-runtime-artifact.mjs';
  * @param {{ root: string, artifact?: string | undefined, run: (name: string, args: string[]) => Promise<unknown>, validate?: (path: string) => Promise<unknown> }} options
  */
 export async function ensureWorkerRuntime({ root, artifact, run,
-  validate = path => validateCodexRuntimeArtifact(path, { expectedTarget: 'aarch64-unknown-linux-gnu' }),
+  validate = path => validateCodexRuntimeArtifact(path, { expectedTarget: 'aarch64-unknown-linux-musl' }),
 }) {
   const existing = resolve(root, artifact ?? '.runtime/codex/linux-arm64');
   try { await validate(existing); return existing; }

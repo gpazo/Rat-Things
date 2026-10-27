@@ -9,6 +9,10 @@ if [ "${1:-}" != rat-root-mounted ]; then
   exec chroot . /init rat-root-mounted
 fi
 mount -t proc proc /proc
+# Resolve the guest's own hostname locally before executor configuration discovery.
+printf '%s\n' rat-things-worker > /proc/sys/kernel/hostname
+printf '%s\n' rat-things-worker > /etc/hostname
+printf '%s\n' '127.0.0.1 localhost rat-things-worker' '::1 localhost rat-things-worker' > /etc/hosts
 mount -t sysfs sysfs /sys
 mount -t devtmpfs devtmpfs /dev
 mkdir -p /dev/pts /dev/shm /run /tmp /workspace /mnt/rat-disk

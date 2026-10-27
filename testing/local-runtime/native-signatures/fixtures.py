@@ -14,13 +14,8 @@ import tempfile
 
 IDENTITY = 'Developer ID Application: Gregory Pazo (PB8NAVKU57)'
 BUNDLE_ID = 'dev.rat-things.runtime'
-EXECUTABLES = {
-    'Contents/Helpers/rat-native-worker': ('vm-helper', BUNDLE_ID + '.vm-helper'),
-    'Contents/Resources/codex/bin/codex': ('host-codex', BUNDLE_ID + '.codex'),
-    'Contents/Resources/codex/bin/codex-code-mode-host': ('host-companion', BUNDLE_ID + '.code-mode-host'),
-    'Contents/Resources/codex/codex-path/rg': ('host-companion', BUNDLE_ID + '.ripgrep'),
-    'Contents/Resources/codex/codex-resources/zsh/bin/zsh': ('host-companion', BUNDLE_ID + '.zsh'),
-}
+POLICY = json.loads((Path(__file__).resolve().parents[3] / 'runtime/native/host-code-policy.json').read_text())
+EXECUTABLES = {item['path']: (item['role'], item['identifier']) for item in POLICY}
 SIGNATURES = {'CodeDirectory', 'CodeRequirements', 'CodeResources', 'CodeSignature'}
 MANIFEST = 'Contents/Resources/runtime-manifest.json'
 LIMITS = [4096, 768 * 1024 * 1024, 2 * 1024 * 1024 * 1024, 128 * 1024, 32, 1024]
@@ -98,7 +93,9 @@ def main():
         source = root / 'fixture.c'
         source.write_text('int main(void) { return 0; }\n')
         binary = root / 'fixture'
+        library = root / 'fixture.dylib'
         command(['xcrun', 'clang', '-arch', 'arm64', '-arch', 'x86_64', source, '-o', binary])
+        command(['xcrun', 'clang', '-dynamiclib', '-arch', 'arm64', '-arch', 'x86_64', source, '-o', library])
         base = root / 'good' / 'Runtime.bundle'
         (base / 'Contents/Resources/licenses').mkdir(parents=True)
         (base / 'Contents/Info.plist').write_bytes(plistlib.dumps({
@@ -107,7 +104,7 @@ def main():
         for path, (_, identifier) in EXECUTABLES.items():
             target = base / path
             target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(binary, target)
+            shutil.copyfile(library if path.endswith('.dylib') else binary, target)
             target.chmod(0o755)
             sign(target, identifier)
         for path in ['Contents/Resources/kernel', 'Contents/Resources/initramfs', 'Contents/Resources/licenses/LICENSE',
@@ -120,7 +117,7 @@ def main():
         command(['/usr/bin/codesign', '--display', '--requirements', '-', '--verbose=4', base])
         for path in EXECUTABLES:
             command(['/usr/bin/codesign', '--display', '--requirements', '-', '--verbose=4', base / path])
-        verify('valid-five-executable-layout', base, True)
+        verify('valid-pinned-host-code-layout', base, True)
         verify('production-ceilings-clamp', base, True, limits=[9_007_199_254_740_991] * 6)
         source_copy = clone('copy-source')
         installed = root / 'installed' / 'Runtime.bundle'

@@ -1,13 +1,16 @@
 import type { SessionLaunch } from '../domain/session-execution.js';
+import { managedCodexConfiguration } from '../domain/codex-managed-policy.js';
 
 /** The hosted discriminator is the upstream wire name; execution remains in an isolated AWS worker. */
 export function hostedCodexArguments(base: string[] | undefined, network: Extract<SessionLaunch['environment'], { type: 'openai_hosted' }>['network'], credentialProxy = false, workspace = '/workspace'): string[] {
   const arguments_ = base ?? ['app-server'];
-  const domains = network.allowed_domains.map((host) => `${JSON.stringify(host)} = "allow"`).join(', ');
-  const proxy = network.access === 'restricted';
-  return ['-c', 'default_permissions = "rat_managed"', '-c', `features.network_proxy = ${proxy}`, '-c',
-    `permissions.rat_managed = { filesystem = { ":root" = "read", ${JSON.stringify(workspace)} = "write" }, network = { enabled = ${network.access !== 'disabled'}, mode = "full", domains = { ${domains} }, proxy_url = "http://127.0.0.1:0", socks_url = "http://127.0.0.1:0", enable_socks5 = true, enable_socks5_udp = false, allow_local_binding = false, allow_upstream_proxy = ${credentialProxy} } }`,
-    ...arguments_];
+  const config = managedCodexConfiguration({ workspace, network, credentialProxy });
+  return [...Object.entries(config).flatMap(([key, value]) => ['-c', `${key} = ${toml(value)}`]), ...arguments_];
+}
+
+function toml(value: unknown): string {
+  if (typeof value === 'object' && value !== null) return `{ ${Object.entries(value).map(([key, child]) => `${/^[A-Za-z0-9_-]+$/.test(key) ? key : JSON.stringify(key)} = ${toml(child)}`).join(', ')} }`;
+  return JSON.stringify(value);
 }
 
 

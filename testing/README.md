@@ -21,27 +21,30 @@ using a customer's third-party account. Keep it out of ordinary deployments.
 
 ## Agents API native compatibility gate
 
-`npm run test:agents:parity` runs the Agents suites with strict native interruption
+`npm run test:agents:parity:host` runs the Agents suites with strict native interruption
 assertions. A stock harness that rejects an interrupted child's follow-up at the
 configured limit fails this gate, even when the ordinary diagnostic suite passes.
 The fixture model servers are local and do not make paid model calls.
+The worker-image harness runs `npm run test:agents:parity`, which also verifies
+the installed Pi child at `/opt/agent-runtime/pi-child.mjs` under worker UID 10001.
+That packaging check requires the image; host parity excludes only that test.
 
-The ordered native patches and exact upstream revision are in `runtime/codex/`.
-See the [Codex runtime maintenance plan](../runtime/codex/README.md) for patch
-contracts, platform upgrade gates and rollback.
-Prepare or build them in a dedicated directory with sufficient free space:
+The official release version, upstream revision and full package inventory are in
+`runtime/codex/`. See the [Codex runtime maintenance guide](../runtime/codex/README.md)
+for adapter contracts, upgrade gates and rollback. Package the installed official
+release into a new directory and test those exact bytes:
 
 ```bash
-npm run codex:build -- /path/to/empty/build-directory --prepare-only
-npm run codex:build -- /path/to/empty/build-directory
-CODEX_CONFORMANCE_BINARY=/path/to/empty/build-directory/runtime/bin/codex npm run test:agents:parity
+npm run codex:build -- /path/to/new-runtime-directory
+CODEX_CONFORMANCE_BINARY=/path/to/new-runtime-directory/runtime/bin/codex npm run test:agents:parity:host
 ```
 
-The builder never resets an existing checkout. It records the upstream commit,
-patch hashes and every packaged file hash. The complete runtime preserves the
-matching upstream companion host and resources. Source preparation alone is not
-verification of the patch. Build the same source for the worker's Linux ARM64
-baseline, then package the image inputs:
+The historical command name packages the official binary; it does not compile
+Rust or apply patches. It refuses an existing output directory. The export
+contains `artifact.json` and `runtime/`, including all matching companions and
+resources. Validation rejects modified bytes even if their manifest hashes agree.
+
+Prepare the Linux ARM64 artifact for Lambda and worker-image packaging:
 
 ```bash
 docker buildx build --platform linux/arm64 --file runtime/codex/Dockerfile \
@@ -49,20 +52,15 @@ docker buildx build --platform linux/arm64 --file runtime/codex/Dockerfile \
 npm run package
 ```
 
-The builder defaults to one Cargo job; increase `CARGO_BUILD_JOBS` only on a host
-with sufficient memory. Compilation caches are disposable; retain the exported
-`runtime/` and `artifact.json` together. `CODEX_RUNTIME_ARTIFACT` can select another
-export directory. Packaging verifies source, patches, file digests and Linux ARM64
-executables, including the code-mode host and bundled bwrap. The image has no stock
-runtime fallback. `npm run package` and therefore `npm run check` require this
-artifact. Run the image canary after each accepted artifact or runner change.
+`CODEX_RUNTIME_ARTIFACT` can select another export directory. Keep its manifest
+and runtime together. `npm run package` and therefore `npm run check` require a
+matching ARM64 artifact. Run the image canary after each runtime or runner change.
 
-For an x86 Linux local worker, build the same patched source against the Amazon
-Linux 2023 baseline. Keep this artifact separate from the ARM64 cloud artifact:
+For an x86 Linux local worker, package the matching official Linux x64 release.
+Keep it separate from the ARM64 cloud artifact:
 
 ```bash
-docker buildx build --platform linux/amd64 --file runtime/codex/Dockerfile \
-  --output type=local,dest=.runtime/codex/linux-x64 .
+npm run codex:build -- .runtime/codex/linux-x64
 npm run runtime:local:build
 ```
 
@@ -88,6 +86,14 @@ This builds a disposable test layer over `rat-things-microvm-e2e:local` and runs
 local model fixtures with Linux dependencies. `MICROVM_E2E_IMAGE_TAG` selects a
 different worker image. The container enables namespaces for bubblewrap; native
 processes remain unprivileged and receive no model credentials.
+
+The image harness also runs `tests/runner/codex-cold-verification.test.ts` with
+`CODEX_COLD_NATIVE_E2E=true` in a separate root-controlled disposable container.
+This exercises the production cold-recovery verifier, writer cleanup, isolated
+filesystem copies and corruption rejection for both native history modes. Its
+agent processes still run as UID 10001. Never enable this opt-in on the host:
+writer cleanup terminates that dedicated UID. CI runs this image check on ARM64
+and x64.
 
 Local readiness also requires `npm run check`, `npm run smoke:local`,
 [native console checks](native-console/README.md), LocalStack and the ARM64 image canary below.
@@ -172,25 +178,19 @@ in a paid tier. Its current [official coverage data](https://github.com/localsta
 does not document the Lambda MicroVM APIs, so `RunMicrovm`, lifecycle hooks, managed networking, and
 isolation remain live-AWS-only checks.
 
-CI builds the native artifact on ARM64 and caches the exported runtime by source/build inputs.
-The cache is saved after compilation so a later acceptance failure does not force
-another cold build. Every restored runtime still passes all acceptance checks.
-The pinned companion version is part of `runtime/codex/source.json`; ordinary TypeScript
-dependency updates do not invalidate this native cache.
-A cold build requires at least 20 GiB free for source, compilation and container layers; the
-builder itself checks for 16 GiB before compiling. Standard hosted runners advertise only 14 GB
-of storage, so the job removes unused preinstalled SDKs and verifies free space before setup.
-If that does not provide enough space, configure the repository variable `RAT_NATIVE_RUNNER`
-with an available ARM64 runner label that does. The job's 240-minute limit includes the cold
-native build, repository checks and actual worker-image tests. A cached artifact still passes
-source, package and checksum validation before packaging.
+CI packages the official ARM64 and x64 distributions directly from their pinned
+npm packages. It caches complete exports by source, package and packager inputs;
+every restored export still passes artifact and behavior checks. There is no
+custom Codex compilation or Rust build-space requirement. The ARM64 job uses
+`RAT_NATIVE_RUNNER` when configured, otherwise the hosted ARM64 runner, and runs
+the repository checks and actual worker-image tests.
 
 After the native worker image passes, CI exports `codex-linux-arm64-<commit>`
 as a downloadable artifact containing `linux-arm64.tar.gz`. Extract that tarball
 into an empty directory and set `CODEX_RUNTIME_ARTIFACT` to that directory, which
 must contain `artifact.json` and `runtime/`. The tarball preserves executable
 permissions and hidden companion resources. Packaging verifies source identity, companions and every digest
-before writing Lambda archives; an export from a different source or patch is
+before writing Lambda archives; an export from another release or with changed official bytes is
 rejected. Cache presence alone is not native image acceptance.
 
 Host-native sandbox checks require an OS that supports the pinned Codex sandbox

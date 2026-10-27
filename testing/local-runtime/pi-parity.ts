@@ -60,7 +60,7 @@ const catalog: PiModelDescriptor[] = [{ id: model, name: 'Deterministic acceptan
   api: 'openai-codex-responses', input: ['text'], contextWindow: 100000, maxTokens: 10000, reasoning: ['low', 'medium', 'high'] }];
 const requestOptions = { maxRetries: 0, timeout: timeoutMs };
 const digest = (value: string) => createHash('sha256').update(value).digest('hex');
-const command = (program: string) => ({ command: ['node', '-e', program], cwd: '/workspace' });
+const command = (program: string) => ({ command: ['node', '--disable-warning=UNDICI-EHPA', '-e', program], cwd: '/workspace' });
 const proofPath = '/workspace/parity.txt';
 const proofText = `Real worker Pi file ${nonce}\n`;
 const deniedPath = `/home/agent/parity-denied-${nonce}`;

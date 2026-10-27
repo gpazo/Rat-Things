@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { managedCodexConfiguration } from '../../src/domain/codex-managed-policy.js';
 import {
   runCodexAppServer,
   sandboxPolicyFor,
@@ -121,6 +122,47 @@ describe('Codex app-server notifications', () => {
       message: 'required MCP servers failed to initialize',
       data: { retryable: false },
     });
+  });
+
+  it.each([undefined, 'other-profile'])('rejects a managed policy without its selected profile (%s)', async permissions => {
+    const directory = await mkdtemp(join(tmpdir(), 'rat-app-managed-selection-'));
+    const server = join(directory, 'fake-app-server.mjs'); await writeFile(server, FAKE_APP_SERVER);
+    const events: string[] = [];
+    try {
+      await expect(runCodexAppServer({ binary: process.execPath, binaryArguments: [server], workspace: directory, environment: {}, timeoutMs: 3_000,
+        prompt: 'Must not start', sandbox: 'workspace-write', ...(permissions ? { permissions } : {}),
+        managedPolicy: { workspace: directory, network: { access: 'disabled', allowed_domains: [] }, credentialProxy: false },
+        persistent: true, modelProvider: 'openai', networkAccess: false, onEvent: event => { events.push(event.method); },
+      })).rejects.toThrow('permission profile is not selected');
+      expect(events).not.toContain('test/threadParams');
+    } finally { await rm(directory, { recursive: true, force: true }); }
+  });
+
+  it.each(['start', 'resume', 'fallback'] as const)('keeps the verified managed profile at every native boundary (%s)', async mode => {
+    const directory = await mkdtemp(join(tmpdir(), 'rat-app-managed-profile-'));
+    const fakeServer = join(directory, 'fake-app-server.mjs');
+    await writeFile(fakeServer, FAKE_APP_SERVER);
+    const policy = { workspace: directory, network: { access: 'disabled' as const, allowed_domains: [] }, credentialProxy: false };
+    const config = { config: managedCodexConfiguration(policy), layers: [
+      { name: { type: 'sessionFlags' }, config: {} },
+      { name: { type: 'user', file: join(directory, 'user/config.toml') }, config: {} },
+      { name: { type: 'system', file: join(directory, 'system/config.toml') }, config: {} },
+    ] };
+    const events: Array<{ method: string; params: Record<string, unknown> }> = [];
+    try {
+      await runCodexAppServer({ binary: process.execPath, binaryArguments: [fakeServer], workspace: directory,
+        environment: { FAKE_MANAGED_CONFIG: JSON.stringify(config), ...(mode === 'fallback' ? { FAKE_RESUME_ERROR: 'missing' } : {}) }, timeoutMs: 5_000,
+        prompt: 'Use the fixed managed policy', sandbox: 'workspace-write', permissions: 'rat_managed', managedPolicy: policy,
+        persistent: true, modelProvider: 'openai', networkAccess: false,
+        ...(mode !== 'start' ? { resumeThreadId: 'previous' } : {}),
+        onEvent: event => { events.push(event); }, onTurnStarted: controller => controller.steer('Complete'),
+      });
+      const thread = events.find(event => event.method === 'test/threadParams')?.params;
+      const turn = events.find(event => event.method === 'test/turnParams')?.params;
+      expect(thread).toMatchObject({ permissions: 'rat_managed' }); expect(thread).not.toHaveProperty('sandbox');
+      expect(thread?.config ?? {}).not.toHaveProperty('sandbox_workspace_write');
+      expect(turn).toMatchObject({ permissions: 'rat_managed' }); expect(turn).not.toHaveProperty('sandboxPolicy');
+    } finally { await rm(directory, { recursive: true, force: true }); }
   });
 
   it('bridges events, fixed capabilities, and steering bidirectionally', async () => {
@@ -281,6 +323,8 @@ input.on('line', (line) => {
     send({ method: 'test/initializeParams', params: message.params });
     return;
   }
+  if (message.method === 'config/read') { send({ id: message.id, result: JSON.parse(process.env.FAKE_MANAGED_CONFIG) }); return; }
+  if (message.method === 'configRequirements/read') { send({ id: message.id, result: { requirements: null } }); return; }
   if (message.method === 'skills/list') {
     send({ id: message.id, result: { data: [{ cwd: message.params.cwds[0], skills: [{
       name: 'test-skill',
@@ -308,6 +352,7 @@ input.on('line', (line) => {
       } });
     } else {
       send({ id: message.id, result: { thread: { id: 'thread-1' } } });
+      send({ method: 'test/threadParams', params: message.params });
     }
     return;
   }

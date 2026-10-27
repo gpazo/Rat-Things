@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import hostCodePolicy from '../../runtime/native/host-code-policy.json' with { type: 'json' };
 import { lstat, realpath } from 'node:fs/promises';
 import { isAbsolute, relative, resolve, sep } from 'node:path';
 import type { NativeBundleVerification, NativeBundleVerifier, NativeCopyLimits } from '../core/native-installation-ports.js';
@@ -9,13 +10,7 @@ export const NATIVE_VERIFIER_LIMITS: NativeCopyLimits = Object.freeze({
   manifestBytes: 128 * 1024, depth: 32, pathBytes: 1024,
 });
 const limitNames = ['entries', 'fileBytes', 'totalBytes', 'manifestBytes', 'depth', 'pathBytes'] as const;
-const executablePaths = Object.freeze([
-  'Contents/Helpers/rat-native-worker',
-  'Contents/Resources/codex/bin/codex',
-  'Contents/Resources/codex/bin/codex-code-mode-host',
-  'Contents/Resources/codex/codex-path/rg',
-  'Contents/Resources/codex/codex-resources/zsh/bin/zsh',
-]);
+const executablePaths = Object.freeze(hostCodePolicy.map(policy => policy.path));
 const stages = new Set(['arguments', 'bounds', 'filesystem', 'manifest', 'bundle-signature', 'executable-signature']);
 const reasons = new Set(['unsigned', 'ad_hoc', 'wrong_team', 'wrong_identifier', 'invalid']);
 const maximumDeadlineMs = 60_000;

@@ -16,3 +16,8 @@ docker buildx build --platform linux/arm64 --load \
 # native child processes run as the same non-root UID used by the AWS worker.
 # Fixture HTTP servers are local; no model credentials are forwarded.
 docker run --rm --platform linux/arm64 --privileged --init "$parity_image"
+# Cold recovery is a trusted-controller operation: stop the dedicated guest UID,
+# synchronize native storage, then verify a disposable copy in a fresh namespace.
+docker run --rm --platform linux/arm64 --privileged --init --user 0 \
+  --env CODEX_COLD_NATIVE_E2E=true --entrypoint npx "$parity_image" \
+  --no-install vitest run tests/runner/codex-cold-verification.test.ts --no-file-parallelism

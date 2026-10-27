@@ -34,7 +34,7 @@ async function fixture() {
   const write = async (path: string, bytes: string | Uint8Array, mode = 0o444) => {
     await mkdir(dirname(path), { recursive: true }); await writeFile(path, bytes, { mode });
   };
-  for (const path of ['scripts/build-native-app.mjs', 'scripts/native-app-inputs.mjs', 'scripts/build-native-release.mjs', 'scripts/codex-runtime-artifact.mjs', 'scripts/codex-runtime-targets.mjs', 'scripts/native-guest-inputs.mjs', 'scripts/javascript-notices.mjs', 'scripts/native-build-files.mjs', 'scripts/native-guest-archive.mjs', 'src/domain/native-release.ts']) {
+  for (const path of ['runtime/native/host-code-policy.json', 'scripts/build-native-app.mjs', 'scripts/native-app-inputs.mjs', 'scripts/build-native-release.mjs', 'scripts/codex-runtime-artifact.mjs', 'scripts/codex-runtime-targets.mjs', 'scripts/native-guest-inputs.mjs', 'scripts/javascript-notices.mjs', 'scripts/native-build-files.mjs', 'scripts/native-guest-archive.mjs', 'src/domain/native-release.ts']) {
     await write(join(repositoryRoot, path), await readFile(resolve(path)));
   }
   await write(join(repositoryRoot, 'package.json'), json({ version: '0.1.0' }));

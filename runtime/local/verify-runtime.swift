@@ -47,11 +47,36 @@ struct ExecutablePolicy {
 }
 
 let executablePolicy = [
-    ExecutablePolicy(path: "Contents/Helpers/rat-native-worker", identifier: "dev.rat-things.runtime.vm-helper"),
     ExecutablePolicy(path: "Contents/Resources/codex/bin/codex", identifier: "dev.rat-things.runtime.codex"),
     ExecutablePolicy(path: "Contents/Resources/codex/bin/codex-code-mode-host", identifier: "dev.rat-things.runtime.code-mode-host"),
     ExecutablePolicy(path: "Contents/Resources/codex/codex-path/rg", identifier: "dev.rat-things.runtime.ripgrep"),
-    ExecutablePolicy(path: "Contents/Resources/codex/codex-resources/zsh/bin/zsh", identifier: "dev.rat-things.runtime.zsh")
+    ExecutablePolicy(path: "Contents/Resources/codex/codex-resources/voice/bin/codex-voice-host", identifier: "dev.rat-things.runtime.voice-host"),
+    ExecutablePolicy(path: "Contents/Resources/codex/codex-resources/voice/lib/libffi.8.dylib", identifier: "dev.rat-things.runtime.voice.lib.libffi.8.dylib"),
+    ExecutablePolicy(path: "Contents/Resources/codex/codex-resources/voice/lib/libgio-2.0.0.dylib", identifier: "dev.rat-things.runtime.voice.lib.libgio-2.0.0.dylib"),
+    ExecutablePolicy(path: "Contents/Resources/codex/codex-resources/voice/lib/libglib-2.0.0.dylib", identifier: "dev.rat-things.runtime.voice.lib.libglib-2.0.0.dylib"),
+    ExecutablePolicy(path: "Contents/Resources/codex/codex-resources/voice/lib/libgmodule-2.0.0.dylib", identifier: "dev.rat-things.runtime.voice.lib.libgmodule-2.0.0.dylib"),
+    ExecutablePolicy(path: "Contents/Resources/codex/codex-resources/voice/lib/libgobject-2.0.0.dylib", identifier: "dev.rat-things.runtime.voice.lib.libgobject-2.0.0.dylib"),
+    ExecutablePolicy(path: "Contents/Resources/codex/codex-resources/voice/lib/libgstapp-1.0.0.dylib", identifier: "dev.rat-things.runtime.voice.lib.libgstapp-1.0.0.dylib"),
+    ExecutablePolicy(path: "Contents/Resources/codex/codex-resources/voice/lib/libgstaudio-1.0.0.dylib", identifier: "dev.rat-things.runtime.voice.lib.libgstaudio-1.0.0.dylib"),
+    ExecutablePolicy(path: "Contents/Resources/codex/codex-resources/voice/lib/libgstbase-1.0.0.dylib", identifier: "dev.rat-things.runtime.voice.lib.libgstbase-1.0.0.dylib"),
+    ExecutablePolicy(path: "Contents/Resources/codex/codex-resources/voice/lib/libgstnet-1.0.0.dylib", identifier: "dev.rat-things.runtime.voice.lib.libgstnet-1.0.0.dylib"),
+    ExecutablePolicy(path: "Contents/Resources/codex/codex-resources/voice/lib/libgstpbutils-1.0.0.dylib", identifier: "dev.rat-things.runtime.voice.lib.libgstpbutils-1.0.0.dylib"),
+    ExecutablePolicy(path: "Contents/Resources/codex/codex-resources/voice/lib/libgstreamer-1.0.0.dylib", identifier: "dev.rat-things.runtime.voice.lib.libgstreamer-1.0.0.dylib"),
+    ExecutablePolicy(path: "Contents/Resources/codex/codex-resources/voice/lib/libgstrtp-1.0.0.dylib", identifier: "dev.rat-things.runtime.voice.lib.libgstrtp-1.0.0.dylib"),
+    ExecutablePolicy(path: "Contents/Resources/codex/codex-resources/voice/lib/libgsttag-1.0.0.dylib", identifier: "dev.rat-things.runtime.voice.lib.libgsttag-1.0.0.dylib"),
+    ExecutablePolicy(path: "Contents/Resources/codex/codex-resources/voice/lib/libgstvideo-1.0.0.dylib", identifier: "dev.rat-things.runtime.voice.lib.libgstvideo-1.0.0.dylib"),
+    ExecutablePolicy(path: "Contents/Resources/codex/codex-resources/voice/lib/libintl.8.dylib", identifier: "dev.rat-things.runtime.voice.lib.libintl.8.dylib"),
+    ExecutablePolicy(path: "Contents/Resources/codex/codex-resources/voice/lib/libopus.0.dylib", identifier: "dev.rat-things.runtime.voice.lib.libopus.0.dylib"),
+    ExecutablePolicy(path: "Contents/Resources/codex/codex-resources/voice/lib/libpcre2-8.0.dylib", identifier: "dev.rat-things.runtime.voice.lib.libpcre2-8.0.dylib"),
+    ExecutablePolicy(path: "Contents/Resources/codex/codex-resources/voice/lib/libz.1.dylib", identifier: "dev.rat-things.runtime.voice.lib.libz.1.dylib"),
+    ExecutablePolicy(path: "Contents/Resources/codex/codex-resources/voice/plugins/libgstapp.dylib", identifier: "dev.rat-things.runtime.voice.plugins.libgstapp.dylib"),
+    ExecutablePolicy(path: "Contents/Resources/codex/codex-resources/voice/plugins/libgstaudioconvert.dylib", identifier: "dev.rat-things.runtime.voice.plugins.libgstaudioconvert.dylib"),
+    ExecutablePolicy(path: "Contents/Resources/codex/codex-resources/voice/plugins/libgstaudioresample.dylib", identifier: "dev.rat-things.runtime.voice.plugins.libgstaudioresample.dylib"),
+    ExecutablePolicy(path: "Contents/Resources/codex/codex-resources/voice/plugins/libgstcoreelements.dylib", identifier: "dev.rat-things.runtime.voice.plugins.libgstcoreelements.dylib"),
+    ExecutablePolicy(path: "Contents/Resources/codex/codex-resources/voice/plugins/libgstopus.dylib", identifier: "dev.rat-things.runtime.voice.plugins.libgstopus.dylib"),
+    ExecutablePolicy(path: "Contents/Resources/codex/codex-resources/voice/plugins/libgstrtp.dylib", identifier: "dev.rat-things.runtime.voice.plugins.libgstrtp.dylib"),
+    ExecutablePolicy(path: "Contents/Resources/codex/codex-resources/voice/plugins/libgstrtpmanager.dylib", identifier: "dev.rat-things.runtime.voice.plugins.libgstrtpmanager.dylib"),
+    ExecutablePolicy(path: "Contents/Helpers/rat-native-worker", identifier: "dev.rat-things.runtime.vm-helper")
 ]
 let executablePaths = Set(executablePolicy.map(\.path))
 let signaturePaths: Set<String> = [

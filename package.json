@@ -20,6 +20,7 @@
     "test:watch": "vitest",
     "codex:build": "node scripts/build-codex-runtime.mjs",
     "test:agents:parity": "CODEX_REQUIRE_PARITY=true vitest run tests/agents tests/pi --no-file-parallelism",
+    "test:agents:parity:host": "npm run test:agents:parity -- --exclude tests/pi/packaged-child.test.ts",
     "localstack:up": "./testing/bootstrap.sh",
     "localstack:status": "./testing/bootstrap.sh --status",
     "localstack:down": "./testing/bootstrap.sh --down",
@@ -112,7 +113,7 @@
   "devDependencies": {
     "@aws-sdk/client-dynamodb-streams": "3.1088.0",
     "@aws-sdk/client-ecs": "3.1088.0",
-    "@openai/codex": "0.154.0",
+    "@openai/codex": "0.164.0",
     "@playwright/mcp": "0.0.83",
     "@playwright/test": "1.62.1",
     "@types/archiver": "7.0.0",

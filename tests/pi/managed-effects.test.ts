@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { mkdtemp, rm, access, symlink, readFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, rm, access, symlink, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { createServer } from 'node:http';
@@ -34,6 +34,15 @@ describe('Pi managed effect boundary', () => {
     const broker = await createPiEffectBroker({ launch, plan, lease });
     const signal = new AbortController();
     try {
+      const filesDirectory = join(workspace, 'files'); await mkdir(filesDirectory);
+      const file = join(filesDirectory, 'data.txt');
+      const content = 'exact file data\n[UNDICI-EHPA] is valid file content é';
+      const write = await broker.execute(effect('write_file', { path: file, content }), signal.signal);
+      expect(write).toEqual({ output: [{ type: 'text', text: 'Written\n' }], isError: false });
+      const read = await broker.execute(effect('read_file', { path: file }), signal.signal);
+      expect(read).toEqual({ output: [{ type: 'text', text: content }], isError: false });
+      const list = await broker.execute(effect('list_files', { path: filesDirectory }), signal.signal);
+      expect(list).toEqual({ output: [{ type: 'text', text: '[{"name":"data.txt","directory":false}]\n' }], isError: false });
       const marker = join(workspace, 'started');
       const child = `const fs=require('node:fs');const path=process.argv[1];fs.writeFileSync(path,'ready');setInterval(()=>fs.appendFileSync(path,'.'),20);setTimeout(()=>process.exit(0),3000);`;
       const parent = `require('node:child_process').spawn(process.execPath,['-e',process.argv[1],process.argv[2]],{stdio:'inherit'});setInterval(()=>{},1000);`;

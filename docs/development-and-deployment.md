@@ -11,8 +11,8 @@ public sharing. Return here when choosing a longer-lived installation shape.
 ## Prerequisites
 
 - Node.js 22.20+, npm, and Git.
-- Docker with Compose for LocalStack and Buildx for the patched Linux ARM64 runtime and image canaries.
-- A verified patched native artifact for packaging; build or import it using
+- Docker with Compose for LocalStack and Buildx for the official Linux ARM64 runtime and image canaries.
+- A verified official native artifact for packaging; build or import it using
   [`testing/README.md`](../testing/README.md#agents-api-native-compatibility-gate).
 - Terraform 1.16.6, matching `.terraform-version`, CI and the LocalStack container,
   and AWS credentials for infrastructure work. The module requires Terraform 1.9+

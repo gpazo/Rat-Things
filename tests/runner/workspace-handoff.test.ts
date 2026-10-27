@@ -75,3 +75,37 @@ it('holds completion while journal, storage or checkpoint commits are unresolved
   await operation;
   expect(f.ports.settle).toHaveBeenCalledOnce();
 });
+
+it('cold verification follows stopped writers and checked storage sync without pretending EOF acknowledged a flush', async () => {
+  const f = fixture();
+  vi.mocked(f.ports.shutdownNative).mockImplementationOnce(async () => { f.trace.push('eof'); return { kind: 'codex-eof', threadIds: ['root', 'child'] }; });
+  f.ports.verifyNative = vi.fn(async (): Promise<import('../../src/domain/native-checkpoint.js').NativeCheckpointEvidence> => { f.trace.push('cold'); return { kind: 'codex-cold-native', threadIds: ['child', 'root'], historyDigest: 'a'.repeat(64), hostJournalDigest: 'b'.repeat(64), historyModes: ['paginated'] }; });
+  await checkpointWorkspace(f.ports);
+  expect(f.trace).toEqual(['begin', 'eof', 'writers', 'journal', 'sync', 'cold', 'commit', 'settle']);
+  expect(f.ports.commit).toHaveBeenCalledWith(expect.objectContaining({ kind: 'codex-cold-native' }));
+});
+
+it.each(['missing', 'mismatch', 'failed'])('never publishes a cold checkpoint when verification is %s', async mode => {
+  const f = fixture();
+  vi.mocked(f.ports.shutdownNative).mockResolvedValueOnce({ kind: 'codex-eof', threadIds: ['root', 'child'] });
+  if (mode !== 'missing') f.ports.verifyNative = async () => {
+    if (mode === 'failed') throw new Error('corrupt history');
+    return { kind: 'codex-cold-native', threadIds: ['root'], historyDigest: 'a'.repeat(64), hostJournalDigest: 'b'.repeat(64), historyModes: ['legacy'] };
+  };
+  await expect(checkpointWorkspace(f.ports)).rejects.toThrow(); expect(f.ports.commit).not.toHaveBeenCalled();
+});
+
+it.each([undefined, null, {}, { kind: 'codex-cold-native', threadIds: ['root', 'child'], historyDigest: 'a'.repeat(64), hostJournalDigest: 'b'.repeat(64), historyModes: [] }])('rejects absent or malformed cold evidence %j', async evidence => {
+  const f = fixture();
+  vi.mocked(f.ports.shutdownNative).mockResolvedValueOnce({ kind: 'codex-eof', threadIds: ['root', 'child'] });
+  f.ports.verifyNative = async () => evidence as import('../../src/domain/native-checkpoint.js').NativeCheckpointEvidence;
+  await expect(checkpointWorkspace(f.ports)).rejects.toThrow('evidence');
+  expect(f.ports.abort).toHaveBeenCalledOnce(); expect(f.ports.commit).not.toHaveBeenCalled();
+});
+
+it.each([{ threadIds: ['root', 'child'] }, { kind: 'unknown', threadIds: ['root', 'child'], flushed: true, forced: false }, { threadIds: ['root', 'child'], flushed: 'yes', forced: false }])('rejects malformed shutdown acknowledgements %j', async acknowledgement => {
+  const f = fixture();
+  f.ports.shutdownNative = async () => acknowledgement as Awaited<ReturnType<WorkspaceHandoffPorts['shutdownNative']>>;
+  await expect(checkpointWorkspace(f.ports)).rejects.toThrow();
+  expect(f.ports.commit).not.toHaveBeenCalled(); expect(f.ports.abort).toHaveBeenCalledOnce();
+});

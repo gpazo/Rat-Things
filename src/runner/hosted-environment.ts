@@ -14,6 +14,7 @@ import type { ManagedSandboxGeneration } from '../core/managed-environment-plann
 import { resetPersistentWorkspace } from './workspace.js';
 import { workspaceDigests, type WorkspaceCheckpoint } from '../domain/workspace-checkpoint.js';
 import { verifyManagedExecutor } from './managed-executor-verification.js';
+import { verifyManagedCodexPolicy } from '../adapters/codex-managed-policy.js';
 
 /** Map a private persistent directory to the standard workspace path before guest code starts. */
 export async function bindHostedWorkspace(workspace: string, visible = '/workspace'): Promise<void> {
@@ -126,6 +127,7 @@ export async function prepareHostedEnvironment(options: {
     });
     try {
       await rpc.initialize();
+      await verifyManagedCodexPolicy({ call: rpc.call.bind(rpc), policy: { workspace: executionWorkspace, network: launch.environment.network, credentialProxy: Boolean(options.credentials) } });
       for (const [index, command] of commands.entries()) {
         const execution = await rpc.call('command/exec', { ...command, env: { ...hostedProcessEnvironment(configuration.env ?? {}, plan.environment.PATH, executionWorkspace), ...options.credentials?.shellEnvironment },
           permissionProfile: 'rat_managed', timeoutMs: 600_000, outputBytesCap: 64 * 1024,

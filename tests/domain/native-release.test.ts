@@ -43,7 +43,7 @@ describe('native release decisions', () => {
 
   it('preserves the Codex package layout inside sealed resources', () => {
     const files = [manifest.files[0], { ...manifest.files[1], path: 'Contents/Resources/codex/bin/codex' },
-      ...['bin/codex-code-mode-host', 'codex-path/rg', 'codex-resources/zsh/bin/zsh'].map(path => ({
+      ...['bin/codex-code-mode-host', 'codex-path/rg', 'codex-resources/voice/bin/codex-voice-host'].map(path => ({
         ...manifest.files[1], role: 'host-companion', path: `Contents/Resources/codex/${path}`,
       }))];
     expect(decodeAuthenticatedNativeManifest({ ...manifest, files }).files.map(file => file.path)).toEqual(files.map(file => file!.path));

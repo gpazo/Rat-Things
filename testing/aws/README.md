@@ -70,7 +70,7 @@ thread after worker termination and verifies fallback to saved public history. T
 tests ordinary replacement, not adoption of a committed workspace checkpoint. The
 cases delete their own Sessions and preserve the supplied Agent and deployment.
 
-Build and verify the patched Linux ARM64 artifact before packaging (see
+Package and verify the official Linux ARM64 artifact before packaging (see
 `testing/README.md`). EC2 deployment additionally requires an immutable
 `AWS_E2E_EC2_WORKER_AMI_ID` and digest-pinned `AWS_E2E_EC2_WORKER_IMAGE`.
 To exercise prepared AMIs, deploy with `AWS_E2E_ENABLE_EC2_WORKER_AMI_PIPELINE=true`

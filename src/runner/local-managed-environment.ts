@@ -58,6 +58,7 @@ export class LocalManagedEnvironment {
       environment: { type: 'self_hosted', id: session.environment.id, workspace_directory: '/workspace', capability_directories: [...new Set(roots)], remote_url: connection.url },
     }, connection.harnessKey);
     return { ...result, permissions: 'rat_managed', binaryArguments: hostedCodexArguments(base.binaryArguments, session.environment.network),
+      managedPolicy: { workspace: '/workspace', network: session.environment.network, credentialProxy: false },
       sessionConfig: { ...result.sessionConfig, shell_environment_policy: { inherit: 'core', set: hostedProcessEnvironment(configuration?.env ?? {}, '/usr/local/bin:/usr/bin:/bin') } } };
   }
   public async initialize(owner: string, session: AgentSession) { if (session.environment.type === 'openai_hosted') await this.ensure(owner, session); }

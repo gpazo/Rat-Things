@@ -85,7 +85,7 @@ export async function assembleNativeApp(options, { repositoryRoot = root,
   const npmLock = JSON.parse((await input(join(repository, 'package-lock.json'), 'package-lock.json')).data);
   if (npmLock.packages?.['node_modules/esbuild']?.version !== esbuildVersion) throw new Error('Installed app bundling requires the locked esbuild version.');
   const protocol = JSON.parse((await input(join(repository, 'runtime/native/protocol.json'), 'runtime/native/protocol.json')).data);
-  for (const name of ['scripts/build-native-app.mjs', 'scripts/native-app-inputs.mjs', 'scripts/build-native-release.mjs', 'scripts/codex-runtime-artifact.mjs', 'scripts/codex-runtime-targets.mjs', 'scripts/native-guest-inputs.mjs', 'scripts/javascript-notices.mjs', 'scripts/native-build-files.mjs', 'scripts/native-guest-archive.mjs']) {
+  for (const name of ['runtime/native/host-code-policy.json', 'scripts/build-native-app.mjs', 'scripts/native-app-inputs.mjs', 'scripts/build-native-release.mjs', 'scripts/codex-runtime-artifact.mjs', 'scripts/codex-runtime-targets.mjs', 'scripts/native-guest-inputs.mjs', 'scripts/javascript-notices.mjs', 'scripts/native-build-files.mjs', 'scripts/native-guest-archive.mjs']) {
     await input(join(repository, name), name);
   }
   await mkdir(output, { mode: 0o700 });

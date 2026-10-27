@@ -2,14 +2,11 @@ import { chmod, mkdtemp, mkdir, readFile, realpath, rm, symlink, writeFile } fro
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
+import hostCodePolicy from '../../runtime/native/host-code-policy.json' with { type: 'json' };
 import { LocalNativeBundleVerifier, NATIVE_VERIFIER_LIMITS } from '../../src/adapters/local-native-verifier.js';
 
 const directories: string[] = [];
-const executablePaths = [
-  'Contents/Helpers/rat-native-worker', 'Contents/Resources/codex/bin/codex',
-  'Contents/Resources/codex/bin/codex-code-mode-host', 'Contents/Resources/codex/codex-path/rg',
-  'Contents/Resources/codex/codex-resources/zsh/bin/zsh',
-];
+const executablePaths = hostCodePolicy.map(policy => policy.path);
 const receipt = (manifest = Buffer.from([0, 255, 128, 13, 10])) => ({
   schemaVersion: 1, kind: 'authenticated', manifestBase64: manifest.toString('base64'), executablePaths,
 });
@@ -41,6 +38,14 @@ describe('trusted native verifier subprocess boundary', () => {
   it('returns empty authenticated bytes for the installer to reject as a manifest', async () => {
     const test = await fixture(response(receipt(Buffer.alloc(0))));
     expect(await test.verifier.verify(test.input)).toEqual({ kind: 'authenticated', manifestBytes: Buffer.alloc(0), executablePaths });
+  });
+
+  it('rejects a successful receipt that omits a pinned dylib or adds an unreviewed executable', async () => {
+    const dylib = executablePaths.find(path => path.endsWith('.dylib'))!;
+    for (const paths of [executablePaths.filter(path => path !== dylib), [...executablePaths, 'Contents/Resources/codex/codex-resources/zsh/bin/zsh']]) {
+      const test = await fixture(response({ ...receipt(), executablePaths: paths }));
+      expect(await test.verifier.verify(test.input)).toEqual(unavailable('Runtime verifier returned an invalid response'));
+    }
   });
 
   it('uses fixed arguments, clamps production ceilings and clears ambient environment', async () => {

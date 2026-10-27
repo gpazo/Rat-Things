@@ -171,7 +171,7 @@ function meter(limit: number) {
 
 export async function prepareLinuxKvm(options: Options): Promise<string> {
   if (process.platform !== 'linux' || process.arch !== 'x64') throw new Error('Linux KVM preparation requires x86-64 Linux');
-  const artifact = await validateCodexRuntimeArtifact(resolve(options.artifact), { expectedTarget: target });
+  const artifact = await validateCodexRuntimeArtifact(resolve(options.artifact), { expectedTarget: 'x86_64-unknown-linux-musl' });
   const endpoint = !process.env.DOCKER_CONTEXT && process.env.DOCKER_HOST
     || (JSON.parse((await execute('docker', ['context', 'inspect'])).stdout)[0]?.Endpoints?.docker?.Host as unknown);
   if (typeof endpoint !== 'string' || !endpoint.startsWith('unix:///')) throw new Error('Preparation requires a local Docker Unix socket');
@@ -275,7 +275,7 @@ function options(arguments_: string[]): Options {
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
-  if (process.argv.includes('--help')) console.log('Development only: prepare a Linux x64 KVM worker from a verified patched local image.\nOptions: --output DIR --image IMAGE --artifact DIR --kernel-inputs DIR --qemu-evidence FILE\nNo VM is started. Existing image generations are never overwritten.');
+  if (process.argv.includes('--help')) console.log('Development only: prepare a Linux x64 KVM worker from a verified official-Codex local image.\nOptions: --output DIR --image IMAGE --artifact DIR --kernel-inputs DIR --qemu-evidence FILE\nNo VM is started. Existing image generations are never overwritten.');
   else prepareLinuxKvm(options(process.argv.slice(2))).then(directory => console.log(JSON.stringify({ directory, kind: 'linux-kvm-development' })))
     .catch(error => { console.error(error instanceof Error ? error.message : 'Linux KVM preparation failed'); process.exitCode = 1; });
 }

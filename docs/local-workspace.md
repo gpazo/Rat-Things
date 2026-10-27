@@ -60,7 +60,7 @@ active worker. Conversations with **No environment** do not require a VM.
 Windows and Linux with Docker Desktop, Intel Macs, and native Linux Docker with the
 gVisor `runsc` runtime are in preview. Set `RAT_THINGS_PREVIEW_PLATFORMS=1` to try
 them. Native Linux Docker without gVisor is refused, because the worker would share
-the host kernel. A source checkout can build the patched Linux x86-64 worker.
+the host kernel. A source checkout can package the official Codex release into the Linux x86-64 worker.
 The [KVM development setup](../testing/local-runtime/linux-kvm/README.md) uses a
 dedicated VM on Linux x86-64 when `/dev/kvm` and vsock are available. It requires
 an explicit asset path and is separate from the signed macOS installer. A gVisor

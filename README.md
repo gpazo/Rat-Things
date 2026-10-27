@@ -195,7 +195,7 @@ npm run console:serve
 ```
 
 For the full repository checks, run `npm run check`. It includes Lambda packaging
-and requires a patched Linux ARM64 Codex artifact, Docker and Terraform; see
+and requires an official Linux ARM64 Codex artifact, Docker and Terraform; see
 [development prerequisites](testing/README.md). To deploy a backend, start with
 the [AWS quickstart](docs/quickstart.md).
 

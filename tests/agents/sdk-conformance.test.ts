@@ -95,7 +95,9 @@ describe('OpenAI SDK Agents API conformance', () => {
     expect(replaced.reasoning).toEqual({ effort: 'low', summary: 'auto' });
     const reset = await alice.beta.agents.update(agent.id, { reasoning: null });
     expect(reset.reasoning).toEqual(agent.reasoning);
-    expect((await alice.beta.agents.create({ model: 'gpt-5.4' })).reasoning.effort).toBe('medium');
+    expect((await alice.beta.agents.create({ model: 'gpt-6-sol' })).reasoning.effort).toBe('medium');
+    // Models absent from the pinned native catalogue retain the provider default.
+    expect((await alice.beta.agents.create({ model: 'gpt-5.4' })).reasoning.effort).toBeNull();
   });
 
   it('isolates owners on reads, updates, deletes, and pagination cursors', async () => {

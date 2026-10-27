@@ -1,5 +1,6 @@
 import { Type } from 'typebox';
 import AjvModule from 'ajv';
+import type { ToolExecutionResult } from '@earendil-works/pi-durable';
 import type { PiEffectTool, PiToolEffect } from './pi/protocol.js';
 
 export const PI_MANAGED_TOOLS: readonly PiEffectTool[] = [
@@ -11,6 +12,12 @@ export type PiManagedOperation =
   | { kind: 'command'; command: string[]; cwd?: string }
   | { kind: 'read' | 'list'; path: string }
   | { kind: 'write'; path: string; content: string };
+
+export interface PiManagedCommandResponse {
+  readonly stdout: string;
+  readonly stderr: string;
+  readonly exitCode: number;
+}
 
 const ajv = new AjvModule.default({ strict: false });
 const validators = new Map(PI_MANAGED_TOOLS.map(tool => [tool.name, ajv.compile(tool.parameters)]));
@@ -32,4 +39,11 @@ export function piManagedCommand(operation: PiManagedOperation, nodeBinary: stri
   return operation.kind === 'command'
     ? { command: [...operation.command], cwd: operation.cwd ?? workspace }
     : { command: [nodeBinary, '-e', FILE_PROGRAM, operation.kind, operation.path, operation.kind === 'write' ? operation.content : ''], cwd: workspace };
+}
+
+export function piManagedResult(operation: PiManagedOperation, response: PiManagedCommandResponse): ToolExecutionResult {
+  const isError = response.exitCode !== 0;
+  // File stdout is data; successful runtime warnings must not alter its bytes.
+  const text = operation.kind === 'command' || isError ? response.stdout + response.stderr : response.stdout;
+  return { output: [{ type: 'text', text }], isError };
 }

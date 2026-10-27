@@ -1,0 +1,189 @@
+[
+  {
+    "path": "Contents/Resources/codex/bin/codex",
+    "role": "host-codex",
+    "identifier": "dev.rat-things.runtime.codex",
+    "machOType": 2,
+    "entitlements": "jit"
+  },
+  {
+    "path": "Contents/Resources/codex/bin/codex-code-mode-host",
+    "role": "host-companion",
+    "identifier": "dev.rat-things.runtime.code-mode-host",
+    "machOType": 2,
+    "entitlements": "jit"
+  },
+  {
+    "path": "Contents/Resources/codex/codex-path/rg",
+    "role": "host-companion",
+    "identifier": "dev.rat-things.runtime.ripgrep",
+    "machOType": 2
+  },
+  {
+    "path": "Contents/Resources/codex/codex-resources/voice/bin/codex-voice-host",
+    "role": "host-companion",
+    "identifier": "dev.rat-things.runtime.voice-host",
+    "machOType": 2,
+    "rpaths": [
+      "@loader_path/../../_solib_darwin_arm64/voice/native_link_macos_aarch64",
+      "@loader_path/../lib"
+    ]
+  },
+  {
+    "path": "Contents/Resources/codex/codex-resources/voice/lib/libffi.8.dylib",
+    "role": "host-companion",
+    "identifier": "dev.rat-things.runtime.voice.lib.libffi.8.dylib",
+    "machOType": 6
+  },
+  {
+    "path": "Contents/Resources/codex/codex-resources/voice/lib/libgio-2.0.0.dylib",
+    "role": "host-companion",
+    "identifier": "dev.rat-things.runtime.voice.lib.libgio-2.0.0.dylib",
+    "machOType": 6
+  },
+  {
+    "path": "Contents/Resources/codex/codex-resources/voice/lib/libglib-2.0.0.dylib",
+    "role": "host-companion",
+    "identifier": "dev.rat-things.runtime.voice.lib.libglib-2.0.0.dylib",
+    "machOType": 6
+  },
+  {
+    "path": "Contents/Resources/codex/codex-resources/voice/lib/libgmodule-2.0.0.dylib",
+    "role": "host-companion",
+    "identifier": "dev.rat-things.runtime.voice.lib.libgmodule-2.0.0.dylib",
+    "machOType": 6
+  },
+  {
+    "path": "Contents/Resources/codex/codex-resources/voice/lib/libgobject-2.0.0.dylib",
+    "role": "host-companion",
+    "identifier": "dev.rat-things.runtime.voice.lib.libgobject-2.0.0.dylib",
+    "machOType": 6
+  },
+  {
+    "path": "Contents/Resources/codex/codex-resources/voice/lib/libgstapp-1.0.0.dylib",
+    "role": "host-companion",
+    "identifier": "dev.rat-things.runtime.voice.lib.libgstapp-1.0.0.dylib",
+    "machOType": 6
+  },
+  {
+    "path": "Contents/Resources/codex/codex-resources/voice/lib/libgstaudio-1.0.0.dylib",
+    "role": "host-companion",
+    "identifier": "dev.rat-things.runtime.voice.lib.libgstaudio-1.0.0.dylib",
+    "machOType": 6
+  },
+  {
+    "path": "Contents/Resources/codex/codex-resources/voice/lib/libgstbase-1.0.0.dylib",
+    "role": "host-companion",
+    "identifier": "dev.rat-things.runtime.voice.lib.libgstbase-1.0.0.dylib",
+    "machOType": 6
+  },
+  {
+    "path": "Contents/Resources/codex/codex-resources/voice/lib/libgstnet-1.0.0.dylib",
+    "role": "host-companion",
+    "identifier": "dev.rat-things.runtime.voice.lib.libgstnet-1.0.0.dylib",
+    "machOType": 6
+  },
+  {
+    "path": "Contents/Resources/codex/codex-resources/voice/lib/libgstpbutils-1.0.0.dylib",
+    "role": "host-companion",
+    "identifier": "dev.rat-things.runtime.voice.lib.libgstpbutils-1.0.0.dylib",
+    "machOType": 6
+  },
+  {
+    "path": "Contents/Resources/codex/codex-resources/voice/lib/libgstreamer-1.0.0.dylib",
+    "role": "host-companion",
+    "identifier": "dev.rat-things.runtime.voice.lib.libgstreamer-1.0.0.dylib",
+    "machOType": 6
+  },
+  {
+    "path": "Contents/Resources/codex/codex-resources/voice/lib/libgstrtp-1.0.0.dylib",
+    "role": "host-companion",
+    "identifier": "dev.rat-things.runtime.voice.lib.libgstrtp-1.0.0.dylib",
+    "machOType": 6
+  },
+  {
+    "path": "Contents/Resources/codex/codex-resources/voice/lib/libgsttag-1.0.0.dylib",
+    "role": "host-companion",
+    "identifier": "dev.rat-things.runtime.voice.lib.libgsttag-1.0.0.dylib",
+    "machOType": 6
+  },
+  {
+    "path": "Contents/Resources/codex/codex-resources/voice/lib/libgstvideo-1.0.0.dylib",
+    "role": "host-companion",
+    "identifier": "dev.rat-things.runtime.voice.lib.libgstvideo-1.0.0.dylib",
+    "machOType": 6
+  },
+  {
+    "path": "Contents/Resources/codex/codex-resources/voice/lib/libintl.8.dylib",
+    "role": "host-companion",
+    "identifier": "dev.rat-things.runtime.voice.lib.libintl.8.dylib",
+    "machOType": 6
+  },
+  {
+    "path": "Contents/Resources/codex/codex-resources/voice/lib/libopus.0.dylib",
+    "role": "host-companion",
+    "identifier": "dev.rat-things.runtime.voice.lib.libopus.0.dylib",
+    "machOType": 6
+  },
+  {
+    "path": "Contents/Resources/codex/codex-resources/voice/lib/libpcre2-8.0.dylib",
+    "role": "host-companion",
+    "identifier": "dev.rat-things.runtime.voice.lib.libpcre2-8.0.dylib",
+    "machOType": 6
+  },
+  {
+    "path": "Contents/Resources/codex/codex-resources/voice/lib/libz.1.dylib",
+    "role": "host-companion",
+    "identifier": "dev.rat-things.runtime.voice.lib.libz.1.dylib",
+    "machOType": 6
+  },
+  {
+    "path": "Contents/Resources/codex/codex-resources/voice/plugins/libgstapp.dylib",
+    "role": "host-companion",
+    "identifier": "dev.rat-things.runtime.voice.plugins.libgstapp.dylib",
+    "machOType": 6
+  },
+  {
+    "path": "Contents/Resources/codex/codex-resources/voice/plugins/libgstaudioconvert.dylib",
+    "role": "host-companion",
+    "identifier": "dev.rat-things.runtime.voice.plugins.libgstaudioconvert.dylib",
+    "machOType": 6
+  },
+  {
+    "path": "Contents/Resources/codex/codex-resources/voice/plugins/libgstaudioresample.dylib",
+    "role": "host-companion",
+    "identifier": "dev.rat-things.runtime.voice.plugins.libgstaudioresample.dylib",
+    "machOType": 6
+  },
+  {
+    "path": "Contents/Resources/codex/codex-resources/voice/plugins/libgstcoreelements.dylib",
+    "role": "host-companion",
+    "identifier": "dev.rat-things.runtime.voice.plugins.libgstcoreelements.dylib",
+    "machOType": 6
+  },
+  {
+    "path": "Contents/Resources/codex/codex-resources/voice/plugins/libgstopus.dylib",
+    "role": "host-companion",
+    "identifier": "dev.rat-things.runtime.voice.plugins.libgstopus.dylib",
+    "machOType": 6
+  },
+  {
+    "path": "Contents/Resources/codex/codex-resources/voice/plugins/libgstrtp.dylib",
+    "role": "host-companion",
+    "identifier": "dev.rat-things.runtime.voice.plugins.libgstrtp.dylib",
+    "machOType": 6
+  },
+  {
+    "path": "Contents/Resources/codex/codex-resources/voice/plugins/libgstrtpmanager.dylib",
+    "role": "host-companion",
+    "identifier": "dev.rat-things.runtime.voice.plugins.libgstrtpmanager.dylib",
+    "machOType": 6
+  },
+  {
+    "path": "Contents/Helpers/rat-native-worker",
+    "role": "vm-helper",
+    "identifier": "dev.rat-things.runtime.vm-helper",
+    "machOType": 2,
+    "entitlements": "virtualization"
+  }
+]

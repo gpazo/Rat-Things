@@ -9,6 +9,7 @@ import { SessionService } from '../../src/core/session-service.js';
 import type { SessionState } from '../../src/core/session-ports.js';
 import type { SessionRuntimeState } from '../../src/core/session-runtime-planning.js';
 import type { Turn } from '../../src/domain/agents-api.js';
+import { managedCodexConfiguration } from '../../src/domain/codex-managed-policy.js';
 import { LocalManagedEnvironment } from '../../src/runner/local-managed-environment.js';
 import { LocalSessionExecution } from '../../src/runner/local-session-execution.js';
 import { developmentLocalCodexHost } from '../../src/runner/local-codex.js';
@@ -26,6 +27,12 @@ vi.mock('../../src/runner/local-codex.js', async original => ({ ...await origina
       emit: (event: CodexRpcEvent) => options.onEvent?.(event),
       call: async (method: string) => {
         rpc.calls.push(method);
+        if (method === 'config/read') return {
+          config: managedCodexConfiguration({ workspace: '/workspace', network: { access: 'disabled', allowed_domains: [] }, credentialProxy: false }),
+          layers: [{ name: { type: 'sessionFlags' }, config: {} },
+            ...['user', 'system'].map(type => ({ name: { type, file: join(options.cwd!, type, 'config.toml') }, config: {} }))],
+        };
+        if (method === 'configRequirements/read') return { requirements: null };
         if (method === 'turn/start') { await rpc.turn?.(); return { turn: { id: `native_turn_${rpc.calls.length}` } }; }
         if (method === 'turn/interrupt') await rpc.interrupt?.();
         if (method === 'thread/start' || method === 'thread/resume') return { thread: { id: `thread_${index}` } };

@@ -125,7 +125,7 @@ it('pins the copied host and companion paths without accepting ambient executabl
     const host = service.hostCodex();
     const bundle = join(test.profile, 'runtime/versions', test.bundle.id, 'Runtime.bundle');
     expect(host.binary).toBe(join(bundle, 'Contents/Helpers/codex'));
-    expect(host.environment.PATH).toBe(`${bundle}/Contents/Resources/codex/codex-path:${bundle}/Contents/Resources/codex/codex-resources/zsh/bin:/usr/bin:/bin:/usr/sbin:/sbin`);
+    expect(host.environment.PATH).toBe(`${bundle}/Contents/Resources/codex/codex-path:/usr/bin:/bin:/usr/sbin:/sbin`);
     expect(host.environment.HTTPS_PROXY).toBe('http://proxy.example');
     expect(Object.isFrozen(host)).toBe(true);
     expect(Object.isFrozen(host.environment)).toBe(true);

@@ -17,13 +17,21 @@ const protocol = { hostTarget: 'aarch64-apple-darwin', guestTarget: 'aarch64-unk
 const signaturePaths = ['CodeDirectory', 'CodeRequirements', 'CodeResources', 'CodeSignature'].map(path => `Contents/_CodeSignature/${path}`);
 afterEach(async () => { await Promise.all(directories.splice(0).map(path => rm(path, { recursive: true, force: true }))); });
 
-function machO(major = 15, minor = 2, command = 0x32) {
-  const bytes = Buffer.alloc(64);
-  bytes.writeUInt32LE(0xfeedfacf, 0); bytes.writeUInt32LE(0x100000c, 4); bytes.writeUInt32LE(2, 12);
-  bytes.writeUInt32LE(1, 16); bytes.writeUInt32LE(command === 0x32 ? 24 : 16, 20);
+function machO(major = 15, minor = 2, command = 0x32, policy?: { machOType: number; rpaths?: string[] }, libraries: string[] = []) {
+  const linked = (name: string, command: number, minimum: number) => {
+    const bytes = Buffer.alloc(Math.ceil((minimum + Buffer.byteLength(name) + 1) / 8) * 8);
+    bytes.writeUInt32LE(command, 0); bytes.writeUInt32LE(bytes.length, 4); bytes.writeUInt32LE(minimum, 8); bytes.write(name, minimum);
+    return bytes;
+  };
+  const extra = [...(policy?.rpaths ?? []).map(path => linked(path, 0x8000001c, 12)), ...libraries.map(path => linked(path, 0xc, 24))];
+  const commandBytes = (command === 0x32 ? 24 : 16) + extra.reduce((total, value) => total + value.length, 0);
+  const bytes = Buffer.alloc(32 + commandBytes);
+  bytes.writeUInt32LE(0xfeedfacf, 0); bytes.writeUInt32LE(0x100000c, 4); bytes.writeUInt32LE(policy?.machOType ?? 2, 12);
+  bytes.writeUInt32LE(1 + extra.length, 16); bytes.writeUInt32LE(commandBytes, 20);
   bytes.writeUInt32LE(command, 32); bytes.writeUInt32LE(command === 0x32 ? 24 : 16, 36);
   if (command === 0x32) bytes.writeUInt32LE(1, 40);
   bytes.writeUInt32LE((major << 16) | (minor << 8), command === 0x32 ? 44 : 40);
+  Buffer.concat(extra).copy(bytes, 32 + (command === 0x32 ? 24 : 16));
   return bytes;
 }
 
@@ -38,26 +46,33 @@ async function fixture() {
   const write = async (path: string, bytes: string | Uint8Array, mode = 0o644) => {
     await mkdir(dirname(join(directory, path)), { recursive: true }); await writeFile(join(directory, path), bytes, { mode });
   };
-  const source = { repository: 'https://github.com/openai/codex.git', revision: 'a'.repeat(40), upstreamVersion: '0.154.0', patches: ['fixture.patch'] };
-  const sourceIdentity = { ...source, patches: [{ name: 'fixture.patch', sha256: digest('patch') }] };
-  await write('definition/source.json', json(source)); await write('definition/fixture.patch', 'patch');
-  await write('definition/artifact-policy.json', json({ sourceSha256: digest(JSON.stringify(sourceIdentity)), patchedTree: 'b'.repeat(40) }));
-  const builds = { profile: 'release', debug: 'none', incremental: false, locked: true, jobs: 1, patchedTree: 'b'.repeat(40) };
-  const paths = ['bin/codex', 'bin/codex-code-mode-host', 'codex-package.json', 'codex-path/rg', 'codex-resources/zsh/bin/zsh'];
+  const source = { repository: 'https://github.com/openai/codex.git', revision: 'a'.repeat(40), upstreamVersion: '0.164.0' };
+  const sourceIdentity = source;
+  await write('definition/source.json', json(source));
+  const paths = ['bin/codex', 'bin/codex-code-mode-host', 'codex-package.json', 'codex-path/rg'];
   const packages: Record<string, unknown> = {}; const packageLocks: Record<string, unknown> = {};
-  const manifests = new Map<string, { source: typeof sourceIdentity; build: typeof builds & { nativeTarget: string }; binary: string;
+  const manifests = new Map<string, { source: typeof sourceIdentity; distribution: { kind: string; target: string; integrity: string }; binary: string;
     sha256: string; platform: string; arch: string; upstreamPackage: { name: string; version: string }; files: { path: string; sha256: string }[] }>();
   for (const platform of ['darwin', 'linux']) {
-    const target = platform === 'darwin' ? protocol.hostTarget : protocol.guestTarget;
+    const target = platform === 'darwin' ? protocol.hostTarget : 'aarch64-unknown-linux-musl';
     const descriptor = { layoutVersion: 1, version: source.upstreamVersion, target, variant: 'codex', entrypoint: 'bin/codex', resourcesDir: 'codex-resources', pathDir: 'codex-path' };
-    const allPaths = [...paths, ...(platform === 'linux' ? ['codex-resources/bwrap'] : [])];
-    const files = allPaths.map(path => ({ path, sha256: digest(path === 'codex-package.json' ? json(descriptor) : platform === 'darwin' ? machO(path.endsWith('zsh') ? 15 : 11, 0) : elf()), executable: path !== 'codex-package.json' }));
+    const policies = nativeExecutablePolicy.filter(policy => policy.role !== 'vm-helper');
+    const allPaths = platform === 'darwin'
+      ? ['codex-package.json', ...policies.map(policy => policy.path.slice('Contents/Resources/codex/'.length)), 'codex-resources/voice/runtime.json', 'codex-resources/voice/NOTICE.md']
+      : [...paths, 'codex-resources/bwrap'];
+    const content = (path: string) => {
+      if (path === 'codex-package.json') return json(descriptor);
+      if (path.endsWith('.json') || path.endsWith('.md')) return 'Pinned companion resource';
+      const policy = policies.find(policy => policy.path === `Contents/Resources/codex/${path}`);
+      return platform === 'darwin' ? machO(path.endsWith('codex-voice-host') ? 15 : 11, 0, 0x32, policy) : elf();
+    };
+    const files = allPaths.map(path => ({ path, sha256: digest(content(path)), executable: !path.endsWith('.json') && !path.endsWith('.md') }));
     const packageName = `@openai/codex-${platform}-arm64`;
     const locked = { name: '@openai/codex', version: `${source.upstreamVersion}-${platform}-arm64`, resolved: `https://registry.npmjs.org/${platform}.tgz`, integrity: `sha512-${'A'.repeat(86)}==` };
     packageLocks[`node_modules/${packageName}`] = locked;
     packages[packageName] = { ...locked, descriptor, files };
-    for (const file of files) await write(`${platform}/runtime/${file.path}`, file.path === 'codex-package.json' ? json(descriptor) : platform === 'darwin' ? machO(file.path.endsWith('zsh') ? 15 : 11, 0) : elf(), file.executable ? 0o755 : 0o444);
-    const manifest = { source: sourceIdentity, build: { ...builds, nativeTarget: target }, binary: join(directory, platform, 'runtime/bin/codex'),
+    for (const file of files) await write(`${platform}/runtime/${file.path}`, content(file.path), file.executable ? 0o755 : 0o444);
+    const manifest = { source: sourceIdentity, distribution: { kind: 'official-npm', target, integrity: locked.integrity }, binary: join(directory, platform, 'runtime/bin/codex'),
       sha256: files.find(file => file.path === 'bin/codex')!.sha256, platform, arch: 'arm64',
       upstreamPackage: { name: packageName, version: locked.version }, files: files.map(({ path, sha256 }) => ({ path, sha256 })) };
     manifests.set(platform, manifest); await write(`${platform}/artifact.json`, json(manifest));
@@ -119,28 +134,50 @@ async function fixture() {
         for (const path of signaturePaths) { await mkdir(dirname(join(filename, path)), { recursive: true }); await writeFile(join(filename, path), 'fixture-signature'); }
       } else await appendFile(filename, 'fixture-signature');
     }
+    if (args.includes('--display')) return { stdout: '', stderr: `Executable=${args.at(-1)}` };
     return { stdout: 'fixture', stderr: '' };
   };
   return { directory, write, options, repositoryRoot, run, calls, guestBuild, archive, inputs, contents };
 }
 
-it('assembles an exact signed candidate with untouched input provenance and hashes of signed bytes', async () => {
+it('preserves every official byte and signs only the Rat Things helper and outer bundle', async () => {
   const f = await fixture(); const original = await readFile(join(f.options.hostArtifact, 'artifact.json'));
   const result = await assembleNativeRelease(f.options, { repositoryRoot: f.repositoryRoot, run: f.run });
   const bundle = join(f.options.output, 'Runtime.bundle'); const manifestBytes = await readFile(join(bundle, 'Contents/Resources/runtime-manifest.json'));
   const manifest = decodeAuthenticatedNativeManifest(JSON.parse(manifestBytes.toString()));
   expect(result.releaseId).toBe(digest(manifestBytes)); expect(result.distributionReady).toBe(false);
-  expect(manifest.compatibility).toEqual({ ...nativeCompatibility(protocol, [11, 11, 11, 15, 15.2].map(value => ({ minimumMacOS: String(value) }))), minimumMacOS: '15.2.0' });
-  expect(manifest.files.filter(file => file.kind === 'host-executable')).toHaveLength(5);
+  expect(manifest.compatibility).toEqual({ ...nativeCompatibility(protocol, nativeExecutablePolicy.map(() => ({ minimumMacOS: '15.2.0' }))), minimumMacOS: '15.2.0' });
+  expect(manifest.files.filter(file => file.kind === 'host-executable')).toHaveLength(nativeExecutablePolicy.length);
   expect(await readFile(join(f.options.output, 'evidence/host-artifact.json'))).toEqual(original);
   expect(await readFile(join(f.options.hostArtifact, 'artifact.json'))).toEqual(original);
   const provenance = await readFile(join(bundle, 'Contents/Resources/provenance.json'), 'utf8');
   expect(provenance).not.toContain(f.directory); expect(provenance).toContain('Corresponding sources');
-  for (const mapping of JSON.parse(provenance).executables) expect(mapping.unsigned.sha256).not.toBe(mapping.signed.sha256);
+  for (const mapping of JSON.parse(provenance).executables) {
+    if (mapping.kind === 'official-unmodified') {
+      expect(mapping.packaged).toEqual({ bytes: mapping.input.bytes, sha256: mapping.input.sha256 });
+      expect(mapping.signature).toMatchObject({ action: 'preserved', signerAdmission: 'pending' });
+      expect(mapping).not.toHaveProperty('entitlements');
+    } else {
+      expect(mapping.kind).toBe('rat-things-signed');
+      expect(mapping.path).toBe('Contents/Helpers/rat-native-worker');
+      expect(mapping.input.sha256).not.toBe(mapping.packaged.sha256);
+    }
+  }
+  for (const file of JSON.parse(original.toString()).files) {
+    expect(await readFile(join(bundle, 'Contents/Resources/codex', file.path)))
+      .toEqual(await readFile(join(f.options.hostArtifact, 'runtime', file.path)));
+    expect(manifest.files.find(entry => entry.path === `Contents/Resources/codex/${file.path}`)?.sha256).toBe(file.sha256);
+  }
+  const blocker = 'Native macOS upstream-signer admission requires design and on-Mac validation';
+  expect(result.outstandingDistributionInputs).toContain(blocker);
+  expect(JSON.parse(provenance)).toMatchObject({ distributionReady: false, outstandingDistributionInputs: expect.arrayContaining([blocker]) });
   const signedInventory = await readFile(join(f.options.output, 'evidence/signed-inventory.json'));
   expect(result.signedTreeSha256).toBe(nativeBundleFingerprint(JSON.parse(signedInventory.toString())));
+  const signingEvidence = JSON.parse(await readFile(join(f.options.output, 'evidence/signing.json'), 'utf8'));
+  expect(signingEvidence.signatures.map((entry: { path: string }) => entry.path)).toEqual(['Contents/Helpers/rat-native-worker']);
+  expect(signingEvidence.preservedSignatures).toHaveLength(nativeExecutablePolicy.length - 1);
   const signing = f.calls.filter(call => call.args.includes('--sign'));
-  expect(signing).toHaveLength(6); expect(signing.at(-1)!.args.at(-1)).toBe(bundle);
+  expect(signing.map(call => call.args.at(-1))).toEqual([join(bundle, 'Contents/Helpers/rat-native-worker'), bundle]);
   expect(signing.every(call => call.args.includes('--timestamp') && call.args.includes('runtime') && !call.args.includes('--deep'))).toBe(true);
   expect(f.calls.find(call => call.args.includes('-target'))!.args).toContain('arm64-apple-macos15.0.0');
 });
@@ -190,7 +227,7 @@ it('rejects changed source inputs before signing the outer bundle', async () => 
     return result;
   };
   await expect(assembleNativeRelease(f.options, { repositoryRoot: f.repositoryRoot, run })).rejects.toThrow('Input changed or checksum differs');
-  expect(f.calls.filter(call => call.args.includes('--sign'))).toHaveLength(5);
+  expect(f.calls.filter(call => call.args.includes('--sign'))).toHaveLength(1);
   await expect(lstat(join(f.options.output, 'release.json'))).rejects.toThrow('ENOENT');
 });
 
@@ -204,6 +241,20 @@ it('rejects an outer signer that mutates a payload after the manifest was writte
     return result;
   };
   await expect(assembleNativeRelease(f.options, { repositoryRoot: f.repositoryRoot, run })).rejects.toThrow('Outer signing changed');
+});
+
+it.each(['helper', 'outer'])('rejects official payload changes during %s signing', async stage => {
+  const f = await fixture();
+  const run = async (command: string, args: string[]) => {
+    const result = await f.run(command, args);
+    const suffix = stage === 'helper' ? 'rat-native-worker' : 'Runtime.bundle';
+    if (args.includes('--sign') && args.at(-1)!.endsWith(suffix)) {
+      await appendFile(join(f.options.output, 'Runtime.bundle/Contents/Resources/codex/bin/codex'), 'changed signature');
+    }
+    return result;
+  };
+  await expect(assembleNativeRelease(f.options, { repositoryRoot: f.repositoryRoot, run })).rejects.toThrow('Official Codex payload changed');
+  await expect(lstat(join(f.options.output, 'release.json'))).rejects.toThrow('ENOENT');
 });
 
 it('rejects staged archive changes during helper compilation before sealing the outer bundle', async () => {
@@ -223,7 +274,39 @@ it('rejects staged archive changes during helper compilation before sealing the 
 it('derives the deployment floor from modern and legacy Mach-O commands', () => {
   expect(inspectMachO(machO(15, 4))).toEqual({ minimumMacOS: '15.4.0', libraries: [] });
   expect(inspectMachO(machO(12, 7, 0x24))).toEqual({ minimumMacOS: '12.7.0', libraries: [] });
-  expect(nativeCompatibility(protocol, [machO(11), machO(12), machO(13), machO(15), machO(14)].map(inspectMachO)).minimumMacOS).toBe('15.2.0');
+  expect(nativeCompatibility(protocol, nativeExecutablePolicy.map(() => inspectMachO(machO(15)))).minimumMacOS).toBe('15.2.0');
+});
+
+it('accepts only the fixed bundled libraries and search paths for each Mach-O role', () => {
+  const voice = nativeExecutablePolicy.find(policy => policy.identifier === 'dev.rat-things.runtime.voice-host')!;
+  const library = nativeExecutablePolicy.find(policy => policy.path.endsWith('/lib/libgio-2.0.0.dylib'))!;
+  const plugin = nativeExecutablePolicy.find(policy => policy.path.endsWith('/plugins/libgstapp.dylib'))!;
+  for (const [policy, dependency] of [
+    [voice, '@rpath/libgio-2.0.0.dylib'],
+    [library, '@loader_path/libglib-2.0.0.dylib'],
+    [plugin, '@loader_path/../lib/libgstapp-1.0.0.dylib'],
+  ] as const) {
+    expect(inspectMachO(machO(14, 0, 0x32, policy, [dependency]), policy).libraries).toEqual([dependency]);
+  }
+  for (const dependency of ['/tmp/injected.dylib', '/usr/lib/../../tmp/injected.dylib', '@rpath/unknown.dylib', '@loader_path/../bin/codex-voice-host']) {
+    expect(() => inspectMachO(machO(14, 0, 0x32, voice, [dependency]), voice)).toThrow('unbundled library');
+  }
+  expect(() => inspectMachO(machO(14, 0, 0x32, { ...voice, rpaths: ['/tmp'] }), voice)).toThrow('search paths');
+  expect(() => inspectMachO(machO(14, 0, 0x32, library))).toThrow('fixed host code policy');
+  expect(() => inspectMachO(machO(14), library)).toThrow('fixed host code policy');
+});
+
+it('keeps compiled signature identifiers aligned with the reviewed upstream native inventory', async () => {
+  const companions = JSON.parse(await readFile(new URL('../../runtime/codex/companion-packages.json', import.meta.url), 'utf8'));
+  const paths = companions['@openai/codex-darwin-arm64'].files.filter((file: { executable: boolean }) => file.executable)
+    .map((file: { path: string }) => `Contents/Resources/codex/${file.path}`);
+  expect(nativeExecutablePolicy.filter(policy => policy.role !== 'vm-helper').map(policy => policy.path).sort()).toEqual(paths.sort());
+  const verifier = await readFile(new URL('../../runtime/local/verify-runtime.swift', import.meta.url), 'utf8');
+  const compiledPolicy = [...verifier.matchAll(/ExecutablePolicy\(path: "([^"]+)", identifier: "([^"]+)"\)/g)]
+    .map(([, path, identifier]) => ({ path, identifier }));
+  expect(compiledPolicy).toEqual(nativeExecutablePolicy.map(({ path, identifier }) => ({ path, identifier })));
+  expect(new Set(nativeExecutablePolicy.map(policy => policy.identifier)).size).toBe(nativeExecutablePolicy.length);
+  expect(nativeExecutablePolicy.some(policy => policy.path.endsWith('.json') || policy.path.includes('/zsh/'))).toBe(false);
 });
 
 it('rejects missing, truncated, and non-macOS deployment commands', () => {
@@ -232,11 +315,14 @@ it('rejects missing, truncated, and non-macOS deployment commands', () => {
   const platform = machO(); platform.writeUInt32LE(2, 40); expect(() => inspectMachO(platform)).toThrow('not macOS');
 });
 
-it('limits JIT entitlements to the two Codex executables and virtualization to the helper', () => {
-  const commands = nativeExecutablePolicy.map(policy => signingArguments(identity, policy, policy.path, { jit: 'jit.plist', virtualization: 'vm.plist' }));
-  expect(commands.filter(args => args.includes('jit.plist')).map(args => args.at(-1))).toEqual(nativeExecutablePolicy.slice(0, 2).map(policy => policy.path));
-  expect(commands.filter(args => args.includes('vm.plist')).map(args => args.at(-1))).toEqual(['Contents/Helpers/rat-native-worker']);
-  expect(commands.filter(args => !args.includes('--entitlements'))).toHaveLength(2);
+it('refuses to sign upstream executables and limits Rat Things entitlements to virtualization', () => {
+  for (const policy of nativeExecutablePolicy.filter(value => value.role !== 'vm-helper')) {
+    expect(() => signingArguments(identity, policy, policy.path, { virtualization: 'vm.plist' })).toThrow('Only the Rat Things');
+  }
+  const helper = nativeExecutablePolicy.find(value => value.role === 'vm-helper')!;
+  const helperArguments = signingArguments(identity, helper, helper.path, { virtualization: 'vm.plist' });
+  expect(helperArguments.slice(-3)).toEqual(['--entitlements', 'vm.plist', helper.path]);
+  expect(signingArguments(identity, { identifier: 'dev.rat-things.runtime' }, 'Runtime.bundle', {})).not.toContain('--entitlements');
 });
 
 it('rejects unlisted executable files and links in the outer payload', async () => {
