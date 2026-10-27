@@ -24,6 +24,13 @@ export interface EgressReceipt {
   euid: number;
   input_sha256: string;
   program_sha256: string;
+  network_namespace?: {
+    id: string | null;
+    devices: string | null;
+    ipv4_routes: string | null;
+    ipv6_routes: string | null;
+    error: string | null;
+  };
   public_tcp: { host: string; port: number; connected: boolean; error: string | null };
   bedrock: {
     host: string;
@@ -47,6 +54,20 @@ export function egressProbeProgram(spec: EgressProbeSpec): string {
     '    raise TimeoutError("DNS deadline")',
     'def private_ipv4(address):',
     '    return any(ipaddress.ip_address(address) in ipaddress.ip_network(network) for network in ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"])',
+    'def network_file(path):',
+    '    with open(path, "r", encoding="ascii") as source:',
+    '        value = source.read(2049)',
+    '    if len(value) > 2048:',
+    '        raise ValueError("Network inventory exceeds its bound")',
+    '    return value',
+    'namespace = {"id": None, "devices": None, "ipv4_routes": None, "ipv6_routes": None, "error": None}',
+    'try:',
+    '    namespace["id"] = os.readlink("/proc/self/ns/net")',
+    '    namespace["devices"] = network_file("/proc/net/dev")',
+    '    namespace["ipv4_routes"] = network_file("/proc/net/route")',
+    '    namespace["ipv6_routes"] = network_file("/proc/net/ipv6_route")',
+    'except (OSError, ValueError) as error:',
+    '    namespace["error"] = error_code(error)',
     'public = {"host": config["public_host"], "port": config["port"], "connected": False, "error": None}',
     'try:',
     '    with socket.create_connection((public["host"], public["port"]), timeout=4):',
@@ -75,7 +96,7 @@ export function egressProbeProgram(spec: EgressProbeSpec): string {
     '    input_sha256 = hashlib.sha256(source.read()).hexdigest()',
     'with open(__file__, "rb") as source:',
     '    program_sha256 = hashlib.sha256(source.read()).hexdigest()',
-    'receipt = {"schema": 1, "marker": config["marker"], "uid": os.getuid(), "euid": os.geteuid(), "input_sha256": input_sha256, "program_sha256": program_sha256, "public_tcp": public, "bedrock": bedrock}',
+    'receipt = {"schema": 1, "marker": config["marker"], "uid": os.getuid(), "euid": os.geteuid(), "input_sha256": input_sha256, "program_sha256": program_sha256, "network_namespace": namespace, "public_tcp": public, "bedrock": bedrock}',
     'serialized = json.dumps(receipt, sort_keys=True, separators=(",", ":"))',
     'os.makedirs("/workspace/outputs", exist_ok=True)',
     'with open(config["output_path"], "x") as output:',
@@ -145,8 +166,9 @@ export function egressTurnEvidence(input: {
     assert(receipt.bedrock.tls_version?.startsWith('TLSv'), 'Bedrock must negotiate TLS');
     assert.equal(receipt.bedrock.error, null);
   } else {
-    assert(receipt.public_tcp.error === 'PermissionError:1' || receipt.public_tcp.error === 'PermissionError:13',
-      'Default guest network policy must explicitly deny the public numeric TCP probe');
+    assert(receipt.public_tcp.error === 'PermissionError:1' || receipt.public_tcp.error === 'PermissionError:13'
+      || receipt.public_tcp.error === 'OSError:101' && isolatedNetworkNamespace(receipt.network_namespace),
+    'Default guest network policy must explicitly deny the public numeric TCP probe or prove an isolated loopback namespace');
     assert.equal(receipt.bedrock.tcp_connected, false, 'Default guest private probe must not establish TCP');
     assert.equal(receipt.bedrock.tls_connected, false);
     assert(receipt.bedrock.error, 'Unsuccessful private probe must include its error');
@@ -160,6 +182,37 @@ function privateIpv4(address: string): boolean {
   if (isIP(address) !== 4) return false;
   const [first, second] = address.split('.').map(Number);
   return first === 10 || first === 172 && second! >= 16 && second! <= 31 || first === 192 && second === 168;
+}
+
+// Stock Codex's proxy sandbox permits IP sockets inside an isolated namespace, so numeric
+// TCP fails with ENETUNREACH. A missing outer route is insufficient: require the current
+// kernel namespace's complete loopback-only interface and route inventories. /proc/net/dev
+// remains readable when Codex's AF_NETLINK restriction denies socket.if_nameindex().
+function isolatedNetworkNamespace(namespace: EgressReceipt['network_namespace']): boolean {
+  if (!namespace || namespace.error !== null || namespace.id === null || !/^net:\[[1-9]\d*\]$/.test(namespace.id)
+    || namespace.devices === null || namespace.ipv4_routes === null || namespace.ipv6_routes === null) return false;
+  const devices = namespace.devices.trim().split('\n');
+  if (devices.length !== 3 || devices[0]!.replace(/\s+/g, '') !== 'Inter-|Receive|Transmit'
+    || devices[1]!.replace(/\s+/g, '') !== 'face|bytespacketserrsdropfifoframecompressedmulticast|bytespacketserrsdropfifocollscarriercompressed'
+    || !/^\s*lo:\s+(?:\d+\s+){15}\d+\s*$/.test(devices[2]!)) return false;
+  // A fresh namespace has no IPv4 routes. Any data row, including a default via lo,
+  // is outside this proof rather than evidence we infer to be harmless.
+  if (namespace.ipv4_routes.trim().split(/\s+/).join(' ')
+    !== 'Iface Destination Gateway Flags RefCnt Use Metric Mask MTU Window IRTT') return false;
+  return namespace.ipv6_routes.trim() === '' || namespace.ipv6_routes.trim().split('\n').every(line => {
+    const fields = line.trim().split(/\s+/);
+    if (fields.length !== 10 || ![0, 2, 4].every(index => /^[0-9a-f]{32}$/.test(fields[index]!))
+      || ![1, 3].every(index => /^[0-9a-f]{2}$/.test(fields[index]!))
+      || ![5, 6, 7, 8].every(index => /^[0-9a-f]{8}$/.test(fields[index]!))) return false;
+    const [destination, prefix, source, sourcePrefix, gateway, , , , flags, device] = fields;
+    const zero = '0'.repeat(32);
+    if (device !== 'lo' || source !== zero || sourcePrefix !== '00' || gateway !== zero) return false;
+    // Linux includes unreachable ::/0 sentinels (RTF_REJECT), even without IPv6 egress.
+    // The only usable route accepted is ::1/128, with no gateway (RTF_GATEWAY).
+    const bits = Number.parseInt(flags!, 16);
+    return destination === zero && prefix === '00' && (bits & 0x200) !== 0
+      || destination === `${'0'.repeat(31)}1` && prefix === '80' && (bits & 0x1) !== 0 && (bits & 0x2) === 0;
+  });
 }
 
 function parseReceipt(value: unknown): EgressReceipt {
@@ -176,6 +229,11 @@ function parseReceipt(value: unknown): EgressReceipt {
     && Array.isArray(bedrock.resolved_ipv4) && bedrock.resolved_ipv4.every(address => typeof address === 'string')
     && nullableString(bedrock.address) && typeof bedrock.tcp_connected === 'boolean' && typeof bedrock.tls_connected === 'boolean'
     && nullableString(bedrock.tls_version) && nullableString(bedrock.error), 'Invalid Bedrock receipt');
+  if (receipt.network_namespace !== undefined) {
+    assert(receipt.network_namespace !== null && typeof receipt.network_namespace === 'object', 'Invalid network namespace receipt');
+    const namespace = receipt.network_namespace as Record<string, unknown>;
+    assert(['id', 'devices', 'ipv4_routes', 'ipv6_routes', 'error'].every(key => nullableString(namespace[key])), 'Invalid network namespace fields');
+  }
   return value as EgressReceipt;
 }
 
