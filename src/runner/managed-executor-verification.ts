@@ -24,7 +24,7 @@ export async function verifyManagedExecutor(options: {
       ...(plan.identity ? { identity: plan.identity } : {}), ...(options.signal ? { signal: options.signal } : {}),
       onServerRequest: async () => { throw new Error('Sandbox verification cannot request approval'); },
     });
-    await rpc.initialize();
+    await rpc.initialize(120_000);
     await verifyManagedCodexPolicy({ call: rpc.call.bind(rpc), policy: { workspace: options.workspace, network: options.network, credentialProxy: options.credentialProxy } });
     await verifyManagedSandbox({ call: rpc.call.bind(rpc), workspace: options.workspace, home, ...(plan.identity ? { identity: plan.identity } : {}) });
   } finally {
