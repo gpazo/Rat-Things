@@ -33,7 +33,7 @@ export function assertCheckpointStartupSafe(value: unknown, sessionConfig: unkno
 export async function prepareCodexColdVerification(options: { request: CodexAppServerRequest; stateRoot: string; manifest: NativeCheckpointManifest }): Promise<PreparedColdVerification> {
   const { request, stateRoot, manifest } = options;
   if (manifest.threads.some(thread => thread.cwd !== '/workspace' || typeof thread.modelProvider !== 'string' || !/^[a-zA-Z0-9_-]{1,100}$/.test(thread.modelProvider))) throw new Error('Cold native checkpoint thread paths or providers are unsupported');
-  if (manifest.threads.some(thread => ['amazon-bedrock', 'amazon-bedrock-runtime', 'ollama', 'lmstudio'].includes(String(thread.modelProvider)))) throw new Error('Cold native checkpoint provider is not yet supported');
+  if (manifest.threads.some(thread => ['ollama', 'lmstudio'].includes(String(thread.modelProvider)))) throw new Error('Cold native checkpoint provider is not yet supported');
   const uid = request.identity?.uid;
   const gid = request.identity?.gid;
   const home = request.environment.CODEX_HOME;
@@ -68,7 +68,7 @@ export async function prepareCodexColdVerification(options: { request: CodexAppS
     await mkdir(disposable, { mode: 0o711 });
     await ownedDirectory(join(disposable, 'home'), identity);
     await ownedDirectory(join(disposable, 'workspace'), identity);
-    const args = namespaceArguments({ binary, home, sqlite, workspace: request.workspace, disposable, identity });
+    const args = namespaceArguments({ binary, bwrap, home, sqlite, workspace: request.workspace, disposable, identity });
     // Check namespace support before sealing durable authority or stopping Codex.
     await checkedProcess(bwrap, [...args, '--', '/usr/bin/true'], identity);
     return {
@@ -92,13 +92,16 @@ export async function prepareCodexColdVerification(options: { request: CodexAppS
         await writeFile(join(disposable, 'home', 'config.toml'), verifierConfiguration(manifest), { mode: 0o600 });
         await chown(join(disposable, 'home', 'config.toml'), identity.uid, identity.gid);
         let activity = false;
+        let configurationFailure: Error | undefined;
         rpc = new CodexRpcClient({ binary: bwrap, binaryArguments: [...args, '--', binary, 'app-server'], cwd: '/', environment: {}, identity,
           onEvent: event => {
+            if (event.method === 'configWarning') configurationFailure ??= new Error('Cold native verifier configuration is invalid');
             if (event.requestId !== undefined || /^(turn\/(started|completed)|item\/|error$)/.test(event.method)) activity = true;
           }, onServerRequest: async () => { activity = true; throw new Error('Cold native verifier cannot perform tools'); },
         });
         try {
           await rpc.initialize();
+          if (configurationFailure) throw configurationFailure;
           for (const expected of manifest.threads) {
             const result = await rpc.call('thread/read', { threadId: expected.id, includeTurns: true });
             assertNativeHistory(expected, record(result) ? result.thread : undefined, String(expected.id));
@@ -112,25 +115,30 @@ export async function prepareCodexColdVerification(options: { request: CodexAppS
           }
           await rpc.closeCheckpoint();
           await stopCheckpointWriters(identity.uid);
+          if (configurationFailure) throw configurationFailure;
           if (activity) throw new Error('Cold native verification attempted activity');
           if (await treeDigest(candidate) !== candidateDigest) throw new Error('Cold native candidate changed during verification');
           return nativeCheckpointEvidence(manifest);
+        } catch (error) {
+          // A fallback warning can arrive before a native request also fails to load config.
+          throw configurationFailure ?? error;
         } finally { await rpc.close(); await stopCheckpointWriters(identity.uid); }
       },
     };
   } catch (error) { await close(); throw error; }
 }
 
-function namespaceArguments(options: { binary: string; home: string; sqlite: string | undefined; workspace: string; disposable: string; identity: { uid: number; gid: number } }): string[] {
-  const { binary, home, sqlite, workspace, disposable } = options;
+function namespaceArguments(options: { binary: string; bwrap: string; home: string; sqlite: string | undefined; workspace: string; disposable: string; identity: { uid: number; gid: number } }): string[] {
+  const { binary, bwrap, home, sqlite, workspace, disposable } = options;
   return ['--unshare-all', '--die-with-parent', '--new-session', '--cap-drop', 'ALL', '--clearenv',
     '--ro-bind', '/usr', '/usr', '--symlink', 'usr/bin', '/bin', '--symlink', 'usr/lib', '/lib', '--symlink', 'usr/lib64', '/lib64',
     '--proc', '/proc', '--dev', '/dev', '--tmpfs', '/tmp', '--dir', '/home/agent',
     '--ro-bind', binary, binary,
+    '--dir', '/rat-cold-bin', '--ro-bind', bwrap, '/rat-cold-bin/bwrap',
     '--bind', join(disposable, 'home'), home,
     '--ro-bind', join(disposable, 'workspace'), workspace,
     ...(workspace === '/workspace' ? [] : ['--ro-bind', join(disposable, 'workspace'), '/workspace']),
-    '--setenv', 'PATH', '/usr/bin:/bin', '--setenv', 'HOME', '/home/agent', '--setenv', 'CODEX_HOME', home,
+    '--setenv', 'PATH', '/rat-cold-bin:/usr/bin:/bin', '--setenv', 'HOME', '/home/agent', '--setenv', 'CODEX_HOME', home,
     ...(sqlite ? ['--setenv', 'CODEX_SQLITE_HOME', sqlite] : []),
     '--setenv', 'AWS_EC2_METADATA_DISABLED', 'true', '--setenv', 'AWS_CONFIG_FILE', '/dev/null', '--setenv', 'AWS_SHARED_CREDENTIALS_FILE', '/dev/null',
     '--setenv', 'LOG_FORMAT', 'json', '--setenv', 'RUST_LOG', 'warn', '--chdir', '/workspace'];
@@ -138,7 +146,12 @@ function namespaceArguments(options: { binary: string; home: string; sqlite: str
 function verifierConfiguration(manifest: NativeCheckpointManifest): string {
   // Keep built-in OpenAI intact. Its prewarm has no credentials and can only
   // reach a closed loopback address in the private network namespace.
-  const providers = [...new Set(manifest.threads.map(thread => String(thread.modelProvider)))].filter(provider => provider !== 'openai').map(provider => `\n[model_providers.${JSON.stringify(provider)}]\nname = "Offline checkpoint verifier"\nbase_url = "http://127.0.0.1:1"\nwire_api = "responses"\nrequires_openai_auth = false\nsupports_websockets = false\nrequest_max_retries = 0\nstream_max_retries = 0\n`).join('');
+  // Built-in Bedrock permits endpoint overrides, not generic provider replacement.
+  // Its auth prewarm may fail without credentials; native read/resume remains local.
+  const providers = [...new Set(manifest.threads.map(thread => String(thread.modelProvider)))].filter(provider => provider !== 'openai').map(provider =>
+    ['amazon-bedrock', 'amazon-bedrock-runtime'].includes(provider)
+      ? `\n[model_providers.${JSON.stringify(provider)}]\nbase_url = "http://127.0.0.1:1"\n`
+      : `\n[model_providers.${JSON.stringify(provider)}]\nname = "Offline checkpoint verifier"\nbase_url = "http://127.0.0.1:1"\nwire_api = "responses"\nrequires_openai_auth = false\nsupports_websockets = false\nrequest_max_retries = 0\nstream_max_retries = 0\n`).join('');
   return 'openai_base_url = "http://127.0.0.1:1"\napproval_policy = "never"\nsandbox_mode = "read-only"\ncli_auth_credentials_store = "file"\nnotify = []\nweb_search = "disabled"\n[features]\nplugins = false\napps = false\nhooks = false\ngoals = false\nmulti_agent = true\nmulti_agent_v2 = true\nresponses_websockets = false\nresponses_websockets_v2 = false\ncode_mode_prewarm = false\nshell_snapshot = false\nshell_snapshot_v2 = false\n' + providers;
 }
 function within(root: string, path: string): boolean { const part = relative(root, path); return isAbsolute(root) && isAbsolute(path) && part !== '' && part !== '..' && !part.startsWith('../') && !isAbsolute(part); }
