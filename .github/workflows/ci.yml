@@ -100,7 +100,8 @@ jobs:
           CODEX_RUNTIME_ARTIFACT: ${{ github.workspace }}/.runtime/codex/linux-x64
         run: |
           npm run runtime:local:build
-          docker buildx build --platform linux/amd64 --load --file testing/native-parity.Dockerfile --build-arg WORKER_IMAGE=rat-things-local:1 --tag rat-things-native-parity:x64 .
+          docker buildx build --platform linux/amd64 --load --file testing/cold-native-local-worker.Dockerfile --tag rat-things-cold-local-worker:x64 microvm
+          docker buildx build --platform linux/amd64 --load --file testing/native-parity.Dockerfile --build-arg WORKER_IMAGE=rat-things-cold-local-worker:x64 --tag rat-things-native-parity:x64 .
           docker run --rm --platform linux/amd64 --privileged --init --user 0 --env CODEX_COLD_NATIVE_E2E=true --entrypoint npx rat-things-native-parity:x64 --no-install vitest run tests/runner/codex-cold-verification.test.ts --no-file-parallelism
       - name: Archive verified Linux x64 runtime
         run: tar -C .runtime/codex/linux-x64 -czf .runtime/codex/linux-x64.tar.gz artifact.json runtime
