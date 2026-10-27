@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process';
 import { createServer } from 'node:http';
 import { once } from 'node:events';
 import { chown, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
-import { join, resolve } from 'node:path';
+import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { setTimeout as delay } from 'node:timers/promises';
 import { expect, it, vi } from 'vitest';
@@ -11,6 +11,10 @@ import { CodexRpcClient } from '../../src/adapters/codex-rpc.js';
 import { nativeThreadHistory, type NativeCheckpointManifest } from '../../src/domain/native-checkpoint.js';
 import { stopCheckpointWriters } from '../../src/runner/checkpoint-writers.js';
 import { syncWorkspaceStorage } from '../../src/runner/workspace-sync.js';
+import { planCodexLaunch } from '../../src/runner/agent-planning.js';
+import { planSessionLaunch } from '../../src/runner/session-launch-planning.js';
+import { publicTemplate } from '../../src/domain/environment-planning.js';
+import { sessionAgent } from '../../src/core/session-planning.js';
 
 const invalidVerifierConfig = vi.hoisted(() => ({ enabled: false }));
 vi.mock('node:fs/promises', async importOriginal => {
@@ -100,6 +104,8 @@ guest('rejects reserved-provider configuration fallback before accepting native 
 
 async function guestFixture({ historyMode, modelProvider, model }: (typeof guestCases)[number]) {
   if (process.getuid?.() !== 0) throw new Error('Run CODEX_COLD_NATIVE_E2E only as root in the disposable worker container');
+  const processPolicyPath = '/opt/agent-runtime/runtime-process-policy.mjs';
+  const { trustedRunnerOptions } = await import(processPolicyPath);
   const root = await mkdtemp(join(tmpdir(), 'rat-native-cold-guest-'));
   const home = join(root, 'codex-home'); const workspace = join(root, 'workspace');
   const identity = { uid: 10001, gid: 10001 };
@@ -125,9 +131,12 @@ async function guestFixture({ historyMode, modelProvider, model }: (typeof guest
   server.listen(0, '127.0.0.1'); await once(server, 'listening');
   const address = server.address(); if (!address || typeof address === 'string') throw new Error('Missing fixture port');
   const completed = new Set<string>(); let childId: string | undefined; let childActivityDone = false;
-  const binary = process.env.CODEX_CONFORMANCE_BINARY ?? resolve('node_modules/.bin/codex');
+  const runner = trustedRunnerOptions({ ...identity, environment: { PATH: '/usr/bin:/bin', HOME: home, CODEX_HOME: home,
+    CODEX_SQLITE_HOME: join(home, 'sqlite'), PERSISTENT_SESSION: 'true' } });
+  const plan = planCodexLaunch({ version: '1', prompt: '' }, workspace, 30_000, runner.env);
+  const binary = plan.binary;
   const providerConfig = { [modelProvider === 'openai' ? 'openai_base_url' : `model_providers.${modelProvider}.base_url`]: `http://127.0.0.1:${address.port}` };
-  const rpc = new CodexRpcClient({ binary, cwd: workspace, environment: { PATH: '/usr/bin:/bin', HOME: home, CODEX_HOME: home,
+  const rpc = new CodexRpcClient({ binary, cwd: workspace, environment: { ...plan.environment,
     AWS_EC2_METADATA_DISABLED: 'true', AWS_CONFIG_FILE: '/dev/null', AWS_SHARED_CREDENTIALS_FILE: '/dev/null',
     ...(modelProvider === 'openai' ? { CODEX_API_KEY: 'synthetic-loopback-fixture-only' } : { AWS_BEARER_TOKEN_BEDROCK: 'synthetic-loopback-fixture-only', AWS_REGION: 'us-east-1' }) }, identity,
     binaryArguments: ['-c', `model_provider=${JSON.stringify(modelProvider)}`, ...Object.entries(providerConfig).flatMap(([key, value]) => ['-c', `${key}=${JSON.stringify(value)}`]),
@@ -155,8 +164,10 @@ async function guestFixture({ historyMode, modelProvider, model }: (typeof guest
     }
     expect(threads.map(thread => thread.modelProvider)).toEqual([modelProvider, modelProvider]);
     const manifest: NativeCheckpointManifest = { rootThreadId: started.thread.id, hostJournalDigest: 'a'.repeat(64), threads };
-    const request = { binary, workspace, executionWorkspace: '/workspace', environment: { CODEX_HOME: home }, identity, timeoutMs: 30_000, prompt: '', sandbox: 'read-only' as const, persistent: true, modelProvider, networkAccess: false,
-      managedPolicy: { workspace: '/workspace', network: { access: 'disabled' as const, allowed_domains: [] }, credentialProxy: false } };
+    const environment = { ...publicTemplate({ network: { access: 'disabled' } }, { id: 'fixture-environment', created_at: 1, updated_at: 1 }),
+      type: 'openai_hosted' as const, files: [], skills: [] };
+    const launch = { sessionId: 'fixture-session', turnId: 'fixture-turn', input: [], environment, agent: sessionAgent({ model }, 'fixture-agent', 1) };
+    const request = { ...plan, ...planSessionLaunch(plan, launch), modelProvider };
     return { root, home, request, manifest, requests: () => requests, close,
       stop: async () => { if (stopped) return; await rpc.closeCheckpoint(); await stopCheckpointWriters(identity.uid); await syncWorkspaceStorage(root); stopped = true; } };
   } catch (error) { await close(); throw error; }

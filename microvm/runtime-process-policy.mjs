@@ -6,7 +6,8 @@ export function trustedRunnerOptions({ uid, gid, environment }) {
   }
   return {
     cwd: '/opt/agent-runtime',
-    env: { ...environment, RUN_AGENT_UID: String(uid), RUN_AGENT_GID: String(gid) },
+    // Pin the packaged artifact and its companions for launch and cold verification.
+    env: { ...environment, CODEX_BINARY: '/opt/codex-runtime/bin/codex', RUN_AGENT_UID: String(uid), RUN_AGENT_GID: String(gid) },
     // The trusted runner reads credentials and commits fenced state. It drops
     // Codex and repository commands to the separate identity above.
     uid: 0,
