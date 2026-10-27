@@ -92,6 +92,19 @@ Model availability depends on the deployment catalog, AWS account access, and re
 Saved native state supports worker recovery; it does not restore running processes
 or guarantee that an interrupted external write can be repeated safely.
 
+## Frequently asked questions
+
+### Can Pi Durable use Bedrock without a ChatGPT login?
+
+Yes. In AWS, Pi uses the deployment's approved Bedrock model catalog and exact
+inference grants independently of the Codex authentication mode. Model access
+must be available to the deployment's AWS identity.
+
+### Can I change an existing Codex Session into a Pi Session?
+
+No. The runtime is pinned when the Session is created. Create a new Session to
+choose another runtime; changing editable metadata does not replace that pin.
+
 ## Sources
 
 - [Rat Things runtime contract](../docs/agents-api.md#choose-a-session-runtime)

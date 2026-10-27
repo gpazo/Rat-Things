@@ -23,8 +23,22 @@
       "title": "Choose an agent architecture",
       "description": "Make the cost, control, and operating tradeoffs explicit before committing to a platform.",
       "documents": [
+        "self-host-openai-agents-api-aws.md",
+        "ec2-vs-lambda-microvm-agent-workers.md",
         "aws-ai-agent-cost.md",
         "self-hosted-vs-managed-cloud-agents.md"
+      ]
+    },
+    {
+      "title": "Compare agent platforms",
+      "description": "Compare documented capabilities, ownership boundaries and operating responsibilities.",
+      "documents": [
+        "rat-things-vs-e2b.md",
+        "rat-things-vs-daytona.md",
+        "rat-things-vs-modal.md",
+        "rat-things-vs-bedrock-agentcore.md",
+        "rat-things-vs-thinkwork.md",
+        "rat-things-vs-openagentcore.md"
       ]
     }
   ],
@@ -32,7 +46,7 @@
     "keep-codex-running-after-laptop-closes.md": {
       "description": "Keep Codex or Pi Durable work in an AWS Session, continue after disconnect, and understand what survives worker replacement.",
       "published": "2026-09-07",
-      "reviewed": "2026-10-18",
+      "reviewed": "2026-10-26",
       "related": [
         "durable-ai-agent-state.md",
         "run-codex-in-aws-with-chatgpt.md"
@@ -49,7 +63,7 @@
     "run-codex-in-aws-with-chatgpt.md": {
       "description": "Run Codex in isolated AWS compute using a deliberately bridged ChatGPT login, with the credential risks and teardown path made explicit.",
       "published": "2026-09-07",
-      "reviewed": "2026-10-18",
+      "reviewed": "2026-10-26",
       "related": [
         "keep-codex-running-after-laptop-closes.md",
         "least-privilege-ai-agent-integrations.md"
@@ -66,7 +80,7 @@
     "durable-ai-agent-state.md": {
       "description": "Preserve an agent conversation, workspace, files, and execution receipts when a process stops or replacement compute takes over.",
       "published": "2026-09-07",
-      "reviewed": "2026-10-18",
+      "reviewed": "2026-10-26",
       "related": [
         "keep-codex-running-after-laptop-closes.md",
         "schedule-codex-tasks-aws.md"
@@ -83,7 +97,7 @@
     "schedule-codex-tasks-aws.md": {
       "description": "Schedule Codex or Pi Durable Agents in AWS with fixed capabilities, saved input receipts, and durable Turn results.",
       "published": "2026-09-07",
-      "reviewed": "2026-10-18",
+      "reviewed": "2026-10-26",
       "related": [
         "least-privilege-ai-agent-integrations.md",
         "aws-ai-agent-cost.md"
@@ -100,7 +114,7 @@
     "least-privilege-ai-agent-integrations.md": {
       "description": "Give an AI agent bounded Slack or Linear operations by intersecting provider scopes, account grants, run policy, IAM, and network controls.",
       "published": "2026-09-07",
-      "reviewed": "2026-10-18",
+      "reviewed": "2026-10-26",
       "related": [
         "slack-to-linear-agent-workflow.md",
         "schedule-codex-tasks-aws.md"
@@ -117,7 +131,7 @@
     "slack-to-linear-agent-workflow.md": {
       "description": "Build a bounded Slack-to-Linear workflow, understand which permissions are enforced, and add host-side protection when duplicate issues are unacceptable.",
       "published": "2026-09-07",
-      "reviewed": "2026-10-18",
+      "reviewed": "2026-10-26",
       "related": [
         "least-privilege-ai-agent-integrations.md",
         "durable-ai-agent-state.md"
@@ -151,7 +165,7 @@
     "self-hosted-vs-managed-cloud-agents.md": {
       "description": "Compare self-hosted and managed cloud agents by control plane, identity, credentials, isolation, durability, operations, and team burden.",
       "published": "2026-09-07",
-      "reviewed": "2026-10-18",
+      "reviewed": "2026-10-26",
       "related": [
         "aws-ai-agent-cost.md",
         "keep-codex-running-after-laptop-closes.md"
@@ -168,7 +182,7 @@
     "run-pi-durable-on-bedrock.md": {
       "description": "Configure approved Bedrock models, select Pi Durable, and create a Session through the Rat Things CLI or desktop.",
       "published": "2026-10-18",
-      "reviewed": "2026-10-18",
+      "reviewed": "2026-10-26",
       "related": [
         "durable-ai-agent-state.md",
         "schedule-codex-tasks-aws.md"
@@ -180,6 +194,142 @@
       "evidenceCta": {
         "label": "Read the runtime selection contract",
         "href": "../docs/agents-api.md#choose-a-session-runtime"
+      }
+    },
+    "self-host-openai-agents-api-aws.md": {
+      "description": "Run the Codex harness and an OpenAI Agents API-compatible server in your AWS account, with a clear distinction between harness, sandbox and model hosting.",
+      "published": "2026-10-26",
+      "reviewed": "2026-10-26",
+      "related": [
+        "ec2-vs-lambda-microvm-agent-workers.md",
+        "rat-things-vs-openagentcore.md"
+      ],
+      "cta": {
+        "label": "Review the AWS setup",
+        "href": "../docs/quickstart.md"
+      },
+      "evidenceCta": {
+        "label": "Read the API contract and limits",
+        "href": "../docs/agents-api.md"
+      }
+    },
+    "ec2-vs-lambda-microvm-agent-workers.md": {
+      "description": "Compare per-session EC2 and Lambda MicroVM workers by lifecycle, isolation, control and durable recovery in Rat Things.",
+      "published": "2026-10-26",
+      "reviewed": "2026-10-26",
+      "related": [
+        "self-host-openai-agents-api-aws.md",
+        "durable-ai-agent-state.md"
+      ],
+      "cta": {
+        "label": "Review the AWS setup",
+        "href": "../docs/quickstart.md"
+      },
+      "evidenceCta": {
+        "label": "Read the API contract and limits",
+        "href": "../docs/agents-api.md"
+      }
+    },
+    "rat-things-vs-e2b.md": {
+      "description": "Compare Rat Things and E2B by control-plane ownership, sandbox infrastructure, agent runtimes and recovery responsibilities.",
+      "published": "2026-10-26",
+      "reviewed": "2026-10-26",
+      "related": [
+        "rat-things-vs-daytona.md",
+        "self-host-openai-agents-api-aws.md"
+      ],
+      "cta": {
+        "label": "Review the AWS setup",
+        "href": "../docs/quickstart.md"
+      },
+      "evidenceCta": {
+        "label": "Read the API contract and limits",
+        "href": "../docs/agents-api.md"
+      }
+    },
+    "rat-things-vs-daytona.md": {
+      "description": "Compare Rat Things durable Sessions with Daytona sandboxes and its documented Bring Your Own Compute control-plane boundary.",
+      "published": "2026-10-26",
+      "reviewed": "2026-10-26",
+      "related": [
+        "rat-things-vs-e2b.md",
+        "rat-things-vs-modal.md"
+      ],
+      "cta": {
+        "label": "Review the AWS setup",
+        "href": "../docs/quickstart.md"
+      },
+      "evidenceCta": {
+        "label": "Read the API contract and limits",
+        "href": "../docs/agents-api.md"
+      }
+    },
+    "rat-things-vs-modal.md": {
+      "description": "Compare a self-hosted AWS agent control plane with Modal managed sandboxes, including application state and operating responsibilities.",
+      "published": "2026-10-26",
+      "reviewed": "2026-10-26",
+      "related": [
+        "rat-things-vs-e2b.md",
+        "durable-ai-agent-state.md"
+      ],
+      "cta": {
+        "label": "Review the AWS setup",
+        "href": "../docs/quickstart.md"
+      },
+      "evidenceCta": {
+        "label": "Read the API contract and limits",
+        "href": "../docs/agents-api.md"
+      }
+    },
+    "rat-things-vs-bedrock-agentcore.md": {
+      "description": "Compare Rat Things with Bedrock AgentCore Runtime and Harness by API contract, compute choices, storage and operational ownership.",
+      "published": "2026-10-26",
+      "reviewed": "2026-10-26",
+      "related": [
+        "self-host-openai-agents-api-aws.md",
+        "ec2-vs-lambda-microvm-agent-workers.md"
+      ],
+      "cta": {
+        "label": "Review the AWS setup",
+        "href": "../docs/quickstart.md"
+      },
+      "evidenceCta": {
+        "label": "Read the API contract and limits",
+        "href": "../docs/agents-api.md"
+      }
+    },
+    "rat-things-vs-thinkwork.md": {
+      "description": "Compare Rat Things and ThinkWork by agent runtime, work model, AWS storage and integration boundaries.",
+      "published": "2026-10-26",
+      "reviewed": "2026-10-26",
+      "related": [
+        "rat-things-vs-bedrock-agentcore.md",
+        "least-privilege-ai-agent-integrations.md"
+      ],
+      "cta": {
+        "label": "Review the AWS setup",
+        "href": "../docs/quickstart.md"
+      },
+      "evidenceCta": {
+        "label": "Read the API contract and limits",
+        "href": "../docs/agents-api.md"
+      }
+    },
+    "rat-things-vs-openagentcore.md": {
+      "description": "Compare two self-hosted Agents API implementations by supported harnesses, deployment model and compatibility limits.",
+      "published": "2026-10-26",
+      "reviewed": "2026-10-26",
+      "related": [
+        "self-host-openai-agents-api-aws.md",
+        "rat-things-vs-thinkwork.md"
+      ],
+      "cta": {
+        "label": "Review the AWS setup",
+        "href": "../docs/quickstart.md"
+      },
+      "evidenceCta": {
+        "label": "Read the API contract and limits",
+        "href": "../docs/agents-api.md"
       }
     }
   }

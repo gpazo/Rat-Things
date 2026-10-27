@@ -26,6 +26,12 @@ enough without the actual trust boundary and failure behavior.
 
 ## Compare named options against the same questions
 
+For specific infrastructure comparisons, read Rat Things vs [E2B](rat-things-vs-e2b.md),
+[Daytona](rat-things-vs-daytona.md), [Modal](rat-things-vs-modal.md),
+[Bedrock AgentCore](rat-things-vs-bedrock-agentcore.md), [ThinkWork](rat-things-vs-thinkwork.md),
+and [OpenAgentCore](rat-things-vs-openagentcore.md). The [AWS harness guide](self-host-openai-agents-api-aws.md)
+separates hosting the control plane from connecting your own sandbox.
+
 Start with real candidates, then verify their current documentation rather than projecting one
 generic vendor onto every managed service:
 
@@ -172,6 +178,20 @@ workflow proof. Do not let a high UI score cancel a mandatory credential or resi
 If self-hosting wins, begin with one narrow, read-only workflow in a disposable AWS account. The
 [Rat Things operating model](../docs/operating-model.md) and [quickstart](../docs/quickstart.md) show
 that path without hiding the current limitations.
+
+## Frequently asked questions
+
+### What does self-hosting an agent control plane include?
+
+It includes operating the API, identity boundary, agent orchestration, saved work
+and worker lifecycle. Hosting only the command sandbox leaves the harness and
+conversation service wherever their provider operates them.
+
+### Is a self-hosted control plane always the better choice?
+
+No. It gives an operator more direct infrastructure control and responsibility.
+A managed service can fit a team that wants less platform maintenance. Compare
+required identity, data, runtime and recovery contracts for the actual workflow.
 
 ## Sources
 

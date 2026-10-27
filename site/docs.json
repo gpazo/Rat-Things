@@ -84,6 +84,7 @@
     "status-and-roadmap.md": "Understand the implemented systems, their current boundaries, and the next areas of development.",
     "schedules.md": "Schedule owned Agents and bind authenticated provider events to durable Sessions.",
     "session-fork-demo.md": "Compare two UI themes from a shared Session, discard one path, and continue the winner.",
-    "agent-runtimes.md": "Choose Codex or Pi Durable, compare model access and tools, and understand worker recovery."
+    "agent-runtimes.md": "Choose Codex or Pi Durable, compare model access and tools, and understand worker recovery.",
+    "agents-api.md": "Run a self-hosted OpenAI Agents API-compatible server with Codex or Pi Durable, IAM authentication and durable Sessions in your AWS account."
   }
 }

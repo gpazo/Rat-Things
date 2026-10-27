@@ -169,6 +169,20 @@ Before enabling the workflow broadly:
 Follow [the Linear setup guide](../docs/linear.md) to install the OAuth application, verify the
 Connection, declare bounded Agent tools, and inspect the current limitations.
 
+## Frequently asked questions
+
+### Does connecting Slack and Linear automatically give a Session their tools?
+
+No. Connections configure trusted provider access. The Agent still needs explicit
+MCP or application-function tools, and the host must enforce each account's grant
+and allowed operations.
+
+### Does the Linear operation allowlist prevent duplicate issues?
+
+No. The allowlist limits which operations can run, but it does not enforce call
+order or deduplication. Add trusted host-side checks and reconcile uncertain
+provider outcomes when duplicate issues are unacceptable.
+
 ## Sources
 
 - [Slack request-signature verification](https://docs.slack.dev/authentication/verifying-requests-from-slack/)

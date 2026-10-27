@@ -93,6 +93,20 @@ The [AWS quickstart](../docs/quickstart.md) creates a disposable deployment, run
 root Turns in one Session, and provides teardown. Use an account and credentials
 intended for that work.
 
+## Frequently asked questions
+
+### Will work keep running when my laptop sleeps?
+
+An AWS Session can continue while your laptop is disconnected because execution
+runs on a remote worker. A local Session still depends on your computer staying
+awake. Saved history remains distinct from a currently running process.
+
+### Does a worker failure erase the conversation?
+
+Saved Session history and artifacts live outside the worker. Continuing execution
+depends on the runtime's recovery rules and available checkpoints; live processes
+and sockets are not recreated from the transcript.
+
 ## Sources
 
 - [Rat Things Sessions](../docs/conversations.md)
