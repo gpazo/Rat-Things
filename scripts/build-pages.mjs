@@ -32,6 +32,10 @@ for (const file of ['app.ts', 'scene.ts', 'resources.ts', 'resource-manifest.jso
   await rm(join(output, 'architecture', file), { force: true });
 }
 await normalizeCopiedSitePaths();
+const homepagePath = join(output, 'index.html');
+await writeFile(homepagePath, (await readFile(homepagePath, 'utf8')).replace(
+  '  </head>', `    ${renderStructuredData(softwareStructuredData(), 'software')}\n  </head>`,
+));
 await renderArchitectureOutline();
 await cp('spec/openapi.json', join(output, 'openapi.json'));
 await cp('spec/schemas', join(output, 'schemas'), { recursive: true });
@@ -245,7 +249,7 @@ function renderLlmsIndex(groups, documents, guideGroups, guides) {
     const guide = guides.get(file);
     return `- [${guide.title}](${pagesUrl}/guides/${guide.slug}/): ${guide.description}`;
   }).join('\n')}`).join('\n\n');
-  return `# Rat Things\n\n> An AWS backend for Codex and Pi Durable implementing the OpenAI Agents API. Pi uses approved Bedrock models. The host owns execution and state. Engineering preview.\n\n## Agent quickstart\n\n1. Discover the deployment through \`/.well-known/rat-things\`.\n2. Use its OpenAPI and Agents schemas.\n3. Create an Agent and a Session with explicit tools and environment settings.\n4. Follow Turns, Items and live Session events.\n5. Use Vaults for credentials and schedules or provider bindings for recurring input.\n\nRead [Connect an agent](${pagesUrl}/docs/agents/) and [Agents API](${pagesUrl}/docs/agents-api/). The [architecture page](${pagesUrl}/architecture/) outlines every system and request path.\n\n${guideSections}\n\n${sections}\n\n## Machine-readable contracts\n\n- [OpenAPI](${pagesUrl}/openapi.json)\n- [Agents schemas](${pagesUrl}/schemas/agents-api.schema.json)\n- [Operational corpus](${pagesUrl}/llms-full.txt)\n- [Repository](${repositoryUrl})\n`;
+  return `# Rat Things\n\n> A self-hosted AI agent control plane for Codex and Pi Durable, with per-session EC2 or Lambda MicroVM workers in your AWS account, encrypted S3 content and DynamoDB coordination. An OpenAI Agents API-compatible interface with documented limits; an independent implementation in engineering preview. Local workspaces are also supported. Model inference uses the configured provider.\n\n## Agent quickstart\n\n1. Discover the deployment through \`/.well-known/rat-things\`.\n2. Use its OpenAPI and Agents schemas.\n3. Create an Agent and a Session with explicit tools and environment settings.\n4. Follow Turns, Items and live Session events.\n5. Use Vaults for credentials and schedules or provider bindings for recurring input.\n\nRead [Connect an agent](${pagesUrl}/docs/agents/) and [Agents API](${pagesUrl}/docs/agents-api/). The [architecture page](${pagesUrl}/architecture/) outlines every system and request path.\n\n${guideSections}\n\n${sections}\n\n## Machine-readable contracts\n\n- [OpenAPI](${pagesUrl}/openapi.json)\n- [Agents schemas](${pagesUrl}/schemas/agents-api.schema.json)\n- [Operational corpus](${pagesUrl}/llms-full.txt)\n- [Repository](${repositoryUrl})\n`;
 
 }
 
@@ -299,6 +303,9 @@ function rewriteHref(href, file) {
   const [path, fragment] = href.split('#', 2);
   if (path.endsWith('.md') && !path.startsWith('../')) {
     return `../${basename(path, '.md')}/${fragment ? `#${fragment}` : ''}`;
+  }
+  if (path.startsWith('../guides/') && path.endsWith('.md')) {
+    return `../../guides/${basename(path, '.md')}/${fragment ? `#${fragment}` : ''}`;
   }
   if (path.startsWith('../')) {
     const repositoryPath = posix.normalize(posix.join('docs', path));
@@ -533,6 +540,7 @@ function renderGuidePage({ guide, previous, next }) {
     article: true,
     published: guide.published,
     reviewed: guide.reviewed,
+    faq: faqStructuredData(guide.rendered, `/guides/${guide.slug}/`),
     main: `
       <main id="guides-main" class="guide-shell guide-page">
         <div class="doc-toolbar">
@@ -567,10 +575,10 @@ function renderGuidePage({ guide, previous, next }) {
   });
 }
 
-function guidePageTemplate({ title, description, canonicalPath, assetPrefix, main, article = false, published, reviewed }) {
+function guidePageTemplate({ title, description, canonicalPath, assetPrefix, main, article = false, published, reviewed, faq }) {
   const pageTitle = `${title} — Rat Things guides`;
   const structuredData = article ? `
-    <script type="application/ld+json">${JSON.stringify({
+    ${renderStructuredData({
       '@context': 'https://schema.org',
       '@type': 'TechArticle',
       headline: title,
@@ -580,7 +588,7 @@ function guidePageTemplate({ title, description, canonicalPath, assetPrefix, mai
       author: { '@type': 'Organization', name: 'Rat Things project', url: repositoryUrl },
       publisher: { '@type': 'Organization', name: 'Rat Things project', url: repositoryUrl },
       mainEntityOfPage: `${pagesUrl}${canonicalPath}`,
-    }).replaceAll('<', '\\u003c')}</script>` : '';
+    }, 'article')}${faq ? renderStructuredData(faq, 'faq') : ''}` : '';
   return `<!doctype html>
 <html lang="en">
   <head>
@@ -636,16 +644,17 @@ function renderDocsHome(groups, documents) {
       </div>
     </section>`).join('\n');
   return pageTemplate({
-    title: 'Documentation',
-    description: 'Run Codex and Pi Durable through one API with isolated AWS execution, approved models, and durable Sessions.',
+    title: 'Self-hosted AI agents in AWS',
+    description: 'Deploy an OpenAI Agents API-compatible control plane for Codex and Pi Durable, with EC2 or Lambda MicroVM workers and durable S3/DynamoDB state.',
     canonicalPath: '/docs/',
     assetPrefix: '../',
     nav,
+    structuredData: renderStructuredData(softwareStructuredData(), 'software'),
     main: `
       <div class="docs-home">
         <p class="docs-eyebrow">Rat Things documentation</p>
-        <h1>Choose the path<br>you need.</h1>
-        <p class="docs-home-lede">Give your first task a home on this computer. Add an AWS workspace when you need more room, or use the same API in your own product. The deeper reference is here when you need it.</p>
+        <h1>Self-hosted AI agents<br>in your AWS account.</h1>
+        <p class="docs-home-lede">Rat Things is an open-source control plane for Codex and Pi Durable. Run per-session EC2 or Lambda MicroVM workers with encrypted S3 content and DynamoDB coordination. Start locally on your computer, deploy in AWS, or connect your product through the OpenAI Agents API-compatible interface. This independent implementation is an engineering preview with documented limits.</p>
         <section class="docs-paths" data-doc-group aria-labelledby="docs-paths-title">
           <h2 id="docs-paths-title" class="docs-sr-only">Choose a documentation path</h2>
           <a data-doc-link href="./local-workspace/"><span>Start on this computer</span><small>Open the desktop and keep your first conversation. No AWS account needed.</small></a>
@@ -653,6 +662,8 @@ function renderDocsHome(groups, documents) {
           <a data-doc-link href="./agent-runtimes/"><span>Choose your runtime</span><small>Compare Codex and Pi Durable, model access, and tools.</small></a>
           <a data-doc-link href="./agents/"><span>Connect an agent</span><small>Discover an installed deployment from one URL.</small></a>
           <a data-doc-link href="./embedding/"><span>Embed Rat Things</span><small>Put the owner-scoped API behind your own product UX.</small></a>
+          <a data-doc-link href="../guides/self-host-openai-agents-api-aws/"><span>Host the Codex harness in AWS</span><small>Separate the harness, sandbox and model provider.</small></a>
+          <a data-doc-link href="../guides/#compare-agent-platforms-title"><span>Compare agent platforms</span><small>E2B, Daytona, Modal, Bedrock AgentCore, ThinkWork and OpenAgentCore.</small></a>
         </section>
         ${cards}
         <aside class="agent-source">
@@ -703,7 +714,7 @@ function renderDocumentPage({ doc, groups, docs, previous, next }) {
   });
 }
 
-function pageTemplate({ title, description, canonicalPath, assetPrefix, nav, main, toc = '' }) {
+function pageTemplate({ title, description, canonicalPath, assetPrefix, nav, main, toc = '', structuredData = '' }) {
   return `<!doctype html>
 <html lang="en">
   <head>
@@ -724,6 +735,7 @@ function pageTemplate({ title, description, canonicalPath, assetPrefix, nav, mai
     <link rel="stylesheet" href="${assetPrefix}brand.css?v=1">
     <link rel="stylesheet" href="${assetPrefix}docs.css?v=5">
     <script defer src="${assetPrefix}docs.js?v=2"></script>
+    ${structuredData}
   </head>
   <body class="docs-body">
     <a class="docs-skip-link" href="#docs-main">Skip to documentation</a>
@@ -771,6 +783,51 @@ function renderDocumentationNav(groups, documents, currentFile, prefix) {
       }).join('\n')}
     </section>`).join('\n')}
   </nav>`;
+}
+
+function renderStructuredData(data, kind) {
+  return `<script type="application/ld+json" data-schema="${kind}">${JSON.stringify(data).replaceAll('<', '\\u003c')}</script>`;
+}
+
+function softwareStructuredData() {
+  return {
+    '@context': 'https://schema.org',
+    '@type': ['SoftwareApplication', 'SoftwareSourceCode'],
+    '@id': `${pagesUrl}/#software`,
+    name: 'Rat Things',
+    url: `${pagesUrl}/`,
+    description: 'An open-source, self-hosted AI agent control plane for Codex and Pi Durable, with per-session EC2 or Lambda MicroVM workers in AWS, encrypted S3 content and DynamoDB coordination. An independent OpenAI Agents API-compatible implementation in engineering preview.',
+    applicationCategory: 'DeveloperApplication',
+    codeRepository: repositoryUrl,
+    license: `${repositoryUrl}/blob/main/LICENSE`,
+    programmingLanguage: ['TypeScript', 'Rust'],
+    runtimePlatform: 'Node.js',
+    sameAs: [repositoryUrl],
+  };
+}
+
+// Derive answers from the visible article so markup cannot advertise hidden FAQs.
+function faqStructuredData(html, canonicalPath) {
+  const section = html.match(/<h2 id="frequently-asked-questions">[\s\S]*?<\/h2>([\s\S]*?)(?=<h2\b|$)/)?.[1];
+  if (!section) return undefined;
+  const mainEntity = [...section.matchAll(/<h3\b[^>]*>([\s\S]*?)<\/h3>([\s\S]*?)(?=<h3\b|$)/g)]
+    .map(([, question, answer]) => ({
+      '@type': 'Question',
+      name: question
+        .replace(/<a class="heading-anchor"[\s\S]*?<\/a>/g, '')
+        .replace(/<[^>]*>/g, '')
+        .replace(/&(amp|quot|#39|lt|gt);/g, (_, entity) => ({ amp: '&', quot: '"', '#39': "'", lt: '<', gt: '>' })[entity])
+        .trim(),
+      acceptedAnswer: { '@type': 'Answer', text: answer.trim() },
+    }));
+  if (mainEntity.length === 0) return undefined;
+  return {
+    '@context': 'https://schema.org',
+    '@type': 'FAQPage',
+    '@id': `${pagesUrl}${canonicalPath}#frequently-asked-questions`,
+    mainEntityOfPage: `${pagesUrl}${canonicalPath}`,
+    mainEntity,
+  };
 }
 
 function renderSitemap(documents, guides) {

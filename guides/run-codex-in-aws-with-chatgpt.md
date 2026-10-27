@@ -150,6 +150,21 @@ credential while a Run is active, and copying the credential into encrypted stor
 that exposure. Keep credential custody, refresh, revocation, and deletion explicit; see the
 [credential lifecycle](../docs/codex-subscription.md#credential-risk-and-lifecycle).
 
+## Frequently asked questions
+
+### Can Rat Things use my ChatGPT Codex login in AWS?
+
+Rat Things documents an explicit credential bridge that copies Codex login
+material into encrypted AWS Secrets Manager storage. The trusted runtime uses it
+for the Session and persists refresh rotation. Review that credential custody
+before enabling the bridge.
+
+### Does connecting an AWS workspace automatically copy my login?
+
+No. Local sign-in and the AWS credential bridge are separate setup choices. The
+AWS deployment needs its own configured model access; copying a Session uses the
+destination's credentials.
+
 ## Sources
 
 - [OpenAI Codex authentication and headless login](https://learn.chatgpt.com/docs/auth)

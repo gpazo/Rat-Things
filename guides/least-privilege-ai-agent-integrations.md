@@ -172,6 +172,20 @@ Before enabling an integration, verify:
 7. The durable ledger and provider state can establish what happened.
 8. IAM, network egress, rate limits, and cost limits match the same risk decision.
 
+## Frequently asked questions
+
+### Does an agent receive the Slack or Linear provider token?
+
+The integration design keeps provider secrets in the trusted host and exposes
+reviewed operations as tools. Effective access is narrowed by provider scopes,
+account grants, allowed operations, resource rules and execution policy.
+
+### Can a running agent request more permissions?
+
+No. Rat Things resolves its capability envelope before launch. An unavailable or
+denied operation stays unavailable during that Run; denial does not create a
+pending approval that widens access.
+
 ## Sources
 
 - [Slack `search.messages` scope, arguments, and legacy status](https://docs.slack.dev/reference/methods/search.messages/)

@@ -117,6 +117,20 @@ an environment that can continue work. Saved public history is not a guarantee o
 process continuity. A lost acknowledgement for an external write requires separate
 reconciliation.
 
+## Frequently asked questions
+
+### Is a saved chat transcript enough to recover an agent?
+
+No. Recovery also depends on accepted input receipts, saved tool results, native
+runtime state, workspace persistence and execution ownership. A transcript
+cannot restore arbitrary processes or prove an external write did not happen.
+
+### Can Rat Things guarantee that every external tool runs exactly once?
+
+No. A provider may accept a write before its result is saved. Tool adapters need
+idempotency or reconciliation for that uncertain outcome; automatically replaying
+an interrupted call can duplicate an external effect.
+
 ## Sources
 
 - [Session durability](../docs/conversations.md#how-durability-works)

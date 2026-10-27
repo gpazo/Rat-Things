@@ -5,9 +5,11 @@
   </picture>
 </h1>
 
-Rat Things runs AI agents on your computer or in your AWS account. It saves their
-conversations and work so you can return later, continue after a worker stops, or
-run tasks on a schedule. Use the Rust desktop app, CLI, or OpenAI-compatible Agents API.
+Rat Things is a self-hosted control plane for AI agents, with per-session EC2 or
+Lambda MicroVM workers in your AWS account and a local workspace on your computer.
+It saves conversations and work so you can return later, continue after a worker
+stops, or run tasks on a schedule. Use the Rust desktop app, CLI, or the
+OpenAI Agents API-compatible interface described in the [API guide](docs/agents-api.md).
 It is for developers building coding agents and services that need saved work,
 isolated execution, and control over their infrastructure.
 
@@ -19,6 +21,14 @@ subscription.
 This is an engineering preview. See [capabilities and boundaries](docs/status-and-roadmap.md)
 for implemented features and current limits, and [security](docs/security.md) before
 connecting sensitive accounts.
+
+Learn [how to run the Codex harness and an Agents API-compatible server in your AWS account](guides/self-host-openai-agents-api-aws.md),
+compare [EC2 and Lambda MicroVM workers](guides/ec2-vs-lambda-microvm-agent-workers.md),
+or compare Rat Things with [E2B](guides/rat-things-vs-e2b.md),
+[Daytona](guides/rat-things-vs-daytona.md), [Modal](guides/rat-things-vs-modal.md),
+[Bedrock AgentCore](guides/rat-things-vs-bedrock-agentcore.md),
+[ThinkWork](guides/rat-things-vs-thinkwork.md), and
+[OpenAgentCore](guides/rat-things-vs-openagentcore.md).
 
 ```mermaid
 %%{init: {'theme': 'base', 'themeVariables': {'primaryColor': '#202022', 'primaryTextColor': '#f7f8f8', 'primaryBorderColor': '#3e3e44', 'lineColor': '#8a8f98', 'fontFamily': 'Inter, sans-serif'}}}%%

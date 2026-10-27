@@ -3,20 +3,20 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Rat Things — A home for your agents</title>
-    <meta name="description" content="Start durable agent conversations on your own computer. Add your AWS workspace for managed computers and work that keeps going, using the same app and APIs.">
+    <title>Rat Things — Self-hosted AI agent control plane for AWS</title>
+    <meta name="description" content="Run Codex and Pi Durable in your AWS account with per-session EC2 or Lambda MicroVM workers, an OpenAI Agents API-compatible interface, and durable S3/DynamoDB state.">
     <meta name="theme-color" content="#181819">
     <meta property="og:type" content="website">
-    <meta property="og:title" content="Small beginnings. Room to grow.">
-    <meta property="og:description" content="A home for your agents on this computer and in your AWS account. Familiar Sessions, one app, and room to grow.">
+    <meta property="og:title" content="Rat Things — Self-hosted AI agent control plane for AWS">
+    <meta property="og:description" content="Run Codex and Pi Durable in your AWS account with isolated workers, an OpenAI Agents API-compatible interface, and durable state. Start locally in the same app.">
     <meta property="og:url" content="https://gpazo.github.io/Rat-Things/">
     <meta property="og:image" content="https://gpazo.github.io/Rat-Things/assets/brand/rat-things-og.png">
     <meta property="og:image:width" content="1200">
     <meta property="og:image:height" content="630">
     <meta property="og:image:alt" content="The Rat Things mark, a robotic guard dog with radiator fins, beside the words VM-level isolation at serverless scale.">
     <meta name="twitter:card" content="summary_large_image">
-    <meta name="twitter:title" content="Small beginnings. Room to grow.">
-    <meta name="twitter:description" content="Start durable agent conversations on this computer. Connect your AWS workspace when your work needs more room.">
+    <meta name="twitter:title" content="Rat Things — Self-hosted AI agent control plane for AWS">
+    <meta name="twitter:description" content="Run Codex and Pi Durable in your AWS account with isolated workers, an OpenAI Agents API-compatible interface, and durable state. Start locally in the same app.">
     <meta name="twitter:image" content="https://gpazo.github.io/Rat-Things/assets/brand/rat-things-og.png">
     <link rel="canonical" href="https://gpazo.github.io/Rat-Things/">
     <link rel="icon" href="favicon.svg" type="image/svg+xml">
@@ -53,7 +53,7 @@
         <div class="hero-copy">
           <p class="eyebrow">A home for your agents · On your computer and in your AWS account</p>
           <h1 class="hero-title">Small beginnings.<br>Room to grow.</h1>
-          <p class="hero-lede">Give a small task to a helpful agent. Use your ChatGPT subscription and a Linux workspace on your own computer. When you need more capacity or work that stays on, copy the Session into your AWS workspace in the same app.</p>
+          <p class="hero-lede">Rat Things is an open-source, self-hosted control plane for Codex and Pi Durable. Start on your computer with your ChatGPT subscription. Grow into your AWS account with per-session EC2 or Lambda MicroVM workers and encrypted S3/DynamoDB state.</p>
           <p class="hero-status">Engineering preview · start with your ChatGPT subscription · grow into AWS</p>
           <div class="hero-actions">
             <a class="button button-primary" href="docs/local-workspace/">Start on this computer</a>
@@ -112,6 +112,7 @@
             <p><strong>Bring your Codex subscription:</strong> sign in with ChatGPT for Rat Things. Your subscription stays on your computer while commands run in an isolated Linux workspace.</p>
             <p><strong>Room to grow:</strong> review and copy an idle Session into your AWS workspace when you need it. Conversation and workspace files move together; the destination uses its own configured credentials.</p>
             <a class="text-link" href="docs/local-workspace/">Start at home, grow into AWS <span aria-hidden="true">→</span></a>
+            <p><a class="text-link" href="guides/self-host-openai-agents-api-aws/">Run an OpenAI Agents API-compatible server in your AWS account <span aria-hidden="true">→</span></a></p>
             <p><strong>Pi Durable on Bedrock.</strong> The host supplies short-term model access and stores native commits. Pi retains pending work; Rat Things coordinates worker replacement and blocks writes from old owners.</p>
             <p><strong>Runtime choice stays fixed.</strong> Create a new Session to switch runtimes. Pi supports function tools, MCP, and subagents. Hosted skills, runtime plugins, and self-hosted environments require Codex. Shared integrations such as Slack and Linear can be used with either runtime through declared tools.</p>
             <a class="text-link" href="docs/agent-runtimes/">Compare runtimes and setup paths <span aria-hidden="true">→</span></a>

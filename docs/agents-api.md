@@ -1,4 +1,4 @@
-# Agents API in your AWS account
+# Self-hosted OpenAI Agents API-compatible server in AWS
 
 Rat Things implements the OpenAI Agents API resource model using the official
 OpenAI SDK. Your AWS account owns the API service, agent harness, session state,
@@ -10,6 +10,10 @@ The deployment's `/openapi.json` and `/schemas/agents-api.schema.json` describe 
 installed routes and pinned SDK types. This implementation is an engineering
 preview; matching resource types does not establish complete behavioral parity
 with OpenAI's hosted service.
+
+For the deployment decision, read
+[Can I run the OpenAI Agents API harness in my own AWS account?](../guides/self-host-openai-agents-api-aws.md).
+It distinguishes hosting a sandbox from owning the Codex harness and control plane.
 
 ## Choose a Session runtime
 

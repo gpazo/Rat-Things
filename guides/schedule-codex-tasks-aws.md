@@ -70,6 +70,19 @@ Sessions. It has no separate executable-agent definition or release pointer.
 A schedule stores an Agent reference; the Session snapshots that Agent at first
 preparation. The environment and provider must support every requested tool.
 
+## Frequently asked questions
+
+### Can I schedule Codex or Pi Durable without leaving my laptop on?
+
+Yes. An AWS deployment uses EventBridge Scheduler to submit work to owned Agents
+and durable Sessions. The Agent's runtime, model, tools and environment must be
+configured before the scheduled work starts.
+
+### Does pausing a schedule cancel work it already accepted?
+
+No. Pausing prevents new occurrences. Already accepted work continues under its
+saved receipt; use the Session's control operations to manage that work.
+
 ## Sources
 
 - [Rat Things schedule contract](../docs/schedules.md)
