@@ -70,10 +70,10 @@ verification must fail the handoff; it must not silently reconstruct a prompt or
 start a new native thread. The opt-in AWS checkpoint harness remains necessary
 before claiming cloud worker replacement acceptance.
 
-The cold verifier supports the built-in OpenAI provider and custom Responses API
-providers. It rejects Bedrock, Ollama and LM Studio before stopping the live
-process until their recovery paths are validated; ordinary Sessions and Pi
-Durable execution are unaffected.
+The cold verifier supports the built-in OpenAI and Amazon Bedrock providers and
+custom Responses API providers. It rejects Ollama and LM Studio before stopping
+the live process because their recovery paths are unsupported; ordinary Sessions
+and Pi Durable execution are unaffected.
 
 ## Upgrade and rollback
 

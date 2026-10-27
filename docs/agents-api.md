@@ -414,9 +414,9 @@ resume. Verification has no network or credentials and cannot run model work or
 tools. Extra coordination details omitted by Codex's public history remain in
 the host journal. This does not verify Codex's hidden mailbox state.
 
-Codex cold checkpoints currently support the built-in OpenAI provider and custom
-Responses API providers. Bedrock, Ollama and LM Studio are refused before the
-running process stops because their cold recovery has not been validated. This
+Codex cold checkpoints support the built-in OpenAI and Amazon Bedrock providers
+and custom Responses API providers. Ollama and LM Studio are refused before the
+running process stops because their cold recovery is unsupported. This
 restriction does not prevent ordinary Sessions or Pi Durable execution.
 
 Checkpointing refuses unsupported startup integrations, external native storage,

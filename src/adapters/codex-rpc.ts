@@ -95,9 +95,13 @@ export class CodexRpcClient {
     }
   }
 
-  public async initialize(): Promise<void> {
-    await this.call('initialize', { clientInfo: { name: 'rat-environment-service', version: '1' }, capabilities: { experimentalApi: true } });
+  public async initialize(timeoutMs = 30_000): Promise<void> {
+    const startedAt = performance.now();
+    await this.call('initialize', { clientInfo: { name: 'rat-environment-service', version: '1' }, capabilities: { experimentalApi: true } }, timeoutMs);
     this.child.stdin.write(`${JSON.stringify({ method: 'initialized' })}\n`);
+    if (this.startupPurpose) console.error(JSON.stringify({ message: 'Native harness initialized', purpose: this.startupPurpose, ordinal: this.processOrdinal,
+      elapsedMs: Math.min(3_600_000, Math.max(0, Math.round(performance.now() - startedAt))),
+    }));
   }
 
   public call(method: string, params: unknown, timeoutMs = 30_000): Promise<unknown> {
