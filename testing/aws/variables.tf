@@ -71,6 +71,24 @@ variable "enable_slack_webhook" {
   default     = false
 }
 
+variable "enable_super_agent_proof" {
+  description = "Enable the bounded watchdog, Slack message intake and deployment-owned delivery capture for four-feature live validation."
+  type        = bool
+  default     = false
+}
+
+variable "event_filter_model_id" {
+  description = "Exact structured-output Converse model used by the candidate proof."
+  type        = string
+  default     = null
+}
+
+variable "event_filter_inference_resource_arns" {
+  description = "Exact model and profile ARNs for the candidate proof."
+  type        = list(string)
+  default     = []
+}
+
 variable "enable_publication_delivery" {
   description = "Provision the disposable CloudFront publication delivery path."
   type        = bool

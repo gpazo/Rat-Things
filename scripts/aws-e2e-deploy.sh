@@ -168,6 +168,13 @@ aws_e2e_export AWS_E2E_PUBLICATION_DOMAIN "$publication_domain"
 aws_e2e_export AWS_E2E_PUBLICATION_ROUTE53_ZONE_ID "$publication_zone_id"
 aws_e2e_export AWS_E2E_BROWSER_EVIDENCE_FILE "$run_dir/browser-publication-evidence.json"
 aws_e2e_export AWS_E2E_ENABLE_SLACK_WEBHOOK "$slack_webhook_enabled"
+aws_e2e_export AWS_E2E_SUPER_AGENT_PROOF "${AWS_E2E_SUPER_AGENT_PROOF:-false}"
+aws_e2e_export AWS_E2E_EVENT_FILTER_MODEL_ID "${AWS_E2E_EVENT_FILTER_MODEL_ID:-}"
+aws_e2e_export AWS_E2E_EVENT_FILTER_INFERENCE_RESOURCE_ARNS_JSON "${AWS_E2E_EVENT_FILTER_INFERENCE_RESOURCE_ARNS_JSON:-}"
+aws_e2e_export AGENTS_TABLE_NAME "rat-things-${deployment_id}-agents"
+aws_e2e_export AWS_E2E_WATCHDOG_FUNCTION_NAME "rat-things-${deployment_id}-watchdog"
+aws_e2e_export AWS_E2E_WATCHDOG_RULE_NAME "rat-things-${deployment_id}-watchdog"
+aws_e2e_export AWS_E2E_AGENTS_OUTBOX_FUNCTION_NAME "rat-things-${deployment_id}-agents-outbox"
 if [[ "$slack_webhook_enabled" == "true" ]]; then
   aws_e2e_export AWS_E2E_SLACK_SIGNING_SECRET_FILE "$slack_secret_file"
 fi
@@ -203,10 +210,14 @@ aws_e2e_export STATE_STREAM_FAILURE_QUEUE_URL "$(aws_e2e_output state_stream_fai
 aws_e2e_export NOTIFIER_DELIVERY_FAILURE_QUEUE_URL "$(aws_e2e_output notifier_delivery_failure_queue_url)"
 aws_e2e_export TERMINAL_EVENTS_QUEUE_URL "$(aws_e2e_output terminal_events_queue_url)"
 aws_e2e_export DELIVERY_CAPTURE_QUEUE_URL "$(aws_e2e_output delivery_capture_queue_url)"
+if [[ "${AWS_E2E_SUPER_AGENT_PROOF:-false}" == "true" ]]; then
+  aws_e2e_export AWS_E2E_WEBHOOK_CAPTURE_URL "$(aws_e2e_output delivery_capture_url)"
+fi
 aws_e2e_export INTEGRATION_FIXTURE_URL "$(aws_e2e_output integration_fixture_url)"
 aws_e2e_export INTEGRATION_FIXTURE_AUDIT_QUEUE_URL "$(aws_e2e_output integration_fixture_audit_queue_url)"
 aws_e2e_export INTEGRATION_FIXTURE_ALPHA_KEY "alpha-${deployment_id}"
 aws_e2e_export INTEGRATION_FIXTURE_BETA_KEY "beta-${deployment_id}"
+aws_e2e_export INTEGRATION_FIXTURE_ECHO_KEY "echo-${deployment_id}:/+?="
 aws_e2e_export GITHUB_WEBHOOK_URL "$(jq -r '.github' <<<"$webhook_urls")"
 aws_e2e_export GITLAB_WEBHOOK_URL "$(jq -r '.gitlab' <<<"$webhook_urls")"
 aws_e2e_export TEAMS_WEBHOOK_URL "$(jq -r '.teams' <<<"$webhook_urls")"

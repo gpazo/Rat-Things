@@ -36,6 +36,9 @@ aws_e2e_source_runtime_defaults() {
     AWS_E2E_PUBLICATION_DOMAIN
     AWS_E2E_PUBLICATION_ROUTE53_ZONE_ID
     AWS_E2E_ENABLE_SLACK_WEBHOOK
+    AWS_E2E_SUPER_AGENT_PROOF
+    AWS_E2E_EVENT_FILTER_MODEL_ID
+    AWS_E2E_EVENT_FILTER_INFERENCE_RESOURCE_ARNS_JSON
     AWS_E2E_SLACK_SIGNING_SECRET_FILE
     TF_PLUGIN_CACHE_DIR
   )
@@ -168,8 +171,15 @@ aws_e2e_configure() {
     "-var=pi_bedrock_inference_resource_arns=$pi_bedrock_inference_resource_arns"
     "-var=integration_oauth_app_secret_arns=$oauth_app_secret_arns"
     "-var=enable_slack_webhook=$slack_webhook_enabled"
+    "-var=enable_super_agent_proof=${AWS_E2E_SUPER_AGENT_PROOF:-false}"
     "-var=enable_publication_delivery=$publication_enabled"
   )
+  if [[ -n "${AWS_E2E_EVENT_FILTER_MODEL_ID:-}" ]]; then
+    tf_vars+=("-var=event_filter_model_id=$AWS_E2E_EVENT_FILTER_MODEL_ID")
+  fi
+  if [[ -n "${AWS_E2E_EVENT_FILTER_INFERENCE_RESOURCE_ARNS_JSON:-}" ]]; then
+    tf_vars+=("-var=event_filter_inference_resource_arns=$AWS_E2E_EVENT_FILTER_INFERENCE_RESOURCE_ARNS_JSON")
+  fi
   if [[ -n "$ec2_worker_ami_base_id" ]]; then
     tf_vars+=("-var=ec2_worker_ami_base_id=$ec2_worker_ami_base_id")
   fi

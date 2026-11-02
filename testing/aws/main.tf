@@ -16,6 +16,7 @@ locals {
     reconciler        = "${path.root}/../../dist/reconciler.zip"
     state-stream      = "${path.root}/../../dist/state-stream.zip"
     thing-schedule    = "${path.root}/../../dist/thing-schedule.zip"
+    watchdog          = "${path.root}/../../dist/watchdog.zip"
     webhook-github    = "${path.root}/../../dist/webhook-github.zip"
     webhook-gitlab    = "${path.root}/../../dist/webhook-gitlab.zip"
     webhook-teams     = "${path.root}/../../dist/webhook-teams.zip"
@@ -108,6 +109,18 @@ resource "aws_acm_certificate_validation" "publication" {
 }
 
 module "agent_runner" {
+  enable_watchdog                          = var.enable_super_agent_proof
+  watchdog_schedule_expression             = "rate(1 minute)"
+  watchdog_long_running_seconds            = 1800
+  watchdog_stuck_seconds                   = 300
+  watchdog_retry_backoff_seconds           = 1
+  watchdog_max_candidates                  = 100
+  watchdog_max_judges_per_tick             = 1
+  watchdog_model                           = var.codex_model_id
+  watchdog_destinations                    = [{ kind = "teams" }]
+  event_filter_model_id                    = var.event_filter_model_id
+  event_filter_inference_resource_arns     = var.event_filter_inference_resource_arns
+  slack_candidate_events_enabled           = var.enable_super_agent_proof
   session_checkpoints_enabled              = var.session_checkpoints_enabled
   environment_relay_image                  = var.environment_relay_image
   environment_relay_origin_hostname        = var.environment_relay_origin_hostname
@@ -139,7 +152,7 @@ module "agent_runner" {
   codex_bedrock_model_ids            = [var.codex_model_id]
   pi_bedrock_model_ids               = var.pi_bedrock_model_ids
   pi_bedrock_inference_resource_arns = var.pi_bedrock_inference_resource_arns
-  default_delivery_destinations      = "source"
+  default_delivery_destinations      = var.enable_super_agent_proof ? "teams" : "source"
   integration_plugin_base_urls       = { fixture-crm = aws_lambda_function_url.integration_fixture.function_url }
   integration_oauth_app_secret_arns  = var.integration_oauth_app_secret_arns
   lambda_zip_paths                   = local.lambda_zip_paths

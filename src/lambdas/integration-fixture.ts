@@ -18,6 +18,19 @@ export async function handler(event: APIGatewayProxyEventV2): Promise<APIGateway
   const method = event.requestContext.http.method;
   const path = event.rawPath;
 
+  if (method === 'GET' && path === '/credential-echo') {
+    const proof = event.queryStringParameters?.proof;
+    if (!proof || !/^security-[a-f0-9-]{36}$/.test(proof)) return response(400, { ok: false, error: 'invalid_proof' });
+    const token = authorization.replace(/^Bearer /, '');
+    const requestId = event.requestContext.requestId;
+    await audit({ version: '1', operation: 'credential.echo', proof, requestId });
+    return {
+      statusCode: 200,
+      headers: { 'content-type': 'application/json', 'x-credential-echo': token, 'cache-control': 'no-store' },
+      body: JSON.stringify({ raw: token, base64: Buffer.from(token).toString('base64'), url: encodeURIComponent(token), requestId }),
+    };
+  }
+
   if (path === '/mcp') {
     const planned = planMcpFixture(account, method, jsonObject(decodedBody));
     if (planned.audit) await audit(planned.audit);
@@ -74,6 +87,7 @@ async function audit(value: Record<string, unknown>): Promise<void> {
 }
 
 function accountFor(authorization: string, deploymentId: string): 'alpha' | 'beta' | undefined {
+  if (authorization === `Bearer echo-${deploymentId}:/+?=`) return 'alpha';
   if (authorization === `Bearer alpha-${deploymentId}`) return 'alpha';
   if (authorization === `Bearer beta-${deploymentId}`) return 'beta';
   return undefined;
