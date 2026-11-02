@@ -102,4 +102,19 @@ describe('watchdog retry provider delivery', () => {
     expect((await f.integration())!.value.inputs).toHaveLength(2);
     expect(f.deliver).toHaveBeenCalledOnce();
   });
+
+  it('does not attach an unrelated API Turn to an earlier provider input', async () => {
+    const f = await failedProviderSession();
+    await f.sessions.events('operator', f.sessionId, { events: [{ type: 'agent.session.input.message', input: [{ role: 'user', content: [{ type: 'input_text', text: 'API input' }] }] }] });
+    await f.sessions.dispatch('operator', f.sessionId);
+    const apiTurn = (await f.store.get<SessionState>('operator', 'sessions', f.sessionId))!.value.turns.at(-1)!.turn;
+    f.observations.set(apiTurn.id, { turn: { ...apiTurn, status: 'failed', completed_at: 100, error: { code: 'server_overloaded', message: 'Try again' } }, requiredActions: [] });
+    await f.sessions.completeReadyTurns('operator', f.sessionId);
+    const integration = await f.integration();
+    const limiter = new OwnerRateLimiter(f.store, () => 1, { now: () => 1000 });
+    expect(await applyWatchdogAction(f.store, limiter, { ...f.candidate, turnId: apiTurn.id }, 'retry', 1000, defaultWatchdogPolicy)).toBe(true);
+    await f.completeRetry();
+    expect(await f.integration()).toEqual(integration);
+    expect(f.deliver).not.toHaveBeenCalled();
+  });
 });
