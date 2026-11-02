@@ -15,6 +15,7 @@ locals {
   thing_schedule_target_arn = "arn:${data.aws_partition.current.partition}:lambda:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:function:${local.name}-thing-schedule"
 
   lambda_zip_paths = merge({
+    watchdog          = "${path.root}/../dist/watchdog.zip"
     agents-api        = "${path.root}/../dist/agents-api.zip"
     agents-outbox     = "${path.root}/../dist/agents-outbox.zip"
     connection-health = "${path.root}/../dist/connection-health.zip"

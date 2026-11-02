@@ -1,4 +1,5 @@
 import { validateSourceEventPolicy, type SourceEventPolicy } from '../domain/event-policy.js';
+import { parseWatchdogBinding } from '../domain/watchdog.js';
 import { iamApiPrincipal } from '../domain/api-permissions.js';
 import { getSessionPublicationService } from '../app/composition.js';
 import { parseAgentsContract } from '../domain/agents-api-validation.js';
@@ -310,7 +311,7 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
         'sourceKind',
         'threadScope',
         'selector',
-        'agentId', 'environment', 'vaultIds', 'eventPolicy',
+        'agentId', 'environment', 'vaultIds', 'eventPolicy', 'watchdog',
         'connectionSetId',
       ]);
       requireVersion(body.version);
@@ -330,6 +331,7 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
         ...(body.threadScope !== undefined ? { threadScope: threadScope(body.threadScope) } : {}),
         ...(body.eventPolicy !== undefined ? { eventPolicy: sourceEventPolicy(body.eventPolicy) } : {}),
         agentId, environment: target.environment, vaultIds: target.vault_ids ?? [],
+        ...(body.watchdog !== undefined ? { watchdog: parseWatchdogBinding(body.watchdog) } : {}),
         ...(body.connectionSetId !== undefined
           ? { connectionSetId: boundedText(body.connectionSetId, 'connectionSetId', 256) }
           : {}),

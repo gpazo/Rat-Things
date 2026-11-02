@@ -13,6 +13,7 @@ provider and the AWS Cloud Control provider required for the MicroVM image resou
   discovery/contracts, and IAM-authenticated owner-scoped control routes.
 - Lambda ingress, control, Agents API/token issuance, Agents outbox, dispatcher, reconciler,
   Session scheduling, connection-health, state-stream, and notification functions.
+- An optional [independent watchdog](../docs/watchdog.md) with its own role and schedule.
 - Encrypted DynamoDB Agent, Session, execution and integration stores;
   encrypted S3 artifact, non-expiring definition, and MicroVM-source buckets; and encrypted SQS
   work/dead-letter queues.

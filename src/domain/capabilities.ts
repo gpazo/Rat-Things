@@ -1,4 +1,5 @@
 import { validateSourceEventPolicy, type SourceEventPolicy } from './event-policy.js';
+import { parseWatchdogBinding } from './watchdog.js';
 import type { SessionIntegrationTarget } from './session-integrations.js';
 import { parseAgentsContract } from './agents-api-validation.js';
 import type { JsonValue, RunSource, SandboxMode } from './contracts.js';
@@ -363,6 +364,7 @@ export function validateSourceCapabilityBinding(
   parseAgentsContract('SessionCreate', { agent_id: value.agentId, environment: value.environment, vault_ids: value.vaultIds ?? [], input: 'Validate integration target' });
   if (value.connectionSetId) requireId(value.connectionSetId, 'connection set ID');
   if (value.eventPolicy !== undefined) validateSourceEventPolicy(value.eventPolicy);
+  if (value.watchdog !== undefined) parseWatchdogBinding(value.watchdog);
   return structuredClone(value);
 }
 

@@ -1,3 +1,4 @@
+import { parseWatchdogBinding } from './watchdog.js';
 import type { SessionIntegrationTarget } from './session-integrations.js';
 import { AgentsApiError, parseAgentsContract } from './agents-api-validation.js';
 import { isRecord } from './validation.js';
@@ -26,7 +27,7 @@ export interface ScheduleInvocation { ownerId: string; scheduleId: string; gener
 
 export function scheduleConfiguration(raw: unknown): ScheduleConfiguration {
   if (!isRecord(raw)) invalid('Schedule configuration must be an object');
-  const keys = ['name', 'expression', 'timezone', 'input', 'overlap', 'agentId', 'environment', 'vaultIds', 'destinations', 'connectionSetId', 'runtime'];
+  const keys = ['name', 'expression', 'timezone', 'input', 'overlap', 'agentId', 'environment', 'vaultIds', 'destinations', 'connectionSetId', 'runtime', 'watchdog'];
   if (Object.keys(raw).some((key) => !keys.includes(key))) invalid('Unknown schedule field');
   if (raw.runtime !== undefined && raw.runtime !== 'pi' && raw.runtime !== 'codex') invalid('runtime must be codex or pi');
   const name = text(raw.name, 'name', 128);
@@ -41,6 +42,7 @@ export function scheduleConfiguration(raw: unknown): ScheduleConfiguration {
   if (!target.agent_id) invalid('agentId is required');
   if (raw.destinations !== undefined && (!Array.isArray(raw.destinations) || raw.destinations.some((entry) => !isRecord(entry) || !['source', 'teams', 'slack', 'none'].includes(String(entry.kind)) || Object.keys(entry).some((key) => key !== 'kind' && key !== 'route') || entry.route !== undefined && (typeof entry.route !== 'string' || entry.route.length > 512)))) invalid('Invalid destinations');
   return { ...(raw.runtime ? { runtime: raw.runtime as 'pi' | 'codex' } : {}), name, expression, ...(timezone ? { timezone } : {}), input, overlap, agentId: target.agent_id, environment: target.environment, vaultIds: target.vault_ids ?? [],
+    ...(raw.watchdog !== undefined ? { watchdog: parseWatchdogBinding(raw.watchdog) } : {}),
     ...(raw.destinations !== undefined ? { destinations: structuredClone(raw.destinations) as NonNullable<ScheduleConfiguration['destinations']> } : {}),
     ...(raw.connectionSetId !== undefined ? { connectionSetId: text(raw.connectionSetId, 'connectionSetId', 256) } : {}),
   };

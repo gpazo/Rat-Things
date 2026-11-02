@@ -9,6 +9,7 @@ export interface SessionIntegrationTarget {
   environment: EnvironmentParam;
   vaultIds?: string[];
   destinations?: RunDestination[];
+  watchdog?: { cancelLoops?: boolean };
   /** Delivery credentials only. Agent tools are declared on the Agent. */
   connectionSetId?: string;
 }

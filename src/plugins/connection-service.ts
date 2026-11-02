@@ -357,6 +357,7 @@ export class ConnectionService {
       agentId: input.agentId, environment: input.environment,
       ...(input.vaultIds ? { vaultIds: input.vaultIds } : {}),
       ...(input.destinations ? { destinations: input.destinations } : {}),
+      ...(input.watchdog ? { watchdog: input.watchdog } : {}),
       ...(input.connectionSetId ? { connectionSetId: input.connectionSetId } : {}),
     });
     await this.options.store.putSourceBinding(binding);

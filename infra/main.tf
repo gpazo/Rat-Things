@@ -2,8 +2,24 @@ module "agent_runner" {
   event_filter_model_id                = var.event_filter_model_id
   event_filter_inference_resource_arns = var.event_filter_inference_resource_arns
   slack_candidate_events_enabled       = var.slack_candidate_events_enabled
-  session_checkpoints_enabled          = var.session_checkpoints_enabled
-  source                               = "./modules/agent-runner"
+  enable_watchdog                 = var.enable_watchdog
+  watchdog_schedule_expression    = var.watchdog_schedule_expression
+  watchdog_owner_id               = var.watchdog_owner_id
+  watchdog_model                  = var.watchdog_model
+  watchdog_destinations           = var.watchdog_destinations
+  watchdog_long_running_seconds   = var.watchdog_long_running_seconds
+  watchdog_recent_failure_seconds = var.watchdog_recent_failure_seconds
+  watchdog_stuck_seconds          = var.watchdog_stuck_seconds
+  watchdog_retry_backoff_seconds  = var.watchdog_retry_backoff_seconds
+  watchdog_max_candidates         = var.watchdog_max_candidates
+  watchdog_max_judges_per_tick    = var.watchdog_max_judges_per_tick
+  watchdog_judge_timeout_seconds  = var.watchdog_judge_timeout_seconds
+  watchdog_retention_seconds      = var.watchdog_retention_seconds
+  watchdog_loop_confidence        = var.watchdog_loop_confidence
+  watchdog_allow_cancel           = var.watchdog_allow_cancel
+
+  session_checkpoints_enabled = var.session_checkpoints_enabled
+  source                      = "./modules/agent-runner"
 
   name_prefix                              = var.name_prefix
   environment                              = var.environment

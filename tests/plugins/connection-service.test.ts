@@ -639,3 +639,17 @@ function memoryStore() {
   };
   return { store, connections, grants, bindings, sets, sourceBindings, health };
 }
+
+describe('watchdog binding policy', () => {
+  it('persists an explicit cancellation opt-in through source binding creation', async () => {
+    const state = memoryStore();
+    const service = connectionService(state.store, { create: vi.fn(), replace: vi.fn(), revoke: vi.fn() });
+    const input = { ownerId: 'api:owner-1', sourceKind: 'slack' as const, selector: { teamId: 'T123' }, agentId: 'agent_1', environment: { type: 'none' as const } };
+    const disabled = await service.createSourceBinding(input);
+    expect(disabled.watchdog).toBeUndefined();
+    const enabled = await service.createSourceBinding({ ...input, watchdog: { cancelLoops: true } });
+    expect(enabled.watchdog).toEqual({ cancelLoops: true });
+    expect(state.sourceBindings.at(-1)?.watchdog).toEqual({ cancelLoops: true });
+    await expect(service.createSourceBinding({ ...input, watchdog: { cancelLoops: 'yes' as unknown as boolean } })).rejects.toMatchObject({ status: 400 });
+  });
+});
