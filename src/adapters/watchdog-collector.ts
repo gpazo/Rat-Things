@@ -3,7 +3,7 @@ import { DescribeAlarmsCommand, type CloudWatchClient } from '@aws-sdk/client-cl
 import type { AgentsStore, AgentResource } from '../core/agents-ports.js';
 import type { SessionState } from '../core/session-ports.js';
 import type { SessionStreamSnapshot } from '../core/session-stream.js';
-import type { WatchdogCollection } from '../core/watchdog-service.js';
+import { watchdogFindingNeedsWork, type WatchdogCollection } from '../core/watchdog-service.js';
 import type { WatchdogCandidate, WatchdogFinding, WatchdogPolicy } from '../domain/watchdog.js';
 import type { WebhookDelivery } from '../domain/session-webhooks.js';
 import type { SessionIntegrationState } from '../domain/session-integrations.js';
@@ -11,7 +11,7 @@ import type { RunRecord } from '../domain/contracts.js';
 import { isWatchdogJudge, watchdogSessionCandidates } from '../core/watchdog-planning.js';
 import { savedSessionObservation } from '../core/session-observation-planning.js';
 
-interface ScanCursor { agents?: Record<string, unknown>; runs?: Record<string, unknown> }
+interface ScanCursor { agents?: Record<string, unknown>; runs?: Record<string, unknown>; candidateOffset?: number }
 export class WatchdogCollector {
   public constructor(private readonly options: { store: AgentsStore; dynamodb: DynamoDBDocumentClient; cloudwatch: CloudWatchClient; agentsTable: string; runsTable: string; alarmPrefix: string; operatorOwnerId: string; policy: WatchdogPolicy }) {}
   public async collect(now: number): Promise<WatchdogCollection> {
@@ -32,7 +32,7 @@ export class WatchdogCollector {
       const { ownerId, id, collection } = index;
       if (collection === 'watchdog_findings') {
         const finding = await store.get<WatchdogFinding>(ownerId, collection, id);
-        if (finding && (finding.value.judge.status === 'pending' || finding.value.judgeCleanupPending || finding.value.retry === 'pending' || finding.value.reportedVersion < finding.value.reportVersion || finding.value.cancel === 'pending')) findings.push(finding);
+        if (finding && watchdogFindingNeedsWork(finding.value, policy)) findings.push(finding);
       } else if (collection === 'sessions') {
         const state = await store.get<SessionState>(ownerId, collection, id);
         if (!state || isWatchdogJudge(state.value)) continue;
@@ -67,9 +67,13 @@ export class WatchdogCollector {
       const alarms = await this.options.cloudwatch.send(new DescribeAlarmsCommand({ AlarmNamePrefix: this.options.alarmPrefix, StateValue: 'ALARM', MaxRecords: 50 }));
       for (const alarm of [...alarms.MetricAlarms ?? [], ...alarms.CompositeAlarms ?? []]) if (alarm.AlarmName) candidates.push({ ownerId: operatorOwnerId, subjectId: alarm.AlarmName, reason: 'alarm', since: (alarm.StateUpdatedTimestamp?.getTime() ?? now * 1000) / 1000 });
     } catch { alarmFailure = true; }
+    candidates.sort((a, b) => a.since - b.since || `${a.ownerId}:${a.reason}:${a.subjectId}:${a.turnId ?? ''}`.localeCompare(`${b.ownerId}:${b.reason}:${b.subjectId}:${b.turnId ?? ''}`));
+    const offset = candidates.length ? (checkpoint?.value.candidateOffset ?? 0) % candidates.length : 0;
+    const nextOffset = offset + policy.maxCandidates;
+    const repeatPage = nextOffset < candidates.length;
     await store.put({ ownerId: operatorOwnerId, id: 'cursor', collection: 'watchdog_scan', createdAt: checkpoint?.createdAt ?? now, revision: (checkpoint?.revision ?? 0) + 1,
-      value: { ...(agents.LastEvaluatedKey ? { agents: agents.LastEvaluatedKey } : {}), ...(runs.LastEvaluatedKey ? { runs: runs.LastEvaluatedKey } : {}) },
+      value: repeatPage ? { ...checkpoint?.value, candidateOffset: nextOffset } : { ...(agents.LastEvaluatedKey ? { agents: agents.LastEvaluatedKey } : {}), ...(runs.LastEvaluatedKey ? { runs: runs.LastEvaluatedKey } : {}) },
     }, checkpoint?.revision ?? 0);
-    return { candidates: candidates.sort((a, b) => a.since - b.since).slice(0, policy.maxCandidates), findings, partial: Boolean(agents.LastEvaluatedKey || runs.LastEvaluatedKey || alarmFailure) };
+    return { candidates: [...candidates.slice(offset), ...candidates.slice(0, offset)], findings, partial: Boolean(repeatPage || agents.LastEvaluatedKey || runs.LastEvaluatedKey || alarmFailure) };
   }
 }

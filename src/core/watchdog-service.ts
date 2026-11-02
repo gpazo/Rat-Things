@@ -4,6 +4,7 @@ import { parseWatchdogVerdict, watchdogIdentity } from './watchdog-planning.js';
 import { AgentsResourceConflictError } from '../domain/agents-api-validation.js';
 
 export interface WatchdogCollection { candidates: WatchdogCandidate[]; findings: Array<AgentResource<WatchdogFinding>>; partial: boolean }
+export const watchdogFindingNeedsWork = (finding: WatchdogFinding, policy: WatchdogPolicy): boolean => finding.judge.status === 'pending' || Boolean(finding.judgeCleanupPending) || finding.retry === 'pending' || finding.reportedVersion < finding.reportVersion || finding.cancel === 'pending' || finding.judge.status === 'skipped' && finding.candidate.reason === 'long_running' && policy.maxJudgesPerTick > 0;
 export interface WatchdogPorts {
   collect(now: number): Promise<WatchdogCollection>;
   judgeStart(candidate: WatchdogCandidate, sessionId: string): Promise<void>;
@@ -19,20 +20,22 @@ export class WatchdogService {
     const now = this.options.clock.now();
     const collected = await ports.collect(now);
     const work = new Map(collected.findings.map(resource => [`${resource.ownerId}:${resource.id}`, resource]));
+    const created = new Set<string>();
     let errors = 0;
-    for (const candidate of collected.candidates.slice(0, policy.maxCandidates)) {
+    for (const candidate of collected.candidates) {
+      if (created.size >= policy.maxCandidates) break;
       const id = watchdogIdentity(candidate);
       const existing = await store.get<WatchdogFinding>(candidate.ownerId, 'watchdog_findings', id);
-      if (existing) { work.set(`${candidate.ownerId}:${id}`, existing); continue; }
+      if (existing) { if (watchdogFindingNeedsWork(existing.value, policy)) work.set(`${candidate.ownerId}:${id}`, existing); continue; }
       const resource: AgentResource<WatchdogFinding> = { ownerId: candidate.ownerId, id, collection: 'watchdog_findings', createdAt: now, revision: 1, expiresAt: now + policy.retentionSeconds, value: {
         candidate, observedAt: now, judge: { status: 'skipped' }, retry: candidate.reason === 'transient_failure' ? 'pending' : 'not_applicable', cancel: 'not_requested', reportVersion: 1, reportedVersion: 0,
       } };
-      try { await store.put(resource, 0); work.set(`${candidate.ownerId}:${id}`, resource); }
+      try { await store.put(resource, 0); work.set(`${candidate.ownerId}:${id}`, resource); created.add(id); }
       catch (error) { if (!(error instanceof AgentsResourceConflictError)) errors++; }
     }
     let judges = 0;
     let reports = 0;
-    for (let resource of [...work.values()].slice(0, policy.maxCandidates * 2)) {
+    for (let resource of [...work.values()].sort((a, b) => Number(created.has(b.id)) - Number(created.has(a.id))).slice(0, policy.maxCandidates * 2)) {
       try {
         let value = resource.value;
         if (value.retry === 'pending') {
@@ -41,10 +44,8 @@ export class WatchdogService {
         }
         if (value.judge.status === 'skipped' && value.candidate.reason === 'long_running' && judges < policy.maxJudgesPerTick) {
           judges++;
-          const sessionId = `sess_${resource.id}_judge`;
-          // Persist the stable judge identity before submission so crash recovery reuses it.
-          value = { ...value, judge: { status: 'pending', sessionId, startedAt: now } };
-          resource = await this.save(resource, value);
+          resource = await this.reserveJudge(resource, value, now);
+          value = resource.value;
         }
         if (value.judge.status === 'pending') {
           const judge = value.judge;
@@ -80,6 +81,9 @@ export class WatchdogService {
       } catch { errors++; }
     }
     return { candidates: collected.candidates.length, reports, errors, partial: collected.partial };
+  }
+  private reserveJudge(resource: AgentResource<WatchdogFinding>, value: WatchdogFinding, startedAt: number) {
+    return this.save(resource, { ...value, judge: { status: 'pending', sessionId: `sess_${resource.id}_judge`, startedAt } });
   }
   private async save(resource: AgentResource<WatchdogFinding>, value: WatchdogFinding) {
     if (value === resource.value) return resource;
