@@ -126,16 +126,20 @@ live('keeps a synthetic hosted Vault credential out of the managed guest, persis
     check(response.status === 200, `signed Teams admission (HTTP ${response.status}, ${admissionMs} ms)`);
     check(admissionMs < 5000, 'Teams acknowledgment deadline');
     proof.evidence.admissionMs = admissionMs;
+    console.log(JSON.stringify({ phase: 'teams_admitted', admissionMs }));
     const accepted = await response.json() as { text?: string };
     const sessionId = /session (sess_[A-Za-z0-9_]+) completes/.exec(accepted.text ?? '')?.[1];
     check(sessionId === expectedSessionId, 'Teams accepted deterministic Session identity');
     proof.sessions.add(sessionId);
     let turn: Turn | undefined;
     await eventually('managed credential Turn', async () => {
+      const acceptedIntegration = await proof.store.get<SessionIntegrationState>(proof.owner, 'session_integrations', sessionId);
+      const turnId = acceptedIntegration?.value.inputs[0]?.turnId;
+      if (!turnId) return false;
       const turns: Turn[] = [];
       for await (const value of proof.client.beta.agents.sessions.turns.list(sessionId, { order: 'asc', limit: 100 })) turns.push(value);
       scan('API Turns', JSON.stringify(turns));
-      turn = turns.find(value => value.subagent_id === null);
+      turn = turns.find(value => value.id === turnId && value.subagent_id === null);
       check(!turn || !['failed', 'cancelled'].includes(turn.status), 'managed credential Turn succeeded');
       return turn?.status === 'completed';
     });
