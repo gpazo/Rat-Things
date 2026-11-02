@@ -2,9 +2,9 @@ import type { AgentResource, AgentsClock, AgentsStore } from './agents-ports.js'
 import type { EventCandidate, EventCandidateAudit, EventCandidateThread } from '../domain/event-candidates.js';
 import type { SourceEventPolicy } from '../domain/event-policy.js';
 import { validateSourceEventPolicy } from '../domain/event-policy.js';
-import type { SessionIntegrationInput, SessionIntegrationTarget, SessionIntegrationState, ThreadSubscription } from '../domain/session-integrations.js';
+import type { IntegrationOccurrence, SessionIntegrationInput, SessionIntegrationTarget, SessionIntegrationState, ThreadSubscription } from '../domain/session-integrations.js';
 import { AgentsApiError } from '../domain/agents-api-validation.js';
-import { integrationDigest, threadSubscriptionId } from './session-integration-planning.js';
+import { integrationDigest, integrationOccurrenceId, threadSubscriptionId } from './session-integration-planning.js';
 import { parseEventFilterDecision, type EventFilterDecision } from './event-filter-planning.js';
 
 export interface EventFilterModel {
@@ -13,6 +13,7 @@ export interface EventFilterModel {
 }
 
 type AdmissionWrite = { resource: AgentResource<unknown>; expectedRevision: number };
+type CandidateReceipt = { candidateId: string; duplicate?: true; retry?: true };
 interface CandidateAdmission {
   accept(ownerId: string, bindingId: string, threadKey: string, target: SessionIntegrationTarget, input: SessionIntegrationInput, writes?: AdmissionWrite[]): Promise<{ sessionId: string }>;
 }
@@ -26,20 +27,24 @@ export class EventCandidateService {
     count?: (metric: 'EventCandidateAccepted' | 'EventCandidateDropped' | 'EventFilterError' | 'EventCandidateCapped') => void;
   }) {}
 
-  public async receipt(ownerId: string, bindingId: string, threadKey: string, input: SessionIntegrationInput): Promise<{ candidateId: string } | undefined> {
+  public async receipt(ownerId: string, bindingId: string, threadKey: string, input: SessionIntegrationInput): Promise<CandidateReceipt | undefined> {
     const id = `candidate_${integrationDigest([bindingId, input.id])}`;
+    const explicit = await this.explicitReceipt(ownerId, bindingId, threadKey, input.id);
+    if (explicit) return explicit === 'accepted' ? { candidateId: id, duplicate: true } : { candidateId: id, retry: true };
     const previous = await this.options.store.get<EventCandidate>(ownerId, 'event_candidates', id);
     if (!previous) return undefined;
     if (previous.value.inputDigest !== integrationDigest([bindingId, threadKey, input])) throw new AgentsApiError(409, 'Candidate occurrence has different input.', 'idempotency_conflict');
     return { candidateId: id };
   }
 
-  public async enqueue(ownerId: string, bindingId: string, threadKey: string, target: SessionIntegrationTarget, input: SessionIntegrationInput, policy: SourceEventPolicy): Promise<{ candidateId: string }> {
+  public async enqueue(ownerId: string, bindingId: string, threadKey: string, target: SessionIntegrationTarget, input: SessionIntegrationInput, policy: SourceEventPolicy): Promise<CandidateReceipt> {
     validateSourceEventPolicy(policy);
     if (policy.mode !== 'candidate' || !policy.semantic) throw new Error('Candidate admission requires a semantic policy');
     const id = `candidate_${integrationDigest([bindingId, input.id])}`;
     const inputDigest = integrationDigest([bindingId, threadKey, input]);
     for (let attempt = 0; ; attempt++) {
+      const explicit = await this.explicitReceipt(ownerId, bindingId, threadKey, input.id);
+      if (explicit) return explicit === 'accepted' ? { candidateId: id, duplicate: true } : { candidateId: id, retry: true };
       const previous = await this.options.store.get<EventCandidate>(ownerId, 'event_candidates', id);
       if (previous) {
         if (previous.value.inputDigest !== inputDigest) throw new AgentsApiError(409, 'Candidate occurrence has different input.', 'idempotency_conflict');
@@ -50,6 +55,11 @@ export class EventCandidateService {
       const limitId = integrationDigest([bindingId, hour]);
       const limit = await this.options.store.get<{ count: number }>(ownerId, 'event_candidate_limits', limitId);
       const marker = await this.thread(ownerId, bindingId, threadKey);
+      // The explicit receipt and thread marker are committed together. Recheck
+      // after reading the marker so an explicit request already recorded in
+      // this thread cannot be misclassified as a fresh candidate.
+      const explicitAfterMarker = await this.explicitReceipt(ownerId, bindingId, threadKey, input.id);
+      if (explicitAfterMarker) return explicitAfterMarker === 'accepted' ? { candidateId: id, duplicate: true } : { candidateId: id, retry: true };
       const policyDigest = integrationDigest(policy.semantic.policies);
       const capped = (limit?.value.count ?? 0) >= policy.semantic.maxCandidatesPerHour;
       const value: EventCandidate = { bindingId, threadKey, inputDigest, target: structuredClone(target), input: structuredClone(input), policies: [...policy.semantic.policies], policyDigest, explicitVersion: marker?.value.explicitVersion ?? 0,
@@ -129,6 +139,12 @@ export class EventCandidateService {
   }
 
   private thread(ownerId: string, bindingId: string, threadKey: string) { return this.options.store.get<EventCandidateThread>(ownerId, 'event_candidate_threads', integrationDigest([bindingId, threadKey])); }
+  private async explicitReceipt(ownerId: string, bindingId: string, threadKey: string, inputId: string): Promise<'accepted' | 'pending' | undefined> {
+    const receipt = await this.options.store.get<{ threadKey: string }>(ownerId, 'event_explicit_receipts', integrationDigest([bindingId, inputId]));
+    if (!receipt) return undefined;
+    if (receipt.value.threadKey !== threadKey) throw new AgentsApiError(409, 'Explicit occurrence belongs to a different thread.', 'idempotency_conflict');
+    return await this.options.store.get<IntegrationOccurrence>(ownerId, 'integration_occurrences', integrationOccurrenceId(bindingId, inputId)) ? 'accepted' : 'pending';
+  }
   private async threadText(ownerId: string, candidate: EventCandidate): Promise<string> {
     const subscription = await this.options.store.get<ThreadSubscription>(ownerId, 'thread_subscriptions', threadSubscriptionId(candidate.bindingId, candidate.threadKey));
     const id = subscription?.value.subscribers[0]?.sessionId;

@@ -21,18 +21,39 @@ export class WebhookIngressService {
     const input = {
       ...work.input, source: work.context.source, actor: work.context.actor, credentialSubject: work.context.credentialSubject,
     };
-    const previous = await this.candidates?.receipt(binding.ownerId, binding.bindingId, threadId, input);
-    if (previous) return { statusCode: 202, body: { accepted: true, ...previous } };
+    if (!event.mentioned) {
+      const previous = await this.candidates?.receipt(binding.ownerId, binding.bindingId, threadId, input);
+      if (previous) return candidateReceiptResponse(previous);
+    }
     const subscribed = await this.sessions.hasActiveSubscription?.(binding.ownerId, binding.bindingId, threadId) ?? false;
     const classification = classifyEvent(event, binding.eventPolicy, subscribed);
-    if (classification === 'drop') return { statusCode: 202, body: { accepted: false, reason: 'event_policy' } };
+    if (classification === 'drop') {
+      if (event.mentioned) {
+        const previous = await this.candidates?.receipt(binding.ownerId, binding.bindingId, threadId, input);
+        if (previous) return candidateReceiptResponse(previous);
+      }
+      return { statusCode: 202, body: { accepted: false, reason: 'event_policy' } };
+    }
     if (classification === 'candidate') {
       if (!this.candidates || !binding.eventPolicy) return { statusCode: 202, body: { accepted: false, reason: 'candidate_filter_disabled' } };
       const receipt = await this.candidates.enqueue(binding.ownerId, binding.bindingId, threadId, binding, input, binding.eventPolicy);
+      if (receipt.retry) return pendingExplicitReceiptResponse();
+      if (receipt.duplicate) return { statusCode: 202, body: { accepted: true, duplicate: true } };
       return { statusCode: 202, body: { accepted: true, ...receipt } };
     }
     if (event.mentioned) await this.candidates?.recordExplicit(binding.ownerId, binding.bindingId, threadId, input.id);
     const session = await this.sessions.accept(binding.ownerId, binding.bindingId, threadId, binding, input);
     return adapter.acknowledge(session, work);
   }
+}
+
+function candidateReceiptResponse(receipt: { candidateId: string; duplicate?: true; retry?: true }): WebhookResponse {
+  if (receipt.retry) return pendingExplicitReceiptResponse();
+  return receipt.duplicate
+    ? { statusCode: 202, body: { accepted: true, duplicate: true } }
+    : { statusCode: 202, body: { accepted: true, candidateId: receipt.candidateId } };
+}
+
+function pendingExplicitReceiptResponse(): WebhookResponse {
+  return { statusCode: 503, body: { accepted: false, reason: 'explicit_occurrence_pending' } };
 }

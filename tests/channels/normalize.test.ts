@@ -364,7 +364,7 @@ describe('chat webhook normalization', () => {
     expect(normalized).toEqual({
       ownerId: 'slack:workspace-1:user-1',
       mentioned: true,
-      idempotencyKey: 'slack:event-1',
+      idempotencyKey: 'slack:channel-1:1000.3000',
       request: {
         prompt: 'inspect the queue',
         source: {
@@ -372,7 +372,7 @@ describe('chat webhook normalization', () => {
           teamId: 'workspace-1',
           channelId: 'channel-1',
           threadTs: '1000.2000',
-          eventId: 'event-1',
+          eventId: '1000.3000',
           userId: 'user-1',
         },
       },

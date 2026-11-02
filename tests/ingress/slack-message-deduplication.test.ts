@@ -34,7 +34,7 @@ describe('signed Slack message and app-mention deduplication', () => {
     const message = await f.service.receive('slack', signedRequest('message', 'EvMessage'));
 
     expect(mention.body).toMatchObject({ accepted: true, sessionId: expect.any(String) });
-    expect(message.body).toMatchObject({ accepted: true, sessionId: (mention.body as { sessionId: string }).sessionId });
+    expect(message.body).toMatchObject({ accepted: true, duplicate: true });
     expect((await f.store.list<EventCandidate>('operator', 'event_candidates', {})).data).toHaveLength(0);
     expect((await integrationInputs(f)).map(input => input.id)).toEqual(['slack:C1:1000.3000']);
   });
@@ -46,8 +46,11 @@ describe('signed Slack message and app-mention deduplication', () => {
       f.service.receive('slack', signedRequest('app_mention', 'EvMention')),
     ]);
 
-    expect(message.statusCode).toBe(202);
+    expect([202, 503]).toContain(message.statusCode);
     expect(mention.body).toMatchObject({ accepted: true, sessionId: expect.any(String) });
+    if (message.statusCode === 503) {
+      expect(await f.service.receive('slack', signedRequest('message', 'EvMessage'))).toMatchObject({ statusCode: 202, body: { accepted: true, duplicate: true } });
+    }
     expect((await integrationInputs(f)).map(input => input.id)).toEqual(['slack:C1:1000.3000']);
     const candidates = (await f.store.list<EventCandidate>('operator', 'event_candidates', {})).data;
     expect(candidates.length).toBeLessThanOrEqual(1);
@@ -56,9 +59,21 @@ describe('signed Slack message and app-mention deduplication', () => {
       expect((await f.store.get<EventCandidate>('operator', candidates[0].id))?.value.state.status).toBe('discarded');
     }
   });
+
+  it('asks Slack to retry a matching message while the explicit Session receipt is still pending', async () => {
+    const f = await fixture(true);
+    const mentionPromise = f.service.receive('slack', signedRequest('app_mention', 'EvMention'));
+    await f.acceptStarted;
+
+    expect(await f.service.receive('slack', signedRequest('message', 'EvMessage'))).toMatchObject({ statusCode: 503, body: { accepted: false, reason: 'explicit_occurrence_pending' } });
+    f.resumeAccept();
+    await mentionPromise;
+    expect(await f.service.receive('slack', signedRequest('message', 'EvMessage'))).toMatchObject({ statusCode: 202, body: { accepted: true, duplicate: true } });
+    expect((await f.store.list<EventCandidate>('operator', 'event_candidates', {})).data).toHaveLength(0);
+  });
 });
 
-async function fixture() {
+async function fixture(pauseAccept = false) {
   const setup = await integrationFixture();
   const adapter = new SlackIngressAdapter(new CredentialBroker({ get: async () => signingSecret }), { signingSecretArn: 'test-secret', candidateEventsEnabled: true });
   const registry = new RuntimePluginRegistry([{
@@ -71,15 +86,25 @@ async function fixture() {
     model: { id: 'test', decide: async () => ({ act: true, reason: 'Relevant' }) },
     clock: { now: () => 10_000 },
   });
+  let resumeAccept = () => {};
+  let signalAcceptStarted = () => {};
+  const acceptGate = new Promise<void>(resolve => { resumeAccept = resolve; });
+  const acceptStarted = new Promise<void>(resolve => { signalAcceptStarted = resolve; });
   const service = new WebhookIngressService(registry, {
-    accept: setup.integrations.accept.bind(setup.integrations),
+    accept: async (...args) => {
+      if (pauseAccept) {
+        signalAcceptStarted();
+        await acceptGate;
+      }
+      return setup.integrations.accept(...args);
+    },
     hasActiveSubscription: setup.integrations.hasActiveSubscription.bind(setup.integrations),
   }, {
     resolve: async () => ({
       ownerId: 'operator', bindingId: 'slack-binding', ...setup.target, threadScope: 'thread', eventPolicy: policy,
     }),
   }, candidates);
-  return { ...setup, service, candidates };
+  return { ...setup, service, candidates, acceptStarted, resumeAccept };
 }
 
 function signedRequest(type: 'message' | 'app_mention', eventId: string) {
