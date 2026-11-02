@@ -94,6 +94,7 @@ live('proves provider continuation, thread release, candidate filtering and quie
         'For a GitHub pull-request input, execute exactly git rev-parse HEAD in the checked-out repository using command execution. Do not claim a checkout without executing it. Do not modify files or perform a review.',
         `When the input contains RELEASE, call rat_things_thread_release with reason ${marker}, wait for its successful tool output, then finish with the REPLY marker.`,
         'When the input contains QUIET, finish the Turn without any final assistant text. Do not explain, acknowledge, print a marker or substitute punctuation. An empty final response is the required successful result.',
+        `For an input without a REPLY marker, finish with only ${reply('candidate_act')}. If that input states that the incident channel already has a complete status update, finish without any final assistant text instead.`,
         'Otherwise finish with only the token after REPLY=. Never create subagents or call external services.',
       ].join('\n') });
     createdAgents.add(agent.id);
@@ -203,10 +204,11 @@ live('proves provider continuation, thread release, candidate filtering and quie
     const candidateBinding = await bind({ sourceKind: 'slack', threadScope: 'thread', selector: { teamId: team, channelId: candidateChannel }, environment: { type: 'none' }, eventPolicy: candidatePolicy(3) });
     await eventually(async () => Date.now() % 3_600_000 < 3_480_000, 'candidate_hour_budget');
     const hour = Math.floor(Date.now() / 3_600_000);
-    const actEvent = slack(candidateChannel, 'message', 'U1', timestamp(), 'candidate_act', 'The release is failing right now and nobody is investigating. Please investigate the unresolved failure.');
-    const dropEvent = slack(candidateChannel, 'message', 'U1', timestamp(), 'candidate_drop', 'Good morning everyone. All incidents are resolved. No action is needed.');
-    const quietEvent = slack(candidateChannel, 'message', 'U1', timestamp(), 'candidate_quiet', 'The release is failing right now and nobody is investigating. Please investigate the unresolved failure. QUIET');
-    const capEvent = slack(candidateChannel, 'message', 'U1', timestamp(), 'candidate_capped', 'The release is failing right now and nobody is investigating. Please investigate the unresolved failure.');
+    const unresolved = 'The release is failing right now and nobody is investigating.';
+    const actEvent = slackText(candidateChannel, 'message', 'U1', timestamp(), unresolved);
+    const dropEvent = slackText(candidateChannel, 'message', 'U1', timestamp(), 'Good morning everyone. All incidents are resolved.');
+    const quietEvent = slackText(candidateChannel, 'message', 'U1', timestamp(), `${unresolved} The incident channel already has a complete status update.`);
+    const capEvent = slackText(candidateChannel, 'message', 'U1', timestamp(), unresolved);
     const actId = await acceptedCandidate(actEvent);
     const replayId = await acceptedCandidate(actEvent);
     check('candidate_replay_retains_receipt', actId === replayId);
@@ -229,7 +231,7 @@ live('proves provider continuation, thread release, candidate filtering and quie
     await notAdmitted(candidateBinding, capped, 'candidate_cap');
     const quietCandidate = await decided(quietId, 'admitted');
     check('quiet_candidate_filter_acted', 'decision' in quietCandidate.state && quietCandidate.state.decision.act && quietCandidate.state.decision.model === required('AWS_E2E_EVENT_FILTER_MODEL_ID'));
-    const quiet = await candidateTurn(candidateBinding, quietCandidate);
+    const quiet = await candidateTurn(candidateBinding, quietCandidate, '');
     await processed(quiet);
     check('candidate_quiet_has_actual_empty_final', finalText(quiet.items).trim() === '', { sessionId: quiet.sessionId, turnId: quiet.turn.id });
     const quietReceipts = (await integration(quiet.sessionId)).inputs.filter(value => value.turnId === quiet.turn.id);
@@ -245,7 +247,7 @@ live('proves provider continuation, thread release, candidate filtering and quie
     const precedenceChannel = channel();
     const precedenceBinding = await bind({ sourceKind: 'slack', threadScope: 'thread', selector: { teamId: team, channelId: precedenceChannel }, environment: { type: 'none' }, eventPolicy: candidatePolicy(1) });
     const precedenceRoot = timestamp();
-    const queuedEvent = slack(precedenceChannel, 'message', 'U1', precedenceRoot, 'queued_candidate', 'The release is failing right now and nobody is investigating. Please investigate the unresolved failure.');
+    const queuedEvent = slackText(precedenceChannel, 'message', 'U1', precedenceRoot, unresolved);
     const explicitEvent = slack(precedenceChannel, 'app_mention', 'U2', precedenceRoot, 'explicit_wins');
     let queuedId = '';
     let explicitSession = '';
@@ -316,9 +318,12 @@ live('proves provider continuation, thread release, candidate filtering and quie
     }) };
   }
   function slack(channelId: string, type: 'app_mention' | 'message', user: string, thread: string, phase: string, instruction = ''): Fixture {
+    return slackText(channelId, type, user, thread, `${instruction} REPLY=${reply(phase)}`);
+  }
+  function slackText(channelId: string, type: 'app_mention' | 'message', user: string, thread: string, text: string): Fixture {
     const id = `${marker}-${++sequence}`;
     return { provider: 'slack', id, event: type, body: JSON.stringify({ type: 'event_callback', team_id: team, event_id: id,
-      event: { type, user, channel: channelId, text: `${type === 'app_mention' ? '<@BOT> ' : ''}${instruction} REPLY=${reply(phase)}`, ts: timestamp(), thread_ts: thread },
+      event: { type, user, channel: channelId, text: `${type === 'app_mention' ? '<@BOT> ' : ''}${text}`, ts: timestamp(), thread_ts: thread },
     }) };
   }
   async function bind(input: Pick<SourceCapabilityBinding, 'sourceKind' | 'selector' | 'environment' | 'eventPolicy' | 'threadScope'>) {
@@ -369,7 +374,7 @@ live('proves provider continuation, thread release, candidate filtering and quie
     if (!saved) throw new ProofFailure('Accepted Session integration is missing');
     return saved.value;
   }
-  async function complete(sessionId: string, inputId: string): Promise<Completed> {
+  async function complete(sessionId: string, inputId: string, expectedReply?: string): Promise<Completed> {
     createdSessions.add(sessionId);
     phase = `turn_${sessionId}`;
     let turn: Turn | undefined;
@@ -387,7 +392,9 @@ live('proves provider continuation, thread release, candidate filtering and quie
     for await (const item of client.beta.agents.sessions.items.list(sessionId, { limit: 100, order: 'asc' })) if (item.turn_id === turn!.id) items.push(item);
     const saved = await integration(sessionId);
     const input = saved.inputs.find(value => value.id === inputId)!;
-    if (!input.text.includes('QUIET')) {
+    if (expectedReply !== undefined) {
+      check('real_model_returns_configured_reply', finalText(items).trim() === expectedReply, { sessionId, turnId: turn!.id });
+    } else if (!input.text.includes('QUIET')) {
       const expected = /REPLY=([A-Za-z0-9_-]+)/.exec(input.text)?.[1];
       check('real_model_returns_requested_marker', Boolean(expected) && finalText(items).trim() === expected, { sessionId, turnId: turn!.id });
     }
@@ -489,10 +496,10 @@ live('proves provider continuation, thread release, candidate filtering and quie
       store.get(ownerId, 'sessions', sessionId), store.get(ownerId, 'session_integrations', sessionId)]);
     check(`${name}_has_no_occurrence_or_session`, !receipt && !session && !saved);
   }
-  async function candidateTurn(binding: SourceCapabilityBinding, candidate: EventCandidate) {
+  async function candidateTurn(binding: SourceCapabilityBinding, candidate: EventCandidate, expectedReply = reply('candidate_act')) {
     const receipt = await occurrence(binding, candidate.input.id);
     check('admitted_candidate_has_occurrence', Boolean(receipt));
-    const completed = await complete(receipt!.value.sessionId, candidate.input.id);
+    const completed = await complete(receipt!.value.sessionId, candidate.input.id, expectedReply);
     check('candidate_admission_is_durable', completed.integration.inputs.some(value => value.id === candidate.input.id && value.admission === 'candidate'));
     return completed;
   }
