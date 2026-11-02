@@ -77,10 +77,34 @@ The binding's authenticated creator owns the Session. The provider sender,
 source thread and deployment credential subject retain separate identities.
 
 Slack and Teams reuse a Session for the same provider, tenant, sender and thread.
-Each GitHub or GitLab occurrence creates its own Session so its repository ref
-cannot silently change an existing workspace. Repository events require a managed
-environment; checkout still uses HTTPS host allowlists and host-side credential
-references. No clone token is included in the Session input.
+Set `threadScope` to `thread` on a source binding to share the Session across senders
+in that thread. The default is `sender`. Every input retains its actor attribution.
+
+GitHub pull requests and GitLab merge requests retain one active Session per binding
+and repository thread. Follow-up comments continue its existing workspace. A head
+change starts a new review Session and transfers the thread subscription, so a new
+commit never silently replaces the checkout of an existing Session. Repository events
+require a managed environment and HTTPS host allowlists. Clone credentials stay on
+the host.
+
+A provider Session can call `rat_things_thread_release({"reason":"Work is complete"})`.
+The host resolves the current Session's subscription. The tool cannot select a
+subscription, subscribe to another thread, or change authority. An operator can list subscriptions with `GET /v1/integrations/thread-subscriptions`
+and inspect one with `GET /v1/integrations/thread-subscriptions/{id}`. The list
+supports `after` and `limit` pagination. To release that subscription,
+call `POST /v1/integrations/thread-subscriptions/{id}/release` with `reason` and the
+current `epoch`. A stale epoch returns `409` without releasing a later Session.
+The current Turn can still deliver its reply after release. The next accepted event
+starts a new Session. Deleting the subscribed Session has the same effect.
+
+The `thread_subscriptions` record identifies the current Session and epoch. Its ID is
+the SHA-256 digest of the canonical JSON array `[bindingId, threadKey]`. Repository
+thread keys are JSON arrays `['github', repository, issueNumber]` or
+`['gitlab', projectId, mergeRequestIid]`. The initial epoch keeps the deterministic
+Session ID. Later epochs use the thread key followed by `#` and the epoch number.
+After 128 accepted inputs, the next event also starts a new epoch to bound stored
+receipt arrays. Each Session integration records its predecessor and successor.
+Durable occurrence receipts keep older deliveries deduplicated across every epoch.
 
 Each occurrence has a durable input receipt. Repeated deliveries do not append
 input twice. Messages received during an active Turn steer that Turn; later

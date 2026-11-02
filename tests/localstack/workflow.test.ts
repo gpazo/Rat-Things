@@ -5,6 +5,7 @@ import { DynamoAgentsStore } from '../../src/adapters/dynamo-agents-store.js';
 import { DynamoIntegrationStore } from '../../src/adapters/dynamo-integration-store.js';
 import { AgentService } from '../../src/core/agent-service.js';
 import { SessionService } from '../../src/core/session-service.js';
+import { threadSubscriptionId } from '../../src/core/session-integration-planning.js';
 import { SessionIntegrationService } from '../../src/core/session-integration-service.js';
 import { ScheduleService } from '../../src/core/schedule-service.js';
 import type { SessionExecution, SessionTurnObservation } from '../../src/core/session-ports.js';
@@ -29,7 +30,11 @@ async function fixture() {
   const agent = await agents.create(ownerId, { model: 'local-protocol-fixture' });
   const observations = new Map<string, SessionTurnObservation>();
   const execution: SessionExecution = {
-    prepare: async (_owner, _id, env) => { if (env.type !== 'none') throw new Error('Fixture uses no execution environment'); return env; },
+    prepare: async (_owner, id, env) => {
+      if (env.type === 'none') return env;
+      if (env.type !== 'openai_hosted') throw new Error('Unsupported fixture environment');
+      return { type: 'openai_hosted', id: `env_${id}`, capability_directories: [], files: [], skills: [], plugins: [], network: { access: 'disabled', allowed_domains: [] }, packages: { npm: [], python: [], system: [] } };
+    },
     start: async (_owner, _session, binding) => { observations.set(binding.turn.id, { turn: { ...binding.turn, status: 'completed', completed_at: 2 }, requiredActions: [] }); },
     steer: async () => {}, cancel: async () => {}, toolResult: async () => {},
     observe: async (_owner, _session, turn) => observations.get(turn.id) ?? { turn, requiredActions: [] },
@@ -65,6 +70,39 @@ integration('LocalStack durable provider Sessions and schedules', () => {
     expect(saved?.value.inputs[0]?.source.kind).toBe(provider);
     expect(await f.store.get('another-owner', 'session_integrations', sessionId)).toBeUndefined();
     expect((await ingress.receive(provider, { body: 'invalid json', headers: {} })).statusCode).toBe(401);
+  });
+
+  it('continues a signed PR thread and retains occurrence dedupe after release', async () => {
+    const f = await fixture();
+    const bindingId = randomUUID();
+    const repository = `local-fixtures/${bindingId}`;
+    await f.integrationStore.putSourceBinding({ version: '1', bindingId, ownerId: f.ownerId, sourceKind: 'github', selector: { repository }, agentId: f.agent.id, environment: { type: 'openai_hosted' } });
+    const adapter = new GitHubIngressAdapter(f.credentials, { webhookSecretArn: required('GITHUB_WEBHOOK_SECRET_ARN'), commentTrigger: '@rat-things' });
+    const ingress = new WebhookIngressService(new RuntimePluginRegistry([{ manifest: { name: 'github', version: '1', description: 'Signed fixture', provider: 'github' }, ingress: adapter }]), f.submissions, f.resolver);
+    const request = (id: string, comment?: string) => {
+      const body = JSON.stringify({ repository: { full_name: repository, clone_url: `https://github.com/${repository}.git` }, ...(comment ? { action: 'created', issue: { number: 17, pull_request: {} }, comment: { body: `@rat-things ${comment}`, user: { type: 'User', id: 3 } } } : { action: 'opened', number: 17, pull_request: { title: 'Review', head: { sha: '0123456789abcdef0123456789abcdef01234567' } } }) });
+      return { body, headers: { 'x-github-event': comment ? 'issue_comment' : 'pull_request', 'x-github-delivery': id, 'x-hub-signature-256': `sha256=${createHmac('sha256', required('GITHUB_WEBHOOK_SIGNING_SECRET')).update(body).digest('hex')}` } };
+    };
+    const firstRequest = request(`${bindingId}-opened`);
+    const first = await ingress.receive('github', firstRequest);
+    const { sessionId } = first.body as { sessionId: string };
+    await f.submissions.submitPending(f.ownerId, sessionId);
+    await f.sessions.dispatch(f.ownerId, sessionId);
+    await f.sessions.completeReadyTurns(f.ownerId, sessionId);
+    expect(await ingress.receive('github', request(`${bindingId}-comment`, 'Explain the finding'))).toEqual(first);
+    await f.submissions.submitPending(f.ownerId, sessionId);
+    await f.sessions.dispatch(f.ownerId, sessionId);
+    await f.sessions.completeReadyTurns(f.ownerId, sessionId);
+    await f.submissions.deliverReady(f.ownerId, sessionId);
+    expect((await f.sessions.turns(f.ownerId, sessionId)).data).toHaveLength(2);
+    expect((await f.sessions.list(f.ownerId)).data).toHaveLength(1);
+    const subscriptionId = threadSubscriptionId(bindingId, JSON.stringify(['github', repository, 17]));
+    await f.submissions.release(f.ownerId, subscriptionId, { reason: 'Review complete' });
+    const next = await ingress.receive('github', request(`${bindingId}-next`, 'Start a new review'));
+    expect((next.body as { sessionId: string }).sessionId).not.toBe(sessionId);
+    expect(await ingress.receive('github', firstRequest)).toEqual(first);
+    await f.submissions.deliverReady(f.ownerId, sessionId);
+    expect(f.delivery.deliver).toHaveBeenCalledTimes(2);
   });
 
   it('continues a signed Teams thread and delivers each saved root Turn', async () => {

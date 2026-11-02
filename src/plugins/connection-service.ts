@@ -79,6 +79,7 @@ export interface CreateConnectionSetInput {
 export interface CreateSourceBindingInput extends SessionIntegrationTarget {
   ownerId: string;
   sourceKind: SourceCapabilityBinding['sourceKind'];
+  threadScope?: SourceCapabilityBinding['threadScope'];
   selector: SourceCapabilityBinding['selector'];
   connectionSetId?: string;
 }
@@ -349,6 +350,7 @@ export class ConnectionService {
       bindingId: this.ids.random(),
       ownerId: input.ownerId,
       sourceKind: input.sourceKind,
+      ...(input.threadScope ? { threadScope: input.threadScope } : {}),
       selector: input.selector,
       agentId: input.agentId, environment: input.environment,
       ...(input.vaultIds ? { vaultIds: input.vaultIds } : {}),

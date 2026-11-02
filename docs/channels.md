@@ -88,10 +88,12 @@ Configure the signed webhook and its owned Agent/environment binding as describe
    so delivery IDs, permissions, URLs, and secrets do not cross dev/prod boundaries.
 5. Create an owner-authenticated source binding for the repository, selecting an Agent and
    environment. A signed event without a matching binding returns `source_not_bound`. Each accepted
-   occurrence creates a Session; saved terminal root Turns drive comment delivery.
+   pull request subscribes to a Session; saved terminal root Turns drive comment delivery.
+   Follow-up comments continue that Session. A synchronized head change starts a new
+   review Session and transfers the subscription.
 
-For `issue_comment`, the adapter checks out `refs/pull/<number>/head` so follow-up questions inspect
-the pull request rather than the repository's default branch. That synthetic ref is mutable; a future
+When an `issue_comment` starts a new Session, the adapter checks out `refs/pull/<number>/head`.
+Comments admitted to an existing Session retain its checkout. The synthetic ref is mutable; a future
 adapter should resolve it to a commit SHA at authenticated ingress when exact replay reproducibility is
 required.
 

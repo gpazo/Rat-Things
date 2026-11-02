@@ -12,7 +12,8 @@ or accepting it. The source binding selects the owner, Agent and environment;
 the caller cannot choose a different owner in the message body.
 
 Mentions by the same sender in the same Slack thread continue that sender's
-Session. A different sender does not inherit another sender's Session. Repeated
+Session by default. A binding with `threadScope: "thread"` shares that thread's
+Session across senders and retains each sender's actor attribution. Repeated
 provider events reuse their reserved occurrence instead of creating duplicate
 inputs. The Session's resolved configuration remains fixed across continuation.
 

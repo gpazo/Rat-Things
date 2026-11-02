@@ -4,6 +4,8 @@ import { isRecord } from '../domain/validation.js';
 import { isAgentResultMessage } from './result-marker.js';
 
 export interface NormalizedWebhookInput {
+  repositoryHeadChanged?: boolean;
+  actor?: { id: string; kind: 'human' | 'system' };
   ownerId: string;
   idempotencyKey: string;
   request: Pick<RunRequest, 'prompt' | 'repository' | 'metadata'> & { source: NonNullable<RunRequest['source']> };

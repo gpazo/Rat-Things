@@ -7051,6 +7051,176 @@
           }
         }
       }
+    },
+    "/v1/integrations/thread-subscriptions/{id}/release": {
+      "post": {
+        "tags": [
+          "Integrations"
+        ],
+        "operationId": "releaseThreadSubscription",
+        "summary": "Release an owned provider thread subscription",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "reason",
+                  "epoch"
+                ],
+                "properties": {
+                  "reason": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1024
+                  },
+                  "epoch": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "The current subscription epoch. A stale epoch cannot release a later Session."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Future input can create a new Session. The current Turn can still deliver its reply.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "id",
+                    "sessionId",
+                    "released"
+                  ],
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "sessionId": {
+                      "type": "string"
+                    },
+                    "released": {
+                      "const": true
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The subscription does not belong to this owner."
+          },
+          "409": {
+            "description": "The subscription has moved to another epoch."
+          }
+        }
+      }
+    },
+    "/v1/integrations/thread-subscriptions": {
+      "get": {
+        "tags": [
+          "Integrations"
+        ],
+        "operationId": "listThreadSubscriptions",
+        "parameters": [
+          {
+            "name": "after",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Owned thread subscriptions",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "object",
+                    "data",
+                    "has_more"
+                  ],
+                  "properties": {
+                    "object": {
+                      "const": "list"
+                    },
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/ThreadSubscription"
+                      }
+                    },
+                    "has_more": {
+                      "type": "boolean"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/integrations/thread-subscriptions/{id}": {
+      "get": {
+        "tags": [
+          "Integrations"
+        ],
+        "operationId": "retrieveThreadSubscription",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "An owned thread subscription",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ThreadSubscription"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The subscription does not belong to this owner."
+          }
+        }
+      }
     }
   },
   "components": {
@@ -8180,6 +8350,15 @@
             "items": {
               "type": "string"
             }
+          },
+          "threadScope": {
+            "type": "string",
+            "enum": [
+              "sender",
+              "thread"
+            ],
+            "default": "sender",
+            "description": "Sender isolates chat Sessions by actor. Thread shares a chat Session across senders while retaining actor attribution."
           }
         }
       },
@@ -8496,6 +8675,15 @@
             "items": {
               "type": "string"
             }
+          },
+          "threadScope": {
+            "type": "string",
+            "enum": [
+              "sender",
+              "thread"
+            ],
+            "default": "sender",
+            "description": "Sender isolates chat Sessions by actor. Thread shares a chat Session across senders while retaining actor attribution."
           }
         }
       },
@@ -9040,6 +9228,56 @@
           },
           "deleted": {
             "const": true
+          }
+        }
+      },
+      "ThreadSubscription": {
+        "type": "object",
+        "required": [
+          "id",
+          "bindingId",
+          "threadKey",
+          "epoch",
+          "subscribers"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "bindingId": {
+            "type": "string"
+          },
+          "threadKey": {
+            "type": "string"
+          },
+          "epoch": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "subscribers": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "sessionId",
+                "state"
+              ],
+              "properties": {
+                "sessionId": {
+                  "type": "string"
+                },
+                "state": {
+                  "type": "string",
+                  "enum": [
+                    "active",
+                    "released"
+                  ]
+                },
+                "reason": {
+                  "type": "string"
+                }
+              }
+            }
           }
         }
       }

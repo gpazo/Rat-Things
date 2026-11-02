@@ -186,6 +186,8 @@ describe('integration capability contracts', () => {
       selector: { repository: 'acme/support', installationId: '42' },
       agentId: 'agent_1', environment: { type: 'none' },
     });
+    expect(validateSourceCapabilityBinding({ ...binding, threadScope: 'thread' }).threadScope).toBe('thread');
+    expect(() => validateSourceCapabilityBinding({ ...binding, threadScope: 'unknown' as 'thread' })).toThrow('thread scope');
     expect(sourceBindingMatches(binding, {
       kind: 'github',
       deliveryId: 'delivery-1',

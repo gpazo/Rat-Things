@@ -1,3 +1,6 @@
+import { THREAD_RELEASE_TOOL, withThreadReleaseTool } from './thread-release-tool.js';
+import { releaseThreadSubscription } from './session-integration-planning.js';
+import type { SessionIntegrationState, ThreadSubscription } from '../domain/session-integrations.js';
 import { CODEX_RUNTIME, assertRuntimeUnchanged, validateRuntimeInput, resolveRuntime, piModel, validateRuntimeAgent, type PiModelDescriptor } from '../domain/session-runtime.js';
 import { planRuntimeClosure } from './session-runtime-store.js';
 import { projectSessionTraces } from './session-trace-planning.js';
@@ -52,6 +55,8 @@ export class SessionService {
     if (!preparation) {
       const saved = input.agent_id ? await this.options.agents.retrieve(ownerId, input.agent_id) : undefined;
       preparation = planSessionPreparation(input, this.ids.next('agent'), this.clock.now(), saved, this.options.execution.placement?.(ownerId, input.agent_id ?? undefined) ?? 'microvm', this.options.piCatalog);
+      const integration = integrationId ? await this.options.store.get<SessionIntegrationState>(ownerId, 'session_integrations', id) : undefined;
+      if (integration?.value.threadSubscriptionId && integration.value.inputs[0]?.source.kind !== 'api') preparation = { ...preparation, agent: withThreadReleaseTool(preparation.agent) };
       if (runtimePin) {
         assertRuntimeUnchanged(runtimePin, input.metadata);
         validateRuntimeAgent(runtimePin, preparation.agent, input.environment);
@@ -200,20 +205,21 @@ export class SessionService {
     const now = this.clock.now();
     const id = this.ids.next('sess');
     const placement = resource.value.placement ?? 'microvm';
+    const agent = { ...observation.session.agent, tools: observation.session.agent.tools.filter(tool => tool.type !== 'function' || tool.name !== THREAD_RELEASE_TOOL.name) };
     await this.replace(resource, { ...resource.value, forkLock: { id, expiresAt: now + 300 } });
     let fork: SessionFork | undefined;
     let committed = false;
     let commitAttempted = false;
     try {
       // Credentials are prepared against a durable child identity before any secret creation.
-      const preparation: SessionPreparation = { runtime, agent: observation.session.agent, placement, now, deadline: now + 300,
+      const preparation: SessionPreparation = { runtime, agent, placement, now, deadline: now + 300,
         requestDigest: hash(canonicalJson([sourceId, input])), inheritedTools: [] };
       await this.options.store.put({ ownerId, id, collection: 'session_preparations', createdAt: now, revision: 1, value: preparation }, 0);
       const prepared = await this.options.execution.prepareFork(ownerId, id, observation.session, input.network, input.vaultIds, placement);
       fork = { ...prepared.fork, createdAt: now, history: [...resource.value.fork?.history ?? [], ...await this.allItems(ownerId, resource.value)] };
       const latest = observation.turns.filter(entry => entry.turn.subagent_id === null).at(-1)?.turn;
       if (fork.checkpoint.lastRootTurnId !== (latest?.id ?? null)) throw new AgentsApiError(409, 'Source changed during checkpoint preparation.', 'session_busy');
-      const session: AgentSession = { id, object: 'agent.session', agent: observation.session.agent, created_at: now, last_active_at: now,
+      const session: AgentSession = { id, object: 'agent.session', agent, created_at: now, last_active_at: now,
         environment: prepared.environment, error: null, metadata: input.metadata, status: 'idle', required_actions: [], usage: null, vault_ids: input.vaultIds };
       const empty: SessionState = { session, runtime, placement, fork, turns: [], receipts: {}, deletedArtifacts: [] };
       const messages = initialMessages(input.input);
@@ -355,7 +361,11 @@ export class SessionService {
       requireSessionMutable(resource.value, this.clock.now());
       const runtime = await this.options.store.get<import('./session-runtime-store.js').StoredSessionRuntime>(ownerId, 'session_runtime', id);
       const closing = { ...resource, revision: resource.revision + 1, value: { ...resource.value, closing: true } };
+      const integration = await this.options.store.get<SessionIntegrationState>(ownerId, 'session_integrations', id);
+      const subscription = integration?.value.threadSubscriptionId ? await this.options.store.get<ThreadSubscription>(ownerId, 'thread_subscriptions', integration.value.threadSubscriptionId) : undefined;
+      const released = subscription ? releaseThreadSubscription(subscription.value, id, 'session_deleted') : undefined;
       await this.options.store.commit([{ resource: closing, expectedRevision: resource.revision },
+        ...(subscription && released !== subscription.value ? [{ resource: { ...subscription, revision: subscription.revision + 1, value: released }, expectedRevision: subscription.revision }] : []),
         { resource: planRuntimeClosure(ownerId, id, this.clock.now(), runtime), expectedRevision: runtime?.revision ?? 0 }]);
       resource = closing;
     }

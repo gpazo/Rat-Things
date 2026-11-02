@@ -167,6 +167,7 @@ export interface SourceCapabilityBinding extends SessionIntegrationTarget {
   bindingId: string;
   ownerId: string;
   sourceKind: RunSource['kind'];
+  threadScope?: 'sender' | 'thread';
   /** Exact source fields such as repository, teamId, or channelId. */
   selector: { [key: string]: string };
   connectionSetId?: string;
@@ -350,6 +351,7 @@ export function validateSourceCapabilityBinding(
   if (!['api', 'github', 'gitlab', 'teams', 'slack'].includes(value.sourceKind)) {
     throw new Error('source binding kind is invalid');
   }
+  if (value.threadScope !== undefined && !['sender', 'thread'].includes(value.threadScope)) throw new Error('source binding thread scope is invalid');
   if (Object.keys(value.selector).length === 0) throw new Error('source binding selector is required');
   if (Object.keys(value.selector).length > 32) throw new Error('source binding selector is too large');
   for (const [key, selected] of Object.entries(value.selector)) {

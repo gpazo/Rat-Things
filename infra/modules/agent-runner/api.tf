@@ -145,6 +145,9 @@ locals {
     "POST /v1/integrations/connections/{connectionId}/test",
     "POST /v1/integrations/connection-sets",
     "POST /v1/integrations/source-bindings",
+    "POST /v1/integrations/thread-subscriptions/{id}/release",
+    "GET /v1/integrations/thread-subscriptions",
+    "GET /v1/integrations/thread-subscriptions/{id}",
     "PATCH /v1/integrations/connections/{connectionId}",
   ])
 

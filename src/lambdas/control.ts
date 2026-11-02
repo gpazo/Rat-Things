@@ -16,7 +16,7 @@ import {
   RAT_THINGS_SCHEMAS,
   ratThingsDiscovery,
 } from '../app/discovery.js';
-import { getConnectionConsumerService, getConnectionService, getIntegrationPluginRegistry, getCapabilityProfileRegistry, getOAuthAuthorizationService, getScheduleService } from '../app/composition.js';
+import { getConnectionConsumerService, getConnectionService, getIntegrationPluginRegistry, getCapabilityProfileRegistry, getOAuthAuthorizationService, getScheduleService, getSessionIntegrationService } from '../app/composition.js';
 import { NotFoundError } from '../core/run-service.js';
 import type { IntegrationCredentialValue } from '../credentials/types.js';
 import {
@@ -307,6 +307,7 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
       const body = strictBody(jsonBody(event), [
         'version',
         'sourceKind',
+        'threadScope',
         'selector',
         'agentId', 'environment', 'vaultIds',
         'connectionSetId',
@@ -325,11 +326,23 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
         ownerId,
         sourceKind: sourceKind as 'api' | 'github' | 'gitlab' | 'teams' | 'slack',
         selector: stringRecord(body.selector, 'selector', 32),
+        ...(body.threadScope !== undefined ? { threadScope: threadScope(body.threadScope) } : {}),
         agentId, environment: target.environment, vaultIds: target.vault_ids ?? [],
         ...(body.connectionSetId !== undefined
           ? { connectionSetId: boundedText(body.connectionSetId, 'connectionSetId', 256) }
           : {}),
       }));
+    }
+    if (method === 'GET' && path === '/v1/integrations/thread-subscriptions') {
+      return response(200, await getSessionIntegrationService().listSubscriptions(ownerId, { ...(event.queryStringParameters?.after ? { after: event.queryStringParameters.after } : {}), ...(event.queryStringParameters?.limit ? { limit: parseLimit(event.queryStringParameters.limit) ?? 20 } : {}) }));
+    }
+    const threadSubscriptionPath = /^\/v1\/integrations\/thread-subscriptions\/([^/]+)$/.exec(path);
+    if (method === 'GET' && threadSubscriptionPath) return response(200, await getSessionIntegrationService().subscription(ownerId, threadSubscriptionPath[1]!));
+    const threadReleasePath = /^\/v1\/integrations\/thread-subscriptions\/([^/]+)\/release$/.exec(path);
+    if (method === 'POST' && threadReleasePath) {
+      const body = strictBody(jsonBody(event), ['reason', 'epoch']);
+      if (typeof body.epoch !== 'number' || !Number.isSafeInteger(body.epoch) || body.epoch < 0) throw new ValidationError('epoch must be a nonnegative integer');
+      return response(200, await getSessionIntegrationService().release(ownerId, threadReleasePath[1]!, { reason: body.reason }, undefined, body.epoch));
     }
     if (path === '/v1/schedules') {
       if (method === 'POST') return response(201, await getScheduleService().create(ownerId, jsonBody(event)));
@@ -647,4 +660,9 @@ function sharePathParameter(event: APIGatewayProxyEventV2): string | undefined {
 
 function errorName(error: unknown): string {
   return error instanceof Error ? error.name : '';
+}
+
+function threadScope(value: unknown): 'sender' | 'thread' {
+  if (value !== 'sender' && value !== 'thread') throw new ValidationError('threadScope must be sender or thread');
+  return value;
 }

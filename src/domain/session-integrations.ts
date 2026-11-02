@@ -19,6 +19,7 @@ export interface SessionIntegrationInput {
   actor: RunActorContext;
   credentialSubject: RunCredentialSubjectContext;
   repository?: RunRequest['repository'];
+  repositoryHeadChanged?: boolean;
 }
 export interface SessionIntegrationReceipt extends SessionIntegrationInput {
   digest: string;
@@ -27,6 +28,12 @@ export interface SessionIntegrationReceipt extends SessionIntegrationInput {
 }
 export interface SessionIntegrationState {
   target: SessionIntegrationTarget;
+  threadSubscriptionId?: string;
+  threadKey?: string;
+  epoch?: number;
+  previousSessionId?: string;
+  supersededBy?: string;
+  threadReleased?: { reason: string };
   inputs: SessionIntegrationReceipt[];
 }
 export interface SessionDelivery {
@@ -37,4 +44,17 @@ export interface SessionDelivery {
   source: RunSource;
   destinations?: RunDestination[];
   connectionSetId?: string;
+}
+
+export interface ThreadSubscription {
+  bindingId: string;
+  threadKey: string;
+  epoch: number;
+  subscribers: Array<{ sessionId: string; state: 'active' | 'released'; reason?: string }>;
+}
+
+export interface IntegrationOccurrence {
+  digest: string;
+  sessionId: string;
+  epoch: number;
 }

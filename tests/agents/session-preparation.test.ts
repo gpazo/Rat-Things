@@ -90,7 +90,7 @@ describe('Session preparation recovery', () => {
     await agents.delete('operator', f.agent.id);
     await f.integrations.submitPending('operator', sessionId);
     const session = await f.sessions.retrieve('operator', sessionId);
-    expect(session.agent.tools).toMatchObject([{ type: 'mcp', server_label: 'crm' }]);
+    expect(session.agent.tools).toMatchObject([{ type: 'mcp', server_label: 'crm' }, { type: 'function', name: 'rat_things_thread_release' }]);
     expect(JSON.stringify(session)).not.toContain('X-Tenant');
     expect([...t.values.values()]).toMatchObject([{ headers: { 'X-Tenant': 'original' } }]);
     await f.integrations.submitPending('operator', sessionId);

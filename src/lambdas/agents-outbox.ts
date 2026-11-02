@@ -34,11 +34,14 @@ export async function handler(event: DynamoDBStreamEvent | SQSEvent) {
         else if (job.type === 'delivery') await getSessionIntegrationService().deliverReady(job.ownerId, job.id);
         else if (job.type === 'schedule') await getScheduleService().synchronize(job.ownerId, job.id);
         else if (job.type === 'integration') await getSessionIntegrationService().submitPending(job.ownerId, job.id);
-        else if (job.type === 'complete' || job.type === 'snapshot') await services.sessions.completeReadyTurns(job.ownerId, job.id);
+        else if (job.type === 'complete' || job.type === 'snapshot') {
+          await services.sessions.completeReadyTurns(job.ownerId, job.id);
+          await getSessionIntegrationService().resolveTools(job.ownerId, job.id);
+        }
         else if (job.type === 'environment') {
           const sessionId = await services.environments.sessionId(job.ownerId, job.id);
           if (sessionId) await services.sessions.dispatch(job.ownerId, sessionId);
-        } else { await services.sessions.dispatch(job.ownerId, job.id); await services.sessions.completeReadyTurns(job.ownerId, job.id); }
+        } else { await services.sessions.dispatch(job.ownerId, job.id); await services.sessions.completeReadyTurns(job.ownerId, job.id); await getSessionIntegrationService().resolveTools(job.ownerId, job.id); }
       } catch (error) {
         const retrySeconds = error instanceof AgentsApiError ? agentsJobRetrySeconds(error) : undefined;
         if (retrySeconds !== undefined) {
