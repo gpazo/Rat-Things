@@ -1,5 +1,8 @@
 import { execFile } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
+import { mkdtemp, open, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { setTimeout as delay } from 'node:timers/promises';
 import { DynamoDBClient, DescribeTableCommand } from '@aws-sdk/client-dynamodb';
@@ -14,6 +17,7 @@ import type { SessionState } from '../../src/core/session-ports.js';
 import type { StoredSessionRuntime } from '../../src/core/session-runtime-store.js';
 import type { SessionEventBatch } from '../../src/core/session-event-store.js';
 import type { WatchdogFinding } from '../../src/domain/watchdog.js';
+import type { WatchdogService } from '../../src/core/watchdog-service.js';
 import type { SessionIntegrationState, IntegrationOccurrence, ThreadSubscription } from '../../src/domain/session-integrations.js';
 import type { WebhookDelivery } from '../../src/domain/session-webhooks.js';
 import type { RunRecord } from '../../src/domain/contracts.js';
@@ -36,6 +40,7 @@ export async function aws<T>(region: string, args: string[]): Promise<T> {
 }
 interface Mapping { UUID: string; State: string; FunctionArn: string; EventSourceArn: string }
 interface FunctionConfig { Configuration: { FunctionArn: string; Timeout: number; Environment?: { Variables?: Record<string, string> } }; Tags?: Record<string, string> }
+type WatchdogTick = Awaited<ReturnType<WatchdogService['tick']>>;
 
 export class SecurityProof {
   readonly region = required('AWS_REGION');
@@ -128,9 +133,24 @@ export class SecurityProof {
     await this.mappingState(this.mapping.State);
     this.evidence.mappingRestored = this.mapping.State;
   }
-  async tick(): Promise<void> {
-    const result = await aws<{ FunctionError?: string; StatusCode: number }>(this.region, ['lambda', 'invoke', '--function-name', required('AWS_E2E_WATCHDOG_FUNCTION_NAME'), '--payload', '{}', '--cli-binary-format', 'raw-in-base64-out', '/dev/null']);
-    check(result.StatusCode === 200 && !result.FunctionError, 'deployed watchdog invocation');
+  async tick(): Promise<WatchdogTick> {
+    const directory = await mkdtemp(join(tmpdir(), 'rat-watchdog-tick-'));
+    try {
+      const output = join(directory, 'response.json');
+      const result = await aws<{ FunctionError?: string; StatusCode: number }>(this.region, ['lambda', 'invoke', '--function-name', required('AWS_E2E_WATCHDOG_FUNCTION_NAME'), '--payload', '{}', '--cli-binary-format', 'raw-in-base64-out', output]);
+      check(result.StatusCode === 200 && !result.FunctionError, 'deployed watchdog invocation');
+      const file = await open(output, 'r');
+      let body: string;
+      try {
+        const buffer = Buffer.alloc(4097);
+        const { bytesRead } = await file.read(buffer, 0, buffer.length, 0);
+        check(bytesRead > 0 && bytesRead <= 4096, 'bounded watchdog invocation response');
+        body = buffer.subarray(0, bytesRead).toString('utf8');
+      } finally { await file.close(); }
+      const tick = JSON.parse(body) as WatchdogTick | null;
+      check(tick && typeof tick.partial === 'boolean' && [tick.candidates, tick.reports, tick.errors].every(value => Number.isSafeInteger(value) && value >= 0), 'watchdog invocation result');
+      return { candidates: tick.candidates, reports: tick.reports, errors: tick.errors, partial: tick.partial };
+    } finally { await rm(directory, { recursive: true, force: true }); }
   }
   async revisit(): Promise<void> {
     check(this.scanOwner, 'configured collector owner');

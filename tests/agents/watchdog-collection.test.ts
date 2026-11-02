@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { DynamoDBDocumentClient } from '@aws-sdk/lib-dynamodb';
-import type { CloudWatchClient } from '@aws-sdk/client-cloudwatch';
+import type { CloudWatchClient, DescribeAlarmsCommandInput, DescribeAlarmsCommandOutput } from '@aws-sdk/client-cloudwatch';
 import { WatchdogCollector } from '../../src/adapters/watchdog-collector.js';
 import { AgentService } from '../../src/core/agent-service.js';
 import { WatchdogService, type WatchdogCollection } from '../../src/core/watchdog-service.js';
@@ -24,13 +24,16 @@ function serviceFixture(store: MemoryAgentsStore, collect: (now: number) => Prom
   return { service, report, advance: () => { now += 60; } };
 }
 
-function collectorFixture(store: MemoryAgentsStore, scan: (input: Record<string, unknown>) => Record<string, unknown>) {
+const alarmNames = ['rat-things-test-runs-dlq', 'rat-things-test-state-stream-failures', 'rat-things-test-notifier-delivery-failures', 'rat-things-test-notifier-dlq-delivery-failures'];
+
+function collectorFixture(store: MemoryAgentsStore, scan: (input: Record<string, unknown>) => Record<string, unknown>, alarms: (input: DescribeAlarmsCommandInput) => Partial<DescribeAlarmsCommandOutput> = () => ({ MetricAlarms: [] })) {
   const send = vi.fn(async (command: { input: Record<string, unknown> }) => scan(command.input));
+  const describeAlarms = vi.fn(async (command: { input: DescribeAlarmsCommandInput }) => alarms(command.input));
   const collector = new WatchdogCollector({ store, policy, dynamodb: { send } as unknown as DynamoDBDocumentClient,
-    cloudwatch: { send: async () => ({ MetricAlarms: [] }) } as unknown as CloudWatchClient,
-    agentsTable: 'agents', runsTable: 'runs', alarmPrefix: 'rat-things', operatorOwnerId: 'operator',
+    cloudwatch: { send: describeAlarms } as unknown as CloudWatchClient,
+    agentsTable: 'agents', runsTable: 'runs', alarmNames, operatorOwnerId: 'operator',
   });
-  return { collector, send };
+  return { collector, send, describeAlarms };
 }
 
 async function activeSession(store: MemoryAgentsStore, id: string): Promise<void> {
@@ -100,5 +103,28 @@ describe('watchdog scan-page fairness', () => {
     expect(service.report.mock.calls.map(([, value]) => value.candidate.sessionId)).toEqual(ids);
     expect((await store.list('owner', 'watchdog_findings', { limit: 100 })).data).toHaveLength(ids.length);
     expect(f.send).toHaveBeenCalledTimes(ids.length * 2);
+  });
+});
+
+describe('watchdog deployment alarms', () => {
+  it('collects exact deployment alarms without requesting wildcard listing authority', async () => {
+    const f = collectorFixture(new MemoryAgentsStore(), () => ({ Items: [] }), input => {
+      if (input.AlarmNamePrefix || JSON.stringify(input.AlarmNames) !== JSON.stringify(alarmNames)) throw new Error('AccessDenied');
+      return { MetricAlarms: [{ AlarmName: alarmNames[0], StateUpdatedTimestamp: new Date(1_000) }, { AlarmName: 'rat-things-test-other' }] };
+    });
+    expect(await f.collector.collect(100)).toEqual({ candidates: [{ ownerId: 'operator', subjectId: alarmNames[0], reason: 'alarm', since: 1 }], findings: [], partial: false });
+    expect(f.describeAlarms.mock.calls[0]![0].input).toEqual({ AlarmNames: alarmNames, AlarmTypes: ['MetricAlarm'], StateValue: 'ALARM', MaxRecords: 100 });
+  });
+
+  it('completes empty scans only when the alarm request succeeds', async () => {
+    const f = collectorFixture(new MemoryAgentsStore(), () => ({ Items: [] }));
+    expect(await f.collector.collect(100)).toEqual({ candidates: [], findings: [], partial: false });
+    f.describeAlarms.mockRejectedValueOnce(new Error('AccessDenied'));
+    expect(await f.collector.collect(101)).toEqual({ candidates: [], findings: [], partial: true });
+  });
+
+  it('marks an unexpectedly truncated alarm response partial', async () => {
+    const f = collectorFixture(new MemoryAgentsStore(), () => ({ Items: [] }), () => ({ NextToken: 'more' }));
+    expect((await f.collector.collect(100)).partial).toBe(true);
   });
 });

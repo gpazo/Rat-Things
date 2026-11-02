@@ -11,6 +11,13 @@ import { SessionDeliveryService } from '../delivery/session-delivery.js';
 import type { SessionState } from '../core/session-ports.js';
 import type { RunDestination } from '../domain/contracts.js';
 
+export function watchdogAlarmNamesFromEnv(env: NodeJS.ProcessEnv): string[] {
+  const names: unknown = JSON.parse(env.WATCHDOG_ALARM_NAMES_JSON ?? 'null');
+  if (!Array.isArray(names) || names.length < 1 || names.length > 100 ||
+    names.some(name => typeof name !== 'string' || !name.trim() || name.length > 255) || new Set(names).size !== names.length) throw new Error('Invalid WATCHDOG_ALARM_NAMES_JSON');
+  return names;
+}
+
 export function watchdogPolicyFromEnv(env: NodeJS.ProcessEnv): WatchdogPolicy {
   const number = (key: string, fallback: number, maximum: number): number => {
     const value = env[key] === undefined ? fallback : Number(env[key]);
@@ -38,7 +45,7 @@ export function getWatchdogService(): WatchdogService {
   const services = getAgentsApiServices();
   const policy = watchdogPolicyFromEnv(process.env);
   const collector = new WatchdogCollector({ store: services.store, dynamodb: clients.dynamodb, cloudwatch: new CloudWatchClient({ region: requiredEnv('AWS_REGION') }),
-    agentsTable: requiredEnv('AGENTS_TABLE_NAME'), runsTable: requiredEnv('RUNS_TABLE_NAME'), alarmPrefix: requiredEnv('WATCHDOG_ALARM_PREFIX'), operatorOwnerId: requiredEnv('WATCHDOG_OWNER_ID'), policy });
+    agentsTable: requiredEnv('AGENTS_TABLE_NAME'), runsTable: requiredEnv('RUNS_TABLE_NAME'), alarmNames: watchdogAlarmNamesFromEnv(process.env), operatorOwnerId: requiredEnv('WATCHDOG_OWNER_ID'), policy });
   const destinations = JSON.parse(process.env.WATCHDOG_DESTINATIONS_JSON ?? '[]') as RunDestination[];
   const reporting = new WatchdogReporting({ store: services.store, delivery: getSessionDeliveryService(), operatorDelivery: new SessionDeliveryService(getDeliveryService()), webhooks: services.webhooks, operatorDestinations: destinations });
   service = new WatchdogService({ store: services.store, policy, clock: { now: () => Math.floor(Date.now() / 1000) }, ports: {

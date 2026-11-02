@@ -3,6 +3,7 @@ import { SessionEventStore } from '../../src/core/session-event-store.js';
 import type { SessionState, SessionTurnBinding } from '../../src/core/session-ports.js';
 import type { SessionStreamSnapshot } from '../../src/core/session-stream.js';
 import type { StoredSessionRuntime } from '../../src/core/session-runtime-store.js';
+import type { StoredEnvironment } from '../../src/core/environment-service.js';
 import type { WatchdogCandidate, WatchdogFinding } from '../../src/domain/watchdog.js';
 import type { WebhookDelivery, WebhookEndpoint } from '../../src/domain/session-webhooks.js';
 import { parseWatchdogVerdict, watchdogIdentity } from '../../src/core/watchdog-planning.js';
@@ -109,6 +110,12 @@ live('reports injected held work, completes one real retry, and judges with a re
     await reports(judgeFindingId!, judged);
     await proof.mappingState('Disabled');
     proof.evidence.judge = { sessionId: progress.session.id, seed: 'injected aged progress', findingId: judgeFindingId, judgeSessionId: judgeId, verdict: verdict.verdict, confidence: verdict.confidence, reportVersion: judged.reportVersion, tokens: judgeTurn.turn.usage!.total_tokens };
+    await eventually('complete deployed watchdog scan without errors', async () => {
+      const scan = await proof.tick();
+      if (scan.partial || scan.errors !== 0) return false;
+      proof.evidence.completeScan = scan;
+      return true;
+    });
     succeeded = true;
   } finally {
     const failures: string[] = [];
@@ -121,11 +128,14 @@ live('reports injected held work, completes one real retry, and judges with a re
   }
 
   async function seed(status: 'queued' | 'failed' | 'in_progress'): Promise<SessionState> {
-    const session = await proof.client.beta.agents.sessions.create({ agent: { model: proof.model, tools: [], multi_agent: { enabled: false } }, environment: { type: 'none' }, metadata: { proof_id: proof.proofId, seed: status } });
+    const session = await proof.client.beta.agents.sessions.create({ agent: { model: proof.model, tools: [], multi_agent: { enabled: false } }, environment: { type: 'openai_hosted' }, metadata: { proof_id: proof.proofId, seed: status } });
     proof.sessions.add(session.id);
     const current = await proof.state(session.id);
-    check(current.value.session.status === 'idle' && current.value.turns.length === 0 && Object.keys(current.value.receipts).length === 0 && current.value.session.environment.type === 'none' && current.value.session.agent.model === proof.model && current.value.session.metadata?.proof_id === proof.proofId && !current.value.closing && !current.value.forkLock, 'new empty API-owned Session before injection');
+    check(current.value.session.status === 'idle' && current.value.turns.length === 0 && Object.keys(current.value.receipts).length === 0 && current.value.session.environment.type === 'openai_hosted' && current.value.session.agent.model === proof.model && current.value.session.metadata?.proof_id === proof.proofId && !current.value.closing && !current.value.forkLock, 'new empty API-owned managed Session before injection');
     check(current.value.session.agent.tools.length === 0 && current.value.session.agent.multi_agent?.enabled === false, 'seed capability envelope');
+    const environment = await proof.store.get<StoredEnvironment>(proof.owner, 'environments', current.value.session.environment.id);
+    check(environment?.value.sessionId === session.id && environment.value.status === 'pending' && !environment.value.runId && !environment.value.pendingRunId && !environment.value.retired, 'managed seed environment has not started');
+    check(!await proof.store.get(proof.owner, 'session_runtime', session.id), 'seed has no execution runtime');
     const now = Math.floor(Date.now() / 1000);
     const at = now - (status === 'queued' ? 310 : status === 'in_progress' ? 1810 : 10);
     const turnId = `turn_${hash(`${proof.proofId}:${status}`).slice(0, 32)}`;
@@ -139,6 +149,7 @@ live('reports injected held work, completes one real retry, and judges with a re
     const saved = await proof.state(session.id);
     const observation = await proof.store.get<SessionStreamSnapshot>(proof.owner, 'session_observations', session.id);
     check(saved.createdAt === current.createdAt && saved.value.turns[0]?.turn.status === status && observation?.value.turns[0]?.status === status, 'CAS seed and committed observation');
+    check(JSON.stringify(saved.value.session) === JSON.stringify(current.value.session) && JSON.stringify(saved.value.runtime) === JSON.stringify(current.value.runtime) && saved.value.placement === current.value.placement, 'seed preserves API-created Session and execution envelope');
     return saved.value;
   }
   async function reports(id: string, finding: WatchdogFinding): Promise<void> {

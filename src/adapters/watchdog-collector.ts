@@ -13,7 +13,7 @@ import { savedSessionObservation } from '../core/session-observation-planning.js
 
 interface ScanCursor { agents?: Record<string, unknown>; runs?: Record<string, unknown>; candidateOffset?: number }
 export class WatchdogCollector {
-  public constructor(private readonly options: { store: AgentsStore; dynamodb: DynamoDBDocumentClient; cloudwatch: CloudWatchClient; agentsTable: string; runsTable: string; alarmPrefix: string; operatorOwnerId: string; policy: WatchdogPolicy }) {}
+  public constructor(private readonly options: { store: AgentsStore; dynamodb: DynamoDBDocumentClient; cloudwatch: CloudWatchClient; agentsTable: string; runsTable: string; alarmNames: string[]; operatorOwnerId: string; policy: WatchdogPolicy }) {}
   public async collect(now: number): Promise<WatchdogCollection> {
     const { store, dynamodb, policy, operatorOwnerId } = this.options;
     const checkpoint = await store.get<ScanCursor>(operatorOwnerId, 'watchdog_scan', 'cursor');
@@ -64,8 +64,9 @@ export class WatchdogCollector {
     }
     let alarmFailure = false;
     try {
-      const alarms = await this.options.cloudwatch.send(new DescribeAlarmsCommand({ AlarmNamePrefix: this.options.alarmPrefix, StateValue: 'ALARM', MaxRecords: 50 }));
-      for (const alarm of [...alarms.MetricAlarms ?? [], ...alarms.CompositeAlarms ?? []]) if (alarm.AlarmName) candidates.push({ ownerId: operatorOwnerId, subjectId: alarm.AlarmName, reason: 'alarm', since: (alarm.StateUpdatedTimestamp?.getTime() ?? now * 1000) / 1000 });
+      const alarms = await this.options.cloudwatch.send(new DescribeAlarmsCommand({ AlarmNames: this.options.alarmNames, AlarmTypes: ['MetricAlarm'], StateValue: 'ALARM', MaxRecords: 100 }));
+      alarmFailure = Boolean(alarms.NextToken);
+      for (const alarm of alarms.MetricAlarms ?? []) if (alarm.AlarmName && this.options.alarmNames.includes(alarm.AlarmName)) candidates.push({ ownerId: operatorOwnerId, subjectId: alarm.AlarmName, reason: 'alarm', since: (alarm.StateUpdatedTimestamp?.getTime() ?? now * 1000) / 1000 });
     } catch { alarmFailure = true; }
     candidates.sort((a, b) => a.since - b.since || `${a.ownerId}:${a.reason}:${a.subjectId}:${a.turnId ?? ''}`.localeCompare(`${b.ownerId}:${b.reason}:${b.subjectId}:${b.turnId ?? ''}`));
     const offset = candidates.length ? (checkpoint?.value.candidateOffset ?? 0) % candidates.length : 0;

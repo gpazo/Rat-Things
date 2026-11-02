@@ -106,6 +106,15 @@ run "independent_watchdog_and_candidate_filter" {
     error_message = "Watchdog must inspect storage and deliver directly without the outbox role."
   }
   assert {
+    condition = toset(jsondecode(aws_lambda_function.this["watchdog"].environment[0].variables.WATCHDOG_ALARM_NAMES_JSON)) == toset([
+      aws_cloudwatch_metric_alarm.run_dlq.alarm_name,
+      aws_cloudwatch_metric_alarm.state_stream_failures.alarm_name,
+      aws_cloudwatch_metric_alarm.notifier_delivery_failures.alarm_name,
+      aws_cloudwatch_metric_alarm.notifier_dlq_delivery_failures.alarm_name,
+    ]) && one([for statement in data.aws_iam_policy_document.watchdog[0].statement : statement.resources if statement.sid == "WatchdogAlarms"]) == toset(["arn:aws:cloudwatch:us-west-2:123456789012:alarm:${local.name}*"])
+    error_message = "Watchdog must request the four deployment alarms and retain deployment-scoped alarm permissions."
+  }
+  assert {
     condition     = one([for statement in data.aws_iam_policy_document.agents_outbox.statement : statement.resources if statement.sid == "EventFilterInference"]) == toset(var.event_filter_inference_resource_arns)
     error_message = "Candidate inference must be restricted to exact approved resources."
   }

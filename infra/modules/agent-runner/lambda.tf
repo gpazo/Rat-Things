@@ -143,9 +143,14 @@ locals {
       timeout  = 300
       memory   = 512
       environment = merge(local.executor_environment, local.delivery_environment, {
-        WATCHDOG_OWNER_ID               = var.watchdog_owner_id
-        WATCHDOG_MODEL                  = coalesce(var.watchdog_model, local.model_catalog_default_model, "disabled")
-        WATCHDOG_ALARM_PREFIX           = local.name
+        WATCHDOG_OWNER_ID = var.watchdog_owner_id
+        WATCHDOG_MODEL    = coalesce(var.watchdog_model, local.model_catalog_default_model, "disabled")
+        WATCHDOG_ALARM_NAMES_JSON = jsonencode([
+          aws_cloudwatch_metric_alarm.run_dlq.alarm_name,
+          aws_cloudwatch_metric_alarm.state_stream_failures.alarm_name,
+          aws_cloudwatch_metric_alarm.notifier_delivery_failures.alarm_name,
+          aws_cloudwatch_metric_alarm.notifier_dlq_delivery_failures.alarm_name,
+        ])
         WATCHDOG_DESTINATIONS_JSON      = jsonencode(var.watchdog_destinations)
         WATCHDOG_LONG_RUNNING_SECONDS   = tostring(var.watchdog_long_running_seconds)
         WATCHDOG_RECENT_FAILURE_SECONDS = tostring(var.watchdog_recent_failure_seconds)
