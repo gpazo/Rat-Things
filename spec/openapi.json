@@ -9052,7 +9052,8 @@
                 "agent.session.action_required",
                 "agent.session.in_progress",
                 "agent.session.idle",
-                "agent.session.failed"
+                "agent.session.failed",
+                "agent.session.watchdog"
               ]
             }
           },
@@ -9086,7 +9087,8 @@
                 "agent.session.action_required",
                 "agent.session.in_progress",
                 "agent.session.idle",
-                "agent.session.failed"
+                "agent.session.failed",
+                "agent.session.watchdog"
               ]
             }
           },
@@ -9129,7 +9131,8 @@
                 "agent.session.action_required",
                 "agent.session.in_progress",
                 "agent.session.idle",
-                "agent.session.failed"
+                "agent.session.failed",
+                "agent.session.watchdog"
               ]
             }
           },
@@ -9182,7 +9185,8 @@
                 "agent.session.action_required",
                 "agent.session.in_progress",
                 "agent.session.idle",
-                "agent.session.failed"
+                "agent.session.failed",
+                "agent.session.watchdog"
               ]
             }
           },

@@ -63,7 +63,7 @@ on an unsubscribed thread are case-insensitively gated by `github_comment_trigge
 and noise filter, not authorization: anyone allowed to comment can include the trigger. Retain event,
 installation, repository, rate, and budget controls.
 
-The normalizer requires the configured trigger to be non-empty. Provider result replies include the
+An empty trigger never counts as an explicit mention. Provider result replies include the
 hidden `rat-things:result` marker, and ingress ignores marked replies and comments
 whose GitHub user type is `Bot`. These controls prevent the runtime's ordinary result replies from
 starting another run even when generated text repeats the trigger. They do not authorize human
@@ -137,7 +137,7 @@ case-insensitively gated by `gitlab_comment_trigger` (injected as `GITLAB_COMMEN
 `@rat-things` by default). The trigger controls
 noise/cost but is not proof that the author is authorized for a particular repository or destination.
 
-The normalizer requires the configured trigger to be non-empty. Provider result notes include the
+An empty trigger never counts as an explicit mention. Provider result notes include the
 hidden `rat-things:result` marker, and ingress ignores marked replies and payload users
 whose GitLab `bot` field is true. These controls prevent ordinary self-trigger loops even when
 generated text repeats the trigger. They do not authorize human authors; keep project, actor, budget,
