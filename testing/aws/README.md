@@ -109,6 +109,24 @@ The default test deployment uses the Lambda URL Agents transport. Full upload
 sizes, long-lived SSE and executor relay coverage require deploying the dedicated
 Agents HTTP service; see `docs/agents-api.md`.
 
+The four-feature proof additionally requires `AWS_E2E_SUPER_AGENT_PROOF=true`,
+`AWS_E2E_ENABLE_SLACK_WEBHOOK=true`, and `AWS_E2E_SLACK_SIGNING_SECRET_FILE` pointing
+to a private signing-secret file at deployment. Set `AWS_E2E_EVENT_FILTER_MODEL_ID`
+to a structured-output Converse model and
+`AWS_E2E_EVENT_FILTER_INFERENCE_RESOURCE_ARNS_JSON` to its exact profile and model
+ARNs. This opt-in enables a one-minute watchdog schedule, candidate message intake,
+and deployment-owned Teams delivery capture. Source the resulting `runtime.env`
+and run `npx vitest run tests/aws/super-agent-*.test.ts --no-file-parallelism`.
+
+These proofs send signed synthetic GitHub and Slack events, execute real model
+Turns, inspect saved state, and capture outgoing delivery. They do not install a
+provider app or post to a real repository or channel. Watchdog probes inject
+bounded failed and aged histories into their own API-created Sessions, then check
+scheduled reporting and actual model retry and judgment. Some probes temporarily
+pause the disposable outbox consumer and restore it in cleanup; run these files
+serially against an otherwise idle test stack. The credential echo endpoint accepts
+only deployment-specific synthetic canaries. Destroy the stack after validation.
+
 Set `AWS_E2E_WEBHOOK_CAPTURE_URL` to the disposable deployment's delivery capture
 URL to include the optional webhook case. It registers a Session-created webhook,
 checks delivery through `DELIVERY_CAPTURE_QUEUE_URL`, and removes its resources.

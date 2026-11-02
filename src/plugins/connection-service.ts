@@ -77,8 +77,10 @@ export interface CreateConnectionSetInput {
 }
 
 export interface CreateSourceBindingInput extends SessionIntegrationTarget {
+  eventPolicy?: SourceCapabilityBinding['eventPolicy'];
   ownerId: string;
   sourceKind: SourceCapabilityBinding['sourceKind'];
+  threadScope?: SourceCapabilityBinding['threadScope'];
   selector: SourceCapabilityBinding['selector'];
   connectionSetId?: string;
 }
@@ -349,10 +351,13 @@ export class ConnectionService {
       bindingId: this.ids.random(),
       ownerId: input.ownerId,
       sourceKind: input.sourceKind,
+      ...(input.threadScope ? { threadScope: input.threadScope } : {}),
       selector: input.selector,
+      ...(input.eventPolicy ? { eventPolicy: input.eventPolicy } : {}),
       agentId: input.agentId, environment: input.environment,
       ...(input.vaultIds ? { vaultIds: input.vaultIds } : {}),
       ...(input.destinations ? { destinations: input.destinations } : {}),
+      ...(input.watchdog ? { watchdog: input.watchdog } : {}),
       ...(input.connectionSetId ? { connectionSetId: input.connectionSetId } : {}),
     });
     await this.options.store.putSourceBinding(binding);

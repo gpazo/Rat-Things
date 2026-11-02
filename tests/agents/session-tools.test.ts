@@ -1,14 +1,16 @@
+import { planSessionToolTransports } from '../../src/core/session-tool-planning.js';
 import { spawn } from 'node:child_process';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { once } from 'node:events';
 import { setTimeout as delay } from 'node:timers/promises';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { sessionAgent } from '../../src/core/session-planning.js';
 import { SessionToolService } from '../../src/core/session-tool-service.js';
 import { VaultService } from '../../src/core/vault-service.js';
-import { createSessionMcpProxy, planMcpRequest } from '../../src/runner/session-mcp.js';
+import { createSessionMcpProxy, planMcpRequest, prepareSessionMcp } from '../../src/runner/session-mcp.js';
+import { createOutputRedactor } from '../../src/core/output-redactor.js';
 import type { AgentToolParam } from '../../src/domain/agents-api.js';
 import type { SessionCredentialSecret } from '../../src/credentials/session-tools.js';
 import { MemoryAgentsStore } from './fixtures.js';
@@ -41,6 +43,26 @@ describe('session MCP capabilities', () => {
     } finally { await proxy.close(); }
   });
 
+  it('remembers refreshed service MCP bearer values in the host output redactor', async () => {
+    const nativeFetch = globalThis.fetch;
+    let requests = 0;
+    const fetch = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      if (String(input) === 'https://mcp.example/service') return ++requests === 1 ? new Response('', { status: 401 }) : Response.json({ jsonrpc: '2.0', id: 1, result: { tools: [] } });
+      return nativeFetch(input, init);
+    });
+    const tools: AgentToolParam[] = [{ type: 'mcp', server_label: 'crm', transport: { type: 'http', server_url: 'https://mcp.example/service' } }];
+    const redactor = createOutputRedactor([]);
+    const runtime = await prepareSessionMcp('alice', { sessionId: 'session', turnId: 'turn', input: [], agent: sessionAgent({ model: 'test', tools }, 'agent', 1), environment: { type: 'none' }, mcp: [{ serverLabel: 'crm', vaultReference: 'secret-ref', vaultId: 'vault', credentialId: 'credential' }] },
+      { get: async () => { throw new Error('Unexpected direct secret read'); } }, undefined, { authorization: async (_owner, _vault, _credential, _url, rejected) => `Bearer ${rejected ? 'rotated-private-token' : 'initial-private-token'}` }, undefined, redactor.remember);
+    try {
+      const server = runtime.servers.crm as { url: string; bearer_token_env_var: string };
+      const response = await nativeFetch(server.url, { method: 'POST', headers: { authorization: `Bearer ${runtime.environment[server.bearer_token_env_var]}`, 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }) });
+      expect(response.status).toBe(200);
+      expect(requests).toBe(2);
+      expect(redactor('initial-private-token rotated-private-token')).toBe('[REDACTED] [REDACTED]');
+    } finally { await runtime.close(); fetch.mockRestore(); }
+  });
+
   it('never repeats an ambiguous MCP tool effect or leaks its provider failure', async () => {
     let calls = 0;
     const proxy = await createSessionMcpProxy({ serverURL: 'https://mcp.example/service', headers: {}, metadata: {}, allowedTools: ['save'],
@@ -52,6 +74,14 @@ describe('session MCP capabilities', () => {
       expect(await response.json()).toEqual({ error: 'MCP request failed' });
       expect(calls).toBe(1);
     } finally { await proxy.close(); }
+  });
+
+  it('rejects credential-like inline MCP environment values and permits placeholder inheritance', () => {
+    const tool: AgentToolParam = { type: 'mcp', server_label: 'local', connection_origin: 'environment', transport: { type: 'stdio', command: 'node', cwd: '/workspace', env: { API_TOKEN: 'private-token' } } };
+    const agent = sessionAgent({ model: 'test', tools: [tool] }, 'agent_1', 1);
+    expect(() => planSessionToolTransports(agent, [tool])).toThrow(/Vault/);
+    const safe: AgentToolParam = { ...tool, transport: { type: 'stdio', command: 'node', cwd: '/workspace', env: { API_TOKEN: '${API_TOKEN}', MODE: 'production' }, env_vars: ['API_TOKEN'] } };
+    expect(planSessionToolTransports(agent, [safe])[0]?.env).toEqual({ API_TOKEN: '${API_TOKEN}', MODE: 'production' });
   });
 
   it('keeps inline credentials out of public settings and encrypted session metadata', async () => {

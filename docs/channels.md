@@ -54,16 +54,16 @@ Accepted events are:
 | GitHub event | Accepted actions | Result destination |
 | --- | --- | --- |
 | `pull_request` | `opened`, `reopened`, `synchronize`, `ready_for_review` | PR issue comment |
-| `issue_comment` | `created`, only when the issue is a PR and body contains the configured trigger | PR issue comment |
+| `issue_comment` | `created`, only when the issue is a PR; admission follows the binding's event policy | PR issue comment |
 
 Other validly signed events return `202` with `{"accepted":false,"ignored":true}`. The review
 request checks out the head SHA read-only and fetches the base ref for diff context. Comment requests
-are case-insensitively gated by `github_comment_trigger` (injected as
+on an unsubscribed thread are case-insensitively gated by `github_comment_trigger` (injected as
 `GITHUB_COMMENT_TRIGGER`; `@rat-things` by default). This is a cost
 and noise filter, not authorization: anyone allowed to comment can include the trigger. Retain event,
 installation, repository, rate, and budget controls.
 
-The normalizer requires the configured trigger to be non-empty. Provider result replies include the
+An empty trigger never counts as an explicit mention. Provider result replies include the
 hidden `rat-things:result` marker, and ingress ignores marked replies and comments
 whose GitHub user type is `Bot`. These controls prevent the runtime's ordinary result replies from
 starting another run even when generated text repeats the trigger. They do not authorize human
@@ -88,10 +88,12 @@ Configure the signed webhook and its owned Agent/environment binding as describe
    so delivery IDs, permissions, URLs, and secrets do not cross dev/prod boundaries.
 5. Create an owner-authenticated source binding for the repository, selecting an Agent and
    environment. A signed event without a matching binding returns `source_not_bound`. Each accepted
-   occurrence creates a Session; saved terminal root Turns drive comment delivery.
+   pull request subscribes to a Session; saved terminal root Turns drive comment delivery.
+   Follow-up comments continue that Session. A synchronized head change starts a new
+   review Session and transfers the subscription.
 
-For `issue_comment`, the adapter checks out `refs/pull/<number>/head` so follow-up questions inspect
-the pull request rather than the repository's default branch. That synthetic ref is mutable; a future
+When an `issue_comment` starts a new Session, the adapter checks out `refs/pull/<number>/head`.
+Comments admitted to an existing Session retain its checkout. The synthetic ref is mutable; a future
 adapter should resolve it to a commit SHA at authenticated ingress when exact replay reproducibility is
 required.
 
@@ -128,14 +130,14 @@ Accepted payloads are:
 | GitLab object kind | Accepted actions | Result destination |
 | --- | --- | --- |
 | `merge_request` | `open`, `reopen`, `update`, `approved` (or omitted action) | Merge-request note |
-| `note` | Note attached to a merge request whose body contains the configured trigger | Merge-request note |
+| `note` | Note attached to a merge request; admission follows the binding's event policy | Merge-request note |
 
-Other authenticated payloads return an accepted/ignored response. GitLab note requests are
+Other authenticated payloads return an accepted/ignored response. GitLab note requests on an unsubscribed thread are
 case-insensitively gated by `gitlab_comment_trigger` (injected as `GITLAB_COMMENT_TRIGGER`;
 `@rat-things` by default). The trigger controls
 noise/cost but is not proof that the author is authorized for a particular repository or destination.
 
-The normalizer requires the configured trigger to be non-empty. Provider result notes include the
+An empty trigger never counts as an explicit mention. Provider result notes include the
 hidden `rat-things:result` marker, and ingress ignores marked replies and payload users
 whose GitLab `bot` field is true. These controls prevent ordinary self-trigger loops even when
 generated text repeats the trigger. They do not authorize human authors; keep project, actor, budget,
@@ -156,7 +158,8 @@ and rate policy separate.
 5. Create an owner-authenticated source binding with `sourceKind: "gitlab"`, a `projectId` selector
    containing the provider project ID as a string, and the selected Agent and managed environment.
    See [provider bindings](schedules.md#provider-bindings). A signed event without a matching binding
-   returns `source_not_bound`; each accepted occurrence gets its own Session.
+   returns `source_not_bound`. Comments on the same merge request continue its active
+   Session; a changed head starts a new review Session and transfers the subscription.
 
 GitLab documents the signing-token format, Standard Webhooks headers, multi-signature verification,
 timestamp, idempotency header, and legacy-token warning under
@@ -274,7 +277,7 @@ Automate owner. It must not add a mid-Turn authority-widening path.
 
 Slack is an opt-in provider channel in each self-hosted deployment. The ingress validates Slack v0
 signatures and rejects timestamps with more than five minutes of skew. It
-answers URL-verification challenges and accepts only `app_mention` events. Mentions carrying
+answers URL-verification challenges and accepts `app_mention` events by default. Events carrying
 `bot_id`, `bot_profile`, or the `bot_message` subtype are ignored so the adapter does not consume its
 own bot output. Results use `chat.postMessage`, preserving the source thread when one exists.
 For the user-facing workflows this enables—workspace research, durable follow-ups, controlled
@@ -313,3 +316,131 @@ bot token do not establish that ownership. Delegated search visibility is exactl
 Slack user's visibility; it is not bot-wide or workspace-administrator search authority.
 
 For supported behavior and current limitations, see [Status and roadmap](status-and-roadmap.md).
+
+## Event policies and quiet responses
+
+Each source binding can set `eventPolicy`. The default mode, `explicit`, accepts mentions,
+configured repository comment triggers, and review events. A subscribed thread also accepts
+follow-ups without a trigger when the provider delivers that event type. Slack ordinary messages
+require the separate opt-in described below; Teams outgoing webhooks still require a mention.
+`ignore` drops events. Bot and result-marker filters always apply,
+followed by actor and channel restrictions, before any subscription or mention can admit an event.
+Trigger text filters noise; it does not authorize the author.
+
+`actors.allow` and `actors.deny` contain exact actor IDs; deny takes precedence. IDs are
+`github:<login>`, `gitlab:<user-id>`, `slack:<team-id>:<user-id>`, or
+`teams:<tenant-id>:<sender-id>`. `channels` limits chat channel or conversation IDs. An empty
+allowlist admits nobody. Selectors still determine the source binding and owner.
+
+Candidate mode sends untriggered GitHub PR comments, GitLab MR notes, and enabled Slack
+ordinary messages to an asynchronous filter when they have no active thread subscription.
+Repository review events, triggered comments, Slack mentions and Teams outgoing-webhook
+messages are explicit input and bypass that model filter. Restrictions still apply to all inputs.
+
+Choose the policy when creating the source binding. For example, a Slack binding request can
+include this field:
+
+```json
+{
+  "eventPolicy": {
+    "mode": "candidate",
+    "actors": { "deny": ["slack:T123:U456"] },
+    "channels": ["C123"],
+    "semantic": {
+      "policies": ["Act on unanswered deployment questions that this team owns."],
+      "maxCandidatesPerHour": 30
+    }
+  }
+}
+```
+
+Ingress persists a candidate receipt and acknowledges without invoking a model. A background
+worker processes the receipt later. A tool-less Bedrock Converse request receives the
+saved policies, bounded event text and recent thread text, and must return only `act` and `reason`.
+Configure `event_filter_model_id` and exact `event_filter_inference_resource_arns` for a model
+supporting JSON-schema output. With no configured model, or on model errors or invalid output,
+the candidate is discarded. The model cannot select an Agent, destination or tool.
+
+The cap applies per binding in fixed UTC clock hours. Decisions retain the model, policy digest,
+reason and boolean result for seven days; candidates older than an hour are discarded. Policy
+is saved with each candidate, so later policy changes cannot alter that decision. Subsequent
+explicit input, including a mention, triggered comment or review event, supersedes pending
+candidates on its thread. Provider retries retain the original receipt and decision.
+
+Actor and channel lists accept at most 256 nonempty IDs each, with up to 512 characters per ID.
+Candidate mode requires `semantic`: one to sixteen policies of at most 2,000 characters each,
+and an integer `maxCandidatesPerHour` from 1 to 1,000.
+
+A Turn containing only candidate-admitted input can complete with no text and post nothing.
+Explicit requests retain the normal completion reply. Candidate mode should use an Agent with
+mostly read-only tools: event text can manipulate the filter, and admitted events run inside the
+same fixed capability envelope as mentions.
+
+For Slack, ordinary message intake additionally requires `slack_candidate_events_enabled = true`.
+Use a separate opt-in Slack app installation, subscribe it to `message.channels` and
+`message.groups`, and grant `channels:history` and `groups:history` alongside the existing scopes.
+The integration's OAuth request includes those scopes only when the deployment flag is enabled.
+Reading channel messages changes privacy expectations; restrict the binding's channels and use
+private channels for shared-thread steering. Edited and deleted messages are ignored. Signature
+verification and durable persistence still happen before acknowledgement, so the Slack latency
+constraint above remains.
+
+### Create a Slack candidate binding
+
+Configure the deployment flag, model and exact inference resource ARNs before installing the
+separate Slack app. Complete steps 1–4 of [Slack setup](#slack-self-hosted-channel-adapter),
+including the message subscriptions and history scopes above. Use the following binding flow
+instead of `rat-things slack-events`, which creates a default explicit binding.
+
+Save a connection set as `slack-set.json`, using the alias of your verified Slack connection:
+
+```json
+{
+  "version": "1",
+  "name": "slack-candidates",
+  "connections": ["slack-work"],
+  "defaults": { "slack": "slack-work" }
+}
+```
+
+```bash
+rat-things connection-set --file slack-set.json
+```
+
+Copy the returned `connectionSetId` into `slack-binding.json`. Replace the team, channel and
+Agent IDs with your own. The example shares a private channel thread across participants;
+omit `threadScope` to keep a separate Session for each sender.
+
+```json
+{
+  "version": "1",
+  "sourceKind": "slack",
+  "selector": { "teamId": "T123", "channelId": "C123" },
+  "threadScope": "thread",
+  "agentId": "agent_example",
+  "environment": { "type": "none" },
+  "connectionSetId": "connection_set_from_previous_command",
+  "eventPolicy": {
+    "mode": "candidate",
+    "channels": ["C123"],
+    "semantic": {
+      "policies": ["Act on unanswered deployment questions that this team owns."],
+      "maxCandidatesPerHour": 30
+    }
+  }
+}
+```
+
+```bash
+rat-things bind-source --file slack-binding.json
+rat-things source-bindings
+```
+
+Use an Agent with mostly read-only declared tools. The connection set enables result delivery;
+it does not grant those tools. Replace `environment` with a managed environment when the work
+needs a workspace.
+
+Source bindings currently support creation and listing, not editing or deletion through the
+control API. A second binding with the same provider and exact selector is rejected. Inspect
+existing bindings before creating one. A channel selector is more specific than a team-only
+binding and takes precedence for that channel; equally specific overlapping matches are rejected.

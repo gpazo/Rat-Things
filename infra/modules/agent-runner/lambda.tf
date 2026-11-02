@@ -20,6 +20,7 @@ locals {
   lambda_common_environment = merge(local.pi_catalog_environment, {
     OWNER_RATE_LIMITS_JSON              = jsonencode(var.owner_rate_limits)
     SESSION_CHECKPOINTS_ENABLED         = tostring(var.session_checkpoints_enabled)
+    SLACK_CANDIDATE_EVENTS_ENABLED      = tostring(var.slack_candidate_events_enabled)
     S3_FILES_ENABLED                    = tostring(var.enable_s3_files)
     ALLOWED_REPOSITORY_HOSTS            = join(",", var.allowed_repository_hosts)
     ALLOWED_SANDBOX_MODES               = join(",", var.allowed_sandbox_modes)
@@ -132,7 +133,36 @@ locals {
       timeout  = 60
       memory   = 512
       environment = merge(local.executor_environment, local.delivery_environment, local.thing_scheduler_environment, {
-        AGENTS_TABLE_NAME = aws_dynamodb_table.agents.name
+        AGENTS_TABLE_NAME     = aws_dynamodb_table.agents.name
+        EVENT_FILTER_MODEL_ID = var.event_filter_model_id == null ? "" : var.event_filter_model_id
+      })
+    }
+    watchdog = {
+      enabled  = var.enable_watchdog
+      zip_path = local.lambda_zip_paths["watchdog"]
+      role_arn = var.enable_watchdog ? aws_iam_role.watchdog[0].arn : null
+      timeout  = 300
+      memory   = 512
+      environment = merge(local.executor_environment, local.delivery_environment, {
+        WATCHDOG_OWNER_ID = var.watchdog_owner_id
+        WATCHDOG_MODEL    = coalesce(var.watchdog_model, local.model_catalog_default_model, "disabled")
+        WATCHDOG_ALARM_NAMES_JSON = jsonencode([
+          aws_cloudwatch_metric_alarm.run_dlq.alarm_name,
+          aws_cloudwatch_metric_alarm.state_stream_failures.alarm_name,
+          aws_cloudwatch_metric_alarm.notifier_delivery_failures.alarm_name,
+          aws_cloudwatch_metric_alarm.notifier_dlq_delivery_failures.alarm_name,
+        ])
+        WATCHDOG_DESTINATIONS_JSON      = jsonencode(var.watchdog_destinations)
+        WATCHDOG_LONG_RUNNING_SECONDS   = tostring(var.watchdog_long_running_seconds)
+        WATCHDOG_RECENT_FAILURE_SECONDS = tostring(var.watchdog_recent_failure_seconds)
+        WATCHDOG_STUCK_SECONDS          = tostring(var.watchdog_stuck_seconds)
+        WATCHDOG_RETRY_BACKOFF_SECONDS  = tostring(var.watchdog_retry_backoff_seconds)
+        WATCHDOG_MAX_CANDIDATES         = tostring(var.watchdog_max_candidates)
+        WATCHDOG_MAX_JUDGES_PER_TICK    = tostring(var.watchdog_max_judges_per_tick)
+        WATCHDOG_JUDGE_TIMEOUT_SECONDS  = tostring(var.watchdog_judge_timeout_seconds)
+        WATCHDOG_RETENTION_SECONDS      = tostring(var.watchdog_retention_seconds)
+        WATCHDOG_LOOP_CONFIDENCE        = tostring(var.watchdog_loop_confidence)
+        WATCHDOG_ALLOW_CANCEL           = tostring(var.watchdog_allow_cancel)
       })
     }
     connection-health = {
@@ -251,7 +281,7 @@ locals {
       zip_path = local.lambda_zip_paths["webhook-teams"]
       role_arn = aws_iam_role.ingress.arn
       timeout  = 5
-      memory   = 256
+      memory   = 1024
       environment = merge(local.lambda_common_environment, {
         TEAMS_OUTGOING_WEBHOOK_SECRET_ARN = coalesce(var.teams_outgoing_webhook_secret_arn, "DISABLED")
       })
@@ -261,7 +291,7 @@ locals {
       zip_path = local.lambda_zip_paths["webhook-slack"]
       role_arn = aws_iam_role.ingress.arn
       timeout  = 5
-      memory   = 256
+      memory   = 1024
       environment = merge(local.lambda_common_environment, {
         SLACK_SIGNING_SECRET_ARN = coalesce(var.slack_signing_secret_arn, "DISABLED")
       })
@@ -276,16 +306,17 @@ locals {
 resource "aws_lambda_function" "this" {
   for_each = local.enabled_lambda_definitions
 
-  function_name    = "${local.name}-${each.key}"
-  description      = "${local.name} ${each.key} control-plane function"
-  role             = each.value.role_arn
-  handler          = "index.handler"
-  runtime          = "nodejs22.x"
-  architectures    = ["arm64"]
-  filename         = each.value.zip_path
-  source_code_hash = fileexists(each.value.zip_path) ? filebase64sha256(each.value.zip_path) : null
-  timeout          = each.value.timeout
-  memory_size      = each.value.memory
+  function_name                  = "${local.name}-${each.key}"
+  description                    = "${local.name} ${each.key} control-plane function"
+  role                           = each.value.role_arn
+  handler                        = "index.handler"
+  runtime                        = "nodejs22.x"
+  architectures                  = ["arm64"]
+  filename                       = each.value.zip_path
+  source_code_hash               = fileexists(each.value.zip_path) ? filebase64sha256(each.value.zip_path) : null
+  timeout                        = each.value.timeout
+  memory_size                    = each.value.memory
+  reserved_concurrent_executions = each.key == "watchdog" ? 1 : -1
 
   environment {
     variables = each.value.environment
@@ -305,7 +336,7 @@ resource "aws_lambda_function" "this" {
     }
   }
 
-  depends_on = [aws_cloudwatch_log_group.lambda, aws_iam_role_policy.agents_token_issuer, aws_iam_role_policy.agents_outbox]
+  depends_on = [aws_cloudwatch_log_group.lambda, aws_iam_role_policy.agents_token_issuer, aws_iam_role_policy.agents_outbox, aws_iam_role_policy.watchdog]
 }
 
 resource "aws_lambda_event_source_mapping" "dispatcher" {

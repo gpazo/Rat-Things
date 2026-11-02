@@ -6,7 +6,7 @@ import type { StoredEnvironment } from './environment-service.js';
 import { savedSessionObservation } from './session-observation-planning.js';
 import { planSessionStream, type SessionStreamSnapshot } from './session-stream.js';
 import { planSessionWebhooks, type SessionWebhookEvent, type StoredWebhookEndpoint } from '../domain/session-webhooks.js';
-import { AgentsApiError } from '../domain/agents-api-validation.js';
+import { AgentsApiError, AgentsResourceConflictError } from '../domain/agents-api-validation.js';
 
 export interface SessionEventBatch { sessionId: string; events: AgentSessionEvent[]; webhooks: SessionWebhookEvent[]; endpointIds: string[] }
 export const sessionEventBatchId = (id: string, revision: number): string => `${id}_${String(revision).padStart(16, '0')}`;
@@ -51,18 +51,23 @@ export class SessionEventStore implements AgentsStore {
       }
     }
   }
-  private async commitObserved(writes: Array<{ resource: AgentResource<unknown>; expectedRevision: number }>): Promise<void> {
+  public commitAtObservation(writes: Array<{ resource: AgentResource<unknown>; expectedRevision: number }>, observation: { ownerId: string; id: string; revision: number }): Promise<void> {
+    return this.commitObserved(writes, observation);
+  }
+  private async commitObserved(writes: Array<{ resource: AgentResource<unknown>; expectedRevision: number }>, observation?: { ownerId: string; id: string; revision: number }): Promise<void> {
     const affected = new Map<string, { ownerId: string; id: string }>();
     for (const { resource } of writes) {
       const id = resource.collection === 'sessions' || resource.collection === 'session_runtime' ? resource.id
         : resource.collection === 'environments' ? (resource.value as StoredEnvironment).sessionId : undefined;
       if (id) affected.set(JSON.stringify([resource.ownerId, id]), { ownerId: resource.ownerId, id });
     }
+    if (observation && !affected.has(JSON.stringify([observation.ownerId, observation.id]))) throw new Error('Observation guard does not match a Session write');
     const additions: typeof writes = [];
     for (const { ownerId, id } of affected.values()) {
       // Read the compare-and-swap fence first. Concurrent changes to any source
       // also change this fence, so a mixed observation cannot be committed.
       const previous = await this.base.get<SessionStreamSnapshot>(ownerId, 'session_observations', id);
+      if (observation?.ownerId === ownerId && observation.id === id && previous?.revision !== observation.revision) throw new AgentsResourceConflictError();
       const read = async <T>(collection: string, resourceId: string) => {
         const pending = writes.find(({ resource }) => resource.ownerId === ownerId && resource.collection === collection && resource.id === resourceId);
         return pending ? pending.resource as AgentResource<T> : this.base.get<T>(ownerId, collection, resourceId);

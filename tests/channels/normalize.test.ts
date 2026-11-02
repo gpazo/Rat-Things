@@ -44,6 +44,8 @@ describe('GitHub webhook normalization', () => {
 
     expect(normalized).toEqual({
       ownerId: 'github:42',
+      mentioned: true,
+      repositoryHeadChanged: true,
       idempotencyKey: 'github:delivery-123',
       request: {
         prompt: expect.stringContaining('Review GitHub pull request #17 in acme/widgets.'),
@@ -127,14 +129,14 @@ describe('GitHub webhook normalization', () => {
     expect(normalizeGitHubWebhook('pull_request', 'delivery', { repository: {} })).toBeUndefined();
   });
 
-  it('requires a trigger and ignores agent-authored result comments', () => {
+  it('reports missing triggers and ignores agent-authored result comments', () => {
     const payload = {
       action: 'created',
       repository: { full_name: 'acme/widgets', clone_url: 'https://github.com/acme/widgets.git' },
       issue: { number: 9, pull_request: {} },
       comment: { body: '@agent explain this' },
     };
-    expect(normalizeGitHubWebhook('issue_comment', 'missing-trigger', payload)).toBeUndefined();
+    expect(normalizeGitHubWebhook('issue_comment', 'missing-trigger', payload)).toMatchObject({ mentioned: false });
     expect(normalizeGitHubWebhook('issue_comment', 'own-result', {
       ...payload,
       comment: { body: `${AGENT_RESULT_MARKER}\n@agent completed` },
@@ -172,6 +174,7 @@ describe('GitLab webhook normalization', () => {
 
     expect(normalized).toEqual({
       ownerId: 'gitlab:81',
+      mentioned: true,
       idempotencyKey: 'gitlab:gitlab-delivery-1',
       request: {
         prompt: expect.stringContaining('Review GitLab merge request !23 in acme/widgets.'),
@@ -242,7 +245,7 @@ describe('GitLab webhook normalization', () => {
     expect(normalizeGitLabWebhook('Note Hook', 'delivery', { ...base, object_kind: 'note' })).toBeUndefined();
   });
 
-  it('requires a trigger and ignores agent-authored GitLab notes', () => {
+  it('reports missing triggers and ignores agent-authored GitLab notes', () => {
     const payload = {
       object_kind: 'note',
       project: {
@@ -253,7 +256,7 @@ describe('GitLab webhook normalization', () => {
       object_attributes: { note: '@agent summarize' },
       merge_request: { iid: 23 },
     };
-    expect(normalizeGitLabWebhook('Note Hook', 'missing-trigger', payload)).toBeUndefined();
+    expect(normalizeGitLabWebhook('Note Hook', 'missing-trigger', payload)).toMatchObject({ mentioned: false });
     expect(normalizeGitLabWebhook('Note Hook', 'own-result', {
       ...payload,
       object_attributes: { note: `${AGENT_RESULT_MARKER}\n@agent completed` },
@@ -281,6 +284,14 @@ describe('GitLab webhook normalization', () => {
 });
 
 describe('chat webhook normalization', () => {
+  it('reports ordinary Slack messages as candidates but ignores edits, deletes and result echoes', () => {
+    const payload = { event_id: 'event', team_id: 'T1', event: { type: 'message', channel: 'C1', user: 'U1', text: 'A release is failing', ts: '1' } };
+    expect(normalizeSlackEvent(payload)).toMatchObject({ mentioned: false, request: { prompt: 'A release is failing' } });
+    for (const subtype of ['message_changed', 'message_deleted', 'bot_message']) {
+      expect(normalizeSlackEvent({ ...payload, event: { ...payload.event, subtype } })).toBeUndefined();
+    }
+    expect(normalizeSlackEvent({ ...payload, event: { ...payload.event, text: `${AGENT_RESULT_MARKER} Done` } })).toBeUndefined();
+  });
   it('normalizes Teams activities and removes mention markup', () => {
     const normalized = normalizeTeamsWebhook({
       id: 'activity-1',
@@ -296,6 +307,7 @@ describe('chat webhook normalization', () => {
 
     expect(normalized).toEqual({
       ownerId: 'teams:tenant-1:user-1',
+      mentioned: true,
       idempotencyKey: 'teams:activity-1',
       request: {
         prompt: 'inspect this change',
@@ -328,6 +340,7 @@ describe('chat webhook normalization', () => {
 
     expect(normalized).toEqual({
       ownerId: 'slack:workspace-1:user-1',
+      mentioned: true,
       idempotencyKey: 'slack:event-1',
       request: {
         prompt: 'inspect the queue',
@@ -343,7 +356,7 @@ describe('chat webhook normalization', () => {
     });
   });
 
-  it('ignores empty Teams activities and non-mention Slack events', () => {
+  it('ignores incomplete and bot chat events', () => {
     expect(
       normalizeTeamsWebhook({ id: 'activity', text: '<at>Runtime Agent</at>', conversation: { id: 'c' } }),
     ).toBeUndefined();

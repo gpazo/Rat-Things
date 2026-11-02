@@ -1,3 +1,5 @@
+import { validateSourceEventPolicy, type SourceEventPolicy } from './event-policy.js';
+import { parseWatchdogBinding } from './watchdog.js';
 import type { SessionIntegrationTarget } from './session-integrations.js';
 import { parseAgentsContract } from './agents-api-validation.js';
 import type { JsonValue, RunSource, SandboxMode } from './contracts.js';
@@ -167,8 +169,10 @@ export interface SourceCapabilityBinding extends SessionIntegrationTarget {
   bindingId: string;
   ownerId: string;
   sourceKind: RunSource['kind'];
+  threadScope?: 'sender' | 'thread';
   /** Exact source fields such as repository, teamId, or channelId. */
   selector: { [key: string]: string };
+  eventPolicy?: SourceEventPolicy;
   connectionSetId?: string;
 }
 
@@ -350,6 +354,7 @@ export function validateSourceCapabilityBinding(
   if (!['api', 'github', 'gitlab', 'teams', 'slack'].includes(value.sourceKind)) {
     throw new Error('source binding kind is invalid');
   }
+  if (value.threadScope !== undefined && !['sender', 'thread'].includes(value.threadScope)) throw new Error('source binding thread scope is invalid');
   if (Object.keys(value.selector).length === 0) throw new Error('source binding selector is required');
   if (Object.keys(value.selector).length > 32) throw new Error('source binding selector is too large');
   for (const [key, selected] of Object.entries(value.selector)) {
@@ -358,6 +363,8 @@ export function validateSourceCapabilityBinding(
   }
   parseAgentsContract('SessionCreate', { agent_id: value.agentId, environment: value.environment, vault_ids: value.vaultIds ?? [], input: 'Validate integration target' });
   if (value.connectionSetId) requireId(value.connectionSetId, 'connection set ID');
+  if (value.eventPolicy !== undefined) validateSourceEventPolicy(value.eventPolicy);
+  if (value.watchdog !== undefined) parseWatchdogBinding(value.watchdog);
   return structuredClone(value);
 }
 

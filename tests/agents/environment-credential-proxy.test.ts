@@ -1,6 +1,7 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { once } from 'node:events';
 import { createHash } from 'node:crypto';
+import { gzipSync, brotliCompressSync, deflateSync } from 'node:zlib';
 import { mkdtemp, readFile, rm, stat } from 'node:fs/promises';
 import { request as httpRequest } from 'node:http';
 import { createServer as httpsServer } from 'node:https';
@@ -34,7 +35,7 @@ vi.mock('node:https', async importOriginal => {
 const cleanup: Array<() => Promise<unknown>> = [];
 afterEach(async () => { for (const close of cleanup.reverse()) await close(); cleanup.length = 0; transport.address = '93.184.216.34'; transport.destinations = []; });
 
-async function fixture(host = 'api.example.com') {
+async function fixture(host = 'api.example.com', echo?: 'plain' | 'gzip' | 'br' | 'deflate' | 'unknown') {
   const directory = await mkdtemp(join(tmpdir(), 'rat-credential-test-'));
   cleanup.push(() => rm(directory, { recursive: true, force: true }));
   const created = await runProcess('openssl', ['req', '-x509', '-newkey', 'ec', '-pkeyopt', 'ec_paramgen_curve:P-256', '-nodes', '-days', '1', '-subj', `/CN=${host}`, '-addext', `subjectAltName=${isIP(host) ? 'IP' : 'DNS'}:${host}`, '-keyout', 'key.pem', '-out', 'cert.pem'], { cwd: directory, timeoutMs: 10_000 });
@@ -44,7 +45,19 @@ async function fixture(host = 'api.example.com') {
   const server = httpsServer({ key: await readFile(join(directory, 'key.pem')), cert: transport.certificate }, async (request, response) => {
     const body: Buffer[] = []; for await (const chunk of request) body.push(Buffer.from(chunk));
     requests.push({ headers: request.headers, url: request.url, body: Buffer.concat(body).toString() });
-    response.end('accepted');
+    if (!echo) { response.end('accepted'); return; }
+    const secret = 'private-$&-value';
+    const text = `header=${request.headers.authorization}|${Buffer.from(secret).toString('base64')}|${encodeURIComponent(secret)}|end`;
+    response.setHeader('x-echo-token', secret);
+    if (echo === 'plain') {
+      response.write(text.slice(0, 13));
+      setTimeout(() => response.end(text.slice(13)), 2);
+    } else {
+      response.setHeader('content-encoding', echo);
+      const encoded = echo === 'gzip' ? gzipSync(text) : echo === 'br' ? brotliCompressSync(text) : echo === 'deflate' ? deflateSync(text) : Buffer.from(text);
+      response.setHeader('content-length', encoded.length);
+      response.end(encoded);
+    }
   });
   server.on('upgrade', (request, socket) => {
     requests.push({ headers: request.headers, url: request.url, body: '' });
@@ -69,7 +82,7 @@ async function fixture(host = 'api.example.com') {
     if (options.rebind) transport.address = '169.254.169.254';
     tls.write(options.websocket
       ? 'GET /websocket HTTP/1.1\r\nHost: api.example.com\r\nAuthorization: Bearer rat_placeholder\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n'
-      : `POST ${options.path ?? '/test/rat_placeholder'} HTTP/1.1\r\nHost: ${options.host ?? 'api.example.com'}\r\nAuthorization: Bearer rat_placeholder\r\nProxy-Authorization: never-relay\r\nContent-Length: 15\r\nConnection: close\r\n\r\nrat_placeholder`);
+      : `POST ${options.path ?? '/test/rat_placeholder'} HTTP/1.1\r\nHost: ${options.host ?? 'api.example.com'}\r\nAuthorization: Bearer rat_placeholder\r\nProxy-Authorization: never-relay\r\nAccept-Encoding: gzip, br\r\nContent-Length: 15\r\nConnection: close\r\n\r\nrat_placeholder`);
     const chunks: Buffer[] = []; for await (const chunk of tls) chunks.push(Buffer.from(chunk));
     return Buffer.concat(chunks).toString();
   }
@@ -109,12 +122,32 @@ it('checks DNS again before supplying the secret and supports HTTPS port 8443', 
   expect(f.requests).toHaveLength(1);
 });
 
-it('substitutes HTTPS WebSocket handshake headers and preserves upgraded bytes', async () => {
+it('rejects authenticated WebSocket upgrades before exposing a credential', async () => {
   const f = await fixture();
   const received = await f.send({ websocket: true });
-  expect(received).toContain('101 Switching Protocols');
-  expect(received).toContain('pong');
-  expect(f.requests[0]?.headers.authorization).toBe('Bearer private-$&-value');
+  expect(received).toContain('403 Forbidden');
+  expect(f.requests).toHaveLength(0);
+});
+
+
+it.each(['plain', 'gzip', 'br', 'deflate'] as const)('scrubs echoed secrets from %s response headers and streaming bodies', async encoding => {
+  const f = await fixture('api.example.com', encoding);
+  const received = await f.send();
+  expect(received).toContain('200 OK');
+  expect(received).toContain('x-echo-token: rat_placeholder');
+  expect(received).toContain('rat_placeholder');
+  expect(received).not.toContain('private-$&-value');
+  expect(received).not.toContain(Buffer.from('private-$&-value').toString('base64'));
+  expect(received).not.toContain(encodeURIComponent('private-$&-value'));
+  expect(received).not.toMatch(/content-(?:length|encoding):/i);
+  expect(f.requests[0]?.headers['accept-encoding']).toBeUndefined();
+});
+
+it('rejects unsupported response compression instead of forwarding opaque credential echoes', async () => {
+  const f = await fixture('api.example.com', 'unknown');
+  const received = await f.send();
+  expect(received).toContain('502');
+  expect(received).not.toContain('private-$&-value');
 });
 
 it('keeps raw values outside native configuration and wires distinct harness and shell proxy policies', async () => {

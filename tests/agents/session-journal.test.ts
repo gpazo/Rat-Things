@@ -1,3 +1,4 @@
+import { createOutputRedactor } from '../../src/core/output-redactor.js';
 import { describe, it, expect } from 'vitest';
 import { SessionRuntimeJournal } from '../../src/runner/session-runtime-journal.js';
 import { SessionRuntimeStore } from '../../src/core/session-runtime-store.js';
@@ -7,6 +8,32 @@ import { SessionArtifactCapture } from '../../src/core/session-artifact-capture.
 import { sessionAgent } from '../../src/core/session-planning.js';
 
 describe('durable session journal', () => {
+  it('redacts token-shaped JSON keys without overwriting colliding tool results', () => {
+    const redact = createOutputRedactor(['planted-private-token', 'second-private-token']);
+    const input = { result: { 'planted-private-token': 'first', 'second-private-token': 'second', '[REDACTED]': 'third' } };
+    const saved = redact(input);
+    expect(JSON.stringify(saved)).not.toContain('private-token');
+    expect(Object.values(saved.result)).toEqual(['first', 'second', 'third']);
+    expect(input.result['planted-private-token']).toBe('first');
+  });
+  it('redacts planted output and partial text deltas before saving Session Items', async () => {
+    const memory = new MemoryAgentsStore();
+    const store = new SessionRuntimeStore(memory);
+    await store.claim('alice', 'session', 'run', 1);
+    const journal = new SessionRuntimeJournal({ redact: createOutputRedactor(['planted-private-token']),
+      publish: state => store.publish('alice', 'session', 'run', state), onFailure: () => {} });
+    const state: SessionRuntimeState = { ...initialSessionRuntime('session', 'agent', 'root'), turns: [{ threadId: 'root', nativeTurnId: 'native', turn: {
+      id: 'turn', object: 'agent.session.turn', session_id: 'session', agent_id: 'agent', subagent_id: null, status: 'completed', created_at: 1, started_at: 1, completed_at: 2, usage: null, error: null,
+    }, items: [{ id: 'item', type: 'message', role: 'assistant', status: 'completed', phase: 'final_answer', turn_id: 'turn', content: [{ type: 'output_text', text: 'leaked planted-private-token' }] }] }] };
+    journal.changed(state);
+    await journal.flush();
+    const saved = JSON.stringify([...memory.resources.values()]);
+    expect(saved).not.toContain('planted-private-token');
+    expect(saved).toContain('leaked [REDACTED]');
+    expect(JSON.stringify(state)).toContain('planted-private-token');
+    expect(createOutputRedactor(['planted-private-token'])('leaked planted-private-')).toBe('leaked [REDACTED]');
+  });
+
   it('coalesces adjacent text deltas without losing their first Item or action boundary', async () => {
     const published: SessionRuntimeState[] = [];
     const journal = new SessionRuntimeJournal({ publish: async (state) => { published.push(state); return true; }, onFailure: () => {} });

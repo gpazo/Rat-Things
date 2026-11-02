@@ -57,6 +57,9 @@ Sessions belong to the authenticated creator of the matching source binding.
 | `POST /v1/integrations/connection-sets` | Required | Create a reusable multi-account connection set |
 | `GET /v1/integrations/source-bindings` | Required | List the owner's provider source bindings |
 | `POST /v1/integrations/source-bindings` | Required | Bind an operator-configured provider selector to an owned Agent and environment |
+| `GET /v1/integrations/thread-subscriptions` | Required | List owned thread subscriptions with `after` and `limit` pagination |
+| `GET /v1/integrations/thread-subscriptions/{id}` | Required | Inspect an owned subscription and its current epoch |
+| `POST /v1/integrations/thread-subscriptions/{id}/release` | Required | Release an owned thread subscription while allowing the current Turn to deliver |
 | `GET /__share/{token}` | Bearer token | Redeem a publication grant for host-only CloudFront signed cookies |
 | `POST /webhooks/github` | Provider signature | Optional GitHub event ingress; verifies the raw body before normalization |
 | `POST /webhooks/gitlab` | Provider signature or legacy token | Optional GitLab event ingress with signed-standard and legacy verification |

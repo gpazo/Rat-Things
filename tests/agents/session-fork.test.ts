@@ -4,6 +4,7 @@ import { publicTemplate } from '../../src/domain/environment-planning.js';
 import { planSessionFork } from '../../src/core/session-fork-planning.js';
 import type { SessionState } from '../../src/core/session-ports.js';
 import { routeAgentsRequest } from '../../src/lambdas/agents-router.js';
+import { THREAD_RELEASE_TOOL } from '../../src/core/thread-release-tool.js';
 import { AgentService } from '../../src/core/agent-service.js';
 
 async function fixture() {
@@ -42,6 +43,14 @@ it('branches the snapshotted agent, keeps private recovery history and starts wi
   await f.sessions.events('operator', fork.id, { events: [{ type: 'agent.session.input.message', input: [{ role: 'user', content: [{ type: 'input_text', text: 'continue' }] }] }] });
   await f.sessions.dispatch('operator', fork.id);
   expect(JSON.stringify(vi.mocked(f.execution.start).mock.calls.at(-1)?.[3])).toContain('Remember source');
+});
+
+it('does not copy a provider Session thread-release capability into its fork', async () => {
+  const f = await fixture();
+  const source = (await f.store.get<SessionState>('operator', 'sessions', f.source.id))!;
+  await f.store.put({ ...source, revision: source.revision + 1, value: { ...source.value, session: { ...source.value.session, agent: { ...source.value.session.agent, tools: [...source.value.session.agent.tools, THREAD_RELEASE_TOOL] } } } }, source.revision);
+  const fork = await f.sessions.fork('operator', f.source.id);
+  expect(fork.agent.tools.some(tool => tool.type === 'function' && tool.name === THREAD_RELEASE_TOOL.name)).toBe(false);
 });
 
 it('rejects authority widening, busy sources, unsupported environments and cross-owner reads before effects', async () => {

@@ -18,6 +18,7 @@ export interface AgentsStore {
   /** expectedRevision=0 creates; subsequent writes compare and swap. */
   put<T>(resource: AgentResource<T>, expectedRevision: number): Promise<void>;
   commit(writes: Array<{ resource: AgentResource<unknown>; expectedRevision: number }>): Promise<void>;
+  commitAtObservation?(writes: Array<{ resource: AgentResource<unknown>; expectedRevision: number }>, observation: { ownerId: string; id: string; revision: number }): Promise<void>;
   /** Delete and companion compare-and-swap writes succeed atomically. */
   delete(resource: AgentResource<unknown>, writes?: Array<{ resource: AgentResource<unknown>; expectedRevision: number }>): Promise<void>;
 }

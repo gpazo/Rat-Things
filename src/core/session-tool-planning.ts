@@ -1,3 +1,4 @@
+import { validatePlainEnvironment } from '../domain/environment-secret-validation.js';
 import type { AgentSession, AgentToolParam } from '../domain/agents-api.js';
 import { invalid } from '../domain/agents-api-validation.js';
 import { canonicalJson } from '../domain/json.js';
@@ -11,6 +12,7 @@ export function planSessionToolTransports(agent: AgentSession['agent'], tools: A
     if (!resolved || resolved.type !== 'mcp') throw new Error('MCP configuration does not match the session');
     const headers = tool.transport.type === 'http' ? { ...tool.transport.headers, ...(tool.transport.authorization != null ? { Authorization: tool.transport.authorization } : {}) } : {};
     const env = tool.transport.type === 'stdio' ? { ...tool.transport.env } : {};
+    validatePlainEnvironment(env, 'agent.tools.transport.env');
     if (Object.keys(headers).filter((name) => name.toLowerCase() === 'authorization').length > 1) invalid('MCP authorization must have exactly one source', 'agent.tools.transport');
     if (Buffer.byteLength(JSON.stringify({ headers, env })) > 60_000) invalid('MCP credentials exceed the secret size limit', 'agent.tools.transport');
     if (tool.transport.type === 'stdio' && resolved.connection_origin !== 'environment') invalid('Stdio MCP servers require an execution environment', 'agent.tools.connection_origin');

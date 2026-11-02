@@ -13,6 +13,7 @@ provider and the AWS Cloud Control provider required for the MicroVM image resou
   discovery/contracts, and IAM-authenticated owner-scoped control routes.
 - Lambda ingress, control, Agents API/token issuance, Agents outbox, dispatcher, reconciler,
   Session scheduling, connection-health, state-stream, and notification functions.
+- An optional [independent watchdog](../docs/watchdog.md) with its own role and schedule.
 - Encrypted DynamoDB Agent, Session, execution and integration stores;
   encrypted S3 artifact, non-expiring definition, and MicroVM-source buckets; and encrypted SQS
   work/dead-letter queues.
@@ -103,6 +104,7 @@ Turns. Never put the value in Terraform, an image, Run, state record, or log. Co
 repository code run under the same agent UID and can read the active file, so this bridge
 is only for trusted owner-operated agents. Theft of its renewable refresh token can
 impersonate the Codex login. Validation preserves unknown fields; protect the whole bundle.
+The file bridge requires Lambda MicroVM execution; configure Bedrock for EC2 workloads.
 Bedrock mode, selected by default by the AWS quickstart, mints a short-term token from the execution role;
 `codex_bedrock_model_ids` restricts inference to exact model IDs.
 The Agents model catalog is operator-declared rather than inferred from Codex support metadata.

@@ -734,3 +734,93 @@ variable "owner_rate_limits" {
     error_message = "Owner rate limits must be nonnegative integers."
   }
 }
+
+variable "enable_watchdog" {
+  type        = bool
+  default     = false
+  description = "Enable the independent operator watchdog. It remains disabled unless explicitly enabled."
+}
+
+variable "watchdog_schedule_expression" {
+  type        = string
+  default     = "rate(10 minutes)"
+  description = "EventBridge cadence for bounded watchdog scans."
+}
+
+variable "watchdog_owner_id" {
+  type        = string
+  default     = "watchdog-operator"
+  description = "Owner for deployment findings and the scan checkpoint."
+}
+
+variable "watchdog_model" {
+  type        = string
+  default     = null
+  description = "Approved model for tool-free judge Sessions. Defaults to the deployment model."
+}
+
+variable "watchdog_destinations" {
+  type        = list(any)
+  default     = []
+  description = "Existing delivery destinations for deployment and unbound Session findings."
+}
+
+variable "watchdog_long_running_seconds" {
+  type        = number
+  default     = 1800
+  description = "Age at which an active Turn is judged."
+}
+
+variable "watchdog_recent_failure_seconds" {
+  type        = number
+  default     = 86400
+  description = "Recent failed Turn inspection window."
+}
+
+variable "watchdog_stuck_seconds" {
+  type        = number
+  default     = 1800
+  description = "Age threshold for pending outbox or delivery work."
+}
+
+variable "watchdog_retry_backoff_seconds" {
+  type        = number
+  default     = 120
+  description = "Minimum delay before the single safe transient retry."
+}
+
+variable "watchdog_max_candidates" {
+  type        = number
+  default     = 25
+  description = "Maximum new findings per invocation, from 1 through 100."
+}
+
+variable "watchdog_max_judges_per_tick" {
+  type        = number
+  default     = 3
+  description = "Maximum new judge Sessions per invocation, from 0 through 10."
+}
+
+variable "watchdog_judge_timeout_seconds" {
+  type        = number
+  default     = 1800
+  description = "Maximum elapsed judge time before failure reporting."
+}
+
+variable "watchdog_retention_seconds" {
+  type        = number
+  default     = 2592000
+  description = "TTL for owner-scoped watchdog findings."
+}
+
+variable "watchdog_loop_confidence" {
+  type        = number
+  default     = 0.9
+  description = "Minimum loop confidence for optional cancellation."
+}
+
+variable "watchdog_allow_cancel" {
+  type        = bool
+  default     = false
+  description = "Allow cancellation only for bindings that also explicitly enable cancelLoops."
+}

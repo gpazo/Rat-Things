@@ -35,7 +35,7 @@ export function emptyWorkspaceCommands(workspace: string): string[][] {
   ];
 }
 
-export function repositoryCheckoutCommands(workspace: string, ref: string | undefined): string[][] {
+export function repositoryCheckoutCommands(workspace: string, ref: string | undefined): [string[], string[]] {
   return [
     ref
       ? ['-C', workspace, 'fetch', '--quiet', '--depth=50', 'origin', ref]
@@ -46,17 +46,26 @@ export function repositoryCheckoutCommands(workspace: string, ref: string | unde
 
 export function repositoryBaseFetchArguments(workspace: string, baseRef: string | undefined): string[] | undefined {
   return baseRef
-    ? ['-C', workspace, 'fetch', '--quiet', '--depth=50', 'origin', `${baseRef}:refs/remotes/origin/${baseRef}`]
+    ? ['-C', workspace, 'fetch', '--quiet', '--no-write-fetch-head', '--depth=50', 'origin', `${baseRef}:refs/remotes/origin/${baseRef}`]
     : undefined;
 }
 
-export function trustedGitEnvironment(environment: Readonly<NodeJS.ProcessEnv>): NodeJS.ProcessEnv {
+export function trustedGitEnvironment(environment: Readonly<NodeJS.ProcessEnv>, freshWorkspace?: string): NodeJS.ProcessEnv {
   return {
     PATH: environment.PATH,
     // Ignore agent-writable user/system Git configuration during trusted setup.
     HOME: environment.GIT_TRUSTED_HOME ?? '/opt/agent-runtime',
     GIT_CONFIG_NOSYSTEM: '1',
     GIT_CONFIG_GLOBAL: '/dev/null',
+    GIT_CONFIG_COUNT: freshWorkspace === undefined ? '2' : '3',
+    GIT_CONFIG_KEY_0: 'core.hooksPath',
+    GIT_CONFIG_VALUE_0: '/dev/null',
+    GIT_CONFIG_KEY_1: 'init.templateDir',
+    GIT_CONFIG_VALUE_1: '',
+    ...(freshWorkspace === undefined ? {} : {
+      GIT_CONFIG_KEY_2: 'safe.directory',
+      GIT_CONFIG_VALUE_2: freshWorkspace,
+    }),
     GIT_TERMINAL_PROMPT: '0',
   };
 }

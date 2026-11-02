@@ -9,6 +9,7 @@ export class SessionRuntimeJournal {
   private failure: Error | undefined;
 
   public constructor(private readonly options: {
+    redact?: (state: SessionRuntimeState) => SessionRuntimeState;
     publish(state: SessionRuntimeState): Promise<boolean>;
     onFailure(error: Error): void;
     intervalMs?: number;
@@ -17,6 +18,7 @@ export class SessionRuntimeJournal {
 
   public changed = (state: SessionRuntimeState): void => {
     if (this.failure) return;
+    state = this.options.redact?.(state) ?? state;
     const last = this.pending.at(-1);
     const before = this.pending.at(-2);
     const delta = before && last ? runtimeDeltaAddress(before, last) : undefined;

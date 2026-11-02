@@ -16,8 +16,9 @@ result therefore cannot come from that HTTP response after the connection closes
 ## Session boundaries
 
 - A verified Teams event resolves an owned Agent/environment source binding.
-- The same tenant, sender and provider thread reuse a Session. Another sender or
-  thread has independent Session history.
+- The same tenant, sender and provider thread reuse a Session by default. A binding
+  with `threadScope: "thread"` shares history across senders in that thread. Actor
+  attribution remains attached to each input.
 - A message during active work steers the current Turn; later input starts a new
   Turn. Durable input receipts prevent duplicate provider deliveries from adding
   the same input twice.

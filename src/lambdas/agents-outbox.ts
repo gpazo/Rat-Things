@@ -5,7 +5,7 @@ import { unmarshall } from '@aws-sdk/util-dynamodb';
 import { ChangeMessageVisibilityCommand, SendMessageCommand } from '@aws-sdk/client-sqs';
 import { createAwsClients } from '../adapters/aws-runtime.js';
 import { requiredEnv } from '../adapters/executors.js';
-import { getAgentsApiServices, getSessionIntegrationService, getScheduleService } from '../app/composition.js';
+import { getAgentsApiServices, getSessionIntegrationService, getScheduleService, getEventCandidateService } from '../app/composition.js';
 import { AgentsApiError } from '../domain/agents-api-validation.js';
 
 
@@ -20,8 +20,9 @@ export async function handler(event: DynamoDBStreamEvent | SQSEvent) {
         const job = parseAgentsJob(JSON.parse(record.body));
         const services = getAgentsApiServices();
         if (job.type === 'webhook_batch') await services.webhooks.fanout(job.ownerId, job.id);
-        else if (job.type === 'webhook_delivery' || job.type === 'tool_cleanup' || job.type === 'preparation_cleanup') {
-          const attempt = job.type === 'preparation_cleanup' ? await services.tools.reconcilePreparation(job.ownerId, job.id)
+        else if (job.type === 'filter' || job.type === 'webhook_delivery' || job.type === 'tool_cleanup' || job.type === 'preparation_cleanup') {
+          const attempt = job.type === 'filter' ? await getEventCandidateService().process(job.ownerId, job.id)
+            : job.type === 'preparation_cleanup' ? await services.tools.reconcilePreparation(job.ownerId, job.id)
             : job.type === 'tool_cleanup' ? await services.tools.reconcile(job.ownerId, job.id)
             : await services.webhooks.deliver(job.ownerId, job.id);
           if (attempt.retryAfterSeconds) {
@@ -34,11 +35,14 @@ export async function handler(event: DynamoDBStreamEvent | SQSEvent) {
         else if (job.type === 'delivery') await getSessionIntegrationService().deliverReady(job.ownerId, job.id);
         else if (job.type === 'schedule') await getScheduleService().synchronize(job.ownerId, job.id);
         else if (job.type === 'integration') await getSessionIntegrationService().submitPending(job.ownerId, job.id);
-        else if (job.type === 'complete' || job.type === 'snapshot') await services.sessions.completeReadyTurns(job.ownerId, job.id);
+        else if (job.type === 'complete' || job.type === 'snapshot') {
+          await services.sessions.completeReadyTurns(job.ownerId, job.id);
+          await getSessionIntegrationService().resolveTools(job.ownerId, job.id);
+        }
         else if (job.type === 'environment') {
           const sessionId = await services.environments.sessionId(job.ownerId, job.id);
           if (sessionId) await services.sessions.dispatch(job.ownerId, sessionId);
-        } else { await services.sessions.dispatch(job.ownerId, job.id); await services.sessions.completeReadyTurns(job.ownerId, job.id); }
+        } else { await services.sessions.dispatch(job.ownerId, job.id); await services.sessions.completeReadyTurns(job.ownerId, job.id); await getSessionIntegrationService().resolveTools(job.ownerId, job.id); }
       } catch (error) {
         const retrySeconds = error instanceof AgentsApiError ? agentsJobRetrySeconds(error) : undefined;
         if (retrySeconds !== undefined) {

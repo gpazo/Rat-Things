@@ -9,7 +9,7 @@ export function createBuiltinIntegrationPlugins(
 ): IntegrationPlugin[] {
   return [
     createLinearIntegrationPlugin(),
-    createSlackIntegrationPlugin(),
+    createSlackIntegrationPlugin({ candidateEventsEnabled: process.env.SLACK_CANDIDATE_EVENTS_ENABLED === 'true' }),
     createStripeIntegrationPlugin(),
     ...(baseUrls['fixture-crm']
       ? [createFixtureCrmIntegrationPlugin(baseUrls['fixture-crm'])]

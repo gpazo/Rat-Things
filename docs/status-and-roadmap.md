@@ -25,6 +25,8 @@ identity, retention, network policy, and operational limits for the environment 
 | Files and publications | Private retained bytes, immutable Session artifacts, and expiring file/site/video share grants | [Files](durable-files.md), [publishing](publications.md) |
 | Browser | Declared function/MCP integration and an optional Playwright MCP configuration | [Browser use](browser-computer-use.md) |
 | Channels | Authenticated GitHub, GitLab, Teams, and optional Slack ingress with separate result delivery | [Channels](channels.md) |
+| Thread subscriptions | Durable PR, MR and chat routing, release and head-change lineage; optional asynchronous candidate filtering | [Provider bindings](schedules.md#provider-bindings), [event policies](channels.md#event-policies-and-quiet-responses) |
+| Watchdog | Independent scheduled findings, bounded progress judgments and one safe transient retry | [Watchdog](watchdog.md) |
 | API authentication | AWS IAM issuance and owner-bound, scoped bearer tokens | [API permissions](agents-api.md#scoped-api-keys) |
 | Model authentication | Codex uses the configured ChatGPT bridge or Bedrock; Pi Durable uses local ChatGPT subscriptions or approved Bedrock Converse models on AWS | [Runtime setup](agent-runtimes.md#start-with-the-appropriate-setup) |
 | Recovery | Queue repair, generation-fenced liveness, cancellation settlement, and per-destination delivery fences | [Runbook](runbook.md) |
@@ -38,13 +40,17 @@ identity, retention, network policy, and operational limits for the environment 
   state into an existing AWS deployment; it does not migrate running processes or
   subscription credentials. Codex/ChatGPT is the first local subscription provider.
 
-- **Multi-tenant operation:** destination authorization, output redaction, per-owner spending
+- **Multi-tenant operation:** destination authorization, comprehensive output controls, per-owner spending
   attribution, and independent security review remain incomplete. Per-owner execution
   rate limits and optional account-wide AWS spending alerts are available. The control API's ownership
   checks do not replace these controls. See the [security model](security.md).
 - **Credential isolation:** the ChatGPT file bridge exposes reusable account credentials to code
   running as the agent UID. Use it only with trusted agents and accounts. Generic source bindings
   also require a trusted operator; arbitrary provider selectors are not provider-verified.
+  Known host-managed secrets are scrubbed from proxy echoes and saved/delivered output in supported
+  raw and encoded forms. This does not detect arbitrary encodings or repair previously saved output;
+  Bedrock model tokens remain readable through the agent environment or its group-readable token
+  file. See [credential boundaries](security.md) and [Vault setup](vault-credentials.md).
 - **Channels:** Teams uses an outgoing-webhook/Workflow or reply-gateway bridge. A native
   Entra/Bot/Teams gateway remains future work. Linear provides account tools but cannot start
   conversations through native mentions, delegation, or Agent Session events.
@@ -87,6 +93,11 @@ Enterprise administration remains outside the current product scope. Dedicated E
 workers support persistent harnesses; Lambda MicroVM workers have a bounded lifetime.
 
 ## Reference provenance
+
+Thread subscriptions, candidate filtering, watchdog judgments and credential response scrubbing
+adapt design ideas from the DeepSeek Harness team's
+[Exploring Super-agent Design](https://x.com/deepseekharness/status/2116857257245987236).
+The essay's experiments are preliminary; its measurements are not performance guarantees for Rat Things.
 
 The [AWS Lambda MicroVM sample at
 `2a574ea`](https://github.com/aws-samples/anthropic-on-aws/tree/2a574ea941f44e36e9066dea7b131131139162e4/claude-code-on-lambda-microvm)

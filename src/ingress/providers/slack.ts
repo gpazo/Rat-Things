@@ -7,6 +7,7 @@ import { jsonResponse, normalizedWork } from './shared.js';
 
 export interface SlackIngressOptions {
   signingSecretArn?: string | undefined;
+  candidateEventsEnabled?: boolean;
 }
 
 export class SlackIngressAdapter implements WebhookIngressAdapter {
@@ -33,6 +34,7 @@ export class SlackIngressAdapter implements WebhookIngressAdapter {
     }
     const normalized = normalizeSlackEvent(payload);
     if (!normalized) return { kind: 'response', response: jsonResponse(202, { accepted: false, ignored: true }) };
+    if (!normalized.mentioned && !this.options.candidateEventsEnabled) return { kind: 'response', response: jsonResponse(202, { accepted: false, reason: 'message_events_disabled' }) };
     return { kind: 'session', work: normalizedWork(normalized, normalized.idempotencyKey) };
   }
 

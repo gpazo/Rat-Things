@@ -4,6 +4,7 @@ import { build } from 'esbuild';
 const lambdaEntries = {
   'agents-api': 'src/lambdas/agents-api.ts',
   'agents-outbox': 'src/lambdas/agents-outbox.ts',
+  watchdog: 'src/lambdas/watchdog.ts',
   'connection-health': 'src/lambdas/connection-health.ts',
   control: 'src/lambdas/control.ts',
   dispatcher: 'src/lambdas/dispatcher.ts',

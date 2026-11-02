@@ -361,3 +361,10 @@ Close only after the run/provider outcome is known, queue/backlog is healthy, de
 reconciled, canaries pass, and alert noise stops. Capture a redacted timeline, root cause, affected
 owners/repos/destinations, cost and data exposure, corrective actions, and whether the security model,
 tests, alarms, or deployment gates need revision.
+
+## Independent Session watchdog
+
+Enable the [watchdog](watchdog.md) to inspect long-running Turns, transient failures,
+stuck delivery, and quarantined executions on a separate schedule. Its reports and
+Session webhooks continue without the shared Agents outbox. Loop cancellation requires
+both deployment and binding opt-ins; safe transient retries follow a fixed host policy.

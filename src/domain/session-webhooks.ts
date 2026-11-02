@@ -3,12 +3,12 @@ import { invalid } from './agents-api-validation.js';
 
 export const sessionWebhookTypes = [
   'agent.session.created', 'agent.session.action_required', 'agent.session.in_progress',
-  'agent.session.idle', 'agent.session.failed',
+  'agent.session.idle', 'agent.session.failed', 'agent.session.watchdog',
 ] as const;
 export type SessionWebhookType = typeof sessionWebhookTypes[number];
 export interface SessionWebhookEvent {
   id: string; object: 'event'; created_at: number; type: SessionWebhookType;
-  data: { id: string; required_action?: { type: 'function_call' | 'environment_connection' };
+  data: { id: string; watchdog?: { finding_id: string; reason: string; judge_session_id: string | null; verdict: string | null }; required_action?: { type: 'function_call' | 'environment_connection' };
     environment_id?: string; environment_type?: 'openai_hosted' | 'self_hosted'; connect?: { remote_url: string } };
 }
 export interface WebhookEndpoint {

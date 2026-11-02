@@ -49,6 +49,14 @@ resource "aws_iam_role" "agents_outbox" {
 
 data "aws_iam_policy_document" "agents_outbox" {
   source_policy_documents = [data.aws_iam_policy_document.agents_service.json]
+  dynamic "statement" {
+    for_each = var.event_filter_model_id == null ? [] : [1]
+    content {
+      sid       = "EventFilterInference"
+      actions   = ["bedrock:InvokeModel"]
+      resources = var.event_filter_inference_resource_arns
+    }
+  }
   statement {
     sid       = "Logs"
     actions   = ["logs:CreateLogStream", "logs:PutLogEvents"]

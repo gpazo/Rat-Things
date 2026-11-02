@@ -1,3 +1,4 @@
+import { redactText, secretRedactionPatterns } from '../domain/output-redaction.js';
 import { access, lstat, mkdir, readdir, rm } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import type { RepositoryInput } from '../domain/contracts.js';
@@ -35,13 +36,13 @@ export async function prepareWorkspace(
   if (!repository) {
     await mkdir(absolute, { recursive: true, mode: 0o700 });
     await handoff(absolute);
-    for (const args of emptyWorkspaceCommands(absolute)) await git(args, root);
+    for (const args of emptyWorkspaceCommands(absolute)) await git(args, root, gitEnvironment(), configuredAgentIdentity());
     return;
   }
   validateRepositoryUrl(repository.url, process.env.ALLOWED_REPOSITORY_HOSTS);
   await mkdir(absolute, { recursive: true, mode: 0o700 });
-  await handoff(absolute);
-  let env = gitEnvironment();
+  const setupEnv = trustedGitEnvironment(process.env, absolute);
+  let env = setupEnv;
   if (repository.credentialSecretArn) {
     const token = await credentials.read(
       repository.credentialSecretArn,
@@ -49,13 +50,16 @@ export async function prepareWorkspace(
     );
     env = credentialGitEnvironment(env, repository.provider, token, process.env.GIT_ASKPASS_PATH);
   }
-  await git(['init', '--quiet', absolute], root, env);
-  await git(['-C', absolute, 'remote', 'add', 'origin', repository.url], root, env);
-  for (const args of repositoryCheckoutCommands(absolute, repository.ref)) await git(args, root, env);
+  await git(['init', '--quiet', absolute], root, setupEnv);
+  await git(['-C', absolute, 'remote', 'add', 'origin', repository.url], root, setupEnv);
+  const [fetch, checkout] = repositoryCheckoutCommands(absolute, repository.ref);
+  await git(fetch, root, env);
   const baseFetch = repositoryBaseFetchArguments(absolute, repository.baseRef);
   if (baseFetch) await git(baseFetch, root, env);
-  await git(['-C', absolute, 'update-ref', 'refs/agent-runtime/base', 'HEAD'], root, env);
   await handoff(absolute);
+  const identity = configuredAgentIdentity();
+  await git(checkout, root, gitEnvironment(), identity);
+  await git(['-C', absolute, 'update-ref', 'refs/agent-runtime/base', 'HEAD'], root, gitEnvironment(), identity);
 }
 
 /** Resets first-use durable workspaces without removing the artifact bind mount. */
@@ -89,10 +93,22 @@ async function isReusableWorkspace(workspace: string): Promise<boolean> {
   try {
     await access(workspace);
     await access(`${workspace}/.git`);
-    return true;
   } catch {
     return false;
   }
+  const identity = configuredAgentIdentity();
+  for (const ref of ['HEAD', 'refs/agent-runtime/base']) {
+    const result = await runProcess('git', ['-C', workspace, 'rev-parse', '--quiet', '--verify', `${ref}^{commit}`], {
+      cwd: workspace,
+      env: gitEnvironment(),
+      timeoutMs: 30_000,
+      maxStdoutBytes: 64 * 1024,
+      maxStderrBytes: 64 * 1024,
+      ...identity,
+    });
+    if (result.exitCode !== 0) return false;
+  }
+  return true;
 }
 
 export async function collectWorkspacePatch(workspace: string): Promise<Buffer | undefined> {
@@ -110,8 +126,8 @@ async function git(
   args: string[],
   cwd: string,
   env: NodeJS.ProcessEnv = gitEnvironment(),
+  identity?: { uid: number; gid: number },
 ): Promise<void> {
-  const identity = configuredAgentIdentity();
   const result = await runProcess('git', args, {
     cwd,
     env,
@@ -121,7 +137,9 @@ async function git(
     ...identity,
   });
   if (result.exitCode !== 0) {
-    throw new Error(`git failed with ${result.exitCode}: ${redactGitDiagnostic(result.stderr.toString('utf8')).slice(-1_000)}`);
+    const patterns = secretRedactionPatterns(env.GIT_TOKEN ? [{ secret: env.GIT_TOKEN, replacement: '[REDACTED]' }] : []);
+    const diagnostic = redactText(result.stderr.toString('utf8'), patterns).value;
+    throw new Error(`git failed with ${result.exitCode}: ${redactGitDiagnostic(diagnostic).slice(-1_000)}`);
   }
 }
 

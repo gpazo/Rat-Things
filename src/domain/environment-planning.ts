@@ -1,3 +1,4 @@
+import { validatePlainEnvironment } from './environment-secret-validation.js';
 import type { EnvironmentTemplate, EnvironmentParam, TemplateCreateParams, TemplateUpdateParams } from './agents-api.js';
 import { invalid } from './agents-api-validation.js';
 
@@ -25,6 +26,7 @@ export function templateConfiguration(input: TemplateCreateParams | TemplateUpda
     if (!setup.command.trim() || setup.command.includes('\0')) invalid('Setup commands must not be empty', 'setup_commands');
     if (setup.cwd) absolutePath(setup.cwd, 'setup_commands.cwd');
   }
+  validatePlainEnvironment(configured.env ?? {}, 'env');
   for (const name of Object.keys(configured.env ?? {})) {
     if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name) || /^(PATH|HOME|SHELL|USER|LOGNAME|LD_.*|DYLD_.*|NODE_OPTIONS|BASH_ENV|ENV|OPENAI_API_KEY|CODEX_.*|AWS_.*|RAT_.*)$/.test(name)) invalid('Environment variable name is reserved', 'env');
   }

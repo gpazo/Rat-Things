@@ -5,6 +5,34 @@ import { integrationFixture } from './integration-fixtures.js';
 import { SessionDeliveryService } from '../../src/delivery/session-delivery.js';
 
 describe('provider Sessions', () => {
+  it('silences empty candidate completions and replies to explicit requests', async () => {
+    const f = await integrationFixture();
+    const { sessionId } = await f.integrations.accept('operator', 'binding', 'thread', f.target, { ...f.input, admission: 'candidate' });
+    await f.integrations.submitPending('operator', sessionId);
+    const turn = (await f.sessions.turns('operator', sessionId)).data[0]!;
+    const deliver = vi.fn(async () => {});
+    const delivery = new SessionDeliveryService({ deliver });
+    const request = { ownerId: 'operator', sessionId, source: f.input.source, turn: { ...turn, status: 'completed' as const }, items: [] };
+    await delivery.deliver({ ...request, silentIfEmpty: true });
+    expect(deliver).not.toHaveBeenCalled();
+    await delivery.deliver(request);
+    expect(deliver).toHaveBeenCalledWith(expect.objectContaining({ body: 'Turn completed.' }));
+  });
+  it('delivers a mixed candidate and explicit Turn once and keeps its reply mandatory', async () => {
+    const f = await integrationFixture();
+    const { sessionId } = await f.integrations.accept('operator', 'binding', 'thread', f.target, { ...f.input, admission: 'candidate' });
+    await f.integrations.submitPending('operator', sessionId);
+    await f.sessions.dispatch('operator', sessionId);
+    await f.integrations.accept('operator', 'binding', 'thread', f.target, { ...f.input, id: 'explicit', text: 'Please answer' });
+    await f.integrations.submitPending('operator', sessionId);
+    await f.sessions.dispatch('operator', sessionId);
+    const turn = (await f.sessions.turns('operator', sessionId)).data[0]!;
+    f.observations.set(turn.id, { turn: { ...turn, status: 'completed', completed_at: 2 }, requiredActions: [] });
+    await f.sessions.completeReadyTurns('operator', sessionId);
+    await f.integrations.deliverReady('operator', sessionId);
+    expect(f.delivery.deliver).toHaveBeenCalledTimes(1);
+    expect(f.delivery.deliver).toHaveBeenCalledWith(expect.objectContaining({ silentIfEmpty: false }));
+  });
   it('accepts concurrent duplicate occurrences once and rejects changed payloads', async () => {
     const f = await integrationFixture();
     const accept = () => f.integrations.accept('operator', 'binding', 'thread', f.target, f.input);
@@ -87,6 +115,24 @@ describe('provider Sessions', () => {
     expect(state.target.destinations).toEqual([]);
     expect(acceptIntegrationInput(state, f.target, f.input)).toBe(state);
   });
+  it('redacts a planted secret before provider delivery and fails closed when credentials cannot be read', async () => {
+    const f = await integrationFixture();
+    const { sessionId } = await f.integrations.accept('operator', 'binding', 'thread', f.target, f.input);
+    await f.integrations.submitPending('operator', sessionId);
+    const state = (await f.store.get<SessionState>('operator', 'sessions', sessionId))!.value;
+    const turn = { ...state.turns[0]!.turn, status: 'completed' as const };
+    const items = [{ id: 'planted', type: 'message' as const, role: 'assistant' as const, status: 'completed' as const, phase: 'final_answer' as const, turn_id: turn.id, content: [{ type: 'output_text' as const, text: 'answer planted-private-token' }] }];
+    const input = { ownerId: 'operator', sessionId, source: f.input.source, turn, items };
+    const deliver = vi.fn(async () => {});
+    const read = vi.fn(async () => ['planted-private-token']);
+    await new SessionDeliveryService({ deliver }, read).deliver(input);
+    expect(read).toHaveBeenCalledWith('operator', sessionId);
+    expect(deliver).toHaveBeenCalledWith(expect.objectContaining({ body: 'answer [REDACTED]' }));
+    deliver.mockClear();
+    await expect(new SessionDeliveryService({ deliver }, async () => { throw new Error('unavailable'); }).deliver(input)).rejects.toThrow('unavailable');
+    expect(deliver).not.toHaveBeenCalled();
+  });
+
   it('formats saved root output with Session and Turn identities', async () => {
     const f = await integrationFixture();
     const { sessionId } = await f.integrations.accept('operator', 'binding', 'thread', f.target, f.input);

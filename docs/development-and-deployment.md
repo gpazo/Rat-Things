@@ -227,6 +227,8 @@ execution without deploying or invoking a model.
 Keep host AWS credentials separate from agent authority with
 `allow_agent_aws_credential_chain=false`. The default Codex ChatGPT path reads a validated file-based
 login from `codex_auth_file_secret_arn`; Bedrock uses the generated runtime role's model access.
+The ChatGPT file bridge requires Lambda MicroVM execution. Choose Bedrock authentication
+for EC2 workloads.
 
 The deployed Codex path defaults to `CODEX_AUTH_MODE=chatgpt`. It resolves the auth-file secret
 inside the trusted worker, writes a private runtime `auth.json`, runs Codex with the built-in OpenAI

@@ -20,7 +20,7 @@ export interface SessionMcpRuntime {
 }
 
 /** Resolve credentials in the trusted host, then admit exactly the configured MCP tools. */
-export async function prepareSessionMcp(ownerId: string, launch: SessionLaunch, secrets: SecretReader, signal?: AbortSignal, vaults?: Pick<VaultService, 'authorization'>, credentials?: SessionEnvironmentCredentialsRuntime): Promise<SessionMcpRuntime> {
+export async function prepareSessionMcp(ownerId: string, launch: SessionLaunch, secrets: SecretReader, signal?: AbortSignal, vaults?: Pick<VaultService, 'authorization'>, credentials?: SessionEnvironmentCredentialsRuntime, rememberSecrets?: (secrets: readonly string[]) => void): Promise<SessionMcpRuntime> {
   const servers: Record<string, unknown> = {};
   const environment: Record<string, string> = {};
   const closers: Array<() => Promise<void>> = [];
@@ -36,7 +36,11 @@ export async function prepareSessionMcp(ownerId: string, launch: SessionLaunch, 
         if (Object.keys(headers).some((name) => name.toLowerCase() === 'authorization')) throw new Error('MCP authorization must have exactly one source');
         if (vaults && binding.vaultId && binding.credentialId) {
           const serverURL = tool.transport.server_url;
-          authorization = (rejected) => vaults.authorization(ownerId, binding.vaultId!, binding.credentialId!, serverURL, rejected);
+          authorization = async (rejected) => {
+            const value = await vaults.authorization(ownerId, binding.vaultId!, binding.credentialId!, serverURL, rejected);
+            rememberSecrets?.([value, value.replace(/^Bearer\s+/i, '')]);
+            return value;
+          };
         } else {
           const auth = parseAgentsContract('CredentialCreate', { name: 'runtime', auth: JSON.parse(await secrets.get(binding.vaultReference)) }).auth;
           if (auth.type === 'environment_variable' || credentialUrl(auth.mcp_server_url) !== credentialUrl(tool.transport.server_url)) throw new Error('MCP credential destination is invalid');

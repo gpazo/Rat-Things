@@ -282,6 +282,19 @@ describe('integration runtime effect boundaries', () => {
     expect(test.execute).not.toHaveBeenCalled();
   });
 
+  it('scrubs connector echoes from values, JSON keys and errors across credential rotation', async () => {
+    const test = runtimeFixture();
+    test.credentials.readRecord.mockResolvedValueOnce({ token: 'initial-private-token' }).mockResolvedValue({ token: 'rotated-private-token' });
+    test.execute.mockResolvedValueOnce({ 'initial-private-token': 'initial-private-token' })
+      .mockResolvedValueOnce({ result: 'initial-private-token rotated-private-token' })
+      .mockRejectedValueOnce(new Error('provider echoed rotated-private-token'));
+    const session = await test.runtime.prepare(test.input);
+    const call = { namespace: 'mail', tool: 'messages_search', arguments: { input: {} } };
+    await expect(session.call(call)).resolves.toEqual({ '[REDACTED]': '[REDACTED]' });
+    await expect(session.call(call)).resolves.toEqual({ result: '[REDACTED] [REDACTED]' });
+    await expect(session.call(call)).rejects.toThrow('provider echoed [REDACTED]');
+  });
+
   it.each([false, 0, '', null])('returns a valid falsey provider result unchanged: %j', async result => {
     const test = runtimeFixture();
     test.execute.mockResolvedValue(result);

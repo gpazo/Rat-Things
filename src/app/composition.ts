@@ -1,3 +1,7 @@
+import { readSessionOutputSecrets } from '../credentials/session-output.js';
+import { EventCandidateService } from '../core/event-candidate-service.js';
+import { BedrockEventFilter } from '../adapters/bedrock-event-filter.js';
+import { emitMetric } from '../core/metrics.js';
 import { piProjectionRepair } from './pi-projection-repair.js';
 import { piCatalogFromConfig } from '../adapters/pi-model-catalog.js';
 import { sessionPlacementFromEnv } from './session-placement.js';
@@ -336,6 +340,7 @@ export function getPluginRegistry(): RuntimePluginRegistry {
     },
     slack: {
       signingSecretArn: process.env.SLACK_SIGNING_SECRET_ARN,
+      candidateEventsEnabled: process.env.SLACK_CANDIDATE_EVENTS_ENABLED === 'true',
       botTokenSecretArn: process.env.SLACK_BOT_TOKEN_SECRET_ARN,
       connectionPoster: {
         post: async ({ ownerId, request, channel, text, threadTs }) => {
@@ -363,6 +368,7 @@ export function getWebhookIngressService(): WebhookIngressService {
     getPluginRegistry(),
     getSessionIntegrationService(),
     getSourceSessionResolver(),
+    getEventCandidateService(),
   );
   return ingressService;
 }
@@ -445,8 +451,24 @@ function teamsDeliveryMode(value: string | undefined): TeamsDeliveryMode {
 }
 
 export function getSessionIntegrationService(): SessionIntegrationService {
-  sessionIntegrationService ??= new SessionIntegrationService({ store: getAgentsApiServices().store, sessions: getAgentsApiServices().sessions, delivery: new SessionDeliveryService(getDeliveryService()), allowedRepositoryHosts: csv(process.env.ALLOWED_REPOSITORY_HOSTS ?? 'github.com,gitlab.com') });
+  sessionIntegrationService ??= new SessionIntegrationService({
+    store: getAgentsApiServices().store,
+    get sessions() { return getAgentsApiServices().sessions; },
+    delivery: getSessionDeliveryService(),
+    allowedRepositoryHosts: csv(process.env.ALLOWED_REPOSITORY_HOSTS ?? 'github.com,gitlab.com'),
+  });
   return sessionIntegrationService;
+}
+
+export function getSessionDeliveryService(): SessionDeliveryService {
+  return new SessionDeliveryService(getDeliveryService(), async (ownerId, sessionId) => {
+    const services = getAgentsApiServices();
+    const saved = await services.store.get<import('../core/session-ports.js').SessionState>(ownerId, 'sessions', sessionId);
+    if (!saved) throw new Error('Session output credentials are unavailable');
+    const mcp = await services.tools.launch(ownerId, saved.value.session);
+    const environmentCredentials = await services.tools.environmentLaunch(ownerId, saved.value.session);
+    return readSessionOutputSecrets(ownerId, { sessionId, mcp, ...(environmentCredentials ? { environmentCredentials } : {}) }, new CachedSecretReader(getBaseServices().clients.secrets));
+  });
 }
 
 let scheduleService: ScheduleService | undefined;
@@ -483,4 +505,17 @@ export function getSessionPublicationService(): SessionPublicationService {
       return response.Body.transformToByteArray();
     },
   });
+}
+
+let eventCandidateService: EventCandidateService | undefined;
+export function getEventCandidateService(): EventCandidateService {
+  eventCandidateService ??= new EventCandidateService({
+    store: getAgentsApiServices().store,
+    integrations: getSessionIntegrationService(),
+    model: process.env.EVENT_FILTER_MODEL_ID
+      ? new BedrockEventFilter({ model: process.env.EVENT_FILTER_MODEL_ID, region: requiredEnv('AWS_REGION') })
+      : { id: 'disabled', decide: async () => ({ act: false, reason: 'filter_model_not_configured' }) },
+    count: name => emitMetric('event-filter', name, 1, 'Count'),
+  });
+  return eventCandidateService;
 }
