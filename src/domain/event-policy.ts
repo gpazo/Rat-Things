@@ -9,6 +9,7 @@ export interface SourceEventFacts {
   mentioned: boolean;
   actorId: string;
   channelId?: string;
+  repositoryComment?: boolean;
   bot?: boolean;
   selfLoop?: boolean;
 }

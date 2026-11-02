@@ -6,6 +6,7 @@ import { isAgentResultMessage } from './result-marker.js';
 export interface NormalizedWebhookInput {
   ownerId: string;
   mentioned: boolean;
+  repositoryComment?: boolean;
   repositoryHeadChanged?: boolean;
   actor?: { id: string; kind: 'human' | 'system' };
   idempotencyKey: string;
@@ -80,14 +81,16 @@ export function normalizeGitHubWebhook(
     const comment = record(payload.comment);
     const issueNumber = positiveNumber(issue?.number);
     const body = text(comment?.body);
-    if (!issueNumber || !body || !isRecord(issue?.pull_request)) return undefined;
+    const commenterLogin = text(record(comment?.user)?.login);
+    if (!issueNumber || !body || !commenterLogin || !isRecord(issue?.pull_request)) return undefined;
     const trigger = commentTrigger?.trim();
     const mentioned = Boolean(trigger && body.toLowerCase().includes(trigger.toLowerCase()));
     if (isAgentResultMessage(body) || text(record(comment?.user)?.type)?.toLowerCase() === 'bot') return undefined;
     return {
       ownerId,
       mentioned,
-      ...(text(record(comment?.user)?.login) ? { actor: { id: `github:${text(record(comment?.user)?.login)}`, kind: 'human' as const } } : {}),
+      repositoryComment: true,
+      actor: { id: `github:${commenterLogin}`, kind: 'human' as const },
       idempotencyKey: safeIdempotencyKey('github', deliveryId),
       request: {
         prompt: [
@@ -171,14 +174,16 @@ export function normalizeGitLabWebhook(
     const mergeRequest = record(payload.merge_request);
     const body = text(attributes?.note);
     const iid = positiveNumber(mergeRequest?.iid);
-    if (!body || !iid || (attributes?.action !== undefined && attributes.action !== 'create')) return undefined;
+    const commenterId = scalarId(record(payload.user)?.id);
+    if (!body || !iid || !commenterId || (attributes?.action !== undefined && attributes.action !== 'create')) return undefined;
     const trigger = commentTrigger?.trim();
     const mentioned = Boolean(trigger && body.toLowerCase().includes(trigger.toLowerCase()));
     if (isAgentResultMessage(body) || record(payload.user)?.bot === true) return undefined;
     return {
       ownerId,
       mentioned,
-      ...(scalarId(record(payload.user)?.id) ? { actor: { id: `gitlab:${scalarId(record(payload.user)?.id)}`, kind: 'human' as const } } : {}),
+      repositoryComment: true,
+      actor: { id: `gitlab:${commenterId}`, kind: 'human' as const },
       idempotencyKey: safeIdempotencyKey('gitlab', deliveryId),
       request: {
         prompt: [

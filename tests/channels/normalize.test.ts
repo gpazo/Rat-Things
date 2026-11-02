@@ -97,7 +97,7 @@ describe('GitHub webhook normalization', () => {
           clone_url: 'https://github.com/acme/widgets.git',
         },
         issue: { number: 9, pull_request: { url: 'https://api.github.test/pulls/9' } },
-        comment: { body: '@agent explain the race' },
+        comment: { body: '@agent explain the race', user: { login: 'octocat', type: 'User' } },
       },
       undefined,
       '@agent',
@@ -147,16 +147,20 @@ describe('GitHub webhook normalization', () => {
       action: 'created',
       repository: { full_name: 'acme/widgets', clone_url: 'https://github.com/acme/widgets.git' },
       issue: { number: 9, pull_request: {} },
-      comment: { body: '@agent explain this' },
+      comment: { body: '@agent explain this', user: { login: 'octocat', type: 'User' } },
     };
     expect(normalizeGitHubWebhook('issue_comment', 'missing-trigger', payload)).toMatchObject({ mentioned: false });
     expect(normalizeGitHubWebhook('issue_comment', 'own-result', {
       ...payload,
-      comment: { body: `${AGENT_RESULT_MARKER}\n@agent completed` },
+      comment: { body: `${AGENT_RESULT_MARKER}\n@agent completed`, user: { login: 'octocat', type: 'User' } },
     }, undefined, '@agent')).toBeUndefined();
     expect(normalizeGitHubWebhook('issue_comment', 'bot-result', {
       ...payload,
-      comment: { body: '@agent completed', user: { type: 'Bot' } },
+      comment: { body: '@agent completed', user: { login: 'github-actions[bot]', type: 'Bot' } },
+    }, undefined, '@agent')).toBeUndefined();
+    expect(normalizeGitHubWebhook('issue_comment', 'missing-author', {
+      ...payload,
+      comment: { body: '@agent explain this' },
     }, undefined, '@agent')).toBeUndefined();
   });
 });
@@ -234,6 +238,7 @@ describe('GitLab webhook normalization', () => {
         },
         object_attributes: { note: '@agent summarize the impact' },
         merge_request: { iid: 23, last_commit: { id: 'abc123' } },
+        user: { id: 11, bot: false },
       },
       undefined,
       '@agent',
@@ -280,6 +285,7 @@ describe('GitLab webhook normalization', () => {
       },
       object_attributes: { note: '@agent summarize' },
       merge_request: { iid: 23 },
+      user: { id: 11, bot: false },
     };
     expect(normalizeGitLabWebhook('Note Hook', 'missing-trigger', payload)).toMatchObject({ mentioned: false });
     expect(normalizeGitLabWebhook('Note Hook', 'own-result', {
@@ -288,7 +294,11 @@ describe('GitLab webhook normalization', () => {
     }, undefined, '@agent')).toBeUndefined();
     expect(normalizeGitLabWebhook('Note Hook', 'bot-result', {
       ...payload,
-      user: { bot: true },
+      user: { id: 12, bot: true },
+    }, undefined, '@agent')).toBeUndefined();
+    expect(normalizeGitLabWebhook('Note Hook', 'missing-author', {
+      ...payload,
+      user: undefined,
     }, undefined, '@agent')).toBeUndefined();
   });
 
@@ -302,6 +312,7 @@ describe('GitLab webhook normalization', () => {
       },
       object_attributes: { note: '@agent inspect this change' },
       merge_request: { iid: 23 },
+      user: { id: 11, bot: false },
     }, undefined, '@agent');
 
     expect(normalized?.request.repository?.ref).toBe('refs/merge-requests/23/head');
