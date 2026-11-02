@@ -46,7 +46,7 @@ export function repositoryCheckoutCommands(workspace: string, ref: string | unde
 
 export function repositoryBaseFetchArguments(workspace: string, baseRef: string | undefined): string[] | undefined {
   return baseRef
-    ? ['-C', workspace, 'fetch', '--quiet', '--depth=50', 'origin', `${baseRef}:refs/remotes/origin/${baseRef}`]
+    ? ['-C', workspace, 'fetch', '--quiet', '--no-write-fetch-head', '--depth=50', 'origin', `${baseRef}:refs/remotes/origin/${baseRef}`]
     : undefined;
 }
 

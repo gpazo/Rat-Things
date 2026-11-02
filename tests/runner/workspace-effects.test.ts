@@ -106,7 +106,7 @@ describe('workspace preparation effects', () => {
       expect(options.env).not.toHaveProperty('GIT_ASKPASS');
     }
     expect(gitCalls[2]![1]).toEqual(['-C', target, 'fetch', '--quiet', '--depth=50', 'origin', 'feature']);
-    expect(gitCalls[3]![1]).toEqual(['-C', target, 'fetch', '--quiet', '--depth=50', 'origin', 'main:refs/remotes/origin/main']);
+    expect(gitCalls[3]![1]).toEqual(['-C', target, 'fetch', '--quiet', '--no-write-fetch-head', '--depth=50', 'origin', 'main:refs/remotes/origin/main']);
   });
 
   it('leaves the created directory in place when credential resolution fails', async () => {

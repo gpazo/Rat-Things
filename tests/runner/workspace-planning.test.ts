@@ -71,7 +71,7 @@ describe('Git setup planning', () => {
     expect(repositoryBaseFetchArguments('/workspace', undefined)).toBeUndefined();
     expect(repositoryBaseFetchArguments('/workspace', '')).toBeUndefined();
     expect(repositoryBaseFetchArguments('/workspace', 'release/main'))
-      .toEqual(['-C', '/workspace', 'fetch', '--quiet', '--depth=50', 'origin', 'release/main:refs/remotes/origin/release/main']);
+      .toEqual(['-C', '/workspace', 'fetch', '--quiet', '--no-write-fetch-head', '--depth=50', 'origin', 'release/main:refs/remotes/origin/release/main']);
   });
 
   it('isolates trusted Git configuration from supplied host settings and keeps empty overrides', () => {
