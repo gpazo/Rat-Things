@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import type { AgentsStore } from './agents-ports.js';
+import type { AgentResource, AgentsStore } from './agents-ports.js';
 import type { OwnerRateLimit } from './owner-rate-limiter.js';
 import type { SessionStreamSnapshot } from './session-stream.js';
 import type { SessionState } from './session-ports.js';
@@ -8,6 +8,7 @@ import { watchdogDigest, watchdogRetryEligible, watchdogRetryKey } from './watch
 import type { WatchdogCandidate, WatchdogPolicy } from '../domain/watchdog.js';
 import type { SessionIntegrationState } from '../domain/session-integrations.js';
 import { canonicalJson } from '../domain/json.js';
+import { planIntegrationRetry } from './session-integration-planning.js';
 
 export async function applyWatchdogAction(store: AgentsStore, rateLimit: OwnerRateLimit, candidate: WatchdogCandidate, action: 'retry' | 'cancel', now: number, policy: WatchdogPolicy): Promise<boolean> {
   if (!candidate.sessionId || !candidate.turnId) return false;
@@ -34,10 +35,18 @@ export async function applyWatchdogAction(store: AgentsStore, rateLimit: OwnerRa
     turnIds: [`turn_${hash(key).slice(0, 32)}`], messageIds: binding?.input.map((_, index) => `msg_${hash(`${key}:${index}`).slice(0, 32)}`) ?? [], operationIds: [key],
   }, now);
   const next = { ...plan.state, receipts: { ...state.receipts, [key]: { digest: hash(canonicalJson(events)), commands: plan.commands, dispatched: false } } };
-  const write = { resource: { ...resource, revision: resource.revision + 1, value: next }, expectedRevision: resource.revision };
-  if (action === 'retry') await rateLimit.admit(candidate.ownerId, `input:${candidate.sessionId}:${key}`);
-  if (observationRevision !== undefined) await store.commitAtObservation!([write], { ownerId: candidate.ownerId, id: candidate.sessionId, revision: observationRevision });
-  else await store.commit([write]);
+  const writes: Array<{ resource: AgentResource<unknown>; expectedRevision: number }> = [{ resource: { ...resource, revision: resource.revision + 1, value: next }, expectedRevision: resource.revision }];
+  if (action === 'retry') {
+    const integration = await store.get<SessionIntegrationState>(candidate.ownerId, 'session_integrations', candidate.sessionId);
+    const retryTurnId = plan.commands.find(command => command.type === 'start')?.turnId;
+    if (integration && retryTurnId) {
+      const value = planIntegrationRetry(integration.value, candidate.turnId, retryTurnId);
+      if (value !== integration.value) writes.push({ resource: { ...integration, revision: integration.revision + 1, value }, expectedRevision: integration.revision });
+    }
+    await rateLimit.admit(candidate.ownerId, `input:${candidate.sessionId}:${key}`);
+  }
+  if (observationRevision !== undefined) await store.commitAtObservation!(writes, { ownerId: candidate.ownerId, id: candidate.sessionId, revision: observationRevision });
+  else await store.commit(writes);
   return true;
 }
 const hash = (value: string): string => createHash('sha256').update(value).digest('hex');

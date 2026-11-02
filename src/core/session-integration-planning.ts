@@ -24,6 +24,15 @@ export function acceptIntegrationInput(previous: SessionIntegrationState | undef
   return { ...previous, target: previous?.target ?? structuredClone(target), inputs: [...previous?.inputs ?? [], { ...structuredClone(input), digest }] };
 }
 
+/** A retried Turn inherits every contributing input's delivery and quiet-response policy. */
+export function planIntegrationRetry(state: SessionIntegrationState, turnId: string, retryTurnId: string): SessionIntegrationState {
+  const inputs = state.inputs.filter(input => input.turnId === turnId).map(({ digest: _digest, turnId: _turnId, deliveryProcessed: _processed, ...input }) => {
+    const retry = { ...input, id: `retry_${integrationDigest([retryTurnId, input.id])}` };
+    return { ...retry, digest: integrationInputDigest(retry), turnId: retryTurnId };
+  });
+  return inputs.length ? { ...state, inputs: [...state.inputs, ...inputs] } : state;
+}
+
 export const MAX_THREAD_INPUTS = 128;
 export const threadSubscriptionId = (bindingId: string, threadKey: string): string => integrationDigest([bindingId, threadKey]);
 export const integrationOccurrenceId = (bindingId: string, inputId: string): string => integrationDigest([bindingId, inputId]);
