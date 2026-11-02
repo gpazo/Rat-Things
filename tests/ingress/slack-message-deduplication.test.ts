@@ -56,7 +56,7 @@ describe('signed Slack message and app-mention deduplication', () => {
     expect(candidates.length).toBeLessThanOrEqual(1);
     if (candidates[0]) {
       await f.candidates.process('operator', candidates[0].id);
-      expect((await f.store.get<EventCandidate>('operator', candidates[0].id))?.value.state.status).toBe('discarded');
+      expect((await f.store.get<EventCandidate>('operator', 'event_candidates', candidates[0].id))?.value.state.status).toBe('discarded');
     }
   });
 
@@ -80,23 +80,24 @@ describe('signed Slack message and app-mention deduplication', () => {
     await f.candidates.process('operator', candidateId);
     const candidate = await f.store.get<EventCandidate>('operator', 'event_candidates', candidateId);
     expect(candidate?.value.state.status).toBe('admitted');
-    const session = await f.integrations.accept('operator', 'slack-binding', JSON.stringify(['slack', 'T1', 'C1', '1000.1000']), f.target, candidate!.value.input);
-    await f.integrations.submitPending('operator', session.sessionId);
-    await f.sessions.dispatch('operator', session.sessionId);
-    const turn = (await f.sessions.turns('operator', session.sessionId)).data[0]!;
+    const subscriptions = await f.integrations.listSubscriptions('operator');
+    const sessionId = subscriptions.data[0]!.subscribers[0]!.sessionId;
+    await f.integrations.submitPending('operator', sessionId);
+    await f.sessions.dispatch('operator', sessionId);
+    const turn = (await f.sessions.turns('operator', sessionId)).data[0]!;
     f.observations.set(turn.id, { turn: { ...turn, status: 'completed', completed_at: 2 }, requiredActions: [] });
-    await f.sessions.completeReadyTurns('operator', session.sessionId);
-    await f.integrations.deliverReady('operator', session.sessionId);
+    await f.sessions.completeReadyTurns('operator', sessionId);
+    await f.integrations.deliverReady('operator', sessionId);
     expect(f.delivery.deliver).toHaveBeenCalledWith(expect.objectContaining({ silentIfEmpty: true, items: [] }));
 
     const mention = await f.service.receive('slack', signedRequest('app_mention', 'EvMention'));
-    expect(mention.body).toMatchObject({ accepted: true, sessionId: session.sessionId });
-    const integration = await f.store.get<{ inputs: Array<{ id: string; admission?: string; deliveryProcessed?: boolean }> }>('operator', 'session_integrations', session.sessionId);
+    expect(mention.body).toMatchObject({ accepted: true, sessionId });
+    const integration = await f.store.get<{ inputs: Array<{ id: string; admission?: string; deliveryProcessed?: boolean }> }>('operator', 'session_integrations', sessionId);
     expect(integration?.value.inputs).toEqual([expect.objectContaining({ id: candidate!.value.input.id, admission: 'explicit', deliveryProcessed: false })]);
-    await f.integrations.deliverReady('operator', session.sessionId);
+    await f.integrations.deliverReady('operator', sessionId);
     expect(f.delivery.deliver).toHaveBeenCalledTimes(2);
     expect(f.delivery.deliver).toHaveBeenLastCalledWith(expect.objectContaining({ silentIfEmpty: false, items: [] }));
-    expect((await f.sessions.turns('operator', session.sessionId)).data).toHaveLength(1);
+    expect((await f.sessions.turns('operator', sessionId)).data).toHaveLength(1);
   });
 
   it('discards candidate-worker admission when a signed app mention wins during the commit', async () => {

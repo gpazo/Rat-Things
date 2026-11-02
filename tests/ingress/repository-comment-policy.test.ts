@@ -5,6 +5,7 @@ import type { SourceEventPolicy } from '../../src/domain/event-policy.js';
 import { GitHubIngressAdapter } from '../../src/ingress/providers/github.js';
 import { GitLabIngressAdapter } from '../../src/ingress/providers/gitlab.js';
 import { WebhookIngressService } from '../../src/ingress/service.js';
+import type { SessionIntegrationInput, SessionIntegrationTarget } from '../../src/domain/session-integrations.js';
 import { RuntimePluginRegistry } from '../../src/plugins/registry.js';
 
 const secret = 'repository-comment-webhook-secret';
@@ -70,7 +71,7 @@ function fixture(provider: Provider, eventPolicy: SourceEventPolicy | undefined,
     manifest: { name: `${provider}-test`, version: '1', description: 'Signed repository comment test', provider },
     ingress: adapter,
   }]);
-  const accept = vi.fn(async () => ({ sessionId: 'sess_1' }));
+  const accept = vi.fn(async (_ownerId: string, _bindingId: string, _threadId: string, _target: SessionIntegrationTarget, _input: SessionIntegrationInput) => ({ sessionId: 'sess_1' }));
   const candidates = {
     receipt: vi.fn(async () => undefined),
     enqueue: vi.fn(async () => ({ candidateId: 'candidate_1' })),
