@@ -8973,6 +8973,9 @@
           },
           "updated_at": {
             "type": "integer"
+          },
+          "watchdog": {
+            "$ref": "#/components/schemas/WatchdogBinding"
           }
         },
         "required": [
