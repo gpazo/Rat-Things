@@ -632,6 +632,13 @@ function memoryStore() {
     putSourceBinding: async (value) => {
       sourceBindings.push(value);
     },
+    updateSourceEventPolicy: async (ownerId, bindingId, eventPolicy) => {
+      const index = sourceBindings.findIndex(value => value.ownerId === ownerId && value.bindingId === bindingId);
+      if (index < 0) return undefined;
+      const next = { ...sourceBindings[index]!, eventPolicy };
+      sourceBindings[index] = next;
+      return next;
+    },
     listSourceBindings: async (ownerId) => sourceBindings.filter((item) => item.ownerId === ownerId),
     matchingSourceBindings: async (sourceKind) => sourceBindings.filter(
       (item) => item.sourceKind === sourceKind,

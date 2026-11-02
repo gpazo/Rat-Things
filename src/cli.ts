@@ -54,6 +54,7 @@ const commands = new Set([
   'connection-set',
   'source-bindings',
   'bind-source',
+  'set-source-event-policy',
   'slack-events',
   'doctor',
   'help',
@@ -122,7 +123,7 @@ const valueOptions = new Set([
 ]);
 
 interface SimpleApiCommand {
-  method: 'GET' | 'POST';
+  method: 'GET' | 'POST' | 'PUT';
   path(args: Arguments): string;
   body?(args: Arguments): unknown | Promise<unknown>;
 }
@@ -148,6 +149,9 @@ const simpleApiCommands: Record<string, SimpleApiCommand> = {
   'source-bindings': { method: 'GET', path: () => '/v1/integrations/source-bindings' },
   'bind-source': {
     method: 'POST', path: () => '/v1/integrations/source-bindings', body: requiredJsonFile,
+  },
+  'set-source-event-policy': {
+    method: 'PUT', path: args => `/v1/integrations/source-bindings/${positionalPath(args, 0, 'binding ID')}/event-policy`, body: requiredJsonFile,
   },
 };
 
@@ -1202,6 +1206,7 @@ function validateRootPositionals(args: Arguments): void {
     'connection-set': [0, 0, 'connection-set --file SET.json'],
     'source-bindings': [0, 0, 'source-bindings'],
     'bind-source': [0, 0, 'bind-source --file BINDING.json'],
+    'set-source-event-policy': [1, 1, 'set-source-event-policy BINDING_ID --file POLICY.json'],
     'slack-events': [1, 1, 'slack-events ACCOUNT --agent-id AGENT_ID [--environment-template TEMPLATE_ID] [--json]'],
     doctor: [0, 0, 'doctor'],
     help: [0, 0, 'help'],
@@ -1306,6 +1311,7 @@ function help(showAll: boolean): void {
   process.stdout.write(`  rat-things connection-set --file SET.json\n`);
   process.stdout.write(`  rat-things source-bindings\n`);
   process.stdout.write(`  rat-things bind-source --file BINDING.json\n`);
+  process.stdout.write(`  rat-things set-source-event-policy BINDING_ID --file POLICY.json\n`);
   process.stdout.write(`  rat-things slack-events ACCOUNT --agent-id AGENT_ID [--environment-template TEMPLATE_ID] [--json]\n`);
 }
 

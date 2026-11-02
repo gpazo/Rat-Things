@@ -305,6 +305,15 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
         sourceBindings: await getConnectionService().listSourceBindings(ownerId),
       });
     }
+    const sourceBindingId = resourcePathParameter(event, 'bindingId', 256);
+    if (method === 'PUT' && sourceBindingId && routeMatches(event,
+      'PUT /v1/integrations/source-bindings/{bindingId}/event-policy',
+      `/v1/integrations/source-bindings/${sourceBindingId}/event-policy`,
+    )) {
+      const body = strictBody(jsonBody(event), ['version', 'eventPolicy']);
+      requireVersion(body.version);
+      return response(200, await getConnectionService().updateSourceEventPolicy(ownerId, sourceBindingId, sourceEventPolicy(body.eventPolicy)));
+    }
     if (method === 'POST' && path === '/v1/integrations/source-bindings') {
       const body = strictBody(jsonBody(event), [
         'version',
