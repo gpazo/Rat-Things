@@ -4,6 +4,7 @@ import { piCatalogFromConfig } from '../adapters/pi-model-catalog.js';
 import { hostedCodexArguments } from './hosted-environment-planning.js';
 import { executePiWorker, type PiHostDependencies } from './pi-host.js';
 import { nativeLease } from '../core/session-native-store.js';
+import { redactedNativeLease } from './pi/native-redaction.js';
 import { validateRuntimeAgent } from '../domain/session-runtime.js';
 import { isRetiredRun } from '../domain/run-bindings.js';
 import { createHash, randomUUID } from 'node:crypto';
@@ -304,7 +305,7 @@ export async function runAgentWorker(): Promise<void> {
       });
       if (launch.runtime?.kind === 'pi') {
         const native = nativeLease(agentsStore, sessionOwner, launch.sessionId, runId, runtime.value.epoch ?? 0);
-        const lease = { ...native, commit: (change: import('../core/session-native-store.js').NativeCommit) => native.commit({ ...change, writes: safeOutput(change.writes) }) };
+        const lease = redactedNativeLease(native, safeOutput);
         const currentCatalog = piCatalogFromConfig(process.env.PI_BEDROCK_MODEL_IDS_JSON, process.env.AWS_REGION);
         const allowedModelIds = launch.runtime.catalog.filter(model => currentCatalog.some(current => canonicalJson(current) === canonicalJson(model))).map(model => model.id);
         if (!allowedModelIds.includes(launch.agent.model)) throw new Error('Pi model was revoked before worker launch');
