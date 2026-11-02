@@ -105,6 +105,7 @@ describe('GitHub webhook normalization', () => {
 
     expect(normalized).toMatchObject({
       ownerId: 'github:acme',
+      repositoryComment: true,
       idempotencyKey: 'github:delivery-comment',
       request: {
         prompt: expect.stringContaining('@agent explain the race'),
@@ -240,6 +241,7 @@ describe('GitLab webhook normalization', () => {
 
     expect(normalized).toMatchObject({
       ownerId: 'gitlab:81',
+      repositoryComment: true,
       idempotencyKey: 'gitlab:note-delivery',
       request: {
         prompt: expect.stringContaining('@agent summarize the impact'),
