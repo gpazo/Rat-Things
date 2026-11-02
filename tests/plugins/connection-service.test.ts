@@ -632,6 +632,13 @@ function memoryStore() {
     putSourceBinding: async (value) => {
       sourceBindings.push(value);
     },
+    updateSourceEventPolicy: async (ownerId, bindingId, eventPolicy) => {
+      const index = sourceBindings.findIndex(value => value.ownerId === ownerId && value.bindingId === bindingId);
+      if (index < 0) return undefined;
+      const next = { ...sourceBindings[index]!, eventPolicy };
+      sourceBindings[index] = next;
+      return next;
+    },
     listSourceBindings: async (ownerId) => sourceBindings.filter((item) => item.ownerId === ownerId),
     matchingSourceBindings: async (sourceKind) => sourceBindings.filter(
       (item) => item.sourceKind === sourceKind,
@@ -651,5 +658,28 @@ describe('watchdog binding policy', () => {
     expect(enabled.watchdog).toEqual({ cancelLoops: true });
     expect(state.sourceBindings.at(-1)?.watchdog).toEqual({ cancelLoops: true });
     await expect(service.createSourceBinding({ ...input, watchdog: { cancelLoops: 'yes' as unknown as boolean } })).rejects.toMatchObject({ status: 400 });
+  });
+});
+
+describe('source event policy administration', () => {
+  it('returns the existing binding after an owner-scoped policy update', async () => {
+    const state = memoryStore();
+    const service = connectionService(state.store, { create: vi.fn(), replace: vi.fn(), revoke: vi.fn() });
+    const binding = await service.createSourceBinding({ ownerId: 'api:owner-1', sourceKind: 'github', selector: { repository: 'org/repo' }, agentId: 'agent_1', environment: { type: 'none' } });
+    const eventPolicy = { mode: 'explicit' as const, actors: { allow: ['maintainer'] } };
+    const update = vi.fn().mockResolvedValue({ ...binding, eventPolicy });
+    Object.assign(state.store, { updateSourceEventPolicy: update });
+    await expect(service.updateSourceEventPolicy('api:owner-1', binding.bindingId, eventPolicy)).resolves.toEqual({ ...binding, eventPolicy });
+    expect(update).toHaveBeenCalledExactlyOnceWith('api:owner-1', binding.bindingId, eventPolicy);
+  });
+
+  it('rejects invalid policy before storage and returns not found for unavailable bindings', async () => {
+    const state = memoryStore();
+    const update = vi.fn().mockResolvedValue(undefined);
+    Object.assign(state.store, { updateSourceEventPolicy: update });
+    const service = connectionService(state.store, { create: vi.fn(), replace: vi.fn(), revoke: vi.fn() });
+    await expect(service.updateSourceEventPolicy('api:owner-1', 'missing', { mode: 'candidate' })).rejects.toBeInstanceOf(ValidationError);
+    expect(update).not.toHaveBeenCalled();
+    await expect(service.updateSourceEventPolicy('api:owner-1', 'missing', { mode: 'explicit' })).rejects.toMatchObject({ status: 404, code: 'not_found' });
   });
 });

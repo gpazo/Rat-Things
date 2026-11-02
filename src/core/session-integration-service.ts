@@ -3,6 +3,7 @@ import { parseRepository } from '../domain/validation.js';
 import type { AgentResource, AgentsStore, AgentsClock } from './agents-ports.js';
 import type { SessionService } from './session-service.js';
 import type { SessionState } from './session-ports.js';
+import type { AgentSessionItem, Turn } from '../domain/agents-api.js';
 import type { SessionDelivery, SessionIntegrationInput, SessionIntegrationState, SessionIntegrationTarget, ThreadSubscription, IntegrationOccurrence } from '../domain/session-integrations.js';
 import { AgentsApiError, parseAgentsContract } from '../domain/agents-api-validation.js';
 import { integrationDigest, integrationInputDigest, integrationSessionId, integrationOccurrenceId, threadSubscriptionId, planThreadAdmission, releaseThreadSubscription, integrationInputText } from './session-integration-planning.js';
@@ -27,6 +28,12 @@ export class SessionIntegrationService {
       const occurrence = await this.options.store.get<IntegrationOccurrence>(ownerId, 'integration_occurrences', occurrenceId);
       if (occurrence) {
         if (occurrence.value.digest !== digest) throw new AgentsApiError(409, 'This provider occurrence was already accepted with different input.', 'idempotency_conflict');
+        // Candidate admission writes its receipt, candidate state and marker
+        // atomically. If an explicit occurrence won while that worker was
+        // waiting to commit, fail the stale transaction so the worker can
+        // reload the marker and discard its candidate.
+        if (writes.length > 0) throw new AgentsApiError(409, 'This provider occurrence was accepted concurrently.', 'conflict');
+        if (input.admission !== 'candidate') await this.promoteCandidateReceipt(ownerId, occurrence.value.sessionId, input.id);
         return { sessionId: occurrence.value.sessionId };
       }
       const subscription = await this.options.store.get<ThreadSubscription>(ownerId, 'thread_subscriptions', subscriptionId);
@@ -67,6 +74,24 @@ export class SessionIntegrationService {
       if (existing) continue;
       try { await this.options.store.put({ ownerId: integration.ownerId, id, collection: 'integration_occurrences', createdAt: integration.createdAt, revision: 1, value }, 0); }
       catch (error) { if (!conflict(error)) throw error; }
+    }
+  }
+
+  private async promoteCandidateReceipt(ownerId: string, sessionId: string, inputId: string): Promise<void> {
+    for (let attempt = 0; ; attempt++) {
+      const integration = await this.options.store.get<SessionIntegrationState>(ownerId, 'session_integrations', sessionId);
+      if (!integration) return;
+      const receipt = integration.value.inputs.find(input => input.id === inputId);
+      if (!receipt || receipt.admission !== 'candidate') return;
+      const session = await this.options.store.get<SessionState>(ownerId, 'sessions', sessionId);
+      const replayEmptyCandidate = candidateWasSilentlyDelivered(integration.value, receipt, session?.value);
+      const inputs = integration.value.inputs.map(input => input.id === inputId
+        ? { ...input, admission: 'explicit' as const, ...(replayEmptyCandidate ? { deliveryProcessed: false } : {}) }
+        : input);
+      try {
+        await this.options.store.put({ ...integration, revision: integration.revision + 1, value: { ...integration.value, inputs } }, integration.revision);
+        return;
+      } catch (error) { if (!conflict(error) || attempt >= 9) throw error; }
     }
   }
 
@@ -161,18 +186,36 @@ export class SessionIntegrationService {
     if (!session) return;
     const delivered = new Set<string>();
     for (const input of integration.value.inputs) {
-      if (input.deliveryProcessed || input.turnId && delivered.has(input.turnId)) continue;
+      if (input.deliveryProcessed || !input.turnId || delivered.has(input.turnId)) continue;
       const binding = session.value.turns.find(({ turn }) => turn.id === input.turnId);
       if (!binding || !terminalTurn(binding.turn) || !binding.savedItems) continue;
       const { target } = integration.value;
+      const silentCandidateCompletion = candidateDeliveryWouldBeSilent(integration.value, input.turnId, binding.turn, binding.savedItems);
       await this.options.delivery.deliver({ ownerId, sessionId: id, turn: binding.turn, items: binding.savedItems, source: input.source,
         silentIfEmpty: integration.value.inputs.filter(receipt => receipt.turnId === input.turnId).every(receipt => receipt.admission === 'candidate'),
         ...(target.destinations ? { destinations: target.destinations } : {}), ...(target.connectionSetId ? { connectionSetId: target.connectionSetId } : {}),
       });
-      const current = await this.options.store.get<SessionIntegrationState>(ownerId, 'session_integrations', id);
-      if (!current) return;
-      await this.options.store.put({ ...current, revision: current.revision + 1, value: { ...current.value, inputs: current.value.inputs.map((receipt) => receipt.turnId === input.turnId ? { ...receipt, deliveryProcessed: true } : receipt) } }, current.revision);
+      await this.markDeliveryProcessed(ownerId, id, input.turnId, silentCandidateCompletion);
       delivered.add(binding.turn.id);
+    }
+  }
+
+  private async markDeliveryProcessed(ownerId: string, sessionId: string, turnId: string, silentCandidateCompletion: boolean): Promise<void> {
+    for (let attempt = 0; ; attempt++) {
+      const current = await this.options.store.get<SessionIntegrationState>(ownerId, 'session_integrations', sessionId);
+      if (!current) return;
+      const turnReceipts = current.value.inputs.filter(receipt => receipt.turnId === turnId);
+      // A quiet empty candidate delivery may have raced promotion or an
+      // explicit receipt appended to the same Turn. Leave the current receipts
+      // pending so the next pass can deliver the explicit completion reply.
+      if (silentCandidateCompletion && turnReceipts.some(receipt => receipt.admission !== 'candidate')) return;
+      if (turnReceipts.every(receipt => receipt.deliveryProcessed === true)) return;
+      try {
+        await this.options.store.put({ ...current, revision: current.revision + 1, value: { ...current.value,
+          inputs: current.value.inputs.map(receipt => receipt.turnId === turnId ? { ...receipt, deliveryProcessed: true } : receipt),
+        } }, current.revision);
+        return;
+      } catch (error) { if (!conflict(error) || attempt >= 9) throw error; }
     }
   }
 }
@@ -180,3 +223,19 @@ function receiptKey(id: string): string { return `integration:${integrationDiges
 // Session event receipts hash the exact header, rather than its JSON representation.
 function integrationDigestString(value: string): string { return createHash('sha256').update(value).digest('hex'); }
 function conflict(error: unknown): boolean { return error instanceof AgentsApiError && error.code === 'conflict'; }
+
+function candidateWasSilentlyDelivered(integration: SessionIntegrationState, receipt: SessionIntegrationState['inputs'][number], session: SessionState | undefined): boolean {
+  if (!receipt.deliveryProcessed || !receipt.turnId || !session) return false;
+  const turn = session.turns.find(binding => binding.turn.id === receipt.turnId);
+  return turn ? candidateDeliveryWouldBeSilent(integration, receipt.turnId, turn.turn, turn.savedItems ?? []) : false;
+}
+
+function candidateDeliveryWouldBeSilent(integration: SessionIntegrationState, turnId: string | undefined, turn: Turn, items: AgentSessionItem[]): boolean {
+  if (turn.status !== 'completed' || !turnId) return false;
+  const turnReceipts = integration.inputs.filter(input => input.turnId === turnId);
+  if (!turnReceipts.length || !turnReceipts.every(input => input.admission === 'candidate')) return false;
+  const messages = items.flatMap((item: AgentSessionItem) => item.type === 'message' && item.role === 'assistant' && item.status === 'completed' && item.phase !== 'commentary'
+    ? item.content.flatMap(part => part.type === 'output_text' ? [part.text] : [])
+    : []);
+  return !messages.join('').trim();
+}

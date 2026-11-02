@@ -14,6 +14,7 @@ import type {
   SourceCapabilityBinding,
 } from '../domain/capabilities.js';
 import type { JsonValue } from '../domain/contracts.js';
+import type { SourceEventPolicy } from '../domain/event-policy.js';
 
 export class IntegrationProviderUnavailableError extends Error {
   public constructor(pluginTitle: string) {
@@ -124,6 +125,7 @@ export interface IntegrationStore {
   getConnectionSet(ownerId: string, idOrName: string): Promise<ConnectionSet | undefined>;
   listConnectionSets(ownerId: string): Promise<ConnectionSet[]>;
   putSourceBinding(binding: SourceCapabilityBinding): Promise<void>;
+  updateSourceEventPolicy(ownerId: string, bindingId: string, policy: SourceEventPolicy): Promise<SourceCapabilityBinding | undefined>;
   listSourceBindings(ownerId: string): Promise<SourceCapabilityBinding[]>;
   matchingSourceBindings(sourceKind: SourceCapabilityBinding['sourceKind']): Promise<SourceCapabilityBinding[]>;
 }

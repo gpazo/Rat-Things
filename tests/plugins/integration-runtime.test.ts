@@ -432,6 +432,7 @@ function memoryStore(
     getConnectionSet: async () => undefined,
     listConnectionSets: async () => [],
     putSourceBinding: async () => undefined,
+    updateSourceEventPolicy: async () => undefined,
     listSourceBindings: async () => [],
     matchingSourceBindings: async () => [],
   };

@@ -6,17 +6,99 @@ resource "aws_iam_role" "watchdog" {
 }
 
 data "aws_iam_policy_document" "watchdog" {
-  count                   = var.enable_watchdog ? 1 : 0
-  source_policy_documents = [data.aws_iam_policy_document.agents_service.json]
+  count = var.enable_watchdog ? 1 : 0
+  # Judge Sessions, retry dispatch and reports use these capabilities directly,
+  # including when the outbox consumer is unavailable.
+  statement {
+    sid       = "AgentsResources"
+    actions   = ["dynamodb:GetItem", "dynamodb:Query", "dynamodb:PutItem", "dynamodb:UpdateItem", "dynamodb:DeleteItem"]
+    resources = [aws_dynamodb_table.agents.arn]
+  }
+  statement {
+    sid       = "SessionExecutions"
+    actions   = ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:UpdateItem"]
+    resources = [aws_dynamodb_table.runs.arn]
+  }
+  statement {
+    sid       = "DeliveryFenceRelease"
+    actions   = ["dynamodb:DeleteItem"]
+    resources = [aws_dynamodb_table.runs.arn]
+    condition {
+      test     = "ForAllValues:StringLike"
+      variable = "dynamodb:LeadingKeys"
+      values   = ["delivery#*"]
+    }
+  }
+  statement {
+    sid     = "SessionObjectRead"
+    actions = ["s3:GetObject"]
+    resources = [
+      "${aws_s3_bucket.definitions.arn}/owners/*/agents/*",
+      "${aws_s3_bucket.artifacts.arn}/owners/*",
+    ]
+  }
+  statement {
+    sid     = "SessionObjectWrite"
+    actions = ["s3:PutObject"]
+    resources = [
+      "${aws_s3_bucket.definitions.arn}/owners/*/agents/*",
+      "${aws_s3_bucket.artifacts.arn}/owners/*/sessions/*/*/launch-*.json",
+      "${aws_s3_bucket.artifacts.arn}/owners/*/runs/*/input-*.json",
+    ]
+  }
+  statement {
+    sid       = "DispatchExecutions"
+    actions   = ["sqs:SendMessage"]
+    resources = [aws_sqs_queue.runs.arn]
+  }
+  statement {
+    sid       = "DataKey"
+    actions   = ["kms:Decrypt", "kms:GenerateDataKey"]
+    resources = [aws_kms_key.data.arn]
+  }
+  dynamic "statement" {
+    for_each = var.enable_microvm ? [1] : []
+    content {
+      sid       = "SessionRuntimeControl"
+      actions   = ["lambda:CreateMicrovmAuthToken", "lambda:GetMicrovm", "lambda:TerminateMicrovm"]
+      resources = [awscc_lambda_microvm_image.runner[0].image_arn]
+    }
+  }
+  dynamic "statement" {
+    for_each = var.enable_ec2_worker ? [1] : []
+    content {
+      sid       = "SessionEc2Inspection"
+      actions   = ["ec2:DescribeInstances"]
+      resources = ["*"]
+    }
+  }
+  dynamic "statement" {
+    for_each = var.enable_ec2_worker ? [1] : []
+    content {
+      sid       = "SessionEc2Cancellation"
+      actions   = ["ec2:TerminateInstances"]
+      resources = ["${local.ec2_worker_prefix}:instance/*"]
+      condition {
+        test     = "StringEquals"
+        variable = "ec2:ResourceTag/RatDeployment"
+        values   = [local.name]
+      }
+    }
+  }
   statement {
     sid       = "WatchdogScan"
     actions   = ["dynamodb:Scan"]
     resources = [aws_dynamodb_table.agents.arn, aws_dynamodb_table.runs.arn]
   }
   statement {
-    sid       = "WatchdogAlarms"
-    actions   = ["cloudwatch:DescribeAlarms"]
-    resources = ["arn:${data.aws_partition.current.partition}:cloudwatch:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:alarm:${local.name}*"]
+    sid     = "WatchdogAlarms"
+    actions = ["cloudwatch:DescribeAlarms"]
+    resources = [
+      aws_cloudwatch_metric_alarm.run_dlq.arn,
+      aws_cloudwatch_metric_alarm.state_stream_failures.arn,
+      aws_cloudwatch_metric_alarm.notifier_delivery_failures.arn,
+      aws_cloudwatch_metric_alarm.notifier_dlq_delivery_failures.arn,
+    ]
   }
   statement {
     sid       = "Logs"
@@ -25,13 +107,35 @@ data "aws_iam_policy_document" "watchdog" {
   }
   statement {
     sid       = "DeliveryState"
-    actions   = local.integration_table_read_write_actions
+    actions   = ["dynamodb:GetItem"]
     resources = [aws_dynamodb_table.integrations.arn]
+    condition {
+      test     = "ForAllValues:StringLike"
+      variable = "dynamodb:LeadingKeys"
+      values   = ["OWNER#*"]
+    }
+  }
+  statement {
+    sid       = "DeliveryRefreshLocks"
+    actions   = ["dynamodb:PutItem", "dynamodb:DeleteItem"]
+    resources = [aws_dynamodb_table.integrations.arn]
+    condition {
+      test     = "ForAllValues:StringLike"
+      variable = "dynamodb:LeadingKeys"
+      values   = ["OAUTH_REFRESH#*"]
+    }
   }
   statement {
     sid       = "DeliveryCredentials"
-    actions   = ["secretsmanager:GetSecretValue", "secretsmanager:PutSecretValue"]
+    actions   = ["secretsmanager:GetSecretValue"]
     resources = [local.integration_credential_secret_arn]
+  }
+  statement {
+    sid     = "DeliveryCredentialRefresh"
+    actions = ["secretsmanager:PutSecretValue"]
+    # connectionCredentialName uses a 32-character owner hash. Agent secrets
+    # use the separate connections/agents/ namespace and remain read-only.
+    resources = ["arn:${data.aws_partition.current.partition}:secretsmanager:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:secret:${local.name}/connections/????????????????????????????????/*"]
   }
   dynamic "statement" {
     for_each = length(concat(local.notifier_secret_arns, local.integration_oauth_app_secret_arns)) > 0 ? [1] : []
@@ -47,12 +151,6 @@ resource "aws_iam_role_policy" "watchdog" {
   name   = "watchdog"
   role   = aws_iam_role.watchdog[0].id
   policy = data.aws_iam_policy_document.watchdog[0].json
-}
-resource "aws_iam_role_policy" "watchdog_ec2_control" {
-  count  = var.enable_watchdog && var.enable_ec2_worker ? 1 : 0
-  name   = "ec2-session-control"
-  role   = aws_iam_role.watchdog[0].id
-  policy = data.aws_iam_policy_document.ec2_control[0].json
 }
 resource "aws_cloudwatch_event_rule" "watchdog" {
   count               = var.enable_watchdog ? 1 : 0

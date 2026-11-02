@@ -4,6 +4,7 @@ export type EventClassification = 'accept' | 'candidate' | 'drop';
 
 export function classifyEvent(event: SourceEventFacts, policy: SourceEventPolicy | undefined, subscribed: boolean): EventClassification {
   if (event.selfLoop || event.bot || policy?.mode === 'ignore') return 'drop';
+  if (event.repositoryComment && !policy?.actors?.allow?.includes(event.actorId)) return 'drop';
   if (policy?.actors?.deny?.includes(event.actorId)) return 'drop';
   if (policy?.actors?.allow && !policy.actors.allow.includes(event.actorId)) return 'drop';
   if (policy?.channels && (!event.channelId || !policy.channels.includes(event.channelId))) return 'drop';

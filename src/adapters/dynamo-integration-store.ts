@@ -22,6 +22,8 @@ import {
   type SourceCapabilityBinding,
 } from '../domain/capabilities.js';
 import type { IntegrationStore } from '../plugins/integration-types.js';
+import { AgentsResourceConflictError } from '../domain/agents-api-validation.js';
+import type { SourceEventPolicy } from '../domain/event-policy.js';
 
 export class DynamoIntegrationStore implements IntegrationStore {
   public constructor(
@@ -310,6 +312,30 @@ export class DynamoIntegrationStore implements IntegrationStore {
       .map((value) => validateSourceCapabilityBinding(value));
   }
 
+  public async updateSourceEventPolicy(ownerId: string, bindingId: string, policy: SourceEventPolicy): Promise<SourceCapabilityBinding | undefined> {
+    const previous = await this.get<SourceCapabilityBinding>(ownerId, `SOURCE#${bindingId}`);
+    if (!previous || previous.ownerId !== ownerId || previous.bindingId !== bindingId) return undefined;
+    const next = validateSourceCapabilityBinding({ ...previous, eventPolicy: policy });
+    const keys = [
+      { pk: ownerKey(ownerId), sk: `SOURCE#${bindingId}` },
+      { pk: `SOURCE#${previous.sourceKind}`, sk: `BINDING#${bindingId}` },
+    ];
+    try {
+      await this.client.send(new TransactWriteCommand({
+        TransactItems: keys.map(Key => ({ Update: {
+          TableName: this.tableName, Key,
+          UpdateExpression: 'SET #value = :next', ConditionExpression: '#value = :previous',
+          ExpressionAttributeNames: { '#value': 'value' },
+          ExpressionAttributeValues: { ':previous': previous, ':next': next },
+        } })),
+      }));
+    } catch (error) {
+      if (sourcePolicyContention(error)) throw new AgentsResourceConflictError();
+      throw error;
+    }
+    return next;
+  }
+
   public async matchingSourceBindings(
     sourceKind: SourceCapabilityBinding['sourceKind'],
   ): Promise<SourceCapabilityBinding[]> {
@@ -342,6 +368,15 @@ export class DynamoIntegrationStore implements IntegrationStore {
     }));
     return (result.Items ?? []).map((item) => item.value as T);
   }
+}
+
+function sourcePolicyContention(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  if (error.name === 'ConditionalCheckFailedException' || error.name === 'TransactionConflictException') return true;
+  if (error.name !== 'TransactionCanceledException' || !('CancellationReasons' in error) || !Array.isArray(error.CancellationReasons)) return false;
+  const codes = error.CancellationReasons.map((reason: unknown) => typeof reason === 'object' && reason !== null && 'Code' in reason ? reason.Code : undefined);
+  return codes.some(code => code === 'ConditionalCheckFailed' || code === 'TransactionConflict')
+    && codes.every(code => code === 'None' || code === 'ConditionalCheckFailed' || code === 'TransactionConflict');
 }
 
 function healthCursor(value: unknown): Record<string, unknown> | undefined {

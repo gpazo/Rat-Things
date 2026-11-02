@@ -7221,6 +7221,64 @@
           }
         }
       }
+    },
+    "/v1/integrations/source-bindings/{bindingId}/event-policy": {
+      "put": {
+        "tags": [
+          "Integrations"
+        ],
+        "operationId": "updateSourceEventPolicy",
+        "description": "Replace the event policy on an owned source binding. The binding ID, selector, Agent, environment and thread subscriptions stay unchanged. Concurrent updates return 409; retrieve the current binding before retrying.",
+        "parameters": [
+          {
+            "name": "bindingId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 256
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "version",
+                  "eventPolicy"
+                ],
+                "properties": {
+                  "version": {
+                    "const": "1"
+                  },
+                  "eventPolicy": {
+                    "$ref": "#/components/schemas/SourceEventPolicy"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Source binding with the updated event policy",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SourceBinding"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
     }
   },
   "components": {

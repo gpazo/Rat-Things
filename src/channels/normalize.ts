@@ -6,6 +6,7 @@ import { isAgentResultMessage } from './result-marker.js';
 export interface NormalizedWebhookInput {
   ownerId: string;
   mentioned: boolean;
+  repositoryComment?: boolean;
   repositoryHeadChanged?: boolean;
   actor?: { id: string; kind: 'human' | 'system' };
   idempotencyKey: string;
@@ -37,12 +38,14 @@ export function normalizeGitHubWebhook(
     const title = text(pull.title) ?? '';
     const description = text(pull.body) ?? '';
     const author = text(record(pull.user)?.login) ?? 'unknown';
-    if (text(record(payload.sender)?.type)?.toLowerCase() === 'bot') return undefined;
+    const sender = record(payload.sender);
+    const senderLogin = text(sender?.login);
+    const senderKind = text(sender?.type)?.toLowerCase() === 'bot' ? 'system' as const : 'human' as const;
     return {
       ownerId,
       mentioned: true,
       ...(action === 'synchronize' ? { repositoryHeadChanged: true } : {}),
-      ...(text(record(payload.sender)?.login) ? { actor: { id: `github:${text(record(payload.sender)?.login)}`, kind: 'human' as const } } : {}),
+      ...(senderLogin ? { actor: { id: `github:${senderLogin}`, kind: senderKind } } : {}),
       idempotencyKey: safeIdempotencyKey('github', deliveryId),
       request: {
         prompt: [
@@ -78,14 +81,16 @@ export function normalizeGitHubWebhook(
     const comment = record(payload.comment);
     const issueNumber = positiveNumber(issue?.number);
     const body = text(comment?.body);
-    if (!issueNumber || !body || !isRecord(issue?.pull_request)) return undefined;
+    const commenterLogin = text(record(comment?.user)?.login);
+    if (!issueNumber || !body || !commenterLogin || !isRecord(issue?.pull_request)) return undefined;
     const trigger = commentTrigger?.trim();
     const mentioned = Boolean(trigger && body.toLowerCase().includes(trigger.toLowerCase()));
     if (isAgentResultMessage(body) || text(record(comment?.user)?.type)?.toLowerCase() === 'bot') return undefined;
     return {
       ownerId,
       mentioned,
-      ...(text(record(comment?.user)?.login) ? { actor: { id: `github:${text(record(comment?.user)?.login)}`, kind: 'human' as const } } : {}),
+      repositoryComment: true,
+      actor: { id: `github:${commenterLogin}`, kind: 'human' as const },
       idempotencyKey: safeIdempotencyKey('github', deliveryId),
       request: {
         prompt: [
@@ -136,12 +141,13 @@ export function normalizeGitLabWebhook(
     const iid = positiveNumber(attributes?.iid);
     const sha = text(record(attributes?.last_commit)?.id);
     if (!iid || !sha) return undefined;
-    if (record(payload.user)?.bot === true) return undefined;
+    const user = record(payload.user);
+    const userId = scalarId(user?.id);
     return {
       ownerId,
       mentioned: true,
       ...(action === 'update' && text(attributes?.oldrev) ? { repositoryHeadChanged: true } : {}),
-      ...(scalarId(record(payload.user)?.id) ? { actor: { id: `gitlab:${scalarId(record(payload.user)?.id)}`, kind: 'human' as const } } : {}),
+      ...(userId ? { actor: { id: `gitlab:${userId}`, kind: user?.bot === true ? 'system' as const : 'human' as const } } : {}),
       idempotencyKey: safeIdempotencyKey('gitlab', deliveryId),
       request: {
         prompt: [
@@ -168,14 +174,16 @@ export function normalizeGitLabWebhook(
     const mergeRequest = record(payload.merge_request);
     const body = text(attributes?.note);
     const iid = positiveNumber(mergeRequest?.iid);
-    if (!body || !iid || (attributes?.action !== undefined && attributes.action !== 'create')) return undefined;
+    const commenterId = scalarId(record(payload.user)?.id);
+    if (!body || !iid || !commenterId || (attributes?.action !== undefined && attributes.action !== 'create')) return undefined;
     const trigger = commentTrigger?.trim();
     const mentioned = Boolean(trigger && body.toLowerCase().includes(trigger.toLowerCase()));
     if (isAgentResultMessage(body) || record(payload.user)?.bot === true) return undefined;
     return {
       ownerId,
       mentioned,
-      ...(scalarId(record(payload.user)?.id) ? { actor: { id: `gitlab:${scalarId(record(payload.user)?.id)}`, kind: 'human' as const } } : {}),
+      repositoryComment: true,
+      actor: { id: `gitlab:${commenterId}`, kind: 'human' as const },
       idempotencyKey: safeIdempotencyKey('gitlab', deliveryId),
       request: {
         prompt: [
@@ -247,11 +255,13 @@ export function normalizeSlackEvent(payload: unknown): NormalizedWebhookInput | 
   const teamId = text(payload.team_id);
   const userId = text(event.user);
   if (!teamId || !userId) return undefined;
-  const threadTs = text(event.thread_ts) ?? text(event.ts);
+  const messageTs = text(event.ts);
+  const occurrenceId = messageTs ? `${channelId}:${messageTs}` : eventId;
+  const threadTs = text(event.thread_ts) ?? messageTs ?? eventId;
   return {
     ownerId: `slack:${teamId}:${userId}`,
     mentioned: event.type === 'app_mention',
-    idempotencyKey: safeIdempotencyKey('slack', eventId),
+    idempotencyKey: safeIdempotencyKey('slack', occurrenceId),
     request: {
       prompt,
       source: compactSource({
@@ -259,7 +269,7 @@ export function normalizeSlackEvent(payload: unknown): NormalizedWebhookInput | 
         teamId,
         channelId,
         threadTs,
-        eventId,
+        eventId: messageTs ?? eventId,
         userId,
       }),
     },

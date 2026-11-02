@@ -48,6 +48,11 @@ executions, and four deployment CloudWatch alarms: the run DLQ, state-stream fai
 notifier delivery failures and notifier DLQ delivery failures. `watchdog_long_running_seconds`,
 `watchdog_recent_failure_seconds`, and `watchdog_stuck_seconds` set their age thresholds.
 
+A long-running root Turn has one incident and at most one judge Session while its finding is
+retained. Crossing another age threshold does not create another judgment or repeat the report.
+A later Turn is a separate incident. The initial finding and a completed or failed judgment can
+produce separate report versions; elapsed time alone does not.
+
 Long-running Turns receive a bounded digest containing tool names and counts, the largest
 count of identical calls, and the last assistant text, truncated to 600 characters. The
 digest samples at most 100 Items. Arguments are used only to compare calls and are not
@@ -90,6 +95,11 @@ A failed automatic retry is never retried again. Retries count toward the owner 
 rate limit. If that limit is exhausted, the retry stays pending for a later inspection
 and must still satisfy the eligibility rules then. Cancellation does not consume admission capacity.
 
+For provider-originated work, the retry's result returns to the original thread using the same
+destinations and connection set. The retry retains the original inputs' response policy: an empty
+candidate-only result can stay silent, while an explicit request receives a completion reply.
+The failed Turn's report and the retry's answer are separate deliveries.
+
 Authentication, cyber-policy, budget, usage-limit, credit, and other failures do not
 qualify. Incomplete Item history also prevents a retry. The judge cannot override these
 rules.
@@ -105,7 +115,8 @@ the source binding or schedule:
 Place `watchdog` at the top level of the [source-binding or schedule request](schedules.md).
 The examples there use `cancelLoops: false`; change it to `true` only for work you want
 the watchdog to cancel. For an existing schedule, replace its configuration through
-`PUT /v1/schedules/{scheduleId}`. Source-binding policy must be chosen at creation.
+`PUT /v1/schedules/{scheduleId}`. Source-binding cancellation policy must be chosen at creation;
+the event-policy update endpoint does not change it.
 
 A looping verdict must meet `watchdog_loop_confidence`, which is at least 0.9. The
 identified Turn must still be the latest active Turn and its current digest must match the judged
@@ -162,3 +173,8 @@ reports on later scans. A failed destination does not prevent the webhook attemp
 The watchdog does not repair credentials, increase budgets, change capability envelopes,
 or grant itself access. Its host role can inspect deployment state and invoke the
 existing Session and delivery services; judge Sessions receive none of that authority.
+The role has an explicit policy for collection, retry/cancellation, judge execution and direct
+delivery. It still scans the deployment's Session and run tables across owners. OAuth report
+delivery can refresh existing connection credentials, but the role cannot create or delete
+secrets. Backend controls are restricted to this deployment's EC2 workers or MicroVM image.
+Treat the host as an operator-plane service; the separate role does not provide tenant isolation.

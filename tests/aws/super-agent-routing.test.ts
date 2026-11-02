@@ -101,7 +101,7 @@ live.each(['threads', 'filtering'] as const)('proves %s through deployed routing
       ].join('\n') });
     createdAgents.add(agent.id);
     if (scenario === 'threads') {
-      const github = await bind({ sourceKind: 'github', selector: { repository, issueNumber: String(issue) }, environment: { type: 'openai_hosted' }, eventPolicy: { mode: 'explicit' } });
+      const github = await bind({ sourceKind: 'github', selector: { repository, issueNumber: String(issue) }, environment: { type: 'openai_hosted' }, eventPolicy: { mode: 'explicit', actors: { allow: ['github:routing-fixture-user'] } } });
       const invalid = pull('opened', headA, 'authentication');
       for (const provider of ['github', 'slack'] as const) {
         const response = await fetch(provider === 'github' ? githubUrl : slackUrl, { method: 'POST', body: '{', headers: { 'content-type': 'application/json', ...(provider === 'github' ? { 'x-github-event': 'pull_request', 'x-github-delivery': invalid.id, 'x-hub-signature-256': 'sha256=invalid' } : { 'x-slack-signature': 'v0=invalid', 'x-slack-request-timestamp': String(Math.floor(Date.now() / 1000)) }) }, signal: AbortSignal.timeout(30_000), redirect: 'error' });

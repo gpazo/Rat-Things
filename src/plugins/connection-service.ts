@@ -17,6 +17,8 @@ import {
   type SourceCapabilityBinding,
 } from '../domain/capabilities.js';
 import { ValidationError } from '../domain/validation.js';
+import { AgentsApiError } from '../domain/agents-api-validation.js';
+import { validateSourceEventPolicy, type SourceEventPolicy } from '../domain/event-policy.js';
 import type {
   IntegrationPluginRegistryLike,
   IntegrationStore,
@@ -367,6 +369,15 @@ export class ConnectionService {
   public listSourceBindings(ownerId: string): Promise<SourceCapabilityBinding[]> {
     requiredOwner(ownerId);
     return this.options.store.listSourceBindings(ownerId);
+  }
+
+  public async updateSourceEventPolicy(ownerId: string, bindingId: string, policy: SourceEventPolicy): Promise<SourceCapabilityBinding> {
+    requiredOwner(ownerId);
+    try { validateSourceEventPolicy(policy); }
+    catch (error) { throw new ValidationError(error instanceof Error ? error.message : 'Invalid event policy'); }
+    const binding = await this.options.store.updateSourceEventPolicy(ownerId, bindingId, policy);
+    if (!binding) throw new AgentsApiError(404, 'Source binding was not found.', 'not_found');
+    return binding;
   }
 
   private async requiredConnection(

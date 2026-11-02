@@ -207,6 +207,9 @@ describe('Integration CLI-to-HTTP workflow', () => {
       sourceBindings.push(value);
       return send(response, value, 201);
     }
+    if (request.method === 'PUT' && request.url === '/v1/integrations/source-bindings/binding-existing/event-policy') {
+      return send(response, { bindingId: 'binding-existing', ...(body as Record<string, unknown>) });
+    }
     if (
       request.method === 'POST' &&
       request.url === '/v1/integrations/connections/fixture-alpha/credential'
@@ -247,6 +250,18 @@ describe('Integration CLI-to-HTTP workflow', () => {
         expect.objectContaining({ name: 'authenticated-api', status: 'pass' }),
       ]),
     });
+  });
+
+  it('updates an existing source policy through the control endpoint', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'rat-policy-update-'));
+    const path = join(directory, 'policy.json');
+    const body = { version: '1', eventPolicy: { mode: 'explicit', actors: { allow: ['maintainer'] } } };
+    try {
+      await writeFile(path, JSON.stringify(body));
+      const result = await cli(['set-source-event-policy', 'binding-existing', '--file', path], apiUrl);
+      expect(JSON.parse(result.stdout)).toEqual({ bindingId: 'binding-existing', ...body });
+      expect(requests.at(-1)).toMatchObject({ method: 'PUT', path: '/v1/integrations/source-bindings/binding-existing/event-policy', body });
+    } finally { await rm(directory, { recursive: true, force: true }); }
   });
 
   it('discovers authentication fields and creates and rotates a connection from credential-only files', async () => {

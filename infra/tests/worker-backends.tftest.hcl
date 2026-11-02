@@ -160,8 +160,91 @@ run "independent_watchdog_and_candidate_filter" {
       aws_cloudwatch_metric_alarm.state_stream_failures.alarm_name,
       aws_cloudwatch_metric_alarm.notifier_delivery_failures.alarm_name,
       aws_cloudwatch_metric_alarm.notifier_dlq_delivery_failures.alarm_name,
-    ]) && one([for statement in data.aws_iam_policy_document.watchdog[0].statement : statement.resources if statement.sid == "WatchdogAlarms"]) == toset(["arn:aws:cloudwatch:us-west-2:123456789012:alarm:${local.name}*"])
-    error_message = "Watchdog must request the four deployment alarms and retain deployment-scoped alarm permissions."
+      ]) && one([for statement in data.aws_iam_policy_document.watchdog[0].statement : statement.resources if statement.sid == "WatchdogAlarms"]) == toset([
+      aws_cloudwatch_metric_alarm.run_dlq.arn,
+      aws_cloudwatch_metric_alarm.state_stream_failures.arn,
+      aws_cloudwatch_metric_alarm.notifier_delivery_failures.arn,
+      aws_cloudwatch_metric_alarm.notifier_dlq_delivery_failures.arn,
+    ])
+    error_message = "Watchdog must request and be authorized for only the four configured deployment alarms."
+  }
+  assert {
+    condition     = length(coalesce(data.aws_iam_policy_document.watchdog[0].source_policy_documents, [])) == 0
+    error_message = "Watchdog must declare its capabilities without inheriting the full Agents service policy."
+  }
+  assert {
+    condition = alltrue([for action in flatten([for statement in data.aws_iam_policy_document.watchdog[0].statement : tolist(statement.actions)]) : !contains([
+      "secretsmanager:CreateSecret", "secretsmanager:DeleteSecret", "secretsmanager:DescribeSecret", "secretsmanager:TagResource",
+      "scheduler:CreateSchedule", "iam:PassRole", "ec2:RunInstances", "lambda:CreateMicrovm", "dynamodb:TransactWriteItems",
+    ], action)])
+    error_message = "Watchdog must not administer credentials, schedules, roles, or worker provisioning."
+  }
+  assert {
+    condition = toset(flatten([for statement in data.aws_iam_policy_document.watchdog[0].statement : tolist(statement.actions)])) == toset([
+      "dynamodb:GetItem", "dynamodb:Query", "dynamodb:PutItem", "dynamodb:UpdateItem", "dynamodb:DeleteItem", "dynamodb:Scan",
+      "s3:GetObject", "s3:PutObject", "sqs:SendMessage", "kms:Decrypt", "kms:GenerateDataKey",
+      "ec2:DescribeInstances", "ec2:TerminateInstances", "cloudwatch:DescribeAlarms",
+      "logs:CreateLogStream", "logs:PutLogEvents", "secretsmanager:GetSecretValue", "secretsmanager:PutSecretValue",
+    ])
+    error_message = "The EC2 watchdog action set must contain only its traced runtime capabilities."
+  }
+  assert {
+    condition = toset(one([for statement in data.aws_iam_policy_document.watchdog[0].statement : statement.actions if statement.sid == "AgentsResources"])) == toset([
+      "dynamodb:GetItem", "dynamodb:Query", "dynamodb:PutItem", "dynamodb:UpdateItem", "dynamodb:DeleteItem",
+    ]) && one([for statement in data.aws_iam_policy_document.watchdog[0].statement : statement.resources if statement.sid == "AgentsResources"]) == toset([aws_dynamodb_table.agents.arn])
+    error_message = "Judge creation, retry dispatch, transaction cleanup and webhook delivery need the bounded Agents store operations."
+  }
+  assert {
+    condition = toset(one([for statement in data.aws_iam_policy_document.watchdog[0].statement : statement.actions if statement.sid == "SessionExecutions"])) == toset([
+      "dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:UpdateItem",
+    ]) && one([for statement in data.aws_iam_policy_document.watchdog[0].statement : statement.resources if statement.sid == "SessionExecutions"]) == toset([aws_dynamodb_table.runs.arn])
+    error_message = "Session submission and cancellation need run records, without run index queries or general deletion."
+  }
+  assert {
+    condition = alltrue([for statement in data.aws_iam_policy_document.watchdog[0].statement :
+      statement.resources != toset([aws_dynamodb_table.runs.arn]) || !contains(statement.actions, "dynamodb:DeleteItem") ||
+      anytrue([for condition in statement.condition : condition.test == "ForAllValues:StringLike" && condition.variable == "dynamodb:LeadingKeys" && toset(condition.values) == toset(["delivery#*"])])
+    ]) && length([for statement in data.aws_iam_policy_document.watchdog[0].statement : statement if statement.sid == "DeliveryFenceRelease" && contains(statement.actions, "dynamodb:DeleteItem")]) == 1
+    error_message = "Direct reports must release delivery fences without permission to delete run records."
+  }
+  assert {
+    condition = one([for statement in data.aws_iam_policy_document.watchdog[0].statement : statement.actions if statement.sid == "SessionObjectRead"]) == toset(["s3:GetObject"]) && one([for statement in data.aws_iam_policy_document.watchdog[0].statement : statement.actions if statement.sid == "SessionObjectWrite"]) == toset(["s3:PutObject"]) && one([for statement in data.aws_iam_policy_document.watchdog[0].statement : statement.resources if statement.sid == "SessionObjectRead"]) == toset([
+      "${aws_s3_bucket.definitions.arn}/owners/*/agents/*", "${aws_s3_bucket.artifacts.arn}/owners/*",
+      ]) && one([for statement in data.aws_iam_policy_document.watchdog[0].statement : statement.resources if statement.sid == "SessionObjectWrite"]) == toset([
+      "${aws_s3_bucket.definitions.arn}/owners/*/agents/*", "${aws_s3_bucket.artifacts.arn}/owners/*/sessions/*/*/launch-*.json", "${aws_s3_bucket.artifacts.arn}/owners/*/runs/*/input-*.json",
+    ])
+    error_message = "Watchdog must read completion artifacts and write only Session definitions, launches and run requests."
+  }
+  assert {
+    condition = (
+      one([for statement in data.aws_iam_policy_document.watchdog[0].statement : statement.actions if statement.sid == "DeliveryState"]) == toset(["dynamodb:GetItem"]) &&
+      one([for statement in data.aws_iam_policy_document.watchdog[0].statement : statement.actions if statement.sid == "DeliveryRefreshLocks"]) == toset(["dynamodb:PutItem", "dynamodb:DeleteItem"]) &&
+      alltrue([for statement in data.aws_iam_policy_document.watchdog[0].statement : statement.resources != toset([aws_dynamodb_table.integrations.arn]) || anytrue([
+        for condition in statement.condition : condition.test == "ForAllValues:StringLike" && condition.variable == "dynamodb:LeadingKeys" && toset(condition.values) == toset(statement.sid == "DeliveryState" ? ["OWNER#*"] : ["OAUTH_REFRESH#*"])
+      ])])
+    )
+    error_message = "Independent delivery needs owner integration reads and OAuth refresh locks, without connection administration."
+  }
+  assert {
+    condition = (
+      one([for statement in data.aws_iam_policy_document.watchdog[0].statement : statement.actions if statement.sid == "DeliveryCredentials"]) == toset(["secretsmanager:GetSecretValue"]) &&
+      one([for statement in data.aws_iam_policy_document.watchdog[0].statement : statement.resources if statement.sid == "DeliveryCredentials"]) == toset([local.integration_credential_secret_arn]) &&
+      one([for statement in data.aws_iam_policy_document.watchdog[0].statement : statement.actions if statement.sid == "DeliveryCredentialRefresh"]) == toset(["secretsmanager:PutSecretValue"]) &&
+      one([for statement in data.aws_iam_policy_document.watchdog[0].statement : statement.resources if statement.sid == "DeliveryCredentialRefresh"]) == toset(["arn:aws:secretsmanager:us-west-2:123456789012:secret:${local.name}/connections/????????????????????????????????/*"]) &&
+      one([for statement in data.aws_iam_policy_document.watchdog[0].statement : statement.resources if statement.sid == "DispatchExecutions"]) == toset([aws_sqs_queue.runs.arn]) &&
+      one([for statement in data.aws_iam_policy_document.watchdog[0].statement : statement.actions if statement.sid == "DataKey"]) == toset(["kms:Decrypt", "kms:GenerateDataKey"])
+    )
+    error_message = "Direct reporting must retain OAuth refresh and encrypted dispatch when the outbox consumer is disabled."
+  }
+  assert {
+    condition = (
+      length([for statement in data.aws_iam_policy_document.watchdog[0].statement : statement if statement.sid == "SessionRuntimeControl"]) == 0 &&
+      one([for statement in data.aws_iam_policy_document.watchdog[0].statement : statement.actions if statement.sid == "SessionEc2Inspection"]) == toset(["ec2:DescribeInstances"]) &&
+      one([for statement in data.aws_iam_policy_document.watchdog[0].statement : statement.actions if statement.sid == "SessionEc2Cancellation"]) == toset(["ec2:TerminateInstances"]) &&
+      one([for statement in data.aws_iam_policy_document.watchdog[0].statement : statement.resources if statement.sid == "SessionEc2Cancellation"]) == toset(["${local.ec2_worker_prefix}:instance/*"]) &&
+      anytrue([for condition in one([for statement in data.aws_iam_policy_document.watchdog[0].statement : statement.condition if statement.sid == "SessionEc2Cancellation"]) : condition.test == "StringEquals" && condition.variable == "ec2:ResourceTag/RatDeployment" && toset(condition.values) == toset([local.name])])
+    )
+    error_message = "EC2-only watchdog dispatch and cancellation must retain explicit deployment-tagged runtime control."
   }
   assert {
     condition     = one([for statement in data.aws_iam_policy_document.agents_outbox.statement : statement.resources if statement.sid == "EventFilterInference"]) == toset(var.event_filter_inference_resource_arns)
@@ -239,19 +322,23 @@ run "prepared_ec2_worker_pipeline" {
     ec2_worker_prepared_ami          = true
   }
   assert {
-    condition = anytrue([for statement in data.aws_iam_policy_document.ec2_dispatch[0].statement :
-      statement.sid == "UsePreparedWorkerDiskKey" &&
-      statement.resources == toset([aws_kms_key.data.arn]) &&
-      statement.actions == toset(["kms:Decrypt", "kms:DescribeKey", "kms:GenerateDataKeyWithoutPlaintext", "kms:ReEncrypt*"])
-    ])
+    condition = (
+      anytrue([for statement in data.aws_iam_policy_document.ec2_dispatch[0].statement :
+        statement.sid == "UsePreparedWorkerDiskKey" &&
+        statement.resources == toset([aws_kms_key.data.arn]) &&
+        statement.actions == toset(["kms:Decrypt", "kms:DescribeKey", "kms:GenerateDataKeyWithoutPlaintext", "kms:ReEncrypt*"])
+      ])
+    )
     error_message = "Prepared AMI launch must allow the dispatcher to use only the deployment disk key."
   }
   assert {
-    condition = anytrue([for statement in data.aws_iam_policy_document.ec2_dispatch[0].statement :
-      statement.sid == "GrantPreparedWorkerDiskKey" &&
-      statement.resources == toset([aws_kms_key.data.arn]) && statement.actions == toset(["kms:CreateGrant"]) &&
-      anytrue([for condition in statement.condition : condition.test == "Bool" && condition.variable == "kms:GrantIsForAWSResource" && toset(condition.values) == toset(["true"])])
-    ])
+    condition = (
+      anytrue([for statement in data.aws_iam_policy_document.ec2_dispatch[0].statement :
+        statement.sid == "GrantPreparedWorkerDiskKey" &&
+        statement.resources == toset([aws_kms_key.data.arn]) && statement.actions == toset(["kms:CreateGrant"]) &&
+        anytrue([for condition in statement.condition : condition.test == "Bool" && condition.variable == "kms:GrantIsForAWSResource" && toset(condition.values) == toset(["true"])])
+      ])
+    )
     error_message = "Prepared AMI launch grants must be restricted to AWS resources and the deployment disk key."
   }
   assert {
@@ -623,4 +710,31 @@ run "budget_rejects_invalid_email" {
     budget_alert = { monthly_usd = 50, email_addresses = ["not-an-email"] }
   }
   expect_failures = [var.budget_alert]
+}
+
+run "watchdog_microvm_permissions" {
+  command = apply
+  module { source = "./modules/agent-runner" }
+  variables {
+    codex_bedrock_model_ids = ["openai.gpt-5.6-terra"]
+    enable_watchdog         = true
+    enable_microvm          = true
+    enable_ec2_worker       = false
+  }
+  assert {
+    condition = (
+      length(coalesce(data.aws_iam_policy_document.watchdog[0].source_policy_documents, [])) == 0 &&
+      one([for statement in data.aws_iam_policy_document.watchdog[0].statement : statement.actions if statement.sid == "SessionRuntimeControl"]) == toset(["lambda:CreateMicrovmAuthToken", "lambda:GetMicrovm", "lambda:TerminateMicrovm"]) &&
+      one([for statement in data.aws_iam_policy_document.watchdog[0].statement : statement.resources if statement.sid == "SessionRuntimeControl"]) == toset([awscc_lambda_microvm_image.runner[0].image_arn]) &&
+      length([for statement in data.aws_iam_policy_document.watchdog[0].statement : statement if startswith(statement.sid, "SessionEc2")]) == 0
+    )
+    error_message = "MicroVM-only watchdog must retain explicit observation, continuation and cancellation without EC2 permissions."
+  }
+  assert {
+    condition = (
+      length([for statement in data.aws_iam_policy_document.watchdog[0].statement : statement if statement.sid == "SessionObjectWrite" && contains(statement.actions, "s3:PutObject")]) == 1 &&
+      length([for statement in data.aws_iam_policy_document.watchdog[0].statement : statement if statement.sid == "DeliveryRefreshLocks" && contains(statement.actions, "dynamodb:DeleteItem")]) == 1
+    )
+    error_message = "MicroVM judge dispatch and independent OAuth report delivery must retain their storage capabilities."
+  }
 }

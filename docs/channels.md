@@ -60,14 +60,18 @@ Other validly signed events return `202` with `{"accepted":false,"ignored":true}
 request checks out the head SHA read-only and fetches the base ref for diff context. Comment requests
 on an unsubscribed thread are case-insensitively gated by `github_comment_trigger` (injected as
 `GITHUB_COMMENT_TRIGGER`; `@rat-things` by default). This is a cost
-and noise filter, not authorization: anyone allowed to comment can include the trigger. Retain event,
-installation, repository, rate, and budget controls.
+and noise filter, not authorization: anyone allowed to comment can include the trigger. Every PR
+comment also requires its author in the binding's `eventPolicy.actors.allow`, even on a subscribed
+thread. Without that allowlist, review events still work but comments do not start or steer work.
+Retain installation, repository, rate, and budget controls.
 
 An empty trigger never counts as an explicit mention. Provider result replies include the
 hidden `rat-things:result` marker, and ingress ignores marked replies and comments
 whose GitHub user type is `Bot`. These controls prevent the runtime's ordinary result replies from
 starting another run even when generated text repeats the trigger. They do not authorize human
-authors; keep repository, actor, budget, and rate policy separate.
+authors; keep repository, actor, budget, and rate policy separate. Bot-authored pull requests,
+including Dependabot, Renovate and Actions requests, remain eligible for lifecycle-triggered
+reviews. If an actor allowlist is configured, include the bot actors whose reviews you want.
 
 ### Configure GitHub
 
@@ -136,6 +140,9 @@ Other authenticated payloads return an accepted/ignored response. GitLab note re
 case-insensitively gated by `gitlab_comment_trigger` (injected as `GITLAB_COMMENT_TRIGGER`;
 `@rat-things` by default). The trigger controls
 noise/cost but is not proof that the author is authorized for a particular repository or destination.
+Every MR note also requires its author in `eventPolicy.actors.allow`, including notes on subscribed
+threads. Use `gitlab:<user-id>` identifiers. Bot-authored merge requests remain eligible for review
+events; bot notes remain ignored. A configured actor allowlist also restricts review events.
 
 An empty trigger never counts as an explicit mention. Provider result notes include the
 hidden `rat-things:result` marker, and ingress ignores marked replies and payload users
@@ -309,7 +316,10 @@ To enable it:
    capability profile. Add `--environment-template envtpl_example` for managed execution; without
    it, the binding uses `environment: {"type":"none"}`.
 
-Slack event IDs are the idempotency source. Accepted mentions require both `team_id` and the event's
+Slack's channel and message timestamp identify one occurrence within a binding. When Slack sends
+both `app_mention` and `message` for the same message, they share one receipt and cannot create two
+Turns. An explicit mention takes precedence over its candidate event. Accepted mentions require
+both `team_id` and the event's
 user ID; missing identity is ignored. `slack:<team>:<user>` identifies the actor. The authenticated
 operator who created the matching source binding owns the Session. Channel/thread metadata and the
 bot token do not establish that ownership. Delegated search visibility is exactly the installing
@@ -323,21 +333,26 @@ Each source binding can set `eventPolicy`. The default mode, `explicit`, accepts
 configured repository comment triggers, and review events. A subscribed thread also accepts
 follow-ups without a trigger when the provider delivers that event type. Slack ordinary messages
 require the separate opt-in described below; Teams outgoing webhooks still require a mention.
-`ignore` drops events. Bot and result-marker filters always apply,
+`ignore` drops events. Bot-comment, bot-chat and result-marker filters always apply,
 followed by actor and channel restrictions, before any subscription or mention can admit an event.
 Trigger text filters noise; it does not authorize the author.
 
 `actors.allow` and `actors.deny` contain exact actor IDs; deny takes precedence. IDs are
 `github:<login>`, `gitlab:<user-id>`, `slack:<team-id>:<user-id>`, or
 `teams:<tenant-id>:<sender-id>`. `channels` limits chat channel or conversation IDs. An empty
-allowlist admits nobody. Selectors still determine the source binding and owner.
+allowlist admits nobody. GitHub PR comments and GitLab MR notes require a matching allowlist entry;
+omitting `actors.allow` disables comment admission. A trigger, subscription or semantic decision
+cannot bypass that requirement. Automatic review events do not require an allowlist, but a
+configured list restricts their actors too, including bots. Selectors still determine the source
+binding and owner.
 
 Candidate mode sends untriggered GitHub PR comments, GitLab MR notes, and enabled Slack
 ordinary messages to an asynchronous filter when they have no active thread subscription.
 Repository review events, triggered comments, Slack mentions and Teams outgoing-webhook
 messages are explicit input and bypass that model filter. Restrictions still apply to all inputs.
 
-Choose the policy when creating the source binding. For example, a Slack binding request can
+Set the policy when creating the source binding, or [replace its event policy](#change-an-event-policy)
+later. For example, a Slack binding request can
 include this field:
 
 ```json
@@ -440,7 +455,40 @@ Use an Agent with mostly read-only declared tools. The connection set enables re
 it does not grant those tools. Replace `environment` with a managed environment when the work
 needs a workspace.
 
-Source bindings currently support creation and listing, not editing or deletion through the
-control API. A second binding with the same provider and exact selector is rejected. Inspect
-existing bindings before creating one. A channel selector is more specific than a team-only
-binding and takes precedence for that channel; equally specific overlapping matches are rejected.
+Source bindings support creation, listing and event-policy replacement. Other binding fields and
+deletion are not editable through the control API. A second binding with the same provider and
+exact selector is rejected. Inspect existing bindings before creating one. A channel selector is
+more specific than a team-only binding and takes precedence for that channel; equally specific
+overlapping matches are rejected.
+
+### Change an event policy
+
+List bindings with `rat-things source-bindings` and copy the binding's `bindingId`. Save the complete
+replacement event policy as `event-policy.json`. This GitHub example permits one person's comments
+and review events triggered by that person or Dependabot. Bot comments remain ignored:
+
+```json
+{
+  "version": "1",
+  "eventPolicy": {
+    "mode": "explicit",
+    "actors": { "allow": ["github:YOUR_LOGIN", "github:dependabot[bot]"] }
+  }
+}
+```
+
+```bash
+rat-things set-source-event-policy BINDING_ID --file event-policy.json
+```
+
+The equivalent authenticated request is `PUT /v1/integrations/source-bindings/{bindingId}/event-policy`
+with that JSON body. The response contains the updated binding. Replacement preserves its ID,
+selector, Agent, environment, credentials and thread subscriptions. Include every actor, channel
+and semantic setting you want to retain; omitted event-policy settings are removed. A concurrent
+update returns `409`; reread the binding before retrying.
+
+Existing repository bindings without an actor allowlist continue automatic reviews but ignore
+comments until configured. Choose the humans and bots allowed to submit work explicitly. GitHub
+uses the login from the signed event; GitLab uses the numeric user ID. Changes govern new events.
+Already accepted input and candidates retain their admission policy, and running Session authority
+does not change. Use `mode: "ignore"` to stop new intake; cancel active work separately if needed.

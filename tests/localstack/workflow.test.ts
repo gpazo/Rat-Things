@@ -109,11 +109,11 @@ integration('LocalStack durable provider Sessions and schedules', () => {
     const f = await fixture();
     const bindingId = randomUUID();
     const repository = `local-fixtures/${bindingId}`;
-    await f.integrationStore.putSourceBinding({ version: '1', bindingId, ownerId: f.ownerId, sourceKind: 'github', selector: { repository }, agentId: f.agent.id, environment: { type: 'openai_hosted' } });
+    await f.integrationStore.putSourceBinding({ version: '1', bindingId, ownerId: f.ownerId, sourceKind: 'github', selector: { repository }, eventPolicy: { mode: 'explicit', actors: { allow: ['github:local-fixture-user'] } }, agentId: f.agent.id, environment: { type: 'openai_hosted' } });
     const adapter = new GitHubIngressAdapter(f.credentials, { webhookSecretArn: required('GITHUB_WEBHOOK_SECRET_ARN'), commentTrigger: '@rat-things' });
     const ingress = new WebhookIngressService(new RuntimePluginRegistry([{ manifest: { name: 'github', version: '1', description: 'Signed fixture', provider: 'github' }, ingress: adapter }]), f.submissions, f.resolver);
     const request = (id: string, comment?: string) => {
-      const body = JSON.stringify({ repository: { full_name: repository, clone_url: `https://github.com/${repository}.git` }, ...(comment ? { action: 'created', issue: { number: 17, pull_request: {} }, comment: { body: `@rat-things ${comment}`, user: { type: 'User', id: 3 } } } : { action: 'opened', number: 17, pull_request: { title: 'Review', head: { sha: '0123456789abcdef0123456789abcdef01234567' } } }) });
+      const body = JSON.stringify({ repository: { full_name: repository, clone_url: `https://github.com/${repository}.git` }, ...(comment ? { action: 'created', issue: { number: 17, pull_request: {} }, comment: { body: `@rat-things ${comment}`, user: { login: 'local-fixture-user', type: 'User', id: 3 } } } : { action: 'opened', number: 17, sender: { login: 'local-fixture-user', type: 'User' }, pull_request: { title: 'Review', head: { sha: '0123456789abcdef0123456789abcdef01234567' } } }) });
       return { body, headers: { 'x-github-event': comment ? 'issue_comment' : 'pull_request', 'x-github-delivery': id, 'x-hub-signature-256': `sha256=${createHmac('sha256', required('GITHUB_WEBHOOK_SIGNING_SECRET')).update(body).digest('hex')}` } };
     };
     const firstRequest = request(`${bindingId}-opened`);

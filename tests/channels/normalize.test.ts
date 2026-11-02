@@ -19,6 +19,18 @@ describe('agent result markers', () => {
 });
 
 describe('GitHub webhook normalization', () => {
+  it('keeps bot-authored pull requests as review triggers with system attribution', () => {
+    const normalized = normalizeGitHubWebhook('pull_request', 'bot-pr', {
+      action: 'opened',
+      number: 3,
+      repository: { full_name: 'acme/widgets', clone_url: 'https://github.com/acme/widgets.git' },
+      pull_request: { title: 'Update dependency', head: { sha: 'abc123' }, user: { login: 'dependabot[bot]' } },
+      sender: { login: 'dependabot[bot]', type: 'Bot' },
+    });
+
+    expect(normalized).toMatchObject({ mentioned: true, actor: { id: 'github:dependabot[bot]', kind: 'system' } });
+  });
+
   it('normalizes a pull-request review into a provider input', () => {
     const normalized = normalizeGitHubWebhook(
       'pull_request',
@@ -85,7 +97,7 @@ describe('GitHub webhook normalization', () => {
           clone_url: 'https://github.com/acme/widgets.git',
         },
         issue: { number: 9, pull_request: { url: 'https://api.github.test/pulls/9' } },
-        comment: { body: '@agent explain the race' },
+        comment: { body: '@agent explain the race', user: { login: 'octocat', type: 'User' } },
       },
       undefined,
       '@agent',
@@ -93,6 +105,7 @@ describe('GitHub webhook normalization', () => {
 
     expect(normalized).toMatchObject({
       ownerId: 'github:acme',
+      repositoryComment: true,
       idempotencyKey: 'github:delivery-comment',
       request: {
         prompt: expect.stringContaining('@agent explain the race'),
@@ -134,21 +147,36 @@ describe('GitHub webhook normalization', () => {
       action: 'created',
       repository: { full_name: 'acme/widgets', clone_url: 'https://github.com/acme/widgets.git' },
       issue: { number: 9, pull_request: {} },
-      comment: { body: '@agent explain this' },
+      comment: { body: '@agent explain this', user: { login: 'octocat', type: 'User' } },
     };
     expect(normalizeGitHubWebhook('issue_comment', 'missing-trigger', payload)).toMatchObject({ mentioned: false });
     expect(normalizeGitHubWebhook('issue_comment', 'own-result', {
       ...payload,
-      comment: { body: `${AGENT_RESULT_MARKER}\n@agent completed` },
+      comment: { body: `${AGENT_RESULT_MARKER}\n@agent completed`, user: { login: 'octocat', type: 'User' } },
     }, undefined, '@agent')).toBeUndefined();
     expect(normalizeGitHubWebhook('issue_comment', 'bot-result', {
       ...payload,
-      comment: { body: '@agent completed', user: { type: 'Bot' } },
+      comment: { body: '@agent completed', user: { login: 'github-actions[bot]', type: 'Bot' } },
+    }, undefined, '@agent')).toBeUndefined();
+    expect(normalizeGitHubWebhook('issue_comment', 'missing-author', {
+      ...payload,
+      comment: { body: '@agent explain this' },
     }, undefined, '@agent')).toBeUndefined();
   });
 });
 
 describe('GitLab webhook normalization', () => {
+  it('keeps bot-authored merge requests as review triggers with system attribution', () => {
+    const normalized = normalizeGitLabWebhook('Merge Request Hook', 'bot-mr', {
+      object_kind: 'merge_request',
+      project: { id: 81, path_with_namespace: 'acme/widgets', git_http_url: 'https://gitlab.com/acme/widgets.git' },
+      object_attributes: { action: 'open', iid: 23, last_commit: { id: 'abc123' } },
+      user: { id: 42, bot: true },
+    });
+
+    expect(normalized).toMatchObject({ mentioned: true, actor: { id: 'gitlab:42', kind: 'system' } });
+  });
+
   it('normalizes a merge request and derives a clone URL from the project URL', () => {
     const normalized = normalizeGitLabWebhook(
       'Merge Request Hook',
@@ -210,6 +238,7 @@ describe('GitLab webhook normalization', () => {
         },
         object_attributes: { note: '@agent summarize the impact' },
         merge_request: { iid: 23, last_commit: { id: 'abc123' } },
+        user: { id: 11, bot: false },
       },
       undefined,
       '@agent',
@@ -217,6 +246,7 @@ describe('GitLab webhook normalization', () => {
 
     expect(normalized).toMatchObject({
       ownerId: 'gitlab:81',
+      repositoryComment: true,
       idempotencyKey: 'gitlab:note-delivery',
       request: {
         prompt: expect.stringContaining('@agent summarize the impact'),
@@ -255,6 +285,7 @@ describe('GitLab webhook normalization', () => {
       },
       object_attributes: { note: '@agent summarize' },
       merge_request: { iid: 23 },
+      user: { id: 11, bot: false },
     };
     expect(normalizeGitLabWebhook('Note Hook', 'missing-trigger', payload)).toMatchObject({ mentioned: false });
     expect(normalizeGitLabWebhook('Note Hook', 'own-result', {
@@ -263,7 +294,11 @@ describe('GitLab webhook normalization', () => {
     }, undefined, '@agent')).toBeUndefined();
     expect(normalizeGitLabWebhook('Note Hook', 'bot-result', {
       ...payload,
-      user: { bot: true },
+      user: { id: 12, bot: true },
+    }, undefined, '@agent')).toBeUndefined();
+    expect(normalizeGitLabWebhook('Note Hook', 'missing-author', {
+      ...payload,
+      user: undefined,
     }, undefined, '@agent')).toBeUndefined();
   });
 
@@ -277,6 +312,7 @@ describe('GitLab webhook normalization', () => {
       },
       object_attributes: { note: '@agent inspect this change' },
       merge_request: { iid: 23 },
+      user: { id: 11, bot: false },
     }, undefined, '@agent');
 
     expect(normalized?.request.repository?.ref).toBe('refs/merge-requests/23/head');
@@ -341,7 +377,7 @@ describe('chat webhook normalization', () => {
     expect(normalized).toEqual({
       ownerId: 'slack:workspace-1:user-1',
       mentioned: true,
-      idempotencyKey: 'slack:event-1',
+      idempotencyKey: 'slack:channel-1:1000.3000',
       request: {
         prompt: 'inspect the queue',
         source: {
@@ -349,11 +385,25 @@ describe('chat webhook normalization', () => {
           teamId: 'workspace-1',
           channelId: 'channel-1',
           threadTs: '1000.2000',
-          eventId: 'event-1',
+          eventId: '1000.3000',
           userId: 'user-1',
         },
       },
     });
+  });
+
+  it('uses the Slack message timestamp as the occurrence identity across message and app-mention events', () => {
+    const common = {
+      team_id: 'workspace-1',
+      event: { channel: 'channel-1', user: 'user-1', thread_ts: '1000.1000', ts: '1000.3000', text: '<@U123ABC> inspect the queue' },
+    };
+    const message = normalizeSlackEvent({ ...common, event_id: 'EvMessage', event: { ...common.event, type: 'message' } });
+    const mention = normalizeSlackEvent({ ...common, event_id: 'EvMention', event: { ...common.event, type: 'app_mention' } });
+
+    expect(message?.idempotencyKey).toBe(mention?.idempotencyKey);
+    expect(message?.request.source).toEqual(mention?.request.source);
+    expect(message?.request.prompt).toBe(mention?.request.prompt);
+    expect(message?.request.source).toMatchObject({ kind: 'slack', eventId: '1000.3000' });
   });
 
   it('ignores incomplete and bot chat events', () => {
