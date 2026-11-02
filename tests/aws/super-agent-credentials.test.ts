@@ -64,6 +64,14 @@ live('keeps a synthetic hosted Vault credential out of the managed guest, persis
       url: encodeURIComponent(canary), lower_url: encodeURIComponent(canary).replace(/%[0-9A-F]{2}/g, part => part.toLowerCase()), form: new URLSearchParams({ v: canary }).toString().slice(2),
     };
     check(forms.raw !== forms.url && forms.raw !== forms.base64, 'distinct encoded echo forms');
+    let rejectedTemplate: unknown;
+    let unexpectedTemplateId: string | undefined;
+    try { unexpectedTemplateId = (await proof.client.beta.agents.environments.templates.create({ env: { PROOF_TOKEN: canary } })).id; }
+    catch (error) { rejectedTemplate = error; }
+    if (unexpectedTemplateId) await proof.client.beta.agents.environments.templates.delete(unexpectedTemplateId);
+    check(rejectedTemplate instanceof Error && (rejectedTemplate as Error & { status?: number }).status === 400 && /Vault/.test(rejectedTemplate.message), 'deployed template rejects inline credential');
+    scan('template rejection', rejectedTemplate.message);
+    proof.evidence.templateLint = 'credential-like plain environment value rejected with HTTP 400 and Vault guidance';
     const agent = await proof.client.beta.agents.create({ model: proof.model, name: proof.proofId, tools: [], multi_agent: { enabled: false },
       instructions: 'Execute the supplied command verbatim using command tools. Then return the exact JSON printed by that command as your final answer. Do not replace execution with proposed code or manufacture results. Do not inspect any credential other than the named synthetic placeholder. Do not read model authentication token bytes.' });
     agentId = agent.id;
