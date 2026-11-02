@@ -8,6 +8,14 @@ import { SessionArtifactCapture } from '../../src/core/session-artifact-capture.
 import { sessionAgent } from '../../src/core/session-planning.js';
 
 describe('durable session journal', () => {
+  it('redacts token-shaped JSON keys without overwriting colliding tool results', () => {
+    const redact = createOutputRedactor(['planted-private-token', 'second-private-token']);
+    const input = { result: { 'planted-private-token': 'first', 'second-private-token': 'second', '[REDACTED]': 'third' } };
+    const saved = redact(input);
+    expect(JSON.stringify(saved)).not.toContain('private-token');
+    expect(Object.values(saved.result)).toEqual(['first', 'second', 'third']);
+    expect(input.result['planted-private-token']).toBe('first');
+  });
   it('redacts planted output and partial text deltas before saving Session Items', async () => {
     const memory = new MemoryAgentsStore();
     const store = new SessionRuntimeStore(memory);

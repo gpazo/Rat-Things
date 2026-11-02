@@ -11,7 +11,7 @@ export function createOutputRedactor(secrets: readonly string[], options: { keys
   const compile = () => secretRedactionPatterns([...known].map(secret => ({ secret, replacement: '[REDACTED]' })));
   let patterns = compile();
   const redact = <T>(value: T): T => {
-    const result = redactOutput(value, patterns, { trailingPrefixes: true, ...(options.keys ? { keys: true } : {}) });
+    const result = redactOutput(value, patterns, { trailingPrefixes: true, ...(options.keys !== false ? { keys: true } : {}) });
     if (result.count) emitMetric(options.component ?? 'runner', 'OutputRedactions', result.count, 'Count');
     return result.value;
   };
