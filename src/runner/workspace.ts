@@ -41,7 +41,8 @@ export async function prepareWorkspace(
   }
   validateRepositoryUrl(repository.url, process.env.ALLOWED_REPOSITORY_HOSTS);
   await mkdir(absolute, { recursive: true, mode: 0o700 });
-  let env = gitEnvironment();
+  const setupEnv = trustedGitEnvironment(process.env, absolute);
+  let env = setupEnv;
   if (repository.credentialSecretArn) {
     const token = await credentials.read(
       repository.credentialSecretArn,
@@ -49,8 +50,8 @@ export async function prepareWorkspace(
     );
     env = credentialGitEnvironment(env, repository.provider, token, process.env.GIT_ASKPASS_PATH);
   }
-  await git(['init', '--quiet', absolute], root);
-  await git(['-C', absolute, 'remote', 'add', 'origin', repository.url], root);
+  await git(['init', '--quiet', absolute], root, setupEnv);
+  await git(['-C', absolute, 'remote', 'add', 'origin', repository.url], root, setupEnv);
   const [fetch, checkout] = repositoryCheckoutCommands(absolute, repository.ref);
   await git(fetch, root, env);
   const baseFetch = repositoryBaseFetchArguments(absolute, repository.baseRef);
@@ -92,10 +93,22 @@ async function isReusableWorkspace(workspace: string): Promise<boolean> {
   try {
     await access(workspace);
     await access(`${workspace}/.git`);
-    return true;
   } catch {
     return false;
   }
+  const identity = configuredAgentIdentity();
+  for (const ref of ['HEAD', 'refs/agent-runtime/base']) {
+    const result = await runProcess('git', ['-C', workspace, 'rev-parse', '--quiet', '--verify', `${ref}^{commit}`], {
+      cwd: workspace,
+      env: gitEnvironment(),
+      timeoutMs: 30_000,
+      maxStdoutBytes: 64 * 1024,
+      maxStderrBytes: 64 * 1024,
+      ...identity,
+    });
+    if (result.exitCode !== 0) return false;
+  }
+  return true;
 }
 
 export async function collectWorkspacePatch(workspace: string): Promise<Buffer | undefined> {

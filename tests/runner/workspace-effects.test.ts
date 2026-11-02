@@ -45,13 +45,22 @@ describe('workspace preparation effects', () => {
     const target = await workspace();
     await mkdir(join(target, '.git'), { recursive: true });
     await writeFile(join(target, 'staged.txt'), 'keep');
-    vi.stubEnv('RUN_AGENT_UID', 'invalid');
+    vi.stubEnv('RUN_AGENT_UID', '10001');
+    vi.stubEnv('RUN_AGENT_GID', '10002');
     const broker = credentials();
     const read = vi.spyOn(broker, 'read');
 
     await prepareWorkspace({ ...repository, url: 'invalid', credentialSecretArn: 'secret-ref' }, target, broker, { reuseExisting: true });
     expect(await readFile(join(target, 'staged.txt'), 'utf8')).toBe('keep');
-    expect(run).not.toHaveBeenCalled();
+    expect(run).toHaveBeenCalledTimes(2);
+    for (const [command, args, options] of run.mock.calls) {
+      expect(command).toBe('git');
+      expect(args.slice(0, 5)).toEqual(['-C', target, 'rev-parse', '--quiet', '--verify']);
+      expect(options).toMatchObject({ uid: 10001, gid: 10002 });
+      expect(options.env).not.toHaveProperty('GIT_TOKEN');
+      expect(options.env).not.toHaveProperty('GIT_ASKPASS');
+      expect(Object.values(options.env ?? {})).not.toContain('safe.directory');
+    }
     expect(read).not.toHaveBeenCalled();
   });
 
@@ -93,6 +102,14 @@ describe('workspace preparation effects', () => {
     expect(read).toHaveBeenCalledExactlyOnceWith('secret-ref', ['token', 'access_token', 'password']);
     const gitCalls = run.mock.calls.filter(([command]) => command === 'git');
     expect(gitCalls).toHaveLength(6);
+    for (const [, args, options] of gitCalls.filter(([, , options]) => options.uid === undefined)) {
+      expect(args[0] === 'init' || ['remote', 'fetch'].includes(args[2]!)).toBe(true);
+      expect(options.env).toMatchObject({ GIT_CONFIG_COUNT: '3', GIT_CONFIG_KEY_2: 'safe.directory', GIT_CONFIG_VALUE_2: target });
+      if (args[2] !== 'fetch') {
+        expect(options.env).not.toHaveProperty('GIT_TOKEN');
+        expect(options.env).not.toHaveProperty('GIT_ASKPASS');
+      }
+    }
     const fetches = gitCalls.filter(([, args]) => args[2] === 'fetch');
     for (const [, , options] of fetches) {
       expect(options.env).toMatchObject({ HOME: '/trusted-before-read', GIT_TOKEN: 'private-clone-token', GIT_USERNAME: 'x-access-token', GIT_ASKPASS: '/askpass-after-read' });
@@ -104,6 +121,7 @@ describe('workspace preparation effects', () => {
       expect(options).toMatchObject({ uid: 10001, gid: 10002 });
       expect(options.env).not.toHaveProperty('GIT_TOKEN');
       expect(options.env).not.toHaveProperty('GIT_ASKPASS');
+      expect(Object.values(options.env ?? {})).not.toContain('safe.directory');
     }
     expect(gitCalls[2]![1]).toEqual(['-C', target, 'fetch', '--quiet', '--depth=50', 'origin', 'feature']);
     expect(gitCalls[3]![1]).toEqual(['-C', target, 'fetch', '--quiet', '--no-write-fetch-head', '--depth=50', 'origin', 'main:refs/remotes/origin/main']);

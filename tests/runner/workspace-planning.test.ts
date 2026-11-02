@@ -90,6 +90,20 @@ describe('Git setup planning', () => {
     });
   });
 
+  it('grants invocation-only ownership trust to the supplied fresh workspace', () => {
+    const environment = Object.freeze({
+      PATH: '/bin', GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'safe.directory', GIT_CONFIG_VALUE_0: '*',
+    });
+    const planned = trustedGitEnvironment(environment, '/runtime/session/workspace');
+    expect(planned).toMatchObject({
+      GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_COUNT: '3',
+      GIT_CONFIG_KEY_2: 'safe.directory', GIT_CONFIG_VALUE_2: '/runtime/session/workspace',
+    });
+    expect(Object.values(planned)).not.toContain('*');
+    expect(trustedGitEnvironment(environment)).not.toHaveProperty('GIT_CONFIG_KEY_2');
+    expect(environment.GIT_CONFIG_VALUE_0).toBe('*');
+  });
+
   it.each([
     ['github', 'x-access-token'], ['gitlab', 'oauth2'], ['generic', 'oauth2'],
   ] as const)('adds credentials for %s without mutating the trusted environment', (provider, username) => {
