@@ -71,18 +71,74 @@ describe('signed Slack message and app-mention deduplication', () => {
     expect(await f.service.receive('slack', signedRequest('message', 'EvMessage'))).toMatchObject({ statusCode: 202, body: { accepted: true, duplicate: true } });
     expect((await f.store.list<EventCandidate>('operator', 'event_candidates', {})).data).toHaveLength(0);
   });
+
+  it('upgrades an admitted empty candidate to an explicit reply without adding an input or Turn', async () => {
+    const f = await fixture();
+    f.execution.items = async () => [];
+    const candidateResponse = await f.service.receive('slack', signedRequest('message', 'EvMessage'));
+    const candidateId = (candidateResponse.body as { candidateId: string }).candidateId;
+    await f.candidates.process('operator', candidateId);
+    const candidate = await f.store.get<EventCandidate>('operator', 'event_candidates', candidateId);
+    expect(candidate?.value.state.status).toBe('admitted');
+    const session = await f.integrations.accept('operator', 'slack-binding', JSON.stringify(['slack', 'T1', 'C1', '1000.1000']), f.target, candidate!.value.input);
+    await f.integrations.submitPending('operator', session.sessionId);
+    await f.sessions.dispatch('operator', session.sessionId);
+    const turn = (await f.sessions.turns('operator', session.sessionId)).data[0]!;
+    f.observations.set(turn.id, { turn: { ...turn, status: 'completed', completed_at: 2 }, requiredActions: [] });
+    await f.sessions.completeReadyTurns('operator', session.sessionId);
+    await f.integrations.deliverReady('operator', session.sessionId);
+    expect(f.delivery.deliver).toHaveBeenCalledWith(expect.objectContaining({ silentIfEmpty: true, items: [] }));
+
+    const mention = await f.service.receive('slack', signedRequest('app_mention', 'EvMention'));
+    expect(mention.body).toMatchObject({ accepted: true, sessionId: session.sessionId });
+    const integration = await f.store.get<{ inputs: Array<{ id: string; admission?: string; deliveryProcessed?: boolean }> }>('operator', 'session_integrations', session.sessionId);
+    expect(integration?.value.inputs).toEqual([expect.objectContaining({ id: candidate!.value.input.id, admission: 'explicit', deliveryProcessed: false })]);
+    await f.integrations.deliverReady('operator', session.sessionId);
+    expect(f.delivery.deliver).toHaveBeenCalledTimes(2);
+    expect(f.delivery.deliver).toHaveBeenLastCalledWith(expect.objectContaining({ silentIfEmpty: false, items: [] }));
+    expect((await f.sessions.turns('operator', session.sessionId)).data).toHaveLength(1);
+  });
+
+  it('discards candidate-worker admission when a signed app mention wins during the commit', async () => {
+    const f = await fixture({ pauseCandidateAdmission: true });
+    await f.service.receive('slack', signedRequest('message', 'EvMessage'));
+    const candidates = (await f.store.list<EventCandidate>('operator', 'event_candidates', {})).data;
+    const candidateId = candidates[0]!.id;
+    const process = f.candidates.process('operator', candidateId);
+    await f.candidateAdmissionStarted;
+
+    const mention = await f.service.receive('slack', signedRequest('app_mention', 'EvMention'));
+    expect(mention.body).toMatchObject({ accepted: true, sessionId: expect.any(String) });
+    f.resumeCandidateAdmission();
+    await process;
+
+    expect((await f.store.get<EventCandidate>('operator', 'event_candidates', candidateId))?.value.state).toMatchObject({ status: 'discarded', decision: { reason: 'explicit_request_won' } });
+    expect((await integrationInputs(f)).map(input => input.id)).toEqual(['slack:C1:1000.3000']);
+  });
 });
 
-async function fixture(pauseAccept = false) {
+async function fixture(options: boolean | { pauseCandidateAdmission?: boolean } = false) {
   const setup = await integrationFixture();
+  const pauseAccept = typeof options === 'boolean' ? options : false;
+  const pauseCandidateAdmission = typeof options === 'boolean' ? false : options.pauseCandidateAdmission ?? false;
   const adapter = new SlackIngressAdapter(new CredentialBroker({ get: async () => signingSecret }), { signingSecretArn: 'test-secret', candidateEventsEnabled: true });
   const registry = new RuntimePluginRegistry([{
     manifest: { name: 'slack-test', version: '1', description: 'Signed ingress test', provider: 'slack' },
     ingress: adapter,
   }]);
+  let resumeCandidateAdmission = () => {};
+  let signalCandidateAdmission = () => {};
+  const candidateAdmissionGate = new Promise<void>(resolve => { resumeCandidateAdmission = resolve; });
+  const candidateAdmissionStarted = new Promise<void>(resolve => { signalCandidateAdmission = resolve; });
   const candidates = new EventCandidateService({
     store: setup.store,
-    integrations: setup.integrations,
+    integrations: { accept: async (...args: Parameters<typeof setup.integrations.accept>) => {
+      if (pauseCandidateAdmission && args[4]?.admission === 'candidate') {
+        signalCandidateAdmission();
+        await candidateAdmissionGate;
+      }
+      return setup.integrations.accept(...args);
+    } },
     model: { id: 'test', decide: async () => ({ act: true, reason: 'Relevant' }) },
     clock: { now: () => 10_000 },
   });
@@ -104,7 +160,7 @@ async function fixture(pauseAccept = false) {
       ownerId: 'operator', bindingId: 'slack-binding', ...setup.target, threadScope: 'thread', eventPolicy: policy,
     }),
   }, candidates);
-  return { ...setup, service, candidates, acceptStarted, resumeAccept };
+  return { ...setup, service, candidates, acceptStarted, resumeAccept, candidateAdmissionStarted, resumeCandidateAdmission };
 }
 
 function signedRequest(type: 'message' | 'app_mention', eventId: string) {
@@ -130,6 +186,6 @@ async function integrationInputs(f: Awaited<ReturnType<typeof fixture>>) {
   const subscriptions = await f.store.list<{ subscribers: Array<{ sessionId: string }> }>('operator', 'thread_subscriptions', {});
   const sessionId = subscriptions.data[0]?.value.subscribers[0]?.sessionId;
   if (!sessionId) return [];
-  const integration = await f.store.get<{ inputs: Array<{ id: string }> }>('operator', 'session_integrations', sessionId);
+  const integration = await f.store.get<{ inputs: Array<{ id: string; admission?: string }> }>('operator', 'session_integrations', sessionId);
   return integration?.value.inputs ?? [];
 }
