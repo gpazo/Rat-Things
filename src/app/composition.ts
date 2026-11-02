@@ -447,7 +447,12 @@ function teamsDeliveryMode(value: string | undefined): TeamsDeliveryMode {
 }
 
 export function getSessionIntegrationService(): SessionIntegrationService {
-  sessionIntegrationService ??= new SessionIntegrationService({ store: getAgentsApiServices().store, sessions: getAgentsApiServices().sessions, delivery: getSessionDeliveryService(), allowedRepositoryHosts: csv(process.env.ALLOWED_REPOSITORY_HOSTS ?? 'github.com,gitlab.com') });
+  sessionIntegrationService ??= new SessionIntegrationService({
+    store: getAgentsApiServices().store,
+    get sessions() { return getAgentsApiServices().sessions; },
+    delivery: getSessionDeliveryService(),
+    allowedRepositoryHosts: csv(process.env.ALLOWED_REPOSITORY_HOSTS ?? 'github.com,gitlab.com'),
+  });
   return sessionIntegrationService;
 }
 
