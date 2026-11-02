@@ -280,7 +280,7 @@ locals {
       zip_path = local.lambda_zip_paths["webhook-teams"]
       role_arn = aws_iam_role.ingress.arn
       timeout  = 5
-      memory   = 256
+      memory   = 1024
       environment = merge(local.lambda_common_environment, {
         TEAMS_OUTGOING_WEBHOOK_SECRET_ARN = coalesce(var.teams_outgoing_webhook_secret_arn, "DISABLED")
       })
@@ -290,7 +290,7 @@ locals {
       zip_path = local.lambda_zip_paths["webhook-slack"]
       role_arn = aws_iam_role.ingress.arn
       timeout  = 5
-      memory   = 256
+      memory   = 1024
       environment = merge(local.lambda_common_environment, {
         SLACK_SIGNING_SECRET_ARN = coalesce(var.slack_signing_secret_arn, "DISABLED")
       })

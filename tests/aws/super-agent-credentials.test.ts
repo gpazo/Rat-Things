@@ -115,12 +115,17 @@ live('keeps a synthetic hosted Vault credential out of the managed guest, persis
       'path.write_text(json.dumps(proof))',
       'print(json.dumps(proof))',
     ].join('\n');
-    const command = `python3 -c '${program.replaceAll("'", "'\"'\"'")}'`;
+    const launcher = `import base64; exec(base64.b64decode("${Buffer.from(program).toString('base64')}"))`;
+    const command = `python3 -c '${launcher}'`;
     const body = JSON.stringify({ id: proof.proofId, type: 'message', text: `Run this exact command verbatim, without edits or additional commands. Return its entire JSON output unchanged as your final answer.\n\n${command}`, from: { id: proof.proofId }, conversation: { id: proof.proofId }, channelData: { tenant: { id: proof.proofId } } });
     scan('signed Teams input', body);
     const authorization = `HMAC ${createHmac('sha256', Buffer.from(required('TEAMS_WEBHOOK_SIGNING_SECRET'), 'base64')).update(body).digest('base64')}`;
+    const admittedAt = performance.now();
     const response = await fetch(required('TEAMS_WEBHOOK_URL'), { method: 'POST', headers: { authorization, 'content-type': 'application/json' }, body, redirect: 'error', signal: AbortSignal.timeout(360_000) });
-    check(response.status === 200, 'signed Teams admission');
+    const admissionMs = Math.round(performance.now() - admittedAt);
+    check(response.status === 200, `signed Teams admission (HTTP ${response.status}, ${admissionMs} ms)`);
+    check(admissionMs < 5000, 'Teams acknowledgment deadline');
+    proof.evidence.admissionMs = admissionMs;
     const accepted = await response.json() as { text?: string };
     const sessionId = /session (sess_[A-Za-z0-9_]+) completes/.exec(accepted.text ?? '')?.[1];
     check(sessionId === expectedSessionId, 'Teams accepted deterministic Session identity');
@@ -147,7 +152,7 @@ live('keeps a synthetic hosted Vault credential out of the managed guest, persis
     const items: AgentSessionItem[] = [];
     for await (const item of proof.client.beta.agents.sessions.items.list(sessionId, { order: 'asc', limit: 100 })) items.push(item);
     scan('API items', JSON.stringify(items));
-    const commands = items.filter(item => item.type === 'command_execution' && item.turn_id === turn!.id && item.status === 'completed' && item.exit_code === 0 && isDeepStrictEqual(commandArguments(item.command), ['python3', '-c', program]));
+    const commands = items.filter(item => item.type === 'command_execution' && item.turn_id === turn!.id && item.status === 'completed' && item.exit_code === 0 && isDeepStrictEqual(commandArguments(item.command), ['python3', '-c', launcher]));
     check(commands.length === 1, 'exact managed program executed once with successful exit');
     const artifacts: SessionArtifact[] = [];
     for await (const artifact of proof.client.beta.agents.sessions.artifacts.list(sessionId, { limit: 100 })) artifacts.push(artifact);

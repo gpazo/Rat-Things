@@ -335,9 +335,12 @@ live('proves provider continuation, thread release, candidate filtering and quie
       ? { 'x-github-event': fixture.event, 'x-github-delivery': fixture.id, 'x-hub-signature-256': `sha256=${createHmac('sha256', githubSecret).update(fixture.body).digest('hex')}` }
       : { 'x-slack-request-timestamp': ts, 'x-slack-signature': `v0=${createHmac('sha256', slackSecret).update(`v0:${ts}:${fixture.body}`).digest('hex')}` };
     phase = `ingress_${fixture.id}`;
+    const admittedAt = performance.now();
     const response = await fetch(fixture.provider === 'github' ? githubUrl : slackUrl, { method: 'POST', body: fixture.body,
       headers: { 'content-type': 'application/json', ...headers }, redirect: 'error', signal: AbortSignal.timeout(30_000) });
+    const admissionMs = Math.round(performance.now() - admittedAt);
     check('signed_ingress_acknowledged', response.status === 202, { eventId: fixture.id });
+    if (fixture.provider === 'slack') check('slack_acknowledged_within_three_seconds', admissionMs < 3000, { eventId: fixture.id, admissionMs });
     return await response.json() as IngressReply;
   }
   async function acceptedSession(event: Fixture) {
