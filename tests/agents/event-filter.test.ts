@@ -44,6 +44,8 @@ describe('event classification', () => {
   it('validates policy caps and strict model output at boundaries', () => {
     expect(() => validateSourceEventPolicy({ mode: 'candidate' })).toThrow('requires semantic');
     expect(() => validateSourceEventPolicy({ ...policy, semantic: { policies: ['x'], maxCandidatesPerHour: 0 } })).toThrow('between');
+    expect(() => validateSourceEventPolicy({ mode: 'explicit', actors: null } as unknown as SourceEventPolicy)).toThrow('actors');
+    expect(() => validateSourceEventPolicy({ mode: 'explicit', actors: { allowed: ['typo'] } } as unknown as SourceEventPolicy)).toThrow('actors');
     expect(() => parseEventFilterDecision({ act: 'yes', reason: 'x' })).toThrow();
     expect(() => parseEventFilterDecision({ act: true, reason: 'x', agent: 'admin' })).toThrow();
     expect(parseEventFilterDecision({ act: false, reason: '' })).toEqual({ act: false, reason: '' });
@@ -59,6 +61,8 @@ describe('durable candidate filtering', () => {
     const integration = (await f.store.list<{ inputs: SessionIntegrationInput[] }>('operator', 'session_integrations', {})).data[0]!;
     expect(integration.value.inputs[0]?.admission).toBe('candidate');
     expect((await f.store.get<EventCandidate>('operator', 'event_candidates', candidateId))?.value.state.status).toBe('admitted');
+    expect(await f.integrations.accept('operator', 'binding', 'thread', f.target, f.input)).toEqual({ sessionId: integration.id });
+    expect((await f.store.list<{ inputs: SessionIntegrationInput[] }>('operator', 'session_integrations', {})).data[0]?.value.inputs).toHaveLength(1);
     await f.integrations.submitPending('operator', integration.id);
     expect((await f.sessions.list('operator')).data).toHaveLength(1);
   });

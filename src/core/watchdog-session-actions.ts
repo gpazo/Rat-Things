@@ -16,11 +16,14 @@ export async function applyWatchdogAction(store: AgentsStore, candidate: Watchdo
   const key = `watchdog_${hash(action === 'retry' ? watchdogRetryKey(candidate.turnId) : `watchdog-cancel:${candidate.turnId}`)}`;
   if (state.receipts[key]) return true;
   const binding = state.turns.find(entry => entry.turn.id === candidate.turnId);
+  let observationRevision: number | undefined;
   if (action === 'retry') {
     if (!watchdogRetryEligible(state, binding, now, policy)) return false;
   } else {
     const snapshot = await store.get<SessionStreamSnapshot>(candidate.ownerId, 'session_observations', candidate.sessionId);
     if (!snapshot || !candidate.digest || canonicalJson(watchdogDigest(snapshot.value.items.filter(item => item.turn_id === candidate.turnId))) !== canonicalJson(candidate.digest)) return false;
+    if (!store.commitAtObservation) return false;
+    observationRevision = snapshot.revision;
     const integration = await store.get<SessionIntegrationState>(candidate.ownerId, 'session_integrations', candidate.sessionId);
     if (!policy.allowCancel || !integration?.value.target.watchdog?.cancelLoops || !binding || terminalTurn(binding.turn) || state.turns.at(-1)?.turn.id !== binding.turn.id || state.closing || state.forkLock) return false;
   }
@@ -30,7 +33,9 @@ export async function applyWatchdogAction(store: AgentsStore, candidate: Watchdo
     turnIds: [`turn_${hash(key).slice(0, 32)}`], messageIds: binding?.input.map((_, index) => `msg_${hash(`${key}:${index}`).slice(0, 32)}`) ?? [], operationIds: [key],
   }, now);
   const next = { ...plan.state, receipts: { ...state.receipts, [key]: { digest: hash(canonicalJson(events)), commands: plan.commands, dispatched: false } } };
-  await store.put({ ...resource, revision: resource.revision + 1, value: next }, resource.revision);
+  const write = { resource: { ...resource, revision: resource.revision + 1, value: next }, expectedRevision: resource.revision };
+  if (observationRevision !== undefined) await store.commitAtObservation!([write], { ownerId: candidate.ownerId, id: candidate.sessionId, revision: observationRevision });
+  else await store.commit([write]);
   return true;
 }
 const hash = (value: string): string => createHash('sha256').update(value).digest('hex');

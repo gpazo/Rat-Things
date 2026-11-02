@@ -6,7 +6,7 @@ import { WatchdogService } from '../core/watchdog-service.js';
 import { WatchdogReporting } from '../core/watchdog-reporting.js';
 import { applyWatchdogAction } from '../core/watchdog-session-actions.js';
 import { defaultWatchdogPolicy, watchdogJudgeInput, type WatchdogPolicy } from '../domain/watchdog.js';
-import { getAgentsApiServices, getDeliveryService } from './composition.js';
+import { getAgentsApiServices, getDeliveryService, getSessionDeliveryService } from './composition.js';
 import { SessionDeliveryService } from '../delivery/session-delivery.js';
 import type { SessionState } from '../core/session-ports.js';
 import type { RunDestination } from '../domain/contracts.js';
@@ -40,7 +40,7 @@ export function getWatchdogService(): WatchdogService {
   const collector = new WatchdogCollector({ store: services.store, dynamodb: clients.dynamodb, cloudwatch: new CloudWatchClient({ region: requiredEnv('AWS_REGION') }),
     agentsTable: requiredEnv('AGENTS_TABLE_NAME'), runsTable: requiredEnv('RUNS_TABLE_NAME'), alarmPrefix: requiredEnv('WATCHDOG_ALARM_PREFIX'), operatorOwnerId: requiredEnv('WATCHDOG_OWNER_ID'), policy });
   const destinations = JSON.parse(process.env.WATCHDOG_DESTINATIONS_JSON ?? '[]') as RunDestination[];
-  const reporting = new WatchdogReporting({ store: services.store, delivery: new SessionDeliveryService(getDeliveryService()), webhooks: services.webhooks, operatorDestinations: destinations });
+  const reporting = new WatchdogReporting({ store: services.store, delivery: getSessionDeliveryService(), operatorDelivery: new SessionDeliveryService(getDeliveryService()), webhooks: services.webhooks, operatorDestinations: destinations });
   service = new WatchdogService({ store: services.store, policy, clock: { now: () => Math.floor(Date.now() / 1000) }, ports: {
     collect: now => collector.collect(now),
     judgeStart: async (candidate, sessionId) => {

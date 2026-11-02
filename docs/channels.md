@@ -54,11 +54,11 @@ Accepted events are:
 | GitHub event | Accepted actions | Result destination |
 | --- | --- | --- |
 | `pull_request` | `opened`, `reopened`, `synchronize`, `ready_for_review` | PR issue comment |
-| `issue_comment` | `created`, only when the issue is a PR and body contains the configured trigger | PR issue comment |
+| `issue_comment` | `created`, only when the issue is a PR; admission follows the binding's event policy | PR issue comment |
 
 Other validly signed events return `202` with `{"accepted":false,"ignored":true}`. The review
 request checks out the head SHA read-only and fetches the base ref for diff context. Comment requests
-are case-insensitively gated by `github_comment_trigger` (injected as
+on an unsubscribed thread are case-insensitively gated by `github_comment_trigger` (injected as
 `GITHUB_COMMENT_TRIGGER`; `@rat-things` by default). This is a cost
 and noise filter, not authorization: anyone allowed to comment can include the trigger. Retain event,
 installation, repository, rate, and budget controls.
@@ -130,9 +130,9 @@ Accepted payloads are:
 | GitLab object kind | Accepted actions | Result destination |
 | --- | --- | --- |
 | `merge_request` | `open`, `reopen`, `update`, `approved` (or omitted action) | Merge-request note |
-| `note` | Note attached to a merge request whose body contains the configured trigger | Merge-request note |
+| `note` | Note attached to a merge request; admission follows the binding's event policy | Merge-request note |
 
-Other authenticated payloads return an accepted/ignored response. GitLab note requests are
+Other authenticated payloads return an accepted/ignored response. GitLab note requests on an unsubscribed thread are
 case-insensitively gated by `gitlab_comment_trigger` (injected as `GITLAB_COMMENT_TRIGGER`;
 `@rat-things` by default). The trigger controls
 noise/cost but is not proof that the author is authorized for a particular repository or destination.
@@ -276,7 +276,7 @@ Automate owner. It must not add a mid-Turn authority-widening path.
 
 Slack is an opt-in provider channel in each self-hosted deployment. The ingress validates Slack v0
 signatures and rejects timestamps with more than five minutes of skew. It
-answers URL-verification challenges and accepts only `app_mention` events. Mentions carrying
+answers URL-verification challenges and accepts `app_mention` events by default. Events carrying
 `bot_id`, `bot_profile`, or the `bot_message` subtype are ignored so the adapter does not consume its
 own bot output. Results use `chat.postMessage`, preserving the source thread when one exists.
 For the user-facing workflows this enables—workspace research, durable follow-ups, controlled
@@ -315,3 +315,58 @@ bot token do not establish that ownership. Delegated search visibility is exactl
 Slack user's visibility; it is not bot-wide or workspace-administrator search authority.
 
 For supported behavior and current limitations, see [Status and roadmap](status-and-roadmap.md).
+
+## Event policies and quiet responses
+
+Each source binding can set `eventPolicy`. The default mode, `explicit`, accepts mentions,
+configured repository comment triggers, and review events. A subscribed thread also accepts
+follow-ups without a trigger. `ignore` drops events. Bot and result-marker filters always apply,
+followed by actor and channel restrictions, before any subscription or mention can admit an event.
+Trigger text filters noise; it does not authorize the author.
+
+`actors.allow` and `actors.deny` contain exact actor IDs; deny takes precedence. IDs are
+`github:<login>`, `gitlab:<user-id>`, `slack:<team-id>:<user-id>`, or
+`teams:<tenant-id>:<sender-id>`. `channels` limits chat channel or conversation IDs. An empty
+allowlist admits nobody. Selectors still determine the source binding and owner.
+
+Candidate mode admits other supported messages to an asynchronous filter:
+
+```json
+{
+  "eventPolicy": {
+    "mode": "candidate",
+    "actors": { "deny": ["slack:T123:U456"] },
+    "channels": ["C123"],
+    "semantic": {
+      "policies": ["Act on unanswered deployment questions that this team owns."],
+      "maxCandidatesPerHour": 30
+    }
+  }
+}
+```
+
+Ingress persists a candidate receipt and acknowledges without invoking a model. The Agents
+stream and outbox process the receipt later. A tool-less Bedrock Converse request receives the
+saved policies, bounded event text and recent thread text, and must return only `act` and `reason`.
+Configure `event_filter_model_id` and exact `event_filter_inference_resource_arns` for a model
+supporting JSON-schema output. With no configured model, or on model errors or invalid output,
+the candidate is discarded. The model cannot select an Agent, destination or tool.
+
+The cap applies per binding in fixed UTC clock hours. Decisions retain the model, policy digest,
+reason and boolean result for seven days; candidates older than an hour are discarded. Policy
+changes affect new candidates. A subsequent explicit mention supersedes pending candidates on
+its thread. Provider retries retain the original receipt and decision.
+
+A Turn containing only candidate-admitted input can complete with no text and post nothing.
+Explicit requests retain the normal completion reply. Candidate mode should use an Agent with
+mostly read-only tools: event text can manipulate the filter, and admitted events run inside the
+same fixed capability envelope as mentions.
+
+For Slack, ordinary message intake additionally requires `slack_candidate_events_enabled = true`.
+Use a separate opt-in Slack app installation, subscribe it to `message.channels` and
+`message.groups`, and grant `channels:history` and `groups:history` alongside the existing scopes.
+The integration's OAuth request includes those scopes only when the deployment flag is enabled.
+Reading channel messages changes privacy expectations; restrict the binding's channels and use
+private channels for shared-thread steering. Edited and deleted messages are ignored. Signature
+verification and durable persistence still happen before acknowledgement, so the Slack latency
+constraint above remains.

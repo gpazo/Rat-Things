@@ -12,6 +12,7 @@ locals {
       thing-schedule    = true
     },
     {
+      watchdog       = var.enable_watchdog
       webhook-github = local.github_enabled
       webhook-gitlab = local.gitlab_enabled
       webhook-teams  = local.teams_enabled

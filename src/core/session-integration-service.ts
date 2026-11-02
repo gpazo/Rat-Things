@@ -5,7 +5,7 @@ import type { SessionService } from './session-service.js';
 import type { SessionState } from './session-ports.js';
 import type { SessionDelivery, SessionIntegrationInput, SessionIntegrationState, SessionIntegrationTarget, ThreadSubscription, IntegrationOccurrence } from '../domain/session-integrations.js';
 import { AgentsApiError, parseAgentsContract } from '../domain/agents-api-validation.js';
-import { integrationDigest, integrationSessionId, integrationOccurrenceId, threadSubscriptionId, planThreadAdmission, releaseThreadSubscription, integrationInputText } from './session-integration-planning.js';
+import { integrationDigest, integrationInputDigest, integrationSessionId, integrationOccurrenceId, threadSubscriptionId, planThreadAdmission, releaseThreadSubscription, integrationInputText } from './session-integration-planning.js';
 import type { SessionPreparation } from './session-preparation-planning.js';
 import { THREAD_RELEASE_TOOL, parseThreadRelease } from './thread-release-tool.js';
 import { terminalTurn } from './session-planning.js';
@@ -22,7 +22,7 @@ export class SessionIntegrationService {
     if (input.repository) parseRepository(input.repository, this.options.allowedRepositoryHosts ?? ['github.com', 'gitlab.com']);
     const subscriptionId = threadSubscriptionId(bindingId, threadKey);
     const occurrenceId = integrationOccurrenceId(bindingId, input.id);
-    const digest = integrationDigest(input);
+    const digest = integrationInputDigest(input);
     for (let attempt = 0; ; attempt++) {
       const occurrence = await this.options.store.get<IntegrationOccurrence>(ownerId, 'integration_occurrences', occurrenceId);
       if (occurrence) {

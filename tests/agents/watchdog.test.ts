@@ -7,6 +7,10 @@ import { WatchdogService, type WatchdogPorts } from '../../src/core/watchdog-ser
 import { WatchdogReporting } from '../../src/core/watchdog-reporting.js';
 import { applyWatchdogAction } from '../../src/core/watchdog-session-actions.js';
 import { savedSessionObservation } from '../../src/core/session-observation-planning.js';
+import { SessionEventStore } from '../../src/core/session-event-store.js';
+import { SessionRuntimeStore } from '../../src/core/session-runtime-store.js';
+import { initialSessionRuntime } from '../../src/core/session-runtime-planning.js';
+import type { SessionStreamSnapshot } from '../../src/core/session-stream.js';
 import type { SessionState } from '../../src/core/session-ports.js';
 import { WebhookService } from '../../src/core/webhook-service.js';
 import { MemoryAgentsStore } from './fixtures.js';
@@ -182,9 +186,38 @@ it('requires both cancellation opt-ins and unchanged evidence for the active Tur
   const selected = { ...candidate, sessionId, turnId, digest: watchdogDigest(snapshot.items.filter(item => item.turn_id === turnId)) };
   expect(await applyWatchdogAction(f.store, selected, 'cancel', 4000, policy)).toBe(false);
   expect(await applyWatchdogAction(f.store, { ...selected, digest: { ...selected.digest, totalItems: 999 } }, 'cancel', 4000, { ...policy, allowCancel: true })).toBe(false);
-  expect(await applyWatchdogAction(f.store, selected, 'cancel', 4000, { ...policy, allowCancel: true })).toBe(true);
+  expect(await applyWatchdogAction(new SessionEventStore(f.store), selected, 'cancel', 4000, { ...policy, allowCancel: true })).toBe(true);
   await f.sessions.dispatch('operator', sessionId);
   expect(f.execution.cancel).toHaveBeenCalledWith('operator', expect.any(Object), turnId);
+});
+
+it('rejects cancellation when runtime progress changes the observation during its commit', async () => {
+  const f = await integrationFixture();
+  const { sessionId } = await f.integrations.accept('operator', 'binding', 'thread', { ...f.target, watchdog: { cancelLoops: true } }, f.input);
+  await f.integrations.submitPending('operator', sessionId);
+  await f.sessions.dispatch('operator', sessionId);
+  const store = new SessionEventStore(f.store);
+  const runtime = new SessionRuntimeStore(store);
+  await runtime.claim('operator', sessionId, 'run', 1);
+  const observation = (await store.get<SessionStreamSnapshot>('operator', 'session_observations', sessionId))!;
+  const turn = observation.value.turns[0]!;
+  const selected = { ...candidate, sessionId, turnId: turn.id, digest: watchdogDigest(observation.value.items.filter(item => item.turn_id === turn.id)) };
+  const commit = f.store.commit.bind(f.store);
+  let progressed = false;
+  vi.spyOn(f.store, 'commit').mockImplementation(async writes => {
+    if (!progressed && writes.some(({ resource }) => resource.collection === 'sessions')) {
+      progressed = true;
+      await runtime.publish('operator', sessionId, 'run', {
+        ...initialSessionRuntime(sessionId, f.agent.id, 'thread'),
+        turns: [{ threadId: 'thread', nativeTurnId: 'native', turn, items: [{ ...call('progress', 'new work'), turn_id: turn.id }] }],
+      });
+    }
+    await commit(writes);
+  });
+  await expect(applyWatchdogAction(store, selected, 'cancel', 4000, { ...policy, allowCancel: true })).rejects.toMatchObject({ code: 'conflict' });
+  expect(progressed).toBe(true);
+  expect((await store.get<SessionState>('operator', 'sessions', sessionId))!.value.turns[0]!.cancelRequested).not.toBe(true);
+  expect(f.execution.cancel).not.toHaveBeenCalled();
 });
 
 it('reports and submits exactly one safe server_overloaded retry across repeated ticks', async () => {

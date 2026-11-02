@@ -9,7 +9,7 @@ import type { WebhookService } from './webhook-service.js';
 import type { RunDestination } from '../domain/contracts.js';
 
 export class WatchdogReporting {
-  public constructor(private readonly options: { store: AgentsStore; delivery: SessionDeliveryPort; webhooks: Pick<WebhookService, 'fanout' | 'deliver'>; operatorDestinations: RunDestination[] }) {}
+  public constructor(private readonly options: { store: AgentsStore; delivery: SessionDeliveryPort; operatorDelivery?: SessionDeliveryPort; webhooks: Pick<WebhookService, 'fanout' | 'deliver'>; operatorDestinations: RunDestination[] }) {}
   public async report(id: string, finding: WatchdogFinding): Promise<void> {
     const { candidate, judge } = finding;
     const { ownerId } = candidate;
@@ -23,7 +23,7 @@ export class WatchdogReporting {
     const source = integration?.value.inputs.at(-1)?.source ?? { kind: 'api' as const };
     const target = integration?.value.target;
     let deliveryFailed = false;
-    try { await this.options.delivery.deliver({ ownerId, sessionId,
+    try { await (candidate.sessionId ? this.options.delivery : this.options.operatorDelivery ?? this.options.delivery).deliver({ ownerId, sessionId,
       turn: { id, object: 'agent.session.turn', session_id: sessionId, agent_id: 'watchdog', subagent_id: null, status: 'completed', created_at: finding.observedAt, started_at: finding.observedAt, completed_at: finding.observedAt, error: null, usage: null },
       items: [{ id: `${id}_message`, type: 'message', role: 'assistant', phase: 'final_answer', status: 'completed', turn_id: id, content: [{ type: 'output_text', text }] }], source,
       ...(target ? target.destinations ? { destinations: target.destinations } : {} : { destinations: this.options.operatorDestinations }),

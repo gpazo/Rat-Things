@@ -8359,6 +8359,12 @@
             ],
             "default": "sender",
             "description": "Sender isolates chat Sessions by actor. Thread shares a chat Session across senders while retaining actor attribution."
+          },
+          "eventPolicy": {
+            "$ref": "#/components/schemas/SourceEventPolicy"
+          },
+          "watchdog": {
+            "$ref": "#/components/schemas/WatchdogBinding"
           }
         }
       },
@@ -8684,6 +8690,12 @@
             ],
             "default": "sender",
             "description": "Sender isolates chat Sessions by actor. Thread shares a chat Session across senders while retaining actor attribution."
+          },
+          "eventPolicy": {
+            "$ref": "#/components/schemas/SourceEventPolicy"
+          },
+          "watchdog": {
+            "$ref": "#/components/schemas/WatchdogBinding"
           }
         }
       },
@@ -8867,6 +8879,9 @@
           },
           "connectionSetId": {
             "type": "string"
+          },
+          "watchdog": {
+            "$ref": "#/components/schemas/WatchdogBinding"
           }
         },
         "required": [
@@ -9278,6 +9293,110 @@
                 }
               }
             }
+          }
+        }
+      },
+      "SourceEventPolicy": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "mode"
+        ],
+        "properties": {
+          "mode": {
+            "enum": [
+              "explicit",
+              "candidate",
+              "ignore"
+            ],
+            "default": "explicit"
+          },
+          "actors": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "allow": {
+                "type": "array",
+                "maxItems": 256,
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 512
+                }
+              },
+              "deny": {
+                "type": "array",
+                "maxItems": 256,
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 512
+                }
+              }
+            }
+          },
+          "channels": {
+            "type": "array",
+            "maxItems": 256,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512
+            }
+          },
+          "semantic": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "policies",
+              "maxCandidatesPerHour"
+            ],
+            "properties": {
+              "policies": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 16,
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 2000
+                }
+              },
+              "maxCandidatesPerHour": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 1000
+              }
+            }
+          }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "mode": {
+                  "const": "candidate"
+                }
+              }
+            },
+            "then": {
+              "required": [
+                "semantic"
+              ]
+            }
+          }
+        ]
+      },
+      "WatchdogBinding": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "cancelLoops"
+        ],
+        "properties": {
+          "cancelLoops": {
+            "type": "boolean",
+            "default": false
           }
         }
       }

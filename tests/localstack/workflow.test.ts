@@ -1,3 +1,7 @@
+import { WatchdogService } from '../../src/core/watchdog-service.js';
+import { WatchdogReporting } from '../../src/core/watchdog-reporting.js';
+import { applyWatchdogAction } from '../../src/core/watchdog-session-actions.js';
+import { defaultWatchdogPolicy, type WatchdogFinding, type WatchdogCandidate } from '../../src/domain/watchdog.js';
 import { createHmac, randomUUID } from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
 import { createAwsClients, CachedSecretReader, S3ArtifactStore } from '../../src/adapters/aws-runtime.js';
@@ -45,10 +49,38 @@ async function fixture() {
   const delivery = { deliver: vi.fn(async () => {}) };
   const submissions = new SessionIntegrationService({ store, sessions, delivery });
   const resolver = new StoredSourceSessionResolver(integrationStore);
-  return { clients, store, integrationStore, credentials, sessions, submissions, resolver, agent, ownerId, delivery };
+  return { clients, store, integrationStore, credentials, sessions, submissions, resolver, agent, ownerId, delivery, observations, execution };
 }
 
 integration('LocalStack durable provider Sessions and schedules', () => {
+  it('retries server_overloaded once and persists a direct report without an outbox consumer', async () => {
+    const f = await fixture();
+    const session = await f.sessions.create(f.ownerId, { agent_id: f.agent.id, environment: { type: 'none' }, input: 'Inspect release' });
+    const start = vi.spyOn(f.execution, 'start');
+    await f.sessions.dispatch(f.ownerId, session.id);
+    const turn = (await f.sessions.turns(f.ownerId, session.id)).data[0]!;
+    const now = Math.floor(Date.now() / 1000);
+    f.observations.set(turn.id, { turn: { ...turn, status: 'failed', completed_at: now - 300, error: { code: 'server_overloaded', message: 'Transient fixture failure' } }, requiredActions: [] });
+    await f.sessions.completeReadyTurns(f.ownerId, session.id);
+    const candidate: WatchdogCandidate = { ownerId: f.ownerId, sessionId: session.id, turnId: turn.id, subjectId: session.id, reason: 'transient_failure', since: now - 300 };
+    const reporting = new WatchdogReporting({ store: f.store, delivery: f.delivery, operatorDestinations: [], webhooks: { fanout: async () => {}, deliver: async () => ({}) } });
+    const watchdog = new WatchdogService({ store: f.store, policy: defaultWatchdogPolicy, clock: { now: () => now }, ports: {
+      collect: async () => ({ candidates: [candidate], findings: (await f.store.list<WatchdogFinding>(f.ownerId, 'watchdog_findings', {})).data, partial: false }),
+      judgeStart: async () => { throw new Error('No judgment needed'); }, judgeRead: async () => ({ status: 'failed' }), judgeStop: async () => {},
+      act: async (candidate, action, time) => {
+        const accepted = await applyWatchdogAction(f.store, candidate, action, time, defaultWatchdogPolicy);
+        if (accepted) await f.sessions.dispatch(f.ownerId, session.id);
+        return accepted;
+      },
+      report: (id, finding) => reporting.report(id, finding),
+    } });
+    expect(await watchdog.tick()).toMatchObject({ reports: 1, errors: 0 });
+    expect(await watchdog.tick()).toMatchObject({ reports: 0, errors: 0 });
+    expect(start).toHaveBeenCalledTimes(2);
+    expect((await f.sessions.turns(f.ownerId, session.id)).data).toHaveLength(2);
+    expect(f.delivery.deliver).toHaveBeenCalledTimes(1);
+    expect((await f.store.list<WatchdogFinding>(f.ownerId, 'watchdog_findings', {})).data[0]?.value).toMatchObject({ retry: 'submitted', reportedVersion: 1 });
+  });
   it.each(['github', 'gitlab'] as const)('persists signed %s occurrences once under the binding owner', async (provider) => {
     const f = await fixture();
     const eventId = randomUUID();

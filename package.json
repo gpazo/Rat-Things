@@ -80,7 +80,7 @@
   },
   "dependencies": {
     "@aws-crypto/sha256-js": "5.2.0",
-    "@aws-sdk/client-cloudwatch": "^3.1088.0",
+    "@aws-sdk/client-cloudwatch": "3.1088.0",
     "@aws-sdk/client-dynamodb": "3.1088.0",
     "@aws-sdk/client-ec2": "3.1088.0",
     "@aws-sdk/client-eventbridge": "3.1088.0",

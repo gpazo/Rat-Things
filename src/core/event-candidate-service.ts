@@ -26,6 +26,14 @@ export class EventCandidateService {
     count?: (metric: 'EventCandidateAccepted' | 'EventCandidateDropped' | 'EventFilterError' | 'EventCandidateCapped') => void;
   }) {}
 
+  public async receipt(ownerId: string, bindingId: string, threadKey: string, input: SessionIntegrationInput): Promise<{ candidateId: string } | undefined> {
+    const id = `candidate_${integrationDigest([bindingId, input.id])}`;
+    const previous = await this.options.store.get<EventCandidate>(ownerId, 'event_candidates', id);
+    if (!previous) return undefined;
+    if (previous.value.inputDigest !== integrationDigest([bindingId, threadKey, input])) throw new AgentsApiError(409, 'Candidate occurrence has different input.', 'idempotency_conflict');
+    return { candidateId: id };
+  }
+
   public async enqueue(ownerId: string, bindingId: string, threadKey: string, target: SessionIntegrationTarget, input: SessionIntegrationInput, policy: SourceEventPolicy): Promise<{ candidateId: string }> {
     validateSourceEventPolicy(policy);
     if (policy.mode !== 'candidate' || !policy.semantic) throw new Error('Candidate admission requires a semantic policy');

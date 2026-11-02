@@ -447,15 +447,19 @@ function teamsDeliveryMode(value: string | undefined): TeamsDeliveryMode {
 }
 
 export function getSessionIntegrationService(): SessionIntegrationService {
-  sessionIntegrationService ??= new SessionIntegrationService({ store: getAgentsApiServices().store, sessions: getAgentsApiServices().sessions, delivery: new SessionDeliveryService(getDeliveryService(), async (ownerId, sessionId) => {
+  sessionIntegrationService ??= new SessionIntegrationService({ store: getAgentsApiServices().store, sessions: getAgentsApiServices().sessions, delivery: getSessionDeliveryService(), allowedRepositoryHosts: csv(process.env.ALLOWED_REPOSITORY_HOSTS ?? 'github.com,gitlab.com') });
+  return sessionIntegrationService;
+}
+
+export function getSessionDeliveryService(): SessionDeliveryService {
+  return new SessionDeliveryService(getDeliveryService(), async (ownerId, sessionId) => {
     const services = getAgentsApiServices();
     const saved = await services.store.get<import('../core/session-ports.js').SessionState>(ownerId, 'sessions', sessionId);
     if (!saved) throw new Error('Session output credentials are unavailable');
     const mcp = await services.tools.launch(ownerId, saved.value.session);
     const environmentCredentials = await services.tools.environmentLaunch(ownerId, saved.value.session);
     return readSessionOutputSecrets(ownerId, { sessionId, mcp, ...(environmentCredentials ? { environmentCredentials } : {}) }, new CachedSecretReader(getBaseServices().clients.secrets));
-  }), allowedRepositoryHosts: csv(process.env.ALLOWED_REPOSITORY_HOSTS ?? 'github.com,gitlab.com') });
-  return sessionIntegrationService;
+  });
 }
 
 let scheduleService: ScheduleService | undefined;

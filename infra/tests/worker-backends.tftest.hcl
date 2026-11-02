@@ -75,7 +75,7 @@ variables {
   # path checks; separate packaging/image gates validate real executable bytes.
   lambda_zip_paths = { for name in [
     "agents-api", "agents-outbox", "connection-health", "control", "dispatcher", "notifier",
-    "reconciler", "state-stream", "thing-schedule", "webhook-github", "webhook-gitlab", "webhook-teams", "webhook-slack"
+    "reconciler", "state-stream", "thing-schedule", "watchdog", "webhook-github", "webhook-gitlab", "webhook-teams", "webhook-slack"
   ] : name => "tests/worker-backends.tftest.hcl" }
   microvm_source_zip_path        = "tests/worker-backends.tftest.hcl"
   enable_s3_files                = true
@@ -86,12 +86,41 @@ variables {
   github_notify_token_secret_arn = "arn:aws:secretsmanager:us-west-2:123456789012:secret:test-delivery"
 }
 
+run "independent_watchdog_and_candidate_filter" {
+  command = apply
+  module { source = "./modules/agent-runner" }
+  variables {
+    enable_microvm                       = false
+    enable_ec2_worker                    = true
+    enable_watchdog                      = true
+    watchdog_max_judges_per_tick         = 0
+    event_filter_model_id                = "approved-filter-model"
+    event_filter_inference_resource_arns = ["arn:aws:bedrock:us-west-2::foundation-model/approved-filter-model"]
+  }
+  assert {
+    condition     = aws_lambda_function.this["watchdog"].role == aws_iam_role.watchdog[0].arn && aws_lambda_function.this["watchdog"].reserved_concurrent_executions == 1 && aws_cloudwatch_event_target.watchdog[0].arn == aws_lambda_function.this["watchdog"].arn
+    error_message = "Watchdog needs its own role, serialized invocation and independent scheduled target."
+  }
+  assert {
+    condition     = contains(one([for statement in data.aws_iam_policy_document.watchdog[0].statement : statement.actions if statement.sid == "WatchdogScan"]), "dynamodb:Scan") && contains(one([for statement in data.aws_iam_policy_document.watchdog[0].statement : statement.resources if statement.sid == "DeliveryConfiguration"]), var.github_notify_token_secret_arn)
+    error_message = "Watchdog must inspect storage and deliver directly without the outbox role."
+  }
+  assert {
+    condition     = one([for statement in data.aws_iam_policy_document.agents_outbox.statement : statement.resources if statement.sid == "EventFilterInference"]) == toset(var.event_filter_inference_resource_arns)
+    error_message = "Candidate inference must be restricted to exact approved resources."
+  }
+}
+
 run "ec2_only_storage" {
   command = apply
   module { source = "./modules/agent-runner" }
   variables {
     enable_microvm    = false
     enable_ec2_worker = true
+  }
+  assert {
+    condition     = contains(jsondecode(one(one(aws_lambda_event_source_mapping.agents_outbox.filter_criteria).filter).pattern).dynamodb.NewImage.collection.S, "event_candidates")
+    error_message = "Candidate receipts must reach the outbox stream consumer."
   }
   assert {
     condition     = alltrue([for statement in data.aws_iam_policy_document.control.statement : !contains(["SessionSchedules", "PassSessionScheduleRole", "SessionDeliverySecrets"], statement.sid)])

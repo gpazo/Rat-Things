@@ -9,9 +9,10 @@ export function normalizedWork(normalized: NormalizedWebhookInput, traceId: stri
   if (!source || source.kind === 'api') throw new Error('provider ingress must supply trusted source context');
   const actor = normalized.actor ?? providerActor(source);
   const context = providerIngressContext({ ownerId: normalized.ownerId, actorId: actor.id, actorKind: actor.kind, source });
+  const channelId = source.kind === 'teams' ? source.channelId ?? source.conversationId : source.kind === 'slack' ? source.channelId : undefined;
   return {
     context,
-    event: { mentioned: normalized.mentioned, actorId: context.actor.id, ...('channelId' in source && source.channelId ? { channelId: source.channelId } : {}) },
+    event: { mentioned: normalized.mentioned, actorId: context.actor.id, ...(channelId ? { channelId } : {}) },
     input: { id: normalized.idempotencyKey, text: normalized.request.prompt, source, actor: context.actor, credentialSubject: context.credentialSubject,
       ...(normalized.request.repository ? { repository: normalized.request.repository } : {}),
       ...(normalized.repositoryHeadChanged ? { repositoryHeadChanged: true } : {}),
