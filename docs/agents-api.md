@@ -324,7 +324,9 @@ to replace it, `POST /v1/webhooks/{id}` with `{"enabled": false}` to pause deliv
 or `DELETE /v1/webhooks/{id}` to remove the subscription.
 
 Supported events are `agent.session.created`, `agent.session.action_required`,
-`agent.session.in_progress`, `agent.session.idle` and `agent.session.failed`.
+`agent.session.in_progress`, `agent.session.idle`, `agent.session.failed`, and
+`agent.session.watchdog`. The optional [watchdog](watchdog.md#delivery) sends findings
+with the affected Session ID, finding ID, reason, and available judge verdict.
 The webhook uses `action_required`; the stream uses `requires_action`. Retrieve
 the Session for current required-action details. A connection-required webhook
 is committed before the service waits for a self-hosted executor. The creation
@@ -339,6 +341,10 @@ Session deletion has no deletion webhook. An idle Session can have a failed or
 cancelled last Turn; inspect the Turn to determine its outcome.
 
 ## Environments and ownership
+
+For HTTPS credentials in a managed workspace, use the [Vault credential guide](vault-credentials.md).
+It covers attachment, host restrictions, placeholder use, and rotation without
+putting authentication values in a template's plain environment variables.
 
 - `none` provides model and declared service/function tools without a command
   environment. Initial input is required.

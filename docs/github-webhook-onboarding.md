@@ -63,13 +63,19 @@ agent-callable operations separately on the Agent, with their own credentials an
 ## Trigger the first response
 
 Opening, reopening or updating a pull request, or marking it ready for review, submits a
-review. A newly created pull-request comment containing the configured trigger submits a
-question. Other signed event types are acknowledged and ignored.
+review. A newly created pull-request comment containing the configured trigger starts a
+question. Once the thread has an active subscription, follow-up comments can continue it
+without repeating the trigger, subject to the binding's actor policy. Other signed event
+types are acknowledged and ignored. See [event policies](channels.md#event-policies-and-quiet-responses)
+to filter unsolicited comments before starting work.
 
 The accepted receipt contains a Session ID. Inspect that Session's Turns and Items with the
 standard API or CLI. The saved terminal root Turn supplies the result comment; worker exit
-alone does not trigger another reply. Repeated delivery IDs are deduplicated. Repository
-occurrences use separate Sessions so a later event cannot change an earlier checkout ref.
+alone does not trigger another reply. Repeated delivery IDs are deduplicated. Comments on
+the same pull request continue its active Session. A changed head starts a new review
+Session with the new checkout and transfers the thread subscription. Releasing the thread,
+deleting its Session, or reaching the input limit also makes the next accepted event start
+a new Session. See [thread ownership](schedules.md#thread-ownership-and-release).
 
 ## Credential handling
 

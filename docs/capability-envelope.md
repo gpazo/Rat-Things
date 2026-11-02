@@ -54,7 +54,13 @@ Vault `environment_variable` credentials supply placeholders to managed environm
 host substitutes their values in HTTPS headers only for admitted hosts; sandbox code cannot read
 the raw values. Plain environment values and inline environment MCP variables remain readable by
 sandbox code. Service-side MCP and notification credentials stay in their trusted service boundary.
-See [secret handling](security.md#secret-handling).
+Use [Vault credentials](vault-credentials.md) for setup. Model authentication has separate
+guest-readable bridges, described in [secret handling](security.md#secret-handling).
+
+An event policy determines which provider input may reach a Session. It does not grant tools or
+provider permissions. With shared thread scope, other participants can steer the existing Session
+within its fixed authority. A thread release stops that subscription without changing authority.
+Watchdog judgments likewise cannot add permissions; host policy decides retries and cancellation.
 
 ## Instructions for agents
 

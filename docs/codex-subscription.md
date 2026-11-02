@@ -115,6 +115,9 @@ and their credentials. A notification connection does not grant agent tool acces
 
 ## Credential risk and lifecycle
 
+The cloud file bridge requires Lambda MicroVM execution. EC2 workloads must use
+Bedrock authentication. Local subscription execution uses its separate local runtime.
+
 The file bridge copies the validated ChatGPT-mode `auth.json` into AWS Secrets Manager. That file
 contains bearer access and identity tokens, an account identifier, and a renewable refresh token.
 Validation preserves unknown fields; protect the entire bundle rather than assuming
@@ -136,6 +139,8 @@ Rat Things reduces, but cannot eliminate, the risk:
 - the trusted runner writes `auth.json` with mode `0600` inside the MicroVM immediately before
   Codex starts;
 - the unprivileged Codex process necessarily has access to that file while it runs;
+- tokens in this file are not registered with the Session output redactor, so agent
+  code can emit them without that backstop;
 - if Codex refreshes the login, the trusted runner writes the updated bundle back to Secrets
   Manager;
 - execution cleanup persists a validated refresh and deletes the runtime copy; a persistent

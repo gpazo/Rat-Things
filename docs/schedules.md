@@ -26,7 +26,8 @@ Use the authenticated control endpoint:
   "timezone": "America/Los_Angeles",
   "input": "Review changes for {{scheduled_at}}.",
   "overlap": "skip",
-  "destinations": []
+  "destinations": [],
+  "watchdog": { "cancelLoops": false }
 }
 ```
 
@@ -67,11 +68,17 @@ owned Agent, then use `POST /v1/integrations/source-bindings` on the control end
   "selector": { "teamId": "T123", "channelId": "C123" },
   "agentId": "agent_example",
   "environment": { "type": "none" },
-  "connectionSetId": "slack-notifications"
+  "connectionSetId": "slack-notifications",
+  "watchdog": { "cancelLoops": false }
 }
 ```
 
 The most specific matching selector wins; equally specific matches are rejected.
+Choose `threadScope`, `eventPolicy` and any `watchdog` policy before creating the binding.
+The control API currently lists and creates source bindings; it does not edit or delete them.
+See [event policies](channels.md#event-policies-and-quiet-responses) for a complete candidate binding.
+`watchdog.cancelLoops` defaults to false. Enabling it also requires deployment opt-in;
+see the [watchdog action policy](watchdog.md#fixed-action-policy).
 Unbound events are acknowledged with `accepted: false` and `source_not_bound`.
 The binding's authenticated creator owns the Session. The provider sender,
 source thread and deployment credential subject retain separate identities.
@@ -87,24 +94,29 @@ commit never silently replaces the checkout of an existing Session. Repository e
 require a managed environment and HTTPS host allowlists. Clone credentials stay on
 the host.
 
+### Thread ownership and release
+
 A provider Session can call `rat_things_thread_release({"reason":"Work is complete"})`.
 The host resolves the current Session's subscription. The tool cannot select a
 subscription, subscribe to another thread, or change authority. An operator can list subscriptions with `GET /v1/integrations/thread-subscriptions`
 and inspect one with `GET /v1/integrations/thread-subscriptions/{id}`. The list
 supports `after` and `limit` pagination. To release that subscription,
 call `POST /v1/integrations/thread-subscriptions/{id}/release` with `reason` and the
-current `epoch`. A stale epoch returns `409` without releasing a later Session.
+current `epoch`. For example, after reading epoch `0`, send this JSON body:
+
+```json
+{ "reason": "Hand this thread back for a fresh request", "epoch": 0 }
+```
+
+A stale epoch returns `409` without releasing a later Session. Read the subscription again
+before deciding whether to release its new owner. Reasons must contain 1–1,024 characters.
 The current Turn can still deliver its reply after release. The next accepted event
 starts a new Session. Deleting the subscribed Session has the same effect.
 
-The `thread_subscriptions` record identifies the current Session and epoch. Its ID is
-the SHA-256 digest of the canonical JSON array `[bindingId, threadKey]`. Repository
-thread keys are JSON arrays `['github', repository, issueNumber]` or
-`['gitlab', projectId, mergeRequestIid]`. The initial epoch keeps the deterministic
-Session ID. Later epochs use the thread key followed by `#` and the epoch number.
-After 128 accepted inputs, the next event also starts a new epoch to bound stored
-receipt arrays. Each Session integration records its predecessor and successor.
-Durable occurrence receipts keep older deliveries deduplicated across every epoch.
+The subscription record identifies the current Session and its `epoch`, a generation that
+advances when a new Session takes over. After 128 accepted inputs, the next event also starts
+a fresh Session. Each Session integration records its predecessor and successor so operators
+can follow the thread's history. Old delivery IDs remain deduplicated across these transitions.
 
 Each occurrence has a durable input receipt. Repeated deliveries do not append
 input twice. Messages received during an active Turn steer that Turn; later

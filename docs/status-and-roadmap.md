@@ -47,7 +47,8 @@ identity, retention, network policy, and operational limits for the environment 
   also require a trusted operator; arbitrary provider selectors are not provider-verified.
   Known host-managed secrets are scrubbed from proxy echoes and saved/delivered output in supported
   raw and encoded forms. This does not detect arbitrary encodings or repair previously saved output;
-  the Bedrock bearer-token file also remains readable by the agent group. See [credential boundaries](security.md).
+  Bedrock model tokens remain readable through the agent environment or its group-readable token
+  file. See [credential boundaries](security.md) and [Vault setup](vault-credentials.md).
 - **Channels:** Teams uses an outgoing-webhook/Workflow or reply-gateway bridge. A native
   Entra/Bot/Teams gateway remains future work. Linear provides account tools but cannot start
   conversations through native mentions, delegation, or Agent Session events.
@@ -69,11 +70,10 @@ identity, retention, network policy, and operational limits for the environment 
 
 ## Roadmap
 
-Local-first development comes next: an isolated local computer backend behind the
-existing environment ports; readiness and capacity reporting; resumable setup; and
-an explicit, verifiable transfer of Session context and files into AWS. Keep one
-API and one desktop workflow across these backends. Local operation should remain
-a complete choice for people whose hardware is sufficient.
+Local development already supports isolated Linux workers, readiness reporting, resumable
+setup and copying idle Sessions into AWS. The remaining local gaps include Vaults, uploaded
+Files, MCP and provider integrations. Future work should preserve one API and desktop workflow
+across local and cloud backends.
 
 The cloud system improvements center on four areas:
 

@@ -22,12 +22,26 @@ in the same thread to refine it. The saved Session retains the earlier messages,
 Turn outcomes and tool activity. Its environment may need reconnection or recovery
 if the worker is no longer available.
 
+An opt-in installation can also receive ordinary channel messages. Within an active
+subscription, these continue the Session without another mention; outside it, the binding's
+event policy decides whether to discard them or evaluate them as candidates. The default
+Slack installation receives mentions only. See [candidate setup](channels.md#create-a-slack-candidate-binding)
+for the additional scopes, privacy choices and binding configuration.
+
+Shared-thread scope lets other participants steer the same Session within its existing
+permissions. Prefer private channels for that mode. Ask the agent to release the thread when
+its work is finished, or use the [operator release endpoint](schedules.md#thread-ownership-and-release).
+The next accepted request starts a fresh Session.
+
 ## Receive results
 
 Delivery reads the saved terminal root Turn and uses the configured Slack
 connection to post to the original thread. Execution and delivery have separate
 outbox work groups. A delivery failure does not run the agent again; an uncertain
 provider acknowledgement is fenced instead of blindly repeated.
+
+Work admitted only by the candidate filter may finish silently if it has no text to post.
+Explicit requests still receive the normal completion reply.
 
 The Session and Turn IDs connect the Slack result to saved API history. Use the
 console, CLI or API to inspect Items, send more input, cancel active work or retrieve

@@ -130,8 +130,15 @@ the UI to real Sessions in your deployment.
 ## Provider events and schedules
 
 Authenticated GitHub, GitLab, Slack and Teams events resolve an operator-owned Agent
-binding. Each event has a durable input receipt; Slack and Teams retain Session
-continuity within a sender's thread. Delivery follows root Turn completion and
+binding. Pull requests and merge requests keep a Session for follow-up comments;
+a changed head starts a new review Session. Slack and Teams retain a Session within
+a sender's thread, with an opt-in shared thread scope. A Session or operator can
+release a thread so later accepted input starts fresh.
+
+Bindings accept explicit requests by default. Optional [event policies](docs/channels.md#event-policies-and-quiet-responses)
+filter other supported messages asynchronously and cap candidates per hour.
+Candidate-admitted work can finish without posting a reply. Explicit requests
+retain a completion response. Durable receipts deduplicate events, and delivery
 runs independently of Session execution.
 
 Schedules reference an Agent and environment. They retain occurrence identity,
@@ -141,6 +148,11 @@ agent. See [schedules and provider bindings](docs/schedules.md).
 Connections retain provider installation, OAuth refresh, grant narrowing and
 notification access. Agent-facing tools are explicitly declared on Agents;
 notification credentials do not silently add tools.
+
+Enable the [watchdog](docs/watchdog.md) to receive findings about stalled work,
+retry eligible transient failures once, and request bounded progress assessments.
+For authenticated HTTPS calls from a managed workspace, [attach Vault credentials](docs/vault-credentials.md)
+so commands use placeholders while the host supplies the secret to an allowed host.
 
 ## Develop Rat Things
 

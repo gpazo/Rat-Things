@@ -104,6 +104,7 @@ Turns. Never put the value in Terraform, an image, Run, state record, or log. Co
 repository code run under the same agent UID and can read the active file, so this bridge
 is only for trusted owner-operated agents. Theft of its renewable refresh token can
 impersonate the Codex login. Validation preserves unknown fields; protect the whole bundle.
+The file bridge requires Lambda MicroVM execution; configure Bedrock for EC2 workloads.
 Optional Bedrock mode mints a short-term token from the execution role;
 `codex_bedrock_model_ids` restricts inference to exact model IDs.
 The Agents model catalog is operator-declared rather than inferred from Codex support metadata.

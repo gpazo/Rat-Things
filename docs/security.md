@@ -165,21 +165,25 @@ authority boundary.
 Plain environment values and inline environment MCP variables can be read by sandbox code.
 Template and inline MCP validation rejects populated credential-like names such as `*_TOKEN`,
 `*_KEY`, and names containing `SECRET`, `PASSWORD` or `CREDENTIAL`. Empty values, explicit
-placeholders, and known public or structural keys remain valid. Store authentication values in
+placeholders, and known public or structural keys remain valid. `${NAME}` and hand-written
+`rat_secret_…` strings are not Vault references and are not expanded into credentials.
+Only the host-generated placeholder for an attached credential is substituted. Store authentication values in
 Vault `environment_variable` credentials, attach `vault_ids`, and use stdio MCP `env_vars` to
 inherit their placeholders. Name checks cannot detect a secret disguised as ordinary data.
 
 With `CODEX_AUTH_MODE=chatgpt`, trusted orchestration reads the selected encrypted file-based login,
 materializes a private `auth.json`, persists validated refresh rotation and removes the runtime
 copy during cleanup. Only the approved secret reference crosses orchestration. A persistent
-Session may retain the credential while its harness is active.
+Session may retain the credential while its harness is active. This file bridge requires
+Lambda MicroVM execution; use Bedrock for EC2 workloads.
 
 Codex must read that file, so malicious same-UID code can steal its bearer and renewable refresh
 tokens. Possession can permit account impersonation and Codex usage. Validation
 preserves unknown fields, so protect the whole bundle rather than assuming other
 sensitive fields are absent. Use the bridge only for trusted owner-operated workloads, and use account-session
 revocation plus secret removal when a credential is compromised. Encrypted backing storage does
-not remove the active-process risk.
+not remove the active-process risk. The Session output redactor does not register tokens
+from this `auth.json` bridge, so same-UID code can also emit them without that backstop.
 
 Codex can also use Bedrock. Trusted orchestration mints a bounded bearer token from
 its AWS identity or reads the configured token secret. Keep `ALLOW_AGENT_AWS_CREDENTIAL_CHAIN`
@@ -189,9 +193,10 @@ its meaning; a substitute provider/model is not a compatibility repair.
 The EC2 native Bedrock reader uses a root-owned rotating token file with mode `0440` and the
 agent's group. Its parent directory is `0750` with the same group. Agent-group processes can
 therefore read the scoped bearer token even though they cannot replace it. This file is a native
-model-authentication bridge, not a promise of secret isolation from same-group code. AWS role
-credentials remain in the trusted host. The ChatGPT bridge above remains restricted to trusted
-owner-operated workloads.
+model-authentication bridge. MicroVM Codex receives its token through the agent process
+environment as `AWS_BEARER_TOKEN_BEDROCK`. Same-UID code can read the token in either form. Vault placeholder protection
+does not hide model-authentication credentials. AWS role credentials remain in the trusted host
+unless the credential-chain escape hatch is enabled.
 
 Pi Durable uses Bedrock Converse with the deployment's exact model and inference
 resource allowlists. The host mints short-term model tokens and keeps AWS role
@@ -221,14 +226,18 @@ Accept only allowlisted credential-free HTTPS repository URLs. Commands use argu
 trusted orchestration never interpolates a prompt, URL, ref or path into a shell command.
 Fresh repository initialization and authenticated fetch run under the trusted UID with a
 sanitized Git environment. Git tokens never enter an agent-UID process environment. Ownership
-passes to the agent only after fetch finishes; checkout and later repository-controlled commands
-run under the agent UID without the fetch token. Trusted fetch ignores user and system Git
+handoff happens after fetch finishes; checkout and later repository-controlled commands run
+under the agent UID without the fetch token. Trusted fetch ignores user and system Git
 configuration, disables hooks and initialization templates, and uses a fresh repository.
+On a filesystem that maps the fresh directory to the agent UID, trusted setup permits that exact
+directory for its own Git invocation. It does not install a global safe-directory exception.
 
 Workspace paths are anchored beneath the configured root. A replacement worker may reuse only
 the same owner/Session storage under its fenced execution identity. Native checkpoints preserve
 harness history; public-item recovery preserves historical facts without replaying tool effects.
 Neither recovery path promises survival of a process whose VM has been destroyed.
+Repository reuse also requires a valid checked-out commit and any required base ref. An incomplete
+checkout is rebuilt instead of being treated as a ready workspace.
 
 The EC2 supervisor requires the outer dedicated VM for its privileged mount/network setup. The
 agent does not receive the Docker socket or host control configuration. Metadata and the local
