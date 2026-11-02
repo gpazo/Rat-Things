@@ -3,6 +3,7 @@ import { acceptIntegrationInput } from '../../src/core/session-integration-plann
 import type { SessionState } from '../../src/core/session-ports.js';
 import { integrationFixture } from './integration-fixtures.js';
 import { SessionDeliveryService } from '../../src/delivery/session-delivery.js';
+import type { SessionIntegrationState } from '../../src/domain/session-integrations.js';
 
 describe('provider Sessions', () => {
   it('silences empty candidate completions and replies to explicit requests', async () => {
@@ -32,6 +33,73 @@ describe('provider Sessions', () => {
     await f.integrations.deliverReady('operator', sessionId);
     expect(f.delivery.deliver).toHaveBeenCalledTimes(1);
     expect(f.delivery.deliver).toHaveBeenCalledWith(expect.objectContaining({ silentIfEmpty: false }));
+  });
+  it('keeps an empty explicit reply pending when promotion races a quiet delivery acknowledgement', async () => {
+    const f = await integrationFixture();
+    f.execution.items = async () => [];
+    const { sessionId } = await f.integrations.accept('operator', 'binding', 'thread', f.target, { ...f.input, admission: 'candidate' });
+    await f.integrations.submitPending('operator', sessionId);
+    await f.sessions.dispatch('operator', sessionId);
+    const turn = (await f.sessions.turns('operator', sessionId)).data[0]!;
+    f.observations.set(turn.id, { turn: { ...turn, status: 'completed', completed_at: 2 }, requiredActions: [] });
+    await f.sessions.completeReadyTurns('operator', sessionId);
+    let enter!: () => void;
+    let resume!: () => void;
+    const entered = new Promise<void>(resolve => { enter = resolve; });
+    const gate = new Promise<void>(resolve => { resume = resolve; });
+    f.delivery.deliver.mockImplementationOnce(async input => {
+      expect(input).toMatchObject({ silentIfEmpty: true, items: [] });
+      enter();
+      await gate;
+    });
+
+    const delivering = f.integrations.deliverReady('operator', sessionId);
+    await entered;
+    await f.integrations.accept('operator', 'binding', 'thread', f.target, f.input);
+    resume();
+    await delivering;
+
+    let state = await f.store.get<SessionIntegrationState>('operator', 'session_integrations', sessionId);
+    expect(state!.value.inputs[0]).toMatchObject({ admission: 'explicit', deliveryProcessed: false });
+    await f.integrations.deliverReady('operator', sessionId);
+    expect(f.delivery.deliver).toHaveBeenCalledTimes(2);
+    expect(f.delivery.deliver).toHaveBeenLastCalledWith(expect.objectContaining({ silentIfEmpty: false, items: [] }));
+    state = await f.store.get<SessionIntegrationState>('operator', 'session_integrations', sessionId);
+    expect(state!.value.inputs[0]).toMatchObject({ admission: 'explicit', deliveryProcessed: true });
+    expect((await f.sessions.turns('operator', sessionId)).data).toHaveLength(1);
+  });
+  it('preserves a same-Turn explicit receipt appended during visible delivery without redelivery', async () => {
+    const f = await integrationFixture();
+    const { sessionId } = await f.integrations.accept('operator', 'binding', 'thread', f.target, { ...f.input, admission: 'candidate' });
+    await f.integrations.submitPending('operator', sessionId);
+    await f.sessions.dispatch('operator', sessionId);
+    const turn = (await f.sessions.turns('operator', sessionId)).data[0]!;
+    f.observations.set(turn.id, { turn: { ...turn, status: 'completed', completed_at: 2 }, requiredActions: [] });
+    await f.sessions.completeReadyTurns('operator', sessionId);
+    let enter!: () => void;
+    let resume!: () => void;
+    const entered = new Promise<void>(resolve => { enter = resolve; });
+    const gate = new Promise<void>(resolve => { resume = resolve; });
+    f.delivery.deliver.mockImplementationOnce(async input => {
+      expect(input).toMatchObject({ silentIfEmpty: true, items: expect.arrayContaining([expect.objectContaining({ role: 'assistant' })]) });
+      enter();
+      await gate;
+    });
+
+    const delivering = f.integrations.deliverReady('operator', sessionId);
+    await entered;
+    await f.integrations.accept('operator', 'binding', 'thread', f.target, { ...f.input, id: 'explicit-later', text: 'Please answer' });
+    const integration = await f.store.get<SessionIntegrationState>('operator', 'session_integrations', sessionId);
+    const appended = { ...integration!, revision: integration!.revision + 1, value: { ...integration!.value, inputs: integration!.value.inputs.map(input => input.id === 'explicit-later' ? { ...input, turnId: turn.id } : input) } };
+    await f.store.put(appended, integration!.revision);
+    resume();
+    await delivering;
+
+    const state = await f.store.get<SessionIntegrationState>('operator', 'session_integrations', sessionId);
+    expect(state!.value.inputs).toHaveLength(2);
+    expect(state!.value.inputs.every(input => input.turnId === turn.id && input.deliveryProcessed === true)).toBe(true);
+    await f.integrations.deliverReady('operator', sessionId);
+    expect(f.delivery.deliver).toHaveBeenCalledTimes(1);
   });
   it('accepts concurrent duplicate occurrences once and rejects changed payloads', async () => {
     const f = await integrationFixture();
