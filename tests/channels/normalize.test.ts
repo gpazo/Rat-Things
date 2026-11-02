@@ -19,6 +19,18 @@ describe('agent result markers', () => {
 });
 
 describe('GitHub webhook normalization', () => {
+  it('keeps bot-authored pull requests as review triggers with system attribution', () => {
+    const normalized = normalizeGitHubWebhook('pull_request', 'bot-pr', {
+      action: 'opened',
+      number: 3,
+      repository: { full_name: 'acme/widgets', clone_url: 'https://github.com/acme/widgets.git' },
+      pull_request: { title: 'Update dependency', head: { sha: 'abc123' }, user: { login: 'dependabot[bot]' } },
+      sender: { login: 'dependabot[bot]', type: 'Bot' },
+    });
+
+    expect(normalized).toMatchObject({ mentioned: true, actor: { id: 'github:dependabot[bot]', kind: 'system' } });
+  });
+
   it('normalizes a pull-request review into a provider input', () => {
     const normalized = normalizeGitHubWebhook(
       'pull_request',
@@ -149,6 +161,17 @@ describe('GitHub webhook normalization', () => {
 });
 
 describe('GitLab webhook normalization', () => {
+  it('keeps bot-authored merge requests as review triggers with system attribution', () => {
+    const normalized = normalizeGitLabWebhook('Merge Request Hook', 'bot-mr', {
+      object_kind: 'merge_request',
+      project: { id: 81, path_with_namespace: 'acme/widgets', git_http_url: 'https://gitlab.com/acme/widgets.git' },
+      object_attributes: { action: 'open', iid: 23, last_commit: { id: 'abc123' } },
+      user: { id: 42, bot: true },
+    });
+
+    expect(normalized).toMatchObject({ mentioned: true, actor: { id: 'gitlab:42', kind: 'system' } });
+  });
+
   it('normalizes a merge request and derives a clone URL from the project URL', () => {
     const normalized = normalizeGitLabWebhook(
       'Merge Request Hook',
@@ -354,6 +377,20 @@ describe('chat webhook normalization', () => {
         },
       },
     });
+  });
+
+  it('uses the Slack message timestamp as the occurrence identity across message and app-mention events', () => {
+    const common = {
+      team_id: 'workspace-1',
+      event: { channel: 'channel-1', user: 'user-1', thread_ts: '1000.1000', ts: '1000.3000', text: '<@U123ABC> inspect the queue' },
+    };
+    const message = normalizeSlackEvent({ ...common, event_id: 'EvMessage', event: { ...common.event, type: 'message' } });
+    const mention = normalizeSlackEvent({ ...common, event_id: 'EvMention', event: { ...common.event, type: 'app_mention' } });
+
+    expect(message?.idempotencyKey).toBe(mention?.idempotencyKey);
+    expect(message?.request.source).toEqual(mention?.request.source);
+    expect(message?.request.prompt).toBe(mention?.request.prompt);
+    expect(message?.request.source).toMatchObject({ kind: 'slack', eventId: '1000.3000' });
   });
 
   it('ignores incomplete and bot chat events', () => {
