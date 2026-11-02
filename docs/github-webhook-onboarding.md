@@ -39,6 +39,10 @@ with those returned IDs as `github-binding.json`:
   "version": "1",
   "sourceKind": "github",
   "selector": { "repository": "OWNER/REPOSITORY" },
+  "eventPolicy": {
+    "mode": "explicit",
+    "actors": { "allow": ["github:YOUR_LOGIN", "github:dependabot[bot]"] }
+  },
   "agentId": "agent_example",
   "environment": {
     "type": "openai_hosted",
@@ -57,6 +61,12 @@ Rat Things provisions that environment in your AWS account. The authenticated op
 the binding and resulting Sessions. Generic repository selectors are trusted operator
 configuration; they do not independently prove repository ownership.
 
+Replace the allowlist with the people and bots allowed to submit work. It restricts both review
+events and comments. Comments require an allowlist even when they contain the trigger or continue
+a subscribed thread. Omitting the allowlist keeps automatic reviews enabled but disables comments.
+Bot comments are always ignored; bot-authored PRs can still trigger reviews. For an existing binding,
+[replace its event policy](channels.md#change-an-event-policy) without recreating subscriptions.
+
 A notification destination does not give the Agent GitHub write tools. Declare any desired
 agent-callable operations separately on the Agent, with their own credentials and grants.
 
@@ -64,8 +74,8 @@ agent-callable operations separately on the Agent, with their own credentials an
 
 Opening, reopening or updating a pull request, or marking it ready for review, submits a
 review. A newly created pull-request comment containing the configured trigger starts a
-question. Once the thread has an active subscription, follow-up comments can continue it
-without repeating the trigger, subject to the binding's actor policy. Other signed event
+question when its author is allowlisted. Once the thread has an active subscription, allowlisted
+authors can continue it without repeating the trigger. Other signed event
 types are acknowledged and ignored. See [event policies](channels.md#event-policies-and-quiet-responses)
 to filter unsolicited comments before starting work.
 
@@ -88,6 +98,8 @@ it does not mint GitHub App installation tokens from the event's installation ID
 
 - A signed ping returns `202` with `ignored: true`; it does not execute an Agent.
 - `source_not_bound` means no verified source selector matched an Agent/environment binding.
+- `event_policy` means the binding rejected the input. For comments, check the author's exact
+  `github:<login>` allowlist entry and any deny rule.
 - `401` means signature verification failed. Check the configured secret and exact raw body.
 - A failed Turn needs inspection through Session Items and worker diagnostics. A completed Turn
   with no comment needs delivery-fence and notification-credential inspection.

@@ -57,6 +57,7 @@ Sessions belong to the authenticated creator of the matching source binding.
 | `POST /v1/integrations/connection-sets` | Required | Create a reusable multi-account connection set |
 | `GET /v1/integrations/source-bindings` | Required | List the owner's provider source bindings |
 | `POST /v1/integrations/source-bindings` | Required | Bind an operator-configured provider selector to an owned Agent and environment |
+| `PUT /v1/integrations/source-bindings/{bindingId}/event-policy` | Required | Replace the owned binding's event policy while preserving its target and thread subscriptions; see [event policies](channels.md#change-an-event-policy) |
 | `GET /v1/integrations/thread-subscriptions` | Required | List owned thread subscriptions with `after` and `limit` pagination |
 | `GET /v1/integrations/thread-subscriptions/{id}` | Required | Inspect an owned subscription and its current epoch |
 | `POST /v1/integrations/thread-subscriptions/{id}/release` | Required | Release an owned thread subscription while allowing the current Turn to deliver |

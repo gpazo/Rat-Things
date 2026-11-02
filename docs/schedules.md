@@ -74,8 +74,9 @@ owned Agent, then use `POST /v1/integrations/source-bindings` on the control end
 ```
 
 The most specific matching selector wins; equally specific matches are rejected.
-Choose `threadScope`, `eventPolicy` and any `watchdog` policy before creating the binding.
-The control API currently lists and creates source bindings; it does not edit or delete them.
+Choose `threadScope` and any `watchdog` policy before creating the binding. The control API lists
+and creates source bindings and can [replace their event policy](channels.md#change-an-event-policy).
+It does not edit other binding fields or delete bindings.
 See [event policies](channels.md#event-policies-and-quiet-responses) for a complete candidate binding.
 `watchdog.cancelLoops` defaults to false. Enabling it also requires deployment opt-in;
 see the [watchdog action policy](watchdog.md#fixed-action-policy).
@@ -88,7 +89,8 @@ Set `threadScope` to `thread` on a source binding to share the Session across se
 in that thread. The default is `sender`. Every input retains its actor attribution.
 
 GitHub pull requests and GitLab merge requests retain one active Session per binding
-and repository thread. Follow-up comments continue its existing workspace. A head
+and repository thread. Follow-up comments from actors in `eventPolicy.actors.allow` continue its
+existing workspace. Comments require this allowlist even when triggered or subscribed. A head
 change starts a new review Session and transfers the thread subscription, so a new
 commit never silently replaces the checkout of an existing Session. Repository events
 require a managed environment and HTTPS host allowlists. Clone credentials stay on

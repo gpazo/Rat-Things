@@ -85,6 +85,7 @@ from actor attribution. No caller-provided URL or credential may establish owner
 | --- | --- | --- |
 | Forged webhook | Authenticate before parsing; verify exact raw-body signatures where supported | Legacy GitLab token auth does not sign the body or enforce freshness; see [channels](channels.md) |
 | Duplicate ingress | Owner/binding-scoped input receipts and conditional commits | Retention bounds deduplication; do not treat a trigger mention as authorization |
+| Untrusted thread steering | GitHub PR comments and GitLab MR notes require an exact actor allowlist before subscription or trigger admission | Choose actors explicitly; their input remains untrusted and runs inside the Session's existing envelope |
 | Cross-owner access | Owner-scoped resources, hashed storage prefixes and authenticated lookups | Review authorizer/tenant mapping and deployment IAM independently |
 | Malicious repository | Dedicated VM, argument-array commands, HTTPS host allowlist and unprivileged checkout commands | Native tools can exercise all admitted authority; same-UID model/environment credentials are readable by repository code |
 | Guest reaches control plane | Root-owned listener/configuration, guest UID split and cgroup eBPF local-port denial | A root/kernel escape compromises the worker boundary |
