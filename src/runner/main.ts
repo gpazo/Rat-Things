@@ -1,3 +1,5 @@
+import { readSessionOutputSecrets } from '../credentials/session-output.js';
+import { createOutputRedactor } from '../core/output-redactor.js';
 import { piCatalogFromConfig } from '../adapters/pi-model-catalog.js';
 import { hostedCodexArguments } from './hosted-environment-planning.js';
 import { executePiWorker, type PiHostDependencies } from './pi-host.js';
@@ -174,6 +176,8 @@ export async function runAgentWorker(): Promise<void> {
     const driver = driverFor('codex');
     let piHost: PiHostDependencies | undefined;
     let piContextId: string | undefined;
+    let safeSessionOutput = <T>(value: T): T => value;
+    let rememberSessionSecrets = (_values: readonly string[]): void => {};
     let driverControl: AgentDriverControl | undefined = runnerControl?.hooks;
     if (current.agentsSession) {
       const reference = current.agentsSession.launch;
@@ -284,10 +288,14 @@ export async function runAgentWorker(): Promise<void> {
         await runnerControl!.prepareStorage();
         await prepareWorkspace(effectiveRequest.repository, workspace, credentials, { reuseExisting: true });
       }
+      const safeOutput = createOutputRedactor(await readSessionOutputSecrets(sessionOwner, launch, secrets));
+      safeSessionOutput = safeOutput;
+      rememberSessionSecrets = safeOutput.remember;
       const capture = new SessionArtifactCapture({ ownerId: sessionOwner, launch, artifacts,
         ...(environmentFiles ? { files: environmentFiles } : {}),
       });
       sessionJournal = new SessionRuntimeJournal({
+        redact: safeOutput,
         publish: async (snapshot) => runtimes.publish(sessionOwner, launch.sessionId, runId, await capture.capture(snapshot)),
         onFailure: (error) => {
           console.error(JSON.stringify({ message: 'Session journal failed; stopping the harness', error: error.name }));
@@ -295,18 +303,19 @@ export async function runAgentWorker(): Promise<void> {
         },
       });
       if (launch.runtime?.kind === 'pi') {
-        const lease = nativeLease(agentsStore, sessionOwner, launch.sessionId, runId, runtime.value.epoch ?? 0);
+        const native = nativeLease(agentsStore, sessionOwner, launch.sessionId, runId, runtime.value.epoch ?? 0);
+        const lease = { ...native, commit: (change: import('../core/session-native-store.js').NativeCommit) => native.commit({ ...change, writes: safeOutput(change.writes) }) };
         const currentCatalog = piCatalogFromConfig(process.env.PI_BEDROCK_MODEL_IDS_JSON, process.env.AWS_REGION);
         const allowedModelIds = launch.runtime.catalog.filter(model => currentCatalog.some(current => canonicalJson(current) === canonicalJson(model))).map(model => model.id);
         if (!allowedModelIds.includes(launch.agent.model)) throw new Error('Pi model was revoked before worker launch');
         piHost = { allowedModelIds,
           lease,
-          token: readPiBedrockToken,
-          changed: async (snapshot, seq) => { await runtimes.publishNative(sessionOwner, launch.sessionId, runId, seq, await capture.capture(snapshot)); },
+          token: async () => { const token = await readPiBedrockToken(); rememberSessionSecrets([token]); return token; },
+          changed: async (snapshot, seq) => { await runtimes.publishNative(sessionOwner, launch.sessionId, runId, seq, await capture.capture(safeOutput(snapshot))); },
           saveForkContext: async context => {
             piContextId = `${launch.sessionId}:fork-context:${sha256Hex(canonicalJson(context))}`;
             const previous = await agentsStore.get(sessionOwner, 'session_native', piContextId);
-            if (!previous) await agentsStore.put({ ownerId: sessionOwner, id: piContextId, collection: 'session_native', createdAt: Math.floor(Date.now() / 1000), revision: 1, value: context }, 0);
+            if (!previous) await agentsStore.put({ ownerId: sessionOwner, id: piContextId, collection: 'session_native', createdAt: Math.floor(Date.now() / 1000), revision: 1, value: safeOutput(context) }, 0);
           },
         };
       }
@@ -322,7 +331,7 @@ export async function runAgentWorker(): Promise<void> {
         secrets: new SecretsAgentCredentials(clients.secrets, requiredEnv('INTEGRATION_CREDENTIAL_NAME_PREFIX'), requiredEnv('INTEGRATION_CREDENTIAL_KMS_KEY_ARN')),
         oauth: new HttpOAuthRefreshClient(),
       }) : undefined;
-      sessionMcp = await prepareSessionMcp(current.ownerId, launch, secrets, abort.signal, sessionVaults, sessionEnvironmentCredentials);
+      sessionMcp = await prepareSessionMcp(current.ownerId, launch, secrets, abort.signal, sessionVaults, sessionEnvironmentCredentials, rememberSessionSecrets);
       driverControl = { ...driverControl, sessionMcp, ...(sessionEnvironmentCredentials ? { sessionEnvironmentCredentials } : {}) };
       if (launch.environment.type === 'self_hosted') {
         if (!launch.environmentCredential) throw new Error('Session environment credential is missing');
@@ -335,10 +344,13 @@ export async function runAgentWorker(): Promise<void> {
     if (!piHost && driver.name === 'codex' && codexAuthMode() === 'bedrock') {
       if (current.agentsSession && current.execution?.backend === 'ec2') {
         const identity = agentProcessIdentity(process.env.RUN_AGENT_UID, process.env.RUN_AGENT_GID);
-        bedrockTokenFile = await installBedrockTokenFile({ token: () => readCodexBedrockToken(credentials),
+        bedrockTokenFile = await installBedrockTokenFile({ token: async () => { const token = await readCodexBedrockToken(credentials); rememberSessionSecrets([token]); return token; },
           onFailure: () => abort.abort(), ...(identity ? { gid: identity.gid } : {}) });
         process.env.RAT_BEDROCK_AUTH_FILE = bedrockTokenFile.path;
-      } else loadedBedrockToken = await loadCodexBedrockToken(credentials);
+      } else {
+        loadedBedrockToken = await loadCodexBedrockToken(credentials);
+        if (process.env.AWS_BEARER_TOKEN_BEDROCK) rememberSessionSecrets([process.env.AWS_BEARER_TOKEN_BEDROCK]);
+      }
     }
     if (!piHost && driver.name === 'codex' && codexAuthMode() === 'chatgpt') {
       codexAuthFileSession = await installCodexAuthFile(
@@ -376,6 +388,11 @@ export async function runAgentWorker(): Promise<void> {
     await codexAuthFileSession?.finalize();
     codexAuthFileSession = undefined;
     await sessionJournal?.flush();
+    execution.fullText = safeSessionOutput(execution.fullText);
+    executionError = safeSessionOutput(executionError);
+    if (current.agentsSession) execution.events = Buffer.from(execution.events.toString('utf8').split('\n').map(line => {
+      try { return JSON.stringify(safeSessionOutput(JSON.parse(line))); } catch { return safeSessionOutput(line); }
+    }).join('\n'));
     const prefix = `owners/${ownerHash}/runs/${runId}`;
     const eventArtifact = await artifacts.putBytes(`${prefix}/events.jsonl`, execution.events, 'application/x-ndjson');
     const output = await artifacts.putBytes(

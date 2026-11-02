@@ -87,6 +87,24 @@ describe('provider Sessions', () => {
     expect(state.target.destinations).toEqual([]);
     expect(acceptIntegrationInput(state, f.target, f.input)).toBe(state);
   });
+  it('redacts a planted secret before provider delivery and fails closed when credentials cannot be read', async () => {
+    const f = await integrationFixture();
+    const { sessionId } = await f.integrations.accept('operator', 'binding', 'thread', f.target, f.input);
+    await f.integrations.submitPending('operator', sessionId);
+    const state = (await f.store.get<SessionState>('operator', 'sessions', sessionId))!.value;
+    const turn = { ...state.turns[0]!.turn, status: 'completed' as const };
+    const items = [{ id: 'planted', type: 'message' as const, role: 'assistant' as const, status: 'completed' as const, phase: 'final_answer' as const, turn_id: turn.id, content: [{ type: 'output_text' as const, text: 'answer planted-private-token' }] }];
+    const input = { ownerId: 'operator', sessionId, source: f.input.source, turn, items };
+    const deliver = vi.fn(async () => {});
+    const read = vi.fn(async () => ['planted-private-token']);
+    await new SessionDeliveryService({ deliver }, read).deliver(input);
+    expect(read).toHaveBeenCalledWith('operator', sessionId);
+    expect(deliver).toHaveBeenCalledWith(expect.objectContaining({ body: 'answer [REDACTED]' }));
+    deliver.mockClear();
+    await expect(new SessionDeliveryService({ deliver }, async () => { throw new Error('unavailable'); }).deliver(input)).rejects.toThrow('unavailable');
+    expect(deliver).not.toHaveBeenCalled();
+  });
+
   it('formats saved root output with Session and Turn identities', async () => {
     const f = await integrationFixture();
     const { sessionId } = await f.integrations.accept('operator', 'binding', 'thread', f.target, f.input);

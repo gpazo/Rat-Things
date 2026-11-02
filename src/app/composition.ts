@@ -1,3 +1,4 @@
+import { readSessionOutputSecrets } from '../credentials/session-output.js';
 import { piProjectionRepair } from './pi-projection-repair.js';
 import { piCatalogFromConfig } from '../adapters/pi-model-catalog.js';
 import { sessionPlacementFromEnv } from './session-placement.js';
@@ -441,7 +442,14 @@ function teamsDeliveryMode(value: string | undefined): TeamsDeliveryMode {
 }
 
 export function getSessionIntegrationService(): SessionIntegrationService {
-  sessionIntegrationService ??= new SessionIntegrationService({ store: getAgentsApiServices().store, sessions: getAgentsApiServices().sessions, delivery: new SessionDeliveryService(getDeliveryService()), allowedRepositoryHosts: csv(process.env.ALLOWED_REPOSITORY_HOSTS ?? 'github.com,gitlab.com') });
+  sessionIntegrationService ??= new SessionIntegrationService({ store: getAgentsApiServices().store, sessions: getAgentsApiServices().sessions, delivery: new SessionDeliveryService(getDeliveryService(), async (ownerId, sessionId) => {
+    const services = getAgentsApiServices();
+    const saved = await services.store.get<import('../core/session-ports.js').SessionState>(ownerId, 'sessions', sessionId);
+    if (!saved) throw new Error('Session output credentials are unavailable');
+    const mcp = await services.tools.launch(ownerId, saved.value.session);
+    const environmentCredentials = await services.tools.environmentLaunch(ownerId, saved.value.session);
+    return readSessionOutputSecrets(ownerId, { sessionId, mcp, ...(environmentCredentials ? { environmentCredentials } : {}) }, new CachedSecretReader(getBaseServices().clients.secrets));
+  }), allowedRepositoryHosts: csv(process.env.ALLOWED_REPOSITORY_HOSTS ?? 'github.com,gitlab.com') });
   return sessionIntegrationService;
 }
 

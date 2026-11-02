@@ -144,9 +144,30 @@ environment's network policy. TLS verification and public-address checks precede
 request. Raw values and certificate private keys remain outside the guest UID. A Session keeps
 its credential snapshot across Vault rotation; new Sessions use the replacement value.
 
+Responses to substituted requests replace known raw, base64, JSON-escaped and canonical URL-encoded
+credential values with their placeholders in headers and bodies. The scanner retains only the
+longest possible match across stream chunks. It strips requested compression and decodes gzip,
+deflate or Brotli if an upstream still compresses its response. Unsupported encodings and
+authenticated WebSocket upgrades fail closed. Vault validation and proxy startup reject
+environment credentials shorter than eight characters. `CredentialEchoScrubbed` records replacement
+counts without including credential values.
+
+A separate host-side redactor removes known Session secret values before the Session journal,
+Pi native commits, fork context, result/event artifacts and provider delivery are saved or sent.
+It reads owner-scoped credential references and keeps values in host memory. Refreshed MCP
+and minted Bedrock tokens join the host registry. Built-in connector results and provider errors
+are scrubbed at the trusted tool boundary, including arbitrary JSON keys, before reaching the agent.
+The redactor creates no unredacted audit copy. `OutputRedactions` records only counts. The backstop matches values of at
+least eight characters and protects partial streamed suffixes of that length. It cannot identify
+unknown secrets or arbitrary transformations; resource grants and provider scopes remain the
+authority boundary.
+
 Plain environment values and inline environment MCP variables can be read by sandbox code.
-Use Vault placeholders for outbound API authentication when the sandbox should not read the
-secret or use it for local computation.
+Template and inline MCP validation rejects populated credential-like names such as `*_TOKEN`,
+`*_KEY`, and names containing `SECRET`, `PASSWORD` or `CREDENTIAL`. Empty values, explicit
+placeholders, and known public or structural keys remain valid. Store authentication values in
+Vault `environment_variable` credentials, attach `vault_ids`, and use stdio MCP `env_vars` to
+inherit their placeholders. Name checks cannot detect a secret disguised as ordinary data.
 
 With `CODEX_AUTH_MODE=chatgpt`, trusted orchestration reads the selected encrypted file-based login,
 materializes a private `auth.json`, persists validated refresh rotation and removes the runtime
@@ -164,6 +185,13 @@ Codex can also use Bedrock. Trusted orchestration mints a bounded bearer token f
 its AWS identity or reads the configured token secret. Keep `ALLOW_AGENT_AWS_CREDENTIAL_CHAIN`
 false unless exposing the entire role is intentional. The requested model identifier must retain
 its meaning; a substitute provider/model is not a compatibility repair.
+
+The EC2 native Bedrock reader uses a root-owned rotating token file with mode `0440` and the
+agent's group. Its parent directory is `0750` with the same group. Agent-group processes can
+therefore read the scoped bearer token even though they cannot replace it. This file is a native
+model-authentication bridge, not a promise of secret isolation from same-group code. AWS role
+credentials remain in the trusted host. The ChatGPT bridge above remains restricted to trusted
+owner-operated workloads.
 
 Pi Durable uses Bedrock Converse with the deployment's exact model and inference
 resource allowlists. The host mints short-term model tokens and keeps AWS role
@@ -191,7 +219,11 @@ these resources when maintaining worker infrastructure.
 
 Accept only allowlisted credential-free HTTPS repository URLs. Commands use argument arrays;
 trusted orchestration never interpolates a prompt, URL, ref or path into a shell command.
-Repository-controlled Git configuration and commands execute as UID 10001.
+Fresh repository initialization and authenticated fetch run under the trusted UID with a
+sanitized Git environment. Git tokens never enter an agent-UID process environment. Ownership
+passes to the agent only after fetch finishes; checkout and later repository-controlled commands
+run under the agent UID without the fetch token. Trusted fetch ignores user and system Git
+configuration, disables hooks and initialization templates, and uses a fresh repository.
 
 Workspace paths are anchored beneath the configured root. A replacement worker may reuse only
 the same owner/Session storage under its fenced execution identity. Native checkpoints preserve

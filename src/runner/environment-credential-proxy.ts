@@ -11,6 +11,10 @@ import { createSecureContext, rootCertificates, TLSSocket, type SecureContext } 
 import { publicNetworkAddress } from '../domain/network-address.js';
 import { substituteEnvironmentHeaders, type EnvironmentCredentialSubstitution, type HostedCredentialPolicy } from '../domain/environment-credential-planning.js';
 import { runProcess } from './process.js';
+import { pipeline } from 'node:stream';
+import { emitMetric } from '../core/metrics.js';
+import { MIN_SECRET_SCAN_LENGTH, redactOutput, secretRedactionPatterns } from '../domain/output-redaction.js';
+import { CredentialResponseScrubber, credentialResponseDecoder } from './credential-response.js';
 
 export interface EnvironmentCredentialProxy {
   url: string;
@@ -23,6 +27,7 @@ export async function createEnvironmentCredentialProxy(options: {
   network: HostedCredentialPolicy['network']; credentials: EnvironmentCredentialSubstitution[];
   signal?: AbortSignal;
 }): Promise<EnvironmentCredentialProxy> {
+  if (options.credentials.some(({ secret }) => secret.length < MIN_SECRET_SCAN_LENGTH)) throw new Error('Environment credentials require at least 8 characters for response protection');
   const directory = await mkdtemp(join(tmpdir(), 'rat-credential-proxy-'));
   const privateDirectory = join(directory, 'private');
   const sockets = new Set<Socket>();
@@ -147,11 +152,27 @@ export async function createEnvironmentCredentialProxy(options: {
   async function forward(incoming: IncomingMessage, response: ServerResponse) {
     let target: URL;
     try { target = destination(incoming); } catch { response.writeHead(403).end(); return; }
-    const requestOptions = await outgoingOptions(incoming, target);
+    const { requestOptions, substituted } = await outgoingOptions(incoming, target);
     if (incoming.socket.destroyed || response.destroyed) return;
     const outgoing = (target.protocol === 'https:' ? httpsRequest : httpRequest)(target, requestOptions, upstream => {
-      response.writeHead(upstream.statusCode ?? 502, proxyRequestHeaders(upstream.headers));
-      upstream.pipe(response); upstream.on('error', () => response.destroy());
+      if (!substituted.length) {
+        response.writeHead(upstream.statusCode ?? 502, proxyRequestHeaders(upstream.headers));
+        upstream.pipe(response); upstream.on('error', () => response.destroy());
+        return;
+      }
+      try {
+        const patterns = secretRedactionPatterns(options.credentials.map(({ secret, placeholder }) => ({ secret, replacement: placeholder })));
+        const scrubbed = (count: number) => emitMetric('runner', 'CredentialEchoScrubbed', count, 'Count');
+        const headers = redactOutput(Object.entries(proxyRequestHeaders(upstream.headers)), patterns);
+        const safeHeaders = Object.fromEntries(headers.value);
+        for (const name of ['content-length', 'content-encoding', 'etag', 'content-md5', 'digest']) delete safeHeaders[name];
+        const decoder = credentialResponseDecoder(upstream.headers['content-encoding']);
+        if (headers.count) scrubbed(headers.count);
+        response.writeHead(upstream.statusCode ?? 502, safeHeaders);
+        const scrubber = new CredentialResponseScrubber(patterns, scrubbed);
+        const streams = decoder ? [upstream, decoder, scrubber, response] : [upstream, scrubber, response];
+        pipeline(streams, () => {});
+      } catch { upstream.destroy(); if (!response.headersSent) response.writeHead(502); response.end(); }
     });
     outgoing.setTimeout(120_000, () => outgoing.destroy());
     outgoing.on('error', () => { if (!response.headersSent) response.writeHead(502); response.end(); });
@@ -167,17 +188,21 @@ export async function createEnvironmentCredentialProxy(options: {
       || !authority && target.protocol !== 'http:') throw new Error('Destination mismatch');
     return target;
   }
-  async function outgoingOptions(incoming: IncomingMessage, target: URL): Promise<RequestOptions> {
+  async function outgoingOptions(incoming: IncomingMessage, target: URL) {
     const address = await resolveTarget(target);
     const headers = proxyRequestHeaders(substituteEnvironmentHeaders(incoming.headers, target, authorities.has(incoming.socket) ? options.credentials : []));
-    return { method: incoming.method, headers: { ...headers, host: target.host }, agent: false, signal: abort.signal,
+    const substituted = options.credentials.filter(credential => Object.values(incoming.headers).flat().some(value => value?.includes(credential.placeholder)) && Object.values(headers).flat().some(value => value?.includes(credential.secret)));
+    if (substituted.length) delete headers['accept-encoding'];
+    const requestOptions: RequestOptions = { method: incoming.method, headers: { ...headers, host: target.host }, agent: false, signal: abort.signal,
       lookup: (_hostname, parameters, callback) => parameters.all ? callback(null, [address]) : callback(null, address.address, address.family),
     };
+    return { requestOptions, substituted };
   }
   async function upgrade(incoming: IncomingMessage, socket: Socket, head: Buffer) {
     if (incoming.method !== 'GET' || incoming.headers.upgrade?.toLowerCase() !== 'websocket') throw new Error('Invalid upgrade');
     const target = destination(incoming);
-    const requestOptions = await outgoingOptions(incoming, target);
+    const { requestOptions, substituted } = await outgoingOptions(incoming, target);
+    if (substituted.length) { socket.end('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n'); return; }
     if (socket.destroyed) return;
     const outgoing = (target.protocol === 'https:' ? httpsRequest : httpRequest)(target, { ...requestOptions,
       headers: { ...requestOptions.headers, connection: 'Upgrade', upgrade: 'websocket' },

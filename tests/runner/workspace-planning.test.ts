@@ -81,12 +81,12 @@ describe('Git setup planning', () => {
     });
     const planned = trustedGitEnvironment(environment);
     expect(planned).toStrictEqual({
-      PATH: '', HOME: '', GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null', GIT_TERMINAL_PROMPT: '0',
+      PATH: '', HOME: '', GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_COUNT: '2', GIT_CONFIG_KEY_0: 'core.hooksPath', GIT_CONFIG_VALUE_0: '/dev/null', GIT_CONFIG_KEY_1: 'init.templateDir', GIT_CONFIG_VALUE_1: '', GIT_TERMINAL_PROMPT: '0',
     });
     planned.HOME = '/changed';
     expect(environment.GIT_TRUSTED_HOME).toBe('');
     expect(trustedGitEnvironment({})).toStrictEqual({
-      PATH: undefined, HOME: '/opt/agent-runtime', GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null', GIT_TERMINAL_PROMPT: '0',
+      PATH: undefined, HOME: '/opt/agent-runtime', GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_COUNT: '2', GIT_CONFIG_KEY_0: 'core.hooksPath', GIT_CONFIG_VALUE_0: '/dev/null', GIT_CONFIG_KEY_1: 'init.templateDir', GIT_CONFIG_VALUE_1: '', GIT_TERMINAL_PROMPT: '0',
     });
   });
 

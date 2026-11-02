@@ -68,7 +68,7 @@ describe('workspace preparation effects', () => {
     expect(read).not.toHaveBeenCalled();
   });
 
-  it('hands off the directory before reading credentials and runs Git commands sequentially with one authenticated environment', async () => {
+  it('fetches with credentials under the trusted UID before handing checkout to the agent', async () => {
     const target = await workspace();
     vi.stubEnv('RUN_AGENT_UID', '10001');
     vi.stubEnv('RUN_AGENT_GID', '10002');
@@ -85,23 +85,28 @@ describe('workspace preparation effects', () => {
       events.push('credential');
       vi.stubEnv('GIT_TRUSTED_HOME', '/trusted-after-read');
       vi.stubEnv('GIT_ASKPASS_PATH', '/askpass-after-read');
-      return '';
+      return 'private-clone-token';
     });
 
     await prepareWorkspace({ ...repository, credentialSecretArn: 'secret-ref', ref: 'feature', baseRef: 'main' }, target, broker);
-    expect(events).toEqual(['handoff', 'credential', 'init', 'remote', 'fetch', 'checkout', 'fetch', 'update-ref', 'handoff']);
+    expect(events).toEqual(['credential', 'init', 'remote', 'fetch', 'fetch', 'handoff', 'checkout', 'update-ref']);
     expect(read).toHaveBeenCalledExactlyOnceWith('secret-ref', ['token', 'access_token', 'password']);
     const gitCalls = run.mock.calls.filter(([command]) => command === 'git');
     expect(gitCalls).toHaveLength(6);
-    const environment = gitCalls[0]![2].env;
-    expect(environment).toMatchObject({ HOME: '/trusted-before-read', GIT_TOKEN: '', GIT_USERNAME: 'x-access-token', GIT_ASKPASS: '/askpass-after-read' });
-    for (const [, args, options] of gitCalls) {
-      expect(args.join(' ')).not.toContain('secret-ref');
-      expect(options.env).toBe(environment);
-      expect(options).toMatchObject({ uid: 10001, gid: 10002, timeoutMs: 120_000 });
+    const fetches = gitCalls.filter(([, args]) => args[2] === 'fetch');
+    for (const [, , options] of fetches) {
+      expect(options.env).toMatchObject({ HOME: '/trusted-before-read', GIT_TOKEN: 'private-clone-token', GIT_USERNAME: 'x-access-token', GIT_ASKPASS: '/askpass-after-read' });
+      expect(options).not.toHaveProperty('uid');
+      expect(options).not.toHaveProperty('gid');
+    }
+    for (const [, args, options] of gitCalls.filter(([, , options]) => options.uid !== undefined)) {
+      expect(args[2]).toMatch(/^(checkout|update-ref)$/);
+      expect(options).toMatchObject({ uid: 10001, gid: 10002 });
+      expect(options.env).not.toHaveProperty('GIT_TOKEN');
+      expect(options.env).not.toHaveProperty('GIT_ASKPASS');
     }
     expect(gitCalls[2]![1]).toEqual(['-C', target, 'fetch', '--quiet', '--depth=50', 'origin', 'feature']);
-    expect(gitCalls[4]![1]).toEqual(['-C', target, 'fetch', '--quiet', '--depth=50', 'origin', 'main:refs/remotes/origin/main']);
+    expect(gitCalls[3]![1]).toEqual(['-C', target, 'fetch', '--quiet', '--depth=50', 'origin', 'main:refs/remotes/origin/main']);
   });
 
   it('leaves the created directory in place when credential resolution fails', async () => {
@@ -122,6 +127,14 @@ describe('workspace preparation effects', () => {
     );
     expect(run).toHaveBeenCalledTimes(2);
     expect(run.mock.calls[1]![1]).toEqual(['-C', target, 'remote', 'add', 'origin', repository.url]);
+  });
+
+  it('scrubs encoded clone tokens from trusted fetch diagnostics', async () => {
+    const target = await workspace();
+    const broker = credentials();
+    vi.spyOn(broker, 'read').mockResolvedValue('clone-private-token/$');
+    run.mockImplementation(async (_command, args) => args[2] === 'fetch' ? result(1, Buffer.alloc(0), `failed ${Buffer.from('clone-private-token/$').toString('base64')} ${encodeURIComponent('clone-private-token/$')}`) : result());
+    await expect(prepareWorkspace({ ...repository, credentialSecretArn: 'secret-ref' }, target, broker)).rejects.toThrow('failed [REDACTED] [REDACTED]');
   });
 
   it('reads identity and default Git environment again between empty-baseline commands', async () => {

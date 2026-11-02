@@ -16,7 +16,7 @@ it.each([undefined, 'bedrock-test-model'])('preflights, snapshots and resumes an
     credentials: { create: async () => { throw new Error('no credentials'); }, read: async () => { throw new Error('no credentials'); }, revoke: async () => {} } });
   f.execution.prepare = (owner, id, input) => environments.prepare(owner, id, input);
   const source = await f.sessions.create('operator', { agent: { model: 'test' }, environment: { type: 'openai_hosted', setup_commands: [{ command: 'echo only-once' }],
-    env: { GITHUB_TOKEN: 'local-token-fixture', PROJECT_MODE: 'local-mode-fixture' } } });
+    env: { GITHUB_TOKEN: '${GITHUB_TOKEN}', PROJECT_MODE: 'local-mode-fixture' } } });
   const requests: Array<{ path: string; body: unknown }> = [];
   let loseResponse = true;
   let catalogAvailable = true;
@@ -50,11 +50,11 @@ it.each([undefined, 'bedrock-test-model'])('preflights, snapshots and resumes an
   expect(imports[0]?.body).toEqual(imports[1]?.body);
   expect((imports[0]?.body as SessionImport).session.agent?.model).toBe(model ?? 'test');
   expect(JSON.stringify(imports[0]?.body)).not.toContain('only-once');
-  expect(JSON.stringify(imports[0]?.body)).not.toContain('local-token-fixture');
+  expect(JSON.stringify(imports[0]?.body)).not.toContain('${GITHUB_TOKEN}');
   expect(JSON.stringify(imports[0]?.body)).not.toContain('local-mode-fixture');
   expect((imports[0]?.body as SessionImport).session.environment).not.toHaveProperty('env');
   if (source.environment.type !== 'openai_hosted') throw new Error('Expected managed environment');
-  expect((await environments.managedLaunch('operator', source.environment.id)).hostedConfiguration?.env).toEqual({ GITHUB_TOKEN: 'local-token-fixture', PROJECT_MODE: 'local-mode-fixture' });
+  expect((await environments.managedLaunch('operator', source.environment.id)).hostedConfiguration?.env).toEqual({ GITHUB_TOKEN: '${GITHUB_TOKEN}', PROJECT_MODE: 'local-mode-fixture' });
   expect((await f.sessions.list('destination')).data).toHaveLength(1);
   expect((await f.sessions.retrieve('operator', source.id)).id).toBe(source.id);
   expect((await f.sessions.retrieve('operator', source.id)).agent.model).toBe('test');

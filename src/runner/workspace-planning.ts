@@ -35,7 +35,7 @@ export function emptyWorkspaceCommands(workspace: string): string[][] {
   ];
 }
 
-export function repositoryCheckoutCommands(workspace: string, ref: string | undefined): string[][] {
+export function repositoryCheckoutCommands(workspace: string, ref: string | undefined): [string[], string[]] {
   return [
     ref
       ? ['-C', workspace, 'fetch', '--quiet', '--depth=50', 'origin', ref]
@@ -57,6 +57,11 @@ export function trustedGitEnvironment(environment: Readonly<NodeJS.ProcessEnv>):
     HOME: environment.GIT_TRUSTED_HOME ?? '/opt/agent-runtime',
     GIT_CONFIG_NOSYSTEM: '1',
     GIT_CONFIG_GLOBAL: '/dev/null',
+    GIT_CONFIG_COUNT: '2',
+    GIT_CONFIG_KEY_0: 'core.hooksPath',
+    GIT_CONFIG_VALUE_0: '/dev/null',
+    GIT_CONFIG_KEY_1: 'init.templateDir',
+    GIT_CONFIG_VALUE_1: '',
     GIT_TERMINAL_PROMPT: '0',
   };
 }

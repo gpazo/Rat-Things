@@ -1,3 +1,4 @@
+import { createOutputRedactor, type OutputRedactor } from '../core/output-redactor.js';
 import {
   authorizeConnectionOperation,
   type ConnectionAccessRequest,
@@ -32,6 +33,7 @@ export class IntegrationRuntime {
 
   public async prepare(input: PrepareIntegrationToolsInput): Promise<IntegrationToolSession> {
     const selection = await this.selectedConnections(input);
+    const safeOutput = createOutputRedactor([], { keys: true, component: 'integrations' });
     const tools: DynamicIntegrationTool[] = [];
     const resolved = new Map<string, ResolvedTool>();
     const byPlugin = connectionsByPlugin(selection.connections);
@@ -77,7 +79,7 @@ export class IntegrationRuntime {
 
     return {
       tools,
-      call: (call, signal) => this.call(input, resolved, call, signal),
+      call: (call, signal) => this.call(input, resolved, call, safeOutput, signal),
     };
   }
 
@@ -137,6 +139,7 @@ export class IntegrationRuntime {
     input: PrepareIntegrationToolsInput,
     tools: Map<string, ResolvedTool>,
     call: DynamicIntegrationToolCall,
+    safeOutput: OutputRedactor,
     signal?: AbortSignal,
   ): Promise<JsonValue> {
     const { selected, operation, operationInput } = resolveToolCall(tools, call);
@@ -155,12 +158,23 @@ export class IntegrationRuntime {
       selected.connection,
       signal,
     );
-    const result = await selected.plugin.execute(operation.id, operationInput, {
-      connection: selected.connection,
-      credential,
-      ...(signal ? { signal } : {}),
-    });
-    assertBoundedJson(result, 'integration tool result');
-    return result;
+    const publicFields = new Set(selected.plugin.manifest.authentication.find(auth => auth.scheme === selected.connection.authorization.scheme)?.fields.filter(field => !field.secret).map(field => field.key));
+    safeOutput.remember(Object.entries(credential).filter(([key]) => !publicFields.has(key)).map(([, value]) => value));
+    try {
+      const result = await selected.plugin.execute(operation.id, operationInput, {
+        connection: selected.connection,
+        credential,
+        ...(signal ? { signal } : {}),
+      });
+      assertBoundedJson(result, 'integration tool result');
+      return safeOutput(result);
+    } catch (error) {
+      if (error instanceof Error) {
+        const message = safeOutput(error.message);
+        if (message !== error.message) throw new Error(message);
+        throw error;
+      }
+      throw safeOutput(error);
+    }
   }
 }

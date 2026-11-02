@@ -51,7 +51,7 @@ describe('vault and environment template contracts', () => {
 
   it.each([
     { secret_name: 'CODEX_HOME' }, { secret_name: 'https_proxy' }, { secret_name: 'SSL_CERT_FILE' }, { secret_name: '1TOKEN' },
-    { secret_value: '' }, { secret_value: 'token\n' }, { secret_value: 'token\0' },
+    { secret_value: '' }, { secret_value: 'short' }, { secret_value: 'token\n' }, { secret_value: 'token\0' },
     { networking: { type: 'limited', allowed_hosts: [] } },
     ...['https://api.example.com', 'api.example.com:443', '*.example.com', 'api.example.com/path', '::1', '999.1.1.1'].map(host => ({ networking: { type: 'limited', allowed_hosts: [host] } })),
     { networking: { type: 'limited', allowed_hosts: ['api.example.com', 'API.example.com'] } },
@@ -59,7 +59,7 @@ describe('vault and environment template contracts', () => {
     const f = fixture();
     const vault = await f.api.vaults.create();
     await expect(f.vaults.createCredential('alice', vault.id, { name: 'Invalid', auth: {
-      type: 'environment_variable', secret_name: 'SERVICE_TOKEN', secret_value: 'value', networking: { type: 'unrestricted' }, ...override,
+      type: 'environment_variable', secret_name: 'SERVICE_TOKEN', secret_value: 'valid-private-value', networking: { type: 'unrestricted' }, ...override,
     } })).rejects.toMatchObject({ status: 400 });
     expect(f.secrets.size).toBe(0);
   });
@@ -138,6 +138,15 @@ describe('vault and environment template contracts', () => {
     expect((await f.api.environments.templates.update(template.id, { files: null })).files).toEqual([]);
     await f.api.environments.templates.delete(template.id);
     await expect(f.api.environments.templates.retrieve(template.id)).rejects.toMatchObject({ status: 404 });
+  });
+
+  it.each(['SERVICE_TOKEN', 'STRIPE_KEY', 'CLIENT_SECRET', 'password'])('rejects credential-like plain template variables named %s before storage', async name => {
+    const f = fixture();
+    await expect(f.api.environments.templates.create({ env: { [name]: 'private-planted-value' } })).rejects.toThrow(/Vault/);
+    expect(f.store.resources.size).toBe(0);
+    const template = await f.api.environments.templates.create({ env: { NODE_ENV: 'production', PUBLIC_KEY: 'public-material', SERVICE_TOKEN: '${SERVICE_TOKEN}' } });
+    await expect(f.api.environments.templates.update(template.id, { env: { [name]: 'private-planted-value' } })).rejects.toThrow(/Vault/);
+    expect(JSON.stringify([...f.store.resources.values()])).not.toContain('private-planted-value');
   });
 
   it('rejects traversal and invalid base64 before creating a template', async () => {
