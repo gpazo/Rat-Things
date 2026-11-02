@@ -94,7 +94,7 @@ describe('legacy windowed watchdog incidents', () => {
   it.each([3, 2])('adopts the existing judge from legacy window %s without reposting and keeps its report identity for the verdict', async window => {
     const f = await migrationFixture([window]);
     await f.service.tick();
-    expect(f.judgeStart.mock.calls.map(([, id]) => id)).toEqual([f.resources[0]!.value.judge.status === 'pending' ? f.resources[0]!.value.judge.sessionId : '']);
+    expect(f.judgeStart.mock.calls.map(([, id]) => id)).toEqual([`sess_${legacyId(window)}_judge`]);
     expect(f.report).not.toHaveBeenCalled();
     f.judgeRead.mockResolvedValue({ status: 'completed', text: JSON.stringify({ verdict: 'progressing', confidence: 0.99, evidence: ['Progress'] }) });
     await f.service.tick();
@@ -119,6 +119,18 @@ describe('legacy windowed watchdog incidents', () => {
     await f.service.tick();
     expect(new Set(f.judgeStart.mock.calls.map(([, id]) => id))).toEqual(new Set([`sess_${legacyId(2)}_judge`]));
     expect(f.report).not.toHaveBeenCalled();
+    expect(f.list).not.toHaveBeenCalled();
+  });
+
+  it('adopts an already reported completed legacy finding without launching or reporting again', async () => {
+    const f = await migrationFixture([2]);
+    const original = f.resources[0]!;
+    await f.store.put({ ...original, revision: 2, value: { ...original.value, judge: { status: 'completed', sessionId: `sess_${legacyId(2)}_judge`, verdict: { verdict: 'progressing', confidence: 0.99, evidence: [] } } } }, 1);
+    await f.service.tick();
+    await f.service.tick();
+    expect(f.judgeStart).not.toHaveBeenCalled();
+    expect(f.report).not.toHaveBeenCalled();
+    expect((await f.store.get<WatchdogFinding>('operator', 'watchdog_findings', watchdogIdentity(candidate)))!.value.judge.status).toBe('completed');
     expect(f.list).not.toHaveBeenCalled();
   });
 });

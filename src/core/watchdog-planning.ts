@@ -7,7 +7,15 @@ import { canonicalJson } from '../domain/json.js';
 
 const transientErrors = new Set(['rate_limit_exceeded', 'server_overloaded', 'connection_failed', 'server_error', 'request_timeout']);
 export const isWatchdogTransientError = (code: string | undefined): boolean => code !== undefined && transientErrors.has(code);
-export const watchdogIdentity = (candidate: WatchdogCandidate): string => `wd_${createHash('sha256').update(canonicalJson([candidate.ownerId, candidate.reason, candidate.subjectId, candidate.turnId ?? null, candidate.window ?? null, candidate.reason === 'alarm' ? candidate.since : null])).digest('hex')}`;
+const identityWithWindow = (candidate: WatchdogCandidate, window: number | null): string => `wd_${createHash('sha256').update(canonicalJson([candidate.ownerId, candidate.reason, candidate.subjectId, candidate.turnId ?? null, window, candidate.reason === 'alarm' ? candidate.since : null])).digest('hex')}`;
+export const watchdogIdentity = (candidate: WatchdogCandidate): string => identityWithWindow(candidate, candidate.reason === 'long_running' ? null : candidate.window ?? null);
+export const watchdogIncidentCandidate = ({ window, ...candidate }: WatchdogCandidate): WatchdogCandidate => candidate.reason === 'long_running' || window === undefined ? candidate : { ...candidate, window };
+/** Upgrade lookup is bounded; older windows are adopted when the collector encounters them. */
+export function watchdogLegacyIdentities(candidate: WatchdogCandidate, now: number, policy: WatchdogPolicy): string[] {
+  if (candidate.reason !== 'long_running') return [];
+  const window = candidate.window ?? Math.floor(now / Math.max(1, policy.longRunningSeconds));
+  return [identityWithWindow(candidate, window), identityWithWindow(candidate, window - 1)];
+}
 export const watchdogRetryKey = (turnId: string): string => `watchdog-retry:${turnId}`;
 export const isWatchdogJudge = (state: SessionState): boolean => /^sess_wd_[a-f0-9]{64}_judge$/.test(state.session.id);
 export const isToolItem = (item: AgentSessionItem): boolean => item.type !== 'message' && item.type !== 'reasoning' && item.type !== 'agent_message';
