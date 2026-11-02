@@ -30,7 +30,7 @@ type Fixture = { provider: 'github' | 'slack'; id: string; event: string; body: 
 type Completed = { sessionId: string; turn: Turn; items: AgentSessionItem[]; integration: SessionIntegrationState };
 type Mapping = { UUID: string; State: string; FunctionArn: string; EventSourceArn: string };
 
-live('proves provider continuation, thread release, candidate filtering and quiet delivery through deployed routing', async () => {
+live.each(['threads', 'filtering'] as const)('proves %s through deployed routing', async scenario => {
   if (process.env.AWS_E2E_REAL_CODEX !== 'true') throw new Error('Routing proof requires explicit real-model opt-in');
   const region = required('AWS_REGION');
   const deployment = `rat-things-${required('AWS_E2E_DEPLOYMENT_ID')}`;
@@ -49,7 +49,8 @@ live('proves provider continuation, thread release, candidate filtering and quie
   const captures = new Map<string, Map<string, string>>();
   const ownedTurns = new Set<string>();
   const observedArtifacts = new Set<string>();
-  const proofPath = process.env.AWS_E2E_SUPER_AGENT_PROOF_ARTIFACT ?? `/tmp/${deployment}-${marker}.json`;
+  const proofBase = process.env.AWS_E2E_SUPER_AGENT_PROOF_ARTIFACT ?? `/tmp/${deployment}-${marker}.json`;
+  const proofPath = `${proofBase.replace(/\.json$/, '')}-${scenario}.json`;
   const client = createAgentsClient({ baseURL: required('RAT_THINGS_AGENTS_API_URL'), region }).withOptions({ maxRetries: 0 });
   const control = createAgentsClient({ baseURL: new URL('/v1', required('RAT_THINGS_API_URL')).href, region }).withOptions({ maxRetries: 0 });
   const db = DynamoDBDocumentClient.from(new DynamoDBClient({ region }));
@@ -70,6 +71,7 @@ live('proves provider continuation, thread release, candidate filtering and quie
   let proofFailed = false;
   let sequence = 0;
   let phase = 'setup';
+  let quietDelivery: { quietTurnId: string; explicitTurnId: string } | undefined;
   try {
     check('disposable_resource_names', /^rat-things-[a-z0-9-]+$/.test(deployment)
       && tableName === `${deployment}-agents` && runsTable === `${deployment}-runs`
@@ -94,181 +96,192 @@ live('proves provider continuation, thread release, candidate filtering and quie
         'For a GitHub pull-request input, execute exactly git rev-parse HEAD in the checked-out repository using command execution. Do not claim a checkout without executing it. Do not modify files or perform a review.',
         `When the input contains RELEASE, call rat_things_thread_release with reason ${marker}, wait for its successful tool output, then finish with the REPLY marker.`,
         'When the input contains QUIET, finish the Turn without any final assistant text. Do not explain, acknowledge, print a marker or substitute punctuation. An empty final response is the required successful result.',
-        `For an input without a REPLY marker, finish with only ${reply('candidate_act')}. If that input states that the incident channel already has a complete status update, finish without any final assistant text instead.`,
+        `For an input without a REPLY marker, finish with only ${reply('candidate_act')}.`,
         'Otherwise finish with only the token after REPLY=. Never create subagents or call external services.',
       ].join('\n') });
     createdAgents.add(agent.id);
-    const github = await bind({ sourceKind: 'github', selector: { repository, issueNumber: String(issue) }, environment: { type: 'openai_hosted' }, eventPolicy: { mode: 'explicit' } });
-    const invalid = pull('opened', headA, 'authentication');
-    for (const provider of ['github', 'slack'] as const) {
-      const response = await fetch(provider === 'github' ? githubUrl : slackUrl, { method: 'POST', body: '{', headers: { 'content-type': 'application/json', ...(provider === 'github' ? { 'x-github-event': 'pull_request', 'x-github-delivery': invalid.id, 'x-hub-signature-256': 'sha256=invalid' } : { 'x-slack-signature': 'v0=invalid', 'x-slack-request-timestamp': String(Math.floor(Date.now() / 1000)) }) }, signal: AbortSignal.timeout(30_000), redirect: 'error' });
-      check(`${provider}_authentication_before_parsing`, response.status === 401);
+    if (scenario === 'threads') {
+      const github = await bind({ sourceKind: 'github', selector: { repository, issueNumber: String(issue) }, environment: { type: 'openai_hosted' }, eventPolicy: { mode: 'explicit' } });
+      const invalid = pull('opened', headA, 'authentication');
+      for (const provider of ['github', 'slack'] as const) {
+        const response = await fetch(provider === 'github' ? githubUrl : slackUrl, { method: 'POST', body: '{', headers: { 'content-type': 'application/json', ...(provider === 'github' ? { 'x-github-event': 'pull_request', 'x-github-delivery': invalid.id, 'x-hub-signature-256': 'sha256=invalid' } : { 'x-slack-signature': 'v0=invalid', 'x-slack-request-timestamp': String(Math.floor(Date.now() / 1000)) }) }, signal: AbortSignal.timeout(30_000), redirect: 'error' });
+        check(`${provider}_authentication_before_parsing`, response.status === 401);
+      }
+      check('invalid_signature_has_no_occurrence', !await occurrence(github, `github:${invalid.id}`));
+      check('invalid_signature_has_no_session', (await client.beta.agents.sessions.list({ agent_id: agent.id, limit: 100 })).data.length === 0);
+      const unbound = await send(slack(`CUNBOUND${sequence++}`, 'app_mention', 'U1', timestamp(), 'unbound'));
+      check('signed_unbound_source', unbound.reason === 'source_not_bound' && unbound.accepted === false);
+
+      const opened = pull('opened', headA, 'opened');
+      const first = await complete(await acceptedSession(opened), `github:${opened.id}`);
+      await delivered(first);
+      await checkout(first, headA);
+      const initialWorker = await worker(first.sessionId, headA);
+      const comment = githubComment('follow_up');
+      const follow = await complete(await acceptedSession(comment), `github:${comment.id}`);
+      check('github_unmentioned_comment_continues', follow.sessionId === first.sessionId && follow.turn.id !== first.turn.id);
+      await delivered(follow);
+      await checkout(follow, headA);
+      const continuedWorker = await worker(follow.sessionId, headA);
+      check('github_continuation_retains_environment_and_execution', initialWorker.environmentId === continuedWorker.environmentId
+        && initialWorker.runId === continuedWorker.runId && initialWorker.executionId === continuedWorker.executionId);
+      await replay(opened, first);
+      await replay(comment, follow);
+      const changed = pull('synchronize', headB, 'head_changed');
+      const rotated = await complete(await acceptedSession(changed), `github:${changed.id}`);
+      await transferred(first, rotated);
+      await delivered(rotated);
+      await checkout(rotated, headB);
+      const rotatedWorker = await worker(rotated.sessionId, headB);
+      check('github_new_head_gets_new_environment_and_execution', rotatedWorker.environmentId !== initialWorker.environmentId
+        && rotatedWorker.runId !== initialWorker.runId && rotatedWorker.executionId !== initialWorker.executionId);
+      await replay(opened, first);
+      await replay(comment, follow);
+      await replay(changed, rotated);
+      const sameHead = pull('synchronize', headB, 'same_head');
+      const same = await complete(await acceptedSession(sameHead), `github:${sameHead.id}`);
+      check('github_same_head_retains_session', same.sessionId === rotated.sessionId);
+      await delivered(same);
+      const releaseEvent = githubComment('release', 'RELEASE');
+      const release = await complete(await acceptedSession(releaseEvent), `github:${releaseEvent.id}`);
+      check('github_release_turn_stays_in_current_session', release.sessionId === rotated.sessionId);
+      const releaseCall = release.items.find(item => item.type === 'function_call' && item.name === 'rat_things_thread_release');
+      check('release_tool_call_saved', releaseCall?.type === 'function_call' && record(releaseCall.arguments).reason === marker);
+      const releaseOutput = release.items.find(item => item.type === 'function_call_output' && item.call_id === (releaseCall?.type === 'function_call' ? releaseCall.call_id : ''));
+      check('release_tool_success_saved', releaseOutput?.type === 'function_call_output' && releaseOutput.status === 'completed'
+        && typeof releaseOutput.output === 'string' && record(JSON.parse(releaseOutput.output)).released === true);
+      const released = await subscription(release);
+      check('release_subscription_is_durable', released.subscribers.some(value => value.sessionId === release.sessionId && value.state === 'released'));
+      await delivered(release);
+      check('unmentioned_github_event_after_release_is_dropped', (await send(githubComment('after_release'))).reason === 'event_policy');
+      const reopened = pull('reopened', headB, 'reopened');
+      const restarted = await complete(await acceptedSession(reopened), `github:${reopened.id}`);
+      await transferred(release, restarted);
+      await delivered(restarted);
+      await checkout(restarted, headB);
+      await replay(changed, rotated);
+
+      const threadChannel = channel();
+      await bind({ sourceKind: 'slack', threadScope: 'thread', selector: { teamId: team, channelId: threadChannel }, environment: { type: 'none' }, eventPolicy: { mode: 'explicit' } });
+      const root = timestamp();
+      const mention = slack(threadChannel, 'app_mention', 'U1', root, 'thread_start');
+      const slackFirst = await complete(await acceptedSession(mention), `slack:${mention.id}`);
+      await delivered(slackFirst);
+      const secondSender = slack(threadChannel, 'message', 'U2', root, 'thread_other_sender');
+      const shared = await complete(await acceptedSession(secondSender), `slack:${secondSender.id}`);
+      check('slack_thread_scope_shares_senders', shared.sessionId === slackFirst.sessionId && shared.turn.id !== slackFirst.turn.id);
+      await delivered(shared);
+      const sub = await subscription(shared);
+      const listed = await control.get<{ data: Array<ThreadSubscription & { id: string }> }>('/integrations/thread-subscriptions', { query: { limit: 100 } });
+      check('operator_can_list_subscription', listed.data.some(value => value.id === sub.id));
+      const operatorRelease = await control.post<{ released: boolean; sessionId: string }>(`/integrations/thread-subscriptions/${sub.id}/release`, { body: { reason: marker, epoch: sub.epoch } });
+      check('operator_release_current_epoch', operatorRelease.released && operatorRelease.sessionId === shared.sessionId);
+      check('unmentioned_slack_event_after_release_is_dropped', (await send(slack(threadChannel, 'message', 'U2', root, 'released_follow_up'))).reason === 'event_policy');
+      const resumedEvent = slack(threadChannel, 'app_mention', 'U2', root, 'thread_resumed');
+      const resumed = await complete(await acceptedSession(resumedEvent), `slack:${resumedEvent.id}`);
+      await transferred(shared, resumed);
+      await delivered(resumed);
+      let staleStatus: number | undefined;
+      try { await control.post(`/integrations/thread-subscriptions/${sub.id}/release`, { body: { reason: marker, epoch: sub.epoch } }); }
+      catch (error) { staleStatus = httpStatus(error); }
+      check('operator_stale_epoch_is_rejected', staleStatus === 409);
+      await replay(mention, slackFirst);
+
+      const senderChannel = channel();
+      await bind({ sourceKind: 'slack', threadScope: 'sender', selector: { teamId: team, channelId: senderChannel }, environment: { type: 'none' }, eventPolicy: { mode: 'explicit' } });
+      const senderRoot = timestamp();
+      const senderEvent = slack(senderChannel, 'app_mention', 'U1', senderRoot, 'sender_start');
+      const senderFirst = await complete(await acceptedSession(senderEvent), `slack:${senderEvent.id}`);
+      await delivered(senderFirst);
+      check('slack_sender_scope_rejects_other_unmentioned_sender', (await send(slack(senderChannel, 'message', 'U2', senderRoot, 'other_sender_drop'))).reason === 'event_policy');
+      const otherEvent = slack(senderChannel, 'app_mention', 'U2', senderRoot, 'other_sender_explicit');
+      const other = await complete(await acceptedSession(otherEvent), `slack:${otherEvent.id}`);
+      check('slack_sender_scope_isolates_explicit_sender', other.sessionId !== senderFirst.sessionId);
+      await delivered(other);
+      const senderFollowEvent = slack(senderChannel, 'message', 'U1', senderRoot, 'sender_follow_up');
+      const senderFollow = await complete(await acceptedSession(senderFollowEvent), `slack:${senderFollowEvent.id}`);
+      check('slack_sender_scope_retains_original_sender', senderFollow.sessionId === senderFirst.sessionId);
+      await delivered(senderFollow);
     }
-    check('invalid_signature_has_no_occurrence', !await occurrence(github, `github:${invalid.id}`));
-    check('invalid_signature_has_no_session', (await client.beta.agents.sessions.list({ agent_id: agent.id, limit: 100 })).data.length === 0);
-    const unbound = await send(slack(`CUNBOUND${sequence++}`, 'app_mention', 'U1', timestamp(), 'unbound'));
-    check('signed_unbound_source', unbound.reason === 'source_not_bound' && unbound.accepted === false);
 
-    const opened = pull('opened', headA, 'opened');
-    const first = await complete(await acceptedSession(opened), `github:${opened.id}`);
-    await delivered(first);
-    await checkout(first, headA);
-    const initialWorker = await worker(first.sessionId, headA);
-    const comment = githubComment('follow_up');
-    const follow = await complete(await acceptedSession(comment), `github:${comment.id}`);
-    check('github_unmentioned_comment_continues', follow.sessionId === first.sessionId && follow.turn.id !== first.turn.id);
-    await delivered(follow);
-    await checkout(follow, headA);
-    const continuedWorker = await worker(follow.sessionId, headA);
-    check('github_continuation_retains_environment_and_execution', initialWorker.environmentId === continuedWorker.environmentId
-      && initialWorker.runId === continuedWorker.runId && initialWorker.executionId === continuedWorker.executionId);
-    await replay(opened, first);
-    await replay(comment, follow);
-    const changed = pull('synchronize', headB, 'head_changed');
-    const rotated = await complete(await acceptedSession(changed), `github:${changed.id}`);
-    await transferred(first, rotated);
-    await delivered(rotated);
-    await checkout(rotated, headB);
-    const rotatedWorker = await worker(rotated.sessionId, headB);
-    check('github_new_head_gets_new_environment_and_execution', rotatedWorker.environmentId !== initialWorker.environmentId
-      && rotatedWorker.runId !== initialWorker.runId && rotatedWorker.executionId !== initialWorker.executionId);
-    await replay(opened, first);
-    await replay(comment, follow);
-    await replay(changed, rotated);
-    const sameHead = pull('synchronize', headB, 'same_head');
-    const same = await complete(await acceptedSession(sameHead), `github:${sameHead.id}`);
-    check('github_same_head_retains_session', same.sessionId === rotated.sessionId);
-    await delivered(same);
-    const releaseEvent = githubComment('release', 'RELEASE');
-    const release = await complete(await acceptedSession(releaseEvent), `github:${releaseEvent.id}`);
-    check('github_release_turn_stays_in_current_session', release.sessionId === rotated.sessionId);
-    const releaseCall = release.items.find(item => item.type === 'function_call' && item.name === 'rat_things_thread_release');
-    check('release_tool_call_saved', releaseCall?.type === 'function_call' && record(releaseCall.arguments).reason === marker);
-    const releaseOutput = release.items.find(item => item.type === 'function_call_output' && item.call_id === (releaseCall?.type === 'function_call' ? releaseCall.call_id : ''));
-    check('release_tool_success_saved', releaseOutput?.type === 'function_call_output' && releaseOutput.status === 'completed'
-      && typeof releaseOutput.output === 'string' && record(JSON.parse(releaseOutput.output)).released === true);
-    const released = await subscription(release);
-    check('release_subscription_is_durable', released.subscribers.some(value => value.sessionId === release.sessionId && value.state === 'released'));
-    await delivered(release);
-    check('unmentioned_github_event_after_release_is_dropped', (await send(githubComment('after_release'))).reason === 'event_policy');
-    const reopened = pull('reopened', headB, 'reopened');
-    const restarted = await complete(await acceptedSession(reopened), `github:${reopened.id}`);
-    await transferred(release, restarted);
-    await delivered(restarted);
-    await checkout(restarted, headB);
-    await replay(changed, rotated);
+    if (scenario === 'filtering') {
+      const candidateChannel = channel();
+      const candidateBinding = await bind({ sourceKind: 'slack', threadScope: 'thread', selector: { teamId: team, channelId: candidateChannel }, environment: { type: 'none' }, eventPolicy: candidatePolicy(2) });
+      await eventually(async () => Date.now() % 3_600_000 < 3_480_000, 'candidate_hour_budget');
+      const hour = Math.floor(Date.now() / 3_600_000);
+      const unresolved = 'The release is failing right now and nobody is investigating.';
+      const actEvent = slackText(candidateChannel, 'message', 'U1', timestamp(), unresolved);
+      const dropEvent = slackText(candidateChannel, 'message', 'U1', timestamp(), 'Good morning everyone. All incidents are resolved.');
+      const capEvent = slackText(candidateChannel, 'message', 'U1', timestamp(), unresolved);
+      const actId = await acceptedCandidate(actEvent);
+      const replayId = await acceptedCandidate(actEvent);
+      check('candidate_replay_retains_receipt', actId === replayId);
+      const dropId = await acceptedCandidate(dropEvent);
+      const capId = await acceptedCandidate(capEvent);
+      check('candidate_admissions_share_hour', Math.floor(Date.now() / 3_600_000) === hour);
+      const limit = await store.get<{ count: number }>(ownerId, 'event_candidate_limits', digest([candidateBinding.bindingId, hour]));
+      check('candidate_cap_counts_once_per_occurrence', limit?.value.count === 2);
+      const acted = await decided(actId, 'admitted');
+      check('candidate_act_uses_configured_model', 'decision' in acted.state && acted.state.decision.act && acted.state.decision.model === required('AWS_E2E_EVENT_FILTER_MODEL_ID'));
+      const act = await candidateTurn(candidateBinding, acted);
+      await delivered(act);
+      const dropped = await decided(dropId, 'discarded');
+      check('candidate_drop_uses_configured_model', 'decision' in dropped.state && !dropped.state.decision.act && dropped.state.decision.model === required('AWS_E2E_EVENT_FILTER_MODEL_ID')
+        && !['filter_error', 'hourly_cap', 'superseded_or_expired'].includes(dropped.state.decision.reason));
+      await notAdmitted(candidateBinding, dropped, 'candidate_drop');
+      const capped = await decided(capId, 'discarded');
+      check('candidate_hourly_cap_reason', 'decision' in capped.state && capped.state.decision.reason === 'hourly_cap');
+      await notAdmitted(candidateBinding, capped, 'candidate_cap');
+      const quietAgent = await client.beta.agents.create({ model: required('AWS_E2E_CODEX_MODEL_ID'), tools: [], multi_agent: { enabled: false },
+        name: `${marker}-quiet`, instructions: 'Complete every Turn without any final assistant text. An empty final response is the required result. Do not explain, acknowledge, print a marker, substitute punctuation, create subagents, or call external services.' });
+      createdAgents.add(quietAgent.id);
+      const quietChannel = channel();
+      const quietBinding = await bind({ sourceKind: 'slack', threadScope: 'thread', selector: { teamId: team, channelId: quietChannel }, agentId: quietAgent.id, environment: { type: 'none' }, eventPolicy: candidatePolicy(1) });
+      const quietEvent = slackText(quietChannel, 'message', 'U1', timestamp(), unresolved);
+      const quietId = await acceptedCandidate(quietEvent);
+      const quietCandidate = await decided(quietId, 'admitted');
+      check('quiet_candidate_filter_acted', 'decision' in quietCandidate.state && quietCandidate.state.decision.act && quietCandidate.state.decision.model === required('AWS_E2E_EVENT_FILTER_MODEL_ID'));
+      const quiet = await candidateTurn(quietBinding, quietCandidate, '');
+      await processed(quiet);
+      check('candidate_quiet_has_actual_empty_final', finalText(quiet.items).trim() === '', { sessionId: quiet.sessionId, turnId: quiet.turn.id });
+      const quietReceipts = (await integration(quiet.sessionId)).inputs.filter(value => value.turnId === quiet.turn.id);
+      check('candidate_quiet_all_receipts_processed', quietReceipts.length > 0 && quietReceipts.every(value => value.admission === 'candidate' && value.deliveryProcessed));
+      await settleCaptures();
+      check('candidate_quiet_sends_no_capture', captureCount(quiet.turn.id) === 0);
+      const explicitEmptyEvent = slackText(quietChannel, 'app_mention', 'U1', timestamp(), unresolved);
+      const explicitEmpty = await complete(await acceptedSession(explicitEmptyEvent), `slack:${explicitEmptyEvent.id}`, '');
+      check('explicit_empty_has_actual_empty_final', finalText(explicitEmpty.items).trim() === '');
+      await delivered(explicitEmpty);
+      check('explicit_empty_retains_completion_reply', [...captures.get(explicitEmpty.turn.id)!.values()].every(body => body === 'Turn completed.'));
 
-    const threadChannel = channel();
-    await bind({ sourceKind: 'slack', threadScope: 'thread', selector: { teamId: team, channelId: threadChannel }, environment: { type: 'none' }, eventPolicy: { mode: 'explicit' } });
-    const root = timestamp();
-    const mention = slack(threadChannel, 'app_mention', 'U1', root, 'thread_start');
-    const slackFirst = await complete(await acceptedSession(mention), `slack:${mention.id}`);
-    await delivered(slackFirst);
-    const secondSender = slack(threadChannel, 'message', 'U2', root, 'thread_other_sender');
-    const shared = await complete(await acceptedSession(secondSender), `slack:${secondSender.id}`);
-    check('slack_thread_scope_shares_senders', shared.sessionId === slackFirst.sessionId && shared.turn.id !== slackFirst.turn.id);
-    await delivered(shared);
-    const sub = await subscription(shared);
-    const listed = await control.get<{ data: Array<ThreadSubscription & { id: string }> }>('/integrations/thread-subscriptions', { query: { limit: 100 } });
-    check('operator_can_list_subscription', listed.data.some(value => value.id === sub.id));
-    const operatorRelease = await control.post<{ released: boolean; sessionId: string }>(`/integrations/thread-subscriptions/${sub.id}/release`, { body: { reason: marker, epoch: sub.epoch } });
-    check('operator_release_current_epoch', operatorRelease.released && operatorRelease.sessionId === shared.sessionId);
-    check('unmentioned_slack_event_after_release_is_dropped', (await send(slack(threadChannel, 'message', 'U2', root, 'released_follow_up'))).reason === 'event_policy');
-    const resumedEvent = slack(threadChannel, 'app_mention', 'U2', root, 'thread_resumed');
-    const resumed = await complete(await acceptedSession(resumedEvent), `slack:${resumedEvent.id}`);
-    await transferred(shared, resumed);
-    await delivered(resumed);
-    let staleStatus: number | undefined;
-    try { await control.post(`/integrations/thread-subscriptions/${sub.id}/release`, { body: { reason: marker, epoch: sub.epoch } }); }
-    catch (error) { staleStatus = httpStatus(error); }
-    check('operator_stale_epoch_is_rejected', staleStatus === 409);
-    await replay(mention, slackFirst);
-
-    const senderChannel = channel();
-    await bind({ sourceKind: 'slack', threadScope: 'sender', selector: { teamId: team, channelId: senderChannel }, environment: { type: 'none' }, eventPolicy: { mode: 'explicit' } });
-    const senderRoot = timestamp();
-    const senderEvent = slack(senderChannel, 'app_mention', 'U1', senderRoot, 'sender_start');
-    const senderFirst = await complete(await acceptedSession(senderEvent), `slack:${senderEvent.id}`);
-    await delivered(senderFirst);
-    check('slack_sender_scope_rejects_other_unmentioned_sender', (await send(slack(senderChannel, 'message', 'U2', senderRoot, 'other_sender_drop'))).reason === 'event_policy');
-    const otherEvent = slack(senderChannel, 'app_mention', 'U2', senderRoot, 'other_sender_explicit');
-    const other = await complete(await acceptedSession(otherEvent), `slack:${otherEvent.id}`);
-    check('slack_sender_scope_isolates_explicit_sender', other.sessionId !== senderFirst.sessionId);
-    await delivered(other);
-    const senderFollowEvent = slack(senderChannel, 'message', 'U1', senderRoot, 'sender_follow_up');
-    const senderFollow = await complete(await acceptedSession(senderFollowEvent), `slack:${senderFollowEvent.id}`);
-    check('slack_sender_scope_retains_original_sender', senderFollow.sessionId === senderFirst.sessionId);
-    await delivered(senderFollow);
-
-    const candidateChannel = channel();
-    const candidateBinding = await bind({ sourceKind: 'slack', threadScope: 'thread', selector: { teamId: team, channelId: candidateChannel }, environment: { type: 'none' }, eventPolicy: candidatePolicy(3) });
-    await eventually(async () => Date.now() % 3_600_000 < 3_480_000, 'candidate_hour_budget');
-    const hour = Math.floor(Date.now() / 3_600_000);
-    const unresolved = 'The release is failing right now and nobody is investigating.';
-    const actEvent = slackText(candidateChannel, 'message', 'U1', timestamp(), unresolved);
-    const dropEvent = slackText(candidateChannel, 'message', 'U1', timestamp(), 'Good morning everyone. All incidents are resolved.');
-    const quietEvent = slackText(candidateChannel, 'message', 'U1', timestamp(), `${unresolved} The incident channel already has a complete status update.`);
-    const capEvent = slackText(candidateChannel, 'message', 'U1', timestamp(), unresolved);
-    const actId = await acceptedCandidate(actEvent);
-    const replayId = await acceptedCandidate(actEvent);
-    check('candidate_replay_retains_receipt', actId === replayId);
-    const dropId = await acceptedCandidate(dropEvent);
-    const quietId = await acceptedCandidate(quietEvent);
-    const capId = await acceptedCandidate(capEvent);
-    check('candidate_admissions_share_hour', Math.floor(Date.now() / 3_600_000) === hour);
-    const limit = await store.get<{ count: number }>(ownerId, 'event_candidate_limits', digest([candidateBinding.bindingId, hour]));
-    check('candidate_cap_counts_once_per_occurrence', limit?.value.count === 3);
-    const acted = await decided(actId, 'admitted');
-    check('candidate_act_uses_configured_model', 'decision' in acted.state && acted.state.decision.act && acted.state.decision.model === required('AWS_E2E_EVENT_FILTER_MODEL_ID'));
-    const act = await candidateTurn(candidateBinding, acted);
-    await delivered(act);
-    const dropped = await decided(dropId, 'discarded');
-    check('candidate_drop_uses_configured_model', 'decision' in dropped.state && !dropped.state.decision.act && dropped.state.decision.model === required('AWS_E2E_EVENT_FILTER_MODEL_ID')
-      && !['filter_error', 'hourly_cap', 'superseded_or_expired'].includes(dropped.state.decision.reason));
-    await notAdmitted(candidateBinding, dropped, 'candidate_drop');
-    const capped = await decided(capId, 'discarded');
-    check('candidate_hourly_cap_reason', 'decision' in capped.state && capped.state.decision.reason === 'hourly_cap');
-    await notAdmitted(candidateBinding, capped, 'candidate_cap');
-    const quietCandidate = await decided(quietId, 'admitted');
-    check('quiet_candidate_filter_acted', 'decision' in quietCandidate.state && quietCandidate.state.decision.act && quietCandidate.state.decision.model === required('AWS_E2E_EVENT_FILTER_MODEL_ID'));
-    const quiet = await candidateTurn(candidateBinding, quietCandidate, '');
-    await processed(quiet);
-    check('candidate_quiet_has_actual_empty_final', finalText(quiet.items).trim() === '', { sessionId: quiet.sessionId, turnId: quiet.turn.id });
-    const quietReceipts = (await integration(quiet.sessionId)).inputs.filter(value => value.turnId === quiet.turn.id);
-    check('candidate_quiet_all_receipts_processed', quietReceipts.length > 0 && quietReceipts.every(value => value.admission === 'candidate' && value.deliveryProcessed));
-    await settleCaptures();
-    check('candidate_quiet_sends_no_capture', captureCount(quiet.turn.id) === 0);
-    const explicitEmptyEvent = slack(candidateChannel, 'app_mention', 'U1', timestamp(), 'explicit_empty', 'QUIET');
-    const explicitEmpty = await complete(await acceptedSession(explicitEmptyEvent), `slack:${explicitEmptyEvent.id}`);
-    check('explicit_empty_has_actual_empty_final', finalText(explicitEmpty.items).trim() === '');
-    await delivered(explicitEmpty);
-    check('explicit_empty_retains_completion_reply', [...captures.get(explicitEmpty.turn.id)!.values()].every(body => body === 'Turn completed.'));
-
-    const precedenceChannel = channel();
-    const precedenceBinding = await bind({ sourceKind: 'slack', threadScope: 'thread', selector: { teamId: team, channelId: precedenceChannel }, environment: { type: 'none' }, eventPolicy: candidatePolicy(1) });
-    const precedenceRoot = timestamp();
-    const queuedEvent = slackText(precedenceChannel, 'message', 'U1', precedenceRoot, unresolved);
-    const explicitEvent = slack(precedenceChannel, 'app_mention', 'U2', precedenceRoot, 'explicit_wins');
-    let queuedId = '';
-    let explicitSession = '';
-    await whileOutboxPaused(async () => {
-      queuedId = await acceptedCandidate(queuedEvent);
-      const pending = await store.get<EventCandidate>(ownerId, 'event_candidates', queuedId);
-      check('queued_candidate_is_pending_before_explicit', pending?.value.state.status === 'pending');
-      explicitSession = await acceptedSession(explicitEvent);
-      const queued = await store.get<EventCandidate>(ownerId, 'event_candidates', queuedId);
-      const thread = await store.get<EventCandidateThread>(ownerId, 'event_candidate_threads', digest([precedenceBinding.bindingId, pending!.value.threadKey]));
-      check('explicit_marker_advances_while_candidate_queued', queued?.value.state.status === 'pending'
-        && (thread?.value.explicitVersion ?? 0) > pending!.value.explicitVersion);
-    });
-    const obsolete = await decided(queuedId, 'discarded');
-    check('queued_candidate_loses_to_explicit', 'decision' in obsolete.state && obsolete.state.decision.reason === 'explicit_request_won' && !await occurrence(precedenceBinding, obsolete.input.id));
-    const explicit = await complete(explicitSession, `slack:${explicitEvent.id}`);
-    check('explicit_precedence_has_only_explicit_input', explicit.integration.inputs.length === 1 && explicit.integration.inputs[0]?.id === `slack:${explicitEvent.id}`);
-    await delivered(explicit);
+      const precedenceChannel = channel();
+      const precedenceBinding = await bind({ sourceKind: 'slack', threadScope: 'thread', selector: { teamId: team, channelId: precedenceChannel }, environment: { type: 'none' }, eventPolicy: candidatePolicy(1) });
+      const precedenceRoot = timestamp();
+      const queuedEvent = slackText(precedenceChannel, 'message', 'U1', precedenceRoot, unresolved);
+      const explicitEvent = slack(precedenceChannel, 'app_mention', 'U2', precedenceRoot, 'explicit_wins');
+      let queuedId = '';
+      let explicitSession = '';
+      await whileOutboxPaused(async () => {
+        queuedId = await acceptedCandidate(queuedEvent);
+        const pending = await store.get<EventCandidate>(ownerId, 'event_candidates', queuedId);
+        check('queued_candidate_is_pending_before_explicit', pending?.value.state.status === 'pending');
+        explicitSession = await acceptedSession(explicitEvent);
+        const queued = await store.get<EventCandidate>(ownerId, 'event_candidates', queuedId);
+        const thread = await store.get<EventCandidateThread>(ownerId, 'event_candidate_threads', digest([precedenceBinding.bindingId, pending!.value.threadKey]));
+        check('explicit_marker_advances_while_candidate_queued', queued?.value.state.status === 'pending'
+          && (thread?.value.explicitVersion ?? 0) > pending!.value.explicitVersion,
+        { candidateState: queued?.value.state.status ?? 'missing', explicitVersion: thread?.value.explicitVersion ?? 0, candidateVersion: pending!.value.explicitVersion });
+      });
+      const obsolete = await decided(queuedId, 'discarded');
+      check('queued_candidate_loses_to_explicit', 'decision' in obsolete.state && obsolete.state.decision.reason === 'explicit_request_won' && !await occurrence(precedenceBinding, obsolete.input.id));
+      const explicit = await complete(explicitSession, `slack:${explicitEvent.id}`);
+      check('explicit_precedence_has_only_explicit_input', explicit.integration.inputs.length === 1 && explicit.integration.inputs[0]?.id === `slack:${explicitEvent.id}`);
+      await delivered(explicit);
+      quietDelivery = { quietTurnId: quiet.turn.id, explicitTurnId: explicit.turn.id };
+    }
     await settleCaptures();
     for (const [turnId, messages] of captures) check('one_capture_per_delivered_turn', messages.size === 1, { turnId });
-    check('quiet_still_absent_after_positive_delivery', captureCount(quiet.turn.id) === 0 && captureCount(explicit.turn.id) === 1);
+    if (quietDelivery) check('quiet_still_absent_after_positive_delivery', captureCount(quietDelivery.quietTurnId) === 0 && captureCount(quietDelivery.explicitTurnId) === 1);
   } catch (error) {
     proofFailed = true;
     throw error instanceof ProofFailure ? error : new ProofFailure(`Routing proof external operation failed during ${phase}${httpStatus(error) ? ` with HTTP ${httpStatus(error)}` : ''}`);
@@ -289,7 +302,7 @@ live('proves provider continuation, thread release, candidate filtering and quie
     evidence.push({ check: 'created_resources_cleaned', passed: !cleanupFailed });
     db.destroy(); s3.destroy(); sqs.destroy();
     await mkdir(dirname(proofPath), { recursive: true });
-    await writeFile(proofPath, JSON.stringify({ deployment, proofId: marker, passed: !proofFailed && !cleanupFailed,
+    await writeFile(proofPath, JSON.stringify({ deployment, proofId: marker, scenario, passed: !proofFailed && !cleanupFailed,
       checks: evidence, sessions: [...createdSessions], agents: [...createdAgents], bindingIds: bindings.map(value => value.bindingId),
       bindingCleanup: 'isolated_stack_teardown', encryptedArtifacts: [...observedArtifacts],
       captures: [...captures].map(([turnId, messages]) => ({ turnId, messageIds: [...messages.keys()] })),
@@ -326,7 +339,7 @@ live('proves provider continuation, thread release, candidate filtering and quie
       event: { type, user, channel: channelId, text: `${type === 'app_mention' ? '<@BOT> ' : ''}${text}`, ts: timestamp(), thread_ts: thread },
     }) };
   }
-  async function bind(input: Pick<SourceCapabilityBinding, 'sourceKind' | 'selector' | 'environment' | 'eventPolicy' | 'threadScope'>) {
+  async function bind(input: Pick<SourceCapabilityBinding, 'sourceKind' | 'selector' | 'environment' | 'eventPolicy' | 'threadScope'> & Partial<Pick<SourceCapabilityBinding, 'agentId'>>) {
     const binding = await control.post<SourceCapabilityBinding>('/integrations/source-bindings', { body: { version: '1', agentId: [...createdAgents][0]!, ...input } });
     check('binding_owner_is_authenticated_caller', binding.ownerId.startsWith('api:') && binding.ownerId.includes(`:${account}:`)
       && (!ownerId || binding.ownerId === ownerId), { bindingId: binding.bindingId });
@@ -506,6 +519,8 @@ live('proves provider continuation, thread release, candidate filtering and quie
   async function whileOutboxPaused(action: () => Promise<void>) {
     const expectedFunction = `arn:aws:lambda:${region}:${account}:function:${functionName}`;
     const expectedQueue = `arn:aws:sqs:${region}:${account}:${deployment}-agents.fifo`;
+    const configuration = await lambda<{ FunctionArn: string; Timeout: number }>('GET', `/2015-03-31/functions/${functionName}/configuration`);
+    check('outbox_drain_timeout_is_scoped', configuration.FunctionArn === expectedFunction && Number.isInteger(configuration.Timeout) && configuration.Timeout > 0 && configuration.Timeout <= 300);
     const mappings = await lambda<{ EventSourceMappings: Mapping[] }>('GET', '/2015-03-31/event-source-mappings/', undefined, { FunctionName: functionName });
     const matches = mappings.EventSourceMappings.filter(value => value.FunctionArn === expectedFunction && value.EventSourceArn === expectedQueue);
     check('exact_disposable_sqs_mapping_selected', matches.length === 1 && matches[0]?.State === 'Enabled');
@@ -514,6 +529,7 @@ live('proves provider continuation, thread release, candidate filtering and quie
     try {
       await lambda('PUT', path, { Enabled: false });
       await eventually(async () => (await lambda<Mapping>('GET', path)).State === 'Disabled', 'outbox_disabled');
+      await delay((configuration.Timeout + 5) * 1000);
       await action();
     } finally {
       await eventually(async () => {
