@@ -1,3 +1,4 @@
+import { validateSourceEventPolicy, type SourceEventPolicy } from './event-policy.js';
 import type { SessionIntegrationTarget } from './session-integrations.js';
 import { parseAgentsContract } from './agents-api-validation.js';
 import type { JsonValue, RunSource, SandboxMode } from './contracts.js';
@@ -170,6 +171,7 @@ export interface SourceCapabilityBinding extends SessionIntegrationTarget {
   threadScope?: 'sender' | 'thread';
   /** Exact source fields such as repository, teamId, or channelId. */
   selector: { [key: string]: string };
+  eventPolicy?: SourceEventPolicy;
   connectionSetId?: string;
 }
 
@@ -360,6 +362,7 @@ export function validateSourceCapabilityBinding(
   }
   parseAgentsContract('SessionCreate', { agent_id: value.agentId, environment: value.environment, vault_ids: value.vaultIds ?? [], input: 'Validate integration target' });
   if (value.connectionSetId) requireId(value.connectionSetId, 'connection set ID');
+  if (value.eventPolicy !== undefined) validateSourceEventPolicy(value.eventPolicy);
   return structuredClone(value);
 }
 

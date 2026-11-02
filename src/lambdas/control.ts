@@ -1,3 +1,4 @@
+import { validateSourceEventPolicy, type SourceEventPolicy } from '../domain/event-policy.js';
 import { iamApiPrincipal } from '../domain/api-permissions.js';
 import { getSessionPublicationService } from '../app/composition.js';
 import { parseAgentsContract } from '../domain/agents-api-validation.js';
@@ -309,7 +310,7 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
         'sourceKind',
         'threadScope',
         'selector',
-        'agentId', 'environment', 'vaultIds',
+        'agentId', 'environment', 'vaultIds', 'eventPolicy',
         'connectionSetId',
       ]);
       requireVersion(body.version);
@@ -327,6 +328,7 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
         sourceKind: sourceKind as 'api' | 'github' | 'gitlab' | 'teams' | 'slack',
         selector: stringRecord(body.selector, 'selector', 32),
         ...(body.threadScope !== undefined ? { threadScope: threadScope(body.threadScope) } : {}),
+        ...(body.eventPolicy !== undefined ? { eventPolicy: sourceEventPolicy(body.eventPolicy) } : {}),
         agentId, environment: target.environment, vaultIds: target.vault_ids ?? [],
         ...(body.connectionSetId !== undefined
           ? { connectionSetId: boundedText(body.connectionSetId, 'connectionSetId', 256) }
@@ -665,4 +667,11 @@ function errorName(error: unknown): string {
 function threadScope(value: unknown): 'sender' | 'thread' {
   if (value !== 'sender' && value !== 'thread') throw new ValidationError('threadScope must be sender or thread');
   return value;
+}
+
+function sourceEventPolicy(value: unknown): SourceEventPolicy {
+  try {
+    validateSourceEventPolicy(value as SourceEventPolicy);
+    return structuredClone(value) as SourceEventPolicy;
+  } catch (error) { throw new ValidationError(error instanceof Error ? error.message : 'Invalid event policy'); }
 }

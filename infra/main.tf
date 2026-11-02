@@ -1,6 +1,9 @@
 module "agent_runner" {
-  session_checkpoints_enabled = var.session_checkpoints_enabled
-  source                      = "./modules/agent-runner"
+  event_filter_model_id                = var.event_filter_model_id
+  event_filter_inference_resource_arns = var.event_filter_inference_resource_arns
+  slack_candidate_events_enabled       = var.slack_candidate_events_enabled
+  session_checkpoints_enabled          = var.session_checkpoints_enabled
+  source                               = "./modules/agent-runner"
 
   name_prefix                              = var.name_prefix
   environment                              = var.environment

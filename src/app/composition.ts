@@ -1,4 +1,7 @@
 import { readSessionOutputSecrets } from '../credentials/session-output.js';
+import { EventCandidateService } from '../core/event-candidate-service.js';
+import { BedrockEventFilter } from '../adapters/bedrock-event-filter.js';
+import { emitMetric } from '../core/metrics.js';
 import { piProjectionRepair } from './pi-projection-repair.js';
 import { piCatalogFromConfig } from '../adapters/pi-model-catalog.js';
 import { sessionPlacementFromEnv } from './session-placement.js';
@@ -333,6 +336,7 @@ export function getPluginRegistry(): RuntimePluginRegistry {
     },
     slack: {
       signingSecretArn: process.env.SLACK_SIGNING_SECRET_ARN,
+      candidateEventsEnabled: process.env.SLACK_CANDIDATE_EVENTS_ENABLED === 'true',
       botTokenSecretArn: process.env.SLACK_BOT_TOKEN_SECRET_ARN,
       connectionPoster: {
         post: async ({ ownerId, request, channel, text, threadTs }) => {
@@ -360,6 +364,7 @@ export function getWebhookIngressService(): WebhookIngressService {
     getPluginRegistry(),
     getSessionIntegrationService(),
     getSourceSessionResolver(),
+    getEventCandidateService(),
   );
   return ingressService;
 }
@@ -487,4 +492,17 @@ export function getSessionPublicationService(): SessionPublicationService {
       return response.Body.transformToByteArray();
     },
   });
+}
+
+let eventCandidateService: EventCandidateService | undefined;
+export function getEventCandidateService(): EventCandidateService {
+  eventCandidateService ??= new EventCandidateService({
+    store: getAgentsApiServices().store,
+    integrations: getSessionIntegrationService(),
+    model: process.env.EVENT_FILTER_MODEL_ID
+      ? new BedrockEventFilter({ model: process.env.EVENT_FILTER_MODEL_ID, region: requiredEnv('AWS_REGION') })
+      : { id: 'disabled', decide: async () => ({ act: false, reason: 'filter_model_not_configured' }) },
+    count: name => emitMetric('event-filter', name, 1, 'Count'),
+  });
+  return eventCandidateService;
 }

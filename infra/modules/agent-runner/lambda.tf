@@ -19,6 +19,7 @@ locals {
 
   lambda_common_environment = merge(local.pi_catalog_environment, {
     SESSION_CHECKPOINTS_ENABLED         = tostring(var.session_checkpoints_enabled)
+    SLACK_CANDIDATE_EVENTS_ENABLED      = tostring(var.slack_candidate_events_enabled)
     S3_FILES_ENABLED                    = tostring(var.enable_s3_files)
     ALLOWED_REPOSITORY_HOSTS            = join(",", var.allowed_repository_hosts)
     ALLOWED_SANDBOX_MODES               = join(",", var.allowed_sandbox_modes)
@@ -131,7 +132,8 @@ locals {
       timeout  = 60
       memory   = 512
       environment = merge(local.executor_environment, local.delivery_environment, local.thing_scheduler_environment, {
-        AGENTS_TABLE_NAME = aws_dynamodb_table.agents.name
+        AGENTS_TABLE_NAME     = aws_dynamodb_table.agents.name
+        EVENT_FILTER_MODEL_ID = var.event_filter_model_id == null ? "" : var.event_filter_model_id
       })
     }
     connection-health = {

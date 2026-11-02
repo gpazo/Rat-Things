@@ -5,7 +5,7 @@ import type { SessionService } from './session-service.js';
 import type { SessionState } from './session-ports.js';
 import type { SessionDelivery, SessionIntegrationInput, SessionIntegrationState, SessionIntegrationTarget, ThreadSubscription, IntegrationOccurrence } from '../domain/session-integrations.js';
 import { AgentsApiError, parseAgentsContract } from '../domain/agents-api-validation.js';
-import { integrationDigest, integrationSessionId, integrationOccurrenceId, threadSubscriptionId, planThreadAdmission, releaseThreadSubscription } from './session-integration-planning.js';
+import { integrationDigest, integrationSessionId, integrationOccurrenceId, threadSubscriptionId, planThreadAdmission, releaseThreadSubscription, integrationInputText } from './session-integration-planning.js';
 import type { SessionPreparation } from './session-preparation-planning.js';
 import { THREAD_RELEASE_TOOL, parseThreadRelease } from './thread-release-tool.js';
 import { terminalTurn } from './session-planning.js';
@@ -140,8 +140,9 @@ export class SessionIntegrationService {
     for (const [index, input] of current.value.inputs.entries()) {
       if (input.turnId) continue;
       const { target } = current.value;
-      if (index === 0) await this.options.sessions.create(ownerId, { agent_id: target.agentId, environment: target.environment, vault_ids: target.vaultIds ?? [], input: input.text, ...(target.runtime ? { metadata: { rat_things_runtime: target.runtime } } : {}) }, id, target.runtimePin);
-      else await this.options.sessions.events(ownerId, id, { events: [{ type: 'agent.session.input.message', input: [{ role: 'user', content: [{ type: 'input_text', text: input.text }] }] }] }, receiptKey(input.id));
+      const text = integrationInputText(input);
+      if (index === 0) await this.options.sessions.create(ownerId, { agent_id: target.agentId, environment: target.environment, vault_ids: target.vaultIds ?? [], input: text, ...(target.runtime ? { metadata: { rat_things_runtime: target.runtime } } : {}) }, id, target.runtimePin);
+      else await this.options.sessions.events(ownerId, id, { events: [{ type: 'agent.session.input.message', input: [{ role: 'user', content: [{ type: 'input_text', text }] }] }] }, receiptKey(input.id));
       const session = await this.options.store.get<SessionState>(ownerId, 'sessions', id);
       const commands = session?.value.receipts[index === 0 ? 'initial' : integrationDigestString(receiptKey(input.id))]?.commands;
       const turnId = commands?.find((command) => command.type === 'start' || command.type === 'steer')?.turnId;
@@ -158,17 +159,20 @@ export class SessionIntegrationService {
     if (!integration) return;
     const session = await this.options.store.get<SessionState>(ownerId, 'sessions', id);
     if (!session) return;
+    const delivered = new Set<string>();
     for (const input of integration.value.inputs) {
-      if (input.deliveryProcessed) continue;
+      if (input.deliveryProcessed || input.turnId && delivered.has(input.turnId)) continue;
       const binding = session.value.turns.find(({ turn }) => turn.id === input.turnId);
       if (!binding || !terminalTurn(binding.turn) || !binding.savedItems) continue;
       const { target } = integration.value;
       await this.options.delivery.deliver({ ownerId, sessionId: id, turn: binding.turn, items: binding.savedItems, source: input.source,
+        silentIfEmpty: integration.value.inputs.filter(receipt => receipt.turnId === input.turnId).every(receipt => receipt.admission === 'candidate'),
         ...(target.destinations ? { destinations: target.destinations } : {}), ...(target.connectionSetId ? { connectionSetId: target.connectionSetId } : {}),
       });
       const current = await this.options.store.get<SessionIntegrationState>(ownerId, 'session_integrations', id);
       if (!current) return;
-      await this.options.store.put({ ...current, revision: current.revision + 1, value: { ...current.value, inputs: current.value.inputs.map((receipt) => receipt.id === input.id ? { ...receipt, deliveryProcessed: true } : receipt) } }, current.revision);
+      await this.options.store.put({ ...current, revision: current.revision + 1, value: { ...current.value, inputs: current.value.inputs.map((receipt) => receipt.turnId === input.turnId ? { ...receipt, deliveryProcessed: true } : receipt) } }, current.revision);
+      delivered.add(binding.turn.id);
     }
   }
 }

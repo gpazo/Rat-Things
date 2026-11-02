@@ -33,6 +33,7 @@ export interface BuiltinPluginOptions {
     routes: Record<string, string>;
   };
   slack: {
+    candidateEventsEnabled?: boolean;
     signingSecretArn?: string | undefined;
     botTokenSecretArn?: string | undefined;
     connectionPoster?: SlackConnectionPoster | undefined;

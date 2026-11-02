@@ -19,7 +19,7 @@ describe('provider thread identities', () => {
     expect(threadForSource(teams, 'thread')).toBe(threadForSource({ ...teams, senderId: 'second' }, 'thread'));
   });
   it('retains provider actor attribution and normalized head-change intent', () => {
-    const work = normalizedWork({ ownerId: 'provider', idempotencyKey: 'one', repositoryHeadChanged: true, actor: { kind: 'human', id: 'github:123' }, request: { prompt: 'Review', source: { kind: 'github', deliveryId: 'one', repository: 'acme/app', issueNumber: 7, event: 'pull_request' } } }, 'one');
+    const work = normalizedWork({ ownerId: 'provider', mentioned: true, idempotencyKey: 'one', repositoryHeadChanged: true, actor: { kind: 'human', id: 'github:123' }, request: { prompt: 'Review', source: { kind: 'github', deliveryId: 'one', repository: 'acme/app', issueNumber: 7, event: 'pull_request' } } }, 'one');
     expect(work.threadId).toBe('["github","acme/app",7]');
     expect(work.input).toMatchObject({ repositoryHeadChanged: true, actor: { kind: 'human', id: 'github:123' } });
   });

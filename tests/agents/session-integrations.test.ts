@@ -5,6 +5,34 @@ import { integrationFixture } from './integration-fixtures.js';
 import { SessionDeliveryService } from '../../src/delivery/session-delivery.js';
 
 describe('provider Sessions', () => {
+  it('silences empty candidate completions and replies to explicit requests', async () => {
+    const f = await integrationFixture();
+    const { sessionId } = await f.integrations.accept('operator', 'binding', 'thread', f.target, { ...f.input, admission: 'candidate' });
+    await f.integrations.submitPending('operator', sessionId);
+    const turn = (await f.sessions.turns('operator', sessionId)).data[0]!;
+    const deliver = vi.fn(async () => {});
+    const delivery = new SessionDeliveryService({ deliver });
+    const request = { ownerId: 'operator', sessionId, source: f.input.source, turn: { ...turn, status: 'completed' as const }, items: [] };
+    await delivery.deliver({ ...request, silentIfEmpty: true });
+    expect(deliver).not.toHaveBeenCalled();
+    await delivery.deliver(request);
+    expect(deliver).toHaveBeenCalledWith(expect.objectContaining({ body: 'Turn completed.' }));
+  });
+  it('delivers a mixed candidate and explicit Turn once and keeps its reply mandatory', async () => {
+    const f = await integrationFixture();
+    const { sessionId } = await f.integrations.accept('operator', 'binding', 'thread', f.target, { ...f.input, admission: 'candidate' });
+    await f.integrations.submitPending('operator', sessionId);
+    await f.sessions.dispatch('operator', sessionId);
+    await f.integrations.accept('operator', 'binding', 'thread', f.target, { ...f.input, id: 'explicit', text: 'Please answer' });
+    await f.integrations.submitPending('operator', sessionId);
+    await f.sessions.dispatch('operator', sessionId);
+    const turn = (await f.sessions.turns('operator', sessionId)).data[0]!;
+    f.observations.set(turn.id, { turn: { ...turn, status: 'completed', completed_at: 2 }, requiredActions: [] });
+    await f.sessions.completeReadyTurns('operator', sessionId);
+    await f.integrations.deliverReady('operator', sessionId);
+    expect(f.delivery.deliver).toHaveBeenCalledTimes(1);
+    expect(f.delivery.deliver).toHaveBeenCalledWith(expect.objectContaining({ silentIfEmpty: false }));
+  });
   it('accepts concurrent duplicate occurrences once and rejects changed payloads', async () => {
     const f = await integrationFixture();
     const accept = () => f.integrations.accept('operator', 'binding', 'thread', f.target, f.input);

@@ -366,3 +366,14 @@ non-root Pi child and the managed execution broker without model credentials.
 The LocalStack entrypoint runs all of `tests/localstack`, including native Pi
 S3/DynamoDB commit acknowledgement and ownership fencing tests. CI runs this
 entrypoint explicitly; neither suite provisions live AWS resources.
+
+### Replay candidate filtering
+
+Run `npx tsx testing/event-filter/replay.ts` to classify the fixed chat-noise fixture
+and count candidates and annotated actions. The default run uses fixture annotations,
+not model predictions. It reports its mode alongside the counts.
+
+To evaluate an approved Bedrock model, set `EVENT_FILTER_REPLAY_MODEL_ID` and `AWS_REGION`
+before running the same command. This opt-in run makes paid inference calls with no tools.
+The output reports disagreement with the fixture annotations. The fixture is a regression
+example, not an estimate of production precision or recall.

@@ -11,6 +11,7 @@ export function normalizedWork(normalized: NormalizedWebhookInput, traceId: stri
   const context = providerIngressContext({ ownerId: normalized.ownerId, actorId: actor.id, actorKind: actor.kind, source });
   return {
     context,
+    event: { mentioned: normalized.mentioned, actorId: context.actor.id, ...('channelId' in source && source.channelId ? { channelId: source.channelId } : {}) },
     input: { id: normalized.idempotencyKey, text: normalized.request.prompt, source, actor: context.actor, credentialSubject: context.credentialSubject,
       ...(normalized.request.repository ? { repository: normalized.request.repository } : {}),
       ...(normalized.repositoryHeadChanged ? { repositoryHeadChanged: true } : {}),

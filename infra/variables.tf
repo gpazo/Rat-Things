@@ -575,3 +575,19 @@ variable "pi_bedrock_inference_resource_arns" {
     error_message = "pi_bedrock_inference_resource_arns must contain exact Bedrock resource ARNs without wildcards."
   }
 }
+
+variable "event_filter_model_id" {
+  description = "Optional schema-capable Bedrock Converse model for candidate filtering."
+  type        = string
+  default     = null
+}
+variable "event_filter_inference_resource_arns" {
+  description = "Exact approved Bedrock resources for the candidate filter."
+  type        = list(string)
+  default     = []
+}
+variable "slack_candidate_events_enabled" {
+  description = "Opt in to a separate Slack message-event installation with history scopes."
+  type        = bool
+  default     = false
+}

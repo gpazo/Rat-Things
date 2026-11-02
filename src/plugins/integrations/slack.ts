@@ -6,7 +6,7 @@ import {
   TrustedHttpIntegrationPlugin,
 } from '../http.js';
 
-export function createSlackIntegrationPlugin(options: { fetch?: typeof fetch } = {}): TrustedHttpIntegrationPlugin {
+export function createSlackIntegrationPlugin(options: { fetch?: typeof fetch; candidateEventsEnabled?: boolean } = {}): TrustedHttpIntegrationPlugin {
   return new TrustedHttpIntegrationPlugin({
     baseUrl: 'https://slack.com/api/',
     ...(options.fetch ? { fetch: options.fetch } : {}),
@@ -34,7 +34,7 @@ export function createSlackIntegrationPlugin(options: { fetch?: typeof fetch } =
           oauth2: {
             authorizationUrl: 'https://slack.com/oauth/v2/authorize',
             tokenUrl: 'https://slack.com/api/oauth.v2.access',
-            scopes: ['app_mentions:read', 'chat:write', 'reactions:write'],
+            scopes: ['app_mentions:read', 'chat:write', 'reactions:write', ...(options.candidateEventsEnabled ? ['channels:history', 'groups:history'] : [])],
             secondaryToken: {
               authorizationParameter: 'user_scope',
               responseField: 'authed_user',

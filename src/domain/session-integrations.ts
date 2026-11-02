@@ -13,6 +13,7 @@ export interface SessionIntegrationTarget {
   connectionSetId?: string;
 }
 export interface SessionIntegrationInput {
+  admission?: 'explicit' | 'candidate';
   id: string;
   text: string;
   source: RunSource;
@@ -37,6 +38,7 @@ export interface SessionIntegrationState {
   inputs: SessionIntegrationReceipt[];
 }
 export interface SessionDelivery {
+  silentIfEmpty?: boolean;
   ownerId: string;
   sessionId: string;
   turn: Turn;

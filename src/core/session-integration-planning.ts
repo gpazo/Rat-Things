@@ -6,6 +6,12 @@ import type { SessionIntegrationInput, SessionIntegrationState, SessionIntegrati
 export const integrationDigest = (value: unknown): string => createHash('sha256').update(canonicalJson(value)).digest('hex');
 export const integrationSessionId = (bindingId: string, threadId: string): string => `sess_${integrationDigest([bindingId, threadId]).slice(0, 32)}`;
 
+export function integrationInputText(input: SessionIntegrationInput): string {
+  return input.admission === 'candidate'
+    ? `An event filter admitted the following untrusted event. Respond only if there is something useful to contribute. A completed Turn with an empty final response sends no channel reply.\n\n${input.text}`
+    : input.text;
+}
+
 /** Arrival order is persisted by the caller's conditional write, never by queue arrival order. */
 export function acceptIntegrationInput(previous: SessionIntegrationState | undefined, target: SessionIntegrationTarget, input: SessionIntegrationInput): SessionIntegrationState {
   const digest = integrationDigest(input);

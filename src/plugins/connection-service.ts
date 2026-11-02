@@ -77,6 +77,7 @@ export interface CreateConnectionSetInput {
 }
 
 export interface CreateSourceBindingInput extends SessionIntegrationTarget {
+  eventPolicy?: SourceCapabilityBinding['eventPolicy'];
   ownerId: string;
   sourceKind: SourceCapabilityBinding['sourceKind'];
   threadScope?: SourceCapabilityBinding['threadScope'];
@@ -352,6 +353,7 @@ export class ConnectionService {
       sourceKind: input.sourceKind,
       ...(input.threadScope ? { threadScope: input.threadScope } : {}),
       selector: input.selector,
+      ...(input.eventPolicy ? { eventPolicy: input.eventPolicy } : {}),
       agentId: input.agentId, environment: input.environment,
       ...(input.vaultIds ? { vaultIds: input.vaultIds } : {}),
       ...(input.destinations ? { destinations: input.destinations } : {}),
