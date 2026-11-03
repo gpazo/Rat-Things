@@ -249,3 +249,8 @@ an operation outside the allowed capabilities remains unavailable.
 
 See [AGENTS.md](AGENTS.md) for contributor boundaries and commands, and the
 [documentation](https://gpazo.github.io/Rat-Things/docs/agents-api/) for operation.
+
+## Listed on
+
+<a href="https://twelve.tools" target="_blank"><img src="https://twelve.tools/badge0-light.svg" alt="Featured on Twelve Tools" width="200" height="54"></a>
+<a href="https://www.agenthunter.io" title="AgentHunter">AgentHunter</a>
