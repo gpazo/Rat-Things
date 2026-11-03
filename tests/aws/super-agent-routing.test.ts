@@ -1,6 +1,7 @@
 import { createHash, createHmac, randomUUID } from 'node:crypto';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
+import { isDeepStrictEqual } from 'node:util';
 import { setTimeout as delay } from 'node:timers/promises';
 import { Sha256 } from '@aws-crypto/sha256-js';
 import { defaultProvider } from '@aws-sdk/credential-provider-node';
@@ -25,12 +26,12 @@ import type { IntegrationOccurrence, SessionIntegrationState, ThreadSubscription
 const live = process.env.AWS_E2E === 'true' && process.env.AWS_E2E_SUPER_AGENT_PROOF === 'true' ? it : it.skip;
 const timeoutMs = Number(process.env.AWS_E2E_TIMEOUT_MS ?? 600_000);
 type Evidence = { check: string; passed: boolean; ids?: Record<string, string | number> };
-type IngressReply = { accepted?: boolean; reason?: string; sessionId?: string; candidateId?: string };
-type Fixture = { provider: 'github' | 'slack'; id: string; event: string; body: string };
+type IngressReply = { accepted?: boolean; reason?: string; ignored?: boolean; sessionId?: string; candidateId?: string };
+type Fixture = { provider: 'github' | 'gitlab' | 'slack'; id: string; event: string; body: string; occurrenceId: string };
 type Completed = { sessionId: string; turn: Turn; items: AgentSessionItem[]; integration: SessionIntegrationState };
 type Mapping = { UUID: string; State: string; FunctionArn: string; EventSourceArn: string };
 
-live.each(['threads', 'filtering'] as const)('proves %s through deployed routing', async scenario => {
+live.each(['threads', 'filtering', 'reviewed'] as const)('proves %s through deployed routing', async scenario => {
   if (process.env.AWS_E2E_REAL_CODEX !== 'true') throw new Error('Routing proof requires explicit real-model opt-in');
   const region = required('AWS_REGION');
   const deployment = `rat-things-${required('AWS_E2E_DEPLOYMENT_ID')}`;
@@ -165,10 +166,10 @@ live.each(['threads', 'filtering'] as const)('proves %s through deployed routing
       await bind({ sourceKind: 'slack', threadScope: 'thread', selector: { teamId: team, channelId: threadChannel }, environment: { type: 'none' }, eventPolicy: { mode: 'explicit' } });
       const root = timestamp();
       const mention = slack(threadChannel, 'app_mention', 'U1', root, 'thread_start');
-      const slackFirst = await complete(await acceptedSession(mention), `slack:${mention.id}`);
+      const slackFirst = await complete(await acceptedSession(mention), mention.occurrenceId);
       await delivered(slackFirst);
       const secondSender = slack(threadChannel, 'message', 'U2', root, 'thread_other_sender');
-      const shared = await complete(await acceptedSession(secondSender), `slack:${secondSender.id}`);
+      const shared = await complete(await acceptedSession(secondSender), secondSender.occurrenceId);
       check('slack_thread_scope_shares_senders', shared.sessionId === slackFirst.sessionId && shared.turn.id !== slackFirst.turn.id);
       await delivered(shared);
       const sub = await subscription(shared);
@@ -178,7 +179,7 @@ live.each(['threads', 'filtering'] as const)('proves %s through deployed routing
       check('operator_release_current_epoch', operatorRelease.released && operatorRelease.sessionId === shared.sessionId);
       check('unmentioned_slack_event_after_release_is_dropped', (await send(slack(threadChannel, 'message', 'U2', root, 'released_follow_up'))).reason === 'event_policy');
       const resumedEvent = slack(threadChannel, 'app_mention', 'U2', root, 'thread_resumed');
-      const resumed = await complete(await acceptedSession(resumedEvent), `slack:${resumedEvent.id}`);
+      const resumed = await complete(await acceptedSession(resumedEvent), resumedEvent.occurrenceId);
       await transferred(shared, resumed);
       await delivered(resumed);
       let staleStatus: number | undefined;
@@ -191,17 +192,110 @@ live.each(['threads', 'filtering'] as const)('proves %s through deployed routing
       await bind({ sourceKind: 'slack', threadScope: 'sender', selector: { teamId: team, channelId: senderChannel }, environment: { type: 'none' }, eventPolicy: { mode: 'explicit' } });
       const senderRoot = timestamp();
       const senderEvent = slack(senderChannel, 'app_mention', 'U1', senderRoot, 'sender_start');
-      const senderFirst = await complete(await acceptedSession(senderEvent), `slack:${senderEvent.id}`);
+      const senderFirst = await complete(await acceptedSession(senderEvent), senderEvent.occurrenceId);
       await delivered(senderFirst);
       check('slack_sender_scope_rejects_other_unmentioned_sender', (await send(slack(senderChannel, 'message', 'U2', senderRoot, 'other_sender_drop'))).reason === 'event_policy');
       const otherEvent = slack(senderChannel, 'app_mention', 'U2', senderRoot, 'other_sender_explicit');
-      const other = await complete(await acceptedSession(otherEvent), `slack:${otherEvent.id}`);
+      const other = await complete(await acceptedSession(otherEvent), otherEvent.occurrenceId);
       check('slack_sender_scope_isolates_explicit_sender', other.sessionId !== senderFirst.sessionId);
       await delivered(other);
       const senderFollowEvent = slack(senderChannel, 'message', 'U1', senderRoot, 'sender_follow_up');
-      const senderFollow = await complete(await acceptedSession(senderFollowEvent), `slack:${senderFollowEvent.id}`);
+      const senderFollow = await complete(await acceptedSession(senderFollowEvent), senderFollowEvent.occurrenceId);
       check('slack_sender_scope_retains_original_sender', senderFollow.sessionId === senderFirst.sessionId);
       await delivered(senderFollow);
+    }
+
+    if (scenario === 'reviewed') {
+      const github = await bind({ sourceKind: 'github', selector: { repository, issueNumber: String(issue) }, environment: { type: 'openai_hosted' }, eventPolicy: { mode: 'explicit' } });
+      const githubBeforeSubscription = githubComment('github_unsubscribed_triggered', '@rat-things');
+      const githubBeforeReply = await send(githubBeforeSubscription);
+      check('github_triggered_comment_without_allowlist_is_denied', githubBeforeReply.accepted === false && githubBeforeReply.reason === 'event_policy');
+      check('github_unsubscribed_comment_has_no_occurrence', !await occurrence(github, githubBeforeSubscription.occurrenceId));
+
+      const pullRequest = pull('opened', headA, 'github_bot_lifecycle', { login: 'routing-review-bot[bot]', type: 'Bot' });
+      const first = await complete(await acceptedSession(pullRequest), pullRequest.occurrenceId);
+      await delivered(first);
+      await checkout(first, headA);
+      const githubLifecycleInput = first.integration.inputs.find(value => value.id === pullRequest.occurrenceId);
+      check('github_bot_pull_request_has_exact_system_actor', githubLifecycleInput?.actor.id === 'github:routing-review-bot[bot]' && githubLifecycleInput.actor.kind === 'system',
+        { sessionId: first.sessionId, turnId: first.turn.id });
+      const subscriptionBefore = await subscription(first);
+      const githubSubscribedComment = githubComment('github_subscribed_untriggered');
+      const githubSubscribedReply = await send(githubSubscribedComment);
+      check('github_subscribed_comment_without_allowlist_is_denied', githubSubscribedReply.accepted === false && githubSubscribedReply.reason === 'event_policy');
+      check('github_subscribed_comment_has_no_occurrence', !await occurrence(github, githubSubscribedComment.occurrenceId));
+
+      const githubPolicy = { mode: 'explicit' as const, actors: { allow: ['github:routing-fixture-user', 'github:routing-review-bot[bot]'] } };
+      const githubUpdated = await control.put<SourceCapabilityBinding>(`/integrations/source-bindings/${github.bindingId}/event-policy`, { body: { version: '1', eventPolicy: githubPolicy } });
+      check('github_owner_put_sets_exact_actor_policy', githubUpdated.ownerId === ownerId && isDeepStrictEqual(githubUpdated.eventPolicy, githubPolicy));
+      check('github_policy_update_preserves_binding_and_target', isDeepStrictEqual(bindingTarget(github), bindingTarget(githubUpdated)));
+      const githubSubscriptionAfter = await subscription(first);
+      check('github_policy_update_preserves_subscription', isDeepStrictEqual(subscriptionBefore, githubSubscriptionAfter));
+      const githubListed = await control.get<{ sourceBindings: SourceCapabilityBinding[] }>('/integrations/source-bindings');
+      check('github_event_policy_update_is_durable', githubListed.sourceBindings.some(value => value.bindingId === github.bindingId && isDeepStrictEqual(value.eventPolicy, githubPolicy)));
+
+      const githubOutsider = githubComment('github_outsider_triggered', '@rat-things', { login: 'routing-outsider', type: 'User' });
+      const githubOutsiderReply = await send(githubOutsider);
+      check('github_triggered_subscribed_outsider_is_denied', githubOutsiderReply.accepted === false && githubOutsiderReply.reason === 'event_policy');
+      check('github_outsider_comment_has_no_occurrence', !await occurrence(github, githubOutsider.occurrenceId));
+      const allowedComment = githubComment('github_exact_actor');
+      const allowedSession = await acceptedSession(allowedComment);
+      check('github_exact_actor_comment_continues_subscription', allowedSession === first.sessionId);
+      const allowed = await complete(allowedSession, allowedComment.occurrenceId);
+      await delivered(allowed);
+
+      const githubBotReplay = await replay(pullRequest, first);
+      check('github_bot_pull_request_remains_eligible_under_exact_actor_policy', githubBotReplay.accepted === true && githubBotReplay.sessionId === first.sessionId);
+      const githubBotComment = githubComment('github_bot_comment', '@rat-things', { login: 'routing-review-bot[bot]', type: 'Bot' });
+      const githubBotCommentReply = await send(githubBotComment);
+      check('github_bot_comment_is_ignored', githubBotCommentReply.accepted === false && githubBotCommentReply.ignored === true);
+      check('github_bot_comment_has_no_occurrence', !await occurrence(github, githubBotComment.occurrenceId));
+
+      const gitlabProjectId = '7654321';
+      const gitlab = await bind({ sourceKind: 'gitlab', selector: { projectId: gitlabProjectId, mergeRequestIid: String(issue) }, environment: { type: 'openai_hosted' }, eventPolicy: { mode: 'explicit' } });
+      const gitlabBeforeSubscription = gitlabNote('gitlab_unsubscribed_triggered', '@rat-things', '2468');
+      const gitlabBeforeReply = await send(gitlabBeforeSubscription);
+      check('gitlab_triggered_comment_without_allowlist_is_denied', gitlabBeforeReply.accepted === false && gitlabBeforeReply.reason === 'event_policy');
+      check('gitlab_unsubscribed_comment_has_no_occurrence', !await occurrence(gitlab, gitlabBeforeSubscription.occurrenceId));
+
+      const mergeRequest = gitlabMergeRequest('open', 'gitlab_bot_lifecycle', '7654', true);
+      const gitlabFirst = await complete(await acceptedSession(mergeRequest), mergeRequest.occurrenceId);
+      await delivered(gitlabFirst);
+      const gitlabSession = gitlabFirst.sessionId;
+      const gitlabLifecycleInput = gitlabFirst.integration.inputs.find(value => value.id === mergeRequest.occurrenceId);
+      const gitlabOccurrence = await occurrence(gitlab, mergeRequest.occurrenceId);
+      check('gitlab_bot_merge_request_has_durable_receipt_and_exact_system_actor', gitlabOccurrence?.value.sessionId === gitlabSession
+        && gitlabLifecycleInput?.actor.id === 'gitlab:7654' && gitlabLifecycleInput.actor.kind === 'system',
+      { sessionId: gitlabSession, turnId: gitlabFirst.turn.id });
+      const gitlabSubscriptionBefore = await subscription(gitlabFirst);
+      const gitlabSubscribedComment = gitlabNote('gitlab_subscribed_untriggered', '', '2468');
+      const gitlabSubscribedReply = await send(gitlabSubscribedComment);
+      check('gitlab_subscribed_comment_without_allowlist_is_denied', gitlabSubscribedReply.accepted === false && gitlabSubscribedReply.reason === 'event_policy');
+      check('gitlab_subscribed_comment_has_no_occurrence', !await occurrence(gitlab, gitlabSubscribedComment.occurrenceId));
+
+      const gitlabPolicy = { mode: 'explicit' as const, actors: { allow: ['gitlab:2468', 'gitlab:7654'] } };
+      const gitlabUpdated = await control.put<SourceCapabilityBinding>(`/integrations/source-bindings/${gitlab.bindingId}/event-policy`, { body: { version: '1', eventPolicy: gitlabPolicy } });
+      check('gitlab_owner_put_sets_exact_actor_policy', gitlabUpdated.ownerId === ownerId && isDeepStrictEqual(gitlabUpdated.eventPolicy, gitlabPolicy));
+      check('gitlab_policy_update_preserves_binding_and_target', isDeepStrictEqual(bindingTarget(gitlab), bindingTarget(gitlabUpdated)));
+      const gitlabSubscriptionAfter = await subscription({ sessionId: gitlabSession });
+      check('gitlab_policy_update_preserves_subscription', isDeepStrictEqual(gitlabSubscriptionBefore, gitlabSubscriptionAfter));
+      const gitlabOutsider = gitlabNote('gitlab_outsider_triggered', '@rat-things', '9999');
+      const gitlabOutsiderReply = await send(gitlabOutsider);
+      check('gitlab_triggered_subscribed_outsider_is_denied', gitlabOutsiderReply.accepted === false && gitlabOutsiderReply.reason === 'event_policy');
+      check('gitlab_outsider_comment_has_no_occurrence', !await occurrence(gitlab, gitlabOutsider.occurrenceId));
+
+      const gitlabAllowedComment = gitlabNote('gitlab_exact_actor', '', '2468');
+      const gitlabAllowedSession = await acceptedSession(gitlabAllowedComment);
+      check('gitlab_exact_actor_comment_continues_subscription', gitlabAllowedSession === gitlabSession);
+      const gitlabAllowed = await complete(gitlabAllowedSession, gitlabAllowedComment.occurrenceId);
+      await delivered(gitlabAllowed);
+
+      const gitlabBotReplay = await replay(mergeRequest, gitlabFirst);
+      check('gitlab_bot_merge_request_remains_eligible_under_exact_actor_policy', gitlabBotReplay.accepted === true && gitlabBotReplay.sessionId === gitlabSession);
+      const gitlabBotNote = gitlabNote('gitlab_bot_note', '@rat-things', '7654', true);
+      const gitlabBotNoteReply = await send(gitlabBotNote);
+      check('gitlab_bot_comment_is_ignored', gitlabBotNoteReply.accepted === false && gitlabBotNoteReply.ignored === true);
+      check('gitlab_bot_comment_has_no_occurrence', !await occurrence(gitlab, gitlabBotNote.occurrenceId));
     }
 
     if (scenario === 'filtering') {
@@ -237,8 +331,9 @@ live.each(['threads', 'filtering'] as const)('proves %s through deployed routing
       createdAgents.add(quietAgent.id);
       const quietChannel = channel();
       const quietBinding = await bind({ sourceKind: 'slack', threadScope: 'thread', selector: { teamId: team, channelId: quietChannel }, agentId: quietAgent.id, environment: { type: 'none' }, eventPolicy: candidatePolicy(1) });
-      const quietEvent = slackText(quietChannel, 'message', 'U1', timestamp(), unresolved);
-      const quietId = await acceptedCandidate(quietEvent);
+      const quietPair = slackPair(quietChannel, { user: 'U1', thread: timestamp(), text: `<@BOT> ${unresolved}` });
+      checkSlackPair(quietPair.message, quietPair.mention);
+      const quietId = await acceptedCandidate(quietPair.message);
       const quietCandidate = await decided(quietId, 'admitted');
       check('quiet_candidate_filter_acted', 'decision' in quietCandidate.state && quietCandidate.state.decision.act && quietCandidate.state.decision.model === required('AWS_E2E_EVENT_FILTER_MODEL_ID'));
       const quiet = await candidateTurn(quietBinding, quietCandidate, '');
@@ -248,8 +343,22 @@ live.each(['threads', 'filtering'] as const)('proves %s through deployed routing
       check('candidate_quiet_all_receipts_processed', quietReceipts.length > 0 && quietReceipts.every(value => value.admission === 'candidate' && value.deliveryProcessed));
       await settleCaptures();
       check('candidate_quiet_sends_no_capture', captureCount(quiet.turn.id) === 0);
+      const matchingMentionReply = await send(quietPair.mention);
+      check('quiet_candidate_matching_mention_reuses_session', matchingMentionReply.accepted === true && matchingMentionReply.sessionId === quiet.sessionId);
+      const quietAfterMention = await integration(quiet.sessionId);
+      const quietInputs = quietAfterMention.inputs.filter(value => value.id === quietPair.mention.occurrenceId);
+      const quietTurns = (await client.beta.agents.sessions.turns.list(quiet.sessionId, { limit: 100, order: 'asc' })).data;
+      const quietExplicit = await store.get<{ threadKey: string }>(ownerId, 'event_explicit_receipts', digest([quietBinding.bindingId, quietPair.mention.occurrenceId]));
+      const quietMarker = await store.get<EventCandidateThread>(ownerId, 'event_candidate_threads', digest([quietBinding.bindingId, quietCandidate.threadKey]));
+      check('quiet_candidate_matching_mention_has_one_occurrence_and_turn', quietInputs.length === 1 && quietInputs[0]?.turnId === quiet.turn.id && quietTurns.length === 1);
+      check('quiet_candidate_matching_mention_promotes_receipt', quietInputs[0]?.admission === 'explicit');
+      check('quiet_candidate_matching_mention_records_explicit_precedence', quietExplicit?.value.threadKey === quietCandidate.threadKey
+        && (quietMarker?.value.explicitVersion ?? 0) > quietCandidate.explicitVersion);
+      await delivered(quiet);
+      check('quiet_candidate_matching_mention_receives_completion_reply', captureCount(quiet.turn.id) === 1
+        && [...captures.get(quiet.turn.id)!.values()].every(body => body === 'Turn completed.'));
       const explicitEmptyEvent = slackText(quietChannel, 'app_mention', 'U1', timestamp(), unresolved);
-      const explicitEmpty = await complete(await acceptedSession(explicitEmptyEvent), `slack:${explicitEmptyEvent.id}`, '');
+      const explicitEmpty = await complete(await acceptedSession(explicitEmptyEvent), explicitEmptyEvent.occurrenceId, '');
       check('explicit_empty_has_actual_empty_final', finalText(explicitEmpty.items).trim() === '');
       await delivered(explicitEmpty);
       check('explicit_empty_retains_completion_reply', [...captures.get(explicitEmpty.turn.id)!.values()].every(body => body === 'Turn completed.'));
@@ -257,8 +366,10 @@ live.each(['threads', 'filtering'] as const)('proves %s through deployed routing
       const precedenceChannel = channel();
       const precedenceBinding = await bind({ sourceKind: 'slack', threadScope: 'thread', selector: { teamId: team, channelId: precedenceChannel }, environment: { type: 'none' }, eventPolicy: candidatePolicy(1) });
       const precedenceRoot = timestamp();
-      const queuedEvent = slackText(precedenceChannel, 'message', 'U1', precedenceRoot, unresolved);
-      const explicitEvent = slack(precedenceChannel, 'app_mention', 'U2', precedenceRoot, 'explicit_wins');
+      const precedencePair = slackPair(precedenceChannel, { user: 'U1', thread: precedenceRoot, text: `<@BOT> ${unresolved}` });
+      checkSlackPair(precedencePair.message, precedencePair.mention);
+      const queuedEvent = precedencePair.message;
+      const explicitEvent = precedencePair.mention;
       let queuedId = '';
       let explicitSession = '';
       await whileOutboxPaused(async () => {
@@ -273,15 +384,19 @@ live.each(['threads', 'filtering'] as const)('proves %s through deployed routing
         { candidateState: queued?.value.state.status ?? 'missing', explicitVersion: thread?.value.explicitVersion ?? 0, candidateVersion: pending!.value.explicitVersion });
       });
       const obsolete = await decided(queuedId, 'discarded');
-      check('queued_candidate_loses_to_explicit', 'decision' in obsolete.state && obsolete.state.decision.reason === 'explicit_request_won' && !await occurrence(precedenceBinding, obsolete.input.id));
-      const explicit = await complete(explicitSession, `slack:${explicitEvent.id}`);
-      check('explicit_precedence_has_only_explicit_input', explicit.integration.inputs.length === 1 && explicit.integration.inputs[0]?.id === `slack:${explicitEvent.id}`);
+      const explicitOccurrence = await occurrence(precedenceBinding, explicitEvent.occurrenceId);
+      check('queued_candidate_loses_to_matching_explicit_mention', 'decision' in obsolete.state && obsolete.state.decision.reason === 'explicit_request_won'
+        && explicitOccurrence?.value.sessionId === explicitSession);
+      const explicit = await complete(explicitSession, explicitEvent.occurrenceId, reply('candidate_act'));
+      const explicitTurns = (await client.beta.agents.sessions.turns.list(explicitSession, { limit: 100, order: 'asc' })).data;
+      check('explicit_precedence_has_one_occurrence_and_turn', explicit.integration.inputs.length === 1 && explicit.integration.inputs[0]?.id === explicitEvent.occurrenceId
+        && explicitTurns.length === 1 && explicitOccurrence?.value.sessionId === explicitSession);
       await delivered(explicit);
       quietDelivery = { quietTurnId: quiet.turn.id, explicitTurnId: explicit.turn.id };
     }
     await settleCaptures();
     for (const [turnId, messages] of captures) check('one_capture_per_delivered_turn', messages.size === 1, { turnId });
-    if (quietDelivery) check('quiet_still_absent_after_positive_delivery', captureCount(quietDelivery.quietTurnId) === 0 && captureCount(quietDelivery.explicitTurnId) === 1);
+    if (quietDelivery) check('promoted_quiet_and_explicit_deliver_once', captureCount(quietDelivery.quietTurnId) === 1 && captureCount(quietDelivery.explicitTurnId) === 1);
   } catch (error) {
     proofFailed = true;
     throw error instanceof ProofFailure ? error : new ProofFailure(`Routing proof external operation failed during ${phase}${httpStatus(error) ? ` with HTTP ${httpStatus(error)}` : ''}`);
@@ -315,19 +430,32 @@ live.each(['threads', 'filtering'] as const)('proves %s through deployed routing
     evidence.push({ check: name, passed, ...(ids ? { ids } : {}) });
     if (!passed) throw new ProofFailure(`Routing check failed: ${name}`);
   }
+  function checkSlackPair(message: Fixture, mention: Fixture) {
+    const messagePayload = record(JSON.parse(message.body));
+    const mentionPayload = record(JSON.parse(mention.body));
+    const messageEvent = record(messagePayload.event);
+    const mentionEvent = record(mentionPayload.event);
+    check('slack_pair_shares_message_fields_and_has_distinct_transport_ids', message.provider === 'slack' && mention.provider === 'slack'
+      && message.id !== mention.id && message.occurrenceId === mention.occurrenceId
+      && messagePayload.event_id !== mentionPayload.event_id && messageEvent.type === 'message' && mentionEvent.type === 'app_mention'
+      && messageEvent.ts === mentionEvent.ts && messageEvent.text === mentionEvent.text
+      && messageEvent.thread_ts === mentionEvent.thread_ts && messageEvent.channel === mentionEvent.channel && messageEvent.user === mentionEvent.user);
+  }
   function channel() { return `C${randomUUID().replaceAll('-', '').toUpperCase()}`; }
   function timestamp() { return `${Math.floor(Date.now() / 1000)}.${String(++sequence).padStart(6, '0')}`; }
   function reply(phase: string) { return `${marker}_${phase}`; }
-  function pull(action: string, sha: string, phase: string): Fixture {
-    return { provider: 'github', id: `${marker}-${++sequence}`, event: 'pull_request', body: JSON.stringify({ action, number: issue,
-      repository: { full_name: repository, clone_url: repositoryUrl }, sender: { login: 'routing-fixture-user', type: 'User' },
-      pull_request: { title: marker, body: `REPLY=${reply(phase)}`, user: { login: 'routing-fixture-user' }, head: { sha } },
+  function pull(action: string, sha: string, phase: string, sender = { login: 'routing-fixture-user', type: 'User' }): Fixture {
+    const id = `${marker}-${++sequence}`;
+    return { provider: 'github', id, event: 'pull_request', occurrenceId: `github:${id}`, body: JSON.stringify({ action, number: issue,
+      repository: { full_name: repository, clone_url: repositoryUrl }, sender,
+      pull_request: { title: marker, body: `REPLY=${reply(phase)}`, user: { login: sender.login }, head: { sha } },
     }) };
   }
-  function githubComment(phase: string, instruction = ''): Fixture {
-    return { provider: 'github', id: `${marker}-${++sequence}`, event: 'issue_comment', body: JSON.stringify({ action: 'created',
+  function githubComment(phase: string, instruction = '', user = { login: 'routing-fixture-user', type: 'User' }): Fixture {
+    const id = `${marker}-${++sequence}`;
+    return { provider: 'github', id, event: 'issue_comment', occurrenceId: `github:${id}`, body: JSON.stringify({ action: 'created',
       repository: { full_name: repository, clone_url: repositoryUrl }, issue: { number: issue, pull_request: {} },
-      comment: { body: `${instruction} REPLY=${reply(phase)}`, user: { login: 'routing-fixture-user', type: 'User' } },
+      comment: { body: `${instruction} REPLY=${reply(phase)}`, user },
     }) };
   }
   function slack(channelId: string, type: 'app_mention' | 'message', user: string, thread: string, phase: string, instruction = ''): Fixture {
@@ -335,8 +463,38 @@ live.each(['threads', 'filtering'] as const)('proves %s through deployed routing
   }
   function slackText(channelId: string, type: 'app_mention' | 'message', user: string, thread: string, text: string): Fixture {
     const id = `${marker}-${++sequence}`;
+    const messageTs = timestamp();
     return { provider: 'slack', id, event: type, body: JSON.stringify({ type: 'event_callback', team_id: team, event_id: id,
-      event: { type, user, channel: channelId, text: `${type === 'app_mention' ? '<@BOT> ' : ''}${text}`, ts: timestamp(), thread_ts: thread },
+      event: { type, user, channel: channelId, text: `${type === 'app_mention' ? '<@BOT> ' : ''}${text}`, ts: messageTs, thread_ts: thread },
+    }), occurrenceId: `slack:${channelId}:${messageTs}` };
+  }
+  function slackPair(channelId: string, typeMessage: { user: string; thread: string; text: string }): { message: Fixture; mention: Fixture } {
+    const messageTs = timestamp();
+    const make = (type: 'app_mention' | 'message'): Fixture => {
+      const id = `${marker}-${++sequence}`;
+      return { provider: 'slack', id, event: type, occurrenceId: `slack:${channelId}:${messageTs}`, body: JSON.stringify({ type: 'event_callback', team_id: team, event_id: id,
+        event: { type, user: typeMessage.user, channel: channelId, text: typeMessage.text, ts: messageTs, thread_ts: typeMessage.thread },
+      }) };
+    };
+    return { message: make('message'), mention: make('app_mention') };
+  }
+  function gitlabProject() {
+    return { id: '7654321', path_with_namespace: required('AWS_E2E_GITLAB_REPOSITORY'), git_http_url: required('AWS_E2E_GITLAB_REPOSITORY_URL') };
+  }
+  function gitlabMergeRequest(action: string, phase: string, userId: string, bot = false): Fixture {
+    const id = `${marker}-${++sequence}`;
+    const sha = required('AWS_E2E_GITLAB_SHA');
+    return { provider: 'gitlab', id, event: 'Merge Request Hook', occurrenceId: `gitlab:${id}`, body: JSON.stringify({ object_kind: 'merge_request', project: gitlabProject(),
+      object_attributes: { iid: issue, action, title: marker, description: `REPLY=${reply(phase)}`, last_commit: { id: sha } },
+      user: { id: userId, username: bot ? 'routing-bot' : 'routing-fixture-user', bot },
+    }) };
+  }
+  function gitlabNote(phase: string, instruction: string, userId: string, bot = false): Fixture {
+    const id = `${marker}-${++sequence}`;
+    return { provider: 'gitlab', id, event: 'Note Hook', occurrenceId: `gitlab:${id}`, body: JSON.stringify({ object_kind: 'note', project: gitlabProject(),
+      object_attributes: { id: sequence, note: `${instruction} REPLY=${reply(phase)}`, action: 'create' },
+      merge_request: { iid: issue, last_commit: { id: required('AWS_E2E_GITLAB_SHA') } },
+      user: { id: userId, username: bot ? 'routing-bot' : 'outsider-fixture-user', bot },
     }) };
   }
   async function bind(input: Pick<SourceCapabilityBinding, 'sourceKind' | 'selector' | 'environment' | 'eventPolicy' | 'threadScope'> & Partial<Pick<SourceCapabilityBinding, 'agentId'>>) {
@@ -351,10 +509,12 @@ live.each(['threads', 'filtering'] as const)('proves %s through deployed routing
     const ts = String(Math.floor(Date.now() / 1000));
     const headers = fixture.provider === 'github'
       ? { 'x-github-event': fixture.event, 'x-github-delivery': fixture.id, 'x-hub-signature-256': `sha256=${createHmac('sha256', githubSecret).update(fixture.body).digest('hex')}` }
-      : { 'x-slack-request-timestamp': ts, 'x-slack-signature': `v0=${createHmac('sha256', slackSecret).update(`v0:${ts}:${fixture.body}`).digest('hex')}` };
+      : fixture.provider === 'gitlab' ? gitlabHeaders(fixture)
+        : { 'x-slack-request-timestamp': ts, 'x-slack-signature': `v0=${createHmac('sha256', slackSecret).update(`v0:${ts}:${fixture.body}`).digest('hex')}` };
     phase = `ingress_${fixture.id}`;
     const admittedAt = performance.now();
-    const response = await fetch(fixture.provider === 'github' ? githubUrl : slackUrl, { method: 'POST', body: fixture.body,
+    const webhookUrl = fixture.provider === 'github' ? githubUrl : fixture.provider === 'gitlab' ? required('GITLAB_WEBHOOK_URL') : slackUrl;
+    const response = await fetch(webhookUrl, { method: 'POST', body: fixture.body,
       headers: { 'content-type': 'application/json', ...headers }, redirect: 'error', signal: AbortSignal.timeout(30_000) });
     const admissionMs = Math.round(performance.now() - admittedAt);
     check('signed_ingress_acknowledged', response.status === 202, { eventId: fixture.id });
@@ -466,13 +626,14 @@ live.each(['threads', 'filtering'] as const)('proves %s through deployed routing
     evidence.push({ check: 'worker_identity_observed', passed: true, ids: { sessionId, ...identity } });
     return identity;
   }
-  async function replay(event: Fixture, original: Completed) {
+  async function replay(event: Fixture, original: Completed): Promise<IngressReply> {
     const before = (await client.beta.agents.sessions.turns.list(original.sessionId, { limit: 100 })).data.map(value => value.id).sort().join(',');
     const result = await send(event);
     check('duplicate_replays_original_session', result.sessionId === original.sessionId, { eventId: event.id, sessionId: original.sessionId });
     await settleCaptures();
     const after = (await client.beta.agents.sessions.turns.list(original.sessionId, { limit: 100 })).data.map(value => value.id).sort().join(',');
     check('duplicate_creates_no_turn_or_capture', before === after && captureCount(original.turn.id) === 1);
+    return result;
   }
   async function transferred(previous: Completed, next: Completed) {
     const old = await integration(previous.sessionId);
@@ -481,13 +642,13 @@ live.each(['threads', 'filtering'] as const)('proves %s through deployed routing
       && current.previousSessionId === previous.sessionId && old.supersededBy === next.sessionId,
     { previousSessionId: previous.sessionId, sessionId: next.sessionId, epoch: current.epoch ?? -1 });
   }
-  async function subscription(value: Completed) {
+  async function subscription(value: Pick<Completed, 'sessionId'>) {
     const id = (await integration(value.sessionId)).threadSubscriptionId;
     check('integration_has_subscription', Boolean(id));
     const publicValue = await control.get<ThreadSubscription & { id: string }>(`/integrations/thread-subscriptions/${id}`);
     const durable = await store.get<ThreadSubscription>(ownerId, 'thread_subscriptions', id!);
     const { id: _id, ...publicState } = publicValue;
-    check('public_subscription_matches_durable_state', digest(durable?.value) === digest(publicState));
+    check('public_subscription_matches_durable_state', isDeepStrictEqual(durable?.value, publicState));
     return publicValue;
   }
   async function occurrence(binding: SourceCapabilityBinding, inputId: string) {
@@ -558,11 +719,25 @@ live.each(['threads', 'filtering'] as const)('proves %s through deployed routing
     while (Date.now() < deadline) { if (await predicate()) return; await delay(1000); }
     check(name, false);
   }
+  function gitlabHeaders(fixture: Fixture) {
+    const token = required('GITLAB_WEBHOOK_SIGNING_TOKEN');
+    const encodedKey = token.startsWith('whsec_') ? token.slice('whsec_'.length) : '';
+    const key = Buffer.from(encodedKey, 'base64');
+    check('gitlab_standard_webhook_key_is_configured', key.length === 32 && key.toString('base64') === encodedKey);
+    const timestamp = String(Math.floor(Date.now() / 1000));
+    const signature = createHmac('sha256', key).update(`${fixture.id}.${timestamp}.${fixture.body}`).digest('base64');
+    return { 'x-gitlab-event': fixture.event, 'webhook-id': fixture.id, 'webhook-timestamp': timestamp, 'webhook-signature': `v1,${signature}` };
+  }
 }, timeoutMs * 24);
 
 class ProofFailure extends Error {}
 function required(name: string) { const value = process.env[name]; if (!value) throw new ProofFailure(`${name} is required for the routing proof`); return value; }
 function digest(value: unknown) { return createHash('sha256').update(JSON.stringify(value)).digest('hex'); }
+function bindingTarget(binding: SourceCapabilityBinding) {
+  return { version: binding.version, bindingId: binding.bindingId, ownerId: binding.ownerId, sourceKind: binding.sourceKind,
+    threadScope: binding.threadScope, selector: binding.selector, agentId: binding.agentId, environment: binding.environment,
+    vaultIds: binding.vaultIds, destinations: binding.destinations, watchdog: binding.watchdog, connectionSetId: binding.connectionSetId };
+}
 function httpStatus(error: unknown): number | undefined { const value = record(error).status; return typeof value === 'number' ? value : undefined; }
 function record(value: unknown): Record<string, unknown> { return value !== null && typeof value === 'object' ? value as Record<string, unknown> : {}; }
 function finalText(items: AgentSessionItem[]) {

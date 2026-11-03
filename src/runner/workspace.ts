@@ -3,8 +3,9 @@ import { access, lstat, mkdir, readdir, rm } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import type { RepositoryInput } from '../domain/contracts.js';
 import type { CredentialBroker } from '../credentials/broker.js';
-import { runProcess } from './process.js';
+import { ProcessExecutionError, runProcess } from './process.js';
 import { agentProcessIdentity } from './agent-identity.js';
+import { observeGitFetch } from './git-fetch-diagnostic.js';
 import {
   assertWorkspaceScope,
   credentialGitEnvironment,
@@ -16,6 +17,8 @@ import {
   validateRepositoryUrl,
   workspacePatchCommand,
 } from './workspace-planning.js';
+
+type WorkspaceGitPhase = 'init' | 'remote' | 'fetch' | 'base_fetch' | 'checkout' | 'base_ref' | 'empty_baseline';
 
 export async function prepareWorkspace(
   repository: RepositoryInput | undefined,
@@ -36,7 +39,10 @@ export async function prepareWorkspace(
   if (!repository) {
     await mkdir(absolute, { recursive: true, mode: 0o700 });
     await handoff(absolute);
-    for (const args of emptyWorkspaceCommands(absolute)) await git(args, root, gitEnvironment(), configuredAgentIdentity());
+    const [init, baseline, baseRef] = emptyWorkspaceCommands(absolute);
+    await git('init', init, root, gitEnvironment(), configuredAgentIdentity());
+    await git('empty_baseline', baseline, root, gitEnvironment(), configuredAgentIdentity());
+    await git('base_ref', baseRef, root, gitEnvironment(), configuredAgentIdentity());
     return;
   }
   validateRepositoryUrl(repository.url, process.env.ALLOWED_REPOSITORY_HOSTS);
@@ -50,16 +56,16 @@ export async function prepareWorkspace(
     );
     env = credentialGitEnvironment(env, repository.provider, token, process.env.GIT_ASKPASS_PATH);
   }
-  await git(['init', '--quiet', absolute], root, setupEnv);
-  await git(['-C', absolute, 'remote', 'add', 'origin', repository.url], root, setupEnv);
+  await git('init', ['init', '--quiet', absolute], root, setupEnv);
+  await git('remote', ['-C', absolute, 'remote', 'add', 'origin', repository.url], root, setupEnv);
   const [fetch, checkout] = repositoryCheckoutCommands(absolute, repository.ref);
-  await git(fetch, root, env);
+  await git('fetch', fetch, root, env);
   const baseFetch = repositoryBaseFetchArguments(absolute, repository.baseRef);
-  if (baseFetch) await git(baseFetch, root, env);
+  if (baseFetch) await git('base_fetch', baseFetch, root, env);
   await handoff(absolute);
   const identity = configuredAgentIdentity();
-  await git(checkout, root, gitEnvironment(), identity);
-  await git(['-C', absolute, 'update-ref', 'refs/agent-runtime/base', 'HEAD'], root, gitEnvironment(), identity);
+  await git('checkout', checkout, root, gitEnvironment(), identity);
+  await git('base_ref', ['-C', absolute, 'update-ref', 'refs/agent-runtime/base', 'HEAD'], root, gitEnvironment(), identity);
 }
 
 /** Resets first-use durable workspaces without removing the artifact bind mount. */
@@ -123,6 +129,7 @@ export async function collectWorkspacePatch(workspace: string): Promise<Buffer |
 }
 
 async function git(
+  phase: WorkspaceGitPhase,
   args: string[],
   cwd: string,
   env: NodeJS.ProcessEnv = gitEnvironment(),
@@ -134,13 +141,28 @@ async function git(
     timeoutMs: 120_000,
     maxStdoutBytes: 2 * 1024 * 1024,
     maxStderrBytes: 2 * 1024 * 1024,
+    ...(phase === 'fetch' ? { onSpawn: observeGitFetch } : {}),
     ...identity,
+  }).catch((error: unknown) => {
+    throw safeGitExecutionError(phase, error);
   });
   if (result.exitCode !== 0) {
     const patterns = secretRedactionPatterns(env.GIT_TOKEN ? [{ secret: env.GIT_TOKEN, replacement: '[REDACTED]' }] : []);
     const diagnostic = redactText(result.stderr.toString('utf8'), patterns).value;
-    throw new Error(`git failed with ${result.exitCode}: ${redactGitDiagnostic(diagnostic).slice(-1_000)}`);
+    throw new Error(`git ${phase} failed with ${result.exitCode}: ${redactGitDiagnostic(diagnostic).slice(-1_000)}`);
   }
+}
+
+function safeGitExecutionError(phase: WorkspaceGitPhase, error: unknown): Error {
+  if (!(error instanceof ProcessExecutionError)) return new Error(`git ${phase} could not start`);
+  const failure = /^process timed out after \d+ms$/.test(error.message)
+    ? 'timed out'
+    : /^process output exceeded \d+ bytes$/.test(error.message)
+      ? 'exceeded output limit'
+      : error.message === 'process was cancelled'
+        ? 'was cancelled'
+        : 'failed';
+  return new ProcessExecutionError(`git ${phase} ${failure}`);
 }
 
 function gitEnvironment(): NodeJS.ProcessEnv {

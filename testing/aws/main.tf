@@ -152,6 +152,7 @@ module "agent_runner" {
   codex_bedrock_model_ids            = [var.codex_model_id]
   pi_bedrock_model_ids               = var.pi_bedrock_model_ids
   pi_bedrock_inference_resource_arns = var.pi_bedrock_inference_resource_arns
+  runtime_https_egress_cidrs         = var.runtime_https_egress_cidrs
   default_delivery_destinations      = var.enable_super_agent_proof ? "teams" : "source"
   integration_plugin_base_urls       = { fixture-crm = aws_lambda_function_url.integration_fixture.function_url }
   integration_oauth_app_secret_arns  = var.integration_oauth_app_secret_arns
@@ -163,6 +164,7 @@ module "agent_runner" {
   teams_outgoing_webhook_secret_arn  = aws_secretsmanager_secret.teams_webhook.arn
   teams_webhook_enabled              = true
   teams_workflow_url_secret_arn      = aws_secretsmanager_secret.teams_workflow.arn
+  teams_reply_gateway_url_secret_arn = var.enable_super_agent_proof ? aws_secretsmanager_secret.teams_workflow.arn : null
   slack_signing_secret_arn           = try(aws_secretsmanager_secret.slack_webhook[0].arn, null)
   slack_webhook_enabled              = var.enable_slack_webhook
   enable_microvm                     = var.enable_microvm

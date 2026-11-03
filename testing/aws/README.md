@@ -118,11 +118,13 @@ ARNs. This opt-in enables a one-minute watchdog schedule, candidate message inta
 and deployment-owned Teams delivery capture. Source the resulting `runtime.env`
 and run `npx vitest run tests/aws/super-agent-*.test.ts --no-file-parallelism`.
 
-These proofs send signed synthetic GitHub and Slack events, execute real model
+These proofs send signed synthetic GitHub, GitLab, and Slack events, execute real model
 Turns, inspect saved state, and capture outgoing delivery. They do not install a
 provider app or post to a real repository or channel. Watchdog probes inject
 bounded failed and aged histories into their own API-created Sessions, then check
-scheduled reporting and actual model retry and judgment. Some probes temporarily
+scheduled reporting and actual model retry and judgment. The retry proof captures
+the answer in its original thread and replays the completed delivery job to check
+for duplicate replies. Some probes temporarily
 pause the disposable outbox consumer and restore it in cleanup; run these files
 serially against an otherwise idle test stack. The credential echo endpoint accepts
 only deployment-specific synthetic canaries. Destroy the stack after validation.

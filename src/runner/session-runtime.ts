@@ -170,9 +170,9 @@ export class SessionRuntime {
     return ids;
   }
 
-  public async initialize(): Promise<SessionRuntimeState> {
+  public async initialize(timeoutMs = 30_000): Promise<SessionRuntimeState> {
     const request = this.options.request;
-    await this.rpc.initialize();
+    await this.rpc.initialize(timeoutMs);
     if (request.permissions === 'rat_managed' && !request.managedPolicy) throw new Error('Managed executor policy intent is missing');
     if (request.managedPolicy && request.permissions !== 'rat_managed') throw new Error('Managed executor permission profile is not selected');
     if (request.managedPolicy) await verifyManagedCodexPolicy({ call: this.rpc.call.bind(this.rpc), policy: request.managedPolicy });

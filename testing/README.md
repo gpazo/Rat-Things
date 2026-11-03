@@ -222,6 +222,30 @@ These tests incur AWS and model costs. Source the intended disposable deployment
 proofs also require `AWS_E2E_LONG_RUNNING_AGENT_ID` selecting an Agent admitted by
 `AWS_E2E_EC2_SESSION_WORKLOADS_JSON`; see [backend placement](#backend-placement-in-aws-tests).
 
+### Live fixture HTTPS egress
+
+The live AWS harness keeps runtime HTTPS egress disabled by default. To let fixture
+Sessions clone the public GitHub and GitLab test repositories or call the deployment's
+credential echo URL, resolve the current IPv4 addresses for those exact fixture hosts
+and provide each reviewed address as a `/32` CIDR before starting fixture Sessions.
+Stop existing fixture Sessions and workers before changing this list. Launch fresh
+Sessions after the deployment completes.
+The credential echo hostname is available after the first deploy; if needed, deploy
+with the default closed egress, resolve that endpoint, then redeploy with the reviewed
+addresses before running the tests:
+
+```bash
+AWS_E2E_RUNTIME_HTTPS_EGRESS_CIDRS_JSON='["<fixture IPv4>/32"]' \
+  AWS_E2E_REAL_CODEX=true npm run aws:e2e:deploy -- DEPLOYMENT_ID
+```
+
+Replace the example entry with the complete JSON array of current fixture-host IPv4
+addresses. The Terraform module rejects broad ranges such as `0.0.0.0/0` and opens
+HTTPS only to the supplied destinations. The default empty list keeps public egress
+closed. The deploy helper saves the list in `runtime.env`, so redeploy and destroy use
+the same network configuration; refresh the reviewed addresses and redeploy when a
+fixture hostname changes its IPv4 records.
+
 To check guest egress on a disposable default quickstart deployment, read
 `.runtime/aws-quickstart/result.json`. Set `RAT_THINGS_AGENTS_API_URL` to its
 `agentsApiUrl`, `AWS_REGION` to its `region`, and `AWS_E2E_CODEX_MODEL_ID` to its

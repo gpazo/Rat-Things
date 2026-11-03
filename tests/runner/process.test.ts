@@ -1,11 +1,61 @@
 import { access, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { ProcessExecutionError, runProcess } from '../../src/runner/process.js';
 
 describe('runProcess', () => {
+  it('reports the spawned PID once and disposes once before returning', async () => {
+    const dispose = vi.fn();
+    const onSpawn = vi.fn(() => dispose);
+    const result = await runProcess(process.execPath, ['-e', 'process.stdout.write(String(process.pid))'], {
+      cwd: process.cwd(), timeoutMs: 5_000, onSpawn,
+    });
+    expect(onSpawn).toHaveBeenCalledExactlyOnceWith(Number(result.stdout.toString()));
+    expect(dispose).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(['spawn', 'dispose'] as const)('ignores diagnostic %s exceptions', async failure => {
+    const fail = () => { throw new Error('diagnostic failure'); };
+    const result = await runProcess(process.execPath, ['-e', 'process.stdout.write("ok")'], {
+      cwd: process.cwd(), timeoutMs: 5_000, onSpawn: failure === 'spawn' ? fail : () => fail,
+    });
+    expect(result.stdout.toString()).toBe('ok');
+    expect(result.exitCode).toBe(0);
+  });
+
+  it('does not call the observer when spawning fails', async () => {
+    const onSpawn = vi.fn();
+    await expect(runProcess('/nonexistent/git-probe-command', [], { cwd: process.cwd(), timeoutMs: 5_000, onSpawn })).rejects.toMatchObject({ code: 'ENOENT' });
+    expect(onSpawn).not.toHaveBeenCalled();
+  });
+
+  it.each(['timeout', 'cancel', 'output'] as const)('disposes the observer once on %s', async failure => {
+    const dispose = vi.fn();
+    const controller = new AbortController();
+    await expect(runProcess(process.execPath, ['-e', 'process.stdout.write("large output"); setInterval(() => {}, 1000)'], {
+      cwd: process.cwd(), timeoutMs: failure === 'timeout' ? 100 : 5_000, maxStdoutBytes: failure === 'output' ? 1 : 1024,
+      signal: controller.signal, onSpawn: () => {
+        if (failure === 'cancel') controller.abort();
+        return dispose;
+      },
+    })).rejects.toBeInstanceOf(ProcessExecutionError);
+    expect(dispose).toHaveBeenCalledTimes(1);
+  });
+
+  it('disposes at exit even while a descendant holds stdout open', async () => {
+    let resolveDisposed: () => void;
+    const disposed = new Promise<void>(resolve => { resolveDisposed = resolve; });
+    let closed = false;
+    const running = runProcess(process.execPath, ['-e', `
+      require('node:child_process').spawn(process.execPath, ['-e', 'setTimeout(() => {}, 400)'], { stdio: ['ignore', 1, 'ignore'] }).unref();
+    `], { cwd: process.cwd(), timeoutMs: 5_000, onSpawn: () => () => resolveDisposed() }).then(result => { closed = true; return result; });
+    await disposed;
+    expect(closed).toBe(false);
+    expect((await running).exitCode).toBe(0);
+  });
+
   it('captures stdout, stderr, exit status, and complete stdout lines', async () => {
     const lines: string[] = [];
     const result = await runProcess(

@@ -1,5 +1,4 @@
-import { constants } from 'node:fs';
-import { copyFile, lstat, readFile, rename, unlink } from 'node:fs/promises';
+import { lstat, open, readFile, rename, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import { expect, it, vi } from 'vitest';
 import { gate, nativeFixture, startRequest } from './native-runtime-fixtures.js';
@@ -16,7 +15,12 @@ it.each(['uncreated', 'missing', 'replaced'] as const)('rejects %s resume storag
     if (failure !== 'uncreated') {
       await runtime.start(create, noClaim);
       if (failure === 'missing') await unlink(disk);
-      else { await rename(disk, `${disk}.original`); await copyFile(`${disk}.original`, disk, constants.COPYFILE_FICLONE); }
+      else {
+        await rename(disk, `${disk}.original`);
+        const replacement = await open(disk, 'wx', 0o600);
+        try { await replacement.truncate((await lstat(`${disk}.original`)).size); }
+        finally { await replacement.close(); }
+      }
     }
     const boots = runtime.boots.length;
     for (let attempt = 0; attempt < 2; attempt++) {

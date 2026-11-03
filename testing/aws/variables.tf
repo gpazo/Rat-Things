@@ -51,6 +51,12 @@ variable "pi_bedrock_inference_resource_arns" {
   default     = []
 }
 
+variable "runtime_https_egress_cidrs" {
+  description = "Reviewed IPv4 destinations for opt-in runtime HTTPS egress."
+  type        = list(string)
+  default     = []
+}
+
 variable "integration_oauth_app_secret_arns" {
   description = "Optional operator-owned OAuth application secrets used by an explicit live provider canary."
   type        = map(string)

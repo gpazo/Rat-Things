@@ -27,7 +27,7 @@ export function validateRepositoryUrl(value: string, allowedHosts: string | unde
   }
 }
 
-export function emptyWorkspaceCommands(workspace: string): string[][] {
+export function emptyWorkspaceCommands(workspace: string): [string[], string[], string[]] {
   return [
     ['init', '--quiet', workspace],
     ['-C', workspace, '-c', 'user.name=Agent Runtime', '-c', 'user.email=runtime@invalid', 'commit', '--quiet', '--allow-empty', '-m', 'runtime baseline'],

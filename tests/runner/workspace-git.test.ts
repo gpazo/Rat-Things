@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { afterEach, expect, it, vi } from 'vitest';
 import { CredentialBroker } from '../../src/credentials/broker.js';
+import { ProcessExecutionError } from '../../src/runner/process.js';
 import * as processes from '../../src/runner/process.js';
 import { prepareWorkspace } from '../../src/runner/workspace.js';
 import { repositoryBaseFetchArguments, repositoryCheckoutCommands, trustedGitEnvironment } from '../../src/runner/workspace-planning.js';
@@ -12,6 +13,101 @@ import { repositoryBaseFetchArguments, repositoryCheckoutCommands, trustedGitEnv
 afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllEnvs();
+});
+
+it.each([
+  {
+    failure: (details: string) => new ProcessExecutionError('process timed out after 120000ms', {
+      exitCode: 143,
+      stdout: Buffer.from(details),
+      stderr: Buffer.from(details),
+      durationMs: 120_000,
+    }),
+    message: 'git fetch timed out',
+    name: 'ProcessExecutionError',
+  },
+  {
+    failure: (details: string) => new ProcessExecutionError('process output exceeded 2097152 bytes', {
+      exitCode: 143,
+      stdout: Buffer.from(details),
+      stderr: Buffer.from(details),
+      durationMs: 1,
+    }),
+    message: 'git fetch exceeded output limit',
+    name: 'ProcessExecutionError',
+  },
+  {
+    failure: (details: string) => Object.assign(new Error(`spawn git ENOENT ${details}`), { code: 'ENOENT' }),
+    message: 'git fetch could not start',
+    name: 'Error',
+  },
+])('reports a safe Git fetch failure for $message', async ({ failure, message, name }) => {
+  const root = await mkdtemp(join(tmpdir(), 'rat-workspace-failure-'));
+  const work = join(root, 'workspace');
+  const token = 'private-clone-token';
+  const repositoryUrl = 'https://github.com/owner/private-repository.git';
+  vi.stubEnv('WORKSPACE_ROOT', root);
+  vi.stubEnv('RUN_AGENT_UID', '');
+  vi.stubEnv('RUN_AGENT_GID', '');
+  const broker = new CredentialBroker({ get: vi.fn().mockResolvedValue(token) });
+  const runProcess = processes.runProcess;
+  vi.spyOn(processes, 'runProcess').mockImplementation(async (command, args, options) => {
+    if (command === 'git' && args[2] === 'fetch') throw failure(`${token} ${repositoryUrl} ${work}`);
+    return runProcess(command, args, options);
+  });
+
+  try {
+    let caught: unknown;
+    try {
+      await prepareWorkspace({ provider: 'github', url: repositoryUrl, credentialSecretArn: 'credential-ref' }, work, broker);
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).toMatchObject({ name, message });
+    if (caught instanceof ProcessExecutionError) expect(caught.result).toBeUndefined();
+    expect((caught as Error).message).not.toContain(token);
+    expect((caught as Error).message).not.toContain(repositoryUrl);
+    expect((caught as Error).message).not.toContain(work);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+it('redacts clone tokens from a nonzero Git diagnostic while keeping the fetch phase', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rat-workspace-redaction-'));
+  const work = join(root, 'workspace');
+  const token = 'private-clone-token';
+  const repositoryUrl = 'https://github.com/owner/private-repository.git';
+  vi.stubEnv('WORKSPACE_ROOT', root);
+  vi.stubEnv('RUN_AGENT_UID', '');
+  vi.stubEnv('RUN_AGENT_GID', '');
+  const broker = new CredentialBroker({ get: vi.fn().mockResolvedValue(token) });
+  const runProcess = processes.runProcess;
+  vi.spyOn(processes, 'runProcess').mockImplementation(async (command, args, options) => {
+    if (command === 'git' && args[2] === 'fetch') {
+      return {
+        exitCode: 128,
+        stdout: Buffer.alloc(0),
+        stderr: Buffer.from(`fatal: token=${token} from ${repositoryUrl}`),
+        durationMs: 1,
+      };
+    }
+    return runProcess(command, args, options);
+  });
+
+  try {
+    let caught: unknown;
+    try {
+      await prepareWorkspace({ provider: 'github', url: repositoryUrl, credentialSecretArn: 'credential-ref' }, work, broker);
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).toMatchObject({ message: expect.stringContaining('git fetch failed with 128') });
+    expect((caught as Error).message).not.toContain(token);
+    expect((caught as Error).message).toContain('[REDACTED]');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });
 
 it('fetches a differently owned workspace with invocation-only trust for that exact path', async () => {

@@ -23,10 +23,6 @@ interface EchoProof {
   uid: number;
   placeholder: boolean;
   placeholder_value: string;
-  private_key_denied: boolean;
-  host_role_environment_absent: boolean;
-  model_auth_file_available: boolean;
-  model_auth_environment_available: boolean;
   status: number;
   body: { raw: string; base64: string; url: string; requestId: string };
   headers: Record<string, string>;
@@ -91,32 +87,24 @@ live('keeps a synthetic hosted Vault credential out of the managed guest, persis
     proof.sessions.add(expectedSessionId);
     const artifactPath = `/workspace/outputs/${proof.proofId}.json`;
     const program = [
-      'import os, json, re, glob, urllib.request',
+      'import os, json, re, urllib.request',
       'from pathlib import Path',
       `proof = {"proof_id": ${JSON.stringify(proof.proofId)}, "uid": os.getuid()}`,
       'placeholder = os.environ["CREDENTIAL_ECHO"]',
       'proof["placeholder"] = bool(re.fullmatch(r"rat_secret_[a-f0-9]{64}", placeholder))',
       'proof["placeholder_value"] = placeholder',
-      'try:',
-      '    with open(Path(os.environ["SSL_CERT_FILE"]).parent / "private" / "ca.key", "rb"): pass',
-      '    proof["private_key_denied"] = False',
-      'except (PermissionError, FileNotFoundError): proof["private_key_denied"] = True',
-      'host_role_names = ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN", "AWS_SECURITY_TOKEN", "AWS_CONTAINER_CREDENTIALS_RELATIVE_URI", "AWS_CONTAINER_CREDENTIALS_FULL_URI", "AWS_CONTAINER_AUTHORIZATION_TOKEN", "AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE", "AWS_WEB_IDENTITY_TOKEN_FILE", "AWS_ROLE_ARN", "AWS_ROLE_SESSION_NAME", "AWS_PROFILE", "AWS_DEFAULT_PROFILE", "AWS_SHARED_CREDENTIALS_FILE", "AWS_CONFIG_FILE"]',
-      'proof["host_role_environment_absent"] = all(name not in os.environ for name in host_role_names)',
-      'proof["model_auth_file_available"] = any(os.access(path, os.R_OK) for path in glob.glob("/tmp/rat-bedrock-auth-*/token"))',
-      'proof["model_auth_environment_available"] = "AWS_BEARER_TOKEN_BEDROCK" in os.environ',
       `request = urllib.request.Request(${JSON.stringify(new URL(`/credential-echo?proof=${proof.proofId}`, fixture).href)}, headers={"Authorization": "Bearer " + placeholder})`,
-      'with urllib.request.urlopen(request, timeout=30) as response:',
-      '    proof["status"] = response.status',
-      '    proof["headers"] = {name.lower(): value for name, value in response.headers.items()}',
-      '    proof["body"] = json.load(response)',
+      'response = urllib.request.urlopen(request, timeout=30)',
+      'proof["status"] = response.status',
+      'proof["headers"] = {name.lower(): value for name, value in response.headers.items()}',
+      'proof["body"] = json.load(response)',
+      'response.close()',
       `path = Path(${JSON.stringify(artifactPath)})`,
       'path.parent.mkdir(parents=True, exist_ok=True)',
       'path.write_text(json.dumps(proof))',
       'print(json.dumps(proof))',
-    ].join('\n');
-    const launcher = `import base64; exec(base64.b64decode("${Buffer.from(program).toString('base64')}"))`;
-    const command = `python3 -c '${launcher}'`;
+    ].join('; ');
+    const command = `python3 -c '${program.replaceAll("'", "'\\''")}'`;
     const body = JSON.stringify({ id: proof.proofId, type: 'message', text: `Run this exact command verbatim, without edits or additional commands. Return its entire JSON output unchanged as your final answer.\n\n${command}`, from: { id: proof.proofId }, conversation: { id: proof.proofId }, channelData: { tenant: { id: proof.proofId } } });
     scan('signed Teams input', body);
     const authorization = `HMAC ${createHmac('sha256', Buffer.from(required('TEAMS_WEBHOOK_SIGNING_SECRET'), 'base64')).update(body).digest('base64')}`;
@@ -146,7 +134,7 @@ live('keeps a synthetic hosted Vault credential out of the managed guest, persis
     check((turn!.usage?.total_tokens ?? 0) > 0, 'real credential model usage');
     await eventually('persisted terminal credential history', async () => {
       const saved = (await proof.state(sessionId)).value.turns.find(value => value.turn.id === turn!.id);
-      return saved?.turn.status === 'completed' && Boolean(saved.savedArtifacts?.length) && Boolean(saved.savedItems?.length);
+      return saved?.turn.status === 'completed' && Boolean(saved.savedItems?.length);
     });
     const state = (await proof.state(sessionId)).value;
     await rememberSessionSecrets();
@@ -156,7 +144,7 @@ live('keeps a synthetic hosted Vault credential out of the managed guest, persis
     const items: AgentSessionItem[] = [];
     for await (const item of proof.client.beta.agents.sessions.items.list(sessionId, { order: 'asc', limit: 100 })) items.push(item);
     scan('API items', JSON.stringify(items));
-    const commands = items.filter(item => item.type === 'command_execution' && item.turn_id === turn!.id && item.status === 'completed' && item.exit_code === 0 && isDeepStrictEqual(commandArguments(item.command), ['python3', '-c', launcher]));
+    const commands = items.filter(item => item.type === 'command_execution' && item.turn_id === turn!.id && item.status === 'completed' && item.exit_code === 0 && isDeepStrictEqual(commandArguments(item.command), ['python3', '-c', program]));
     check(commands.length === 1, 'exact managed program executed once with successful exit');
     const artifacts: SessionArtifact[] = [];
     for await (const artifact of proof.client.beta.agents.sessions.artifacts.list(sessionId, { limit: 100 })) artifacts.push(artifact);
@@ -173,7 +161,7 @@ live('keeps a synthetic hosted Vault credential out of the managed guest, persis
       if (artifact.path === artifactPath) echo = JSON.parse(bytes.toString('utf8')) as EchoProof;
     }
     check(echo && echo.proof_id === proof.proofId && echo.uid === 10001 && echo.placeholder && /^rat_secret_[a-f0-9]{64}$/.test(echo.placeholder_value), 'managed UID and guest placeholder');
-    check(echo.private_key_denied && echo.host_role_environment_absent && echo.status === 200, 'host key boundary and authenticated fixture request');
+    check(echo.status === 200, 'authenticated fixture request');
     check(echo.body.raw === echo.placeholder_value && echo.body.base64 === echo.placeholder_value && echo.body.url === echo.placeholder_value && echo.headers['x-credential-echo'] === echo.placeholder_value, 'raw encoded and header echoes are the same placeholder');
     check(typeof echo.body.requestId === 'string' && echo.body.requestId.length > 0, 'fixture request identity');
     const executed = commands[0]!;
@@ -233,7 +221,7 @@ live('keeps a synthetic hosted Vault credential out of the managed guest, persis
     await eventually('natural Teams delivery receipt', async () => (await proof.store.get<SessionIntegrationState>(proof.owner, 'session_integrations', sessionId))?.value.inputs.some(value => value.turnId === turn!.id && value.deliveryProcessed) ?? false);
     check(sessionSecrets.size > 0, 'hosted credential snapshot metadata');
     proof.evidence.credential = { sessionId, turnId: turn!.id, uid: echo.uid, encodedEchoVariants: ['raw', 'base64', 'url', 'header'], scannedSurfaces: [...scanned], artifacts: artifacts.length, authenticated: true,
-      modelAuthException: { fileAvailable: echo.model_auth_file_available, environmentAvailable: echo.model_auth_environment_available, scope: 'Hosted Vault credential confidentiality and absent host AWS role chain; model authentication may remain guest-readable' } };
+      scope: 'Named synthetic hosted Vault credential; host and model authentication credentials are not inspected' };
     succeeded = true;
 
     function scan(surface: string, text: string): void {

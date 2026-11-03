@@ -31,6 +31,7 @@ aws_e2e_source_runtime_defaults() {
     AWS_E2E_CODEX_MODEL_ID
     AWS_E2E_PI_BEDROCK_MODEL_IDS_JSON
     AWS_E2E_PI_BEDROCK_INFERENCE_RESOURCE_ARNS_JSON
+    AWS_E2E_RUNTIME_HTTPS_EGRESS_CIDRS_JSON
     AWS_E2E_PI_PROOF
     AWS_E2E_OAUTH_APP_SECRET_ARNS
     AWS_E2E_PUBLICATION_DOMAIN
@@ -109,6 +110,7 @@ aws_e2e_configure() {
   codex_model_id="${AWS_E2E_CODEX_MODEL_ID:-openai.gpt-5.6-terra}"
   pi_bedrock_model_ids="${AWS_E2E_PI_BEDROCK_MODEL_IDS_JSON:-[]}"
   pi_bedrock_inference_resource_arns="${AWS_E2E_PI_BEDROCK_INFERENCE_RESOURCE_ARNS_JSON:-[]}"
+  runtime_https_egress_cidrs="${AWS_E2E_RUNTIME_HTTPS_EGRESS_CIDRS_JSON:-[]}"
   pi_proof_enabled="${AWS_E2E_PI_PROOF:-false}"
   if [[ "$pi_proof_enabled" != "true" && "$pi_proof_enabled" != "false" ]]; then
     echo "AWS_E2E_PI_PROOF must be true or false" >&2
@@ -120,6 +122,10 @@ aws_e2e_configure() {
   fi
   if ! jq -e 'type == "array" and all(.[]; type == "string")' >/dev/null <<<"$pi_bedrock_inference_resource_arns"; then
     echo "AWS_E2E_PI_BEDROCK_INFERENCE_RESOURCE_ARNS_JSON must be a JSON array of strings" >&2
+    return 1
+  fi
+  if ! jq -e 'type == "array" and all(.[]; type == "string")' >/dev/null <<<"$runtime_https_egress_cidrs"; then
+    echo "AWS_E2E_RUNTIME_HTTPS_EGRESS_CIDRS_JSON must be a JSON array of strings" >&2
     return 1
   fi
   oauth_app_secret_arns="${AWS_E2E_OAUTH_APP_SECRET_ARNS:-}"
@@ -169,6 +175,7 @@ aws_e2e_configure() {
     "-var=codex_model_id=$codex_model_id"
     "-var=pi_bedrock_model_ids=$pi_bedrock_model_ids"
     "-var=pi_bedrock_inference_resource_arns=$pi_bedrock_inference_resource_arns"
+    "-var=runtime_https_egress_cidrs=$runtime_https_egress_cidrs"
     "-var=integration_oauth_app_secret_arns=$oauth_app_secret_arns"
     "-var=enable_slack_webhook=$slack_webhook_enabled"
     "-var=enable_super_agent_proof=${AWS_E2E_SUPER_AGENT_PROOF:-false}"

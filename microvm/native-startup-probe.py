@@ -4,6 +4,7 @@ import json
 import os
 import posixpath
 import re
+import socket
 import sys
 import time
 
@@ -103,6 +104,7 @@ def _stat(path, pid):
             "role": THREAD_ROLES.get(data[start + 2:end], "other"),
             "state": state,
             "parent": _uint(fields[1], MAX_PID),
+            "pgrp": _uint(fields[2], MAX_PID),
             "cpu": [_uint(fields[11]), _uint(fields[12])],
             "start": _uint(fields[19]),
         }
@@ -296,16 +298,191 @@ def _sample(pid, parent_pid, architecture):
     return result
 
 
+def _git_process(pid, first, architecture, deadline):
+    path = _PROC_ROOT + "/" + str(pid)
+    access = {"stat": "ok"}
+    access["wchan"], wchan = _symbols(path + "/wchan")
+    access["syscall"], number, fd, kind = _syscall(path + "/syscall", architecture)
+    access["stack"], stack = _symbols(path + "/stack", stack=True)
+    _, descriptor = _fd(path, fd)
+    waits = set(_waits(first["state"], wchan + stack, number, architecture, descriptor, kind)) - {"unknown"}
+    symbols = wchan + stack
+    for category, pattern in (
+        ("child_wait", r"^(?:do_wait|kernel_wait4|do_wait_intr_irq)(?:$|[.])"),
+        ("poll", r"^(?:do_poll|do_select|poll_schedule_timeout)(?:$|[.])"),
+        ("socket_connect", r"^(?:inet_wait_for_connect|__inet_stream_connect|tcp_v4_connect|tcp_v6_connect)(?:$|[.])"),
+        ("sleep", r"^(?:hrtimer_nanosleep|do_nanosleep)(?:$|[.])"),
+    ):
+        if any(re.match(pattern, symbol) for symbol in symbols):
+            waits.add(category)
+    call = {"aarch64": {95: "child_wait", 260: "child_wait", 72: "poll", 73: "poll", 101: "sleep", 115: "sleep", 203: "socket_connect"},
+            "x86_64": {61: "child_wait", 247: "child_wait", 7: "poll", 23: "poll", 270: "poll", 271: "poll", 35: "sleep", 230: "sleep", 42: "socket_connect"}}.get(architecture, {}).get(number)
+    if call:
+        waits.add(call)
+    inodes, capped = set(), False
+    try:
+        with os.scandir(path + "/fd") as entries:
+            access["fd"] = "ok"
+            for count, entry in enumerate(entries):
+                if count >= 64 or time.monotonic() >= deadline:
+                    access["fd"], capped = "too_large", True
+                    break
+                if not re.fullmatch(r"[0-9]{1,10}", entry.name):
+                    continue
+                try:
+                    target = os.readlink(path + "/fd/" + entry.name)
+                    match = re.fullmatch(r"socket:\[([0-9]{1,16})\]", target)
+                    if match:
+                        inodes.add(_uint(match.group(1).encode()))
+                except OSError as error:
+                    access["fd"] = _error_status(error)
+                except ValueError:
+                    access["fd"] = "malformed"
+    except OSError as error:
+        access["fd"] = _error_status(error)
+    _, last = _stat(path + "/stat", pid)
+    if last is None or any(first[key] != last[key] for key in ("start", "pgrp", "parent")):
+        return None, set(), capped
+    return {"pid": pid, "parent": first["parent"], "state": first["state"],
+            "state_stable": first["state"] == last["state"], "waits": sorted(waits) or ["unknown"],
+            "access": access, "sockets": []}, inodes, capped
+
+
+def _git_tcp(path, family, inodes, deadline):
+    endpoints, data, capped = {}, b"", False
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW | os.O_NONBLOCK)
+        try:
+            while True:
+                if time.monotonic() >= deadline or len(data) >= 131072:
+                    capped = True
+                    break
+                chunk = os.read(fd, min(4096, 131072 - len(data)))
+                if not chunk:
+                    break
+                data += chunk
+        finally:
+            os.close(fd)
+    except OSError as error:
+        return _error_status(error), endpoints, capped
+    status = "too_large" if capped else "ok" if data else "empty"
+    lines = data.splitlines()
+    if capped and data and not data.endswith(b"\n"):
+        lines = lines[:-1]
+    for count, line in enumerate(lines[1:]):
+        if count >= 512 or time.monotonic() >= deadline:
+            status, capped = "too_large", True
+            break
+        fields = line.split()
+        try:
+            if len(fields) < 10:
+                raise ValueError()
+            inode = _uint(fields[9])
+            if inode not in inodes:
+                continue
+            address, port = fields[2].split(b":")
+            if not re.fullmatch(rb"[0-9A-Fa-f]{%d}" % (8 if family == 4 else 32), address) or not re.fullmatch(rb"[0-9A-Fa-f]{4}", port) or not re.fullmatch(rb"[0-9A-Fa-f]{2}", fields[3]):
+                raise ValueError()
+            state = int(fields[3], 16)
+            if state < 1 or state > 12:
+                raise ValueError()
+            raw = b"".join(int(address[index:index + 8], 16).to_bytes(4, sys.byteorder) for index in range(0, len(address), 8))
+            endpoints[inode] = {"family": family, "address": socket.inet_ntop(socket.AF_INET if family == 4 else socket.AF_INET6, raw),
+                                "port": int(port, 16), "state": state}
+        except (ValueError, OSError):
+            status = "malformed"
+    return status, endpoints, capped
+
+
+def _sample_git(pid, parent_pid, architecture):
+    deadline = time.monotonic() + 0.75
+    architecture = architecture if architecture in FD_CALLS else "unsupported"
+    result = {"v": 1, "kind": "git_fetch", "status": "unavailable", "arch": architecture,
+              "identity": {"before": "not_sampled", "after": "not_sampled"},
+              "proc_access": "not_sampled", "tcp_access": "not_sampled", "tcp6_access": "not_sampled", "capped": False, "processes": []}
+    path = _PROC_ROOT + "/" + str(pid)
+    result["identity"]["before"], first = _stat(path + "/stat", pid)
+    if first is None:
+        return result
+    if first["parent"] != parent_pid or first["pgrp"] != pid:
+        result["status"] = "not_owned_child"
+        return result
+    if first["state"] in ("Z", "X", "x"):
+        result["status"] = "target_exited"
+        return result
+    members = [(pid, first)]
+    try:
+        with os.scandir(_PROC_ROOT) as entries:
+            result["proc_access"] = "ok"
+            for count, entry in enumerate(entries):
+                if count >= 256 or time.monotonic() >= deadline:
+                    result["capped"] = True
+                    break
+                if not re.fullmatch(r"[1-9][0-9]{0,9}", entry.name):
+                    continue
+                member = int(entry.name)
+                if member == pid or member > MAX_PID:
+                    continue
+                _, stat = _stat(_PROC_ROOT + "/" + entry.name + "/stat", member)
+                if stat and stat["pgrp"] == pid and stat["state"] not in ("Z", "X", "x"):
+                    if len(members) == 16:
+                        result["capped"] = True
+                        break
+                    members.append((member, stat))
+    except OSError as error:
+        result["proc_access"] = _error_status(error)
+    collected, inodes = [], set()
+    for member, stat in members:
+        if time.monotonic() >= deadline:
+            break
+        item, sockets, capped = _git_process(member, stat, architecture, deadline)
+        result["capped"] |= capped
+        if item:
+            collected.append((item, sockets, stat))
+            inodes.update(sockets)
+    endpoints = {}
+    for table, family in (("tcp", 4), ("tcp6", 6)):
+        if time.monotonic() >= deadline:
+            break
+        result[table + "_access"], found, capped = _git_tcp(path + "/net/" + table, family, inodes, deadline)
+        result["capped"] |= capped
+        endpoints.update(found)
+    for item, sockets, stat in collected:
+        if time.monotonic() >= deadline:
+            break
+        _, last = _stat(_PROC_ROOT + "/" + str(item["pid"]) + "/stat", item["pid"])
+        if last is None or any(stat[key] != last[key] for key in ("start", "pgrp", "parent")) or last["state"] in ("Z", "X", "x"):
+            continue
+        matched = [endpoints[inode] for inode in sorted(sockets) if inode in endpoints]
+        item["sockets"] = matched[:8]
+        result["capped"] |= len(matched) > 8
+        result["processes"].append(item)
+    result["status"] = "budget_exhausted" if time.monotonic() >= deadline else "ok"
+    result["capped"] |= result["status"] == "budget_exhausted"
+    result["identity"]["after"], last = _stat(path + "/stat", pid)
+    if last is None or any(first[key] != last[key] for key in ("start", "pgrp", "parent")) or last["state"] in ("Z", "X", "x"):
+        result["status"], result["processes"] = "identity_lost", []
+    return result
+
+
 def _encode(result):
     while True:
         line = json.dumps(result, separators=(",", ":"), ensure_ascii=True) + "\n"
         if len(line.encode("ascii")) <= MAX_OUTPUT:
             return line
-        result["threads"].pop()
+        result["processes" if result.get("kind") == "git_fetch" else "threads"].pop()
         result["capped"] = True
 
 
 def main():
+    if len(sys.argv) >= 2 and sys.argv[1] == "--git-fetch":
+        minimal = {"v": 1, "kind": "git_fetch", "status": "invalid_input", "processes": []}
+        if len(sys.argv) != 3 or not re.fullmatch(r"[1-9][0-9]{0,9}", sys.argv[2]) or int(sys.argv[2]) > MAX_PID:
+            return minimal
+        if sys.platform != "linux":
+            minimal["status"] = "unsupported_platform"
+            return minimal
+        return _sample_git(int(sys.argv[2]), os.getppid(), os.uname().machine)
     if len(sys.argv) != 2 or not re.fullmatch(r"[1-9][0-9]{0,9}", sys.argv[1]) or int(sys.argv[1]) > MAX_PID:
         return {"v": 2, "status": "invalid_input", "threads": []}
     if sys.platform != "linux":
@@ -317,7 +494,9 @@ if __name__ == "__main__":
     try:
         output = _encode(main())
     except Exception:
-        output = '{"v":2,"status":"internal_error","threads":[]}\n'
+        output = ('{"v":1,"kind":"git_fetch","status":"internal_error","processes":[]}\n'
+                  if len(sys.argv) >= 2 and sys.argv[1] == "--git-fetch"
+                  else '{"v":2,"status":"internal_error","threads":[]}\n')
     try:
         sys.stdout.write(output)
     except Exception:

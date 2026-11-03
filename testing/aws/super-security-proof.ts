@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { setTimeout as delay } from 'node:timers/promises';
+import type { SQSEvent } from 'aws-lambda';
 import { DynamoDBClient, DescribeTableCommand } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient, GetCommand } from '@aws-sdk/lib-dynamodb';
 import { HeadBucketCommand, S3Client } from '@aws-sdk/client-s3';
@@ -22,6 +23,7 @@ import type { SessionIntegrationState, IntegrationOccurrence, ThreadSubscription
 import type { WebhookDelivery } from '../../src/domain/session-webhooks.js';
 import type { RunRecord } from '../../src/domain/contracts.js';
 import { watchdogIdentity } from '../../src/core/watchdog-planning.js';
+import { agentsJobGroup } from '../../src/core/agents-outbox-planning.js';
 
 export const proofTimeout = Number(process.env.AWS_E2E_TIMEOUT_MS ?? 420_000);
 export const hash = (value: string): string => createHash('sha256').update(value).digest('hex');
@@ -41,6 +43,24 @@ export async function aws<T>(region: string, args: string[]): Promise<T> {
 interface Mapping { UUID: string; State: string; FunctionArn: string; EventSourceArn: string }
 interface FunctionConfig { Configuration: { FunctionArn: string; Timeout: number; Environment?: { Variables?: Record<string, string> } }; Tags?: Record<string, string> }
 type WatchdogTick = Awaited<ReturnType<WatchdogService['tick']>>;
+
+async function invokeLambda(region: string, functionName: string, payload: unknown, label: string): Promise<unknown> {
+  const directory = await mkdtemp(join(tmpdir(), 'rat-security-invoke-'));
+  try {
+    const output = join(directory, 'response.json');
+    const result = await aws<{ FunctionError?: string; StatusCode: number }>(region, ['lambda', 'invoke', '--function-name', functionName, '--invocation-type', 'RequestResponse', '--payload', JSON.stringify(payload), '--cli-binary-format', 'raw-in-base64-out', output]);
+    check(result.StatusCode === 200 && !result.FunctionError, `deployed ${label} invocation`);
+    const file = await open(output, 'r');
+    let body: string;
+    try {
+      const buffer = Buffer.alloc(4097);
+      const { bytesRead } = await file.read(buffer, 0, buffer.length, 0);
+      check(bytesRead > 0 && bytesRead <= 4096, `bounded ${label} invocation response`);
+      body = buffer.subarray(0, bytesRead).toString('utf8');
+    } finally { await file.close(); }
+    return JSON.parse(body) as unknown;
+  } finally { await rm(directory, { recursive: true, force: true }); }
+}
 
 export class SecurityProof {
   readonly region = required('AWS_REGION');
@@ -134,23 +154,45 @@ export class SecurityProof {
     this.evidence.mappingRestored = this.mapping.State;
   }
   async tick(): Promise<WatchdogTick> {
-    const directory = await mkdtemp(join(tmpdir(), 'rat-watchdog-tick-'));
-    try {
-      const output = join(directory, 'response.json');
-      const result = await aws<{ FunctionError?: string; StatusCode: number }>(this.region, ['lambda', 'invoke', '--function-name', required('AWS_E2E_WATCHDOG_FUNCTION_NAME'), '--payload', '{}', '--cli-binary-format', 'raw-in-base64-out', output]);
-      check(result.StatusCode === 200 && !result.FunctionError, 'deployed watchdog invocation');
-      const file = await open(output, 'r');
-      let body: string;
-      try {
-        const buffer = Buffer.alloc(4097);
-        const { bytesRead } = await file.read(buffer, 0, buffer.length, 0);
-        check(bytesRead > 0 && bytesRead <= 4096, 'bounded watchdog invocation response');
-        body = buffer.subarray(0, bytesRead).toString('utf8');
-      } finally { await file.close(); }
-      const tick = JSON.parse(body) as WatchdogTick | null;
-      check(tick && typeof tick.partial === 'boolean' && [tick.candidates, tick.reports, tick.errors].every(value => Number.isSafeInteger(value) && value >= 0), 'watchdog invocation result');
-      return { candidates: tick.candidates, reports: tick.reports, errors: tick.errors, partial: tick.partial };
-    } finally { await rm(directory, { recursive: true, force: true }); }
+    const tick = await invokeLambda(this.region, required('AWS_E2E_WATCHDOG_FUNCTION_NAME'), {}, 'watchdog') as WatchdogTick | null;
+    check(tick && typeof tick.partial === 'boolean' && [tick.candidates, tick.reports, tick.errors].every(value => Number.isSafeInteger(value) && value >= 0), 'watchdog invocation result');
+    return { candidates: tick.candidates, reports: tick.reports, errors: tick.errors, partial: tick.partial };
+  }
+  async replaySessionDelivery(sessionId: string, turnId: string) {
+    const fn = await this.function('agents-outbox');
+    const { FunctionArn: functionArn, Timeout: timeout } = fn.Configuration;
+    check(Number.isSafeInteger(timeout) && timeout > 0 && timeout <= 60, 'bounded outbox handler timeout before replay');
+    const queueUrl = fn.Configuration.Environment?.Variables?.AGENTS_QUEUE_URL;
+    check(queueUrl === `https://sqs.${this.region}.amazonaws.com/${this.account}/${this.prefix}-agents.fifo`, 'exact outbox queue URL before replay');
+    const queueArn = `arn:aws:sqs:${this.region}:${this.account}:${this.prefix}-agents.fifo`;
+    const queue = await this.sqs.send(new GetQueueAttributesCommand({ QueueUrl: queueUrl, AttributeNames: ['QueueArn'] }));
+    check(queue.Attributes?.QueueArn === queueArn, 'exact outbox queue ARN before replay');
+    await this.mappingState('Disabled');
+    const consumerDrainSeconds = timeout + 5;
+    await delay(consumerDrainSeconds * 1000);
+    await this.mappingState('Disabled');
+    const session = await this.state(sessionId);
+    check(session.value.turns.some(value => value.turn.id === turnId && value.turn.status === 'completed'), 'completed owned retry Turn before replay');
+    const integration = await this.store.get<SessionIntegrationState>(this.owner, 'session_integrations', sessionId);
+    check(integration?.value.inputs.filter(value => value.turnId === turnId).length === 1
+      && integration.value.inputs.every(value => value.deliveryProcessed === true), 'all owned Session delivery receipts processed before replay');
+    const job = { type: 'delivery' as const, ownerId: this.owner, id: sessionId };
+    const body = JSON.stringify(job);
+    const messageId = randomUUID();
+    const timestamp = String(Date.now());
+    const event: SQSEvent = { Records: [{
+      messageId, receiptHandle: `proof-replay-${messageId}`, body,
+      attributes: { ApproximateReceiveCount: '2', SentTimestamp: timestamp, SenderId: this.account, ApproximateFirstReceiveTimestamp: timestamp,
+        MessageGroupId: hash(agentsJobGroup(job)), MessageDeduplicationId: hash(`${this.proofId}:${sessionId}:delivery-replay`), SequenceNumber: '1' },
+      messageAttributes: {}, md5OfBody: createHash('md5').update(body).digest('hex'), eventSource: 'aws:sqs', eventSourceARN: queueArn, awsRegion: this.region,
+    }] };
+    const batchItemFailureCounts: number[] = [];
+    for (let invocation = 0; invocation < 2; invocation++) {
+      const result = await invokeLambda(this.region, functionArn, event, 'outbox replay');
+      check(result && typeof result === 'object' && 'batchItemFailures' in result && Array.isArray(result.batchItemFailures) && result.batchItemFailures.length === 0, 'outbox replay acknowledges the exact owned delivery job');
+      batchItemFailureCounts.push(result.batchItemFailures.length);
+    }
+    return { functionArn, queueArn, job, messageId, invocationCount: batchItemFailureCounts.length, batchItemFailureCounts, consumerDrainSeconds };
   }
   async revisit(): Promise<void> {
     check(this.scanOwner, 'configured collector owner');

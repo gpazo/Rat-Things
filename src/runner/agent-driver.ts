@@ -99,7 +99,7 @@ export class CodexDriver implements AgentDriver {
       });
       const started = Date.now();
       try {
-        await runtime.initialize();
+        await runtime.initialize(control.session.environment.type === 'none' ? 120_000 : 30_000);
         if (control.session.turn) await runtime.start(control.session.turn, control.session.input);
         await runtime.finished;
         runtime.assertSuccessfulShutdown();

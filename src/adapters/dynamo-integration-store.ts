@@ -316,18 +316,32 @@ export class DynamoIntegrationStore implements IntegrationStore {
     const previous = await this.get<SourceCapabilityBinding>(ownerId, `SOURCE#${bindingId}`);
     if (!previous || previous.ownerId !== ownerId || previous.bindingId !== bindingId) return undefined;
     const next = validateSourceCapabilityBinding({ ...previous, eventPolicy: policy });
-    const keys = [
-      { pk: ownerKey(ownerId), sk: `SOURCE#${bindingId}` },
-      { pk: `SOURCE#${previous.sourceKind}`, sk: `BINDING#${bindingId}` },
-    ];
+    const condition = {
+      ConditionExpression: '#value = :previous',
+      ExpressionAttributeNames: { '#value': 'value' },
+      ExpressionAttributeValues: { ':previous': previous },
+    };
     try {
       await this.client.send(new TransactWriteCommand({
-        TransactItems: keys.map(Key => ({ Update: {
-          TableName: this.tableName, Key,
-          UpdateExpression: 'SET #value = :next', ConditionExpression: '#value = :previous',
-          ExpressionAttributeNames: { '#value': 'value' },
-          ExpressionAttributeValues: { ':previous': previous, ':next': next },
-        } })),
+        TransactItems: [
+          {
+            Put: {
+              ...putItemInput(this.tableName, ownerId, `SOURCE#${bindingId}`, next),
+              ...condition,
+            },
+          },
+          {
+            Put: {
+              TableName: this.tableName,
+              Item: {
+                pk: `SOURCE#${previous.sourceKind}`,
+                sk: `BINDING#${bindingId}`,
+                value: next,
+              },
+              ...condition,
+            },
+          },
+        ],
       }));
     } catch (error) {
       if (sourcePolicyContention(error)) throw new AgentsResourceConflictError();

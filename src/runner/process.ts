@@ -16,6 +16,7 @@ export interface ProcessOptions {
   maxStdoutBytes?: number;
   maxStderrBytes?: number;
   onStdoutLine?: (line: string) => void;
+  onSpawn?: (pid: number) => void | (() => void);
   signal?: AbortSignal;
   uid?: number;
   gid?: number;
@@ -54,6 +55,17 @@ export async function runProcess(
   let stdoutRemainder = '';
   let outputError: Error | undefined;
   let forceKillTimer: NodeJS.Timeout | undefined;
+  let stopObservation: void | (() => void);
+  const stopObserving = () => {
+    const stop = stopObservation;
+    stopObservation = undefined;
+    try { stop?.(); } catch {}
+  };
+  child.once('spawn', () => {
+    try { if (child.pid) stopObservation = options.onSpawn?.(child.pid); } catch {}
+  });
+  child.once('exit', stopObserving);
+  child.once('error', stopObserving);
 
   const kill = (signal: NodeJS.Signals) => {
     if (!child.pid || child.exitCode !== null) return;
@@ -121,6 +133,7 @@ export async function runProcess(
     const [code, signal] = (await once(child, 'close')) as [number | null, NodeJS.Signals | null];
     exitCode = code ?? (signal ? 128 : 1);
   } finally {
+    stopObserving();
     clearTimeout(timer);
     if (forceKillTimer) clearTimeout(forceKillTimer);
     options.signal?.removeEventListener('abort', abort);

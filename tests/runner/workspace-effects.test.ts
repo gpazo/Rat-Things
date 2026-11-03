@@ -125,6 +125,10 @@ describe('workspace preparation effects', () => {
     }
     expect(gitCalls[2]![1]).toEqual(['-C', target, 'fetch', '--quiet', '--depth=50', 'origin', 'feature']);
     expect(gitCalls[3]![1]).toEqual(['-C', target, 'fetch', '--quiet', '--no-write-fetch-head', '--depth=50', 'origin', 'main:refs/remotes/origin/main']);
+    expect(gitCalls[2]![2].onSpawn).toBeTypeOf('function');
+    for (const [index, [, , options]] of gitCalls.entries()) {
+      if (index !== 2) expect(options).not.toHaveProperty('onSpawn');
+    }
   });
 
   it('leaves the created directory in place when credential resolution fails', async () => {
@@ -141,7 +145,7 @@ describe('workspace preparation effects', () => {
     const target = await workspace();
     run.mockResolvedValueOnce(result()).mockResolvedValueOnce(result(9, Buffer.alloc(0), `prefix ${'x'.repeat(1_000)} https://user:token@github.com/repo failed`));
     await expect(prepareWorkspace(repository, target, credentials())).rejects.toThrow(
-      `git failed with 9: ${`prefix ${'x'.repeat(1_000)} https://[REDACTED]@github.com/repo failed`.slice(-1_000)}`,
+      `git remote failed with 9: ${`prefix ${'x'.repeat(1_000)} https://[REDACTED]@github.com/repo failed`.slice(-1_000)}`,
     );
     expect(run).toHaveBeenCalledTimes(2);
     expect(run.mock.calls[1]![1]).toEqual(['-C', target, 'remote', 'add', 'origin', repository.url]);

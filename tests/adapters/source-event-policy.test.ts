@@ -12,8 +12,20 @@ const original: SourceCapabilityBinding = {
 const policy = { mode: 'explicit' as const, actors: { allow: ['maintainer'] } };
 
 describe('source event policy updates', () => {
-  it('atomically updates both binding copies without changing their identity or selector claim', async () => {
-    const send = vi.fn().mockResolvedValueOnce({ Item: { value: original } }).mockResolvedValueOnce({});
+  it('updates both binding copies using only writes allowed to the control role', async () => {
+    const controlIntegrationActions = new Set(['GetItem', 'Query', 'PutItem', 'DeleteItem']);
+    const send = vi.fn().mockImplementation(async command => {
+      if (!command.input.TransactItems) return { Item: { value: original } };
+      for (const item of command.input.TransactItems) {
+        const action = 'Put' in item ? 'PutItem' : 'Update' in item ? 'UpdateItem' : undefined;
+        if (!action || !controlIntegrationActions.has(action)) {
+          throw Object.assign(new Error(`not authorized to perform: dynamodb:${action}`), {
+            name: 'AccessDeniedException',
+          });
+        }
+      }
+      return {};
+    });
     const store = new DynamoIntegrationStore({ send } as unknown as DynamoDBDocumentClient, 'integrations');
     const updated = await store.updateSourceEventPolicy('owner-1', 'binding-1', policy);
     expect(updated).toEqual({ ...original, eventPolicy: policy });
@@ -23,16 +35,16 @@ describe('source event policy updates', () => {
     });
     const writes = send.mock.calls[1]![0].input.TransactItems;
     expect(writes).toHaveLength(2);
-    expect(writes.map((write: { Update: { Key: unknown } }) => write.Update.Key)).toEqual([
-      { pk: expect.stringMatching(/^OWNER#/), sk: 'SOURCE#binding-1' },
-      { pk: 'SOURCE#github', sk: 'BINDING#binding-1' },
+    expect(writes.map((write: { Put: { Item: unknown } }) => write.Put.Item)).toEqual([
+      { pk: expect.stringMatching(/^OWNER#/), sk: 'SOURCE#binding-1', value: updated },
+      { pk: 'SOURCE#github', sk: 'BINDING#binding-1', value: updated },
     ]);
-    for (const { Update: write } of writes) {
+    for (const { Put: write } of writes) {
       expect(write).toMatchObject({
-        TableName: 'integrations', UpdateExpression: 'SET #value = :next',
+        TableName: 'integrations',
         ConditionExpression: '#value = :previous',
         ExpressionAttributeNames: { '#value': 'value' },
-        ExpressionAttributeValues: { ':previous': original, ':next': updated },
+        ExpressionAttributeValues: { ':previous': original },
       });
     }
   });
@@ -49,10 +61,10 @@ describe('source event policy updates', () => {
     const send = vi.fn().mockImplementation(async command => {
       if (!command.input.TransactItems) return { Item: { value: structuredClone(current) } };
       const writes = command.input.TransactItems;
-      if (writes.some((write: { Update: { ExpressionAttributeValues: Record<string, unknown> } }) => JSON.stringify(write.Update.ExpressionAttributeValues[':previous']) !== JSON.stringify(current))) {
+      if (writes.some((write: { Put: { ExpressionAttributeValues: Record<string, unknown> } }) => JSON.stringify(write.Put.ExpressionAttributeValues[':previous']) !== JSON.stringify(current))) {
         throw Object.assign(new Error('race'), { name: 'TransactionCanceledException', CancellationReasons: [{ Code: 'ConditionalCheckFailed' }, { Code: 'None' }] });
       }
-      current = writes[0].Update.ExpressionAttributeValues[':next'];
+      current = writes[0].Put.Item.value;
       return {};
     });
     const store = new DynamoIntegrationStore({ send } as unknown as DynamoDBDocumentClient, 'integrations');

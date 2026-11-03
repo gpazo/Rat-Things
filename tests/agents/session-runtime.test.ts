@@ -53,6 +53,19 @@ const responseUsage = (threadId: string, turnId: string, responseId: string, inp
 });
 
 describe('persistent native session runtime', () => {
+  it('uses the default native startup deadline and forwards a longer cold-start deadline', async () => {
+    const standard = fixture();
+    const cold = fixture();
+    const standardInitialize = vi.spyOn(standard.rpc(), 'initialize');
+    const coldInitialize = vi.spyOn(cold.rpc(), 'initialize');
+    try {
+      await standard.runtime.initialize();
+      await cold.runtime.initialize(120_000);
+      expect(standardInitialize).toHaveBeenCalledExactlyOnceWith(30_000);
+      expect(coldInitialize).toHaveBeenCalledExactlyOnceWith(120_000);
+    } finally { await standard.runtime.close(); await cold.runtime.close(); }
+  });
+
   it('distinguishes explicit runtime expiry from an unexpected native connection loss', async () => {
     vi.useFakeTimers();
     const expired = fixture();

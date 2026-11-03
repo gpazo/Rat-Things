@@ -52,6 +52,51 @@ describe('AWS E2E configuration', () => {
     expect(lines).toContain('VAR=-var=pi_bedrock_inference_resource_arns=[]');
   });
 
+  it('defaults runtime HTTPS egress to an empty list', () => {
+    const output = execFileSync('bash', ['--noprofile', '--norc', '-c', `
+      set -euo pipefail
+      export AWS_REGION=us-west-2
+      unset AWS_E2E_RUNTIME_HTTPS_EGRESS_CIDRS_JSON
+      source scripts/aws-e2e-common.sh
+      aws_e2e_configure eg-defaults
+      printf 'CIDRS=%s\\n' "$runtime_https_egress_cidrs"
+      printf 'VAR=%s\\n' "\${tf_vars[@]}"
+    `], { encoding: 'utf8' });
+
+    expect(output.split('\n')).toEqual(expect.arrayContaining([
+      'CIDRS=[]',
+      'VAR=-var=runtime_https_egress_cidrs=[]',
+    ]));
+  });
+
+  it('passes configured runtime HTTPS egress CIDRs through Terraform', () => {
+    const output = execFileSync('bash', ['--noprofile', '--norc', '-c', `
+      set -euo pipefail
+      export AWS_REGION=us-west-2
+      export AWS_E2E_RUNTIME_HTTPS_EGRESS_CIDRS_JSON='["203.0.113.7/32","198.51.100.8/32"]'
+      source scripts/aws-e2e-common.sh
+      aws_e2e_configure eg-configured
+      printf '%s\\n' "\${tf_vars[@]}"
+    `], { encoding: 'utf8' });
+
+    expect(output.split('\n')).toContain(
+      '-var=runtime_https_egress_cidrs=["203.0.113.7/32","198.51.100.8/32"]',
+    );
+  });
+
+  it('rejects non-string runtime HTTPS egress entries', () => {
+    const output = execFileSync('bash', ['--noprofile', '--norc', '-c', `
+      set -euo pipefail
+      export AWS_REGION=us-west-2
+      export AWS_E2E_RUNTIME_HTTPS_EGRESS_CIDRS_JSON='["203.0.113.7/32",false]'
+      source scripts/aws-e2e-common.sh
+      if aws_e2e_configure egress-invalid; then exit 99; fi
+      printf 'rejected'
+    `], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+
+    expect(output).toBe('rejected');
+  });
+
   it('passes configured Pi models and inference resource ARNs through Terraform', () => {
     const output = execFileSync('bash', ['--noprofile', '--norc', '-c', `
       set -euo pipefail
@@ -79,6 +124,7 @@ describe('AWS E2E configuration', () => {
       'export AWS_E2E_REAL_CODEX=false',
       `export AWS_E2E_PI_BEDROCK_MODEL_IDS_JSON='["saved-model"]'`,
       `export AWS_E2E_PI_BEDROCK_INFERENCE_RESOURCE_ARNS_JSON='["saved-arn"]'`,
+      `export AWS_E2E_RUNTIME_HTTPS_EGRESS_CIDRS_JSON='["203.0.113.7/32"]'`,
       'export AWS_E2E_PI_PROOF=false',
       '',
     ].join('\n'));
@@ -87,9 +133,10 @@ describe('AWS E2E configuration', () => {
       export AWS_E2E_REAL_CODEX=true
       export AWS_E2E_PI_BEDROCK_MODEL_IDS_JSON='["override-model"]'
       export AWS_E2E_PI_PROOF=true
+      unset AWS_E2E_RUNTIME_HTTPS_EGRESS_CIDRS_JSON
       source scripts/aws-e2e-common.sh
       aws_e2e_source_runtime_defaults '${runtime}'
-      printf '%s\n%s\n%s\n%s\n%s\n%s\n%s' "$AWS_E2E_OAUTH_APP_SECRET_ARNS" "$AWS_E2E_ENABLE_SLACK_WEBHOOK" "$AWS_E2E_SLACK_SIGNING_SECRET_FILE" "$AWS_E2E_REAL_CODEX" "$AWS_E2E_PI_BEDROCK_MODEL_IDS_JSON" "$AWS_E2E_PI_BEDROCK_INFERENCE_RESOURCE_ARNS_JSON" "$AWS_E2E_PI_PROOF"
+      printf '%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s' "$AWS_E2E_OAUTH_APP_SECRET_ARNS" "$AWS_E2E_ENABLE_SLACK_WEBHOOK" "$AWS_E2E_SLACK_SIGNING_SECRET_FILE" "$AWS_E2E_REAL_CODEX" "$AWS_E2E_PI_BEDROCK_MODEL_IDS_JSON" "$AWS_E2E_PI_BEDROCK_INFERENCE_RESOURCE_ARNS_JSON" "$AWS_E2E_RUNTIME_HTTPS_EGRESS_CIDRS_JSON" "$AWS_E2E_PI_PROOF"
     `], { encoding: 'utf8' });
 
     expect(output.split('\n')).toEqual([
@@ -99,6 +146,7 @@ describe('AWS E2E configuration', () => {
       'true',
       '["override-model"]',
       '["saved-arn"]',
+      '["203.0.113.7/32"]',
       'true',
     ]);
   });
