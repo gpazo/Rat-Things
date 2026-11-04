@@ -65,6 +65,10 @@ and any observed dispatch outcome. It also identifies the executing Run,
 generation, and runtime epoch. Arguments, tool output, transport headers, secret
 values, and secret-store references are excluded.
 
+Optional actor and credential-subject fields describe the Run's initiating
+provenance. They do not identify the author of every later steering message or
+prove who caused an individual tool call.
+
 The host records the decision before sending the tool request. If it cannot
 confirm that the decision was saved, it does not dispatch the request. An
 allowlist denial does not read a live Vault credential for that request. A batch
