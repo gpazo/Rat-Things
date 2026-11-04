@@ -9911,6 +9911,19 @@
         },
         "sourceSession": {
           "$ref": "#/definitions/ConfigurationRevisionRef"
+        },
+        "importedFrom": {
+          "type": "object",
+          "properties": {
+            "sessionId": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "sessionId"
+          ],
+          "additionalProperties": false,
+          "description": "Import provenance is descriptive, never a claim of source execution authority."
         }
       },
       "required": [

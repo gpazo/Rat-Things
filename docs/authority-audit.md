@@ -7,9 +7,11 @@ readable after the corresponding Agent or Session is deleted.
 
 Configuration history works in local and AWS workspaces. Tool authorization
 records cover HTTP MCP tools with `connection_origin: "service"` in AWS workers.
-Local Sessions do not support MCP. Shell commands, environment-origin MCP,
-application-resolved functions, and delivery integrations do not produce these
-authorization records.
+Local Sessions do not support MCP. The records cover MCP `tools/call` requests;
+initialization, discovery, resource reads, and prompt retrieval do not produce
+tool authorization records. Shell commands, environment-origin MCP,
+application-resolved functions, and delivery integrations are also outside this
+coverage.
 
 ## Find the configuration used by a Session
 
@@ -65,8 +67,10 @@ values, and secret-store references are excluded.
 
 The host records the decision before sending the tool request. If it cannot
 confirm that the decision was saved, it does not dispatch the request. An
-allowlist denial does not read a live Vault credential for that request. A batch containing a denied call is not
-forwarded; otherwise admitted members receive `batch_denied` records.
+allowlist denial does not read a live Vault credential for that request. A batch
+containing a denied call is not forwarded; otherwise admitted members receive
+`batch_denied` records. Batches are limited to 32 messages; nested or malformed
+batches are rejected before dispatch.
 
 Credential evidence distinguishes a live Vault check, an inline Session
 snapshot, and a connection without credentials. Vault evidence identifies the

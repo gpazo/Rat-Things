@@ -46,7 +46,6 @@ import { prepareSessionMcp, type SessionMcpRuntime } from './session-mcp.js';
 import { activeMcpTurnContext } from './session-mcp-authorization.js';
 import { ToolAuthorizationService } from '../core/tool-authorization-service.js';
 import type { SessionRuntimeState } from '../core/session-runtime-planning.js';
-import type { ConfigurationRevisionRef } from '../domain/configuration-history.js';
 import { VaultService } from '../core/vault-service.js';
 import { DynamoAgentsStore } from '../adapters/dynamo-agents-store.js';
 import { SessionEventStore } from '../core/session-event-store.js';
@@ -362,7 +361,7 @@ export async function runAgentWorker(): Promise<void> {
         ownerId: sessionOwner,
         identity: { sessionId: launch.sessionId, agentId: launch.agent.id, runId, generation: executionGeneration, runtimeEpoch,
           ...(current.provenance ? { actor: current.provenance.actor, credentialSubject: current.provenance.credentialSubject } : {}) },
-        configuration: (launch as SessionLaunch & { configuration?: ConfigurationRevisionRef }).configuration ?? null,
+        configuration: launch.configuration ?? null,
         service: new ToolAuthorizationService(agentsStore), assertActive: assertMcpActive,
         // Pi projections originate across its child protocol; no exact trusted
         // effect-to-Turn association is established at this boundary yet.
