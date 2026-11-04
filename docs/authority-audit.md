@@ -62,7 +62,8 @@ rat-things sessions authorizations sess_123 authz_123
 A record contains the requested tool, its server label, the admitted tool
 allowlist and policy digest, the Session configuration reference, the decision,
 and any observed dispatch outcome. It also identifies the executing Run,
-generation, and runtime epoch. Arguments, tool output, transport headers, secret
+generation, and runtime epoch. The Agent ID names the Session's configured Agent.
+Arguments, tool output, transport headers, secret
 values, and secret-store references are excluded.
 
 Optional actor and credential-subject fields describe the Run's initiating
