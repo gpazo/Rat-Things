@@ -163,6 +163,8 @@ Codex also supports self-hosted executors through the private authenticated rela
 The [Agents API guide](docs/agents-api.md) covers authentication, resources,
 continuation, streaming, tools, files, environment connections and current limits.
 The [agent operating guide](docs/agents.md) provides a concise entry point.
+Use [configuration and authorization history](docs/authority-audit.md) to inspect
+the settings a Session received and export service MCP decisions as OTLP.
 
 ## Explore design directions with Session forks
 

@@ -78,6 +78,10 @@ Sessions. A saved Agent supplies its runtime when starting a Session.
 
 ## Export traces to your own tools
 
+For configuration revisions and host decisions on service MCP calls, use the
+[authority audit guide](authority-audit.md). Its authorization export is separate
+from the execution traces below and is available while work is running.
+
 Rat Things captures structural trace information in its encrypted AWS storage.
 No collector is required. Read a page with
 `GET /v1/agents/sessions/{session_id}/traces?limit=20&order=asc`; when `has_more`

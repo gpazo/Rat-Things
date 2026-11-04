@@ -31,7 +31,7 @@ for (const [method, path, input, output] of routes) {
   const responseSchema = output?.endsWith('[]') ? {
     type: 'object', required: ['data', 'has_more', ...(output === 'EnvironmentFile[]' ? ['next'] : [])], properties: { ...(output === 'EnvironmentFile[]' ? { next: { type: ['string', 'null'] } } : { object: { const: 'list' } }), data: { type: 'array', items: ref(output.slice(0, -2)) }, has_more: { type: 'boolean' } },
   } : output === 'Binary' ? { type: 'string', format: 'binary' } : ref(output === 'SessionEventStream' ? 'SessionEvent' : output);
-  if (output === 'Trace[]') {
+  if (['Trace[]', 'ConfigurationRevision[]', 'ToolAuthorization[]', 'AuthorizationTrace[]'].includes(output)) {
     responseSchema.required.push('first_id', 'last_id');
     responseSchema.properties.first_id = { type: ['string', 'null'] };
     responseSchema.properties.last_id = { type: ['string', 'null'] };
@@ -96,6 +96,11 @@ async function verifySdkRouteCoverage(routes) {
   const missing = [...expected].filter((route) => !actual.has(route));
   // Documented operations not yet present in the pinned SDK remain explicit.
   const documented = new Set(['GET /agents/sessions/{}/traces', 'POST /agents/sessions/{}/fork', 'GET /agents/sessions/{}/lineage', 'GET /agents/sessions/{}/runtime', 'GET /agents/sessions/import', 'POST /agents/sessions/import']);
+  for (const path of ["/v1/agents/{agent_id}/revisions", "/v1/vaults/{vault_id}/revisions", "/v1/vaults/{vault_id}/credentials/{credential_id}/revisions", "/v1/agents/sessions/{session_id}/configurations"]) {
+    documented.add(`GET ${normalizeRoute(path)}`);
+    documented.add(`GET ${normalizeRoute(path)}/{}`);
+  }
+  for (const path of ["/v1/agents/sessions/{session_id}/authorizations", "/v1/agents/sessions/{session_id}/authorizations/{authorization_id}", "/v1/agents/sessions/{session_id}/authorizations/otlp"]) documented.add(`GET ${normalizeRoute(path)}`);
   const extra = [...actual].filter((route) => !expected.has(route) && !documented.has(route));
   missing.push(...[...documented].filter(route => !actual.has(route)));
   if (!expected.size || actual.size !== routes.length || missing.length || extra.length) {

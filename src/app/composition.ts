@@ -63,6 +63,8 @@ import { createBuiltinPlugins } from '../plugins/builtins.js';
 import type { AgentInteractionController, ExecutionController } from '../core/ports.js';
 import { RunService } from '../core/run-service.js';
 import { AgentService } from '../core/agent-service.js';
+import { ConfigurationHistory } from '../core/configuration-history.js';
+import { ToolAuthorizationService } from '../core/tool-authorization-service.js';
 import { ApiTokenService } from '../core/api-token-service.js';
 import { VaultService } from '../core/vault-service.js';
 import { EnvironmentTemplateService } from '../core/environment-template-service.js';
@@ -110,7 +112,7 @@ let connectionConsumerService: ConnectionConsumerService | undefined;
 let oauthAuthorizationService: OAuthAuthorizationService | undefined;
 let capabilityProfileRegistry: CapabilityProfileRegistry | undefined;
 let sourcePolicyResolver: StoredSourceSessionResolver | undefined;
-let agentsApiServices: { store: SessionEventStore; tokens: ApiTokenService; agents: AgentService; vaults: VaultService; templates: EnvironmentTemplateService; environments: EnvironmentService; files: FileService; skills: SkillService; webhooks: WebhookService; tools: SessionToolService; models: ModelCatalog | undefined; piModels: ModelCatalog | undefined; readonly sessions: SessionService } | undefined;
+let agentsApiServices: { history: ConfigurationHistory; authorizations: ToolAuthorizationService; store: SessionEventStore; tokens: ApiTokenService; agents: AgentService; vaults: VaultService; templates: EnvironmentTemplateService; environments: EnvironmentService; files: FileService; skills: SkillService; webhooks: WebhookService; tools: SessionToolService; models: ModelCatalog | undefined; piModels: ModelCatalog | undefined; readonly sessions: SessionService } | undefined;
 let sessionIntegrationService: SessionIntegrationService | undefined;
 let agentsSessionService: SessionService | undefined;
 let apiTokenService: ApiTokenService | undefined;
@@ -139,6 +141,8 @@ export function getAgentsApiServices() {
   const piCatalog = piCatalogFromConfig(process.env.PI_BEDROCK_MODEL_IDS_JSON, process.env.AWS_REGION);
   agentsApiServices = {
     store,
+    history: new ConfigurationHistory(store),
+    authorizations: new ToolAuthorizationService(store),
     piModels: createPiModelCatalog(piCatalog, process.env.PI_BEDROCK_DEFAULT_MODEL),
     webhooks: new WebhookService({ store, transport: new HttpsWebhookTransport(), secrets: new SecretsWebhooks(base.clients.secrets, requiredEnv('INTEGRATION_CREDENTIAL_NAME_PREFIX'), requiredEnv('INTEGRATION_CREDENTIAL_KMS_KEY_ARN')) }),
     tokens: getApiTokenService(),

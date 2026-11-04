@@ -47,6 +47,7 @@
       "title": "Operate",
       "documents": [
         "development-and-deployment.md",
+        "authority-audit.md",
         "diagnostics.md",
         "runbook.md",
         "watchdog.md",
@@ -89,6 +90,7 @@
     "watchdog.md": "Monitor Session progress, configure safe retries and receive independent health reports.",
     "session-fork-demo.md": "Compare two UI themes from a shared Session, discard one path, and continue the winner.",
     "agent-runtimes.md": "Choose Codex or Pi Durable, compare model access and tools, and understand worker recovery.",
-    "agents-api.md": "Run a self-hosted OpenAI Agents API-compatible server with Codex or Pi Durable, IAM authentication and durable Sessions in your AWS account."
+    "agents-api.md": "Run a self-hosted OpenAI Agents API-compatible server with Codex or Pi Durable, IAM authentication and durable Sessions in your AWS account.",
+    "authority-audit.md": "Inspect retained configuration revisions and service MCP authorization decisions, then export structural records through OTLP."
   }
 }

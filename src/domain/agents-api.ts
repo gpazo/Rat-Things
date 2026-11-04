@@ -1,5 +1,7 @@
 import type { SessionTrace, TraceListParams } from './session-traces.js';
 import type { SessionImport, SessionImportCapabilities } from './session-transfer.js';
+import type { ConfigurationRevision, InspectionListParams } from './configuration-history.js';
+import type { ToolAuthorizationReceipt, ToolAuthorizationTrace } from './tool-authorization.js';
 /**
  * The public contract belongs to OpenAI's Agents API. Import its published types
  * directly; runtime implementation records belong in ports, never in these DTOs.
@@ -111,4 +113,8 @@ export interface AgentsApiContracts {
   CredentialList: CredentialListParams;
   SessionImport: SessionImport;
   SessionImportCapabilities: SessionImportCapabilities;
+  ConfigurationRevision: ConfigurationRevision;
+  InspectionList: InspectionListParams;
+  ToolAuthorization: ToolAuthorizationReceipt;
+  AuthorizationTrace: ToolAuthorizationTrace;
 }

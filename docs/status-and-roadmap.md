@@ -21,6 +21,7 @@ identity, retention, network policy, and operational limits for the environment 
 | Capability envelope | A fixed intersection of provider, deployment, profile, account, and Session permissions | [Permissions](capability-envelope.md) |
 | Session forks | Independent managed workspaces and inherited conversation context, with lineage and fresh credentials; opt-in checkpoints required | [Fork semantics](agents-api.md#fork-a-session), [demo](session-fork-demo.md) |
 | Session history | Durable outbox, runtime journal and saved Items in the console and SDK | [Session durability](conversations.md#how-durability-works) |
+| Configuration and authorization history | Retained Agent, Session and Vault revisions; host decisions and OTLP export for service HTTP MCP | [Authority audit](authority-audit.md) |
 | Execution | Private EC2 or MicroVM harness; saved Session history survives worker loss | [Agents execution](agents-api.md) |
 | Files and publications | Private retained bytes, immutable Session artifacts, and expiring file/site/video share grants | [Files](durable-files.md), [publishing](publications.md) |
 | Browser | Declared function/MCP integration and an optional Playwright MCP configuration | [Browser use](browser-computer-use.md) |

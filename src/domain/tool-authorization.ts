@@ -1,5 +1,6 @@
 import type { ConfigurationRevisionRef } from './configuration-history.js';
 import type { RunActorContext, RunCredentialSubjectContext } from './contracts.js';
+import type { OtlpTraceData } from './session-traces.js';
 
 export interface ServiceMcpPolicy {
   serverLabel: string;
@@ -61,3 +62,5 @@ export type ToolDispatchOutcome =
 export interface ToolAuthorizationReceipt extends ToolAuthorizationDecision {
   outcome: ToolDispatchOutcome | { kind: 'unknown'; reason: 'no_observation' };
 }
+
+export interface ToolAuthorizationTrace { id: string; otlp: OtlpTraceData }

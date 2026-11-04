@@ -1,4 +1,4 @@
-import { exportSessionTraces, sessionTracePage } from './trace-export.js';
+import { exportSessionTraces, sessionTracePage, exportAuthorizationTraces, authorizationTracePage } from './trace-export.js';
 import { createReadStream } from 'node:fs';
 import { writeFile } from 'node:fs/promises';
 import { readFile } from 'node:fs/promises';
@@ -18,7 +18,7 @@ export async function runAgentsCli(argv: string[]): Promise<boolean> {
   } });
   const [operation = 'list', id, childId, nestedId] = positionals;
   if (values.help) {
-    process.stdout.write('rat-things agents create|list|get|update|delete|models [ID] [--file request.json]\nrat-things sessions create|list|get|update|delete|fork|lineage|runtime|send|cancel|items|turns|artifacts|events|traces [ID]\nrat-things environments get|connect ENVIRONMENT_ID\nrat-things environments templates create|list|get|update|delete [ID] [--file request.json]\nrat-things vaults create|list|get|delete [ID] [--file request.json]\nrat-things sessions artifacts SESSION_ID [ARTIFACT_ID]\nrat-things sessions artifact-content|artifact-delete SESSION_ID ARTIFACT_ID [--output PATH]\nrat-things files create --file PATH [--purpose user_data]\nrat-things files list|get|delete|content [ID] [--output PATH]\nStart rat-things serve or console for local Sessions. For AWS, use --api-url with agents_api_base_url and --region with the deployment AWS region.\nSession creation accepts --runtime codex|pi --model MODEL --input TEXT, --agent-id ID, --stream, or a standard JSON request file. Runtime is fixed for each Session. Pi uses Bedrock and supports none or managed environments, function and MCP tools, text output, medium verbosity, auto tier, and no reasoning summary. Use agents models --runtime pi to discover supported models and settings, and sessions runtime ID to read the pinned runtime.\n');
+    process.stdout.write('rat-things agents create|list|get|update|delete|models [ID] [--file request.json]\nrat-things sessions create|list|get|update|delete|fork|lineage|runtime|send|cancel|items|turns|artifacts|events|traces [ID]\nrat-things environments get|connect ENVIRONMENT_ID\nrat-things environments templates create|list|get|update|delete [ID] [--file request.json]\nrat-things vaults create|list|get|delete [ID] [--file request.json]\nrat-things sessions artifacts SESSION_ID [ARTIFACT_ID]\nrat-things sessions artifact-content|artifact-delete SESSION_ID ARTIFACT_ID [--output PATH]\nrat-things agents revisions AGENT_ID [REVISION]\nrat-things sessions configurations SESSION_ID [REVISION]\nrat-things sessions authorizations SESSION_ID [AUTHORIZATION_ID]\nrat-things sessions authorization-traces SESSION_ID [--output PATH]\nrat-things vaults revisions VAULT_ID [REVISION]\nrat-things vaults credential-revisions VAULT_ID CREDENTIAL_ID [REVISION]\nrat-things files create --file PATH [--purpose user_data]\nrat-things files list|get|delete|content [ID] [--output PATH]\nStart rat-things serve or console for local Sessions. For AWS, use --api-url with agents_api_base_url and --region with the deployment AWS region.\nSession creation accepts --runtime codex|pi --model MODEL --input TEXT, --agent-id ID, --stream, or a standard JSON request file. Runtime is fixed for each Session. Pi uses Bedrock and supports none or managed environments, function and MCP tools, text output, medium verbosity, auto tier, and no reasoning summary. Use agents models --runtime pi to discover supported models and settings, and sessions runtime ID to read the pinned runtime.\n');
     return true;
   }
   if (values.runtime !== undefined && !['codex', 'pi'].includes(values.runtime)) throw new Error('--runtime must be codex or pi');
@@ -52,6 +52,10 @@ export async function runAgentsCli(argv: string[]): Promise<boolean> {
     const content = await load();
     await writeFile(values.output, new Uint8Array(await content.arrayBuffer()));
   };
+  const inspection = async (path: string, recordId?: string) => {
+    if (recordId) json(await client.get(`${path}/${pathId(recordId)}`));
+    else await jsonPage(path, parseAgentsContract('InspectionList', query));
+  };
   if (group === 'files') {
     if (operation === 'create') {
       if (!values.file) throw new Error('files create requires --file PATH');
@@ -69,6 +73,7 @@ export async function runAgentsCli(argv: string[]): Promise<boolean> {
     else if (operation === 'update') json(await agents.update(requiredId(), parseAgentsContract('AgentUpdate', mergeAgentFlags(body, values, false))));
     else if (operation === 'delete') json(await agents.delete(requiredId()));
     else if (operation === 'models') json(await client.get(`/models${values.runtime ? `?runtime=${values.runtime}` : ''}`));
+    else if (operation === 'revisions') await inspection(`/agents/${pathId(requiredId())}/revisions`, childId);
     else throw new Error(`Unknown agents operation: ${operation}`);
   } else if (group === 'sessions') {
     if (operation === 'create') {
@@ -83,6 +88,14 @@ export async function runAgentsCli(argv: string[]): Promise<boolean> {
     else if (operation === 'fork') json(await client.post(`/agents/sessions/${encodeURIComponent(requiredId())}/fork`, { body }));
     else if (operation === 'runtime') json(await client.get(`/agents/sessions/${encodeURIComponent(requiredId())}/runtime`));
     else if (operation === 'lineage') json(await client.get(`/agents/sessions/${encodeURIComponent(requiredId())}/lineage`));
+    else if (operation === 'configurations') await inspection(`/agents/sessions/${pathId(requiredId())}/configurations`, childId);
+    else if (operation === 'authorizations') await inspection(`/agents/sessions/${pathId(requiredId())}/authorizations`, childId);
+    else if (operation === 'authorization-traces') {
+      const sessionId = requiredId();
+      const traceQuery = parseAgentsContract('InspectionList', query);
+      if (values.output) await writeFile(values.output, JSON.stringify(await exportAuthorizationTraces(page => authorizationTracePage(client, sessionId, page), traceQuery), null, 2) + '\n', { mode: 0o600 });
+      else json(await authorizationTracePage(client, sessionId, traceQuery));
+    }
     else if (operation === 'update') json(await agents.sessions.update(requiredId(), parseAgentsContract('SessionUpdate', mergeAgentFlags(body, values, true))));
     else if (operation === 'delete') json(await agents.sessions.delete(requiredId()));
     else if (operation === 'traces') {
@@ -135,6 +148,11 @@ export async function runAgentsCli(argv: string[]): Promise<boolean> {
     else if (operation === 'list') await jsonPage('/vaults', parseAgentsContract('VaultList', query));
     else if (operation === 'get') json(await agents.vaults.retrieve(requiredId()));
     else if (operation === 'delete') json(await agents.vaults.delete(requiredId()));
+    else if (operation === 'revisions') await inspection(`/vaults/${pathId(requiredId())}/revisions`, childId);
+    else if (operation === 'credential-revisions') {
+      if (!childId) throw new Error('vaults credential-revisions requires a Vault ID and Credential ID');
+      await inspection(`/vaults/${pathId(requiredId())}/credentials/${pathId(childId)}/revisions`, nestedId);
+    }
     else if (operation === 'credentials' && childId) {
       const credentials = agents.vaults.credentials;
       if (id === 'create') json(await credentials.create(childId, parseAgentsContract('CredentialCreate', body)));

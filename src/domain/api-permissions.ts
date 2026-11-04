@@ -22,6 +22,10 @@ export function parseTokenScopes(input: unknown): ApiScope[] {
 export function requireRoutePermission(principal: ApiPrincipal, method: string, parts: string[]): void {
   if (!principal.ownerId) throw new AgentsApiError(401, 'Authentication required.', 'invalid_api_key');
   if (parts[0] !== 'v1') return;
+  if (method === 'GET' && parts[1] === 'agents' && parts[2] === 'sessions' && parts[4] === 'authorizations' && parts[5] === 'otlp' && parts.length === 6) {
+    requireAnyScope(principal, ['api.traces.read', 'api.agents.read']);
+    return;
+  }
   if (method === 'GET' && parts[1] === 'agents' && parts[2] === 'sessions' && parts[4] === 'traces' && parts.length === 5) {
     requireAnyScope(principal, ['api.traces.read', 'api.agents.read']);
     return;

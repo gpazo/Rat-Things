@@ -57,6 +57,12 @@ sandbox code. Service-side MCP and notification credentials stay in their truste
 Use [Vault credentials](vault-credentials.md) for setup. Model authentication has separate
 guest-readable bridges, described in [secret handling](security.md#secret-handling).
 
+[Configuration history](authority-audit.md) retains the resolved Session settings
+and their source Agent revision. Service HTTP MCP calls also retain a host
+authorization decision before dispatch, including the admitted tool policy and
+any live Vault revision checks. These records describe that enforcement path;
+they do not cover every shell effect or every layer in the table above.
+
 An event policy determines which provider input may reach a Session. It does not grant tools or
 provider permissions. With shared thread scope, other participants can steer the existing Session
 within its fixed authority. A thread release stops that subscription without changing authority.

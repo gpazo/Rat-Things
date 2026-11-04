@@ -1,5 +1,7 @@
 import { join } from 'node:path';
 import { AgentService } from '../core/agent-service.js';
+import { ConfigurationHistory } from '../core/configuration-history.js';
+import { ToolAuthorizationService } from '../core/tool-authorization-service.js';
 import { OwnerRateLimiter } from '../core/owner-rate-limiter.js';
 import { ownerRateLimits } from './owner-rate-limits.js';
 import { SessionService } from '../core/session-service.js';
@@ -95,6 +97,7 @@ export function createLocalServices(options: {
   };
   return {
     agents, sessions, templates, environments, subscription, transfers, runtime, runtimeChanges: native,
+    history: new ConfigurationHistory(store), authorizations: new ToolAuthorizationService(store),
     directory: options.directory, maxSessions,
     harness: harness.id,
     models: () => harness.models(),

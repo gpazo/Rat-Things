@@ -148,6 +148,15 @@ Store values in Secrets Manager; public configuration uses resource IDs or appro
 Never place tokens in prompts, clone URLs, DynamoDB records, task overrides or logs. Keep webhook,
 clone, model, Vault and delivery identities distinct. A Workflow URL is a credential.
 
+[Authority audit records](authority-audit.md) retain configuration revisions and
+service HTTP MCP decisions in encrypted owner-scoped storage. History includes
+public settings and credential status, not credential values or private secret
+references. Tool receipts and their OTLP projection exclude arguments and output.
+Configuration inspection and structural trace export have separate read scopes.
+Resource deletion retains these records; include them in your access and backup
+policies. Application immutability does not prevent an administrator from
+changing or deleting the underlying storage.
+
 Service-side MCP credentials stay in the service process. A Vault `environment_variable`
 credential supplies a placeholder to a hosted sandbox. The trusted host substitutes its secret
 in HTTPS headers only for the credential's exact allowed hosts on port 443 or 8443, within the

@@ -20,12 +20,17 @@ describe('standard Files CLI', () => {
   it.each([
     [['files', 'list'], '/v1/files'],
     [['agents', 'list'], '/v1/agents'],
+    [['agents', 'revisions', 'agent_fixture'], '/v1/agents/agent_fixture/revisions'],
+    [['sessions', 'configurations', 'sess_fixture'], '/v1/agents/sessions/sess_fixture/configurations'],
+    [['sessions', 'authorizations', 'sess_fixture'], '/v1/agents/sessions/sess_fixture/authorizations'],
     [['sessions', 'list'], '/v1/agents/sessions'],
     [['sessions', 'items', 'sess_fixture'], '/v1/agents/sessions/sess_fixture/items'],
     [['sessions', 'turns', 'sess_fixture'], '/v1/agents/sessions/sess_fixture/turns'],
     [['sessions', 'artifacts', 'sess_fixture'], '/v1/agents/sessions/sess_fixture/artifacts'],
     [['environments', 'templates', 'list'], '/v1/agents/environments/templates'],
     [['vaults', 'list'], '/v1/vaults'],
+    [['vaults', 'revisions', 'vault_fixture'], '/v1/vaults/vault_fixture/revisions'],
+    [['vaults', 'credential-revisions', 'vault_fixture', 'cred_fixture'], '/v1/vaults/vault_fixture/credentials/cred_fixture/revisions'],
     [['vaults', 'credentials', 'list', 'vault_fixture'], '/v1/vaults/vault_fixture/credentials'],
   ] as const)('prints the API page without SDK request metadata for %s', async (args, path) => {
     const page = { object: 'list', data: [{ id: 'resource_next' }], has_more: true, first_id: 'resource_next', last_id: 'resource_next' };

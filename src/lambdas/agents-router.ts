@@ -10,6 +10,7 @@ import type { FileService } from '../core/file-service.js';
 import type { SkillService } from '../core/skill-service.js';
 import type { WebhookService } from '../core/webhook-service.js';
 import type { ModelCatalog } from '../core/model-catalog.js';
+import { routeAgentsAudit, type AgentsAuditServices } from './agents-audit-router.js';
 
 /** The caller authenticates once and supplies its derived owner, never a body field. */
 export async function routeAgentRequest(
@@ -21,7 +22,7 @@ export async function routeAgentRequest(
   return routeAgentsRequest(request, principal, { agents }, requestId);
 }
 
-export interface AgentsApiServices {
+export interface AgentsApiServices extends AgentsAuditServices {
   agents: AgentService;
   sessions?: SessionService;
   vaults?: VaultService;
@@ -41,6 +42,8 @@ export async function routeAgentsRequest(request: Request, principal: ApiPrincip
     const parts = pathParts(url.pathname);
     requireRoutePermission(principal, request.method, parts);
     if (parts[0] !== 'v1') throw new AgentsApiError(404, 'Route not found.', 'resource_not_found');
+    const audit = await routeAgentsAudit(request, ownerId, parts, services);
+    if (audit !== undefined) return json(200, audit, requestId);
     if (parts[1] === 'models' || parts[1] === 'agents' && parts[2] === 'models') {
       const runtime = url.searchParams.get('runtime');
       if (runtime !== null && runtime !== 'codex' && runtime !== 'pi') throw new AgentsApiError(400, 'Runtime must be codex or pi.', 'invalid_request', 'runtime');
@@ -74,11 +77,11 @@ export async function routeAgentsRequest(request: Request, principal: ApiPrincip
       return json(200, await agents.list(ownerId, queryParameters(url.searchParams, { nullableLimit: true })), requestId);
     }
     if (method === 'POST' && !id) {
-      return json(200, await agents.create(ownerId, await requestBody(request)), requestId);
+      return json(200, await agents.create(ownerId, await requestBody(request), mutation(ownerId, requestId)), requestId);
     }
     if (method === 'GET' && id) return json(200, await agents.retrieve(ownerId, id), requestId);
-    if (method === 'POST' && id) return json(200, await agents.update(ownerId, id, await requestBody(request)), requestId);
-    if (method === 'DELETE' && id) return json(200, await agents.delete(ownerId, id), requestId);
+    if (method === 'POST' && id) return json(200, await agents.update(ownerId, id, await requestBody(request), mutation(ownerId, requestId)), requestId);
+    if (method === 'DELETE' && id) return json(200, await agents.delete(ownerId, id, mutation(ownerId, requestId)), requestId);
     throw new AgentsApiError(405, 'Method not allowed.', 'method_not_allowed');
   } catch (error) {
     return agentsErrorResponse(error, requestId);
@@ -124,18 +127,18 @@ async function routeVault(request: Request, ownerId: string, parts: string[], va
   const [vaultId, collection, credentialId] = parts;
   const method = request.method;
   const query = () => queryParameters(new URL(request.url).searchParams, { nullableLimit: true });
-  if (!vaultId && method === 'POST') return json(200, await vaults.create(ownerId, await requestBody(request)), requestId);
+  if (!vaultId && method === 'POST') return json(200, await vaults.create(ownerId, await requestBody(request), mutation(ownerId, requestId)), requestId);
   if (!vaultId && method === 'GET') return json(200, await vaults.list(ownerId, query()), requestId);
   if (vaultId && !collection) {
     if (method === 'GET') return json(200, await vaults.retrieve(ownerId, vaultId), requestId);
-    if (method === 'DELETE') return json(200, await vaults.delete(ownerId, vaultId), requestId);
+    if (method === 'DELETE') return json(200, await vaults.delete(ownerId, vaultId, mutation(ownerId, requestId)), requestId);
   }
   if (vaultId && collection === 'credentials' && parts.length <= 3) {
-    if (!credentialId && method === 'POST') return json(200, await vaults.createCredential(ownerId, vaultId, await requestBody(request)), requestId);
+    if (!credentialId && method === 'POST') return json(200, await vaults.createCredential(ownerId, vaultId, await requestBody(request), mutation(ownerId, requestId)), requestId);
     if (!credentialId && method === 'GET') return json(200, await vaults.credentials(ownerId, vaultId, query()), requestId);
     if (credentialId && method === 'GET') return json(200, await vaults.credential(ownerId, vaultId, credentialId), requestId);
-    if (credentialId && method === 'POST') return json(200, await vaults.updateCredential(ownerId, vaultId, credentialId, await requestBody(request)), requestId);
-    if (credentialId && method === 'DELETE') return json(200, await vaults.deleteCredential(ownerId, vaultId, credentialId), requestId);
+    if (credentialId && method === 'POST') return json(200, await vaults.updateCredential(ownerId, vaultId, credentialId, await requestBody(request), mutation(ownerId, requestId)), requestId);
+    if (credentialId && method === 'DELETE') return json(200, await vaults.deleteCredential(ownerId, vaultId, credentialId, mutation(ownerId, requestId)), requestId);
   }
   throw new AgentsApiError(404, 'Route not found.', 'resource_not_found');
 }
@@ -160,7 +163,7 @@ async function routeSession(request: Request, principal: ApiPrincipal, parts: st
   if (!id && method === 'GET') return json(200, await sessions.list(ownerId, queryParameters(new URL(request.url).searchParams, { nullableLimit: true })), requestId);
   if (id && !collection) {
     if (method === 'GET') return json(200, await sessions.retrieve(ownerId, id), requestId);
-    if (method === 'POST') return json(200, await sessions.update(ownerId, id, await requestBody(request)), requestId);
+    if (method === 'POST') return json(200, await sessions.update(ownerId, id, await requestBody(request), mutation(ownerId, requestId)), requestId);
     if (method === 'DELETE') return json(200, await sessions.delete(ownerId, id), requestId);
   }
   if (id && collection === 'fork' && parts.length === 2 && method === 'POST') {
@@ -286,4 +289,8 @@ export function queryParameters(params: URLSearchParams, options: { nullableLimi
     query.limit = Number(limit);
   }
   return query;
+}
+
+function mutation(ownerId: string, requestId?: string): import('../domain/configuration-history.js').ConfigurationMutation {
+  return { actor: { kind: 'owner', id: ownerId }, ...(requestId ? { requestId } : {}) };
 }

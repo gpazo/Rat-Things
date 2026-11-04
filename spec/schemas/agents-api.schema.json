@@ -354,6 +354,18 @@
         },
         "SessionImportCapabilities": {
           "$ref": "#/definitions/SessionImportCapabilities"
+        },
+        "ConfigurationRevision": {
+          "$ref": "#/definitions/ConfigurationRevision"
+        },
+        "InspectionList": {
+          "$ref": "#/definitions/InspectionListParams"
+        },
+        "ToolAuthorization": {
+          "$ref": "#/definitions/ToolAuthorizationReceipt"
+        },
+        "AuthorizationTrace": {
+          "$ref": "#/definitions/ToolAuthorizationTrace"
         }
       },
       "required": [
@@ -413,7 +425,11 @@
         "CredentialUpdate",
         "CredentialList",
         "SessionImport",
-        "SessionImportCapabilities"
+        "SessionImportCapabilities",
+        "ConfigurationRevision",
+        "InspectionList",
+        "ToolAuthorization",
+        "AuthorizationTrace"
       ],
       "additionalProperties": false,
       "description": "Schema-generation roots. None of these types copy or rename upstream fields."
@@ -9574,6 +9590,955 @@
         "max_history_bytes",
         "credentials",
         "execution"
+      ],
+      "additionalProperties": false
+    },
+    "ConfigurationRevision": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "object": {
+          "type": "string",
+          "const": "rat_things.configuration_revision"
+        },
+        "ref": {
+          "$ref": "#/definitions/ConfigurationRevisionRef"
+        },
+        "recordedAt": {
+          "type": "number"
+        },
+        "change": {
+          "type": "string",
+          "enum": [
+            "created",
+            "updated",
+            "deleted",
+            "system",
+            "legacy_observed"
+          ]
+        },
+        "actor": {
+          "$ref": "#/definitions/ConfigurationActor"
+        },
+        "requestId": {
+          "type": "string"
+        },
+        "digest": {
+          "type": "string"
+        },
+        "changedPaths": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "snapshot": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ConfigurationSnapshot"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "object",
+        "ref",
+        "recordedAt",
+        "change",
+        "actor",
+        "digest",
+        "changedPaths",
+        "snapshot"
+      ],
+      "additionalProperties": false,
+      "description": "Confidential configuration stays in encrypted storage, never in telemetry."
+    },
+    "ConfigurationRevisionRef": {
+      "type": "object",
+      "properties": {
+        "subject": {
+          "$ref": "#/definitions/ConfigurationSubject"
+        },
+        "revision": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "subject",
+        "revision"
+      ],
+      "additionalProperties": false
+    },
+    "ConfigurationSubject": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "agent"
+            },
+            "id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "id"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "vault"
+            },
+            "id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "id"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "credential"
+            },
+            "vaultId": {
+              "type": "string"
+            },
+            "id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "vaultId",
+            "id"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "session"
+            },
+            "id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "id"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "ConfigurationActor": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "owner"
+            },
+            "id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "id"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "system"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "unknown"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "ConfigurationSnapshot": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "agent"
+            },
+            "agent": {
+              "$ref": "#/definitions/Agent"
+            }
+          },
+          "required": [
+            "kind",
+            "agent"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "vault"
+            },
+            "vault": {
+              "$ref": "#/definitions/Vault"
+            },
+            "status": {
+              "type": "string",
+              "enum": [
+                "active",
+                "archived"
+              ]
+            }
+          },
+          "required": [
+            "kind",
+            "vault",
+            "status"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "credential"
+            },
+            "credential": {
+              "$ref": "#/definitions/Credential"
+            },
+            "status": {
+              "type": "string",
+              "enum": [
+                "active",
+                "archived"
+              ]
+            }
+          },
+          "required": [
+            "kind",
+            "credential",
+            "status"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "session"
+            },
+            "configuration": {
+              "$ref": "#/definitions/SessionConfiguration"
+            }
+          },
+          "required": [
+            "kind",
+            "configuration"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "SessionConfiguration": {
+      "type": "object",
+      "properties": {
+        "agent": {
+          "$ref": "#/definitions/AgentSession.Agent",
+          "description": "The agent running in the session."
+        },
+        "environment": {
+          "$ref": "#/definitions/Environment",
+          "description": "The execution environment for the session."
+        },
+        "vaultIds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "runtime": {
+          "$ref": "#/definitions/RuntimePin"
+        },
+        "sourceAgent": {
+          "$ref": "#/definitions/ConfigurationRevisionRef"
+        },
+        "sourceSession": {
+          "$ref": "#/definitions/ConfigurationRevisionRef"
+        }
+      },
+      "required": [
+        "agent",
+        "environment",
+        "vaultIds",
+        "runtime"
+      ],
+      "additionalProperties": false
+    },
+    "RuntimePin": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "codex"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "pi"
+            },
+            "engine": {
+              "type": "string",
+              "const": "1.3.0"
+            },
+            "schema": {
+              "type": "number",
+              "const": 1
+            },
+            "registryDigest": {
+              "type": "string"
+            },
+            "catalogDigest": {
+              "type": "string"
+            },
+            "catalog": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/PiModelDescriptor"
+              }
+            }
+          },
+          "required": [
+            "kind",
+            "engine",
+            "schema",
+            "registryDigest",
+            "catalogDigest",
+            "catalog"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "PiModelDescriptor": {
+      "anyOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "provider": {
+              "type": "string",
+              "const": "amazon-bedrock"
+            },
+            "api": {
+              "type": "string",
+              "const": "bedrock-converse-stream"
+            },
+            "region": {
+              "type": "string"
+            },
+            "id": {
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "input": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "text",
+                  "image"
+                ]
+              }
+            },
+            "contextWindow": {
+              "type": "number"
+            },
+            "maxTokens": {
+              "type": "number"
+            },
+            "reasoning": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "api",
+            "contextWindow",
+            "id",
+            "input",
+            "maxTokens",
+            "name",
+            "provider",
+            "reasoning",
+            "region"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "provider": {
+              "type": "string",
+              "const": "openai-codex"
+            },
+            "api": {
+              "type": "string",
+              "const": "openai-codex-responses"
+            },
+            "id": {
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "input": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "text",
+                  "image"
+                ]
+              }
+            },
+            "contextWindow": {
+              "type": "number"
+            },
+            "maxTokens": {
+              "type": "number"
+            },
+            "reasoning": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "api",
+            "contextWindow",
+            "id",
+            "input",
+            "maxTokens",
+            "name",
+            "provider",
+            "reasoning"
+          ]
+        }
+      ]
+    },
+    "InspectionListParams": {
+      "type": "object",
+      "properties": {
+        "after": {
+          "type": "string"
+        },
+        "limit": {
+          "type": "number"
+        },
+        "order": {
+          "type": "string",
+          "enum": [
+            "asc",
+            "desc"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "ToolAuthorizationReceipt": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "object": {
+          "type": "string",
+          "const": "rat_things.tool_authorization"
+        },
+        "requestId": {
+          "type": "string"
+        },
+        "attempt": {
+          "type": "number"
+        },
+        "at": {
+          "type": "number"
+        },
+        "identity": {
+          "$ref": "#/definitions/ToolExecutionIdentity"
+        },
+        "configuration": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ConfigurationRevisionRef"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "context": {
+          "$ref": "#/definitions/ToolTurnContext"
+        },
+        "policy": {
+          "$ref": "#/definitions/ServiceMcpPolicy"
+        },
+        "policyDigest": {
+          "type": "string"
+        },
+        "toolName": {
+          "type": "string"
+        },
+        "credential": {
+          "$ref": "#/definitions/McpCredentialEvidence"
+        },
+        "decision": {
+          "type": "string",
+          "enum": [
+            "allow",
+            "deny"
+          ]
+        },
+        "reason": {
+          "$ref": "#/definitions/ToolDenialReason"
+        },
+        "outcome": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ToolDispatchOutcome"
+            },
+            {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "const": "unknown"
+                },
+                "reason": {
+                  "type": "string",
+                  "const": "no_observation"
+                }
+              },
+              "required": [
+                "kind",
+                "reason"
+              ],
+              "additionalProperties": false
+            }
+          ]
+        }
+      },
+      "required": [
+        "at",
+        "attempt",
+        "configuration",
+        "context",
+        "credential",
+        "decision",
+        "id",
+        "identity",
+        "object",
+        "outcome",
+        "policy",
+        "policyDigest",
+        "requestId",
+        "toolName"
+      ],
+      "additionalProperties": false
+    },
+    "ToolExecutionIdentity": {
+      "type": "object",
+      "properties": {
+        "sessionId": {
+          "type": "string"
+        },
+        "agentId": {
+          "type": "string"
+        },
+        "runId": {
+          "type": "string"
+        },
+        "generation": {
+          "type": "string"
+        },
+        "runtimeEpoch": {
+          "type": "number"
+        },
+        "actor": {
+          "$ref": "#/definitions/RunActorContext"
+        },
+        "credentialSubject": {
+          "$ref": "#/definitions/RunCredentialSubjectContext"
+        }
+      },
+      "required": [
+        "sessionId",
+        "agentId",
+        "runId",
+        "generation",
+        "runtimeEpoch"
+      ],
+      "additionalProperties": false
+    },
+    "RunActorContext": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "human",
+            "system"
+          ]
+        },
+        "id": {
+          "type": "string"
+        },
+        "provider": {
+          "type": "string",
+          "enum": [
+            "api",
+            "github",
+            "gitlab",
+            "teams",
+            "slack"
+          ]
+        }
+      },
+      "required": [
+        "kind",
+        "id",
+        "provider"
+      ],
+      "additionalProperties": false
+    },
+    "RunCredentialSubjectContext": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "runtime",
+            "actor"
+          ]
+        },
+        "id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "id"
+      ],
+      "additionalProperties": false
+    },
+    "ToolTurnContext": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "single_active_turn"
+            },
+            "turnId": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "turnId"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "unresolved"
+            },
+            "reason": {
+              "type": "string",
+              "enum": [
+                "unavailable",
+                "no_active_turn",
+                "multiple_active_turns"
+              ]
+            }
+          },
+          "required": [
+            "kind",
+            "reason"
+          ],
+          "additionalProperties": false
+        }
+      ],
+      "description": "Context is useful for investigation, but is not proof of a native tool-item match."
+    },
+    "ServiceMcpPolicy": {
+      "type": "object",
+      "properties": {
+        "serverLabel": {
+          "type": "string"
+        },
+        "destinationDigest": {
+          "type": "string"
+        },
+        "allowedTools": {
+          "anyOf": [
+            {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "serverLabel",
+        "destinationDigest",
+        "allowedTools"
+      ],
+      "additionalProperties": false
+    },
+    "McpCredentialEvidence": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "vault"
+            },
+            "vault": {
+              "$ref": "#/definitions/ConfigurationRevisionRef"
+            },
+            "credential": {
+              "$ref": "#/definitions/ConfigurationRevisionRef"
+            },
+            "checkedAt": {
+              "type": "number"
+            },
+            "destinationDigest": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "vault",
+            "credential",
+            "checkedAt",
+            "destinationDigest"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "inline_snapshot"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "none"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "unavailable"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "ToolDenialReason": {
+      "type": "string",
+      "enum": [
+        "tool_not_admitted",
+        "invalid_call",
+        "batch_denied",
+        "credential_unavailable",
+        "execution_inactive"
+      ]
+    },
+    "ToolDispatchOutcome": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "not_dispatched"
+            },
+            "at": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "kind",
+            "at"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "response_received"
+            },
+            "at": {
+              "type": "number"
+            },
+            "httpStatus": {
+              "type": "number"
+            },
+            "toolResult": {
+              "type": "string",
+              "enum": [
+                "unobserved",
+                "success",
+                "error"
+              ]
+            }
+          },
+          "required": [
+            "kind",
+            "at",
+            "httpStatus",
+            "toolResult"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "unknown"
+            },
+            "at": {
+              "type": "number"
+            },
+            "reason": {
+              "type": "string",
+              "enum": [
+                "transport_failure",
+                "cancelled",
+                "response_interrupted"
+              ]
+            }
+          },
+          "required": [
+            "kind",
+            "at",
+            "reason"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "ToolAuthorizationTrace": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "otlp": {
+          "$ref": "#/definitions/OtlpTraceData"
+        }
+      },
+      "required": [
+        "id",
+        "otlp"
       ],
       "additionalProperties": false
     }
