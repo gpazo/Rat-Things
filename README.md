@@ -252,5 +252,5 @@ See [AGENTS.md](AGENTS.md) for contributor boundaries and commands, and the
 
 ## Listed on
 
-<a href="https://twelve.tools" target="_blank"><img src="https://twelve.tools/badge0-light.svg" alt="Featured on Twelve Tools" width="200" height="54"></a>
+<a href="https://thedevtoolsdir.com/product/rat-things?ref=badge" rel="dofollow"><img src="https://thedevtoolsdir.com/badge/rat-things.svg" alt="Featured on TheDevToolsDir" width="182" height="46"></a>
 <a href="https://www.agenthunter.io" title="AgentHunter">AgentHunter</a>
