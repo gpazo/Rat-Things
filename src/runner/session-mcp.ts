@@ -150,7 +150,7 @@ export async function createSessionMcpProxy(options: {
         }
         const parsed: unknown = JSON.parse(Buffer.concat(chunks).toString('utf8'));
         const messages = Array.isArray(parsed) ? parsed : [parsed];
-        if (!messages.length || messages.length > MAX_TOOL_AUTHORIZATIONS) throw new Error('Invalid MCP batch');
+        if (!messages.length || messages.length > MAX_TOOL_AUTHORIZATIONS || messages.some(message => !record(message))) throw new Error('Invalid MCP batch');
         operations = messages.filter(message => record(message) && message.method === 'tools/call').map(message => {
           const params = record(message.params) ? message.params : {};
           const toolName = typeof params.name === 'string' ? params.name : 'invalid';

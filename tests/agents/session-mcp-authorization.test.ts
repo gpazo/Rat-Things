@@ -83,6 +83,16 @@ describe('durable service MCP dispatch', () => {
     expect(f.authorize).not.toHaveBeenCalled(); expect(f.sendObservations).toEqual([]);
   });
 
+  it('rejects nested batches before an uninspected call can reach the upstream server', async () => {
+    const f = await fixture();
+    for (const malformed of [[[call('erase')]], [call(), [call('erase')]], [call(), null]]) {
+      expect((await f.request(malformed)).status).toBe(502);
+    }
+    expect(f.authorize).not.toHaveBeenCalled();
+    expect(f.sendObservations).toEqual([]);
+    expect((await f.service.list('alice', 'session')).data).toEqual([]);
+  });
+
   it('retains credential denial without provider diagnostics', async () => {
     const f = await fixture({ authorize: async () => { throw new Error('private-token'); } });
     const response = await f.request(); expect(await response.json()).toEqual({ error: 'MCP request failed' });
