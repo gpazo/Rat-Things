@@ -50,3 +50,20 @@ it.each([
   await expect(f.store.put(resource, 0)).rejects.toBe(failure);
   expect(f.writes()).toBe(1);
 });
+
+
+it('atomically guards observed legacy revisions without mutating the source head', async () => {
+  const send = vi.fn(async (_command: unknown) => ({}));
+  const store = new DynamoAgentsStore({ send } as unknown as DynamoDBDocumentClient, 'agents', {
+    putJson: async key => ({ bucket: 'private', key, sha256: 'fixture', bytes: 1, contentType: 'application/json' }),
+    getJson: async <T>() => ({}) as T,
+  });
+  const observed = { ownerId: 'alice', collection: 'agents', id: 'legacy', revision: 9 };
+  await store.commit([{ resource: { ...resource, id: 'history', collection: 'configuration_revisions/agent/legacy' }, expectedRevision: 0 }], [observed]);
+  const transaction = send.mock.calls[0]![0] as unknown as TransactWriteCommand;
+  expect(transaction.input.TransactItems).toHaveLength(3);
+  expect(transaction.input.TransactItems?.[2]?.ConditionCheck).toMatchObject({
+    TableName: 'agents', ConditionExpression: '#revision = :expected AND attribute_not_exists(deleted)',
+    ExpressionAttributeValues: { ':expected': 9 },
+  });
+});

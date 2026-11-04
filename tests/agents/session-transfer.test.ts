@@ -1,3 +1,4 @@
+import { ConfigurationHistory } from '../../src/core/configuration-history.js';
 import { expect, it, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { integrationFixture } from './integration-fixtures.js';
@@ -20,6 +21,9 @@ it('imports history idempotently under the destination principal and starts only
   vi.mocked(f.execution.start).mockClear();
   const copied = await f.sessions.import('destination', f.request);
   expect(await f.sessions.import('destination', f.request)).toEqual(copied);
+  const configuration = await new ConfigurationHistory(f.store).retrieve('destination', { kind: 'session', id: copied.id }, 1);
+  expect(configuration.snapshot).toMatchObject({ kind: 'session', configuration: { importedFrom: { sessionId: f.source.id }, agent: copied.agent, vaultIds: [] } });
+  expect(configuration.snapshot?.kind === 'session' && configuration.snapshot.configuration.sourceAgent).toBeUndefined();
   expect((await f.sessions.items('destination', copied.id, { order: 'asc' })).data).toEqual(f.request.history);
   expect((await f.sessions.turns('destination', copied.id)).data).toEqual([]);
   expect(f.execution.start).not.toHaveBeenCalled();

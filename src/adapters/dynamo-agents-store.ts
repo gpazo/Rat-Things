@@ -7,7 +7,7 @@ import type { AgentListParams } from '../domain/agents-api.js';
 import { AgentsResourceConflictError, invalid } from '../domain/agents-api-validation.js';
 import type { ArtifactReference } from '../domain/contracts.js';
 import { canonicalJson } from '../domain/json.js';
-import type { AgentResource, AgentsStore } from '../core/agents-ports.js';
+import type { AgentObservation, AgentResource, AgentsStore } from '../core/agents-ports.js';
 import type { ArtifactStore } from '../core/ports.js';
 
 interface ResourceIndex {
@@ -65,9 +65,14 @@ export class DynamoAgentsStore implements AgentsStore {
     return this.commit([{ resource, expectedRevision }]);
   }
 
-  public async commit(writes: Array<{ resource: AgentResource<unknown>; expectedRevision: number }>): Promise<void> {
-    if (writes.length === 0) return;
-    await this.transact(await this.writeItems(writes));
+  public async commit(writes: Array<{ resource: AgentResource<unknown>; expectedRevision: number }>, observations: AgentObservation[] = []): Promise<void> {
+    if (writes.length === 0 && observations.length === 0) return;
+    if (writes.length * 2 + observations.length > 100) throw new Error('Agents storage transaction exceeds its item limit');
+    await this.transact([...await this.writeItems(writes), ...observations.map(observation => ({ ConditionCheck: {
+      TableName: this.tableName, Key: rootKey(observation.ownerId, observation.collection, observation.id),
+      ConditionExpression: '#revision = :expected AND attribute_not_exists(deleted)',
+      ExpressionAttributeNames: { '#revision': 'revision' }, ExpressionAttributeValues: { ':expected': observation.revision },
+    } }))]);
   }
 
   private async writeItems(writes: Array<{ resource: AgentResource<unknown>; expectedRevision: number }>) {

@@ -1,3 +1,5 @@
+import { ConfigurationHistory, commitConfiguration, configurationRef, ensureSessionConfiguration, planConfigurationRevision, sessionConfigurationSnapshot } from './configuration-history.js';
+import type { ConfigurationMutation } from '../domain/configuration-history.js';
 import { THREAD_RELEASE_TOOL, withThreadReleaseTool } from './thread-release-tool.js';
 import { releaseThreadSubscription } from './session-integration-planning.js';
 import type { SessionIntegrationState, ThreadSubscription } from '../domain/session-integrations.js';
@@ -23,7 +25,7 @@ export interface SessionServiceOptions {
   rateLimit?: import('./owner-rate-limiter.js').OwnerRateLimit;
   piManagedStorage?: boolean;
   store: AgentsStore;
-  agents: Pick<AgentService, 'retrieve'>;
+  agents: Pick<AgentService, 'retrieve'> & Partial<Pick<AgentService, 'configuration'>>;
   execution: SessionExecution;
   clock?: AgentsClock;
   ids?: AgentsIds;
@@ -55,8 +57,10 @@ export class SessionService {
     await this.options.rateLimit?.admit(ownerId, `session:${id}`);
     let preparation = integrationId ? (await this.options.store.get<SessionPreparation>(ownerId, 'session_preparations', id))?.value : undefined;
     if (!preparation) {
-      const saved = input.agent_id ? await this.options.agents.retrieve(ownerId, input.agent_id) : undefined;
+      const savedConfiguration = input.agent_id ? await this.options.agents.configuration?.(ownerId, input.agent_id) : undefined;
+      const saved = savedConfiguration?.agent ?? (input.agent_id ? await this.options.agents.retrieve(ownerId, input.agent_id) : undefined);
       preparation = planSessionPreparation(input, this.ids.next('agent'), this.clock.now(), saved, this.options.execution.placement?.(ownerId, input.agent_id ?? undefined) ?? 'microvm', this.options.piCatalog);
+      if (savedConfiguration) preparation = { ...preparation, sourceAgent: savedConfiguration.revision };
       const integration = integrationId ? await this.options.store.get<SessionIntegrationState>(ownerId, 'session_integrations', id) : undefined;
       if (integration?.value.threadSubscriptionId && integration.value.inputs[0]?.source.kind !== 'api') preparation = { ...preparation, agent: withThreadReleaseTool(preparation.agent) };
       if (runtimePin) {
@@ -89,7 +93,8 @@ export class SessionService {
       environment, error: null, metadata: input.metadata ?? {}, status: 'idle',
       required_actions: [], usage: null, vault_ids: vaultIds,
     };
-    const empty: SessionState = { session, runtime: preparation.runtime ?? CODEX_RUNTIME, placement: preparation.placement ?? 'microvm', turns: [], receipts: {}, deletedArtifacts: [], ...restored };
+    const admitted = configurationRef({ kind: 'session', id }, 1);
+    const empty: SessionState = { configuration: { admitted, current: admitted }, session, runtime: preparation.runtime ?? CODEX_RUNTIME, placement: preparation.placement ?? 'microvm', turns: [], receipts: {}, deletedArtifacts: [], ...restored };
     const events: AgentSessionInputParam[] = messages.length ? [{ type: 'agent.session.input.message', input: messages }] : [];
     const state = events.length ? this.plan(empty, { session, turns: [] }, events, 'initial') : empty;
     try {
@@ -97,7 +102,8 @@ export class SessionService {
       const prepared = await this.options.store.get<SessionPreparation>(ownerId, 'session_preparations', id) ?? resourceNotFound();
       if (prepared.value.created) return (await this.required(ownerId, id)).value.session;
       requireActivePreparation(prepared.value, this.clock.now());
-      await this.options.store.commit([{ resource, expectedRevision: 0 }, { resource: { ...prepared, revision: prepared.revision + 1, value: { ...prepared.value, created: true } }, expectedRevision: prepared.revision }]);
+      const history = planConfigurationRevision(ownerId, admitted, sessionConfigurationSnapshot(state, preparation.sourceAgent ? { sourceAgent: preparation.sourceAgent } : {}), null, now, 'created');
+      await commitConfiguration(this.options.store, [{ resource, expectedRevision: 0 }, { resource: { ...prepared, revision: prepared.revision + 1, value: { ...prepared.value, created: true } }, expectedRevision: prepared.revision }, history], [history]);
     }
     catch (error) {
       const committed = await this.options.store.get<SessionState>(ownerId, 'sessions', id).catch(() => undefined);
@@ -224,19 +230,21 @@ export class SessionService {
       if (fork.checkpoint.lastRootTurnId !== (latest?.id ?? null)) throw new AgentsApiError(409, 'Source changed during checkpoint preparation.', 'session_busy');
       const session: AgentSession = { id, object: 'agent.session', agent, created_at: now, last_active_at: now,
         environment: prepared.environment, error: null, metadata: input.metadata, status: 'idle', required_actions: [], usage: null, vault_ids: input.vaultIds };
-      const empty: SessionState = { session, runtime, placement, fork, turns: [], receipts: {}, deletedArtifacts: [] };
+      const admitted = configurationRef({ kind: 'session', id }, 1);
+      const empty: SessionState = { configuration: { admitted, current: admitted }, session, runtime, placement, fork, turns: [], receipts: {}, deletedArtifacts: [] };
       const messages = initialMessages(input.input);
       const state = messages.length ? this.plan(empty, { session, turns: [] }, [{ type: 'agent.session.input.message', input: messages }], 'initial') : empty;
       const current = await this.required(ownerId, sourceId);
       if (current.value.forkLock?.id !== id || current.value.forkLock.expiresAt <= this.clock.now()) throw new AgentsApiError(409, 'Fork preparation expired.', 'session_busy');
       const preparedResource = await this.options.store.get<SessionPreparation>(ownerId, 'session_preparations', id) ?? resourceNotFound();
       requireActivePreparation(preparedResource.value, this.clock.now());
+      const history = planConfigurationRevision(ownerId, admitted, sessionConfigurationSnapshot(state, { sourceSession: resource.value.configuration!.current }), null, now, 'created');
       commitAttempted = true;
-      await this.options.store.commit([
+      await commitConfiguration(this.options.store, [
         { resource: { ownerId, id, collection: 'sessions', createdAt: now, revision: 1, value: state }, expectedRevision: 0 },
         { resource: { ...current, revision: current.revision + 1 }, expectedRevision: current.revision },
-        { resource: { ...preparedResource, revision: preparedResource.revision + 1, value: { ...preparedResource.value, created: true } }, expectedRevision: preparedResource.revision },
-      ]);
+        { resource: { ...preparedResource, revision: preparedResource.revision + 1, value: { ...preparedResource.value, created: true } }, expectedRevision: preparedResource.revision }, history,
+      ], [history]);
       committed = true;
       return session;
     } catch (error) {
@@ -325,7 +333,7 @@ export class SessionService {
     }
   }
 
-  public async update(ownerId: string, id: string, raw: unknown): Promise<AgentSession> {
+  public async update(ownerId: string, id: string, raw: unknown, mutation: ConfigurationMutation = {}): Promise<AgentSession> {
     const input = parseAgentsContract('SessionUpdate', raw);
     validateAgentMetadata(input.metadata);
     const resource = await this.required(ownerId, id);
@@ -338,7 +346,12 @@ export class SessionService {
     };
     assertRuntimeUnchanged(resource.value.runtime ?? CODEX_RUNTIME, input.metadata);
     this.requireRuntimeAllowed(resource.value.runtime ?? CODEX_RUNTIME, session.agent);
-    await this.replace(resource, { ...resource.value, session });
+    const ref = configurationRef({ kind: 'session', id }, resource.revision + 1);
+    const before = await new ConfigurationHistory(this.options.store).retrieve(ownerId, { kind: 'session', id }, resource.value.configuration!.current.revision);
+    const provenance = before.snapshot?.kind === 'session' ? before.snapshot.configuration : undefined;
+    const value = { ...resource.value, session, configuration: { admitted: resource.value.configuration!.admitted, current: ref } };
+    const history = planConfigurationRevision(ownerId, ref, sessionConfigurationSnapshot(value, { ...(provenance?.sourceAgent ? { sourceAgent: provenance.sourceAgent } : {}), ...(provenance?.sourceSession ? { sourceSession: provenance.sourceSession } : {}) }), before.snapshot, this.clock.now(), 'updated', mutation);
+    await commitConfiguration(this.options.store, [{ resource: { ...resource, revision: resource.revision + 1, value }, expectedRevision: resource.revision }, history], [history]);
     return session;
   }
 
@@ -441,6 +454,7 @@ export class SessionService {
   public async dispatch(ownerId: string, id: string): Promise<void> {
     let resource = await this.options.store.get<SessionState>(ownerId, 'sessions', id);
     if (!resource || resource.value.closing || resource.value.forkLock && resource.value.forkLock.expiresAt > this.clock.now()) return;
+    resource = await ensureSessionConfiguration(this.options.store, resource, this.clock.now());
     this.requireRuntimeAllowed(resource.value.runtime ?? CODEX_RUNTIME, resource.value.session.agent);
     await this.options.execution.initialize?.(ownerId, resource.value.session, resource.value.placement ?? 'microvm');
     for (const [key, receipt] of Object.entries(resource.value.receipts)) {
@@ -667,7 +681,8 @@ export class SessionService {
   }
 
   private async required(ownerId: string, id: string) {
-    return await this.options.store.get<SessionState>(ownerId, 'sessions', id) ?? resourceNotFound();
+    const resource = await this.options.store.get<SessionState>(ownerId, 'sessions', id) ?? resourceNotFound();
+    return ensureSessionConfiguration(this.options.store, resource, this.clock.now());
   }
 
   private async replace(resource: AgentResource<SessionState>, value: SessionState) {

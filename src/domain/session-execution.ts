@@ -23,6 +23,8 @@ export type SessionReplayCommand =
   | { type: 'tool_result'; turnId: string; callId: string; output: unknown; success: boolean };
 
 export interface SessionLaunch {
+  /** Fixed Session admission; later model updates have separate Turn references. */
+  configuration?: import('./configuration-history.js').ConfigurationRevisionRef;
   replay?: SessionReplayCommand[];
   piForkContext?: unknown;
   piWorkspace?: { sandboxId: string; setupDigest: string; policyDigest: string };

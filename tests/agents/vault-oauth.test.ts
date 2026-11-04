@@ -84,7 +84,7 @@ describe('vault OAuth refresh', () => {
     const commit = f.store.commit.bind(f.store);
     let conflicts = 11;
     f.store.commit = async (writes) => {
-      if (writes.length === 2 && conflicts-- > 0) throw new AgentsApiError(409, 'Concurrent vault change.', 'conflict');
+      if (writes.some(write => write.resource.collection === 'vaults') && writes.some(write => write.resource.collection.endsWith('/credentials')) && conflicts-- > 0) throw new AgentsApiError(409, 'Concurrent vault change.', 'conflict');
       return commit(writes);
     };
     const read = () => f.service.authorization('alice', vault.id, credential.id, auth.mcp_server_url);

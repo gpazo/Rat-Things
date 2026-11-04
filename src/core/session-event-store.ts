@@ -1,4 +1,4 @@
-import type { AgentResource, AgentsClock, AgentsStore } from './agents-ports.js';
+import type { AgentObservation, AgentResource, AgentsClock, AgentsStore } from './agents-ports.js';
 import type { AgentListParams, AgentSessionEvent } from '../domain/agents-api.js';
 import type { SessionState } from './session-ports.js';
 import type { StoredSessionRuntime } from './session-runtime-store.js';
@@ -37,13 +37,17 @@ export class SessionEventStore implements AgentsStore {
   }
   public put<T>(resource: AgentResource<T>, expectedRevision: number) { return this.commit([{ resource, expectedRevision }]); }
 
-  public async commit(writes: Array<{ resource: AgentResource<unknown>; expectedRevision: number }>): Promise<void> {
+  public async commit(writes: Array<{ resource: AgentResource<unknown>; expectedRevision: number }>, observations: AgentObservation[] = []): Promise<void> {
     for (let attempt = 0; attempt < 10; attempt++) {
-      try { await this.commitObserved(writes); return; }
+      try { await this.commitObserved(writes, undefined, observations); return; }
       catch (error) {
         if (!(error instanceof AgentsApiError) || error.code !== 'conflict' || attempt === 9) throw error;
         // Retry observation contention only. Never overwrite a changed source or
         // replay a transaction whose acknowledgement was lost.
+        for (const observed of observations) {
+          const current = await this.base.get(observed.ownerId, observed.collection, observed.id);
+          if (current?.revision !== observed.revision) throw error;
+        }
         for (const { resource, expectedRevision } of writes) {
           const current = await this.base.get(resource.ownerId, resource.collection, resource.id);
           if ((current?.revision ?? 0) !== expectedRevision) throw error;
@@ -54,7 +58,7 @@ export class SessionEventStore implements AgentsStore {
   public commitAtObservation(writes: Array<{ resource: AgentResource<unknown>; expectedRevision: number }>, observation: { ownerId: string; id: string; revision: number }): Promise<void> {
     return this.commitObserved(writes, observation);
   }
-  private async commitObserved(writes: Array<{ resource: AgentResource<unknown>; expectedRevision: number }>, observation?: { ownerId: string; id: string; revision: number }): Promise<void> {
+  private async commitObserved(writes: Array<{ resource: AgentResource<unknown>; expectedRevision: number }>, observation?: { ownerId: string; id: string; revision: number }, observations: AgentObservation[] = []): Promise<void> {
     const affected = new Map<string, { ownerId: string; id: string }>();
     for (const { resource } of writes) {
       const id = resource.collection === 'sessions' || resource.collection === 'session_runtime' ? resource.id
@@ -89,6 +93,6 @@ export class SessionEventStore implements AgentsStore {
       const batch: AgentResource<SessionEventBatch> = { id: identity, ownerId, collection: 'session_event_batches', createdAt: now, revision: 1, expiresAt: now + 4 * 86400, value: { sessionId: id, events, webhooks, endpointIds } };
       additions.push({ resource: batch, expectedRevision: 0 });
     }
-    await this.base.commit([...writes, ...additions]);
+    await this.base.commit([...writes, ...additions], observations);
   }
 }

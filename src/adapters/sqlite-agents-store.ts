@@ -2,7 +2,7 @@ import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import type { AgentResource, AgentsStore } from '../core/agents-ports.js';
+import type { AgentObservation, AgentResource, AgentsStore } from '../core/agents-ports.js';
 import type { AgentListParams } from '../domain/agents-api.js';
 import { AgentsApiError } from '../domain/agents-api-validation.js';
 
@@ -110,8 +110,9 @@ export class SqliteAgentsStore implements AgentsStore {
     return this.commit([{ resource, expectedRevision }]);
   }
 
-  public async commit(writes: Array<{ resource: AgentResource<unknown>; expectedRevision: number }>): Promise<void> {
+  public async commit(writes: Array<{ resource: AgentResource<unknown>; expectedRevision: number }>, observations: AgentObservation[] = []): Promise<void> {
     this.transaction(() => {
+      for (const observation of observations) this.expect(observation, observation.revision);
       this.validateWrites(writes);
       for (const { resource } of writes) this.write(resource);
     });
@@ -136,7 +137,7 @@ export class SqliteAgentsStore implements AgentsStore {
     }
   }
 
-  private expect(resource: AgentResource<unknown>, revision: number) {
+  private expect(resource: Pick<AgentResource<unknown>, 'ownerId' | 'collection' | 'id'>, revision: number) {
     const current = this.db.prepare('SELECT revision FROM resources WHERE owner=? AND collection=? AND id=?').get(resource.ownerId, resource.collection, resource.id);
     if (Number(current?.revision ?? 0) !== revision) throw new AgentsApiError(409, 'Resource changed concurrently.', 'conflict');
   }

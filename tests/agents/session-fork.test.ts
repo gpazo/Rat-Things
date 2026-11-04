@@ -1,3 +1,4 @@
+import { ConfigurationHistory } from '../../src/core/configuration-history.js';
 import { expect, it, vi } from 'vitest';
 import { integrationFixture } from './integration-fixtures.js';
 import { publicTemplate } from '../../src/domain/environment-planning.js';
@@ -27,6 +28,8 @@ it('branches the snapshotted agent, keeps private recovery history and starts wi
   await new AgentService({ store: f.store }).update('operator', f.agent.id, { instructions: 'changed saved agent' });
   const fork = await f.sessions.fork('operator', f.source.id, { vault_ids: [], environment: { network: { access: 'disabled' } } });
   expect(fork.agent).toEqual(f.source.agent);
+  const configuration = await new ConfigurationHistory(f.store).retrieve('operator', { kind: 'session', id: fork.id }, 1);
+  expect(configuration.snapshot).toMatchObject({ kind: 'session', configuration: { sourceSession: { subject: { kind: 'session', id: f.source.id }, revision: 1 }, agent: f.source.agent, vaultIds: [] } });
   expect(fork.metadata).toEqual({});
   expect(fork.vault_ids).toEqual([]);
   expect((await f.sessions.items('operator', fork.id)).data).toEqual([]);
@@ -113,7 +116,7 @@ it.each([false, true])('retains child admission after a lost commit acknowledgem
     if (child) { childId = child.resource.id; failRead = readFailure; throw new Error('Lost acknowledgement'); }
   });
   vi.spyOn(f.store, 'get').mockImplementation(async (owner, collection, id) => {
-    if (failRead && collection === 'sessions' && id === childId) { failRead = false; throw new Error('Read unavailable'); }
+    if (failRead && collection === 'sessions' && id === childId) throw new Error('Read unavailable');
     return get(owner, collection, id);
   });
   if (readFailure) await expect(f.sessions.fork('operator', f.source.id, {})).rejects.toThrow('Lost acknowledgement');

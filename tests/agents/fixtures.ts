@@ -1,4 +1,4 @@
-import type { AgentsStore, AgentResource } from '../../src/core/agents-ports.js';
+import type { AgentObservation, AgentsStore, AgentResource } from '../../src/core/agents-ports.js';
 import type { AgentListParams } from '../../src/domain/agents-api.js';
 import { AgentsApiError, AgentsResourceConflictError } from '../../src/domain/agents-api-validation.js';
 
@@ -27,7 +27,10 @@ export class MemoryAgentsStore implements AgentsStore {
     return this.commit([{ resource, expectedRevision }]);
   }
 
-  public async commit(writes: Array<{ resource: AgentResource<unknown>; expectedRevision: number }>): Promise<void> {
+  public async commit(writes: Array<{ resource: AgentResource<unknown>; expectedRevision: number }>, observations: AgentObservation[] = []): Promise<void> {
+    for (const observation of observations) {
+      if (this.resources.get(this.key(observation.ownerId, observation.collection, observation.id))?.revision !== observation.revision) throw new AgentsResourceConflictError();
+    }
     for (const { resource, expectedRevision } of writes) {
       const current = this.resources.get(this.key(resource.ownerId, resource.collection, resource.id));
       if ((current?.revision ?? 0) !== expectedRevision) throw new AgentsResourceConflictError();

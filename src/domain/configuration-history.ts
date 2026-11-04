@@ -18,6 +18,8 @@ export interface SessionConfiguration {
   runtime: RuntimePin;
   sourceAgent?: ConfigurationRevisionRef;
   sourceSession?: ConfigurationRevisionRef;
+  /** Import provenance is descriptive, never a claim of source execution authority. */
+  importedFrom?: { sessionId: string };
 }
 
 export type ConfigurationSnapshot =

@@ -117,7 +117,7 @@ export function planSessionInput(
           agent_id: state.session.agent.id, subagent_id: null, status: 'queued',
           created_at: now, started_at: null, completed_at: null, error: null, usage: null,
         };
-        turns = [...turns, { turn, input: messages, modelSettings: sessionModelSettings(observation.session.agent) }];
+        turns = [...turns, { turn, input: messages, ...(state.configuration ? { configuration: state.configuration.current } : {}), modelSettings: sessionModelSettings(observation.session.agent) }];
         commands.push({ type: 'start', turnId: turn.id, input: messages });
       }
     } else if (event.type === 'agent.session.input.cancel') {

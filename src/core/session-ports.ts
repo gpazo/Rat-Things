@@ -10,6 +10,7 @@ export interface SessionSubagentSnapshot { subagent: Subagent; turns: Turn[]; it
 
 /** Private bindings are implementation details, never part of a session response. */
 export interface SessionTurnBinding {
+  configuration?: import('../domain/configuration-history.js').ConfigurationRevisionRef;
   turn: Turn;
   input: SessionMessage[];
   modelSettings?: import('../domain/session-execution.js').SessionModelSettings;
@@ -20,6 +21,7 @@ export interface SessionTurnBinding {
 }
 
 export interface SessionState {
+  configuration?: { admitted: import('../domain/configuration-history.js').ConfigurationRevisionRef; current: import('../domain/configuration-history.js').ConfigurationRevisionRef };
   runtime?: import('../domain/session-runtime.js').RuntimePin;
   importedHistory?: AgentSessionItem[];
   importedFrom?: { sessionId: string; transferId: string };

@@ -100,3 +100,21 @@ describe('local durable storage', () => {
     } finally { owner.close(true); other.close(); await rm(directory, { recursive: true, force: true }); }
   });
 });
+
+
+it('rejects stale history observations atomically and retains observations across restart', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'rat-observed-history-'));
+  let store = new SqliteAgentsStore(directory);
+  const head = { ownerId: 'alice', collection: 'agents', id: 'legacy', revision: 1, createdAt: 1, value: { model: 'original' } };
+  const history = { ...head, collection: 'configuration_revisions/agent/legacy', id: '0000000000000001', createdAt: 0 };
+  try {
+    await store.put(head, 0);
+    await store.put({ ...head, revision: 2, value: { model: 'changed' } }, 1);
+    await expect(store.commit([{ resource: history, expectedRevision: 0 }], [{ ...head, revision: 1 }])).rejects.toMatchObject({ status: 409 });
+    expect(await store.get('alice', history.collection, history.id)).toBeUndefined();
+    await store.commit([{ resource: history, expectedRevision: 0 }], [{ ...head, revision: 2 }]);
+    store.close(); store = new SqliteAgentsStore(directory);
+    expect((await store.get('alice', history.collection, history.id))?.value).toEqual(history.value);
+    expect((await store.get('alice', 'agents', 'legacy'))?.revision).toBe(2);
+  } finally { store.close(); await rm(directory, { recursive: true, force: true }); }
+});

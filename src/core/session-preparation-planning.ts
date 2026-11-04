@@ -7,6 +7,7 @@ import { canonicalJson } from '../domain/json.js';
 import { sessionAgent } from './session-planning.js';
 
 export interface SessionPreparation {
+  sourceAgent?: import('../domain/configuration-history.js').ConfigurationRevisionRef;
   runtime?: import('../domain/session-runtime.js').RuntimePin;
   agent: AgentSession['agent'];
   placement?: ExecutionBackend;

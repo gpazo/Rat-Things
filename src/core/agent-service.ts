@@ -1,3 +1,5 @@
+import { commitConfiguration, configurationConflict, configurationRef, missingConfigurationBaseline, planConfigurationRevision, retainConfiguration } from './configuration-history.js';
+import type { ConfigurationMutation } from '../domain/configuration-history.js';
 import { randomUUID } from 'node:crypto';
 import type { Agent, AgentDeleted } from '../domain/agents-api.js';
 import { resolveAgentConfiguration, type AgentConfigurationDefaults } from '../domain/agent-configuration.js';
@@ -20,15 +22,15 @@ export class AgentService {
     this.ids = options.ids ?? { next: (prefix) => `${prefix}_${randomUUID().replaceAll('-', '')}` };
   }
 
-  public async create(ownerId: string, raw: unknown): Promise<Agent> {
+  public async create(ownerId: string, raw: unknown, mutation: ConfigurationMutation = {}): Promise<Agent> {
     const input = parseAgentsContract('AgentCreate', raw);
     const timestamp = this.clock.now();
     const agent = resolveAgentConfiguration(input, {
       id: this.ids.next('agent'), created_at: timestamp, updated_at: timestamp,
     }, undefined, this.options.defaults);
-    await this.options.store.put({
-      id: agent.id, ownerId, collection: 'agents', createdAt: timestamp, revision: 1, value: agent,
-    }, 0);
+    const resource = { id: agent.id, ownerId, collection: 'agents', createdAt: timestamp, revision: 1, value: agent };
+    const history = planConfigurationRevision(ownerId, configurationRef({ kind: 'agent', id: agent.id }, 1), { kind: 'agent', agent }, null, timestamp, 'created', mutation);
+    await commitConfiguration(this.options.store, [{ resource, expectedRevision: 0 }, history], [history]);
     return agent;
   }
 
@@ -36,14 +38,31 @@ export class AgentService {
     return (await this.required(ownerId, id)).value;
   }
 
-  public async update(ownerId: string, id: string, raw: unknown): Promise<Agent> {
+  public async update(ownerId: string, id: string, raw: unknown, mutation: ConfigurationMutation = {}): Promise<Agent> {
     const input = parseAgentsContract('AgentUpdate', raw);
-    const previous = await this.required(ownerId, id);
-    const agent = resolveAgentConfiguration(input, {
-      id, created_at: previous.value.created_at, updated_at: this.clock.now(),
-    }, previous.value, this.options.defaults);
-    await this.options.store.put({ ...previous, value: agent, revision: previous.revision + 1 }, previous.revision);
-    return agent;
+    for (let attempt = 0; ; attempt++) {
+      const previous = await this.required(ownerId, id);
+      const now = this.clock.now();
+      const agent = resolveAgentConfiguration(input, { id, created_at: previous.value.created_at, updated_at: now }, previous.value, this.options.defaults);
+      const subject = { kind: 'agent' as const, id };
+      const snapshot = { kind: 'agent' as const, agent: previous.value };
+      const baseline = await missingConfigurationBaseline(this.options.store, previous, subject, snapshot, now);
+      const history = planConfigurationRevision(ownerId, configurationRef(subject, previous.revision + 1), { kind: 'agent', agent }, snapshot, now, 'updated', mutation);
+      try {
+        await commitConfiguration(this.options.store, [{ resource: { ...previous, value: agent, revision: previous.revision + 1 }, expectedRevision: previous.revision }, ...baseline, history], [history]);
+        return agent;
+      } catch (error) { if (!configurationConflict(error) || attempt >= 9) throw error; }
+    }
+  }
+
+  public async configuration(ownerId: string, id: string) {
+    for (let attempt = 0; ; attempt++) {
+      const resource = await this.required(ownerId, id);
+      try {
+        const revision = await retainConfiguration(this.options.store, resource, { kind: 'agent', id }, { kind: 'agent', agent: resource.value }, this.clock.now());
+        return { agent: resource.value, revision };
+      } catch (error) { if (!configurationConflict(error) || attempt >= 9) throw error; }
+    }
   }
 
   public async list(ownerId: string, raw: unknown = {}) {
@@ -56,8 +75,16 @@ export class AgentService {
     return { object: 'list' as const, data, has_more: page.has_more, first_id: data[0]?.id ?? null, last_id: data.at(-1)?.id ?? null };
   }
 
-  public async delete(ownerId: string, id: string): Promise<AgentDeleted> {
-    await this.options.store.delete(await this.required(ownerId, id));
+  public async delete(ownerId: string, id: string, mutation: ConfigurationMutation = {}): Promise<AgentDeleted> {
+    for (let attempt = 0; ; attempt++) {
+      const previous = await this.required(ownerId, id);
+      const subject = { kind: 'agent' as const, id };
+      const snapshot = { kind: 'agent' as const, agent: previous.value };
+      const baseline = await missingConfigurationBaseline(this.options.store, previous, subject, snapshot, this.clock.now());
+      const history = planConfigurationRevision(ownerId, configurationRef(subject, previous.revision + 1), null, snapshot, this.clock.now(), 'deleted', mutation);
+      try { await commitConfiguration(this.options.store, [...baseline, history], [history], undefined, previous); break; }
+      catch (error) { if (!configurationConflict(error) || attempt >= 9) throw error; }
+    }
     return { id, object: 'agent.deleted', deleted: true };
   }
 

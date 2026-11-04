@@ -38,7 +38,7 @@ async function fixture(placement?: SessionPlacementPolicy) {
   const runtime = new SessionRuntimeStore(store); await runtime.claim('alice', session.id, run.runId, now);
   const getRun = vi.fn(async () => run);
   const cancel = vi.fn(async () => run);
-  const putJson = vi.fn(async (key: string) => ({ bucket: 'private', key, sha256: 'fixture' }));
+  const putJson = vi.fn(async (key: string, _value?: unknown) => ({ bucket: 'private', key, sha256: 'fixture' }));
   const execution = new RunSessionExecution({ store, environments, ...(placement ? { placement } : {}),
     runs: { get: getRun, idFor: () => 'unused', cancel, submit },
     interaction: { startSessionTurn: start, events, steer, interrupt, respond: async () => {} },
@@ -319,4 +319,19 @@ describe('saved Session placement', () => {
     expect(f.putJson).not.toHaveBeenCalled();
     expect(f.submit).not.toHaveBeenCalled();
   });
+});
+
+
+it('launches with the fixed admission reference while applying the accepted Turn model settings', async () => {
+  const f = await fixture();
+  const sessions = new SessionService({ store: f.store, agents: new AgentService({ store: f.store }), execution: f.execution, clock: f.clock });
+  const session = await sessions.create('alice', { agent: { model: 'gpt-6-sol' }, environment: { type: 'none' }, input: 'Start' });
+  await sessions.update('alice', session.id, { agent: { reasoning: { effort: 'high' } } });
+  f.submit.mockResolvedValue(f.run);
+  await sessions.dispatch('alice', session.id);
+  const launch = f.putJson.mock.calls.at(-1)?.[1] as import('../../src/domain/session-execution.js').SessionLaunch;
+  expect(launch.configuration).toEqual({ subject: { kind: 'session', id: session.id }, revision: 1 });
+  expect(launch.agent.reasoning.effort).toBe(session.agent.reasoning.effort);
+  const state = (await f.store.get<import('../../src/core/session-ports.js').SessionState>('alice', 'sessions', session.id))!.value;
+  expect(state.configuration!.current.revision).toBeGreaterThan(launch.configuration!.revision);
 });

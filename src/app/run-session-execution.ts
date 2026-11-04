@@ -1,3 +1,4 @@
+import { ensureSessionConfiguration } from '../core/configuration-history.js';
 import { planPiRecovery } from '../core/pi-recovery-planning.js';
 import type { SessionReplayCommand } from '../domain/session-execution.js';
 import { planSessionRun, sessionMessageText } from '../core/session-run-planning.js';
@@ -185,10 +186,12 @@ export class RunSessionExecution implements SessionExecution {
     const existing = await this.runById(ownerId, this.options.runs.idFor(ownerId, runKey));
     const environmentCredential = session.environment.type === 'self_hosted' ? await this.options.environments.launchReference(ownerId, session.environment.id, existing ? undefined : binding.turn.created_at + 300) : undefined;
     const environmentCredentials = existing?.agentsSession ? undefined : await this.options.tools.environmentLaunch?.(ownerId, session);
-    const sessionState = (await this.options.store.get<SessionState>(ownerId, 'sessions', session.id))?.value;
+    const sessionResource = await this.options.store.get<SessionState>(ownerId, 'sessions', session.id);
+    const sessionState = sessionResource ? (await ensureSessionConfiguration(this.options.store, sessionResource, Math.floor(Date.now() / 1000))).value : undefined;
     const savedFork = sessionState?.fork;
     const forkLaunch = savedFork ? (({ history: _history, ...fork }) => fork)(savedFork) : undefined;
     const launch: SessionLaunch = existing?.agentsSession ? await this.options.artifacts.getJson(existing.agentsSession.launch) : {
+      ...(sessionState?.configuration ? { configuration: sessionState.configuration.admitted } : {}),
       runtime: sessionState?.runtime ?? { kind: 'codex' },
       ...(pi && sessionState ? { replay: replayCommands(sessionState) } : {}),
       ...(savedFork?.piContextId && !runtime?.value.native?.head ? { piForkContext: (await this.options.store.get(ownerId, 'session_native', savedFork.piContextId))?.value } : {}),
