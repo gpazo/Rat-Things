@@ -10,6 +10,11 @@ import { parseAgentsContract } from '../domain/agents-api-validation.js';
 import { credentialUrl } from '../domain/vault-planning.js';
 import type { VaultService } from '../core/vault-service.js';
 import environmentMcpWorkerSource from './environment-mcp-worker-source.json' with { type: 'json' };
+import type { McpAuthorization, McpCredentialEvidence } from '../domain/tool-authorization.js';
+import { sha256Hex } from '../domain/json.js';
+import { MAX_TOOL_AUTHORIZATIONS } from '../core/tool-authorization-service.js';
+import { safeToolLabel, type ToolAuthorizationOperation } from '../core/tool-authorization-planning.js';
+import { dispatchAuditedMcp, type SessionMcpAudit } from './session-mcp-authorization.js';
 import { hostedCodexArguments } from './hosted-environment-planning.js';
 import type { SessionEnvironmentCredentialsRuntime } from './session-environment-credentials.js';
 
@@ -20,7 +25,8 @@ export interface SessionMcpRuntime {
 }
 
 /** Resolve credentials in the trusted host, then admit exactly the configured MCP tools. */
-export async function prepareSessionMcp(ownerId: string, launch: SessionLaunch, secrets: SecretReader, signal?: AbortSignal, vaults?: Pick<VaultService, 'authorization'>, credentials?: SessionEnvironmentCredentialsRuntime, rememberSecrets?: (secrets: readonly string[]) => void): Promise<SessionMcpRuntime> {
+export async function prepareSessionMcp(ownerId: string, launch: SessionLaunch, secrets: SecretReader, signal?: AbortSignal, vaults?: Pick<VaultService, 'authorization'> & { authorizeMcp?: (owner: string, vault: string, id: string, url: string, rejected?: string) => Promise<McpAuthorization> }, credentials?: SessionEnvironmentCredentialsRuntime, rememberSecrets?: (secrets: readonly string[]) => void, audit?: SessionMcpAudit): Promise<SessionMcpRuntime> {
+  if (audit && (audit.ownerId !== ownerId || audit.identity.sessionId !== launch.sessionId)) throw new Error('MCP audit identity is invalid');
   const servers: Record<string, unknown> = {};
   const environment: Record<string, string> = {};
   const closers: Array<() => Promise<void>> = [];
@@ -31,17 +37,27 @@ export async function prepareSessionMcp(ownerId: string, launch: SessionLaunch, 
       const inline = binding?.inlineReference ? parseSessionToolSecret(await secrets.get(binding.inlineReference), { ownerId, sessionId: launch.sessionId, serverLabel: tool.server_label }) : undefined;
       let headers = { ...inline?.headers };
       let authorization: ((rejectedToken?: string) => Promise<string>) | undefined;
+      let authorize: ((rejectedToken?: string) => Promise<McpAuthorization>) | undefined;
       if (binding?.vaultReference) {
         if (tool.transport.type !== 'http' || tool.connection_origin !== 'service') throw new Error('MCP credential destination is invalid');
         if (Object.keys(headers).some((name) => name.toLowerCase() === 'authorization')) throw new Error('MCP authorization must have exactly one source');
         if (vaults && binding.vaultId && binding.credentialId) {
           const serverURL = tool.transport.server_url;
+          if (audit) {
+            if (!vaults.authorizeMcp) throw new Error('MCP credential evidence is unavailable');
+            authorize = async (rejected) => {
+              const value = await vaults.authorizeMcp!(ownerId, binding.vaultId!, binding.credentialId!, serverURL, rejected);
+              rememberSecrets?.([value.authorization, value.authorization.replace(/^Bearer\s+/i, '')]);
+              return value;
+            };
+          }
           authorization = async (rejected) => {
             const value = await vaults.authorization(ownerId, binding.vaultId!, binding.credentialId!, serverURL, rejected);
             rememberSecrets?.([value, value.replace(/^Bearer\s+/i, '')]);
             return value;
           };
         } else {
+          if (audit) throw new Error('MCP credential evidence is unavailable');
           const auth = parseAgentsContract('CredentialCreate', { name: 'runtime', auth: JSON.parse(await secrets.get(binding.vaultReference)) }).auth;
           if (auth.type === 'environment_variable' || credentialUrl(auth.mcp_server_url) !== credentialUrl(tool.transport.server_url)) throw new Error('MCP credential destination is invalid');
           if (auth.type === 'mcp_oauth' && auth.expires_at && Date.parse(auth.expires_at) <= Date.now()) throw new Error('The MCP OAuth credential has expired');
@@ -53,7 +69,9 @@ export async function prepareSessionMcp(ownerId: string, launch: SessionLaunch, 
         ...(tool.allowed_tools !== null ? { enabled_tools: tool.allowed_tools } : {}),
       };
       if (tool.transport.type === 'http' && tool.connection_origin === 'service') {
-        const proxy = await createSessionMcpProxy({ serverURL: tool.transport.server_url, headers, metadata: tool.request_metadata, allowedTools: tool.allowed_tools, ...(signal ? { signal } : {}), ...(authorization ? { authorization } : {}) });
+        const proxy = await createSessionMcpProxy({ serverURL: tool.transport.server_url, headers, metadata: tool.request_metadata, allowedTools: tool.allowed_tools, ...(signal ? { signal } : {}), ...(authorization ? { authorization } : {}), ...(authorize ? { authorize } : {}),
+          credentialEvidence: binding?.inlineReference ? { kind: 'inline_snapshot' } : { kind: 'none' },
+          ...(audit ? { audit, serverLabel: tool.server_label } : {}) });
         closers.push(proxy.close);
         const key = `RAT_MCP_CONNECTION_${index}`;
         environment[key] = proxy.key;
@@ -84,11 +102,11 @@ export async function prepareSessionMcp(ownerId: string, launch: SessionLaunch, 
 }
 
 /** Metadata and tool policy are pure transformations; HTTP and credential effects stay below. */
-export function planMcpRequest(value: unknown, metadata: Record<string, unknown>, allowedTools: string[] | null): unknown {
-  if (Array.isArray(value)) return value.map((message) => planMcpRequest(message, metadata, allowedTools));
+export function planMcpRequest(value: unknown, metadata: Record<string, unknown>, allowedTools: string[] | null, enforce = true): unknown {
+  if (Array.isArray(value)) return value.map((message) => planMcpRequest(message, metadata, allowedTools, enforce));
   if (!record(value)) throw new Error('Invalid MCP message');
   const params = record(value.params) ? value.params : {};
-  if (value.method === 'tools/call' && (typeof params.name !== 'string' || allowedTools !== null && !allowedTools.includes(params.name))) throw new Error('MCP tool is outside the admitted capability envelope');
+  if (enforce && value.method === 'tools/call' && (typeof params.name !== 'string' || allowedTools !== null && !allowedTools.includes(params.name))) throw new Error('MCP tool is outside the admitted capability envelope');
   return Object.keys(metadata).length && typeof value.method === 'string'
     ? { ...value, params: { ...params, _meta: { ...(record(params._meta) ? params._meta : {}), ...metadata } } }
     : value;
@@ -98,9 +116,17 @@ export async function createSessionMcpProxy(options: {
   serverURL: string; headers: Record<string, string>; metadata: Record<string, unknown>;
   allowedTools: string[] | null; signal?: AbortSignal; fetch?: typeof globalThis.fetch;
   authorization?: (rejectedToken?: string) => Promise<string>;
+  authorize?: (rejectedToken?: string) => Promise<McpAuthorization>;
+  credentialEvidence?: McpCredentialEvidence; audit?: SessionMcpAudit; serverLabel?: string;
 }) {
+  // Admission values are fixed for this proxy's lifetime; only the explicitly
+  // supplied runtime context and live credential checks can change.
+  options = { ...options, headers: { ...options.headers }, metadata: structuredClone(options.metadata),
+    allowedTools: options.allowedTools === null ? null : [...options.allowedTools],
+    ...(options.audit ? { audit: { ...options.audit, identity: structuredClone(options.audit.identity), configuration: structuredClone(options.audit.configuration) } } : {}) };
   const upstream = new URL(options.serverURL);
   if (upstream.protocol !== 'https:' || upstream.username || upstream.password || upstream.hash) throw new Error('Invalid service MCP destination');
+  let disabled = false;
   const key = randomBytes(32).toString('base64url');
   const abort = new AbortController();
   const abortFromCaller = () => abort.abort();
@@ -111,7 +137,9 @@ export async function createSessionMcpProxy(options: {
       if (request.url !== '/' || !['GET', 'POST', 'DELETE'].includes(request.method ?? '') || !equalSecret(request.headers.authorization ?? '', `Bearer ${key}`)) {
         response.writeHead(403).end(); return;
       }
+      if (disabled) throw new Error('MCP request failed');
       let body: string | undefined;
+      let operations: ToolAuthorizationOperation[] = [];
       if (request.method === 'POST') {
         const chunks: Buffer[] = [];
         let size = 0;
@@ -120,10 +148,19 @@ export async function createSessionMcpProxy(options: {
           if (size > 8 * 1024 * 1024) { response.writeHead(413).end(); return; }
           chunks.push(Buffer.from(chunk));
         }
-        body = JSON.stringify(planMcpRequest(JSON.parse(Buffer.concat(chunks).toString('utf8')), options.metadata, options.allowedTools));
+        const parsed: unknown = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+        const messages = Array.isArray(parsed) ? parsed : [parsed];
+        if (!messages.length || messages.length > MAX_TOOL_AUTHORIZATIONS) throw new Error('Invalid MCP batch');
+        operations = messages.filter(message => record(message) && message.method === 'tools/call').map(message => {
+          const params = record(message.params) ? message.params : {};
+          const toolName = typeof params.name === 'string' ? params.name : 'invalid';
+          return { toolName, valid: typeof params.name === 'string' && safeToolLabel(toolName) === toolName && (typeof message.id === 'string' || typeof message.id === 'number' && Number.isFinite(message.id)) };
+        });
+        // Audited requests defer denial until its immutable receipt is retained.
+        body = JSON.stringify(planMcpRequest(parsed, options.metadata, options.allowedTools, !options.audit));
       }
       const headers = new Headers(options.headers);
-      if (options.authorization) headers.set('authorization', await options.authorization());
+      if (!options.audit && options.authorization) headers.set('authorization', await options.authorization());
       for (const name of ['accept', 'content-type', 'mcp-protocol-version', 'mcp-session-id', 'last-event-id']) {
         const value = request.headers[name];
         if (typeof value === 'string' && !headers.has(name)) headers.set(name, value);
@@ -134,8 +171,34 @@ export async function createSessionMcpProxy(options: {
         method: request.method!, headers, ...(body !== undefined ? { body } : {}), redirect: 'error',
         signal: AbortSignal.any([abort.signal, connection.signal, AbortSignal.timeout(120_000)]),
       });
-      let result = await send();
-      if (result.status === 401 && options.authorization) {
+      let result: Response;
+      if (options.audit && operations.length) {
+        result = await dispatchAuditedMcp({ audit: options.audit,
+          policy: { serverLabel: safeToolLabel(options.serverLabel), destinationDigest: sha256Hex(credentialUrl(options.serverURL)), allowedTools: options.allowedTools }, operations,
+          credential: options.authorize ?? (async () => ({ authorization: headers.get('authorization') ?? '', evidence: options.credentialEvidence ?? { kind: 'none' } })),
+          refresh: Boolean(options.authorize), signal: AbortSignal.any([abort.signal, connection.signal]), disable: () => { disabled = true; },
+          send: async authorization => { if (authorization) headers.set('authorization', authorization); return send(); },
+        });
+      } else {
+        if (options.audit) {
+          await options.audit.assertActive();
+          if (options.authorize) headers.set('authorization', (await options.authorize()).authorization);
+          await options.audit.assertActive();
+        }
+        result = await send();
+      }
+      if (options.audit && !operations.length && result.status === 401 && options.authorize) {
+        const previous = headers.get('authorization')!;
+        await options.audit.assertActive();
+        const refreshed = await options.authorize(previous);
+        if (refreshed.authorization !== previous) {
+          await result.body?.cancel();
+          headers.set('authorization', refreshed.authorization);
+          await options.audit.assertActive();
+          result = await send();
+        }
+      }
+      if (!options.audit && result.status === 401 && options.authorization) {
         const previous = headers.get('authorization')!;
         const refreshed = await options.authorization(previous);
         if (refreshed !== previous) {

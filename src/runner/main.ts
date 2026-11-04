@@ -43,6 +43,10 @@ import {
 import type { AgentDriverControl } from './agent-driver.js';
 import { ExecutionHeartbeat } from './heartbeat.js';
 import { prepareSessionMcp, type SessionMcpRuntime } from './session-mcp.js';
+import { activeMcpTurnContext } from './session-mcp-authorization.js';
+import { ToolAuthorizationService } from '../core/tool-authorization-service.js';
+import type { SessionRuntimeState } from '../core/session-runtime-planning.js';
+import type { ConfigurationRevisionRef } from '../domain/configuration-history.js';
 import { VaultService } from '../core/vault-service.js';
 import { DynamoAgentsStore } from '../adapters/dynamo-agents-store.js';
 import { SessionEventStore } from '../core/session-event-store.js';
@@ -194,6 +198,19 @@ export async function runAgentWorker(): Promise<void> {
       if (launch.runtime?.kind === 'pi' && launch.environment.type === 'openai_hosted' && runtime.value.native?.head && !launch.piWorkspace && !launch.fork) throw new Error('Pi native history has no durable workspace receipt');
       if (launch.fork && !checkpointEnabled) throw new Error('Fork bootstrap requires checkpoint-enabled persistent storage');
       const sessionOwner = current.ownerId;
+      // A restored snapshot may describe the previous process. Observe this
+      // harness synchronously when it publishes, before journal persistence.
+      let currentRuntimeSnapshot: SessionRuntimeState | undefined;
+      const runtimeEpoch = runtime.value.epoch ?? 0;
+      const execution = current.execution!;
+      const assertMcpActive = async () => {
+        abort.signal.throwIfAborted();
+        const [run, active] = await Promise.all([store.get(runId), runtimes.get(sessionOwner, launch.sessionId)]);
+        if (!run || run.ownerId !== sessionOwner || run.status !== 'running' || isRetiredRun(run)
+          || run.execution?.id !== execution.id || run.execution?.backend !== execution.backend || run.execution?.generation !== executionGeneration
+          || !active || active.value.closed || active.value.runId !== runId || (active.value.epoch ?? 0) !== runtimeEpoch) throw new Error('Session execution authority changed');
+        abort.signal.throwIfAborted();
+      };
       validateRuntimeAgent(launch.runtime ?? { kind: 'codex' }, launch.agent, launch.environment);
       let environmentFiles: EnvironmentFileOperations | undefined;
       let checkpointOptions: import('./session-runtime.js').SessionCheckpointOptions | undefined;
@@ -291,7 +308,14 @@ export async function runAgentWorker(): Promise<void> {
         await runnerControl!.prepareStorage();
         await prepareWorkspace(effectiveRequest.repository, workspace, credentials, { reuseExisting: true });
       }
-      const safeOutput = createOutputRedactor(await readSessionOutputSecrets(sessionOwner, launch, secrets));
+      // Live service credentials are read only after tool admission and are
+      // remembered by authorizeMcp before use. Bootstrap reads only snapshots.
+      const redactionLaunch = { ...launch, ...(launch.mcp ? { mcp: launch.mcp.map(binding => {
+        if (!binding.vaultId || !binding.credentialId) return binding;
+        const { vaultReference: _reference, ...snapshot } = binding;
+        return snapshot;
+      }) } : {}) };
+      const safeOutput = createOutputRedactor(await readSessionOutputSecrets(sessionOwner, redactionLaunch, secrets));
       safeSessionOutput = safeOutput;
       rememberSessionSecrets = safeOutput.remember;
       const capture = new SessionArtifactCapture({ ownerId: sessionOwner, launch, artifacts,
@@ -314,7 +338,7 @@ export async function runAgentWorker(): Promise<void> {
         piHost = { allowedModelIds,
           lease,
           token: async () => { const token = await readPiBedrockToken(); rememberSessionSecrets([token]); return token; },
-          changed: async (snapshot, seq) => { await runtimes.publishNative(sessionOwner, launch.sessionId, runId, seq, await capture.capture(safeOutput(snapshot))); },
+          changed: async (snapshot, seq) => { currentRuntimeSnapshot = snapshot; await runtimes.publishNative(sessionOwner, launch.sessionId, runId, seq, await capture.capture(safeOutput(snapshot))); },
           saveForkContext: async context => {
             piContextId = `${launch.sessionId}:fork-context:${sha256Hex(canonicalJson(context))}`;
             const previous = await agentsStore.get(sessionOwner, 'session_native', piContextId);
@@ -327,14 +351,23 @@ export async function runAgentWorker(): Promise<void> {
         ...(checkpointOptions ? { checkpoint: checkpointOptions } : {}),
         ...(adoptedCheckpoint ? { requiredResumeThreadId: adoptedCheckpoint.rootThreadId } : {}),
         ...(runtime.value.snapshot ? { previous: runtime.value.snapshot } : {}),
-        changed: sessionJournal.changed, flush: sessionJournal.flush,
+        changed: snapshot => { currentRuntimeSnapshot = snapshot; sessionJournal!.changed(snapshot); }, flush: sessionJournal.flush,
       } };
       const sessionVaults = launch.mcp?.some((binding) => binding.vaultId) ? new VaultService({
         store: agentsStore,
         secrets: new SecretsAgentCredentials(clients.secrets, requiredEnv('INTEGRATION_CREDENTIAL_NAME_PREFIX'), requiredEnv('INTEGRATION_CREDENTIAL_KMS_KEY_ARN')),
         oauth: new HttpOAuthRefreshClient(),
       }) : undefined;
-      sessionMcp = await prepareSessionMcp(current.ownerId, launch, secrets, abort.signal, sessionVaults, sessionEnvironmentCredentials, rememberSessionSecrets);
+      sessionMcp = await prepareSessionMcp(current.ownerId, launch, secrets, abort.signal, sessionVaults, sessionEnvironmentCredentials, rememberSessionSecrets, {
+        ownerId: sessionOwner,
+        identity: { sessionId: launch.sessionId, agentId: launch.agent.id, runId, generation: executionGeneration, runtimeEpoch,
+          ...(current.provenance ? { actor: current.provenance.actor, credentialSubject: current.provenance.credentialSubject } : {}) },
+        configuration: (launch as SessionLaunch & { configuration?: ConfigurationRevisionRef }).configuration ?? null,
+        service: new ToolAuthorizationService(agentsStore), assertActive: assertMcpActive,
+        // Pi projections originate across its child protocol; no exact trusted
+        // effect-to-Turn association is established at this boundary yet.
+        context: () => launch.runtime?.kind === 'pi' ? { kind: 'unresolved', reason: 'unavailable' } : activeMcpTurnContext(currentRuntimeSnapshot),
+      });
       driverControl = { ...driverControl, sessionMcp, ...(sessionEnvironmentCredentials ? { sessionEnvironmentCredentials } : {}) };
       if (launch.environment.type === 'self_hosted') {
         if (!launch.environmentCredential) throw new Error('Session environment credential is missing');
