@@ -190,7 +190,7 @@ resource "aws_iam_role_policy" "ingress" {
 data "aws_iam_policy_document" "control" {
   statement {
     sid       = "AgentsResources"
-    actions   = ["dynamodb:GetItem", "dynamodb:Query", "dynamodb:PutItem", "dynamodb:UpdateItem", "dynamodb:DeleteItem"]
+    actions   = ["dynamodb:GetItem", "dynamodb:Query", "dynamodb:PutItem", "dynamodb:UpdateItem", "dynamodb:DeleteItem", "dynamodb:ConditionCheckItem"]
     resources = [aws_dynamodb_table.agents.arn]
   }
 
@@ -669,8 +669,10 @@ resource "aws_iam_role_policy" "thing_schedule_invoke" {
 
 data "aws_iam_policy_document" "worker" {
   statement {
-    sid       = "AgentVaultState"
-    actions   = ["dynamodb:GetItem", "dynamodb:Query", "dynamodb:PutItem", "dynamodb:UpdateItem", "dynamodb:DeleteItem", "dynamodb:TransactWriteItems"]
+    sid = "AgentVaultState"
+    # Transactional source observations need their own permission in addition
+    # to the permissions for writes in the same configuration transaction.
+    actions   = ["dynamodb:GetItem", "dynamodb:Query", "dynamodb:PutItem", "dynamodb:UpdateItem", "dynamodb:DeleteItem", "dynamodb:TransactWriteItems", "dynamodb:ConditionCheckItem"]
     resources = [aws_dynamodb_table.agents.arn]
   }
 

@@ -3,7 +3,7 @@
 data "aws_iam_policy_document" "agents_service" {
   statement {
     sid       = "AgentsResources"
-    actions   = ["dynamodb:GetItem", "dynamodb:Query", "dynamodb:PutItem", "dynamodb:UpdateItem", "dynamodb:DeleteItem"]
+    actions   = ["dynamodb:GetItem", "dynamodb:Query", "dynamodb:PutItem", "dynamodb:UpdateItem", "dynamodb:DeleteItem", "dynamodb:ConditionCheckItem"]
     resources = [aws_dynamodb_table.agents.arn]
   }
   statement {

@@ -112,6 +112,13 @@ run "offline_runtime_without_session_storage" {
     condition     = aws_vpc_endpoint.worker_api["bedrock-runtime"].private_dns_enabled && length(aws_security_group.s3_files_client[0].egress) == 2
     error_message = "Private inference, artifacts and durable state must remain reachable."
   }
+  assert {
+    condition = alltrue([for policy in [data.aws_iam_policy_document.control, data.aws_iam_policy_document.agents_service, data.aws_iam_policy_document.worker] :
+      length([for statement in policy.statement : statement if contains(statement.actions, "dynamodb:ConditionCheckItem")]) == 1 &&
+      alltrue([for statement in policy.statement : statement.resources == toset([aws_dynamodb_table.agents.arn]) if contains(statement.actions, "dynamodb:ConditionCheckItem")])
+    ])
+    error_message = "Configuration admission and live Vault checks must permit transactional source observations only on the Agents table."
+  }
 }
 
 run "explicit_runtime_https_destinations" {
@@ -449,7 +456,7 @@ run "both_worker_backends" {
   assert {
     condition = (
       toset(one([for statement in data.aws_iam_policy_document.worker.statement : statement.actions if statement.sid == "AgentVaultState"])) ==
-      toset(["dynamodb:GetItem", "dynamodb:Query", "dynamodb:PutItem", "dynamodb:UpdateItem", "dynamodb:DeleteItem", "dynamodb:TransactWriteItems"])
+      toset(["dynamodb:GetItem", "dynamodb:Query", "dynamodb:PutItem", "dynamodb:UpdateItem", "dynamodb:DeleteItem", "dynamodb:TransactWriteItems", "dynamodb:ConditionCheckItem"])
     )
     error_message = "Both worker backends require the shared Session store operations, including journal queries and cleanup."
   }

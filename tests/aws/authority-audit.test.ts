@@ -44,7 +44,11 @@ live('pins configuration, records real MCP attempts and enforces rotated and rev
     expect(session.agent.id).toBe(agent.id);
     assertRedacted(session);
     console.log(JSON.stringify({ phase: 'created', proof, sessionId, agentId }));
-    await eventually(async () => (await client.beta.agents.sessions.turns.list(session.id)).data.some(turn => turn.subagent_id === null && turn.status === 'completed'));
+    await eventually(async () => {
+      const turn = (await client.beta.agents.sessions.turns.list(session.id)).data.find(value => value.subagent_id === null);
+      if (turn && ['failed', 'cancelled'].includes(turn.status)) throw new Error(`Authority worker startup ${turn.status}: ${turn.error?.code ?? 'no_error_code'}`);
+      return turn?.status === 'completed';
+    });
     const configurations = await client.get<InspectionPage<ConfigurationRevision>>(`/agents/sessions/${session.id}/configurations`);
     expect(configurations.data).toHaveLength(1);
     const admitted = configurations.data[0]!;
