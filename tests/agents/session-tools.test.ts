@@ -9,19 +9,24 @@ import { describe, expect, it, vi } from 'vitest';
 import { sessionAgent } from '../../src/core/session-planning.js';
 import { SessionToolService } from '../../src/core/session-tool-service.js';
 import { VaultService } from '../../src/core/vault-service.js';
+import { ToolAuthorizationService } from '../../src/core/tool-authorization-service.js';
 import { createSessionMcpProxy, planMcpRequest, prepareSessionMcp } from '../../src/runner/session-mcp.js';
+import type { SessionMcpAudit } from '../../src/runner/session-mcp-authorization.js';
 import { createOutputRedactor } from '../../src/core/output-redactor.js';
 import type { AgentToolParam } from '../../src/domain/agents-api.js';
 import type { SessionCredentialSecret } from '../../src/credentials/session-tools.js';
 import { MemoryAgentsStore } from './fixtures.js';
 import { rpcClient } from './codex-protocol.js';
 
+const audit = (): SessionMcpAudit => ({ ownerId: 'alice', identity: { sessionId: 'session', agentId: 'agent', runId: 'run', generation: 'generation', runtimeEpoch: 0 },
+  configuration: null, service: new ToolAuthorizationService(new MemoryAgentsStore()), context: () => ({ kind: 'unresolved', reason: 'unavailable' }), assertActive: async () => {} });
+
 describe('session MCP capabilities', () => {
   it('refreshes a rejected bearer once while preserving the reconnect cursor and request body', async () => {
     const calls: Array<{ headers: Headers; body: BodyInit | null | undefined }> = [];
     const grants: Array<string | undefined> = [];
-    const proxy = await createSessionMcpProxy({ serverURL: 'https://mcp.example/service', headers: {}, metadata: { enabled: false }, allowedTools: ['lookup'],
-      authorization: async rejected => { grants.push(rejected); return rejected ? 'Bearer fresh-secret' : 'Bearer stale-secret'; },
+    const proxy = await createSessionMcpProxy({ serverURL: 'https://mcp.example/service', headers: {}, metadata: { enabled: false }, allowedTools: ['lookup'], audit: audit(), serverLabel: 'crm',
+      authorize: async rejected => { grants.push(rejected); return { authorization: rejected ? 'Bearer fresh-secret' : 'Bearer stale-secret', evidence: { kind: 'inline_snapshot' } }; },
       fetch: async (_url, init) => {
         calls.push({ headers: new Headers(init!.headers), body: init!.body });
         return calls.length === 1 ? new Response('private rejection detail', { status: 401 })
@@ -52,8 +57,10 @@ describe('session MCP capabilities', () => {
     });
     const tools: AgentToolParam[] = [{ type: 'mcp', server_label: 'crm', transport: { type: 'http', server_url: 'https://mcp.example/service' } }];
     const redactor = createOutputRedactor([]);
-    const runtime = await prepareSessionMcp('alice', { sessionId: 'session', turnId: 'turn', input: [], agent: sessionAgent({ model: 'test', tools }, 'agent', 1), environment: { type: 'none' }, mcp: [{ serverLabel: 'crm', vaultReference: 'secret-ref', vaultId: 'vault', credentialId: 'credential' }] },
-      { get: async () => { throw new Error('Unexpected direct secret read'); } }, undefined, { authorization: async (_owner, _vault, _credential, _url, rejected) => `Bearer ${rejected ? 'rotated-private-token' : 'initial-private-token'}` }, undefined, redactor.remember);
+    const runtime = await prepareSessionMcp({ ownerId: 'alice', launch: { sessionId: 'session', turnId: 'turn', input: [], agent: sessionAgent({ model: 'test', tools }, 'agent', 1), environment: { type: 'none' }, mcp: [{ serverLabel: 'crm', vaultReference: 'secret-ref', vaultId: 'vault', credentialId: 'credential' }] },
+      secrets: { get: async () => { throw new Error('Unexpected direct secret read'); } },
+      vaults: { authorizeMcp: async (_owner, _vault, _credential, _url, rejected) => ({ authorization: `Bearer ${rejected ? 'rotated-private-token' : 'initial-private-token'}`, evidence: { kind: 'inline_snapshot' } }) },
+      rememberSecrets: redactor.remember, audit: audit() });
     try {
       const server = runtime.servers.crm as { url: string; bearer_token_env_var: string };
       const response = await nativeFetch(server.url, { method: 'POST', headers: { authorization: `Bearer ${runtime.environment[server.bearer_token_env_var]}`, 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }) });
@@ -65,7 +72,7 @@ describe('session MCP capabilities', () => {
 
   it('never repeats an ambiguous MCP tool effect or leaks its provider failure', async () => {
     let calls = 0;
-    const proxy = await createSessionMcpProxy({ serverURL: 'https://mcp.example/service', headers: {}, metadata: {}, allowedTools: ['save'],
+    const proxy = await createSessionMcpProxy({ serverURL: 'https://mcp.example/service', headers: {}, metadata: {}, allowedTools: ['save'], audit: audit(), serverLabel: 'crm',
       fetch: async () => { calls++; throw new Error('private provider token'); } });
     try {
       const response = await fetch(proxy.url, { method: 'POST', headers: { authorization: `Bearer ${proxy.key}`, 'content-type': 'application/json' },
@@ -117,7 +124,7 @@ describe('session MCP capabilities', () => {
   it('initializes a service MCP server from a Codex thread with no execution environment', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'rat-mcp-conformance-'));
     const received: Array<{ headers: Headers; body: Record<string, unknown> }> = [];
-    const proxy = await createSessionMcpProxy({ serverURL: 'https://mcp.example/service', headers: { Authorization: 'Bearer vault-token' }, metadata: { tenant: 'alice' }, allowedTools: ['lookup'], fetch: async (_input, init) => {
+    const proxy = await createSessionMcpProxy({ serverURL: 'https://mcp.example/service', headers: { Authorization: 'Bearer vault-token' }, metadata: { tenant: 'alice' }, allowedTools: ['lookup'], audit: audit(), serverLabel: 'crm', credentialEvidence: { kind: 'inline_snapshot' }, fetch: async (_input, init) => {
       if (init?.method !== 'POST') return new Response(null, { status: 405 });
       const body = JSON.parse(String(init.body)) as Record<string, unknown>;
       received.push({ headers: new Headers(init.headers), body });

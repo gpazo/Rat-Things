@@ -357,16 +357,18 @@ export async function runAgentWorker(): Promise<void> {
         secrets: new SecretsAgentCredentials(clients.secrets, requiredEnv('INTEGRATION_CREDENTIAL_NAME_PREFIX'), requiredEnv('INTEGRATION_CREDENTIAL_KMS_KEY_ARN')),
         oauth: new HttpOAuthRefreshClient(),
       }) : undefined;
-      sessionMcp = await prepareSessionMcp(current.ownerId, launch, secrets, abort.signal, sessionVaults, sessionEnvironmentCredentials, rememberSessionSecrets, {
-        ownerId: sessionOwner,
-        identity: { sessionId: launch.sessionId, agentId: launch.agent.id, runId, generation: executionGeneration, runtimeEpoch,
-          ...(current.provenance ? { actor: current.provenance.actor, credentialSubject: current.provenance.credentialSubject } : {}) },
-        configuration: launch.configuration ?? null,
-        service: new ToolAuthorizationService(agentsStore), assertActive: assertMcpActive,
-        // Pi projections originate across its child protocol; no exact trusted
-        // effect-to-Turn association is established at this boundary yet.
-        context: () => launch.runtime?.kind === 'pi' ? { kind: 'unresolved', reason: 'unavailable' } : activeMcpTurnContext(currentRuntimeSnapshot),
-      });
+      sessionMcp = await prepareSessionMcp({ ownerId: current.ownerId, launch, secrets, signal: abort.signal,
+        ...(sessionVaults ? { vaults: sessionVaults } : {}), ...(sessionEnvironmentCredentials ? { credentials: sessionEnvironmentCredentials } : {}),
+        rememberSecrets: rememberSessionSecrets, audit: {
+          ownerId: sessionOwner,
+          identity: { sessionId: launch.sessionId, agentId: launch.agent.id, runId, generation: executionGeneration, runtimeEpoch,
+            ...(current.provenance ? { actor: current.provenance.actor, credentialSubject: current.provenance.credentialSubject } : {}) },
+          configuration: launch.configuration ?? null,
+          service: new ToolAuthorizationService(agentsStore), assertActive: assertMcpActive,
+          // Pi projections originate across its child protocol; no exact trusted
+          // effect-to-Turn association is established at this boundary yet.
+          context: () => launch.runtime?.kind === 'pi' ? { kind: 'unresolved', reason: 'unavailable' } : activeMcpTurnContext(currentRuntimeSnapshot),
+      } });
       driverControl = { ...driverControl, sessionMcp, ...(sessionEnvironmentCredentials ? { sessionEnvironmentCredentials } : {}) };
       if (launch.environment.type === 'self_hosted') {
         if (!launch.environmentCredential) throw new Error('Session environment credential is missing');

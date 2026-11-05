@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto';
 import type { ConfigurationRevisionRef } from '../domain/configuration-history.js';
 import type { McpAuthorization, McpCredentialEvidence, ServiceMcpPolicy, ToolAuthorizationDecision, ToolDispatchOutcome, ToolExecutionIdentity, ToolTurnContext } from '../domain/tool-authorization.js';
 import type { ToolAuthorizationService } from '../core/tool-authorization-service.js';
@@ -13,6 +12,18 @@ export interface SessionMcpAudit {
   context(): ToolTurnContext;
   assertActive(): Promise<void>;
 }
+
+/** Reject incomplete trusted-host wiring before secrets or a listener are acquired. */
+export function assertSessionMcpAudit(audit: SessionMcpAudit): void {
+  if (!audit || ![audit.ownerId, audit.identity?.sessionId, audit.identity?.agentId, audit.identity?.runId, audit.identity?.generation]
+    .every(value => typeof value === 'string' && value.length > 0)
+    || !Number.isSafeInteger(audit.identity?.runtimeEpoch) || audit.identity.runtimeEpoch < 0
+    || audit.configuration === undefined || typeof audit.service?.record !== 'function' || typeof audit.service?.recordOutcome !== 'function'
+    || typeof audit.context !== 'function' || typeof audit.assertActive !== 'function') throw new Error('MCP audit is required');
+}
+
+type OutcomeRetention = 'retained' | 'unconfirmed';
+type ObservedResponse = { response: Response; outcomeRetention: OutcomeRetention };
 
 /** Current trusted runtime context is deliberately weaker than an invocation link. */
 export function activeMcpTurnContext(state: SessionRuntimeState | undefined): ToolTurnContext {
@@ -29,14 +40,16 @@ export async function dispatchAuditedMcp(options: {
   credential(rejectedToken?: string): Promise<McpAuthorization>;
   refresh: boolean; signal: AbortSignal; send(authorization: string): Promise<Response>;
   disable(): void;
+  outcomeUnconfirmed(): void;
+  now(): number;
+  newId(): string;
 }): Promise<Response> {
-  const { audit, policy, operations } = options;
-  const requestId = randomUUID();
+  const { audit, policy, operations, now, newId } = options;
+  const requestId = newId();
   const admissions = planToolAuthorization(policy, operations);
-  const now = () => Math.floor(Date.now() / 1000);
   const decisions = (attempt: number, credential: McpCredentialEvidence): ToolAuthorizationDecision[] => {
     const context = structuredClone(audit.context());
-    return operations.map((operation, index) => ({ id: randomUUID(), object: 'rat_things.tool_authorization', requestId, attempt, at: now(),
+    return operations.map((operation, index) => ({ id: newId(), object: 'rat_things.tool_authorization', requestId, attempt, at: now(),
       identity: structuredClone(audit.identity), configuration: structuredClone(audit.configuration), context,
       policy: structuredClone(policy), policyDigest: toolPolicyDigest(policy), toolName: safeToolLabel(operation.toolName), credential,
       ...admissions[index]! }));
@@ -45,9 +58,15 @@ export async function dispatchAuditedMcp(options: {
     try { await audit.service.record(audit.ownerId, value); }
     catch { options.disable(); throw new Error('MCP request failed'); }
   };
-  const observe = async (value: ToolAuthorizationDecision[], outcome: ToolDispatchOutcome) => {
-    try { await audit.service.recordOutcome(audit.ownerId, audit.identity.sessionId, value.map(decision => decision.id), outcome); }
-    catch { options.disable(); throw new Error('MCP request failed'); }
+  const observe = async (value: ToolAuthorizationDecision[], outcome: ToolDispatchOutcome): Promise<OutcomeRetention> => {
+    try {
+      await audit.service.recordOutcome(audit.ownerId, audit.identity.sessionId, value.map(decision => decision.id), outcome);
+      return 'retained';
+    } catch {
+      // Reporting cannot change a completed dispatch or suppress its response.
+      try { options.outcomeUnconfirmed(); } catch { /* Operational reporting is best effort. */ }
+      return 'unconfirmed';
+    }
   };
   const deny = async (value: ToolAuthorizationDecision[]): Promise<never> => {
     await persist(value);
@@ -64,7 +83,7 @@ export async function dispatchAuditedMcp(options: {
     catch { return deny(denyToolDecisions(decisions(attempt, { kind: 'unavailable' }), 'credential_unavailable')); }
     return { credential, decisions: decisions(attempt, credential.evidence) };
   };
-  const dispatch = async (value: Awaited<ReturnType<typeof authorize>>): Promise<Response> => {
+  const dispatch = async (value: Awaited<ReturnType<typeof authorize>>): Promise<ObservedResponse> => {
     await persist(value.decisions);
     try { options.signal.throwIfAborted(); await audit.assertActive(); }
     catch {
@@ -77,20 +96,18 @@ export async function dispatchAuditedMcp(options: {
       await observe(value.decisions, { kind: 'unknown', reason: options.signal.aborted ? 'cancelled' : 'transport_failure', at: now() });
       throw new Error('MCP request failed');
     }
-    try {
-      // Headers prove only an HTTP observation. JSON-RPC and SSE tool results
-      // are not parsed here, and no business effect is declared successful.
-      await observe(value.decisions, { kind: 'response_received', at: now(), httpStatus: response.status, toolResult: 'unobserved' });
-    } catch (error) { await response.body?.cancel().catch(() => {}); throw error; }
-    return response;
+    // Headers prove only an HTTP observation. JSON-RPC and SSE tool results
+    // are not parsed here, and no business effect is declared successful.
+    const outcomeRetention = await observe(value.decisions, { kind: 'response_received', at: now(), httpStatus: response.status, toolResult: 'unobserved' });
+    return { response, outcomeRetention };
   };
   const first = await authorize(1);
-  const response = await dispatch(first);
-  if (response.status !== 401 || !options.refresh) return response;
+  const { response, outcomeRetention } = await dispatch(first);
+  if (outcomeRetention === 'unconfirmed' || response.status !== 401 || !options.refresh) return response;
   let retry: Awaited<ReturnType<typeof authorize>>;
   try { retry = await authorize(2, first.credential.authorization); }
   catch (error) { await response.body?.cancel().catch(() => {}); throw error; }
   if (retry.credential.authorization === first.credential.authorization) return response;
   await response.body?.cancel();
-  return dispatch(retry);
+  return (await dispatch(retry)).response;
 }
