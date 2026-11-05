@@ -1,4 +1,4 @@
-import { createServer } from 'node:http';
+import { createServer, type Server } from 'node:http';
 import { once } from 'node:events';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -12,43 +12,47 @@ import { exportAuthorizationTraces } from '../../src/trace-export.js';
 
 it('persists real HTTP MCP decisions in SQLite, preserves responses through an outcome outage, and exports after reopening', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'rat-local-authority-'));
-  let store = new SqliteAgentsStore(directory);
-  let service = new ToolAuthorizationService(store);
-  const upstreamDecisions: number[] = [];
-  const receivedExports: unknown[] = [];
-  const upstream = createServer(async (request, response) => {
-    const chunks: Buffer[] = [];
-    for await (const chunk of request) chunks.push(Buffer.from(chunk));
-    const body: unknown = JSON.parse(Buffer.concat(chunks).toString());
-    if (request.url === '/v1/traces') {
-      receivedExports.push(body);
-      response.writeHead(200, { 'content-type': 'application/json' }).end('{}');
-      return;
-    }
-    upstreamDecisions.push((await service.list('local-owner', 'local-session')).data.length);
-    response.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ jsonrpc: '2.0', id: 1,
-      result: { content: [{ type: 'text', text: `local-result-${upstreamDecisions.length}` }] } }));
-  });
-  upstream.listen(0, '127.0.0.1'); await once(upstream, 'listening');
-  const address = upstream.address();
-  if (!address || typeof address === 'string') throw new Error('Fixture listener is unavailable');
-  let loseOutcome = true;
-  const proxy = await createSessionMcpProxy({
-    serverURL: 'https://fixture.invalid/mcp', serverLabel: 'fixture', headers: {}, metadata: {}, allowedTools: ['lookup'],
-    audit: { ownerId: 'local-owner', identity: { sessionId: 'local-session', agentId: 'local-agent', runId: 'local-run', generation: '1', runtimeEpoch: 0 },
-      configuration: null, context: () => ({ kind: 'unresolved', reason: 'unavailable' }), assertActive: async () => {},
-      service: { record: (owner, decisions) => service.record(owner, decisions), recordOutcome: (owner, session, ids, outcome) => {
-        if (loseOutcome) { loseOutcome = false; return Promise.reject(new Error('Synthetic observation outage')); }
-        return service.recordOutcome(owner, session, ids, outcome);
-      } },
-    },
-    authorize: async () => ({ authorization: 'Bearer synthetic-local-secret', evidence: { kind: 'inline_snapshot' } }),
-    // Only the test transport maps HTTPS to a loopback fixture; production validation stays enabled.
-    fetch: async (_url, init) => fetch(`http://127.0.0.1:${address.port}/mcp`, init),
-  });
-  const request = (name: string) => fetch(proxy.url, { method: 'POST', headers: { authorization: `Bearer ${proxy.key}`, 'content-type': 'application/json' },
-    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: { private: 'argument-sentinel' } } }) });
+  let store: SqliteAgentsStore | undefined;
+  let upstream: Server | undefined;
+  let proxy: Awaited<ReturnType<typeof createSessionMcpProxy>> | undefined;
   try {
+    store = new SqliteAgentsStore(directory);
+    let service = new ToolAuthorizationService(store);
+    const upstreamDecisions: number[] = [];
+    const receivedExports: unknown[] = [];
+    upstream = createServer(async (request, response) => {
+      const chunks: Buffer[] = [];
+      for await (const chunk of request) chunks.push(Buffer.from(chunk));
+      const body: unknown = JSON.parse(Buffer.concat(chunks).toString());
+      if (request.url === '/v1/traces') {
+        receivedExports.push(body);
+        response.writeHead(200, { 'content-type': 'application/json' }).end('{}');
+        return;
+      }
+      upstreamDecisions.push((await service.list('local-owner', 'local-session')).data.length);
+      response.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ jsonrpc: '2.0', id: 1,
+        result: { content: [{ type: 'text', text: `local-result-${upstreamDecisions.length}` }] } }));
+    });
+    upstream.listen(0, '127.0.0.1'); await once(upstream, 'listening');
+    const address = upstream.address();
+    if (!address || typeof address === 'string') throw new Error('Fixture listener is unavailable');
+    let loseOutcome = true;
+    proxy = await createSessionMcpProxy({
+      serverURL: 'https://fixture.invalid/mcp', serverLabel: 'fixture', headers: {}, metadata: {}, allowedTools: ['lookup'],
+      audit: { ownerId: 'local-owner', identity: { sessionId: 'local-session', agentId: 'local-agent', runId: 'local-run', generation: '1', runtimeEpoch: 0 },
+        configuration: null, context: () => ({ kind: 'unresolved', reason: 'unavailable' }), assertActive: async () => {},
+        service: { record: (owner, decisions) => service.record(owner, decisions), recordOutcome: (owner, session, ids, outcome) => {
+          if (loseOutcome) { loseOutcome = false; return Promise.reject(new Error('Synthetic observation outage')); }
+          return service.recordOutcome(owner, session, ids, outcome);
+        } },
+      },
+      authorize: async () => ({ authorization: 'Bearer synthetic-local-secret', evidence: { kind: 'inline_snapshot' } }),
+      // Only the test transport maps HTTPS to a loopback fixture; production validation stays enabled.
+      fetch: async (_url, init) => fetch(`http://127.0.0.1:${address.port}/mcp`, init),
+    });
+    const connection = proxy;
+    const request = (name: string) => fetch(connection.url, { method: 'POST', headers: { authorization: `Bearer ${connection.key}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: { private: 'argument-sentinel' } } }) });
     const first = await request('lookup');
     expect(first.status).toBe(200);
     expect(await first.text()).toContain('local-result-1');
@@ -80,9 +84,12 @@ it('persists real HTTP MCP decisions in SQLite, preserves responses through an o
     expect(accepted.status).toBe(200);
     expect(receivedExports).toEqual([exported]);
   } finally {
-    await proxy.close();
-    upstream.closeAllConnections(); await new Promise<void>(resolve => upstream.close(() => resolve()));
-    store.close();
+    await proxy?.close();
+    if (upstream) {
+      upstream.closeAllConnections();
+      await new Promise<void>(resolve => upstream!.close(() => resolve()));
+    }
+    store?.close();
     await rm(directory, { recursive: true, force: true });
   }
 });
