@@ -109,7 +109,7 @@ export async function createSessionMcpProxy(options: {
   credentialEvidence?: McpCredentialEvidence; audit: SessionMcpAudit; serverLabel: string;
 }) {
   assertSessionMcpAudit(options.audit);
-  if (!options.serverLabel || safeToolLabel(options.serverLabel) !== options.serverLabel) throw new Error('MCP server label is invalid');
+  if (typeof options.serverLabel !== 'string' || !options.serverLabel) throw new Error('MCP server label is required');
   // Admission values are fixed for this proxy's lifetime; only the explicitly
   // supplied runtime context and live credential checks can change.
   options = { ...options, headers: { ...options.headers }, metadata: structuredClone(options.metadata),

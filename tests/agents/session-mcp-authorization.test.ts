@@ -23,7 +23,7 @@ const turn = (id: string, status: Turn['status'] = 'in_progress', subagent: stri
 const withTurns = (...turns: Turn[]): SessionRuntimeState => ({ ...initialSessionRuntime('session', 'agent', 'native-root'),
   turns: turns.map(turn => ({ threadId: turn.subagent_id ?? 'native-root', nativeTurnId: `native-${turn.id}`, turn, items: [] })) });
 
-async function fixture(options: { signal?: AbortSignal; store?: MemoryAgentsStore; runtime?: () => SessionRuntimeState | undefined; authorize?: (rejected?: string) => Promise<McpAuthorization>;
+async function fixture(options: { serverLabel?: string; signal?: AbortSignal; store?: MemoryAgentsStore; runtime?: () => SessionRuntimeState | undefined; authorize?: (rejected?: string) => Promise<McpAuthorization>;
   assertActive?: () => Promise<void>; upstream?: (request: IncomingMessage, response: ServerResponse) => void } = {}) {
   const store = options.store ?? new MemoryAgentsStore();
   const service = new ToolAuthorizationService(store);
@@ -40,7 +40,7 @@ async function fixture(options: { signal?: AbortSignal; store?: MemoryAgentsStor
   const audit: SessionMcpAudit = { ownerId: 'alice', identity: { sessionId: 'session', agentId: 'agent', runId: 'run', generation: 'generation', runtimeEpoch: 4 },
     configuration: { subject: { kind: 'session', id: 'session' }, revision: 7 }, service,
     context: () => activeMcpTurnContext(options.runtime?.()), assertActive: options.assertActive ?? (async () => {}) };
-  const proxy = await createSessionMcpProxy({ serverURL: 'https://mcp.example/service?key=private-query', headers: {}, metadata: {}, allowedTools: ['lookup'], serverLabel: 'crm', audit, authorize, ...(options.signal ? { signal: options.signal } : {}),
+  const proxy = await createSessionMcpProxy({ serverURL: 'https://mcp.example/service?key=private-query', headers: {}, metadata: {}, allowedTools: ['lookup'], serverLabel: options.serverLabel ?? 'crm', audit, authorize, ...(options.signal ? { signal: options.signal } : {}),
     // Production destination validation remains HTTPS. The fixture adapter alone
     // routes its send into a real loopback HTTP server.
     fetch: async (_url, init) => fetch(`http://127.0.0.1:${address.port}/`, init),
@@ -51,6 +51,17 @@ async function fixture(options: { signal?: AbortSignal; store?: MemoryAgentsStor
 }
 
 describe('durable service MCP dispatch', () => {
+  it('keeps admitted long server labels usable while bounding the audit label', async () => {
+    const label = 'a'.repeat(129);
+    const agent = sessionAgent({ model: 'gpt-6-sol', tools: [{ type: 'mcp', server_label: label, connection_origin: 'service',
+      transport: { type: 'http', server_url: 'https://mcp.example/service' }, allowed_tools: ['lookup'] }] }, 'agent', 1);
+    expect(agent.tools[0]).toMatchObject({ server_label: label });
+    const f = await fixture({ serverLabel: label });
+    expect((await f.request()).status).toBe(200);
+    expect(f.sendObservations).toEqual([1]);
+    expect((await f.service.list('alice', 'session')).data[0]).toMatchObject({ decision: 'allow', policy: { serverLabel: 'invalid' } });
+  });
+
   it('requires audit wiring before preparation can read secrets or a proxy can contact upstream', async () => {
     const secrets = { get: vi.fn(async () => 'private-secret') };
     const authorize = vi.fn(async () => credential());
