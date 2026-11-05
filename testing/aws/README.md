@@ -109,6 +109,15 @@ The default test deployment uses the Lambda URL Agents transport. Full upload
 sizes, long-lived SSE and executor relay coverage require deploying the dedicated
 Agents HTTP service; see `docs/agents-api.md`.
 
+For configuration and MCP authorization history, set
+`AWS_E2E_AUTHORITY_AUDIT_PROOF=true` and run
+`tests/aws/authority-audit.test.ts` against a disposable real-Codex deployment.
+The proof calls the deployment-owned MCP fixture, rotates and revokes a synthetic
+credential, checks the retained configuration references, and exports every
+authorization page as OTLP. The worker must have HTTPS egress to the fixture.
+The test removes its Sessions, Agent and Vault; destroy the stack afterward to
+remove its retained audit history and infrastructure.
+
 The four-feature proof additionally requires `AWS_E2E_SUPER_AGENT_PROOF=true`,
 `AWS_E2E_ENABLE_SLACK_WEBHOOK=true`, and `AWS_E2E_SLACK_SIGNING_SECRET_FILE` pointing
 to a private signing-secret file at deployment. Set `AWS_E2E_EVENT_FILTER_MODEL_ID`

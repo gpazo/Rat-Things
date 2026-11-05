@@ -49,8 +49,10 @@ they received. The admitted capability envelope remains fixed for that Session.
 human. System changes use `system`. HTTP mutations include the server's request
 ID when available. An older resource first observed by the history system has
 `change: "legacy_observed"` and an unknown changing actor. Earlier overwritten
-revisions cannot be reconstructed. Older Sessions never acquire a reference to
-today's Agent definition as a substitute for their original configuration.
+revisions cannot be reconstructed. Reading an older Session does not create a
+revision. Its baseline is retained when work is admitted or a mutation needs to
+preserve its configuration. Older Sessions never acquire a reference to today's
+Agent definition as a substitute for their original configuration.
 
 ## Inspect a service MCP decision
 
@@ -104,8 +106,12 @@ Read outcomes according to what the host observed:
 
 A credential refresh after HTTP 401 creates a new attempt with new authorization
 evidence before the retry. Attempts share a host-generated `requestId`. A failed
-outcome write does not trigger another tool request. Authorization records are an
-audit trail, not an exactly-once guarantee for remote effects.
+outcome write does not trigger another tool request. If the host received a
+response but cannot save its outcome, it still returns that response and accepts
+later calls. The missing outcome appears as `unknown`; a 401 in this situation
+is returned without the automatic refresh retry. Each later call still requires
+its own durable decision before dispatch. Authorization records are an audit
+trail, not an exactly-once guarantee for remote effects.
 
 Turn attribution is separate from authorization. `single_active_turn` records
 the sole active Turn observed by the host at that point. It is context, not an
@@ -160,8 +166,11 @@ next `after`. Exact-revision reads accept the revision number; pagination uses
 the record ID returned by the list. The OTLP list returns `data[].otlp`.
 
 The records use the workspace's encrypted storage and have no automatic
-per-record expiry. Deleting a public resource does not erase this history.
-Include it in your storage capacity, access, and backup policies. Deployment or
+per-record expiry. Deleting a public resource does not erase this history or
+remove its owner's inspection access. Retained configuration can include Agent
+instructions and other historical settings. Existing Agent and Vault read scopes
+also grant access to the corresponding history; there is no separate audit scope.
+Include this history in your storage capacity, access, and backup policies. Deployment or
 storage deletion can remove it. The records are immutable through the
 application, but this is not a write-once archive protected against storage
 administrators. Old workers and previously completed calls have no retroactive

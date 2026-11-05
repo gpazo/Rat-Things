@@ -9,6 +9,7 @@ import { createLocalAgentsClient, createLocalAgentsFetch, readLocalConnection } 
 import { LocalSessionExecution } from '../../src/runner/local-session-execution.js';
 import { localCodexArguments, localCodexClient, localCodexEnvironment, planLocalCodexEnvironment } from '../../src/runner/local-codex.js';
 import { planCodexLaunch } from '../../src/runner/agent-planning.js';
+import type { ConfigurationRevision, InspectionPage } from '../../src/domain/configuration-history.js';
 
 describe('local workspace using the production API and native harness', () => {
   it('keeps ambient credentials and billing endpoints out of local login and inference', () => {
@@ -80,13 +81,24 @@ describe('local workspace using the production API and native harness', () => {
         }).on('error', reject);
       })).toBe(403);
       await expect(createLocalAgentsFetch(connection)('https://evil.example/v1/agents')).rejects.toThrow('another destination');
+      const savedAgent = await client.beta.agents.create({ model: 'gpt-5.4', multi_agent: { enabled: false }, instructions: 'Original local configuration.' });
       const events = [];
-      for await (const event of await client.beta.agents.sessions.create({ agent: { model: 'gpt-5.4', multi_agent: { enabled: false } },
+      for await (const event of await client.beta.agents.sessions.create({ agent_id: savedAgent.id,
         environment: { type: 'none' }, input: 'Remember the acorn.', stream: true })) events.push(event);
       expect(JSON.stringify(events)).toContain('Local reply 1');
       const sessions = await client.beta.agents.sessions.list();
       const id = sessions.data[0]!.id;
       expect((await client.beta.agents.sessions.turns.list(id)).data[0]!.status).toBe('completed');
+      const configurations = await client.get<InspectionPage<ConfigurationRevision>>(`/agents/sessions/${id}/configurations`);
+      expect(configurations.data).toHaveLength(1);
+      expect(configurations.data[0]).toMatchObject({ snapshot: { kind: 'session', configuration: {
+        sourceAgent: { subject: { kind: 'agent', id: savedAgent.id }, revision: 1 }, agent: { instructions: 'Original local configuration.' },
+      } } });
+      await client.beta.agents.update(savedAgent.id, { instructions: 'Replacement for future Sessions.' });
+      const revisions = await client.get<InspectionPage<ConfigurationRevision>>(`/agents/${savedAgent.id}/revisions?order=asc&limit=1`);
+      expect(revisions.has_more).toBe(true);
+      const next = await client.get<InspectionPage<ConfigurationRevision>>(`/agents/${savedAgent.id}/revisions?order=asc&after=${revisions.last_id}`);
+      expect(next.data[0]).toMatchObject({ ref: { revision: 2 }, changedPaths: expect.arrayContaining(['/agent/instructions']) });
       expect(JSON.stringify(requests[0]?.tools)).not.toContain('exec_command');
       await expect(stat(ambientMarker)).rejects.toMatchObject({ code: 'ENOENT' });
       expect((await stat(join(directory, 'codex'))).mode & 0o777).toBe(0o700);
@@ -94,6 +106,8 @@ describe('local workspace using the production API and native harness', () => {
       await server.close();
       server = await launch();
       const resumed = createLocalAgentsClient(await readLocalConnection(directory));
+      expect(await resumed.get(`/agents/sessions/${id}/configurations`)).toEqual(configurations);
+      expect(await resumed.get(`/agents/${savedAgent.id}/revisions/1`)).toMatchObject({ snapshot: { agent: { instructions: 'Original local configuration.' } } });
       expect(JSON.stringify(await resumed.beta.agents.sessions.items.list(id))).toContain('Local reply 1');
       await resumed.beta.agents.sessions.events.create(id, { events: [{ type: 'agent.session.input.message', input: [{ role: 'user', content: [{ type: 'input_text', text: 'What did I ask you to remember?' }] }] }] });
       await expect.poll(async () => JSON.stringify(await resumed.beta.agents.sessions.items.list(id)), { timeout: 15_000 }).toContain('Local reply 2');
@@ -108,6 +122,11 @@ describe('local workspace using the production API and native harness', () => {
       expect((await resumed.beta.agents.sessions.turns.list(queued.id)).data[0]?.status).toBe('queued');
       expect(requests).toHaveLength(3);
       await resumed.beta.agents.sessions.delete(id);
+      expect(await resumed.get(`/agents/sessions/${id}/configurations`)).toEqual(configurations);
+      await resumed.beta.agents.delete(savedAgent.id);
+      expect(await resumed.get(`/agents/${savedAgent.id}/revisions/1`)).toMatchObject({ snapshot: { agent: { instructions: 'Original local configuration.' } } });
+      const deletedRevisions = await resumed.get<InspectionPage<ConfigurationRevision>>(`/agents/${savedAgent.id}/revisions?order=asc`);
+      expect(deletedRevisions.data.at(-1)).toMatchObject({ change: 'deleted', snapshot: null });
       await expect.poll(async () => JSON.stringify(await resumed.beta.agents.sessions.items.list(queued.id)), { timeout: 10_000 }).toContain('Local reply 4');
       await server.close();
       server = await launch();
