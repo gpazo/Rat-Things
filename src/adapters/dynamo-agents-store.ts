@@ -3,11 +3,10 @@ import {
   DynamoDBDocumentClient, GetCommand, QueryCommand, TransactWriteCommand,
   type TransactWriteCommandInput,
 } from '@aws-sdk/lib-dynamodb';
-import type { AgentListParams } from '../domain/agents-api.js';
 import { AgentsResourceConflictError, invalid } from '../domain/agents-api-validation.js';
 import type { ArtifactReference } from '../domain/contracts.js';
 import { canonicalJson } from '../domain/json.js';
-import type { AgentObservation, AgentResource, AgentsStore } from '../core/agents-ports.js';
+import type { AgentListOrdering, AgentListQuery, AgentObservation, AgentResource, AgentsStore } from '../core/agents-ports.js';
 import type { ArtifactStore } from '../core/ports.js';
 
 interface ResourceIndex {
@@ -15,6 +14,7 @@ interface ResourceIndex {
   ownerId: string;
   collection: string;
   createdAt: number;
+  listOrder?: AgentListOrdering;
   revision: number;
   expiresAt?: number;
   reference: ArtifactReference;
@@ -34,14 +34,14 @@ export class DynamoAgentsStore implements AgentsStore {
     return index && !index.deleted ? this.hydrate<T>(index) : undefined;
   }
 
-  public async list<T>(ownerId: string, collection: string, query: AgentListParams) {
+  public async list<T>(ownerId: string, collection: string, query: AgentListQuery) {
     const cursor = query.after ? await this.index(ownerId, collection, query.after) : undefined;
     if (query.after && !cursor) invalid('Invalid pagination cursor', 'after');
     const data: Array<AgentResource<T>> = [];
     const maximum = Math.min(query.limit ?? 20, 100);
     if (!Number.isInteger(maximum) || maximum < 1) invalid('limit must be a positive integer', 'limit');
     const scope = listScope(ownerId, collection);
-    let key = cursor ? { scope, key: orderKey(cursor) } : undefined;
+    let key = cursor ? { scope, key: orderKey(cursor, query.orderBy) } : undefined;
     // Fetch one extra entry so has_more means another resource exists, including
     // across DynamoDB's byte-based pagination boundary.
     do {
@@ -88,14 +88,15 @@ export class DynamoAgentsStore implements AgentsStore {
       const index: ResourceIndex = {
         id: resource.id, ownerId: resource.ownerId, collection: resource.collection,
         createdAt: resource.createdAt, revision: resource.revision, reference,
+        ...(resource.listOrder ? { listOrder: resource.listOrder } : {}),
         ...(resource.expiresAt ? { expiresAt: resource.expiresAt } : {}),
       };
       items.push({ Put: {
         TableName: this.tableName,
         Item: { ...rootKey(resource.ownerId, resource.collection, resource.id), ...index },
-        ConditionExpression: expectedRevision === 0 ? 'attribute_not_exists(#revision)' : '#revision = :expected AND attribute_not_exists(deleted)',
-        ExpressionAttributeNames: { '#revision': 'revision' },
-        ...(expectedRevision ? { ExpressionAttributeValues: { ':expected': expectedRevision } } : {}),
+        ConditionExpression: expectedRevision === 0 ? 'attribute_not_exists(#revision)' : `#revision = :expected AND attribute_not_exists(deleted) AND ${fixedOrderCondition(resource)}`,
+        ExpressionAttributeNames: { '#revision': 'revision', ...(expectedRevision ? { '#listOrder': 'listOrder' } : {}) },
+        ...(expectedRevision ? { ExpressionAttributeValues: { ':expected': expectedRevision, ':listOrder': resource.listOrder ?? 'createdAt' } } : {}),
       } }, { Put: {
         TableName: this.tableName,
         Item: { scope: listScope(resource.ownerId, resource.collection), key: orderKey(resource), ...index },
@@ -110,9 +111,9 @@ export class DynamoAgentsStore implements AgentsStore {
       TableName: this.tableName,
       Key: rootKey(resource.ownerId, resource.collection, resource.id),
       UpdateExpression: 'SET deleted = :deleted, #revision = :next',
-      ConditionExpression: '#revision = :expected AND attribute_not_exists(deleted)',
-      ExpressionAttributeNames: { '#revision': 'revision' },
-      ExpressionAttributeValues: { ':expected': resource.revision, ':next': resource.revision + 1, ':deleted': true },
+      ConditionExpression: `#revision = :expected AND attribute_not_exists(deleted) AND ${fixedOrderCondition(resource)}`,
+      ExpressionAttributeNames: { '#revision': 'revision', '#listOrder': 'listOrder' },
+      ExpressionAttributeValues: { ':expected': resource.revision, ':next': resource.revision + 1, ':deleted': true, ':listOrder': resource.listOrder ?? 'createdAt' },
     } }, { Delete: {
       TableName: this.tableName,
       Key: { scope: listScope(resource.ownerId, resource.collection), key: orderKey(resource) },
@@ -139,6 +140,7 @@ export class DynamoAgentsStore implements AgentsStore {
     return {
       id: index.id, ownerId: index.ownerId, collection: index.collection,
       revision: index.revision, createdAt: index.createdAt,
+      ...(index.listOrder ? { listOrder: index.listOrder } : {}),
       ...(index.expiresAt !== undefined ? { expiresAt: index.expiresAt } : {}),
       value: await this.objects.getJson<T>(index.reference),
     };
@@ -160,6 +162,11 @@ function listScope(ownerId: string, collection: string): string { return `list:$
 function rootKey(ownerId: string, collection: string, id: string) {
   return { scope: `resource:${hash(ownerId)}:${hash(collection)}:${id}`, key: 'root' };
 }
-function orderKey(resource: Pick<ResourceIndex, 'id' | 'createdAt'>): string {
-  return `${String(resource.createdAt).padStart(16, '0')}:${resource.id}`;
+function orderKey(resource: Pick<ResourceIndex, 'id' | 'createdAt' | 'listOrder'>, order = resource.listOrder): string {
+  // Keep ID-mode rows on the original zero-prefix index so pre-upgrade history
+  // and its cursors remain interleaved without a migration or a second index.
+  return `${String(order === 'id' ? 0 : resource.createdAt).padStart(16, '0')}:${resource.id}`;
+}
+function fixedOrderCondition(resource: Pick<ResourceIndex, 'listOrder'>): string {
+  return resource.listOrder === 'id' ? '#listOrder = :listOrder' : '(attribute_not_exists(#listOrder) OR #listOrder = :listOrder)';
 }

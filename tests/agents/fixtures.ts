@@ -1,5 +1,4 @@
-import type { AgentObservation, AgentsStore, AgentResource } from '../../src/core/agents-ports.js';
-import type { AgentListParams } from '../../src/domain/agents-api.js';
+import type { AgentListQuery, AgentObservation, AgentsStore, AgentResource } from '../../src/core/agents-ports.js';
 import { AgentsApiError, AgentsResourceConflictError } from '../../src/domain/agents-api-validation.js';
 
 export class MemoryAgentsStore implements AgentsStore {
@@ -9,11 +8,11 @@ export class MemoryAgentsStore implements AgentsStore {
     return structuredClone(this.resources.get(this.key(ownerId, collection, id))) as AgentResource<T> | undefined;
   }
 
-  public async list<T>(ownerId: string, collection: string, query: AgentListParams) {
+  public async list<T>(ownerId: string, collection: string, query: AgentListQuery) {
     const direction = query.order === 'asc' ? 1 : -1;
     const resources = [...this.resources.values()]
       .filter((resource) => resource.ownerId === ownerId && resource.collection === collection)
-      .sort((a, b) => direction * (a.createdAt - b.createdAt || a.id.localeCompare(b.id)));
+      .sort((a, b) => direction * ((query.orderBy === 'id' ? 0 : a.createdAt - b.createdAt) || a.id.localeCompare(b.id)));
     const cursor = query.after ? resources.findIndex((resource) => resource.id === query.after) : -1;
     if (query.after && cursor < 0) throw new AgentsApiError(400, 'Invalid pagination cursor.', 'invalid_request', 'after');
     const page = resources.slice(cursor + 1, cursor + 1 + (query.limit ?? 20));
@@ -33,7 +32,7 @@ export class MemoryAgentsStore implements AgentsStore {
     }
     for (const { resource, expectedRevision } of writes) {
       const current = this.resources.get(this.key(resource.ownerId, resource.collection, resource.id));
-      if ((current?.revision ?? 0) !== expectedRevision) throw new AgentsResourceConflictError();
+      if ((current?.revision ?? 0) !== expectedRevision || current && (current.listOrder ?? 'createdAt') !== (resource.listOrder ?? 'createdAt')) throw new AgentsResourceConflictError();
     }
     for (const { resource } of writes) {
       this.resources.set(this.key(resource.ownerId, resource.collection, resource.id), structuredClone(resource));
@@ -42,9 +41,11 @@ export class MemoryAgentsStore implements AgentsStore {
 
   public async delete(resource: AgentResource<unknown>, writes: Array<{ resource: AgentResource<unknown>; expectedRevision: number }> = []): Promise<void> {
     const key = this.key(resource.ownerId, resource.collection, resource.id);
-    if (this.resources.get(key)?.revision !== resource.revision) throw new AgentsResourceConflictError();
+    const current = this.resources.get(key);
+    if (current?.revision !== resource.revision || (current.listOrder ?? 'createdAt') !== (resource.listOrder ?? 'createdAt')) throw new AgentsResourceConflictError();
     for (const { resource: next, expectedRevision } of writes) {
-      if ((this.resources.get(this.key(next.ownerId, next.collection, next.id))?.revision ?? 0) !== expectedRevision) throw new AgentsResourceConflictError();
+      const previous = this.resources.get(this.key(next.ownerId, next.collection, next.id));
+      if ((previous?.revision ?? 0) !== expectedRevision || previous && (previous.listOrder ?? 'createdAt') !== (next.listOrder ?? 'createdAt')) throw new AgentsResourceConflictError();
     }
     for (const { resource: next } of writes) this.resources.set(this.key(next.ownerId, next.collection, next.id), structuredClone(next));
     this.resources.delete(key);

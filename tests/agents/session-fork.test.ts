@@ -139,3 +139,18 @@ it('releases admission after failed preparation and rejects a concurrent fork wh
   await expect(f.sessions.fork('operator', f.source.id, {})).rejects.toMatchObject({ code: 'session_busy' });
   done(); await deleting;
 });
+
+it('retains a legacy source baseline at fork admission without requiring a preceding GET', async () => {
+  const f = await fixture();
+  const source = (await f.store.get<SessionState>('operator', 'sessions', f.source.id))!;
+  const { configuration: _configuration, ...legacy } = source.value;
+  legacy.turns = legacy.turns.map(({ configuration: _pin, ...binding }) => binding);
+  for (const [key, row] of f.store.resources) if (row.collection === `configuration_revisions/session/${source.id}`) f.store.resources.delete(key);
+  await f.store.put({ ...source, revision: source.revision + 1, value: legacy }, source.revision);
+  const child = await f.sessions.fork('operator', source.id);
+  const history = new ConfigurationHistory(f.store);
+  const baseline = await history.retrieve('operator', { kind: 'session', id: source.id }, source.revision + 1);
+  expect(baseline).toMatchObject({ change: 'legacy_observed', actor: { kind: 'unknown' }, snapshot: { configuration: { agent: source.value.session.agent } } });
+  expect(await history.retrieve('operator', { kind: 'session', id: child.id }, 1)).toMatchObject({ snapshot: { configuration: { sourceSession: baseline.ref } } });
+  expect((await f.store.get<SessionState>('operator', 'sessions', source.id))?.value.turns[0]?.configuration).toBeUndefined();
+});

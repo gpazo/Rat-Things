@@ -147,8 +147,21 @@ describe('Session configuration admission', () => {
     for (const [key, resource] of f.store.resources) if (resource.collection === configurationCollection({ kind: 'session', id: session.id })) f.store.resources.delete(key);
     await f.store.put({ ...current, revision: current.revision + 1, value: legacy }, current.revision);
     await new AgentService({ store: f.store }).update(owner, f.agent.id, { instructions: 'today' });
+    const before = structuredClone(f.store.resources);
     await f.sessions.retrieve(owner, session.id);
-    const baseline = (await new ConfigurationHistory(f.store).list(owner, { kind: 'session', id: session.id })).data[0]!;
+    await f.sessions.list(owner);
+    await f.sessions.turns(owner, session.id);
+    await f.sessions.turn(owner, session.id, legacy.turns[0]!.turn.id);
+    await f.sessions.items(owner, session.id);
+    await f.sessions.artifacts(owner, session.id);
+    await f.sessions.runtime(owner, session.id);
+    await f.sessions.lineage(owner, session.id);
+    await f.sessions.traces(owner, session.id);
+    await f.sessions.subagents(owner, session.id);
+    await f.sessions.streamSnapshot(owner, session.id);
+    expect(f.store.resources).toEqual(before);
+    await f.sessions.update(owner, session.id, { metadata: { observed: 'mutation' } });
+    const baseline = (await new ConfigurationHistory(f.store).list(owner, { kind: 'session', id: session.id }, { order: 'asc' })).data[0]!;
     expect(baseline.change).toBe('legacy_observed');
     expect(baseline.snapshot).toMatchObject({ kind: 'session', configuration: { agent: { instructions: null } } });
     expect(JSON.stringify(baseline)).not.toContain('sourceAgent');
@@ -215,5 +228,131 @@ describe('safe live Vault evidence', () => {
     await expect(f.service.updateCredential(owner, vault.id, credential.id, { auth: { type: 'static_bearer', token: 'losing-private' } })).rejects.toMatchObject({ status: 409 });
     expect((await f.service.authorizeMcp(owner, vault.id, credential.id, url)).authorization).toBe('Bearer winning-private');
     expect([...f.values.values()]).toEqual([{ type: 'static_bearer', mcp_server_url: url, token: 'winning-private' }]);
+  });
+});
+
+async function legacySession() {
+  const f = await integrationFixture();
+  const session = await f.sessions.create(owner, { agent_id: f.agent.id, environment: { type: 'none' }, input: 'historical' });
+  const current = (await f.store.get<SessionState>(owner, 'sessions', session.id))!;
+  const { configuration: _configuration, ...legacy } = current.value;
+  legacy.turns = []; legacy.receipts = {};
+  for (const [key, row] of f.store.resources) if (row.collection === configurationCollection({ kind: 'session', id: session.id })) f.store.resources.delete(key);
+  const resource = { ...current, revision: current.revision + 1, value: legacy };
+  await f.store.put(resource, current.revision);
+  return { ...f, session, resource };
+}
+const inputEvent = { events: [{ type: 'agent.session.input.message', input: [{ role: 'user', content: [{ type: 'input_text', text: 'new input' }] }] }] };
+
+it('pins new legacy Turn input to the CAS-refreshed configuration when update wins baseline admission', async () => {
+  const f = await legacySession();
+  const commit = f.store.commit.bind(f.store);
+  let race = true;
+  vi.spyOn(f.store, 'commit').mockImplementation(async (writes, observations) => {
+    if (race && writes.some(write => write.resource.collection === 'sessions')) {
+      race = false;
+      await f.sessions.update(owner, f.session.id, { agent: { model: 'gpt-6-sol' } });
+      throw new AgentsResourceConflictError();
+    }
+    await commit(writes, observations);
+  });
+  await f.sessions.events(owner, f.session.id, inputEvent, 'legacy-message');
+  const saved = (await f.store.get<SessionState>(owner, 'sessions', f.session.id))!;
+  expect(saved.value.turns).toHaveLength(1);
+  expect(saved.value.turns[0]).toMatchObject({ configuration: saved.value.configuration!.current, modelSettings: { model: 'gpt-6-sol' } });
+  const rows = (await new ConfigurationHistory(f.store).list(owner, { kind: 'session', id: f.session.id }, { order: 'asc' })).data;
+  expect(rows.map(row => row.change)).toEqual(['legacy_observed', 'updated']);
+  expect(rows[0]!.ref.revision).toBe(f.resource.revision);
+  const retained = structuredClone(f.store.resources);
+  await f.sessions.events(owner, f.session.id, inputEvent, 'legacy-message');
+  expect(f.store.resources).toEqual(retained);
+});
+
+it.each(['events', 'update', 'dispatch', 'delete', 'fork', 'transfer', 'artifact'] as const)('rechecks a fork fence acquired during %s legacy admission', async operation => {
+  const f = await legacySession();
+  const close = vi.fn(async () => {}); f.execution.close = close;
+  const initialize = vi.fn(async () => {}); f.execution.initialize = initialize;
+  const workspace = vi.fn(async () => 'snapshot');
+  const artifact = vi.spyOn(f.sessions, 'artifact').mockResolvedValue({ id: 'artifact' } as Awaited<ReturnType<typeof f.sessions.artifact>>);
+  const commit = f.store.commit.bind(f.store); let race = true;
+  vi.spyOn(f.store, 'commit').mockImplementation(async (writes, observations) => {
+    if (race && writes.some(write => write.resource.collection === 'sessions')) {
+      race = false;
+      await commit([{ resource: { ...f.resource, revision: f.resource.revision + 1, value: { ...f.resource.value, forkLock: { id: 'winning-fork', expiresAt: 9999999999 } } }, expectedRevision: f.resource.revision }]);
+      throw new AgentsResourceConflictError();
+    }
+    await commit(writes, observations);
+  });
+  const operationResult = operation === 'events' ? f.sessions.events(owner, f.session.id, inputEvent)
+    : operation === 'update' ? f.sessions.update(owner, f.session.id, { agent: { model: 'forbidden' } })
+    : operation === 'delete' ? f.sessions.delete(owner, f.session.id)
+    : operation === 'fork' ? f.sessions.fork(owner, f.session.id)
+    : operation === 'transfer' ? f.sessions.snapshotForTransfer(owner, f.session.id, workspace)
+    : operation === 'artifact' ? f.sessions.deleteArtifact(owner, f.session.id, 'artifact')
+    : f.sessions.dispatch(owner, f.session.id);
+  if (operation === 'dispatch') await operationResult;
+  else await expect(operationResult).rejects.toMatchObject({ status: 409, code: 'session_busy' });
+  const saved = (await f.store.get<SessionState>(owner, 'sessions', f.session.id))!.value;
+  expect(saved.forkLock?.id).toBe('winning-fork');
+  expect(saved.session.agent.model).toBe('test');
+  expect(saved.turns).toEqual([]);
+  expect(saved.deletedArtifacts).toEqual([]);
+  expect(saved.closing).toBeUndefined();
+  expect(close).not.toHaveBeenCalled(); expect(initialize).not.toHaveBeenCalled(); expect(workspace).not.toHaveBeenCalled();
+  artifact.mockRestore();
+});
+
+it.each(['events', 'update', 'dispatch'] as const)('does not admit %s after closing wins a legacy baseline CAS race', async operation => {
+  const f = await legacySession();
+  const initialize = vi.fn(async () => {}); f.execution.initialize = initialize;
+  const commit = f.store.commit.bind(f.store); let race = true;
+  vi.spyOn(f.store, 'commit').mockImplementation(async (writes, observations) => {
+    if (race && writes.some(write => write.resource.collection === 'sessions')) {
+      race = false;
+      await commit([{ resource: { ...f.resource, revision: f.resource.revision + 1, value: { ...f.resource.value, closing: true } }, expectedRevision: f.resource.revision }]);
+      throw new AgentsResourceConflictError();
+    }
+    await commit(writes, observations);
+  });
+  const result = operation === 'events' ? f.sessions.events(owner, f.session.id, inputEvent)
+    : operation === 'update' ? f.sessions.update(owner, f.session.id, { metadata: { forbidden: 'true' } })
+    : f.sessions.dispatch(owner, f.session.id);
+  if (operation === 'dispatch') await result;
+  else await expect(result).rejects.toMatchObject({ code: 'session_busy' });
+  expect((await f.store.get<SessionState>(owner, 'sessions', f.session.id))?.value.turns).toEqual([]);
+  expect(initialize).not.toHaveBeenCalled();
+});
+
+it('acknowledges a retained legacy input receipt without creating history or rewriting its Turn', async () => {
+  const f = await legacySession();
+  await f.sessions.events(owner, f.session.id, inputEvent, 'retained-input');
+  const current = (await f.store.get<SessionState>(owner, 'sessions', f.session.id))!;
+  const { configuration: _configuration, ...legacy } = current.value;
+  legacy.turns = legacy.turns.map(({ configuration: _pin, ...turn }) => turn);
+  for (const [key, row] of f.store.resources) if (row.collection === configurationCollection({ kind: 'session', id: f.session.id })) f.store.resources.delete(key);
+  await f.store.put({ ...current, revision: current.revision + 1, value: legacy }, current.revision);
+  const before = structuredClone(f.store.resources);
+  await f.sessions.events(owner, f.session.id, inputEvent, 'retained-input');
+  expect(f.store.resources).toEqual(before);
+});
+
+it('does not accept legacy input or initialize execution before baseline persistence succeeds', async () => {
+  const f = await legacySession();
+  const initialize = vi.fn(async () => {}); f.execution.initialize = initialize;
+  const before = structuredClone(f.store.resources);
+  vi.spyOn(f.store, 'commit').mockRejectedValue(new Error('History unavailable'));
+  await expect(f.sessions.events(owner, f.session.id, inputEvent)).rejects.toThrow('History unavailable');
+  await expect(f.sessions.dispatch(owner, f.session.id)).rejects.toThrow('History unavailable');
+  expect(f.store.resources).toEqual(before);
+  expect(initialize).not.toHaveBeenCalled();
+});
+
+it('retains a legacy baseline before deleting the Session without a preceding read', async () => {
+  const f = await legacySession();
+  f.execution.close = async () => {};
+  await f.sessions.delete(owner, f.session.id);
+  expect(await f.store.get(owner, 'sessions', f.session.id)).toBeUndefined();
+  expect(await new ConfigurationHistory(f.store).retrieve(owner, { kind: 'session', id: f.session.id }, f.resource.revision)).toMatchObject({
+    change: 'legacy_observed', actor: { kind: 'unknown' }, snapshot: { configuration: { agent: f.session.agent } },
   });
 });

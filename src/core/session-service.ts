@@ -138,8 +138,7 @@ export class SessionService {
 
   public async snapshotForTransfer<T>(ownerId: string, id: string, readWorkspace: (session: AgentSession) => Promise<T>) {
     await this.completeReadyTurns(ownerId, id);
-    const resource = await this.required(ownerId, id);
-    requireSessionMutable(resource.value, this.clock.now());
+    const resource = await this.configuredMutable(ownerId, id);
     const observation = await this.observe(ownerId, resource.value);
     if (observation.session.status !== 'idle' || observation.session.required_actions.length) throw new AgentsApiError(409, 'Wait for the Session to finish before transferring it.', 'session_busy');
     if ((await this.options.execution.environment?.(ownerId, observation.session))?.status === 'pending') throw new AgentsApiError(409, 'Wait for environment setup to finish before transferring it.', 'session_busy');
@@ -201,8 +200,7 @@ export class SessionService {
   }
 
   public async fork(ownerId: string, sourceId: string, raw: unknown = {}): Promise<AgentSession> {
-    const resource = await this.required(ownerId, sourceId);
-    requireSessionMutable(resource.value, this.clock.now());
+    const resource = await this.configuredMutable(ownerId, sourceId);
     const observation = await this.observe(ownerId, resource.value);
     const input = planSessionFork(observation.session, raw);
     const runtime = resource.value.runtime ?? CODEX_RUNTIME;
@@ -238,7 +236,7 @@ export class SessionService {
       if (current.value.forkLock?.id !== id || current.value.forkLock.expiresAt <= this.clock.now()) throw new AgentsApiError(409, 'Fork preparation expired.', 'session_busy');
       const preparedResource = await this.options.store.get<SessionPreparation>(ownerId, 'session_preparations', id) ?? resourceNotFound();
       requireActivePreparation(preparedResource.value, this.clock.now());
-      const history = planConfigurationRevision(ownerId, admitted, sessionConfigurationSnapshot(state, { sourceSession: resource.value.configuration!.current }), null, now, 'created');
+      const history = planConfigurationRevision(ownerId, admitted, sessionConfigurationSnapshot(state, { sourceSession: resource.value.configuration.current }), null, now, 'created');
       commitAttempted = true;
       await commitConfiguration(this.options.store, [
         { resource: { ownerId, id, collection: 'sessions', createdAt: now, revision: 1, value: state }, expectedRevision: 0 },
@@ -336,8 +334,7 @@ export class SessionService {
   public async update(ownerId: string, id: string, raw: unknown, mutation: ConfigurationMutation = {}): Promise<AgentSession> {
     const input = parseAgentsContract('SessionUpdate', raw);
     validateAgentMetadata(input.metadata);
-    const resource = await this.required(ownerId, id);
-    requireSessionMutable(resource.value, this.clock.now());
+    const resource = await this.configuredMutable(ownerId, id);
     const observation = await this.observe(ownerId, resource.value);
     const session = {
       ...observation.session,
@@ -347,9 +344,9 @@ export class SessionService {
     assertRuntimeUnchanged(resource.value.runtime ?? CODEX_RUNTIME, input.metadata);
     this.requireRuntimeAllowed(resource.value.runtime ?? CODEX_RUNTIME, session.agent);
     const ref = configurationRef({ kind: 'session', id }, resource.revision + 1);
-    const before = await new ConfigurationHistory(this.options.store).retrieve(ownerId, { kind: 'session', id }, resource.value.configuration!.current.revision);
+    const before = await new ConfigurationHistory(this.options.store).retrieve(ownerId, { kind: 'session', id }, resource.value.configuration.current.revision);
     const provenance = before.snapshot?.kind === 'session' ? before.snapshot.configuration : undefined;
-    const value = { ...resource.value, session, configuration: { admitted: resource.value.configuration!.admitted, current: ref } };
+    const value = { ...resource.value, session, configuration: { admitted: resource.value.configuration.admitted, current: ref } };
     const history = planConfigurationRevision(ownerId, ref, sessionConfigurationSnapshot(value, { ...(provenance?.sourceAgent ? { sourceAgent: provenance.sourceAgent } : {}), ...(provenance?.sourceSession ? { sourceSession: provenance.sourceSession } : {}) }), before.snapshot, this.clock.now(), 'updated', mutation);
     await commitConfiguration(this.options.store, [{ resource: { ...resource, revision: resource.revision + 1, value }, expectedRevision: resource.revision }, history], [history]);
     return session;
@@ -372,7 +369,7 @@ export class SessionService {
   }
 
   public async delete(ownerId: string, id: string): Promise<AgentSessionDeleted> {
-    let resource = await this.required(ownerId, id);
+    let resource: AgentResource<SessionState> = await ensureSessionConfiguration(this.options.store, await this.required(ownerId, id), this.clock.now());
     if (!resource.value.closing) {
       requireSessionMutable(resource.value, this.clock.now());
       const runtime = await this.options.store.get<import('./session-runtime-store.js').StoredSessionRuntime>(ownerId, 'session_runtime', id);
@@ -404,8 +401,12 @@ export class SessionService {
     const key = hash(idempotencyKey ?? this.ids.next('request'));
     const digest = hash(canonicalJson(events));
     for (let attempt = 0; attempt < 10; attempt++) {
-      const resource = await this.required(ownerId, id);
+      let resource = await this.required(ownerId, id);
       requireSessionMutable(resource.value, this.clock.now());
+      if (!resource.value.receipts[key]) {
+        resource = await ensureSessionConfiguration(this.options.store, resource, this.clock.now());
+        requireSessionMutable(resource.value, this.clock.now());
+      }
       const previous = resource.value.receipts[key];
       if (previous) {
         if (previous.digest !== digest) throw new AgentsApiError(409, 'This Idempotency-Key was used with different events.', 'idempotency_conflict');
@@ -455,6 +456,7 @@ export class SessionService {
     let resource = await this.options.store.get<SessionState>(ownerId, 'sessions', id);
     if (!resource || resource.value.closing || resource.value.forkLock && resource.value.forkLock.expiresAt > this.clock.now()) return;
     resource = await ensureSessionConfiguration(this.options.store, resource, this.clock.now());
+    if (resource.value.closing || resource.value.forkLock && resource.value.forkLock.expiresAt > this.clock.now()) return;
     this.requireRuntimeAllowed(resource.value.runtime ?? CODEX_RUNTIME, resource.value.session.agent);
     await this.options.execution.initialize?.(ownerId, resource.value.session, resource.value.placement ?? 'microvm');
     for (const [key, receipt] of Object.entries(resource.value.receipts)) {
@@ -642,7 +644,7 @@ export class SessionService {
 
   public async deleteArtifact(ownerId: string, id: string, artifactId: string): Promise<SessionArtifactDeleted> {
     await this.artifact(ownerId, id, artifactId);
-    const resource = await this.required(ownerId, id);
+    const resource = await this.configuredMutable(ownerId, id);
     await this.replace(resource, { ...resource.value, deletedArtifacts: [...resource.value.deletedArtifacts, artifactId] });
     return { id: artifactId, object: 'agent.session.artifact.deleted', deleted: true };
   }
@@ -682,7 +684,16 @@ export class SessionService {
 
   private async required(ownerId: string, id: string) {
     const resource = await this.options.store.get<SessionState>(ownerId, 'sessions', id) ?? resourceNotFound();
-    return ensureSessionConfiguration(this.options.store, resource, this.clock.now());
+    return resource;
+  }
+
+  private async configuredMutable(ownerId: string, id: string) {
+    const initial = await this.required(ownerId, id);
+    requireSessionMutable(initial.value, this.clock.now());
+    const resource = await ensureSessionConfiguration(this.options.store, initial, this.clock.now());
+    // A rejected baseline CAS may have refreshed the resource to a fenced head.
+    requireSessionMutable(resource.value, this.clock.now());
+    return resource;
   }
 
   private async replace(resource: AgentResource<SessionState>, value: SessionState) {

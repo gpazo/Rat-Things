@@ -31,8 +31,7 @@ export function planConfigurationRevision(ownerId: string, ref: ConfigurationRev
     actor: mutation.actor ?? { kind: 'owner', id: ownerId }, ...(mutation.requestId ? { requestId: mutation.requestId } : {}),
     digest: createHash('sha256').update(canonicalJson(snapshot)).digest('hex'), changedPaths: changedPaths(previous, snapshot), snapshot,
   };
-  // All history rows have the same order timestamp, so cursors sort by source revision.
-  return { resource: { ownerId, collection: configurationCollection(ref.subject), id, createdAt: 0, revision: 1, value }, expectedRevision: 0 };
+  return { resource: { ownerId, collection: configurationCollection(ref.subject), id, createdAt: recordedAt, listOrder: 'id', revision: 1, value }, expectedRevision: 0 };
 }
 
 /** Add an honest pre-upgrade observation to the same CAS transaction as the mutation. */
@@ -82,7 +81,7 @@ export class ConfigurationHistory {
     if (typeof limit !== 'number' || !Number.isInteger(limit) || limit < 1 || limit > 100) invalid('limit must be an integer from 1 to 100', 'limit');
     if (order !== 'asc' && order !== 'desc') invalid('Invalid pagination order', 'order');
     if (after !== undefined && (typeof after !== 'string' || !/^\d{16}$/.test(after))) invalid('Invalid pagination cursor', 'after');
-    const page = await this.store.list<ConfigurationRevision>(ownerId, configurationCollection(subject), { limit, order, ...(after ? { after } : {}) });
+    const page = await this.store.list<ConfigurationRevision>(ownerId, configurationCollection(subject), { limit, order, orderBy: 'id', ...(after ? { after } : {}) });
     const data = page.data.map(resource => resource.value);
     return { object: 'list', data, has_more: page.has_more, first_id: data[0]?.id ?? null, last_id: data.at(-1)?.id ?? null };
   }
@@ -94,11 +93,13 @@ export function sessionConfigurationSnapshot(state: SessionState, provenance: Pi
     ...(state.importedFrom ? { importedFrom: { sessionId: state.importedFrom.sessionId } } : {}), ...provenance } };
 }
 
+export type ConfiguredSessionState = SessionState & { configuration: NonNullable<SessionState['configuration']> };
+
 /** Legacy admission is based only on retained Session settings, never today's saved Agent. */
-export async function ensureSessionConfiguration(store: AgentsStore, initial: AgentResource<SessionState>, now: number): Promise<AgentResource<SessionState>> {
+export async function ensureSessionConfiguration(store: AgentsStore, initial: AgentResource<SessionState>, now: number): Promise<AgentResource<ConfiguredSessionState>> {
   let resource = initial;
   for (let attempt = 0; ; attempt++) {
-    if (resource.value.configuration) return resource;
+    if (resource.value.configuration) return { ...resource, value: { ...resource.value, configuration: resource.value.configuration } };
     const subject = { kind: 'session' as const, id: resource.id };
     const ref = configurationRef(subject, resource.revision);
     const baseline = await missingConfigurationBaseline(store, resource, subject, sessionConfigurationSnapshot(resource.value), now);

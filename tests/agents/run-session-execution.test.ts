@@ -335,3 +335,44 @@ it('launches with the fixed admission reference while applying the accepted Turn
   const state = (await f.store.get<import('../../src/core/session-ports.js').SessionState>('alice', 'sessions', session.id))!.value;
   expect(state.configuration!.current.revision).toBeGreaterThan(launch.configuration!.revision);
 });
+
+it.each(['closing', 'fork'] as const)('does not continue an active harness when %s wins legacy baseline admission', async fence => {
+  const f = await fixture(); await f.connect();
+  const resource = { ownerId: 'alice', id: f.session.id, collection: 'sessions', createdAt: 100, revision: 1,
+    value: { session: f.session, turns: [], receipts: {}, deletedArtifacts: [] } };
+  await f.store.put(resource, 0);
+  const commit = f.store.commit.bind(f.store); let race = true;
+  vi.spyOn(f.store, 'commit').mockImplementation(async (writes, observations) => {
+    if (race && writes.some(write => write.resource.collection === 'sessions')) {
+      race = false;
+      await commit([{ resource: { ...resource, revision: 2, value: { ...resource.value,
+        ...(fence === 'closing' ? { closing: true } : { forkLock: { id: 'fork', expiresAt: 9999999999 } }),
+      } }, expectedRevision: 1 }]);
+      throw new AgentsApiError(409, 'Resource changed concurrently.', 'conflict');
+    }
+    await commit(writes, observations);
+  });
+  await f.execution.start('alice', f.session, { turn: f.turn, input: [] });
+  expect(f.start).not.toHaveBeenCalled();
+  expect(f.submit).not.toHaveBeenCalled();
+  expect(f.putJson).not.toHaveBeenCalled();
+});
+
+it('continues an active harness with the refreshed legacy Session after baseline contention', async () => {
+  const f = await fixture(); await f.connect();
+  const resource = { ownerId: 'alice', id: f.session.id, collection: 'sessions', createdAt: 100, revision: 1,
+    value: { session: f.session, turns: [], receipts: {}, deletedArtifacts: [] } };
+  await f.store.put(resource, 0);
+  const commit = f.store.commit.bind(f.store); let race = true;
+  vi.spyOn(f.store, 'commit').mockImplementation(async (writes, observations) => {
+    if (race && writes.some(write => write.resource.collection === 'sessions')) {
+      race = false;
+      await commit([{ resource: { ...resource, revision: 2, value: { ...resource.value, session: { ...f.session, agent: { ...f.session.agent, model: 'refreshed' } } } }, expectedRevision: 1 }]);
+      throw new AgentsApiError(409, 'Resource changed concurrently.', 'conflict');
+    }
+    await commit(writes, observations);
+  });
+  await f.execution.start('alice', f.session, { turn: f.turn, input: [] });
+  expect(f.start).toHaveBeenCalledExactlyOnceWith({ runId: f.run.runId, execution: f.run.execution }, f.turn, [], expect.objectContaining({ model: 'refreshed' }));
+  expect(f.submit).not.toHaveBeenCalled();
+});

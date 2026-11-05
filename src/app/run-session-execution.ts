@@ -159,8 +159,11 @@ export class RunSessionExecution implements SessionExecution {
   }
 
   public async start(ownerId: string, session: AgentSession, binding: SessionTurnBinding, history: AgentSessionItem[] = [], placement: ExecutionBackend = 'microvm', bootstrap = false): Promise<void> {
-    const state = (await this.options.store.get<SessionState>(ownerId, 'sessions', session.id))?.value;
-    const pi = state?.runtime?.kind === 'pi';
+    const sessionResource = await this.options.store.get<SessionState>(ownerId, 'sessions', session.id);
+    const sessionState = sessionResource ? (await ensureSessionConfiguration(this.options.store, sessionResource, Math.floor(Date.now() / 1000))).value : undefined;
+    if (sessionState?.closing || sessionState?.forkLock && sessionState.forkLock.expiresAt > Math.floor(Date.now() / 1000)) return;
+    if (sessionState) session = sessionState.session;
+    const pi = sessionState?.runtime?.kind === 'pi';
     const runtime = await this.runtime.get(ownerId, session.id);
     // A receipt retry must not replay a saved Turn after its harness has stopped.
     if (!pi && runtime?.value.snapshot?.turns.some((saved) => saved.turn.id === binding.turn.id)) return;
@@ -186,12 +189,10 @@ export class RunSessionExecution implements SessionExecution {
     const existing = await this.runById(ownerId, this.options.runs.idFor(ownerId, runKey));
     const environmentCredential = session.environment.type === 'self_hosted' ? await this.options.environments.launchReference(ownerId, session.environment.id, existing ? undefined : binding.turn.created_at + 300) : undefined;
     const environmentCredentials = existing?.agentsSession ? undefined : await this.options.tools.environmentLaunch?.(ownerId, session);
-    const sessionResource = await this.options.store.get<SessionState>(ownerId, 'sessions', session.id);
-    const sessionState = sessionResource ? (await ensureSessionConfiguration(this.options.store, sessionResource, Math.floor(Date.now() / 1000))).value : undefined;
     const savedFork = sessionState?.fork;
     const forkLaunch = savedFork ? (({ history: _history, ...fork }) => fork)(savedFork) : undefined;
     const launch: SessionLaunch = existing?.agentsSession ? await this.options.artifacts.getJson(existing.agentsSession.launch) : {
-      ...(sessionState?.configuration ? { configuration: sessionState.configuration.admitted } : {}),
+      ...(sessionState ? { configuration: sessionState.configuration.admitted } : {}),
       runtime: sessionState?.runtime ?? { kind: 'codex' },
       ...(pi && sessionState ? { replay: replayCommands(sessionState) } : {}),
       ...(savedFork?.piContextId && !runtime?.value.native?.head ? { piForkContext: (await this.options.store.get(ownerId, 'session_native', savedFork.piContextId))?.value } : {}),

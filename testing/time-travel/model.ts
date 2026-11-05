@@ -1,6 +1,5 @@
 import { createHash } from 'node:crypto';
-import type { AgentResource } from '../../src/core/agents-ports.js';
-import type { AgentListParams } from '../../src/domain/agents-api.js';
+import type { AgentListQuery, AgentResource } from '../../src/core/agents-ports.js';
 import type {
   ExecutionCommand,
   ExecutionCommandRequest,
@@ -23,7 +22,7 @@ export type Operation =
       kind: 'list';
       ownerId: string;
       collection: string;
-      query: AgentListParams;
+      query: AgentListQuery;
     }
   | {
       kind: 'put';

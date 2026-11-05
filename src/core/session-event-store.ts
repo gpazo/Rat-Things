@@ -1,5 +1,5 @@
-import type { AgentObservation, AgentResource, AgentsClock, AgentsStore } from './agents-ports.js';
-import type { AgentListParams, AgentSessionEvent } from '../domain/agents-api.js';
+import type { AgentListQuery, AgentObservation, AgentResource, AgentsClock, AgentsStore } from './agents-ports.js';
+import type { AgentSessionEvent } from '../domain/agents-api.js';
 import type { SessionState } from './session-ports.js';
 import type { StoredSessionRuntime } from './session-runtime-store.js';
 import type { StoredEnvironment } from './environment-service.js';
@@ -15,7 +15,7 @@ export const sessionEventBatchId = (id: string, revision: number): string => `${
 export class SessionEventStore implements AgentsStore {
   public constructor(private readonly base: AgentsStore, private readonly clock: AgentsClock = { now: () => Math.floor(Date.now() / 1000) }) {}
   public get<T>(owner: string, collection: string, id: string) { return this.base.get<T>(owner, collection, id); }
-  public list<T>(owner: string, collection: string, query: AgentListParams) { return this.base.list<T>(owner, collection, query); }
+  public list<T>(owner: string, collection: string, query: AgentListQuery) { return this.base.list<T>(owner, collection, query); }
   public async delete(resource: AgentResource<unknown>, writes: Array<{ resource: AgentResource<unknown>; expectedRevision: number }> = []): Promise<void> {
     if (resource.collection !== 'sessions') return this.base.delete(resource, writes);
     for (let attempt = 0; attempt < 10; attempt++) {

@@ -2,8 +2,7 @@ import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import type { AgentObservation, AgentResource, AgentsStore } from '../core/agents-ports.js';
-import type { AgentListParams } from '../domain/agents-api.js';
+import type { AgentListQuery, AgentObservation, AgentResource, AgentsStore } from '../core/agents-ports.js';
 import { AgentsApiError } from '../domain/agents-api-validation.js';
 
 /** Local control-plane storage uses the same atomic revision contract as DynamoDB. */
@@ -89,7 +88,7 @@ export class SqliteAgentsStore implements AgentsStore {
     return row ? this.decode(row.payload as Uint8Array, ownerId, collection, id) : undefined;
   }
 
-  public async list<T>(ownerId: string, collection: string, query: AgentListParams) {
+  public async list<T>(ownerId: string, collection: string, query: AgentListQuery) {
     const direction = query.order === 'asc' ? 'ASC' : 'DESC';
     let cursor: { createdAt: number; id: string } | undefined;
     if (query.after) {
@@ -97,11 +96,12 @@ export class SqliteAgentsStore implements AgentsStore {
       if (!cursor) throw new AgentsApiError(400, 'Invalid pagination cursor.', 'invalid_request', 'after');
     }
     const comparison = direction === 'ASC' ? '>' : '<';
+    const byId = query.orderBy === 'id';
     const limit = query.limit ?? 20;
     const rows = this.db.prepare(`SELECT id, payload FROM resources WHERE owner=? AND collection=?
-      ${cursor ? `AND (created, id) ${comparison} (?, ?)` : ''}
-      ORDER BY created ${direction}, id ${direction} LIMIT ?`).all(
-      ownerId, collection, ...(cursor ? [cursor.createdAt, cursor.id] : []), limit + 1,
+      ${cursor ? byId ? `AND id ${comparison} ?` : `AND (created, id) ${comparison} (?, ?)` : ''}
+      ORDER BY ${byId ? '' : `created ${direction}, `}id ${direction} LIMIT ?`).all(
+      ownerId, collection, ...(cursor ? byId ? [cursor.id] : [cursor.createdAt, cursor.id] : []), limit + 1,
     );
     return { data: rows.slice(0, limit).map(row => this.decode<T>(row.payload as Uint8Array, ownerId, collection, String(row.id))), has_more: rows.length > limit };
   }
@@ -121,6 +121,7 @@ export class SqliteAgentsStore implements AgentsStore {
   public async delete(resource: AgentResource<unknown>, writes: Array<{ resource: AgentResource<unknown>; expectedRevision: number }> = []): Promise<void> {
     this.transaction(() => {
       this.expect(resource, resource.revision);
+      this.expectListOrder(resource);
       this.validateWrites(writes);
       for (const { resource: next } of writes) this.write(next);
       this.db.prepare('DELETE FROM resources WHERE owner=? AND collection=? AND id=?').run(resource.ownerId, resource.collection, resource.id);
@@ -134,12 +135,20 @@ export class SqliteAgentsStore implements AgentsStore {
       if (identities.has(key) || resource.revision !== expectedRevision + 1) throw new Error('Invalid local transaction.');
       identities.add(key);
       this.expect(resource, expectedRevision);
+      this.expectListOrder(resource);
     }
   }
 
   private expect(resource: Pick<AgentResource<unknown>, 'ownerId' | 'collection' | 'id'>, revision: number) {
     const current = this.db.prepare('SELECT revision FROM resources WHERE owner=? AND collection=? AND id=?').get(resource.ownerId, resource.collection, resource.id);
     if (Number(current?.revision ?? 0) !== revision) throw new AgentsApiError(409, 'Resource changed concurrently.', 'conflict');
+  }
+
+  private expectListOrder(resource: AgentResource<unknown>) {
+    const row = this.db.prepare('SELECT payload FROM resources WHERE owner=? AND collection=? AND id=?').get(resource.ownerId, resource.collection, resource.id);
+    if (!row) return;
+    const current = this.decode(row.payload as Uint8Array, resource.ownerId, resource.collection, resource.id);
+    if ((current.listOrder ?? 'createdAt') !== (resource.listOrder ?? 'createdAt')) throw new AgentsApiError(409, 'Resource ordering cannot change.', 'conflict');
   }
 
   private write(resource: AgentResource<unknown>) {
