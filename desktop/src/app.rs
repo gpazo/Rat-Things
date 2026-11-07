@@ -372,6 +372,10 @@ enum Effect {
 }
 
 enum Pending {
+    TeamAuthority {
+        generation: u64,
+        revision: u64,
+    },
     Team(TeamOperation),
     Copy(CopyOperation),
     Local {
@@ -907,6 +911,13 @@ impl ConsoleApp {
             };
             let pending = pending.operation;
             let current = match &pending {
+                Pending::TeamAuthority {
+                    generation,
+                    revision,
+                } => {
+                    *generation == self.local_generation
+                        && *revision == self.team.authority_revision
+                }
                 Pending::Local { generation, .. } => *generation == self.local_generation,
                 Pending::List { generation, .. } => *generation == self.list_generation,
                 Pending::Detail { generation }
@@ -927,7 +938,14 @@ impl ConsoleApp {
             if self.mutation_pending == Some(completion.id) {
                 self.mutation_pending = None;
             }
+            if self.team.authority_pending == Some(completion.id) {
+                self.team.authority_pending = None;
+            }
             if !current {
+                continue;
+            }
+            if matches!(pending, Pending::TeamAuthority { .. }) {
+                self.receive_team_authority(completion.result, ctx);
                 continue;
             }
             if let Pending::Team(operation) = pending {
@@ -1961,6 +1979,9 @@ impl ConsoleApp {
     }
 
     fn reset_workspace(&mut self, ctx: &egui::Context) {
+        self.team.authority_pending = None;
+        self.team.authority_due = None;
+        self.team.authority_valid_until = Some(Instant::now() + team::AUTHORITY_MAX_AGE);
         self.team.pending = None;
         self.team.bindings = None;
         self.local_generation += 1;
@@ -2011,10 +2032,11 @@ impl ConsoleApp {
         let can_switch = self.pending.values().all(|request| {
             matches!(
                 request.operation,
-                Pending::Local {
-                    operation: LocalOperation::RuntimeStatus | LocalOperation::Account,
-                    ..
-                }
+                Pending::TeamAuthority { .. }
+                    | Pending::Local {
+                        operation: LocalOperation::RuntimeStatus | LocalOperation::Account,
+                        ..
+                    }
             )
         }) && !self.transfer_active()
             && self.editor.is_none()

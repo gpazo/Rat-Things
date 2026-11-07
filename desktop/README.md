@@ -130,8 +130,10 @@ A viewer can follow shared progress. A collaborator can send messages, steer wor
 and start Sessions from admitted saved Agents. Controllers can cancel a Turn.
 Managers can configure resources and grant space roles to exact verified issuer and
 subject identities. Space access and the login's API permissions apply together.
-The console updates these controls as permissions change and clears cached content
-when access is revoked.
+The console checks current access across every view, including the workspace menu.
+Role downgrades remove management controls, cached Vault credentials and member lists.
+Revoked or expired access clears cached space content. If the connection cannot
+verify access for ten seconds, the console clears that content until access returns.
 
 To move a local Session into a team space, open it and choose **Share**. Select a
 connected team space and choose **Share Session**. Rat Things waits for a safe Turn

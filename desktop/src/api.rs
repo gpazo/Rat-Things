@@ -20,6 +20,9 @@ const JSON_LIMIT: u64 = 16 * 1024 * 1024;
 const PAGE_LIMIT: usize = 1_000;
 
 pub(crate) enum Task {
+    TeamAuthority {
+        space_id: String,
+    },
     Team {
         path: String,
         method: Method,
@@ -122,6 +125,7 @@ pub(crate) struct Worker {
     jobs: SyncSender<Job>,
     runtime_jobs: SyncSender<Job>,
     activity_jobs: SyncSender<Job>,
+    authority_jobs: SyncSender<Job>,
     pub completions: Receiver<Completion>,
     next_id: u64,
 }
@@ -132,15 +136,18 @@ impl Worker {
         let (jobs, incoming) = mpsc::sync_channel::<Job>(4);
         let (runtime_jobs, runtime_incoming) = mpsc::sync_channel::<Job>(2);
         let (activity_jobs, activity_incoming) = mpsc::sync_channel::<Job>(2);
+        let (authority_jobs, authority_incoming) = mpsc::sync_channel::<Job>(1);
         let (completed, completions) = mpsc::channel();
         let incoming = Arc::new(Mutex::new(incoming));
         let runtime_incoming = Arc::new(Mutex::new(runtime_incoming));
         let activity_incoming = Arc::new(Mutex::new(activity_incoming));
+        let authority_incoming = Arc::new(Mutex::new(authority_incoming));
         for (index, incoming) in [
             Arc::clone(&incoming),
             incoming,
             runtime_incoming,
             activity_incoming,
+            authority_incoming,
         ]
         .into_iter()
         .enumerate()
@@ -167,6 +174,7 @@ impl Worker {
             jobs,
             runtime_jobs,
             activity_jobs,
+            authority_jobs,
             completions,
             next_id: 0,
         })
@@ -175,7 +183,9 @@ impl Worker {
     pub fn submit(&mut self, task: Task, ctx: &egui::Context) -> Result<u64, String> {
         self.next_id += 1;
         let id = self.next_id;
-        let jobs = if matches!(&task, Task::Activity { .. }) {
+        let jobs = if matches!(&task, Task::TeamAuthority { .. }) {
+            &self.authority_jobs
+        } else if matches!(&task, Task::Activity { .. }) {
             &self.activity_jobs
         } else if matches!(&task, Task::Local { path, .. }
             if path == "/api/v1/workspace/runtime"
@@ -473,6 +483,30 @@ impl Api {
     fn execute(&self, task: Task) -> Result<Data, String> {
         let deadline = Instant::now() + REQUEST_DEADLINE;
         match task {
+            Task::TeamAuthority { space_id } => {
+                let value = self.request(
+                    "/api/v1/rat/spaces",
+                    Method::GET,
+                    None,
+                    None,
+                    false,
+                    Instant::now() + Duration::from_secs(5),
+                )?;
+                let spaces = value["data"]
+                    .as_array()
+                    .ok_or("Invalid team authority response")?;
+                let space = spaces
+                    .iter()
+                    .find(|space| space["id"].as_str() == Some(&space_id))
+                    .ok_or("[access_revoked] This space is no longer available.")?;
+                let role = space["role"]
+                    .as_str()
+                    .ok_or("Invalid team role")?
+                    .to_owned();
+                let permissions = serde_json::from_value(space["permissions"].clone())
+                    .map_err(|_| "Invalid team permissions")?;
+                Ok(Data::Authority { role, permissions })
+            }
             Task::Team { path, method, body } => self.local_request(
                 &path,
                 method,
@@ -901,11 +935,13 @@ mod tests {
         let (jobs, _incoming) = mpsc::sync_channel(4);
         let (runtime_jobs, runtime_incoming) = mpsc::sync_channel(2);
         let (activity_jobs, _activity_incoming) = mpsc::sync_channel(2);
+        let (authority_jobs, _authority_incoming) = mpsc::sync_channel(1);
         let (_completed, completions) = mpsc::channel();
         let mut worker = Worker {
             jobs,
             runtime_jobs,
             activity_jobs,
+            authority_jobs,
             completions,
             next_id: 0,
         };

@@ -1,5 +1,11 @@
 use super::*;
 
+#[cfg(test)]
+mod authority_tests;
+
+pub(super) const AUTHORITY_MAX_AGE: Duration = Duration::from_secs(10);
+const AUTHORITY_INTERVAL: Duration = Duration::from_secs(2);
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) enum Role {
     Viewer,
@@ -42,6 +48,10 @@ pub(super) enum TeamOperation {
 }
 #[derive(Default)]
 pub(super) struct TeamState {
+    pub authority_pending: Option<u64>,
+    pub authority_due: Option<Instant>,
+    pub authority_valid_until: Option<Instant>,
+    pub authority_revision: u64,
     pub endpoint: String,
     pub open: bool,
     pub connections: Vec<Value>,
@@ -127,7 +137,86 @@ impl ConsoleApp {
             ctx,
         );
     }
+    fn poll_team_authority(&mut self, ctx: &egui::Context) {
+        if !self.is_team() || self.workspace_pending.is_some() {
+            return;
+        }
+        let now = Instant::now();
+        if self.role() != Role::NoAccess
+            && self
+                .team
+                .authority_valid_until
+                .is_some_and(|until| now >= until)
+        {
+            self.clear_team_access(ctx);
+            self.error = Some("Team access could not be verified. Reconnect to continue.".into());
+        }
+        ctx.request_repaint_after(Duration::from_millis(500));
+        if self.team.authority_pending.is_some()
+            || self.team.authority_due.is_some_and(|due| now < due)
+        {
+            return;
+        }
+        let space_id = self
+            .workspace
+            .as_ref()
+            .map(|workspace| string(workspace, "space_id"))
+            .unwrap_or_default();
+        if space_id.is_empty() {
+            self.clear_team_access(ctx);
+            return;
+        }
+        self.team.authority_due = Some(now + AUTHORITY_INTERVAL);
+        self.team.authority_pending = self.submit(
+            Task::TeamAuthority { space_id },
+            Pending::TeamAuthority {
+                generation: self.local_generation,
+                revision: self.team.authority_revision,
+            },
+            ctx,
+        );
+    }
+    pub(super) fn receive_team_authority(
+        &mut self,
+        result: Result<Data, String>,
+        ctx: &egui::Context,
+    ) {
+        self.team.authority_due = Some(Instant::now() + AUTHORITY_INTERVAL);
+        match result {
+            Ok(Data::Authority { role, permissions }) => {
+                let recovering = self.role() == Role::NoAccess;
+                self.update_team_authority(&role, Some(&permissions), ctx);
+                if self.role() != Role::NoAccess {
+                    self.team.authority_valid_until = Some(Instant::now() + AUTHORITY_MAX_AGE);
+                    if recovering {
+                        self.error = None;
+                        self.refresh_list(false, ctx);
+                    }
+                }
+            }
+            Err(error) if error.starts_with("[access_revoked]") => {
+                self.clear_team_access(ctx);
+                self.error =
+                    Some("Team access is no longer available. Reconnect or choose a space.".into());
+            }
+            Err(error) => {
+                if self
+                    .team
+                    .authority_valid_until
+                    .is_none_or(|until| Instant::now() >= until)
+                {
+                    self.clear_team_access(ctx);
+                }
+                self.error = Some(error);
+            }
+            _ => {
+                self.clear_team_access(ctx);
+                self.error = Some("The team authority response is invalid.".into());
+            }
+        }
+    }
     pub(super) fn poll_team(&mut self, ctx: &egui::Context) {
+        self.poll_team_authority(ctx);
         if self.team.pending.is_some() {
             return;
         }
@@ -277,6 +366,7 @@ impl ConsoleApp {
                     .unwrap_or_default();
             }
             TeamOperation::Logout => {
+                self.team.login = None;
                 self.team.loaded = false;
                 self.team.spaces.clear();
                 self.team.connection.clear();
@@ -348,11 +438,27 @@ impl ConsoleApp {
         if !self.is_team() {
             return;
         }
-        if Role::parse(role) == Role::NoAccess {
+        if Role::parse(role) == Role::NoAccess
+            || permissions.is_some_and(|permissions| {
+                !permissions.iter().any(|permission| permission == "read")
+            })
+        {
             self.clear_team_access(ctx);
             return;
         }
         let was_manager = self.can_manage();
+        let changed = self.workspace.as_ref().is_some_and(|workspace| {
+            workspace["role"].as_str() != Some(role)
+                || permissions
+                    .is_some_and(|permissions| workspace["permissions"] != json!(permissions))
+        });
+        if changed {
+            self.team.authority_revision += 1;
+            self.selection_generation += 1;
+            self.snapshot_pending = None;
+            self.detail_pending = None;
+        }
+        self.team.authority_valid_until = Some(Instant::now() + AUTHORITY_MAX_AGE);
         if let Some(workspace) = &mut self.workspace {
             workspace["role"] = role.into();
             if let Some(permissions) = permissions {
@@ -367,12 +473,54 @@ impl ConsoleApp {
             self.rename = None;
             self.delete_confirmation = None;
             self.team.bindings = None;
+            self.pending
+                .retain(|_, request| !matches!(request.operation, Pending::Mutation(_)));
+            self.mutation_pending = None;
+        }
+        if !self.can_manage() || !self.permitted("credentials") {
+            self.credentials.clear();
+            self.credentials_loaded = false;
+            self.pending
+                .retain(|_, request| !matches!(request.operation, Pending::Credentials { .. }));
+            if self.collection == Collection::Vaults {
+                self.list_generation += 1;
+                self.list_pending = None;
+                self.resources.clear();
+                self.after = None;
+                self.clear_selection(ctx);
+                self.collection = Collection::Sessions;
+            }
+        }
+        if !self.can_manage() || !self.permitted("manage_space") {
+            self.team.bindings = None;
+            self.team.subject.clear();
+            self.team.issuer.clear();
+            self.team.grant_role.clear();
+            self.pending.retain(|_, request| {
+                !matches!(
+                    request.operation,
+                    Pending::Team(TeamOperation::Bindings | TeamOperation::Grant)
+                )
+            });
+            if self
+                .team
+                .pending
+                .is_some_and(|id| !self.pending.contains_key(&id))
+            {
+                self.team.pending = None;
+            }
         }
     }
     pub(super) fn clear_team_access(&mut self, ctx: &egui::Context) {
+        self.team.authority_revision += 1;
+        self.team.authority_valid_until = None;
         self.list_generation += 1;
         self.selection_generation += 1;
         self.resources.clear();
+        self.after = None;
+        self.detail_loaded = false;
+        self.credentials_loaded = false;
+        self.archive_undo = None;
         self.session_index.clear();
         self.selected = None;
         self.snapshot = None;
@@ -394,15 +542,27 @@ impl ConsoleApp {
         self.team.bindings = None;
         self.rename = None;
         self.delete_confirmation = None;
-        self.team.pending = None;
+        self.team.spaces.clear();
+        self.team.subject.clear();
+        self.team.issuer.clear();
+        self.team.grant_role.clear();
         self.submission_keys.clear();
-        self.pending.clear();
+        self.pending.retain(|_, request| matches!(request.operation, Pending::TeamAuthority { .. } | Pending::Workspace { .. })
+            || matches!(request.operation, Pending::Team(ref operation) if !matches!(operation, TeamOperation::Bindings | TeamOperation::Grant)));
+        if self
+            .team
+            .pending
+            .is_some_and(|id| !self.pending.contains_key(&id))
+        {
+            self.team.pending = None;
+        }
         self.list_pending = None;
         self.detail_pending = None;
         self.snapshot_pending = None;
         self.mutation_pending = None;
         if let Some(workspace) = &mut self.workspace {
             workspace["role"] = "no_access".into();
+            workspace["permissions"] = json!([]);
         }
     }
     pub(super) fn team_controls(&mut self, ui: &mut Ui, ctx: &egui::Context, can_switch: bool) {
@@ -416,7 +576,7 @@ impl ConsoleApp {
                 self.team_request(TeamOperation::Discovery, Method::POST, "/api/v1/team/discovery".into(), Some(json!({"endpoint":self.team.endpoint.trim()})), ctx);
             }
             if !self.team.providers.is_empty() {
-                egui::ComboBox::from_id_salt("team-provider").selected_text(&self.team.provider).show_ui(ui, |ui| { for provider in &self.team.providers { let id = string(provider, "id"); ui.selectable_value(&mut self.team.provider, id.clone(), id); } });
+                egui::ComboBox::new("team-provider", "Sign-in provider").selected_text(&self.team.provider).show_ui(ui, |ui| { for provider in &self.team.providers { let id = string(provider, "id"); ui.selectable_value(&mut self.team.provider, id.clone(), id); } });
                 if ui.add_enabled(self.team.pending.is_none() && self.team.login.is_none(), theme::primary_button("Sign in to team")).clicked() {
                     self.team_request(TeamOperation::Login, Method::POST, "/api/v1/team/login".into(), Some(json!({"endpoint":self.team.endpoint.trim(),"provider_id":self.team.provider})), ctx);
                 }
@@ -427,14 +587,14 @@ impl ConsoleApp {
                 if ui.add_enabled(self.team.pending.is_none(), egui::Button::new("Cancel team sign-in")).clicked() { self.team_request(TeamOperation::CancelLogin, Method::DELETE, format!("/api/v1/team/login/{}",path_segment(&string(&login,"id"))), None, ctx); }
             }
             self.team_spaces(ui, ctx, false, can_switch);
-            if self.is_team() && self.can_manage() {
+            if self.is_team() && self.can_manage() && self.permitted("manage_space") {
                 ui.separator(); ui.label("Space members");
                 let space = string(self.workspace.as_ref().unwrap(), "space_id");
                 if self.team.bindings.is_none() && self.team.pending.is_none() { self.team.bindings = Some(Vec::new()); self.team_request(TeamOperation::Bindings, Method::GET, format!("/api/v1/rat/spaces/{}/bindings",path_segment(&space)), None, ctx); }
                 for binding in self.team.bindings.clone().unwrap_or_default() { ui.label(format!("{} · {}", string(&binding,"subject"), string(&binding,"role"))); }
                 let label=ui.label("Identity issuer"); ui.text_edit_singleline(&mut self.team.issuer).labelled_by(label.id);
                 let label=ui.label("Verified subject"); ui.text_edit_singleline(&mut self.team.subject).labelled_by(label.id);
-                egui::ComboBox::from_id_salt("team-grant-role").selected_text(if self.team.grant_role.is_empty() { "Choose role" } else { &self.team.grant_role }).show_ui(ui, |ui| { for role in ["viewer","collaborator","controller","manager"] { ui.selectable_value(&mut self.team.grant_role,role.into(),role); } });
+                egui::ComboBox::new("team-grant-role", "Space role").selected_text(if self.team.grant_role.is_empty() { "Choose role" } else { &self.team.grant_role }).show_ui(ui, |ui| { for role in ["viewer","collaborator","controller","manager"] { ui.selectable_value(&mut self.team.grant_role,role.into(),role); } });
                 if ui.add_enabled(self.team.pending.is_none() && !self.team.issuer.is_empty() && !self.team.subject.is_empty() && !self.team.grant_role.is_empty(),egui::Button::new("Grant space role")).clicked() { self.team_request(TeamOperation::Grant,Method::POST,format!("/api/v1/rat/spaces/{}/bindings",path_segment(&space)),Some(json!({"issuer":self.team.issuer,"subject":self.team.subject,"role":self.team.grant_role})),ctx); }
                 ui.label(RichText::new("Use the exact issuer and subject from the person's verified team identity.").small().color(theme::MUTED));
             }
@@ -463,7 +623,7 @@ impl ConsoleApp {
             );
         }
         if !self.team.spaces.is_empty() {
-            egui::ComboBox::from_id_salt(("team-space", share))
+            egui::ComboBox::new(("team-space", share), "Team space")
                 .selected_text(
                     self.team
                         .spaces
@@ -583,6 +743,7 @@ mod tests {
         app.snapshot = Some(snapshot);
         app.messages
             .insert("sess_shared".into(), "Keep my draft".into());
+        app.team.authority_due = Some(Instant::now() + Duration::from_secs(60));
         app.team.loaded = true;
         app.team.saved_shares_loaded = true;
         app
