@@ -1,5 +1,9 @@
 import type { Turn } from './agents-api.js';
 
+export class SessionSteerRejectedError extends Error {
+  public constructor() { super('The intended Session Turn rejected this input before applying it.'); this.name = 'SessionSteerRejectedError'; }
+}
+
 type TurnError = NonNullable<Turn['error']>;
 const messages: Record<TurnError['code'], string> = {
   context_length_exceeded: 'The request exceeds the model context window.',

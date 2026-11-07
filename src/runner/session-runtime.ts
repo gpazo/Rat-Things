@@ -1,3 +1,4 @@
+import { SessionSteerRejectedError } from '../domain/session-errors.js';
 import { verifyManagedCodexPolicy } from '../adapters/codex-managed-policy.js';
 import { admitNativeServiceTier, nativeServiceTier, providerModelId } from '../domain/session-model-validation.js';
 import { nativeHostJournalDigest, planNativeCheckpoint } from '../core/native-checkpoint-planning.js';
@@ -327,8 +328,12 @@ export class SessionRuntime {
     const previous = this.operations.get(operationId);
     if (previous) return previous.digest === digest ? previous.promise : Promise.reject(new Error('Input operation changed on retry'));
     const binding = this.binding(turnId);
-    if (terminal(binding.turn)) return Promise.reject(new Error('The intended Session Turn has already ended'));
-    const promise = this.rpc.call('turn/steer', { threadId: binding.threadId, expectedTurnId: binding.nativeTurnId, input: nativeInput(input) }).then(() => undefined);
+    if (this.options.previous?.turns.some(binding => binding.turn.id === turnId)) return Promise.reject(new Error('The previous worker input acknowledgement is unavailable'));
+    if (terminal(binding.turn)) return Promise.reject(new SessionSteerRejectedError());
+    const promise = this.rpc.call('turn/steer', { threadId: binding.threadId, expectedTurnId: binding.nativeTurnId, input: nativeInput(input) }).then(() => undefined, error => {
+      if (error instanceof CodexRpcError && error.steerRejected) throw new SessionSteerRejectedError();
+      throw error;
+    });
     this.operations.set(operationId, { digest, promise });
     return promise;
   }
@@ -338,9 +343,9 @@ export class SessionRuntime {
     await this.options.request.onTurnStarted?.({
       threadId: this.state!.rootThreadId, turnId: root()?.nativeTurnId ?? 'idle',
       startSessionTurn: (turn, input, settings) => this.start(turn, input, settings),
-      steer: async (text, input, turnId) => {
+      steer: async (text, input, turnId, operationId) => {
         if (!turnId) throw new Error('The intended Session Turn is required');
-        return this.steer(turnId, input ?? [{ role: 'user', content: [{ type: 'input_text', text }] }], `native-${crypto.randomUUID()}`);
+        return this.steer(turnId, input ?? [{ role: 'user', content: [{ type: 'input_text', text }] }], operationId ?? `native-${crypto.randomUUID()}`);
       },
       interrupt: async (turnId) => {
         if (!turnId) throw new Error('The intended Session Turn is required');

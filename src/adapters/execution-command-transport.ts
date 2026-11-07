@@ -1,3 +1,4 @@
+import { SessionSteerRejectedError } from '../domain/session-errors.js';
 import { randomUUID } from 'node:crypto';
 import { setTimeout as pause } from 'node:timers/promises';
 import { createAwsClients, DynamoRunStore, S3ArtifactStore } from './aws-runtime.js';
@@ -21,6 +22,7 @@ export function createEc2CommandTransport() {
     if (!run?.execution || !sameExecution(target, { runId: run.runId, execution: run.execution })
       || !['dispatching', 'running', 'cancelling'].includes(run.status)) throw new Error('Execution is no longer active.');
     const response = await commands.request(run.ownerId, target, request);
+    if (response.status === 409 && response.body && typeof response.body === 'object' && 'code' in response.body && response.body.code === 'session_steer_rejected') throw new SessionSteerRejectedError();
     if (response.status < 200 || response.status >= 300) throw new Error(`Worker control returned HTTP ${response.status}.`);
     return response.body;
   };

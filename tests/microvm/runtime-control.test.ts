@@ -311,3 +311,23 @@ it('does not self-terminate after service-requested runner termination', async (
   });
   expect(runtime.spawn).toHaveBeenCalledTimes(1);
 });
+
+it('carries only definitive steer rejection through runner IPC and the HTTP response', async () => {
+  const { post } = await startRuntimeWithRunner();
+  const { SessionSteerRejectedError } = await import('../../src/domain/session-errors.js');
+  const { createRunnerControlBridge: bridgeFactory } = await import('../../src/runner/control.js');
+  const bridge = bridgeFactory('worker-exit-run')!;
+  let definitive = true;
+  await bridge.hooks.onTurnStarted?.({ threadId: 'root', turnId: 'first', sessionItems: async () => [], interrupt: async () => {},
+    steer: async () => { if (definitive) throw new SessionSteerRejectedError(); throw new Error('Unknown delivery outcome'); },
+  });
+  const input = [{ role: 'user', content: [{ type: 'input_text', text: 'Continue' }] }];
+  try {
+    expect(await post('/agent-runtime/v1/runs/worker-exit-run/steer', { turnId: 'first', operationId: 'definitive', prompt: 'Continue', input }))
+      .toMatchObject({ status: 409, body: { code: 'session_steer_rejected' } });
+    definitive = false;
+    const uncertain = await post('/agent-runtime/v1/runs/worker-exit-run/steer', { turnId: 'first', operationId: 'uncertain', prompt: 'Continue', input });
+    expect(uncertain.status).toBe(409);
+    expect(uncertain.body).not.toHaveProperty('code');
+  } finally { bridge.close(); }
+});

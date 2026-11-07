@@ -1,3 +1,4 @@
+import { SessionSteerRejectedError } from '../domain/session-errors.js';
 import {
   CreateMicrovmAuthTokenCommand,
   GetMicrovmCommand,
@@ -332,6 +333,7 @@ export class MicrovmAgentInteractionController implements AgentInteractionContro
     const text = await response.text();
     const value = text ? parseJson(text) : {};
     if (!response.ok) {
+      if (response.status === 409 && isRecord(value) && value.code === 'session_steer_rejected') throw new SessionSteerRejectedError();
       const message = isRecord(value) && typeof value.message === 'string'
         ? value.message
         : `MicroVM control endpoint returned HTTP ${response.status}`;

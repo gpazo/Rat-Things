@@ -1,3 +1,4 @@
+import { SessionSteerRejectedError } from '../domain/session-errors.js';
 import type {
   CodexAppServerEvent,
   CodexAppServerInitiatedRequest,
@@ -44,6 +45,7 @@ export function createRunnerControlBridge(runId: string, admission = new Workspa
       ok: !error,
       ...(result !== undefined ? { result } : {}),
       ...(error ? { error: error instanceof Error ? error.message : String(error) } : {}),
+      ...(error instanceof SessionSteerRejectedError ? { code: 'session_steer_rejected' } : {}),
     });
   };
 

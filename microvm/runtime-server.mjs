@@ -65,6 +65,7 @@ const server = createServer(async (request, response) => {
             ? 'agent_control_unavailable'
             : 'agent_control_failed',
         message: error instanceof Error ? error.message.slice(0, 1_000) : 'agent control failed',
+        ...(error instanceof RuntimeConflict && error.code === 'session_steer_rejected' ? { code: error.code } : {}),
       });
     }
     return;
@@ -534,6 +535,7 @@ function handleRunnerControlMessage(runId, message) {
       if (message.ok === true) waiter.resolve(message.result);
       else waiter.reject(new RuntimeConflict(
         typeof message.error === 'string' ? message.error.slice(0, 1_000) : 'agent rejected control command',
+        message.code === 'session_steer_rejected' ? message.code : undefined,
       ));
       break;
     }
@@ -948,4 +950,6 @@ function log(level, message, fields = {}) {
 }
 
 class InvalidHookRequest extends Error {}
-class RuntimeConflict extends Error {}
+class RuntimeConflict extends Error {
+  constructor(message, code) { super(message); this.code = code; }
+}

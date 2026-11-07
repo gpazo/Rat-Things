@@ -1,3 +1,5 @@
+import { SessionSteerRejectedError } from '../../src/domain/session-errors.js';
+import { CodexRpcError } from '../../src/adapters/codex-rpc.js';
 import { iamApiPrincipal } from '../../src/domain/api-permissions.js';
 import { describe, it, expect, vi } from 'vitest';
 import OpenAI from 'openai';
@@ -13,7 +15,7 @@ import { routeAgentsRequest } from '../../src/lambdas/agents-router.js';
 import type { CodexTurnController } from '../../src/runner/codex-app-server.js';
 import { providerModelId } from '../../src/domain/session-model-validation.js';
 
-function fixture(lifetime?: 'bounded' | 'host-managed', modelProvider = 'openai', model = 'fixture') {
+function fixture(lifetime?: 'bounded' | 'host-managed', modelProvider = 'openai', model = 'fixture', previous?: ReturnType<SessionRuntime['snapshot']>) {
   let handlers: ConstructorParameters<typeof CodexRpcClient>[0];
   let counter = 0;
   let closed = false;
@@ -22,6 +24,7 @@ function fixture(lifetime?: 'bounded' | 'host-managed', modelProvider = 'openai'
   const calls: Array<{ method: string; params: unknown }> = [];
   const runtime = new SessionRuntime({ sessionId: 'sess', agentId: 'agent', now: () => 100,
     ...(lifetime ? { lifetime } : {}),
+    ...(previous ? { previous } : {}),
     request: { binary: 'unused', workspace: '/workspace', environment: {}, timeoutMs: 10_000, prompt: '', sandbox: 'read-only', persistent: true, modelProvider, model, networkAccess: false, environments: [], dynamicTools: [{ type: 'function', name: 'lookup', description: 'Lookup', inputSchema: { type: 'object', properties: {} } }], onTurnStarted: (value) => { controller = value; } },
     client: (options) => {
       handlers = options;
@@ -31,7 +34,7 @@ function fixture(lifetime?: 'bounded' | 'host-managed', modelProvider = 'openai'
           calls.push({ method, params });
           if (method === 'config/read') return { config: { model_provider: modelProvider } };
           if (method === 'model/list') return { data: [{ id: providerModelId('gpt-6-astra', modelProvider), model: providerModelId('gpt-6-astra', modelProvider), serviceTiers: [{ id: 'priority' }] }], nextCursor: null };
-          if (method === 'thread/start') return { thread: { id: 'root' } };
+          if (method === 'thread/start' || method === 'thread/resume') return { thread: { id: 'root' } };
           if (method === 'turn/start') {
             const id = `native-${++counter}`;
             options.onEvent!({ method: 'turn/started', params: { threadId: 'root', turn: { id, status: 'inProgress' } } });
@@ -72,6 +75,49 @@ describe('persistent native session runtime', () => {
       expect(providerModelId('unrecognized-model', 'amazon-bedrock')).toBe('unrecognized-model');
       expect(providerModelId('openai.gpt-6-astra', 'amazon-bedrock')).toBe('openai.gpt-6-astra');
     } finally { await f.runtime.close(); }
+  });
+  it('returns a cached successful steer after completion and a lost control reply', async () => {
+    const f = fixture();
+    try {
+      await f.runtime.initialize(); await f.runtime.start(rootTurn('first'), message);
+      await f.controller().steer('Work', message, 'first', 'same-operation');
+      f.emit({ method: 'turn/completed', params: { threadId: 'root', turn: { id: 'native-1', status: 'completed' } } });
+      await f.controller().steer('Work', message, 'first', 'same-operation');
+      expect(f.calls.filter(call => call.method === 'turn/steer')).toHaveLength(1);
+    } finally { await f.runtime.close(); }
+  });
+  it.each(['no active turn to steer', 'expected active turn id `native-1` but found `native-2`'])('preserves definitive native rejection %s across the precheck race', async messageText => {
+    const f = fixture();
+    try {
+      await f.runtime.initialize(); await f.runtime.start(rootTurn('first'), message);
+      vi.spyOn(f.rpc(), 'call').mockRejectedValueOnce(new CodexRpcError({ code: -32600, message: messageText }));
+      await expect(f.runtime.steer('first', message, 'rejected')).rejects.toBeInstanceOf(SessionSteerRejectedError);
+    } finally { await f.runtime.close(); }
+  });
+  it('retains ambiguous native failure even after completion and does not repeat native input', async () => {
+    const f = fixture();
+    try {
+      await f.runtime.initialize(); await f.runtime.start(rootTurn('first'), message);
+      const rpc = vi.spyOn(f.rpc(), 'call').mockRejectedValueOnce(new Error('Native reply lost'));
+      await expect(f.runtime.steer('first', message, 'ambiguous')).rejects.toThrow('Native reply lost');
+      f.emit({ method: 'turn/completed', params: { threadId: 'root', turn: { id: 'native-1', status: 'completed' } } });
+      await expect(f.runtime.steer('first', message, 'ambiguous')).rejects.toThrow('Native reply lost');
+      expect(rpc).toHaveBeenCalledTimes(1);
+    } finally { await f.runtime.close(); }
+  });
+  it('does not reinterpret input from a previous worker as definitively rejected after restart', async () => {
+    const old = fixture();
+    await old.runtime.initialize(); await old.runtime.start(rootTurn('first'), message);
+    await old.runtime.steer('first', message, 'lost-control-reply');
+    old.emit({ method: 'turn/completed', params: { threadId: 'root', turn: { id: 'native-1', status: 'completed' } } });
+    const previous = old.runtime.snapshot();
+    await old.runtime.close();
+    const replacement = fixture(undefined, 'openai', 'fixture', previous);
+    try {
+      await replacement.runtime.initialize();
+      await expect(replacement.runtime.steer('first', message, 'lost-control-reply')).rejects.toThrow('previous worker input acknowledgement is unavailable');
+      expect(replacement.calls.filter(call => call.method === 'turn/steer')).toHaveLength(0);
+    } finally { await replacement.runtime.close(); }
   });
   it('uses the default native startup deadline and forwards a longer cold-start deadline', async () => {
     const standard = fixture();
@@ -224,7 +270,7 @@ describe('persistent native session runtime', () => {
       f.emit({ method: 'turn/completed', params: { threadId: 'root', turn: { id: 'native-1', status: 'completed' } } });
       await f.runtime.start(rootTurn('second'), message);
       await f.controller().interrupt('first');
-      await expect(f.controller().steer('Delayed input', message, 'first')).rejects.toThrow('already ended');
+      await expect(f.controller().steer('Delayed input', message, 'first')).rejects.toBeInstanceOf(SessionSteerRejectedError);
       await expect(f.controller().interrupt()).rejects.toThrow('intended Session Turn');
       expect(f.calls.filter(({ method }) => method === 'turn/interrupt' || method === 'turn/steer')).toEqual([]);
       await f.controller().steer('Current input', message, 'second');

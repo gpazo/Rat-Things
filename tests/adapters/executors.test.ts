@@ -1,3 +1,4 @@
+import { SessionSteerRejectedError } from '../../src/domain/session-errors.js';
 import { createHash } from 'node:crypto';
 import { LambdaMicrovmsClient } from '@aws-sdk/client-lambda-microvms';
 import { SSMClient } from '@aws-sdk/client-ssm';
@@ -281,4 +282,17 @@ describe('live MicroVM agent interaction', () => {
     );
     vi.unstubAllGlobals();
   });
+});
+
+it('distinguishes a proved unaccepted steer from an ambiguous MicroVM control conflict', async () => {
+  const send = vi.fn(async (command: { constructor: { name: string } }) => command.constructor.name === 'GetMicrovmCommand'
+    ? { state: 'RUNNING', endpoint: 'fixture.example' } : { authToken: { 'X-aws-proxy-auth': 'fixture-token' } });
+  const target = { runId: 'run', turnId: 'turn', execution: { backend: 'microvm' as const, id: 'worker' } };
+  const controller = new MicrovmAgentInteractionController({ send } as unknown as LambdaMicrovmsClient);
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce({ ok: false, status: 409, text: async () => JSON.stringify({ code: 'session_steer_rejected' }) })
+    .mockResolvedValueOnce({ ok: false, status: 409, text: async () => JSON.stringify({ message: 'control timed out' }) }));
+  try {
+    await expect(controller.steer(target, 'Continue', 'one')).rejects.toBeInstanceOf(SessionSteerRejectedError);
+    await expect(controller.steer(target, 'Continue', 'two')).rejects.toBeInstanceOf(AgentInteractionUnavailableError);
+  } finally { vi.unstubAllGlobals(); }
 });

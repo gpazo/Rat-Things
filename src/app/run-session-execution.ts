@@ -236,7 +236,7 @@ export class RunSessionExecution implements SessionExecution {
       throw new AgentsApiError(409, 'The active turn ended before it could be steered.', 'active_turn_not_steerable');
     }
     if (!run.execution || run.status !== 'running') throw new AgentsApiError(503, 'The turn is not ready for input yet.', 'service_unavailable');
-    await this.options.interaction.steer({ runId: run.runId, execution: run.execution, turnId }, sessionMessageText(input), operationId, input);
+    await this.options.interaction.steer({ runId: run.runId, execution: run.execution, turnId }, sessionMessageText(input), operationId, input.map(({ role, content }) => ({ role, content })));
   }
 
   public async cancel(ownerId: string, session: AgentSession, turnId: string): Promise<void> {

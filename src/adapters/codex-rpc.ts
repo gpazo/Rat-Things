@@ -10,8 +10,11 @@ export interface CodexRpcEvent { method: string; params: Record<string, unknown>
 
 export class CodexRpcError extends Error {
   public readonly missingThread: boolean;
+  public readonly steerRejected: boolean;
   public constructor(value: unknown) {
     super('Executor protocol request failed');
+    this.steerRejected = record(value) && value.code === -32600 && typeof value.message === 'string'
+      && (value.message === 'no active turn to steer' || /^expected active turn id `[^`]+` but found `[^`]+`$/.test(value.message));
     this.missingThread = record(value) && value.code === -32600 && typeof value.message === 'string' && value.message.startsWith('no rollout found for thread id');
   }
 }

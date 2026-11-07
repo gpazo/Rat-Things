@@ -1,3 +1,5 @@
+import { SessionSteerRejectedError } from '../domain/session-errors.js';
+import { planRejectedSteer } from './session-steer-planning.js';
 import { importedSessionMessage, importedSessionReceipts, participantContext } from './session-attribution.js';
 import { restoreWorkspaceCommand } from '../domain/workspace-transfer.js';
 import { validateSessionCaller, type SessionCaller } from './session-caller.js';
@@ -5,7 +7,7 @@ import { activityRevision, sessionActivity, sessionInputs, type SessionFollowOpt
 import { ConfigurationHistory, commitConfiguration, configurationRef, ensureSessionConfiguration, planConfigurationRevision, sessionConfigurationSnapshot } from './configuration-history.js';
 import type { ConfigurationMutation } from '../domain/configuration-history.js';
 import { THREAD_RELEASE_TOOL, withThreadReleaseTool } from './thread-release-tool.js';
-import { releaseThreadSubscription } from './session-integration-planning.js';
+import { planIntegrationSteerRecovery, releaseThreadSubscription } from './session-integration-planning.js';
 import type { SessionIntegrationState, ThreadSubscription } from '../domain/session-integrations.js';
 import { CODEX_RUNTIME, assertRuntimeUnchanged, validateRuntimeInput, resolveRuntime, piModel, validateRuntimeAgent, type PiModelDescriptor } from '../domain/session-runtime.js';
 import { planRuntimeClosure } from './session-runtime-store.js';
@@ -614,7 +616,7 @@ export class SessionService {
       const history = [...resource.value.fork?.history ?? [], ...await this.allItems(ownerId, completed)];
       await this.options.execution.initialize(ownerId, resource.value.session, resource.value.placement ?? 'microvm', executionHistory(history, resource.value));
     }
-    for (const [key, receipt] of Object.entries(resource.value.receipts)) {
+    for (const [key, receipt] of Object.entries(resource.value.receipts).sort((left, right) => (left[1].sequence ?? 0) - (right[1].sequence ?? 0))) {
       if (receipt.dispatched) continue;
       let failure: { code: string; message: string } | undefined;
       for (const command of receipt.commands) {
@@ -633,6 +635,9 @@ export class SessionService {
               } : previous) });
             } else {
               const preceding = resource.value.turns.slice(0, resource.value.turns.findIndex(({ turn }) => turn.id === command.turnId));
+              for (const previous of preceding.filter(binding => !terminalTurn(binding.turn))) {
+                if (!terminalTurn((await this.options.execution.observe(ownerId, session, previous.turn)).turn)) throw new AgentsApiError(503, 'Waiting for previously accepted input to finish.', 'service_unavailable');
+              }
               const history = [...resource.value.fork?.history ?? [], ...await this.allItems(ownerId, { ...resource.value, turns: preceding })];
               await this.options.execution.start(ownerId, session, { ...binding, input: executionInput(command.input) }, executionHistory(history, resource.value), resource.value.placement ?? 'microvm');
             }
@@ -642,6 +647,11 @@ export class SessionService {
           case 'cancel': await this.options.execution.cancel(ownerId, session, command.turnId); break;
           case 'tool_result': await this.options.execution.toolResult(ownerId, session, command.event); break;
         } } catch (error) {
+          if (command.type === 'steer' && error instanceof SessionSteerRejectedError) {
+            if (await this.rehomeRejectedSteer(ownerId, id, key, command.operationId) !== 'cancelled') return;
+            failure = { code: 'active_turn_not_steerable', message: 'The submitted input was cancelled before delivery.' };
+            continue;
+          }
           if (!(error instanceof AgentsApiError) || error.status >= 500 || error.code === 'conflict') throw error;
           failure = { code: error.code ?? 'invalid_request', message: 'The submitted input could not be delivered.' };
           if (command.type === 'start') {
@@ -667,6 +677,31 @@ export class SessionService {
         receipts: { ...resource.value.receipts, [key]: { ...receipt, dispatched: true, ...(failure ? { failure } : {}) } },
       });
     }
+  }
+
+  private async rehomeRejectedSteer(ownerId: string, id: string, receiptId: string, operationId: string): Promise<'moved' | 'cancelled'> {
+    const ids = { turnId: this.ids.next('turn'), operationId: this.ids.next('event') };
+    for (let attempt = 0; attempt < 10; attempt++) {
+      const resource = await this.required(ownerId, id);
+      if (resource.value.closing) return 'moved';
+      const command = resource.value.receipts[receiptId]?.commands.find(command => command.type === 'steer' && command.operationId === operationId);
+      if (command && resource.value.turns.find(binding => binding.turn.id === command.turnId)?.cancelRequested) return 'cancelled';
+      const value = planRejectedSteer(resource.value, receiptId, operationId, ids, this.clock.now());
+      if (value === resource.value) return 'moved';
+      const index = resource.value.receipts[receiptId]!.commands.indexOf(command!);
+      const replacement = value.receipts[receiptId]!.commands[index]!;
+      const integration = await this.options.store.get<SessionIntegrationState>(ownerId, 'session_integrations', id);
+      const integrationValue = integration && command?.type === 'steer' && (replacement.type === 'start' || replacement.type === 'steer')
+        ? planIntegrationSteerRecovery(integration.value, receiptId, command.turnId, replacement.turnId) : integration?.value;
+      try {
+        await this.options.store.commit([{ resource: { ...resource, revision: resource.revision + 1, value }, expectedRevision: resource.revision },
+          ...(integration && integrationValue !== integration.value ? [{ resource: { ...integration, revision: integration.revision + 1, value: integrationValue }, expectedRevision: integration.revision }] : []),
+        ]);
+        return 'moved';
+      }
+      catch (error) { if (!(error instanceof AgentsApiError) || error.code !== 'conflict' || attempt === 9) throw error; }
+    }
+    throw new AgentsApiError(409, 'Session input changed concurrently.', 'conflict');
   }
 
   public async turns(ownerId: string, id: string, raw: unknown = {}) {

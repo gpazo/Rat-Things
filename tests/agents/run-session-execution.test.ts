@@ -8,7 +8,7 @@ import { sessionAgent } from '../../src/core/session-planning.js';
 import { EnvironmentService, type StoredEnvironment } from '../../src/core/environment-service.js';
 import { EnvironmentTemplateService } from '../../src/core/environment-template-service.js';
 import { NotFoundError } from '../../src/core/errors.js';
-import { AgentsApiError } from '../../src/domain/agents-api-validation.js';
+import { AgentsApiError, parseAgentsContract } from '../../src/domain/agents-api-validation.js';
 import type { AgentSession, Turn } from '../../src/domain/agents-api.js';
 import type { RunRecord } from '../../src/domain/contracts.js';
 import { MemoryAgentsStore } from './fixtures.js';
@@ -121,6 +121,14 @@ describe('persistent harness input admission', () => {
       { role: 'user', content, id: 'message', afterItemId: 'previous', acceptedOrdinal: 1 },
     ] });
     expect(f.start).toHaveBeenCalledExactlyOnceWith({ runId: f.run.runId, execution: f.run.execution }, f.turn, [{ role: 'user', content }], { model: 'fixture', reasoning: { effort: null }, service_tier: 'auto' });
+  });
+  it('strips private attribution and ordering fields from AWS steer input before strict worker parsing', async () => {
+    const f = await fixture();
+    const input = [{ role: 'user' as const, content: [{ type: 'input_text' as const, text: '[Authenticated participant alice] Continue' }],
+      id: 'message', actor: { id: 'alice', kind: 'human' as const }, provenance: { kind: 'authenticated' as const }, afterItemId: 'previous', acceptedOrdinal: 2 }];
+    f.steer.mockImplementation(async (...args: unknown[]) => { parseAgentsContract('SessionEvents', { events: [{ type: 'agent.session.input.message', input: args[3] }] }); });
+    await f.execution.steer('alice', f.session, f.turn.id, input, 'operation');
+    expect(f.steer).toHaveBeenCalledExactlyOnceWith({ runId: f.run.runId, execution: f.run.execution, turnId: f.turn.id }, '[Authenticated participant alice] Continue', 'operation', input.map(({ role, content }) => ({ role, content })));
   });
   it.each(['disabled', 'restricted', 'enabled'] as const)('matches managed stdio MCP admission with %s network access', async (access) => {
     const f = await fixture();
