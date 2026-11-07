@@ -2,7 +2,7 @@ import { copyFile, rm } from 'node:fs/promises';
 import { build } from 'esbuild';
 
 const lambdaEntries = {
-  'agents-api': 'src/lambdas/agents-api.ts',
+  'agents-token-issuer': 'src/lambdas/agents-token-issuer.ts',
   'agents-outbox': 'src/lambdas/agents-outbox.ts',
   watchdog: 'src/lambdas/watchdog.ts',
   'connection-health': 'src/lambdas/connection-health.ts',
@@ -29,7 +29,7 @@ await Promise.all([
   bundle('src/runner/entry.ts', 'dist/runner.mjs'),
   bundle('src/runner/ec2-supervisor.ts', 'dist/ec2-supervisor.mjs'),
   bundle('src/relay.ts', 'dist/environment-relay.mjs'),
-  bundle('src/agents-server.ts', 'dist/agents-server.mjs'),
+  bundle('src/agents-server.ts', 'dist/agents-server.mjs', { target: 'node24' }),
   bundle('src/runner/terminate-microvm.ts', 'dist/terminate-microvm.mjs'),
   bundle('src/cli.ts', 'dist/cli.mjs'),
   bundle('src/agents-client.ts', 'dist/agents-client.mjs'),

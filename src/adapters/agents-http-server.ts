@@ -5,27 +5,36 @@ import { pipeline } from 'node:stream/promises';
 import { randomUUID } from 'node:crypto';
 import { AgentsApiError } from '../domain/agents-api-validation.js';
 import { PerformanceScope, performanceCount, performanceHeaders, requestPerformanceOperation, responsePerformanceOutcome } from '../core/performance.js';
+import { agentsWebFunctionBaseURL } from './agents-http-config.js';
 
-/** A streaming HTTP transport avoids Lambda's request-size and invocation-duration limits. */
+/** A streaming transport keeps large requests and responses out of event payloads. */
 export function createAgentsHttpServer(options: {
-  baseURL: string; issuerURL: string; discovery?: object;
-  authenticate(authorization: string | null): Promise<ApiPrincipal>;
+  baseURL?: string; webFunctionRegion?: string; issuerURL: string; discovery?: object;
+  authenticate(authorization: string | null, audience: string): Promise<ApiPrincipal>;
   route(request: Request, principal: ApiPrincipal, requestId: string): Promise<Response>;
   error(error: unknown, requestId: string): Response;
 }) {
-  const origin = new URL(options.baseURL).origin;
+  if (!options.baseURL && !options.webFunctionRegion) throw new Error('An API base URL or Web Function region is required.');
+  const staticBaseURL = options.baseURL;
   let largeRequests = 0;
   const server = createServer({ requestTimeout: 600_000, maxHeaderSize: 32_768 }, async (incoming, outgoing) => {
     const scope = new PerformanceScope(requestPerformanceOperation(incoming.method ?? 'GET', (incoming.url ?? '/').split('?')[0]!));
     await scope.run(async () => {
     const id = randomUUID();
     const abort = new AbortController();
-    outgoing.once('close', () => abort.abort());
+    outgoing.once('close', () => { if (!outgoing.writableFinished) abort.abort(); });
+    incoming.once('aborted', () => abort.abort());
     let reserved = false;
     try {
+      const baseURL = options.webFunctionRegion
+        ? agentsWebFunctionBaseURL(incoming.headers.host, options.webFunctionRegion)
+        : staticBaseURL!;
       if (incoming.method === 'GET' && incoming.url === '/health') { await send(outgoing, Response.json({ status: 'ok' })); return; }
-      if (incoming.method === 'GET' && incoming.url === '/.well-known/agents-api') { await send(outgoing, Response.json(options.discovery ?? { issuer_url: options.issuerURL, base_url: options.baseURL }, { headers: { 'cache-control': 'no-store' } })); return; }
-      const owner = await options.authenticate(incoming.headers.authorization ?? null);
+      if (incoming.method === 'GET' && incoming.url === '/.well-known/agents-api') {
+        const discovery = { ...(options.discovery ?? { issuer_url: options.issuerURL }), base_url: baseURL };
+        await send(outgoing, Response.json(discovery, { headers: { 'cache-control': 'no-store' } })); return;
+      }
+      const owner = await options.authenticate(incoming.headers.authorization ?? null, baseURL);
       const headers = new Headers();
       for (const [name, value] of Object.entries(incoming.headers)) if (typeof value === 'string') headers.set(name, value);
       const size = Number(incoming.headers['content-length'] ?? 0);
@@ -35,7 +44,7 @@ export function createAgentsHttpServer(options: {
         reserved = true; largeRequests++;
       }
       const body = incoming.method !== 'GET' && incoming.method !== 'HEAD' ? boundedBody(incoming, 513 * 1024 * 1024) : undefined;
-      const request = new Request(new URL(incoming.url ?? '/', origin), {
+      const request = new Request(new URL(incoming.url ?? '/', baseURL), {
         method: incoming.method, headers, signal: abort.signal, ...(body ? { body: Readable.toWeb(body) as ReadableStream<Uint8Array>, duplex: 'half' } : {}),
       } as RequestInit);
       await send(outgoing, await options.route(request, owner, id));
@@ -49,6 +58,7 @@ export function createAgentsHttpServer(options: {
     });
   });
   server.headersTimeout = 30_000;
+  server.requestTimeout = 900_000;
   return server;
 }
 

@@ -16,6 +16,10 @@ for (const name of lambdaNames) {
   ]);
 }
 
+await zipEntries('dist/agents-web.zip', [
+  { source: 'dist/agents-server.mjs', target: 'agents-server.mjs', mode: 0o644 },
+]);
+
 const microvmEntries = [
   ...runtimeEntries,
   { source: 'dist/pi-child.mjs', target: 'pi-child.mjs', mode: 0o755 },
