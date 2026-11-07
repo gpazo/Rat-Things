@@ -59,7 +59,7 @@ export interface SessionExecution {
   releaseFork?(ownerId: string, fork: import('../domain/session-fork.js').SessionFork): Promise<void>;
   placement?(ownerId: string, savedAgentId?: string): ExecutionBackend;
   traceSteps?(ownerId: string, session: AgentSession, turnId: string): Promise<import('../domain/session-traces.js').TraceStep[]>;
-  initialize?(ownerId: string, session: AgentSession, placement?: ExecutionBackend): Promise<void>;
+  initialize?(ownerId: string, session: AgentSession, placement?: ExecutionBackend, history?: AgentSessionItem[]): Promise<void>;
   subagents?(ownerId: string, session: AgentSession): Promise<SessionSubagentSnapshot[]>;
   environment?(ownerId: string, session: AgentSession): Promise<AgentSessionEnvironmentState | undefined>;
   close?(ownerId: string, session: AgentSession): Promise<void>;

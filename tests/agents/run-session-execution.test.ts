@@ -312,6 +312,18 @@ describe('saved Session placement', () => {
     expect(f.submit).toHaveBeenCalledWith('alice', expect.objectContaining({ execution: { backend: 'ec2', timeoutSeconds: 28_000 } }), expect.objectContaining({ agentsSession: expect.objectContaining({ turnId: 'bootstrap' }) }));
   });
 
+  it('seeds a fresh managed harness with completed conversation history before its first continuation', async () => {
+    const f = await fixture();
+    await f.store.delete((await f.runtime.get('alice', f.session.id))!);
+    f.session.environment = await f.environments.prepare('alice', f.session.id, { type: 'openai_hosted' });
+    f.submit.mockResolvedValue(f.run);
+    const history = [{ id: 'prior-message', type: 'message' as const, role: 'user' as const, turn_id: 'prior-turn',
+      status: 'completed' as const, phase: null, content: [{ type: 'input_text' as const, text: 'Remember this conversation-only context.' }] }];
+    await f.execution.initialize('alice', f.session, 'microvm', history);
+    expect(f.putJson).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ history, input: [], turnId: 'bootstrap' }));
+    expect(f.start).not.toHaveBeenCalled();
+  });
+
   it('rejects an unavailable saved backend before launch effects', async () => {
     const f = await fixture();
     f.run.status = 'failed';

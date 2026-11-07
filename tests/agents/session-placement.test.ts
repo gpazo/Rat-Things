@@ -48,7 +48,7 @@ describe('Session workload placement', () => {
     f.policy.ec2Workloads = [];
     await f.sessions.update('operator', session.id, { metadata: { backend: 'microvm' } });
     await f.sessions.dispatch('operator', session.id);
-    expect(f.execution.initialize).toHaveBeenLastCalledWith('operator', expect.objectContaining({ id: session.id }), 'ec2');
+    expect(f.execution.initialize).toHaveBeenLastCalledWith('operator', expect.objectContaining({ id: session.id }), 'ec2', []);
     expect(f.execution.start).toHaveBeenLastCalledWith('operator', expect.anything(), expect.anything(), expect.anything(), 'ec2');
     const first = [...f.observations.values()][0]!;
     f.observations.set(first.turn.id, { ...first, turn: { ...first.turn, status: 'completed', completed_at: 10 } });

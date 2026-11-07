@@ -609,7 +609,11 @@ export class SessionService {
     resource = await ensureSessionConfiguration(this.options.store, resource, this.clock.now());
     if (resource.value.share && resource.value.share.phase !== 'quiescing' || resource.value.closing || resource.value.forkLock && resource.value.forkLock.expiresAt > this.clock.now()) return;
     this.requireRuntimeAllowed(resource.value.runtime ?? CODEX_RUNTIME, resource.value.session.agent);
-    await this.options.execution.initialize?.(ownerId, resource.value.session, resource.value.placement ?? 'microvm');
+    if (this.options.execution.initialize) {
+      const completed = { ...resource.value, turns: resource.value.turns.filter(binding => terminalTurn(binding.turn)) };
+      const history = [...resource.value.fork?.history ?? [], ...await this.allItems(ownerId, completed)];
+      await this.options.execution.initialize(ownerId, resource.value.session, resource.value.placement ?? 'microvm', executionHistory(history, resource.value));
+    }
     for (const [key, receipt] of Object.entries(resource.value.receipts)) {
       if (receipt.dispatched) continue;
       let failure: { code: string; message: string } | undefined;

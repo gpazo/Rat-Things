@@ -137,7 +137,7 @@ export class RunSessionExecution implements SessionExecution {
     }
   }
 
-  public async initialize(ownerId: string, session: AgentSession, placement: ExecutionBackend = 'microvm'): Promise<void> {
+  public async initialize(ownerId: string, session: AgentSession, placement: ExecutionBackend = 'microvm', history: AgentSessionItem[] = []): Promise<void> {
     if (session.environment.type !== 'openai_hosted') return;
     const runtime = await this.runtime.get(ownerId, session.id);
     if (runtime) {
@@ -145,7 +145,7 @@ export class RunSessionExecution implements SessionExecution {
     }
     const turn: Turn = { id: 'bootstrap', object: 'agent.session.turn', session_id: session.id, agent_id: session.agent.id,
       subagent_id: null, status: 'queued', created_at: session.created_at, started_at: null, completed_at: null, error: null, usage: null };
-    await this.start(ownerId, session, { turn, input: [] }, [], placement, true);
+    await this.start(ownerId, session, { turn, input: [] }, history, placement, true);
   }
 
   public async close(ownerId: string, session: AgentSession) {
