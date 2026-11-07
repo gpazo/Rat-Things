@@ -1,3 +1,4 @@
+mod team;
 use crate::{
     api::{Data, Task, Worker, artifact_path},
     environment_picker::EnvironmentPicker,
@@ -20,6 +21,7 @@ use std::{
     path::PathBuf,
     time::{Duration, Instant},
 };
+use team::{TeamOperation, TeamState};
 use zeroize::{Zeroize, Zeroizing};
 
 pub(crate) const LOADING_FEEDBACK_DELAY: Duration = Duration::from_millis(300);
@@ -348,6 +350,7 @@ enum Effect {
         select_id: Option<String>,
     },
     Event {
+        submission_body: String,
         session_id: String,
         sent_message: Option<String>,
         tool_call: Option<String>,
@@ -369,6 +372,7 @@ enum Effect {
 }
 
 enum Pending {
+    Team(TeamOperation),
     Copy(CopyOperation),
     Local {
         generation: u64,
@@ -417,6 +421,8 @@ impl PendingRequest {
 }
 
 pub struct ConsoleApp {
+    team: TeamState,
+    submission_keys: HashMap<(String, String), String>,
     local_generation: u64,
     runtime: LocalRead,
     runtime_change: Option<RuntimeChange>,
@@ -465,6 +471,7 @@ pub struct ConsoleApp {
     snapshot_pending: Option<u64>,
     mutation_pending: Option<u64>,
     next_refresh: Instant,
+    next_authority_refresh: Instant,
     editor: Option<Editor>,
     session_editor: Option<Editor>,
     next_editor_id: u64,
@@ -482,6 +489,8 @@ pub struct ConsoleApp {
 impl ConsoleApp {
     pub fn new(endpoint: String, token: String) -> Result<Self, String> {
         Ok(Self {
+            team: TeamState::default(),
+            submission_keys: HashMap::new(),
             local_generation: 0,
             runtime: LocalRead::default(),
             runtime_change: None,
@@ -530,6 +539,7 @@ impl ConsoleApp {
             snapshot_pending: None,
             mutation_pending: None,
             next_refresh: Instant::now(),
+            next_authority_refresh: Instant::now(),
             editor: None,
             session_editor: None,
             next_editor_id: 0,
@@ -562,6 +572,7 @@ impl ConsoleApp {
         }
         self.receive(&ctx);
         self.poll_local(&ctx);
+        self.poll_team(&ctx);
         if self.collection == Collection::Sessions
             && !self.workspace_open
             && self.selected_id.is_some()
@@ -650,6 +661,7 @@ impl ConsoleApp {
         self.rename_window(&ctx);
         self.delete_window(&ctx);
         self.workspace_window(&ctx);
+        self.share_window(&ctx);
         if self.error.is_some() || self.notice.is_some() {
             egui::Area::new(egui::Id::unique("notifications"))
                 .order(egui::Order::Foreground)
@@ -681,6 +693,17 @@ impl ConsoleApp {
     }
 
     fn submit(&mut self, task: Task, pending: Pending, ctx: &egui::Context) -> Option<u64> {
+        if self.is_team()
+            && !self.can_contribute()
+            && matches!(
+                &task,
+                Task::Mutation { .. }
+                    | Task::SetSessionArchived { .. }
+                    | Task::UpdateSessionMetadata { .. }
+            )
+        {
+            return None;
+        }
         match self.worker.submit(task, ctx) {
             Ok(id) => {
                 self.pending.insert(id, PendingRequest::new(pending));
@@ -787,8 +810,37 @@ impl ConsoleApp {
             return;
         };
         self.next_refresh = Instant::now() + SNAPSHOT_INTERVAL;
+        let refresh_authority = Instant::now() >= self.next_authority_refresh;
+        if refresh_authority {
+            self.next_authority_refresh = Instant::now() + Duration::from_secs(15);
+        }
         self.snapshot_pending = self.submit(
-            Task::Snapshot { id },
+            if self.is_team() {
+                Task::Activity {
+                    role: self
+                        .workspace
+                        .as_ref()
+                        .map(|workspace| string(workspace, "role"))
+                        .unwrap_or_default(),
+                    permissions: self
+                        .workspace
+                        .as_ref()
+                        .and_then(|workspace| {
+                            serde_json::from_value(workspace["permissions"].clone()).ok()
+                        })
+                        .unwrap_or_default(),
+                    id,
+                    cursor: if refresh_authority {
+                        None
+                    } else {
+                        self.snapshot
+                            .as_ref()
+                            .and_then(|snapshot| snapshot.cursor.clone())
+                    },
+                }
+            } else {
+                Task::Snapshot { id }
+            },
             Pending::Snapshot {
                 generation: self.selection_generation,
             },
@@ -876,6 +928,22 @@ impl ConsoleApp {
                 self.mutation_pending = None;
             }
             if !current {
+                continue;
+            }
+            if let Pending::Team(operation) = pending {
+                self.receive_team(operation, completion.result, ctx);
+                continue;
+            }
+            if self.is_team()
+                && completion
+                    .result
+                    .as_ref()
+                    .err()
+                    .is_some_and(|error| error.starts_with("[access_revoked]"))
+            {
+                self.clear_team_access(ctx);
+                self.error =
+                    Some("Team access is no longer available. Reconnect or choose a space.".into());
                 continue;
             }
             if let Pending::Copy(operation) = pending {
@@ -1010,7 +1078,27 @@ impl ConsoleApp {
                             self.refresh_credentials(ctx);
                         }
                     }
-                    (Pending::Snapshot { .. }, Data::Snapshot(snapshot)) => {
+                    (Pending::Snapshot { .. }, Data::Authority { role, permissions }) => {
+                        self.update_team_authority(&role, Some(&permissions), ctx);
+                        self.next_refresh = Instant::now();
+                    }
+                    (Pending::Snapshot { .. }, Data::ActivityIdle) => {
+                        if let Some(snapshot) = &mut self.snapshot {
+                            snapshot.cursor = None;
+                        }
+                        self.next_refresh = Instant::now() + Duration::from_secs(1);
+                    }
+                    (Pending::Snapshot { .. }, Data::Snapshot(mut snapshot)) => {
+                        if snapshot.runtime.is_err()
+                            && let Some(previous) = &self.snapshot
+                            && previous.session.id == snapshot.session.id
+                            && previous.runtime.is_ok()
+                        {
+                            snapshot.runtime = previous.runtime.clone();
+                        }
+                        if let Some(role) = &snapshot.role {
+                            self.update_team_authority(role, snapshot.permissions.as_deref(), ctx);
+                        }
                         if snapshot.session.is_unnamed_session()
                             && let Some(title) =
                                 snapshot
@@ -1035,7 +1123,9 @@ impl ConsoleApp {
                             *row = snapshot.session.clone();
                         }
                         self.next_refresh = Instant::now()
-                            + if snapshot.turn_active() {
+                            + if self.is_team() {
+                                Duration::from_millis(50)
+                            } else if snapshot.turn_active() {
                                 SNAPSHOT_INTERVAL
                             } else {
                                 IDLE_SNAPSHOT_INTERVAL
@@ -1098,10 +1188,13 @@ impl ConsoleApp {
                 self.notice = None;
             }
             Effect::Event {
+                submission_body,
                 session_id,
                 sent_message,
                 tool_call,
             } => {
+                self.submission_keys
+                    .remove(&(session_id.clone(), submission_body));
                 if let Some(message) = sent_message
                     && self.messages.get(&session_id) == Some(&message)
                 {
@@ -1188,7 +1281,9 @@ impl ConsoleApp {
         ui.add_space(12.0);
         ui.label(RichText::new("Workspace").small().color(theme::MUTED));
         for collection in Collection::ALL {
-            if self.is_local() && matches!(collection, Collection::Vaults) {
+            if (self.is_local() || (self.is_team() && !self.can_manage()))
+                && matches!(collection, Collection::Vaults)
+            {
                 continue;
             }
             let selected = self.collection == collection;
@@ -1242,16 +1337,20 @@ impl ConsoleApp {
 
     fn resource_list(&mut self, ui: &mut Ui) {
         let new_label = format!("New {}", self.collection.singular());
-        let create = ui.add_sized(
-            [ui.available_width(), 32.0],
-            egui::Button::new((
-                RichText::new("+").size(18.0),
-                RichText::new(&new_label).size(13.0),
-            ))
-            .right_text("")
-            .frame_when_inactive(false)
-            .stroke(egui::Stroke::NONE),
-        );
+        let create = ui
+            .add_enabled_ui(self.can_manage(), |ui| {
+                ui.add_sized(
+                    [ui.available_width(), 32.0],
+                    egui::Button::new((
+                        RichText::new("+").size(18.0),
+                        RichText::new(&new_label).size(13.0),
+                    ))
+                    .right_text("")
+                    .frame_when_inactive(false)
+                    .stroke(egui::Stroke::NONE),
+                )
+            })
+            .inner;
         create.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, &new_label));
         if create.clicked() {
             self.new_resource(self.collection, None);
@@ -1414,7 +1513,7 @@ impl ConsoleApp {
                     response.widget_info(|| {
                         egui::WidgetInfo::selected(egui::Role::Button, true, selected, &title)
                     });
-                    if self.collection == Collection::Sessions {
+                    if self.collection == Collection::Sessions && self.can_manage() {
                         response.context_menu(|ui| {
                             if ui
                                 .add_enabled(
@@ -1509,6 +1608,9 @@ impl ConsoleApp {
     }
 
     fn archive_session(&mut self, id: String, archived: bool, ctx: &egui::Context) {
+        if !self.can_manage() {
+            return;
+        }
         self.error = None;
         self.notice = None;
         self.archive_undo = None;
@@ -1529,6 +1631,9 @@ impl ConsoleApp {
         value: Option<String>,
         ctx: &egui::Context,
     ) {
+        if !self.can_manage() {
+            return;
+        }
         self.error = None;
         self.mutation_pending = self.submit(
             Task::UpdateSessionMetadata {
@@ -1599,7 +1704,7 @@ impl ConsoleApp {
         ui.horizontal(|ui| {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 ui.menu_button("Actions", |ui| {
-                    if self.collection == Collection::Sessions {
+                    if self.collection == Collection::Sessions && self.can_manage() {
                         if ui.button("Rename session").clicked() {
                             self.rename =
                                 Some((resource.id.clone(), self.resource_title(&resource)));
@@ -1646,7 +1751,10 @@ impl ConsoleApp {
                     }
                     let label = format!("Delete {}", self.collection.singular());
                     if ui
-                        .add_enabled(self.mutation_pending.is_none(), egui::Button::new(label))
+                        .add_enabled(
+                            self.mutation_pending.is_none() && self.can_manage(),
+                            egui::Button::new(label),
+                        )
                         .clicked()
                     {
                         self.delete_confirmation = Some((
@@ -1657,6 +1765,22 @@ impl ConsoleApp {
                         ui.close();
                     }
                 });
+                if self.is_local()
+                    && self.collection == Collection::Sessions
+                    && ui.button("Share").clicked()
+                {
+                    self.team.share_source = Some(resource.id.clone());
+                    self.team.share_open = true;
+                    if self
+                        .team
+                        .share_request
+                        .as_ref()
+                        .is_some_and(|r| r["session_id"].as_str() != Some(&resource.id))
+                    {
+                        self.team.share_request = None;
+                        self.team.share = None;
+                    }
+                }
                 self.files_menu(ui);
                 ui.menu_button("Details", |ui| {
                     ui.set_max_width(340.0);
@@ -1683,7 +1807,10 @@ impl ConsoleApp {
                                 .sense(egui::Sense::click()),
                             )
                             .on_hover_text(self.resource_title(&resource));
-                        if self.collection == Collection::Sessions && title.double_clicked() {
+                        if self.collection == Collection::Sessions
+                            && self.can_manage()
+                            && title.double_clicked()
+                        {
                             self.rename =
                                 Some((resource.id.clone(), self.resource_title(&resource)));
                         }
@@ -1751,6 +1878,15 @@ impl ConsoleApp {
     }
 
     fn welcome(&mut self, ui: &mut Ui) {
+        if self.is_team() && !self.can_manage() {
+            ui.heading("Your team's Sessions");
+            ui.label("Open a Session from the sidebar to follow its progress.");
+            if self.can_contribute() && ui.button("Choose a saved Agent").clicked() {
+                self.navigate(Collection::Agents, ui.ctx());
+            }
+            return;
+        }
+
         let (heading, subtitle, action) = match self.collection {
             Collection::Sessions => (
                 if self.is_local() {
@@ -1825,6 +1961,8 @@ impl ConsoleApp {
     }
 
     fn reset_workspace(&mut self, ctx: &egui::Context) {
+        self.team.pending = None;
+        self.team.bindings = None;
         self.local_generation += 1;
         self.runtime = LocalRead::default();
         self.runtime_change = None;
@@ -1932,6 +2070,8 @@ impl ConsoleApp {
                 }
             });
             ui.add_space(12.0);
+            let team_open = egui::CollapsingHeader::new("Team spaces").default_open(self.is_team()).show(ui, |ui| self.team_controls(ui, ctx, can_switch));
+            self.team.open = team_open.body_returned.is_some();
             if self.editor.is_some() || self.session_editor.is_some() {
                 ui.label("Close the open form before switching workspaces. Your draft stays available until you close it.");
             }
@@ -2856,7 +2996,7 @@ impl ConsoleApp {
         let active = snapshot.turn_active();
         egui::Panel::bottom("composer").show_separator_line(false).resizable(false).min_size(0.0).frame(egui::Frame::NONE).show(ui, |ui| {
             ui.add_space(12.0);
-            egui::Frame::new().fill(theme::SURFACE).stroke(egui::Stroke::new(1.0, theme::BORDER)).corner_radius(8).inner_margin(12).show(ui, |ui| {
+            if self.can_contribute() { egui::Frame::new().fill(theme::SURFACE).stroke(egui::Stroke::new(1.0, theme::BORDER)).corner_radius(8).inner_margin(12).show(ui, |ui| {
                 let message = self.messages.entry(session_id.clone()).or_default();
                 let response = egui::ScrollArea::vertical().id_salt(("composer-scroll", &session_id)).max_height(160.0).show(ui, |ui| {
                     ui.add(TextEdit::multiline(message).id_salt(("message", &session_id)).frame(egui::Frame::NONE).desired_rows(1).desired_width(f32::INFINITY).hint_text(if active { "Add a direction for the agent…" } else { "Ask a follow-up, or start the next step…" }))
@@ -2876,6 +3016,7 @@ impl ConsoleApp {
                     });
                 });
             });
+            } else { ui.label(if self.share_fenced() { "Sharing this Session. New input will be available in the team space." } else { "Viewer access · follow the shared progress here." }); }
             ui.horizontal(|ui| {
                 match &snapshot.runtime {
                     Ok(runtime) => { ui.label(RichText::new(format!("Runtime {}", runtime.runtime)).small().color(theme::MUTED)); }
@@ -2883,7 +3024,7 @@ impl ConsoleApp {
                 }
                 if let Some(turn) = snapshot.turn() { ui.label(RichText::new(format!("Turn {}", turn.text("status").replace('_', " "))).small().color(theme::MUTED)); }
                 else { ui.label(RichText::new("Ready for input").small().color(theme::MUTED)); }
-                if active && ui.add_enabled(self.mutation_pending.is_none(), egui::Button::new("Cancel turn").small()).clicked() {
+                if self.can_control() && active && ui.add_enabled(self.mutation_pending.is_none(), egui::Button::new("Cancel turn").small()).clicked() {
                     self.send_events(&session_id, vec![json!({"type": "agent.session.input.cancel"})], None, None, ui.ctx());
                 }
             });
@@ -2906,7 +3047,9 @@ impl ConsoleApp {
                     ui.label(RichText::new("No saved items yet.").color(theme::MUTED));
                 }
                 for item in &snapshot.items {
-                    self.transcript_item(ui, item);
+                    let mut attributed = item.clone();
+                    if let Some(label) = snapshot.actor_labels.get(&item.id) { attributed.fields.insert("participant_label".into(), label.clone().into()); }
+                    self.transcript_item(ui, &attributed);
                 }
                 for action in snapshot.actions() {
                     if action.get("type").and_then(Value::as_str) == Some("function_call") {
@@ -3058,9 +3201,11 @@ impl ConsoleApp {
                     }
                 });
             });
-            if snapshot.actions().iter().any(|action| {
-                action.get("type").and_then(Value::as_str) == Some("environment_connection")
-            }) {
+            if self.can_manage()
+                && snapshot.actions().iter().any(|action| {
+                    action.get("type").and_then(Value::as_str) == Some("environment_connection")
+                })
+            {
                 ui.label("Connect the executor to continue this session.");
                 let command = format!("rat-things environments connect {id}");
                 ui.horizontal_wrapped(|ui| {
@@ -3104,7 +3249,13 @@ impl ConsoleApp {
         let is_user = item.text("role") == "user";
         let title = if item.text("type") == "message" {
             if is_user {
-                "You"
+                if !item.text("participant_label").is_empty() {
+                    item.text("participant_label")
+                } else if self.is_team() {
+                    "Participant"
+                } else {
+                    "You"
+                }
             } else if item.text("phase") == "commentary" {
                 "Agent · working"
             } else {
@@ -3238,6 +3389,9 @@ impl ConsoleApp {
     }
 
     fn tool_result(&mut self, ui: &mut Ui, session_id: &str, action: &Value) {
+        if !self.can_contribute() {
+            return;
+        }
         let call_id = string(action, "call_id");
         let name = string(action, "name");
         let mut send = None;
@@ -3269,16 +3423,33 @@ impl ConsoleApp {
         tool_call: Option<String>,
         ctx: &egui::Context,
     ) {
+        let cancel = events
+            .iter()
+            .any(|event| event["type"] == "agent.session.input.cancel");
+        if if cancel {
+            !self.can_control()
+        } else {
+            !self.can_contribute()
+        } {
+            return;
+        }
         self.error = None;
+        let body = json!({"events": events}).to_string();
+        let key = self
+            .submission_keys
+            .entry((session_id.to_owned(), body.clone()))
+            .or_insert_with(|| uuid::Uuid::new_v4().to_string())
+            .clone();
         self.mutation_pending = self.submit(
             Task::Mutation {
                 path: format!("{}/events", Collection::Sessions.resource_path(session_id)),
                 method: Method::POST,
-                body: Some(Zeroizing::new(json!({"events": events}).to_string())),
-                idempotency_key: Some(uuid::Uuid::new_v4().to_string()),
+                body: Some(Zeroizing::new(body.clone())),
+                idempotency_key: Some(key),
                 secret: false,
             },
             Pending::Mutation(Effect::Event {
+                submission_body: body,
                 session_id: session_id.into(),
                 sent_message,
                 tool_call,
@@ -3291,10 +3462,10 @@ impl ConsoleApp {
         ui.horizontal_wrapped(|ui| {
             match self.collection {
                 Collection::Agents | Collection::Templates => {
-                    if ui.button(format!("Edit {}", self.collection.singular())).clicked() {
+                    if self.can_manage() && ui.button(format!("Edit {}", self.collection.singular())).clicked() {
                         self.open_editor(format!("Edit {}", self.collection.singular()), resource.edit_body(self.collection), self.collection.resource_path(&resource.id), self.collection, Some(resource.id.clone()), false);
                     }
-                    if ui.button("Start session").clicked() {
+                    if self.can_contribute() && ui.button("Start session").clicked() {
                         if self.collection == Collection::Agents { self.new_resource(Collection::Sessions, Some(&resource.id)); }
                         else {
                             self.new_resource(Collection::Sessions, None);
@@ -3442,6 +3613,11 @@ impl ConsoleApp {
     }
 
     fn new_resource(&mut self, collection: Collection, agent_id: Option<&str>) {
+        if !(self.can_manage()
+            || collection == Collection::Sessions && agent_id.is_some() && self.can_contribute())
+        {
+            return;
+        }
         if collection == Collection::Sessions && agent_id.is_none() {
             if self
                 .editor

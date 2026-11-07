@@ -5,7 +5,7 @@ use reqwest::{Method, Url, blocking::Client};
 use serde_json::{Value, json};
 use std::{
     collections::HashSet,
-    io::{Read, Write},
+    io::{BufRead, BufReader, Read, Write},
     path::{Path, PathBuf},
     sync::{
         Arc, Mutex,
@@ -20,6 +20,17 @@ const JSON_LIMIT: u64 = 16 * 1024 * 1024;
 const PAGE_LIMIT: usize = 1_000;
 
 pub(crate) enum Task {
+    Team {
+        path: String,
+        method: Method,
+        body: Option<Value>,
+    },
+    Activity {
+        id: String,
+        cursor: Option<String>,
+        role: String,
+        permissions: Vec<String>,
+    },
     Local {
         path: String,
         body: Option<Value>,
@@ -86,6 +97,11 @@ pub(crate) enum Data {
     Page(Page),
     Resource(Resource),
     Snapshot(SessionSnapshot),
+    ActivityIdle,
+    Authority {
+        role: String,
+        permissions: Vec<String>,
+    },
     Credentials(Vec<Resource>),
     Mutation(Value),
     Download(Option<PathBuf>),
@@ -105,6 +121,7 @@ struct Job {
 pub(crate) struct Worker {
     jobs: SyncSender<Job>,
     runtime_jobs: SyncSender<Job>,
+    activity_jobs: SyncSender<Job>,
     pub completions: Receiver<Completion>,
     next_id: u64,
 }
@@ -114,12 +131,19 @@ impl Worker {
         let api = Arc::new(Api::new(endpoint, token)?);
         let (jobs, incoming) = mpsc::sync_channel::<Job>(4);
         let (runtime_jobs, runtime_incoming) = mpsc::sync_channel::<Job>(2);
+        let (activity_jobs, activity_incoming) = mpsc::sync_channel::<Job>(2);
         let (completed, completions) = mpsc::channel();
         let incoming = Arc::new(Mutex::new(incoming));
         let runtime_incoming = Arc::new(Mutex::new(runtime_incoming));
-        for (index, incoming) in [Arc::clone(&incoming), incoming, runtime_incoming]
-            .into_iter()
-            .enumerate()
+        let activity_incoming = Arc::new(Mutex::new(activity_incoming));
+        for (index, incoming) in [
+            Arc::clone(&incoming),
+            incoming,
+            runtime_incoming,
+            activity_incoming,
+        ]
+        .into_iter()
+        .enumerate()
         {
             let api = Arc::clone(&api);
             let completed = completed.clone();
@@ -142,6 +166,7 @@ impl Worker {
         Ok(Self {
             jobs,
             runtime_jobs,
+            activity_jobs,
             completions,
             next_id: 0,
         })
@@ -150,7 +175,9 @@ impl Worker {
     pub fn submit(&mut self, task: Task, ctx: &egui::Context) -> Result<u64, String> {
         self.next_id += 1;
         let id = self.next_id;
-        let jobs = if matches!(&task, Task::Local { path, .. }
+        let jobs = if matches!(&task, Task::Activity { .. }) {
+            &self.activity_jobs
+        } else if matches!(&task, Task::Local { path, .. }
             if path == "/api/v1/workspace/runtime"
                 || path.starts_with("/api/v1/workspace/runtime/"))
         {
@@ -249,7 +276,16 @@ impl Api {
         deadline: Instant,
     ) -> Result<Value, String> {
         self.request_result(path, method, body, key, secret, deadline)
-            .map_err(|failure| failure.message)
+            .map_err(|failure| {
+                if matches!(
+                    failure.status.map(|status| status.as_u16()),
+                    Some(401 | 403)
+                ) {
+                    format!("[access_revoked] {}", failure.message)
+                } else {
+                    failure.message
+                }
+            })
     }
 
     fn local_request(
@@ -437,6 +473,18 @@ impl Api {
     fn execute(&self, task: Task) -> Result<Data, String> {
         let deadline = Instant::now() + REQUEST_DEADLINE;
         match task {
+            Task::Team { path, method, body } => self.local_request(
+                &path,
+                method,
+                body.map(|value| Zeroizing::new(value.to_string())),
+                deadline,
+            ),
+            Task::Activity {
+                id,
+                cursor,
+                role,
+                permissions,
+            } => self.activity(&id, cursor.as_deref(), &role, &permissions, deadline),
             Task::Local { path, body } => self.local_request(
                 &path,
                 if body.is_some() {
@@ -523,6 +571,10 @@ impl Api {
             Task::Snapshot { id } => {
                 let path = Collection::Sessions.resource_path(&id);
                 Ok(Data::Snapshot(SessionSnapshot {
+                    cursor: None,
+                    role: None,
+                    permissions: None,
+                    actor_labels: Default::default(),
                     runtime: self.get(&format!("{path}/runtime"), deadline),
                     session: self.get(&path, deadline)?,
                     items: self.pages(&format!("{path}/items"), "asc", false, deadline)?,
@@ -561,6 +613,100 @@ impl Api {
                 };
                 self.download(&path, &destination)?;
                 Ok(Data::Download(Some(destination)))
+            }
+        }
+    }
+
+    fn activity(
+        &self,
+        id: &str,
+        cursor: Option<&str>,
+        current_role: &str,
+        current_permissions: &[String],
+        deadline: Instant,
+    ) -> Result<Data, String> {
+        let path = format!("/api/v1/rat/sessions/{}/activity", path_segment(id));
+        let Some(cursor) = cursor else {
+            let mut snapshot = self
+                .request(&path, Method::GET, None, None, false, deadline)
+                .and_then(SessionSnapshot::from_activity)?;
+            snapshot.runtime = self.get(
+                &format!("{}/runtime", Collection::Sessions.resource_path(id)),
+                deadline,
+            );
+            return Ok(Data::Snapshot(snapshot));
+        };
+        let response = self
+            .client
+            .get(self.url(&format!("{path}/events"))?)
+            .bearer_auth(self.token.as_str())
+            .header("accept", "text/event-stream")
+            .header("last-event-id", cursor)
+            .timeout(Duration::from_secs(20))
+            .send()
+            .map_err(request_error)?;
+        if matches!(response.status().as_u16(), 401 | 403) {
+            return Err(
+                "[access_revoked] Team access is no longer available. Reconnect to continue."
+                    .into(),
+            );
+        }
+        if matches!(response.status().as_u16(), 409 | 410) {
+            return self.activity(id, None, current_role, current_permissions, deadline);
+        }
+        if !response.status().is_success() {
+            return Err(format!(
+                "Activity connection failed ({})",
+                response.status()
+            ));
+        }
+        let mut stream = BufReader::new(response);
+        let mut data = String::new();
+        loop {
+            let mut line = String::new();
+            match stream.read_line(&mut line) {
+                Ok(0) => return Ok(Data::ActivityIdle),
+                Err(_) => return Ok(Data::ActivityIdle),
+                Ok(_) => {}
+            }
+            if data.len() + line.len() > JSON_LIMIT as usize {
+                return Err("Activity exceeds the console size limit".into());
+            }
+            if line.trim().is_empty() {
+                if data.is_empty() {
+                    continue;
+                }
+                let event: Value =
+                    serde_json::from_str(&data).map_err(|_| "Invalid activity event")?;
+                if event.get("type").and_then(Value::as_str) == Some("rat.space.permissions") {
+                    let role = event["role"]
+                        .as_str()
+                        .ok_or("Invalid space role")?
+                        .to_owned();
+                    let permissions = serde_json::from_value(event["permissions"].clone())
+                        .map_err(|_| "Invalid space permissions")?;
+                    if role != current_role || permissions != current_permissions {
+                        return Ok(Data::Authority { role, permissions });
+                    }
+                    data.clear();
+                    continue;
+                }
+                if event.get("type").and_then(Value::as_str) == Some("rat.session.activity") {
+                    return SessionSnapshot::from_activity(event["activity"].clone())
+                        .map(Data::Snapshot);
+                }
+                if event.get("session").is_some() {
+                    return SessionSnapshot::from_activity(event).map(Data::Snapshot);
+                }
+                if event.get("error").is_some() {
+                    return self.activity(id, None, current_role, current_permissions, deadline);
+                }
+                data.clear();
+            } else if let Some(value) = line.strip_prefix("data:") {
+                if !data.is_empty() {
+                    data.push('\n');
+                }
+                data.push_str(value.trim());
             }
         }
     }
@@ -709,13 +855,57 @@ mod tests {
     }
 
     #[test]
+    fn activity_resumes_cursor_and_ignores_unchanged_permissions_before_live_downgrade() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let endpoint = format!("http://{}", listener.local_addr().unwrap());
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            stream
+                .set_read_timeout(Some(Duration::from_secs(5)))
+                .unwrap();
+            let mut request = Vec::new();
+            let mut byte = [0];
+            while !request.ends_with(b"\r\n\r\n") {
+                stream.read_exact(&mut byte).unwrap();
+                request.push(byte[0]);
+            }
+            assert!(
+                String::from_utf8_lossy(&request)
+                    .to_lowercase()
+                    .contains("last-event-id: act_sess_shared_8")
+            );
+            let body = [json!({"type":"rat.space.permissions","role":"collaborator","permissions":["read","contribute"]}),json!({"type":"rat.space.permissions","role":"viewer","permissions":["read"]})].iter().map(|event| format!("event: rat.space.permissions\ndata: {event}\n\n")).collect::<String>();
+            write!(stream,"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",body.len()).unwrap();
+        });
+        let result = Api::new(endpoint, "fixture".into())
+            .unwrap()
+            .execute(Task::Activity {
+                id: "sess_shared".into(),
+                cursor: Some("act_sess_shared_8".into()),
+                role: "collaborator".into(),
+                permissions: vec!["read".into(), "contribute".into()],
+            })
+            .unwrap();
+        match result {
+            Data::Authority { role, permissions } => {
+                assert_eq!(role, "viewer");
+                assert_eq!(permissions, vec!["read"]);
+            }
+            _ => panic!("Expected the changed authority"),
+        }
+        server.join().unwrap();
+    }
+
+    #[test]
     fn runtime_submission_rejects_a_full_reserved_queue_without_enqueuing() {
         let (jobs, _incoming) = mpsc::sync_channel(4);
         let (runtime_jobs, runtime_incoming) = mpsc::sync_channel(2);
+        let (activity_jobs, _activity_incoming) = mpsc::sync_channel(2);
         let (_completed, completions) = mpsc::channel();
         let mut worker = Worker {
             jobs,
             runtime_jobs,
+            activity_jobs,
             completions,
             next_id: 0,
         };

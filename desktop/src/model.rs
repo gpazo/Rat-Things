@@ -272,6 +272,10 @@ pub(crate) struct Page {
 
 #[derive(Clone)]
 pub(crate) struct SessionSnapshot {
+    pub cursor: Option<String>,
+    pub role: Option<String>,
+    pub permissions: Option<Vec<String>>,
+    pub actor_labels: std::collections::HashMap<String, String>,
     pub runtime: Result<RuntimeInfo, String>,
     pub session: Resource,
     pub items: Vec<Resource>,
@@ -280,6 +284,61 @@ pub(crate) struct SessionSnapshot {
 }
 
 impl SessionSnapshot {
+    pub fn from_activity(value: Value) -> Result<Self, String> {
+        let parse = |name: &str| {
+            serde_json::from_value(value[name].clone())
+                .map_err(|_| format!("Invalid activity {name}"))
+        };
+        let mut actor_labels = std::collections::HashMap::new();
+        for input in value["inputs"].as_array().into_iter().flatten() {
+            let actor = &input["actor"];
+            let label = actor["label"]
+                .as_str()
+                .or(actor["subject"].as_str())
+                .or(actor["id"].as_str())
+                .unwrap_or("Participant");
+            for id in input["message_ids"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_str)
+            {
+                actor_labels.insert(id.to_owned(), label.to_owned());
+            }
+        }
+        let mut turns: Vec<Resource> = parse("turns")?;
+        turns.sort_by_key(|turn| {
+            std::cmp::Reverse(
+                turn.fields
+                    .get("created_at")
+                    .and_then(Value::as_u64)
+                    .unwrap_or_default(),
+            )
+        });
+        Ok(Self {
+            session: serde_json::from_value(value["session"].clone())
+                .map_err(|_| "Invalid activity Session")?,
+            items: parse("items")?,
+            turns,
+            artifacts: value
+                .get("artifacts")
+                .map(|value| serde_json::from_value(value.clone()))
+                .transpose()
+                .map_err(|_| "Invalid activity artifacts")?
+                .unwrap_or_default(),
+            runtime: serde_json::from_value(value["runtime"].clone())
+                .map_err(|_| "Runtime information is unavailable.".into()),
+            role: value["role"].as_str().map(ToOwned::to_owned),
+            permissions: value
+                .get("permissions")
+                .map(|value| serde_json::from_value(value.clone()))
+                .transpose()
+                .map_err(|_| "Invalid activity permissions")?,
+            cursor: value["cursor"].as_str().map(ToOwned::to_owned),
+            actor_labels,
+        })
+    }
+
     pub fn turn(&self) -> Option<&Resource> {
         self.turns
             .iter()

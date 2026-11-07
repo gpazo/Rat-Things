@@ -25,7 +25,8 @@ npm run console:serve
 It starts a private local service or connects to an existing `rat-things serve`
 process. Local Agents and Sessions survive app restarts. The local service supports
 conversations and managed Linux workspaces on Apple silicon Macs. The workspace
-menu checks runtime setup, opens ChatGPT sign-in, and prepares Session copies to AWS.
+menu checks runtime setup, opens ChatGPT sign-in, and connects team spaces.
+The existing AWS copy flow remains available for separate copies.
 Local Codex and Pi inference use your ChatGPT subscription. See [local workspaces](../docs/local-workspace.md).
 
 Use the workspace menu to connect to an existing AWS endpoint and region, or set
@@ -117,13 +118,51 @@ Vault credential values are write-only. The console clears credential drafts whe
 the editor closes. It does not persist transcripts, credential drafts or API tokens
 in a desktop state file. Artifact downloads use a native save dialog.
 
+## Work with your team
+
+Open the workspace menu and expand **Team spaces**. Enter your team's API URL,
+choose **Find team sign-in**, and sign in through your browser. Choose your account's
+spaces, then **Open team space**. **Reconnect** renews a saved connection with the
+same verified identity. **Sign out** removes its locally saved credentials.
+
+A viewer can follow shared progress. A collaborator can send messages, steer work,
+and start Sessions from admitted saved Agents. Controllers can cancel a Turn.
+Managers can configure resources and grant space roles to exact verified issuer and
+subject identities. Space access and the login's API permissions apply together.
+The console updates these controls as permissions change and clears cached content
+when access is revoked.
+
+To move a local Session into a team space, open it and choose **Share**. Select a
+connected team space and choose **Share Session**. Rat Things waits for a safe Turn
+boundary and preserves the Session identity, agent, history and workspace. When
+handoff completes, the console opens that same Session in its team space. Its
+hosted work continues after the desktop closes. Session execution capabilities stay
+fixed. Broader capabilities require a new Session.
+
+A failed Share keeps its operation identity for **Retry Share**. **Keep local** can
+stop a failed handoff only before the local service has released execution.
+After release, the service rejects local continuation and retries the hosted handoff.
+Closing the progress window does not cancel Share.
+
+Shared history identifies participants by their authenticated attribution. Live
+activity resumes from an observation cursor after reconnects without submitting new
+work. An uncertain message submission retains its request key for a safe retry.
+See [shared Sessions](../docs/collaboration.md) for the space and execution model.
+
 ## Authentication boundary
 
 The native process starts one Node helper with a fresh random token. The helper
 binds only to loopback, requires that token on every request, rejects browser origins
 and serves only `/api/v1/` requests. It reuses `src/agents-client.ts` for IAM signing,
-bearer issuance and renewal. The token is passed through environment and headers,
+bearer issuance and renewal. Team sign-in uses browser authorization code with PKCE,
+state and nonce, and validates the login identity separately from the API access token.
+The registered callback listens only on loopback. The token is passed through environment and headers,
 never a URL. Closing the app closes the helper; losing the parent pipe also closes it.
+Team access and refresh credentials stay in private host files under
+`~/.rat-things/connections` with a user-only directory and file permissions.
+`RAT_THINGS_CONNECTIONS_DIR` changes that location for isolated host installations.
+The native UI receives connection handles and public identity metadata, never refresh
+secrets. The local Share coordinator resolves those handles on the host.
 
 The helper rejects redirects except owner-authorized private artifact downloads.
 It fetches those artifacts without forwarding the API's credentials. Production API
