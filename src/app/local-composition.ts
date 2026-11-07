@@ -1,4 +1,5 @@
 import { LocalShareService, type ShareConnectionFactory } from './local-share.js';
+import { createTeamConnectionClient } from '../client-connections.js';
 import { SessionEventStore } from '../core/session-event-store.js';
 import { join } from 'node:path';
 import { AgentService } from '../core/agent-service.js';
@@ -77,11 +78,7 @@ export function createLocalServices(options: {
     rateLimit: new OwnerRateLimiter(store, ownerRateLimits(process.env.OWNER_RATE_LIMITS_JSON)) });
   const transfers = new LocalTransferService({ store, sessions, environments, owner: LOCAL_OWNER, snapshot: id => managed.snapshot(id) });
   const shares = new LocalShareService({ store, sessions, environments, owner: LOCAL_OWNER, snapshot: id => managed.snapshot(id),
-    connection: options.shareConnection ?? (async input => {
-      const modulePath = '../client-connections.js';
-      const { createTeamConnectionClient } = await import(modulePath) as { createTeamConnectionClient: ShareConnectionFactory };
-      return createTeamConnectionClient(input);
-    }),
+    connection: options.shareConnection ?? createTeamConnectionClient,
   });
   let stopped = false;
   let closed: Promise<void> | undefined;

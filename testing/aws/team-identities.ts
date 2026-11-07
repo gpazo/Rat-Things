@@ -16,6 +16,7 @@ export interface TestTeamIdentity {
   issuer: string;
   subject: string;
   username: string;
+  loginPassword: string;
   accessToken: string;
   idToken: string;
   accessTokenForRequest(): Promise<string>;
@@ -88,7 +89,7 @@ export async function createTeamIdentities(
         }).finally(() => { refreshing = undefined; });
         return refreshing;
       };
-      users.push({ issuer: fixture.issuer, subject, username, accessToken, idToken, accessTokenForRequest });
+      users.push({ issuer: fixture.issuer, subject, username, loginPassword: password, accessToken, idToken, accessTokenForRequest });
     }
     return { users, close };
   } catch (error) {
