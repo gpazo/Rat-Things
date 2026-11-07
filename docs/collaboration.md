@@ -2,7 +2,7 @@
 
 A team space contains shared Agents and Sessions. Everyone with access follows the
 same conversation, tool activity and results. Collaborators can contribute while
-the agent works; their messages retain their identities and acceptance order. The
+the agent works; their messages retain their identities and durable processing order. The
 agent keeps working when all participants disconnect. Use separate Sessions for
 separate goals.
 
@@ -52,6 +52,17 @@ Open a Session to follow its progress. Collaborators can send messages while a
 Turn is active, and the agent sees each participant's contribution. Viewer controls
 remain read-only. Reconnecting loads saved activity and resumes from a durable
 cursor; reconnecting does not submit the task again.
+
+Contributions are saved and made visible before the agent receives them. When
+messages arrive together, the service collects them until 300 ms of quiet, with
+at most one second of intentional waiting from the oldest pending contribution.
+Storage, dispatch and model latency add to that window. Large bursts split into
+bounded batches. Every message keeps its own author and receipt; batching does
+not summarize messages or resolve disagreement between collaborators.
+
+An active agent keeps working while feedback collects, then receives the batch
+as steering. A controller's cancellation bypasses the collection delay. Input
+acceptance means the contribution is durable, not that the model has processed it.
 
 The desktop's host helper owns the browser authorization-code flow, PKCE proof,
 token renewal and local credential storage. Team login tokens are never placed
@@ -229,12 +240,27 @@ Rat Things extensions live under `/v1/rat`:
 | `GET /v1/rat/me` | Verified caller identity |
 | `GET /v1/rat/spaces` | Accessible spaces |
 | `GET /v1/rat/sessions/{id}/activity` | Coherent Session, Turn, Item and attributed-input snapshot with cursor |
-| `GET /v1/rat/sessions/{id}/activity/events` | Durable activity updates over SSE |
+| `GET /v1/rat/sessions/{id}/activity/events` | Latest saved activity over SSE |
 | `POST /v1/rat/shares` | Stage a nonrunnable transfer |
 | `POST /v1/rat/shares/{id}/activate` | Activate a staged transfer after source release |
 
 Activity input records include actor, acceptance sequence, status and associated
 message and Turn IDs. Reconnect with the snapshot cursor in `Last-Event-ID`.
+While a contribution awaits dispatch, `pending_inputs` contains its messages,
+and its input receipt has an empty `turn_ids` array. Once assigned to a Turn,
+those same message IDs appear in `items`. Render pending messages immediately
+and deduplicate by message ID. Pending display positions are provisional;
+materialized receipt sequences define durable processing order. Simultaneous
+network requests have no guaranteed wall-clock arrival order.
+
+Activity streams coalesce intermediate snapshots and resume with the latest
+saved state; treat their cursors as opaque. Use the ordinary Agents event stream
+when an application needs every individual event. The desktop keeps its stream
+open across updates and periodically refreshes access and recovery snapshots.
+Projection work can be shared by viewers in the same server process; separate
+Lambda invocations still perform their own polling. Immutable history hydration
+is cached with memory bounds, while authorization and revocation checks remain
+current for each viewer.
 Source history carried by Share is marked **imported**. Its reported identities
 provide context and are not treated as identities verified by the team deployment.
 If a cursor is no longer available, obtain a fresh snapshot before resubscribing.

@@ -64,7 +64,7 @@ it('replays a coherent snapshot and cursor without model calls, and revokes visi
   const event = (await events.next()).value!;
   expect(event.activity.cursor).toBe(event.event_id);
   expect(event.activity.inputs).toHaveLength(2);
-  expect(event.activity.pending_inputs.flatMap(input => input.messages)).toHaveLength(1);
+  expect(event.activity.pending_inputs?.flatMap(input => input.messages)).toHaveLength(1);
   expect(f.execution.start).not.toHaveBeenCalled();
   removed = true;
   await expect(events.next()).rejects.toMatchObject({ status: 403 });

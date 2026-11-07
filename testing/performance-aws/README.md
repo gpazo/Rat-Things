@@ -7,7 +7,7 @@ real model for one-word replies. It does not deploy infrastructure or collect
 CloudWatch billing data. Ordinary tests never invoke AWS.
 
 The controller rejects GPT-6 Astra and requires an explicitly configured
-GPT-6 Luna model ID. Workload inputs are capped at 60, setup Session inputs at
+GPT-6 Luna or GPT-5.6 Luna model ID. Choose one supported by the deployment region and endpoint. Workload inputs are capped at 60, setup Session inputs at
 8, controller HTTP client retries are disabled, and the prompt requests a one-word
 reply. The artifact fails if observed assistant output for any Turn exceeds 256
 UTF-8 bytes. This observation guard does not impose a provider token limit before

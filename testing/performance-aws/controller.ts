@@ -64,7 +64,7 @@ export function liveConfiguration(environment: NodeJS.ProcessEnv) {
   const model = required('AWS_E2E_CODEX_MODEL_ID');
   if (!/^[a-zA-Z0-9._:/-]{1,200}$/.test(model)) throw new Error('Invalid model identifier.');
   if (/astra/i.test(model)) throw new Error('GPT-6 Astra is prohibited for performance validation.');
-  if (!/(?:^|[.:/-])gpt-6-luna(?:$|[.:/-])/i.test(model)) throw new Error('This bounded performance run requires an explicitly configured GPT-6 Luna model ID.');
+  if (!/(?:^|[.:/-])gpt-(?:6|5\.6)-luna(?:$|[.:/-])/i.test(model)) throw new Error('This bounded performance run requires an explicitly configured GPT-6 Luna or GPT-5.6 Luna model ID.');
   const fixture = JSON.parse(required('TEAM_OIDC_FIXTURE_JSON')) as TeamIdentityFixture;
   return { region, baseURL, operatorURL, model, fixture };
 }
@@ -134,7 +134,7 @@ export async function run(options: Options, environment: NodeJS.ProcessEnv = pro
       'Progress requires new assistant text or tool Item in a receipt-linked Turn absent from the pre-round baseline. Shared-Turn attribution is ambiguous.',
       'Connection occupancy is client request-to-close time, not Lambda billed duration. Stream byte counts are decoded HTTP body bytes, not wire/TLS bytes.',
       'Desktop mode models activity HTTP cadence and authority polling; it is not a native UI test or complete UI workload.',
-      'Each scenario has a distinct space; explicit rounds can reach the unchanged owner rate limit. No submission retries. Setup inputs count separately from the 60-workload-input cap; GPT-6 Luna is selected explicitly and GPT-6 Astra is rejected.',
+      'Each scenario has a distinct space; explicit rounds can reach the unchanged owner rate limit. No submission retries. Setup inputs count separately from the 60-workload-input cap; A supported Luna model is selected explicitly and GPT-6 Astra is rejected.',
       'Percentiles exclude censored/error samples; retained counts and individual samples are required context.'],
     provisionalTargets: { durableAcknowledgementP95Ms: 500, durableAcknowledgementP99Ms: 1500, peerInputP95Ms: 1000, peerInputP99Ms: 2000 },
     desktopPlayback: options.streamMode === 'desktop' ? { activityFrameLimit: null, reconnectMsAfterEofOrTimeout: 50, streamTimeoutMs: 20_000, snapshotOnInitialOrRecovery: true,

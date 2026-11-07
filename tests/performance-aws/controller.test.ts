@@ -15,6 +15,7 @@ it('requires explicit live opt-ins before operations and restricts the matrix', 
   expect(() => parseArguments(['--output', '/tmp/test', '--rounds', '0'])).toThrow('rounds');
   expect(parseArguments(['--output', '/tmp/test', '--scenario', '20x20', '--stream-mode', 'desktop'])).toMatchObject({ scenarios: [{ writers: 20, viewers: 20 }], streamMode: 'desktop' });
   expect(liveConfiguration(liveEnvironment('openai.gpt-6-luna')).model).toBe('openai.gpt-6-luna');
+  expect(liveConfiguration(liveEnvironment('openai.gpt-5.6-luna')).model).toBe('openai.gpt-5.6-luna');
   expect(() => liveConfiguration(liveEnvironment('openai.gpt-6-astra'))).toThrow('prohibited');
   await expect(run(parseArguments(['--output', '/tmp/aws-performance-test.json', '--scenario', '20x20', '--rounds', '4']), liveEnvironment('openai.gpt-6-luna'))).rejects.toThrow('cap is 60');
 });

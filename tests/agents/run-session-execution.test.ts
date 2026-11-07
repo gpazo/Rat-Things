@@ -51,6 +51,22 @@ async function fixture(placement?: SessionPlacementPolicy) {
 }
 
 describe('persistent harness input admission', () => {
+  it('checks a dispatched batch follower connection when its caller waits for acceptance', async () => {
+    const f = await fixture();
+    await f.store.put({ id: f.session.id, ownerId: 'alice', collection: 'sessions', createdAt: 100, revision: 1, value: { session: f.session, turns: [], receipts: {}, deletedArtifacts: [] } }, 0);
+    f.execution.start = vi.fn(async () => {});
+    f.execution.observe = async (_owner, _session, turn) => ({ turn, requiredActions: [] });
+    f.execution.items = async () => [];
+    const sessions = new SessionService({ store: f.store, agents: new AgentService({ store: f.store }), execution: f.execution, clock: f.clock });
+    const body = { events: [{ type: 'agent.session.input.message', input: [{ role: 'user', content: [{ type: 'input_text', text: 'Continue' }] }] }] };
+    const caller = { actor: { id: 'alice', kind: 'human' as const } };
+    await sessions.events('alice', f.session.id, body, 'leader', { waitForConnection: false, caller });
+    await sessions.events('alice', f.session.id, body, 'follower', { waitForConnection: false, caller });
+    await sessions.dispatch('alice', f.session.id);
+    f.execution.checkInputConnection = vi.fn(async () => { throw new AgentsApiError(408, 'Connection timed out', 'environment_connection_timeout'); });
+    await expect(sessions.events('alice', f.session.id, body, 'follower', { waitForConnection: true, caller })).rejects.toMatchObject({ code: 'environment_connection_timeout' });
+    expect(f.execution.checkInputConnection).toHaveBeenCalledTimes(1);
+  });
   it('waits for the native control bridge even after the Run starts heartbeating', async () => {
     const f = await fixture(); await f.connect();
     f.events.mockResolvedValueOnce({ runId: f.run.runId, active: true, ready: false, oldestSequence: 0, nextSequence: 0, events: [], pendingRequests: [] });

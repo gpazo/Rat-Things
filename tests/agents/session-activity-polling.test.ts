@@ -9,6 +9,8 @@ it('coalesces projection work and releases cached history when the last viewer l
   const b = polling.subscribe('session', 500, load);
   expect(await Promise.all([a.read(), b.read()])).toEqual([{ cursor: 'one' }, { cursor: 'one' }]);
   expect(load).toHaveBeenCalledTimes(1);
+  (await a.read()).cursor = 'mutated';
+  expect((await b.read()).cursor).toBe('one');
   a.release(); b.release();
   const next = polling.subscribe('session', 500, load);
   await next.read();

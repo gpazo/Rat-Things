@@ -7,7 +7,7 @@ export function activity(): Activity {
   return {
     cursor: 'cursor-1', session: { id: 'session-fixture' },
     turns: [{ id: 'new-turn', status: 'completed', usage: null }],
-    inputs: [{ id: 'receipt-a', actor: { id: 'actor-a', subject: work.subject }, sequence: 1, status: 'dispatched', accepted_at: 1, turn_ids: ['new-turn'], message_ids: ['input-a'] }],
+    inputs: [{ id: 'receipt-a', actor: { id: 'actor-a', kind: 'human', subject: work.subject }, sequence: 1, status: 'dispatched', accepted_at: 1, turn_ids: ['new-turn'], message_ids: ['input-a'] }],
     items: [
       { id: 'input-a', type: 'message', role: 'user', turn_id: 'new-turn', content: [{ type: 'input_text', text: work.text }] },
       { id: 'old-output', type: 'message', role: 'assistant', turn_id: 'old-turn', content: [{ type: 'output_text', text: 'Old output.' }] },
@@ -44,7 +44,7 @@ describe('exact client observations', () => {
     accepted.inputs[0]!.turn_ids = [];
     accepted.inputs[0]!.provenance = { kind: 'authenticated' };
     (accepted as Activity & { pending_inputs: Array<{ receipt_id: string; messages: Array<{ id: string; role: string; content: Array<{ type: string; text: string }> }> }> }).pending_inputs = [
-      { receipt_id: 'receipt-a', messages: [{ id: 'input-a', role: 'user', content: [{ type: 'input_text', text: work.text }], actor: { id: 'actor-a', subject: work.subject }, provenance: { kind: 'authenticated' } }] },
+      { receipt_id: 'receipt-a', messages: [{ id: 'input-a', role: 'user', content: [{ type: 'input_text', text: work.text }], actor: { id: 'actor-a', kind: 'human', subject: work.subject }, provenance: { kind: 'authenticated' } }] },
     ];
     const observedPending = observePeer(peer, accepted, work, 105);
     expect(observedPending.input).toEqual({ state: 'observed', latencyMs: 5, receiptId: 'receipt-a', turnIds: [] });

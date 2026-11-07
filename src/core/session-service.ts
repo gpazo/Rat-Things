@@ -623,7 +623,7 @@ export class SessionService {
       const receipt = value.receipts[key];
       if (!receipt) { await delay(Math.min(this.options.streamIntervalMs ?? 500, 2_000), undefined, { signal }); continue; }
       if (receipt.failure) throw new AgentsApiError(receipt.failure.code === 'environment_connection_timeout' ? 408 : 400, receipt.failure.message, receipt.failure.code);
-      if (receipt.dispatched || value.session.environment.type !== 'self_hosted') return;
+      if (value.session.environment.type !== 'self_hosted') return;
       try {
         for (const command of (receipt.batchLeader ? value.receipts[receipt.batchLeader]?.commands : receipt.commands) ?? []) {
           if (command.type !== 'start') continue;

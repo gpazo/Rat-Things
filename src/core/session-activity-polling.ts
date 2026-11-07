@@ -1,6 +1,6 @@
 import type { SessionActivity } from './session-activity.js';
 
-interface Poll { users: number; at: number; pending?: Promise<SessionActivity>; value?: SessionActivity; bytes: number }
+interface Poll { users: number; at: number; pending?: Promise<SessionActivity> | undefined; value?: SessionActivity | undefined; bytes: number }
 /** Share projection reads within one service process; authorization stays with each subscriber. */
 export class SessionActivityPolling {
   private readonly polls = new Map<string, Poll>();
@@ -14,8 +14,8 @@ export class SessionActivityPolling {
     return {
       read: async () => {
         if (!shared) return load();
-        if (shared.pending) return shared.pending;
-        if (shared.value && Date.now() - shared.at < intervalMs) return shared.value;
+        if (shared.pending) return structuredClone(await shared.pending);
+        if (shared.value && Date.now() - shared.at < intervalMs) return structuredClone(shared.value);
         const pending = load(); shared.pending = pending;
         try {
           const value = await pending;
@@ -25,7 +25,7 @@ export class SessionActivityPolling {
             shared.value = value; shared.bytes = size; this.bytes += size;
           }
           shared.at = Date.now();
-          return value;
+          return structuredClone(value);
         } finally { shared.pending = undefined; }
       },
       release: () => {
