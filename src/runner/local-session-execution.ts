@@ -1,3 +1,4 @@
+import { requireLocalExecution } from '../core/session-share-fence.js';
 import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { AgentsStore } from '../core/agents-ports.js';
@@ -47,6 +48,7 @@ export class LocalSessionExecution implements SessionExecution {
   public environment(owner: string, session: AgentSession) { return this.options.managed?.state(owner, session) ?? Promise.resolve(undefined); }
   public initialize(owner: string, session: AgentSession) {
     return this.lifecycle.run(session.id, async () => {
+      await requireLocalExecution(this.options.store, owner, session.id);
       const state = await this.options.store.get<SessionState>(owner, 'sessions', session.id);
       if (state && Object.values(state.value.receipts).some(receipt => !receipt.dispatched)) return;
       await this.options.managed?.initialize(owner, session);
@@ -58,6 +60,7 @@ export class LocalSessionExecution implements SessionExecution {
     return this.lifecycle.run(session.id, () => this.startTurn(owner, session, binding, history));
   }
   private async startTurn(owner: string, session: AgentSession, binding: SessionTurnBinding, history: AgentSessionItem[]) {
+    await requireLocalExecution(this.options.store, owner, session.id);
     const attempt = await this.options.store.get<Turn>(owner, 'local_turn_attempts', binding.turn.id);
     if (attempt) return;
     if (this.cancellations.has(session.id)) throw new AgentsApiError(503, 'The previous local worker has not confirmed shutdown.', 'local_runtime_stopping');
@@ -105,6 +108,7 @@ export class LocalSessionExecution implements SessionExecution {
   }
 
   public async steer(_owner: string, session: AgentSession, turn: string, input: Parameters<SessionExecution['steer']>[3], operation: string) {
+    await requireLocalExecution(this.options.store, _owner, session.id);
     await (await this.live(session.id)).steer(turn, input, operation);
     await this.writes;
   }
@@ -148,6 +152,7 @@ export class LocalSessionExecution implements SessionExecution {
     this.cancellations.delete(session.id);
   }
   public async toolResult(_owner: string, session: AgentSession, event: Parameters<SessionExecution['toolResult']>[2]) {
+    await requireLocalExecution(this.options.store, _owner, session.id);
     await (await this.live(session.id)).toolResult(event);
     await this.writes;
   }
@@ -192,9 +197,9 @@ export class LocalSessionExecution implements SessionExecution {
     if (cancelling) { await this.cancelManaged(owner, session, cancelling.turnId, cancelling.runtime); return; }
     const pending = this.runtimes.get(session.id);
     const runtime = await pending?.catch(() => undefined);
-    if (this.runtimes.get(session.id) === pending) this.runtimes.delete(session.id);
     try { await runtime?.close(); }
     finally { if (session.environment.type !== 'none') await this.options.managed?.close(owner, session); }
+    if (this.runtimes.get(session.id) === pending) this.runtimes.delete(session.id);
     await this.writes;
   }
   public shutdown() {
@@ -238,6 +243,7 @@ export class LocalSessionExecution implements SessionExecution {
     return pending;
   }
   private async launch(owner: string, session: AgentSession, history: AgentSessionItem[], previous: SessionRuntimeState | undefined) {
+    await requireLocalExecution(this.options.store, owner, session.id);
     const host = this.hostCodex();
     const workspace = join(this.options.directory, 'sessions', session.id);
     await mkdir(workspace, { recursive: true, mode: 0o700 });

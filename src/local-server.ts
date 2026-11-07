@@ -12,6 +12,7 @@ import { localServiceIdentity } from './domain/local-service.js';
 
 export async function startLocalServer(options: {
   directory?: string; port?: number; model?: string; maxSessions?: number;
+  shareConnection?: Parameters<typeof createLocalServices>[0]['shareConnection'];
   execution?: Parameters<typeof createLocalServices>[0]['execution'];
   runtime?: Parameters<typeof createLocalServices>[0]['runtime'];
   hostCodex?: Parameters<typeof createLocalServices>[0]['hostCodex'];
@@ -87,6 +88,13 @@ export async function startLocalServer(options: {
         } else if (/^\/v1\/workspace\/subscription\/login\/[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(url.pathname) && method === 'DELETE') {
           await services.subscription.cancelSignIn(url.pathname.split('/').at(-1)!);
           response = new Response(null, { status: 204 });
+        } else if (url.pathname === '/v1/workspace/shares' && method === 'GET') {
+          response = Response.json(await services.localShares.list());
+        } else if (url.pathname === '/v1/workspace/shares' && method === 'POST') {
+          response = Response.json(await services.localShares.create(await requestBody(request)), { status: 202 });
+        } else if (/^\/v1\/workspace\/shares\/[a-f0-9-]{36}$/.test(url.pathname) && ['GET', 'POST', 'DELETE'].includes(method)) {
+          const id = url.pathname.split('/').at(-1)!;
+          response = Response.json(method === 'GET' ? await services.localShares.retrieve(id) : method === 'DELETE' ? await services.localShares.abort(id) : await services.localShares.execute(id));
         } else if (url.pathname === '/v1/workspace/transfers/models' && method === 'POST') {
           response = Response.json(await services.transfers.models(await requestBody(request)));
         } else if (url.pathname === '/v1/workspace/transfers' && method === 'GET') {

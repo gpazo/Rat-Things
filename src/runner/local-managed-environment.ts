@@ -1,3 +1,4 @@
+import { requireLocalExecution } from '../core/session-share-fence.js';
 import { randomBytes, randomUUID } from 'node:crypto';
 import type { AgentsStore } from '../core/agents-ports.js';
 import type { EnvironmentService } from '../core/environment-service.js';
@@ -89,6 +90,9 @@ export class LocalManagedEnvironment {
     if (!resource) throw new AgentsApiError(404, 'Session not found.', 'resource_not_found');
     requireSessionMutable(resource.value, Math.floor(Date.now() / 1000));
     return this.serialize(sessionId, async () => {
+      const current = await this.options.store.get<SessionState>(owner, 'sessions', sessionId);
+      if (!current) throw new AgentsApiError(404, 'Session not found.', 'resource_not_found');
+      requireSessionMutable(current.value, Math.floor(Date.now() / 1000));
       const host = this.options.hostCodex();
       const connection = await this.ensureWorker(owner, resource.value.session);
       if (resource.value.session.environment.type !== 'openai_hosted') throw new Error('Expected managed environment');
@@ -140,6 +144,7 @@ export class LocalManagedEnvironment {
     return this.serialize(session.id, () => this.ensureWorker(owner, session));
   }
   private async ensureWorker(owner: string, session: AgentSession) {
+    await requireLocalExecution(this.options.store, owner, session.id);
     if (this.poisoned.has(session.id)) throw new Error('Local worker cleanup is unconfirmed');
     const existing = this.connections.get(session.id);
     if (existing && await this.options.runtime.running(session.id)) return existing;
@@ -190,6 +195,7 @@ export class LocalManagedEnvironment {
     return { workspace, worker: { ownerId: owner, sessionId: session.id, environmentId, executorKey, harnessKey, launch } };
   }
   private async start(owner: string, session: AgentSession, request: LocalStartRequest): Promise<WorkerConnection> {
+    await requireLocalExecution(this.options.store, owner, session.id);
     let started = false;
     try {
       const url = await this.options.runtime.start(request, async () => {

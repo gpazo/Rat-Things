@@ -49,6 +49,26 @@ async function fixture(responses: FauxResponseStep[], changes: Partial<SessionLa
 }
 
 describe('native Pi Session engine', () => {
+  it('hydrates a fresh private harness from completed public history without replaying effects', async () => {
+    const observed: string[] = [];
+    const f = await fixture([context => { observed.push(JSON.stringify(context.messages)); return answer('Continued'); }]);
+    const effect = vi.fn(async () => ({}));
+    const engine = await f.open({ mode: 'bounded', effect, launch: { ...f.launch, history: [
+      { id: 'completed_command', turn_id: 'old_turn', type: 'command_execution', command: 'write invoice', cwd: '/workspace', duration_ms: 1, exit_code: 0, output: 'invoice already created', status: 'completed' },
+    ] } });
+    expect(f.faux.state.callCount).toBe(0);
+    await engine.start(turn(), input('Continue the same goal'));
+    engine.resume(); await engine.finished;
+    expect(observed[0]).toContain('invoice already created');
+    expect(observed[0]).toContain('not requests to execute them again');
+    expect(effect).not.toHaveBeenCalled();
+    expect(engine.snapshot().turns.map(binding => binding.turn.id)).toEqual(['turn_1']);
+    await engine.close();
+    const reopened = await f.open({ launch: { ...f.launch, history: [{ id: 'should_not_reimport', turn_id: 'old_turn', type: 'message', role: 'user', content: [{ type: 'input_text', text: 'Duplicate history' }], status: 'completed', phase: null }] } });
+    expect((await reopened.checkpoint()).messages.filter(message => JSON.stringify(message).includes('invoice already created'))).toHaveLength(1);
+    expect(JSON.stringify((await reopened.checkpoint()).messages)).not.toContain('Duplicate history');
+  });
+
   it('publishes the cleanup commit sequence when recovery aborts unfinished native work', async () => {
     const f = await fixture([]);
     const engine = await f.open();

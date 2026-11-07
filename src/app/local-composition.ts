@@ -1,3 +1,5 @@
+import { LocalShareService, type ShareConnectionFactory } from './local-share.js';
+import { SessionEventStore } from '../core/session-event-store.js';
 import { join } from 'node:path';
 import { AgentService } from '../core/agent-service.js';
 import { ConfigurationHistory } from '../core/configuration-history.js';
@@ -29,6 +31,7 @@ export const LOCAL_OWNER = 'local-workspace';
 
 export function createLocalServices(options: {
   directory: string; model?: string; maxSessions?: number;
+  shareConnection?: ShareConnectionFactory | undefined;
   runtime?: LocalRuntime | undefined;
   hostCodex?: LocalCodexHostProvider | undefined;
   native?: LocalNativeServiceOptions | undefined;
@@ -38,8 +41,14 @@ export function createLocalServices(options: {
   const maxSessions = options.maxSessions ?? 2;
   if (!Number.isInteger(maxSessions) || maxSessions < 1 || maxSessions > 32) throw new Error('Local capacity must be an integer from 1 to 32.');
   if (options.native && (options.runtime || options.hostCodex)) throw new Error('Installed native services select their own runtime and host Codex.');
-  const store = new SqliteAgentsStore(options.directory);
-  try { store.acquireServerLease(); } catch (error) { store.close(); throw error; }
+  const rawStore = new SqliteAgentsStore(options.directory);
+  const journal = new SessionEventStore(rawStore);
+  const store = new Proxy(rawStore, { get(target, key) {
+    const source = ['put', 'commit', 'commitAtObservation', 'delete'].includes(String(key)) ? journal : target;
+    const value: unknown = Reflect.get(source, key);
+    return typeof value === 'function' ? value.bind(source) : value;
+  } });
+  try { rawStore.acquireServerLease(); } catch (error) { rawStore.close(); throw error; }
   const agents = new AgentService({ store });
   const templates = new EnvironmentTemplateService({ store });
   const environments: EnvironmentService = new EnvironmentService({ store, templates,
@@ -53,7 +62,7 @@ export function createLocalServices(options: {
   const piCatalog = options.pi?.catalog ?? localPiCatalog();
   try {
     if (options.native) native = new LocalNativeService({ profileDirectory: options.directory,
-      assertHeld: () => store.assertServerLease(), runWhileHeld: work => store.runWhileServerLeaseHeld(work) }, options.native, { store, owner: LOCAL_OWNER });
+      assertHeld: () => rawStore.assertServerLease(), runWhileHeld: work => rawStore.runWhileServerLeaseHeld(work) }, options.native, { store, owner: LOCAL_OWNER });
     runtime = native?.runtime ?? options.runtime ?? createLocalRuntime(options.directory);
     const hostCodex = native?.hostCodex ?? options.hostCodex ?? developmentLocalCodexHost(options.directory);
     managed = new LocalManagedEnvironment({ store, runtime, environments, maxSessions, hostCodex });
@@ -62,11 +71,18 @@ export function createLocalServices(options: {
     const pi = new LocalPiExecution({ store, maxSessions, managed, models: options.pi?.models ?? (pin => createLocalPiModels(pin, () => account.accessToken())) });
     harness = { ...codex, execution: localExecutionRouter(store, codex.execution, pi) };
   }
-  catch (error) { store.close(true); throw error; }
+  catch (error) { rawStore.close(true); throw error; }
   const { execution, account: subscription } = harness;
   const sessions = new SessionService({ store, agents, execution, streamIntervalMs: 100, piCatalog, piManagedStorage: true,
     rateLimit: new OwnerRateLimiter(store, ownerRateLimits(process.env.OWNER_RATE_LIMITS_JSON)) });
   const transfers = new LocalTransferService({ store, sessions, environments, owner: LOCAL_OWNER, snapshot: id => managed.snapshot(id) });
+  const shares = new LocalShareService({ store, sessions, environments, owner: LOCAL_OWNER, snapshot: id => managed.snapshot(id),
+    connection: options.shareConnection ?? (async input => {
+      const modulePath = '../client-connections.js';
+      const { createTeamConnectionClient } = await import(modulePath) as { createTeamConnectionClient: ShareConnectionFactory };
+      return createTeamConnectionClient(input);
+    }),
+  });
   let stopped = false;
   let closed: Promise<void> | undefined;
   let ticking: Promise<void> | undefined;
@@ -76,6 +92,7 @@ export function createLocalServices(options: {
       const page = await store.list<SessionState>(LOCAL_OWNER, 'sessions', { limit: 100, ...(after ? { after } : {}) });
       for (const resource of page.data) {
         if (stopped || native && !native.ready()) return;
+        if (resource.value.share && resource.value.share.phase !== 'quiescing') continue;
         if (resource.value.runtime?.kind === 'pi') await execution.reconcile?.(LOCAL_OWNER, resource.value.session).catch(() => undefined);
         if (Object.values(resource.value.receipts).some(receipt => !receipt.dispatched)
           || resource.value.session.environment.type === 'openai_hosted'
@@ -96,7 +113,7 @@ export function createLocalServices(options: {
     void native?.stop();
   };
   return {
-    agents, sessions, templates, environments, subscription, transfers, runtime, runtimeChanges: native,
+    agents, sessions, templates, environments, subscription, transfers, localShares: shares, runtime, runtimeChanges: native,
     history: new ConfigurationHistory(store), authorizations: new ToolAuthorizationService(store),
     directory: options.directory, maxSessions,
     harness: harness.id,
@@ -113,13 +130,13 @@ export function createLocalServices(options: {
       const startupStopped = native?.stop();
       await ticking;
       await startupStopped;
-      await store.drainServerLease();
+      await rawStore.drainServerLease();
       const failures: unknown[] = [];
-      for (const stop of [() => transfers.close(), () => harness.close(), () => execution.shutdown(), () => managed.shutdown(), () => native?.close()]) {
+      for (const stop of [() => shares.close(), () => transfers.close(), () => harness.close(), () => execution.shutdown(), () => managed.shutdown(), () => native?.close()]) {
         try { await stop(); } catch (error) { failures.push(error); }
       }
       if (failures.length) throw new AggregateError(failures, 'Local workspace shutdown did not complete.');
-      store.close(true);
+      rawStore.close(true);
       })();
       return closed;
     },

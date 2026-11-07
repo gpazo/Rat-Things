@@ -242,3 +242,29 @@ it('leaves workspace and attachment metadata untouched when a runtime refuses ad
     expect(attach).toHaveBeenCalledOnce();
   } finally { await services.close(); await rm(directory, { recursive: true, force: true }); }
 });
+
+it.each(['frozen', 'released'] as const)('honors a durable %s Share fence in native startup and environment file paths', async phase => {
+  const directory = await mkdtemp(join(tmpdir(), 'rat-share-fence-'));
+  const backend = runtime();
+  let managed!: LocalManagedEnvironment;
+  let execution!: LocalSessionExecution;
+  let store!: SqliteAgentsStore;
+  const services = createLocalServices({ directory, runtime: backend, execution: (storage, environment) => {
+    store = storage; managed = environment;
+    execution = new LocalSessionExecution({ store, directory, maxSessions: 2, managed });
+    return execution;
+  } });
+  try {
+    const session = await services.sessions.create(LOCAL_OWNER, { agent: { model: 'gpt-5.4' }, environment: { type: 'openai_hosted' } });
+    services.stop();
+    const resource = (await store.get<import('../../src/core/session-ports.js').SessionState>(LOCAL_OWNER, 'sessions', session.id))!;
+    await store.put({ ...resource, revision: resource.revision + 1, value: { ...resource.value, share: { operationId: 'fixture-share', phase } } }, resource.revision);
+    await expect(managed.initialize(LOCAL_OWNER, session)).rejects.toMatchObject({ code: 'session_shared' });
+    await expect(managed.files(LOCAL_OWNER, session.id, { operation: 'list', path: '/workspace' })).rejects.toMatchObject({ code: 'session_shared' });
+    await expect(execution.initialize(LOCAL_OWNER, session)).rejects.toMatchObject({ code: 'session_shared' });
+    const fresh = new LocalSessionExecution({ store, directory, maxSessions: 2, managed });
+    try { await expect(fresh.initialize(LOCAL_OWNER, session)).rejects.toMatchObject({ code: 'session_shared' }); }
+    finally { await fresh.shutdown(); }
+    expect(backend.start).not.toHaveBeenCalled();
+  } finally { await services.close(); await rm(directory, { recursive: true, force: true }); }
+});

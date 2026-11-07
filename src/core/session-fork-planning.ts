@@ -4,6 +4,7 @@ import { resolveHostedEnvironment } from '../domain/environment-planning.js';
 import type { SessionState } from './session-ports.js';
 
 export function requireSessionMutable(state: SessionState, now: number): void {
+  if (state.share) throw new AgentsApiError(409, 'This Session is moving to its shared space.', 'session_shared');
   if (state.closing || state.forkLock && state.forkLock.expiresAt > now) throw new AgentsApiError(409, 'Session preparation is in progress. Retry shortly.', 'session_busy');
 }
 

@@ -4,6 +4,8 @@ import { canonicalJson } from '../domain/json.js';
 export interface SessionStreamSnapshot {
   /** Private subscription cursor, never serialized as a public resource. */
   eventRevision?: number;
+  inputs?: import('./session-activity.js').SessionInputReceipt[];
+  artifacts?: import('../domain/agents-api.js').SessionArtifact[];
   session: AgentSession; turns: Turn[]; items: AgentSessionItem[];
   failures?: Array<{ id: string; code: string; message: string }>;
   environment?: AgentSessionEnvironmentState;

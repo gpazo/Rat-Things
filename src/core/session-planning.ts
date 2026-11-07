@@ -85,7 +85,7 @@ export function planSessionInput(
   state: SessionState,
   observation: SessionObservation,
   events: AgentSessionInputParam[],
-  ids: { turnIds: string[]; messageIds: string[]; operationIds: string[]; itemAnchors?: Record<string, string | null> },
+  ids: { turnIds: string[]; messageIds: string[]; operationIds: string[]; itemAnchors?: Record<string, string | null>; actor?: import('./session-caller.js').SessionActor },
   now: number,
 ): { state: SessionState; commands: SessionCommand[] } {
   if (!events.length) invalid('events must not be empty', 'events');
@@ -104,13 +104,13 @@ export function planSessionInput(
       if (!event.input.length || event.input.some((message) => !message.content.length)) invalid('input must contain at least one content part', 'events.input');
       let afterItemId = active ? ids.itemAnchors?.[active.turn.id] ?? active.input.at(-1)?.id ?? null : null;
       const messages = event.input.map((message) => {
-        const planned = { ...message, id: ids.messageIds[messageOffset++]!, afterItemId, acceptedOrdinal: acceptedOrdinal++ };
+        const planned = { ...message, ...(ids.actor ? { actor: ids.actor } : {}), id: ids.messageIds[messageOffset++]!, afterItemId, acceptedOrdinal: acceptedOrdinal++ };
         afterItemId = planned.id;
         return planned;
       });
       if (active) {
         turns = turns.map((binding) => binding.turn.id === active.turn.id ? { ...binding, input: [...binding.input, ...messages] } : binding);
-        commands.push({ type: 'steer', turnId: active.turn.id, input: event.input, operationId: ids.operationIds[eventIndex]! });
+        commands.push({ type: 'steer', turnId: active.turn.id, input: messages, operationId: ids.operationIds[eventIndex]! });
       } else {
         const turn: Turn = {
           id: ids.turnIds[eventIndex]!, object: 'agent.session.turn', session_id: state.session.id,

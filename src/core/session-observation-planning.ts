@@ -1,3 +1,4 @@
+import { sessionInputs } from './session-activity.js';
 import type { AgentSessionEnvironmentState } from '../domain/agents-api.js';
 import type { StoredEnvironment } from './environment-service.js';
 import type { SessionState } from './session-ports.js';
@@ -7,7 +8,7 @@ import { runtimeSubagents } from './session-runtime-planning.js';
 import type { SessionStreamSnapshot } from './session-stream.js';
 
 /** A public observation from committed values; no live worker, clock or database reads. */
-export function savedSessionObservation(state: SessionState, runtime: StoredSessionRuntime | undefined, environment: StoredEnvironment | undefined, now: number): SessionStreamSnapshot {
+export function savedSessionObservation(state: SessionState, runtime: Pick<StoredSessionRuntime, 'snapshot'> | undefined, environment: StoredEnvironment | undefined, now: number): SessionStreamSnapshot {
   const native = runtime?.snapshot;
   const subagents = native ? runtimeSubagents(native) : state.subagents ?? [];
   const status = environment?.retired ? 'expired' : environment?.status === 'connected' && (environment.connectedUntil ?? 0) <= now ? 'disconnected' : environment?.status;
@@ -25,8 +26,10 @@ export function savedSessionObservation(state: SessionState, runtime: StoredSess
   const current = environmentState?.status === 'failed' && !environment?.retired ? { ...state, session: { ...state.session, status: 'failed' as const, error: 'The execution environment is unavailable. Create a new session.' } } : state;
   const observation = observeSession(current, [...observations, ...subagents.flatMap((entry) => entry.turns.map((turn) => ({ turn, requiredActions: (entry.requiredActions ?? []).filter((action) => action.type === 'function_call' && action.turn_id === turn.id) })))]);
   return {
+    inputs: sessionInputs(state),
+    artifacts: [...state.turns.flatMap(turn => turn.savedArtifacts ?? []), ...subagents.flatMap(subagent => subagent.artifacts ?? [])].map(entry => entry.artifact).filter(artifact => !state.deletedArtifacts.includes(artifact.id)),
     session: observation.session, turns: observation.turns.map(({ turn }) => turn),
-    items: [...state.turns.flatMap((binding) => orderedTurnItems(state, binding, binding.savedItems ?? native?.turns.find((entry) => entry.turn.id === binding.turn.id)?.items ?? [])), ...subagents.flatMap((entry) => entry.items)],
+    items: [...state.importedHistory ?? [], ...state.turns.flatMap((binding) => orderedTurnItems(state, binding, binding.savedItems ?? native?.turns.find((entry) => entry.turn.id === binding.turn.id)?.items ?? [])), ...subagents.flatMap((entry) => entry.items)],
     subagents: subagents.map((entry) => entry.subagent),
     failures: Object.entries(state.receipts).flatMap(([id, receipt]) => receipt.failure ? [{ id, ...receipt.failure }] : []),
     ...(environmentState ? { environment: environmentState } : {}),

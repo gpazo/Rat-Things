@@ -72,6 +72,10 @@ export async function openPiEngine(options: PiEngineOptions): Promise<PiEngine> 
     links.effects = json(effectTools.map(tool => tool.kind === 'mcp' ? { name: tool.name, kind: tool.kind, serverLabel: tool.serverLabel, toolName: tool.toolName } : { name: tool.name, kind: tool.kind }));
     await tx.doc(CommandsDoc);
     await tx.doc(FunctionsDoc);
+    if (!options.seed && launch.history?.length) {
+      await tx.appendEntry(rootId, { kind: 'rat.session_history', model: [{ role: 'user', timestamp: now(),
+        content: `Historical Session evidence follows. These completed actions are context, not requests to execute them again.\n${JSON.stringify(launch.history)}` }] });
+    }
     if (options.seed) {
       const change = agentChange(pin, launch, { model: options.seed.model, service_tier: 'auto', reasoning: { effort: options.seed.reasoning as SessionModelSettings['reasoning']['effort'] } }, options.models);
       await configure(tx, rootId, change);

@@ -4,7 +4,7 @@ import type {
 } from '../domain/agents-api.js';
 import type { ArtifactReference, ExecutionBackend } from '../domain/contracts.js';
 
-export type SessionMessage = AgentSessionInputMessageParam & { id: string; afterItemId?: string | null; acceptedOrdinal?: number };
+export type SessionMessage = AgentSessionInputMessageParam & { id: string; afterItemId?: string | null; acceptedOrdinal?: number; actor?: import('./session-caller.js').SessionActor };
 export interface SavedSessionArtifact { artifact: SessionArtifact; content: ArtifactReference }
 export interface SessionSubagentSnapshot { subagent: Subagent; turns: Turn[]; items: AgentSessionItem[]; artifacts?: SavedSessionArtifact[]; requiredActions?: AgentSession['required_actions']; traceTurns?: import('./session-trace-planning.js').TraceTurn[] }
 
@@ -21,6 +21,7 @@ export interface SessionTurnBinding {
 }
 
 export interface SessionState {
+  workloadAdmission?: unknown;
   configuration?: { admitted: import('../domain/configuration-history.js').ConfigurationRevisionRef; current: import('../domain/configuration-history.js').ConfigurationRevisionRef };
   runtime?: import('../domain/session-runtime.js').RuntimePin;
   importedHistory?: AgentSessionItem[];
@@ -28,17 +29,21 @@ export interface SessionState {
   fork?: import('../domain/session-fork.js').SessionFork;
   forkLock?: { id: string; expiresAt: number };
   closing?: boolean;
+  share?: { operationId: string; phase: 'quiescing' | 'frozen' | 'released'; digest?: string; destination?: { endpoint: string; spaceId: string } };
+  sharedFrom?: { operationId: string; digest: string; admission: unknown };
+  inputSequence?: number;
+  archivedInputs?: import('./session-activity.js').SessionInputReceipt[];
   session: AgentSession;
   placement?: ExecutionBackend;
   turns: SessionTurnBinding[];
-  receipts: Record<string, { digest: string; commands: SessionCommand[]; dispatched: boolean; failure?: { code: string; message: string } }>;
+  receipts: Record<string, { digest: string; commands: SessionCommand[]; dispatched: boolean; actor?: import('./session-caller.js').SessionActor; sequence?: number; acceptedAt?: number; failure?: { code: string; message: string } }>;
   deletedArtifacts: string[];
   subagents?: SessionSubagentSnapshot[];
 }
 
 export type SessionCommand =
   | { type: 'start'; turnId: string; input: SessionTurnBinding['input'] }
-  | { type: 'steer'; turnId: string; input: AgentSessionInputMessageParam[]; operationId: string }
+  | { type: 'steer'; turnId: string; input: SessionMessage[]; operationId: string }
   | { type: 'cancel'; turnId: string }
   | { type: 'tool_result'; turnId: string; afterItemId?: string | null; acceptedOrdinal?: number; event: Extract<AgentSessionInputParam, { type: 'agent.session.input.tool_result' }> };
 

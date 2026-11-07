@@ -1,3 +1,4 @@
+import { requireLocalExecution } from '../core/session-share-fence.js';
 import { randomUUID } from 'node:crypto';
 import type { Models } from '@earendil-works/pi-ai';
 import type { AgentsStore } from '../core/agents-ports.js';
@@ -47,25 +48,27 @@ export class LocalPiExecution implements SessionExecution {
       if (this.closing || this.runtimes.has(session.id)) return;
       const state = await this.options.store.get<SessionState>(owner, 'sessions', session.id);
       // Undispatched commands must be replayed before the engine can resume inference.
-      if (!state || state.value.closing || Object.values(state.value.receipts).some(receipt => !receipt.dispatched)) return;
+      if (!state || state.value.share && state.value.share.phase !== 'quiescing' || state.value.closing || Object.values(state.value.receipts).some(receipt => !receipt.dispatched)) return;
       const lastTurn = state.value.turns.at(-1)?.turn;
       if (lastTurn && await this.options.store.get<Turn>(owner, 'local_turn_attempts', lastTurn.id)) return;
       if (initialize) await this.options.managed?.initialize(owner, session);
       const saved = await this.journal.get(owner, session.id);
       if (saved?.value.native?.head && !saved.value.closed && (saved.value.projectionSeq !== saved.value.native.head.seq
         || saved.value.snapshot?.turns.some(binding => !terminalTurn(binding.turn)))) {
+        await requireLocalExecution(this.options.store, owner, session.id);
         const engine = await this.engine(owner, session);
         await this.options.managed?.admitTurn(session);
         engine.resume();
       }
     });
   }
-  public start(owner: string, session: AgentSession, binding: SessionTurnBinding) {
+  public start(owner: string, session: AgentSession, binding: SessionTurnBinding, history: import('../domain/agents-api.js').AgentSessionItem[] = []) {
     return this.lifecycle.run(session.id, async () => {
+      await requireLocalExecution(this.options.store, owner, session.id);
       if (await this.options.store.get<Turn>(owner, 'local_turn_attempts', binding.turn.id)) return;
       let engine: PiEngine;
       try {
-        engine = await this.engine(owner, session);
+        engine = await this.engine(owner, session, history);
         await this.options.managed?.admitTurn(session);
       } catch (error) {
         if (retryableStartup(error)) throw error;
@@ -85,6 +88,7 @@ export class LocalPiExecution implements SessionExecution {
   }
   public steer(owner: string, session: AgentSession, turn: string, input: Parameters<SessionExecution['steer']>[3], operation: string) {
     return this.lifecycle.run(session.id, async () => {
+      await requireLocalExecution(this.options.store, owner, session.id);
       const engine = await this.engine(owner, session);
       await this.options.managed?.admitTurn(session);
       await engine.steer(turn, input, operation);
@@ -107,6 +111,7 @@ export class LocalPiExecution implements SessionExecution {
         finally { await runtime.close(); }
         return;
       }
+      await requireLocalExecution(this.options.store, owner, session.id);
       const engine = await this.engine(owner, session);
       if (engine.snapshot().turns.some(binding => binding.turn.id === turn)) await engine.cancel(turn);
       engine.resume();
@@ -114,6 +119,7 @@ export class LocalPiExecution implements SessionExecution {
   }
   public toolResult(owner: string, session: AgentSession, event: Parameters<SessionExecution['toolResult']>[2]) {
     return this.lifecycle.run(session.id, async () => {
+      await requireLocalExecution(this.options.store, owner, session.id);
       const engine = await this.engine(owner, session);
       const action = engine.snapshot().requiredActions.find(action => action.type === 'function_call' && action.call_id === event.call_id);
       if (action?.type === 'function_call' && action.turn_id !== event.turn_id) throw new AgentsApiError(409, 'Function result belongs to a different Turn.', 'conflict');
@@ -154,19 +160,20 @@ export class LocalPiExecution implements SessionExecution {
     await runtime?.close();
     if (pending === this.runtimes.get(id)) this.runtimes.delete(id);
   }
-  private engine(owner: string, session: AgentSession): Promise<PiEngine> {
+  private engine(owner: string, session: AgentSession, history: import('../domain/agents-api.js').AgentSessionItem[] = []): Promise<PiEngine> {
     if (this.closing) return Promise.reject(new AgentsApiError(503, 'Local workspace is shutting down.', 'service_unavailable'));
     const existing = this.runtimes.get(session.id);
     if (existing) return existing.then(runtime => runtime.engine);
     if (this.runtimes.size >= this.options.maxSessions) return Promise.reject(new AgentsApiError(503, 'All local Pi Session slots are busy. Work stays queued until a slot is free.', 'local_capacity'));
-    const pending = this.open(owner, session);
+    const pending = this.open(owner, session, 'execute', history);
     this.runtimes.set(session.id, pending);
     void pending.then(runtime => runtime.engine.finished).then(() => {
       if (!this.closing) return this.lifecycle.run(session.id, () => this.retire(session.id, pending));
     }).catch(() => { if (!this.closing) void this.lifecycle.run(session.id, () => this.retire(session.id, pending)).catch(() => {}); });
     return pending.then(runtime => runtime.engine);
   }
-  private async open(owner: string, session: AgentSession, mode: 'execute' | 'cancel' = 'execute'): Promise<LocalPiRuntime> {
+  private async open(owner: string, session: AgentSession, mode: 'execute' | 'cancel' = 'execute', history: import('../domain/agents-api.js').AgentSessionItem[] = []): Promise<LocalPiRuntime> {
+    await requireLocalExecution(this.options.store, owner, session.id);
     const state = await this.options.store.get<SessionState>(owner, 'sessions', session.id);
     if (state?.value.runtime?.kind !== 'pi' || state.value.closing || session.environment.type === 'self_hosted') throw new Error('A pinned local Pi Session with an admitted environment is required');
     const pin = state.value.runtime;
@@ -183,7 +190,7 @@ export class LocalPiExecution implements SessionExecution {
         effects = await this.options.managed.openPiEffects(owner, session, lease, { runId, epoch });
       }
       const engine = await openPiEngine({ storage, models: this.options.models(pin), mode: 'bounded', nativeSeq: previous?.value.native?.head?.seq ?? 0,
-        launch: { sessionId: session.id, turnId: '', runtime: pin, agent: session.agent, environment: session.environment, input: [] },
+        launch: { sessionId: session.id, turnId: '', runtime: pin, agent: session.agent, environment: session.environment, input: [], history },
         effectTools: effects?.tools ?? (session.environment.type === 'openai_hosted' ? PI_MANAGED_TOOLS : []),
         effect: effects?.execute ?? (async () => { throw new Error('No host effects are admitted in this Session'); }),
         changed: async (snapshot, seq) => { await this.journal.publishNative(owner, session.id, runId, seq, snapshot); },
