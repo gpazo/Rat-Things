@@ -98,5 +98,5 @@ export function activityStream(
 }
 
 function isExpectedShutdown(error: unknown): boolean {
-  return error instanceof AgentsApiError && (error.code === 'resource_not_found' || error.status === 401 || error.status === 403);
+  return error instanceof AgentsApiError && (error.status === 404 && error.code === 'resource_not_found' || error.status === 401 || error.status === 403);
 }
