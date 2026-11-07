@@ -58,6 +58,10 @@ token renewal and local credential storage. Team login tokens are never placed
 in a Session, workspace snapshot or worker. Signing out removes the saved team
 connection from this computer.
 
+Saved team connections live in `~/.rat-things/connections` in user-owned private
+files. Protect the host account and use device encryption for protection at rest.
+This credential store is separate from the Session's execution workspace.
+
 ## Share local work with a team
 
 Start alone in **This computer**, then use **Share** and choose a signed-in team
@@ -198,6 +202,11 @@ after an Agent edit, assign its revised configuration before collaborators use
 it. A shared local Agent is checked against the destination ceiling as part of
 Share. Its original identity and configuration must not collide with a different
 Agent in the space.
+
+If the destination already assigns that Agent an execution role, Share must also
+fit that assignment. A broader role elsewhere in the space does not override it.
+Forking creates a new Session and checks the current execution ceiling; an older
+Session's admitted authority does not bypass a role that has since been narrowed.
 
 ## API clients and activity
 
