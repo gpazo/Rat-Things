@@ -6,6 +6,8 @@ import type { SessionIntegrationInput, SessionIntegrationState, SessionIntegrati
 export const integrationDigest = (value: unknown): string => createHash('sha256').update(canonicalJson(value)).digest('hex');
 export const integrationInputDigest = ({ admission: _admission, ...input }: SessionIntegrationInput): string => integrationDigest(input);
 export const integrationSessionId = (bindingId: string, threadId: string): string => `sess_${integrationDigest([bindingId, threadId]).slice(0, 32)}`;
+export const integrationReceiptKey = (id: string): string => `integration:${integrationDigest(id)}`;
+export const integrationSessionReceiptId = (id: string): string => createHash('sha256').update(integrationReceiptKey(id)).digest('hex');
 
 export function integrationInputText(input: SessionIntegrationInput): string {
   return input.admission === 'candidate'
@@ -31,6 +33,19 @@ export function planIntegrationRetry(state: SessionIntegrationState, turnId: str
     return { ...retry, digest: integrationInputDigest(retry), turnId: retryTurnId };
   });
   return inputs.length ? { ...state, inputs: [...state.inputs, ...inputs] } : state;
+}
+
+/** Keep delivery attached to the accepted input when a definitive rejection moves it. */
+export function planIntegrationSteerRecovery(state: SessionIntegrationState, receiptId: string, fromTurnId: string, toTurnId: string): SessionIntegrationState {
+  if (fromTurnId === toTurnId) return state;
+  const index = state.inputs.findIndex((input, ordinal) => ordinal > 0 && integrationSessionReceiptId(input.id) === receiptId
+    && (input.turnId === undefined || input.turnId === fromTurnId));
+  if (index < 0) return state;
+  return { ...state, inputs: state.inputs.map((input, ordinal) => {
+    if (ordinal !== index) return input;
+    const { deliveryProcessed: _processed, ...pending } = input;
+    return { ...pending, turnId: toTurnId };
+  }) };
 }
 
 export const MAX_THREAD_INPUTS = 128;

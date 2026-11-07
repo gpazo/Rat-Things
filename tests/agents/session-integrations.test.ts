@@ -1,11 +1,53 @@
 import { describe, expect, it, vi } from 'vitest';
-import { acceptIntegrationInput } from '../../src/core/session-integration-planning.js';
+import { acceptIntegrationInput, integrationSessionReceiptId, planIntegrationSteerRecovery } from '../../src/core/session-integration-planning.js';
 import type { SessionState } from '../../src/core/session-ports.js';
 import { integrationFixture } from './integration-fixtures.js';
 import { SessionDeliveryService } from '../../src/delivery/session-delivery.js';
 import type { SessionDelivery, SessionIntegrationState } from '../../src/domain/session-integrations.js';
 
 describe('provider Sessions', () => {
+  it('moves only the rejected input delivery to its successor, including a previously processed receipt', async () => {
+    const f = await integrationFixture();
+    const first = acceptIntegrationInput(undefined, f.target, f.input);
+    const both = acceptIntegrationInput(first, f.target, { ...f.input, id: 'late', admission: 'candidate' });
+    const state = { ...both, inputs: both.inputs.map(input => ({ ...input, turnId: 'old', deliveryProcessed: true })) };
+    const next = planIntegrationSteerRecovery(state, integrationSessionReceiptId('late'), 'old', 'successor');
+    expect(next.inputs[0]).toBe(state.inputs[0]);
+    expect(next.inputs[1]).toEqual({ ...both.inputs[1], turnId: 'successor' });
+    expect(planIntegrationSteerRecovery(next, integrationSessionReceiptId('late'), 'old', 'successor')).toBe(next);
+    expect(planIntegrationSteerRecovery(state, 'unrelated', 'old', 'successor')).toBe(state);
+  });
+  it('does not overwrite a recovered delivery Turn with a stale submission acknowledgement', async () => {
+    const f = await integrationFixture();
+    const { sessionId } = await f.integrations.accept('operator', 'binding', 'thread', f.target, f.input);
+    await f.integrations.submitPending('operator', sessionId);
+    await f.sessions.dispatch('operator', sessionId);
+    await f.integrations.accept('operator', 'binding', 'thread', f.target, { ...f.input, id: 'late' });
+    const get = f.store.get.bind(f.store);
+    let readSession = false;
+    let moved = false;
+    f.store.get = async (owner, collection, id) => {
+      if (collection === 'sessions' && id === sessionId) readSession = true;
+      if (collection === 'session_integrations' && id === sessionId && readSession && !moved) {
+        moved = true;
+        const session = (await get<SessionState>(owner, 'sessions', id))!;
+        const integration = (await get<SessionIntegrationState>(owner, collection, id))!;
+        const key = integrationSessionReceiptId('late');
+        const receipt = session.value.receipts[key]!;
+        const from = receipt.commands[0]!.turnId;
+        await f.store.commit([
+          { resource: { ...session, revision: session.revision + 1, value: { ...session.value, receipts: { ...session.value.receipts,
+            [key]: { ...receipt, commands: receipt.commands.map(command => ({ ...command, turnId: 'successor' })) },
+          } } }, expectedRevision: session.revision },
+          { resource: { ...integration, revision: integration.revision + 1, value: planIntegrationSteerRecovery(integration.value, key, from, 'successor') }, expectedRevision: integration.revision },
+        ]);
+      }
+      return get(owner, collection, id);
+    };
+    await expect(f.integrations.submitPending('operator', sessionId)).rejects.toMatchObject({ code: 'conflict' });
+    await f.integrations.submitPending('operator', sessionId);
+    expect((await get<SessionIntegrationState>('operator', 'session_integrations', sessionId))!.value.inputs[1]?.turnId).toBe('successor');
+  });
   it('silences empty candidate completions and replies to explicit requests', async () => {
     const f = await integrationFixture();
     const { sessionId } = await f.integrations.accept('operator', 'binding', 'thread', f.target, { ...f.input, admission: 'candidate' });
@@ -130,11 +172,11 @@ describe('provider Sessions', () => {
   it('recovers after creating a Session but losing the integration acknowledgement', async () => {
     const f = await integrationFixture();
     const { sessionId } = await f.integrations.accept('operator', 'binding', 'thread', f.target, f.input);
-    const put = f.store.put.bind(f.store);
+    const commit = f.store.commit.bind(f.store);
     let failed = false;
-    vi.spyOn(f.store, 'put').mockImplementation(async (resource, revision) => {
-      if (resource.collection === 'session_integrations' && revision === 1 && !failed) { failed = true; throw new Error('Lost acknowledgement'); }
-      return put(resource, revision);
+    vi.spyOn(f.store, 'commit').mockImplementation(async (writes, observations) => {
+      if (writes.some(({ resource, expectedRevision }) => resource.collection === 'session_integrations' && expectedRevision === 1) && !failed) { failed = true; throw new Error('Lost acknowledgement'); }
+      return commit(writes, observations);
     });
     await expect(f.integrations.submitPending('operator', sessionId)).rejects.toThrow('Lost acknowledgement');
     await f.integrations.submitPending('operator', sessionId);
@@ -162,10 +204,10 @@ describe('provider Sessions', () => {
   it('does not resurrect a deleted Session after losing the first input acknowledgement', async () => {
     const f = await integrationFixture();
     const { sessionId } = await f.integrations.accept('operator', 'binding', 'thread', f.target, f.input);
-    const put = f.store.put.bind(f.store);
-    vi.spyOn(f.store, 'put').mockImplementation(async (resource, revision) => {
-      if (resource.collection === 'session_integrations' && revision === 1) throw new Error('Lost acknowledgement');
-      return put(resource, revision);
+    const commit = f.store.commit.bind(f.store);
+    vi.spyOn(f.store, 'commit').mockImplementation(async (writes, observations) => {
+      if (writes.some(({ resource, expectedRevision }) => resource.collection === 'session_integrations' && expectedRevision === 1)) throw new Error('Lost acknowledgement');
+      return commit(writes, observations);
     });
     await expect(f.integrations.submitPending('operator', sessionId)).rejects.toThrow('Lost acknowledgement');
     await f.sessions.dispatch('operator', sessionId);
