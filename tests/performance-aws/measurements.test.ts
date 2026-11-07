@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { distribution, finishCompletion, finishSample, observeCompletion, observePeer, receiptFor, receiptsSettled, settled, summarize, type Activity, type PeerSample, type Sample, type Workload } from '../../testing/performance-aws/measurements.js';
+import { distribution, finishCompletion, finishSample, observeCompletion, observePeer, receiptFor, receiptsSettled, settled, summarize, workloadObserved, type Activity, type PeerSample, type Sample, type Workload } from '../../testing/performance-aws/measurements.js';
 
 const work: Workload = { id: 'fixture-1', subject: 'writer-a', text: 'Sample fixture-1. Reply OK.', startedMs: 100, baselineTurns: ['old-turn'], baselineItems: ['old-turn:old-output'] };
 const peer: PeerSample = { peer: 'viewer-0', input: { state: 'pending' }, progress: { state: 'pending' } };
@@ -120,11 +120,46 @@ describe('exact client observations', () => {
     first.turns.push({ ...first.turns[0]!, id: 'rehomed-turn', status: 'in_progress' });
     first.inputs[0]!.turn_ids = ['rehomed-turn'];
     const partial = observeCompletion(completed, first, work, 140, 105);
-    expect(partial).toEqual({ state: 'pending' });
+    expect(partial).toMatchObject({ state: 'pending', turnIds: ['rehomed-turn'], turns: [{ turnId: 'rehomed-turn', status: 'in_progress', observedAtMs: 140 }] });
     first.turns[1]!.status = 'completed';
     const final = observeCompletion(partial, first, work, 150, 105);
     expect(final).toMatchObject({ state: 'observed', turnIds: ['rehomed-turn'], fromRequestMs: 50, fromAcknowledgementMs: 45,
       turns: [{ turnId: 'rehomed-turn', status: 'completed', observedAtMs: 150 }] });
+  });
+
+  it('retains first terminal observations through partial completion and does not inflate stable completion latency', () => {
+    const snapshot = activity();
+    snapshot.turns[0]!.status = 'completed';
+    snapshot.turns.push({ ...snapshot.turns[0]!, id: 'turn-b', status: 'in_progress' });
+    snapshot.inputs[0]!.turn_ids = ['new-turn', 'turn-b'];
+    const partial = observeCompletion(undefined, snapshot, work, 125, 105);
+    expect(partial).toMatchObject({ state: 'pending', turns: [
+      { turnId: 'new-turn', status: 'completed', observedAtMs: 125 },
+      { turnId: 'turn-b', status: 'in_progress', observedAtMs: 125 },
+    ] });
+    snapshot.turns[1]!.status = 'completed';
+    const complete = observeCompletion(partial, snapshot, work, 150, 105);
+    const repeat = observeCompletion(complete, snapshot, work, 900, 105);
+    expect(complete).toMatchObject({ state: 'observed', fromRequestMs: 50, fromAcknowledgementMs: 45,
+      turns: [{ turnId: 'new-turn', observedAtMs: 125 }, { turnId: 'turn-b', observedAtMs: 150 }] });
+    expect(repeat).toBe(complete);
+    snapshot.turns[0]!.status = 'in_progress';
+    expect(observeCompletion(complete, snapshot, work, 925, 105)).toMatchObject({ state: 'pending', turns: [
+      { turnId: 'new-turn', status: 'in_progress', observedAtMs: 925 },
+      { turnId: 'turn-b', status: 'completed', observedAtMs: 150 },
+    ] });
+  });
+
+  it('keeps a completed workload draining until the slow observer records input and progress', () => {
+    const snapshot = activity();
+    const completed = observeCompletion(undefined, snapshot, work, 125, 105);
+    const latePeer: PeerSample = { peer: 'late-viewer', input: { state: 'pending' }, progress: { state: 'pending' } };
+    const observed = { ...sample(), completion: completed, peers: [latePeer] };
+    expect(workloadObserved(observed, work, snapshot)).toBe(false);
+    observed.peers = [{ peer: 'late-viewer', input: { state: 'observed', latencyMs: 30, receiptId: 'receipt-a', turnIds: ['new-turn'] }, progress: { state: 'pending' } }];
+    expect(workloadObserved(observed, work, snapshot)).toBe(false);
+    observed.peers[0]!.progress = { state: 'observed', latencyMs: 45, turnId: 'new-turn', itemId: 'item-a', kind: 'message', attribution: 'unclassified' };
+    expect(workloadObserved(observed, work, snapshot)).toBe(true);
   });
 
   it('reports failed receipts and terminal failures instead of counting them complete', () => {

@@ -7,7 +7,7 @@ const liveEnvironment = (model: string) => ({ AWS_E2E: 'true', AWS_E2E_SHARED_SE
 
 it('requires explicit live opt-ins before operations and restricts the matrix', async () => {
   const options = parseArguments(['--output', '/tmp/aws-performance-test.json']);
-  expect(options.scenarios).toEqual([{ writers: 1, viewers: 1 }, { writers: 10, viewers: 10 }, { writers: 20, viewers: 20 }]);
+  expect(options.scenarios).toEqual([{ writers: 1, viewers: 1 }, { writers: 10, viewers: 10 }, { writers: 20, viewers: 20 }, { writers: 20, viewers: 50 }]);
   expect(options.rounds).toBe(1);
   await expect(run(options, {})).rejects.toThrow('AWS_E2E');
   expect(() => liveConfiguration({ AWS_E2E: 'true', AWS_E2E_SHARED_SESSIONS: 'true' })).toThrow('AWS_E2E_REAL_CODEX');
@@ -17,7 +17,7 @@ it('requires explicit live opt-ins before operations and restricts the matrix', 
   expect(liveConfiguration(liveEnvironment('openai.gpt-6-luna')).model).toBe('openai.gpt-6-luna');
   expect(liveConfiguration(liveEnvironment('openai.gpt-5.6-luna')).model).toBe('openai.gpt-5.6-luna');
   expect(() => liveConfiguration(liveEnvironment('openai.gpt-6-astra'))).toThrow('prohibited');
-  await expect(run(parseArguments(['--output', '/tmp/aws-performance-test.json', '--scenario', '20x20', '--rounds', '3']), liveEnvironment('openai.gpt-6-luna'))).rejects.toThrow('cap is 41');
+  await expect(run(parseArguments(['--output', '/tmp/aws-performance-test.json', '--scenario', '20x20', '--rounds', '4']), liveEnvironment('openai.gpt-6-luna'))).rejects.toThrow('cap is 60');
 });
 
 it('attempts all cleanup even when cancel, Session deletion, or identity cleanup fails', async () => {

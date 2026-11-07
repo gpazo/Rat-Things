@@ -21,7 +21,7 @@ export interface Workload {
   baselineItems: readonly string[];
 }
 export type Completion =
-  | { state: 'pending' }
+  | { state: 'pending'; receiptId?: string; receiptStatus?: string; turnIds?: string[]; turns?: Array<{ turnId: string; status: string; observedAtMs: number }> }
   | { state: 'observed'; receiptId: string; receiptStatus: 'dispatched'; turnIds: string[]; turns: Array<{ turnId: string; status: string; observedAtMs: number }>; fromRequestMs: number; fromAcknowledgementMs: number | null }
   | { state: 'failed'; receiptId: string; receiptStatus: 'failed' | 'dispatched'; turnIds: string[]; turns: Array<{ turnId: string; status: string; observedAtMs: number }>; failure: 'receipt_failed' | 'turn_failed'; fromRequestMs: number; fromAcknowledgementMs: number | null }
   | { state: 'censored'; reason: string; elapsedMs: number };
@@ -58,22 +58,34 @@ export function observeCompletion(previous: Completion | undefined, activity: Ac
   if (receipts.length !== 1) return { state: 'pending' };
   const receipt = receipts[0]!;
   const mappedTurns = receipt.turn_ids.map(id => activity.turns.find(turn => turn.id === id)).filter((turn): turn is Activity['turns'][number] => Boolean(turn));
-  const sameMapping = previous && 'receiptId' in previous && previous.receiptId === receipt.id
+  const sameMapping = previous && 'receiptId' in previous && Array.isArray(previous.turnIds) && previous.receiptId === receipt.id
     && previous.turnIds.length === receipt.turn_ids.length && previous.turnIds.every((id, index) => id === receipt.turn_ids[index]);
   const observedAtMs = sameMapping && previous && 'turns' in previous
-    ? new Map(previous.turns.map(turn => [turn.turnId, turn.observedAtMs])) : new Map<string, number>();
-  const turns = mappedTurns.map(turn => ({ turnId: turn.id, status: turn.status, observedAtMs: observedAtMs.get(turn.id) ?? nowMs }));
+    ? new Map(previous.turns.map(turn => [turn.turnId, turn.status === turnStatus(activity, turn.turnId) && terminalStatus(turn.status) ? turn.observedAtMs : nowMs])) : new Map<string, number>();
+  const turns = mappedTurns.map(turn => ({ turnId: turn.id, status: turn.status, observedAtMs: terminalStatus(turn.status) ? observedAtMs.get(turn.id) ?? nowMs : nowMs }));
   const base = { receiptId: receipt.id, turnIds: [...receipt.turn_ids], turns,
     fromRequestMs: Math.max(0, nowMs - work.startedMs), fromAcknowledgementMs: acknowledgementMs === null ? null : Math.max(0, nowMs - acknowledgementMs) };
+  const stableTerminal = sameMapping && previous && previous.state !== 'pending'
+    && previous.receiptStatus === receipt.status && previous.turns.length === turns.length
+    && previous.turns.every((turn, index) => turn.turnId === turns[index]!.turnId && turn.status === turns[index]!.status);
+  if (stableTerminal) return previous;
   if (receipt.status === 'failed') return { ...base, state: 'failed', receiptStatus: 'failed', failure: 'receipt_failed' };
-  if (receipt.status !== 'dispatched' || receipt.turn_ids.length === 0 || mappedTurns.length !== receipt.turn_ids.length) return { state: 'pending' };
+  if (receipt.status !== 'dispatched' || receipt.turn_ids.length === 0 || mappedTurns.length !== receipt.turn_ids.length) return { state: 'pending', receiptId: receipt.id, receiptStatus: receipt.status, turnIds: [...receipt.turn_ids], turns };
   if (turns.some(turn => ['failed', 'cancelled'].includes(turn.status))) return { ...base, state: 'failed', receiptStatus: 'dispatched', failure: 'turn_failed' };
   if (turns.every(turn => terminalStatus(turn.status))) return { ...base, state: 'observed', receiptStatus: 'dispatched' };
-  return { state: 'pending' };
+  return { state: 'pending', receiptId: receipt.id, receiptStatus: receipt.status, turnIds: [...receipt.turn_ids], turns };
 }
+
+const turnStatus = (activity: Activity, id: string) => activity.turns.find(turn => turn.id === id)?.status;
 
 export function finishCompletion(completion: Completion | undefined, nowMs: number, startedMs: number, reason: string): Completion {
   return completion && completion.state !== 'pending' ? completion : { state: 'censored', elapsedMs: Math.max(0, nowMs - startedMs), reason };
+}
+
+/** Require manager completion and every observer's historical input/progress observations before draining. */
+export function workloadObserved(sample: Sample, work: Workload, activity: Activity): boolean {
+  return receiptFor(activity, work).length === 1 && sample.completion?.state !== 'pending'
+    && sample.peers.every(peer => peer.input.state === 'observed' && peer.progress.state === 'observed');
 }
 
 export const itemKey = (item: AgentSessionItem) => `${item.turn_id}:${item.id}`;

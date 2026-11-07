@@ -7,8 +7,8 @@ real model for one-word replies. It does not deploy infrastructure or collect
 CloudWatch billing data. Ordinary tests never invoke AWS.
 
 The controller rejects GPT-6 Astra and requires an explicitly configured
-GPT-6 Luna or GPT-5.6 Luna model ID. Choose one supported by the deployment region and endpoint. Workload inputs are capped at 41, setup Session inputs at
-3, controller HTTP client retries are disabled, and the prompt requests a one-word
+GPT-6 Luna or GPT-5.6 Luna model ID. Choose one supported by the deployment region and endpoint. Workload inputs are capped at 60, setup Session inputs at
+8, controller HTTP client retries are disabled, and the prompt requests a one-word
 reply. The artifact fails if observed assistant output for any Turn exceeds 256
 UTF-8 bytes. This observation guard does not impose a provider token limit before
 generation. The API has no per-agent output-token limit; provider retry behavior is
@@ -25,11 +25,11 @@ AWS_E2E=true AWS_E2E_SHARED_SESSIONS=true AWS_E2E_REAL_CODEX=true \
   --output /absolute/path/aws-performance.json
 ```
 
-The default matrix is `1x1`, `10x10`, and `20x20`, where the first number is
-simultaneous writers and the second is viewers. `20x50` remains available as an
-individual scenario. Each scenario creates its own space and shared Session.
+The default matrix is `1x1`, `10x10`, `20x20`, and `20x50`, where the first
+number is simultaneous writers and the second is viewers. Each scenario creates
+its own space and shared Session.
 One burst is the default. Narrow the matrix or explicitly request rounds within
-the 41 workload and 3 setup input caps.
+the 60 workload and 8 setup input caps.
 Each round waits for the previous Turns and input outboxes to settle. The initial
 Session input also runs to completion before measurement. This establishes a
 history baseline; it does not prove the next Lambda or model request is warm.
