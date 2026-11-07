@@ -483,12 +483,7 @@ impl ConsoleApp {
             self.pending
                 .retain(|_, request| !matches!(request.operation, Pending::Credentials { .. }));
             if self.collection == Collection::Vaults {
-                self.list_generation += 1;
-                self.list_pending = None;
-                self.resources.clear();
-                self.after = None;
-                self.clear_selection(ctx);
-                self.collection = Collection::Sessions;
+                self.navigate(Collection::Sessions, ctx);
             }
         }
         if !self.can_manage() || !self.permitted("manage_space") {
@@ -509,6 +504,9 @@ impl ConsoleApp {
             {
                 self.team.pending = None;
             }
+        }
+        if changed && self.collection != Collection::Sessions && !self.detail_loaded {
+            self.refresh_selection(ctx);
         }
     }
     pub(super) fn clear_team_access(&mut self, ctx: &egui::Context) {

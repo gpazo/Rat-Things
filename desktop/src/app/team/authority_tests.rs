@@ -90,6 +90,51 @@ fn receive_authority(ui: &mut Harness<'_, ConsoleApp>) {
     }
     panic!("Authority response was not applied");
 }
+
+type HeldResponse = (String, mpsc::Sender<Value>);
+
+fn held_responses(
+    count: usize,
+) -> (
+    String,
+    mpsc::Receiver<HeldResponse>,
+    std::thread::JoinHandle<()>,
+) {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let endpoint = format!("http://{}", listener.local_addr().unwrap());
+    let (arrived, received) = mpsc::channel();
+    let server = std::thread::spawn(move || {
+        let mut replies = Vec::new();
+        for _ in 0..count {
+            let (mut stream, _) = listener.accept().unwrap();
+            stream
+                .set_read_timeout(Some(Duration::from_secs(5)))
+                .unwrap();
+            let mut headers = Vec::new();
+            let mut byte = [0];
+            while !headers.ends_with(b"\r\n\r\n") {
+                stream.read_exact(&mut byte).unwrap();
+                headers.push(byte[0]);
+            }
+            let request = String::from_utf8(headers)
+                .unwrap()
+                .lines()
+                .next()
+                .unwrap()
+                .to_owned();
+            let (release, wait) = mpsc::channel::<Value>();
+            arrived.send((request, release)).unwrap();
+            replies.push(std::thread::spawn(move || {
+                let body = wait.recv_timeout(Duration::from_secs(5)).unwrap().to_string();
+                write!(stream, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).unwrap();
+            }));
+        }
+        for reply in replies {
+            reply.join().unwrap();
+        }
+    });
+    (endpoint, received, server)
+}
 #[test]
 fn idle_authority_revocation_clears_every_view_with_workspace_open_or_closed() {
     for collection in [
@@ -133,11 +178,8 @@ fn idle_authority_revocation_clears_every_view_with_workspace_open_or_closed() {
     }
 }
 #[test]
-fn idle_downgrade_removes_vault_content_members_and_inflight_privileged_reads() {
-    let (endpoint, received, release, server) = held_authority(
-        200,
-        json!({"data":[{"id":"space","role":"viewer","permissions":["read"]}]}),
-    );
+fn idle_downgrade_removes_vault_content_and_reloads_allowed_sessions() {
+    let (endpoint, received, server) = held_responses(2);
     let mut state = authority_app(endpoint, Collection::Vaults, true);
     state.pending.insert(
         998,
@@ -151,9 +193,11 @@ fn idle_downgrade_removes_vault_content_members_and_inflight_privileged_reads() 
     );
     state.team.pending = Some(999);
     let mut ui = harness(state);
-    received.recv_timeout(Duration::from_secs(5)).unwrap();
-    release.send(()).unwrap();
-    server.join().unwrap();
+    let (request, release) = received.recv_timeout(Duration::from_secs(5)).unwrap();
+    assert!(request.starts_with("GET /api/v1/rat/spaces "));
+    release
+        .send(json!({"data":[{"id":"space","role":"viewer","permissions":["read"]}]}))
+        .unwrap();
     receive_authority(&mut ui);
     assert_eq!(ui.state().role(), Role::Viewer);
     assert!(!ui.state().can_manage());
@@ -165,6 +209,79 @@ fn idle_downgrade_removes_vault_content_members_and_inflight_privileged_reads() 
     assert!(!ui.state().pending.contains_key(&998));
     assert!(!ui.state().pending.contains_key(&999));
     assert!(ui.query_by_label("Grant space role").is_none());
+    let (request, release) = received.recv_timeout(Duration::from_secs(5)).unwrap();
+    assert!(request.starts_with("GET /api/v1/agents/sessions?"));
+    release
+        .send(json!({"data":[{"id":"sess_readable","name":"Readable Session"}],"has_more":false}))
+        .unwrap();
+    server.join().unwrap();
+    for _ in 0..100 {
+        ui.step();
+        if ui.state().list_pending.is_none() {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert_eq!(ui.state().resources.len(), 1);
+    assert_eq!(ui.state().resources[0].id, "sess_readable");
+    assert!(ui.state().credentials.is_empty());
+    assert!(ui.state().team.bindings.is_none());
+}
+
+#[test]
+fn idle_role_change_restarts_held_readable_details_and_discards_the_old_reply() {
+    for collection in [Collection::Agents, Collection::Templates] {
+        let (endpoint, received, server) = held_responses(3);
+        let mut state = authority_app(endpoint, collection, false);
+        state.detail_loaded = false;
+        state.refresh_selection(&egui::Context::default());
+        let (request, old_reply) = received.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.starts_with(&format!("GET {} ", collection.resource_path("cached"))));
+        let mut ui = harness(state);
+        let (request, release) = received.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.starts_with("GET /api/v1/rat/spaces "));
+        release
+            .send(json!({"data":[{"id":"space","role":"viewer","permissions":["read"]}]}))
+            .unwrap();
+        receive_authority(&mut ui);
+        assert_eq!(ui.state().role(), Role::Viewer);
+        assert!(ui.state().detail_pending.is_some());
+        let (request, release) = received.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.starts_with(&format!("GET {} ", collection.resource_path("cached"))));
+        release
+            .send(json!({"id":"cached","name":"Current readable details"}))
+            .unwrap();
+        for _ in 0..100 {
+            ui.step();
+            if ui.state().detail_loaded {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        assert!(ui.state().detail_loaded);
+        old_reply
+            .send(json!({"id":"cached","name":"Stale details"}))
+            .unwrap();
+        server.join().unwrap();
+        for _ in 0..100 {
+            ui.step();
+            if !ui
+                .state()
+                .pending
+                .values()
+                .any(|request| matches!(request.operation, Pending::Detail { .. }))
+            {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        assert_eq!(
+            ui.state().selected.as_ref().unwrap().fields["name"].as_str(),
+            Some("Current readable details")
+        );
+        assert_eq!(ui.state().role(), Role::Viewer);
+        assert_eq!(ui.state().collection, collection);
+    }
 }
 #[test]
 fn idle_expired_identity_and_missing_membership_both_clear_the_unselected_session_index() {
