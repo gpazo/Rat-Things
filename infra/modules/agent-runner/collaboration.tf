@@ -72,7 +72,7 @@ resource "aws_lambda_permission" "agents_shared_url" {
   count                  = local.team_api_enabled ? 1 : 0
   statement_id           = "PublicUrlWithApplicationAuthentication"
   action                 = "lambda:InvokeFunctionUrl"
-  function_name          = aws_lambda_function.this["agents-shared"].function_name
+  function_name          = aws_lambda_function_url.agents_shared[0].function_name
   principal              = "*"
   function_url_auth_type = "NONE"
 }
@@ -84,6 +84,7 @@ resource "aws_lambda_permission" "agents_shared_invoke" {
   function_name            = aws_lambda_function.this["agents-shared"].function_name
   principal                = "*"
   invoked_via_function_url = true
+  depends_on               = [aws_lambda_permission.agents_shared_url]
 }
 
 output "shared_agents_api_base_url" {
