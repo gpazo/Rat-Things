@@ -195,8 +195,10 @@ Agents API requests, outbox batches and local Share operations also emit one
 `rat.performance` JSON record when each operation finishes. These records contain
 duration, response bytes, permission checks, storage operations, reported DynamoDB
 capacity and submission conflicts. They omit prompts, credentials and caller or
-Session identities. A disconnected stream is recorded as aborted; it still contributes
-its elapsed time and storage work. `ResponseHeadersDuration` measures server response
+Session identities. A disconnected or failed stream still contributes its elapsed
+time and storage work. The transport may record a disconnect as aborted or as a
+stream error; compare client outcomes before treating every stream error as a
+backend failure. `ResponseHeadersDuration` measures server response
 preparation, not the time a remote viewer receives the response.
 
 Use these logs to separate durable submission time from stream delivery and model
