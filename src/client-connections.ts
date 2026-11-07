@@ -8,7 +8,7 @@ import { parseLoginProvider, refreshLogin, type LoginProvider, type LoginResult,
 
 export class TeamSignInRequired extends Error { constructor() { super("Team sign-in expired. Reconnect to continue."); this.name = "TeamSignInRequired"; } }
 export interface TeamConnection { id: string; endpoint: string; provider: LoginProvider; identity: LoginIdentity; }
-interface StoredConnection extends TeamConnection { tokens: LoginTokens; }
+interface StoredConnection extends TeamConnection { tokens: LoginTokens; generation?: string; }
 const defaultDirectory = () => process.env.RAT_THINGS_CONNECTIONS_DIR ?? join(homedir(), '.rat-things', 'connections');
 export class TeamConnectionStore {
   constructor(private readonly directory = defaultDirectory(), private readonly transport: typeof fetch = fetch) {}
@@ -38,12 +38,22 @@ export class TeamConnectionStore {
     try { await file.writeFile(JSON.stringify(value)); await file.sync(); } finally { await file.close(); }
     try { await rename(temporary, destination); } finally { await rm(temporary, { force: true }); }
   }
-  async save(endpoint: string, provider: LoginProvider, login: LoginResult, id: string = randomUUID()): Promise<TeamConnection> {
+  async save(endpoint: string, provider: LoginProvider, login: LoginResult, reconnectId?: string): Promise<TeamConnection> {
     const url = new URL(endpoint);
     if (url.protocol !== 'https:' || url.username || url.password || url.search || url.hash || url.pathname.replace(/\/$/, '') !== '/v1') throw new Error('Invalid team endpoint');
-    const value = { id, endpoint: `${url.origin}/v1`, provider, ...login };
+    const previous = reconnectId === undefined ? undefined : await this.read(reconnectId);
+    const id = reconnectId ?? randomUUID();
+    const value = { id, endpoint: `${url.origin}/v1`, provider, ...login, generation: randomUUID() };
+    if (previous && (previous.endpoint !== value.endpoint || previous.provider.id !== provider.id
+      || previous.identity.issuer !== login.identity.issuer || previous.identity.subject !== login.identity.subject)) throw new Error('Reconnect must preserve the saved team identity');
     await this.verify(value);
-    await this.locked(id, () => this.write(value));
+    await this.locked(id, async () => {
+      if (previous) {
+        const current = await this.read(id);
+        if (current.generation !== previous.generation) throw new TeamSignInRequired();
+      }
+      await this.write(value);
+    });
     return publicConnection(value);
   }
   async list(): Promise<TeamConnection[]> {

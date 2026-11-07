@@ -123,7 +123,8 @@ in a desktop state file. Artifact downloads use a native save dialog.
 Open the workspace menu and expand **Team spaces**. Enter your team's API URL,
 choose **Find team sign-in**, and sign in through your browser. Choose your account's
 spaces, then **Open team space**. **Reconnect** renews a saved connection with the
-same verified identity. **Sign out** removes its locally saved credentials.
+same verified identity. **Sign out** removes its locally saved credentials and cancels
+pending reconnects for that connection. A late browser callback cannot sign it back in.
 
 A viewer can follow shared progress. A collaborator can send messages, steer work,
 and start Sessions from admitted saved Agents. Controllers can cancel a Turn.

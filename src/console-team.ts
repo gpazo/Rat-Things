@@ -4,21 +4,25 @@ import { beginBrowserLogin, discoverTeamLogin, type LoginAttempt } from './clien
 
 type LoginState = { id: string; status: 'waiting'; url: string } | { id: string; status: 'complete'; connection: TeamConnection } | { id: string; status: 'failed'; error: string };
 export class ConsoleTeams {
-  private readonly logins = new Map<string, { state: LoginState; attempt: LoginAttempt; cancelled: boolean }>();
-  constructor(readonly store = new TeamConnectionStore()) {}
+  private readonly logins = new Map<string, { state: LoginState; attempt: LoginAttempt; cancelled: boolean; connectionId: string | undefined }>();
+  constructor(readonly store = new TeamConnectionStore(), private readonly authentication = { discover: discoverTeamLogin, begin: beginBrowserLogin }) {}
   async route(method: string, path: string, input: Record<string, unknown>): Promise<unknown> {
     if (method === 'GET' && path === '/connections') return { data: await this.store.list() };
-    if (method === 'POST' && path === '/discovery') return discoverTeamLogin(String(input.endpoint));
+    if (method === 'POST' && path === '/discovery') return this.authentication.discover(String(input.endpoint));
     if (method === 'POST' && path === '/login') {
       if ([...this.logins.values()].some(login => login.state.status === 'waiting')) throw new Error('Finish or cancel the current team sign-in first');
-      const discovered = await discoverTeamLogin(String(input.endpoint));
+      const discovered = await this.authentication.discover(String(input.endpoint));
       const provider = discovered.login_providers.find(p => p.id === input.provider_id) ?? (discovered.login_providers.length === 1 ? discovered.login_providers[0] : undefined);
       if (!provider) throw new Error('Choose a team sign-in provider');
       const reconnect = typeof input.connection_id === 'string' ? (await this.store.list()).find(c => c.id === input.connection_id) : undefined;
       if (input.connection_id && (!reconnect || reconnect.endpoint !== discovered.base_url || reconnect.provider.id !== provider.id)) throw new Error('Reconnect must use the saved team provider');
-      const attempt = await beginBrowserLogin(provider);
+      const attempt = await this.authentication.begin(provider);
+      if (reconnect && !(await this.store.list()).some(connection => connection.id === reconnect.id)) {
+        attempt.close();
+        throw new Error('This team connection was signed out');
+      }
       const id = randomUUID();
-      const login = { state: { id, status: 'waiting', url: attempt.url } as LoginState, attempt, cancelled: false };
+      const login = { state: { id, status: 'waiting', url: attempt.url } as LoginState, attempt, cancelled: false, connectionId: reconnect?.id };
       this.logins.set(id, login);
       void attempt.result.then(async result => {
         if (login.cancelled) return;
@@ -40,7 +44,15 @@ export class ConsoleTeams {
     if (match) {
       const connection = (await this.store.list()).find(c => c.id === match[1]);
       if (!connection) throw new Error('Team connection was not found');
-      if (method === 'POST' && match[2] === 'logout') { await this.store.remove(connection.id); return { status: 'signed_out' }; }
+      if (method === 'POST' && match[2] === 'logout') {
+        for (const login of this.logins.values()) if (login.connectionId === connection.id && login.state.status === 'waiting') {
+          login.cancelled = true;
+          login.attempt.close();
+          login.state = { id: login.state.id, status: 'failed', error: 'This connection was signed out. Start a new sign-in.' };
+        }
+        await this.store.remove(connection.id);
+        return { status: 'signed_out' };
+      }
       if (method === 'GET' && match[2] === 'spaces') {
         const client = await this.store.client({ connection_id: connection.id, endpoint: connection.endpoint });
         const response = await client.fetch(`${client.baseURL}/rat/spaces`, { signal: AbortSignal.timeout(15_000) });

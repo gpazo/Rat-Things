@@ -86,3 +86,61 @@ it('logout cannot be undone by an in-flight refresh', async () => {
   expect(await store.list()).toEqual([]);
   await expect(store.accessToken(connection.id)).rejects.toThrow('Reconnect');
 });
+it('a reconnect cannot restore a connection removed during identity verification or before its callback', async () => {
+  let entered!: () => void; const checking = new Promise<void>(resolve => { entered = resolve; });
+  let resume!: () => void; const held = new Promise<void>(resolve => { resume = resolve; });
+  let wait = false;
+  const store = new TeamConnectionStore(await temporary(), async () => {
+    if (wait) { entered(); await held; }
+    return Response.json({ actor: { issuer: provider.issuer, subject: 'person-a' } });
+  });
+  const login = { identity: { issuer: provider.issuer, subject: 'person-a' }, tokens: { access_token: 'access', expires_at: Date.now() / 1000 + 300 } };
+  const connection = await store.save('https://api.example/v1', provider, login);
+  wait = true;
+  const reconnect = store.save(connection.endpoint, provider, login, connection.id);
+  const rejected = expect(reconnect).rejects.toThrow();
+  await checking; await store.remove(connection.id); resume(); await rejected;
+  expect(await store.list()).toEqual([]);
+  await expect(store.save(connection.endpoint, provider, login, connection.id)).rejects.toThrow();
+  await expect(store.accessToken(connection.id)).rejects.toThrow('Reconnect');
+});
+
+it.each(['verification', 'callback'] as const)('logout cancels real browser reconnect while %s is pending', async phase => {
+  const { ConsoleTeams } = await import('../../src/console-team.js');
+  const { privateKey, publicKey } = await generateKeyPair('RS256');
+  const configured = { ...provider, redirect_uri: `http://127.0.0.1:${await freePort()}/callback` };
+  let authorization: URL;
+  let holdVerification = false;
+  let entered!: () => void; const checking = new Promise<void>(resolve => { entered = resolve; });
+  let resume!: () => void; const held = new Promise<void>(resolve => { resume = resolve; });
+  let finished!: () => void; const saved = new Promise<void>(resolve => { finished = resolve; });
+  const transport: typeof fetch = async (input, init) => {
+    const request = new Request(input, init);
+    if (request.url.endsWith('/.well-known/agents-api')) return Response.json({ authentication: 'oidc', base_url: 'https://api.example/v1', login_providers: [configured] });
+    if (request.url === configured.token_endpoint) {
+      const id = await new SignJWT({ nonce: authorization.searchParams.get('nonce') }).setProtectedHeader({ alg: 'RS256' }).setIssuer(provider.issuer).setSubject('person-a').setAudience(provider.client_id).setIssuedAt().setExpirationTime('5m').sign(privateKey);
+      return Response.json({ access_token: 'renewed-access', refresh_token: 'renewed-refresh', token_type: 'Bearer', expires_in: 300, id_token: id });
+    }
+    if (holdVerification) { entered(); await held; }
+    return Response.json({ actor: { issuer: provider.issuer, subject: 'person-a' } });
+  };
+  const store = new TeamConnectionStore(await temporary(), transport);
+  const original = await store.save('https://api.example/v1', configured, { identity: { issuer: provider.issuer, subject: 'person-a' }, tokens: { access_token: 'original', expires_at: Date.now() / 1000 + 300 } });
+  const save = store.save.bind(store);
+  vi.spyOn(store, 'save').mockImplementation(async (...args) => { try { return await save(...args); } finally { finished(); } });
+  const teams = new ConsoleTeams(store, { discover: endpoint => discoverTeamLogin(endpoint, transport), begin: p => beginBrowserLogin(p, { fetch: transport, key: async () => publicKey }) });
+  try {
+    const login = await teams.route('POST', '/login', { endpoint: original.endpoint, connection_id: original.id }) as { id: string; url: string };
+    authorization = new URL(login.url);
+    const callback = `${configured.redirect_uri}?state=${authorization.searchParams.get('state')}&code=code`;
+    if (phase === 'verification') { holdVerification = true; await fetch(callback); await checking; }
+    expect(await teams.route('POST', `/connections/${original.id}/logout`, {})).toEqual({ status: 'signed_out' });
+    expect(await store.list()).toEqual([]);
+    if (phase === 'verification') { resume(); await saved; }
+    else await expect(fetch(callback)).rejects.toThrow();
+    const state = await teams.route('GET', `/login/${login.id}`, {}) as { status: string };
+    expect(state.status).toBe('failed');
+    expect(await store.list()).toEqual([]);
+    await expect(store.accessToken(original.id)).rejects.toThrow('Reconnect');
+  } finally { resume(); teams.close(); }
+});
