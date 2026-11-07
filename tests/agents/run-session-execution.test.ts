@@ -60,6 +60,16 @@ describe('persistent harness input admission', () => {
     expect(f.start).toHaveBeenCalledTimes(1);
     expect(f.submit).not.toHaveBeenCalled();
   });
+  it('keeps steering pending until the heartbeating worker control bridge is ready', async () => {
+    const f = await fixture();
+    const input = [{ role: 'user' as const, content: [{ type: 'input_text' as const, text: 'Continue' }] }];
+    f.events.mockResolvedValueOnce({ runId: f.run.runId, active: true, ready: false, oldestSequence: 0, nextSequence: 0, events: [], pendingRequests: [] });
+    await expect(f.execution.steer('alice', f.session, f.turn.id, input, 'accepted-operation')).rejects.toMatchObject({ status: 503, code: 'service_unavailable' });
+    expect(f.steer).not.toHaveBeenCalled();
+    await f.execution.steer('alice', f.session, f.turn.id, input, 'accepted-operation');
+    expect(f.steer).toHaveBeenCalledExactlyOnceWith({ runId: f.run.runId, execution: f.run.execution, turnId: f.turn.id }, 'Continue', 'accepted-operation', input);
+    expect(f.submit).not.toHaveBeenCalled();
+  });
   it('does not reopen a closed Session when an old dispatch receipt retries', async () => {
     const f = await fixture();
     await f.runtime.close('alice', f.session.id);
