@@ -18,5 +18,8 @@ export interface SessionCaller {
 }
 export async function validateSessionCaller(caller?: SessionCaller): Promise<void> {
   await caller?.revalidate?.();
-  if (caller?.expiresAt !== undefined && caller.expiresAt <= Date.now()) throw new AgentsApiError(401, 'Authentication expired.', 'unauthorized');
+  requireSessionCallerUnexpired(caller, Date.now());
+}
+export function requireSessionCallerUnexpired(caller: SessionCaller | undefined, nowMs: number): void {
+  if (caller?.expiresAt !== undefined && caller.expiresAt <= nowMs) throw new AgentsApiError(401, 'Authentication expired.', 'unauthorized');
 }

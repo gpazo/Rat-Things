@@ -31,7 +31,8 @@ describe('bounded performance observations', () => {
     });
     scope.finish('error');
     expect(record?.metrics).toEqual({ DynamoAttempts: 2, DynamoCapacityReports: 2, DynamoReadCapacity: 3, DynamoWriteCapacity: 6,
-      DynamoUnclassifiedCapacity: 2, S3GetCount: 1, S3Attempts: 3, S3Errors: 1 });
+      DynamoUnclassifiedCapacity: 2, S3GetCount: 1, S3Attempts: 3, S3Errors: 1,
+      DynamoReadDuration: expect.any(Number), DynamoWriteDuration: expect.any(Number), S3GetDuration: expect.any(Number) });
   });
   it('does not let an unavailable metric sink change an operation outcome', async () => {
     const scope = new PerformanceScope('share-transfer', { sink: () => { throw new Error('offline'); } });

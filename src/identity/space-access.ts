@@ -3,7 +3,7 @@ import type { AgentObservation, AgentResource, AgentsStore } from '../core/agent
 import { AgentsApiError, invalid } from '../domain/agents-api-validation.js';
 import { SPACE_ROLES, requireSpaceActions, rolePermissions, type ApiActor, type ApiPrincipal, type SpaceAction, type SpaceRole } from '../domain/api-permissions.js';
 import { oidcActorId, principalActor, requireUnexpired } from './principal.js';
-import { performanceCount } from '../core/performance.js';
+import { performanceCount, performancePhase } from '../core/performance.js';
 
 const DIRECTORY = 'rat:spaces';
 export interface Space { id: string; name: string; active: boolean }
@@ -26,6 +26,9 @@ export class SpaceAccessService {
   public constructor(public readonly store: AgentsStore, private readonly now: () => number = Date.now) {}
   public async authorize(principal: ApiPrincipal, spaceId: string, actions: readonly SpaceAction[]): Promise<SpaceAuthority> {
     performanceCount('AuthorizationCount');
+    return performancePhase('AuthorizationDuration', () => this.resolveAuthority(principal, spaceId, actions));
+  }
+  private async resolveAuthority(principal: ApiPrincipal, spaceId: string, actions: readonly SpaceAction[]): Promise<SpaceAuthority> {
     requireUnexpired(principal, this.now());
     const actor = principalActor(principal);
     if (!actor.issuer || !actor.subject || actor.id !== oidcActorId(actor.issuer, actor.subject)) denied();

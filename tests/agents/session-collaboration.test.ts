@@ -7,13 +7,14 @@ import type { SessionCaller } from '../../src/core/session-caller.js';
 import type { SessionState } from '../../src/core/session-ports.js';
 import { AgentsApiError } from '../../src/domain/agents-api-validation.js';
 import { feedbackCollection } from '../../src/core/session-feedback-planning.js';
+import type { OwnerRateLimit } from '../../src/core/owner-rate-limiter.js';
 
 const input = (text: string) => ({ events: [{ type: 'agent.session.input.message', input: [{ role: 'user', content: [{ type: 'input_text', text }] }] }] });
 const caller = (id: string): SessionCaller => ({ actor: { id, kind: 'human', issuer: 'https://identity.example', subject: id } });
-async function fixture() {
+async function fixture(rateLimit?: OwnerRateLimit) {
   const fixture = await integrationFixture();
   const store = new SessionEventStore(fixture.store);
-  const sessions = new SessionService({ store, agents: new AgentService({ store }), execution: fixture.execution, streamIntervalMs: 5 });
+  const sessions = new SessionService({ store, agents: new AgentService({ store }), execution: fixture.execution, streamIntervalMs: 5, ...(rateLimit ? { rateLimit } : {}) });
   const session = await sessions.create('operator', { agent_id: fixture.agent.id, environment: { type: 'none' }, input: 'Goal' }, undefined, undefined, undefined, caller('alice'));
   return { ...fixture, store, sessions, session };
 }
@@ -51,6 +52,49 @@ it('rejects membership removal before acceptance but keeps already accepted work
   expect(snapshot.inputs).toHaveLength(2);
   expect(snapshot.inputs.every(receipt => receipt.status === 'dispatched')).toBe(true);
   await expect(f.sessions.events('operator', f.session.id, input('Expired'), 'third', { waitForConnection: false, caller: { ...caller('alice'), expiresAt: Date.now() - 1 } })).rejects.toMatchObject({ status: 401 });
+});
+
+it('fences revocation during rate admission without a second authority read', async () => {
+  let onAdmission = async () => {};
+  const f = await fixture({ admit: async (_owner, operation) => { if (operation.startsWith('input:')) await onAdmission(); } });
+  const binding = { ownerId: 'operator', collection: 'bindings', id: 'alice', revision: 1, createdAt: 1, value: {} };
+  await f.store.put(binding, 0);
+  const revalidate = vi.fn(async () => {
+    if ((await f.store.get('operator', 'bindings', 'alice'))?.revision !== 1) throw new AgentsApiError(403, 'Revoked', 'forbidden');
+  });
+  const authority = { ...caller('alice'), observations: [{ ownerId: 'operator', collection: 'bindings', id: 'alice', revision: 1 }], revalidate };
+  onAdmission = async () => { await f.store.put({ ...binding, revision: 2, value: { removed: true } }, 1); };
+  await expect(f.sessions.events('operator', f.session.id, input('Do not accept'), 'revoke-during-admission', { waitForConnection: true, caller: authority })).rejects.toMatchObject({ status: 403 });
+  expect(await f.sessions.hasPendingFeedback('operator', f.session.id)).toBe(false);
+  expect(f.execution.steer).not.toHaveBeenCalled();
+});
+
+it('checks expiry after rate admission even with transactional authority observations', async () => {
+  let onAdmission = async () => {};
+  const f = await fixture({ admit: async (_owner, operation) => { if (operation.startsWith('input:')) await onAdmission(); } });
+  await f.store.put({ ownerId: 'operator', collection: 'bindings', id: 'alice', revision: 1, createdAt: 1, value: {} }, 0);
+  const authority = { ...caller('alice'), expiresAt: Date.now() + 60_000, observations: [{ ownerId: 'operator', collection: 'bindings', id: 'alice', revision: 1 }] };
+  onAdmission = async () => { authority.expiresAt = Date.now() - 1; };
+  await expect(f.sessions.events('operator', f.session.id, input('Expired during admission'), 'expire', { waitForConnection: false, caller: authority })).rejects.toMatchObject({ status: 401 });
+  expect(await f.sessions.hasPendingFeedback('operator', f.session.id)).toBe(false);
+});
+
+it('reuses successful rate admission on storage conflict and avoids a post-commit Session read', async () => {
+  const admit = vi.fn(async () => {});
+  const f = await fixture({ admit });
+  admit.mockClear();
+  await f.store.put({ ownerId: 'operator', collection: 'bindings', id: 'alice', revision: 1, createdAt: 1, value: {} }, 0);
+  const revalidate = vi.fn(async () => {});
+  const authority = { ...caller('alice'), revalidate, observations: [{ ownerId: 'operator', collection: 'bindings', id: 'alice', revision: 1 }] };
+  const get = vi.spyOn(f.store, 'get');
+  const commit = vi.spyOn(f.store, 'commit').mockRejectedValueOnce(new AgentsApiError(409, 'Retry', 'conflict'));
+  await f.sessions.events('operator', f.session.id, input('Retry once'), 'retry', { waitForConnection: true, caller: authority });
+  expect(admit).toHaveBeenCalledTimes(1);
+  expect(revalidate).toHaveBeenCalledTimes(2);
+  expect(commit).toHaveBeenCalledTimes(2);
+  // Two admission reads plus the lost-write reconciliation, with no fourth read after commit.
+  expect(get.mock.calls.filter(([, collection]) => collection === 'sessions')).toHaveLength(3);
+  expect(f.execution.start).not.toHaveBeenCalled();
 });
 
 it('replays a coherent snapshot and cursor without model calls, and revokes visibility before backlog and while idle', async () => {

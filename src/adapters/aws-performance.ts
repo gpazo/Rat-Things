@@ -1,11 +1,11 @@
-import { performanceCount } from '../core/performance.js';
+import { performanceCount, performancePhase } from '../core/performance.js';
 
 interface Capacity { CapacityUnits?: number | undefined; ReadCapacityUnits?: number | undefined; WriteCapacityUnits?: number | undefined }
 interface AwsMeasurement { $metadata?: { attempts?: number | undefined } | undefined; ConsumedCapacity?: Capacity | Capacity[] | undefined }
 
 /** Capacity is reported by DynamoDB, including failed transactions when available. */
 export async function measuredDynamo<T extends AwsMeasurement>(work: () => Promise<T>, kind: 'read' | 'write'): Promise<T> {
-  try { const result = await work(); record(result, kind); return result; }
+  try { const result = await performancePhase(kind === 'read' ? 'DynamoReadDuration' : 'DynamoWriteDuration', work); record(result, kind); return result; }
   catch (error) {
     performanceCount('DynamoErrors');
     record(error && typeof error === 'object' ? error as AwsMeasurement : {}, kind);
@@ -27,7 +27,7 @@ function record(result: AwsMeasurement, kind: 'read' | 'write') {
 }
 export async function measuredS3<T extends { $metadata?: { attempts?: number } }>(work: () => Promise<T>, kind: 'get' | 'put'): Promise<T> {
   performanceCount(kind === 'get' ? 'S3GetCount' : 'S3PutCount');
-  try { const result = await work(); performanceCount('S3Attempts', result.$metadata?.attempts ?? 1); return result; }
+  try { const result = await performancePhase(kind === 'get' ? 'S3GetDuration' : 'S3PutDuration', work); performanceCount('S3Attempts', result.$metadata?.attempts ?? 1); return result; }
   catch (error) {
     performanceCount('S3Errors');
     performanceCount('S3Attempts', (error as AwsMeasurement | undefined)?.$metadata?.attempts ?? 1);

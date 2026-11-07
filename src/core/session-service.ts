@@ -1,10 +1,10 @@
 import { feedbackCollection, feedbackDigest, feedbackWindow, planFeedbackBatch, type SessionFeedback, type FeedbackEvent } from './session-feedback-planning.js';
 import { SessionSteerRejectedError } from '../domain/session-errors.js';
-import { performanceCount } from './performance.js';
+import { performanceCount, performancePhase } from './performance.js';
 import { planRejectedSteer } from './session-steer-planning.js';
 import { importedSessionMessage, importedSessionReceipts, participantContext } from './session-attribution.js';
 import { restoreWorkspaceCommand } from '../domain/workspace-transfer.js';
-import { validateSessionCaller, type SessionCaller } from './session-caller.js';
+import { requireSessionCallerUnexpired, validateSessionCaller, type SessionCaller } from './session-caller.js';
 import { activityRevision, sessionActivity, sessionInputs, type SessionFollowOptions } from './session-activity.js';
 import { ConfigurationHistory, commitConfiguration, configurationRef, ensureSessionConfiguration, planConfigurationRevision, sessionConfigurationSnapshot } from './configuration-history.js';
 import type { ConfigurationMutation } from '../domain/configuration-history.js';
@@ -573,11 +573,11 @@ export class SessionService {
     const key = hash(caller ? canonicalJson([caller.actor.id, requestKey]) : requestKey);
     const digest = hash(canonicalJson(events));
     if (caller && events.length && events.every((event): event is FeedbackEvent => event.type === 'agent.session.input.message')) {
-      await this.acceptFeedback(ownerId, id, events, key, digest, caller);
+      const environmentType = await this.acceptFeedback(ownerId, id, events, key, digest, caller);
       performanceCount('SubmissionAcceptedDuration', performance.now() - acceptedStarted);
-      if (response?.waitForConnection && (await this.required(ownerId, id)).value.session.environment.type === 'self_hosted') {
+      if (response?.waitForConnection && environmentType === 'self_hosted') {
         await this.flushFeedback(ownerId, id, true);
-        await this.waitForInputConnection(ownerId, id, key, response.signal);
+        await performancePhase('InputConnectionDuration', () => this.waitForInputConnection(ownerId, id, key, response.signal));
       }
       return;
     }
@@ -660,30 +660,40 @@ export class SessionService {
       value: { sessionId: id, digest, events, actor: caller.actor, acceptedAtMs,
         messages: events.flatMap(event => event.input.map(message => ({ ...message, id: this.ids.next('msg'), actor: caller.actor, provenance: { kind: 'authenticated' as const } }))),
         turnId: this.ids.next('turn'), operationId: this.ids.next('event') } };
+    let rateAdmitted = false;
     for (let attempt = 0; attempt < 10; attempt++) {
-      const [initial, previous] = await Promise.all([this.required(ownerId, id), this.options.store.get<SessionFeedback>(ownerId, feedbackCollection(id), key)]);
+      const [initial, previous] = await performancePhase('SubmissionReadDuration', () => Promise.all([this.required(ownerId, id), this.options.store.get<SessionFeedback>(ownerId, feedbackCollection(id), key)]));
       requireSessionMutable(initial.value, this.clock.now());
-      await validateSessionCaller(caller);
+      await performancePhase('SubmissionValidationDuration', () => validateSessionCaller(caller));
       const priorDigest = previous?.value.digest ?? initial.value.receipts[key]?.digest;
       if (priorDigest !== undefined) {
         if (priorDigest !== digest) throw new AgentsApiError(409, 'This Idempotency-Key was used with different events.', 'idempotency_conflict');
-        return;
+        return initial.value.session.environment.type;
       }
       const resource = await ensureSessionConfiguration(this.options.store, initial, this.clock.now());
       requireSessionMutable(resource.value, this.clock.now());
       // Validate before acceptance without reading execution or reconstructing history.
       this.plan(resource.value, { session: resource.value.session, turns: resource.value.turns.map(binding => ({ turn: binding.turn, requiredActions: [] })) }, events, key, undefined, caller);
-      await this.options.rateLimit?.admit(ownerId, `input:${id}:${key}`, events.length);
-      await validateSessionCaller(caller);
+      if (!rateAdmitted) {
+        await performancePhase('SubmissionRateLimitDuration', async () => { await this.options.rateLimit?.admit(ownerId, `input:${id}:${key}`, events.length); });
+        rateAdmitted = true;
+      }
+      // Revision observations fence revocation during the rate-limit/commit gap.
+      // Callers without transactional observations still need a fresh check.
+      if (!caller.observations?.length) await performancePhase('SubmissionValidationDuration', () => validateSessionCaller(caller));
+      requireSessionCallerUnexpired(caller, Date.now());
       try {
-        await this.options.store.commit([{ resource: input, expectedRevision: 0 }], [
+        await performancePhase('SubmissionCommitDuration', () => this.options.store.commit([{ resource: input, expectedRevision: 0 }], [
           { ownerId, collection: 'sessions', id, revision: resource.revision }, ...caller.observations ?? [],
-        ]);
-        return;
+        ]));
+        return resource.value.session.environment.type;
       } catch (error) {
-        const accepted = await this.options.store.get<SessionFeedback>(ownerId, feedbackCollection(id), key).catch(() => undefined);
-        const materialized = !accepted ? await this.options.store.get<SessionState>(ownerId, 'sessions', id).catch(() => undefined) : undefined;
-        if ((accepted?.value.digest ?? materialized?.value.receipts[key]?.digest) === digest) return;
+        const acceptedDigest = await performancePhase('SubmissionRecoveryDuration', async () => {
+          const accepted = await this.options.store.get<SessionFeedback>(ownerId, feedbackCollection(id), key).catch(() => undefined);
+          const materialized = !accepted ? await this.options.store.get<SessionState>(ownerId, 'sessions', id).catch(() => undefined) : undefined;
+          return accepted?.value.digest ?? materialized?.value.receipts[key]?.digest;
+        });
+        if (acceptedDigest === digest) return resource.value.session.environment.type;
         if (!(error instanceof AgentsApiError) || error.code !== 'conflict' || attempt === 9) throw error;
         performanceCount('SubmissionConflicts');
       }
