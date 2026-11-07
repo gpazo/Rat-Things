@@ -104,3 +104,20 @@ Read it before changing any of them.
 
 Run `npm run check` after code or Terraform changes. Lambda MicroVM provisioning is an explicit
 opt-in operation and must not run during ordinary tests.
+
+### Model and testing costs
+
+- Do not use GPT-6 Astra for API-billed analysis, delegation, testing, or validation, including
+  through Amazon Bedrock. General authorization for live testing does not override this rule.
+- Minimize paid inference. Use deterministic fixtures and mocks for repeated development,
+  regression, concurrency, and load tests. Reserve live model calls for small integration checks
+  that require a real provider.
+- Use the cheapest compatible model for paid calls and delegated analysis. Verify availability
+  and required capabilities before running; never silently fall back to a more expensive model.
+- Bound request count, input/output tokens, retries, and runtime before paid tests. Set a small
+  explicit spend budget and stop when it is reached; do not repeat paid runs without a concrete
+  validation need.
+- Record model/provider, token usage, and estimated inference and infrastructure costs. Label
+  missing costs explicitly; a partial infrastructure subtotal is not the total test spend.
+- Reuse local results, keep live checks focused, and promptly remove disposable infrastructure
+  after validation. These rules govern development and testing, not customers' model choices.
