@@ -31,6 +31,19 @@ it('releases a Session FIFO promptly after a rejected write and acknowledges suc
 });
 
 describe('credential cleanup outbox delivery', () => {
+  it('records bounded failure metadata and retries a failed stream enqueue', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    f.send.mockRejectedValueOnce(Object.assign(new Error('Bearer private-value'), { name: 'ThrottlingException', $metadata: { httpStatusCode: 429 } }));
+    const index = { ownerId: 'alice', id: 'session-1', key: 'root', collection: 'sessions', revision: 1 };
+    const event = { Records: [{ eventID: 'event-1', dynamodb: { NewImage: marshall(index), SequenceNumber: 'sequence-1' } }] } as DynamoDBStreamEvent;
+    expect(await handler(event)).toEqual({ batchItemFailures: [{ itemIdentifier: 'sequence-1' }] });
+    expect(warn).toHaveBeenCalledOnce();
+    expect(JSON.parse(warn.mock.calls[0]![0] as string)).toMatchObject({
+      event: 'agents.outbox.failure', stage: 'stream_enqueue', errorType: 'ThrottlingException', httpStatus: 429, jobCount: 2,
+    });
+    expect(JSON.stringify(warn.mock.calls)).not.toContain('private-value');
+  });
+
   it('queues a durable attempt from its index without including credential payloads', async () => {
     const index = { ownerId: 'alice', id: 'attempt-1', key: 'root', collection: 'session_tool_attempts', revision: 1 };
     const event = { Records: [{ eventID: 'event-1', dynamodb: { NewImage: marshall(index), SequenceNumber: 'sequence-1' } }] } as DynamoDBStreamEvent;

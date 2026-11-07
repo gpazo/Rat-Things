@@ -1,4 +1,4 @@
-import { agentsStreamJobs, parseAgentsJob, agentsJobGroup, agentsJobRetrySeconds } from '../core/agents-outbox-planning.js';
+import { agentsStreamJobs, parseAgentsJob, agentsJobGroup, agentsJobRetrySeconds, agentsOutboxFailure } from '../core/agents-outbox-planning.js';
 import { createHash } from 'node:crypto';
 import type { DynamoDBStreamEvent, SQSEvent } from 'aws-lambda';
 import { unmarshall } from '@aws-sdk/util-dynamodb';
@@ -57,8 +57,8 @@ async function handle(event: DynamoDBStreamEvent | SQSEvent) {
         if (retrySeconds !== undefined) {
           await queue.send(new ChangeMessageVisibilityCommand({ QueueUrl: requiredEnv('AGENTS_QUEUE_URL'), ReceiptHandle: record.receiptHandle, VisibilityTimeout: retrySeconds }));
         } else {
-          console.warn(JSON.stringify({ message: 'Agents outbox job failed', messageId: record.messageId,
-            error: error instanceof Error ? error.name : 'UnknownError',
+          console.warn(JSON.stringify({ event: 'agents.outbox.failure', stage: 'job', messageId: record.messageId,
+            ...agentsOutboxFailure(error),
             ...(error instanceof AgentsApiError ? { status: error.status, code: error.code } : {}),
           }));
         }
@@ -68,14 +68,16 @@ async function handle(event: DynamoDBStreamEvent | SQSEvent) {
     }
     if (!record.dynamodb?.NewImage) continue;
     const index = unmarshall(record.dynamodb.NewImage as Parameters<typeof unmarshall>[0]);
+    const jobs = agentsStreamJobs(index);
     try {
-      for (const job of agentsStreamJobs(index)) {
+      for (const job of jobs) {
       await queue.send(new SendMessageCommand({
         QueueUrl: requiredEnv('AGENTS_QUEUE_URL'), MessageBody: JSON.stringify(job),
         MessageGroupId: hash(agentsJobGroup(job)), MessageDeduplicationId: hash(`${job.type}:${record.eventID ?? `${job.id}:${index.revision ?? index.updatedAt}`}`),
       }));
       }
-    } catch {
+    } catch (error) {
+      console.warn(JSON.stringify({ event: 'agents.outbox.failure', stage: 'stream_enqueue', ...agentsOutboxFailure(error), jobCount: jobs.length }));
       if (record.dynamodb.SequenceNumber) batchItemFailures.push({ itemIdentifier: record.dynamodb.SequenceNumber });
       else throw new Error('Session outbox failed without a stream sequence number');
     }

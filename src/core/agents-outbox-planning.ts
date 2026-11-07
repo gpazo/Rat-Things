@@ -9,6 +9,21 @@ export function agentsJobRetrySeconds(error: { status: number; code?: string | n
   return error.status === 503 && ['environment_unavailable', 'service_unavailable'].includes(error.code ?? '') ? 5 : undefined;
 }
 
+/** A bounded, secret-free description for failures that must remain retryable. */
+export function agentsOutboxFailure(error: unknown): { errorType: string; errorCode?: string; httpStatus?: number } {
+  const source = typeof error === 'object' && error !== null ? error as Record<string, unknown> : {};
+  const safeIdentifier = (value: unknown): string | undefined => typeof value === 'string' && /^[A-Za-z0-9_.-]{1,64}$/.test(value) ? value : undefined;
+  const errorCode = safeIdentifier(source.code) ?? safeIdentifier(source.Code) ?? safeIdentifier(source.__type);
+  const status = source.$metadata && typeof source.$metadata === 'object'
+    ? (source.$metadata as Record<string, unknown>).httpStatusCode
+    : source.status;
+  return {
+    errorType: safeIdentifier(source.name) ?? 'UnknownError',
+    ...(errorCode ? { errorCode } : {}),
+    ...(typeof status === 'number' && Number.isInteger(status) && status >= 100 && status <= 599 ? { httpStatus: status } : {}),
+  };
+}
+
 /** Index values select work; provider delivery has a separate FIFO group from session execution. */
 export function agentsStreamJobs(index: Record<string, unknown>): AgentsJob[] {
   if (typeof index.ownerId !== 'string') return [];
