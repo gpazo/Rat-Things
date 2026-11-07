@@ -9,6 +9,7 @@ import { SessionSteerRejectedError } from '../../src/domain/session-errors.js';
 import { AgentsResourceConflictError } from '../../src/domain/agents-api-validation.js';
 import type { SessionState } from '../../src/core/session-ports.js';
 import type { SessionIntegrationState } from '../../src/domain/session-integrations.js';
+import { feedbackCollection, type SessionFeedback } from '../../src/core/session-feedback-planning.js';
 
 const input = (text: string) => ({ events: [{ type: 'agent.session.input.message', input: [{ role: 'user', content: [{ type: 'input_text', text }] }] }] });
 async function fixture() {
@@ -19,10 +20,11 @@ async function fixture() {
   await sessions.dispatch('operator', session.id);
   await Promise.all(['alice', 'bob'].map(id => sessions.events('operator', session.id, input(id), 'same-key', { waitForConnection: false, caller: { actor: { id, kind: 'human' } } })));
   const accepted = (await store.get<SessionState>('operator', 'sessions', session.id))!.value;
+  const feedback = (await store.list<SessionFeedback>('operator', feedbackCollection(session.id), { limit: 100 })).data
+    .sort((a, b) => a.value.acceptedAtMs - b.value.acceptedAtMs || a.id.localeCompare(b.id));
   const original = accepted.turns[0]!;
   const completed = { ...original.turn, status: 'completed' as const, started_at: 1, completed_at: 2 };
-  f.observations.set(original.turn.id, { turn: completed, requiredActions: [] });
-  return { ...f, store, sessions, session, accepted, original, completed };
+  return { ...f, store, sessions, session, accepted, feedback, original, completed };
 }
 
 it('moves definitively rejected simultaneous inputs in order without changing receipts, messages, actors or settings', async () => {
@@ -33,28 +35,34 @@ it('moves definitively rejected simultaneous inputs in order without changing re
     applied.push(input.map(message => message.content.at(-1)).map(part => part?.type === 'input_text' ? part.text : '').join(''));
   });
   const start = f.execution.start;
-  f.execution.start = vi.fn(async (...args: Parameters<typeof start>) => { applied.push(args[2].input[0]!.content.at(-1)!.type === 'input_text' ? (args[2].input[0]!.content.at(-1) as { text: string }).text : ''); await start(...args); });
+  f.execution.start = vi.fn(async (...args: Parameters<typeof start>) => {
+    applied.push(...args[2].input.map(message => message.content.at(-1)?.type === 'input_text' ? (message.content.at(-1) as { text: string }).text : ''));
+    await start(...args);
+  });
   const commit = f.store.commit.bind(f.store);
   let contention = true;
   f.store.commit = async (writes, observations) => {
     if (contention && writes.some(write => write.resource.collection === 'sessions' && (write.resource.value as SessionState).turns.length > 1)) { contention = false; throw new AgentsResourceConflictError(); }
     return commit(writes, observations);
   };
-  for (let attempt = 0; attempt < 4; attempt++) await f.sessions.dispatch('operator', f.session.id);
+  await f.sessions.dispatch('operator', f.session.id);
+  f.observations.set(f.original.turn.id, { turn: f.completed, requiredActions: [] });
+  for (let attempt = 0; attempt < 3; attempt++) await f.sessions.dispatch('operator', f.session.id);
   const saved = (await f.store.get<SessionState>('operator', 'sessions', f.session.id))!.value;
   expect(saved.turns).toHaveLength(2);
   expect(saved.turns[0]!.input).toHaveLength(1);
   expect(saved.turns[1]!.input.map(message => ({ id: message.id, actor: message.actor, content: message.content, acceptedOrdinal: message.acceptedOrdinal })))
-    .toEqual(f.original.input.slice(1).map(message => ({ id: message.id, actor: message.actor, content: message.content, acceptedOrdinal: message.acceptedOrdinal })));
+    .toEqual(f.feedback.flatMap(receipt => receipt.value.messages).map((message, index) => ({ id: message.id, actor: message.actor, content: message.content, acceptedOrdinal: index + 1 })));
   expect(saved.turns[1]!.modelSettings).toEqual(f.original.modelSettings);
   expect(saved.turns[1]!.configuration).toEqual(f.original.configuration);
-  expect(applied).toEqual(['alice', 'bob']);
+  expect(applied).toEqual(f.feedback.flatMap(receipt => receipt.value.messages).map(message => (message.content.at(-1) as { text: string }).text));
   expect(f.execution.start).toHaveBeenCalledTimes(1);
-  for (const [key, before] of Object.entries(f.accepted.receipts)) {
-    expect(saved.receipts[key]).toMatchObject({ digest: before.digest, sequence: before.sequence, ...(before.actor ? { actor: before.actor } : {}), dispatched: true });
+  for (const before of f.feedback) {
+    expect(saved.receipts[before.id]).toMatchObject({ digest: before.value.digest, actor: before.value.actor, dispatched: true, messageIds: before.value.messages.map(message => message.id) });
   }
   const activity = await f.sessions.activity('operator', f.session.id);
-  expect(activity.items.filter(item => item.type === 'message' && item.role === 'user').map(item => item.id).sort()).toEqual(f.original.input.map(message => message.id).sort());
+  expect(activity.items.filter(item => item.type === 'message' && item.role === 'user').map(item => item.id).sort())
+    .toEqual([...f.original.input.map(message => message.id), ...f.feedback.flatMap(receipt => receipt.value.messages.map(message => message.id))].sort());
   expect(activity.inputs.flatMap(receipt => receipt.message_ids)).toHaveLength(2);
 });
 
@@ -62,9 +70,18 @@ it('retains an ambiguous steer and never creates a successor just because its Tu
   const f = await fixture();
   f.execution.steer = vi.fn(async () => { throw new Error('Control acknowledgement was lost'); });
   for (let attempt = 0; attempt < 2; attempt++) await expect(f.sessions.dispatch('operator', f.session.id)).rejects.toThrow('acknowledgement was lost');
+  const beforeCompletion = (await f.store.get<SessionState>('operator', 'sessions', f.session.id))!.value;
+  expect(beforeCompletion.turns).toHaveLength(1);
+  expect(beforeCompletion.turns[0]!.turn.id).toBe(f.original.turn.id);
+  const expectedBatchText = f.feedback.flatMap(receipt => receipt.value.messages).map(message => (message.content.at(-1) as { text: string }).text);
+  expect(beforeCompletion.turns[0]!.input.map(message => (message.content.at(-1) as { text: string }).text)).toEqual(['Original', ...expectedBatchText]);
+  expect(f.feedback.every(receipt => beforeCompletion.receipts[receipt.id] && !beforeCompletion.receipts[receipt.id]!.dispatched)).toBe(true);
+  f.observations.set(f.original.turn.id, { turn: f.completed, requiredActions: [] });
+  await expect(f.sessions.dispatch('operator', f.session.id)).rejects.toThrow('acknowledgement was lost');
   const saved = (await f.store.get<SessionState>('operator', 'sessions', f.session.id))!.value;
-  expect(saved.turns).toEqual(f.accepted.turns);
-  expect(saved.receipts).toEqual(f.accepted.receipts);
+  expect(saved.turns.map(binding => binding.turn.id)).toEqual([f.original.turn.id]);
+  expect(saved.turns[0]!.input.map(message => (message.content.at(-1) as { text: string }).text)).toEqual(['Original', ...expectedBatchText]);
+  expect(f.feedback.every(receipt => saved.receipts[receipt.id] && !saved.receipts[receipt.id]!.dispatched)).toBe(true);
   expect(f.execution.start).toHaveBeenCalledTimes(1);
 });
 
@@ -161,28 +178,32 @@ it('atomically moves an integration delivery with its rejected input while retai
 });
 
 
-it('executes older accepted input before a newer queued successor without steering a Turn that has not started', async () => {
+it('starts rehomed older input before steering a newer accepted input to that Turn', async () => {
   const f = await fixture();
-  await f.sessions.events('operator', f.session.id, input('newer'), 'newer', { waitForConnection: false, caller: { actor: { id: 'carol', kind: 'human' } } });
-  const queued = (await f.store.get<SessionState>('operator', 'sessions', f.session.id))!.value.turns.at(-1)!;
   const applied: string[] = [];
   f.execution.steer = vi.fn(async (_owner, _session, turnId, input) => {
     if (turnId === f.original.turn.id) throw new SessionSteerRejectedError();
     expect(f.observations.has(turnId)).toBe(true);
-    applied.push((input[0]!.content.at(-1) as { text: string }).text);
+    applied.push(...input.map(message => (message.content.at(-1) as { text: string }).text));
   });
   const start = f.execution.start;
-  f.execution.start = vi.fn(async (...args: Parameters<typeof start>) => { applied.push((args[2].input[0]!.content.at(-1) as { text: string }).text); await start(...args); });
+  f.execution.start = vi.fn(async (...args: Parameters<typeof start>) => {
+    applied.push(...args[2].input.map(message => (message.content.at(-1) as { text: string }).text));
+    await start(...args);
+  });
+  // Close/rehome the first durable batch while its current Turn is still active.
   await f.sessions.dispatch('operator', f.session.id);
+  f.observations.set(f.original.turn.id, { turn: f.completed, requiredActions: [] });
+  await f.sessions.events('operator', f.session.id, input('newer'), 'newer', { waitForConnection: false, caller: { actor: { id: 'carol', kind: 'human' } } });
+  const queued = (await f.store.get<SessionState>('operator', 'sessions', f.session.id))!.value.turns.at(-1)!;
+  expect(queued.turn.status).toBe('queued');
   await f.sessions.dispatch('operator', f.session.id);
-  await expect(f.sessions.dispatch('operator', f.session.id)).rejects.toMatchObject({ code: 'service_unavailable' });
-  expect(applied).toEqual(['alice', 'bob']);
+  expect(applied).toEqual([...f.feedback.flatMap(receipt => receipt.value.messages).map(message => (message.content.at(-1) as { text: string }).text), 'newer']);
   const recovering = (await f.store.get<SessionState>('operator', 'sessions', f.session.id))!.value;
-  expect(recovering.turns.map(binding => binding.turn.id)).toEqual([f.original.turn.id, expect.any(String), queued.turn.id]);
+  expect(recovering.turns.map(binding => binding.turn.id)).toEqual([f.original.turn.id, queued.turn.id]);
   const successor = recovering.turns[1]!;
-  f.observations.set(successor.turn.id, { turn: { ...successor.turn, status: 'completed', started_at: 2, completed_at: 3 }, requiredActions: [] });
-  await f.sessions.dispatch('operator', f.session.id);
-  expect(applied).toEqual(['alice', 'bob', 'newer']);
-  expect(f.execution.start).toHaveBeenCalledTimes(2);
+  expect(successor.input.map(message => (message.content.at(-1) as { text: string }).text)).toEqual([...f.feedback.flatMap(receipt => receipt.value.messages).map(message => (message.content.at(-1) as { text: string }).text), 'newer']);
+  expect(f.execution.start).toHaveBeenCalledTimes(1);
+  expect(f.execution.steer).toHaveBeenCalledTimes(2);
   expect((await f.sessions.activity('operator', f.session.id)).inputs.every(receipt => receipt.status === 'dispatched')).toBe(true);
 });
