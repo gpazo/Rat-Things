@@ -11,7 +11,7 @@
     "node": ">=22.20.0"
   },
   "scripts": {
-    "build": "node scripts/build.mjs",
+    "build": "npm run agents-api:validators:check && node scripts/build.mjs",
     "package": "npm run build && node scripts/package-lambdas.mjs && node scripts/smoke-lambda-bundles.mjs",
     "architecture:check": "node scripts/check-architecture.mjs",
     "microvm:check": "node --check microvm/runtime-server.mjs && node --check microvm/runtime-network-policy.mjs && node --check microvm/runtime-process-policy.mjs",
@@ -56,7 +56,7 @@
     "terraform:localstack:validate": "terraform -chdir=testing/localstack init -backend=false -input=false && terraform -chdir=testing/localstack validate",
     "terraform:aws-e2e:fmt:check": "terraform -chdir=testing/aws fmt -recursive -check",
     "terraform:aws-e2e:validate": "terraform -chdir=testing/aws init -backend=false -input=false && terraform -chdir=testing/aws validate",
-    "check": "npm run architecture:check && npm run agents-api:schema:check && npm run agents-api:routes:check && npm run agents-api:worker:check && npm run typecheck && npm run microvm:check && env -u CODEX_RUNTIME_ARTIFACT npm test && npm run package && npm run site:build && npm run terraform:fmt:check && npm run terraform:localstack:fmt:check && npm run terraform:aws-e2e:fmt:check && npm run terraform:validate && npm run terraform:localstack:validate && npm run terraform:aws-e2e:validate",
+    "check": "npm run architecture:check && npm run agents-api:schema:check && npm run agents-api:validators:check && npm run agents-api:routes:check && npm run agents-api:worker:check && npm run typecheck && npm run microvm:check && env -u CODEX_RUNTIME_ARTIFACT npm test && npm run package && npm run site:build && npm run terraform:fmt:check && npm run terraform:localstack:fmt:check && npm run terraform:aws-e2e:fmt:check && npm run terraform:validate && npm run terraform:localstack:validate && npm run terraform:aws-e2e:validate",
     "site:dev": "npm run site:build && node scripts/serve-site.mjs --watch",
     "site:typecheck": "tsc --project site/architecture/tsconfig.json",
     "test:e2e:site": "playwright test --config=playwright.site.config.ts",
@@ -78,7 +78,9 @@
     "runtime:linux-kvm:prepare": "tsx testing/local-runtime/linux-kvm/prepare.ts",
     "test:e2e:native-worker": "RAT_NATIVE_VM_PROOF=1 tsx testing/local-runtime/smoke.ts",
     "test:e2e:native-reliability": "tsx testing/local-runtime/native-vm/worker/reliability.ts",
-    "test:e2e:local-subscription": "tsx testing/local-runtime/subscription.ts"
+    "test:e2e:local-subscription": "tsx testing/local-runtime/subscription.ts",
+    "agents-api:validators": "node scripts/generate-agents-api-validators.mjs",
+    "agents-api:validators:check": "node scripts/generate-agents-api-validators.mjs --check"
   },
   "dependencies": {
     "@aws-crypto/sha256-js": "5.2.0",

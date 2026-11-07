@@ -1,5 +1,4 @@
-import { Ajv, type ValidateFunction } from 'ajv';
-import schema from '../../spec/schemas/agents-api.schema.json' with { type: 'json' };
+import { validators } from './agents-api-validators.generated.mjs';
 import type { AgentsApiContracts } from './agents-api.js';
 
 export class AgentsApiError extends Error {
@@ -29,22 +28,13 @@ export class AgentsResourceConflictError extends AgentsApiError {
   }
 }
 
-const ajv = new Ajv({ strict: false, allErrors: false });
-ajv.addSchema(schema);
-const validators = new Map<keyof AgentsApiContracts, ValidateFunction>();
-
 /** Validate before effects; never coerce, remove fields, or log request values. */
 export function parseAgentsContract<K extends keyof AgentsApiContracts>(
   name: K,
   value: unknown,
 ): AgentsApiContracts[K] {
-  let validate = validators.get(name);
-  if (!validate) {
-    validate = ajv.compile({
-      $ref: `${schema.$id}#/definitions/AgentsApiContracts/properties/${name}`,
-    });
-    validators.set(name, validate);
-  }
+  const validate = validators[name];
+  if (!validate) throw new Error(`Missing generated Agents API validator for ${name}.`);
   if (!validate(value)) {
     const error = validate.errors?.[0];
     const param = error?.instancePath.replace(/^\//, '').replaceAll('/', '.') || null;
