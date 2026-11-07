@@ -42,7 +42,7 @@ export function receiptFor(activity: Activity, work: Workload) {
       ? item.content.flatMap(part => part.type === 'input_text' ? [part.text] : []) : []).join('\n') === work.text);
 }
 
-function actualProgress(item: AgentSessionItem): boolean {
+export function actualProgress(item: AgentSessionItem): boolean {
   if (item.type === 'message') return item.role === 'assistant' && item.content.some(part => part.type === 'output_text' && part.text.length > 0);
   return item.type !== 'reasoning';
 }

@@ -77,6 +77,7 @@ it('writes unconfirmed identity cleanup after setup fails before a cleanup handl
     expect(result.status).toBe('failed');
     expect(result.cleanup.identities).toBe('unconfirmed');
     expect(result.scenarios).toHaveLength(0);
+    expect(result).toMatchObject({ plannedSubmissions: 1, attemptedSubmissions: 0, notStartedSubmissions: 1 });
     expect(await readFile(output, 'utf8')).not.toContain('PRIVATE_PROVIDER_ERROR');
   } finally { await rm(directory, { recursive: true, force: true }); }
 });

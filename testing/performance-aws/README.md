@@ -23,6 +23,9 @@ explicitly request up to ten rounds with `--scenario 20x20,20x50 --rounds 2`.
 Each round waits for the previous Turns and input outboxes to settle. The initial
 Session input also runs to completion before measurement. This establishes a
 history baseline; it does not prove the next Lambda or model request is warm.
+`initialSession` retains creation acknowledgement, first manager-observed output
+and completion timings for that setup Turn. Its observations use 500 ms snapshot
+polling plus request latency; null output time means it was not observed.
 
 Keep the real owner rate limit unchanged. Additional rounds may produce HTTP 429;
 concurrent submissions may expose conditional-write contention. The controller

@@ -4,6 +4,18 @@ import type { Activity } from '../../testing/performance-aws/measurements.js';
 
 const snapshot = { cursor: 'cursor-fixture', session: { id: 'session-fixture' }, items: [], turns: [], inputs: [] } as unknown as Activity;
 
+it('counts bytes received before a snapshot body fails', async () => {
+  let first = true;
+  const watcher = observeActivity({ peer: 'viewer-0', sessionId: 'session-fixture', mode: 'persistent', now: () => performance.now(), signal: new AbortController().signal,
+    onActivity: () => undefined, request: async () => new Response(new ReadableStream({ pull(controller) {
+      if (first) { first = false; controller.enqueue(Buffer.from('partial')); }
+      else controller.error(new Error('network failure'));
+    } })) });
+  await watcher.done;
+  expect(watcher.measure.connections[0]).toMatchObject({ bytes: 7, outcome: 'failed' });
+  expect(watcher.measure.errors).toEqual(['observer_failure']);
+});
+
 it('parses split UTF-8 and CRLF boundaries and ignores permission/heartbeat frames', () => {
   const frames = new Frames();
   const bytes = Buffer.from(`: heartbeat\r\n\r\ndata: ${JSON.stringify({ type: 'rat.space.permissions' })}\r\n\r\ndata: ${JSON.stringify({ activity: { ...snapshot, cursor: 'résumé' } })}\r\n\r\n`);

@@ -7,7 +7,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import OpenAI from 'openai';
 import { createAgentsClient } from '../../src/agents-client.js';
 import { createTeamIdentities, type TeamIdentityFixture, type TestTeamIdentity } from '../aws/team-identities.js';
-import { digest, finishSample, itemKey, observePeer, receiptFor, settled, summarize, type Activity, type Sample, type Workload } from './measurements.js';
+import { actualProgress, digest, finishSample, itemKey, observePeer, receiptFor, settled, summarize, type Activity, type Sample, type Workload } from './measurements.js';
 import { observeActivity, type ObserverMeasurement } from './observer.js';
 
 const matrix = [{ writers: 1, viewers: 1 }, { writers: 10, viewers: 10 }, { writers: 20, viewers: 20 }, { writers: 20, viewers: 50 }];
@@ -84,6 +84,7 @@ interface ScenarioResult {
   errors: { phase: string; kind: string }[];
   cleanup: Record<string, string>;
   turns: { id: string; status: string; baseline: boolean; usage: Activity['turns'][number]['usage'] }[];
+  initialSession?: { acknowledgementMs: number | null; firstProgressMs: number | null; completedMs: number | null; startedAt: string; observedUntilMs: number; boundary: string };
   cost?: { streamConnectionMs: number; streamBytes: number; snapshotBytes: number; observerHttpConnectionMs: number; lambdaMemoryMb: number | null; usd: null };
 }
 
@@ -101,6 +102,8 @@ export async function run(options: Options, environment: NodeJS.ProcessEnv = pro
   const dirty = execFileSync('git', ['status', '--porcelain', '--untracked-files=normal'], { encoding: 'utf8' }).trim().length > 0;
   const artifact = {
     schemaVersion: 1, kind: 'real-aws-shared-session-performance', status: 'running', startedAt: new Date().toISOString(), finishedAt: null as string | null,
+    plannedSubmissions: options.scenarios.reduce((sum, size) => sum + size.writers * options.rounds, 0),
+    attemptedSubmissions: 0, notStartedSubmissions: options.scenarios.reduce((sum, size) => sum + size.writers * options.rounds, 0),
     phase: 'configured', revision, dirty, nodeVersion: process.versions.node, platform: process.platform, architecture: process.arch,
     deploymentRevision: options.deploymentRevision, bundleSha256: options.bundleSha256,
     provenanceSource: 'deployment revision and artifact hash are caller-supplied, not independently verified by this controller',
@@ -191,9 +194,18 @@ export async function run(options: Options, environment: NodeJS.ProcessEnv = pro
         const agent = await client.beta.agents.create({ name: result.id, model: configuration.model, tools: [], instructions: 'Reply with exactly OK. Do not repeat the input. Keep every response to one word.' }, { headers: headers() });
         result.agentId = agent.id; await phase('agent_created');
         await json(manager, `/rat/agents/${agent.id}/workload`, 'PUT', { execution_role_id: 'default' });
+        const initialStart = now();
+        result.initialSession = { acknowledgementMs: null, firstProgressMs: null, completedMs: null, startedAt: new Date().toISOString(), observedUntilMs: 0,
+          boundary: 'create request start to manager-observed progress; snapshots polled every 500ms plus request time; cold/warm unclassified' };
         const session = await client.beta.agents.sessions.create({ agent_id: agent.id, environment: { type: 'none' }, input: 'Initialize. Reply OK.' }, { headers: headers() });
+        result.initialSession.acknowledgementMs = now() - initialStart;
         result.sessionId = session.id; await phase('session_created');
-        const baseline = await drain(now() + options.timeoutMs, activity => activity.turns.length > 0 && settled(activity));
+        const baseline = await drain(now() + options.timeoutMs, activity => {
+          result.initialSession!.observedUntilMs = now() - initialStart;
+          if (activity.items.some(actualProgress)) result.initialSession!.firstProgressMs ??= now() - initialStart;
+          return activity.turns.length > 0 && settled(activity);
+        });
+        result.initialSession.completedMs = now() - initialStart;
         baselineTurnIds = baseline.turns.map(turn => turn.id);
         if (baseline.turns.some(turn => turn.status !== 'completed')) throw new Error('turn_failed');
         await phase('baseline_complete');
@@ -233,6 +245,8 @@ export async function run(options: Options, environment: NodeJS.ProcessEnv = pro
           const roundStart = now();
           await Promise.all(entries.map(async ({ sample, work, body, token }) => {
             sample.startedMs = work.startedMs = now();
+            artifact.attemptedSubmissions += 1;
+            artifact.notStartedSubmissions = artifact.plannedSubmissions - artifact.attemptedSubmissions;
             sample.deadlineMs = work.deadlineMs = roundStart + options.timeoutMs;
             const timeout = AbortSignal.timeout(Math.min(180_000, options.timeoutMs));
             try {

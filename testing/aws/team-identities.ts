@@ -39,8 +39,9 @@ export async function createTeamIdentities(
   const users: TestTeamIdentity[] = [];
   const close = async () => {
     const failures: unknown[] = [];
+    const cleanup = AbortSignal.timeout(60_000);
     for (const username of created) {
-      try { await client.send(new AdminDeleteUserCommand({ UserPoolId: fixture.user_pool_id, Username: username })); }
+      try { await client.send(new AdminDeleteUserCommand({ UserPoolId: fixture.user_pool_id, Username: username }), { abortSignal: AbortSignal.any([cleanup, AbortSignal.timeout(30_000)]) }); }
       catch (error) {
         if (!(error instanceof Error) || !['UserNotFoundException', 'ResourceNotFoundException'].includes(error.name)) failures.push(error);
       }
@@ -56,16 +57,16 @@ export async function createTeamIdentities(
       const user = await client.send(new AdminCreateUserCommand({
         UserPoolId: fixture.user_pool_id, Username: username, MessageAction: 'SUPPRESS',
         TemporaryPassword: password,
-      }));
+      }), { abortSignal: AbortSignal.timeout(30_000) });
       const subject = user.User?.Attributes?.find(attribute => attribute.Name === 'sub')?.Value;
       if (!subject) throw new Error('The disposable identity provider did not return a subject.');
       await client.send(new AdminSetUserPasswordCommand({
         UserPoolId: fixture.user_pool_id, Username: username, Password: password, Permanent: true,
-      }));
+      }), { abortSignal: AbortSignal.timeout(30_000) });
       const authentication = await client.send(new InitiateAuthCommand({
         ClientId: fixture.client_id, AuthFlow: 'USER_PASSWORD_AUTH',
         AuthParameters: { USERNAME: username, PASSWORD: password },
-      }));
+      }), { abortSignal: AbortSignal.timeout(30_000) });
       const accessToken = authentication.AuthenticationResult?.AccessToken;
       const idToken = authentication.AuthenticationResult?.IdToken;
       if (!accessToken || !idToken || authentication.ChallengeName) throw new Error('Disposable user authentication did not finish.');
@@ -79,7 +80,7 @@ export async function createTeamIdentities(
         refreshing ??= client.send(new InitiateAuthCommand({
           ClientId: fixture.client_id, AuthFlow: 'REFRESH_TOKEN_AUTH',
           AuthParameters: { REFRESH_TOKEN: refreshToken },
-        })).then(result => {
+        }), { abortSignal: AbortSignal.timeout(30_000) }).then(result => {
           if (!result.AuthenticationResult?.AccessToken || !result.AuthenticationResult.ExpiresIn || result.ChallengeName) {
             throw new Error('Disposable identity refresh did not finish.');
           }

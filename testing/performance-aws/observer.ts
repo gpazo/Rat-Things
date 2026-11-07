@@ -65,7 +65,18 @@ export function observeActivity(options: {
   const jsonRequest = async (kind: 'snapshot' | 'runtime' | 'authority', url: string) => {
     const call = await request(kind, url, AbortSignal.any([signal, AbortSignal.timeout(30_000)]));
     try {
-      const bytes = new Uint8Array(await call.response.arrayBuffer()); call.record.bytes = bytes.byteLength;
+      const chunks: Uint8Array[] = [];
+      const reader = call.response.body?.getReader();
+      if (reader) try {
+        for (;;) {
+          const chunk = await reader.read();
+          if (chunk.done) break;
+          call.record.bytes += chunk.value.byteLength;
+          if (call.record.bytes > 32 * 1024 * 1024) throw new Error('frame_limit');
+          chunks.push(chunk.value);
+        }
+      } finally { await reader.cancel().catch(() => undefined); }
+      const bytes = Buffer.concat(chunks);
       if (!call.response.ok) throw new Error(`http_${call.response.status}`);
       call.close('complete');
       if (kind === 'snapshot') {
