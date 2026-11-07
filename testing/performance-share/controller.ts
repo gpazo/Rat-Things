@@ -64,7 +64,7 @@ export async function run(options: Options, environment: NodeJS.ProcessEnv = pro
       real: ['LocalShareService', 'encrypted SQLite', 'AgentService/SessionService', 'EnvironmentTemplateService/EnvironmentService', 'ZIP archive and chunk upload', 'Cognito authentication', 'AWS shared API staging/release/activation', 'downloaded upload integrity when enabled'],
       fixtures: ['completed source execution', 'in-memory portable snapshot from pre-generated random bytes'],
       excluded: ['native VM workspace export', 'guest extraction/continuation readiness', 'model latency or token cost', 'native desktop UI', 'USD/billed cost'],
-      timing: 'monotonic create call through first observed complete; includes archive, production local persistence, uploads and control operations plus <=25ms polling and small observer overhead. Payload generation and verification are outside this timer.',
+      timing: 'monotonic create call through first observed complete; includes archive, production local persistence, uploads and control operations plus nominal 25ms polling, event-loop scheduling and observer overhead. Payload generation and verification are outside this timer.',
       warmCold: 'unclassified; no inference from scenario order',
     },
     cells: options.sizesMiB.map(mib => ({ mib, status: 'pending', phase: 'not_started', startedAt: null, finishedAt: null, states: [], requests: [], metrics: [], uploadedFiles: [], cleanup: {} } satisfies Cell)) as Cell[],

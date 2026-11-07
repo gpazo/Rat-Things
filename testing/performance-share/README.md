@@ -39,8 +39,8 @@ including cleanup. Verify deployed bundle hashes separately.
 The monotonic total begins immediately before `LocalShareService.create` and
 ends when polling first observes `complete`. It includes the real archive,
 encrypted local persistence, HTTP uploads, stage, source release, and activation.
-Polling adds at most its nominal 25 ms interval plus event-loop scheduling;
-artifact recording and transport observation add small harness overhead. Setup,
+Polling uses a nominal 25 ms interval plus event-loop scheduling;
+artifact recording and transport observation add harness overhead. Setup,
 payload generation, verification and cleanup have separate phases.
 
 The production `share-transfer` performance record is captured as safe numeric
