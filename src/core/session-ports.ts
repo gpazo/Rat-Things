@@ -4,7 +4,7 @@ import type {
 } from '../domain/agents-api.js';
 import type { ArtifactReference, ExecutionBackend } from '../domain/contracts.js';
 
-export type SessionMessage = AgentSessionInputMessageParam & { id: string; afterItemId?: string | null; acceptedOrdinal?: number; actor?: import('./session-caller.js').SessionActor };
+export type SessionMessage = AgentSessionInputMessageParam & { id: string; afterItemId?: string | null; acceptedOrdinal?: number; actor?: import('./session-caller.js').SessionActor; provenance?: import('./session-attribution.js').SessionInputProvenance };
 export interface SavedSessionArtifact { artifact: SessionArtifact; content: ArtifactReference }
 export interface SessionSubagentSnapshot { subagent: Subagent; turns: Turn[]; items: AgentSessionItem[]; artifacts?: SavedSessionArtifact[]; requiredActions?: AgentSession['required_actions']; traceTurns?: import('./session-trace-planning.js').TraceTurn[] }
 
@@ -36,7 +36,7 @@ export interface SessionState {
   session: AgentSession;
   placement?: ExecutionBackend;
   turns: SessionTurnBinding[];
-  receipts: Record<string, { digest: string; commands: SessionCommand[]; dispatched: boolean; actor?: import('./session-caller.js').SessionActor; sequence?: number; acceptedAt?: number; failure?: { code: string; message: string } }>;
+  receipts: Record<string, { digest: string; commands: SessionCommand[]; dispatched: boolean; actor?: import('./session-caller.js').SessionActor; provenance?: import('./session-attribution.js').SessionInputProvenance; sequence?: number; acceptedAt?: number; failure?: { code: string; message: string } }>;
   deletedArtifacts: string[];
   subagents?: SessionSubagentSnapshot[];
 }

@@ -1,3 +1,4 @@
+import { importedSessionMessage, importedSessionReceipts, participantContext } from './session-attribution.js';
 import { restoreWorkspaceCommand } from '../domain/workspace-transfer.js';
 import { validateSessionCaller, type SessionCaller } from './session-caller.js';
 import { activityRevision, sessionActivity, sessionInputs, type SessionFollowOptions } from './session-activity.js';
@@ -241,12 +242,12 @@ export class SessionService {
     const session = { ...manifest.session, environment, status: 'idle' as const, required_actions: [], vault_ids: [] };
     const admitted = configurationRef({ kind: 'session', id }, 1);
     const value: SessionState = {
-      configuration: { admitted, current: admitted }, sharedFrom: { operationId: manifest.operation_id, digest, admission: { source: manifest.admission, destination: evidence } },
+      configuration: { admitted, current: admitted }, sharedFrom: { operationId: manifest.operation_id, digest, admission: { source: { provenance: { kind: 'imported', operation_id: manifest.operation_id }, evidence: manifest.admission }, destination: evidence } },
       session, runtime: manifest.runtime, placement, workloadAdmission: evidence,
-      turns: manifest.turns.map(turn => ({ ...turn, savedArtifacts: artifacts.filter(artifact => artifact.artifact.turn_id === turn.turn.id) })),
+      turns: manifest.turns.map(turn => ({ ...turn, input: turn.input.map(message => importedSessionMessage(message, manifest.operation_id)), savedArtifacts: artifacts.filter(artifact => artifact.artifact.turn_id === turn.turn.id) })),
       subagents: manifest.subagents.map(subagent => ({ ...subagent, artifacts: artifacts.filter(artifact => subagent.turns.some(turn => turn.id === artifact.artifact.turn_id)) })),
       importedHistory: manifest.imported_history, receipts: {}, deletedArtifacts: manifest.deleted_artifacts,
-      archivedInputs: manifest.inputs, inputSequence: Math.max(0, ...manifest.inputs.map(input => input.sequence)),
+      archivedInputs: importedSessionReceipts(manifest.inputs, manifest.operation_id), inputSequence: manifest.inputs.length,
     };
     const revision = planConfigurationRevision(ownerId, admitted, sessionConfigurationSnapshot(value), null, this.clock.now(), 'created');
     await commitConfiguration(this.options.store, [{ resource: { ownerId, id, collection: 'sessions', createdAt: session.created_at, revision: 1, value }, expectedRevision: 0 }, revision], [revision]);
@@ -804,7 +805,7 @@ export class SessionService {
       if (command.type === 'tool_result' && command.event.success && Array.isArray(command.event.output)) validateRuntimeInput(state.runtime ?? CODEX_RUNTIME, agent, [{ role: 'user', content: command.event.output }]);
     }
     return { ...plan.state, inputSequence: (state.inputSequence ?? 0) + 1, receipts: {
-      ...state.receipts, [key]: { digest: hash(canonicalJson(events)), commands: plan.commands, dispatched: false, ...(caller ? { actor: caller.actor } : {}), sequence: (state.inputSequence ?? 0) + 1, acceptedAt: this.clock.now() },
+      ...state.receipts, [key]: { digest: hash(canonicalJson(events)), commands: plan.commands, dispatched: false, ...(caller ? { actor: caller.actor, provenance: { kind: 'authenticated' as const } } : {}), sequence: (state.inputSequence ?? 0) + 1, acceptedAt: this.clock.now() },
     } };
   }
 
@@ -854,7 +855,7 @@ const hash = (text: string): string => createHash('sha256').update(text).digest(
 
 function executionInput(input: import('./session-ports.js').SessionMessage[]): import('./session-ports.js').SessionMessage[] {
   return input.map(message => !message.actor ? message : { ...message, content: [
-    { type: 'input_text', text: `[Authenticated participant ${JSON.stringify({ id: message.actor.id, kind: message.actor.kind })}]` }, ...message.content,
+    { type: 'input_text', text: participantContext(message) }, ...message.content,
   ] });
 }
 function executionHistory(items: import('../domain/agents-api.js').AgentSessionItem[], state: SessionState) {

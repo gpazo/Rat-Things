@@ -104,7 +104,7 @@ export function planSessionInput(
       if (!event.input.length || event.input.some((message) => !message.content.length)) invalid('input must contain at least one content part', 'events.input');
       let afterItemId = active ? ids.itemAnchors?.[active.turn.id] ?? active.input.at(-1)?.id ?? null : null;
       const messages = event.input.map((message) => {
-        const planned = { ...message, ...(ids.actor ? { actor: ids.actor } : {}), id: ids.messageIds[messageOffset++]!, afterItemId, acceptedOrdinal: acceptedOrdinal++ };
+        const planned = { ...message, ...(ids.actor ? { actor: ids.actor, provenance: { kind: 'authenticated' as const } } : {}), id: ids.messageIds[messageOffset++]!, afterItemId, acceptedOrdinal: acceptedOrdinal++ };
         afterItemId = planned.id;
         return planned;
       });

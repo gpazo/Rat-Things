@@ -6,6 +6,7 @@ import { AgentsApiError } from '../domain/agents-api-validation.js';
 export interface SessionInputReceipt {
   id: string;
   actor: SessionActor;
+  provenance?: import('./session-attribution.js').SessionInputProvenance;
   sequence: number;
   status: 'accepted' | 'dispatched' | 'failed';
   accepted_at: number;
@@ -27,7 +28,7 @@ export function activityRevision(id: string, cursor: string): number {
 }
 export function sessionInputs(state: SessionState): SessionInputReceipt[] {
   return [...state.archivedInputs ?? [], ...Object.entries(state.receipts).flatMap(([id, receipt]) => receipt.actor ? [{
-    id, actor: receipt.actor, sequence: receipt.sequence ?? 0,
+    id, actor: receipt.actor, provenance: receipt.provenance ?? { kind: 'unknown' as const }, sequence: receipt.sequence ?? 0,
     status: receipt.failure ? 'failed' as const : receipt.dispatched ? 'dispatched' as const : 'accepted' as const,
     accepted_at: receipt.acceptedAt ?? state.session.created_at,
     turn_ids: [...new Set(receipt.commands.map(command => command.turnId))],

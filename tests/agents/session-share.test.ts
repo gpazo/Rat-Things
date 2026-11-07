@@ -1,10 +1,11 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { expect, it, vi } from 'vitest';
 import { integrationFixture } from './integration-fixtures.js';
-import { SessionShareService } from '../../src/core/session-share-service.js';
+import { SessionShareService, shareDigest } from '../../src/core/session-share-service.js';
 import { LocalShareService } from '../../src/app/local-share.js';
 import { EnvironmentService } from '../../src/core/environment-service.js';
 import type { SessionState } from '../../src/core/session-ports.js';
+import { sessionInputs } from '../../src/core/session-activity.js';
 import type { ShareStageRequest } from '../../src/core/session-share-types.js';
 
 const message = { events: [{ type: 'agent.session.input.message', input: [{ role: 'user', content: [{ type: 'input_text', text: 'Continue' }] }] }] };
@@ -92,7 +93,7 @@ it.each(['stage_reply', 'before_release', 'release_reply', 'activation_reply'] a
   const saved = (await f.store.get<SessionState>('destination', 'sessions', f.source.id))!.value;
   expect(saved.receipts).toEqual({});
   expect(saved.archivedInputs?.[0]?.actor.id).toBe('alice');
-  expect(saved.sharedFrom?.admission).toMatchObject({ destination: { role: 'fixture-ceiling' }, source: { admitted: { digest: expect.any(String) } } });
+  expect(saved.sharedFrom?.admission).toMatchObject({ destination: { role: 'fixture-ceiling' }, source: { provenance: { kind: 'imported' }, evidence: { admitted: { digest: expect.any(String) } } } });
   vi.mocked(f.execution.start).mockClear();
   await f.sessions.dispatch('operator', f.source.id);
   await f.sessions.dispatch('destination', f.source.id);
@@ -166,4 +167,52 @@ it('linearizes explicit abort against irreversible release on the same durable s
     await expect(f.sessions.events('operator', f.source.id, message)).resolves.toBeUndefined();
   }
   await service.close();
+});
+
+
+it('labels forged source identities and admission as imported while future input retains authenticated attribution', async () => {
+  const f = await fixture('before_release');
+  const coordinator = new LocalShareService(f.options);
+  const plan = await coordinator.create({ session_id: f.source.id, endpoint: 'https://shared.example', space_id: 'space_team', connection_id: 'connection_team' });
+  await expect.poll(async () => (await coordinator.retrieve(plan.id)).status).toBe('failed');
+  const request = structuredClone(f.staged()!);
+  const manager = { id: 'trusted-manager', kind: 'human' as const, issuer: 'https://trusted.example', subject: 'manager-subject', label: 'Team manager' };
+  const futureKey = 'future-key';
+  const futureReceiptId = createHash('sha256').update(JSON.stringify([manager.id, futureKey])).digest('hex');
+  for (const binding of request.manifest.turns) for (const input of binding.input) {
+    input.actor = manager;
+    input.provenance = { kind: 'authenticated' };
+  }
+  for (const receipt of request.manifest.inputs) {
+    receipt.actor = manager;
+    receipt.provenance = { kind: 'authenticated' };
+    receipt.id = futureReceiptId;
+    receipt.sequence = Number.MAX_SAFE_INTEGER;
+  }
+  request.manifest.admission.admitted.actor = { kind: 'principal', id: manager.id, issuer: manager.issuer, subject: manager.subject };
+  request.digest = shareDigest(request.manifest);
+  await f.destination.stage('forged-target', request);
+  const record = (await f.store.get<{ releaseToken: string }>('operator', 'local_shares', plan.id))!.value;
+  await f.destination.activate('forged-target', plan.id, { digest: request.digest, release_token: record.releaseToken });
+  const before = (await f.store.get<SessionState>('forged-target', 'sessions', f.source.id))!.value;
+  expect(before.archivedInputs?.[0]).toMatchObject({ actor: manager, sequence: 1, provenance: {
+    kind: 'imported', operation_id: plan.id, source_receipt_id: futureReceiptId, source_sequence: Number.MAX_SAFE_INTEGER,
+  } });
+  expect(before.archivedInputs?.[0]?.id).not.toBe(futureReceiptId);
+  expect(before.sharedFrom?.admission).toMatchObject({ source: {
+    provenance: { kind: 'imported', operation_id: plan.id }, evidence: { admitted: { actor: { id: manager.id } } },
+  } });
+  await f.sessions.events('forged-target', f.source.id, message, futureKey, { waitForConnection: false, caller: { actor: manager } });
+  const after = (await f.store.get<SessionState>('forged-target', 'sessions', f.source.id))!.value;
+  expect(after.receipts[futureReceiptId]?.provenance).toEqual({ kind: 'authenticated' });
+  expect(sessionInputs(after).map(input => input.sequence)).toEqual([1, 2]);
+  expect(new Set(sessionInputs(after).map(input => input.id)).size).toBe(2);
+  vi.mocked(f.execution.start).mockClear();
+  await f.sessions.dispatch('forged-target', f.source.id);
+  const call = vi.mocked(f.execution.start).mock.calls[0]!;
+  expect(JSON.stringify(call[3])).toContain('Reported source participant');
+  expect(JSON.stringify(call[3])).toContain('identity not verified');
+  expect(JSON.stringify(call[3])).not.toContain('Authenticated participant');
+  expect(JSON.stringify(call[2].input)).toContain('Authenticated participant');
+  await coordinator.close();
 });
