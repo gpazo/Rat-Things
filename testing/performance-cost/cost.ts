@@ -30,7 +30,12 @@ const outcomes = ['success', 'client-error', 'server-error', 'aborted', 'error']
 const metricNames = ['RequestDuration', 'ResponseBytes', 'StorageGetCount', 'StorageListCount', 'StorageTransactionCount',
   'DynamoReadCapacity', 'DynamoWriteCapacity', 'DynamoUnclassifiedCapacity', 'DynamoAttempts', 'DynamoErrors',
   'DynamoCapacityReports', 'DynamoCapacityMissing', 'S3GetCount', 'S3PutCount', 'S3Attempts', 'S3Errors',
-  'S3ReadBytes', 'S3WriteBytes', 'AuthorizationCount', 'ActivityPollCount', 'ActivityEventCount', 'SubmissionConflicts'] as const;
+  'S3ReadBytes', 'S3WriteBytes', 'AuthorizationCount', 'ActivityPollCount', 'ActivityEventCount', 'SubmissionConflicts',
+  'DynamoReadDuration', 'DynamoWriteDuration', 'S3GetDuration', 'S3PutDuration', 'AuthorizationDuration',
+  'SubmissionAcceptedDuration', 'SubmissionReadDuration', 'SubmissionValidationDuration', 'SubmissionRateLimitDuration',
+  'SubmissionCommitDuration', 'SubmissionRecoveryDuration', 'InputConnectionDuration', 'OutboxRetryCount', 'OutboxFailureCount',
+  'HydrationCacheHits', 'HydrationCacheMisses', 'HydrationCacheCoalesced', 'HydrationCacheEvictions',
+  'FeedbackBatchMessages', 'FeedbackBatchCount', 'FeedbackCollectionDuration'] as const;
 type Metric = typeof metricNames[number];
 type Metrics = Partial<Record<Metric, number>>;
 type Observation =

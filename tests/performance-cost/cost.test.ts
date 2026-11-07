@@ -30,6 +30,14 @@ function run(events: LogEvent[], config = manifest) { return estimateCost(config
 const readMetrics = { DynamoAttempts: 1, DynamoCapacityReports: 1, DynamoReadCapacity: 2, S3GetCount: 3, S3Attempts: 3 };
 
 describe('measured variable collaboration cost', () => {
+  it('retains phase timers and retry counts without pricing overlapping durations as compute', () => {
+    const baseline = run([perf(readMetrics), report()]);
+    const timed = run([perf({ ...readMetrics, AuthorizationDuration: 250, DynamoReadDuration: 350,
+      SubmissionCommitDuration: 120, S3PutDuration: 40, OutboxRetryCount: 2, OutboxFailureCount: 0 }), report()]);
+    expect(timed.sources[0]!.metrics).toMatchObject({ AuthorizationDuration: 250, DynamoReadDuration: 350,
+      SubmissionCommitDuration: 120, S3PutDuration: 40, OutboxRetryCount: 2, OutboxFailureCount: 0 });
+    expect(timed.subtotal).toEqual(baseline.subtotal);
+  });
   it('uses REPORT billed GB-seconds, fractional capacity and exact per-unit rates', () => {
     const estimate = run([perf({ ...readMetrics, DynamoReadCapacity: 0.5, DynamoWriteCapacity: 6, S3PutCount: 2, S3Attempts: 5 }), report()]);
     const source = estimate.sources[0]!;

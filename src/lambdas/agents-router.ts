@@ -34,7 +34,7 @@ export interface AgentsApiServices extends AgentsAuditServices {
   guardedStore?: GuardedAgentsStore;
   activity?: {
     snapshot(ownerId: string, id: string, caller: SpaceAuthority): Promise<unknown>;
-    follow(ownerId: string, id: string, signal: AbortSignal, options: { after?: string; revalidate: () => Promise<void> }): AsyncIterable<{ event_id?: string; type?: string; activity?: unknown }>;
+    follow(ownerId: string, id: string, signal: AbortSignal, options: { after?: string; revalidate?: () => Promise<void> }): AsyncIterable<{ event_id?: string; type?: string; activity?: unknown }>;
   };
   shares?: {
     stage(ownerId: string, raw: unknown, caller: SpaceAuthority): Promise<unknown>;
