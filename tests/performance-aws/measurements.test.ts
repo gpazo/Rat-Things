@@ -160,6 +160,18 @@ describe('exact client observations', () => {
     expect(workloadObserved(observed, work, snapshot)).toBe(false);
     observed.peers[0]!.progress = { state: 'observed', latencyMs: 45, turnId: 'new-turn', itemId: 'item-a', kind: 'message', attribution: 'unclassified' };
     expect(workloadObserved(observed, work, snapshot)).toBe(true);
+    expect(workloadObserved({ ...observed, completion: { state: 'censored', reason: 'deadline', elapsedMs: 50 } }, work, snapshot)).toBe(false);
+    const { completion: _completion, ...missing } = observed;
+    expect(workloadObserved(missing, work, snapshot)).toBe(false);
+  });
+
+  it('retains incomplete mapping evidence at the deadline and ignores observations before submission', () => {
+    const snapshot = activity();
+    expect(observeCompletion(undefined, snapshot, work, 99, null)).toEqual({ state: 'pending' });
+    snapshot.turns[0]!.status = 'in_progress';
+    const partial = observeCompletion(undefined, snapshot, work, 125, 105);
+    expect(finishCompletion(partial, 150, 100, 'deadline')).toMatchObject({ state: 'censored', elapsedMs: 50,
+      receiptId: 'receipt-a', turnIds: ['new-turn'], turns: [{ status: 'in_progress', observedAtMs: 125 }] });
   });
 
   it('reports failed receipts and terminal failures instead of counting them complete', () => {

@@ -24,7 +24,7 @@ export type Completion =
   | { state: 'pending'; receiptId?: string; receiptStatus?: string; turnIds?: string[]; turns?: Array<{ turnId: string; status: string; observedAtMs: number }> }
   | { state: 'observed'; receiptId: string; receiptStatus: 'dispatched'; turnIds: string[]; turns: Array<{ turnId: string; status: string; observedAtMs: number }>; fromRequestMs: number; fromAcknowledgementMs: number | null }
   | { state: 'failed'; receiptId: string; receiptStatus: 'failed' | 'dispatched'; turnIds: string[]; turns: Array<{ turnId: string; status: string; observedAtMs: number }>; failure: 'receipt_failed' | 'turn_failed'; fromRequestMs: number; fromAcknowledgementMs: number | null }
-  | { state: 'censored'; reason: string; elapsedMs: number };
+  | { state: 'censored'; reason: string; elapsedMs: number; receiptId?: string; receiptStatus?: string; turnIds?: string[]; turns?: Array<{ turnId: string; status: string; observedAtMs: number }> };
 export type Observation =
   | { state: 'pending' }
   | { state: 'observed'; latencyMs: number; receiptId: string; turnIds: string[] }
@@ -53,6 +53,7 @@ const terminalStatus = (status: string) => ['completed', 'failed', 'cancelled'].
 /** Recompute completion against the current receipt mapping; a rehome invalidates old terminal timing. */
 export function observeCompletion(previous: Completion | undefined, activity: Activity, work: Workload, nowMs: number, acknowledgementMs: number | null): Completion {
   if (previous?.state === 'censored') return previous;
+  if (nowMs < work.startedMs) return previous ?? { state: 'pending' };
   if (work.deadlineMs !== undefined && nowMs > work.deadlineMs) return finishCompletion(previous, work.deadlineMs, work.startedMs, 'deadline');
   const receipts = receiptFor(activity, work);
   if (receipts.length !== 1) return { state: 'pending' };
@@ -79,12 +80,12 @@ export function observeCompletion(previous: Completion | undefined, activity: Ac
 const turnStatus = (activity: Activity, id: string) => activity.turns.find(turn => turn.id === id)?.status;
 
 export function finishCompletion(completion: Completion | undefined, nowMs: number, startedMs: number, reason: string): Completion {
-  return completion && completion.state !== 'pending' ? completion : { state: 'censored', elapsedMs: Math.max(0, nowMs - startedMs), reason };
+  return completion && completion.state !== 'pending' ? completion : { ...completion, state: 'censored', elapsedMs: Math.max(0, nowMs - startedMs), reason };
 }
 
 /** Require manager completion and every observer's historical input/progress observations before draining. */
 export function workloadObserved(sample: Sample, work: Workload, activity: Activity): boolean {
-  return receiptFor(activity, work).length === 1 && sample.completion?.state !== 'pending'
+  return receiptFor(activity, work).length === 1 && (sample.completion?.state === 'observed' || sample.completion?.state === 'failed')
     && sample.peers.every(peer => peer.input.state === 'observed' && peer.progress.state === 'observed');
 }
 
