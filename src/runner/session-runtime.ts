@@ -1,5 +1,5 @@
 import { verifyManagedCodexPolicy } from '../adapters/codex-managed-policy.js';
-import { admitNativeServiceTier, nativeServiceTier } from '../domain/session-model-validation.js';
+import { admitNativeServiceTier, nativeServiceTier, providerModelId } from '../domain/session-model-validation.js';
 import { nativeHostJournalDigest, planNativeCheckpoint } from '../core/native-checkpoint-planning.js';
 import type { NativeCheckpointManifest, NativeCheckpointEvidence } from '../domain/native-checkpoint.js';
 import { assertCheckpointStartupSafe } from './codex-cold-verification.js';
@@ -179,7 +179,7 @@ export class SessionRuntime {
     const serviceTier = await this.admitTier(request.serviceTier, request.model);
     const parameters = {
       cwd: request.executionWorkspace ?? request.workspace,
-      modelProvider: request.modelProvider, model: request.model,
+      modelProvider: request.modelProvider, model: providerModelId(request.model, request.modelProvider),
       approvalPolicy: 'never', approvalsReviewer: 'user', ...(request.permissions ? { permissions: request.permissions } : { sandbox: request.sandbox }),
       ephemeral: false, serviceName: 'rat-things', allowProviderModelFallback: false,
       experimentalRawEvents: true,
@@ -286,7 +286,7 @@ export class SessionRuntime {
       if (cursor && (cursors.has(cursor) || cursors.size >= 100)) throw new Error('Native model pagination repeated');
       if (cursor) cursors.add(cursor);
     } while (cursor);
-    return admitNativeServiceTier(tier, { model, provider: this.options.request.modelProvider, models });
+    return admitNativeServiceTier(tier, { model: providerModelId(model, this.options.request.modelProvider), provider: this.options.request.modelProvider, models });
   }
 
   private async startTurn(turn: Turn, input: AgentSessionInputMessageParam[], rootThreadId: string, serviceTier: 'default' | 'priority' | 'flex', settings?: SessionModelSettings): Promise<void> {
@@ -301,12 +301,12 @@ export class SessionRuntime {
         environments: request.environments,
         approvalPolicy: 'never', approvalsReviewer: 'user',
         ...(request.permissions ? { permissions: request.permissions } : { sandboxPolicy: sandboxPolicyFor(request.sandbox, request.executionWorkspace ?? request.workspace, request.networkAccess) }),
-        model: settings?.model ?? request.model,
+        model: providerModelId(settings?.model ?? request.model, request.modelProvider),
         effort: settings ? settings.reasoning.effort : request.reasoningEffort,
         // Native null effort otherwise means "keep the previous effort". A
         // default collaboration-mode snapshot clears it to the selected model's default.
         ...(settings?.reasoning.effort === null ? { collaborationMode: {
-          mode: 'default', settings: { model: settings.model, reasoning_effort: null, developer_instructions: null },
+          mode: 'default', settings: { model: providerModelId(settings.model, request.modelProvider), reasoning_effort: null, developer_instructions: null },
         } } : {}),
         serviceTier, summary: request.reasoningSummary,
         ...(request.outputSchema ? { outputSchema: request.outputSchema } : {}),

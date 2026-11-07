@@ -66,6 +66,11 @@ capabilities. Sharing does not select a replacement Agent or silently change the
 model. Source Vault credentials, source-specific tools and environment variables
 that cannot be carried safely require a compatible new Session.
 
+The logical model stays the same across providers. At the Codex execution
+boundary, known OpenAI models use Bedrock's `openai.` namespace when needed—for
+example, `gpt-6-astra` becomes `openai.gpt-6-astra` on the wire. Unsupported models
+fail; there is no model fallback.
+
 Sharing waits for accepted work to reach a completed-Turn boundary and stops the
 local executor before taking a workspace snapshot. It preserves the logical
 Session identity, Agent configuration, completed Turns, Items, usage, artifacts

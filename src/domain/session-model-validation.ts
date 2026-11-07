@@ -5,6 +5,12 @@ import capabilities from '../../runtime/codex/model-capabilities.json' with { ty
 /** Provider aliases do not change the capability envelope of a known model. */
 export function canonicalModelName(model: string): string { return model.replace(/^openai\./, ''); }
 
+/** Resolve only the known OpenAI namespace; never select a different model or provider. */
+export function providerModelId(model: string | undefined, provider: string | undefined): string | undefined {
+  if (provider !== 'amazon-bedrock' || model === undefined || model.startsWith('openai.')) return model;
+  return Object.hasOwn(capabilities.models, model) ? `openai.${model}` : model;
+}
+
 export type NativeServiceTier = 'default' | 'priority' | 'flex';
 
 /** An explicit standard tier clears a prior per-thread tier in the official protocol. */

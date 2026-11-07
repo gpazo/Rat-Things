@@ -11,8 +11,9 @@ import type { Turn } from '../../src/domain/agents-api.js';
 import { MemoryAgentsStore } from './fixtures.js';
 import { routeAgentsRequest } from '../../src/lambdas/agents-router.js';
 import type { CodexTurnController } from '../../src/runner/codex-app-server.js';
+import { providerModelId } from '../../src/domain/session-model-validation.js';
 
-function fixture(lifetime?: 'bounded' | 'host-managed') {
+function fixture(lifetime?: 'bounded' | 'host-managed', modelProvider = 'openai', model = 'fixture') {
   let handlers: ConstructorParameters<typeof CodexRpcClient>[0];
   let counter = 0;
   let closed = false;
@@ -21,15 +22,15 @@ function fixture(lifetime?: 'bounded' | 'host-managed') {
   const calls: Array<{ method: string; params: unknown }> = [];
   const runtime = new SessionRuntime({ sessionId: 'sess', agentId: 'agent', now: () => 100,
     ...(lifetime ? { lifetime } : {}),
-    request: { binary: 'unused', workspace: '/workspace', environment: {}, timeoutMs: 10_000, prompt: '', sandbox: 'read-only', persistent: true, modelProvider: 'openai', model: 'fixture', networkAccess: false, environments: [], dynamicTools: [{ type: 'function', name: 'lookup', description: 'Lookup', inputSchema: { type: 'object', properties: {} } }], onTurnStarted: (value) => { controller = value; } },
+    request: { binary: 'unused', workspace: '/workspace', environment: {}, timeoutMs: 10_000, prompt: '', sandbox: 'read-only', persistent: true, modelProvider, model, networkAccess: false, environments: [], dynamicTools: [{ type: 'function', name: 'lookup', description: 'Lookup', inputSchema: { type: 'object', properties: {} } }], onTurnStarted: (value) => { controller = value; } },
     client: (options) => {
       handlers = options;
       rpc = {
         initialize: async () => {},
         call: async (method, params) => {
           calls.push({ method, params });
-          if (method === 'config/read') return { config: { model_provider: 'openai' } };
-          if (method === 'model/list') return { data: [{ id: 'gpt-6-astra', model: 'gpt-6-astra', serviceTiers: [{ id: 'priority' }] }], nextCursor: null };
+          if (method === 'config/read') return { config: { model_provider: modelProvider } };
+          if (method === 'model/list') return { data: [{ id: providerModelId('gpt-6-astra', modelProvider), model: providerModelId('gpt-6-astra', modelProvider), serviceTiers: [{ id: 'priority' }] }], nextCursor: null };
           if (method === 'thread/start') return { thread: { id: 'root' } };
           if (method === 'turn/start') {
             const id = `native-${++counter}`;
@@ -53,6 +54,25 @@ const responseUsage = (threadId: string, turnId: string, responseId: string, inp
 });
 
 describe('persistent native session runtime', () => {
+  it('keeps the logical model while using its known Bedrock namespace for startup and continuation', async () => {
+    const f = fixture(undefined, 'amazon-bedrock', 'gpt-6-astra');
+    const settings = { model: 'gpt-6-astra', reasoning: { effort: null }, service_tier: 'priority' };
+    try {
+      await f.runtime.initialize();
+      await f.runtime.start(rootTurn('first'), message);
+      f.emit({ method: 'turn/completed', params: { threadId: 'root', turn: { id: 'native-1', status: 'completed' } } });
+      await f.controller().startSessionTurn!(rootTurn('second'), message, settings);
+      expect(f.calls.find(call => call.method === 'thread/start')?.params).toMatchObject({ model: 'openai.gpt-6-astra', allowProviderModelFallback: false });
+      expect(f.calls.filter(call => call.method === 'turn/start').map(call => call.params)).toEqual([
+        expect.objectContaining({ model: 'openai.gpt-6-astra' }),
+        expect.objectContaining({ model: 'openai.gpt-6-astra', collaborationMode: { mode: 'default', settings: { model: 'openai.gpt-6-astra', reasoning_effort: null, developer_instructions: null } } }),
+      ]);
+      expect(settings.model).toBe('gpt-6-astra');
+      expect(providerModelId('gpt-6-astra', 'openai')).toBe('gpt-6-astra');
+      expect(providerModelId('unrecognized-model', 'amazon-bedrock')).toBe('unrecognized-model');
+      expect(providerModelId('openai.gpt-6-astra', 'amazon-bedrock')).toBe('openai.gpt-6-astra');
+    } finally { await f.runtime.close(); }
+  });
   it('uses the default native startup deadline and forwards a longer cold-start deadline', async () => {
     const standard = fixture();
     const cold = fixture();

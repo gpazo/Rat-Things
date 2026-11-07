@@ -3,7 +3,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { expect, it } from 'vitest';
 import OpenAI from 'openai';
 import { createAgentsClient } from '../../src/agents-client.js';
-import type { AgentSession, Turn } from '../../src/domain/agents-api.js';
+import type { AgentSession, AgentSessionItem, Turn } from '../../src/domain/agents-api.js';
 import { createTeamIdentities, type TeamIdentityFixture, type TestTeamIdentity } from '../../testing/aws/team-identities.js';
 
 const live = process.env.AWS_E2E === 'true' && process.env.AWS_E2E_SHARED_SESSIONS === 'true' ? it : it.skip;
@@ -11,6 +11,7 @@ const timeout = Number(process.env.AWS_E2E_TIMEOUT_MS ?? 420_000);
 interface Activity {
   session: AgentSession;
   turns: Turn[];
+  items: AgentSessionItem[];
   cursor: string;
   inputs: { id: string; actor: { id: string; subject?: string }; sequence: number; status: string; message_ids: string[] }[];
 }
@@ -124,6 +125,10 @@ live('shares real execution and progress across verified team identities with re
     // Simulate all clients being absent; the next observation cannot drive execution.
     await delay(10_000);
     const unattended = await until(activity, current => current.turns.length > completed.turns.length && current.turns.every(turn => turn.status === 'completed'), timeout);
+    const lastTurn = unattended.turns.at(-1)!;
+    const answer = unattended.items.flatMap(item => item.type === 'message' && item.role === 'assistant' && item.turn_id === lastTurn.id
+      ? item.content.flatMap(part => part.type === 'output_text' ? [part.text] : []) : []).join('\n');
+    expect(answer).toContain(proof);
     const replay = watchActivity(baseURL, spaceId, session.id, await follower.accessTokenForRequest(), start.cursor);
     subscriptions.push(replay);
     await replay.ready;
