@@ -7,8 +7,8 @@ real model for one-word replies. It does not deploy infrastructure or collect
 CloudWatch billing data. Ordinary tests never invoke AWS.
 
 The controller rejects GPT-6 Astra and requires an explicitly configured
-GPT-6 Luna or GPT-5.6 Luna model ID. Choose one supported by the deployment region and endpoint. Workload inputs are capped at 60, setup Session inputs at
-8, controller HTTP client retries are disabled, and the prompt requests a one-word
+GPT-6 Luna or GPT-5.6 Luna model ID. Choose one supported by the deployment region and endpoint. Workload inputs are capped at 41, setup Session inputs at
+3, controller HTTP client retries are disabled, and the prompt requests a one-word
 reply. The artifact fails if observed assistant output for any Turn exceeds 256
 UTF-8 bytes. This observation guard does not impose a provider token limit before
 generation. The API has no per-agent output-token limit; provider retry behavior is
@@ -25,10 +25,11 @@ AWS_E2E=true AWS_E2E_SHARED_SESSIONS=true AWS_E2E_REAL_CODEX=true \
   --output /absolute/path/aws-performance.json
 ```
 
-The default matrix is `1x1`, `10x10`, `20x20`, and `20x50`, where the first number
-is simultaneous writers and the second is viewers. Each scenario creates its
-own space and shared Session. One burst is the default. Narrow the matrix or
-explicitly request up to ten rounds with `--scenario 20x20,20x50 --rounds 2`.
+The default matrix is `1x1`, `10x10`, and `20x20`, where the first number is
+simultaneous writers and the second is viewers. `20x50` remains available as an
+individual scenario. Each scenario creates its own space and shared Session.
+One burst is the default. Narrow the matrix or explicitly request rounds within
+the 41 workload and 3 setup input caps.
 Each round waits for the previous Turns and input outboxes to settle. The initial
 Session input also runs to completion before measurement. This establishes a
 history baseline; it does not prove the next Lambda or model request is warm.
@@ -78,8 +79,22 @@ bundle; the controller does not claim to have done so.
 - First progress requires actual nonempty assistant text or a tool Item in a
   receipt-linked Turn absent from that round's baseline. Older output and empty
   assistant state do not qualify. Multiple receipts mapped to the same Turn are
-  explicitly `ambiguous_same_turn`; this is shared progress, not proof of which
+  explicitly `shared_turn_ambiguous`; this is shared progress, not proof of which
   input caused that output. Public reasoning Items are not counted as progress.
+  First-progress latency is historical first visibility: later receipt rehoming
+  does not rewrite when an observer first saw output.
+- Final receipt-Turn completion is a separate measurement. The controller waits
+  for each accepted workload receipt to be dispatched and for every Turn in its
+  current `turn_ids` mapping to be observed completed. It records latency from
+  request start and from acknowledgement, using the controller's monotonic
+  `performance.now()` clock; the latter is null when no acknowledgement time
+  exists. Each sample retains the final receipt ID, Turn IDs, observed terminal
+  status and client observation timestamp (`observedAtMs`). If a later snapshot
+  rehomes a receipt, the earlier completion is invalidated and the new mapping
+  must reach terminal completion. Failed receipts and Turns are reported as
+  failures; deadlines and interrupted observations are censored. Neither first
+  progress nor terminal completion establishes that a model answer is semantically
+  correct: the one-word output is not evaluated as a per-input answer.
 - Raw samples preserve timeouts, missing observations, and rejected submissions.
   Observations arriving after the round deadline remain censored. Scenario summaries
   retain the planned submission count and the count that never started after an earlier

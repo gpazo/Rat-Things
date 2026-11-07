@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { distribution, finishSample, observePeer, receiptFor, settled, summarize, type Activity, type PeerSample, type Sample, type Workload } from '../../testing/performance-aws/measurements.js';
+import { distribution, finishCompletion, finishSample, observeCompletion, observePeer, receiptFor, receiptsSettled, settled, summarize, type Activity, type PeerSample, type Sample, type Workload } from '../../testing/performance-aws/measurements.js';
 
 const work: Workload = { id: 'fixture-1', subject: 'writer-a', text: 'Sample fixture-1. Reply OK.', startedMs: 100, baselineTurns: ['old-turn'], baselineItems: ['old-turn:old-output'] };
 const peer: PeerSample = { peer: 'viewer-0', input: { state: 'pending' }, progress: { state: 'pending' } };
@@ -98,5 +98,41 @@ describe('exact client observations', () => {
     expect(settled(snapshot)).toBe(true);
     snapshot.inputs[0]!.status = 'accepted';
     expect(settled(snapshot)).toBe(false);
+  });
+
+  it('measures finalized receipt Turn completion from request start and acknowledgement, retaining the final mapping', () => {
+    const snapshot = activity();
+    const completed = observeCompletion({ state: 'pending' }, snapshot, work, 125, 105);
+    expect(completed).toEqual({ state: 'observed', receiptId: 'receipt-a', receiptStatus: 'dispatched', turnIds: ['new-turn'],
+      turns: [{ turnId: 'new-turn', status: 'completed', observedAtMs: 125 }], fromRequestMs: 25, fromAcknowledgementMs: 20 });
+    const censored = finishCompletion({ state: 'pending' }, 150, 100, 'deadline');
+    expect(censored).toEqual({ state: 'censored', elapsedMs: 50, reason: 'deadline' });
+    expect(observeCompletion({ state: 'pending' }, snapshot, { ...work, deadlineMs: 110 }, 111, 105)).toEqual({ state: 'censored', elapsedMs: 10, reason: 'deadline' });
+    expect(receiptsSettled(snapshot)).toBe(true);
+    const summary = summarize([{ ...sample(), completion: completed }, { ...sample({ id: 'censored' }), completion: censored }]);
+    expect(summary).toMatchObject({ completedReceiptTurns: 1, failedReceiptTurns: 0, censoredReceiptTurns: 1,
+      finalReceiptTurnCompletionFromRequestMs: { count: 1, p95: 25 }, finalReceiptTurnCompletionFromAcknowledgementMs: { count: 1, p95: 20 } });
+  });
+
+  it('invalidates completion after receipt rehome and waits for every mapped terminal Turn', () => {
+    const first = activity();
+    const completed = observeCompletion(undefined, first, work, 125, 105);
+    first.turns.push({ ...first.turns[0]!, id: 'rehomed-turn', status: 'in_progress' });
+    first.inputs[0]!.turn_ids = ['rehomed-turn'];
+    const partial = observeCompletion(completed, first, work, 140, 105);
+    expect(partial).toEqual({ state: 'pending' });
+    first.turns[1]!.status = 'completed';
+    const final = observeCompletion(partial, first, work, 150, 105);
+    expect(final).toMatchObject({ state: 'observed', turnIds: ['rehomed-turn'], fromRequestMs: 50, fromAcknowledgementMs: 45,
+      turns: [{ turnId: 'rehomed-turn', status: 'completed', observedAtMs: 150 }] });
+  });
+
+  it('reports failed receipts and terminal failures instead of counting them complete', () => {
+    const snapshot = activity();
+    snapshot.inputs[0]!.status = 'failed';
+    expect(observeCompletion(undefined, snapshot, work, 120, 105)).toMatchObject({ state: 'failed', failure: 'receipt_failed', receiptStatus: 'failed' });
+    snapshot.inputs[0]!.status = 'dispatched';
+    snapshot.turns[0]!.status = 'failed';
+    expect(observeCompletion(undefined, snapshot, work, 120, 105)).toMatchObject({ state: 'failed', failure: 'turn_failed', turns: [{ status: 'failed', observedAtMs: 120 }] });
   });
 });

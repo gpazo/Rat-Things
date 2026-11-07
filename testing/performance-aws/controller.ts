@@ -7,10 +7,11 @@ import { setTimeout as delay } from 'node:timers/promises';
 import OpenAI from 'openai';
 import { createAgentsClient } from '../../src/agents-client.js';
 import { createTeamIdentities, type TeamIdentityFixture, type TestTeamIdentity } from '../aws/team-identities.js';
-import { actualProgress, digest, finishSample, itemKey, observePeer, receiptFor, settled, summarize, type Activity, type Sample, type Workload } from './measurements.js';
+import { actualProgress, digest, finishCompletion, finishSample, itemKey, observeCompletion, observePeer, receiptFor, receiptsSettled, settled, summarize, type Activity, type Sample, type Workload } from './measurements.js';
 import { observeActivity, type ObserverMeasurement } from './observer.js';
 
 const matrix = [{ writers: 1, viewers: 1 }, { writers: 10, viewers: 10 }, { writers: 20, viewers: 20 }, { writers: 20, viewers: 50 }];
+const defaultMatrix = matrix.slice(0, 3);
 export interface Options {
   output: string; scenarios: typeof matrix; rounds: number; timeoutMs: number; streamMode: 'persistent' | 'desktop';
   lambdaMemoryMb: number | null; deploymentRevision: string | null; bundleSha256: string | null;
@@ -29,7 +30,7 @@ export function parseArguments(args: readonly string[]): Options {
     if (text !== undefined && !/^\d+$/.test(text) || !Number.isSafeInteger(value) || value < min || value > max) throw new Error(`Invalid ${name}.`);
     return value;
   };
-  const selected = values.get('--scenario')?.split(',') ?? matrix.map(value => `${value.writers}x${value.viewers}`);
+  const selected = values.get('--scenario')?.split(',') ?? defaultMatrix.map(value => `${value.writers}x${value.viewers}`);
   if (new Set(selected).size !== selected.length) throw new Error('Duplicate scenario.');
   const scenarios = selected.map(name => {
     const scenario = matrix.find(value => `${value.writers}x${value.viewers}` === name);
@@ -110,8 +111,8 @@ export async function run(options: Options, environment: NodeJS.ProcessEnv = pro
   const runSignal = AbortSignal.any([signal, AbortSignal.timeout(90 * 60_000)]);
   const plannedInputs = options.scenarios.reduce((sum, size) => sum + size.writers * options.rounds, 0);
   const plannedSetupInputs = options.scenarios.length;
-  if (plannedInputs > 60) throw new Error('Live workload input cap is 60.');
-  if (plannedSetupInputs > 8) throw new Error('Live setup input cap is 8.');
+  if (plannedInputs > 41) throw new Error('Live workload input cap is 41.');
+  if (plannedSetupInputs > 3) throw new Error('Live setup input cap is 3.');
   const origin = performance.now(); const now = () => performance.now() - origin;
   const revision = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
   const dirty = execFileSync('git', ['status', '--porcelain', '--untracked-files=normal'], { encoding: 'utf8' }).trim().length > 0;
@@ -124,7 +125,7 @@ export async function run(options: Options, environment: NodeJS.ProcessEnv = pro
     provenanceSource: 'deployment revision and artifact hash are caller-supplied, not independently verified by this controller',
     region: configuration.region, endpoint: configuration.baseURL, model: configuration.model,
     clock: 'performance.now; client monotonic milliseconds from controller start; no server clock subtraction',
-    options, safetyCaps: { maxWorkloadInputs: 60, maxSetupInputs: 8, maxWallTimeMs: 90 * 60_000, maxObservedTurnOutputBytes: 256,
+    options, safetyCaps: { maxWorkloadInputs: 41, maxSetupInputs: 3, maxWallTimeMs: 90 * 60_000, maxObservedTurnOutputBytes: 256,
       modelOutputTokenLimit: null, estimatedTotalSpendCeilingUsd: 10, spendEnforcement: 'No live billed-cost sensor; caller must establish a conservative preflight estimate and stop before the $10 ceiling.' },
     execution: { tools: [], environment: 'none', reply: 'exact one-word acknowledgement requested; observed output must remain <=256 UTF-8 bytes', outputBytesObserved: 0, maxObservedOutputBytes: 256,
       reasoningEffort: 'low', reasoningSummary: null, warmCold: 'unclassified',
@@ -193,6 +194,13 @@ export async function run(options: Options, environment: NodeJS.ProcessEnv = pro
         const known = latest.turns.filter(turn => turn.usage !== null);
         result.modelUsage = { observedTurns: known.length, unknownTurns: latest.turns.length - known.length,
           inputTokens: known.reduce((sum, turn) => sum + turn.usage!.input_tokens, 0), outputTokens: known.reduce((sum, turn) => sum + turn.usage!.output_tokens, 0), checkedAtMs: now() };
+        for (const sample of result.samples) {
+          const work = works.get(sample.id);
+          if (!work) continue;
+          const acknowledgementMs = sample.acknowledgement.state === 'accepted' || sample.acknowledgement.state === 'rejected'
+            ? sample.startedMs + sample.acknowledgement.latencyMs : null;
+          sample.completion = observeCompletion(sample.completion, latest, work, now(), acknowledgementMs);
+        }
         return latest;
       };
       const drain = async (deadlineMs: number, predicate: (value: Activity) => boolean, requestSignal = runSignal) => {
@@ -263,7 +271,7 @@ export async function run(options: Options, environment: NodeJS.ProcessEnv = pro
             const id = randomUUID(); const text = `Sample ${id}. Reply OK.`;
             const body = JSON.stringify(eventBody(text));
             const work: Workload = { id, subject: identity.subject, text, startedMs: 0, baselineTurns: before.turns.map(turn => turn.id), baselineItems: before.items.map(itemKey) };
-            const sample: Sample = { id, writer: `writer-${index}`, round, startedMs: 0, payloadBytes: Buffer.byteLength(body), textSha256: digest(text), acknowledgement: { state: 'pending' },
+            const sample: Sample = { id, writer: `writer-${index}`, round, startedMs: 0, payloadBytes: Buffer.byteLength(body), textSha256: digest(text), acknowledgement: { state: 'pending' }, completion: { state: 'pending' },
               peers: result.observers.map(observer => ({ peer: observer.peer, input: { state: 'pending' }, progress: { state: 'pending' } })) };
             works.set(id, work); result.samples.push(sample);
             return { sample, work, body, token: tokens[index]! };
@@ -291,14 +299,15 @@ export async function run(options: Options, environment: NodeJS.ProcessEnv = pro
             if (watches.some(watch => watch.measure.errors.length)) throw new Error('observer_failure');
             if (settled(activity) && (activity.turns.some(turn => turn.status !== 'completed') || activity.inputs.some(input => input.status === 'failed'))) throw new Error('turn_failed');
             if (entries.some(({ work }) => receiptFor(activity, work).length > 1)) throw new Error('receipt_mismatch');
-            return settled(activity)
+            return settled(activity) && receiptsSettled(activity)
               && entries.every(({ sample, work }) => sample.acknowledgement.state !== 'accepted' || receiptFor(activity, work).length === 1)
-              && entries.every(({ sample }) => sample.acknowledgement.state !== 'accepted'
-                || sample.peers.every(peer => peer.input.state === 'observed' && peer.progress.state === 'observed'));
+              && entries.every(({ sample }) => sample.acknowledgement.state !== 'accepted' || sample.completion?.state !== 'pending');
           });
           if (latest!.turns.some(turn => turn.status !== 'completed') || latest!.inputs.some(input => input.status === 'failed')) throw new Error('turn_failed');
           if (watches.some(watch => watch.measure.errors.length)) throw new Error('observer_failure');
           result.samples = result.samples.map(sample => finishSample(sample, now(), latest, sample.acknowledgement.state === 'rejected' ? 'submission_rejected' : 'submission_not_confirmed'));
+          result.samples = result.samples.map(sample => ({ ...sample, completion: finishCompletion(sample.completion, now(), sample.startedMs, 'round_deadline_or_failed') }));
+          if (result.samples.some(sample => sample.completion?.state === 'failed')) throw new Error('turn_failed');
           await phase(`round_${round}_complete`);
         }
         result.status = result.samples.every(sample => sample.acknowledgement.state === 'accepted') ? 'passed' : 'failed';
@@ -307,6 +316,7 @@ export async function run(options: Options, environment: NodeJS.ProcessEnv = pro
         await phase('cleanup').catch(() => { result.status = 'failed'; result.errors.push({ phase: 'cleanup', kind: 'artifact_write_failed' }); });
         await Promise.all(watches.map(watch => watch.stop()));
         result.samples = result.samples.map(sample => finishSample(sample, now(), latest, runSignal.aborted ? 'interrupted' : 'scenario_ended_before_observation'));
+        result.samples = result.samples.map(sample => ({ ...sample, completion: finishCompletion(sample.completion, now(), sample.startedMs, runSignal.aborted ? 'interrupted' : 'scenario_ended_before_observation') }));
         result.cleanup.observers = 'complete';
         if (watches.some(watch => watch.measure.errors.length || watch.measure.auxiliaryErrors.length)) result.status = 'failed';
         const cleanupSignal = AbortSignal.timeout(60_000);

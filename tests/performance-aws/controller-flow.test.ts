@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it, vi } from 'vitest';
 
-const fixture = vi.hoisted(() => ({ calls: [] as string[], identityFailure: false }));
+const fixture = vi.hoisted(() => ({ calls: [] as string[], identityFailure: false, observersClosed: false }));
 vi.mock('../../testing/aws/team-identities.js', () => ({
   createTeamIdentities: async (_fixture: unknown, _region: string, labels: string[]) => {
     if (fixture.identityFailure) throw new Error('PRIVATE_PROVIDER_ERROR');
@@ -18,7 +18,7 @@ vi.mock('openai', () => ({ default: class {
     delete: async () => { fixture.calls.push('agent.delete'); },
     sessions: {
       create: async () => ({ id: 'session-fixture' }),
-      delete: async () => { fixture.calls.push('session.delete'); throw new Error('PRIVATE_DELETE_ERROR'); },
+      delete: async () => { fixture.calls.push('session.delete'); if (!fixture.observersClosed) throw new Error('observer was not closed before Session deletion'); throw new Error('PRIVATE_DELETE_ERROR'); },
     },
   } };
 } }));
@@ -31,7 +31,7 @@ const environment = {
   RAT_THINGS_AGENTS_API_URL: 'https://operator.lambda-url.us-west-2.on.aws/api/v1', AWS_E2E_CODEX_MODEL_ID: 'openai.gpt-6-luna',
   TEAM_OIDC_FIXTURE_JSON: '{}',
 };
-afterEach(() => { vi.unstubAllGlobals(); fixture.calls.length = 0; fixture.identityFailure = false; });
+afterEach(() => { vi.unstubAllGlobals(); fixture.calls.length = 0; fixture.identityFailure = false; fixture.observersClosed = false; });
 
 it('retains rejected samples and safe diagnostics while closing streams and attempting every cleanup', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'aws-performance-flow-'));
@@ -39,7 +39,7 @@ it('retains rejected samples and safe diagnostics while closing streams and atte
   const snapshot = { cursor: 'fixture-cursor', session: { id: 'session-fixture' }, turns: [{ id: 'baseline-turn', status: 'completed', usage: null }], inputs: [], items: [] };
   vi.stubGlobal('fetch', vi.fn(async (url: string, options: RequestInit) => {
     if (url.endsWith('/activity/events')) return new Response(new ReadableStream({ start(controller) {
-      options.signal!.addEventListener('abort', () => { stopped = true; controller.close(); }, { once: true });
+      options.signal!.addEventListener('abort', () => { stopped = true; fixture.observersClosed = true; controller.close(); }, { once: true });
     } }));
     if (url.endsWith('/activity')) return new Response(JSON.stringify(snapshot));
     if (url.endsWith('/events')) {

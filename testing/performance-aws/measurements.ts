@@ -20,6 +20,11 @@ export interface Workload {
   baselineTurns: readonly string[];
   baselineItems: readonly string[];
 }
+export type Completion =
+  | { state: 'pending' }
+  | { state: 'observed'; receiptId: string; receiptStatus: 'dispatched'; turnIds: string[]; turns: Array<{ turnId: string; status: string; observedAtMs: number }>; fromRequestMs: number; fromAcknowledgementMs: number | null }
+  | { state: 'failed'; receiptId: string; receiptStatus: 'failed' | 'dispatched'; turnIds: string[]; turns: Array<{ turnId: string; status: string; observedAtMs: number }>; failure: 'receipt_failed' | 'turn_failed'; fromRequestMs: number; fromAcknowledgementMs: number | null }
+  | { state: 'censored'; reason: string; elapsedMs: number };
 export type Observation =
   | { state: 'pending' }
   | { state: 'observed'; latencyMs: number; receiptId: string; turnIds: string[] }
@@ -39,7 +44,36 @@ export interface Sample {
   textSha256: string;
   acknowledgement: { state: 'pending' } | { state: 'accepted' | 'rejected'; latencyMs: number; httpStatus: number }
     | { state: 'error' | 'timeout'; latencyMs: number; error: string };
+  completion?: Completion;
   peers: PeerSample[];
+}
+
+const terminalStatus = (status: string) => ['completed', 'failed', 'cancelled'].includes(status);
+
+/** Recompute completion against the current receipt mapping; a rehome invalidates old terminal timing. */
+export function observeCompletion(previous: Completion | undefined, activity: Activity, work: Workload, nowMs: number, acknowledgementMs: number | null): Completion {
+  if (previous?.state === 'censored') return previous;
+  if (work.deadlineMs !== undefined && nowMs > work.deadlineMs) return finishCompletion(previous, work.deadlineMs, work.startedMs, 'deadline');
+  const receipts = receiptFor(activity, work);
+  if (receipts.length !== 1) return { state: 'pending' };
+  const receipt = receipts[0]!;
+  const mappedTurns = receipt.turn_ids.map(id => activity.turns.find(turn => turn.id === id)).filter((turn): turn is Activity['turns'][number] => Boolean(turn));
+  const sameMapping = previous && 'receiptId' in previous && previous.receiptId === receipt.id
+    && previous.turnIds.length === receipt.turn_ids.length && previous.turnIds.every((id, index) => id === receipt.turn_ids[index]);
+  const observedAtMs = sameMapping && previous && 'turns' in previous
+    ? new Map(previous.turns.map(turn => [turn.turnId, turn.observedAtMs])) : new Map<string, number>();
+  const turns = mappedTurns.map(turn => ({ turnId: turn.id, status: turn.status, observedAtMs: observedAtMs.get(turn.id) ?? nowMs }));
+  const base = { receiptId: receipt.id, turnIds: [...receipt.turn_ids], turns,
+    fromRequestMs: Math.max(0, nowMs - work.startedMs), fromAcknowledgementMs: acknowledgementMs === null ? null : Math.max(0, nowMs - acknowledgementMs) };
+  if (receipt.status === 'failed') return { ...base, state: 'failed', receiptStatus: 'failed', failure: 'receipt_failed' };
+  if (receipt.status !== 'dispatched' || receipt.turn_ids.length === 0 || mappedTurns.length !== receipt.turn_ids.length) return { state: 'pending' };
+  if (turns.some(turn => ['failed', 'cancelled'].includes(turn.status))) return { ...base, state: 'failed', receiptStatus: 'dispatched', failure: 'turn_failed' };
+  if (turns.every(turn => terminalStatus(turn.status))) return { ...base, state: 'observed', receiptStatus: 'dispatched' };
+  return { state: 'pending' };
+}
+
+export function finishCompletion(completion: Completion | undefined, nowMs: number, startedMs: number, reason: string): Completion {
+  return completion && completion.state !== 'pending' ? completion : { state: 'censored', elapsedMs: Math.max(0, nowMs - startedMs), reason };
 }
 
 export const itemKey = (item: AgentSessionItem) => `${item.turn_id}:${item.id}`;
@@ -100,6 +134,8 @@ export function finishSample(sample: Sample, nowMs: number, activity: Activity |
 export const settled = (activity: Activity) => activity.turns.every(turn => ['completed', 'failed', 'cancelled'].includes(turn.status))
   && activity.inputs.every(input => input.status !== 'accepted');
 
+export const receiptsSettled = (activity: Activity) => activity.inputs.every(input => input.status === 'dispatched' || input.status === 'failed');
+
 export function distribution(values: readonly number[]) {
   const sorted = [...values].sort((a, b) => a - b);
   const percentile = (p: number) => sorted.length ? sorted[Math.max(0, Math.ceil(p * sorted.length) - 1)]! : null;
@@ -123,6 +159,11 @@ export function summarize(samples: readonly Sample[], expectedSubmissions = samp
     acknowledgementMs: distribution(samples.flatMap(sample => sample.acknowledgement.state === 'accepted' ? [sample.acknowledgement.latencyMs] : [])),
     rejectedAcknowledgementMs: distribution(samples.flatMap(sample => sample.acknowledgement.state === 'rejected' ? [sample.acknowledgement.latencyMs] : [])),
     peerInputMs: distribution(peers.flatMap(peer => peer.input.state === 'observed' ? [peer.input.latencyMs] : [])),
+    finalReceiptTurnCompletionFromRequestMs: distribution(samples.flatMap(sample => sample.completion?.state === 'observed' ? [sample.completion.fromRequestMs] : [])),
+    finalReceiptTurnCompletionFromAcknowledgementMs: distribution(samples.flatMap(sample => sample.completion?.state === 'observed' && sample.completion.fromAcknowledgementMs !== null ? [sample.completion.fromAcknowledgementMs] : [])),
+    completedReceiptTurns: samples.filter(sample => sample.completion?.state === 'observed').length,
+    failedReceiptTurns: samples.filter(sample => sample.completion?.state === 'failed').length,
+    censoredReceiptTurns: samples.filter(sample => sample.completion?.state === 'censored' || !sample.completion).length,
     firstProgressMs: distribution([...progressByTurn.values()]),
     uniqueProgressItems: progressByTurn.size,
     sharedTurnProgressObservations: peers.filter(peer => peer.progress.state === 'observed' && peer.progress.attribution === 'shared_turn_ambiguous').length,
