@@ -15,8 +15,9 @@ describe('bounded performance observations', () => {
     first.finish('success'); first.finish('error'); second.finish('aborted');
     expect(records.map(r => r.metrics.ResponseBytes)).toEqual([12, 34]);
     expect(records.map(r => [r.durationMs, r.outcome])).toEqual([[10, 'success'], [10, 'aborted']]);
-    const emf = performanceMetricRecord(records[0]!);
-    expect(emf._aws.CloudWatchMetrics[0]!.Dimensions).toEqual([['Deployment', 'Component', 'Operation', 'Outcome']]);
+    expect(performanceMetricRecord(records[0]!)).not.toHaveProperty('_aws');
+    const emf = performanceMetricRecord(records[0]!, 'local', 'RatThings', true);
+    expect(emf._aws?.CloudWatchMetrics[0]!.Dimensions).toEqual([['Deployment', 'Component', 'Operation', 'Outcome']]);
     expect(JSON.stringify(emf)).not.toMatch(/owner|session_id|actor|prompt|authorization|token/);
   });
   it('reports actual AWS capacity, request attempts and failures without swallowing the failure', async () => {

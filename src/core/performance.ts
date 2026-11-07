@@ -78,18 +78,18 @@ export function requestPerformanceOperation(method: string, pathname: string): P
 export function responsePerformanceOutcome(status: number): PerformanceOutcome {
   return status >= 500 ? 'server-error' : status >= 400 ? 'client-error' : 'success';
 }
-export function performanceMetricRecord(record: PerformanceRecord, deployment = 'local', namespace = 'RatThings') {
+export function performanceMetricRecord(record: PerformanceRecord, deployment = 'local', namespace = 'RatThings', publishMetrics = false) {
   return {
     event: 'rat.performance', Operation: record.operation, Outcome: record.outcome,
-    Deployment: deployment, Component: 'collaboration', RequestCount: 1, RequestDuration: record.durationMs,
+    Deployment: deployment, Component: 'collaboration', StartedAt: record.startedAt, RequestCount: 1, RequestDuration: record.durationMs,
     ...record.metrics,
-    _aws: { Timestamp: record.startedAt, CloudWatchMetrics: [{ Namespace: namespace,
+    ...(publishMetrics ? { _aws: { Timestamp: record.startedAt, CloudWatchMetrics: [{ Namespace: namespace,
       Dimensions: [['Deployment', 'Component', 'Operation', 'Outcome']],
       Metrics: [{ Name: 'RequestCount', Unit: 'Count' }, { Name: 'RequestDuration', Unit: 'Milliseconds' },
         ...Object.keys(record.metrics).map(name => ({ Name: name, Unit: units[name as PerformanceMetric] }))],
-    }] },
+    }] } } : {}),
   };
 }
 function emitPerformance(record: PerformanceRecord) {
-  console.info(JSON.stringify(performanceMetricRecord(record, process.env.METRIC_DEPLOYMENT, process.env.METRIC_NAMESPACE)));
+  console.info(JSON.stringify(performanceMetricRecord(record, process.env.METRIC_DEPLOYMENT, process.env.METRIC_NAMESPACE, process.env.RAT_PERFORMANCE_EMF === 'true')));
 }

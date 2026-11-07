@@ -191,6 +191,27 @@ CloudWatch Embedded Metric Format records queue delay and processing duration us
 Gateway metrics remain available through `enable_detailed_api_metrics=true`, but are off by default
 to avoid paying for idle route cardinality.
 
+Agents API requests, outbox batches and local Share operations also emit one
+`rat.performance` JSON record when each operation finishes. These records contain
+duration, response bytes, permission checks, storage operations, reported DynamoDB
+capacity and submission conflicts. They omit prompts, credentials and caller or
+Session identities. A disconnected stream is recorded as aborted; it still contributes
+its elapsed time and storage work. `ResponseHeadersDuration` measures server response
+preparation, not the time a remote viewer receives the response.
+
+Use these logs to separate durable submission time from stream delivery and model
+execution. Share records separate snapshot, upload, staging, source release and
+activation; quiescence includes snapshot work, so those two durations must not be
+added together. Storage counters are partial cost inputs, not billing totals.
+Multipart uploads and storage work outside these operation scopes are not included.
+
+The module's `enable_collaboration_metrics=true` also publishes these observations as
+CloudWatch custom metrics under the deployment, component, operation and outcome
+dimensions. It is off by default because each observed metric and dimension combination
+can incur a charge. Local processes can enable the same format with
+`RAT_PERFORMANCE_EMF=true`. Structured logs remain available without enabling custom
+metrics; log ingestion and retention can still incur charges.
+
 A cold launch must boot the MicroVM and prepare storage before the selected runtime initializes. A resumed
 conversation can reuse mounted storage and native agent state. Diagnose these phases separately
 using the [startup runbook](runbook.md#slow-conversation-startup-or-codex-initialization).

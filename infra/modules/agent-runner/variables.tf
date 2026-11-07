@@ -141,6 +141,12 @@ variable "enable_detailed_api_metrics" {
   default     = false
 }
 
+variable "enable_collaboration_metrics" {
+  description = "Publish collaboration timing and storage counters as paid CloudWatch custom metrics. Structured performance logs are always available."
+  type        = bool
+  default     = false
+}
+
 variable "run_retention_seconds" {
   description = "TTL assigned to new run records."
   type        = number

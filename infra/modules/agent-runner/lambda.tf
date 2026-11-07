@@ -36,6 +36,7 @@ locals {
     INTEGRATION_CREDENTIAL_KMS_KEY_ARN  = aws_kms_key.data.arn
     METRIC_DEPLOYMENT                   = local.name
     METRIC_NAMESPACE                    = "RatThings"
+    RAT_PERFORMANCE_EMF                 = tostring(var.enable_collaboration_metrics)
     RUNS_TABLE_NAME                     = aws_dynamodb_table.runs.name
     RUN_QUEUE_URL                       = aws_sqs_queue.runs.url
     RUN_RETENTION_SECONDS               = tostring(var.run_retention_seconds)
