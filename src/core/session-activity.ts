@@ -17,12 +17,14 @@ export interface SessionActivity extends Omit<SessionStreamSnapshot, 'eventRevis
   cursor: string;
   inputs: SessionInputReceipt[];
   permissions?: string[];
+  pending_inputs?: Array<{ receipt_id: string; messages: import('./session-ports.js').SessionMessage[] }>;
 }
 export interface SessionFollowOptions { after?: string; revalidate?: () => Promise<void> }
 export const activityCursor = (id: string, revision: number) => `act_${id}_${revision}`;
 export function activityRevision(id: string, cursor: string): number {
   const prefix = `act_${id}_`;
-  const revision = cursor.startsWith(prefix) ? cursor.slice(prefix.length) : '';
+  const suffix = cursor.startsWith(prefix) ? cursor.slice(prefix.length) : '';
+  const revision = /^\d+(?:\.[a-f0-9]{16})?$/.test(suffix) ? suffix.split('.')[0]! : '';
   if (!/^\d+$/.test(revision) || !Number.isSafeInteger(Number(revision))) throw new AgentsApiError(400, 'Invalid activity cursor.', 'invalid_cursor');
   return Number(revision);
 }
@@ -31,8 +33,8 @@ export function sessionInputs(state: SessionState): SessionInputReceipt[] {
     id, actor: receipt.actor, provenance: receipt.provenance ?? { kind: 'unknown' as const }, sequence: receipt.sequence ?? 0,
     status: receipt.failure ? 'failed' as const : receipt.dispatched ? 'dispatched' as const : 'accepted' as const,
     accepted_at: receipt.acceptedAt ?? state.session.created_at,
-    turn_ids: [...new Set(receipt.commands.map(command => command.turnId))],
-    message_ids: receipt.commands.flatMap(command => command.type === 'start' || command.type === 'steer' ? command.input.flatMap(message => 'id' in message ? [message.id as string] : []) : []),
+    turn_ids: receipt.turnIds ?? [...new Set(receipt.commands.map(command => command.turnId))],
+    message_ids: receipt.messageIds ?? receipt.commands.flatMap(command => command.type === 'start' || command.type === 'steer' ? command.input.flatMap(message => 'id' in message ? [message.id as string] : []) : []),
   }] : [])].sort((a, b) => a.sequence - b.sequence);
 }
 export function sessionActivity(snapshot: SessionStreamSnapshot, revision: number, permissions?: string[]): SessionActivity {

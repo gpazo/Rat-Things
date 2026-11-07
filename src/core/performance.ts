@@ -11,6 +11,7 @@ const units = {
   S3ReadBytes: 'Bytes', S3WriteBytes: 'Bytes',
   HydrationCacheHits: 'Count', HydrationCacheMisses: 'Count', HydrationCacheCoalesced: 'Count', HydrationCacheEvictions: 'Count', HydrationCacheBytes: 'Bytes',
   AuthorizationCount: 'Count', ActivityPollCount: 'Count', ActivityEventCount: 'Count',
+  FeedbackBatchMessages: 'Count', FeedbackBatchCount: 'Count', FeedbackCollectionDuration: 'Milliseconds',
   SubmissionConflicts: 'Count', SubmissionAcceptedDuration: 'Milliseconds',
   ShareQuiesceDuration: 'Milliseconds', ShareSnapshotDuration: 'Milliseconds',
   ShareUploadDuration: 'Milliseconds', ShareStageDuration: 'Milliseconds',

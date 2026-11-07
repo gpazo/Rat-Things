@@ -1,3 +1,4 @@
+import { feedbackSessionId } from './session-feedback-planning.js';
 import { AgentsResourceConflictError } from '../domain/agents-api-validation.js';
 
 export type AgentsJob = { ownerId: string; id: string; type: 'filter' | 'dispatch' | 'environment' | 'snapshot' | 'integration' | 'schedule' | 'delivery' | 'webhook_batch' | 'webhook_delivery' | 'tool_cleanup' | 'preparation_cleanup' } | { ownerId: string; id: string; type: 'complete'; turnId: string };
@@ -14,6 +15,8 @@ export function agentsStreamJobs(index: Record<string, unknown>): AgentsJob[] {
   if (['succeeded', 'failed', 'cancelled'].includes(String(index.status)) && record(index.agentsSession) && typeof index.agentsSession.sessionId === 'string' && typeof index.agentsSession.turnId === 'string') return [{ type: 'complete', ownerId: index.ownerId, id: index.agentsSession.sessionId, turnId: index.agentsSession.turnId }];
   if (index.key !== 'root' || index.deleted || typeof index.id !== 'string') return [];
   const identity = { ownerId: index.ownerId, id: index.id };
+  const feedbackSession = typeof index.collection === 'string' ? feedbackSessionId(index.collection) : undefined;
+  if (feedbackSession && Number(index.revision) === 1) return [{ type: 'dispatch', ownerId: index.ownerId, id: feedbackSession }];
   if (index.collection === 'event_candidates' && Number(index.revision) === 1) return [{ ...identity, type: 'filter' }];
   if (index.collection === 'session_event_batches' && Number(index.revision) === 1) return [{ ...identity, type: 'webhook_batch' }];
   if (index.collection === 'webhook_deliveries' && Number(index.revision) === 1) return [{ ...identity, type: 'webhook_delivery' }];

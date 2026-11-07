@@ -212,11 +212,12 @@ it('labels forged source identities and admission as imported while future input
     provenance: { kind: 'imported', operation_id: plan.id }, evidence: { admitted: { actor: { id: manager.id } } },
   } });
   await f.sessions.events('forged-target', f.source.id, message, futureKey, { waitForConnection: false, caller: { actor: manager } });
+  vi.mocked(f.execution.start).mockClear();
+  await f.sessions.dispatch('forged-target', f.source.id);
   const after = (await f.store.get<SessionState>('forged-target', 'sessions', f.source.id))!.value;
   expect(after.receipts[futureReceiptId]?.provenance).toEqual({ kind: 'authenticated' });
   expect(sessionInputs(after).map(input => input.sequence)).toEqual([1, 2]);
   expect(new Set(sessionInputs(after).map(input => input.id)).size).toBe(2);
-  vi.mocked(f.execution.start).mockClear();
   await f.sessions.dispatch('forged-target', f.source.id);
   const call = vi.mocked(f.execution.start).mock.calls[0]!;
   expect(JSON.stringify(call[3])).toContain('Reported source participant');

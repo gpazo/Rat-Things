@@ -1,3 +1,4 @@
+import { feedbackCollection, feedbackDigest, feedbackWindow, planFeedbackBatch, type SessionFeedback, type FeedbackEvent } from './session-feedback-planning.js';
 import { SessionSteerRejectedError } from '../domain/session-errors.js';
 import { performanceCount } from './performance.js';
 import { planRejectedSteer } from './session-steer-planning.js';
@@ -26,6 +27,7 @@ import { planSessionPreparation, preparationTools, requireActivePreparation, typ
 import { planSessionStream, type SessionStreamSnapshot } from './session-stream.js';
 import { sessionEventBatchId, type SessionEventBatch } from './session-event-store.js';
 import { planSessionFork, requireSessionMutable } from './session-fork-planning.js';
+import { SessionActivityPolling } from './session-activity-polling.js';
 import type { SessionFork } from '../domain/session-fork.js';
 
 export interface SessionServiceOptions {
@@ -37,6 +39,7 @@ export interface SessionServiceOptions {
   clock?: AgentsClock;
   ids?: AgentsIds;
   streamIntervalMs?: number;
+  nowMs?: () => number;
   piCatalog?: readonly PiModelDescriptor[];
 }
 
@@ -44,6 +47,7 @@ export interface SessionServiceOptions {
 export class SessionService {
   private readonly clock: AgentsClock;
   private readonly ids: AgentsIds;
+  private readonly activityPolling = new SessionActivityPolling();
 
   public constructor(private readonly options: SessionServiceOptions) {
     this.clock = options.clock ?? { now: () => Math.floor(Date.now() / 1000) };
@@ -148,6 +152,7 @@ export class SessionService {
   }
 
   public async snapshotForTransfer<T>(ownerId: string, id: string, readWorkspace: (session: AgentSession) => Promise<T>) {
+    await this.flushFeedback(ownerId, id, true);
     await this.completeReadyTurns(ownerId, id);
     const resource = await this.configuredMutable(ownerId, id);
     const observation = await this.observe(ownerId, resource.value);
@@ -156,6 +161,7 @@ export class SessionService {
     const lockId = randomUUID();
     await this.replace(resource, { ...resource.value, forkLock: { id: lockId, expiresAt: this.clock.now() + 300 } });
     try {
+      if (await this.hasPendingFeedback(ownerId, id) || Object.values(resource.value.receipts).some(receipt => !receipt.dispatched)) throw new AgentsApiError(409, 'Wait for accepted input before transferring it.', 'session_busy');
       const history = [...resource.value.fork?.history ?? [], ...await this.allItems(ownerId, resource.value)];
       // Stop writers before reading workspace content; never snapshot a live agent.
       await this.options.execution.close?.(ownerId, observation.session);
@@ -188,12 +194,13 @@ export class SessionService {
 
   public async snapshotForShare<T>(ownerId: string, id: string, operationId: string, readWorkspace: (session: AgentSession) => Promise<T>) {
     await this.beginShare(ownerId, id, operationId);
+    await this.flushFeedback(ownerId, id, true);
     await this.completeReadyTurns(ownerId, id);
     let resource = await this.required(ownerId, id);
     if (resource.value.share?.operationId !== operationId || !['quiescing', 'frozen'].includes(resource.value.share.phase)) throw new AgentsApiError(409, 'The source Session cannot be snapshotted.', 'session_shared');
     const observation = await this.observe(ownerId, resource.value);
     if (observation.session.status !== 'idle' || observation.session.required_actions.length || observation.turns.some(({ turn }) => !terminalTurn(turn))
-      || Object.values(resource.value.receipts).some(receipt => !receipt.dispatched)) throw new AgentsApiError(409, 'Waiting for accepted work to finish.', 'session_busy');
+      || Object.values(resource.value.receipts).some(receipt => !receipt.dispatched) || await this.hasPendingFeedback(ownerId, id)) throw new AgentsApiError(409, 'Waiting for accepted work to finish.', 'session_busy');
     if ((await this.options.execution.environment?.(ownerId, observation.session))?.status === 'pending') throw new AgentsApiError(409, 'Waiting for environment setup to finish.', 'session_busy');
     if (!this.options.execution.close) throw new AgentsApiError(503, 'The source executor cannot confirm shutdown.', 'share_unavailable');
     if (resource.value.share.phase !== 'frozen') resource = await this.replace(resource, { ...resource.value, share: { operationId, phase: 'frozen' } });
@@ -325,6 +332,7 @@ export class SessionService {
     let committed = false;
     let commitAttempted = false;
     try {
+      if (await this.hasPendingFeedback(ownerId, sourceId) || Object.values(resource.value.receipts).some(receipt => !receipt.dispatched)) throw new AgentsApiError(409, 'Wait for accepted input before forking it.', 'session_busy');
       // Credentials are prepared against a durable child identity before any secret creation.
       const preparation: SessionPreparation = { workloadAdmission, runtime, agent, placement, now, deadline: now + 300,
         requestDigest: hash(canonicalJson([sourceId, input])), inheritedTools: [] };
@@ -395,37 +403,45 @@ export class SessionService {
 
   public async activity(ownerId: string, id: string, caller?: SessionCaller) {
     await validateSessionCaller(caller);
+    const pending = await this.pendingFeedback(ownerId, id);
     const snapshot = await this.streamSnapshot(ownerId, id);
     if (snapshot.eventRevision === undefined) throw new AgentsApiError(503, 'Durable activity is unavailable.', 'activity_unavailable');
+    const visible = pending.filter(input => !(snapshot.inputs ?? []).some(receipt => receipt.id === input.id));
+    const activity = sessionActivity(snapshot, snapshot.eventRevision, caller?.permissions);
     await validateSessionCaller(caller);
-    return sessionActivity(snapshot, snapshot.eventRevision, caller?.permissions);
+    return { ...activity,
+      cursor: `${activity.cursor}.${feedbackDigest(visible.map(input => [input.id, input.value.digest])).slice(0, 16)}`,
+      pending_inputs: visible.map(input => ({ receipt_id: input.id, messages: input.value.messages })),
+      inputs: [...activity.inputs, ...visible.map((input, index) => ({ id: input.id, actor: input.value.actor,
+        provenance: { kind: 'authenticated' as const }, sequence: Math.max(0, ...activity.inputs.map(receipt => receipt.sequence)) + index + 1,
+        status: 'accepted' as const, accepted_at: input.value.acceptedAtMs / 1_000, turn_ids: [], message_ids: input.value.messages.map(message => message.id),
+      }))],
+    };
   }
 
+  /** Activity is a latest-state feed. Public Agents events remain individually replayable. */
   public async *activityEvents(ownerId: string, id: string, signal: AbortSignal, options: SessionFollowOptions = {}) {
     await options.revalidate?.();
-    const snapshot = await this.activity(ownerId, id);
-    let revision = options.after === undefined ? activityRevision(id, snapshot.cursor) : activityRevision(id, options.after);
-    if (revision > activityRevision(id, snapshot.cursor)) throw new AgentsApiError(400, 'Activity cursor is ahead of this Session.', 'invalid_cursor');
-    if (options.after === undefined) {
-      await options.revalidate?.();
-      yield { type: 'rat.session.activity' as const, event_id: snapshot.cursor, activity: snapshot };
-    }
+    const interval = Math.min(this.options.streamIntervalMs ?? 500, 2_000);
+    const polling = this.activityPolling.subscribe(JSON.stringify([ownerId, id]), interval, () => this.activity(ownerId, id));
+    try {
+    let current = await polling.read();
+    if (options.after !== undefined && activityRevision(id, options.after) > activityRevision(id, current.cursor)) throw new AgentsApiError(400, 'Activity cursor is ahead of this Session.', 'invalid_cursor');
+    let cursor = options.after;
     while (!signal.aborted) {
-      await options.revalidate?.();
-      await this.required(ownerId, id);
-      performanceCount('ActivityPollCount');
-      const head = await this.options.store.get<SessionStreamSnapshot>(ownerId, 'session_observations', id) ?? resourceNotFound();
-      while (revision < head.revision && !signal.aborted) {
-        const batch = await this.options.store.get<SessionEventBatch>(ownerId, 'session_event_batches', sessionEventBatchId(id, revision + 1));
-        if (!batch?.value.activity) throw new AgentsApiError(409, 'Activity history expired. Retrieve a new snapshot.', 'stream_history_expired');
+      if (cursor !== current.cursor) {
         await options.revalidate?.();
-        const activity = sessionActivity(batch.value.activity, ++revision);
+        cursor = current.cursor;
         performanceCount('ActivityEventCount');
-        yield { type: 'rat.session.activity' as const, event_id: activity.cursor, activity };
+        yield { type: 'rat.session.activity' as const, event_id: current.cursor, activity: current };
       }
-      try { await delay(Math.min(this.options.streamIntervalMs ?? 500, 2_000), undefined, { signal }); }
+      try { await delay(interval, undefined, { signal }); }
       catch (error) { if (signal.aborted) return; throw error; }
+      await options.revalidate?.();
+      performanceCount('ActivityPollCount');
+      current = await polling.read();
     }
+    } finally { polling.release(); }
   }
 
   public async *stream(ownerId: string, id: string, signal: AbortSignal, created = false, baseline?: SessionStreamSnapshot, options: SessionFollowOptions = {}) {
@@ -556,6 +572,16 @@ export class SessionService {
     const requestKey = idempotencyKey ?? this.ids.next('request');
     const key = hash(caller ? canonicalJson([caller.actor.id, requestKey]) : requestKey);
     const digest = hash(canonicalJson(events));
+    if (caller && events.length && events.every((event): event is FeedbackEvent => event.type === 'agent.session.input.message')) {
+      await this.acceptFeedback(ownerId, id, events, key, digest, caller);
+      performanceCount('SubmissionAcceptedDuration', performance.now() - acceptedStarted);
+      if (response?.waitForConnection && (await this.required(ownerId, id)).value.session.environment.type === 'self_hosted') {
+        await this.flushFeedback(ownerId, id, true);
+        await this.waitForInputConnection(ownerId, id, key, response.signal);
+      }
+      return;
+    }
+    if (events.some(event => event.type === 'agent.session.input.cancel')) await this.flushFeedback(ownerId, id, true);
     for (let attempt = 0; attempt < 10; attempt++) {
       let resource = await this.required(ownerId, id);
       requireSessionMutable(resource.value, this.clock.now());
@@ -594,11 +620,12 @@ export class SessionService {
     while (true) {
       signal?.throwIfAborted();
       const { value } = await this.required(ownerId, id);
-      const receipt = value.receipts[key]!;
+      const receipt = value.receipts[key];
+      if (!receipt) { await delay(Math.min(this.options.streamIntervalMs ?? 500, 2_000), undefined, { signal }); continue; }
       if (receipt.failure) throw new AgentsApiError(receipt.failure.code === 'environment_connection_timeout' ? 408 : 400, receipt.failure.message, receipt.failure.code);
       if (receipt.dispatched || value.session.environment.type !== 'self_hosted') return;
       try {
-        for (const command of receipt.commands) {
+        for (const command of (receipt.batchLeader ? value.receipts[receipt.batchLeader]?.commands : receipt.commands) ?? []) {
           if (command.type !== 'start') continue;
           const binding = value.turns.find(({ turn }) => turn.id === command.turnId) ?? resourceNotFound();
           if (!binding.cancelRequested && !terminalTurn(binding.turn)) await this.options.execution.checkInputConnection(ownerId, value.session, binding.turn);
@@ -611,8 +638,91 @@ export class SessionService {
     }
   }
 
+  public async hasPendingFeedback(ownerId: string, id: string): Promise<boolean> {
+    return (await this.options.store.list(ownerId, feedbackCollection(id), { limit: 1 })).data.length > 0;
+  }
+
+  private async pendingFeedback(ownerId: string, id: string) {
+    const result: AgentResource<SessionFeedback>[] = [];
+    let after: string | undefined;
+    do {
+      const page = await this.options.store.list<SessionFeedback>(ownerId, feedbackCollection(id), { order: 'asc', limit: 100, ...(after ? { after } : {}) });
+      result.push(...page.data);
+      if (!page.has_more) break;
+      after = page.data.at(-1)?.id;
+    } while (after);
+    return result;
+  }
+
+  private async acceptFeedback(ownerId: string, id: string, events: FeedbackEvent[], key: string, digest: string, caller: SessionCaller) {
+    const acceptedAtMs = this.options.nowMs?.() ?? Date.now();
+    const input: AgentResource<SessionFeedback> = { ownerId, collection: feedbackCollection(id), id: key, createdAt: acceptedAtMs, revision: 1,
+      value: { sessionId: id, digest, events, actor: caller.actor, acceptedAtMs,
+        messages: events.flatMap(event => event.input.map(message => ({ ...message, id: this.ids.next('msg'), actor: caller.actor, provenance: { kind: 'authenticated' as const } }))),
+        turnId: this.ids.next('turn'), operationId: this.ids.next('event') } };
+    for (let attempt = 0; attempt < 10; attempt++) {
+      const [initial, previous] = await Promise.all([this.required(ownerId, id), this.options.store.get<SessionFeedback>(ownerId, feedbackCollection(id), key)]);
+      requireSessionMutable(initial.value, this.clock.now());
+      await validateSessionCaller(caller);
+      const priorDigest = previous?.value.digest ?? initial.value.receipts[key]?.digest;
+      if (priorDigest !== undefined) {
+        if (priorDigest !== digest) throw new AgentsApiError(409, 'This Idempotency-Key was used with different events.', 'idempotency_conflict');
+        return;
+      }
+      const resource = await ensureSessionConfiguration(this.options.store, initial, this.clock.now());
+      requireSessionMutable(resource.value, this.clock.now());
+      // Validate before acceptance without reading execution or reconstructing history.
+      this.plan(resource.value, { session: resource.value.session, turns: resource.value.turns.map(binding => ({ turn: binding.turn, requiredActions: [] })) }, events, key, undefined, caller);
+      await this.options.rateLimit?.admit(ownerId, `input:${id}:${key}`, events.length);
+      await validateSessionCaller(caller);
+      try {
+        await this.options.store.commit([{ resource: input, expectedRevision: 0 }], [
+          { ownerId, collection: 'sessions', id, revision: resource.revision }, ...caller.observations ?? [],
+        ]);
+        return;
+      } catch (error) {
+        const accepted = await this.options.store.get<SessionFeedback>(ownerId, feedbackCollection(id), key).catch(() => undefined);
+        const materialized = !accepted ? await this.options.store.get<SessionState>(ownerId, 'sessions', id).catch(() => undefined) : undefined;
+        if ((accepted?.value.digest ?? materialized?.value.receipts[key]?.digest) === digest) return;
+        if (!(error instanceof AgentsApiError) || error.code !== 'conflict' || attempt === 9) throw error;
+        performanceCount('SubmissionConflicts');
+      }
+    }
+  }
+
+  /** Close batch membership durably before any execution effect; repeated wakes use the same commands. */
+  private async flushFeedback(ownerId: string, id: string, force = false): Promise<void> {
+    for (let attempt = 0; attempt < 10; attempt++) {
+      const resource = await this.options.store.get<SessionState>(ownerId, 'sessions', id);
+      if (!resource || resource.value.closing || resource.value.forkLock && resource.value.forkLock.expiresAt > this.clock.now() || resource.value.share && resource.value.share.phase !== 'quiescing') return;
+      const entries = await this.pendingFeedback(ownerId, id);
+      const already = entries.filter(entry => resource.value.receipts[entry.id]);
+      for (const entry of already) await this.options.store.delete(entry).catch(error => { if (!(error instanceof AgentsApiError) || error.code !== 'conflict') throw error; });
+      const window = feedbackWindow(entries.filter(entry => !resource.value.receipts[entry.id]), this.options.nowMs?.() ?? Date.now(), force);
+      if (!window.inputs.length) return;
+      if (window.waitMs > 0) { await delay(window.waitMs); attempt--; continue; }
+      const observation = await this.observe(ownerId, resource.value);
+      const items = await this.allItems(ownerId, resource.value);
+      const anchors = Object.fromEntries(resource.value.turns.map(({ turn }) => [turn.id, items.filter(item => item.turn_id === turn.id).at(-1)?.id ?? null]));
+      const value = planFeedbackBatch(resource.value, observation, window.inputs, this.clock.now(), anchors);
+      try {
+        await this.replace(resource, value);
+        performanceCount('FeedbackBatchMessages', window.inputs.reduce((sum, input) => sum + input.value.messages.length, 0));
+        performanceCount('FeedbackBatchCount');
+        performanceCount('FeedbackCollectionDuration', Math.max(0, (this.options.nowMs?.() ?? Date.now()) - window.inputs[0]!.value.acceptedAtMs));
+        for (const entry of window.inputs) await this.options.store.delete(entry).catch(error => { if (!(error instanceof AgentsApiError) || error.code !== 'conflict') throw error; });
+        if (force) { attempt--; continue; }
+        // A further full batch is handled by another durable wake, or the next local tick.
+        return;
+      } catch (error) {
+        if (!(error instanceof AgentsApiError) || error.code !== 'conflict' || attempt === 9) throw error;
+      }
+    }
+  }
+
   /** Called by the durable outbox consumer. Every command is retryable with the same identity. */
   public async dispatch(ownerId: string, id: string): Promise<void> {
+    await this.flushFeedback(ownerId, id);
     let resource = await this.options.store.get<SessionState>(ownerId, 'sessions', id);
     if (!resource || resource.value.share && resource.value.share.phase !== 'quiescing' || resource.value.closing || resource.value.forkLock && resource.value.forkLock.expiresAt > this.clock.now()) return;
     resource = await ensureSessionConfiguration(this.options.store, resource, this.clock.now());
@@ -624,7 +734,7 @@ export class SessionService {
       await this.options.execution.initialize(ownerId, resource.value.session, resource.value.placement ?? 'microvm', executionHistory(history, resource.value));
     }
     for (const [key, receipt] of Object.entries(resource.value.receipts).sort((left, right) => (left[1].sequence ?? 0) - (right[1].sequence ?? 0))) {
-      if (receipt.dispatched) continue;
+      if (receipt.dispatched || receipt.batchLeader && receipt.batchLeader !== key) continue;
       let failure: { code: string; message: string } | undefined;
       for (const command of receipt.commands) {
         const session = resource.value.session;
@@ -681,7 +791,7 @@ export class SessionService {
       resource = current;
       resource = await this.replace(resource, {
         ...resource.value,
-        receipts: { ...resource.value.receipts, [key]: { ...receipt, dispatched: true, ...(failure ? { failure } : {}) } },
+        receipts: Object.fromEntries(Object.entries(resource.value.receipts).map(([receiptKey, current]) => [receiptKey, receiptKey === key || current.batchLeader === key ? { ...current, dispatched: true, ...(failure ? { failure } : {}) } : current])),
       });
     }
   }
@@ -693,10 +803,11 @@ export class SessionService {
       if (resource.value.closing) return 'moved';
       const command = resource.value.receipts[receiptId]?.commands.find(command => command.type === 'steer' && command.operationId === operationId);
       if (command && resource.value.turns.find(binding => binding.turn.id === command.turnId)?.cancelRequested) return 'cancelled';
-      const value = planRejectedSteer(resource.value, receiptId, operationId, ids, this.clock.now());
+      let value = planRejectedSteer(resource.value, receiptId, operationId, ids, this.clock.now());
       if (value === resource.value) return 'moved';
       const index = resource.value.receipts[receiptId]!.commands.indexOf(command!);
       const replacement = value.receipts[receiptId]!.commands[index]!;
+      if (replacement.type === 'start' || replacement.type === 'steer') value = { ...value, receipts: Object.fromEntries(Object.entries(value.receipts).map(([key, receipt]) => [key, receipt.batchLeader === receiptId ? { ...receipt, turnIds: [replacement.turnId] } : receipt])) };
       const integration = await this.options.store.get<SessionIntegrationState>(ownerId, 'session_integrations', id);
       const integrationValue = integration && command?.type === 'steer' && (replacement.type === 'start' || replacement.type === 'steer')
         ? planIntegrationSteerRecovery(integration.value, receiptId, command.turnId, replacement.turnId) : integration?.value;

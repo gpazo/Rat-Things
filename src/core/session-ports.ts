@@ -36,7 +36,7 @@ export interface SessionState {
   session: AgentSession;
   placement?: ExecutionBackend;
   turns: SessionTurnBinding[];
-  receipts: Record<string, { digest: string; commands: SessionCommand[]; dispatched: boolean; actor?: import('./session-caller.js').SessionActor; provenance?: import('./session-attribution.js').SessionInputProvenance; sequence?: number; acceptedAt?: number; failure?: { code: string; message: string } }>;
+  receipts: Record<string, { digest: string; commands: SessionCommand[]; dispatched: boolean; batchLeader?: string; messageIds?: string[]; turnIds?: string[]; actor?: import('./session-caller.js').SessionActor; provenance?: import('./session-attribution.js').SessionInputProvenance; sequence?: number; acceptedAt?: number; failure?: { code: string; message: string } }>;
   deletedArtifacts: string[];
   subagents?: SessionSubagentSnapshot[];
 }

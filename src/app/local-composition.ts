@@ -91,7 +91,7 @@ export function createLocalServices(options: {
         if (stopped || native && !native.ready()) return;
         if (resource.value.share && resource.value.share.phase !== 'quiescing') continue;
         if (resource.value.runtime?.kind === 'pi') await execution.reconcile?.(LOCAL_OWNER, resource.value.session).catch(() => undefined);
-        if (Object.values(resource.value.receipts).some(receipt => !receipt.dispatched)
+        if (await sessions.hasPendingFeedback(LOCAL_OWNER, resource.id) || Object.values(resource.value.receipts).some(receipt => !receipt.dispatched)
           || resource.value.session.environment.type === 'openai_hosted'
             && (await environments.retrieve(LOCAL_OWNER, resource.value.session.environment.id)).status === 'pending') {
           await sessions.dispatch(LOCAL_OWNER, resource.id).catch(() => undefined);
