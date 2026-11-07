@@ -71,3 +71,7 @@ output "multiplayer_identity_provider" {
     redirect_uri = "http://127.0.0.1:38173/callback"
   } : null
 }
+
+output "shared_agents_api_base_url" {
+  value = module.agent_runner.shared_agents_api_base_url
+}

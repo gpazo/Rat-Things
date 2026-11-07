@@ -50,6 +50,24 @@ principal owns the imported Session and supplies its own model connection. Login
 files outside the workspace are never part of the transfer. Workspace files and
 explicit environment values are user content and are copied as reviewed.
 
+## Shared spaces
+
+An OIDC token proves an issuer/subject identity. Current space bindings and API
+scopes authorize requests; the caller cannot select an arbitrary storage owner.
+Agent execution roles separately admit the workload's capabilities. Role removal
+prevents future acceptance and closes live activity access; accepted work remains
+durable and requires explicit controller cancellation to stop it.
+
+Share stages content without runnable authority, durably releases the stopped
+local executor, then activates the destination. An ambiguous activation response
+leaves the source fenced. Before release, explicit cancellation invalidates the
+Share and can return work to the source. No lease timeout or restart can revive a
+released executor. The transfer excludes host login credentials and recovers a
+fresh private harness from saved history rather than replaying completed effects.
+
+See [collaboration](collaboration.md) for access setup and the
+[audit guide](authority-audit.md) for retained authority records.
+
 ## Protected assets
 
 - AWS resources, worker roles and model credentials.

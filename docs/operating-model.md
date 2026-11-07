@@ -21,11 +21,19 @@ Create an Agent with a model, instructions and declared tools. Create a Session
 from that Agent, select an environment and provide input. The Session snapshots
 its resolved configuration so later Agent edits do not change existing work.
 Supported settings can still be changed explicitly through a Session update.
+Shared Sessions keep their admitted execution capabilities fixed; a broader
+task needs a new Session.
 
 Input to an idle Session starts a Turn. Input during active work steers that Turn.
 Turns complete, fail or cancel independently of the Session. Saved Items and Turns
-let clients recover after a stream disconnect. The live SSE feed is not a replay
-log; read saved resources when reconnecting.
+let clients recover after a stream disconnect. Shared activity supplies a durable
+snapshot cursor for replay; clients can also read saved resources when reconnecting.
+
+Several people can work with the same Agent in the same Session. OIDC identifies
+each participant, and their space role determines whether they can read,
+contribute, cancel or manage. The Session continues while participants are offline.
+See [shared Sessions](collaboration.md) for roles, real-time progress and sharing
+local work with a team.
 
 | Resource | Responsibility |
 | --- | --- |
@@ -56,7 +64,8 @@ Declare the tools and attach the required Vaults explicitly. See
 ## The host owns authority
 
 The host authenticates people and services. Rat Things derives resource ownership
-from that trusted principal; callers cannot select another owner. Provider sender,
+from that trusted principal. In a team space, current role bindings resolve the
+space's owner namespace; selecting a space does not grant access. Provider sender,
 resource owner, credential subject and notification destination stay distinct.
 
 The host admits a fixed capability envelope before launch. Agent tools,

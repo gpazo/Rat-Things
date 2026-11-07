@@ -183,6 +183,18 @@ execution. Function tools execute in the client that supplies their results. The
 separate `rat-things local` command remains available for one-shot coding work; it
 does not create a durable Session.
 
+## Share with your team
+
+Use **Share** to move an existing local Session into a team space. Sign in to the
+team endpoint and choose the space; its roles determine who can follow or
+contribute. The same Session, completed history and workspace continue in hosted
+execution. Its capabilities stay fixed, and local execution is fenced before the
+hosted Session activates. See [shared Sessions](collaboration.md#share-local-work-with-a-team)
+for compatibility, cancellation and retry behavior.
+
+Use the separate Copy workflow below when you want an independent cloud Session
+and a local original that remains runnable.
+
 ## Give your work more room
 
 You can stay local for as long as it fits. Use AWS when you need more concurrency,

@@ -109,6 +109,17 @@ resource "aws_acm_certificate_validation" "publication" {
 }
 
 module "agent_runner" {
+  oidc_providers = var.enable_multiplayer_fixture ? [{
+    id                    = "test-team"
+    issuer                = "https://cognito-idp.${var.aws_region}.amazonaws.com/${aws_cognito_user_pool.multiplayer[0].id}"
+    jwksUri               = "https://cognito-idp.${var.aws_region}.amazonaws.com/${aws_cognito_user_pool.multiplayer[0].id}/.well-known/jwks.json"
+    clientId              = aws_cognito_user_pool_client.multiplayer[0].id
+    profile               = "cognito_access"
+    authorizationEndpoint = "https://${aws_cognito_user_pool_domain.multiplayer[0].domain}.auth.${var.aws_region}.amazoncognito.com/oauth2/authorize"
+    tokenEndpoint         = "https://${aws_cognito_user_pool_domain.multiplayer[0].domain}.auth.${var.aws_region}.amazoncognito.com/oauth2/token"
+    redirectUri           = "http://127.0.0.1:38173/callback"
+    scopes                = ["openid", "profile", "rat-things/access"]
+  }] : []
   enable_watchdog                          = var.enable_super_agent_proof
   watchdog_schedule_expression             = "rate(1 minute)"
   watchdog_long_running_seconds            = 1800

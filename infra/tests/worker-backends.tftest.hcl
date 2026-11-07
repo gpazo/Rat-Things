@@ -692,6 +692,81 @@ run "budget_rejects_zero" {
   expect_failures = [var.budget_alert]
 }
 
+run "shared_api_requires_configured_identity" {
+  command = apply
+  module { source = "./modules/agent-runner" }
+  variables {
+    oidc_providers    = []
+    enable_microvm    = true
+    enable_ec2_worker = false
+  }
+  assert {
+    condition = (
+      !contains(keys(aws_lambda_function.this), "agents-shared") &&
+      length(aws_lambda_function_url.agents_shared) == 0 &&
+      length(aws_iam_role.agents_shared) == 0 &&
+      aws_lambda_function_url.agents.authorization_type == "AWS_IAM"
+    )
+    error_message = "Without a configured OIDC provider, no public team endpoint or team service role may exist."
+  }
+}
+
+run "shared_api_verifies_oidc_in_separate_entrypoint" {
+  command = apply
+  module { source = "./modules/agent-runner" }
+  variables {
+    enable_microvm    = true
+    enable_ec2_worker = false
+    oidc_providers = [{
+      id                    = "enterprise"
+      issuer                = "https://identity.example.com"
+      jwksUri               = "https://identity.example.com/jwks"
+      clientId              = "rat-desktop"
+      audience              = "rat-api"
+      authorizationEndpoint = "https://identity.example.com/authorize"
+      tokenEndpoint         = "https://identity.example.com/token"
+      redirectUri           = "http://127.0.0.1:38173/callback"
+    }]
+  }
+  assert {
+    condition = (
+      aws_lambda_function.this["agents-shared"].environment[0].variables.AGENTS_AUTH_MODE == "oidc" &&
+      jsondecode(aws_lambda_function.this["agents-shared"].environment[0].variables.TEAM_OIDC_PROVIDERS_JSON)[0].audience == "rat-api" &&
+      aws_lambda_function.this["agents-shared"].filename == aws_lambda_function.this["agents-api"].filename &&
+      aws_lambda_function.this["agents-shared"].role == aws_iam_role.agents_shared[0].arn &&
+      aws_lambda_function_url.agents_shared[0].authorization_type == "NONE" &&
+      aws_lambda_function_url.agents_shared[0].invoke_mode == "RESPONSE_STREAM" &&
+      aws_lambda_function_url.agents.authorization_type == "AWS_IAM"
+    )
+    error_message = "Shared JWT streaming must use its configured application-authentication mode and service role while bootstrap remains IAM-only."
+  }
+  assert {
+    condition = (
+      aws_lambda_permission.agents_shared_url[0].function_url_auth_type == "NONE" &&
+      aws_lambda_permission.agents_shared_invoke[0].invoked_via_function_url &&
+      data.aws_iam_policy_document.agents_shared[0].source_policy_documents == tolist([data.aws_iam_policy_document.agents_service.json])
+    )
+    error_message = "Public invocation is only through the authenticated URL handler; its IAM permissions must reuse the scoped Agents service policy."
+  }
+}
+
+run "shared_api_rejects_unscoped_jwt_provider" {
+  command = plan
+  module { source = "./modules/agent-runner" }
+  variables {
+    oidc_providers = [{
+      id                    = "enterprise"
+      issuer                = "https://identity.example.com"
+      jwksUri               = "https://identity.example.com/jwks"
+      clientId              = "rat-desktop"
+      authorizationEndpoint = "https://identity.example.com/authorize"
+      tokenEndpoint         = "https://identity.example.com/token"
+      redirectUri           = "http://127.0.0.1:38173/callback"
+    }]
+  }
+  expect_failures = [var.oidc_providers]
+}
+
 run "budget_rejects_fractional_cents" {
   command = plan
   module { source = "./modules/agent-runner" }

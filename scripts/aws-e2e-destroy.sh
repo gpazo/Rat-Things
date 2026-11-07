@@ -138,6 +138,13 @@ resource_is_gone_or_deleting() {
   local resource_arn="$1"
   local resource_id resource_path cluster_name status
   case "$resource_arn" in
+    arn:aws:cognito-idp:*:userpool/*)
+      resource_id="${resource_arn##*/}"
+      if status="$(aws cognito-idp describe-user-pool --region "$aws_region" --user-pool-id "$resource_id" 2>&1)"; then
+        return 1
+      fi
+      [[ "$status" == *"(ResourceNotFoundException)"* ]]
+      ;;
     arn:aws:kms:*)
       status="$(aws kms describe-key --region "$aws_region" --key-id "$resource_arn" --query 'KeyMetadata.KeyState' --output text 2>/dev/null || true)"
       [[ "$status" == "PendingDeletion" ]]

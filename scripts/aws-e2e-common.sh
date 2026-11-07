@@ -38,6 +38,7 @@ aws_e2e_source_runtime_defaults() {
     AWS_E2E_PUBLICATION_ROUTE53_ZONE_ID
     AWS_E2E_ENABLE_SLACK_WEBHOOK
     AWS_E2E_SUPER_AGENT_PROOF
+    AWS_E2E_SHARED_SESSIONS
     AWS_E2E_EVENT_FILTER_MODEL_ID
     AWS_E2E_EVENT_FILTER_INFERENCE_RESOURCE_ARNS_JSON
     AWS_E2E_SLACK_SIGNING_SECRET_FILE
@@ -179,6 +180,7 @@ aws_e2e_configure() {
     "-var=integration_oauth_app_secret_arns=$oauth_app_secret_arns"
     "-var=enable_slack_webhook=$slack_webhook_enabled"
     "-var=enable_super_agent_proof=${AWS_E2E_SUPER_AGENT_PROOF:-false}"
+    "-var=enable_multiplayer_fixture=${AWS_E2E_SHARED_SESSIONS:-false}"
     "-var=enable_publication_delivery=$publication_enabled"
   )
   if [[ -n "${AWS_E2E_EVENT_FILTER_MODEL_ID:-}" ]]; then

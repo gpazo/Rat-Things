@@ -113,6 +113,7 @@
     "yaml": "2.8.1"
   },
   "devDependencies": {
+    "@aws-sdk/client-cognito-identity-provider": "3.1088.0",
     "@aws-sdk/client-dynamodb-streams": "3.1088.0",
     "@aws-sdk/client-ecs": "3.1088.0",
     "@openai/codex": "0.164.0",

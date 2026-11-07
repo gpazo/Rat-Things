@@ -1,4 +1,5 @@
 module "agent_runner" {
+  oidc_providers                       = var.oidc_providers
   event_filter_model_id                = var.event_filter_model_id
   event_filter_inference_resource_arns = var.event_filter_inference_resource_arns
   slack_candidate_events_enabled       = var.slack_candidate_events_enabled

@@ -12,6 +12,7 @@ locals {
       thing-schedule    = true
     },
     {
+      agents-shared  = local.team_api_enabled
       watchdog       = var.enable_watchdog
       webhook-github = local.github_enabled
       webhook-gitlab = local.gitlab_enabled

@@ -119,11 +119,23 @@ locals {
       role_arn = local.environment_relay_enabled ? aws_iam_role.agents_token_issuer.arn : aws_iam_role.control.arn
       timeout  = 900
       memory   = 512
-      environment = merge(local.executor_environment, local.model_catalog_environment, {
+      environment = merge(local.executor_environment, local.model_catalog_environment, local.team_oidc_environment, {
         AGENTS_TABLE_NAME        = aws_dynamodb_table.agents.name
         AGENTS_TOKEN_ISSUER_ONLY = tostring(local.environment_relay_enabled)
         ALLOW_OWNER_HEADER       = "false"
         AGENTS_PUBLIC_BASE_URL   = local.environment_relay_enabled ? "https://${var.environment_relay_origin_hostname}/v1" : ""
+      })
+    }
+    agents-shared = {
+      enabled  = local.team_api_enabled
+      zip_path = local.lambda_zip_paths["agents-api"]
+      role_arn = local.team_api_enabled ? aws_iam_role.agents_shared[0].arn : null
+      timeout  = 900
+      memory   = 512
+      environment = merge(local.executor_environment, local.model_catalog_environment, local.team_oidc_environment, {
+        AGENTS_TABLE_NAME  = aws_dynamodb_table.agents.name
+        AGENTS_AUTH_MODE   = "oidc"
+        ALLOW_OWNER_HEADER = "false"
       })
     }
     agents-outbox = {
@@ -336,7 +348,7 @@ resource "aws_lambda_function" "this" {
     }
   }
 
-  depends_on = [aws_cloudwatch_log_group.lambda, aws_iam_role_policy.agents_token_issuer, aws_iam_role_policy.agents_outbox, aws_iam_role_policy.watchdog]
+  depends_on = [aws_cloudwatch_log_group.lambda, aws_iam_role_policy.agents_token_issuer, aws_iam_role_policy.agents_outbox, aws_iam_role_policy.agents_shared, aws_iam_role_policy.watchdog]
 }
 
 resource "aws_lambda_event_source_mapping" "dispatcher" {

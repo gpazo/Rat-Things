@@ -16,6 +16,7 @@ identity, retention, network policy, and operational limits for the environment 
 | Agent runtimes | Codex and Pi Durable behind the same API, CLI, desktop, schedules, and provider bindings | [Runtime comparison](agent-runtimes.md) |
 | Local workspace | Private loopback API, durable local Agents and Sessions, Codex and Pi Durable with ChatGPT subscriptions and managed Linux workspaces, resumable Session copying into AWS | [Start at home](local-workspace.md) |
 | Sessions and Turns | Owner-scoped input, ordered execution, cancellation and saved Items | [Agents API](agents-api.md) |
+| Shared Sessions | OIDC identities, space roles, attributed contributions, durable live activity and fenced local Share | [Work together](collaboration.md) |
 | Agents and schedules | Reusable standard Agent configurations and AWS schedule inputs | [Agents](agents-api.md), [schedules](schedules.md) |
 | Connections | Provider-verified accounts, host-owned credentials, grants, and account-specific operations | [Integrations](plugins.md) |
 | Capability envelope | A fixed intersection of provider, deployment, profile, account, and Session permissions | [Permissions](capability-envelope.md) |
@@ -28,7 +29,7 @@ identity, retention, network policy, and operational limits for the environment 
 | Channels | Authenticated GitHub, GitLab, Teams, and optional Slack ingress with separate result delivery | [Channels](channels.md) |
 | Thread subscriptions | Durable PR, MR and chat routing, release and head-change lineage; optional asynchronous candidate filtering | [Provider bindings](schedules.md#provider-bindings), [event policies](channels.md#event-policies-and-quiet-responses) |
 | Watchdog | Independent scheduled findings, bounded progress judgments and one safe transient retry | [Watchdog](watchdog.md) |
-| API authentication | AWS IAM issuance and owner-bound, scoped bearer tokens | [API permissions](agents-api.md#scoped-api-keys) |
+| API authentication | AWS IAM issuance and owner-bound scoped tokens; optional verified OIDC access tokens with space roles | [API permissions](agents-api.md#scoped-api-keys), [team access](collaboration.md) |
 | Model authentication | Codex uses the configured ChatGPT bridge or Bedrock; Pi Durable uses local ChatGPT subscriptions or approved Bedrock Converse models on AWS | [Runtime setup](agent-runtimes.md#start-with-the-appropriate-setup) |
 | Recovery | Queue repair, generation-fenced liveness, cancellation settlement, and per-destination delivery fences | [Runbook](runbook.md) |
 

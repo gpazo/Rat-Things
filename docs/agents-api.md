@@ -121,6 +121,20 @@ harness reports only a completion, the span has zero duration and a
 `rat_things.timing=completion_only` attribute. Older runs have no retrospectively
 captured tool or generation spans. Local mock runs have an agent span only.
 
+## Team identities and space roles
+
+The optional shared API accepts verified OIDC access tokens. Select a space with
+`X-Rat-Space`; current role bindings authorize access to its Agents, Sessions,
+history and artifacts. Viewer, collaborator, controller and manager permissions
+intersect the token's API scopes. Human access roles remain separate from the
+Agent's fixed execution authority.
+
+Standard Agents API resources retain their schemas. The `/v1/rat` extensions add
+spaces, role bindings, Agent execution-role assignments, coherent attributed
+activity and fenced local Share. See [shared Sessions](collaboration.md) for
+deployment setup, bootstrap and client examples. The IAM operator transport and
+the owner-bound scoped tokens below remain available for existing clients.
+
 ## Scoped API keys
 
 AWS IAM authenticates token issuance; Rat Things keeps its own owner identity.

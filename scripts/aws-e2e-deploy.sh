@@ -210,6 +210,11 @@ aws_e2e_export RUN_FAILURE_QUEUE_URL "$(aws_e2e_output run_failure_queue_url)"
 aws_e2e_export STATE_STREAM_FAILURE_QUEUE_URL "$(aws_e2e_output state_stream_failure_queue_url)"
 aws_e2e_export NOTIFIER_DELIVERY_FAILURE_QUEUE_URL "$(aws_e2e_output notifier_delivery_failure_queue_url)"
 aws_e2e_export TERMINAL_EVENTS_QUEUE_URL "$(aws_e2e_output terminal_events_queue_url)"
+if [[ "${AWS_E2E_SHARED_SESSIONS:-false}" == "true" ]]; then
+  aws_e2e_export SHARED_AGENTS_API_BASE_URL "$(aws_e2e_output shared_agents_api_base_url)"
+  aws_e2e_export TEAM_OIDC_FIXTURE_JSON "$(aws_e2e_output multiplayer_identity_provider)"
+  aws_e2e_export AWS_E2E_SHARED_SESSIONS "true"
+fi
 aws_e2e_export DELIVERY_CAPTURE_QUEUE_URL "$(aws_e2e_output delivery_capture_queue_url)"
 if [[ "${AWS_E2E_SUPER_AGENT_PROOF:-false}" == "true" ]]; then
   aws_e2e_export AWS_E2E_WEBHOOK_CAPTURE_URL "$(aws_e2e_output delivery_capture_url)"

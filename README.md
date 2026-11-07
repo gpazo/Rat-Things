@@ -72,6 +72,11 @@ capacity and the path into AWS. The desktop's workspace menu connects to an exis
 AWS deployment without changing the Session interface. **Review Session copy**
 prepares a separate, resumable transfer of history, settings and workspace files.
 
+Use [shared Sessions](docs/collaboration.md) to work with a team in the same
+conversation. OIDC identities and space roles control who can follow, contribute
+or manage. **Share** moves local work into a team space, preserving its Session
+identity and workspace. Hosted work continues when everyone disconnects.
+
 
 ## Install in AWS
 
